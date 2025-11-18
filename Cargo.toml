@@ -57,11 +57,9 @@ gpu = ["trueno/gpu"]  # Enable GPU acceleration via Trueno
 name = "tensor_ops"
 harness = false
 
-# Future: inference benchmark (Phase 1)
-# [[bench]]
-# name = "inference"
-# harness = false
-# required-features = ["gpu"]
+[[bench]]
+name = "inference"
+harness = false
 
 [profile.release]
 opt-level = 3
