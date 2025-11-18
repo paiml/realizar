@@ -68,6 +68,7 @@ pub mod gguf;
 pub mod quantize;
 pub mod safetensors;
 pub mod tensor;
+pub mod tokenizer;
 
 // Re-exports for convenience
 pub use error::{RealizarError, Result};
