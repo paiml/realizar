@@ -1,0 +1,66 @@
+[package]
+name = "realizar"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+authors = ["Pragmatic AI Labs <contact@paiml.com>"]
+license = "MIT"
+description = "Pure Rust, portable, high-performance ML library with unified CPU/GPU/WASM support"
+repository = "https://github.com/paiml/realizar"
+keywords = ["machine-learning", "simd", "gpu", "wasm", "ml"]
+categories = ["science", "mathematics", "wasm"]
+
+[dependencies]
+# Core compute backend (NATIVE FIRST-CLASS SUPPORT)
+trueno = { path = "../trueno", version = "0.2", features = ["gpu"] }
+
+# ML algorithms (NATIVE - will be refactored to use Realizar)
+aprender = { path = "../aprender", version = "0.1", optional = true }
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Numerical traits
+num-traits = "0.2"
+
+[dev-dependencies]
+# Benchmarking
+criterion = { version = "0.5", features = ["html_reports"] }
+
+# Property-based testing
+proptest = "1.4"
+
+# Test utilities
+approx = "0.5"
+
+[features]
+default = []
+aprender-integration = ["aprender"]
+gpu = ["trueno/gpu"]
+
+[[bench]]
+name = "tensor_ops"
+harness = false
+
+[profile.release]
+opt-level = 3
+lto = "fat"           # Link-time optimization for maximum performance
+codegen-units = 1     # Single codegen unit for max optimization
+panic = "abort"       # Smaller binary size
+strip = true          # Remove debug symbols
+
+[profile.bench]
+inherits = "release"
+
+[profile.dev]
+opt-level = 0         # Fast compilation
+debug = true
+
+# Faster compile times for development
+[profile.dev.package."*"]
+opt-level = 3
