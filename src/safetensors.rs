@@ -296,4 +296,113 @@ mod tests {
             SafetensorsDtype::U8
         );
     }
+
+    #[test]
+    fn test_invalid_json_error() {
+        // Invalid JSON in metadata
+        let mut data = Vec::new();
+        data.extend_from_slice(&10u64.to_le_bytes()); // metadata_len = 10
+        data.extend_from_slice(b"not json!!"); // Invalid JSON
+
+        let result = SafetensorsModel::from_bytes(&data);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            RealizarError::UnsupportedOperation { .. }
+        ));
+    }
+
+    #[test]
+    fn test_truncated_json_error() {
+        // Header says JSON is longer than actual data
+        let mut data = Vec::new();
+        data.extend_from_slice(&100u64.to_le_bytes()); // metadata_len = 100
+        data.extend_from_slice(b"{}"); // Only 2 bytes, not 100
+
+        let result = SafetensorsModel::from_bytes(&data);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            RealizarError::UnsupportedOperation { .. }
+        ));
+    }
+
+    #[test]
+    fn test_parse_all_dtypes() {
+        // Test all supported data types
+        let json = r#"{
+            "f32":{"dtype":"F32","shape":[1],"data_offsets":[0,4]},
+            "f16":{"dtype":"F16","shape":[1],"data_offsets":[4,6]},
+            "bf16":{"dtype":"BF16","shape":[1],"data_offsets":[6,8]},
+            "i32":{"dtype":"I32","shape":[1],"data_offsets":[8,12]},
+            "i64":{"dtype":"I64","shape":[1],"data_offsets":[12,20]},
+            "u8":{"dtype":"U8","shape":[1],"data_offsets":[20,21]},
+            "bool":{"dtype":"Bool","shape":[1],"data_offsets":[21,22]}
+        }"#;
+        let json_bytes = json.as_bytes();
+
+        let mut data = Vec::new();
+        data.extend_from_slice(&(json_bytes.len() as u64).to_le_bytes());
+        data.extend_from_slice(json_bytes);
+        data.extend_from_slice(&[0u8; 22]);
+
+        let model = SafetensorsModel::from_bytes(&data).unwrap();
+        assert_eq!(model.tensors.len(), 7);
+
+        assert_eq!(model.tensors.get("f32").unwrap().dtype, SafetensorsDtype::F32);
+        assert_eq!(model.tensors.get("f16").unwrap().dtype, SafetensorsDtype::F16);
+        assert_eq!(model.tensors.get("bf16").unwrap().dtype, SafetensorsDtype::BF16);
+        assert_eq!(model.tensors.get("i32").unwrap().dtype, SafetensorsDtype::I32);
+        assert_eq!(model.tensors.get("i64").unwrap().dtype, SafetensorsDtype::I64);
+        assert_eq!(model.tensors.get("u8").unwrap().dtype, SafetensorsDtype::U8);
+        assert_eq!(model.tensors.get("bool").unwrap().dtype, SafetensorsDtype::Bool);
+    }
+
+    #[test]
+    fn test_tensor_data_preserved() {
+        // Verify tensor data is correctly preserved
+        let json = r#"{"weight":{"dtype":"F32","shape":[2],"data_offsets":[0,8]}}"#;
+        let json_bytes = json.as_bytes();
+
+        let mut data = Vec::new();
+        data.extend_from_slice(&(json_bytes.len() as u64).to_le_bytes());
+        data.extend_from_slice(json_bytes);
+        // Add specific tensor data (two f32s: 1.0 and 2.0)
+        data.extend_from_slice(&1.0f32.to_le_bytes());
+        data.extend_from_slice(&2.0f32.to_le_bytes());
+
+        let model = SafetensorsModel::from_bytes(&data).unwrap();
+        assert_eq!(model.data.len(), 8);
+
+        // Verify we can read back the f32 values
+        let val1 = f32::from_le_bytes(model.data[0..4].try_into().unwrap());
+        let val2 = f32::from_le_bytes(model.data[4..8].try_into().unwrap());
+        assert!((val1 - 1.0).abs() < 1e-6);
+        assert!((val2 - 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_multidimensional_shapes() {
+        // Test tensors with various shapes
+        let json = r#"{
+            "scalar":{"dtype":"F32","shape":[],"data_offsets":[0,4]},
+            "vector":{"dtype":"F32","shape":[10],"data_offsets":[4,44]},
+            "matrix":{"dtype":"F32","shape":[3,4],"data_offsets":[44,92]},
+            "tensor3d":{"dtype":"F32","shape":[2,3,4],"data_offsets":[92,188]}
+        }"#;
+        let json_bytes = json.as_bytes();
+
+        let mut data = Vec::new();
+        data.extend_from_slice(&(json_bytes.len() as u64).to_le_bytes());
+        data.extend_from_slice(json_bytes);
+        data.extend_from_slice(&[0u8; 188]);
+
+        let model = SafetensorsModel::from_bytes(&data).unwrap();
+        assert_eq!(model.tensors.len(), 4);
+
+        assert_eq!(model.tensors.get("scalar").unwrap().shape, Vec::<usize>::new());
+        assert_eq!(model.tensors.get("vector").unwrap().shape, vec![10]);
+        assert_eq!(model.tensors.get("matrix").unwrap().shape, vec![3, 4]);
+        assert_eq!(model.tensors.get("tensor3d").unwrap().shape, vec![2, 3, 4]);
+    }
 }
