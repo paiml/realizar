@@ -702,4 +702,370 @@ mod tests {
         );
         assert_eq!(model.tensors[0].name, "embedding");
     }
+
+    #[test]
+    fn test_parse_uint8_metadata() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes()); // tensor_count = 0
+        data.extend_from_slice(&1u64.to_le_bytes()); // metadata_count = 1
+
+        // Metadata: key = "byte_val", value_type = UInt8 (0), value = 255
+        let key = "byte_val";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+        data.extend_from_slice(&0u32.to_le_bytes()); // value_type = UInt8
+        data.push(255u8); // value = 255
+
+        let model = GGUFModel::from_bytes(&data).unwrap();
+        assert_eq!(model.metadata.get("byte_val"), Some(&GGUFValue::UInt8(255)));
+    }
+
+    #[test]
+    fn test_parse_int8_metadata() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+
+        let key = "signed_byte";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+        data.extend_from_slice(&1u32.to_le_bytes()); // value_type = Int8
+        data.extend_from_slice(&(-42i8).to_le_bytes()); // value = -42
+
+        let model = GGUFModel::from_bytes(&data).unwrap();
+        assert_eq!(
+            model.metadata.get("signed_byte"),
+            Some(&GGUFValue::Int8(-42))
+        );
+    }
+
+    #[test]
+    fn test_parse_uint16_metadata() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+
+        let key = "short_val";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+        data.extend_from_slice(&2u32.to_le_bytes()); // value_type = UInt16
+        data.extend_from_slice(&65535u16.to_le_bytes());
+
+        let model = GGUFModel::from_bytes(&data).unwrap();
+        assert_eq!(
+            model.metadata.get("short_val"),
+            Some(&GGUFValue::UInt16(65535))
+        );
+    }
+
+    #[test]
+    fn test_parse_int16_metadata() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+
+        let key = "signed_short";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+        data.extend_from_slice(&3u32.to_le_bytes()); // value_type = Int16
+        data.extend_from_slice(&(-1000i16).to_le_bytes());
+
+        let model = GGUFModel::from_bytes(&data).unwrap();
+        assert_eq!(
+            model.metadata.get("signed_short"),
+            Some(&GGUFValue::Int16(-1000))
+        );
+    }
+
+    #[test]
+    fn test_parse_int32_metadata() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+
+        let key = "signed_int";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+        data.extend_from_slice(&5u32.to_le_bytes()); // value_type = Int32
+        data.extend_from_slice(&(-100_000_i32).to_le_bytes());
+
+        let model = GGUFModel::from_bytes(&data).unwrap();
+        assert_eq!(
+            model.metadata.get("signed_int"),
+            Some(&GGUFValue::Int32(-100_000))
+        );
+    }
+
+    #[test]
+    fn test_parse_float32_metadata() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+
+        let key = "float_val";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+        data.extend_from_slice(&6u32.to_le_bytes()); // value_type = Float32
+        data.extend_from_slice(&1.25f32.to_le_bytes());
+
+        let model = GGUFModel::from_bytes(&data).unwrap();
+        if let Some(GGUFValue::Float32(val)) = model.metadata.get("float_val") {
+            assert!((val - 1.25).abs() < 1e-5);
+        } else {
+            panic!("Expected Float32 value");
+        }
+    }
+
+    #[test]
+    fn test_parse_bool_metadata() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+
+        let key = "is_enabled";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+        data.extend_from_slice(&7u32.to_le_bytes()); // value_type = Bool
+        data.push(1u8); // true
+
+        let model = GGUFModel::from_bytes(&data).unwrap();
+        assert_eq!(
+            model.metadata.get("is_enabled"),
+            Some(&GGUFValue::Bool(true))
+        );
+    }
+
+    #[test]
+    fn test_parse_bool_false_metadata() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+
+        let key = "is_disabled";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+        data.extend_from_slice(&7u32.to_le_bytes()); // value_type = Bool
+        data.push(0u8); // false
+
+        let model = GGUFModel::from_bytes(&data).unwrap();
+        assert_eq!(
+            model.metadata.get("is_disabled"),
+            Some(&GGUFValue::Bool(false))
+        );
+    }
+
+    #[test]
+    fn test_parse_uint64_metadata() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+
+        let key = "big_uint";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+        data.extend_from_slice(&10u32.to_le_bytes()); // value_type = UInt64
+        data.extend_from_slice(&(u64::MAX).to_le_bytes());
+
+        let model = GGUFModel::from_bytes(&data).unwrap();
+        assert_eq!(
+            model.metadata.get("big_uint"),
+            Some(&GGUFValue::UInt64(u64::MAX))
+        );
+    }
+
+    #[test]
+    fn test_parse_int64_metadata() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+
+        let key = "big_int";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+        data.extend_from_slice(&11u32.to_le_bytes()); // value_type = Int64
+        data.extend_from_slice(&(i64::MIN).to_le_bytes());
+
+        let model = GGUFModel::from_bytes(&data).unwrap();
+        assert_eq!(
+            model.metadata.get("big_int"),
+            Some(&GGUFValue::Int64(i64::MIN))
+        );
+    }
+
+    #[test]
+    fn test_parse_float64_metadata() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+
+        let key = "double_val";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+        data.extend_from_slice(&12u32.to_le_bytes()); // value_type = Float64
+        data.extend_from_slice(&1.125f64.to_le_bytes());
+
+        let model = GGUFModel::from_bytes(&data).unwrap();
+        if let Some(GGUFValue::Float64(val)) = model.metadata.get("double_val") {
+            assert!((val - 1.125).abs() < 1e-10);
+        } else {
+            panic!("Expected Float64 value");
+        }
+    }
+
+    #[test]
+    fn test_parse_unsupported_value_type() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+
+        let key = "unknown";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+        data.extend_from_slice(&99u32.to_le_bytes()); // Invalid value_type
+
+        let result = GGUFModel::from_bytes(&data);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            RealizarError::UnsupportedOperation { .. }
+        ));
+    }
+
+    #[test]
+    fn test_parse_all_value_types() {
+        // Test file with all supported value types
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes()); // tensor_count = 0
+        data.extend_from_slice(&12u64.to_le_bytes()); // metadata_count = 12
+
+        // UInt8
+        data.extend_from_slice(&2u64.to_le_bytes());
+        data.extend_from_slice(b"u8");
+        data.extend_from_slice(&0u32.to_le_bytes());
+        data.push(100u8);
+
+        // Int8
+        data.extend_from_slice(&2u64.to_le_bytes());
+        data.extend_from_slice(b"i8");
+        data.extend_from_slice(&1u32.to_le_bytes());
+        data.extend_from_slice(&(-50i8).to_le_bytes());
+
+        // UInt16
+        data.extend_from_slice(&3u64.to_le_bytes());
+        data.extend_from_slice(b"u16");
+        data.extend_from_slice(&2u32.to_le_bytes());
+        data.extend_from_slice(&1000u16.to_le_bytes());
+
+        // Int16
+        data.extend_from_slice(&3u64.to_le_bytes());
+        data.extend_from_slice(b"i16");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&(-500i16).to_le_bytes());
+
+        // UInt32
+        data.extend_from_slice(&3u64.to_le_bytes());
+        data.extend_from_slice(b"u32");
+        data.extend_from_slice(&4u32.to_le_bytes());
+        data.extend_from_slice(&100_000_u32.to_le_bytes());
+
+        // Int32
+        data.extend_from_slice(&3u64.to_le_bytes());
+        data.extend_from_slice(b"i32");
+        data.extend_from_slice(&5u32.to_le_bytes());
+        data.extend_from_slice(&(-50000i32).to_le_bytes());
+
+        // Float32
+        data.extend_from_slice(&3u64.to_le_bytes());
+        data.extend_from_slice(b"f32");
+        data.extend_from_slice(&6u32.to_le_bytes());
+        data.extend_from_slice(&1.5f32.to_le_bytes());
+
+        // Bool
+        data.extend_from_slice(&4u64.to_le_bytes());
+        data.extend_from_slice(b"bool");
+        data.extend_from_slice(&7u32.to_le_bytes());
+        data.push(1u8);
+
+        // String
+        data.extend_from_slice(&3u64.to_le_bytes());
+        data.extend_from_slice(b"str");
+        data.extend_from_slice(&8u32.to_le_bytes());
+        data.extend_from_slice(&4u64.to_le_bytes());
+        data.extend_from_slice(b"test");
+
+        // UInt64
+        data.extend_from_slice(&3u64.to_le_bytes());
+        data.extend_from_slice(b"u64");
+        data.extend_from_slice(&10u32.to_le_bytes());
+        data.extend_from_slice(&1_000_000u64.to_le_bytes());
+
+        // Int64
+        data.extend_from_slice(&3u64.to_le_bytes());
+        data.extend_from_slice(b"i64");
+        data.extend_from_slice(&11u32.to_le_bytes());
+        data.extend_from_slice(&(-500_000_i64).to_le_bytes());
+
+        // Float64
+        data.extend_from_slice(&3u64.to_le_bytes());
+        data.extend_from_slice(b"f64");
+        data.extend_from_slice(&12u32.to_le_bytes());
+        data.extend_from_slice(&2.5f64.to_le_bytes());
+
+        let model = GGUFModel::from_bytes(&data).unwrap();
+        assert_eq!(model.metadata.len(), 12);
+        assert_eq!(model.metadata.get("u8"), Some(&GGUFValue::UInt8(100)));
+        assert_eq!(model.metadata.get("i8"), Some(&GGUFValue::Int8(-50)));
+        assert_eq!(model.metadata.get("u16"), Some(&GGUFValue::UInt16(1000)));
+        assert_eq!(model.metadata.get("i16"), Some(&GGUFValue::Int16(-500)));
+        assert_eq!(model.metadata.get("u32"), Some(&GGUFValue::UInt32(100_000)));
+        assert_eq!(model.metadata.get("i32"), Some(&GGUFValue::Int32(-50000)));
+        assert_eq!(model.metadata.get("bool"), Some(&GGUFValue::Bool(true)));
+        assert_eq!(
+            model.metadata.get("str"),
+            Some(&GGUFValue::String("test".to_string()))
+        );
+        assert_eq!(
+            model.metadata.get("u64"),
+            Some(&GGUFValue::UInt64(1_000_000))
+        );
+        assert_eq!(model.metadata.get("i64"), Some(&GGUFValue::Int64(-500_000)));
+
+        // Check floats with tolerance
+        if let Some(GGUFValue::Float32(val)) = model.metadata.get("f32") {
+            assert!((val - 1.5).abs() < 1e-5);
+        } else {
+            panic!("Expected f32");
+        }
+        if let Some(GGUFValue::Float64(val)) = model.metadata.get("f64") {
+            assert!((val - 2.5).abs() < 1e-10);
+        } else {
+            panic!("Expected f64");
+        }
+    }
 }
