@@ -176,14 +176,10 @@ clean: ## Clean build artifacts
 
 # === Deployment ===
 
-deploy: quality-gates build-all-features ## Deploy to production (S3 + CloudFront)
+deploy: quality-gates build-all-features ## Deploy to production
 	@echo "$(GREEN)Deploying to production...$(NC)"
-	@echo "$(YELLOW)Building WASM target...$(NC)"
-	@# Future: wasm-pack build --target web --release
-	@echo "$(YELLOW)Syncing to S3...$(NC)"
-	@# aws s3 sync ./dist s3://interactive.paiml.com-production-mcb21d5j/
-	@echo "$(YELLOW)Invalidating CloudFront cache...$(NC)"
-	@# aws cloudfront create-invalidation --distribution-id ELY820FVFXAFF --paths "/*"
+	@echo "$(YELLOW)Building release...$(NC)"
+	@# Future: Deploy model server
 	@echo "$(GREEN)✅ Deployment complete!$(NC)"
 
 # === CI/CD ===

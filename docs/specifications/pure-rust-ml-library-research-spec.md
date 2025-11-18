@@ -6,7 +6,7 @@
 **Mission:** Create a production-ready machine learning library in pure Rust that is memory-safe, avoids legacy design flaws, and provides first-class, unified support for CPU (SIMD), GPU, and WebAssembly (WASM) runtimes.
 
 **Quality Standard:** EXTREME TDD with 85%+ coverage, mutation testing, zero tolerance for defects
-**Production Status:** Live deployment to https://interactive.paiml.com
+**Current Focus:** Model serving (Ollama, HuggingFace) - Phase 1
 
 ---
 
@@ -487,7 +487,35 @@ echo "✅ All quality gates passed"
 
 ## Roadmap and Milestones
 
-### Phase 1: Foundation (Sprint 1-4, Weeks 1-8)
+### Phase 1: Model Serving (Sprint 1-4, Weeks 1-8) 🔥 CURRENT
+
+**Goal:** Production model serving for Ollama and HuggingFace models
+
+**Deliverables:**
+- [ ] Ollama integration (llama.cpp bindings via llama-cpp-rs)
+- [ ] HuggingFace model loading (candle + safetensors)
+- [ ] REST API server (axum + tokio)
+- [ ] GPU support (CUDA/Metal/Vulkan via candle)
+- [ ] Streaming responses (SSE)
+- [ ] Model caching and warming
+- [ ] CLI: `realizar serve --model llama3.2:1b --port 8080`
+- [ ] 100+ tests, 85%+ coverage
+- [ ] Docker container with GPU support
+
+**Research Citations:** [[11]](#11-tensorflow-a-system-for-large-scale-machine-learning), [[12]](#12-pytorch-an-imperative-style-high-performance-deep-learning-library), [[25]](#25-hidden-technical-debt-in-machine-learning-systems)
+
+**Success Criteria:**
+- ✅ Serve Ollama models (llama, phi, qwen, gemma, etc.)
+- ✅ Serve HuggingFace models (Phi-3, Llama-3.2, Qwen, etc.)
+- ✅ <100ms p50 latency for inference (small models)
+- ✅ Streaming responses work
+- ✅ GPU acceleration functional
+- ✅ Zero clippy warnings
+- ✅ All tests passing
+
+---
+
+### Phase 2: Tensor Operations (Sprint 5-8, Weeks 9-16)
 
 **Goal:** Core tensor API with SIMD backend
 
@@ -495,8 +523,8 @@ echo "✅ All quality gates passed"
 - [ ] `Tensor<T>` type with shape validation
 - [ ] Element-wise operations (add, sub, mul, div)
 - [ ] SIMD backend integration via Trueno
+- [ ] Matrix operations (matmul, transpose)
 - [ ] 100 unit tests, 20 property tests
-- [ ] TDG score ≥85/100
 - [ ] Benchmark suite (Criterion.rs)
 
 **Research Citations:** [[3]](#3-portable-simd-programming), [[13]](#13-the-numpy-array-a-structure-for-efficient-numerical-computation), [[21]](#21-property-based-testing)
@@ -504,13 +532,13 @@ echo "✅ All quality gates passed"
 **Success Criteria:**
 - ✅ 2-8x speedup over scalar baseline for SIMD operations
 - ✅ Zero clippy warnings
-- ✅ All tests passing on x86-64 and ARM (cross-compiled)
+- ✅ All tests passing on x86-64 and ARM
 
 ---
 
-### Phase 2: GPU Acceleration (Sprint 5-8, Weeks 9-16)
+### Phase 3: GPU Tensor Acceleration (Sprint 9-12, Weeks 17-24)
 
-**Goal:** GPU backend for large-scale operations
+**Goal:** GPU backend for tensor operations
 
 **Deliverables:**
 - [ ] GPU dispatch heuristics (size-based)
@@ -523,28 +551,8 @@ echo "✅ All quality gates passed"
 
 **Success Criteria:**
 - ✅ 10x speedup for matmul on 1000×1000 matrices
-- ✅ <5% overhead for small matrices (graceful degradation)
-- ✅ Zero crashes on missing GPU (fallback works)
-
----
-
-### Phase 3: WASM Support (Sprint 9-12, Weeks 17-24)
-
-**Goal:** First-class browser deployment
-
-**Deliverables:**
-- [ ] WASM SIMD128 backend
-- [ ] JavaScript bindings (wasm-bindgen)
-- [ ] Browser demo: ML in-browser
-- [ ] WASM bundle size <500KB (gzipped)
-- [ ] Performance benchmarks vs JavaScript
-
-**Research Citations:** [[9]](#9-webassembly-a-binary-instruction-format), [[10]](#10-wasm-simd-proposal)
-
-**Success Criteria:**
-- ✅ 5x faster than pure JavaScript
-- ✅ Runs on Chrome, Firefox, Safari
-- ✅ Zero JavaScript errors in production
+- ✅ <5% overhead for small matrices
+- ✅ Zero crashes on missing GPU
 
 ---
 
@@ -590,7 +598,7 @@ echo "✅ All quality gates passed"
 
 ### Phase 6: Production Deployment (Sprint 21-24, Weeks 41-48)
 
-**Goal:** Deploy to https://interactive.paiml.com
+**Goal:** Production-ready model serving
 
 **Deliverables:**
 - [ ] Docker container with GPU support
@@ -823,8 +831,7 @@ bench:
 	cargo bench --bench tensor_ops
 
 deploy: quality-gates docker-build
-	aws s3 sync ./dist s3://interactive.paiml.com-production-mcb21d5j/
-	aws cloudfront create-invalidation --distribution-id ELY820FVFXAFF --paths "/*"
+	@echo "Deploy to your target environment"
 
 docker-build:
 	docker build -t realizar:latest --build-arg CUDA=11.8 .
