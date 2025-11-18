@@ -700,6 +700,174 @@ impl Attention {
     }
 }
 
+/// Rotary Position Embeddings (`RoPE`)
+///
+/// Applies position-dependent rotations to query and key vectors.
+/// Used in `LLaMA`, `PaLM`, and other modern transformers for relative
+/// position encoding.
+///
+/// The rotation is applied pairwise to dimensions, encoding position
+/// information directly into the embeddings.
+///
+/// # Formula
+///
+/// For each pair of dimensions (2i, 2i+1):
+/// ```text
+/// x'_{2i} = x_{2i} * cos(θ_i * pos) - x_{2i+1} * sin(θ_i * pos)
+/// x'_{2i+1} = x_{2i} * sin(θ_i * pos) + x_{2i+1} * cos(θ_i * pos)
+/// ```
+///
+/// Where `θ_i` = base^(-2i/dim)
+///
+/// # References
+///
+/// `RoFormer`: Enhanced Transformer with Rotary Position Embedding - Su et al., 2021
+#[derive(Debug, Clone)]
+pub struct RoPE {
+    /// Embedding dimension (must be even)
+    dim: usize,
+    /// Base for computing frequencies (default: 10000)
+    base: f32,
+    /// Precomputed inverse frequencies for each dimension pair
+    inv_freq: Vec<f32>,
+}
+
+impl RoPE {
+    /// Create a new `RoPE` layer
+    ///
+    /// # Arguments
+    ///
+    /// * `dim` - Embedding dimension (must be even)
+    /// * `base` - Base for computing frequencies (typically 10000)
+    ///
+    /// # Errors
+    ///
+    /// Returns error if `dim` is zero or odd
+    pub fn new(dim: usize, base: f32) -> Result<Self> {
+        if dim == 0 {
+            return Err(RealizarError::InvalidShape {
+                reason: "dim must be > 0".to_string(),
+            });
+        }
+        if dim % 2 != 0 {
+            return Err(RealizarError::InvalidShape {
+                reason: "dim must be even for RoPE".to_string(),
+            });
+        }
+
+        // Compute inverse frequencies: base^(-2i/dim) for i in 0..dim/2
+        let half_dim = dim / 2;
+        let mut inv_freq = Vec::with_capacity(half_dim);
+
+        #[allow(clippy::cast_precision_loss)]
+        for i in 0..half_dim {
+            let exponent = -2.0 * (i as f32) / (dim as f32);
+            inv_freq.push(base.powf(exponent));
+        }
+
+        Ok(Self {
+            dim,
+            base,
+            inv_freq,
+        })
+    }
+
+    /// Create `RoPE` with default base (10000)
+    ///
+    /// # Errors
+    ///
+    /// Returns error if `dim` is zero or odd
+    pub fn with_default_base(dim: usize) -> Result<Self> {
+        Self::new(dim, 10000.0)
+    }
+
+    /// Apply rotary embeddings to input at given position
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - Input tensor with last dimension equal to `dim`
+    /// * `position` - Position index for computing rotation angles
+    ///
+    /// # Returns
+    ///
+    /// Tensor with same shape as input, with rotary embeddings applied
+    ///
+    /// # Errors
+    ///
+    /// Returns error if input's last dimension doesn't match `dim`
+    pub fn forward(&self, input: &Tensor<f32>, position: usize) -> Result<Tensor<f32>> {
+        let shape = input.shape();
+
+        if shape.is_empty() {
+            return Err(RealizarError::InvalidShape {
+                reason: "Input tensor must have at least 1 dimension".to_string(),
+            });
+        }
+
+        let last_dim = shape[shape.len() - 1];
+        if last_dim != self.dim {
+            return Err(RealizarError::InvalidShape {
+                reason: format!("Expected last dimension {}, got {}", self.dim, last_dim),
+            });
+        }
+
+        let data = input.data();
+        let num_vectors = data.len() / self.dim;
+        let mut output = Vec::with_capacity(data.len());
+
+        // Compute sin/cos for this position
+        let half_dim = self.dim / 2;
+        let mut cos_vals = Vec::with_capacity(half_dim);
+        let mut sin_vals = Vec::with_capacity(half_dim);
+
+        #[allow(clippy::cast_precision_loss)]
+        for inv_f in &self.inv_freq {
+            let angle = inv_f * (position as f32);
+            cos_vals.push(angle.cos());
+            sin_vals.push(angle.sin());
+        }
+
+        // Apply rotation to each vector
+        for vec_idx in 0..num_vectors {
+            let offset = vec_idx * self.dim;
+
+            for i in 0..half_dim {
+                let x0 = data[offset + 2 * i];
+                let x1 = data[offset + 2 * i + 1];
+                let cos_val = cos_vals[i];
+                let sin_val = sin_vals[i];
+
+                // Apply 2D rotation
+                let y0 = x0 * cos_val - x1 * sin_val;
+                let y1 = x0 * sin_val + x1 * cos_val;
+
+                output.push(y0);
+                output.push(y1);
+            }
+        }
+
+        Tensor::from_vec(shape.to_vec(), output)
+    }
+
+    /// Get embedding dimension
+    #[must_use]
+    pub fn dim(&self) -> usize {
+        self.dim
+    }
+
+    /// Get base frequency
+    #[must_use]
+    pub fn base(&self) -> f32 {
+        self.base
+    }
+
+    /// Get inverse frequencies
+    #[must_use]
+    pub fn inv_freq(&self) -> &[f32] {
+        &self.inv_freq
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1264,5 +1432,156 @@ mod tests {
         for i in 0..4 {
             assert!((output.data()[i] - v.data()[i]).abs() < 1e-6);
         }
+    }
+
+    // RoPE (Rotary Position Embeddings) tests
+
+    #[test]
+    fn test_rope_creation() {
+        let rope = RoPE::new(64, 10000.0).unwrap();
+        assert_eq!(rope.dim(), 64);
+        assert!((rope.base() - 10000.0).abs() < 1e-6);
+        assert_eq!(rope.inv_freq().len(), 32); // dim/2
+    }
+
+    #[test]
+    fn test_rope_with_default_base() {
+        let rope = RoPE::with_default_base(128).unwrap();
+        assert_eq!(rope.dim(), 128);
+        assert!((rope.base() - 10000.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_rope_zero_dim_error() {
+        let result = RoPE::new(0, 10000.0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_rope_odd_dim_error() {
+        let result = RoPE::new(63, 10000.0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_rope_forward_shape() {
+        let rope = RoPE::with_default_base(4).unwrap();
+        let input = Tensor::from_vec(vec![2, 4], vec![1.0; 8]).unwrap();
+
+        let output = rope.forward(&input, 0).unwrap();
+        assert_eq!(output.shape(), &[2, 4]);
+        assert_eq!(output.data().len(), 8);
+    }
+
+    #[test]
+    fn test_rope_position_zero_identity() {
+        // At position 0, rotation angles are 0, so cos=1, sin=0
+        // This should return input unchanged
+        let rope = RoPE::with_default_base(4).unwrap();
+        let input = Tensor::from_vec(vec![4], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+
+        let output = rope.forward(&input, 0).unwrap();
+
+        // At position 0, angles are 0, so cos(0)=1, sin(0)=0
+        // y0 = x0 * 1 - x1 * 0 = x0
+        // y1 = x0 * 0 + x1 * 1 = x1
+        for i in 0..4 {
+            assert!(
+                (output.data()[i] - input.data()[i]).abs() < 1e-6,
+                "Position 0 should be identity: expected {}, got {}",
+                input.data()[i],
+                output.data()[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_rope_preserves_norm() {
+        // Rotation should preserve vector norm
+        let rope = RoPE::with_default_base(4).unwrap();
+        let input = Tensor::from_vec(vec![4], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+
+        let output = rope.forward(&input, 100).unwrap();
+
+        // Compute L2 norm of input pairs and output pairs
+        // Each pair should have the same norm after rotation
+        let in_norm_0 = (input.data()[0].powi(2) + input.data()[1].powi(2)).sqrt();
+        let in_norm_1 = (input.data()[2].powi(2) + input.data()[3].powi(2)).sqrt();
+        let out_norm_0 = (output.data()[0].powi(2) + output.data()[1].powi(2)).sqrt();
+        let out_norm_1 = (output.data()[2].powi(2) + output.data()[3].powi(2)).sqrt();
+
+        assert!(
+            (in_norm_0 - out_norm_0).abs() < 1e-5,
+            "Pair 0 norm should be preserved"
+        );
+        assert!(
+            (in_norm_1 - out_norm_1).abs() < 1e-5,
+            "Pair 1 norm should be preserved"
+        );
+    }
+
+    #[test]
+    fn test_rope_different_positions() {
+        let rope = RoPE::with_default_base(4).unwrap();
+        let input = Tensor::from_vec(vec![4], vec![1.0, 0.0, 1.0, 0.0]).unwrap();
+
+        let out_pos_zero = rope.forward(&input, 0).unwrap();
+        let out_pos_ten = rope.forward(&input, 10).unwrap();
+        let out_pos_hundred = rope.forward(&input, 100).unwrap();
+
+        // Different positions should give different outputs
+        assert!(
+            (out_pos_zero.data()[0] - out_pos_ten.data()[0]).abs() > 1e-6
+                || (out_pos_zero.data()[1] - out_pos_ten.data()[1]).abs() > 1e-6
+        );
+        assert!(
+            (out_pos_ten.data()[0] - out_pos_hundred.data()[0]).abs() > 1e-6
+                || (out_pos_ten.data()[1] - out_pos_hundred.data()[1]).abs() > 1e-6
+        );
+    }
+
+    #[test]
+    fn test_rope_dimension_mismatch_error() {
+        let rope = RoPE::with_default_base(4).unwrap();
+        let input = Tensor::from_vec(vec![6], vec![1.0; 6]).unwrap();
+
+        let result = rope.forward(&input, 0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_rope_batched() {
+        // Test with batched input [batch, dim]
+        let rope = RoPE::with_default_base(4).unwrap();
+        let input = Tensor::from_vec(vec![3, 4], vec![1.0; 12]).unwrap();
+
+        let output = rope.forward(&input, 5).unwrap();
+        assert_eq!(output.shape(), &[3, 4]);
+
+        // All vectors in batch should have same rotation applied
+        // (since same position)
+        for batch in 0..3 {
+            for i in 0..4 {
+                let expected = output.data()[i]; // First vector
+                let actual = output.data()[batch * 4 + i];
+                assert!(
+                    (expected - actual).abs() < 1e-6,
+                    "All batch elements should have same rotation"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_rope_inv_freq_computation() {
+        // Test that inverse frequencies are computed correctly
+        let rope = RoPE::new(4, 10000.0).unwrap();
+        let inv_freq = rope.inv_freq();
+
+        // For dim=4, we have 2 pairs
+        // inv_freq[0] = 10000^(-2*0/4) = 10000^0 = 1.0
+        // inv_freq[1] = 10000^(-2*1/4) = 10000^(-0.5) = 0.01
+        assert!((inv_freq[0] - 1.0).abs() < 1e-6);
+        assert!((inv_freq[1] - 0.01).abs() < 1e-6);
     }
 }
