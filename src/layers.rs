@@ -366,6 +366,118 @@ impl Linear {
     }
 }
 
+/// Feed-forward network (FFN)
+///
+/// Two-layer feed-forward network with GELU activation:
+/// ```text
+/// FFN(x) = Linear2(GELU(Linear1(x)))
+/// ```
+///
+/// Typically used in transformer blocks with:
+/// - `hidden_dim` = model dimension (e.g., 768, 512)
+/// - `intermediate_dim` = expansion (typically 4x `hidden_dim`)
+///
+/// # References
+///
+/// Standard transformer FFN from "Attention is All You Need"
+#[derive(Debug, Clone)]
+pub struct FeedForward {
+    /// First linear layer (expansion)
+    fc1: Linear,
+    /// Second linear layer (projection)
+    fc2: Linear,
+    /// Hidden dimension
+    hidden_dim: usize,
+    /// Intermediate dimension
+    intermediate_dim: usize,
+}
+
+impl FeedForward {
+    /// Create a new feed-forward network
+    ///
+    /// # Arguments
+    ///
+    /// * `hidden_dim` - Input/output dimension
+    /// * `intermediate_dim` - Intermediate dimension (typically 4x `hidden_dim`)
+    ///
+    /// # Errors
+    ///
+    /// Returns error if dimensions are zero
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let ffn = FeedForward::new(768, 3072)?; // GPT-2 style (4x expansion)
+    /// ```
+    pub fn new(hidden_dim: usize, intermediate_dim: usize) -> Result<Self> {
+        let fc1 = Linear::new(hidden_dim, intermediate_dim)?;
+        let fc2 = Linear::new(intermediate_dim, hidden_dim)?;
+
+        Ok(Self {
+            fc1,
+            fc2,
+            hidden_dim,
+            intermediate_dim,
+        })
+    }
+
+    /// Forward pass through feed-forward network
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - Input tensor with shape `[..., hidden_dim]`
+    ///
+    /// # Returns
+    ///
+    /// Output tensor with shape `[..., hidden_dim]`
+    ///
+    /// # Errors
+    ///
+    /// Returns error if input shape doesn't match `hidden_dim`
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let input = Tensor::from_vec(vec![2, 768], data)?;
+    /// let output = ffn.forward(&input)?;
+    /// assert_eq!(output.shape(), &[2, 768]);
+    /// ```
+    pub fn forward(&self, input: &Tensor<f32>) -> Result<Tensor<f32>> {
+        // fc1: [hidden_dim] -> [intermediate_dim]
+        let hidden = self.fc1.forward(input)?;
+
+        // GELU activation
+        let activated = gelu(&hidden)?;
+
+        // fc2: [intermediate_dim] -> [hidden_dim]
+        self.fc2.forward(&activated)
+    }
+
+    /// Get hidden dimension
+    #[must_use]
+    pub fn hidden_dim(&self) -> usize {
+        self.hidden_dim
+    }
+
+    /// Get intermediate dimension
+    #[must_use]
+    pub fn intermediate_dim(&self) -> usize {
+        self.intermediate_dim
+    }
+
+    /// Get mutable reference to first linear layer (for loading weights)
+    #[must_use]
+    pub fn fc1_mut(&mut self) -> &mut Linear {
+        &mut self.fc1
+    }
+
+    /// Get mutable reference to second linear layer (for loading weights)
+    #[must_use]
+    pub fn fc2_mut(&mut self) -> &mut Linear {
+        &mut self.fc2
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -626,5 +738,91 @@ mod tests {
         let output = gelu(&input).unwrap();
         assert_eq!(output.shape(), &[2, 3, 4]);
         assert_eq!(output.data().len(), 24);
+    }
+
+    // FeedForward (FFN) tests
+
+    #[test]
+    fn test_ffn_creation() {
+        let ffn = FeedForward::new(512, 2048).unwrap();
+        assert_eq!(ffn.hidden_dim(), 512);
+        assert_eq!(ffn.intermediate_dim(), 2048);
+    }
+
+    #[test]
+    fn test_ffn_zero_dimensions_error() {
+        let result = FeedForward::new(0, 2048);
+        assert!(result.is_err());
+
+        let result = FeedForward::new(512, 0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_ffn_forward_shape() {
+        // Test that FFN preserves hidden_dim
+        let ffn = FeedForward::new(4, 16).unwrap(); // Small sizes for testing
+        let input = Tensor::from_vec(vec![2, 4], vec![1.0; 8]).unwrap();
+        let output = ffn.forward(&input).unwrap();
+
+        // Output should have same shape as input
+        assert_eq!(output.shape(), &[2, 4]);
+    }
+
+    #[test]
+    fn test_ffn_forward_computation() {
+        // Test FFN with known weights
+        let mut ffn = FeedForward::new(2, 4).unwrap();
+
+        // Set fc1 weights to identity-like (for simplicity)
+        for i in 0..8 {
+            ffn.fc1_mut().weight_mut()[i] = 0.1;
+        }
+        for i in 0..4 {
+            ffn.fc1_mut().bias_mut()[i] = 0.0;
+        }
+
+        // Set fc2 weights
+        for i in 0..8 {
+            ffn.fc2_mut().weight_mut()[i] = 0.1;
+        }
+        for i in 0..2 {
+            ffn.fc2_mut().bias_mut()[i] = 0.0;
+        }
+
+        // Input: [1.0, 2.0]
+        let input = Tensor::from_vec(vec![2], vec![1.0, 2.0]).unwrap();
+        let output = ffn.forward(&input).unwrap();
+
+        // Output should be valid (not NaN, not Inf)
+        assert_eq!(output.shape(), &[2]);
+        assert!(output.data()[0].is_finite());
+        assert!(output.data()[1].is_finite());
+    }
+
+    #[test]
+    fn test_ffn_batched() {
+        let ffn = FeedForward::new(3, 12).unwrap();
+
+        // Batched input: [2, 3]
+        let input = Tensor::from_vec(vec![2, 3], vec![0.5; 6]).unwrap();
+        let output = ffn.forward(&input).unwrap();
+
+        // Output shape should match input
+        assert_eq!(output.shape(), &[2, 3]);
+        assert_eq!(output.data().len(), 6);
+    }
+
+    #[test]
+    fn test_ffn_weight_access() {
+        let mut ffn = FeedForward::new(2, 4).unwrap();
+
+        // Modify fc1 weights
+        ffn.fc1_mut().weight_mut()[0] = 42.0;
+        assert_eq!(ffn.fc1_mut().weight_mut()[0], 42.0);
+
+        // Modify fc2 bias
+        ffn.fc2_mut().bias_mut()[0] = 7.0;
+        assert_eq!(ffn.fc2_mut().bias_mut()[0], 7.0);
     }
 }
