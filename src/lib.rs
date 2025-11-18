@@ -66,6 +66,7 @@
 #![allow(clippy::large_stack_arrays)]
 
 pub mod error;
+pub mod generate;
 pub mod gguf;
 pub mod layers;
 pub mod quantize;
