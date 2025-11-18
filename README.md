@@ -1,93 +1,257 @@
 # Realizar ⚡
 
-> **Pure Rust Model Serving & ML Library**
+> **Pure Rust Model Serving - Built from Scratch**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-blue.svg)](https://www.rust-lang.org)
 
-**Realizar** - Production model serving (Ollama, HuggingFace) + high-performance ML library in pure Rust.
+**Realizar** - Production ML inference engine built **100% from scratch** in pure Rust.
 
-## 🎯 Mission
+## 🎯 Philosophy
 
-**Phase 1 (NOW): Model Serving** - Deploy any SLM/LLM from Ollama or HuggingFace
-- Ollama integration (llama, phi, qwen, etc.)
-- HuggingFace model loading (safetensors)
-- REST API server
-- GPU acceleration (CUDA/Metal/Vulkan)
+**Total Control, Zero Compromise**
 
-**Phase 2+: ML Library** - SIMD/GPU/WASM compute primitives
+Build everything ourselves except HTTP infrastructure:
+- ✅ **Transformer architecture** - Our code, Trueno-backed
+- ✅ **Quantization** - Q4_0, Q8_0, Q4_K from scratch
+- ✅ **Model parsing** - GGUF, safetensors native readers
+- ✅ **Token encoding** - BPE, SentencePiece in pure Rust
+- ✅ **Inference engine** - Every optimization under our control
+- 🔧 **HTTP server** - axum (swappable via trait)
 
-## 🚀 Quick Start (Phase 1 Target)
+## 🚀 Target API
 
 ```rust
-use realizar::ModelServer;
+use realizar::{Model, Server};
 
-// Ollama model
-let server = ModelServer::ollama("llama3.2:1b")
-    .with_gpu()
-    .serve("0.0.0.0:8080")?;
+// Load model (our loader, our format parsing)
+let model = Model::from_gguf("models/llama-3.2-1b.gguf")?;
 
-// HuggingFace model
-let server = ModelServer::huggingface("microsoft/Phi-3-mini-4k-instruct")
+// Serve (swappable server backend)
+Server::new(model)
     .with_gpu()
     .serve("0.0.0.0:8080")?;
 ```
 
 ```bash
+# CLI
+realizar serve --model llama-3.2-1b.gguf --port 8080
+
 # REST API
 curl -X POST http://localhost:8080/generate \
   -d '{"prompt": "Hello", "max_tokens": 100}'
 ```
 
-## 📊 Roadmap
-
-### Phase 1: Model Serving (Weeks 1-8) 🟡 NOW
-
-- [ ] Ollama integration (llama.cpp bindings)
-- [ ] HuggingFace model loading (safetensors)
-- [ ] REST API server (axum)
-- [ ] GPU support (CUDA/Metal/Vulkan)
-- [ ] Streaming responses (SSE)
-- [ ] Model caching
-- [ ] 100+ tests, 85%+ coverage
-
-### Phase 2: Tensor Operations (Weeks 9-16)
-
-- [ ] Core Tensor API
-- [ ] SIMD backend (Trueno)
-- [ ] Element-wise ops
-- [ ] Matrix operations
-
-### Phase 3: GPU Acceleration (Weeks 17-24)
-
-- [ ] GPU tensor operations (wgpu)
-- [ ] Automatic CPU/GPU dispatch
-
-### Phase 4: WASM Support (Weeks 25-32)
-
-- [ ] WASM model serving
-- [ ] Browser inference
-
 ## 🏗️ Architecture
 
 ```
-┌─────────────────────────────────┐
-│  REST API (axum)               │
-│  - /generate                    │
-│  - /embed                       │
-└────────────┬────────────────────┘
+┌─────────────────────────────────────┐
+│  HTTP Server (Swappable)           │
+│  - axum (default, trait-based)     │
+│  - hyper (future)                  │
+│  - actix-web (future)              │
+└────────────┬────────────────────────┘
              ↓
-┌─────────────────────────────────┐
-│  Model Backends                 │
-│  - Ollama (llama.cpp)          │
-│  - HuggingFace (candle)        │
-└────────────┬────────────────────┘
+┌─────────────────────────────────────┐
+│  Inference Engine (FROM SCRATCH)   │
+│  - Transformer (our code)          │
+│  - Attention (Trueno-backed)       │
+│  - Quantization (our algorithms)   │
+│  - KV cache (our management)       │
+└────────────┬────────────────────────┘
              ↓
-┌─────────────────────────────────┐
-│  GPU Acceleration               │
-│  - CUDA / Metal / Vulkan        │
-└─────────────────────────────────┘
+┌─────────────────────────────────────┐
+│  Model Loader (FROM SCRATCH)       │
+│  - GGUF parser (pure Rust)         │
+│  - Safetensors reader (pure Rust)  │
+└────────────┬────────────────────────┘
+             ↓
+┌─────────────────────────────────────┐
+│  Trueno (Compute Primitives)       │
+│  - Matrix ops (SIMD/GPU)           │
+│  - Vector ops (AVX2/NEON)          │
+└─────────────────────────────────────┘
 ```
+
+## 📦 Dependencies (Minimal)
+
+```toml
+[dependencies]
+# OUR ecosystem - we control these
+trueno = { path = "../trueno" }  # SIMD/GPU compute primitives
+
+# HTTP server ONLY (swappable via trait)
+axum = "0.7"
+tokio = { version = "1", features = ["rt-multi-thread"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Serialization (for API only, not ML)
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# That's it. NO candle, NO llama-cpp-rs, NO hf-hub
+```
+
+## 🔧 What We Build from Scratch
+
+### 1. Model Formats (Pure Rust Parsers)
+- **GGUF** - Ollama/llama.cpp format
+- **Safetensors** - HuggingFace format
+- No external dependencies, complete control
+
+### 2. Transformer Architecture
+```rust
+pub struct Transformer {
+    layers: Vec<TransformerLayer>,
+    config: ModelConfig,
+}
+
+impl Transformer {
+    pub fn forward(&self, tokens: &[u32]) -> Tensor {
+        // Our implementation, Trueno ops
+        let x = self.embed(tokens);
+        for layer in &self.layers {
+            x = layer.forward(x);  // We write this
+        }
+        self.lm_head(x)
+    }
+}
+```
+
+### 3. Attention Mechanism
+```rust
+pub fn attention(
+    q: &Tensor,  // Trueno tensor
+    k: &Tensor,
+    v: &Tensor,
+) -> Tensor {
+    // Our attention implementation
+    // Uses Trueno for matrix ops (SIMD/GPU)
+    let scores = q.matmul(&k.transpose());
+    let weights = scores.softmax();
+    weights.matmul(v)
+}
+```
+
+### 4. Quantization
+```rust
+pub mod quantize {
+    // Q4_0 - 4-bit quantization
+    pub fn q4_0(weights: &[f32]) -> (Vec<u8>, Vec<f32>) { }
+
+    // Q8_0 - 8-bit quantization
+    pub fn q8_0(weights: &[f32]) -> (Vec<i8>, Vec<f32>) { }
+
+    // Q4_K - k-quant 4-bit
+    pub fn q4_k(weights: &[f32]) -> Vec<u8> { }
+
+    // Dequantization for inference
+    pub fn dequantize(data: &[u8], qtype: QuantType) -> Vec<f32> { }
+}
+```
+
+### 5. Token Encoding
+```rust
+pub struct Tokenizer {
+    vocab: HashMap<String, u32>,
+    merges: Vec<(String, String)>,
+}
+
+impl Tokenizer {
+    // BPE encoding (from scratch)
+    pub fn encode(&self, text: &str) -> Vec<u32> { }
+
+    // Decoding
+    pub fn decode(&self, tokens: &[u32]) -> String { }
+}
+```
+
+### 6. KV Cache
+```rust
+pub struct KVCache {
+    keys: Vec<Tensor>,    // Trueno tensors
+    values: Vec<Tensor>,
+}
+
+impl KVCache {
+    // Efficient cache management
+    pub fn update(&mut self, layer: usize, k: Tensor, v: Tensor) { }
+    pub fn get(&self, layer: usize) -> (&Tensor, &Tensor) { }
+}
+```
+
+## 🔌 Swappable HTTP Server
+
+```rust
+// HTTP server trait (axum is default, can swap)
+pub trait HttpServer {
+    fn serve(&self, addr: &str) -> Result<()>;
+}
+
+// Default: axum
+pub struct AxumServer { /* ... */ }
+impl HttpServer for AxumServer { /* ... */ }
+
+// Future: hyper, actix-web, custom
+pub struct HyperServer { /* ... */ }
+impl HttpServer for HyperServer { /* ... */ }
+
+// Usage
+let server = Server::new(model)
+    .with_backend(AxumServer::new())  // or HyperServer
+    .serve("0.0.0.0:8080")?;
+```
+
+## 📊 Roadmap
+
+### Phase 1: Core Inference (Weeks 1-8) 🔥 NOW
+
+**Build from scratch:**
+- [ ] GGUF parser (binary format reader)
+- [ ] Safetensors parser (zero-copy reader)
+- [ ] Transformer architecture (attention, FFN, LayerNorm)
+- [ ] Quantization (Q4_0, Q8_0, dequantization)
+- [ ] Tokenizer (BPE, SentencePiece)
+- [ ] KV cache management
+- [ ] Inference engine (generation loop)
+- [ ] HTTP server trait + axum impl
+- [ ] CLI: `realizar serve --model model.gguf`
+- [ ] 100+ tests, 85%+ coverage
+
+**Success criteria:**
+- ✅ Load & run llama.cpp GGUF models
+- ✅ Load & run HuggingFace safetensors
+- ✅ Quantization working (Q4_0, Q8_0)
+- ✅ <100ms p50 latency (1B models)
+- ✅ GPU acceleration via Trueno
+- ✅ Zero external ML dependencies
+
+### Phase 2: Optimization (Weeks 9-16)
+
+- [ ] Advanced quantization (Q4_K, Q5_K, Q6_K)
+- [ ] Flash Attention (Trueno-backed)
+- [ ] Batch inference
+- [ ] Streaming responses (SSE)
+- [ ] Model caching/warming
+- [ ] Benchmarks vs llama.cpp
+
+### Phase 3: Advanced Models (Weeks 17-24)
+
+- [ ] Multi-query attention (MQA)
+- [ ] Grouped-query attention (GQA)
+- [ ] RoPE position embeddings
+- [ ] ALiBi position embeddings
+- [ ] Vision models (LLaVA, Qwen-VL)
+
+### Phase 4: Production (Weeks 25-32)
+
+- [ ] Multi-model serving
+- [ ] Request batching
+- [ ] Monitoring/metrics
+- [ ] Docker + GPU support
+- [ ] Load testing
 
 ## 🛠️ Development
 
@@ -101,48 +265,36 @@ cargo test
 # Quality gates
 make quality-gates
 
-# Run server (when implemented)
-cargo run --release -- --model llama3.2:1b --port 8080
+# Run (when implemented)
+cargo run --release -- serve --model llama-3.2-1b.gguf --port 8080
 ```
 
-## 📦 Dependencies (Phase 1)
+## 🎓 Learning Resources
 
-```toml
-[dependencies]
-# Model serving
-candle-core = "0.3"          # HuggingFace models
-candle-transformers = "0.3"
-hf-hub = "0.3"
-llama-cpp-rs = "0.1"         # Ollama models
+We're building everything from scratch. Key papers:
+- **[11] TensorFlow** - Model serving architecture
+- **[12] PyTorch** - Imperative ML framework design
+- **[13] NumPy** - N-dimensional array design
+- **[18] BLAS** - Linear algebra API design
+- **[19] Strassen** - Fast matrix multiplication
+- **[20] Kahan** - Numerical stability
 
-# Server
-axum = "0.7"
-tokio = { version = "1", features = ["full"] }
-tower = "0.4"
-
-# Compute (Phase 2+)
-trueno = { path = "../trueno" }
-aprender = { path = "../aprender" }
-```
+Full spec: [docs/specifications/pure-rust-ml-library-research-spec.md](docs/specifications/pure-rust-ml-library-research-spec.md)
 
 ## 🔒 Security
 
-- MIT/Apache-2.0 licenses only
-- `cargo audit` in pre-commit
-- `cargo-deny` checks
-- Minimal dependencies
-
-## 📚 Documentation
-
-- **[Research Spec](docs/specifications/pure-rust-ml-library-research-spec.md)** - 25 peer-reviewed citations
-- **API Docs:** `cargo doc --open`
+- **Pure Rust** - Memory safe by design
+- **Zero unsafe** in public API
+- **Minimal deps** - axum + tokio only for HTTP
+- `cargo audit` pre-commit
+- `cargo-deny` license checks
 
 ## 🤝 Contributing
 
 1. Fork repo
 2. EXTREME TDD (tests first)
 3. `make quality-gates` passes
-4. All commits on `master` branch
+4. All commits on `master`
 
 ## 📄 License
 
@@ -150,7 +302,7 @@ MIT License - see [LICENSE](LICENSE)
 
 ## 🙏 Acknowledgments
 
-- **[Trueno](https://github.com/paiml/trueno)** - SIMD/GPU compute (Phase 2+)
+- **[Trueno](https://github.com/paiml/trueno)** - SIMD/GPU compute primitives (our ecosystem)
 - **[Aprender](https://github.com/paiml/aprender)** - ML algorithms (Phase 2+)
 - **[Renacer](https://github.com/paiml/renacer)** - Profiling
 - **[paiml-mcp-agent-toolkit](https://github.com/paiml/paiml-mcp-agent-toolkit)** - Quality gates
@@ -160,4 +312,4 @@ Developed by [Pragmatic AI Labs](https://paiml.com)
 
 ---
 
-**Built with EXTREME TDD** 🦀⚡
+**Built from SCRATCH with EXTREME TDD** 🦀⚡

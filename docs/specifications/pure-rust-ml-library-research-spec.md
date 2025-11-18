@@ -491,25 +491,31 @@ echo "✅ All quality gates passed"
 
 **Goal:** Production model serving for Ollama and HuggingFace models
 
-**Deliverables:**
-- [ ] Ollama integration (llama.cpp bindings via llama-cpp-rs)
-- [ ] HuggingFace model loading (candle + safetensors)
-- [ ] REST API server (axum + tokio)
-- [ ] GPU support (CUDA/Metal/Vulkan via candle)
-- [ ] Streaming responses (SSE)
-- [ ] Model caching and warming
-- [ ] CLI: `realizar serve --model llama3.2:1b --port 8080`
+**Deliverables (Build from Scratch):**
+- [ ] GGUF parser (binary format reader, pure Rust)
+- [ ] Safetensors parser (zero-copy reader, pure Rust)
+- [ ] Transformer architecture (attention, FFN, LayerNorm)
+- [ ] Quantization (Q4_0, Q8_0 + dequantization)
+- [ ] Tokenizer (BPE, SentencePiece implementations)
+- [ ] KV cache management
+- [ ] Inference engine (generation loop, sampling)
+- [ ] HTTP server trait + axum implementation (swappable)
+- [ ] REST API (POST /generate, POST /embed)
+- [ ] GPU acceleration (via Trueno SIMD/GPU)
+- [ ] CLI: `realizar serve --model model.gguf --port 8080`
 - [ ] 100+ tests, 85%+ coverage
-- [ ] Docker container with GPU support
+- [ ] Zero external ML dependencies (only axum for HTTP)
 
 **Research Citations:** [[11]](#11-tensorflow-a-system-for-large-scale-machine-learning), [[12]](#12-pytorch-an-imperative-style-high-performance-deep-learning-library), [[25]](#25-hidden-technical-debt-in-machine-learning-systems)
 
 **Success Criteria:**
-- ✅ Serve Ollama models (llama, phi, qwen, gemma, etc.)
-- ✅ Serve HuggingFace models (Phi-3, Llama-3.2, Qwen, etc.)
-- ✅ <100ms p50 latency for inference (small models)
-- ✅ Streaming responses work
-- ✅ GPU acceleration functional
+- ✅ Load & run llama.cpp GGUF models (Llama, Phi, Qwen, Gemma)
+- ✅ Load & run HuggingFace safetensors models
+- ✅ Quantization working (Q4_0, Q8_0)
+- ✅ <100ms p50 latency for 1B parameter models
+- ✅ GPU acceleration functional (via Trueno)
+- ✅ Zero external ML library dependencies
+- ✅ HTTP server swappable via trait
 - ✅ Zero clippy warnings
 - ✅ All tests passing
 
