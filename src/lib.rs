@@ -64,6 +64,7 @@
 #![allow(clippy::module_name_repetitions)]
 
 pub mod error;
+pub mod gguf;
 pub mod tensor;
 
 // Re-exports for convenience
