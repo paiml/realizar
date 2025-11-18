@@ -868,6 +868,240 @@ impl RoPE {
     }
 }
 
+/// Key-Value Cache for efficient transformer inference
+///
+/// Stores key and value tensors from previous positions to avoid
+/// recomputation during autoregressive generation. Each forward pass
+/// only computes K/V for the new token and appends to the cache.
+///
+/// # Usage
+///
+/// 1. Create cache with `KVCache::new(num_layers, max_seq_len, head_dim)`
+/// 2. At each generation step, call `update` with new K/V
+/// 3. Use `get_key`/`get_value` to retrieve cached tensors
+/// 4. Call `clear` to reset for new sequence
+#[derive(Debug, Clone)]
+pub struct KVCache {
+    /// Number of transformer layers
+    num_layers: usize,
+    /// Maximum sequence length
+    max_seq_len: usize,
+    /// Dimension per head
+    head_dim: usize,
+    /// Current sequence position
+    current_pos: usize,
+    /// Cached keys for each layer: `[num_layers][max_seq_len * head_dim]`
+    keys: Vec<Vec<f32>>,
+    /// Cached values for each layer: `[num_layers][max_seq_len * head_dim]`
+    values: Vec<Vec<f32>>,
+}
+
+impl KVCache {
+    /// Create a new KV cache
+    ///
+    /// # Arguments
+    ///
+    /// * `num_layers` - Number of transformer layers to cache
+    /// * `max_seq_len` - Maximum sequence length to cache
+    /// * `head_dim` - Dimension per attention head
+    ///
+    /// # Errors
+    ///
+    /// Returns error if any dimension is zero
+    pub fn new(num_layers: usize, max_seq_len: usize, head_dim: usize) -> Result<Self> {
+        if num_layers == 0 {
+            return Err(RealizarError::InvalidShape {
+                reason: "num_layers must be > 0".to_string(),
+            });
+        }
+        if max_seq_len == 0 {
+            return Err(RealizarError::InvalidShape {
+                reason: "max_seq_len must be > 0".to_string(),
+            });
+        }
+        if head_dim == 0 {
+            return Err(RealizarError::InvalidShape {
+                reason: "head_dim must be > 0".to_string(),
+            });
+        }
+
+        let cache_size = max_seq_len * head_dim;
+        let keys = vec![vec![0.0; cache_size]; num_layers];
+        let values = vec![vec![0.0; cache_size]; num_layers];
+
+        Ok(Self {
+            num_layers,
+            max_seq_len,
+            head_dim,
+            current_pos: 0,
+            keys,
+            values,
+        })
+    }
+
+    /// Update cache with new key/value for a layer
+    ///
+    /// # Arguments
+    ///
+    /// * `layer` - Layer index
+    /// * `key` - New key tensor `[head_dim]`
+    /// * `value` - New value tensor `[head_dim]`
+    ///
+    /// # Errors
+    ///
+    /// Returns error if layer is out of bounds, cache is full, or tensor sizes don't match
+    pub fn update(
+        &mut self,
+        layer: usize,
+        key: &Tensor<f32>,
+        value: &Tensor<f32>,
+    ) -> Result<()> {
+        if layer >= self.num_layers {
+            return Err(RealizarError::InvalidShape {
+                reason: format!("Layer {} out of bounds (max {})", layer, self.num_layers - 1),
+            });
+        }
+        if self.current_pos >= self.max_seq_len {
+            return Err(RealizarError::InvalidShape {
+                reason: format!(
+                    "Cache full at position {} (max {})",
+                    self.current_pos, self.max_seq_len
+                ),
+            });
+        }
+
+        let k_data = key.data();
+        let v_data = value.data();
+
+        if k_data.len() != self.head_dim {
+            return Err(RealizarError::InvalidShape {
+                reason: format!("Key size {} != head_dim {}", k_data.len(), self.head_dim),
+            });
+        }
+        if v_data.len() != self.head_dim {
+            return Err(RealizarError::InvalidShape {
+                reason: format!("Value size {} != head_dim {}", v_data.len(), self.head_dim),
+            });
+        }
+
+        // Copy key and value into cache at current position
+        let offset = self.current_pos * self.head_dim;
+        self.keys[layer][offset..offset + self.head_dim].copy_from_slice(k_data);
+        self.values[layer][offset..offset + self.head_dim].copy_from_slice(v_data);
+
+        Ok(())
+    }
+
+    /// Advance to next position after updating all layers
+    ///
+    /// Call this after updating all layers for the current position
+    pub fn advance(&mut self) {
+        if self.current_pos < self.max_seq_len {
+            self.current_pos += 1;
+        }
+    }
+
+    /// Get cached keys for a layer up to current position
+    ///
+    /// # Arguments
+    ///
+    /// * `layer` - Layer index
+    ///
+    /// # Returns
+    ///
+    /// Tensor with shape `[current_pos, head_dim]`
+    ///
+    /// # Errors
+    ///
+    /// Returns error if layer is out of bounds
+    pub fn get_key(&self, layer: usize) -> Result<Tensor<f32>> {
+        if layer >= self.num_layers {
+            return Err(RealizarError::InvalidShape {
+                reason: format!("Layer {} out of bounds (max {})", layer, self.num_layers - 1),
+            });
+        }
+
+        if self.current_pos == 0 {
+            // Return empty tensor with shape [0, head_dim] is invalid
+            // Return [1, head_dim] with zeros for consistency
+            return Tensor::from_vec(vec![1, self.head_dim], vec![0.0; self.head_dim]);
+        }
+
+        let size = self.current_pos * self.head_dim;
+        let data = self.keys[layer][..size].to_vec();
+        Tensor::from_vec(vec![self.current_pos, self.head_dim], data)
+    }
+
+    /// Get cached values for a layer up to current position
+    ///
+    /// # Arguments
+    ///
+    /// * `layer` - Layer index
+    ///
+    /// # Returns
+    ///
+    /// Tensor with shape `[current_pos, head_dim]`
+    ///
+    /// # Errors
+    ///
+    /// Returns error if layer is out of bounds
+    pub fn get_value(&self, layer: usize) -> Result<Tensor<f32>> {
+        if layer >= self.num_layers {
+            return Err(RealizarError::InvalidShape {
+                reason: format!("Layer {} out of bounds (max {})", layer, self.num_layers - 1),
+            });
+        }
+
+        if self.current_pos == 0 {
+            return Tensor::from_vec(vec![1, self.head_dim], vec![0.0; self.head_dim]);
+        }
+
+        let size = self.current_pos * self.head_dim;
+        let data = self.values[layer][..size].to_vec();
+        Tensor::from_vec(vec![self.current_pos, self.head_dim], data)
+    }
+
+    /// Clear cache and reset position to 0
+    pub fn clear(&mut self) {
+        self.current_pos = 0;
+        // Optionally zero out the cache (not strictly necessary)
+        for layer in 0..self.num_layers {
+            self.keys[layer].fill(0.0);
+            self.values[layer].fill(0.0);
+        }
+    }
+
+    /// Get current sequence position
+    #[must_use]
+    pub fn current_pos(&self) -> usize {
+        self.current_pos
+    }
+
+    /// Get number of layers
+    #[must_use]
+    pub fn num_layers(&self) -> usize {
+        self.num_layers
+    }
+
+    /// Get maximum sequence length
+    #[must_use]
+    pub fn max_seq_len(&self) -> usize {
+        self.max_seq_len
+    }
+
+    /// Get head dimension
+    #[must_use]
+    pub fn head_dim(&self) -> usize {
+        self.head_dim
+    }
+
+    /// Check if cache is full
+    #[must_use]
+    pub fn is_full(&self) -> bool {
+        self.current_pos >= self.max_seq_len
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1583,5 +1817,180 @@ mod tests {
         // inv_freq[1] = 10000^(-2*1/4) = 10000^(-0.5) = 0.01
         assert!((inv_freq[0] - 1.0).abs() < 1e-6);
         assert!((inv_freq[1] - 0.01).abs() < 1e-6);
+    }
+
+    // KVCache tests
+
+    #[test]
+    fn test_kvcache_creation() {
+        let cache = KVCache::new(4, 512, 64).unwrap();
+        assert_eq!(cache.num_layers(), 4);
+        assert_eq!(cache.max_seq_len(), 512);
+        assert_eq!(cache.head_dim(), 64);
+        assert_eq!(cache.current_pos(), 0);
+        assert!(!cache.is_full());
+    }
+
+    #[test]
+    fn test_kvcache_zero_params_error() {
+        assert!(KVCache::new(0, 512, 64).is_err());
+        assert!(KVCache::new(4, 0, 64).is_err());
+        assert!(KVCache::new(4, 512, 0).is_err());
+    }
+
+    #[test]
+    fn test_kvcache_update_and_retrieve() {
+        let mut cache = KVCache::new(2, 10, 4).unwrap();
+
+        // Add first position
+        let key = Tensor::from_vec(vec![4], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+        let value = Tensor::from_vec(vec![4], vec![5.0, 6.0, 7.0, 8.0]).unwrap();
+
+        cache.update(0, &key, &value).unwrap();
+        cache.advance();
+
+        // Retrieve and verify
+        let cached_key = cache.get_key(0).unwrap();
+        let cached_value = cache.get_value(0).unwrap();
+
+        assert_eq!(cached_key.shape(), &[1, 4]);
+        assert_eq!(cached_value.shape(), &[1, 4]);
+
+        for i in 0..4 {
+            assert!((cached_key.data()[i] - key.data()[i]).abs() < 1e-6);
+            assert!((cached_value.data()[i] - value.data()[i]).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn test_kvcache_multiple_positions() {
+        let mut cache = KVCache::new(1, 10, 2).unwrap();
+
+        // Add multiple positions
+        for pos in 0..3 {
+            #[allow(clippy::cast_precision_loss)]
+            let base = pos as f32;
+            let key = Tensor::from_vec(vec![2], vec![base, base + 0.5]).unwrap();
+            let value = Tensor::from_vec(vec![2], vec![base + 1.0, base + 1.5]).unwrap();
+
+            cache.update(0, &key, &value).unwrap();
+            cache.advance();
+        }
+
+        assert_eq!(cache.current_pos(), 3);
+
+        // Retrieve all positions
+        let cached_key = cache.get_key(0).unwrap();
+        let cached_value = cache.get_value(0).unwrap();
+
+        assert_eq!(cached_key.shape(), &[3, 2]);
+        assert_eq!(cached_value.shape(), &[3, 2]);
+
+        // Verify first position
+        assert!((cached_key.data()[0] - 0.0).abs() < 1e-6);
+        assert!((cached_key.data()[1] - 0.5).abs() < 1e-6);
+        // Verify second position
+        assert!((cached_key.data()[2] - 1.0).abs() < 1e-6);
+        assert!((cached_key.data()[3] - 1.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_kvcache_multiple_layers() {
+        let mut cache = KVCache::new(2, 10, 4).unwrap();
+
+        let key0 = Tensor::from_vec(vec![4], vec![1.0; 4]).unwrap();
+        let value0 = Tensor::from_vec(vec![4], vec![2.0; 4]).unwrap();
+        let key1 = Tensor::from_vec(vec![4], vec![3.0; 4]).unwrap();
+        let value1 = Tensor::from_vec(vec![4], vec![4.0; 4]).unwrap();
+
+        cache.update(0, &key0, &value0).unwrap();
+        cache.update(1, &key1, &value1).unwrap();
+        cache.advance();
+
+        // Verify layer 0
+        let layer0_key = cache.get_key(0).unwrap();
+        assert!((layer0_key.data()[0] - 1.0).abs() < 1e-6);
+
+        // Verify layer 1
+        let layer1_key = cache.get_key(1).unwrap();
+        assert!((layer1_key.data()[0] - 3.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_kvcache_layer_out_of_bounds_error() {
+        let mut cache = KVCache::new(2, 10, 4).unwrap();
+        let key = Tensor::from_vec(vec![4], vec![1.0; 4]).unwrap();
+        let value = Tensor::from_vec(vec![4], vec![2.0; 4]).unwrap();
+
+        // Update layer 2 (out of bounds)
+        assert!(cache.update(2, &key, &value).is_err());
+
+        // Get layer 2 (out of bounds)
+        assert!(cache.get_key(2).is_err());
+        assert!(cache.get_value(2).is_err());
+    }
+
+    #[test]
+    fn test_kvcache_size_mismatch_error() {
+        let mut cache = KVCache::new(1, 10, 4).unwrap();
+
+        // Wrong key size
+        let key = Tensor::from_vec(vec![3], vec![1.0; 3]).unwrap();
+        let value = Tensor::from_vec(vec![4], vec![2.0; 4]).unwrap();
+        assert!(cache.update(0, &key, &value).is_err());
+
+        // Wrong value size
+        let key = Tensor::from_vec(vec![4], vec![1.0; 4]).unwrap();
+        let value = Tensor::from_vec(vec![3], vec![2.0; 3]).unwrap();
+        assert!(cache.update(0, &key, &value).is_err());
+    }
+
+    #[test]
+    fn test_kvcache_full_error() {
+        let mut cache = KVCache::new(1, 2, 4).unwrap();
+        let key = Tensor::from_vec(vec![4], vec![1.0; 4]).unwrap();
+        let value = Tensor::from_vec(vec![4], vec![2.0; 4]).unwrap();
+
+        // Fill cache
+        cache.update(0, &key, &value).unwrap();
+        cache.advance();
+        cache.update(0, &key, &value).unwrap();
+        cache.advance();
+
+        assert!(cache.is_full());
+
+        // Try to add more
+        assert!(cache.update(0, &key, &value).is_err());
+    }
+
+    #[test]
+    fn test_kvcache_clear() {
+        let mut cache = KVCache::new(1, 10, 4).unwrap();
+        let key = Tensor::from_vec(vec![4], vec![1.0; 4]).unwrap();
+        let value = Tensor::from_vec(vec![4], vec![2.0; 4]).unwrap();
+
+        cache.update(0, &key, &value).unwrap();
+        cache.advance();
+        assert_eq!(cache.current_pos(), 1);
+
+        cache.clear();
+        assert_eq!(cache.current_pos(), 0);
+        assert!(!cache.is_full());
+    }
+
+    #[test]
+    fn test_kvcache_empty_retrieval() {
+        let cache = KVCache::new(1, 10, 4).unwrap();
+
+        // Retrieve from empty cache
+        let cached_key = cache.get_key(0).unwrap();
+        let cached_value = cache.get_value(0).unwrap();
+
+        // Should return [1, 4] tensor with zeros
+        assert_eq!(cached_key.shape(), &[1, 4]);
+        assert_eq!(cached_value.shape(), &[1, 4]);
+        for &val in cached_key.data() {
+            assert!((val - 0.0).abs() < 1e-6);
+        }
     }
 }
