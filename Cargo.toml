@@ -12,7 +12,7 @@ categories = ["science", "web-programming::http-server"]
 
 [dependencies]
 # OUR ecosystem - SIMD/GPU compute primitives (we control this)
-trueno = { path = "../trueno", version = "0.2", features = ["gpu"] }
+trueno = { path = "../trueno", version = "0.2.2", features = ["gpu"] }
 
 # HTTP server ONLY (swappable via HttpServer trait)
 axum = "0.7"
