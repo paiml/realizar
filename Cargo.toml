@@ -49,6 +49,10 @@ approx = "0.5"
 # For testing HTTP endpoints (Phase 1)
 reqwest = { version = "0.11", features = ["json"] }
 
+# For CLI integration tests
+assert_cmd = "2.0"
+predicates = "3.0"
+
 [features]
 default = ["gpu"]
 gpu = ["trueno/gpu"]  # Enable GPU acceleration via Trueno

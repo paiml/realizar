@@ -105,3 +105,69 @@ async fn serve_demo(host: &str, port: u16) -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cli_parsing_serve_demo() {
+        let cli = Cli::parse_from(["realizar", "serve", "--demo"]);
+        match cli.command {
+            Commands::Serve { demo, .. } => assert!(demo),
+            _ => panic!("Expected Serve command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_serve_with_port() {
+        let cli = Cli::parse_from(["realizar", "serve", "--demo", "--port", "9090"]);
+        match cli.command {
+            Commands::Serve { port, demo, .. } => {
+                assert_eq!(port, 9090);
+                assert!(demo);
+            }
+            _ => panic!("Expected Serve command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_serve_with_host() {
+        let cli = Cli::parse_from(["realizar", "serve", "--demo", "--host", "0.0.0.0"]);
+        match cli.command {
+            Commands::Serve { host, demo, .. } => {
+                assert_eq!(host, "0.0.0.0");
+                assert!(demo);
+            }
+            _ => panic!("Expected Serve command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_info() {
+        let cli = Cli::parse_from(["realizar", "info"]);
+        match cli.command {
+            Commands::Info => {},
+            _ => panic!("Expected Info command"),
+        }
+    }
+
+    #[test]
+    fn test_default_host_and_port() {
+        let cli = Cli::parse_from(["realizar", "serve", "--demo"]);
+        match cli.command {
+            Commands::Serve { host, port, .. } => {
+                assert_eq!(host, "127.0.0.1");
+                assert_eq!(port, 8080);
+            }
+            _ => panic!("Expected Serve command"),
+        }
+    }
+
+    #[test]
+    fn test_version_constant_exists() {
+        let version = realizar::VERSION;
+        assert!(!version.is_empty());
+        assert!(version.starts_with("0."));
+    }
+}
