@@ -180,11 +180,12 @@ let activated = logits.relu(); // SIMD-accelerated ReLU
 - ✅ EXTREME TDD (5 comprehensive tests)
 - [ ] Mixed precision support (deferred)
 
-### Week 7-8: Tokenizer & Inference
+### Week 7-8: Tokenizer & Inference (IN PROGRESS)
+- ✅ Basic tokenizer (10 tests, encode/decode)
 - [ ] BPE tokenizer
 - [ ] SentencePiece tokenizer
-- [ ] Generation loop
-- [ ] Sampling strategies (greedy, top-k, top-p)
+- ✅ Generation loop (3 tests, token sampling)
+- ✅ Sampling strategies (16 tests, greedy/top-k/top-p)
 - [ ] HTTP API with axum
 
 ## Quality Standards
