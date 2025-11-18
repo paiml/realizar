@@ -17,7 +17,7 @@ trueno = { path = "../trueno", version = "0.2.2", features = ["gpu"] }
 # HTTP server ONLY (swappable via HttpServer trait)
 axum = "0.7"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
-tower = "0.4"
+tower = { version = "0.4", features = ["util"] }
 
 # CLI
 clap = { version = "4", features = ["derive"] }
