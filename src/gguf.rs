@@ -274,6 +274,24 @@ impl GGUFModel {
             6 => Ok(GGUFValue::Float32(Self::read_f32(cursor)?)),
             7 => Ok(GGUFValue::Bool(Self::read_bool(cursor)?)),
             8 => Ok(GGUFValue::String(Self::read_string(cursor)?)),
+            9 => {
+                // Array: element_type (u32) + array_len (u64) + elements
+                let element_type = Self::read_u32(cursor)?;
+                let array_len = Self::read_u64(cursor)?;
+
+                // Safely convert array_len to usize
+                let len = usize::try_from(array_len).map_err(|_| {
+                    RealizarError::InvalidShape {
+                        reason: format!("Array length too large: {array_len}"),
+                    }
+                })?;
+
+                let mut elements = Vec::with_capacity(len);
+                for _ in 0..array_len {
+                    elements.push(Self::read_value(cursor, element_type)?);
+                }
+                Ok(GGUFValue::Array(elements))
+            }
             10 => Ok(GGUFValue::UInt64(Self::read_u64(cursor)?)),
             11 => Ok(GGUFValue::Int64(Self::read_i64(cursor)?)),
             12 => Ok(GGUFValue::Float64(Self::read_f64(cursor)?)),
@@ -1066,6 +1084,98 @@ mod tests {
             assert!((val - 2.5).abs() < 1e-10);
         } else {
             panic!("Expected f64");
+        }
+    }
+
+    #[test]
+    fn test_parse_array_uint32() {
+        // GGUF header with 1 metadata item (Array of UInt32)
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF"); // magic
+        data.extend_from_slice(&3u32.to_le_bytes()); // version 3
+        data.extend_from_slice(&0u64.to_le_bytes()); // tensor_count = 0
+        data.extend_from_slice(&1u64.to_le_bytes()); // metadata_count = 1
+
+        // Metadata: key = "test.array", value_type = Array (9)
+        let key = "test.array";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes()); // key length
+        data.extend_from_slice(key.as_bytes()); // key string
+        data.extend_from_slice(&9u32.to_le_bytes()); // value_type = Array
+        data.extend_from_slice(&4u32.to_le_bytes()); // element_type = UInt32
+        data.extend_from_slice(&3u64.to_le_bytes()); // array_len = 3
+        data.extend_from_slice(&1u32.to_le_bytes()); // element 0
+        data.extend_from_slice(&2u32.to_le_bytes()); // element 1
+        data.extend_from_slice(&3u32.to_le_bytes()); // element 2
+
+        let model = GGUFModel::from_bytes(&data).unwrap();
+        assert_eq!(model.metadata.len(), 1);
+        if let Some(GGUFValue::Array(arr)) = model.metadata.get("test.array") {
+            assert_eq!(arr.len(), 3);
+            assert_eq!(arr[0], GGUFValue::UInt32(1));
+            assert_eq!(arr[1], GGUFValue::UInt32(2));
+            assert_eq!(arr[2], GGUFValue::UInt32(3));
+        } else {
+            panic!("Expected Array value");
+        }
+    }
+
+    #[test]
+    fn test_parse_array_string() {
+        // GGUF header with 1 metadata item (Array of strings)
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+
+        // Metadata: key = "test.strings", value_type = Array (9)
+        let key = "test.strings";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+        data.extend_from_slice(&9u32.to_le_bytes()); // value_type = Array
+        data.extend_from_slice(&8u32.to_le_bytes()); // element_type = String
+        data.extend_from_slice(&2u64.to_le_bytes()); // array_len = 2
+
+        // String element 0: "hello"
+        data.extend_from_slice(&5u64.to_le_bytes());
+        data.extend_from_slice(b"hello");
+
+        // String element 1: "world"
+        data.extend_from_slice(&5u64.to_le_bytes());
+        data.extend_from_slice(b"world");
+
+        let model = GGUFModel::from_bytes(&data).unwrap();
+        assert_eq!(model.metadata.len(), 1);
+        if let Some(GGUFValue::Array(arr)) = model.metadata.get("test.strings") {
+            assert_eq!(arr.len(), 2);
+            assert_eq!(arr[0], GGUFValue::String("hello".to_string()));
+            assert_eq!(arr[1], GGUFValue::String("world".to_string()));
+        } else {
+            panic!("Expected Array value");
+        }
+    }
+
+    #[test]
+    fn test_parse_empty_array() {
+        // GGUF header with empty array
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+
+        let key = "empty";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+        data.extend_from_slice(&9u32.to_le_bytes()); // value_type = Array
+        data.extend_from_slice(&4u32.to_le_bytes()); // element_type = UInt32
+        data.extend_from_slice(&0u64.to_le_bytes()); // array_len = 0
+
+        let model = GGUFModel::from_bytes(&data).unwrap();
+        if let Some(GGUFValue::Array(arr)) = model.metadata.get("empty") {
+            assert_eq!(arr.len(), 0);
+        } else {
+            panic!("Expected empty Array");
         }
     }
 }
