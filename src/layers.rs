@@ -16,6 +16,7 @@
 //! ```
 
 use crate::error::{RealizarError, Result};
+use crate::generate::{sample_token, GenerationConfig};
 use crate::tensor::Tensor;
 
 /// Apply softmax activation function
@@ -1547,6 +1548,73 @@ impl Model {
 
         embed_params + block_params + head_params
     }
+
+    /// Generate tokens autoregressively
+    ///
+    /// # Arguments
+    ///
+    /// * `prompt` - Initial token IDs
+    /// * `config` - Generation configuration
+    ///
+    /// # Returns
+    ///
+    /// Vector of generated token IDs (including prompt)
+    ///
+    /// # Errors
+    ///
+    /// Returns error if generation fails
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let generated = model.generate(&[1, 2, 3], &GenerationConfig::greedy())?;
+    /// ```
+    pub fn generate(
+        &self,
+        prompt: &[usize],
+        config: &GenerationConfig,
+    ) -> Result<Vec<usize>> {
+        if prompt.is_empty() {
+            return Err(RealizarError::InvalidShape {
+                reason: "Prompt cannot be empty".to_string(),
+            });
+        }
+
+        let mut tokens = prompt.to_vec();
+        let mut rng_state = config.seed.unwrap_or(42);
+
+        for _ in 0..config.max_tokens {
+            // Forward pass
+            let logits = self.forward(&tokens)?;
+
+            // Get logits for last position
+            let seq_len = tokens.len();
+            let vocab_size = self.config.vocab_size;
+            let last_logits_start = (seq_len - 1) * vocab_size;
+            let last_logits = &logits.data()[last_logits_start..last_logits_start + vocab_size];
+
+            let last_logits_tensor = Tensor::from_vec(vec![vocab_size], last_logits.to_vec())?;
+
+            // Simple LCG for random number generation
+            rng_state = rng_state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            #[allow(clippy::cast_precision_loss)]
+            let rng_value = (rng_state >> 33) as f32 / (1u64 << 31) as f32;
+
+            // Sample next token
+            let next_token = sample_token(&last_logits_tensor, config, rng_value)?;
+
+            // Check for EOS
+            if let Some(eos_id) = config.eos_token_id {
+                if next_token == eos_id {
+                    break;
+                }
+            }
+
+            tokens.push(next_token);
+        }
+
+        Ok(tokens)
+    }
 }
 
 #[cfg(test)]
@@ -2675,5 +2743,135 @@ mod tests {
         let _blocks = model.blocks_mut();
         let _norm = model.final_norm_mut();
         let _head = model.lm_head_mut();
+    }
+
+    #[test]
+    fn test_model_generate_basic() {
+        let config = ModelConfig {
+            vocab_size: 20,
+            hidden_dim: 4,
+            num_heads: 1,
+            num_layers: 1,
+            intermediate_dim: 16,
+            eps: 1e-5,
+        };
+        let model = Model::new(config).unwrap();
+
+        let gen_config = GenerationConfig::greedy().with_max_tokens(5);
+        let tokens = model.generate(&[0], &gen_config).unwrap();
+
+        // Should have prompt + up to 5 generated tokens
+        assert!(tokens.len() <= 6);
+        assert!(!tokens.is_empty());
+        // First token should be prompt
+        assert_eq!(tokens[0], 0);
+    }
+
+    #[test]
+    fn test_model_generate_respects_max_tokens() {
+        let config = ModelConfig {
+            vocab_size: 10,
+            hidden_dim: 4,
+            num_heads: 1,
+            num_layers: 1,
+            intermediate_dim: 16,
+            eps: 1e-5,
+        };
+        let model = Model::new(config).unwrap();
+
+        let gen_config = GenerationConfig::greedy().with_max_tokens(3);
+        let tokens = model.generate(&[0, 1], &gen_config).unwrap();
+
+        // Should have 2 prompt + 3 generated = 5 max
+        assert!(tokens.len() <= 5);
+    }
+
+    #[test]
+    fn test_model_generate_with_eos() {
+        let config = ModelConfig {
+            vocab_size: 10,
+            hidden_dim: 4,
+            num_heads: 1,
+            num_layers: 1,
+            intermediate_dim: 16,
+            eps: 1e-5,
+        };
+        let model = Model::new(config).unwrap();
+
+        // Set EOS token
+        let gen_config = GenerationConfig::greedy()
+            .with_max_tokens(100)
+            .with_eos_token_id(5);
+
+        let tokens = model.generate(&[0], &gen_config).unwrap();
+
+        // Should stop before max_tokens if EOS is generated
+        // (may or may not hit EOS depending on model weights)
+        assert!(tokens.len() <= 101);
+    }
+
+    #[test]
+    fn test_model_generate_empty_prompt_error() {
+        let config = ModelConfig {
+            vocab_size: 10,
+            hidden_dim: 4,
+            num_heads: 1,
+            num_layers: 1,
+            intermediate_dim: 16,
+            eps: 1e-5,
+        };
+        let model = Model::new(config).unwrap();
+
+        let gen_config = GenerationConfig::greedy();
+        let result = model.generate(&[], &gen_config);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_model_generate_deterministic_with_seed() {
+        let config = ModelConfig {
+            vocab_size: 20,
+            hidden_dim: 4,
+            num_heads: 1,
+            num_layers: 1,
+            intermediate_dim: 16,
+            eps: 1e-5,
+        };
+        let model = Model::new(config).unwrap();
+
+        // Same seed should give same results
+        let gen_config = GenerationConfig::greedy()
+            .with_max_tokens(5)
+            .with_seed(12345);
+
+        let tokens1 = model.generate(&[0], &gen_config).unwrap();
+        let tokens2 = model.generate(&[0], &gen_config).unwrap();
+
+        assert_eq!(tokens1, tokens2);
+    }
+
+    #[test]
+    fn test_model_generate_top_k() {
+        let config = ModelConfig {
+            vocab_size: 20,
+            hidden_dim: 4,
+            num_heads: 1,
+            num_layers: 1,
+            intermediate_dim: 16,
+            eps: 1e-5,
+        };
+        let model = Model::new(config).unwrap();
+
+        let gen_config = GenerationConfig::top_k(5)
+            .with_max_tokens(3)
+            .with_seed(42);
+
+        let tokens = model.generate(&[0], &gen_config).unwrap();
+
+        // Should generate valid tokens
+        assert!(tokens.len() <= 4);
+        for &token in &tokens {
+            assert!(token < 20);
+        }
     }
 }
