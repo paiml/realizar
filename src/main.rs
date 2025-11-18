@@ -126,7 +126,7 @@ mod tests {
             Commands::Serve { port, demo, .. } => {
                 assert_eq!(port, 9090);
                 assert!(demo);
-            }
+            },
             _ => panic!("Expected Serve command"),
         }
     }
@@ -138,7 +138,7 @@ mod tests {
             Commands::Serve { host, demo, .. } => {
                 assert_eq!(host, "0.0.0.0");
                 assert!(demo);
-            }
+            },
             _ => panic!("Expected Serve command"),
         }
     }
@@ -159,7 +159,7 @@ mod tests {
             Commands::Serve { host, port, .. } => {
                 assert_eq!(host, "127.0.0.1");
                 assert_eq!(port, 8080);
-            }
+            },
             _ => panic!("Expected Serve command"),
         }
     }

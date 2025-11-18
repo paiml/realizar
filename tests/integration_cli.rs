@@ -4,9 +4,10 @@
 
 #![allow(deprecated)]
 
+use std::process::Command;
+
 use assert_cmd::{assert::OutputAssertExt, cargo::CommandCargoExt};
 use predicates::prelude::*;
-use std::process::Command;
 
 #[test]
 fn test_cli_help() {
