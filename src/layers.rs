@@ -18,6 +18,78 @@
 use crate::error::{RealizarError, Result};
 use crate::tensor::Tensor;
 
+/// Apply softmax activation function
+///
+/// Softmax: `y[i] = exp(x[i]) / sum(exp(x[j]))` for all j
+///
+/// Applies softmax normalization along the last dimension. Uses numerically stable
+/// implementation with max subtraction to prevent overflow.
+///
+/// Used in attention mechanisms for probability distributions.
+///
+/// # Arguments
+///
+/// * `input` - Input tensor
+///
+/// # Returns
+///
+/// Tensor with softmax applied along last dimension (values sum to 1.0)
+///
+/// # Errors
+///
+/// Returns error if input is empty
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// let input = Tensor::from_vec(vec![3], vec![1.0, 2.0, 3.0])?;
+/// let output = softmax(&input)?;
+/// // output sums to 1.0
+/// ```
+pub fn softmax(input: &Tensor<f32>) -> Result<Tensor<f32>> {
+    let data = input.data();
+    let shape = input.shape();
+
+    if data.is_empty() {
+        return Err(RealizarError::InvalidShape {
+            reason: "Cannot apply softmax to empty tensor".to_string(),
+        });
+    }
+
+    if shape.is_empty() {
+        return Err(RealizarError::InvalidShape {
+            reason: "Cannot apply softmax to tensor with empty shape".to_string(),
+        });
+    }
+
+    let last_dim = shape[shape.len() - 1];
+    let num_groups = data.len() / last_dim;
+    let mut output = Vec::with_capacity(data.len());
+
+    // Apply softmax to each group (row) independently
+    for group_idx in 0..num_groups {
+        let start = group_idx * last_dim;
+        let end = start + last_dim;
+        let group = &data[start..end];
+
+        // Find max for numerical stability
+        let max_val = group.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+
+        // Compute exp(x - max) for each element
+        let exp_vals: Vec<f32> = group.iter().map(|&x| (x - max_val).exp()).collect();
+
+        // Sum of exponentials
+        let sum_exp: f32 = exp_vals.iter().sum();
+
+        // Normalize to get probabilities
+        for &exp_val in &exp_vals {
+            output.push(exp_val / sum_exp);
+        }
+    }
+
+    Tensor::from_vec(shape.to_vec(), output)
+}
+
 /// Apply GELU activation function
 ///
 /// GELU (Gaussian Error Linear Unit): `y = 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x³)))`
@@ -685,6 +757,93 @@ mod tests {
         // Modify bias
         linear.bias_mut()[0] = 7.0;
         assert_eq!(linear.bias_mut()[0], 7.0);
+    }
+
+    // Softmax activation tests
+
+    #[test]
+    fn test_softmax_simple() {
+        // Simple softmax: [0, 0, 0] -> [1/3, 1/3, 1/3]
+        let input = Tensor::from_vec(vec![3], vec![0.0, 0.0, 0.0]).unwrap();
+        let output = softmax(&input).unwrap();
+
+        assert_eq!(output.shape(), &[3]);
+        // All equal inputs -> equal probabilities
+        assert!((output.data()[0] - 0.333_333).abs() < 1e-5);
+        assert!((output.data()[1] - 0.333_333).abs() < 1e-5);
+        assert!((output.data()[2] - 0.333_333).abs() < 1e-5);
+
+        // Sum should be 1.0
+        let sum: f32 = output.data().iter().sum();
+        assert!((sum - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_softmax_probabilities_sum_to_one() {
+        let input = Tensor::from_vec(vec![4], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+        let output = softmax(&input).unwrap();
+
+        // Sum should be exactly 1.0
+        let sum: f32 = output.data().iter().sum();
+        assert!((sum - 1.0).abs() < 1e-6);
+
+        // All values should be positive
+        for &val in output.data() {
+            assert!(val > 0.0);
+            assert!(val < 1.0);
+        }
+    }
+
+    #[test]
+    fn test_softmax_max_dominates() {
+        // When one value is much larger, it should dominate
+        let input = Tensor::from_vec(vec![3], vec![0.0, 0.0, 10.0]).unwrap();
+        let output = softmax(&input).unwrap();
+
+        // Last element should be close to 1.0
+        assert!(output.data()[2] > 0.999);
+        // Others should be very small
+        assert!(output.data()[0] < 0.001);
+        assert!(output.data()[1] < 0.001);
+    }
+
+    #[test]
+    fn test_softmax_batched() {
+        // Batched: [[1, 2], [3, 4]]
+        let input = Tensor::from_vec(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+        let output = softmax(&input).unwrap();
+
+        assert_eq!(output.shape(), &[2, 2]);
+
+        // Each row should sum to 1.0
+        let row1_sum = output.data()[0] + output.data()[1];
+        let row2_sum = output.data()[2] + output.data()[3];
+        assert!((row1_sum - 1.0).abs() < 1e-6);
+        assert!((row2_sum - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_softmax_numerical_stability() {
+        // Large values should not overflow
+        let input = Tensor::from_vec(vec![3], vec![1000.0, 1001.0, 1002.0]).unwrap();
+        let output = softmax(&input).unwrap();
+
+        // Should not be NaN or Inf
+        for &val in output.data() {
+            assert!(val.is_finite());
+        }
+
+        // Sum should still be 1.0
+        let sum: f32 = output.data().iter().sum();
+        assert!((sum - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_softmax_preserves_shape() {
+        let input = Tensor::from_vec(vec![2, 3, 4], vec![1.0; 24]).unwrap();
+        let output = softmax(&input).unwrap();
+
+        assert_eq!(output.shape(), &[2, 3, 4]);
     }
 
     // GELU activation tests
