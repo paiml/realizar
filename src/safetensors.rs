@@ -249,7 +249,7 @@ mod tests {
         data.extend_from_slice(&(json_bytes.len() as u64).to_le_bytes());
         data.extend_from_slice(json_bytes);
         // Add dummy tensor data
-        data.extend_from_slice(&vec![0u8; 131584]);
+        data.extend_from_slice(&vec![0u8; 131_584]);
 
         let model = SafetensorsModel::from_bytes(&data).unwrap();
         assert_eq!(model.tensors.len(), 2);
@@ -257,12 +257,12 @@ mod tests {
         let weight = model.tensors.get("layer1.weight").unwrap();
         assert_eq!(weight.dtype, SafetensorsDtype::F32);
         assert_eq!(weight.shape, vec![128, 256]);
-        assert_eq!(weight.data_offsets, [0, 131072]);
+        assert_eq!(weight.data_offsets, [0, 131_072]);
 
         let bias = model.tensors.get("layer1.bias").unwrap();
         assert_eq!(bias.dtype, SafetensorsDtype::F32);
         assert_eq!(bias.shape, vec![128]);
-        assert_eq!(bias.data_offsets, [131072, 131584]);
+        assert_eq!(bias.data_offsets, [131_072, 131_584]);
     }
 
     #[test]
@@ -278,7 +278,7 @@ mod tests {
         let mut data = Vec::new();
         data.extend_from_slice(&(json_bytes.len() as u64).to_le_bytes());
         data.extend_from_slice(json_bytes);
-        data.extend_from_slice(&vec![0u8; 20]);
+        data.extend_from_slice(&[0u8; 20]);
 
         let model = SafetensorsModel::from_bytes(&data).unwrap();
         assert_eq!(model.tensors.len(), 3);
