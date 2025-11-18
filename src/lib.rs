@@ -65,6 +65,7 @@
 
 pub mod error;
 pub mod gguf;
+pub mod safetensors;
 pub mod tensor;
 
 // Re-exports for convenience
