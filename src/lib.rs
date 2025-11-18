@@ -65,6 +65,7 @@
 
 pub mod error;
 pub mod gguf;
+pub mod layers;
 pub mod quantize;
 pub mod safetensors;
 pub mod tensor;
