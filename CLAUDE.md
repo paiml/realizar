@@ -168,8 +168,9 @@ let activated = logits.relu(); // SIMD-accelerated ReLU
 - ✅ Linear layer (6 tests, weight/bias loading)
 - ✅ GELU activation (5 tests, tanh approximation)
 - ✅ Feed-forward networks (FFN) (6 tests, 2-layer with GELU)
-- [ ] Attention mechanism (multi-head self-attention)
-- [ ] RoPE position embeddings
+- ✅ Softmax activation (6 tests, numerically stable)
+- ✅ Attention mechanism (8 tests, scaled dot-product attention)
+- ✅ RoPE position embeddings (11 tests, rotary position encoding)
 - [ ] KV cache management
 
 ### Week 5-6: Quantization ✅ COMPLETE
