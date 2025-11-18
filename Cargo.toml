@@ -5,28 +5,36 @@ edition = "2021"
 rust-version = "1.75"
 authors = ["Pragmatic AI Labs <contact@paiml.com>"]
 license = "MIT"
-description = "Pure Rust, portable, high-performance ML library with unified CPU/GPU/WASM support"
+description = "Pure Rust ML inference engine built from scratch - model serving for GGUF and safetensors"
 repository = "https://github.com/paiml/realizar"
-keywords = ["machine-learning", "simd", "gpu", "wasm", "ml"]
-categories = ["science", "mathematics", "wasm"]
+keywords = ["machine-learning", "inference", "model-serving", "gguf", "transformer"]
+categories = ["science", "web-programming::http-server"]
 
 [dependencies]
-# Core compute backend (NATIVE FIRST-CLASS SUPPORT)
+# OUR ecosystem - SIMD/GPU compute primitives (we control this)
 trueno = { path = "../trueno", version = "0.2", features = ["gpu"] }
 
-# ML algorithms (NATIVE - will be refactored to use Realizar)
-aprender = { path = "../aprender", version = "0.1", optional = true }
+# HTTP server ONLY (swappable via HttpServer trait)
+axum = "0.7"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tower = "0.4"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Serialization (for REST API, not ML code)
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 # Error handling
 thiserror = "1.0"
 anyhow = "1.0"
 
-# Serialization
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-
-# Numerical traits
+# Numerical traits (for generic code)
 num-traits = "0.2"
+
+# That's it. NO candle, NO llama-cpp-rs, NO hf-hub
+# We build everything from scratch: GGUF parser, safetensors, transformer, quantization, tokenizer
 
 [dev-dependencies]
 # Benchmarking
@@ -38,14 +46,22 @@ proptest = "1.4"
 # Test utilities
 approx = "0.5"
 
+# For testing HTTP endpoints (Phase 1)
+reqwest = { version = "0.11", features = ["json"] }
+
 [features]
-default = []
-aprender-integration = ["aprender"]
-gpu = ["trueno/gpu"]
+default = ["gpu"]
+gpu = ["trueno/gpu"]  # Enable GPU acceleration via Trueno
 
 [[bench]]
 name = "tensor_ops"
 harness = false
+
+# Future: inference benchmark (Phase 1)
+# [[bench]]
+# name = "inference"
+# harness = false
+# required-features = ["gpu"]
 
 [profile.release]
 opt-level = 3
