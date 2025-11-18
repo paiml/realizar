@@ -41,9 +41,7 @@ fn main() {
     // Example 1: Forward pass
     println!("--- Forward Pass ---");
     let prompt_tokens = vec![1, 5, 10]; // Example token IDs
-    let logits = model
-        .forward(&prompt_tokens)
-        .expect("Forward pass failed");
+    let logits = model.forward(&prompt_tokens).expect("Forward pass failed");
     println!("Input tokens: {:?}", prompt_tokens);
     println!(
         "Output logits shape: [{}, {}]",

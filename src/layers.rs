@@ -15,9 +15,11 @@
 //! let normalized = layer_norm.forward(&input)?;
 //! ```
 
-use crate::error::{RealizarError, Result};
-use crate::generate::{sample_token, GenerationConfig};
-use crate::tensor::Tensor;
+use crate::{
+    error::{RealizarError, Result},
+    generate::{sample_token, GenerationConfig},
+    tensor::Tensor,
+};
 
 /// Apply softmax activation function
 ///
@@ -951,15 +953,14 @@ impl KVCache {
     /// # Errors
     ///
     /// Returns error if layer is out of bounds, cache is full, or tensor sizes don't match
-    pub fn update(
-        &mut self,
-        layer: usize,
-        key: &Tensor<f32>,
-        value: &Tensor<f32>,
-    ) -> Result<()> {
+    pub fn update(&mut self, layer: usize, key: &Tensor<f32>, value: &Tensor<f32>) -> Result<()> {
         if layer >= self.num_layers {
             return Err(RealizarError::InvalidShape {
-                reason: format!("Layer {} out of bounds (max {})", layer, self.num_layers - 1),
+                reason: format!(
+                    "Layer {} out of bounds (max {})",
+                    layer,
+                    self.num_layers - 1
+                ),
             });
         }
         if self.current_pos >= self.max_seq_len {
@@ -1018,7 +1019,11 @@ impl KVCache {
     pub fn get_key(&self, layer: usize) -> Result<Tensor<f32>> {
         if layer >= self.num_layers {
             return Err(RealizarError::InvalidShape {
-                reason: format!("Layer {} out of bounds (max {})", layer, self.num_layers - 1),
+                reason: format!(
+                    "Layer {} out of bounds (max {})",
+                    layer,
+                    self.num_layers - 1
+                ),
             });
         }
 
@@ -1049,7 +1054,11 @@ impl KVCache {
     pub fn get_value(&self, layer: usize) -> Result<Tensor<f32>> {
         if layer >= self.num_layers {
             return Err(RealizarError::InvalidShape {
-                reason: format!("Layer {} out of bounds (max {})", layer, self.num_layers - 1),
+                reason: format!(
+                    "Layer {} out of bounds (max {})",
+                    layer,
+                    self.num_layers - 1
+                ),
             });
         }
 
@@ -1542,7 +1551,8 @@ impl Model {
                 // For now just count layer norms and FFN
                 2 * self.config.hidden_dim  // Layer norm weights
                 + self.config.hidden_dim * self.config.intermediate_dim  // fc1
-                + self.config.intermediate_dim * self.config.hidden_dim  // fc2
+                + self.config.intermediate_dim * self.config.hidden_dim
+                // fc2
             );
         let head_params = self.config.hidden_dim * self.config.vocab_size;
 
@@ -1569,11 +1579,7 @@ impl Model {
     /// ```rust,ignore
     /// let generated = model.generate(&[1, 2, 3], &GenerationConfig::greedy())?;
     /// ```
-    pub fn generate(
-        &self,
-        prompt: &[usize],
-        config: &GenerationConfig,
-    ) -> Result<Vec<usize>> {
+    pub fn generate(&self, prompt: &[usize], config: &GenerationConfig) -> Result<Vec<usize>> {
         if prompt.is_empty() {
             return Err(RealizarError::InvalidShape {
                 reason: "Prompt cannot be empty".to_string(),
@@ -1596,7 +1602,9 @@ impl Model {
             let last_logits_tensor = Tensor::from_vec(vec![vocab_size], last_logits.to_vec())?;
 
             // Simple LCG for random number generation
-            rng_state = rng_state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            rng_state = rng_state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1);
             #[allow(clippy::cast_precision_loss)]
             let rng_value = (rng_state >> 33) as f32 / (1u64 << 31) as f32;
 
@@ -2862,9 +2870,7 @@ mod tests {
         };
         let model = Model::new(config).unwrap();
 
-        let gen_config = GenerationConfig::top_k(5)
-            .with_max_tokens(3)
-            .with_seed(42);
+        let gen_config = GenerationConfig::top_k(5).with_max_tokens(3).with_seed(42);
 
         let tokens = model.generate(&[0], &gen_config).unwrap();
 

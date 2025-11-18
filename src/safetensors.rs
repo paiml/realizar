@@ -349,13 +349,31 @@ mod tests {
         let model = SafetensorsModel::from_bytes(&data).unwrap();
         assert_eq!(model.tensors.len(), 7);
 
-        assert_eq!(model.tensors.get("f32").unwrap().dtype, SafetensorsDtype::F32);
-        assert_eq!(model.tensors.get("f16").unwrap().dtype, SafetensorsDtype::F16);
-        assert_eq!(model.tensors.get("bf16").unwrap().dtype, SafetensorsDtype::BF16);
-        assert_eq!(model.tensors.get("i32").unwrap().dtype, SafetensorsDtype::I32);
-        assert_eq!(model.tensors.get("i64").unwrap().dtype, SafetensorsDtype::I64);
+        assert_eq!(
+            model.tensors.get("f32").unwrap().dtype,
+            SafetensorsDtype::F32
+        );
+        assert_eq!(
+            model.tensors.get("f16").unwrap().dtype,
+            SafetensorsDtype::F16
+        );
+        assert_eq!(
+            model.tensors.get("bf16").unwrap().dtype,
+            SafetensorsDtype::BF16
+        );
+        assert_eq!(
+            model.tensors.get("i32").unwrap().dtype,
+            SafetensorsDtype::I32
+        );
+        assert_eq!(
+            model.tensors.get("i64").unwrap().dtype,
+            SafetensorsDtype::I64
+        );
         assert_eq!(model.tensors.get("u8").unwrap().dtype, SafetensorsDtype::U8);
-        assert_eq!(model.tensors.get("bool").unwrap().dtype, SafetensorsDtype::Bool);
+        assert_eq!(
+            model.tensors.get("bool").unwrap().dtype,
+            SafetensorsDtype::Bool
+        );
     }
 
     #[test]
@@ -400,7 +418,10 @@ mod tests {
         let model = SafetensorsModel::from_bytes(&data).unwrap();
         assert_eq!(model.tensors.len(), 4);
 
-        assert_eq!(model.tensors.get("scalar").unwrap().shape, Vec::<usize>::new());
+        assert_eq!(
+            model.tensors.get("scalar").unwrap().shape,
+            Vec::<usize>::new()
+        );
         assert_eq!(model.tensors.get("vector").unwrap().shape, vec![10]);
         assert_eq!(model.tensors.get("matrix").unwrap().shape, vec![3, 4]);
         assert_eq!(model.tensors.get("tensor3d").unwrap().shape, vec![2, 3, 4]);

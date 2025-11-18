@@ -7,9 +7,10 @@
 //!
 //! Run with: cargo run --example api_server
 
+use std::net::SocketAddr;
+
 use anyhow::Result;
 use realizar::api::{create_router, AppState};
-use std::net::SocketAddr;
 
 #[tokio::main]
 async fn main() -> Result<()> {

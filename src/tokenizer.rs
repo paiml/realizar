@@ -162,12 +162,13 @@ impl BPETokenizer {
             id_to_token.insert(id, token);
         }
 
-        let unk_token_id = *token_to_id.get(unk_token).ok_or_else(|| {
-            RealizarError::UnsupportedOperation {
-                operation: "create_bpe_tokenizer".to_string(),
-                reason: format!("Unknown token '{unk_token}' not in vocabulary"),
-            }
-        })?;
+        let unk_token_id =
+            *token_to_id
+                .get(unk_token)
+                .ok_or_else(|| RealizarError::UnsupportedOperation {
+                    operation: "create_bpe_tokenizer".to_string(),
+                    reason: format!("Unknown token '{unk_token}' not in vocabulary"),
+                })?;
 
         Ok(Self {
             token_to_id,
@@ -269,12 +270,13 @@ impl BPETokenizer {
         let mut result = String::new();
 
         for &id in token_ids {
-            let token = self.id_to_token.get(&id).ok_or_else(|| {
-                RealizarError::UnsupportedOperation {
-                    operation: "decode_bpe_token".to_string(),
-                    reason: format!("Invalid token ID: {id}"),
-                }
-            })?;
+            let token =
+                self.id_to_token
+                    .get(&id)
+                    .ok_or_else(|| RealizarError::UnsupportedOperation {
+                        operation: "decode_bpe_token".to_string(),
+                        reason: format!("Invalid token ID: {id}"),
+                    })?;
             result.push_str(token);
         }
 
@@ -352,12 +354,13 @@ impl SentencePieceTokenizer {
             scores.insert(token, score);
         }
 
-        let unk_token_id = *token_to_id.get(unk_token).ok_or_else(|| {
-            RealizarError::UnsupportedOperation {
-                operation: "create_sentencepiece_tokenizer".to_string(),
-                reason: format!("Unknown token '{unk_token}' not in vocabulary"),
-            }
-        })?;
+        let unk_token_id =
+            *token_to_id
+                .get(unk_token)
+                .ok_or_else(|| RealizarError::UnsupportedOperation {
+                    operation: "create_sentencepiece_tokenizer".to_string(),
+                    reason: format!("Unknown token '{unk_token}' not in vocabulary"),
+                })?;
 
         Ok(Self {
             token_to_id,
@@ -455,12 +458,13 @@ impl SentencePieceTokenizer {
         let mut result = String::new();
 
         for &id in token_ids {
-            let token = self.id_to_token.get(&id).ok_or_else(|| {
-                RealizarError::UnsupportedOperation {
-                    operation: "decode_sentencepiece_token".to_string(),
-                    reason: format!("Invalid token ID: {id}"),
-                }
-            })?;
+            let token =
+                self.id_to_token
+                    .get(&id)
+                    .ok_or_else(|| RealizarError::UnsupportedOperation {
+                        operation: "decode_sentencepiece_token".to_string(),
+                        reason: format!("Invalid token ID: {id}"),
+                    })?;
             result.push_str(token);
         }
 
@@ -511,12 +515,13 @@ impl Tokenizer {
     /// let tokenizer = Tokenizer::new(vocab, "<unk>")?;
     /// ```
     pub fn new(vocab: Vocabulary, unk_token: &str) -> Result<Self> {
-        let unk_token_id = vocab.get_id(unk_token).ok_or_else(|| {
-            RealizarError::UnsupportedOperation {
-                operation: "create_tokenizer".to_string(),
-                reason: format!("Unknown token '{unk_token}' not in vocabulary"),
-            }
-        })?;
+        let unk_token_id =
+            vocab
+                .get_id(unk_token)
+                .ok_or_else(|| RealizarError::UnsupportedOperation {
+                    operation: "create_tokenizer".to_string(),
+                    reason: format!("Unknown token '{unk_token}' not in vocabulary"),
+                })?;
 
         Ok(Self {
             vocab,
@@ -543,11 +548,7 @@ impl Tokenizer {
     #[must_use]
     pub fn encode(&self, text: &str) -> Vec<u32> {
         text.split_whitespace()
-            .map(|word| {
-                self.vocab
-                    .get_id(word)
-                    .unwrap_or(self.unk_token_id)
-            })
+            .map(|word| self.vocab.get_id(word).unwrap_or(self.unk_token_id))
             .collect()
     }
 
@@ -575,12 +576,12 @@ impl Tokenizer {
         let tokens: Result<Vec<&str>> = token_ids
             .iter()
             .map(|&id| {
-                self.vocab.get_token(id).ok_or_else(|| {
-                    RealizarError::UnsupportedOperation {
+                self.vocab
+                    .get_token(id)
+                    .ok_or_else(|| RealizarError::UnsupportedOperation {
                         operation: "decode_token".to_string(),
                         reason: format!("Invalid token ID: {id}"),
-                    }
-                })
+                    })
             })
             .collect();
 
@@ -662,10 +663,7 @@ mod tests {
 
     #[test]
     fn test_tokenizer_unknown_token() {
-        let tokens = vec![
-            "<unk>".to_string(),
-            "hello".to_string(),
-        ];
+        let tokens = vec!["<unk>".to_string(), "hello".to_string()];
         let vocab = Vocabulary::from_tokens(tokens).unwrap();
         let tokenizer = Tokenizer::new(vocab, "<unk>").unwrap();
 
@@ -760,11 +758,7 @@ mod tests {
     #[test]
     fn test_bpe_encode_no_merges() {
         // Simple character-level tokenization without merges
-        let vocab = vec![
-            "<unk>".to_string(),
-            "h".to_string(),
-            "i".to_string(),
-        ];
+        let vocab = vec!["<unk>".to_string(), "h".to_string(), "i".to_string()];
         let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").unwrap();
 
         let encoded = tokenizer.encode("hi");
@@ -796,11 +790,7 @@ mod tests {
 
     #[test]
     fn test_bpe_encode_unknown_char() {
-        let vocab = vec![
-            "<unk>".to_string(),
-            "h".to_string(),
-            "i".to_string(),
-        ];
+        let vocab = vec!["<unk>".to_string(), "h".to_string(), "i".to_string()];
         let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").unwrap();
 
         // 'x' is not in vocab, should map to <unk>
@@ -838,11 +828,7 @@ mod tests {
 
     #[test]
     fn test_bpe_decode() {
-        let vocab = vec![
-            "<unk>".to_string(),
-            "hel".to_string(),
-            "lo".to_string(),
-        ];
+        let vocab = vec!["<unk>".to_string(), "hel".to_string(), "lo".to_string()];
         let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").unwrap();
 
         let decoded = tokenizer.decode(&[1, 2]).unwrap();
@@ -898,10 +884,7 @@ mod tests {
 
     #[test]
     fn test_bpe_get_token_methods() {
-        let vocab = vec![
-            "<unk>".to_string(),
-            "hello".to_string(),
-        ];
+        let vocab = vec!["<unk>".to_string(), "hello".to_string()];
         let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").unwrap();
 
         assert_eq!(tokenizer.get_token_id("hello"), Some(1));
@@ -970,10 +953,7 @@ mod tests {
 
     #[test]
     fn test_sentencepiece_encode_single_token() {
-        let vocab = vec![
-            ("<unk>".to_string(), 0.0),
-            ("hello".to_string(), -1.0),
-        ];
+        let vocab = vec![("<unk>".to_string(), 0.0), ("hello".to_string(), -1.0)];
         let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").unwrap();
 
         let encoded = tokenizer.encode("hello");
@@ -1071,10 +1051,7 @@ mod tests {
 
     #[test]
     fn test_sentencepiece_get_methods() {
-        let vocab = vec![
-            ("<unk>".to_string(), 0.0),
-            ("hello".to_string(), -1.5),
-        ];
+        let vocab = vec![("<unk>".to_string(), 0.0), ("hello".to_string(), -1.5)];
         let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").unwrap();
 
         assert_eq!(tokenizer.get_token_id("hello"), Some(1));
@@ -1100,7 +1077,7 @@ mod tests {
         assert_eq!(encoded.len(), 3);
         assert_eq!(encoded[0], 1); // h
         assert_eq!(encoded[1], 2); // i
-        // x should map to unk
+                                   // x should map to unk
         assert_eq!(encoded[2], 0);
     }
 
