@@ -187,7 +187,7 @@ let activated = logits.relu(); // SIMD-accelerated ReLU
 - ✅ Generation loop (6 tests, token sampling)
 - ✅ Sampling strategies (16 tests, greedy/top-k/top-p)
 - ✅ BPE tokenizer (14 tests, byte pair encoding)
-- [ ] SentencePiece tokenizer
+- ✅ SentencePiece tokenizer (14 tests, unigram model)
 - [ ] HTTP API with axum
 
 ## Quality Standards

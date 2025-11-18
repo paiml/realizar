@@ -300,6 +300,198 @@ impl BPETokenizer {
     }
 }
 
+/// `SentencePiece` tokenizer (Unigram model)
+///
+/// Implements subword tokenization using unigram language model.
+/// Used by `LLaMA`, T5, ALBERT, and many other models.
+///
+/// Unlike BPE which uses greedy merges, `SentencePiece` finds the
+/// most likely segmentation using token scores (log probabilities).
+#[derive(Debug, Clone)]
+pub struct SentencePieceTokenizer {
+    /// Token to ID mapping
+    token_to_id: HashMap<String, u32>,
+    /// ID to token mapping
+    id_to_token: HashMap<u32, String>,
+    /// Token scores (log probabilities)
+    scores: HashMap<String, f32>,
+    /// Unknown token ID
+    unk_token_id: u32,
+}
+
+impl SentencePieceTokenizer {
+    /// Create a new `SentencePiece` tokenizer
+    ///
+    /// # Arguments
+    ///
+    /// * `vocab` - List of (token, score) pairs where score is log probability
+    /// * `unk_token` - Unknown token string
+    ///
+    /// # Errors
+    ///
+    /// Returns error if vocabulary is empty or unknown token not found
+    pub fn new(vocab: Vec<(String, f32)>, unk_token: &str) -> Result<Self> {
+        if vocab.is_empty() {
+            return Err(RealizarError::UnsupportedOperation {
+                operation: "create_sentencepiece_tokenizer".to_string(),
+                reason: "Vocabulary cannot be empty".to_string(),
+            });
+        }
+
+        let mut token_to_id = HashMap::new();
+        let mut id_to_token = HashMap::new();
+        let mut scores = HashMap::new();
+
+        for (id, (token, score)) in vocab.into_iter().enumerate() {
+            let id = u32::try_from(id).map_err(|_| RealizarError::UnsupportedOperation {
+                operation: "convert_token_id".to_string(),
+                reason: format!("Token ID {id} exceeds u32 limit"),
+            })?;
+            token_to_id.insert(token.clone(), id);
+            id_to_token.insert(id, token.clone());
+            scores.insert(token, score);
+        }
+
+        let unk_token_id = *token_to_id.get(unk_token).ok_or_else(|| {
+            RealizarError::UnsupportedOperation {
+                operation: "create_sentencepiece_tokenizer".to_string(),
+                reason: format!("Unknown token '{unk_token}' not in vocabulary"),
+            }
+        })?;
+
+        Ok(Self {
+            token_to_id,
+            id_to_token,
+            scores,
+            unk_token_id,
+        })
+    }
+
+    /// Encode text to token IDs using Viterbi algorithm
+    ///
+    /// Finds the most likely segmentation based on token scores.
+    ///
+    /// # Arguments
+    ///
+    /// * `text` - Input text to encode
+    ///
+    /// # Returns
+    ///
+    /// Vector of token IDs
+    #[must_use]
+    pub fn encode(&self, text: &str) -> Vec<u32> {
+        if text.is_empty() {
+            return Vec::new();
+        }
+
+        let chars: Vec<char> = text.chars().collect();
+        let n = chars.len();
+
+        // Viterbi algorithm for finding best segmentation
+        // best_score[i] = best score to reach position i
+        // best_token[i] = token that ends at position i in best path
+        let mut best_score = vec![f32::NEG_INFINITY; n + 1];
+        let mut best_token: Vec<Option<String>> = vec![None; n + 1];
+        best_score[0] = 0.0;
+
+        for end in 1..=n {
+            for start in 0..end {
+                let substr: String = chars[start..end].iter().collect();
+                if let Some(&score) = self.scores.get(&substr) {
+                    let new_score = best_score[start] + score;
+                    if new_score > best_score[end] {
+                        best_score[end] = new_score;
+                        best_token[end] = Some(substr);
+                    }
+                }
+            }
+
+            // If no token found ending at this position, use single character as unknown
+            if best_token[end].is_none() && best_score[end - 1] > f32::NEG_INFINITY {
+                let char_str: String = chars[end - 1..end].iter().collect();
+                best_score[end] = best_score[end - 1] - 100.0; // Penalty for unknown
+                best_token[end] = Some(char_str);
+            }
+        }
+
+        // Backtrack to get tokens
+        let mut tokens = Vec::new();
+        let mut pos = n;
+        while pos > 0 {
+            if let Some(token) = &best_token[pos] {
+                tokens.push(token.clone());
+                pos -= token.chars().count();
+            } else {
+                // Fallback: single character
+                let char_str: String = chars[pos - 1..pos].iter().collect();
+                tokens.push(char_str);
+                pos -= 1;
+            }
+        }
+        tokens.reverse();
+
+        // Convert tokens to IDs
+        tokens
+            .into_iter()
+            .map(|t| {
+                self.token_to_id
+                    .get(&t)
+                    .copied()
+                    .unwrap_or(self.unk_token_id)
+            })
+            .collect()
+    }
+
+    /// Decode token IDs to text
+    ///
+    /// # Arguments
+    ///
+    /// * `token_ids` - Token IDs to decode
+    ///
+    /// # Errors
+    ///
+    /// Returns error if any token ID is invalid
+    pub fn decode(&self, token_ids: &[u32]) -> Result<String> {
+        let mut result = String::new();
+
+        for &id in token_ids {
+            let token = self.id_to_token.get(&id).ok_or_else(|| {
+                RealizarError::UnsupportedOperation {
+                    operation: "decode_sentencepiece_token".to_string(),
+                    reason: format!("Invalid token ID: {id}"),
+                }
+            })?;
+            result.push_str(token);
+        }
+
+        Ok(result)
+    }
+
+    /// Get vocabulary size
+    #[must_use]
+    pub fn vocab_size(&self) -> usize {
+        self.token_to_id.len()
+    }
+
+    /// Get token ID for a token
+    #[must_use]
+    pub fn get_token_id(&self, token: &str) -> Option<u32> {
+        self.token_to_id.get(token).copied()
+    }
+
+    /// Get token for a token ID
+    #[must_use]
+    pub fn get_token(&self, id: u32) -> Option<&str> {
+        self.id_to_token.get(&id).map(String::as_str)
+    }
+
+    /// Get score for a token
+    #[must_use]
+    pub fn get_score(&self, token: &str) -> Option<f32> {
+        self.scores.get(token).copied()
+    }
+}
+
 impl Tokenizer {
     /// Create a new tokenizer from vocabulary
     ///
@@ -738,5 +930,191 @@ mod tests {
         // First: a+b -> ab, a+b -> ab giving [ab, ab]
         // Then: ab+ab -> abab giving [abab]
         assert_eq!(encoded, vec![4]);
+    }
+
+    // SentencePiece Tokenizer tests
+
+    #[test]
+    fn test_sentencepiece_tokenizer_creation() {
+        let vocab = vec![
+            ("<unk>".to_string(), 0.0),
+            ("hello".to_string(), -1.0),
+            ("world".to_string(), -1.5),
+        ];
+
+        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").unwrap();
+        assert_eq!(tokenizer.vocab_size(), 3);
+    }
+
+    #[test]
+    fn test_sentencepiece_empty_vocab_error() {
+        let result = SentencePieceTokenizer::new(vec![], "<unk>");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_sentencepiece_invalid_unk_token_error() {
+        let vocab = vec![("hello".to_string(), -1.0)];
+        let result = SentencePieceTokenizer::new(vocab, "<unk>");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_sentencepiece_encode_empty() {
+        let vocab = vec![("<unk>".to_string(), 0.0)];
+        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").unwrap();
+
+        let encoded = tokenizer.encode("");
+        assert!(encoded.is_empty());
+    }
+
+    #[test]
+    fn test_sentencepiece_encode_single_token() {
+        let vocab = vec![
+            ("<unk>".to_string(), 0.0),
+            ("hello".to_string(), -1.0),
+        ];
+        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").unwrap();
+
+        let encoded = tokenizer.encode("hello");
+        assert_eq!(encoded, vec![1]);
+    }
+
+    #[test]
+    fn test_sentencepiece_encode_prefers_higher_score() {
+        // "hello" as single token has score -1.0
+        // "hel" + "lo" would have score -2.0 + -2.0 = -4.0
+        // So "hello" should be preferred
+        let vocab = vec![
+            ("<unk>".to_string(), 0.0),
+            ("h".to_string(), -5.0),
+            ("e".to_string(), -5.0),
+            ("l".to_string(), -5.0),
+            ("o".to_string(), -5.0),
+            ("hel".to_string(), -2.0),
+            ("lo".to_string(), -2.0),
+            ("hello".to_string(), -1.0),
+        ];
+        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").unwrap();
+
+        let encoded = tokenizer.encode("hello");
+        // Should prefer single "hello" token (score -1.0) over subwords
+        assert_eq!(encoded, vec![7]);
+    }
+
+    #[test]
+    fn test_sentencepiece_encode_subwords() {
+        // Only subwords available, not full word
+        let vocab = vec![
+            ("<unk>".to_string(), 0.0),
+            ("h".to_string(), -1.0),
+            ("e".to_string(), -1.0),
+            ("l".to_string(), -1.0),
+            ("o".to_string(), -1.0),
+            ("he".to_string(), -0.5),
+            ("llo".to_string(), -0.5),
+        ];
+        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").unwrap();
+
+        let encoded = tokenizer.encode("hello");
+        // "he" (-0.5) + "llo" (-0.5) = -1.0 is better than "h" + "e" + "l" + "l" + "o" = -5.0
+        assert_eq!(encoded, vec![5, 6]);
+    }
+
+    #[test]
+    fn test_sentencepiece_decode() {
+        let vocab = vec![
+            ("<unk>".to_string(), 0.0),
+            ("hel".to_string(), -1.0),
+            ("lo".to_string(), -1.0),
+        ];
+        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").unwrap();
+
+        let decoded = tokenizer.decode(&[1, 2]).unwrap();
+        assert_eq!(decoded, "hello");
+    }
+
+    #[test]
+    fn test_sentencepiece_decode_empty() {
+        let vocab = vec![("<unk>".to_string(), 0.0)];
+        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").unwrap();
+
+        let decoded = tokenizer.decode(&[]).unwrap();
+        assert_eq!(decoded, "");
+    }
+
+    #[test]
+    fn test_sentencepiece_decode_invalid_id_error() {
+        let vocab = vec![("<unk>".to_string(), 0.0), ("hi".to_string(), -1.0)];
+        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").unwrap();
+
+        let result = tokenizer.decode(&[1, 999]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_sentencepiece_encode_decode_roundtrip() {
+        let vocab = vec![
+            ("<unk>".to_string(), 0.0),
+            ("h".to_string(), -2.0),
+            ("e".to_string(), -2.0),
+            ("l".to_string(), -2.0),
+            ("o".to_string(), -2.0),
+            ("hello".to_string(), -1.0),
+        ];
+        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").unwrap();
+
+        let encoded = tokenizer.encode("hello");
+        let decoded = tokenizer.decode(&encoded).unwrap();
+        assert_eq!(decoded, "hello");
+    }
+
+    #[test]
+    fn test_sentencepiece_get_methods() {
+        let vocab = vec![
+            ("<unk>".to_string(), 0.0),
+            ("hello".to_string(), -1.5),
+        ];
+        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").unwrap();
+
+        assert_eq!(tokenizer.get_token_id("hello"), Some(1));
+        assert_eq!(tokenizer.get_token_id("world"), None);
+        assert_eq!(tokenizer.get_token(1), Some("hello"));
+        assert_eq!(tokenizer.get_token(999), None);
+        assert!((tokenizer.get_score("hello").unwrap() - (-1.5)).abs() < 1e-6);
+        assert_eq!(tokenizer.get_score("world"), None);
+    }
+
+    #[test]
+    fn test_sentencepiece_unknown_character() {
+        // Character not in vocabulary should use unknown penalty
+        let vocab = vec![
+            ("<unk>".to_string(), 0.0),
+            ("h".to_string(), -1.0),
+            ("i".to_string(), -1.0),
+        ];
+        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").unwrap();
+
+        // 'x' is not in vocab, should be tokenized with penalty
+        let encoded = tokenizer.encode("hix");
+        assert_eq!(encoded.len(), 3);
+        assert_eq!(encoded[0], 1); // h
+        assert_eq!(encoded[1], 2); // i
+        // x should map to unk
+        assert_eq!(encoded[2], 0);
+    }
+
+    #[test]
+    fn test_sentencepiece_multiple_words() {
+        let vocab = vec![
+            ("<unk>".to_string(), 0.0),
+            ("hello".to_string(), -1.0),
+            (" ".to_string(), -0.5),
+            ("world".to_string(), -1.0),
+        ];
+        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").unwrap();
+
+        let encoded = tokenizer.encode("hello world");
+        assert_eq!(encoded, vec![1, 2, 3]); // hello, space, world
     }
 }
