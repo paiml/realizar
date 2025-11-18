@@ -222,8 +222,9 @@ mod tests {
         data.extend_from_slice(&0.5f32.to_le_bytes());
 
         // 32 int8 values
-        for i in 0..32 {
-            data.push((i as i8).to_le_bytes()[0]);
+        #[allow(clippy::cast_possible_truncation)]
+        for i in 0..32_i8 {
+            data.push(i.to_le_bytes()[0]);
         }
 
         let result = dequantize_q8_0(&data).unwrap();

@@ -62,6 +62,8 @@
 // Multiple crate versions are acceptable for dependencies
 // #![warn(clippy::cargo)]
 #![allow(clippy::module_name_repetitions)]
+// Large stack arrays are acceptable in tests for test data
+#![allow(clippy::large_stack_arrays)]
 
 pub mod error;
 pub mod gguf;

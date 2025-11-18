@@ -550,6 +550,156 @@ impl FeedForward {
     }
 }
 
+/// Scaled dot-product attention
+///
+/// Computes attention as:
+/// ```text
+/// Attention(Q, K, V) = softmax(Q @ K.T / sqrt(d_k)) @ V
+/// ```
+///
+/// This is a building block for multi-head attention.
+///
+/// # References
+///
+/// "Attention is All You Need" - Vaswani et al., 2017
+#[derive(Debug, Clone)]
+pub struct Attention {
+    /// Head dimension (`d_k` = `d_model` / `num_heads`)
+    head_dim: usize,
+    /// Scale factor: 1 / `sqrt(head_dim)`
+    scale: f32,
+}
+
+impl Attention {
+    /// Create a new attention layer
+    ///
+    /// # Arguments
+    ///
+    /// * `head_dim` - Dimension of each attention head
+    ///
+    /// # Errors
+    ///
+    /// Returns error if `head_dim` is zero
+    pub fn new(head_dim: usize) -> Result<Self> {
+        if head_dim == 0 {
+            return Err(RealizarError::InvalidShape {
+                reason: "head_dim must be > 0".to_string(),
+            });
+        }
+
+        #[allow(clippy::cast_precision_loss)]
+        let scale = 1.0 / (head_dim as f32).sqrt();
+
+        Ok(Self { head_dim, scale })
+    }
+
+    /// Compute scaled dot-product attention
+    ///
+    /// # Arguments
+    ///
+    /// * `query` - Query tensor `[seq_len, head_dim]`
+    /// * `key` - Key tensor `[seq_len, head_dim]`
+    /// * `value` - Value tensor `[seq_len, head_dim]`
+    ///
+    /// # Returns
+    ///
+    /// Output tensor `[seq_len, head_dim]`
+    ///
+    /// # Errors
+    ///
+    /// Returns error if shapes don't match
+    pub fn forward(
+        &self,
+        query: &Tensor<f32>,
+        key: &Tensor<f32>,
+        value: &Tensor<f32>,
+    ) -> Result<Tensor<f32>> {
+        let q_shape = query.shape();
+        let k_shape = key.shape();
+        let v_shape = value.shape();
+
+        // Validate shapes
+        if q_shape.is_empty() || k_shape.is_empty() || v_shape.is_empty() {
+            return Err(RealizarError::InvalidShape {
+                reason: "Query, key, value tensors must have at least 1 dimension".to_string(),
+            });
+        }
+
+        let q_last = q_shape[q_shape.len() - 1];
+        let k_last = k_shape[k_shape.len() - 1];
+        let v_last = v_shape[v_shape.len() - 1];
+
+        if q_last != self.head_dim || k_last != self.head_dim || v_last != self.head_dim {
+            return Err(RealizarError::InvalidShape {
+                reason: format!(
+                    "Expected head_dim={}, got Q={}, K={}, V={}",
+                    self.head_dim, q_last, k_last, v_last
+                ),
+            });
+        }
+
+        // Get sequence lengths
+        let q_seq_len = if q_shape.len() > 1 { q_shape[0] } else { 1 };
+        let k_seq_len = if k_shape.len() > 1 { k_shape[0] } else { 1 };
+        let v_seq_len = if v_shape.len() > 1 { v_shape[0] } else { 1 };
+
+        if k_seq_len != v_seq_len {
+            return Err(RealizarError::InvalidShape {
+                reason: format!("Key seq_len {k_seq_len} != Value seq_len {v_seq_len}"),
+            });
+        }
+
+        let q_data = query.data();
+        let k_data = key.data();
+        let v_data = value.data();
+
+        // Compute attention scores: Q @ K.T
+        // scores[i][j] = sum(Q[i][k] * K[j][k]) for all k
+        let mut scores = Vec::with_capacity(q_seq_len * k_seq_len);
+        for i in 0..q_seq_len {
+            for j in 0..k_seq_len {
+                let mut dot = 0.0;
+                for k in 0..self.head_dim {
+                    dot += q_data[i * self.head_dim + k] * k_data[j * self.head_dim + k];
+                }
+                scores.push(dot * self.scale);
+            }
+        }
+
+        // Apply softmax to each row of scores
+        let scores_tensor = Tensor::from_vec(vec![q_seq_len, k_seq_len], scores)?;
+        let attn_weights = softmax(&scores_tensor)?;
+        let attn_data = attn_weights.data();
+
+        // Compute output: attn_weights @ V
+        // output[i][k] = sum(attn_weights[i][j] * V[j][k]) for all j
+        let mut output = Vec::with_capacity(q_seq_len * self.head_dim);
+        for i in 0..q_seq_len {
+            for k in 0..self.head_dim {
+                let mut sum = 0.0;
+                for j in 0..k_seq_len {
+                    sum += attn_data[i * k_seq_len + j] * v_data[j * self.head_dim + k];
+                }
+                output.push(sum);
+            }
+        }
+
+        Tensor::from_vec(vec![q_seq_len, self.head_dim], output)
+    }
+
+    /// Get head dimension
+    #[must_use]
+    pub fn head_dim(&self) -> usize {
+        self.head_dim
+    }
+
+    /// Get scale factor
+    #[must_use]
+    pub fn scale(&self) -> f32 {
+        self.scale
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -558,7 +708,7 @@ mod tests {
     fn test_layer_norm_creation() {
         let layer_norm = LayerNorm::new(512, 1e-5).unwrap();
         assert_eq!(layer_norm.normalized_shape(), 512);
-        assert_eq!(layer_norm.eps(), 1e-5);
+        assert!((layer_norm.eps() - 1e-5).abs() < 1e-10);
     }
 
     #[test]
@@ -752,11 +902,11 @@ mod tests {
 
         // Modify weights
         linear.weight_mut()[0] = 42.0;
-        assert_eq!(linear.weight_mut()[0], 42.0);
+        assert!((linear.weight_mut()[0] - 42.0).abs() < 1e-6);
 
         // Modify bias
         linear.bias_mut()[0] = 7.0;
-        assert_eq!(linear.bias_mut()[0], 7.0);
+        assert!((linear.bias_mut()[0] - 7.0).abs() < 1e-6);
     }
 
     // Softmax activation tests
@@ -978,10 +1128,141 @@ mod tests {
 
         // Modify fc1 weights
         ffn.fc1_mut().weight_mut()[0] = 42.0;
-        assert_eq!(ffn.fc1_mut().weight_mut()[0], 42.0);
+        assert!((ffn.fc1_mut().weight_mut()[0] - 42.0).abs() < 1e-6);
 
         // Modify fc2 bias
         ffn.fc2_mut().bias_mut()[0] = 7.0;
-        assert_eq!(ffn.fc2_mut().bias_mut()[0], 7.0);
+        assert!((ffn.fc2_mut().bias_mut()[0] - 7.0).abs() < 1e-6);
+    }
+
+    // Attention tests
+
+    #[test]
+    fn test_attention_creation() {
+        let attn = Attention::new(64).unwrap();
+        assert_eq!(attn.head_dim(), 64);
+        // scale = 1 / sqrt(64) = 1/8 = 0.125
+        assert!((attn.scale() - 0.125).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_attention_zero_head_dim_error() {
+        let result = Attention::new(0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_attention_forward_shape() {
+        let attn = Attention::new(4).unwrap();
+
+        // Q, K, V all have shape [3, 4] (seq_len=3, head_dim=4)
+        let q = Tensor::from_vec(vec![3, 4], vec![0.1; 12]).unwrap();
+        let k = Tensor::from_vec(vec![3, 4], vec![0.2; 12]).unwrap();
+        let v = Tensor::from_vec(vec![3, 4], vec![0.3; 12]).unwrap();
+
+        let output = attn.forward(&q, &k, &v).unwrap();
+
+        // Output should have shape [3, 4]
+        assert_eq!(output.shape(), &[3, 4]);
+        assert_eq!(output.data().len(), 12);
+    }
+
+    #[test]
+    fn test_attention_forward_computation() {
+        let attn = Attention::new(2).unwrap();
+
+        // Simple 2x2 case for manual verification
+        // Q = [[1, 0], [0, 1]]
+        // K = [[1, 0], [0, 1]]
+        // V = [[1, 2], [3, 4]]
+        let q = Tensor::from_vec(vec![2, 2], vec![1.0, 0.0, 0.0, 1.0]).unwrap();
+        let k = Tensor::from_vec(vec![2, 2], vec![1.0, 0.0, 0.0, 1.0]).unwrap();
+        let v = Tensor::from_vec(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+
+        let output = attn.forward(&q, &k, &v).unwrap();
+
+        // Output should be valid (not NaN, not Inf)
+        assert_eq!(output.shape(), &[2, 2]);
+        for &val in output.data() {
+            assert!(val.is_finite());
+        }
+
+        // First row of Q=[1,0] has dot products: with K[0]=[1,0] -> 1, with K[1]=[0,1] -> 0
+        // After scaling and softmax, should attend more to first position
+        // So output[0] should be closer to V[0]=[1,2] than V[1]=[3,4]
+        assert!(output.data()[0] < 2.0); // Closer to 1 than 3
+        assert!(output.data()[1] < 3.0); // Closer to 2 than 4
+    }
+
+    #[test]
+    fn test_attention_shape_mismatch_error() {
+        let attn = Attention::new(4).unwrap();
+
+        // Q has head_dim=4, K has head_dim=3
+        let q = Tensor::from_vec(vec![2, 4], vec![0.1; 8]).unwrap();
+        let k = Tensor::from_vec(vec![2, 3], vec![0.2; 6]).unwrap();
+        let v = Tensor::from_vec(vec![2, 4], vec![0.3; 8]).unwrap();
+
+        let result = attn.forward(&q, &k, &v);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_attention_kv_seq_len_mismatch_error() {
+        let attn = Attention::new(4).unwrap();
+
+        // K has seq_len=3, V has seq_len=2
+        let q = Tensor::from_vec(vec![2, 4], vec![0.1; 8]).unwrap();
+        let k = Tensor::from_vec(vec![3, 4], vec![0.2; 12]).unwrap();
+        let v = Tensor::from_vec(vec![2, 4], vec![0.3; 8]).unwrap();
+
+        let result = attn.forward(&q, &k, &v);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_attention_softmax_weights_sum() {
+        // Verify that attention is using softmax correctly
+        // by checking output is weighted combination of values
+        let attn = Attention::new(3).unwrap();
+
+        // All equal Q and K means uniform attention
+        let q = Tensor::from_vec(vec![2, 3], vec![1.0; 6]).unwrap();
+        let k = Tensor::from_vec(vec![2, 3], vec![1.0; 6]).unwrap();
+        // V = [[1, 2, 3], [4, 5, 6]]
+        let v = Tensor::from_vec(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+
+        let output = attn.forward(&q, &k, &v).unwrap();
+
+        // With uniform attention, output should be average of V rows
+        // Each output row should be close to [2.5, 3.5, 4.5]
+        let expected = [2.5, 3.5, 4.5];
+        for row in 0..2 {
+            for (col, &exp) in expected.iter().enumerate() {
+                let actual = output.data()[row * 3 + col];
+                assert!(
+                    (actual - exp).abs() < 0.01,
+                    "row={row}, col={col}: expected {exp}, got {actual}",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_attention_single_position() {
+        // Test with single position (seq_len=1)
+        let attn = Attention::new(4).unwrap();
+
+        let q = Tensor::from_vec(vec![4], vec![1.0, 0.0, 0.0, 0.0]).unwrap();
+        let k = Tensor::from_vec(vec![4], vec![1.0, 0.0, 0.0, 0.0]).unwrap();
+        let v = Tensor::from_vec(vec![4], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+
+        let output = attn.forward(&q, &k, &v).unwrap();
+
+        // With single position, output should equal V
+        assert_eq!(output.shape(), &[1, 4]);
+        for i in 0..4 {
+            assert!((output.data()[i] - v.data()[i]).abs() < 1e-6);
+        }
     }
 }
