@@ -163,10 +163,12 @@ let activated = logits.relu(); // SIMD-accelerated ReLU
 - ✅ TDG Score: 96.2/100 (A+)
 - ✅ Zero SATD violations
 
-### Week 3-4: Transformer Components (NEXT)
-- [ ] Transformer architecture (attention mechanism)
-- [ ] Feed-forward networks (FFN)
-- [ ] Layer normalization
+### Week 3-4: Transformer Components (IN PROGRESS)
+- ✅ Layer normalization (7 tests, epsilon-based normalization)
+- ✅ Linear layer (6 tests, weight/bias loading)
+- ✅ GELU activation (5 tests, tanh approximation)
+- ✅ Feed-forward networks (FFN) (6 tests, 2-layer with GELU)
+- [ ] Attention mechanism (multi-head self-attention)
 - [ ] RoPE position embeddings
 - [ ] KV cache management
 
@@ -312,7 +314,8 @@ pub trait HttpServer {
 ---
 
 **Last Updated:** 2024-11-18
-**Realizar Version:** 0.1.0 (Phase 1 Week 1-2, 5-6 complete)
+**Realizar Version:** 0.1.0 (Phase 1 Week 1-2, 3-4 partial, 5-6 complete)
 **Trueno Version:** 0.2.2
 **Aprender Version:** 0.1.0
-**Latest Achievement:** Q4_0/Q8_0 quantization with EXTREME TDD (TDG: 95.7/100)
+**Latest Achievement:** Feed-forward network with EXTREME TDD (TDG: 95.7/100, 65 tests)
+**Completed Today:** LayerNorm, Linear, GELU, FFN (24 new tests)
