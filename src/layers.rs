@@ -1293,6 +1293,262 @@ impl TransformerBlock {
     }
 }
 
+/// Embedding layer for converting token IDs to vectors
+///
+/// Maps discrete token IDs to continuous vector representations.
+/// This is the first layer in a transformer model.
+#[derive(Debug, Clone)]
+pub struct Embedding {
+    /// Vocabulary size
+    vocab_size: usize,
+    /// Embedding dimension
+    embed_dim: usize,
+    /// Embedding weights: `[vocab_size, embed_dim]`
+    weights: Vec<f32>,
+}
+
+impl Embedding {
+    /// Create a new embedding layer
+    ///
+    /// # Arguments
+    ///
+    /// * `vocab_size` - Size of vocabulary
+    /// * `embed_dim` - Dimension of embedding vectors
+    ///
+    /// # Errors
+    ///
+    /// Returns error if `vocab_size` or `embed_dim` is zero
+    pub fn new(vocab_size: usize, embed_dim: usize) -> Result<Self> {
+        if vocab_size == 0 {
+            return Err(RealizarError::InvalidShape {
+                reason: "vocab_size must be > 0".to_string(),
+            });
+        }
+        if embed_dim == 0 {
+            return Err(RealizarError::InvalidShape {
+                reason: "embed_dim must be > 0".to_string(),
+            });
+        }
+
+        let weights = vec![0.0; vocab_size * embed_dim];
+
+        Ok(Self {
+            vocab_size,
+            embed_dim,
+            weights,
+        })
+    }
+
+    /// Look up embeddings for token IDs
+    ///
+    /// # Arguments
+    ///
+    /// * `token_ids` - Slice of token IDs
+    ///
+    /// # Returns
+    ///
+    /// Tensor with shape `[seq_len, embed_dim]`
+    ///
+    /// # Errors
+    ///
+    /// Returns error if any token ID is out of bounds
+    pub fn forward(&self, token_ids: &[usize]) -> Result<Tensor<f32>> {
+        if token_ids.is_empty() {
+            return Err(RealizarError::InvalidShape {
+                reason: "Token IDs cannot be empty".to_string(),
+            });
+        }
+
+        let seq_len = token_ids.len();
+        let mut output = Vec::with_capacity(seq_len * self.embed_dim);
+
+        for &token_id in token_ids {
+            if token_id >= self.vocab_size {
+                return Err(RealizarError::InvalidShape {
+                    reason: format!(
+                        "Token ID {token_id} out of bounds (vocab_size={})",
+                        self.vocab_size
+                    ),
+                });
+            }
+
+            let offset = token_id * self.embed_dim;
+            output.extend_from_slice(&self.weights[offset..offset + self.embed_dim]);
+        }
+
+        Tensor::from_vec(vec![seq_len, self.embed_dim], output)
+    }
+
+    /// Get vocabulary size
+    #[must_use]
+    pub fn vocab_size(&self) -> usize {
+        self.vocab_size
+    }
+
+    /// Get embedding dimension
+    #[must_use]
+    pub fn embed_dim(&self) -> usize {
+        self.embed_dim
+    }
+
+    /// Get mutable access to weights for loading
+    pub fn weights_mut(&mut self) -> &mut [f32] {
+        &mut self.weights
+    }
+}
+
+/// Transformer Language Model
+///
+/// Complete transformer model for language modeling:
+/// - Token embedding
+/// - Stack of transformer blocks
+/// - Final layer normalization
+/// - Output projection (LM head)
+///
+/// # Architecture
+///
+/// ```text
+/// Token IDs → Embedding → [TransformerBlock × N] → LayerNorm → Linear → Logits
+/// ```
+#[derive(Debug, Clone)]
+pub struct Model {
+    /// Token embedding layer
+    embedding: Embedding,
+    /// Stack of transformer blocks
+    blocks: Vec<TransformerBlock>,
+    /// Final layer normalization
+    final_norm: LayerNorm,
+    /// Output projection (LM head)
+    lm_head: Linear,
+    /// Model configuration
+    config: ModelConfig,
+}
+
+/// Configuration for the transformer model
+#[derive(Debug, Clone)]
+pub struct ModelConfig {
+    /// Vocabulary size
+    pub vocab_size: usize,
+    /// Hidden dimension
+    pub hidden_dim: usize,
+    /// Number of attention heads
+    pub num_heads: usize,
+    /// Number of transformer blocks
+    pub num_layers: usize,
+    /// FFN intermediate dimension
+    pub intermediate_dim: usize,
+    /// Layer normalization epsilon
+    pub eps: f32,
+}
+
+impl Model {
+    /// Create a new transformer model
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Model configuration
+    ///
+    /// # Errors
+    ///
+    /// Returns error if configuration is invalid
+    pub fn new(config: ModelConfig) -> Result<Self> {
+        let embedding = Embedding::new(config.vocab_size, config.hidden_dim)?;
+
+        let mut blocks = Vec::with_capacity(config.num_layers);
+        for _ in 0..config.num_layers {
+            blocks.push(TransformerBlock::new(
+                config.hidden_dim,
+                config.num_heads,
+                config.intermediate_dim,
+                config.eps,
+            )?);
+        }
+
+        let final_norm = LayerNorm::new(config.hidden_dim, config.eps)?;
+        let lm_head = Linear::new(config.hidden_dim, config.vocab_size)?;
+
+        Ok(Self {
+            embedding,
+            blocks,
+            final_norm,
+            lm_head,
+            config,
+        })
+    }
+
+    /// Forward pass through the model
+    ///
+    /// # Arguments
+    ///
+    /// * `token_ids` - Input token IDs
+    ///
+    /// # Returns
+    ///
+    /// Logits tensor with shape `[seq_len, vocab_size]`
+    ///
+    /// # Errors
+    ///
+    /// Returns error if input is invalid
+    pub fn forward(&self, token_ids: &[usize]) -> Result<Tensor<f32>> {
+        // Embed tokens
+        let mut hidden = self.embedding.forward(token_ids)?;
+
+        // Pass through transformer blocks
+        for block in &self.blocks {
+            hidden = block.forward(&hidden)?;
+        }
+
+        // Final layer norm
+        hidden = self.final_norm.forward(&hidden)?;
+
+        // Project to vocabulary
+        self.lm_head.forward(&hidden)
+    }
+
+    /// Get model configuration
+    #[must_use]
+    pub fn config(&self) -> &ModelConfig {
+        &self.config
+    }
+
+    /// Get mutable reference to embedding layer
+    pub fn embedding_mut(&mut self) -> &mut Embedding {
+        &mut self.embedding
+    }
+
+    /// Get mutable reference to transformer blocks
+    pub fn blocks_mut(&mut self) -> &mut [TransformerBlock] {
+        &mut self.blocks
+    }
+
+    /// Get mutable reference to final layer norm
+    pub fn final_norm_mut(&mut self) -> &mut LayerNorm {
+        &mut self.final_norm
+    }
+
+    /// Get mutable reference to LM head
+    pub fn lm_head_mut(&mut self) -> &mut Linear {
+        &mut self.lm_head
+    }
+
+    /// Get number of parameters in the model (approximate)
+    #[must_use]
+    pub fn num_parameters(&self) -> usize {
+        let embed_params = self.config.vocab_size * self.config.hidden_dim;
+        let block_params = self.config.num_layers
+            * (
+                // Attention (Q, K, V, O projections would be here in full impl)
+                // For now just count layer norms and FFN
+                2 * self.config.hidden_dim  // Layer norm weights
+                + self.config.hidden_dim * self.config.intermediate_dim  // fc1
+                + self.config.intermediate_dim * self.config.hidden_dim  // fc2
+            );
+        let head_params = self.config.hidden_dim * self.config.vocab_size;
+
+        embed_params + block_params + head_params
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2268,5 +2524,156 @@ mod tests {
         let _attention = block.attention_mut();
         let _ffn_norm = block.ffn_norm_mut();
         let _ffn = block.ffn_mut();
+    }
+
+    // Embedding tests
+
+    #[test]
+    fn test_embedding_creation() {
+        let embed = Embedding::new(1000, 64).unwrap();
+        assert_eq!(embed.vocab_size(), 1000);
+        assert_eq!(embed.embed_dim(), 64);
+    }
+
+    #[test]
+    fn test_embedding_zero_params_error() {
+        assert!(Embedding::new(0, 64).is_err());
+        assert!(Embedding::new(1000, 0).is_err());
+    }
+
+    #[test]
+    fn test_embedding_forward_shape() {
+        let embed = Embedding::new(100, 8).unwrap();
+
+        let token_ids = vec![0, 1, 2];
+        let output = embed.forward(&token_ids).unwrap();
+
+        assert_eq!(output.shape(), &[3, 8]);
+        assert_eq!(output.data().len(), 24);
+    }
+
+    #[test]
+    fn test_embedding_forward_lookup() {
+        let mut embed = Embedding::new(10, 4).unwrap();
+
+        // Set specific embedding for token 5
+        let offset = 5 * 4;
+        embed.weights_mut()[offset] = 1.0;
+        embed.weights_mut()[offset + 1] = 2.0;
+        embed.weights_mut()[offset + 2] = 3.0;
+        embed.weights_mut()[offset + 3] = 4.0;
+
+        let output = embed.forward(&[5]).unwrap();
+        assert_eq!(output.shape(), &[1, 4]);
+        assert!((output.data()[0] - 1.0).abs() < 1e-6);
+        assert!((output.data()[1] - 2.0).abs() < 1e-6);
+        assert!((output.data()[2] - 3.0).abs() < 1e-6);
+        assert!((output.data()[3] - 4.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_embedding_out_of_bounds_error() {
+        let embed = Embedding::new(10, 4).unwrap();
+        assert!(embed.forward(&[10]).is_err()); // ID 10 is out of bounds
+        assert!(embed.forward(&[100]).is_err());
+    }
+
+    #[test]
+    fn test_embedding_empty_input_error() {
+        let embed = Embedding::new(10, 4).unwrap();
+        assert!(embed.forward(&[]).is_err());
+    }
+
+    // Model tests
+
+    #[test]
+    fn test_model_creation() {
+        let config = ModelConfig {
+            vocab_size: 100,
+            hidden_dim: 8,
+            num_heads: 1,
+            num_layers: 2,
+            intermediate_dim: 32,
+            eps: 1e-5,
+        };
+        let model = Model::new(config).unwrap();
+        assert_eq!(model.config().vocab_size, 100);
+        assert_eq!(model.config().num_layers, 2);
+    }
+
+    #[test]
+    fn test_model_forward_shape() {
+        let config = ModelConfig {
+            vocab_size: 50,
+            hidden_dim: 4,
+            num_heads: 1,
+            num_layers: 1,
+            intermediate_dim: 16,
+            eps: 1e-5,
+        };
+        let model = Model::new(config).unwrap();
+
+        let token_ids = vec![0, 1, 2];
+        let output = model.forward(&token_ids).unwrap();
+
+        // Output should be [seq_len, vocab_size]
+        assert_eq!(output.shape(), &[3, 50]);
+    }
+
+    #[test]
+    fn test_model_forward_valid_output() {
+        let config = ModelConfig {
+            vocab_size: 20,
+            hidden_dim: 4,
+            num_heads: 1,
+            num_layers: 1,
+            intermediate_dim: 16,
+            eps: 1e-5,
+        };
+        let model = Model::new(config).unwrap();
+
+        let output = model.forward(&[0, 1]).unwrap();
+
+        // Output should be finite
+        for &val in output.data() {
+            assert!(val.is_finite(), "Output contains non-finite values");
+        }
+    }
+
+    #[test]
+    fn test_model_num_parameters() {
+        let config = ModelConfig {
+            vocab_size: 100,
+            hidden_dim: 8,
+            num_heads: 1,
+            num_layers: 2,
+            intermediate_dim: 32,
+            eps: 1e-5,
+        };
+        let model = Model::new(config).unwrap();
+
+        let params = model.num_parameters();
+        assert!(params > 0);
+        // Should be at least embedding + lm_head
+        assert!(params >= 100 * 8 + 8 * 100);
+    }
+
+    #[test]
+    fn test_model_mutable_access() {
+        let config = ModelConfig {
+            vocab_size: 50,
+            hidden_dim: 4,
+            num_heads: 1,
+            num_layers: 1,
+            intermediate_dim: 16,
+            eps: 1e-5,
+        };
+        let mut model = Model::new(config).unwrap();
+
+        // Verify we can access mutable references
+        let _embed = model.embedding_mut();
+        let _blocks = model.blocks_mut();
+        let _norm = model.final_norm_mut();
+        let _head = model.lm_head_mut();
     }
 }
