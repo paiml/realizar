@@ -184,9 +184,9 @@ let activated = logits.relu(); // SIMD-accelerated ReLU
 - ✅ Basic tokenizer (10 tests, encode/decode)
 - ✅ Embedding layer (6 tests, token to vector)
 - ✅ Complete Model struct (5 tests, end-to-end inference)
-- ✅ Generation loop (3 tests, token sampling)
+- ✅ Generation loop (6 tests, token sampling)
 - ✅ Sampling strategies (16 tests, greedy/top-k/top-p)
-- [ ] BPE tokenizer
+- ✅ BPE tokenizer (14 tests, byte pair encoding)
 - [ ] SentencePiece tokenizer
 - [ ] HTTP API with axum
 
