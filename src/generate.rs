@@ -10,9 +10,11 @@
 //! - **Top-p (nucleus)**: Sample from tokens with cumulative probability ≤ p
 //! - **Temperature**: Scale logits before softmax to control randomness
 
-use crate::error::{RealizarError, Result};
-use crate::layers::softmax;
-use crate::tensor::Tensor;
+use crate::{
+    error::{RealizarError, Result},
+    layers::softmax,
+    tensor::Tensor,
+};
 
 /// Sample from a probability distribution using a random value
 ///
@@ -326,7 +328,11 @@ pub fn sample_top_p(logits: &Tensor<f32>, p: f32, rng_value: f32) -> Result<usiz
     let normalized_probs: Vec<f32> = nucleus.iter().map(|(_, prob)| prob / nucleus_sum).collect();
     let indices: Vec<usize> = nucleus.iter().map(|(idx, _)| *idx).collect();
 
-    Ok(sample_from_distribution(&normalized_probs, &indices, rng_value))
+    Ok(sample_from_distribution(
+        &normalized_probs,
+        &indices,
+        rng_value,
+    ))
 }
 
 /// Sample a token based on the sampling strategy

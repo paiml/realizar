@@ -3,10 +3,13 @@
 //! These tests use proptest to verify mathematical properties of sampling algorithms.
 
 use proptest::prelude::*;
-use realizar::generate::{
-    apply_temperature, sample_greedy, sample_token, sample_top_k, sample_top_p, GenerationConfig,
+use realizar::{
+    generate::{
+        apply_temperature, sample_greedy, sample_token, sample_top_k, sample_top_p,
+        GenerationConfig,
+    },
+    tensor::Tensor,
 };
-use realizar::tensor::Tensor;
 
 /// Strategy for generating valid logits tensors
 fn logits_strategy(min_len: usize, max_len: usize) -> impl Strategy<Value = Tensor<f32>> {

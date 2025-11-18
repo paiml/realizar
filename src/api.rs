@@ -240,7 +240,7 @@ async fn generate_handler(
                     error: format!("Invalid strategy: {}", request.strategy),
                 }),
             ));
-        }
+        },
     };
 
     let mut config = GenerationConfig::default()
@@ -253,17 +253,14 @@ async fn generate_handler(
     }
 
     // Generate
-    let generated = state
-        .model
-        .generate(&prompt, &config)
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: e.to_string(),
-                }),
-            )
-        })?;
+    let generated = state.model.generate(&prompt, &config).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
 
     // Convert back to u32 and decode
     let token_ids: Vec<u32> = generated
@@ -290,12 +287,13 @@ async fn generate_handler(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use axum::{
         body::Body,
         http::{Request, StatusCode},
     };
     use tower::util::ServiceExt;
+
+    use super::*;
 
     fn create_test_app() -> Router {
         let state = AppState::demo().unwrap();
@@ -307,7 +305,12 @@ mod tests {
         let app = create_test_app();
 
         let response = app
-            .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
 

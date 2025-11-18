@@ -3,8 +3,10 @@
 //! Measures end-to-end inference latency for model generation.
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use realizar::generate::GenerationConfig;
-use realizar::layers::{Model, ModelConfig};
+use realizar::{
+    generate::GenerationConfig,
+    layers::{Model, ModelConfig},
+};
 
 fn create_test_model() -> Model {
     let config = ModelConfig {
@@ -46,7 +48,9 @@ fn benchmark_generation_greedy(c: &mut Criterion) {
     c.bench_function("generation_greedy_5_tokens", |b| {
         let prompt = vec![1, 5, 10];
         b.iter(|| {
-            let result = model.generate(black_box(&prompt), black_box(&config)).unwrap();
+            let result = model
+                .generate(black_box(&prompt), black_box(&config))
+                .unwrap();
             black_box(result)
         });
     });
@@ -54,14 +58,14 @@ fn benchmark_generation_greedy(c: &mut Criterion) {
 
 fn benchmark_generation_top_k(c: &mut Criterion) {
     let model = create_test_model();
-    let config = GenerationConfig::top_k(5)
-        .with_max_tokens(5)
-        .with_seed(42);
+    let config = GenerationConfig::top_k(5).with_max_tokens(5).with_seed(42);
 
     c.bench_function("generation_top_k_5_tokens", |b| {
         let prompt = vec![1, 5, 10];
         b.iter(|| {
-            let result = model.generate(black_box(&prompt), black_box(&config)).unwrap();
+            let result = model
+                .generate(black_box(&prompt), black_box(&config))
+                .unwrap();
             black_box(result)
         });
     });
@@ -76,7 +80,9 @@ fn benchmark_generation_top_p(c: &mut Criterion) {
     c.bench_function("generation_top_p_5_tokens", |b| {
         let prompt = vec![1, 5, 10];
         b.iter(|| {
-            let result = model.generate(black_box(&prompt), black_box(&config)).unwrap();
+            let result = model
+                .generate(black_box(&prompt), black_box(&config))
+                .unwrap();
             black_box(result)
         });
     });
@@ -94,7 +100,9 @@ fn benchmark_generation_varying_length(c: &mut Criterion) {
             |b, _| {
                 let prompt = vec![1, 5, 10];
                 b.iter(|| {
-                    let result = model.generate(black_box(&prompt), black_box(&config)).unwrap();
+                    let result = model
+                        .generate(black_box(&prompt), black_box(&config))
+                        .unwrap();
                     black_box(result)
                 });
             },
@@ -121,7 +129,9 @@ fn benchmark_sampling_strategies(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::from_parameter(name), &config, |b, config| {
             let prompt = vec![1, 5, 10];
             b.iter(|| {
-                let result = model.generate(black_box(&prompt), black_box(config)).unwrap();
+                let result = model
+                    .generate(black_box(&prompt), black_box(config))
+                    .unwrap();
                 black_box(result)
             });
         });

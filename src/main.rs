@@ -5,8 +5,10 @@
 use std::net::SocketAddr;
 
 use clap::{Parser, Subcommand};
-use realizar::api::{create_router, AppState};
-use realizar::error::Result;
+use realizar::{
+    api::{create_router, AppState},
+    error::Result,
+};
 
 /// Realizar - Pure Rust ML inference engine
 #[derive(Parser)]
@@ -49,7 +51,7 @@ async fn main() -> Result<()> {
                 eprintln!("Error: Model loading not yet implemented. Use --demo for testing.");
                 std::process::exit(1);
             }
-        }
+        },
         Commands::Info => {
             println!("Realizar v{}", realizar::VERSION);
             println!("Pure Rust ML inference engine");
@@ -60,7 +62,7 @@ async fn main() -> Result<()> {
             println!("  - BPE and SentencePiece tokenizers");
             println!("  - Greedy, top-k, and top-p sampling");
             println!("  - REST API for inference");
-        }
+        },
     }
 
     Ok(())
@@ -72,11 +74,11 @@ async fn serve_demo(host: &str, port: u16) -> Result<()> {
     let state = AppState::demo()?;
     let app = create_router(state);
 
-    let addr: SocketAddr = format!("{host}:{port}")
-        .parse()
-        .map_err(|e| realizar::error::RealizarError::InvalidShape {
+    let addr: SocketAddr = format!("{host}:{port}").parse().map_err(|e| {
+        realizar::error::RealizarError::InvalidShape {
             reason: format!("Invalid address: {e}"),
-        })?;
+        }
+    })?;
 
     println!("Server listening on http://{addr}");
     println!();
@@ -89,11 +91,11 @@ async fn serve_demo(host: &str, port: u16) -> Result<()> {
     println!("  curl http://{addr}/health");
     println!();
 
-    let listener = tokio::net::TcpListener::bind(addr)
-        .await
-        .map_err(|e| realizar::error::RealizarError::InvalidShape {
+    let listener = tokio::net::TcpListener::bind(addr).await.map_err(|e| {
+        realizar::error::RealizarError::InvalidShape {
             reason: format!("Failed to bind: {e}"),
-        })?;
+        }
+    })?;
 
     axum::serve(listener, app)
         .await

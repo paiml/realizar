@@ -14,11 +14,8 @@ fn ascii_string_strategy() -> impl Strategy<Value = String> {
 /// Strategy for generating strings from a known vocabulary
 fn vocab_string_strategy() -> impl Strategy<Value = String> {
     // Use simple tokens that we know are in our test vocabulary
-    prop::collection::vec(
-        prop::sample::select(vec!["a", "b", "c", "ab", "bc"]),
-        1..10,
-    )
-    .prop_map(|tokens| tokens.join(""))
+    prop::collection::vec(prop::sample::select(vec!["a", "b", "c", "ab", "bc"]), 1..10)
+        .prop_map(|tokens| tokens.join(""))
 }
 
 proptest! {
