@@ -14,6 +14,68 @@ use crate::error::{RealizarError, Result};
 use crate::layers::softmax;
 use crate::tensor::Tensor;
 
+/// Sample from a probability distribution using a random value
+///
+/// # Arguments
+///
+/// * `probs` - Probabilities (must sum to 1)
+/// * `indices` - Corresponding indices for each probability
+/// * `rng_value` - Random value in [0, 1)
+///
+/// # Returns
+///
+/// Selected index
+fn sample_from_distribution(probs: &[f32], indices: &[usize], rng_value: f32) -> usize {
+    let mut cumsum = 0.0;
+    for (i, &prob) in probs.iter().enumerate() {
+        cumsum += prob;
+        if rng_value < cumsum {
+            return indices[i];
+        }
+    }
+    // Fallback to last token
+    indices[indices.len() - 1]
+}
+
+/// Convert logits to softmax probabilities for a subset
+///
+/// # Arguments
+///
+/// * `indexed` - Pairs of (index, logit) sorted by logit descending
+///
+/// # Returns
+///
+/// Probabilities for the subset
+fn logits_to_probs(indexed: &[(usize, f32)]) -> Vec<f32> {
+    let max_logit = indexed[0].1;
+    let exp_vals: Vec<f32> = indexed.iter().map(|(_, l)| (l - max_logit).exp()).collect();
+    let sum_exp: f32 = exp_vals.iter().sum();
+    exp_vals.iter().map(|e| e / sum_exp).collect()
+}
+
+/// Build nucleus for top-p sampling
+///
+/// # Arguments
+///
+/// * `indexed` - Pairs of (index, prob) sorted by prob descending
+/// * `p` - Cumulative probability threshold
+///
+/// # Returns
+///
+/// Nucleus of (index, prob) pairs with cumulative probability >= p
+fn build_nucleus(indexed: &[(usize, f32)], p: f32) -> Vec<(usize, f32)> {
+    let mut cumsum = 0.0;
+    let mut nucleus = Vec::new();
+    for &(idx, prob) in indexed {
+        nucleus.push((idx, prob));
+        cumsum += prob;
+        if cumsum >= p {
+            break;
+        }
+    }
+    nucleus
+}
+
 /// Sampling strategy for token selection
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SamplingStrategy {
@@ -214,23 +276,10 @@ pub fn sample_top_k(logits: &Tensor<f32>, k: usize, rng_value: f32) -> Result<us
     // Take top k
     let top_k: Vec<(usize, f32)> = indexed.into_iter().take(k.min(data.len())).collect();
 
-    // Convert to probabilities
-    let max_logit = top_k[0].1;
-    let exp_vals: Vec<f32> = top_k.iter().map(|(_, l)| (l - max_logit).exp()).collect();
-    let sum_exp: f32 = exp_vals.iter().sum();
-    let probs: Vec<f32> = exp_vals.iter().map(|e| e / sum_exp).collect();
-
-    // Sample based on rng_value
-    let mut cumsum = 0.0;
-    for (i, &prob) in probs.iter().enumerate() {
-        cumsum += prob;
-        if rng_value < cumsum {
-            return Ok(top_k[i].0);
-        }
-    }
-
-    // Fallback to last token
-    Ok(top_k[top_k.len() - 1].0)
+    // Convert to probabilities and sample
+    let probs = logits_to_probs(&top_k);
+    let indices: Vec<usize> = top_k.iter().map(|(idx, _)| *idx).collect();
+    Ok(sample_from_distribution(&probs, &indices, rng_value))
 }
 
 /// Top-p (nucleus) sampling: sample from tokens with cumulative probability ≤ p
@@ -269,35 +318,15 @@ pub fn sample_top_p(logits: &Tensor<f32>, p: f32, rng_value: f32) -> Result<usiz
     let mut indexed: Vec<(usize, f32)> = probs.iter().copied().enumerate().collect();
     indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-    // Find nucleus (cumulative probability <= p)
-    let mut cumsum = 0.0;
-    let mut nucleus = Vec::new();
-    for (idx, prob) in indexed {
-        nucleus.push((idx, prob));
-        cumsum += prob;
-        if cumsum >= p {
-            break;
-        }
-    }
+    // Build nucleus (cumulative probability <= p)
+    let nucleus = build_nucleus(&indexed, p);
 
-    // Renormalize probabilities in nucleus
+    // Renormalize and sample
     let nucleus_sum: f32 = nucleus.iter().map(|(_, prob)| prob).sum();
-    let normalized: Vec<(usize, f32)> = nucleus
-        .iter()
-        .map(|(idx, prob)| (*idx, prob / nucleus_sum))
-        .collect();
+    let normalized_probs: Vec<f32> = nucleus.iter().map(|(_, prob)| prob / nucleus_sum).collect();
+    let indices: Vec<usize> = nucleus.iter().map(|(idx, _)| *idx).collect();
 
-    // Sample based on rng_value
-    let mut cumsum = 0.0;
-    for (idx, prob) in &normalized {
-        cumsum += prob;
-        if rng_value < cumsum {
-            return Ok(*idx);
-        }
-    }
-
-    // Fallback to last token in nucleus
-    Ok(normalized[normalized.len() - 1].0)
+    Ok(sample_from_distribution(&normalized_probs, &indices, rng_value))
 }
 
 /// Sample a token based on the sampling strategy
