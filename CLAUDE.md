@@ -324,6 +324,8 @@ pub trait HttpServer {
 **TDG Score:** 100.0/100 (A+)
 **Test Coverage:** 95.12%
 **Total Tests:** 237 (195 unit + 42 property-based)
+**Benchmarks:** 2 suites (tensor_ops, inference)
+**Performance:** <1ms p50 for 5-token generation
 **CLI Binary:** ✅ `realizar serve --demo`
-**Latest Achievement:** CLI binary and property-based tests for all modules
+**Latest Achievement:** Comprehensive inference benchmarks added
 **Completed:** Weeks 1-8 (all major components implemented)
