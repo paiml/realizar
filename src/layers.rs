@@ -168,6 +168,157 @@ impl LayerNorm {
     }
 }
 
+/// Linear transformation layer
+///
+/// Applies linear transformation: `y = x * W + b`
+/// where W is weight matrix and b is bias vector.
+///
+/// # References
+///
+/// Standard fully-connected layer used in neural networks.
+#[derive(Debug, Clone)]
+pub struct Linear {
+    /// Input features
+    in_features: usize,
+    /// Output features
+    out_features: usize,
+    /// Weight matrix `[in_features, out_features]`
+    weight: Vec<f32>,
+    /// Bias vector `[out_features]`
+    bias: Vec<f32>,
+}
+
+impl Linear {
+    /// Create a new linear layer
+    ///
+    /// # Arguments
+    ///
+    /// * `in_features` - Number of input features
+    /// * `out_features` - Number of output features
+    ///
+    /// # Errors
+    ///
+    /// Returns error if either dimension is zero
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let linear = Linear::new(512, 2048)?;
+    /// ```
+    pub fn new(in_features: usize, out_features: usize) -> Result<Self> {
+        if in_features == 0 || out_features == 0 {
+            return Err(RealizarError::InvalidShape {
+                reason: "in_features and out_features must be > 0".to_string(),
+            });
+        }
+
+        // Initialize weights to zero (will be loaded from model)
+        let weight = vec![0.0; in_features * out_features];
+        // Initialize bias to zero
+        let bias = vec![0.0; out_features];
+
+        Ok(Self {
+            in_features,
+            out_features,
+            weight,
+            bias,
+        })
+    }
+
+    /// Forward pass through linear layer
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - Input tensor with shape `[batch, in_features]` or `[in_features]`
+    ///
+    /// # Returns
+    ///
+    /// Output tensor with shape `[batch, out_features]` or `[out_features]`
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// - Input last dimension doesn't match `in_features`
+    /// - Input is empty
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let input = Tensor::from_vec(vec![2, 512], data)?;
+    /// let output = linear.forward(&input)?;
+    /// assert_eq!(output.shape(), &[2, 2048]);
+    /// ```
+    pub fn forward(&self, input: &Tensor<f32>) -> Result<Tensor<f32>> {
+        let shape = input.shape();
+        if shape.is_empty() {
+            return Err(RealizarError::InvalidShape {
+                reason: "Input tensor cannot be empty".to_string(),
+            });
+        }
+
+        let last_dim = shape[shape.len() - 1];
+        if last_dim != self.in_features {
+            return Err(RealizarError::InvalidShape {
+                reason: format!(
+                    "Last dimension {} doesn't match in_features {}",
+                    last_dim, self.in_features
+                ),
+            });
+        }
+
+        let data = input.data();
+        let total_size = data.len();
+        let num_rows = total_size / self.in_features;
+
+        let mut output = Vec::with_capacity(num_rows * self.out_features);
+
+        // For each input row, compute: output = input * weight + bias
+        for row_idx in 0..num_rows {
+            let input_start = row_idx * self.in_features;
+            let input_row = &data[input_start..input_start + self.in_features];
+
+            // Matrix-vector multiplication: output[j] = sum(input[i] * weight[i][j]) + bias[j]
+            for j in 0..self.out_features {
+                let mut sum = self.bias[j];
+                for (i, &input_val) in input_row.iter().enumerate() {
+                    sum += input_val * self.weight[i * self.out_features + j];
+                }
+                output.push(sum);
+            }
+        }
+
+        // Construct output shape
+        let mut output_shape = shape[..shape.len() - 1].to_vec();
+        output_shape.push(self.out_features);
+
+        Tensor::from_vec(output_shape, output)
+    }
+
+    /// Get input features
+    #[must_use]
+    pub fn in_features(&self) -> usize {
+        self.in_features
+    }
+
+    /// Get output features
+    #[must_use]
+    pub fn out_features(&self) -> usize {
+        self.out_features
+    }
+
+    /// Get weight matrix (for loading from model)
+    #[must_use]
+    pub fn weight_mut(&mut self) -> &mut [f32] {
+        &mut self.weight
+    }
+
+    /// Get bias vector (for loading from model)
+    #[must_use]
+    pub fn bias_mut(&mut self) -> &mut [f32] {
+        &mut self.bias
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -271,5 +422,109 @@ mod tests {
         for &val in output_data {
             assert!(val.abs() < 1e-2); // Should be near 0
         }
+    }
+
+    // Linear layer tests
+
+    #[test]
+    fn test_linear_creation() {
+        let linear = Linear::new(128, 256).unwrap();
+        assert_eq!(linear.in_features(), 128);
+        assert_eq!(linear.out_features(), 256);
+    }
+
+    #[test]
+    fn test_linear_zero_dimensions_error() {
+        let result = Linear::new(0, 256);
+        assert!(result.is_err());
+
+        let result = Linear::new(128, 0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_linear_forward_simple() {
+        // Simple test: 2 in_features, 3 out_features
+        let mut linear = Linear::new(2, 3).unwrap();
+
+        // Set identity-like weights for testing
+        // weight[i][j] = 1.0 if i==j, 0.0 otherwise (extended for different dimensions)
+        linear.weight_mut()[0] = 1.0; // weight[0][0]
+        linear.weight_mut()[1] = 0.0; // weight[0][1]
+        linear.weight_mut()[2] = 0.0; // weight[0][2]
+        linear.weight_mut()[3] = 0.0; // weight[1][0]
+        linear.weight_mut()[4] = 1.0; // weight[1][1]
+        linear.weight_mut()[5] = 0.0; // weight[1][2]
+
+        // Bias: all 0.5
+        linear.bias_mut()[0] = 0.5;
+        linear.bias_mut()[1] = 0.5;
+        linear.bias_mut()[2] = 0.5;
+
+        // Input: [2.0, 3.0]
+        let input = Tensor::from_vec(vec![2], vec![2.0, 3.0]).unwrap();
+        let output = linear.forward(&input).unwrap();
+
+        assert_eq!(output.shape(), &[3]);
+        let output_data = output.data();
+
+        // Expected: [2.0*1.0 + 3.0*0.0 + 0.5, 2.0*0.0 + 3.0*1.0 + 0.5, 2.0*0.0 + 3.0*0.0 + 0.5]
+        //         = [2.5, 3.5, 0.5]
+        assert!((output_data[0] - 2.5).abs() < 1e-5);
+        assert!((output_data[1] - 3.5).abs() < 1e-5);
+        assert!((output_data[2] - 0.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_linear_forward_batched() {
+        // Test with batch dimension: [2, 2] -> [2, 3]
+        let mut linear = Linear::new(2, 3).unwrap();
+
+        // Simple weights: all 1.0
+        for i in 0..6 {
+            linear.weight_mut()[i] = 1.0;
+        }
+        // Bias: all 0.0
+        for i in 0..3 {
+            linear.bias_mut()[i] = 0.0;
+        }
+
+        // Input: [[1.0, 2.0], [3.0, 4.0]]
+        let input = Tensor::from_vec(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+        let output = linear.forward(&input).unwrap();
+
+        assert_eq!(output.shape(), &[2, 3]);
+        let output_data = output.data();
+
+        // First row: [1.0, 2.0] * all-ones weight + zero bias = [3.0, 3.0, 3.0]
+        assert!((output_data[0] - 3.0).abs() < 1e-5);
+        assert!((output_data[1] - 3.0).abs() < 1e-5);
+        assert!((output_data[2] - 3.0).abs() < 1e-5);
+
+        // Second row: [3.0, 4.0] * all-ones weight + zero bias = [7.0, 7.0, 7.0]
+        assert!((output_data[3] - 7.0).abs() < 1e-5);
+        assert!((output_data[4] - 7.0).abs() < 1e-5);
+        assert!((output_data[5] - 7.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_linear_shape_mismatch_error() {
+        let linear = Linear::new(3, 2).unwrap();
+        let input = Tensor::from_vec(vec![2], vec![1.0, 2.0]).unwrap(); // Wrong size (2 vs 3)
+        let result = linear.forward(&input);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_linear_weight_bias_mut() {
+        let mut linear = Linear::new(2, 3).unwrap();
+
+        // Modify weights
+        linear.weight_mut()[0] = 42.0;
+        assert_eq!(linear.weight_mut()[0], 42.0);
+
+        // Modify bias
+        linear.bias_mut()[0] = 7.0;
+        assert_eq!(linear.bias_mut()[0], 7.0);
     }
 }
