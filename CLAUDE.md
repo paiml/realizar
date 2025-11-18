@@ -323,6 +323,6 @@ pub trait HttpServer {
 **Aprender Version:** 0.1.0
 **TDG Score:** 99.3/100 (A+)
 **Test Coverage:** 95.12%
-**Total Tests:** 195
-**Latest Achievement:** HTTP API with axum, complexity refactoring
+**Total Tests:** 226 (195 unit + 31 property-based)
+**Latest Achievement:** Property-based tests for generate and tokenizer modules
 **Completed:** Weeks 1-8 (all major components implemented)
