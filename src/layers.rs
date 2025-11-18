@@ -18,6 +18,53 @@
 use crate::error::{RealizarError, Result};
 use crate::tensor::Tensor;
 
+/// Apply GELU activation function
+///
+/// GELU (Gaussian Error Linear Unit): `y = 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x³)))`
+///
+/// Used in transformer models like BERT, GPT-2, GPT-3.
+///
+/// # Arguments
+///
+/// * `input` - Input tensor
+///
+/// # Returns
+///
+/// Tensor with GELU applied element-wise
+///
+/// # Errors
+///
+/// Returns error if input is empty
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// let input = Tensor::from_vec(vec![3], vec![-1.0, 0.0, 1.0])?;
+/// let output = gelu(&input)?;
+/// ```
+pub fn gelu(input: &Tensor<f32>) -> Result<Tensor<f32>> {
+    let data = input.data();
+    if data.is_empty() {
+        return Err(RealizarError::InvalidShape {
+            reason: "Cannot apply GELU to empty tensor".to_string(),
+        });
+    }
+
+    // Apply GELU activation using approximation
+    let output: Vec<f32> = data
+        .iter()
+        .map(|&x| {
+            // GELU approximation: 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x³)))
+            let sqrt_2_over_pi = 0.797_884_6; // sqrt(2/π)
+            let c = 0.044_715;
+            let inner = sqrt_2_over_pi * (x + c * x * x * x);
+            0.5 * x * (1.0 + inner.tanh())
+        })
+        .collect();
+
+    Tensor::from_vec(input.shape().to_vec(), output)
+}
+
 /// Layer normalization
 ///
 /// Normalizes activations across the feature dimension using:
@@ -526,5 +573,58 @@ mod tests {
         // Modify bias
         linear.bias_mut()[0] = 7.0;
         assert_eq!(linear.bias_mut()[0], 7.0);
+    }
+
+    // GELU activation tests
+
+    #[test]
+    fn test_gelu_zero() {
+        let input = Tensor::from_vec(vec![1], vec![0.0]).unwrap();
+        let output = gelu(&input).unwrap();
+        // GELU(0) = 0
+        assert!((output.data()[0] - 0.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_gelu_positive() {
+        let input = Tensor::from_vec(vec![1], vec![1.0]).unwrap();
+        let output = gelu(&input).unwrap();
+        // GELU(1) ≈ 0.841 (approximately x for large positive x)
+        assert!(output.data()[0] > 0.8);
+        assert!(output.data()[0] < 0.9);
+    }
+
+    #[test]
+    fn test_gelu_negative() {
+        let input = Tensor::from_vec(vec![1], vec![-1.0]).unwrap();
+        let output = gelu(&input).unwrap();
+        // GELU(-1) is small negative (smooth near zero)
+        assert!(output.data()[0] < 0.0);
+        assert!(output.data()[0] > -0.2);
+    }
+
+    #[test]
+    fn test_gelu_batched() {
+        let input = Tensor::from_vec(vec![2, 3], vec![-2.0, -1.0, 0.0, 1.0, 2.0, 3.0]).unwrap();
+        let output = gelu(&input).unwrap();
+
+        assert_eq!(output.shape(), &[2, 3]);
+        assert_eq!(output.data().len(), 6);
+
+        // GELU(0) = 0
+        assert!((output.data()[2] - 0.0).abs() < 1e-6);
+        // Positive values should be positive
+        assert!(output.data()[3] > 0.0);
+        assert!(output.data()[4] > 0.0);
+        assert!(output.data()[5] > 0.0);
+    }
+
+    #[test]
+    fn test_gelu_preserves_shape() {
+        // Test that GELU preserves tensor shape
+        let input = Tensor::from_vec(vec![2, 3, 4], vec![0.5; 24]).unwrap();
+        let output = gelu(&input).unwrap();
+        assert_eq!(output.shape(), &[2, 3, 4]);
+        assert_eq!(output.data().len(), 24);
     }
 }
