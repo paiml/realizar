@@ -65,6 +65,7 @@
 // Large stack arrays are acceptable in tests for test data
 #![allow(clippy::large_stack_arrays)]
 
+#[cfg(feature = "server")]
 pub mod api;
 pub mod error;
 pub mod generate;

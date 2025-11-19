@@ -15,12 +15,12 @@ categories = ["science", "web-programming::http-server"]
 trueno = { path = "../trueno", version = "0.2.2", features = ["gpu"] }
 
 # HTTP server ONLY (swappable via HttpServer trait)
-axum = "0.7"
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
-tower = { version = "0.4", features = ["util"] }
+axum = { version = "0.7", optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"], optional = true }
+tower = { version = "0.4", features = ["util"], optional = true }
 
 # CLI
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive"], optional = true }
 
 # Serialization (for REST API, not ML code)
 serde = { version = "1", features = ["derive"] }
@@ -54,8 +54,22 @@ assert_cmd = "2.0"
 predicates = "3.0"
 
 [features]
-default = ["gpu"]
+default = ["server", "cli", "gpu"]
+
+# Core features
 gpu = ["trueno/gpu"]  # Enable GPU acceleration via Trueno
+
+# Optional components
+server = ["dep:axum", "dep:tokio", "dep:tower"]  # HTTP server support
+cli = ["dep:clap", "server"]  # CLI binary (requires server)
+
+# Convenience meta-features
+full = ["server", "cli", "gpu"]  # Everything enabled
+minimal = []  # Only core inference engine
+
+[[bin]]
+name = "realizar"
+required-features = ["cli"]
 
 [[bench]]
 name = "tensor_ops"

@@ -30,6 +30,36 @@ curl -X POST http://127.0.0.1:8080/generate \
 ./target/release/realizar serve --help
 ```
 
+## ⚙️ Feature Flags
+
+Realizar supports modular compilation through feature flags:
+
+```toml
+[dependencies]
+realizar = { version = "0.1", default-features = false, features = ["minimal"] }
+```
+
+**Available Features:**
+- `default` = `["server", "cli", "gpu"]` - Full functionality
+- `minimal` = `[]` - Core inference engine only (no server, no CLI)
+- `server` - REST API server (requires axum, tokio)
+- `cli` - Command-line interface (requires clap)
+- `gpu` - GPU acceleration via Trueno
+- `full` - Alias for all features
+
+**Examples:**
+
+```bash
+# Core inference library only (minimal dependencies)
+cargo build --no-default-features --features minimal
+
+# Server without CLI
+cargo build --no-default-features --features server,gpu
+
+# Everything enabled
+cargo build --features full
+```
+
 ## 🎯 Philosophy
 
 **Total Control, Zero Compromise**
