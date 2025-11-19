@@ -82,6 +82,10 @@ harness = false
 name = "inference"
 harness = false
 
+[[bench]]
+name = "cache"
+harness = false
+
 [profile.release]
 opt-level = 3
 lto = "fat"           # Link-time optimization for maximum performance
