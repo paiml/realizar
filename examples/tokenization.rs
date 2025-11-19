@@ -10,14 +10,7 @@
 use anyhow::Result;
 use realizar::tokenizer::{BPETokenizer, SentencePieceTokenizer, Tokenizer, Vocabulary};
 
-fn main() -> Result<()> {
-    println!("=== Tokenization Example ===\n");
-
-    // Example text
-    let text = "hello world";
-    println!("Input text: \"{}\"\n", text);
-
-    // 1. Basic tokenizer (character-level)
+fn demo_basic_tokenizer(text: &str) -> Result<()> {
     println!("--- Basic Tokenizer ---");
     let vocab = Vocabulary::from_tokens(vec![
         "<unk>".to_string(),
@@ -37,8 +30,10 @@ fn main() -> Result<()> {
     println!("  Encoded: {:?}", tokens);
     println!("  Decoded: \"{}\"", decoded);
     println!("  Vocab size: {}\n", basic.vocab_size());
+    Ok(())
+}
 
-    // 2. BPE Tokenizer (Byte Pair Encoding)
+fn demo_bpe_tokenizer(text: &str) -> Result<BPETokenizer> {
     println!("--- BPE Tokenizer ---");
     let vocab = vec![
         "<unk>".to_string(),
@@ -66,8 +61,10 @@ fn main() -> Result<()> {
     println!("  Encoded: {:?}", tokens);
     println!("  Decoded: \"{}\"", decoded);
     println!("  Vocab size: {}\n", bpe.vocab_size());
+    Ok(bpe)
+}
 
-    // 3. SentencePiece Tokenizer (Unigram model with scores)
+fn demo_sentencepiece_tokenizer(text: &str) -> Result<()> {
     println!("--- SentencePiece Tokenizer ---");
     let vocab = vec![
         ("<unk>".to_string(), 0.0),
@@ -89,8 +86,10 @@ fn main() -> Result<()> {
     println!("  Encoded: {:?}", tokens);
     println!("  Decoded: \"{}\"", decoded);
     println!("  Vocab size: {}\n", sp.vocab_size());
+    Ok(())
+}
 
-    // 4. Demonstrate roundtrip consistency
+fn demo_roundtrip_test(bpe: &BPETokenizer) -> Result<()> {
     println!("--- Roundtrip Test ---");
     let test_texts = vec!["hello", "world", "hello world"];
     for test_text in test_texts {
@@ -104,6 +103,19 @@ fn main() -> Result<()> {
             if test_text == decoded { "✓" } else { "✗" }
         );
     }
+    Ok(())
+}
+
+fn main() -> Result<()> {
+    println!("=== Tokenization Example ===\n");
+
+    let text = "hello world";
+    println!("Input text: \"{}\"\n", text);
+
+    demo_basic_tokenizer(text)?;
+    let bpe = demo_bpe_tokenizer(text)?;
+    demo_sentencepiece_tokenizer(text)?;
+    demo_roundtrip_test(&bpe)?;
 
     println!("\n=== Tokenization Complete ===");
     Ok(())
