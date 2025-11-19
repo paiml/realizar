@@ -69,6 +69,9 @@ gpu = ["trueno/gpu"]  # Enable GPU acceleration via Trueno
 server = ["dep:axum", "dep:tokio", "dep:tokio-stream", "dep:tower", "dep:futures", "dep:async-stream"]  # HTTP server support
 cli = ["dep:clap", "server"]  # CLI binary (requires server)
 
+# Testing features
+load-test-enabled = ["server"]  # Enable load tests (requires running server)
+
 # Convenience meta-features
 full = ["server", "cli", "gpu"]  # Everything enabled
 minimal = []  # Only core inference engine

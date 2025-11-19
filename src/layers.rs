@@ -3275,7 +3275,7 @@ mod tests {
         assert!((slopes[0] - 1.0).abs() < 1e-6); // 2^0
         assert!((slopes[1] - 0.25).abs() < 1e-6); // 2^-2
         assert!((slopes[2] - 0.0625).abs() < 1e-6); // 2^-4
-        assert!((slopes[3] - 0.015625).abs() < 1e-6); // 2^-6
+        assert!((slopes[3] - 0.015_625).abs() < 1e-6); // 2^-6
 
         // Extra 2 slopes follow 2^(-4h/4) with step=2
         // slopes[4] = 2^(-1) = 0.5
@@ -3349,7 +3349,7 @@ mod tests {
 
         // For 2 heads: slopes = [1.0, 0.0625]
         // bias[0, 2, 0] = -slopes[0] * |0 - 2| = -1.0 * 2 = -2.0
-        let idx = 0 * 3 * 2 + 2 * 2 + 0;
+        let idx = 2 * 2;
         assert!(
             (bias.data()[idx] - (-2.0)).abs() < 1e-6,
             "Expected -2.0, got {}",
@@ -3357,7 +3357,7 @@ mod tests {
         );
 
         // bias[1, 2, 1] = -slopes[1] * |1 - 2| = -0.0625 * 1 = -0.0625
-        let idx = 1 * 3 * 2 + 2 * 2 + 1;
+        let idx = 3 * 2 + 2 * 2 + 1;
         let expected = -slopes[1];
         assert!(
             (bias.data()[idx] - expected).abs() < 1e-6,
@@ -3388,9 +3388,9 @@ mod tests {
         // bias[0, 2] = -1.0 * 2 = -2.0
         // bias[0, 3] = -1.0 * 3 = -3.0
 
-        let bias_01 = bias.data()[0 * 5 * 1 + 1 * 1 + 0];
-        let bias_02 = bias.data()[0 * 5 * 1 + 2 * 1 + 0];
-        let bias_03 = bias.data()[0 * 5 * 1 + 3 * 1 + 0];
+        let bias_01 = bias.data()[1];
+        let bias_02 = bias.data()[2];
+        let bias_03 = bias.data()[3];
 
         assert!((bias_01 - (-1.0)).abs() < 1e-6);
         assert!((bias_02 - (-2.0)).abs() < 1e-6);
@@ -3430,8 +3430,8 @@ mod tests {
         assert_eq!(bias.shape(), &[128, 128, 8]);
 
         // Check that far positions have larger negative bias
-        let near_bias = bias.data()[0 * 128 * 8 + 1 * 8 + 0]; // distance 1
-        let far_bias = bias.data()[0 * 128 * 8 + 100 * 8 + 0]; // distance 100
+        let near_bias = bias.data()[8]; // distance 1
+        let far_bias = bias.data()[100 * 8]; // distance 100
 
         assert!(near_bias > far_bias); // near should be less negative
     }
@@ -4120,13 +4120,13 @@ mod tests {
 
         let input = Tensor::from_vec(vec![3, 16], vec![0.5; 48]).unwrap();
 
-        let mha_output = mha.forward(&input).unwrap();
-        let mqa_output = mqa.forward(&input).unwrap();
+        let multi_head_output = mha.forward(&input).unwrap();
+        let multi_query_output = mqa.forward(&input).unwrap();
 
         // Both should have same output shape
-        assert_eq!(mha_output.shape(), &[3, 16]);
-        assert_eq!(mqa_output.shape(), &[3, 16]);
-        assert_eq!(mha_output.shape(), mqa_output.shape());
+        assert_eq!(multi_head_output.shape(), &[3, 16]);
+        assert_eq!(multi_query_output.shape(), &[3, 16]);
+        assert_eq!(multi_head_output.shape(), multi_query_output.shape());
     }
 
     #[test]
@@ -4200,16 +4200,16 @@ mod tests {
 
         let input = Tensor::from_vec(vec![4, 64], vec![0.5; 256]).unwrap();
 
-        let mha_output = mha.forward(&input).unwrap();
-        let mqa_output = mqa.forward(&input).unwrap();
-        let gqa_output = gqa.forward(&input).unwrap();
+        let multi_head_out = mha.forward(&input).unwrap();
+        let multi_query_out = mqa.forward(&input).unwrap();
+        let grouped_query_out = gqa.forward(&input).unwrap();
 
         // All should have same output shape
-        assert_eq!(mha_output.shape(), &[4, 64]);
-        assert_eq!(mqa_output.shape(), &[4, 64]);
-        assert_eq!(gqa_output.shape(), &[4, 64]);
-        assert_eq!(mha_output.shape(), mqa_output.shape());
-        assert_eq!(mha_output.shape(), gqa_output.shape());
+        assert_eq!(multi_head_out.shape(), &[4, 64]);
+        assert_eq!(multi_query_out.shape(), &[4, 64]);
+        assert_eq!(grouped_query_out.shape(), &[4, 64]);
+        assert_eq!(multi_head_out.shape(), multi_query_out.shape());
+        assert_eq!(multi_head_out.shape(), grouped_query_out.shape());
     }
 
     #[test]

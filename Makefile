@@ -58,6 +58,14 @@ test-property: ## Run property-based tests (proptest)
 	@echo "$(GREEN)Running property-based tests...$(NC)"
 	cargo test --test property_*
 
+load-test: ## Run HTTP API load tests (requires running server)
+	@echo "$(GREEN)Running load tests...$(NC)"
+	@./scripts/load_test.sh
+
+load-test-no-server: ## Run load tests against existing server
+	@echo "$(GREEN)Running load tests (no server start)...$(NC)"
+	@./scripts/load_test.sh --no-server
+
 # === Quality Gates ===
 
 quality-gates: fmt-check clippy test coverage bashrs-check book-build book-validate ## Run all quality gates (pre-commit)
