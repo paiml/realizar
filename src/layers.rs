@@ -862,21 +862,26 @@ impl Attention {
     }
 }
 
-/// Multi-Head Attention with optional Multi-Query Attention (MQA) support
+/// Multi-Head Attention with support for MHA, MQA, and GQA
 ///
-/// Implements both standard Multi-Head Attention (MHA) and Multi-Query Attention (MQA):
+/// Implements three attention variants through configurable `KV` head count:
 ///
-/// **Standard MHA:**
+/// **Multi-Head Attention (MHA):** `num_kv_heads = num_heads`
 /// - Each head has separate Q, K, V projections
-/// - `KV` cache size: `O(num_heads * seq_len * head_dim)`
-/// - Memory bandwidth intensive
+/// - `KV` cache: `O(num_heads * seq_len * head_dim)`
+/// - Standard attention mechanism
 ///
-/// **Multi-Query Attention (MQA):**
+/// **Multi-Query Attention (MQA):** `num_kv_heads = 1`
 /// - Each head has separate Q projection
-/// - All heads share single K, V projections
-/// - `KV` cache size: `O(seq_len * head_dim)` - reduces by `num_heads` factor
-/// - Faster inference, less memory bandwidth
+/// - All heads share single K, V projection
+/// - `KV` cache: `O(seq_len * head_dim)` - reduces by `num_heads` factor
 /// - Used in `PaLM`, Falcon, `StarCoder`
+///
+/// **Grouped-Query Attention (GQA):** `1 < num_kv_heads < num_heads`
+/// - Heads grouped into `num_kv_heads` groups
+/// - Each group shares K, V projections
+/// - `KV` cache: `O(num_kv_heads * seq_len * head_dim)`
+/// - Used in `Llama-2`, Mistral, `CodeLlama`
 ///
 /// # Architecture
 ///
@@ -884,10 +889,10 @@ impl Attention {
 /// Input [hidden_dim]
 ///   |
 ///   ├─> Q_proj [hidden_dim -> hidden_dim] -> split into num_heads
-///   ├─> K_proj [hidden_dim -> kv_dim] (kv_dim = hidden_dim for MHA, head_dim for MQA)
-///   └─> V_proj [hidden_dim -> kv_dim]
+///   ├─> K_proj [hidden_dim -> num_kv_heads * head_dim]
+///   └─> V_proj [hidden_dim -> num_kv_heads * head_dim]
 ///   |
-///   ├─> Attention (per head or shared for MQA)
+///   ├─> Attention (grouped by num_kv_heads)
 ///   |
 ///   └─> O_proj [hidden_dim -> hidden_dim]
 ///       |
@@ -898,54 +903,65 @@ impl Attention {
 ///
 /// - "Attention is All You Need" - Vaswani et al., 2017 (MHA)
 /// - "Fast Transformer Decoding: One Write-Head is All You Need" - Shazeer, 2019 (MQA)
-/// - "`PaLM`: Scaling Language Modeling with Pathways" - Chowdhery et al., 2022 (MQA in production)
+/// - "`PaLM`: Scaling Language Modeling with Pathways" - Chowdhery et al., 2022 (MQA)
+/// - "`GQA`: Training Generalized Multi-Query Transformer" - Ainslie et al., 2023 (GQA)
 #[derive(Debug, Clone)]
 pub struct MultiHeadAttention {
-    /// Number of attention heads
+    /// Number of attention heads (Q heads)
     num_heads: usize,
+    /// Number of key/value heads (for GQA/MQA)
+    num_kv_heads: usize,
     /// Dimension per attention head
     head_dim: usize,
     /// Total hidden dimension (`num_heads * head_dim`)
     hidden_dim: usize,
     /// Query projection: `hidden_dim -> hidden_dim`
     q_proj: Linear,
-    /// Key projection: `hidden_dim -> kv_dim` (`kv_dim` depends on `use_mqa`)
+    /// Key projection: `hidden_dim -> num_kv_heads * head_dim`
     k_proj: Linear,
-    /// Value projection: `hidden_dim -> kv_dim` (`kv_dim` depends on `use_mqa`)
+    /// Value projection: `hidden_dim -> num_kv_heads * head_dim`
     v_proj: Linear,
     /// Output projection: `hidden_dim -> hidden_dim`
     o_proj: Linear,
     /// Per-head attention mechanism
     attention: Attention,
-    /// Use Multi-Query Attention (shared `K/V` across heads)
-    use_mqa: bool,
 }
 
 impl MultiHeadAttention {
-    /// Create a new Multi-Head Attention layer
+    /// Create a new Multi-Head Attention layer with configurable `KV` heads
     ///
     /// # Arguments
     ///
     /// * `hidden_dim` - Total hidden dimension (must be divisible by `num_heads`)
-    /// * `num_heads` - Number of attention heads
-    /// * `use_mqa` - If true, use Multi-Query Attention (shared `K/V`)
+    /// * `num_heads` - Number of query heads
+    /// * `num_kv_heads` - Number of key/value heads (must divide `num_heads`)
+    ///
+    /// # Modes
+    ///
+    /// - MHA: `num_kv_heads = num_heads` (standard multi-head)
+    /// - MQA: `num_kv_heads = 1` (all heads share K/V)
+    /// - GQA: `1 < num_kv_heads < num_heads` (grouped heads)
     ///
     /// # Errors
     ///
     /// Returns error if:
     /// - `hidden_dim` is zero or not divisible by `num_heads`
-    /// - `num_heads` is zero
+    /// - `num_heads` is zero or not divisible by `num_kv_heads`
+    /// - `num_kv_heads` is zero or greater than `num_heads`
     ///
     /// # Examples
     ///
     /// ```rust,ignore
-    /// // Standard Multi-Head Attention
-    /// let mha = MultiHeadAttention::new(512, 8, false)?;
+    /// // Standard Multi-Head Attention (MHA)
+    /// let mha = MultiHeadAttention::new(512, 8, 8)?;
     ///
     /// // Multi-Query Attention (MQA)
-    /// let mqa = MultiHeadAttention::new(512, 8, true)?;
+    /// let mqa = MultiHeadAttention::new(512, 8, 1)?;
+    ///
+    /// // Grouped-Query Attention (GQA) - 4 heads per group
+    /// let gqa = MultiHeadAttention::new(512, 8, 2)?;
     /// ```
-    pub fn new(hidden_dim: usize, num_heads: usize, use_mqa: bool) -> Result<Self> {
+    pub fn new(hidden_dim: usize, num_heads: usize, num_kv_heads: usize) -> Result<Self> {
         if hidden_dim == 0 {
             return Err(RealizarError::InvalidShape {
                 reason: "hidden_dim must be > 0".to_string(),
@@ -956,6 +972,18 @@ impl MultiHeadAttention {
                 reason: "num_heads must be > 0".to_string(),
             });
         }
+        if num_kv_heads == 0 {
+            return Err(RealizarError::InvalidShape {
+                reason: "num_kv_heads must be > 0".to_string(),
+            });
+        }
+        if num_kv_heads > num_heads {
+            return Err(RealizarError::InvalidShape {
+                reason: format!(
+                    "num_kv_heads {num_kv_heads} cannot be greater than num_heads {num_heads}"
+                ),
+            });
+        }
         if hidden_dim % num_heads != 0 {
             return Err(RealizarError::InvalidShape {
                 reason: format!(
@@ -963,14 +991,21 @@ impl MultiHeadAttention {
                 ),
             });
         }
+        if num_heads % num_kv_heads != 0 {
+            return Err(RealizarError::InvalidShape {
+                reason: format!(
+                    "num_heads {num_heads} must be divisible by num_kv_heads {num_kv_heads}"
+                ),
+            });
+        }
 
         let head_dim = hidden_dim / num_heads;
 
-        // Q projection: always hidden_dim -> hidden_dim (all heads)
+        // Q projection: always hidden_dim -> hidden_dim (all query heads)
         let q_proj = Linear::new(hidden_dim, hidden_dim)?;
 
-        // K/V projections depend on MQA mode
-        let kv_dim = if use_mqa { head_dim } else { hidden_dim };
+        // K/V projections: hidden_dim -> num_kv_heads * head_dim
+        let kv_dim = num_kv_heads * head_dim;
         let k_proj = Linear::new(hidden_dim, kv_dim)?;
         let v_proj = Linear::new(hidden_dim, kv_dim)?;
 
@@ -982,6 +1017,7 @@ impl MultiHeadAttention {
 
         Ok(Self {
             num_heads,
+            num_kv_heads,
             head_dim,
             hidden_dim,
             q_proj,
@@ -989,8 +1025,46 @@ impl MultiHeadAttention {
             v_proj,
             o_proj,
             attention,
-            use_mqa,
         })
+    }
+
+    /// Create standard Multi-Head Attention (MHA) - each head has separate K/V
+    ///
+    /// # Errors
+    ///
+    /// Returns `RealizarError::InvalidShape` if:
+    /// - `hidden_dim` is 0
+    /// - `num_heads` is 0
+    /// - `hidden_dim` is not divisible by `num_heads`
+    pub fn mha(hidden_dim: usize, num_heads: usize) -> Result<Self> {
+        Self::new(hidden_dim, num_heads, num_heads)
+    }
+
+    /// Create Multi-Query Attention (MQA) - all heads share K/V
+    ///
+    /// # Errors
+    ///
+    /// Returns `RealizarError::InvalidShape` if:
+    /// - `hidden_dim` is 0
+    /// - `num_heads` is 0
+    /// - `hidden_dim` is not divisible by `num_heads`
+    pub fn mqa(hidden_dim: usize, num_heads: usize) -> Result<Self> {
+        Self::new(hidden_dim, num_heads, 1)
+    }
+
+    /// Create Grouped-Query Attention (GQA) - heads grouped to share K/V
+    ///
+    /// # Errors
+    ///
+    /// Returns `RealizarError::InvalidShape` if:
+    /// - `hidden_dim` is 0
+    /// - `num_heads` is 0
+    /// - `num_kv_heads` is 0
+    /// - `num_kv_heads` is greater than `num_heads`
+    /// - `hidden_dim` is not divisible by `num_heads`
+    /// - `num_heads` is not divisible by `num_kv_heads`
+    pub fn gqa(hidden_dim: usize, num_heads: usize, num_kv_heads: usize) -> Result<Self> {
+        Self::new(hidden_dim, num_heads, num_kv_heads)
     }
 
     /// Forward pass through multi-head attention
@@ -1020,10 +1094,7 @@ impl MultiHeadAttention {
 
         if input_dim != self.hidden_dim {
             return Err(RealizarError::InvalidShape {
-                reason: format!(
-                    "Expected hidden_dim={}, got {}",
-                    self.hidden_dim, input_dim
-                ),
+                reason: format!("Expected hidden_dim={}, got {}", self.hidden_dim, input_dim),
             });
         }
 
@@ -1037,7 +1108,10 @@ impl MultiHeadAttention {
         let k_data = k.data();
         let v_data = v.data();
 
-        // Process each head
+        // Calculate heads per group for GQA
+        let heads_per_group = self.num_heads / self.num_kv_heads;
+
+        // Process each query head
         let mut head_outputs = Vec::with_capacity(self.num_heads);
 
         for head_idx in 0..self.num_heads {
@@ -1052,28 +1126,23 @@ impl MultiHeadAttention {
             }
             let q_head = Tensor::from_vec(vec![seq_len, self.head_dim], q_head_data)?;
 
-            // Extract K, V for this head (shared in MQA, per-head in MHA)
-            let (k_head, v_head) = if self.use_mqa {
-                // MQA: All heads share the same K/V
-                let k_head = Tensor::from_vec(vec![seq_len, self.head_dim], k_data.to_vec())?;
-                let v_head = Tensor::from_vec(vec![seq_len, self.head_dim], v_data.to_vec())?;
-                (k_head, v_head)
-            } else {
-                // MHA: Each head has its own K/V
-                let mut k_head_data = Vec::with_capacity(seq_len * self.head_dim);
-                let mut v_head_data = Vec::with_capacity(seq_len * self.head_dim);
-                for seq_idx in 0..seq_len {
-                    let kv_row_start = seq_idx * self.hidden_dim;
-                    let head_start = kv_row_start + head_idx * self.head_dim;
-                    for offset in 0..self.head_dim {
-                        k_head_data.push(k_data[head_start + offset]);
-                        v_head_data.push(v_data[head_start + offset]);
-                    }
+            // Determine which KV head this Q head uses (for GQA/MQA/MHA)
+            let kv_head_idx = head_idx / heads_per_group;
+            let kv_dim = self.num_kv_heads * self.head_dim;
+
+            // Extract K, V for the corresponding KV head
+            let mut k_head_data = Vec::with_capacity(seq_len * self.head_dim);
+            let mut v_head_data = Vec::with_capacity(seq_len * self.head_dim);
+            for seq_idx in 0..seq_len {
+                let kv_row_start = seq_idx * kv_dim;
+                let kv_head_start = kv_row_start + kv_head_idx * self.head_dim;
+                for offset in 0..self.head_dim {
+                    k_head_data.push(k_data[kv_head_start + offset]);
+                    v_head_data.push(v_data[kv_head_start + offset]);
                 }
-                let k_head = Tensor::from_vec(vec![seq_len, self.head_dim], k_head_data)?;
-                let v_head = Tensor::from_vec(vec![seq_len, self.head_dim], v_head_data)?;
-                (k_head, v_head)
-            };
+            }
+            let k_head = Tensor::from_vec(vec![seq_len, self.head_dim], k_head_data)?;
+            let v_head = Tensor::from_vec(vec![seq_len, self.head_dim], v_head_data)?;
 
             // Compute attention for this head
             let head_output = self.attention.forward(&q_head, &k_head, &v_head)?;
@@ -1098,10 +1167,16 @@ impl MultiHeadAttention {
         self.o_proj.forward(&concat)
     }
 
-    /// Get number of attention heads
+    /// Get number of query heads
     #[must_use]
     pub fn num_heads(&self) -> usize {
         self.num_heads
+    }
+
+    /// Get number of key/value heads
+    #[must_use]
+    pub fn num_kv_heads(&self) -> usize {
+        self.num_kv_heads
     }
 
     /// Get head dimension
@@ -1116,10 +1191,22 @@ impl MultiHeadAttention {
         self.hidden_dim
     }
 
-    /// Check if using Multi-Query Attention
+    /// Check if using Multi-Query Attention (MQA)
     #[must_use]
     pub fn is_mqa(&self) -> bool {
-        self.use_mqa
+        self.num_kv_heads == 1
+    }
+
+    /// Check if using Grouped-Query Attention (GQA)
+    #[must_use]
+    pub fn is_gqa(&self) -> bool {
+        self.num_kv_heads > 1 && self.num_kv_heads < self.num_heads
+    }
+
+    /// Check if using standard Multi-Head Attention (MHA)
+    #[must_use]
+    pub fn is_mha(&self) -> bool {
+        self.num_kv_heads == self.num_heads
     }
 }
 
@@ -3461,47 +3548,86 @@ mod tests {
 
     #[test]
     fn test_multi_head_attention_creation_mha() {
-        // Standard Multi-Head Attention
-        let mha = MultiHeadAttention::new(64, 8, false).unwrap();
+        // Standard Multi-Head Attention (num_kv_heads = num_heads)
+        let mha = MultiHeadAttention::mha(64, 8).unwrap();
         assert_eq!(mha.num_heads(), 8);
+        assert_eq!(mha.num_kv_heads(), 8);
         assert_eq!(mha.head_dim(), 8); // 64 / 8
         assert_eq!(mha.hidden_dim(), 64);
+        assert!(mha.is_mha());
         assert!(!mha.is_mqa());
+        assert!(!mha.is_gqa());
     }
 
     #[test]
     fn test_multi_head_attention_creation_mqa() {
-        // Multi-Query Attention
-        let mqa = MultiHeadAttention::new(64, 8, true).unwrap();
+        // Multi-Query Attention (num_kv_heads = 1)
+        let mqa = MultiHeadAttention::mqa(64, 8).unwrap();
         assert_eq!(mqa.num_heads(), 8);
+        assert_eq!(mqa.num_kv_heads(), 1);
         assert_eq!(mqa.head_dim(), 8);
         assert_eq!(mqa.hidden_dim(), 64);
         assert!(mqa.is_mqa());
+        assert!(!mqa.is_mha());
+        assert!(!mqa.is_gqa());
+    }
+
+    #[test]
+    fn test_multi_head_attention_creation_gqa() {
+        // Grouped-Query Attention (1 < num_kv_heads < num_heads)
+        let gqa = MultiHeadAttention::gqa(64, 8, 2).unwrap();
+        assert_eq!(gqa.num_heads(), 8);
+        assert_eq!(gqa.num_kv_heads(), 2);
+        assert_eq!(gqa.head_dim(), 8);
+        assert_eq!(gqa.hidden_dim(), 64);
+        assert!(gqa.is_gqa());
+        assert!(!gqa.is_mha());
+        assert!(!gqa.is_mqa());
     }
 
     #[test]
     fn test_multi_head_attention_zero_hidden_dim_error() {
-        let result = MultiHeadAttention::new(0, 8, false);
+        let result = MultiHeadAttention::new(0, 8, 8);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_multi_head_attention_zero_num_heads_error() {
-        let result = MultiHeadAttention::new(64, 0, false);
+        let result = MultiHeadAttention::new(64, 0, 1);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_multi_head_attention_zero_num_kv_heads_error() {
+        let result = MultiHeadAttention::new(64, 8, 0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_multi_head_attention_kv_heads_too_large_error() {
+        // num_kv_heads cannot be greater than num_heads
+        let result = MultiHeadAttention::new(64, 8, 16);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_multi_head_attention_indivisible_error() {
         // 65 is not divisible by 8
-        let result = MultiHeadAttention::new(65, 8, false);
+        let result = MultiHeadAttention::new(65, 8, 8);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_multi_head_attention_heads_not_divisible_error() {
+        // num_heads must be divisible by num_kv_heads
+        let result = MultiHeadAttention::new(64, 8, 3);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_multi_head_attention_mha_forward() {
         // Standard MHA with 2 heads
-        let mha = MultiHeadAttention::new(8, 2, false).unwrap();
+        let mha = MultiHeadAttention::mha(8, 2).unwrap();
 
         // Input: [seq_len=2, hidden_dim=8]
         let input = Tensor::from_vec(
@@ -3522,7 +3648,7 @@ mod tests {
     #[test]
     fn test_multi_head_attention_mqa_forward() {
         // Multi-Query Attention with 2 heads (shared K/V)
-        let mqa = MultiHeadAttention::new(8, 2, true).unwrap();
+        let mqa = MultiHeadAttention::mqa(8, 2).unwrap();
 
         // Input: [seq_len=2, hidden_dim=8]
         let input = Tensor::from_vec(
@@ -3542,7 +3668,7 @@ mod tests {
 
     #[test]
     fn test_multi_head_attention_shape_validation() {
-        let mha = MultiHeadAttention::new(8, 2, false).unwrap();
+        let mha = MultiHeadAttention::mha(8, 2).unwrap();
 
         // Wrong number of dimensions (1D instead of 2D)
         let input_1d = Tensor::from_vec(vec![8], vec![1.0; 8]).unwrap();
@@ -3558,8 +3684,8 @@ mod tests {
     #[test]
     fn test_multi_head_attention_mha_vs_mqa_shape_consistency() {
         // Both MHA and MQA should produce same output shape
-        let mha = MultiHeadAttention::new(16, 4, false).unwrap();
-        let mqa = MultiHeadAttention::new(16, 4, true).unwrap();
+        let mha = MultiHeadAttention::mha(16, 4).unwrap();
+        let mqa = MultiHeadAttention::mqa(16, 4).unwrap();
 
         let input = Tensor::from_vec(vec![3, 16], vec![0.5; 48]).unwrap();
 
@@ -3575,7 +3701,7 @@ mod tests {
     #[test]
     fn test_multi_head_attention_single_head() {
         // Edge case: single head (equivalent to single attention)
-        let mha = MultiHeadAttention::new(8, 1, false).unwrap();
+        let mha = MultiHeadAttention::mha(8, 1).unwrap();
 
         let input = Tensor::from_vec(vec![2, 8], vec![0.5; 16]).unwrap();
         let output = mha.forward(&input).unwrap();
@@ -3586,7 +3712,7 @@ mod tests {
     #[test]
     fn test_multi_head_attention_mqa_kv_sharing() {
         // MQA should work with larger number of heads
-        let mqa = MultiHeadAttention::new(32, 8, true).unwrap();
+        let mqa = MultiHeadAttention::mqa(32, 8).unwrap();
 
         let input = Tensor::from_vec(vec![4, 32], vec![0.1; 128]).unwrap();
         let output = mqa.forward(&input).unwrap();
@@ -3597,7 +3723,7 @@ mod tests {
     #[test]
     fn test_multi_head_attention_long_sequence() {
         // Test with longer sequence
-        let mha = MultiHeadAttention::new(16, 4, false).unwrap();
+        let mha = MultiHeadAttention::mha(16, 4).unwrap();
 
         // Sequence length = 10
         let input = Tensor::from_vec(vec![10, 16], vec![0.3; 160]).unwrap();
@@ -3610,7 +3736,7 @@ mod tests {
     fn test_multi_head_attention_mqa_memory_efficiency() {
         // MQA should still work correctly with shared K/V
         // This tests that the shared K/V logic is correct
-        let mqa = MultiHeadAttention::new(64, 16, true).unwrap();
+        let mqa = MultiHeadAttention::mqa(64, 16).unwrap();
 
         // Small batch
         let input = Tensor::from_vec(vec![2, 64], vec![0.2; 128]).unwrap();
@@ -3618,5 +3744,55 @@ mod tests {
 
         assert_eq!(output.shape(), &[2, 64]);
         assert_eq!(output.data().len(), 128); // 2 * 64
+    }
+
+    #[test]
+    fn test_multi_head_attention_gqa_forward() {
+        // Grouped-Query Attention with 8 heads, 2 KV heads (4 heads per group)
+        let gqa = MultiHeadAttention::gqa(32, 8, 2).unwrap();
+
+        // Input: [seq_len=3, hidden_dim=32]
+        let input = Tensor::from_vec(vec![3, 32], vec![0.1; 96]).unwrap();
+
+        let output = gqa.forward(&input).unwrap();
+
+        // Output should have same shape as input
+        assert_eq!(output.shape(), &[3, 32]);
+    }
+
+    #[test]
+    fn test_multi_head_attention_gqa_shape_consistency() {
+        // MHA, MQA, and GQA should all produce same output shape
+        let mha = MultiHeadAttention::mha(64, 8).unwrap();
+        let mqa = MultiHeadAttention::mqa(64, 8).unwrap();
+        let gqa = MultiHeadAttention::gqa(64, 8, 2).unwrap();
+
+        let input = Tensor::from_vec(vec![4, 64], vec![0.5; 256]).unwrap();
+
+        let mha_output = mha.forward(&input).unwrap();
+        let mqa_output = mqa.forward(&input).unwrap();
+        let gqa_output = gqa.forward(&input).unwrap();
+
+        // All should have same output shape
+        assert_eq!(mha_output.shape(), &[4, 64]);
+        assert_eq!(mqa_output.shape(), &[4, 64]);
+        assert_eq!(gqa_output.shape(), &[4, 64]);
+        assert_eq!(mha_output.shape(), mqa_output.shape());
+        assert_eq!(mha_output.shape(), gqa_output.shape());
+    }
+
+    #[test]
+    fn test_multi_head_attention_gqa_different_group_sizes() {
+        // Test GQA with different group sizes
+        // 16 heads, 4 KV heads (4 heads per group)
+        let gqa1 = MultiHeadAttention::gqa(128, 16, 4).unwrap();
+        let input = Tensor::from_vec(vec![2, 128], vec![0.3; 256]).unwrap();
+        let output1 = gqa1.forward(&input).unwrap();
+        assert_eq!(output1.shape(), &[2, 128]);
+
+        // 16 heads, 8 KV heads (2 heads per group)
+        let gqa2 = MultiHeadAttention::gqa(128, 16, 8).unwrap();
+        let output2 = gqa2.forward(&input).unwrap();
+        assert_eq!(output2.shape(), &[2, 128]);
     }
 }
