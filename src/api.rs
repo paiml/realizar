@@ -41,6 +41,7 @@ use crate::{
     generate::{GenerationConfig, SamplingStrategy},
     layers::{Model, ModelConfig},
     metrics::MetricsCollector,
+    registry::{ModelInfo, ModelRegistry},
     tokenizer::BPETokenizer,
 };
 
@@ -48,9 +49,9 @@ use crate::{
 #[derive(Clone)]
 pub struct AppState {
     /// Model for inference (single model mode)
-    model: Arc<Model>,
-    /// Tokenizer for encoding/decoding
-    tokenizer: Arc<BPETokenizer>,
+    model: Option<Arc<Model>>,
+    /// Tokenizer for encoding/decoding (single model mode)
+    tokenizer: Option<Arc<BPETokenizer>>,
     /// Model cache for multi-model support
     #[allow(dead_code)] // Will be used in future PR for cache warming
     cache: Option<Arc<ModelCache>>,
@@ -59,6 +60,10 @@ pub struct AppState {
     cache_key: Option<CacheKey>,
     /// Metrics collector for monitoring
     metrics: Arc<MetricsCollector>,
+    /// Model registry for multi-model serving
+    registry: Option<Arc<ModelRegistry>>,
+    /// Default model ID for multi-model mode
+    default_model_id: Option<String>,
 }
 
 impl AppState {
@@ -71,12 +76,71 @@ impl AppState {
     #[must_use]
     pub fn new(model: Model, tokenizer: BPETokenizer) -> Self {
         Self {
-            model: Arc::new(model),
-            tokenizer: Arc::new(tokenizer),
+            model: Some(Arc::new(model)),
+            tokenizer: Some(Arc::new(tokenizer)),
             cache: None,
             cache_key: None,
             metrics: Arc::new(MetricsCollector::new()),
+            registry: None,
+            default_model_id: None,
         }
+    }
+
+    /// Create application state with model registry for multi-model serving
+    ///
+    /// # Arguments
+    ///
+    /// * `registry` - Model registry with pre-registered models
+    /// * `default_model_id` - Default model to use when not specified
+    ///
+    /// # Errors
+    ///
+    /// Returns error if default model doesn't exist in registry
+    pub fn with_registry(
+        registry: ModelRegistry,
+        default_model_id: &str,
+    ) -> Result<Self, RealizarError> {
+        // Verify default model exists
+        if !registry.contains(default_model_id) {
+            return Err(RealizarError::ModelNotFound(default_model_id.to_string()));
+        }
+
+        Ok(Self {
+            model: None,
+            tokenizer: None,
+            cache: None,
+            cache_key: None,
+            metrics: Arc::new(MetricsCollector::new()),
+            registry: Some(Arc::new(registry)),
+            default_model_id: Some(default_model_id.to_string()),
+        })
+    }
+
+    /// Get model and tokenizer by ID (or default)
+    #[allow(clippy::type_complexity)]
+    fn get_model(
+        &self,
+        model_id: Option<&str>,
+    ) -> Result<(Arc<Model>, Arc<BPETokenizer>), RealizarError> {
+        // Multi-model mode
+        if let Some(registry) = &self.registry {
+            let id = model_id
+                .or(self.default_model_id.as_deref())
+                .ok_or_else(|| RealizarError::RegistryError("No model ID specified".to_string()))?;
+            return registry.get(id);
+        }
+
+        // Single model mode
+        let model = self
+            .model
+            .clone()
+            .ok_or_else(|| RealizarError::RegistryError("No model available".to_string()))?;
+        let tokenizer = self
+            .tokenizer
+            .clone()
+            .ok_or_else(|| RealizarError::RegistryError("No tokenizer available".to_string()))?;
+
+        Ok((model, tokenizer))
     }
 
     /// Create application state with model caching enabled
@@ -113,11 +177,13 @@ impl AppState {
             BPETokenizer::new(vocab, vec![], "<unk>").expect("Failed to create tokenizer");
 
         Self {
-            model: Arc::new(model),
-            tokenizer: Arc::new(tokenizer),
+            model: Some(Arc::new(model)),
+            tokenizer: Some(Arc::new(tokenizer)),
             cache: Some(Arc::new(ModelCache::new(cache_capacity))),
             cache_key: Some(CacheKey::new("default".to_string())),
             metrics: Arc::new(MetricsCollector::new()),
+            registry: None,
+            default_model_id: None,
         }
     }
 
@@ -167,6 +233,8 @@ pub struct HealthResponse {
 pub struct TokenizeRequest {
     /// Text to tokenize
     pub text: String,
+    /// Model ID (optional, uses default if not specified)
+    pub model_id: Option<String>,
 }
 
 /// Tokenize response
@@ -200,6 +268,8 @@ pub struct GenerateRequest {
     pub top_p: f32,
     /// Random seed for reproducibility
     pub seed: Option<u64>,
+    /// Model ID (optional, uses default if not specified)
+    pub model_id: Option<String>,
 }
 
 fn default_max_tokens() -> usize {
@@ -297,6 +367,13 @@ pub struct StreamDoneEvent {
     pub num_generated: usize,
 }
 
+/// Models list response
+#[derive(Serialize, Deserialize)]
+pub struct ModelsResponse {
+    /// List of available models
+    pub models: Vec<ModelInfo>,
+}
+
 /// Create the API router
 ///
 /// # Arguments
@@ -306,6 +383,7 @@ pub fn create_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health_handler))
         .route("/metrics", get(metrics_handler))
+        .route("/models", get(models_handler))
         .route("/tokenize", post(tokenize_handler))
         .route("/generate", post(generate_handler))
         .route("/batch/tokenize", post(batch_tokenize_handler))
@@ -327,12 +405,44 @@ async fn metrics_handler(State(state): State<AppState>) -> String {
     state.metrics.to_prometheus()
 }
 
+/// Models list handler - returns available models in multi-model mode
+async fn models_handler(
+    State(state): State<AppState>,
+) -> Result<Json<ModelsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    if let Some(registry) = &state.registry {
+        let models = registry.list();
+        Ok(Json(ModelsResponse { models }))
+    } else {
+        // Single model mode - return the single model info
+        Ok(Json(ModelsResponse {
+            models: vec![ModelInfo {
+                id: "default".to_string(),
+                name: "Default Model".to_string(),
+                description: "Single model deployment".to_string(),
+                format: "unknown".to_string(),
+                loaded: true,
+            }],
+        }))
+    }
+}
+
 /// Tokenize text handler
 async fn tokenize_handler(
     State(state): State<AppState>,
     Json(request): Json<TokenizeRequest>,
 ) -> Result<Json<TokenizeResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let token_ids = state.tokenizer.encode(&request.text);
+    let (_model, tokenizer) = state
+        .get_model(request.model_id.as_deref())
+        .map_err(|e| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+        })?;
+
+    let token_ids = tokenizer.encode(&request.text);
     let num_tokens = token_ids.len();
 
     Ok(Json(TokenizeResponse {
@@ -349,8 +459,21 @@ async fn generate_handler(
     use std::time::Instant;
     let start = Instant::now();
 
+    // Get model and tokenizer
+    let (model, tokenizer) = state
+        .get_model(request.model_id.as_deref())
+        .map_err(|e| {
+            state.metrics.record_failure();
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+        })?;
+
     // Tokenize prompt
-    let prompt_ids = state.tokenizer.encode(&request.prompt);
+    let prompt_ids = tokenizer.encode(&request.prompt);
     if prompt_ids.is_empty() {
         state.metrics.record_failure();
         return Err((
@@ -390,7 +513,7 @@ async fn generate_handler(
     }
 
     // Generate
-    let generated = state.model.generate(&prompt, &config).map_err(|e| {
+    let generated = model.generate(&prompt, &config).map_err(|e| {
         state.metrics.record_failure();
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -405,7 +528,7 @@ async fn generate_handler(
         .iter()
         .map(|&id| u32::try_from(id).unwrap_or(u32::MAX))
         .collect();
-    let text = state.tokenizer.decode(&token_ids).map_err(|e| {
+    let text = tokenizer.decode(&token_ids).map_err(|e| {
         state.metrics.record_failure();
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -442,12 +565,22 @@ async fn batch_tokenize_handler(
         ));
     }
 
+    // Get tokenizer (use default model)
+    let (_model, tokenizer) = state.get_model(None).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
     // Tokenize all texts
     let results: Vec<TokenizeResponse> = request
         .texts
         .iter()
         .map(|text| {
-            let token_ids = state.tokenizer.encode(text);
+            let token_ids = tokenizer.encode(text);
             let num_tokens = token_ids.len();
             TokenizeResponse {
                 token_ids,
@@ -472,6 +605,16 @@ async fn batch_generate_handler(
             }),
         ));
     }
+
+    // Get model and tokenizer (use default model)
+    let (model, tokenizer) = state.get_model(None).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
 
     // Build generation config (shared across all prompts)
     let strategy = match request.strategy.as_str() {
@@ -502,7 +645,7 @@ async fn batch_generate_handler(
 
     for prompt_text in &request.prompts {
         // Tokenize prompt
-        let prompt_ids = state.tokenizer.encode(prompt_text);
+        let prompt_ids = tokenizer.encode(prompt_text);
         if prompt_ids.is_empty() {
             return Err((
                 StatusCode::BAD_REQUEST,
@@ -516,7 +659,7 @@ async fn batch_generate_handler(
         let prompt: Vec<usize> = prompt_ids.iter().map(|&id| id as usize).collect();
 
         // Generate
-        let generated = state.model.generate(&prompt, &config).map_err(|e| {
+        let generated = model.generate(&prompt, &config).map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
@@ -530,7 +673,7 @@ async fn batch_generate_handler(
             .iter()
             .map(|&id| u32::try_from(id).unwrap_or(u32::MAX))
             .collect();
-        let text = state.tokenizer.decode(&token_ids).map_err(|e| {
+        let text = tokenizer.decode(&token_ids).map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
@@ -556,8 +699,20 @@ async fn stream_generate_handler(
     State(state): State<AppState>,
     Json(request): Json<GenerateRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
+    // Get model and tokenizer
+    let (model, tokenizer) = state
+        .get_model(request.model_id.as_deref())
+        .map_err(|e| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+        })?;
+
     // Tokenize prompt
-    let prompt_ids = state.tokenizer.encode(&request.prompt);
+    let prompt_ids = tokenizer.encode(&request.prompt);
     if prompt_ids.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -596,7 +751,7 @@ async fn stream_generate_handler(
     }
 
     // Generate all tokens (in future, this will be truly streaming token-by-token)
-    let generated = match state.model.generate(&prompt, &config) {
+    let generated = match model.generate(&prompt, &config) {
         Ok(tokens) => tokens,
         Err(e) => {
             return Err((
@@ -615,12 +770,12 @@ async fn stream_generate_handler(
         .collect();
 
     // Create stream that emits tokens one by one
-    let tokenizer = state.tokenizer.clone();
+    let tokenizer_clone = tokenizer.clone();
     let stream = async_stream::stream! {
         // Skip prompt tokens, only stream generated tokens
         for &token_id in &token_ids[prompt_len..] {
             // Decode single token
-            let text = match tokenizer.decode(&[token_id]) {
+            let text = match tokenizer_clone.decode(&[token_id]) {
                 Ok(t) => t,
                 Err(_) => String::from("<error>"),
             };
@@ -723,6 +878,7 @@ mod tests {
             top_k: 50,
             top_p: 0.9,
             seed: Some(42),
+            model_id: None,
         };
 
         let _response = app
@@ -751,6 +907,7 @@ mod tests {
 
         let request = TokenizeRequest {
             text: "token1 token2".to_string(),
+            model_id: None,
         };
 
         let response = app
@@ -786,6 +943,7 @@ mod tests {
             top_k: 50,
             top_p: 0.9,
             seed: Some(42),
+            model_id: None,
         };
 
         let response = app
@@ -821,6 +979,7 @@ mod tests {
             top_k: 50,
             top_p: 0.9,
             seed: None,
+            model_id: None,
         };
 
         let response = app
@@ -850,6 +1009,7 @@ mod tests {
             top_k: 50,
             top_p: 0.9,
             seed: None,
+            model_id: None,
         };
 
         let response = app
@@ -879,6 +1039,7 @@ mod tests {
             top_k: 5,
             top_p: 0.9,
             seed: Some(123),
+            model_id: None,
         };
 
         let response = app
@@ -908,6 +1069,7 @@ mod tests {
             top_k: 50,
             top_p: 0.9,
             seed: Some(456),
+            model_id: None,
         };
 
         let response = app
@@ -930,7 +1092,7 @@ mod tests {
         let state = AppState::demo();
         assert!(state.is_ok());
         let state = state.unwrap();
-        assert_eq!(state.tokenizer.vocab_size(), 100);
+        assert_eq!(state.tokenizer.as_ref().unwrap().vocab_size(), 100);
     }
 
     #[test]
@@ -1019,6 +1181,7 @@ mod tests {
             top_k: 50,
             top_p: 0.9,
             seed: Some(42),
+            model_id: None,
         };
 
         let response = app2
@@ -1115,6 +1278,7 @@ mod tests {
             top_k: 50,
             top_p: 0.9,
             seed: Some(42),
+            
         };
 
         let response = app
@@ -1158,6 +1322,7 @@ mod tests {
             top_k: 50,
             top_p: 0.9,
             seed: None,
+            
         };
 
         let response = app
@@ -1267,6 +1432,7 @@ mod tests {
             top_k: 50,
             top_p: 0.9,
             seed: None,
+            
         };
 
         let response = app

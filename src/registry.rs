@@ -30,7 +30,7 @@ use crate::layers::Model;
 use crate::tokenizer::BPETokenizer;
 
 /// Information about a registered model
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ModelInfo {
     /// Unique model identifier
     pub id: String,
