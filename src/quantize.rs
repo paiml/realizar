@@ -5,6 +5,7 @@
 //! - `Q8_0`: 8-bit quantization (block size 32)
 //! - `Q4_K`: 4-bit K-quantization (super-block size 256)
 //! - `Q5_K`: 5-bit K-quantization (super-block size 256)
+//! - `Q6_K`: 6-bit K-quantization (super-block size 256)
 //!
 //! ## `Q4_0` Format
 //!
@@ -40,6 +41,16 @@
 //! - 128 bytes of low 4-bit quantized values
 //! - Dequantization: `value = d * scale * quantized - dmin * min`
 //! - Achieves 5.5 bits per weight (higher quality than `Q4_K`)
+//!
+//! ## `Q6_K` Format
+//!
+//! `Q6_K` uses super-blocks of 256 values divided into 16 blocks of 16 values:
+//! - 1 half-precision super-block scale (`d`)
+//! - 16 bytes of 8-bit block scales
+//! - 64 bytes of high 2 bits (2 bits per value for 6-bit quantization)
+//! - 128 bytes of low 4-bit quantized values
+//! - Dequantization: `value = d * scale * quantized`
+//! - Achieves 6.5625 bits per weight (highest quality K-quant format)
 
 use crate::error::{RealizarError, Result};
 
@@ -126,6 +137,32 @@ pub struct Q5_KBlock {
     pub scales: [u8; 12],
     /// High bits for 5-bit quantization (32 bytes = 256 bits)
     pub qh: [u8; 32],
+    /// Low 4-bit quantized values (128 bytes = 256 4-bit values)
+    pub qs: [u8; 128],
+}
+
+/// `Q6_K` quantized super-block
+///
+/// K-quantization uses super-blocks of 256 values (16 blocks of 16 each).
+/// Achieves 6.5625 bits per weight with highest quality among K-quant formats.
+///
+/// Each super-block contains:
+/// - 1 half-precision scale factor (`d`)
+/// - 16 bytes of 8-bit block scales
+/// - 64 bytes of high 2 bits (2 bits per value for 6-bit quantization)
+/// - 128 bytes of low 4-bit quantized values
+///
+/// Total: 2 + 16 + 64 + 128 = 210 bytes per super-block of 256 values
+/// = 6.5625 bits per weight
+#[derive(Debug, Clone)]
+#[allow(non_camel_case_types)]
+pub struct Q6_KBlock {
+    /// Super-block scale factor (f16)
+    pub d: f32, // Stored as f16, loaded as f32
+    /// 8-bit block scales (16 bytes for 16 blocks)
+    pub scales: [i8; 16],
+    /// High 2 bits for 6-bit quantization (64 bytes = 512 bits, 2 bits per value)
+    pub qh: [u8; 64],
     /// Low 4-bit quantized values (128 bytes = 256 4-bit values)
     pub qs: [u8; 128],
 }
@@ -437,6 +474,105 @@ pub fn dequantize_q5_k(data: &[u8]) -> Result<Vec<f32>> {
     Ok(result)
 }
 
+/// Dequantize `Q6_K` format weights
+///
+/// # Arguments
+///
+/// * `data` - Raw `Q6_K` quantized data (super-blocks of 210 bytes each)
+///
+/// # Returns
+///
+/// Dequantized float32 values
+///
+/// # Errors
+///
+/// Returns error if data length is not a multiple of super-block size (210 bytes)
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// let quantized = load_q6_k_weights();
+/// let weights = dequantize_q6_k(&quantized)?;
+/// ```
+pub fn dequantize_q6_k(data: &[u8]) -> Result<Vec<f32>> {
+    // Q6_K super-block: 2 + 16 + 64 + 128 = 210 bytes
+    const SUPER_BLOCK_BYTES: usize = 210;
+
+    if data.len() % SUPER_BLOCK_BYTES != 0 {
+        return Err(RealizarError::InvalidShape {
+            reason: format!(
+                "Q6_K data length {} is not a multiple of super-block size {}",
+                data.len(),
+                SUPER_BLOCK_BYTES
+            ),
+        });
+    }
+
+    let num_super_blocks = data.len() / SUPER_BLOCK_BYTES;
+    let mut result = Vec::with_capacity(num_super_blocks * QK_K);
+
+    for sb_idx in 0..num_super_blocks {
+        let sb_start = sb_idx * SUPER_BLOCK_BYTES;
+
+        // Read d (f16 -> f32)
+        let d = read_f16(&data[sb_start..sb_start + 2]);
+
+        // Read scales (16 bytes, i8)
+        let mut scales = [0i8; 16];
+        for (i, scale) in scales.iter_mut().enumerate() {
+            // SAFETY: Intentional conversion from u8 to i8 for signed scales
+            #[allow(clippy::cast_possible_wrap)]
+            {
+                *scale = data[sb_start + 2 + i] as i8;
+            }
+        }
+
+        // Read qh - high 2 bits (64 bytes)
+        let qh_start = sb_start + 18;
+        let qh = &data[qh_start..qh_start + 64];
+
+        // Read qs - low 4 bits (128 bytes)
+        let qs_q6_start = sb_start + 82;
+        let qs = &data[qs_q6_start..qs_q6_start + 128];
+
+        // Dequantize 16 blocks of 16 values each
+        for (block_idx, &scale_i8) in scales.iter().enumerate() {
+            let scale = f32::from(scale_i8);
+
+            // Process 16 values (8 bytes of low bits + 4 bytes of high bits)
+            let block_start = block_idx * 8;
+            let qh_block_start = block_idx * 4; // 32 bits = 4 bytes per block
+
+            for byte_idx in 0..8 {
+                let qs_byte = qs[block_start + byte_idx];
+
+                // Get high 2 bits for this pair of values from qh
+                let high_2bits_byte = qh[qh_block_start + byte_idx / 2];
+                let qh_shift = (byte_idx % 2) * 4;
+
+                // Low value (first 4 bits + 2 high bits)
+                let q_low_4bit = qs_byte & 0x0F;
+                let q_low_high_2bits = (high_2bits_byte >> qh_shift) & 0x03;
+                // SAFETY: Intentional for 6-bit quantization: u8 [0-63] → i8 [-32,31]
+                #[allow(clippy::cast_possible_wrap)]
+                let q_low = (((q_low_high_2bits << 4) | q_low_4bit) as i8) - 32;
+                let value_low = d * scale * f32::from(q_low);
+                result.push(value_low);
+
+                // High value (second 4 bits + 2 high bits)
+                let q_high_4bit = (qs_byte >> 4) & 0x0F;
+                let q_high_high_2bits = (high_2bits_byte >> (qh_shift + 2)) & 0x03;
+                #[allow(clippy::cast_possible_wrap)]
+                let q_high = (((q_high_high_2bits << 4) | q_high_4bit) as i8) - 32;
+                let value_high = d * scale * f32::from(q_high);
+                result.push(value_high);
+            }
+        }
+    }
+
+    Ok(result)
+}
+
 /// Helper: Read f16 from bytes and convert to f32
 #[inline]
 fn read_f16(bytes: &[u8]) -> f32 {
@@ -701,5 +837,66 @@ mod tests {
         let result = dequantize_q5_k(&data).unwrap();
         assert_eq!(result.len(), 256);
         // Values should be computed based on formula: d * scale * q - dmin * min
+    }
+
+    #[test]
+    fn test_dequantize_q6_k_invalid_length() {
+        // 209 bytes (not a multiple of 210)
+        let data = vec![0u8; 209];
+        let result = dequantize_q6_k(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_dequantize_q6_k_single_super_block() {
+        // Single Q6_K super-block: 210 bytes total
+        let mut data = Vec::new();
+
+        // d = 1.0 (f16)
+        data.extend_from_slice(&half::f16::from_f32(1.0).to_bits().to_le_bytes());
+
+        // scales: 16 bytes (u8, interpreted as i8)
+        data.extend_from_slice(&[0u8; 16]);
+
+        // qh: 64 bytes (high 2 bits)
+        data.extend_from_slice(&[0x00; 64]);
+
+        // qs: 128 bytes (low 4 bits)
+        data.extend_from_slice(&[0x00; 128]);
+
+        let result = dequantize_q6_k(&data).unwrap();
+        assert_eq!(result.len(), 256); // 1 super-block * 256 values
+    }
+
+    #[test]
+    fn test_dequantize_q6_k_output_size() {
+        // 2 super-blocks: 2 * 210 = 420 bytes
+        let data = vec![0u8; 420];
+        let result = dequantize_q6_k(&data).unwrap();
+        assert_eq!(result.len(), 512); // 2 super-blocks * 256 values each
+    }
+
+    #[test]
+    fn test_dequantize_q6_k_with_data() {
+        // Test Q6_K with some non-zero data
+        let mut data = Vec::new();
+
+        // d = 2.0 (f16)
+        data.extend_from_slice(&half::f16::from_f32(2.0).to_bits().to_le_bytes());
+
+        // scales: 16 bytes (set first scale to 1)
+        let mut scales = [0u8; 16];
+        scales[0] = 1;
+        data.extend_from_slice(&scales);
+
+        // qh: 64 bytes (all zeros for simplicity)
+        data.extend_from_slice(&[0x00; 64]);
+
+        // qs: 128 bytes (all zeros)
+        data.extend_from_slice(&[0x00; 128]);
+
+        let result = dequantize_q6_k(&data).unwrap();
+        assert_eq!(result.len(), 256);
+        // Values should be computed based on formula: d * scale * (q - 32)
     }
 }
