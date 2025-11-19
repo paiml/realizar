@@ -3,6 +3,7 @@
 //! Implements quantization formats used by GGUF models:
 //! - `Q4_0`: 4-bit quantization (block size 32)
 //! - `Q8_0`: 8-bit quantization (block size 32)
+//! - `Q4_K`: 4-bit K-quantization (super-block size 256)
 //!
 //! ## `Q4_0` Format
 //!
@@ -17,11 +18,24 @@
 //! - 1 float32 scale factor per block
 //! - 32 int8 quantized values
 //! - Dequantization: `value = scale * quantized_value`
+//!
+//! ## `Q4_K` Format
+//!
+//! `Q4_K` uses super-blocks of 256 values divided into 8 blocks of 32 values:
+//! - 1 half-precision super-block scale (`d`)
+//! - 1 half-precision super-block min (`dmin`)
+//! - 12 bytes of 6-bit block scales (packed)
+//! - 128 bytes of 4-bit quantized values
+//! - Dequantization: `value = d * scale * quantized - dmin * min`
+//! - Achieves 4.5 bits per weight with better quality than `Q4_0`
 
 use crate::error::{RealizarError, Result};
 
 /// Block size for `Q4_0` and `Q8_0` quantization
 pub const BLOCK_SIZE: usize = 32;
+
+/// Super-block size for K-quantization formats (`Q4_K`, `Q5_K`, `Q6_K`)
+pub const QK_K: usize = 256;
 
 /// `Q4_0` quantized block
 ///
@@ -47,6 +61,32 @@ pub struct Q8_0Block {
     pub scale: f32,
     /// Quantized values (32 int8 values)
     pub quants: [i8; 32],
+}
+
+/// `Q4_K` quantized super-block
+///
+/// K-quantization uses super-blocks of 256 values (8 blocks of 32 each).
+/// Achieves 4.5 bits per weight with better quality than `Q4_0`.
+///
+/// Each super-block contains:
+/// - 1 half-precision scale factor (`d`)
+/// - 1 half-precision min factor (`dmin`)
+/// - 12 bytes of 6-bit quantized scales (for 8 blocks)
+/// - 128 bytes of 4-bit quantized values (256 values)
+///
+/// Total: 2 + 2 + 12 + 128 = 144 bytes per super-block of 256 values
+/// = 4.5 bits per weight
+#[derive(Debug, Clone)]
+#[allow(non_camel_case_types)]
+pub struct Q4_KBlock {
+    /// Super-block scale factor (f16)
+    pub d: f32, // Stored as f16, loaded as f32
+    /// Super-block min factor (f16)
+    pub dmin: f32, // Stored as f16, loaded as f32
+    /// 6-bit quantized scales (12 bytes for 8 blocks)
+    pub scales: [u8; 12],
+    /// 4-bit quantized values (128 bytes = 256 4-bit values)
+    pub qs: [u8; 128],
 }
 
 /// Dequantize `Q4_0` format weights
@@ -176,6 +216,134 @@ pub fn dequantize_q8_0(data: &[u8]) -> Result<Vec<f32>> {
     Ok(result)
 }
 
+/// Dequantize `Q4_K` format weights
+///
+/// # Arguments
+///
+/// * `data` - Raw `Q4_K` quantized data (super-blocks of 144 bytes each)
+///
+/// # Returns
+///
+/// Dequantized float32 values
+///
+/// # Errors
+///
+/// Returns error if data length is not a multiple of super-block size (144 bytes)
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// let quantized = load_q4_k_weights();
+/// let weights = dequantize_q4_k(&quantized)?;
+/// ```
+pub fn dequantize_q4_k(data: &[u8]) -> Result<Vec<f32>> {
+    // Q4_K super-block: 2 + 2 + 12 + 128 = 144 bytes
+    const SUPER_BLOCK_BYTES: usize = 144;
+
+    if data.len() % SUPER_BLOCK_BYTES != 0 {
+        return Err(RealizarError::InvalidShape {
+            reason: format!(
+                "Q4_K data length {} is not a multiple of super-block size {}",
+                data.len(),
+                SUPER_BLOCK_BYTES
+            ),
+        });
+    }
+
+    let num_super_blocks = data.len() / SUPER_BLOCK_BYTES;
+    let mut result = Vec::with_capacity(num_super_blocks * QK_K);
+
+    for sb_idx in 0..num_super_blocks {
+        let sb_start = sb_idx * SUPER_BLOCK_BYTES;
+
+        // Read d (f16 -> f32)
+        let d = read_f16(&data[sb_start..sb_start + 2]);
+
+        // Read dmin (f16 -> f32)
+        let dmin = read_f16(&data[sb_start + 2..sb_start + 4]);
+
+        // Read scales (12 bytes)
+        let mut scales = [0u8; 12];
+        scales.copy_from_slice(&data[sb_start + 4..sb_start + 16]);
+
+        // Read qs (128 bytes)
+        let qs_start = sb_start + 16;
+        let qs = &data[qs_start..qs_start + 128];
+
+        // Dequantize 8 blocks of 32 values each
+        for block_idx in 0..8 {
+            // Extract 6-bit scale and min for this block
+            let (scale, min) = extract_scale_min(&scales, block_idx);
+
+            // Process 32 values (16 bytes, 2 4-bit values per byte)
+            let block_start = block_idx * 16;
+            for byte_idx in 0..16 {
+                let byte = qs[block_start + byte_idx];
+
+                // Low 4 bits
+                // SAFETY: Intentional for 4-bit quantization: u8 [0-15] → i8 [0,15]
+                #[allow(clippy::cast_possible_wrap)]
+                let q_low = (byte & 0x0F) as i8;
+                let value_low = d * scale * f32::from(q_low) - dmin * min;
+                result.push(value_low);
+
+                // High 4 bits
+                #[allow(clippy::cast_possible_wrap)]
+                let q_high = ((byte >> 4) & 0x0F) as i8;
+                let value_high = d * scale * f32::from(q_high) - dmin * min;
+                result.push(value_high);
+            }
+        }
+    }
+
+    Ok(result)
+}
+
+/// Helper: Read f16 from bytes and convert to f32
+#[inline]
+fn read_f16(bytes: &[u8]) -> f32 {
+    let bits = u16::from_le_bytes([bytes[0], bytes[1]]);
+    half::f16::from_bits(bits).to_f32()
+}
+
+/// Helper: Extract 6-bit scale and min for a block from the packed scales array
+#[inline]
+fn extract_scale_min(scales: &[u8; 12], block_idx: usize) -> (f32, f32) {
+    // Each block has 6-bit scale and 6-bit min (12 bits total)
+    // 8 blocks * 12 bits = 96 bits = 12 bytes
+    let bit_offset = block_idx * 12;
+    let byte_offset = bit_offset / 8;
+    let bit_in_byte = bit_offset % 8;
+
+    // Extract 12 bits across potentially 2-3 bytes
+    let bits = if bit_in_byte <= 4 {
+        // Fits in 2 bytes
+        let b0 = u16::from(scales[byte_offset]);
+        let b1 = u16::from(scales[byte_offset + 1]);
+        ((b1 << 8) | b0) >> bit_in_byte
+    } else {
+        // Spans 3 bytes
+        let b0 = u32::from(scales[byte_offset]);
+        let b1 = u32::from(scales[byte_offset + 1]);
+        let b2 = u32::from(scales[byte_offset + 2]);
+        // SAFETY: We only extract 12 bits, which fits in u16
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            (((b2 << 16) | (b1 << 8) | b0) >> bit_in_byte) as u16
+        }
+    };
+
+    // Extract 6-bit scale and 6-bit min
+    let scale_bits = (bits & 0x3F) as u8; // Lower 6 bits
+    let min_bits = ((bits >> 6) & 0x3F) as u8; // Upper 6 bits
+
+    // Convert 6-bit values to floats (normalize to [0, 1] range)
+    let scale = f32::from(scale_bits) / 63.0;
+    let min = f32::from(min_bits) / 63.0;
+
+    (scale, min)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -262,5 +430,71 @@ mod tests {
 
         let result = dequantize_q4_0(&data).unwrap();
         assert_eq!(result.len(), 64); // 2 blocks * 32 values
+    }
+
+    #[test]
+    fn test_dequantize_q4_k_invalid_length() {
+        // 143 bytes (not a multiple of 144)
+        let data = vec![0u8; 143];
+        let result = dequantize_q4_k(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_dequantize_q4_k_single_super_block() {
+        // Single Q4_K super-block: 144 bytes total
+        let mut data = Vec::new();
+
+        // d = 1.0 (f16)
+        data.extend_from_slice(&half::f16::from_f32(1.0).to_bits().to_le_bytes());
+
+        // dmin = 0.0 (f16)
+        data.extend_from_slice(&half::f16::from_f32(0.0).to_bits().to_le_bytes());
+
+        // scales: 12 bytes (8 blocks * 12 bits = 96 bits, packed)
+        // For simplicity, use simple encoding
+        data.extend_from_slice(&[0x00; 12]);
+
+        // qs: 128 bytes (256 4-bit values)
+        data.extend_from_slice(&[0x00; 128]);
+
+        let result = dequantize_q4_k(&data).unwrap();
+        assert_eq!(result.len(), 256); // 1 super-block * 256 values
+    }
+
+    #[test]
+    fn test_dequantize_q4_k_output_size() {
+        // 2 super-blocks: 2 * 144 = 288 bytes
+        let data = vec![0u8; 288];
+        let result = dequantize_q4_k(&data).unwrap();
+        assert_eq!(result.len(), 512); // 2 super-blocks * 256 values each
+    }
+
+    #[test]
+    fn test_read_f16() {
+        // Test f16 reading
+        let f16_1 = half::f16::from_f32(1.0);
+        let bytes = f16_1.to_bits().to_le_bytes();
+        let result = read_f16(&bytes);
+        assert!((result - 1.0).abs() < 1e-3);
+
+        let f16_half = half::f16::from_f32(0.5);
+        let bytes = f16_half.to_bits().to_le_bytes();
+        let result = read_f16(&bytes);
+        assert!((result - 0.5).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_extract_scale_min() {
+        // Test scale/min extraction
+        let mut scales = [0u8; 12];
+
+        // Block 0: scale=31 (0x1F), min=0 (first 12 bits = 0x01F)
+        scales[0] = 0x1F; // Lower 8 bits of scale
+        scales[1] = 0x00; // Upper 4 bits of scale + lower 2 bits of min
+
+        let (scale, min) = extract_scale_min(&scales, 0);
+        assert!((scale - 31.0 / 63.0).abs() < 1e-6);
+        assert!((min - 0.0).abs() < 1e-6);
     }
 }
