@@ -80,6 +80,18 @@ pub enum RealizarError {
         /// Size of dimension
         size: usize,
     },
+
+    /// Model registry error
+    #[error("Model registry error: {0}")]
+    RegistryError(String),
+
+    /// Model not found in registry
+    #[error("Model '{0}' not found")]
+    ModelNotFound(String),
+
+    /// Model already registered
+    #[error("Model '{0}' already registered")]
+    ModelAlreadyExists(String),
 }
 
 #[cfg(test)]

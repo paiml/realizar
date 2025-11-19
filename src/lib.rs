@@ -72,7 +72,11 @@ pub mod error;
 pub mod generate;
 pub mod gguf;
 pub mod layers;
+#[cfg(feature = "server")]
+pub mod metrics;
 pub mod quantize;
+#[cfg(feature = "server")]
+pub mod registry;
 pub mod safetensors;
 pub mod tensor;
 pub mod tokenizer;
