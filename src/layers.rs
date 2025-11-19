@@ -701,6 +701,165 @@ impl Attention {
     pub fn scale(&self) -> f32 {
         self.scale
     }
+
+    /// Compute Flash Attention - memory-efficient block-wise attention
+    ///
+    /// Uses tiling and recomputation to reduce memory usage from O(N²) to O(N).
+    /// Implements block-wise softmax with running max/sum statistics.
+    ///
+    /// # Arguments
+    ///
+    /// * `query` - Query tensor `[seq_len, head_dim]`
+    /// * `key` - Key tensor `[seq_len, head_dim]`
+    /// * `value` - Value tensor `[seq_len, head_dim]`
+    /// * `block_size` - Tile size for block-wise computation (e.g., 64, 128)
+    ///
+    /// # Returns
+    ///
+    /// Output tensor `[seq_len, head_dim]` (same as standard attention)
+    ///
+    /// # Errors
+    ///
+    /// Returns error if shapes don't match or `block_size` is zero
+    ///
+    /// # References
+    ///
+    /// - "`FlashAttention`: Fast and Memory-Efficient Exact Attention" - Dao et al., 2022
+    /// - "FlashAttention-2: Faster Attention with Better Parallelism" - Dao, 2023
+    pub fn flash_forward(
+        &self,
+        query: &Tensor<f32>,
+        key: &Tensor<f32>,
+        value: &Tensor<f32>,
+        block_size: usize,
+    ) -> Result<Tensor<f32>> {
+        if block_size == 0 {
+            return Err(RealizarError::InvalidShape {
+                reason: "block_size must be > 0".to_string(),
+            });
+        }
+
+        let q_shape = query.shape();
+        let k_shape = key.shape();
+        let v_shape = value.shape();
+
+        // Validate shapes (same as standard attention)
+        if q_shape.is_empty() || k_shape.is_empty() || v_shape.is_empty() {
+            return Err(RealizarError::InvalidShape {
+                reason: "Query, key, value tensors must have at least 1 dimension".to_string(),
+            });
+        }
+
+        let q_last = q_shape[q_shape.len() - 1];
+        let k_last = k_shape[k_shape.len() - 1];
+        let v_last = v_shape[v_shape.len() - 1];
+
+        if q_last != self.head_dim || k_last != self.head_dim || v_last != self.head_dim {
+            return Err(RealizarError::InvalidShape {
+                reason: format!(
+                    "Expected head_dim={}, got Q={}, K={}, V={}",
+                    self.head_dim, q_last, k_last, v_last
+                ),
+            });
+        }
+
+        // Get sequence lengths
+        let q_seq_len = if q_shape.len() > 1 { q_shape[0] } else { 1 };
+        let k_seq_len = if k_shape.len() > 1 { k_shape[0] } else { 1 };
+        let v_seq_len = if v_shape.len() > 1 { v_shape[0] } else { 1 };
+
+        if k_seq_len != v_seq_len {
+            return Err(RealizarError::InvalidShape {
+                reason: format!("Key seq_len {k_seq_len} != Value seq_len {v_seq_len}"),
+            });
+        }
+
+        let q_data = query.data();
+        let k_data = key.data();
+        let v_data = value.data();
+
+        // Initialize output and statistics
+        let mut output = vec![0.0; q_seq_len * self.head_dim];
+        let mut row_max = vec![f32::NEG_INFINITY; q_seq_len]; // Running max for each query row
+        let mut row_sum = vec![0.0; q_seq_len]; // Running sum for each query row
+
+        // Iterate over K/V blocks (outer loop)
+        let num_kv_blocks = k_seq_len.div_ceil(block_size);
+        for kv_block_idx in 0..num_kv_blocks {
+            let kv_start = kv_block_idx * block_size;
+            let kv_end = (kv_start + block_size).min(k_seq_len);
+            let kv_block_len = kv_end - kv_start;
+
+            // Iterate over Q blocks (inner loop)
+            let num_q_blocks = q_seq_len.div_ceil(block_size);
+            for q_block_idx in 0..num_q_blocks {
+                let q_start = q_block_idx * block_size;
+                let q_end = (q_start + block_size).min(q_seq_len);
+
+                // Compute attention scores for this block: Q_block @ K_block.T
+                let mut scores = vec![0.0; (q_end - q_start) * kv_block_len];
+                for (i, q_idx) in (q_start..q_end).enumerate() {
+                    for (j, kv_idx) in (kv_start..kv_end).enumerate() {
+                        let mut dot = 0.0;
+                        for k in 0..self.head_dim {
+                            dot += q_data[q_idx * self.head_dim + k]
+                                * k_data[kv_idx * self.head_dim + k];
+                        }
+                        scores[i * kv_block_len + j] = dot * self.scale;
+                    }
+                }
+
+                // Update running max and apply softmax with new max
+                for (i, q_idx) in (q_start..q_end).enumerate() {
+                    // Find max in current block
+                    let block_max = (0..kv_block_len)
+                        .map(|j| scores[i * kv_block_len + j])
+                        .fold(f32::NEG_INFINITY, f32::max);
+
+                    // Update global max
+                    let old_max = row_max[q_idx];
+                    let new_max = old_max.max(block_max);
+                    row_max[q_idx] = new_max;
+
+                    // Compute exp(scores - new_max) and update running sum
+                    let mut block_sum = 0.0;
+                    for j in 0..kv_block_len {
+                        let exp_val = (scores[i * kv_block_len + j] - new_max).exp();
+                        scores[i * kv_block_len + j] = exp_val;
+                        block_sum += exp_val;
+                    }
+
+                    // Rescale old output and sum based on new max
+                    let scale_factor = (old_max - new_max).exp();
+                    for k in 0..self.head_dim {
+                        output[q_idx * self.head_dim + k] *= scale_factor;
+                    }
+                    row_sum[q_idx] = row_sum[q_idx] * scale_factor + block_sum;
+                }
+
+                // Accumulate weighted values: output += scores @ V_block
+                for (i, q_idx) in (q_start..q_end).enumerate() {
+                    for k in 0..self.head_dim {
+                        let mut weighted_sum = 0.0;
+                        for (j, kv_idx) in (kv_start..kv_end).enumerate() {
+                            weighted_sum +=
+                                scores[i * kv_block_len + j] * v_data[kv_idx * self.head_dim + k];
+                        }
+                        output[q_idx * self.head_dim + k] += weighted_sum;
+                    }
+                }
+            }
+        }
+
+        // Final normalization by row_sum
+        for i in 0..q_seq_len {
+            for k in 0..self.head_dim {
+                output[i * self.head_dim + k] /= row_sum[i];
+            }
+        }
+
+        Tensor::from_vec(vec![q_seq_len, self.head_dim], output)
+    }
 }
 
 /// Rotary Position Embeddings (`RoPE`)
@@ -2189,6 +2348,162 @@ mod tests {
         for i in 0..4 {
             assert!((output.data()[i] - v.data()[i]).abs() < 1e-6);
         }
+    }
+
+    // Flash Attention tests
+
+    #[test]
+    fn test_flash_attention_matches_standard() {
+        // Flash Attention should produce same output as standard attention
+        let attn = Attention::new(8).unwrap();
+
+        // Create test data
+        let q_data = vec![1.0, 2.0, 0.5, 1.5, 2.5, 0.3, 1.2, 0.8];
+        let k_data = vec![0.5, 1.0, 1.5, 0.8, 0.3, 2.0, 0.9, 1.1];
+        let v_data = vec![2.0, 1.0, 0.5, 3.0, 1.5, 0.7, 2.5, 0.9];
+
+        let q = Tensor::from_vec(vec![1, 8], q_data.clone()).unwrap();
+        let k = Tensor::from_vec(vec![1, 8], k_data.clone()).unwrap();
+        let v = Tensor::from_vec(vec![1, 8], v_data.clone()).unwrap();
+
+        // Standard attention
+        let standard_output = attn.forward(&q, &k, &v).unwrap();
+
+        // Flash attention with block_size=1 (should be identical)
+        let flash_output = attn.flash_forward(&q, &k, &v, 1).unwrap();
+
+        // Results should match
+        assert_eq!(standard_output.shape(), flash_output.shape());
+        for i in 0..standard_output.data().len() {
+            assert!(
+                (standard_output.data()[i] - flash_output.data()[i]).abs() < 1e-5,
+                "Mismatch at index {}: {} vs {}",
+                i,
+                standard_output.data()[i],
+                flash_output.data()[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_flash_attention_multi_position() {
+        // Test Flash Attention with multiple positions
+        let attn = Attention::new(4).unwrap();
+
+        #[rustfmt::skip]
+        let q_data = vec![
+            1.0, 0.0, 0.0, 1.0,  // pos 0
+            0.0, 1.0, 1.0, 0.0,  // pos 1
+            1.0, 1.0, 0.0, 0.0,  // pos 2
+        ];
+        #[rustfmt::skip]
+        let k_data = vec![
+            1.0, 0.0, 0.0, 1.0,  // pos 0
+            0.0, 1.0, 1.0, 0.0,  // pos 1
+            1.0, 1.0, 0.0, 0.0,  // pos 2
+        ];
+        #[rustfmt::skip]
+        let v_data = vec![
+            1.0, 2.0, 3.0, 4.0,  // pos 0
+            5.0, 6.0, 7.0, 8.0,  // pos 1
+            9.0, 10.0, 11.0, 12.0,  // pos 2
+        ];
+
+        let q = Tensor::from_vec(vec![3, 4], q_data).unwrap();
+        let k = Tensor::from_vec(vec![3, 4], k_data).unwrap();
+        let v = Tensor::from_vec(vec![3, 4], v_data).unwrap();
+
+        // Standard attention
+        let standard_output = attn.forward(&q, &k, &v).unwrap();
+
+        // Flash attention with different block sizes
+        for block_size in [1, 2, 3, 4] {
+            let flash_output = attn.flash_forward(&q, &k, &v, block_size).unwrap();
+
+            assert_eq!(standard_output.shape(), flash_output.shape());
+            for i in 0..standard_output.data().len() {
+                assert!(
+                    (standard_output.data()[i] - flash_output.data()[i]).abs() < 1e-4,
+                    "Block size {}, mismatch at index {}: {} vs {}",
+                    block_size,
+                    i,
+                    standard_output.data()[i],
+                    flash_output.data()[i]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_flash_attention_zero_block_size_error() {
+        let attn = Attention::new(4).unwrap();
+
+        let q = Tensor::from_vec(vec![1, 4], vec![1.0, 0.0, 0.0, 0.0]).unwrap();
+        let k = Tensor::from_vec(vec![1, 4], vec![1.0, 0.0, 0.0, 0.0]).unwrap();
+        let v = Tensor::from_vec(vec![1, 4], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+
+        let result = attn.flash_forward(&q, &k, &v, 0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_flash_attention_large_sequence() {
+        // Test with larger sequence to verify block-wise computation
+        let attn = Attention::new(8).unwrap();
+
+        // Create larger test data (seq_len=16)
+        let mut q_data = Vec::new();
+        let mut k_data = Vec::new();
+        let mut v_data = Vec::new();
+
+        for i in 0..16 {
+            for j in 0..8 {
+                #[allow(clippy::cast_precision_loss)]
+                {
+                    q_data.push((i * 8 + j) as f32 * 0.1);
+                    k_data.push((i * 8 + j) as f32 * 0.05);
+                    v_data.push((i * 8 + j) as f32 * 0.2);
+                }
+            }
+        }
+
+        let q = Tensor::from_vec(vec![16, 8], q_data).unwrap();
+        let k = Tensor::from_vec(vec![16, 8], k_data).unwrap();
+        let v = Tensor::from_vec(vec![16, 8], v_data).unwrap();
+
+        // Standard attention
+        let standard_output = attn.forward(&q, &k, &v).unwrap();
+
+        // Flash attention with block_size=4
+        let flash_output = attn.flash_forward(&q, &k, &v, 4).unwrap();
+
+        assert_eq!(standard_output.shape(), flash_output.shape());
+        for i in 0..standard_output.data().len() {
+            assert!(
+                (standard_output.data()[i] - flash_output.data()[i]).abs() < 1e-3,
+                "Mismatch at index {}: {} vs {}",
+                i,
+                standard_output.data()[i],
+                flash_output.data()[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_flash_attention_shape_errors() {
+        let attn = Attention::new(4).unwrap();
+
+        let q = Tensor::from_vec(vec![2, 4], vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]).unwrap();
+        let k = Tensor::from_vec(vec![2, 4], vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]).unwrap();
+        let v_wrong = Tensor::from_vec(
+            vec![3, 4],
+            vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0],
+        )
+        .unwrap();
+
+        // K/V sequence length mismatch
+        let result = attn.flash_forward(&q, &k, &v_wrong, 2);
+        assert!(result.is_err());
     }
 
     // RoPE (Rotary Position Embeddings) tests

@@ -1838,6 +1838,7 @@ dependencies = [
  "clap",
  "criterion",
  "futures",
+ "half",
  "num-traits",
  "predicates",
  "proptest",

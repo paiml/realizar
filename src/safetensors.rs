@@ -153,12 +153,13 @@ impl SafetensorsModel {
     /// ```
     pub fn get_tensor_f32(&self, name: &str) -> Result<Vec<f32>> {
         // Find tensor metadata
-        let tensor = self.tensors.get(name).ok_or_else(|| {
-            RealizarError::UnsupportedOperation {
+        let tensor = self
+            .tensors
+            .get(name)
+            .ok_or_else(|| RealizarError::UnsupportedOperation {
                 operation: "get_tensor_f32".to_string(),
                 reason: format!("Tensor '{name}' not found"),
-            }
-        })?;
+            })?;
 
         // Verify dtype is F32
         if tensor.dtype != SafetensorsDtype::F32 {

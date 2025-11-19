@@ -20,8 +20,8 @@ fn main() {
 
     // Example 2: Load and parse SafeTensors
     println!("--- Loading SafeTensors Model ---");
-    let model = SafetensorsModel::from_bytes(&safetensors_data)
-        .expect("Failed to load SafeTensors model");
+    let model =
+        SafetensorsModel::from_bytes(&safetensors_data).expect("Failed to load SafeTensors model");
 
     println!("Successfully loaded model");
     println!("  - Number of tensors: {}", model.tensors.len());
