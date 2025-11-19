@@ -5,8 +5,12 @@
 //! ## Endpoints
 //!
 //! - `GET /health` - Health check
+//! - `GET /metrics` - Prometheus-formatted metrics
 //! - `POST /tokenize` - Tokenize text
 //! - `POST /generate` - Generate text from prompt
+//! - `POST /batch/tokenize` - Batch tokenize multiple texts
+//! - `POST /batch/generate` - Batch generate for multiple prompts
+//! - `POST /stream/generate` - Stream generated tokens via SSE
 //!
 //! ## Example
 //!
@@ -36,6 +40,7 @@ use crate::{
     error::RealizarError,
     generate::{GenerationConfig, SamplingStrategy},
     layers::{Model, ModelConfig},
+    metrics::MetricsCollector,
     tokenizer::BPETokenizer,
 };
 
@@ -52,6 +57,8 @@ pub struct AppState {
     /// Default cache key for single model mode
     #[allow(dead_code)] // Will be used in future PR for cache warming
     cache_key: Option<CacheKey>,
+    /// Metrics collector for monitoring
+    metrics: Arc<MetricsCollector>,
 }
 
 impl AppState {
@@ -68,6 +75,7 @@ impl AppState {
             tokenizer: Arc::new(tokenizer),
             cache: None,
             cache_key: None,
+            metrics: Arc::new(MetricsCollector::new()),
         }
     }
 
@@ -109,6 +117,7 @@ impl AppState {
             tokenizer: Arc::new(tokenizer),
             cache: Some(Arc::new(ModelCache::new(cache_capacity))),
             cache_key: Some(CacheKey::new("default".to_string())),
+            metrics: Arc::new(MetricsCollector::new()),
         }
     }
 
@@ -296,6 +305,7 @@ pub struct StreamDoneEvent {
 pub fn create_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health_handler))
+        .route("/metrics", get(metrics_handler))
         .route("/tokenize", post(tokenize_handler))
         .route("/generate", post(generate_handler))
         .route("/batch/tokenize", post(batch_tokenize_handler))
@@ -310,6 +320,11 @@ async fn health_handler() -> Json<HealthResponse> {
         status: "healthy".to_string(),
         version: crate::VERSION.to_string(),
     })
+}
+
+/// Metrics handler - returns Prometheus-formatted metrics
+async fn metrics_handler(State(state): State<AppState>) -> String {
+    state.metrics.to_prometheus()
 }
 
 /// Tokenize text handler
@@ -331,9 +346,13 @@ async fn generate_handler(
     State(state): State<AppState>,
     Json(request): Json<GenerateRequest>,
 ) -> Result<Json<GenerateResponse>, (StatusCode, Json<ErrorResponse>)> {
+    use std::time::Instant;
+    let start = Instant::now();
+
     // Tokenize prompt
     let prompt_ids = state.tokenizer.encode(&request.prompt);
     if prompt_ids.is_empty() {
+        state.metrics.record_failure();
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
@@ -351,6 +370,7 @@ async fn generate_handler(
         "top_k" => SamplingStrategy::TopK { k: request.top_k },
         "top_p" => SamplingStrategy::TopP { p: request.top_p },
         _ => {
+            state.metrics.record_failure();
             return Err((
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
@@ -371,6 +391,7 @@ async fn generate_handler(
 
     // Generate
     let generated = state.model.generate(&prompt, &config).map_err(|e| {
+        state.metrics.record_failure();
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -385,6 +406,7 @@ async fn generate_handler(
         .map(|&id| u32::try_from(id).unwrap_or(u32::MAX))
         .collect();
     let text = state.tokenizer.decode(&token_ids).map_err(|e| {
+        state.metrics.record_failure();
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -394,6 +416,10 @@ async fn generate_handler(
     })?;
 
     let num_generated = generated.len() - prompt.len();
+    let duration = start.elapsed();
+
+    // Record successful generation with metrics
+    state.metrics.record_success(num_generated, duration);
 
     Ok(Json(GenerateResponse {
         token_ids,
@@ -652,6 +678,71 @@ mod tests {
             .unwrap();
         let health: HealthResponse = serde_json::from_slice(&body).unwrap();
         assert_eq!(health.status, "healthy");
+    }
+
+    #[tokio::test]
+    async fn test_metrics_endpoint() {
+        let app = create_test_app();
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/metrics")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let metrics_text = String::from_utf8(body.to_vec()).unwrap();
+
+        // Verify Prometheus format
+        assert!(metrics_text.contains("realizar_requests_total"));
+        assert!(metrics_text.contains("realizar_tokens_generated"));
+        assert!(metrics_text.contains("realizar_error_rate"));
+        assert!(metrics_text.contains("# HELP"));
+        assert!(metrics_text.contains("# TYPE"));
+    }
+
+    #[tokio::test]
+    async fn test_metrics_tracking() {
+        let state = AppState::demo().unwrap();
+        let app = create_router(state.clone());
+
+        // Make a generate request
+        let request = GenerateRequest {
+            prompt: "token1".to_string(),
+            max_tokens: 3,
+            temperature: 1.0,
+            strategy: "greedy".to_string(),
+            top_k: 50,
+            top_p: 0.9,
+            seed: Some(42),
+        };
+
+        let _response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/generate")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&request).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Check metrics were recorded
+        let snapshot = state.metrics.snapshot();
+        assert_eq!(snapshot.total_requests, 1);
+        assert_eq!(snapshot.successful_requests, 1);
+        assert!(snapshot.total_tokens > 0);
     }
 
     #[tokio::test]
