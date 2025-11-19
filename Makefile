@@ -6,7 +6,7 @@
 .DELETE_ON_ERROR:
 .PHONY: help build test quality-gates deploy clean
 .PHONY: coverage coverage-open coverage-clean clean-coverage coverage-summary
-.PHONY: fmt bench doc dev
+.PHONY: fmt bench doc dev book book-build book-open book-serve book-clean
 .DEFAULT_GOAL := help
 
 # Color output
@@ -143,6 +143,42 @@ doc: ## Generate documentation
 doc-open: ## Generate and open documentation
 	@echo "$(GREEN)Generating and opening documentation...$(NC)"
 	cargo doc --all-features --no-deps --open
+
+# === Book (mdBook) ===
+
+book: book-build book-open ## Build and open the Realizar book
+
+book-build: ## Build the book
+	@echo "$(GREEN)📚 Building Realizar book...$(NC)"
+	@if command -v mdbook >/dev/null 2>&1; then \
+		mdbook build book; \
+		echo "$(GREEN)✅ Book built: book/book/index.html$(NC)"; \
+	else \
+		echo "$(RED)❌ mdbook not installed. Install with: cargo install mdbook$(NC)"; \
+		exit 1; \
+	fi
+
+book-open: ## Open the book in browser
+	@if [ -f book/book/index.html ]; then \
+		xdg-open book/book/index.html 2>/dev/null || \
+		open book/book/index.html 2>/dev/null || \
+		echo "$(YELLOW)Please open: book/book/index.html$(NC)"; \
+	else \
+		echo "$(RED)❌ Book not built. Run 'make book-build' first$(NC)"; \
+	fi
+
+book-serve: ## Serve the book with live reload
+	@echo "$(GREEN)📚 Serving Realizar book at http://localhost:3000$(NC)"
+	@if command -v mdbook >/dev/null 2>&1; then \
+		mdbook serve book --open; \
+	else \
+		echo "$(RED)❌ mdbook not installed. Install with: cargo install mdbook$(NC)"; \
+		exit 1; \
+	fi
+
+book-clean: ## Clean book build artifacts
+	@rm -rf book/book
+	@echo "$(GREEN)✓ Book artifacts cleaned$(NC)"
 
 # === Quality Analysis ===
 

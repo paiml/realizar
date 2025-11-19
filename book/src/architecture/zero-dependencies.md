@@ -1,0 +1,1 @@
+# Zero Dependencies Strategy
