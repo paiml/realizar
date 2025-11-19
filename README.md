@@ -295,7 +295,7 @@ let server = Server::new(model)
 - ✅ Multi-query attention (MQA)
 - ✅ Grouped-query attention (GQA)
 - ✅ RoPE position embeddings
-- [ ] ALiBi position embeddings
+- ✅ ALiBi position embeddings
 - [ ] Vision models (LLaVA, Qwen-VL)
 
 ### Phase 4: Production (Weeks 25-32)

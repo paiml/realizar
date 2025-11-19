@@ -48,7 +48,12 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Serve { host, port, model, demo } => {
+        Commands::Serve {
+            host,
+            port,
+            model,
+            demo,
+        } => {
             if demo {
                 serve_demo(&host, port).await?;
             } else if let Some(model_path) = model {
@@ -174,7 +179,12 @@ fn load_gguf_model(file_data: &[u8]) -> Result<()> {
         println!("Tensors (first 10):");
         for tensor in gguf.tensors.iter().take(10) {
             let dims: Vec<String> = tensor.dims.iter().map(|d| d.to_string()).collect();
-            println!("  - {} [{}, qtype={}]", tensor.name, dims.join("×"), tensor.qtype);
+            println!(
+                "  - {} [{}, qtype={}]",
+                tensor.name,
+                dims.join("×"),
+                tensor.qtype
+            );
         }
         if gguf.tensors.len() > 10 {
             println!("  ... and {} more", gguf.tensors.len() - 10);
@@ -213,7 +223,12 @@ fn load_safetensors_model(file_data: &[u8]) -> Result<()> {
         println!("Tensors (first 10):");
         for (name, tensor_info) in safetensors.tensors.iter().take(10) {
             let shape: Vec<String> = tensor_info.shape.iter().map(|s| s.to_string()).collect();
-            println!("  - {} [{}, dtype={:?}]", name, shape.join("×"), tensor_info.dtype);
+            println!(
+                "  - {} [{}, dtype={:?}]",
+                name,
+                shape.join("×"),
+                tensor_info.dtype
+            );
         }
         if safetensors.tensors.len() > 10 {
             println!("  ... and {} more", safetensors.tensors.len() - 10);
