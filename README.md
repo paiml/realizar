@@ -271,7 +271,7 @@ let server = Server::new(model)
 - ✅ Inference engine (generation loop, greedy/top-k/top-p)
 - ✅ HTTP server with axum (REST API)
 - ✅ CLI: `realizar serve --demo` (model loading in Phase 2)
-- ✅ 237 tests (195 unit + 42 property-based), 95.12% coverage
+- ✅ 260 tests (211 unit + 42 property + 7 integration), 94.61% coverage
 
 **Success criteria:**
 - ✅ GGUF and Safetensors parsers working
@@ -279,7 +279,7 @@ let server = Server::new(model)
 - ✅ REST API with /health, /tokenize, /generate
 - ✅ GPU acceleration via Trueno
 - ✅ Zero external ML dependencies
-- ✅ TDG Score: 100.0/100 (A+)
+- ✅ TDG Score: 93.9/100 (A)
 
 ### Phase 2: Optimization (Weeks 9-16)
 
