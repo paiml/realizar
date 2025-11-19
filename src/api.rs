@@ -510,4 +510,122 @@ mod tests {
         let state = state.unwrap();
         assert_eq!(state.tokenizer.vocab_size(), 100);
     }
+
+    #[test]
+    fn test_default_max_tokens() {
+        assert_eq!(default_max_tokens(), 50);
+    }
+
+    #[test]
+    fn test_default_temperature() {
+        assert!((default_temperature() - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_default_strategy() {
+        assert_eq!(default_strategy(), "greedy");
+    }
+
+    #[test]
+    fn test_default_top_k() {
+        assert_eq!(default_top_k(), 50);
+    }
+
+    #[test]
+    fn test_default_top_p() {
+        assert!((default_top_p() - 0.9).abs() < 1e-6);
+    }
+
+    #[tokio::test]
+    async fn test_generate_with_defaults() {
+        let app = create_test_app();
+
+        // Generate request using default values via serde defaults
+        let json = r#"{"prompt": "test"}"#;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/generate")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: GenerateResponse = serde_json::from_slice(&body).unwrap();
+        assert!(!result.token_ids.is_empty());
+        // Verify generation used defaults (greedy with max 50 tokens)
+        assert!(result.num_generated <= 50);
+    }
+
+    #[tokio::test]
+    async fn test_num_generated_calculation() {
+        // First tokenize to get prompt length
+        let app1 = create_test_app();
+        let prompt_tokens = app1
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/tokenize")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"text": "a"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let prompt_body = axum::body::to_bytes(prompt_tokens.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let prompt_result: TokenizeResponse = serde_json::from_slice(&prompt_body).unwrap();
+        let prompt_len = prompt_result.token_ids.len();
+
+        // Now generate
+        let app2 = create_test_app();
+        let request = GenerateRequest {
+            prompt: "a".to_string(),
+            max_tokens: 5,
+            temperature: 1.0,
+            strategy: "greedy".to_string(),
+            top_k: 50,
+            top_p: 0.9,
+            seed: Some(42),
+        };
+
+        let response = app2
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/generate")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&request).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: GenerateResponse = serde_json::from_slice(&body).unwrap();
+
+        // Verify num_generated = total_tokens - prompt_tokens
+        assert_eq!(
+            result.num_generated,
+            result.token_ids.len() - prompt_len
+        );
+
+        // Also verify it's in reasonable range
+        assert!(result.num_generated > 0);
+        assert!(result.num_generated <= 5);
+    }
 }
