@@ -619,10 +619,7 @@ mod tests {
         let result: GenerateResponse = serde_json::from_slice(&body).unwrap();
 
         // Verify num_generated = total_tokens - prompt_tokens
-        assert_eq!(
-            result.num_generated,
-            result.token_ids.len() - prompt_len
-        );
+        assert_eq!(result.num_generated, result.token_ids.len() - prompt_len);
 
         // Also verify it's in reasonable range
         assert!(result.num_generated > 0);

@@ -2,8 +2,10 @@
 # Pure Rust ML Library - Model Serving, MLOps, LLMOps
 # Quality: EXTREME TDD, 85%+ coverage, zero tolerance for defects
 
+.SUFFIXES:
 .PHONY: help build test quality-gates deploy clean
 .PHONY: coverage coverage-open coverage-clean clean-coverage coverage-summary
+.PHONY: fmt bench doc dev
 .DEFAULT_GOAL := help
 
 # Color output
