@@ -126,6 +126,78 @@ impl SafetensorsModel {
         Ok(Self { tensors, data })
     }
 
+    /// Extract F32 tensor data by name
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Tensor name to extract
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// - Tensor not found
+    /// - Tensor dtype is not F32
+    /// - Data offsets are invalid
+    ///
+    /// # Panics
+    ///
+    /// Never panics. The `unwrap()` in byte conversion is safe because
+    /// `chunks_exact(4)` guarantees exactly 4 bytes per chunk.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let model = SafetensorsModel::from_bytes(&data)?;
+    /// let weights = model.get_tensor_f32("layer1.weight")?;
+    /// println!("Weights: {:?}", weights);
+    /// ```
+    pub fn get_tensor_f32(&self, name: &str) -> Result<Vec<f32>> {
+        // Find tensor metadata
+        let tensor = self.tensors.get(name).ok_or_else(|| {
+            RealizarError::UnsupportedOperation {
+                operation: "get_tensor_f32".to_string(),
+                reason: format!("Tensor '{name}' not found"),
+            }
+        })?;
+
+        // Verify dtype is F32
+        if tensor.dtype != SafetensorsDtype::F32 {
+            let dtype = &tensor.dtype;
+            return Err(RealizarError::UnsupportedOperation {
+                operation: "get_tensor_f32".to_string(),
+                reason: format!("Tensor '{name}' has dtype {dtype:?}, expected F32"),
+            });
+        }
+
+        // Extract data slice
+        let [start, end] = tensor.data_offsets;
+        if end > self.data.len() {
+            let data_len = self.data.len();
+            return Err(RealizarError::UnsupportedOperation {
+                operation: "get_tensor_f32".to_string(),
+                reason: format!("Data offset {end} exceeds data size {data_len}"),
+            });
+        }
+
+        let bytes = &self.data[start..end];
+
+        // Convert bytes to f32 vector
+        if bytes.len() % 4 != 0 {
+            let len = bytes.len();
+            return Err(RealizarError::UnsupportedOperation {
+                operation: "get_tensor_f32".to_string(),
+                reason: format!("Data size {len} is not a multiple of 4"),
+            });
+        }
+
+        let values = bytes
+            .chunks_exact(4)
+            .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap()))
+            .collect();
+
+        Ok(values)
+    }
+
     /// Parse header (8-byte metadata length)
     fn parse_header(cursor: &mut Cursor<&[u8]>) -> Result<u64> {
         let mut buf = [0u8; 8];
@@ -425,5 +497,158 @@ mod tests {
         assert_eq!(model.tensors.get("vector").unwrap().shape, vec![10]);
         assert_eq!(model.tensors.get("matrix").unwrap().shape, vec![3, 4]);
         assert_eq!(model.tensors.get("tensor3d").unwrap().shape, vec![2, 3, 4]);
+    }
+
+    #[test]
+    fn test_aprender_linear_regression_format_compatibility() {
+        // Test aprender LinearRegression SafeTensors format compatibility
+        // Format: {"coefficients": [n_features], "intercept": [1]}
+        // Example model: y = 2.0*x1 + 3.0*x2 + 1.5*x3 + 0.5
+
+        let json = r#"{
+            "coefficients":{"dtype":"F32","shape":[3],"data_offsets":[0,12]},
+            "intercept":{"dtype":"F32","shape":[1],"data_offsets":[12,16]}
+        }"#;
+        let json_bytes = json.as_bytes();
+
+        let mut data = Vec::new();
+
+        // Header
+        data.extend_from_slice(&(json_bytes.len() as u64).to_le_bytes());
+
+        // Metadata
+        data.extend_from_slice(json_bytes);
+
+        // Tensor data: coefficients [2.0, 3.0, 1.5]
+        data.extend_from_slice(&2.0f32.to_le_bytes());
+        data.extend_from_slice(&3.0f32.to_le_bytes());
+        data.extend_from_slice(&1.5f32.to_le_bytes());
+
+        // intercept [0.5]
+        data.extend_from_slice(&0.5f32.to_le_bytes());
+
+        // Parse with realizar
+        let model = SafetensorsModel::from_bytes(&data).unwrap();
+
+        // Verify structure
+        assert_eq!(model.tensors.len(), 2);
+
+        // Check coefficients tensor
+        let coef = model.tensors.get("coefficients").unwrap();
+        assert_eq!(coef.dtype, SafetensorsDtype::F32);
+        assert_eq!(coef.shape, vec![3]);
+        assert_eq!(coef.data_offsets, [0, 12]);
+
+        // Check intercept tensor
+        let intercept = model.tensors.get("intercept").unwrap();
+        assert_eq!(intercept.dtype, SafetensorsDtype::F32);
+        assert_eq!(intercept.shape, vec![1]);
+        assert_eq!(intercept.data_offsets, [12, 16]);
+
+        // Verify we can extract the actual values
+        let coef_vals: Vec<f32> = (0..3)
+            .map(|i| {
+                let offset = i * 4;
+                f32::from_le_bytes(model.data[offset..offset + 4].try_into().unwrap())
+            })
+            .collect();
+        assert!((coef_vals[0] - 2.0).abs() < 1e-6);
+        assert!((coef_vals[1] - 3.0).abs() < 1e-6);
+        assert!((coef_vals[2] - 1.5).abs() < 1e-6);
+
+        let intercept_val = f32::from_le_bytes(model.data[12..16].try_into().unwrap());
+        assert!((intercept_val - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_get_tensor_f32_helper() {
+        // Test the get_tensor_f32 helper method
+        let json = r#"{
+            "weights":{"dtype":"F32","shape":[4],"data_offsets":[0,16]},
+            "bias":{"dtype":"F32","shape":[2],"data_offsets":[16,24]}
+        }"#;
+        let json_bytes = json.as_bytes();
+
+        let mut data = Vec::new();
+        data.extend_from_slice(&(json_bytes.len() as u64).to_le_bytes());
+        data.extend_from_slice(json_bytes);
+
+        // weights: [1.0, 2.0, 3.0, 4.0]
+        data.extend_from_slice(&1.0f32.to_le_bytes());
+        data.extend_from_slice(&2.0f32.to_le_bytes());
+        data.extend_from_slice(&3.0f32.to_le_bytes());
+        data.extend_from_slice(&4.0f32.to_le_bytes());
+
+        // bias: [0.5, 0.25]
+        data.extend_from_slice(&0.5f32.to_le_bytes());
+        data.extend_from_slice(&0.25f32.to_le_bytes());
+
+        let model = SafetensorsModel::from_bytes(&data).unwrap();
+
+        // Test extracting weights
+        let weights = model.get_tensor_f32("weights").unwrap();
+        assert_eq!(weights.len(), 4);
+        assert!((weights[0] - 1.0).abs() < 1e-6);
+        assert!((weights[1] - 2.0).abs() < 1e-6);
+        assert!((weights[2] - 3.0).abs() < 1e-6);
+        assert!((weights[3] - 4.0).abs() < 1e-6);
+
+        // Test extracting bias
+        let bias = model.get_tensor_f32("bias").unwrap();
+        assert_eq!(bias.len(), 2);
+        assert!((bias[0] - 0.5).abs() < 1e-6);
+        assert!((bias[1] - 0.25).abs() < 1e-6);
+
+        // Test error: tensor not found
+        let result = model.get_tensor_f32("nonexistent");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_tensor_f32_wrong_dtype() {
+        // Test error when tensor has wrong dtype
+        let json = r#"{
+            "int_tensor":{"dtype":"I32","shape":[2],"data_offsets":[0,8]}
+        }"#;
+        let json_bytes = json.as_bytes();
+
+        let mut data = Vec::new();
+        data.extend_from_slice(&(json_bytes.len() as u64).to_le_bytes());
+        data.extend_from_slice(json_bytes);
+        data.extend_from_slice(&1i32.to_le_bytes());
+        data.extend_from_slice(&2i32.to_le_bytes());
+
+        let model = SafetensorsModel::from_bytes(&data).unwrap();
+
+        // Should error because dtype is I32, not F32
+        let result = model.get_tensor_f32("int_tensor");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_tensor_f32_with_aprender_model() {
+        // Use get_tensor_f32 with aprender LinearRegression format
+        let json = r#"{
+            "coefficients":{"dtype":"F32","shape":[3],"data_offsets":[0,12]},
+            "intercept":{"dtype":"F32","shape":[1],"data_offsets":[12,16]}
+        }"#;
+        let json_bytes = json.as_bytes();
+
+        let mut data = Vec::new();
+        data.extend_from_slice(&(json_bytes.len() as u64).to_le_bytes());
+        data.extend_from_slice(json_bytes);
+        data.extend_from_slice(&2.0f32.to_le_bytes());
+        data.extend_from_slice(&3.0f32.to_le_bytes());
+        data.extend_from_slice(&1.5f32.to_le_bytes());
+        data.extend_from_slice(&0.5f32.to_le_bytes());
+
+        let model = SafetensorsModel::from_bytes(&data).unwrap();
+
+        // Extract using helper method - much cleaner!
+        let coefficients = model.get_tensor_f32("coefficients").unwrap();
+        assert_eq!(coefficients, vec![2.0, 3.0, 1.5]);
+
+        let intercept = model.get_tensor_f32("intercept").unwrap();
+        assert_eq!(intercept, vec![0.5]);
     }
 }
