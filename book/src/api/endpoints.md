@@ -1,14 +1,15 @@
 # API Endpoints
 
-Realizar provides a REST API for ML inference with five core endpoints:
+Realizar provides a REST API for ML inference with six core endpoints:
 
 - **`GET /health`** - Health check
 - **`POST /tokenize`** - Convert text to tokens
 - **`POST /generate`** - Generate text from a prompt
 - **`POST /batch/tokenize`** - Batch tokenize multiple texts
 - **`POST /batch/generate`** - Batch generate from multiple prompts
+- **`POST /stream/generate`** - Stream generation tokens via Server-Sent Events
 
-All endpoints return JSON responses.
+All endpoints return JSON responses (except /stream/generate which uses SSE).
 
 ## Base URL
 
@@ -26,6 +27,7 @@ http://127.0.0.1:8080
 | `/generate` | POST | Generate text | None |
 | `/batch/tokenize` | POST | Batch tokenize texts | None |
 | `/batch/generate` | POST | Batch generate text | None |
+| `/stream/generate` | POST | Stream tokens via SSE | None |
 
 ## Health Check
 
@@ -621,6 +623,191 @@ Batch generation provides significant throughput improvements:
 3. **Error handling**: One failed prompt fails the entire batch (fail-fast)
 4. **Batch size**: Start with batches of 4-8 prompts for optimal throughput
 5. **Order preservation**: Results are always in the same order as input prompts
+
+---
+
+## Stream Generate
+
+**`POST /stream/generate`**
+
+Generate text with Server-Sent Events (SSE), streaming tokens as they're generated for real-time user feedback.
+
+### Request
+
+**Headers**:
+```
+Content-Type: application/json
+```
+
+**Body**: Same as `/generate`
+```json
+{
+  "prompt": "string",
+  "max_tokens": integer,
+  "strategy": "string",
+  "temperature": number,
+  "top_k": integer,
+  "top_p": number,
+  "seed": integer
+}
+```
+
+### Response
+
+**Content-Type**: `text/event-stream`
+
+**Events**:
+
+1. **`token`** event (multiple):
+```json
+{
+  "token_id": 42,
+  "text": " world"
+}
+```
+
+2. **`done`** event (final):
+```json
+{
+  "num_generated": 10
+}
+```
+
+### Examples
+
+**Basic streaming**:
+```bash
+curl -N -X POST http://127.0.0.1:8080/stream/generate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Hello",
+    "max_tokens": 10,
+    "strategy": "greedy"
+  }'
+```
+
+Output (SSE format):
+```
+event: token
+data: {"token_id":7,"text":" world"}
+
+event: token
+data: {"token_id":19,"text":" this"}
+
+event: token
+data: {"token_id":8,"text":" is"}
+
+event: done
+data: {"num_generated":3}
+```
+
+### JavaScript Client Example
+
+```javascript
+const eventSource = new EventSource('http://127.0.0.1:8080/stream/generate', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    prompt: 'Hello',
+    max_tokens: 20
+  })
+});
+
+eventSource.addEventListener('token', (event) => {
+  const data = JSON.parse(event.data);
+  console.log(`Token ${data.token_id}: ${data.text}`);
+  // Update UI with new token
+  document.getElementById('output').textContent += data.text;
+});
+
+eventSource.addEventListener('done', (event) => {
+  const data = JSON.parse(event.data);
+  console.log(`Generation complete: ${data.num_generated} tokens`);
+  eventSource.close();
+});
+
+eventSource.onerror = () => {
+  console.error('Streaming error');
+  eventSource.close();
+};
+```
+
+### Python Client Example
+
+```python
+import requests
+import json
+
+url = 'http://127.0.0.1:8080/stream/generate'
+data = {
+    'prompt': 'Hello',
+    'max_tokens': 20,
+    'strategy': 'greedy'
+}
+
+response = requests.post(url, json=data, stream=True)
+
+for line in response.iter_lines():
+    if line:
+        line = line.decode('utf-8')
+        if line.startswith('event:'):
+            event_type = line.split(':', 1)[1].strip()
+        elif line.startswith('data:'):
+            data = json.loads(line.split(':', 1)[1].strip())
+            if event_type == 'token':
+                print(data['text'], end='', flush=True)
+            elif event_type == 'done':
+                print(f"\n\nGenerated {data['num_generated']} tokens")
+```
+
+### Use Cases
+
+**1. Real-time chat interfaces**:
+- Display tokens as they're generated
+- Better perceived latency
+- Progressive UI updates
+
+**2. Live code generation**:
+- Show code being written
+- Early feedback for users
+- Cancellable generation
+
+**3. Long-form content**:
+- Stream articles, stories, documentation
+- Users can start reading immediately
+- Better UX for slow generations
+
+### Performance
+
+Streaming provides better perceived performance:
+
+| Metric | Standard `/generate` | Streaming `/stream/generate` |
+|--------|---------------------|----------------------------|
+| Time to first token | ~500ms (full generation) | ~50ms (immediate) |
+| User perception | "Waiting..." | "Active generation" |
+| Cancelable | No | Yes (close connection) |
+| Memory overhead | Low | Slightly higher |
+
+### Error Handling
+
+Errors are sent as SSE `error` events:
+
+```javascript
+eventSource.addEventListener('error', (event) => {
+  console.error('Error:', event.data);
+  eventSource.close();
+});
+```
+
+### Best Practices
+
+1. **Always set `Accept: text/event-stream` header**
+2. **Handle connection drops** - Implement reconnection logic
+3. **Close connections** - Always close EventSource when done
+4. **Buffer tokens** - Batch UI updates for better performance
+5. **Set timeouts** - Detect stalled connections
 
 ---
 

@@ -17,7 +17,10 @@ trueno = { path = "../trueno", version = "0.2.2", features = ["gpu"] }
 # HTTP server ONLY (swappable via HttpServer trait)
 axum = { version = "0.7", optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"], optional = true }
+tokio-stream = { version = "0.1", optional = true }
 tower = { version = "0.4", features = ["util"], optional = true }
+futures = { version = "0.3", optional = true }
+async-stream = { version = "0.3", optional = true }
 
 # CLI
 clap = { version = "4", features = ["derive"], optional = true }
@@ -60,7 +63,7 @@ default = ["server", "cli", "gpu"]
 gpu = ["trueno/gpu"]  # Enable GPU acceleration via Trueno
 
 # Optional components
-server = ["dep:axum", "dep:tokio", "dep:tower"]  # HTTP server support
+server = ["dep:axum", "dep:tokio", "dep:tokio-stream", "dep:tower", "dep:futures", "dep:async-stream"]  # HTTP server support
 cli = ["dep:clap", "server"]  # CLI binary (requires server)
 
 # Convenience meta-features

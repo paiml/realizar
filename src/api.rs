@@ -23,10 +23,13 @@ use std::sync::Arc;
 use axum::{
     extract::State,
     http::StatusCode,
+    response::sse::{Event, Sse},
     routing::{get, post},
     Json, Router,
 };
+use futures::stream::Stream;
 use serde::{Deserialize, Serialize};
+use std::convert::Infallible;
 
 use crate::{
     error::RealizarError,
@@ -219,6 +222,22 @@ pub struct BatchGenerateResponse {
     pub results: Vec<GenerateResponse>,
 }
 
+/// Stream token event (SSE)
+#[derive(Serialize, Deserialize)]
+pub struct StreamTokenEvent {
+    /// Token ID
+    pub token_id: u32,
+    /// Decoded text for this token
+    pub text: String,
+}
+
+/// Stream done event (SSE)
+#[derive(Serialize, Deserialize)]
+pub struct StreamDoneEvent {
+    /// Total number of tokens generated
+    pub num_generated: usize,
+}
+
 /// Create the API router
 ///
 /// # Arguments
@@ -231,6 +250,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/generate", post(generate_handler))
         .route("/batch/tokenize", post(batch_tokenize_handler))
         .route("/batch/generate", post(batch_generate_handler))
+        .route("/stream/generate", post(stream_generate_handler))
         .with_state(state)
 }
 
@@ -453,6 +473,98 @@ async fn batch_generate_handler(
     }
 
     Ok(Json(BatchGenerateResponse { results }))
+}
+
+/// Stream generate handler - generates tokens one by one via Server-Sent Events
+async fn stream_generate_handler(
+    State(state): State<AppState>,
+    Json(request): Json<GenerateRequest>,
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)>
+{
+    // Tokenize prompt
+    let prompt_ids = state.tokenizer.encode(&request.prompt);
+    if prompt_ids.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Prompt cannot be empty".to_string(),
+            }),
+        ));
+    }
+
+    // Convert to usize for model
+    let prompt: Vec<usize> = prompt_ids.iter().map(|&id| id as usize).collect();
+    let prompt_len = prompt.len();
+
+    // Build generation config
+    let strategy = match request.strategy.as_str() {
+        "greedy" => SamplingStrategy::Greedy,
+        "top_k" => SamplingStrategy::TopK { k: request.top_k },
+        "top_p" => SamplingStrategy::TopP { p: request.top_p },
+        _ => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: format!("Invalid strategy: {}", request.strategy),
+                }),
+            ));
+        },
+    };
+
+    let mut config = GenerationConfig::default()
+        .with_max_tokens(request.max_tokens)
+        .with_temperature(request.temperature);
+
+    config.strategy = strategy;
+    if let Some(seed) = request.seed {
+        config = config.with_seed(seed);
+    }
+
+    // Generate all tokens (in future, this will be truly streaming token-by-token)
+    let generated = match state.model.generate(&prompt, &config) {
+        Ok(tokens) => tokens,
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            ));
+        },
+    };
+
+    // Convert to u32
+    let token_ids: Vec<u32> = generated
+        .iter()
+        .map(|&id| u32::try_from(id).unwrap_or(u32::MAX))
+        .collect();
+
+    // Create stream that emits tokens one by one
+    let tokenizer = state.tokenizer.clone();
+    let stream = async_stream::stream! {
+        // Skip prompt tokens, only stream generated tokens
+        for &token_id in &token_ids[prompt_len..] {
+            // Decode single token
+            let text = match tokenizer.decode(&[token_id]) {
+                Ok(t) => t,
+                Err(_) => String::from("<error>"),
+            };
+
+            let event = StreamTokenEvent { token_id, text };
+            let data = serde_json::to_string(&event).unwrap();
+
+            yield Ok::<_, Infallible>(Event::default().event("token").data(data));
+        }
+
+        // Send done event
+        let done_event = StreamDoneEvent {
+            num_generated: token_ids.len() - prompt_len,
+        };
+        let data = serde_json::to_string(&done_event).unwrap();
+        yield Ok(Event::default().event("done").data(data));
+    };
+
+    Ok(Sse::new(stream))
 }
 
 #[cfg(test)]
