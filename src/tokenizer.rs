@@ -302,6 +302,9 @@ impl BPETokenizer {
     }
 }
 
+/// Viterbi algorithm state: `(best_score, best_token)` at each position
+type ViterbiState = (Vec<f32>, Vec<Option<String>>);
+
 /// `SentencePiece` tokenizer (Unigram model)
 ///
 /// Implements subword tokenization using unigram language model.
@@ -388,16 +391,38 @@ impl SentencePieceTokenizer {
         }
 
         let chars: Vec<char> = text.chars().collect();
-        let n = chars.len();
+        let (_best_score, best_token) = self.viterbi_forward(&chars);
+        let tokens = Self::viterbi_backtrack(&chars, &best_token);
 
-        // Viterbi algorithm for finding best segmentation
-        // best_score[i] = best score to reach position i
-        // best_token[i] = token that ends at position i in best path
+        // Convert tokens to IDs
+        tokens
+            .into_iter()
+            .map(|t| {
+                self.token_to_id
+                    .get(&t)
+                    .copied()
+                    .unwrap_or(self.unk_token_id)
+            })
+            .collect()
+    }
+
+    /// Viterbi forward pass: find best score and token at each position
+    ///
+    /// # Arguments
+    ///
+    /// * `chars` - Character array of input text
+    ///
+    /// # Returns
+    ///
+    /// Tuple of `(best_score, best_token)` vectors
+    fn viterbi_forward(&self, chars: &[char]) -> ViterbiState {
+        let n = chars.len();
         let mut best_score = vec![f32::NEG_INFINITY; n + 1];
         let mut best_token: Vec<Option<String>> = vec![None; n + 1];
         best_score[0] = 0.0;
 
         for end in 1..=n {
+            // Try all possible start positions for token ending at `end`
             for start in 0..end {
                 let substr: String = chars[start..end].iter().collect();
                 if let Some(&score) = self.scores.get(&substr) {
@@ -417,9 +442,24 @@ impl SentencePieceTokenizer {
             }
         }
 
-        // Backtrack to get tokens
+        (best_score, best_token)
+    }
+
+    /// Viterbi backtracking: reconstruct token sequence from `best_token`
+    ///
+    /// # Arguments
+    ///
+    /// * `chars` - Character array of input text
+    /// * `best_token` - Best token at each position (from forward pass)
+    ///
+    /// # Returns
+    ///
+    /// Vector of tokens in forward order
+    fn viterbi_backtrack(chars: &[char], best_token: &[Option<String>]) -> Vec<String> {
+        let n = chars.len();
         let mut tokens = Vec::new();
         let mut pos = n;
+
         while pos > 0 {
             if let Some(token) = &best_token[pos] {
                 tokens.push(token.clone());
@@ -431,18 +471,9 @@ impl SentencePieceTokenizer {
                 pos -= 1;
             }
         }
-        tokens.reverse();
 
-        // Convert tokens to IDs
+        tokens.reverse();
         tokens
-            .into_iter()
-            .map(|t| {
-                self.token_to_id
-                    .get(&t)
-                    .copied()
-                    .unwrap_or(self.unk_token_id)
-            })
-            .collect()
     }
 
     /// Decode token IDs to text
