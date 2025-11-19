@@ -32,6 +32,7 @@ use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 
 use crate::{
+    cache::{CacheKey, ModelCache},
     error::RealizarError,
     generate::{GenerationConfig, SamplingStrategy},
     layers::{Model, ModelConfig},
@@ -41,10 +42,16 @@ use crate::{
 /// Application state shared across handlers
 #[derive(Clone)]
 pub struct AppState {
-    /// Model for inference
+    /// Model for inference (single model mode)
     model: Arc<Model>,
     /// Tokenizer for encoding/decoding
     tokenizer: Arc<BPETokenizer>,
+    /// Model cache for multi-model support
+    #[allow(dead_code)] // Will be used in future PR for cache warming
+    cache: Option<Arc<ModelCache>>,
+    /// Default cache key for single model mode
+    #[allow(dead_code)] // Will be used in future PR for cache warming
+    cache_key: Option<CacheKey>,
 }
 
 impl AppState {
@@ -59,6 +66,49 @@ impl AppState {
         Self {
             model: Arc::new(model),
             tokenizer: Arc::new(tokenizer),
+            cache: None,
+            cache_key: None,
+        }
+    }
+
+    /// Create application state with model caching enabled
+    ///
+    /// # Arguments
+    ///
+    /// * `cache_capacity` - Maximum number of models to cache
+    ///
+    /// # Panics
+    ///
+    /// Panics if model or tokenizer creation fails (should not happen with valid config)
+    #[must_use]
+    pub fn with_cache(cache_capacity: usize) -> Self {
+        // Create empty state with cache
+        let config = ModelConfig {
+            vocab_size: 100,
+            hidden_dim: 32,
+            num_heads: 1,
+            num_layers: 1,
+            intermediate_dim: 64,
+            eps: 1e-5,
+        };
+        let model = Model::new(config).expect("Failed to create placeholder model");
+        let vocab: Vec<String> = (0..100)
+            .map(|i| {
+                if i == 0 {
+                    "<unk>".to_string()
+                } else {
+                    format!("token{i}")
+                }
+            })
+            .collect();
+        let tokenizer =
+            BPETokenizer::new(vocab, vec![], "<unk>").expect("Failed to create tokenizer");
+
+        Self {
+            model: Arc::new(model),
+            tokenizer: Arc::new(tokenizer),
+            cache: Some(Arc::new(ModelCache::new(cache_capacity))),
+            cache_key: Some(CacheKey::new("default".to_string())),
         }
     }
 
