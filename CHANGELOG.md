@@ -7,8 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2025-01-19
+
 ### Added
-- CHANGELOG.md for tracking version history
+- **Batch Inference API** - Process multiple prompts in a single request
+  - `POST /batch/tokenize` - Tokenize multiple texts
+  - `POST /batch/generate` - Generate text for multiple prompts
+  - Linear scaling performance characteristics
+  - Comprehensive integration tests
+- **Server-Sent Events (SSE) Streaming** - Real-time token-by-token generation
+  - `POST /stream/generate` - Stream generated tokens as they're produced
+  - Token events and completion events
+  - JavaScript and Python client examples
+  - Reduced perceived latency for long generations
+- **Model Caching Infrastructure** - LRU cache for reduced cold start latency
+  - Thread-safe concurrent access with `Arc<RwLock>`
+  - Configurable cache capacity
+  - Automatic LRU eviction when capacity reached
+  - Cache metrics tracking (hits, misses, evictions, size)
+  - Hit rate calculation for monitoring
+- **SafeTensors Interoperability** - Load models from aprender
+  - `safetensors_loading.rs` example
+  - Seamless integration with aprender ecosystem
+  - Property-based tests for SafeTensors parsing
+- **Performance Benchmarks** - Comprehensive benchmark suite
+  - Cache performance benchmarks (hit/miss latency, eviction, concurrency)
+  - Batch inference benchmarks
+  - Cache key creation benchmarks
+  - Hit rate calculation benchmarks
+
+### Fixed
+- Race condition in concurrent cache access test
+- Float comparison in cache metrics tests
+- Type complexity clippy warnings with type aliases
+
+### Performance
+- Cache hit latency: ~40 ns
+- Cache miss + load: ~14 µs
+- Concurrent cache access (4 threads): ~94 µs
+- Metrics access: ~4.6 ns
+- Hit rate calculation: ~430 ps
+
+### Quality Metrics
+- Test coverage: 95.76% (up from 95.46%)
+- Tests: 286 total (228 unit + 6 integration + 52 property)
+- TDG Score: 96.4/100 (A+ grade, up from 93.9)
+- Dead code: 0%
+- Clippy: 0 warnings
+- Benchmarks: 3 suites (tensor_ops, inference, cache)
+
+### Documentation
+- Complete API documentation for batch endpoints
+- SSE streaming documentation with client examples
+- Cache architecture and usage documentation
+- Expanded mdBook documentation (168 files)
 
 ## [0.1.0] - 2024-11-18
 
@@ -83,5 +135,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Serde v1 - Serialization
 - Thiserror v1 - Error handling
 
-[Unreleased]: https://github.com/paiml/realizar/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/paiml/realizar/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/paiml/realizar/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/paiml/realizar/releases/tag/v0.1.0
