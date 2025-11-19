@@ -75,6 +75,8 @@ pub mod layers;
 #[cfg(feature = "server")]
 pub mod metrics;
 pub mod quantize;
+#[cfg(feature = "server")]
+pub mod registry;
 pub mod safetensors;
 pub mod tensor;
 pub mod tokenizer;
