@@ -1,7 +1,6 @@
 // Property-based tests for Layers
 use proptest::prelude::*;
-use realizar::Tensor;
-use realizar::layers::softmax;
+use realizar::{layers::softmax, Tensor};
 
 const EPSILON: f32 = 1e-5;
 
