@@ -1448,8 +1448,9 @@ mod tests {
 
         // Add Q8_0 data: 1 block (36 bytes: 4 for scale + 32 for quants)
         data.extend_from_slice(&0.5f32.to_le_bytes());
-        for i in 0..32 {
-            data.push(i as i8 as u8); // int8 values
+        for i in 0i32..32 {
+            // Test data uses i8 range [0, 31] - safe to convert
+            data.push(u8::try_from(i).unwrap());
         }
 
         let model = GGUFModel::from_bytes(&data).unwrap();

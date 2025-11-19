@@ -90,7 +90,8 @@ mod tests {
 
     #[test]
     fn test_version() {
-        assert!(!VERSION.is_empty());
+        // VERSION is a compile-time constant from CARGO_PKG_VERSION
         assert!(VERSION.starts_with("0."));
+        assert!(VERSION.contains('.'));
     }
 }
