@@ -140,6 +140,84 @@ fn benchmark_sampling_strategies(c: &mut Criterion) {
     group.finish();
 }
 
+fn benchmark_batch_generation(c: &mut Criterion) {
+    let model = create_test_model();
+    let config = GenerationConfig::greedy().with_max_tokens(5);
+    let mut group = c.benchmark_group("batch_generation");
+
+    // Benchmark different batch sizes
+    for batch_size in [1, 2, 4, 8, 16].iter() {
+        group.bench_with_input(
+            BenchmarkId::from_parameter(batch_size),
+            batch_size,
+            |b, &batch_size| {
+                // Create batch of prompts
+                let prompts: Vec<Vec<usize>> = (0..batch_size)
+                    .map(|i| vec![1 + i % 10, 5 + i % 10, 10 + i % 10])
+                    .collect();
+
+                b.iter(|| {
+                    // Process batch sequentially (Phase 2 baseline)
+                    let results: Vec<_> = prompts
+                        .iter()
+                        .map(|prompt| {
+                            model
+                                .generate(black_box(prompt), black_box(&config))
+                                .unwrap()
+                        })
+                        .collect();
+                    black_box(results)
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
+fn benchmark_batch_vs_single(c: &mut Criterion) {
+    let model = create_test_model();
+    let config = GenerationConfig::greedy().with_max_tokens(5);
+    let mut group = c.benchmark_group("batch_vs_single");
+
+    let batch_size = 4;
+    let prompts: Vec<Vec<usize>> = (0..batch_size)
+        .map(|i| vec![1 + i % 10, 5 + i % 10, 10 + i % 10])
+        .collect();
+
+    // Single sequential processing
+    group.bench_function("sequential_4_prompts", |b| {
+        b.iter(|| {
+            let results: Vec<_> = prompts
+                .iter()
+                .map(|prompt| {
+                    model
+                        .generate(black_box(prompt), black_box(&config))
+                        .unwrap()
+                })
+                .collect();
+            black_box(results)
+        });
+    });
+
+    // Batch processing (currently same as sequential, but prepared for future optimization)
+    group.bench_function("batch_4_prompts", |b| {
+        b.iter(|| {
+            let results: Vec<_> = prompts
+                .iter()
+                .map(|prompt| {
+                    model
+                        .generate(black_box(prompt), black_box(&config))
+                        .unwrap()
+                })
+                .collect();
+            black_box(results)
+        });
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     benchmark_model_forward,
@@ -148,5 +226,7 @@ criterion_group!(
     benchmark_generation_top_p,
     benchmark_generation_varying_length,
     benchmark_sampling_strategies,
+    benchmark_batch_generation,
+    benchmark_batch_vs_single,
 );
 criterion_main!(benches);
