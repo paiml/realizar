@@ -6,7 +6,7 @@
 .DELETE_ON_ERROR:
 .PHONY: help build test quality-gates deploy clean
 .PHONY: coverage coverage-open coverage-clean clean-coverage coverage-summary
-.PHONY: fmt bench doc dev book book-build book-open book-serve book-clean
+.PHONY: fmt bench doc dev book book-build book-open book-serve book-clean book-validate
 .DEFAULT_GOAL := help
 
 # Color output
@@ -60,7 +60,7 @@ test-property: ## Run property-based tests (proptest)
 
 # === Quality Gates ===
 
-quality-gates: fmt-check clippy test coverage bashrs-check book-build ## Run all quality gates (pre-commit)
+quality-gates: fmt-check clippy test coverage bashrs-check book-build book-validate ## Run all quality gates (pre-commit)
 	@echo "$(GREEN)✅ All quality gates passed!$(NC)"
 
 fmt: ## Format code
@@ -183,6 +183,15 @@ book-serve: ## Serve the book with live reload
 book-clean: ## Clean book build artifacts
 	@rm -rf book/book
 	@echo "$(GREEN)✓ Book artifacts cleaned$(NC)"
+
+book-validate: ## Validate that book code examples are test-backed (TDD enforcement)
+	@echo "$(GREEN)📚 Validating book code examples are test-backed...$(NC)"
+	@if [ -f scripts/validate-book-code.sh ]; then \
+		./scripts/validate-book-code.sh; \
+	else \
+		echo "$(RED)❌ Validation script not found: scripts/validate-book-code.sh$(NC)"; \
+		exit 1; \
+	fi
 
 # === Quality Analysis ===
 
