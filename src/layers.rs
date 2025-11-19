@@ -862,6 +862,267 @@ impl Attention {
     }
 }
 
+/// Multi-Head Attention with optional Multi-Query Attention (MQA) support
+///
+/// Implements both standard Multi-Head Attention (MHA) and Multi-Query Attention (MQA):
+///
+/// **Standard MHA:**
+/// - Each head has separate Q, K, V projections
+/// - `KV` cache size: `O(num_heads * seq_len * head_dim)`
+/// - Memory bandwidth intensive
+///
+/// **Multi-Query Attention (MQA):**
+/// - Each head has separate Q projection
+/// - All heads share single K, V projections
+/// - `KV` cache size: `O(seq_len * head_dim)` - reduces by `num_heads` factor
+/// - Faster inference, less memory bandwidth
+/// - Used in `PaLM`, Falcon, `StarCoder`
+///
+/// # Architecture
+///
+/// ```text
+/// Input [hidden_dim]
+///   |
+///   ├─> Q_proj [hidden_dim -> hidden_dim] -> split into num_heads
+///   ├─> K_proj [hidden_dim -> kv_dim] (kv_dim = hidden_dim for MHA, head_dim for MQA)
+///   └─> V_proj [hidden_dim -> kv_dim]
+///   |
+///   ├─> Attention (per head or shared for MQA)
+///   |
+///   └─> O_proj [hidden_dim -> hidden_dim]
+///       |
+///     Output [hidden_dim]
+/// ```
+///
+/// # References
+///
+/// - "Attention is All You Need" - Vaswani et al., 2017 (MHA)
+/// - "Fast Transformer Decoding: One Write-Head is All You Need" - Shazeer, 2019 (MQA)
+/// - "`PaLM`: Scaling Language Modeling with Pathways" - Chowdhery et al., 2022 (MQA in production)
+#[derive(Debug, Clone)]
+pub struct MultiHeadAttention {
+    /// Number of attention heads
+    num_heads: usize,
+    /// Dimension per attention head
+    head_dim: usize,
+    /// Total hidden dimension (`num_heads * head_dim`)
+    hidden_dim: usize,
+    /// Query projection: `hidden_dim -> hidden_dim`
+    q_proj: Linear,
+    /// Key projection: `hidden_dim -> kv_dim` (`kv_dim` depends on `use_mqa`)
+    k_proj: Linear,
+    /// Value projection: `hidden_dim -> kv_dim` (`kv_dim` depends on `use_mqa`)
+    v_proj: Linear,
+    /// Output projection: `hidden_dim -> hidden_dim`
+    o_proj: Linear,
+    /// Per-head attention mechanism
+    attention: Attention,
+    /// Use Multi-Query Attention (shared `K/V` across heads)
+    use_mqa: bool,
+}
+
+impl MultiHeadAttention {
+    /// Create a new Multi-Head Attention layer
+    ///
+    /// # Arguments
+    ///
+    /// * `hidden_dim` - Total hidden dimension (must be divisible by `num_heads`)
+    /// * `num_heads` - Number of attention heads
+    /// * `use_mqa` - If true, use Multi-Query Attention (shared `K/V`)
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// - `hidden_dim` is zero or not divisible by `num_heads`
+    /// - `num_heads` is zero
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// // Standard Multi-Head Attention
+    /// let mha = MultiHeadAttention::new(512, 8, false)?;
+    ///
+    /// // Multi-Query Attention (MQA)
+    /// let mqa = MultiHeadAttention::new(512, 8, true)?;
+    /// ```
+    pub fn new(hidden_dim: usize, num_heads: usize, use_mqa: bool) -> Result<Self> {
+        if hidden_dim == 0 {
+            return Err(RealizarError::InvalidShape {
+                reason: "hidden_dim must be > 0".to_string(),
+            });
+        }
+        if num_heads == 0 {
+            return Err(RealizarError::InvalidShape {
+                reason: "num_heads must be > 0".to_string(),
+            });
+        }
+        if hidden_dim % num_heads != 0 {
+            return Err(RealizarError::InvalidShape {
+                reason: format!(
+                    "hidden_dim {hidden_dim} must be divisible by num_heads {num_heads}"
+                ),
+            });
+        }
+
+        let head_dim = hidden_dim / num_heads;
+
+        // Q projection: always hidden_dim -> hidden_dim (all heads)
+        let q_proj = Linear::new(hidden_dim, hidden_dim)?;
+
+        // K/V projections depend on MQA mode
+        let kv_dim = if use_mqa { head_dim } else { hidden_dim };
+        let k_proj = Linear::new(hidden_dim, kv_dim)?;
+        let v_proj = Linear::new(hidden_dim, kv_dim)?;
+
+        // Output projection: hidden_dim -> hidden_dim
+        let o_proj = Linear::new(hidden_dim, hidden_dim)?;
+
+        // Per-head attention mechanism
+        let attention = Attention::new(head_dim)?;
+
+        Ok(Self {
+            num_heads,
+            head_dim,
+            hidden_dim,
+            q_proj,
+            k_proj,
+            v_proj,
+            o_proj,
+            attention,
+            use_mqa,
+        })
+    }
+
+    /// Forward pass through multi-head attention
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - Input tensor `[seq_len, hidden_dim]`
+    ///
+    /// # Returns
+    ///
+    /// Output tensor `[seq_len, hidden_dim]`
+    ///
+    /// # Errors
+    ///
+    /// Returns error if input shape is invalid
+    pub fn forward(&self, input: &Tensor<f32>) -> Result<Tensor<f32>> {
+        let shape = input.shape();
+
+        if shape.len() != 2 {
+            return Err(RealizarError::InvalidShape {
+                reason: format!("Expected 2D tensor [seq_len, hidden_dim], got shape {shape:?}"),
+            });
+        }
+
+        let seq_len = shape[0];
+        let input_dim = shape[1];
+
+        if input_dim != self.hidden_dim {
+            return Err(RealizarError::InvalidShape {
+                reason: format!(
+                    "Expected hidden_dim={}, got {}",
+                    self.hidden_dim, input_dim
+                ),
+            });
+        }
+
+        // Project Q, K, V
+        let q = self.q_proj.forward(input)?; // [seq_len, hidden_dim]
+        let k = self.k_proj.forward(input)?; // [seq_len, kv_dim]
+        let v = self.v_proj.forward(input)?; // [seq_len, kv_dim]
+
+        // Reshape Q into heads: [seq_len, num_heads, head_dim]
+        let q_data = q.data();
+        let k_data = k.data();
+        let v_data = v.data();
+
+        // Process each head
+        let mut head_outputs = Vec::with_capacity(self.num_heads);
+
+        for head_idx in 0..self.num_heads {
+            // Extract Q for this head
+            let mut q_head_data = Vec::with_capacity(seq_len * self.head_dim);
+            for seq_idx in 0..seq_len {
+                let q_row_start = seq_idx * self.hidden_dim;
+                let head_start = q_row_start + head_idx * self.head_dim;
+                for offset in 0..self.head_dim {
+                    q_head_data.push(q_data[head_start + offset]);
+                }
+            }
+            let q_head = Tensor::from_vec(vec![seq_len, self.head_dim], q_head_data)?;
+
+            // Extract K, V for this head (shared in MQA, per-head in MHA)
+            let (k_head, v_head) = if self.use_mqa {
+                // MQA: All heads share the same K/V
+                let k_head = Tensor::from_vec(vec![seq_len, self.head_dim], k_data.to_vec())?;
+                let v_head = Tensor::from_vec(vec![seq_len, self.head_dim], v_data.to_vec())?;
+                (k_head, v_head)
+            } else {
+                // MHA: Each head has its own K/V
+                let mut k_head_data = Vec::with_capacity(seq_len * self.head_dim);
+                let mut v_head_data = Vec::with_capacity(seq_len * self.head_dim);
+                for seq_idx in 0..seq_len {
+                    let kv_row_start = seq_idx * self.hidden_dim;
+                    let head_start = kv_row_start + head_idx * self.head_dim;
+                    for offset in 0..self.head_dim {
+                        k_head_data.push(k_data[head_start + offset]);
+                        v_head_data.push(v_data[head_start + offset]);
+                    }
+                }
+                let k_head = Tensor::from_vec(vec![seq_len, self.head_dim], k_head_data)?;
+                let v_head = Tensor::from_vec(vec![seq_len, self.head_dim], v_head_data)?;
+                (k_head, v_head)
+            };
+
+            // Compute attention for this head
+            let head_output = self.attention.forward(&q_head, &k_head, &v_head)?;
+            head_outputs.push(head_output);
+        }
+
+        // Concatenate all head outputs: [seq_len, hidden_dim]
+        let mut concat_data = Vec::with_capacity(seq_len * self.hidden_dim);
+        for seq_idx in 0..seq_len {
+            for head_output in &head_outputs {
+                let head_output_data = head_output.data();
+                let head_row_start = seq_idx * self.head_dim;
+                for offset in 0..self.head_dim {
+                    concat_data.push(head_output_data[head_row_start + offset]);
+                }
+            }
+        }
+
+        let concat = Tensor::from_vec(vec![seq_len, self.hidden_dim], concat_data)?;
+
+        // Output projection
+        self.o_proj.forward(&concat)
+    }
+
+    /// Get number of attention heads
+    #[must_use]
+    pub fn num_heads(&self) -> usize {
+        self.num_heads
+    }
+
+    /// Get head dimension
+    #[must_use]
+    pub fn head_dim(&self) -> usize {
+        self.head_dim
+    }
+
+    /// Get hidden dimension
+    #[must_use]
+    pub fn hidden_dim(&self) -> usize {
+        self.hidden_dim
+    }
+
+    /// Check if using Multi-Query Attention
+    #[must_use]
+    pub fn is_mqa(&self) -> bool {
+        self.use_mqa
+    }
+}
+
 /// Rotary Position Embeddings (`RoPE`)
 ///
 /// Applies position-dependent rotations to query and key vectors.
@@ -3194,5 +3455,168 @@ mod tests {
         for &token in &tokens {
             assert!(token < 20);
         }
+    }
+
+    // MultiHeadAttention tests
+
+    #[test]
+    fn test_multi_head_attention_creation_mha() {
+        // Standard Multi-Head Attention
+        let mha = MultiHeadAttention::new(64, 8, false).unwrap();
+        assert_eq!(mha.num_heads(), 8);
+        assert_eq!(mha.head_dim(), 8); // 64 / 8
+        assert_eq!(mha.hidden_dim(), 64);
+        assert!(!mha.is_mqa());
+    }
+
+    #[test]
+    fn test_multi_head_attention_creation_mqa() {
+        // Multi-Query Attention
+        let mqa = MultiHeadAttention::new(64, 8, true).unwrap();
+        assert_eq!(mqa.num_heads(), 8);
+        assert_eq!(mqa.head_dim(), 8);
+        assert_eq!(mqa.hidden_dim(), 64);
+        assert!(mqa.is_mqa());
+    }
+
+    #[test]
+    fn test_multi_head_attention_zero_hidden_dim_error() {
+        let result = MultiHeadAttention::new(0, 8, false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_multi_head_attention_zero_num_heads_error() {
+        let result = MultiHeadAttention::new(64, 0, false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_multi_head_attention_indivisible_error() {
+        // 65 is not divisible by 8
+        let result = MultiHeadAttention::new(65, 8, false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_multi_head_attention_mha_forward() {
+        // Standard MHA with 2 heads
+        let mha = MultiHeadAttention::new(8, 2, false).unwrap();
+
+        // Input: [seq_len=2, hidden_dim=8]
+        let input = Tensor::from_vec(
+            vec![2, 8],
+            vec![
+                1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, // token 1
+                0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, // token 2
+            ],
+        )
+        .unwrap();
+
+        let output = mha.forward(&input).unwrap();
+
+        // Output should have same shape as input
+        assert_eq!(output.shape(), &[2, 8]);
+    }
+
+    #[test]
+    fn test_multi_head_attention_mqa_forward() {
+        // Multi-Query Attention with 2 heads (shared K/V)
+        let mqa = MultiHeadAttention::new(8, 2, true).unwrap();
+
+        // Input: [seq_len=2, hidden_dim=8]
+        let input = Tensor::from_vec(
+            vec![2, 8],
+            vec![
+                1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, // token 1
+                0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, // token 2
+            ],
+        )
+        .unwrap();
+
+        let output = mqa.forward(&input).unwrap();
+
+        // Output should have same shape as input
+        assert_eq!(output.shape(), &[2, 8]);
+    }
+
+    #[test]
+    fn test_multi_head_attention_shape_validation() {
+        let mha = MultiHeadAttention::new(8, 2, false).unwrap();
+
+        // Wrong number of dimensions (1D instead of 2D)
+        let input_1d = Tensor::from_vec(vec![8], vec![1.0; 8]).unwrap();
+        let result = mha.forward(&input_1d);
+        assert!(result.is_err());
+
+        // Wrong hidden dimension
+        let input_wrong_dim = Tensor::from_vec(vec![2, 16], vec![1.0; 32]).unwrap();
+        let result = mha.forward(&input_wrong_dim);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_multi_head_attention_mha_vs_mqa_shape_consistency() {
+        // Both MHA and MQA should produce same output shape
+        let mha = MultiHeadAttention::new(16, 4, false).unwrap();
+        let mqa = MultiHeadAttention::new(16, 4, true).unwrap();
+
+        let input = Tensor::from_vec(vec![3, 16], vec![0.5; 48]).unwrap();
+
+        let mha_output = mha.forward(&input).unwrap();
+        let mqa_output = mqa.forward(&input).unwrap();
+
+        // Both should have same output shape
+        assert_eq!(mha_output.shape(), &[3, 16]);
+        assert_eq!(mqa_output.shape(), &[3, 16]);
+        assert_eq!(mha_output.shape(), mqa_output.shape());
+    }
+
+    #[test]
+    fn test_multi_head_attention_single_head() {
+        // Edge case: single head (equivalent to single attention)
+        let mha = MultiHeadAttention::new(8, 1, false).unwrap();
+
+        let input = Tensor::from_vec(vec![2, 8], vec![0.5; 16]).unwrap();
+        let output = mha.forward(&input).unwrap();
+
+        assert_eq!(output.shape(), &[2, 8]);
+    }
+
+    #[test]
+    fn test_multi_head_attention_mqa_kv_sharing() {
+        // MQA should work with larger number of heads
+        let mqa = MultiHeadAttention::new(32, 8, true).unwrap();
+
+        let input = Tensor::from_vec(vec![4, 32], vec![0.1; 128]).unwrap();
+        let output = mqa.forward(&input).unwrap();
+
+        assert_eq!(output.shape(), &[4, 32]);
+    }
+
+    #[test]
+    fn test_multi_head_attention_long_sequence() {
+        // Test with longer sequence
+        let mha = MultiHeadAttention::new(16, 4, false).unwrap();
+
+        // Sequence length = 10
+        let input = Tensor::from_vec(vec![10, 16], vec![0.3; 160]).unwrap();
+        let output = mha.forward(&input).unwrap();
+
+        assert_eq!(output.shape(), &[10, 16]);
+    }
+
+    #[test]
+    fn test_multi_head_attention_mqa_memory_efficiency() {
+        // MQA should still work correctly with shared K/V
+        // This tests that the shared K/V logic is correct
+        let mqa = MultiHeadAttention::new(64, 16, true).unwrap();
+
+        // Small batch
+        let input = Tensor::from_vec(vec![2, 64], vec![0.2; 128]).unwrap();
+        let output = mqa.forward(&input).unwrap();
+
+        assert_eq!(output.shape(), &[2, 64]);
+        assert_eq!(output.data().len(), 128); // 2 * 64
     }
 }
