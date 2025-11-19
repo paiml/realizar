@@ -174,6 +174,51 @@ pub struct ErrorResponse {
     pub error: String,
 }
 
+/// Batch tokenize request
+#[derive(Serialize, Deserialize)]
+pub struct BatchTokenizeRequest {
+    /// Texts to tokenize
+    pub texts: Vec<String>,
+}
+
+/// Batch tokenize response
+#[derive(Serialize, Deserialize)]
+pub struct BatchTokenizeResponse {
+    /// Results for each text in the same order
+    pub results: Vec<TokenizeResponse>,
+}
+
+/// Batch generate request
+#[derive(Serialize, Deserialize)]
+pub struct BatchGenerateRequest {
+    /// Input prompts
+    pub prompts: Vec<String>,
+    /// Maximum tokens to generate (shared across all prompts)
+    #[serde(default = "default_max_tokens")]
+    pub max_tokens: usize,
+    /// Sampling temperature (shared)
+    #[serde(default = "default_temperature")]
+    pub temperature: f32,
+    /// Sampling strategy (shared)
+    #[serde(default = "default_strategy")]
+    pub strategy: String,
+    /// Top-k value (shared)
+    #[serde(default = "default_top_k")]
+    pub top_k: usize,
+    /// Top-p value (shared)
+    #[serde(default = "default_top_p")]
+    pub top_p: f32,
+    /// Random seed for reproducibility
+    pub seed: Option<u64>,
+}
+
+/// Batch generate response
+#[derive(Serialize, Deserialize)]
+pub struct BatchGenerateResponse {
+    /// Results for each prompt in the same order
+    pub results: Vec<GenerateResponse>,
+}
+
 /// Create the API router
 ///
 /// # Arguments
@@ -184,6 +229,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/health", get(health_handler))
         .route("/tokenize", post(tokenize_handler))
         .route("/generate", post(generate_handler))
+        .route("/batch/tokenize", post(batch_tokenize_handler))
+        .route("/batch/generate", post(batch_generate_handler))
         .with_state(state)
 }
 
@@ -283,6 +330,129 @@ async fn generate_handler(
         text,
         num_generated,
     }))
+}
+
+/// Batch tokenize handler
+async fn batch_tokenize_handler(
+    State(state): State<AppState>,
+    Json(request): Json<BatchTokenizeRequest>,
+) -> Result<Json<BatchTokenizeResponse>, (StatusCode, Json<ErrorResponse>)> {
+    if request.texts.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Texts array cannot be empty".to_string(),
+            }),
+        ));
+    }
+
+    // Tokenize all texts
+    let results: Vec<TokenizeResponse> = request
+        .texts
+        .iter()
+        .map(|text| {
+            let token_ids = state.tokenizer.encode(text);
+            let num_tokens = token_ids.len();
+            TokenizeResponse {
+                token_ids,
+                num_tokens,
+            }
+        })
+        .collect();
+
+    Ok(Json(BatchTokenizeResponse { results }))
+}
+
+/// Batch generate handler
+async fn batch_generate_handler(
+    State(state): State<AppState>,
+    Json(request): Json<BatchGenerateRequest>,
+) -> Result<Json<BatchGenerateResponse>, (StatusCode, Json<ErrorResponse>)> {
+    if request.prompts.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Prompts array cannot be empty".to_string(),
+            }),
+        ));
+    }
+
+    // Build generation config (shared across all prompts)
+    let strategy = match request.strategy.as_str() {
+        "greedy" => SamplingStrategy::Greedy,
+        "top_k" => SamplingStrategy::TopK { k: request.top_k },
+        "top_p" => SamplingStrategy::TopP { p: request.top_p },
+        _ => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: format!("Invalid strategy: {}", request.strategy),
+                }),
+            ));
+        },
+    };
+
+    let mut config = GenerationConfig::default()
+        .with_max_tokens(request.max_tokens)
+        .with_temperature(request.temperature);
+
+    config.strategy = strategy;
+    if let Some(seed) = request.seed {
+        config = config.with_seed(seed);
+    }
+
+    // Process each prompt
+    let mut results = Vec::with_capacity(request.prompts.len());
+
+    for prompt_text in &request.prompts {
+        // Tokenize prompt
+        let prompt_ids = state.tokenizer.encode(prompt_text);
+        if prompt_ids.is_empty() {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: format!("Prompt '{prompt_text}' tokenizes to empty sequence"),
+                }),
+            ));
+        }
+
+        // Convert to usize for model
+        let prompt: Vec<usize> = prompt_ids.iter().map(|&id| id as usize).collect();
+
+        // Generate
+        let generated = state.model.generate(&prompt, &config).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+        })?;
+
+        // Convert back to u32 and decode
+        let token_ids: Vec<u32> = generated
+            .iter()
+            .map(|&id| u32::try_from(id).unwrap_or(u32::MAX))
+            .collect();
+        let text = state.tokenizer.decode(&token_ids).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+        })?;
+
+        let num_generated = generated.len() - prompt.len();
+
+        results.push(GenerateResponse {
+            token_ids,
+            text,
+            num_generated,
+        });
+    }
+
+    Ok(Json(BatchGenerateResponse { results }))
 }
 
 #[cfg(test)]
@@ -624,5 +794,309 @@ mod tests {
         // Also verify it's in reasonable range
         assert!(result.num_generated > 0);
         assert!(result.num_generated <= 5);
+    }
+
+    #[tokio::test]
+    async fn test_batch_tokenize_endpoint() {
+        let app = create_test_app();
+
+        let request = BatchTokenizeRequest {
+            texts: vec!["token1".to_string(), "token2 token3".to_string()],
+        };
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/batch/tokenize")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&request).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: BatchTokenizeResponse = serde_json::from_slice(&body).unwrap();
+
+        // Verify we got 2 results
+        assert_eq!(result.results.len(), 2);
+        // Each result should have tokens
+        assert!(result.results[0].num_tokens > 0);
+        assert!(result.results[1].num_tokens > 0);
+    }
+
+    #[tokio::test]
+    async fn test_batch_tokenize_empty_array_error() {
+        let app = create_test_app();
+
+        let request = BatchTokenizeRequest { texts: vec![] };
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/batch/tokenize")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&request).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_batch_generate_endpoint() {
+        let app = create_test_app();
+
+        let request = BatchGenerateRequest {
+            prompts: vec!["token1".to_string(), "token2".to_string()],
+            max_tokens: 3,
+            temperature: 1.0,
+            strategy: "greedy".to_string(),
+            top_k: 50,
+            top_p: 0.9,
+            seed: Some(42),
+        };
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/batch/generate")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&request).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: BatchGenerateResponse = serde_json::from_slice(&body).unwrap();
+
+        // Verify we got 2 results
+        assert_eq!(result.results.len(), 2);
+        // Each result should have tokens
+        assert!(!result.results[0].token_ids.is_empty());
+        assert!(!result.results[1].token_ids.is_empty());
+        // Each result should have text
+        assert!(!result.results[0].text.is_empty());
+        assert!(!result.results[1].text.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_batch_generate_empty_array_error() {
+        let app = create_test_app();
+
+        let request = BatchGenerateRequest {
+            prompts: vec![],
+            max_tokens: 3,
+            temperature: 1.0,
+            strategy: "greedy".to_string(),
+            top_k: 50,
+            top_p: 0.9,
+            seed: None,
+        };
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/batch/generate")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&request).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_batch_generate_with_defaults() {
+        let app = create_test_app();
+
+        // Use serde defaults
+        let json = r#"{"prompts": ["test1", "test2"]}"#;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/batch/generate")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: BatchGenerateResponse = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(result.results.len(), 2);
+        // Verify generation used defaults (greedy with max 50 tokens)
+        for gen_result in &result.results {
+            assert!(gen_result.num_generated <= 50);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_batch_generate_order_preserved() {
+        let app = create_test_app();
+
+        let request = BatchGenerateRequest {
+            prompts: vec!["token1".to_string(), "token2".to_string(), "token3".to_string()],
+            max_tokens: 2,
+            temperature: 1.0,
+            strategy: "greedy".to_string(),
+            top_k: 50,
+            top_p: 0.9,
+            seed: Some(123),
+        };
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/batch/generate")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&request).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: BatchGenerateResponse = serde_json::from_slice(&body).unwrap();
+
+        // Verify order is preserved: 3 prompts -> 3 results in same order
+        assert_eq!(result.results.len(), 3);
+
+        // Each result should be non-empty
+        for gen_result in &result.results {
+            assert!(!gen_result.token_ids.is_empty());
+            assert!(!gen_result.text.is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_batch_generate_invalid_strategy_error() {
+        let app = create_test_app();
+
+        let request = BatchGenerateRequest {
+            prompts: vec!["test".to_string()],
+            max_tokens: 3,
+            temperature: 1.0,
+            strategy: "invalid".to_string(),
+            top_k: 50,
+            top_p: 0.9,
+            seed: None,
+        };
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/batch/generate")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&request).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_batch_generate_top_k_strategy() {
+        let app = create_test_app();
+
+        let request = BatchGenerateRequest {
+            prompts: vec!["token1".to_string(), "token2".to_string()],
+            max_tokens: 2,
+            temperature: 0.8,
+            strategy: "top_k".to_string(),
+            top_k: 5,
+            top_p: 0.9,
+            seed: Some(456),
+        };
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/batch/generate")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&request).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: BatchGenerateResponse = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(result.results.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_batch_generate_top_p_strategy() {
+        let app = create_test_app();
+
+        let request = BatchGenerateRequest {
+            prompts: vec!["token1".to_string()],
+            max_tokens: 2,
+            temperature: 0.7,
+            strategy: "top_p".to_string(),
+            top_k: 50,
+            top_p: 0.9,
+            seed: Some(789),
+        };
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/batch/generate")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&request).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: BatchGenerateResponse = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(result.results.len(), 1);
     }
 }
