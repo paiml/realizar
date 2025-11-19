@@ -60,7 +60,7 @@ test-property: ## Run property-based tests (proptest)
 
 # === Quality Gates ===
 
-quality-gates: fmt-check clippy test coverage bashrs-check ## Run all quality gates (pre-commit)
+quality-gates: fmt-check clippy test coverage bashrs-check book-build ## Run all quality gates (pre-commit)
 	@echo "$(GREEN)✅ All quality gates passed!$(NC)"
 
 fmt: ## Format code
@@ -151,8 +151,12 @@ book: book-build book-open ## Build and open the Realizar book
 book-build: ## Build the book
 	@echo "$(GREEN)📚 Building Realizar book...$(NC)"
 	@if command -v mdbook >/dev/null 2>&1; then \
-		mdbook build book; \
-		echo "$(GREEN)✅ Book built: book/book/index.html$(NC)"; \
+		if mdbook build book 2>&1; then \
+			echo "$(GREEN)✅ Book built: book/book/index.html$(NC)"; \
+		else \
+			echo "$(RED)❌ Book build failed$(NC)"; \
+			exit 1; \
+		fi; \
 	else \
 		echo "$(RED)❌ mdbook not installed. Install with: cargo install mdbook$(NC)"; \
 		exit 1; \

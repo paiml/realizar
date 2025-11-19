@@ -322,6 +322,37 @@ make quality-gates
 cargo run --release -- serve --model llama-3.2-1b.gguf --port 8080
 ```
 
+## 📚 Documentation
+
+Comprehensive documentation is available as an mdBook:
+
+```bash
+# Build and view the book
+make book
+
+# Build only
+make book-build
+
+# Live reload (for writing docs)
+make book-serve
+
+# Open in browser
+make book-open
+```
+
+The book covers:
+- **Core Architecture** - Design philosophy, Trueno integration, feature flags
+- **Model Formats** - GGUF and Safetensors parsing from scratch
+- **Quantization** - Q4_0, Q8_0, and K-quant algorithms
+- **Transformer Architecture** - Attention, RoPE, FFN, KV cache implementation
+- **Tokenization** - BPE and SentencePiece without external libraries
+- **REST API & CLI** - Production HTTP server and command-line interface
+- **GPU Acceleration** - Trueno SIMD/GPU dispatch
+- **EXTREME TDD** - Property-based testing, mutation testing methodology
+- **Development Phases** - Phase 1-4 roadmap and implementation details
+
+**Note:** Book structure is validated in `make quality-gates` to ensure documentation stays in sync with code.
+
 ## 🎓 Learning Resources
 
 We're building everything from scratch. Key papers:
