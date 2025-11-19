@@ -93,6 +93,9 @@ realizar serve --model llama-3.2-1b.gguf --port 8080
 # REST API
 curl -X POST http://localhost:8080/generate \
   -d '{"prompt": "Hello", "max_tokens": 100}'
+
+# Metrics (Prometheus format)
+curl http://localhost:8080/metrics
 ```
 
 ## 🏗️ Architecture
@@ -298,11 +301,11 @@ let server = Server::new(model)
 - ✅ ALiBi position embeddings
 - [ ] Vision models (LLaVA, Qwen-VL)
 
-### Phase 4: Production (Weeks 25-32)
+### Phase 4: Production (Weeks 25-32) 🚧 IN PROGRESS
 
 - [ ] Multi-model serving
 - [ ] Request batching
-- [ ] Monitoring/metrics
+- ✅ Monitoring/metrics (Prometheus-compatible /metrics endpoint)
 - [ ] Docker + GPU support
 - [ ] Load testing
 
