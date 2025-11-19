@@ -229,7 +229,7 @@ mod tests {
         assert_eq!(snapshot.total_requests, 1);
         assert_eq!(snapshot.successful_requests, 0);
         assert_eq!(snapshot.failed_requests, 1);
-        assert_eq!(snapshot.error_rate, 1.0);
+        approx::assert_relative_eq!(snapshot.error_rate, 1.0);
     }
 
     #[test]
@@ -245,7 +245,7 @@ mod tests {
         assert_eq!(snapshot.successful_requests, 2);
         assert_eq!(snapshot.failed_requests, 1);
         assert_eq!(snapshot.total_tokens, 15);
-        assert_eq!(snapshot.error_rate, 1.0 / 3.0);
+        approx::assert_relative_eq!(snapshot.error_rate, 1.0 / 3.0);
     }
 
     #[test]
@@ -338,9 +338,9 @@ mod tests {
         let snapshot = metrics.snapshot();
 
         // Should not panic with zero values
-        assert_eq!(snapshot.requests_per_sec, 0.0);
-        assert_eq!(snapshot.tokens_per_sec, 0.0);
-        assert_eq!(snapshot.avg_latency_ms, 0.0);
-        assert_eq!(snapshot.error_rate, 0.0);
+        approx::assert_relative_eq!(snapshot.requests_per_sec, 0.0);
+        approx::assert_relative_eq!(snapshot.tokens_per_sec, 0.0);
+        approx::assert_relative_eq!(snapshot.avg_latency_ms, 0.0);
+        approx::assert_relative_eq!(snapshot.error_rate, 0.0);
     }
 }

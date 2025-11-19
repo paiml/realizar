@@ -378,10 +378,10 @@ mod tests {
         registry.register("model-1", model1, tokenizer1).unwrap();
         registry.register("model-2", model2, tokenizer2).unwrap();
 
-        let models = registry.list();
-        assert_eq!(models.len(), 2);
+        let model_list = registry.list();
+        assert_eq!(model_list.len(), 2);
 
-        let ids: Vec<String> = models.iter().map(|m| m.id.clone()).collect();
+        let ids: Vec<String> = model_list.iter().map(|m| m.id.clone()).collect();
         assert!(ids.contains(&"model-1".to_string()));
         assert!(ids.contains(&"model-2".to_string()));
     }
@@ -420,7 +420,7 @@ mod tests {
             let handle = thread::spawn(move || {
                 let (model, tokenizer) = create_test_model();
                 registry_clone
-                    .register(&format!("model-{}", i), model, tokenizer)
+                    .register(&format!("model-{i}"), model, tokenizer)
                     .unwrap();
             });
             handles.push(handle);

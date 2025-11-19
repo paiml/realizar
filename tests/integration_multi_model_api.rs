@@ -5,7 +5,10 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use realizar::api::{create_router, AppState, GenerateRequest, GenerateResponse, ModelsResponse, TokenizeRequest, TokenizeResponse};
+use realizar::api::{
+    create_router, AppState, GenerateRequest, GenerateResponse, ModelsResponse, TokenizeRequest,
+    TokenizeResponse,
+};
 use realizar::layers::{Model, ModelConfig};
 use realizar::registry::ModelRegistry;
 use realizar::tokenizer::BPETokenizer;
@@ -70,7 +73,9 @@ async fn test_multi_model_registry_list() {
 
     assert_eq!(models_response.models.len(), 2);
 
-    let model_ids: Vec<String> = models_response.models.iter()
+    let model_ids: Vec<String> = models_response
+        .models
+        .iter()
         .map(|m| m.id.clone())
         .collect();
     assert!(model_ids.contains(&"model-1".to_string()));
@@ -85,8 +90,12 @@ async fn test_multi_model_tokenize_with_model_id() {
     let (model1, tokenizer1) = create_test_model(100);
     let (model2, tokenizer2) = create_test_model(200);
 
-    registry.register("small-model", model1, tokenizer1).unwrap();
-    registry.register("large-model", model2, tokenizer2).unwrap();
+    registry
+        .register("small-model", model1, tokenizer1)
+        .unwrap();
+    registry
+        .register("large-model", model2, tokenizer2)
+        .unwrap();
 
     let state = AppState::with_registry(registry, "small-model").unwrap();
     let app = create_router(state);
@@ -124,8 +133,12 @@ async fn test_multi_model_tokenize_default_model() {
     let (model1, tokenizer1) = create_test_model(100);
     let (model2, tokenizer2) = create_test_model(200);
 
-    registry.register("small-model", model1, tokenizer1).unwrap();
-    registry.register("large-model", model2, tokenizer2).unwrap();
+    registry
+        .register("small-model", model1, tokenizer1)
+        .unwrap();
+    registry
+        .register("large-model", model2, tokenizer2)
+        .unwrap();
 
     let state = AppState::with_registry(registry, "small-model").unwrap();
     let app = create_router(state);
@@ -202,7 +215,9 @@ async fn test_multi_model_generate_default_model() {
     let (model2, tokenizer2) = create_test_model(200);
 
     registry.register("default", model1, tokenizer1).unwrap();
-    registry.register("alternative", model2, tokenizer2).unwrap();
+    registry
+        .register("alternative", model2, tokenizer2)
+        .unwrap();
 
     let state = AppState::with_registry(registry, "default").unwrap();
     let app = create_router(state);

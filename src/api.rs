@@ -431,16 +431,14 @@ async fn tokenize_handler(
     State(state): State<AppState>,
     Json(request): Json<TokenizeRequest>,
 ) -> Result<Json<TokenizeResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let (_model, tokenizer) = state
-        .get_model(request.model_id.as_deref())
-        .map_err(|e| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: e.to_string(),
-                }),
-            )
-        })?;
+    let (_model, tokenizer) = state.get_model(request.model_id.as_deref()).map_err(|e| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
 
     let token_ids = tokenizer.encode(&request.text);
     let num_tokens = token_ids.len();
@@ -460,17 +458,15 @@ async fn generate_handler(
     let start = Instant::now();
 
     // Get model and tokenizer
-    let (model, tokenizer) = state
-        .get_model(request.model_id.as_deref())
-        .map_err(|e| {
-            state.metrics.record_failure();
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: e.to_string(),
-                }),
-            )
-        })?;
+    let (model, tokenizer) = state.get_model(request.model_id.as_deref()).map_err(|e| {
+        state.metrics.record_failure();
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
 
     // Tokenize prompt
     let prompt_ids = tokenizer.encode(&request.prompt);
@@ -700,16 +696,14 @@ async fn stream_generate_handler(
     Json(request): Json<GenerateRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
     // Get model and tokenizer
-    let (model, tokenizer) = state
-        .get_model(request.model_id.as_deref())
-        .map_err(|e| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: e.to_string(),
-                }),
-            )
-        })?;
+    let (model, tokenizer) = state.get_model(request.model_id.as_deref()).map_err(|e| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
 
     // Tokenize prompt
     let prompt_ids = tokenizer.encode(&request.prompt);
@@ -1278,7 +1272,6 @@ mod tests {
             top_k: 50,
             top_p: 0.9,
             seed: Some(42),
-            
         };
 
         let response = app
@@ -1322,7 +1315,6 @@ mod tests {
             top_k: 50,
             top_p: 0.9,
             seed: None,
-            
         };
 
         let response = app
@@ -1432,7 +1424,6 @@ mod tests {
             top_k: 50,
             top_p: 0.9,
             seed: None,
-            
         };
 
         let response = app
