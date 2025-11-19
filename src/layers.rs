@@ -14,6 +14,70 @@
 //! let layer_norm = LayerNorm::new(512, 1e-5)?;
 //! let normalized = layer_norm.forward(&input)?;
 //! ```
+//!
+//! ## Loading Models from Files
+//!
+//! Realizar supports loading models from GGUF and Safetensors formats.
+//!
+//! ### GGUF Example
+//!
+//! ```rust,ignore
+//! use realizar::{gguf::GGUFModel, layers::{Model, ModelConfig}};
+//!
+//! // Load GGUF file
+//! let file_data = std::fs::read("model.gguf")?;
+//! let gguf = GGUFModel::from_bytes(&file_data)?;
+//!
+//! // Extract model config from metadata
+//! let config = ModelConfig {
+//!     vocab_size: 32000,
+//!     hidden_dim: 4096,
+//!     num_heads: 32,
+//!     num_layers: 32,
+//!     intermediate_dim: 11008,
+//!     eps: 1e-5,
+//! };
+//!
+//! // Create model and load weights
+//! let mut model = Model::new(config)?;
+//!
+//! // Extract tensors by name (requires knowledge of naming convention)
+//! let embedding_weights = gguf.get_tensor_f32("token_embd.weight", &file_data)?;
+//! // ... load weights into model layers ...
+//! ```
+//!
+//! ### Safetensors Example
+//!
+//! ```rust,ignore
+//! use realizar::{safetensors::SafetensorsModel, layers::{Model, ModelConfig}};
+//!
+//! // Load Safetensors file
+//! let file_data = std::fs::read("model.safetensors")?;
+//! let safetensors = SafetensorsModel::from_bytes(&file_data)?;
+//!
+//! // Extract tensors
+//! let embedding_weights = safetensors.get_tensor_f32("model.embed_tokens.weight")?;
+//! // ... load weights into model layers ...
+//! ```
+//!
+//! ### Tensor Naming Conventions
+//!
+//! Different model families use different tensor naming conventions:
+//!
+//! - **`LLaMA` models (GGUF):**
+//!   - `token_embd.weight` - Token embeddings
+//!   - `blk.{layer}.attn_q.weight` - Query projection for layer N
+//!   - `blk.{layer}.attn_k.weight` - Key projection
+//!   - `blk.{layer}.attn_v.weight` - Value projection
+//!   - `blk.{layer}.ffn_up.weight` - FFN up projection
+//!
+//! - **`HuggingFace` models (Safetensors):**
+//!   - `model.embed_tokens.weight` - Token embeddings
+//!   - `model.layers.{layer}.self_attn.q_proj.weight` - Query projection
+//!   - `model.layers.{layer}.self_attn.k_proj.weight` - Key projection
+//!   - `model.layers.{layer}.mlp.up_proj.weight` - FFN up projection
+//!
+//! Consult model documentation for specific naming conventions.
 
 use crate::{
     error::{RealizarError, Result},
