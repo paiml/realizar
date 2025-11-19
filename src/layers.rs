@@ -2,9 +2,9 @@
 //!
 //! Implements core building blocks for transformer architectures:
 //! - Layer normalization
-//! - Multi-head attention
+//! - Multi-head attention (MHA, MQA, GQA)
 //! - Feed-forward networks
-//! - `RoPE` position embeddings
+//! - Position embeddings: `RoPE` and `ALiBi`
 //!
 //! ## Example
 //!
@@ -1439,6 +1439,172 @@ impl RoPE {
     #[must_use]
     pub fn inv_freq(&self) -> &[f32] {
         &self.inv_freq
+    }
+}
+
+/// Attention with Linear Biases (`ALiBi`)
+///
+/// Replaces traditional position embeddings by adding a static, non-learned
+/// bias to query-key attention scores. The bias is proportional to the distance
+/// between positions, with head-specific slopes that enable better length
+/// extrapolation.
+///
+/// # Algorithm
+///
+/// For each attention head h, `ALiBi` adds the following bias to attention scores:
+///
+/// ```text
+/// bias[i, j] = -m[h] * |i - j|
+/// ```
+///
+/// where m[h] is the head-specific slope computed as:
+/// - For powers of 2: m[h] = 2^(-8h/n) where n is the number of heads
+/// - For non-powers of 2: interpolation between adjacent powers of 2
+///
+/// # References
+///
+/// - "Train Short, Test Long: Attention with Linear Biases Enables Input Length
+///   Extrapolation" - Press et al., ICLR 2022
+/// - <https://arxiv.org/abs/2108.12409>
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use realizar::layers::ALiBi;
+///
+/// // Create ALiBi for 8 attention heads
+/// let alibi = ALiBi::new(8)?;
+///
+/// // Get bias matrix for sequence length 10
+/// let bias = alibi.get_bias(10)?;
+///
+/// // Add to attention scores before softmax
+/// // scores: [seq_len, seq_len, num_heads]
+/// // scores = scores + bias
+/// ```
+#[derive(Debug, Clone)]
+pub struct ALiBi {
+    /// Number of attention heads
+    num_heads: usize,
+    /// Head-specific slopes (one per head)
+    slopes: Vec<f32>,
+}
+
+impl ALiBi {
+    /// Create a new `ALiBi` layer
+    ///
+    /// # Arguments
+    ///
+    /// * `num_heads` - Number of attention heads
+    ///
+    /// # Errors
+    ///
+    /// Returns error if `num_heads` is zero
+    pub fn new(num_heads: usize) -> Result<Self> {
+        if num_heads == 0 {
+            return Err(RealizarError::InvalidShape {
+                reason: "num_heads must be > 0".to_string(),
+            });
+        }
+
+        // Compute slopes for each head
+        let slopes = Self::compute_slopes(num_heads);
+
+        Ok(Self { num_heads, slopes })
+    }
+
+    /// Compute head-specific slopes following `ALiBi` paper algorithm
+    ///
+    /// For powers of 2: m[h] = 2^(-8h/n)
+    /// For non-powers of 2: interpolate between adjacent powers of 2
+    fn compute_slopes(num_heads: usize) -> Vec<f32> {
+        // Find closest power of 2
+        let closest_power_of_2 = if num_heads.is_power_of_two() {
+            num_heads
+        } else {
+            num_heads.next_power_of_two() / 2
+        };
+
+        #[allow(clippy::cast_precision_loss)]
+        let ratio = 8.0 / (closest_power_of_2 as f32);
+
+        let mut slopes = Vec::with_capacity(num_heads);
+
+        // Compute slopes for power of 2 heads
+        for i in 0..closest_power_of_2.min(num_heads) {
+            #[allow(clippy::cast_precision_loss)]
+            let exponent = -(i as f32) * ratio;
+            slopes.push(2_f32.powf(exponent));
+        }
+
+        // If not power of 2, add extra slopes with step=2
+        if num_heads > closest_power_of_2 {
+            #[allow(clippy::cast_precision_loss)]
+            let extra_ratio = 4.0 / (closest_power_of_2 as f32);
+
+            for i in 0..(num_heads - closest_power_of_2) {
+                #[allow(clippy::cast_precision_loss)]
+                let exponent = -((2 * i + 1) as f32) * extra_ratio;
+                slopes.push(2_f32.powf(exponent));
+            }
+        }
+
+        slopes
+    }
+
+    /// Get bias matrix for a given sequence length
+    ///
+    /// Returns a tensor of shape `[seq_len, seq_len, num_heads]` where:
+    /// ```text
+    /// bias[i, j, h] = -slopes[h] * abs(i - j)
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `seq_len` - Sequence length for computing bias
+    ///
+    /// # Returns
+    ///
+    /// Tensor of shape `[seq_len, seq_len, num_heads]` containing position biases
+    ///
+    /// # Errors
+    ///
+    /// Returns error if `seq_len` is zero
+    pub fn get_bias(&self, seq_len: usize) -> Result<Tensor<f32>> {
+        if seq_len == 0 {
+            return Err(RealizarError::InvalidShape {
+                reason: "seq_len must be > 0".to_string(),
+            });
+        }
+
+        let total_size = seq_len * seq_len * self.num_heads;
+        let mut data = Vec::with_capacity(total_size);
+
+        // Compute bias for each position pair and head
+        for i in 0..seq_len {
+            for j in 0..seq_len {
+                for &slope in &self.slopes {
+                    #[allow(clippy::cast_precision_loss)]
+                    let distance = (i as f32 - j as f32).abs();
+                    let bias = -slope * distance;
+                    data.push(bias);
+                }
+            }
+        }
+
+        Tensor::from_vec(vec![seq_len, seq_len, self.num_heads], data)
+    }
+
+    /// Get number of attention heads
+    #[must_use]
+    pub fn num_heads(&self) -> usize {
+        self.num_heads
+    }
+
+    /// Get head-specific slopes
+    #[must_use]
+    pub fn slopes(&self) -> &[f32] {
+        &self.slopes
     }
 }
 
@@ -3067,6 +3233,207 @@ mod tests {
         // inv_freq[1] = 10000^(-2*1/4) = 10000^(-0.5) = 0.01
         assert!((inv_freq[0] - 1.0).abs() < 1e-6);
         assert!((inv_freq[1] - 0.01).abs() < 1e-6);
+    }
+
+    // ALiBi (Attention with Linear Biases) tests
+
+    #[test]
+    fn test_alibi_creation() {
+        let alibi = ALiBi::new(8).unwrap();
+        assert_eq!(alibi.num_heads(), 8);
+        assert_eq!(alibi.slopes().len(), 8);
+    }
+
+    #[test]
+    fn test_alibi_zero_heads_error() {
+        let result = ALiBi::new(0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_alibi_slopes_power_of_2() {
+        // For 8 heads (power of 2), slopes should follow: 2^(-8h/8) = 2^(-h)
+        let alibi = ALiBi::new(8).unwrap();
+        let slopes = alibi.slopes();
+
+        // Expected slopes: 2^0, 2^-1, 2^-2, 2^-3, 2^-4, 2^-5, 2^-6, 2^-7
+        assert!((slopes[0] - 1.0).abs() < 1e-6); // 2^0 = 1.0
+        assert!((slopes[1] - 0.5).abs() < 1e-6); // 2^-1 = 0.5
+        assert!((slopes[2] - 0.25).abs() < 1e-6); // 2^-2 = 0.25
+        assert!((slopes[3] - 0.125).abs() < 1e-6); // 2^-3 = 0.125
+    }
+
+    #[test]
+    fn test_alibi_slopes_non_power_of_2() {
+        // For 6 heads (not power of 2)
+        let alibi = ALiBi::new(6).unwrap();
+        let slopes = alibi.slopes();
+
+        assert_eq!(slopes.len(), 6);
+
+        // First 4 slopes follow 2^(-8h/4) = 2^(-2h)
+        assert!((slopes[0] - 1.0).abs() < 1e-6); // 2^0
+        assert!((slopes[1] - 0.25).abs() < 1e-6); // 2^-2
+        assert!((slopes[2] - 0.0625).abs() < 1e-6); // 2^-4
+        assert!((slopes[3] - 0.015625).abs() < 1e-6); // 2^-6
+
+        // Extra 2 slopes follow 2^(-4h/4) with step=2
+        // slopes[4] = 2^(-1) = 0.5
+        // slopes[5] = 2^(-3) = 0.125
+        assert!((slopes[4] - 0.5).abs() < 1e-6);
+        assert!((slopes[5] - 0.125).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_alibi_bias_shape() {
+        let alibi = ALiBi::new(4).unwrap();
+        let bias = alibi.get_bias(10).unwrap();
+
+        // Shape should be [seq_len, seq_len, num_heads]
+        assert_eq!(bias.shape(), &[10, 10, 4]);
+    }
+
+    #[test]
+    fn test_alibi_bias_zero_seq_len_error() {
+        let alibi = ALiBi::new(4).unwrap();
+        let result = alibi.get_bias(0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_alibi_bias_diagonal_zero() {
+        // Diagonal elements (same position) should be zero
+        let alibi = ALiBi::new(4).unwrap();
+        let bias = alibi.get_bias(5).unwrap();
+
+        for i in 0..5 {
+            for h in 0..4 {
+                let idx = i * 5 * 4 + i * 4 + h; // [i, i, h]
+                let value = bias.data()[idx];
+                assert!(
+                    value.abs() < 1e-6,
+                    "Diagonal bias[{i}, {i}, {h}] should be 0, got {value}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_alibi_bias_symmetry() {
+        // |i - j| = |j - i|, so bias[i,j,h] should equal bias[j,i,h]
+        let alibi = ALiBi::new(2).unwrap();
+        let bias = alibi.get_bias(4).unwrap();
+
+        for i in 0..4 {
+            for j in 0..4 {
+                for h in 0..2 {
+                    let idx_ij = i * 4 * 2 + j * 2 + h;
+                    let idx_ji = j * 4 * 2 + i * 2 + h;
+                    let bias_ij = bias.data()[idx_ij];
+                    let bias_ji = bias.data()[idx_ji];
+                    assert!(
+                        (bias_ij - bias_ji).abs() < 1e-6,
+                        "Bias should be symmetric: [{i},{j},{h}]={bias_ij} vs [{j},{i},{h}]={bias_ji}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_alibi_bias_computation() {
+        // Test exact bias values
+        let alibi = ALiBi::new(2).unwrap();
+        let slopes = alibi.slopes();
+        let bias = alibi.get_bias(3).unwrap();
+
+        // For 2 heads: slopes = [1.0, 0.0625]
+        // bias[0, 2, 0] = -slopes[0] * |0 - 2| = -1.0 * 2 = -2.0
+        let idx = 0 * 3 * 2 + 2 * 2 + 0;
+        assert!(
+            (bias.data()[idx] - (-2.0)).abs() < 1e-6,
+            "Expected -2.0, got {}",
+            bias.data()[idx]
+        );
+
+        // bias[1, 2, 1] = -slopes[1] * |1 - 2| = -0.0625 * 1 = -0.0625
+        let idx = 1 * 3 * 2 + 2 * 2 + 1;
+        let expected = -slopes[1];
+        assert!(
+            (bias.data()[idx] - expected).abs() < 1e-6,
+            "Expected {expected}, got {}",
+            bias.data()[idx]
+        );
+    }
+
+    #[test]
+    fn test_alibi_bias_negative() {
+        // All bias values should be <= 0 (except diagonal which is 0)
+        let alibi = ALiBi::new(4).unwrap();
+        let bias = alibi.get_bias(10).unwrap();
+
+        for &value in bias.data() {
+            assert!(value <= 1e-6, "Bias should be non-positive, got {value}");
+        }
+    }
+
+    #[test]
+    fn test_alibi_bias_distance_proportional() {
+        // Bias should be proportional to distance
+        let alibi = ALiBi::new(1).unwrap();
+        let bias = alibi.get_bias(5).unwrap();
+
+        // For head 0, slope is 1.0
+        // bias[0, 1] = -1.0 * 1 = -1.0
+        // bias[0, 2] = -1.0 * 2 = -2.0
+        // bias[0, 3] = -1.0 * 3 = -3.0
+
+        let bias_01 = bias.data()[0 * 5 * 1 + 1 * 1 + 0];
+        let bias_02 = bias.data()[0 * 5 * 1 + 2 * 1 + 0];
+        let bias_03 = bias.data()[0 * 5 * 1 + 3 * 1 + 0];
+
+        assert!((bias_01 - (-1.0)).abs() < 1e-6);
+        assert!((bias_02 - (-2.0)).abs() < 1e-6);
+        assert!((bias_03 - (-3.0)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_alibi_single_head() {
+        let alibi = ALiBi::new(1).unwrap();
+        assert_eq!(alibi.num_heads(), 1);
+        assert_eq!(alibi.slopes().len(), 1);
+        assert!((alibi.slopes()[0] - 1.0).abs() < 1e-6); // First slope is 2^0 = 1.0
+    }
+
+    #[test]
+    fn test_alibi_large_num_heads() {
+        // Test with large number of heads (non-power of 2)
+        let alibi = ALiBi::new(12).unwrap();
+        assert_eq!(alibi.num_heads(), 12);
+        assert_eq!(alibi.slopes().len(), 12);
+
+        // All slopes should be positive
+        for slope in alibi.slopes() {
+            assert!(*slope > 0.0, "Slope should be positive, got {slope}");
+        }
+
+        // First head should have largest slope (1.0)
+        assert!((alibi.slopes()[0] - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_alibi_bias_long_sequence() {
+        // Test with longer sequence
+        let alibi = ALiBi::new(8).unwrap();
+        let bias = alibi.get_bias(128).unwrap();
+
+        assert_eq!(bias.shape(), &[128, 128, 8]);
+
+        // Check that far positions have larger negative bias
+        let near_bias = bias.data()[0 * 128 * 8 + 1 * 8 + 0]; // distance 1
+        let far_bias = bias.data()[0 * 128 * 8 + 100 * 8 + 0]; // distance 100
+
+        assert!(near_bias > far_bias); // near should be less negative
     }
 
     // KVCache tests

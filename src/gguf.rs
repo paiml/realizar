@@ -517,21 +517,18 @@ impl GGUFModel {
             .dims
             .iter()
             .try_fold(1usize, |acc, &dim| {
-                usize::try_from(dim)
-                    .ok()
-                    .and_then(|d| acc.checked_mul(d))
+                usize::try_from(dim).ok().and_then(|d| acc.checked_mul(d))
             })
             .ok_or_else(|| RealizarError::InvalidShape {
                 reason: format!("Tensor dimensions overflow: {:?}", tensor.dims),
             })?;
 
         // Convert offset to usize
-        let offset = usize::try_from(tensor.offset).map_err(|_| {
-            RealizarError::UnsupportedOperation {
+        let offset =
+            usize::try_from(tensor.offset).map_err(|_| RealizarError::UnsupportedOperation {
                 operation: "convert_offset".to_string(),
                 reason: format!("Offset {} exceeds platform usize limit", tensor.offset),
-            }
-        })?;
+            })?;
 
         // Extract and dequantize based on qtype
         match tensor.qtype {
@@ -556,7 +553,7 @@ impl GGUFModel {
                     .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
                     .collect();
                 Ok(values)
-            }
+            },
             GGUF_TYPE_Q4_0 => {
                 // Q4_0 quantized data
                 use crate::quantize::dequantize_q4_0;
@@ -586,7 +583,7 @@ impl GGUFModel {
                 // Trim to exact size (dequantization pads to block boundaries)
                 values.truncate(size);
                 Ok(values)
-            }
+            },
             GGUF_TYPE_Q8_0 => {
                 // Q8_0 quantized data
                 use crate::quantize::dequantize_q8_0;
@@ -616,7 +613,7 @@ impl GGUFModel {
                 // Trim to exact size
                 values.truncate(size);
                 Ok(values)
-            }
+            },
             _ => Err(RealizarError::UnsupportedOperation {
                 operation: "get_tensor_f32".to_string(),
                 reason: format!("Unsupported quantization type: {}", tensor.qtype),
