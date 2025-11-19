@@ -430,9 +430,7 @@ mod tests {
         let key = CacheKey::new("concurrent".to_string());
 
         // Pre-populate cache to avoid race condition on first load
-        cache
-            .get_or_load(&key, || create_test_model(50))
-            .unwrap();
+        cache.get_or_load(&key, || create_test_model(50)).unwrap();
 
         // Reset metrics to get clean counts
         let initial_metrics = cache.metrics();
@@ -445,9 +443,7 @@ mod tests {
                 let cache = cache.clone();
                 let key = key.clone();
                 thread::spawn(move || {
-                    cache
-                        .get_or_load(&key, || create_test_model(50))
-                        .unwrap();
+                    cache.get_or_load(&key, || create_test_model(50)).unwrap();
                 })
             })
             .collect();
