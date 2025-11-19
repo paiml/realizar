@@ -36,6 +36,9 @@ anyhow = "1.0"
 # Numerical traits (for generic code)
 num-traits = "0.2"
 
+# Half-precision floats (for Q4_K and other K-quantization formats)
+half = { version = "2.4", features = ["std"] }
+
 # That's it. NO candle, NO llama-cpp-rs, NO hf-hub
 # We build everything from scratch: GGUF parser, safetensors, transformer, quantization, tokenizer
 

@@ -529,8 +529,7 @@ async fn batch_generate_handler(
 async fn stream_generate_handler(
     State(state): State<AppState>,
     Json(request): Json<GenerateRequest>,
-) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)>
-{
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
     // Tokenize prompt
     let prompt_ids = state.tokenizer.encode(&request.prompt);
     if prompt_ids.is_empty() {
@@ -1123,7 +1122,11 @@ mod tests {
         let app = create_test_app();
 
         let request = BatchGenerateRequest {
-            prompts: vec!["token1".to_string(), "token2".to_string(), "token3".to_string()],
+            prompts: vec![
+                "token1".to_string(),
+                "token2".to_string(),
+                "token3".to_string(),
+            ],
             max_tokens: 2,
             temperature: 1.0,
             strategy: "greedy".to_string(),
