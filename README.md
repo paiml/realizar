@@ -293,7 +293,7 @@ let server = Server::new(model)
 ### Phase 3: Advanced Models (Weeks 17-24)
 
 - ✅ Multi-query attention (MQA)
-- [ ] Grouped-query attention (GQA)
+- ✅ Grouped-query attention (GQA)
 - ✅ RoPE position embeddings
 - [ ] ALiBi position embeddings
 - [ ] Vision models (LLaVA, Qwen-VL)
