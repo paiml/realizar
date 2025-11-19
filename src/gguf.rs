@@ -31,6 +31,15 @@ pub const GGUF_MAGIC: u32 = 0x4655_4747;
 /// Supported GGUF versions
 pub const GGUF_VERSION_V3: u32 = 3;
 
+/// GGUF quantization type: F32 (unquantized float32)
+pub const GGUF_TYPE_F32: u32 = 0;
+
+/// GGUF quantization type: `Q4_0` (4-bit quantization, block size 32)
+pub const GGUF_TYPE_Q4_0: u32 = 2;
+
+/// GGUF quantization type: `Q8_0` (8-bit quantization, block size 32)
+pub const GGUF_TYPE_Q8_0: u32 = 8;
+
 /// GGUF metadata value types
 #[derive(Debug, Clone, PartialEq)]
 pub enum GGUFValue {
@@ -465,6 +474,154 @@ impl GGUFModel {
         }
 
         Ok(tensors)
+    }
+
+    /// Extract tensor data by name with dequantization
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Tensor name to extract
+    /// * `file_data` - Complete GGUF file bytes
+    ///
+    /// # Returns
+    ///
+    /// Dequantized f32 tensor data
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// - Tensor not found
+    /// - Unsupported quantization type
+    /// - Invalid data at offset
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let file_data = std::fs::read("model.gguf")?;
+    /// let model = GGUFModel::from_bytes(&file_data)?;
+    /// let weights = model.get_tensor_f32("layer.0.weight", &file_data)?;
+    /// ```
+    pub fn get_tensor_f32(&self, name: &str, file_data: &[u8]) -> Result<Vec<f32>> {
+        // Find tensor info
+        let tensor = self
+            .tensors
+            .iter()
+            .find(|t| t.name == name)
+            .ok_or_else(|| RealizarError::UnsupportedOperation {
+                operation: "get_tensor_f32".to_string(),
+                reason: format!("Tensor '{name}' not found"),
+            })?;
+
+        // Calculate tensor size in elements
+        let size: usize = tensor
+            .dims
+            .iter()
+            .try_fold(1usize, |acc, &dim| {
+                usize::try_from(dim)
+                    .ok()
+                    .and_then(|d| acc.checked_mul(d))
+            })
+            .ok_or_else(|| RealizarError::InvalidShape {
+                reason: format!("Tensor dimensions overflow: {:?}", tensor.dims),
+            })?;
+
+        // Convert offset to usize
+        let offset = usize::try_from(tensor.offset).map_err(|_| {
+            RealizarError::UnsupportedOperation {
+                operation: "convert_offset".to_string(),
+                reason: format!("Offset {} exceeds platform usize limit", tensor.offset),
+            }
+        })?;
+
+        // Extract and dequantize based on qtype
+        match tensor.qtype {
+            GGUF_TYPE_F32 => {
+                // Unquantized F32 data
+                let byte_size = size * 4; // 4 bytes per f32
+                if offset + byte_size > file_data.len() {
+                    return Err(RealizarError::UnsupportedOperation {
+                        operation: "get_tensor_f32".to_string(),
+                        reason: format!(
+                            "Data range [{}, {}) exceeds file size {}",
+                            offset,
+                            offset + byte_size,
+                            file_data.len()
+                        ),
+                    });
+                }
+
+                let bytes = &file_data[offset..offset + byte_size];
+                let values = bytes
+                    .chunks_exact(4)
+                    .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+                    .collect();
+                Ok(values)
+            }
+            GGUF_TYPE_Q4_0 => {
+                // Q4_0 quantized data
+                use crate::quantize::dequantize_q4_0;
+
+                // Q4_0 block size: 20 bytes (4 for scale + 16 for quants)
+                const BLOCK_BYTES: usize = 20;
+                const BLOCK_SIZE: usize = 32;
+
+                let num_blocks = size.div_ceil(BLOCK_SIZE);
+                let byte_size = num_blocks * BLOCK_BYTES;
+
+                if offset + byte_size > file_data.len() {
+                    return Err(RealizarError::UnsupportedOperation {
+                        operation: "get_tensor_f32".to_string(),
+                        reason: format!(
+                            "Data range [{}, {}) exceeds file size {}",
+                            offset,
+                            offset + byte_size,
+                            file_data.len()
+                        ),
+                    });
+                }
+
+                let bytes = &file_data[offset..offset + byte_size];
+                let mut values = dequantize_q4_0(bytes)?;
+
+                // Trim to exact size (dequantization pads to block boundaries)
+                values.truncate(size);
+                Ok(values)
+            }
+            GGUF_TYPE_Q8_0 => {
+                // Q8_0 quantized data
+                use crate::quantize::dequantize_q8_0;
+
+                // Q8_0 block size: 36 bytes (4 for scale + 32 for quants)
+                const BLOCK_BYTES: usize = 36;
+                const BLOCK_SIZE: usize = 32;
+
+                let num_blocks = size.div_ceil(BLOCK_SIZE);
+                let byte_size = num_blocks * BLOCK_BYTES;
+
+                if offset + byte_size > file_data.len() {
+                    return Err(RealizarError::UnsupportedOperation {
+                        operation: "get_tensor_f32".to_string(),
+                        reason: format!(
+                            "Data range [{}, {}) exceeds file size {}",
+                            offset,
+                            offset + byte_size,
+                            file_data.len()
+                        ),
+                    });
+                }
+
+                let bytes = &file_data[offset..offset + byte_size];
+                let mut values = dequantize_q8_0(bytes)?;
+
+                // Trim to exact size
+                values.truncate(size);
+                Ok(values)
+            }
+            _ => Err(RealizarError::UnsupportedOperation {
+                operation: "get_tensor_f32".to_string(),
+                reason: format!("Unsupported quantization type: {}", tensor.qtype),
+            }),
+        }
     }
 }
 
@@ -1174,6 +1331,162 @@ mod tests {
             assert_eq!(arr.len(), 0);
         } else {
             panic!("Expected empty Array");
+        }
+    }
+
+    #[test]
+    fn test_get_tensor_f32_unquantized() {
+        // Create a GGUF file with F32 tensor
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes()); // version = 3
+        data.extend_from_slice(&1u64.to_le_bytes()); // tensor_count = 1
+        data.extend_from_slice(&0u64.to_le_bytes()); // metadata_count = 0
+
+        // Tensor: name = "weights", dims = [2, 3], qtype = F32 (0)
+        let tensor_name = "weights";
+        data.extend_from_slice(&(tensor_name.len() as u64).to_le_bytes());
+        data.extend_from_slice(tensor_name.as_bytes());
+        data.extend_from_slice(&2u32.to_le_bytes()); // n_dims = 2
+        data.extend_from_slice(&2u64.to_le_bytes()); // dim[0] = 2
+        data.extend_from_slice(&3u64.to_le_bytes()); // dim[1] = 3
+        data.extend_from_slice(&GGUF_TYPE_F32.to_le_bytes()); // qtype = F32
+
+        // Calculate offset: current position + 8 bytes for offset field
+        let tensor_offset = (data.len() + 8) as u64;
+        data.extend_from_slice(&tensor_offset.to_le_bytes()); // offset
+
+        // Add F32 tensor data: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+        for val in [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0] {
+            data.extend_from_slice(&val.to_le_bytes());
+        }
+
+        let model = GGUFModel::from_bytes(&data).unwrap();
+        let values = model.get_tensor_f32("weights", &data).unwrap();
+
+        assert_eq!(values.len(), 6);
+        assert_eq!(values, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+    }
+
+    #[test]
+    fn test_get_tensor_f32_not_found() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes()); // tensor_count = 0
+        data.extend_from_slice(&0u64.to_le_bytes());
+
+        let model = GGUFModel::from_bytes(&data).unwrap();
+        let result = model.get_tensor_f32("nonexistent", &data);
+
+        assert!(result.is_err());
+        if let Err(RealizarError::UnsupportedOperation { reason, .. }) = result {
+            assert!(reason.contains("not found"));
+        }
+    }
+
+    #[test]
+    fn test_get_tensor_f32_q4_0() {
+        // Create a GGUF file with Q4_0 tensor
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes()); // tensor_count = 1
+        data.extend_from_slice(&0u64.to_le_bytes());
+
+        // Tensor: name = "quant_weights", dims = [64] (2 blocks), qtype = Q4_0 (2)
+        let tensor_name = "quant_weights";
+        data.extend_from_slice(&(tensor_name.len() as u64).to_le_bytes());
+        data.extend_from_slice(tensor_name.as_bytes());
+        data.extend_from_slice(&1u32.to_le_bytes()); // n_dims = 1
+        data.extend_from_slice(&64u64.to_le_bytes()); // dim[0] = 64 (2 blocks of 32)
+        data.extend_from_slice(&GGUF_TYPE_Q4_0.to_le_bytes());
+
+        // Calculate offset
+        let tensor_offset = (data.len() + 8) as u64;
+        data.extend_from_slice(&tensor_offset.to_le_bytes());
+
+        // Add Q4_0 data: 2 blocks (20 bytes each)
+        // Block 1: scale = 1.0, quants = 16 bytes
+        data.extend_from_slice(&1.0f32.to_le_bytes());
+        data.extend_from_slice(&[0x10; 16]); // 4-bit values
+
+        // Block 2: scale = 2.0, quants = 16 bytes
+        data.extend_from_slice(&2.0f32.to_le_bytes());
+        data.extend_from_slice(&[0x21; 16]);
+
+        let model = GGUFModel::from_bytes(&data).unwrap();
+        let values = model.get_tensor_f32("quant_weights", &data).unwrap();
+
+        // Verify size is correct
+        assert_eq!(values.len(), 64);
+
+        // Values should be dequantized (non-zero)
+        assert!(values.iter().any(|&v| v != 0.0));
+    }
+
+    #[test]
+    fn test_get_tensor_f32_q8_0() {
+        // Create a GGUF file with Q8_0 tensor
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+
+        // Tensor: dims = [32] (1 block), qtype = Q8_0 (8)
+        let tensor_name = "q8_weights";
+        data.extend_from_slice(&(tensor_name.len() as u64).to_le_bytes());
+        data.extend_from_slice(tensor_name.as_bytes());
+        data.extend_from_slice(&1u32.to_le_bytes());
+        data.extend_from_slice(&32u64.to_le_bytes()); // dim[0] = 32 (1 block)
+        data.extend_from_slice(&GGUF_TYPE_Q8_0.to_le_bytes());
+
+        // Calculate offset
+        let tensor_offset = (data.len() + 8) as u64;
+        data.extend_from_slice(&tensor_offset.to_le_bytes());
+
+        // Add Q8_0 data: 1 block (36 bytes: 4 for scale + 32 for quants)
+        data.extend_from_slice(&0.5f32.to_le_bytes());
+        for i in 0i32..32 {
+            // Test data uses i8 range [0, 31] - safe to convert
+            data.push(u8::try_from(i).unwrap());
+        }
+
+        let model = GGUFModel::from_bytes(&data).unwrap();
+        let values = model.get_tensor_f32("q8_weights", &data).unwrap();
+
+        assert_eq!(values.len(), 32);
+        // First value should be approximately 0.5 * 0 = 0.0
+        assert!((values[0] - 0.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_get_tensor_f32_unsupported_qtype() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+
+        // Tensor with unsupported qtype
+        let tensor_name = "bad_tensor";
+        data.extend_from_slice(&(tensor_name.len() as u64).to_le_bytes());
+        data.extend_from_slice(tensor_name.as_bytes());
+        data.extend_from_slice(&1u32.to_le_bytes());
+        data.extend_from_slice(&4u64.to_le_bytes());
+        data.extend_from_slice(&999u32.to_le_bytes()); // Invalid qtype
+
+        // Calculate offset
+        let tensor_offset = (data.len() + 8) as u64;
+        data.extend_from_slice(&tensor_offset.to_le_bytes());
+
+        let model = GGUFModel::from_bytes(&data).unwrap();
+        let result = model.get_tensor_f32("bad_tensor", &data);
+
+        assert!(result.is_err());
+        if let Err(RealizarError::UnsupportedOperation { reason, .. }) = result {
+            assert!(reason.contains("Unsupported quantization type"));
         }
     }
 }
