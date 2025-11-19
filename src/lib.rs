@@ -93,5 +93,6 @@ mod tests {
         // VERSION is a compile-time constant from CARGO_PKG_VERSION, so it's never empty
         assert!(VERSION.starts_with("0."));
         assert!(VERSION.len() >= 3); // At least "0.x"
+        assert!(VERSION.contains('.'));
     }
 }
