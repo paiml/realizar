@@ -103,41 +103,33 @@ while IFS= read -r file; do
     title=$(get_chapter_title "$file")
     phase=$(get_phase "$rel_path")
 
-    # Create placeholder content
-    cat > "$file" << EOF
-# $title
-
-> **Status**: $phase
->
-> This chapter will be written when the corresponding feature is implemented and test-backed.
-
-[Content to be added]
-
-This chapter will cover:
-- Overview and key concepts
-- Implementation details using EXTREME TDD
-- Code examples (all test-backed, zero hallucination)
-- Best practices and patterns
-- Performance considerations
-- Real-world examples from the codebase
-
-## Placeholder Notice
-
-This section is currently under development following Realizar's **gating approach**:
-
-1. **Feature must be implemented** - Code exists in \`src/\`
-2. **Tests must pass** - Comprehensive test coverage (unit, property, mutation)
-3. **Examples must run** - All code examples are validated by tests
-4. **Zero hallucination** - Only document what actually exists
-
-Please check back later or refer to:
-- Source code in \`src/\` directory
-- Test files in \`tests/\` directory
-- Working examples in \`examples/\` directory
-- Inline rustdoc documentation
-
-**Contributing**: See [Contributing to This Book](../appendix/contributing.md) for guidelines on adding content.
-EOF
+    # Create placeholder content using printf to avoid heredoc parsing issues with bashrs
+    {
+        printf '# %s\n\n' "$title"
+        printf '%s **Status**: %s\n' ">" "$phase"
+        printf '%s\n' ">"
+        printf '%s This chapter will be written when the corresponding feature is implemented and test-backed.\n\n' ">"
+        printf '[Content to be added]\n\n'
+        printf 'This chapter will cover:\n'
+        printf -- '- Overview and key concepts\n'
+        printf -- '- Implementation details using EXTREME TDD\n'
+        printf -- '- Code examples (all test-backed, zero hallucination)\n'
+        printf -- '- Best practices and patterns\n'
+        printf -- '- Performance considerations\n'
+        printf -- '- Real-world examples from the codebase\n\n'
+        printf '## Placeholder Notice\n\n'
+        printf "This section is currently under development following Realizar's **gating approach**:\n\n"
+        printf '1. **Feature must be implemented** - Code exists in `src/`\n'
+        printf '2. **Tests must pass** - Comprehensive test coverage (unit, property, mutation)\n'
+        printf '3. **Examples must run** - All code examples are validated by tests\n'
+        printf '4. **Zero hallucination** - Only document what actually exists\n\n'
+        printf 'Please check back later or refer to:\n'
+        printf -- '- Source code in `src/` directory\n'
+        printf -- '- Test files in `tests/` directory\n'
+        printf -- '- Working examples in `examples/` directory\n'
+        printf -- '- Inline rustdoc documentation\n\n'
+        printf '**Contributing**: See [Contributing to This Book](../appendix/contributing.md) for guidelines on adding content.\n'
+    } > "$file"
 
     PROCESSED=$((PROCESSED + 1))
     echo "✓ $rel_path"

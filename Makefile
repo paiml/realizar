@@ -198,12 +198,28 @@ book-validate: ## Validate that book code examples are test-backed (TDD enforcem
 bashrs-check: ## Validate Makefile and shell scripts with bashrs
 	@echo "$(GREEN)Running bashrs validation...$(NC)"
 	@if command -v bashrs >/dev/null 2>&1; then \
+		echo "Validating Makefile..."; \
 		output=$$(bashrs lint Makefile 2>&1); \
 		echo "$$output"; \
 		if echo "$$output" | grep -q "Summary: [^0] error(s)"; then \
-			echo "$(RED)❌ bashrs validation failed$(NC)"; \
+			echo "$(RED)❌ bashrs Makefile validation failed$(NC)"; \
 			exit 1; \
 		fi; \
+		if [ -d scripts ]; then \
+			for script in scripts/*.sh; do \
+				if [ -f "$$script" ]; then \
+					echo ""; \
+					echo "Validating $$script..."; \
+					script_output=$$(bashrs lint "$$script" 2>&1); \
+					echo "$$script_output"; \
+					if echo "$$script_output" | grep -q "Summary: [^0] error(s)"; then \
+						echo "$(RED)❌ bashrs validation failed for $$script$(NC)"; \
+						exit 1; \
+					fi; \
+				fi; \
+			done; \
+		fi; \
+		echo "$(GREEN)✅ All bashrs validations passed$(NC)"; \
 	else \
 		echo "$(YELLOW)⚠️  bashrs not installed, skipping$(NC)"; \
 	fi
