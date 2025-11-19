@@ -303,8 +303,8 @@ let server = Server::new(model)
 
 ### Phase 4: Production (Weeks 25-32) 🚧 IN PROGRESS
 
-- [ ] Multi-model serving
-- [ ] Request batching
+- ✅ Multi-model serving (ModelRegistry with concurrent access)
+- ✅ Request batching (batch tokenize & generate endpoints)
 - ✅ Monitoring/metrics (Prometheus-compatible /metrics endpoint)
 - [ ] Docker + GPU support
 - [ ] Load testing

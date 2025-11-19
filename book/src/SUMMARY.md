@@ -211,6 +211,13 @@
 - [Why No llama.cpp/candle/etc?](./decisions/why-no-existing-libs.md)
 - [Swappable HTTP Backend](./decisions/swappable-http.md)
 
+# Production Deployment
+
+- [Docker Deployment](./deployment/docker.md)
+- [Kubernetes](./deployment/kubernetes.md)
+- [Monitoring & Observability](./deployment/monitoring.md)
+- [Load Testing](./deployment/load-testing.md)
+
 # Appendix
 
 - [Glossary](./appendix/glossary.md)
