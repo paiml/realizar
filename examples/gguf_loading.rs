@@ -128,45 +128,45 @@ fn create_example_gguf_model() -> Vec<u8> {
     let mut cursor = Cursor::new(&mut buffer);
 
     // Header
-    cursor.write_all(&GGUF_MAGIC.to_le_bytes()).unwrap();  // magic
-    cursor.write_all(&3u32.to_le_bytes()).unwrap();        // version (v3)
-    cursor.write_all(&2u64.to_le_bytes()).unwrap();        // tensor_count
-    cursor.write_all(&3u64.to_le_bytes()).unwrap();        // metadata_count
+    cursor.write_all(&GGUF_MAGIC.to_le_bytes()).expect("Failed to write GGUF magic number");
+    cursor.write_all(&3u32.to_le_bytes()).expect("Failed to write GGUF version");
+    cursor.write_all(&2u64.to_le_bytes()).expect("Failed to write tensor count");
+    cursor.write_all(&3u64.to_le_bytes()).expect("Failed to write metadata count");
 
     // Metadata 1: model name (string)
     write_string(&mut cursor, "model.name");
-    cursor.write_all(&8u32.to_le_bytes()).unwrap(); // type: string
+    cursor.write_all(&8u32.to_le_bytes()).expect("Failed to write metadata type for model.name");
     write_string(&mut cursor, "demo-model");
 
     // Metadata 2: vocab size (uint32)
     write_string(&mut cursor, "vocab.size");
-    cursor.write_all(&4u32.to_le_bytes()).unwrap(); // type: uint32
-    cursor.write_all(&1000u32.to_le_bytes()).unwrap();
+    cursor.write_all(&4u32.to_le_bytes()).expect("Failed to write metadata type for vocab.size");
+    cursor.write_all(&1000u32.to_le_bytes()).expect("Failed to write vocab size value");
 
     // Metadata 3: hidden size (uint32)
     write_string(&mut cursor, "hidden.size");
-    cursor.write_all(&4u32.to_le_bytes()).unwrap(); // type: uint32
-    cursor.write_all(&256u32.to_le_bytes()).unwrap();
+    cursor.write_all(&4u32.to_le_bytes()).expect("Failed to write metadata type for hidden.size");
+    cursor.write_all(&256u32.to_le_bytes()).expect("Failed to write hidden size value");
 
     // Tensor info 1: embedding.weight (F32, unquantized)
     write_string(&mut cursor, "embedding.weight");
-    cursor.write_all(&2u32.to_le_bytes()).unwrap();  // n_dims
-    cursor.write_all(&1000u64.to_le_bytes()).unwrap(); // dim 0 (vocab_size)
-    cursor.write_all(&256u64.to_le_bytes()).unwrap();  // dim 1 (hidden_size)
-    cursor.write_all(&GGUF_TYPE_F32.to_le_bytes()).unwrap(); // type: F32
-    cursor.write_all(&0u64.to_le_bytes()).unwrap();    // offset (will be adjusted)
+    cursor.write_all(&2u32.to_le_bytes()).expect("Failed to write n_dims for embedding.weight");
+    cursor.write_all(&1000u64.to_le_bytes()).expect("Failed to write dim 0 for embedding.weight");
+    cursor.write_all(&256u64.to_le_bytes()).expect("Failed to write dim 1 for embedding.weight");
+    cursor.write_all(&GGUF_TYPE_F32.to_le_bytes()).expect("Failed to write tensor type for embedding.weight");
+    cursor.write_all(&0u64.to_le_bytes()).expect("Failed to write offset for embedding.weight");
 
     // Tensor info 2: layer.0.weight (Q4_0, quantized)
     write_string(&mut cursor, "layer.0.weight");
-    cursor.write_all(&2u32.to_le_bytes()).unwrap();  // n_dims
-    cursor.write_all(&256u64.to_le_bytes()).unwrap(); // dim 0
-    cursor.write_all(&256u64.to_le_bytes()).unwrap(); // dim 1
-    cursor.write_all(&GGUF_TYPE_Q4_0.to_le_bytes()).unwrap(); // type: Q4_0
+    cursor.write_all(&2u32.to_le_bytes()).expect("Failed to write n_dims for layer.0.weight");
+    cursor.write_all(&256u64.to_le_bytes()).expect("Failed to write dim 0 for layer.0.weight");
+    cursor.write_all(&256u64.to_le_bytes()).expect("Failed to write dim 1 for layer.0.weight");
+    cursor.write_all(&GGUF_TYPE_Q4_0.to_le_bytes()).expect("Failed to write tensor type for layer.0.weight");
 
     // Calculate offset for second tensor
     // First tensor: 1000 * 256 * 4 bytes (F32)
     let tensor1_size = 1000 * 256 * 4;
-    cursor.write_all(&(tensor1_size as u64).to_le_bytes()).unwrap();
+    cursor.write_all(&(tensor1_size as u64).to_le_bytes()).expect("Failed to write offset for layer.0.weight");
 
     // Alignment padding (GGUF requires 32-byte alignment for tensor data)
     let alignment = 32;
@@ -204,6 +204,6 @@ fn create_example_gguf_model() -> Vec<u8> {
 /// Helper to write a length-prefixed string
 fn write_string(cursor: &mut Cursor<&mut Vec<u8>>, s: &str) {
     let bytes = s.as_bytes();
-    cursor.write_all(&(bytes.len() as u64).to_le_bytes()).unwrap();
-    cursor.write_all(bytes).unwrap();
+    cursor.write_all(&(bytes.len() as u64).to_le_bytes()).expect("Failed to write string length");
+    cursor.write_all(bytes).expect("Failed to write string bytes");
 }
