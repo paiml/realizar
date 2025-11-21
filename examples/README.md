@@ -2,7 +2,7 @@
 
 This directory contains example programs demonstrating the capabilities of realizar, a pure Rust ML inference engine.
 
-## Available Examples
+## Available Examples (5 total)
 
 ### 1. `inference.rs` - End-to-End Text Generation
 
@@ -54,6 +54,20 @@ Demonstrates SafeTensors file format support:
 **Run:**
 ```bash
 cargo run --example safetensors_loading
+```
+
+### 5. `model_cache.rs` - Model Caching
+
+Demonstrates ModelCache for efficient model reuse:
+- Cache creation with capacity limits
+- Model loading with cache hits/misses
+- Metrics tracking (hit rate, evictions)
+- LRU eviction behavior
+- Config-based cache keys
+
+**Run:**
+```bash
+cargo run --example model_cache
 ```
 
 ## Requirements
