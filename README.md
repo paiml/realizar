@@ -262,7 +262,7 @@ let server = Server::new(model)
 
 ## 💡 Examples
 
-Realizar includes **5 comprehensive examples** demonstrating all major features:
+Realizar includes **6 comprehensive examples** demonstrating all major features:
 
 ### 1. End-to-End Inference (`inference.rs`)
 Complete text generation pipeline with model initialization, forward pass, and multiple sampling strategies (greedy, top-k, top-p).
@@ -299,6 +299,13 @@ Demonstrate ModelCache for efficient model reuse with LRU eviction, metrics trac
 
 ```bash
 cargo run --example model_cache
+```
+
+### 6. GGUF Format Loading (`gguf_loading.rs`)
+Load and inspect GGUF files (llama.cpp/Ollama format), parse headers and metadata, extract tensor data with dequantization support.
+
+```bash
+cargo run --example gguf_loading
 ```
 
 See [`examples/README.md`](examples/README.md) for detailed documentation.
