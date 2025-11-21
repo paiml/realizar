@@ -169,10 +169,16 @@ impl ModelCache {
     {
         // Try to get from cache first (read lock)
         {
-            let mut cache = self.cache.write().unwrap();
+            let mut cache = self
+                .cache
+                .write()
+                .expect("RwLock poisoned: thread panicked while holding cache write lock");
             if let Some(entry) = cache.get_mut(key) {
                 entry.record_access();
-                let mut metrics = self.metrics.write().unwrap();
+                let mut metrics = self
+                    .metrics
+                    .write()
+                    .expect("RwLock poisoned: thread panicked while holding metrics write lock");
                 metrics.hits += 1;
                 return Ok((entry.model.clone(), entry.tokenizer.clone()));
             }
@@ -184,8 +190,14 @@ impl ModelCache {
 
         // Insert into cache (write lock)
         {
-            let mut cache = self.cache.write().unwrap();
-            let mut metrics = self.metrics.write().unwrap();
+            let mut cache = self
+                .cache
+                .write()
+                .expect("RwLock poisoned: thread panicked while holding cache write lock");
+            let mut metrics = self
+                .metrics
+                .write()
+                .expect("RwLock poisoned: thread panicked while holding metrics write lock");
 
             metrics.misses += 1;
 
@@ -220,7 +232,10 @@ impl ModelCache {
     /// Panics if the internal `RwLock` is poisoned
     #[must_use]
     pub fn metrics(&self) -> CacheMetrics {
-        self.metrics.read().unwrap().clone()
+        self.metrics
+            .read()
+            .expect("RwLock poisoned: thread panicked while holding metrics read lock")
+            .clone()
     }
 
     /// Clear all cached models
@@ -229,9 +244,15 @@ impl ModelCache {
     ///
     /// Panics if the internal `RwLock` is poisoned
     pub fn clear(&self) {
-        let mut cache = self.cache.write().unwrap();
+        let mut cache = self
+            .cache
+            .write()
+            .expect("RwLock poisoned: thread panicked while holding cache write lock");
         cache.clear();
-        let mut metrics = self.metrics.write().unwrap();
+        let mut metrics = self
+            .metrics
+            .write()
+            .expect("RwLock poisoned: thread panicked while holding metrics write lock");
         metrics.size = 0;
     }
 
@@ -242,7 +263,10 @@ impl ModelCache {
     /// Panics if the internal `RwLock` is poisoned
     #[must_use]
     pub fn len(&self) -> usize {
-        self.cache.read().unwrap().len()
+        self.cache
+            .read()
+            .expect("RwLock poisoned: thread panicked while holding cache read lock")
+            .len()
     }
 
     /// Check if the cache is empty
