@@ -25,7 +25,7 @@ fn test_cli_info_command() {
     cmd.assert()
         .success()
         .stdout(predicate::str::contains("Realizar"))
-        .stdout(predicate::str::contains("v0.1.0"));
+        .stdout(predicate::str::contains("v0.2.0"));
 }
 
 #[test]
