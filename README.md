@@ -260,6 +260,84 @@ let server = Server::new(model)
     .serve("0.0.0.0:8080")?;
 ```
 
+## 💡 Examples
+
+Realizar includes **5 comprehensive examples** demonstrating all major features:
+
+### 1. End-to-End Inference (`inference.rs`)
+Complete text generation pipeline with model initialization, forward pass, and multiple sampling strategies (greedy, top-k, top-p).
+
+```bash
+cargo run --example inference
+```
+
+### 2. HTTP API Server (`api_server.rs`)
+Deploy Realizar as a REST API service with demo model, handling tokenization and generation requests.
+
+```bash
+cargo run --example api_server
+# Server runs at http://127.0.0.1:3000
+# Test: curl http://127.0.0.1:3000/health
+```
+
+### 3. Tokenization (`tokenization.rs`)
+Compare different tokenization strategies: Basic (vocabulary-based), BPE (Byte Pair Encoding), and SentencePiece.
+
+```bash
+cargo run --example tokenization
+```
+
+### 4. SafeTensors Loading (`safetensors_loading.rs`)
+Load and inspect SafeTensors files (aprender compatibility), extract tensor data, interoperate with aprender-trained models.
+
+```bash
+cargo run --example safetensors_loading
+```
+
+### 5. Model Caching (`model_cache.rs`)
+Demonstrate ModelCache for efficient model reuse with LRU eviction, metrics tracking, and config-based cache keys.
+
+```bash
+cargo run --example model_cache
+```
+
+See [`examples/README.md`](examples/README.md) for detailed documentation.
+
+## ⚡ Benchmarks
+
+Realizar includes **4 comprehensive benchmark suites** for performance measurement and regression detection:
+
+### 1. Tensor Operations (`tensor_ops`)
+Measures tensor creation and basic operations across different sizes (10, 100, 1K, 10K elements).
+
+### 2. Inference Pipeline (`inference`)
+End-to-end generation performance including forward pass, sampling strategies, and token generation latency.
+
+### 3. Model Caching (`cache`)
+Cache hit/miss latency, LRU eviction overhead, and concurrent access throughput.
+
+### 4. Tokenization (`tokenizer`)
+Encode/decode performance for Basic, BPE, and SentencePiece tokenizers across varying text lengths and vocabulary sizes.
+
+**Run benchmarks:**
+
+```bash
+# All benchmarks
+cargo bench
+
+# Specific suite
+cargo bench --bench tokenizer
+cargo bench --bench cache
+
+# View results
+open target/criterion/report/index.html
+```
+
+**Performance Targets:**
+- Inference latency: p50 <100ms, p95 <200ms for 1B models
+- Cache hits: <1μs latency
+- Tokenization: Sub-millisecond for typical prompts
+
 ## 📊 Roadmap
 
 ### Phase 1: Core Inference (Weeks 1-8) ✅ COMPLETE
