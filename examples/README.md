@@ -2,7 +2,7 @@
 
 This directory contains example programs demonstrating the capabilities of realizar, a pure Rust ML inference engine.
 
-## Available Examples (5 total)
+## Available Examples (6 total)
 
 ### 1. `inference.rs` - End-to-End Text Generation
 
@@ -68,6 +68,20 @@ Demonstrates ModelCache for efficient model reuse:
 **Run:**
 ```bash
 cargo run --example model_cache
+```
+
+### 6. `gguf_loading.rs` - GGUF Format Loading
+
+Demonstrates GGUF file format support (llama.cpp/Ollama):
+- Load GGUF files (binary format parsing)
+- Parse header, metadata, and tensor information
+- Inspect model structure (dimensions, quantization types)
+- Extract and dequantize tensor data (F32, Q4_0)
+- Compatible with llama.cpp and Ollama models
+
+**Run:**
+```bash
+cargo run --example gguf_loading
 ```
 
 ## Requirements
