@@ -21,7 +21,7 @@ redundant_clone = "warn"
 
 [dependencies]
 # OUR ecosystem - SIMD/GPU compute primitives (we control this)
-trueno = { path = "../trueno", version = "0.4.1", features = ["gpu"] }
+trueno = { path = "../trueno", version = "0.4.2", features = ["gpu"] }
 
 # HTTP server ONLY (swappable via HttpServer trait)
 axum = { version = "0.7", optional = true }
