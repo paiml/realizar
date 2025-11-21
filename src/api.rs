@@ -764,7 +764,7 @@ async fn stream_generate_handler(
         .collect();
 
     // Create stream that emits tokens one by one
-    let tokenizer_clone = tokenizer.clone();
+    let tokenizer_clone = tokenizer;
     let stream = async_stream::stream! {
         // Skip prompt tokens, only stream generated tokens
         for &token_id in &token_ids[prompt_len..] {

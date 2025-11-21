@@ -82,7 +82,7 @@ impl<T: Num + Clone> Tensor<T> {
         if data.len() != expected_size {
             return Err(RealizarError::DataShapeMismatch {
                 data_size: data.len(),
-                shape: shape.clone(),
+                shape,
                 expected: expected_size,
             });
         }

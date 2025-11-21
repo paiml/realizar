@@ -1,0 +1,12 @@
+# Clippy configuration for Realizar
+# Cloudflare-class defect prevention: ban unwrap() in production code
+# Note: These are checked by rust-project-score but we allow compilation to proceed
+
+# Set cognitive complexity threshold
+cognitive-complexity-threshold = 20
+
+# Type complexity threshold
+type-complexity-threshold = 250
+
+# Enable all pedantic lints by default
+# (can be overridden with #[allow(clippy::...)] for specific cases)

@@ -193,7 +193,13 @@ impl SafetensorsModel {
 
         let values = bytes
             .chunks_exact(4)
-            .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap()))
+            .map(|chunk| {
+                f32::from_le_bytes(
+                    chunk
+                        .try_into()
+                        .expect("chunks_exact(4) guarantees 4-byte slices"),
+                )
+            })
             .collect();
 
         Ok(values)

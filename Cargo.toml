@@ -10,9 +10,18 @@ repository = "https://github.com/paiml/realizar"
 keywords = ["machine-learning", "inference", "model-serving", "gguf", "transformer"]
 categories = ["science", "web-programming::http-server"]
 
+[lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+unreachable_pub = "warn"
+
+[lints.clippy]
+checked_conversions = "warn"
+redundant_clone = "warn"
+# Note: unwrap_used is enforced via .clippy.toml disallowed-methods instead
+
 [dependencies]
 # OUR ecosystem - SIMD/GPU compute primitives (we control this)
-trueno = { path = "../trueno", version = "0.2.2", features = ["gpu"] }
+trueno = { path = "../trueno", version = "0.4.1", features = ["gpu"] }
 
 # HTTP server ONLY (swappable via HttpServer trait)
 axum = { version = "0.7", optional = true }

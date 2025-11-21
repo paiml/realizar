@@ -145,7 +145,7 @@ impl ModelRegistry {
         })?;
 
         if models.contains_key(&info.id) {
-            return Err(RealizarError::ModelAlreadyExists(info.id.clone()));
+            return Err(RealizarError::ModelAlreadyExists(info.id));
         }
 
         info.loaded = true;
