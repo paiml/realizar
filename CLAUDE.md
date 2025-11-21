@@ -330,8 +330,8 @@ pub trait HttpServer {
 **Documentation:** 15.0/15 (100%) ✅ Perfect score!
 **Known Defects:** 20.0/20 (100%) ✅ Perfect score!
 **Dependency Health:** 10.5/12 (87.5%) - Modular feature flags
-**Benchmarks:** 3 suites (tensor_ops, inference, cache)
-**Examples:** 3 (inference, api_server, tokenization) - all verified working
+**Benchmarks:** 4 suites (tensor_ops, inference, cache, tokenizer)
+**Examples:** 5 (inference, api_server, tokenization, safetensors_loading, model_cache) - all verified working
 **Performance:** <1ms p50 for 5-token generation (504µs measured)
 **CLI Binary:** ✅ `realizar serve --demo` (65% coverage)
 **Quality Improvements:**
