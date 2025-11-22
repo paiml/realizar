@@ -38,9 +38,10 @@ build-all-features: ## Build with all features enabled
 
 # === Test Targets ===
 
-test: ## Run all tests
+test: ## Run all tests (excludes load tests - use 'make load-test' for those)
 	@echo "$(GREEN)Running tests...$(NC)"
-	cargo test --all-features
+	@# Exclude load-test-enabled (requires running server)
+	cargo test --features "server,cli,gpu"
 
 test-lib: ## Run library tests only (fast)
 	@echo "$(GREEN)Running library tests...$(NC)"
@@ -93,7 +94,8 @@ coverage: ## Generate coverage report (>85% required)
 	@echo "$(GREEN)📊 Generating coverage report (target: >85%)...$(NC)"
 	@# Temporarily disable mold linker (breaks LLVM coverage)
 	@test -f ~/.cargo/config.toml && mv ~/.cargo/config.toml ~/.cargo/config.toml.cov-backup || true
-	@cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+	@# Exclude load-test-enabled (requires running server)
+	@cargo llvm-cov --features "server,cli,gpu" --workspace --lcov --output-path lcov.info
 	@cargo llvm-cov report --html --output-dir target/coverage/html
 	@# Restore mold linker
 	@test -f ~/.cargo/config.toml.cov-backup && mv ~/.cargo/config.toml.cov-backup ~/.cargo/config.toml || true
