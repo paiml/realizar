@@ -101,6 +101,14 @@ harness = false
 name = "cache"
 harness = false
 
+[[bench]]
+name = "tokenizer"
+harness = false
+
+[[bench]]
+name = "quantize"
+harness = false
+
 [profile.release]
 opt-level = 3
 lto = "fat"           # Link-time optimization for maximum performance
