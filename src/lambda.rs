@@ -59,6 +59,127 @@ pub struct LambdaResponse {
     pub cold_start: bool,
 }
 
+/// Batch Lambda request format
+///
+/// Per spec §5.3: Batch inference for throughput optimization
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchLambdaRequest {
+    /// Multiple instances to predict
+    pub instances: Vec<LambdaRequest>,
+    /// Optional: Maximum parallel workers (default: CPU count)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_parallelism: Option<usize>,
+}
+
+/// Batch Lambda response format
+///
+/// Per spec §5.3: Batch response with individual results
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchLambdaResponse {
+    /// Individual predictions
+    pub predictions: Vec<LambdaResponse>,
+    /// Total batch processing time in milliseconds
+    pub total_latency_ms: f64,
+    /// Number of successful predictions
+    pub success_count: usize,
+    /// Number of failed predictions
+    pub error_count: usize,
+}
+
+/// Prometheus metrics for Lambda handler
+///
+/// Per spec §11.3: Production metrics endpoint
+#[derive(Debug, Clone, Default)]
+pub struct LambdaMetrics {
+    /// Total requests processed
+    pub requests_total: u64,
+    /// Successful requests
+    pub requests_success: u64,
+    /// Failed requests
+    pub requests_failed: u64,
+    /// Total inference latency (for computing mean)
+    pub latency_total_ms: f64,
+    /// Cold starts observed
+    pub cold_starts: u64,
+    /// Batch requests processed
+    pub batch_requests: u64,
+}
+
+impl LambdaMetrics {
+    /// Create new empty metrics
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Record a successful request
+    pub fn record_success(&mut self, latency_ms: f64, is_cold_start: bool) {
+        self.requests_total += 1;
+        self.requests_success += 1;
+        self.latency_total_ms += latency_ms;
+        if is_cold_start {
+            self.cold_starts += 1;
+        }
+    }
+
+    /// Record a failed request
+    pub fn record_failure(&mut self) {
+        self.requests_total += 1;
+        self.requests_failed += 1;
+    }
+
+    /// Record a batch request
+    pub fn record_batch(&mut self, success_count: usize, error_count: usize, latency_ms: f64) {
+        self.batch_requests += 1;
+        self.requests_total += (success_count + error_count) as u64;
+        self.requests_success += success_count as u64;
+        self.requests_failed += error_count as u64;
+        self.latency_total_ms += latency_ms;
+    }
+
+    /// Get average latency in milliseconds
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)] // Acceptable precision loss for metrics
+    pub fn avg_latency_ms(&self) -> f64 {
+        if self.requests_success == 0 {
+            0.0
+        } else {
+            self.latency_total_ms / self.requests_success as f64
+        }
+    }
+
+    /// Export as Prometheus text format
+    #[must_use]
+    pub fn to_prometheus(&self) -> String {
+        format!(
+            "# HELP lambda_requests_total Total number of requests\n\
+             # TYPE lambda_requests_total counter\n\
+             lambda_requests_total {}\n\
+             # HELP lambda_requests_success Successful requests\n\
+             # TYPE lambda_requests_success counter\n\
+             lambda_requests_success {}\n\
+             # HELP lambda_requests_failed Failed requests\n\
+             # TYPE lambda_requests_failed counter\n\
+             lambda_requests_failed {}\n\
+             # HELP lambda_latency_avg_ms Average inference latency\n\
+             # TYPE lambda_latency_avg_ms gauge\n\
+             lambda_latency_avg_ms {:.3}\n\
+             # HELP lambda_cold_starts Cold start count\n\
+             # TYPE lambda_cold_starts counter\n\
+             lambda_cold_starts {}\n\
+             # HELP lambda_batch_requests Batch requests processed\n\
+             # TYPE lambda_batch_requests counter\n\
+             lambda_batch_requests {}\n",
+            self.requests_total,
+            self.requests_success,
+            self.requests_failed,
+            self.avg_latency_ms(),
+            self.cold_starts,
+            self.batch_requests
+        )
+    }
+}
+
 /// Cold start timing breakdown
 ///
 /// Per spec §7.1: Instrumented cold start measurement
@@ -186,6 +307,57 @@ impl LambdaHandler {
         })
     }
 
+    /// Handle batch Lambda invocation
+    ///
+    /// Per spec §5.3: Batch inference for throughput optimization
+    /// Per spec §11.3: Production hardening
+    ///
+    /// # Errors
+    ///
+    /// Individual predictions may fail; errors are captured in response.
+    /// Returns `LambdaError::EmptyBatch` if batch has no instances.
+    pub fn handle_batch(
+        &self,
+        request: &BatchLambdaRequest,
+    ) -> Result<BatchLambdaResponse, LambdaError> {
+        let start = Instant::now();
+
+        if request.instances.is_empty() {
+            return Err(LambdaError::EmptyBatch);
+        }
+
+        let mut predictions = Vec::with_capacity(request.instances.len());
+        let mut success_count = 0;
+        let mut error_count = 0;
+
+        // Process each instance sequentially
+        // TODO: Add parallel processing with rayon when available
+        for instance in &request.instances {
+            if let Ok(response) = self.handle(instance) {
+                predictions.push(response);
+                success_count += 1;
+            } else {
+                // Push error placeholder
+                predictions.push(LambdaResponse {
+                    prediction: f32::NAN,
+                    probabilities: None,
+                    latency_ms: 0.0,
+                    cold_start: false,
+                });
+                error_count += 1;
+            }
+        }
+
+        let total_latency = start.elapsed();
+
+        Ok(BatchLambdaResponse {
+            predictions,
+            total_latency_ms: total_latency.as_secs_f64() * 1000.0,
+            success_count,
+            error_count,
+        })
+    }
+
     /// Mock inference for testing
     ///
     /// TODO: Replace with real model inference using trueno SIMD
@@ -212,6 +384,8 @@ pub enum LambdaError {
     },
     /// Request features are empty
     EmptyFeatures,
+    /// Batch request has no instances
+    EmptyBatch,
     /// Model deserialization failed
     ModelDeserialize(String),
     /// Inference failed
@@ -226,6 +400,7 @@ impl std::fmt::Display for LambdaError {
                 write!(f, "Invalid magic bytes: expected {expected}, found {found}")
             },
             LambdaError::EmptyFeatures => write!(f, "Request features are empty"),
+            LambdaError::EmptyBatch => write!(f, "Batch request has no instances"),
             LambdaError::ModelDeserialize(msg) => write!(f, "Model deserialization failed: {msg}"),
             LambdaError::InferenceFailed(msg) => write!(f, "Inference failed: {msg}"),
         }
@@ -648,11 +823,240 @@ mod tests {
             LambdaError::EmptyFeatures.to_string(),
             "Request features are empty"
         );
+        assert_eq!(
+            LambdaError::EmptyBatch.to_string(),
+            "Batch request has no instances"
+        );
         assert!(LambdaError::InvalidMagic {
             expected: "APR\\0".to_string(),
             found: "GGUF".to_string()
         }
         .to_string()
         .contains("Invalid magic"));
+    }
+
+    // --------------------------------------------------------------------------
+    // Test: Batch inference (PROD-001)
+    // Per spec §5.3 and §11.3
+    // --------------------------------------------------------------------------
+
+    #[test]
+    fn test_batch_request_serialization() {
+        let request = BatchLambdaRequest {
+            instances: vec![
+                LambdaRequest {
+                    features: vec![1.0, 2.0],
+                    model_id: None,
+                },
+                LambdaRequest {
+                    features: vec![3.0, 4.0],
+                    model_id: None,
+                },
+            ],
+            max_parallelism: Some(4),
+        };
+
+        let json = serde_json::to_string(&request).expect("serialization failed");
+        assert!(json.contains("instances"));
+        assert!(json.contains("max_parallelism"));
+        assert!(json.contains("1.0"));
+        assert!(json.contains("3.0"));
+    }
+
+    #[test]
+    fn test_batch_response_serialization() {
+        let response = BatchLambdaResponse {
+            predictions: vec![LambdaResponse {
+                prediction: 3.0,
+                probabilities: None,
+                latency_ms: 1.5,
+                cold_start: false,
+            }],
+            total_latency_ms: 5.0,
+            success_count: 1,
+            error_count: 0,
+        };
+
+        let json = serde_json::to_string(&response).expect("serialization failed");
+        assert!(json.contains("predictions"));
+        assert!(json.contains("success_count"));
+        assert!(json.contains("total_latency_ms"));
+    }
+
+    #[test]
+    fn test_batch_handler_success() {
+        let model_bytes: &'static [u8] = b"APR\0\x01\x00\x00\x00testmodel";
+        let handler = LambdaHandler::from_bytes(model_bytes).unwrap();
+
+        let request = BatchLambdaRequest {
+            instances: vec![
+                LambdaRequest {
+                    features: vec![1.0, 2.0],
+                    model_id: None,
+                },
+                LambdaRequest {
+                    features: vec![3.0, 4.0],
+                    model_id: None,
+                },
+            ],
+            max_parallelism: None,
+        };
+
+        let response = handler.handle_batch(&request).unwrap();
+
+        assert_eq!(response.predictions.len(), 2);
+        assert_eq!(response.success_count, 2);
+        assert_eq!(response.error_count, 0);
+        assert!(response.total_latency_ms >= 0.0);
+
+        // Mock inference returns sum of features
+        assert!((response.predictions[0].prediction - 3.0).abs() < 0.001);
+        assert!((response.predictions[1].prediction - 7.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_batch_handler_with_errors() {
+        let model_bytes: &'static [u8] = b"APR\0\x01\x00\x00\x00testmodel";
+        let handler = LambdaHandler::from_bytes(model_bytes).unwrap();
+
+        let request = BatchLambdaRequest {
+            instances: vec![
+                LambdaRequest {
+                    features: vec![1.0, 2.0],
+                    model_id: None,
+                },
+                LambdaRequest {
+                    features: vec![], // Empty features will fail
+                    model_id: None,
+                },
+                LambdaRequest {
+                    features: vec![5.0],
+                    model_id: None,
+                },
+            ],
+            max_parallelism: None,
+        };
+
+        let response = handler.handle_batch(&request).unwrap();
+
+        assert_eq!(response.predictions.len(), 3);
+        assert_eq!(response.success_count, 2);
+        assert_eq!(response.error_count, 1);
+
+        // Check successful predictions
+        assert!((response.predictions[0].prediction - 3.0).abs() < 0.001);
+        assert!(response.predictions[1].prediction.is_nan()); // Error placeholder
+        assert!((response.predictions[2].prediction - 5.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_batch_handler_rejects_empty_batch() {
+        let model_bytes: &'static [u8] = b"APR\0\x01\x00\x00\x00testmodel";
+        let handler = LambdaHandler::from_bytes(model_bytes).unwrap();
+
+        let request = BatchLambdaRequest {
+            instances: vec![],
+            max_parallelism: None,
+        };
+
+        let result = handler.handle_batch(&request);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), LambdaError::EmptyBatch);
+    }
+
+    // --------------------------------------------------------------------------
+    // Test: Prometheus metrics (PROD-001)
+    // Per spec §11.3
+    // --------------------------------------------------------------------------
+
+    #[test]
+    fn test_metrics_new() {
+        let metrics = LambdaMetrics::new();
+        assert_eq!(metrics.requests_total, 0);
+        assert_eq!(metrics.requests_success, 0);
+        assert_eq!(metrics.requests_failed, 0);
+        assert_eq!(metrics.cold_starts, 0);
+        assert_eq!(metrics.batch_requests, 0);
+    }
+
+    #[test]
+    fn test_metrics_record_success() {
+        let mut metrics = LambdaMetrics::new();
+
+        metrics.record_success(5.0, true);
+        assert_eq!(metrics.requests_total, 1);
+        assert_eq!(metrics.requests_success, 1);
+        assert_eq!(metrics.cold_starts, 1);
+        assert!((metrics.latency_total_ms - 5.0).abs() < 0.001);
+
+        metrics.record_success(3.0, false);
+        assert_eq!(metrics.requests_total, 2);
+        assert_eq!(metrics.requests_success, 2);
+        assert_eq!(metrics.cold_starts, 1); // No new cold start
+        assert!((metrics.latency_total_ms - 8.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_metrics_record_failure() {
+        let mut metrics = LambdaMetrics::new();
+
+        metrics.record_failure();
+        assert_eq!(metrics.requests_total, 1);
+        assert_eq!(metrics.requests_failed, 1);
+        assert_eq!(metrics.requests_success, 0);
+    }
+
+    #[test]
+    fn test_metrics_record_batch() {
+        let mut metrics = LambdaMetrics::new();
+
+        metrics.record_batch(5, 2, 10.0);
+        assert_eq!(metrics.batch_requests, 1);
+        assert_eq!(metrics.requests_total, 7); // 5 + 2
+        assert_eq!(metrics.requests_success, 5);
+        assert_eq!(metrics.requests_failed, 2);
+        assert!((metrics.latency_total_ms - 10.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_metrics_avg_latency() {
+        let mut metrics = LambdaMetrics::new();
+
+        // Empty metrics returns 0
+        assert!((metrics.avg_latency_ms() - 0.0).abs() < 0.001);
+
+        metrics.record_success(4.0, false);
+        metrics.record_success(6.0, false);
+
+        // Average of 4.0 and 6.0 = 5.0
+        assert!((metrics.avg_latency_ms() - 5.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_metrics_prometheus_format() {
+        let mut metrics = LambdaMetrics::new();
+        metrics.record_success(5.0, true);
+        metrics.record_success(3.0, false);
+        metrics.record_failure();
+        metrics.record_batch(10, 2, 20.0);
+
+        let prom = metrics.to_prometheus();
+
+        // Verify Prometheus format
+        assert!(prom.contains("# HELP lambda_requests_total"));
+        assert!(prom.contains("# TYPE lambda_requests_total counter"));
+        assert!(prom.contains("lambda_requests_total 15")); // 2 + 1 + 12
+        assert!(prom.contains("lambda_requests_success 12")); // 2 + 10
+        assert!(prom.contains("lambda_requests_failed 3")); // 1 + 2
+        assert!(prom.contains("lambda_cold_starts 1"));
+        assert!(prom.contains("lambda_batch_requests 1"));
+        assert!(prom.contains("lambda_latency_avg_ms"));
+    }
+
+    #[test]
+    fn test_metrics_default() {
+        let metrics = LambdaMetrics::default();
+        assert_eq!(metrics.requests_total, 0);
+        assert_eq!(metrics.batch_requests, 0);
     }
 }
