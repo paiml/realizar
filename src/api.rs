@@ -22,7 +22,7 @@
 //! axum::serve(listener, app).await?;
 //! ```
 
-use std::sync::Arc;
+use std::{convert::Infallible, sync::Arc};
 
 use axum::{
     extract::State,
@@ -33,7 +33,6 @@ use axum::{
 };
 use futures::stream::Stream;
 use serde::{Deserialize, Serialize};
-use std::convert::Infallible;
 
 use crate::{
     cache::{CacheKey, ModelCache},

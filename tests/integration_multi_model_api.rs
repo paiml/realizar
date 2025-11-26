@@ -3,16 +3,21 @@
 //! Tests the ModelRegistry integration with the HTTP API,
 //! including model selection, concurrent access, and error handling.
 
-use axum::body::Body;
-use axum::http::{Request, StatusCode};
-use realizar::api::{
-    create_router, AppState, GenerateRequest, GenerateResponse, ModelsResponse, TokenizeRequest,
-    TokenizeResponse,
-};
-use realizar::layers::{Model, ModelConfig};
-use realizar::registry::ModelRegistry;
-use realizar::tokenizer::BPETokenizer;
 use std::sync::Arc;
+
+use axum::{
+    body::Body,
+    http::{Request, StatusCode},
+};
+use realizar::{
+    api::{
+        create_router, AppState, GenerateRequest, GenerateResponse, ModelsResponse,
+        TokenizeRequest, TokenizeResponse,
+    },
+    layers::{Model, ModelConfig},
+    registry::ModelRegistry,
+    tokenizer::BPETokenizer,
+};
 use tower::ServiceExt;
 
 /// Create a test model with specific vocab size

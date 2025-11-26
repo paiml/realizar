@@ -1,0 +1,9 @@
+{
+  "commit_sha": null,
+  "work_item_id": "SERVE-001",
+  "prompt": "Phase 1: Core Serving Infrastructure (HTTP API)",
+  "tdg_score": 0.0,
+  "repo_score": 0.0,
+  "rust_project_score": 0.0,
+  "timestamp": "2025-11-26T11:54:13.940841769Z"
+}

@@ -7,8 +7,8 @@
 //! - Concurrent access throughput
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use realizar::cache::{CacheKey, ModelCache};
 use realizar::{
+    cache::{CacheKey, ModelCache},
     error::RealizarError,
     layers::{Model, ModelConfig},
     tokenizer::BPETokenizer,
@@ -98,8 +98,7 @@ fn benchmark_cache_eviction(c: &mut Criterion) {
 }
 
 fn benchmark_cache_concurrent(c: &mut Criterion) {
-    use std::sync::Arc;
-    use std::thread;
+    use std::{sync::Arc, thread};
 
     c.bench_function("cache_concurrent_access", |b| {
         let cache = Arc::new(ModelCache::new(10));

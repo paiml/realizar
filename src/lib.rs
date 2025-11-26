@@ -78,6 +78,8 @@ pub mod quantize;
 #[cfg(feature = "server")]
 pub mod registry;
 pub mod safetensors;
+#[cfg(feature = "aprender-serve")]
+pub mod serve;
 pub mod tensor;
 pub mod tokenizer;
 

@@ -23,6 +23,9 @@ redundant_clone = "warn"
 # OUR ecosystem - SIMD/GPU compute primitives (we control this)
 trueno = { version = "0.7.0", features = ["gpu"] }
 
+# ML algorithms and .apr model format (optional for aprender model serving)
+aprender = { version = "0.9", optional = true, path = "../aprender" }
+
 # HTTP server ONLY (swappable via HttpServer trait)
 axum = { version = "0.7", optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"], optional = true }
@@ -77,6 +80,7 @@ gpu = ["trueno/gpu"]  # Enable GPU acceleration via Trueno
 # Optional components
 server = ["dep:axum", "dep:tokio", "dep:tokio-stream", "dep:tower", "dep:futures", "dep:async-stream"]  # HTTP server support
 cli = ["dep:clap", "server"]  # CLI binary (requires server)
+aprender-serve = ["dep:aprender", "server"]  # Aprender ML model serving (requires server)
 
 # Testing features
 load-test-enabled = ["server"]  # Enable load tests (requires running server)

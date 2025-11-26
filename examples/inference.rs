@@ -137,6 +137,9 @@ fn find_max(slice: &[f32]) -> f32 {
     slice
         .iter()
         .copied()
-        .max_by(|a, b| a.partial_cmp(b).expect("Comparison failed: NaN values not allowed in logits"))
+        .max_by(|a, b| {
+            a.partial_cmp(b)
+                .expect("Comparison failed: NaN values not allowed in logits")
+        })
         .unwrap_or(0.0)
 }

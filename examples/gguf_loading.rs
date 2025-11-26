@@ -8,8 +8,9 @@
 //!
 //! GGUF is the standard format for llama.cpp and Ollama models.
 
-use realizar::gguf::{GGUFModel, GGUFValue, GGUF_MAGIC, GGUF_TYPE_F32, GGUF_TYPE_Q4_0};
 use std::io::{Cursor, Write};
+
+use realizar::gguf::{GGUFModel, GGUFValue, GGUF_MAGIC, GGUF_TYPE_F32, GGUF_TYPE_Q4_0};
 
 fn main() {
     println!("=== GGUF Loading Example ===\n");
@@ -31,8 +32,15 @@ fn main() {
 
     // Example 3: Inspect header
     println!("--- GGUF Header ---");
-    println!("Magic: 0x{:08X} ({})", model.header.magic,
-        if model.header.magic == GGUF_MAGIC { "valid ✓" } else { "invalid ✗" });
+    println!(
+        "Magic: 0x{:08X} ({})",
+        model.header.magic,
+        if model.header.magic == GGUF_MAGIC {
+            "valid ✓"
+        } else {
+            "invalid ✗"
+        }
+    );
     println!("Version: {}", model.header.version);
     println!("Tensor count: {}", model.header.tensor_count);
     println!("Metadata count: {}", model.header.metadata_count);
@@ -58,7 +66,8 @@ fn main() {
     for tensor in &model.tensors {
         println!("Tensor: {}", tensor.name);
         println!("  - Dimensions: {:?}", tensor.dims);
-        println!("  - Quantization type: {} ({})",
+        println!(
+            "  - Quantization type: {} ({})",
             tensor.qtype,
             match tensor.qtype {
                 GGUF_TYPE_F32 => "F32 (unquantized)",
@@ -83,11 +92,13 @@ fn main() {
             println!("Embedding weights (F32):");
             println!("  - Length: {}", weights.len());
             println!("  - First 5 values: {:?}", &weights[..5.min(weights.len())]);
-            println!("  - Stats: min={:.4}, max={:.4}, mean={:.4}",
+            println!(
+                "  - Stats: min={:.4}, max={:.4}, mean={:.4}",
                 weights.iter().cloned().fold(f32::INFINITY, f32::min),
                 weights.iter().cloned().fold(f32::NEG_INFINITY, f32::max),
-                weights.iter().sum::<f32>() / weights.len() as f32);
-        }
+                weights.iter().sum::<f32>() / weights.len() as f32
+            );
+        },
         Err(e) => println!("  Failed to extract embedding.weight: {}", e),
     }
     println!();
@@ -97,12 +108,20 @@ fn main() {
         Ok(dequantized) => {
             println!("Layer 0 weights (Q4_0 dequantized to F32):");
             println!("  - Length: {}", dequantized.len());
-            println!("  - First 5 values: {:?}", &dequantized[..5.min(dequantized.len())]);
-            println!("  - Stats: min={:.4}, max={:.4}, mean={:.4}",
+            println!(
+                "  - First 5 values: {:?}",
+                &dequantized[..5.min(dequantized.len())]
+            );
+            println!(
+                "  - Stats: min={:.4}, max={:.4}, mean={:.4}",
                 dequantized.iter().cloned().fold(f32::INFINITY, f32::min),
-                dequantized.iter().cloned().fold(f32::NEG_INFINITY, f32::max),
-                dequantized.iter().sum::<f32>() / dequantized.len() as f32);
-        }
+                dequantized
+                    .iter()
+                    .cloned()
+                    .fold(f32::NEG_INFINITY, f32::max),
+                dequantized.iter().sum::<f32>() / dequantized.len() as f32
+            );
+        },
         Err(e) => println!("  Failed to extract layer.0.weight: {}", e),
     }
     println!();
@@ -128,45 +147,83 @@ fn create_example_gguf_model() -> Vec<u8> {
     let mut cursor = Cursor::new(&mut buffer);
 
     // Header
-    cursor.write_all(&GGUF_MAGIC.to_le_bytes()).expect("Failed to write GGUF magic number");
-    cursor.write_all(&3u32.to_le_bytes()).expect("Failed to write GGUF version");
-    cursor.write_all(&2u64.to_le_bytes()).expect("Failed to write tensor count");
-    cursor.write_all(&3u64.to_le_bytes()).expect("Failed to write metadata count");
+    cursor
+        .write_all(&GGUF_MAGIC.to_le_bytes())
+        .expect("Failed to write GGUF magic number");
+    cursor
+        .write_all(&3u32.to_le_bytes())
+        .expect("Failed to write GGUF version");
+    cursor
+        .write_all(&2u64.to_le_bytes())
+        .expect("Failed to write tensor count");
+    cursor
+        .write_all(&3u64.to_le_bytes())
+        .expect("Failed to write metadata count");
 
     // Metadata 1: model name (string)
     write_string(&mut cursor, "model.name");
-    cursor.write_all(&8u32.to_le_bytes()).expect("Failed to write metadata type for model.name");
+    cursor
+        .write_all(&8u32.to_le_bytes())
+        .expect("Failed to write metadata type for model.name");
     write_string(&mut cursor, "demo-model");
 
     // Metadata 2: vocab size (uint32)
     write_string(&mut cursor, "vocab.size");
-    cursor.write_all(&4u32.to_le_bytes()).expect("Failed to write metadata type for vocab.size");
-    cursor.write_all(&1000u32.to_le_bytes()).expect("Failed to write vocab size value");
+    cursor
+        .write_all(&4u32.to_le_bytes())
+        .expect("Failed to write metadata type for vocab.size");
+    cursor
+        .write_all(&1000u32.to_le_bytes())
+        .expect("Failed to write vocab size value");
 
     // Metadata 3: hidden size (uint32)
     write_string(&mut cursor, "hidden.size");
-    cursor.write_all(&4u32.to_le_bytes()).expect("Failed to write metadata type for hidden.size");
-    cursor.write_all(&256u32.to_le_bytes()).expect("Failed to write hidden size value");
+    cursor
+        .write_all(&4u32.to_le_bytes())
+        .expect("Failed to write metadata type for hidden.size");
+    cursor
+        .write_all(&256u32.to_le_bytes())
+        .expect("Failed to write hidden size value");
 
     // Tensor info 1: embedding.weight (F32, unquantized)
     write_string(&mut cursor, "embedding.weight");
-    cursor.write_all(&2u32.to_le_bytes()).expect("Failed to write n_dims for embedding.weight");
-    cursor.write_all(&1000u64.to_le_bytes()).expect("Failed to write dim 0 for embedding.weight");
-    cursor.write_all(&256u64.to_le_bytes()).expect("Failed to write dim 1 for embedding.weight");
-    cursor.write_all(&GGUF_TYPE_F32.to_le_bytes()).expect("Failed to write tensor type for embedding.weight");
-    cursor.write_all(&0u64.to_le_bytes()).expect("Failed to write offset for embedding.weight");
+    cursor
+        .write_all(&2u32.to_le_bytes())
+        .expect("Failed to write n_dims for embedding.weight");
+    cursor
+        .write_all(&1000u64.to_le_bytes())
+        .expect("Failed to write dim 0 for embedding.weight");
+    cursor
+        .write_all(&256u64.to_le_bytes())
+        .expect("Failed to write dim 1 for embedding.weight");
+    cursor
+        .write_all(&GGUF_TYPE_F32.to_le_bytes())
+        .expect("Failed to write tensor type for embedding.weight");
+    cursor
+        .write_all(&0u64.to_le_bytes())
+        .expect("Failed to write offset for embedding.weight");
 
     // Tensor info 2: layer.0.weight (Q4_0, quantized)
     write_string(&mut cursor, "layer.0.weight");
-    cursor.write_all(&2u32.to_le_bytes()).expect("Failed to write n_dims for layer.0.weight");
-    cursor.write_all(&256u64.to_le_bytes()).expect("Failed to write dim 0 for layer.0.weight");
-    cursor.write_all(&256u64.to_le_bytes()).expect("Failed to write dim 1 for layer.0.weight");
-    cursor.write_all(&GGUF_TYPE_Q4_0.to_le_bytes()).expect("Failed to write tensor type for layer.0.weight");
+    cursor
+        .write_all(&2u32.to_le_bytes())
+        .expect("Failed to write n_dims for layer.0.weight");
+    cursor
+        .write_all(&256u64.to_le_bytes())
+        .expect("Failed to write dim 0 for layer.0.weight");
+    cursor
+        .write_all(&256u64.to_le_bytes())
+        .expect("Failed to write dim 1 for layer.0.weight");
+    cursor
+        .write_all(&GGUF_TYPE_Q4_0.to_le_bytes())
+        .expect("Failed to write tensor type for layer.0.weight");
 
     // Calculate offset for second tensor
     // First tensor: 1000 * 256 * 4 bytes (F32)
     let tensor1_size = 1000 * 256 * 4;
-    cursor.write_all(&(tensor1_size as u64).to_le_bytes()).expect("Failed to write offset for layer.0.weight");
+    cursor
+        .write_all(&(tensor1_size as u64).to_le_bytes())
+        .expect("Failed to write offset for layer.0.weight");
 
     // Alignment padding (GGUF requires 32-byte alignment for tensor data)
     let alignment = 32;
@@ -204,6 +261,10 @@ fn create_example_gguf_model() -> Vec<u8> {
 /// Helper to write a length-prefixed string
 fn write_string(cursor: &mut Cursor<&mut Vec<u8>>, s: &str) {
     let bytes = s.as_bytes();
-    cursor.write_all(&(bytes.len() as u64).to_le_bytes()).expect("Failed to write string length");
-    cursor.write_all(bytes).expect("Failed to write string bytes");
+    cursor
+        .write_all(&(bytes.len() as u64).to_le_bytes())
+        .expect("Failed to write string length");
+    cursor
+        .write_all(bytes)
+        .expect("Failed to write string bytes");
 }

@@ -136,9 +136,14 @@ fn main() {
         eps: 1e-5,
     };
     let key_from_config = CacheKey::from_config(&config);
-    println!("  Config: vocab={}, hidden={}, heads={}, layers={}, intermediate={}",
-        config.vocab_size, config.hidden_dim, config.num_heads,
-        config.num_layers, config.intermediate_dim);
+    println!(
+        "  Config: vocab={}, hidden={}, heads={}, layers={}, intermediate={}",
+        config.vocab_size,
+        config.hidden_dim,
+        config.num_heads,
+        config.num_layers,
+        config.intermediate_dim
+    );
     println!("  Generated key: '{}'", key_from_config.id);
 
     cache
@@ -150,7 +155,10 @@ fn main() {
 
     // Final summary
     println!("--- Final Summary ---");
-    println!("  Total accesses: {}", final_metrics.hits + final_metrics.misses);
+    println!(
+        "  Total accesses: {}",
+        final_metrics.hits + final_metrics.misses
+    );
     println!("  Cache hits: {}", final_metrics.hits);
     println!("  Cache misses: {}", final_metrics.misses);
     println!("  Evictions: {}", final_metrics.evictions);

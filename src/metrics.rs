@@ -8,9 +8,13 @@
 //!
 //! Metrics are exposed in Prometheus format for easy integration with monitoring systems.
 
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::{
+    sync::{
+        atomic::{AtomicU64, AtomicUsize, Ordering},
+        Arc,
+    },
+    time::{Duration, Instant},
+};
 
 /// Central metrics collector for tracking system performance
 #[derive(Debug, Clone)]
@@ -192,8 +196,9 @@ pub struct MetricsSnapshot {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::thread;
+
+    use super::*;
 
     #[test]
     fn test_metrics_collector_creation() {

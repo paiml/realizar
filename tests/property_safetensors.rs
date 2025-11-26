@@ -5,9 +5,10 @@
 //! - Format validation: all valid SafeTensors files parse correctly
 //! - Helper API correctness: get_tensor_f32() returns expected values
 
+use std::collections::BTreeMap;
+
 use proptest::prelude::*;
 use realizar::safetensors::SafetensorsModel;
-use std::collections::BTreeMap;
 
 const EPSILON: f32 = 1e-6;
 

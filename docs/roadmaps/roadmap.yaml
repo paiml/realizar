@@ -18,3 +18,28 @@ roadmap:
   estimated_effort: null
   labels: []
   notes: null
+- id: SERVE-001
+  github_issue: null
+  item_type: task
+  title: 'Phase 1: Core Serving Infrastructure (HTTP API)'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2025-11-26T11:45:43.851260641+00:00
+  updated: 2025-11-26T11:54:13.939323502+00:00
+  spec: docs/specifications/serve-deploy-apr.md
+  acceptance_criteria:
+  - HTTP handler implementation with axum
+  - Request/response schema validation (serde)
+  - Single model loading from .apr format
+  - Basic /predict and /health endpoints
+  - Unit tests with ≥85% coverage
+  - All quality gates pass (clippy, fmt, tests)
+  phases: []
+  subtasks: []
+  estimated_effort: 2 weeks
+  labels:
+  - serve
+  - http
+  - phase-1
+  notes: Per docs/specifications/serve-deploy-apr.md Section 11.1

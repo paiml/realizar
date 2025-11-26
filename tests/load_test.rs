@@ -12,10 +12,15 @@
 //! - Error rates
 //! - Resource usage
 
+use std::{
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+    time::{Duration, Instant},
+};
+
 use realizar::api::{BatchGenerateRequest, BatchTokenizeRequest, GenerateRequest, TokenizeRequest};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
 
 /// Type alias for test results

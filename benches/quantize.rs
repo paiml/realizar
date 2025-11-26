@@ -118,16 +118,12 @@ fn benchmark_q4_0_dequantize(c: &mut Criterion) {
         let data = create_q4_0_data(*num_blocks);
         let num_values = num_blocks * 32; // 32 values per block
 
-        group.bench_with_input(
-            BenchmarkId::new("blocks", num_blocks),
-            &data,
-            |b, data| {
-                b.iter(|| {
-                    let result = dequantize_q4_0(black_box(data)).expect("Dequantization failed");
-                    black_box(result)
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("blocks", num_blocks), &data, |b, data| {
+            b.iter(|| {
+                let result = dequantize_q4_0(black_box(data)).expect("Dequantization failed");
+                black_box(result)
+            });
+        });
 
         group.bench_function(format!("throughput_{}_values", num_values), |b| {
             b.iter(|| {
@@ -148,16 +144,12 @@ fn benchmark_q8_0_dequantize(c: &mut Criterion) {
         let data = create_q8_0_data(*num_blocks);
         let num_values = num_blocks * 32;
 
-        group.bench_with_input(
-            BenchmarkId::new("blocks", num_blocks),
-            &data,
-            |b, data| {
-                b.iter(|| {
-                    let result = dequantize_q8_0(black_box(data)).expect("Dequantization failed");
-                    black_box(result)
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("blocks", num_blocks), &data, |b, data| {
+            b.iter(|| {
+                let result = dequantize_q8_0(black_box(data)).expect("Dequantization failed");
+                black_box(result)
+            });
+        });
 
         group.bench_function(format!("throughput_{}_values", num_values), |b| {
             b.iter(|| {

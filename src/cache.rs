@@ -21,13 +21,16 @@
 //! let model = cache.get_or_load("model1", || load_model("model1"))?;
 //! ```
 
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
+
 use crate::{
     error::RealizarError,
     layers::{Model, ModelConfig},
     tokenizer::BPETokenizer,
 };
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
 
 /// Type alias for model and tokenizer pair
 pub type ModelPair = (Arc<Model>, Arc<BPETokenizer>);

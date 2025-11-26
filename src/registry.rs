@@ -21,13 +21,17 @@
 //! let model = registry.get("llama-7b")?;
 //! ```
 
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
 
-use crate::cache::ModelCache;
-use crate::error::{RealizarError, Result};
-use crate::layers::Model;
-use crate::tokenizer::BPETokenizer;
+use crate::{
+    cache::ModelCache,
+    error::{RealizarError, Result},
+    layers::Model,
+    tokenizer::BPETokenizer,
+};
 
 /// Information about a registered model
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
