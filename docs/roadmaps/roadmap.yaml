@@ -123,3 +123,19 @@ roadmap:
   estimated_effort: null
   labels: []
   notes: null
+- id: BENCH-001
+  github_issue: null
+  item_type: task
+  title: 'New task: BENCH-001'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2025-11-26T13:16:44.816973215+00:00
+  updated: 2025-11-26T13:20:37.554140457+00:00
+  spec: null
+  acceptance_criteria: []
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels: []
+  notes: null
