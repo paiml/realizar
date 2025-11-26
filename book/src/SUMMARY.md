@@ -101,6 +101,22 @@
 - [Info Command](./cli/info.md)
 - [CLI Testing with assert_cmd](./cli/testing.md)
 
+# Aprender Model Serving
+
+- [Overview](./aprender/overview.md)
+- [The .apr Format](./aprender/apr-format.md)
+- [HTTP API for Aprender](./aprender/http-api.md)
+- [Performance Targets](./aprender/performance.md)
+
+# AWS Lambda
+
+- [Overview](./lambda/overview.md)
+- [Lambda Handler](./lambda/handler.md)
+- [Batch Inference](./lambda/batch.md)
+- [Metrics & Observability](./lambda/metrics.md)
+- [ARM64 Graviton Optimization](./lambda/arm64.md)
+- [Cold Start Optimization](./lambda/cold-start.md)
+
 # GPU Acceleration
 
 - [Trueno Backend](./gpu/trueno-backend.md)
@@ -152,10 +168,10 @@
 - [Pre-Commit Checks](./quality/pre-commit.md)
 - [Code Formatting (rustfmt)](./quality/formatting.md)
 - [Linting (clippy)](./quality/linting.md)
-- [Code Coverage (>94%)](./quality/coverage.md)
+- [Code Coverage (>95%)](./quality/coverage.md)
 - [Mutation Testing](./quality/mutation.md)
-- [TDG Score (93.9/100)](./quality/tdg.md)
-- [Rust Project Score (94.0/114)](./quality/rust-project-score.md)
+- [TDG Score](./quality/tdg.md)
+- [Rust Project Score (146.5/134 A+)](./quality/rust-project-score.md)
 - [Continuous Integration](./quality/ci.md)
 
 # Performance
@@ -213,8 +229,11 @@
 
 # Production Deployment
 
+- [Multi-Target Deployment](./deployment/multi-target.md)
 - [Docker Deployment](./deployment/docker.md)
+  - [Docker Configuration](./deployment/docker-config.md)
 - [Kubernetes](./deployment/kubernetes.md)
+- [WebAssembly (WASM)](./deployment/wasm.md)
 - [Monitoring & Observability](./deployment/monitoring.md)
 - [Load Testing](./deployment/load-testing.md)
 
