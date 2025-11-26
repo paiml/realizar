@@ -106,6 +106,8 @@
 - [Overview](./aprender/overview.md)
 - [The .apr Format](./aprender/apr-format.md)
 - [HTTP API for Aprender](./aprender/http-api.md)
+- [Metrics and Model Evaluation](./aprender/metrics.md)
+- [Drift Detection and Retraining](./aprender/drift.md)
 - [Performance Targets](./aprender/performance.md)
 
 # AWS Lambda
@@ -191,6 +193,8 @@
 - [Inference Demo](./examples/inference.md)
 - [Tokenization Comparison](./examples/tokenization.md)
 - [API Server Demo](./examples/api-server.md)
+- [Wine Quality Lambda](./examples/wine-lambda.md)
+- [Data Pipeline (Alimentar)](./examples/data-pipeline.md)
 - [Custom Model Loading (Phase 2)](./examples/custom-model.md)
 
 # Tools and Setup

@@ -22,7 +22,10 @@
 //! axum::serve(listener, app).await?;
 //! ```
 
-use std::{convert::Infallible, sync::Arc};
+use std::{
+    convert::{Infallible, TryFrom},
+    sync::Arc,
+};
 
 use axum::{
     extract::State,
@@ -100,7 +103,7 @@ impl AppState {
         default_model_id: &str,
     ) -> Result<Self, RealizarError> {
         // Verify default model exists
-        if !registry.contains(default_model_id) {
+        if !registry.contains(default_model_id)? {
             return Err(RealizarError::ModelNotFound(default_model_id.to_string()));
         }
 
@@ -409,7 +412,14 @@ async fn models_handler(
     State(state): State<AppState>,
 ) -> Result<Json<ModelsResponse>, (StatusCode, Json<ErrorResponse>)> {
     if let Some(registry) = &state.registry {
-        let models = registry.list();
+        let models = registry.list().map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Registry error: {e}"),
+                }),
+            )
+        })?;
         Ok(Json(ModelsResponse { models }))
     } else {
         // Single model mode - return the single model info
@@ -518,11 +528,20 @@ async fn generate_handler(
         )
     })?;
 
-    // Convert back to u32 and decode
+    // Convert back to u32 and decode, with proper overflow handling
     let token_ids: Vec<u32> = generated
         .iter()
-        .map(|&id| u32::try_from(id).unwrap_or(u32::MAX))
-        .collect();
+        .map(|&id| {
+            u32::try_from(id).map_err(|_| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error: format!("Token ID {id} exceeds u32 range"),
+                    }),
+                )
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let text = tokenizer.decode(&token_ids).map_err(|e| {
         state.metrics.record_failure();
         (
@@ -663,11 +682,20 @@ async fn batch_generate_handler(
             )
         })?;
 
-        // Convert back to u32 and decode
+        // Convert back to u32 and decode, with proper overflow handling
         let token_ids: Vec<u32> = generated
             .iter()
-            .map(|&id| u32::try_from(id).unwrap_or(u32::MAX))
-            .collect();
+            .map(|&id| {
+                u32::try_from(id).map_err(|_| {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(ErrorResponse {
+                            error: format!("Token ID {id} exceeds u32 range"),
+                        }),
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let text = tokenizer.decode(&token_ids).map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -756,11 +784,20 @@ async fn stream_generate_handler(
         },
     };
 
-    // Convert to u32
+    // Convert to u32 with proper overflow handling
     let token_ids: Vec<u32> = generated
         .iter()
-        .map(|&id| u32::try_from(id).unwrap_or(u32::MAX))
-        .collect();
+        .map(|&id| {
+            u32::try_from(id).map_err(|_| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error: format!("Token ID {id} exceeds u32 range"),
+                    }),
+                )
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
 
     // Create stream that emits tokens one by one
     let tokenizer_clone = tokenizer;
@@ -774,7 +811,9 @@ async fn stream_generate_handler(
             };
 
             let event = StreamTokenEvent { token_id, text };
-            let data = serde_json::to_string(&event).unwrap();
+            // Serialization of simple struct should not fail, but handle gracefully
+            let data = serde_json::to_string(&event)
+                .unwrap_or_else(|_| r#"{"error":"serialization failed"}"#.to_string());
 
             yield Ok::<_, Infallible>(Event::default().event("token").data(data));
         }
@@ -783,7 +822,9 @@ async fn stream_generate_handler(
         let done_event = StreamDoneEvent {
             num_generated: token_ids.len() - prompt_len,
         };
-        let data = serde_json::to_string(&done_event).unwrap();
+        // Serialization of simple struct should not fail, but handle gracefully
+        let data = serde_json::to_string(&done_event)
+            .unwrap_or_else(|_| r#"{"error":"serialization failed"}"#.to_string());
         yield Ok(Event::default().event("done").data(data));
     };
 

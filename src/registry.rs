@@ -209,13 +209,17 @@ impl ModelRegistry {
     }
 
     /// List all registered models
-    #[must_use]
-    pub fn list(&self) -> Vec<ModelInfo> {
-        let models = self
-            .models
-            .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        models.values().map(|entry| entry.info.clone()).collect()
+    ///
+    /// # Errors
+    ///
+    /// Returns error if the registry lock is poisoned (indicates prior panic)
+    pub fn list(&self) -> Result<Vec<ModelInfo>> {
+        let models = self.models.read().map_err(|_| {
+            RealizarError::RegistryError(
+                "Registry lock poisoned - prior writer panic detected".to_string(),
+            )
+        })?;
+        Ok(models.values().map(|entry| entry.info.clone()).collect())
     }
 
     /// Unregister a model
@@ -240,29 +244,40 @@ impl ModelRegistry {
     }
 
     /// Check if a model is registered
-    #[must_use]
-    pub fn contains(&self, id: &str) -> bool {
-        let models = self
-            .models
-            .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        models.contains_key(id)
+    ///
+    /// # Errors
+    ///
+    /// Returns error if the registry lock is poisoned (indicates prior panic)
+    pub fn contains(&self, id: &str) -> Result<bool> {
+        let models = self.models.read().map_err(|_| {
+            RealizarError::RegistryError(
+                "Registry lock poisoned - prior writer panic detected".to_string(),
+            )
+        })?;
+        Ok(models.contains_key(id))
     }
 
     /// Get the number of registered models
-    #[must_use]
-    pub fn len(&self) -> usize {
-        let models = self
-            .models
-            .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        models.len()
+    ///
+    /// # Errors
+    ///
+    /// Returns error if the registry lock is poisoned (indicates prior panic)
+    pub fn len(&self) -> Result<usize> {
+        let models = self.models.read().map_err(|_| {
+            RealizarError::RegistryError(
+                "Registry lock poisoned - prior writer panic detected".to_string(),
+            )
+        })?;
+        Ok(models.len())
     }
 
     /// Check if the registry is empty
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
+    ///
+    /// # Errors
+    ///
+    /// Returns error if the registry lock is poisoned (indicates prior panic)
+    pub fn is_empty(&self) -> Result<bool> {
+        Ok(self.len()? == 0)
     }
 }
 
@@ -299,8 +314,8 @@ mod tests {
     #[test]
     fn test_registry_creation() {
         let registry = ModelRegistry::new(5);
-        assert_eq!(registry.len(), 0);
-        assert!(registry.is_empty());
+        assert_eq!(registry.len().unwrap(), 0);
+        assert!(registry.is_empty().unwrap());
     }
 
     #[test]
@@ -310,9 +325,9 @@ mod tests {
 
         registry.register("test-model", model, tokenizer).unwrap();
 
-        assert_eq!(registry.len(), 1);
-        assert!(!registry.is_empty());
-        assert!(registry.contains("test-model"));
+        assert_eq!(registry.len().unwrap(), 1);
+        assert!(!registry.is_empty().unwrap());
+        assert!(registry.contains("test-model").unwrap());
     }
 
     #[test]
@@ -325,7 +340,7 @@ mod tests {
         let result = registry.register("test-model", model2, tokenizer2);
 
         assert!(result.is_err());
-        assert_eq!(registry.len(), 1);
+        assert_eq!(registry.len().unwrap(), 1);
     }
 
     #[test]
@@ -382,7 +397,7 @@ mod tests {
         registry.register("model-1", model1, tokenizer1).unwrap();
         registry.register("model-2", model2, tokenizer2).unwrap();
 
-        let model_list = registry.list();
+        let model_list = registry.list().unwrap();
         assert_eq!(model_list.len(), 2);
 
         let ids: Vec<String> = model_list.iter().map(|m| m.id.clone()).collect();
@@ -396,11 +411,11 @@ mod tests {
         let (model, tokenizer) = create_test_model();
 
         registry.register("test-model", model, tokenizer).unwrap();
-        assert_eq!(registry.len(), 1);
+        assert_eq!(registry.len().unwrap(), 1);
 
         registry.unregister("test-model").unwrap();
-        assert_eq!(registry.len(), 0);
-        assert!(!registry.contains("test-model"));
+        assert_eq!(registry.len().unwrap(), 0);
+        assert!(!registry.contains("test-model").unwrap());
     }
 
     #[test]
@@ -434,7 +449,7 @@ mod tests {
             handle.join().unwrap();
         }
 
-        assert_eq!(registry.len(), 5);
+        assert_eq!(registry.len().unwrap(), 5);
     }
 
     #[test]

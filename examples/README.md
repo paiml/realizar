@@ -2,7 +2,7 @@
 
 This directory contains example programs demonstrating the capabilities of realizar, a pure Rust ML inference engine.
 
-## Available Examples (6 total)
+## Available Examples (9 total)
 
 ### 1. `inference.rs` - End-to-End Text Generation
 
@@ -83,6 +83,68 @@ Demonstrates GGUF file format support (llama.cpp/Ollama):
 ```bash
 cargo run --example gguf_loading
 ```
+
+### 7. `wine_lambda.rs` - AWS Lambda Wine Quality Predictor
+
+Production-ready wine quality rating predictor for AWS Lambda deployment.
+Inspired by [paiml/wine-ratings](https://github.com/paiml/wine-ratings).
+
+Features:
+- Predicts wine quality (0-10) from 11 physicochemical properties
+- Sub-millisecond inference latency
+- Cold start detection and metrics
+- Prometheus metrics export
+- Drift detection for production monitoring
+- Ready for ARM64 Graviton deployment
+
+**Run:**
+```bash
+cargo run --example wine_lambda
+```
+
+**Deploy to Lambda:**
+```bash
+# Build for ARM64
+cargo build --release --target aarch64-unknown-linux-gnu --features lambda
+
+# Package and deploy
+cp target/aarch64-unknown-linux-gnu/release/wine_lambda bootstrap
+zip wine_lambda.zip bootstrap
+aws lambda create-function --function-name wine-predictor --runtime provided.al2 \
+  --architecture arm64 --handler bootstrap --zip-file fileb://wine_lambda.zip
+```
+
+### 8. `data_pipeline.rs` - Alimentar Data Pipeline Integration
+
+End-to-end ML data pipeline demonstrating alimentar + realizar integration:
+- Load built-in Iris dataset (embedded, no download)
+- Data quality checks
+- Transform pipeline (shuffle)
+- Train/test split
+- Inference with classification
+- Drift detection
+- DataLoader batching
+
+**Run:**
+```bash
+cargo run --example data_pipeline --features alimentar-data
+```
+
+### 9. `train_model.rs` - Train Real .apr Models
+
+Train actual ML models with aprender and save as .apr format:
+- Wine quality linear regression (R² ~0.93)
+- Save to .apr binary format
+- Load and verify predictions
+- Model coefficients extraction
+
+**Run:**
+```bash
+cargo run --example train_model --features "aprender-serve"
+```
+
+**Output:**
+- `wine_regressor.apr` (141 bytes, gitignored)
 
 ## Requirements
 

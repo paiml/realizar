@@ -338,6 +338,12 @@ impl LayerNorm {
             }
         }
 
+        // Debug assertion for numerical stability
+        debug_assert!(
+            output.iter().all(|&x| x.is_finite()),
+            "LayerNorm produced NaN or Inf values - check input distribution"
+        );
+
         Tensor::from_vec(shape.to_vec(), output)
     }
 
@@ -476,6 +482,12 @@ impl Linear {
         // Construct output shape
         let mut output_shape = shape[..shape.len() - 1].to_vec();
         output_shape.push(self.out_features);
+
+        // Debug assertion for numerical stability - catch exploding activations early
+        debug_assert!(
+            output.iter().all(|&x| x.is_finite()),
+            "Linear layer produced NaN or Inf values - check for exploding gradients/activations"
+        );
 
         Tensor::from_vec(output_shape, output)
     }
@@ -750,6 +762,12 @@ impl Attention {
                 output.push(sum);
             }
         }
+
+        // Debug assertion for numerical stability
+        debug_assert!(
+            output.iter().all(|&x| x.is_finite()),
+            "Attention layer produced NaN or Inf values - check input scaling"
+        );
 
         Tensor::from_vec(vec![q_seq_len, self.head_dim], output)
     }
@@ -1883,14 +1901,16 @@ impl KVCache {
 pub struct TransformerBlock {
     /// Layer normalization before attention
     attn_norm: LayerNorm,
-    /// Self-attention layer
-    attention: Attention,
+    /// Multi-head self-attention layer with Q/K/V/O projections
+    attention: MultiHeadAttention,
     /// Layer normalization before FFN
     ffn_norm: LayerNorm,
     /// Feed-forward network
     ffn: FeedForward,
     /// Hidden dimension
     hidden_dim: usize,
+    /// Number of attention heads
+    num_heads: usize,
 }
 
 impl TransformerBlock {
@@ -1933,10 +1953,9 @@ impl TransformerBlock {
             });
         }
 
-        let head_dim = hidden_dim / num_heads;
-
         let attn_norm = LayerNorm::new(hidden_dim, eps)?;
-        let attention = Attention::new(head_dim)?;
+        // Use standard MHA with Q/K/V/O projections
+        let attention = MultiHeadAttention::mha(hidden_dim, num_heads)?;
         let ffn_norm = LayerNorm::new(hidden_dim, eps)?;
         let ffn = FeedForward::new(hidden_dim, intermediate_dim)?;
 
@@ -1946,6 +1965,7 @@ impl TransformerBlock {
             ffn_norm,
             ffn,
             hidden_dim,
+            num_heads,
         })
     }
 
@@ -1989,9 +2009,8 @@ impl TransformerBlock {
         // Pre-norm attention block
         let normed = self.attn_norm.forward(input)?;
 
-        // For self-attention, Q=K=V (simplified - real models project)
-        // This is a placeholder; real implementation needs Q/K/V projections
-        let attn_out = self.attention.forward(&normed, &normed, &normed)?;
+        // Self-attention with proper Q/K/V/O projections via MultiHeadAttention
+        let attn_out = self.attention.forward(&normed)?;
 
         // Residual connection
         let mut residual1 = Vec::with_capacity(input.data().len());
@@ -2024,9 +2043,15 @@ impl TransformerBlock {
         &mut self.attn_norm
     }
 
-    /// Get mutable reference to attention
-    pub fn attention_mut(&mut self) -> &mut Attention {
+    /// Get mutable reference to multi-head attention
+    pub fn attention_mut(&mut self) -> &mut MultiHeadAttention {
         &mut self.attention
+    }
+
+    /// Get number of attention heads
+    #[must_use]
+    pub fn num_heads(&self) -> usize {
+        self.num_heads
     }
 
     /// Get mutable reference to FFN layer normalization
@@ -3653,7 +3678,8 @@ mod tests {
     fn test_transformer_block_forward_valid_output() {
         let block = TransformerBlock::new(4, 1, 16, 1e-5).unwrap();
 
-        let input = Tensor::from_vec(vec![4], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+        // Input must be 2D [seq_len, hidden_dim]
+        let input = Tensor::from_vec(vec![1, 4], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
         let output = block.forward(&input).unwrap();
 
         // Output should be finite
@@ -3666,13 +3692,14 @@ mod tests {
     fn test_transformer_block_residual_connection() {
         let block = TransformerBlock::new(4, 1, 16, 1e-5).unwrap();
 
+        // Input must be 2D [seq_len, hidden_dim]
         // With zero input, output should be non-zero due to residual + processing
-        let input = Tensor::from_vec(vec![4], vec![0.0, 0.0, 0.0, 0.0]).unwrap();
+        let input = Tensor::from_vec(vec![1, 4], vec![0.0, 0.0, 0.0, 0.0]).unwrap();
         let output = block.forward(&input).unwrap();
 
         // Even with zero input, layer norm and attention should produce non-zero output
         // (though it might be small due to normalization)
-        assert_eq!(output.shape(), &[4]);
+        assert_eq!(output.shape(), &[1, 4]);
     }
 
     #[test]

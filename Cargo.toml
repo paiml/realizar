@@ -1,6 +1,6 @@
 [package]
 name = "realizar"
-version = "0.2.0"
+version = "0.1.0"
 edition = "2021"
 rust-version = "1.75"
 authors = ["Pragmatic AI Labs <contact@paiml.com>"]
@@ -24,8 +24,11 @@ redundant_clone = "warn"
 trueno = { version = "0.7.0", features = ["gpu"] }
 
 # ML algorithms and .apr model format (optional for aprender model serving)
-# Note: Use crates.io version for CI; locally override with path in .cargo/config.toml if needed
-aprender = { version = "0.9", optional = true }
+# v0.10: metrics::evaluator, metrics::drift, classification metrics
+aprender = { version = "0.10", optional = true }
+
+# Data loading library (optional for data pipeline examples)
+alimentar = { version = "0.1", optional = true, default-features = false, features = ["local", "shuffle"] }
 
 # HTTP server ONLY (swappable via HttpServer trait)
 axum = { version = "0.7", optional = true }
@@ -37,6 +40,9 @@ async-stream = { version = "0.3", optional = true }
 
 # CLI
 clap = { version = "4", features = ["derive"], optional = true }
+
+# Lambda runtime (lightweight HTTP client)
+ureq = { version = "2", optional = true }
 
 # Serialization (for REST API, not ML code)
 serde = { version = "1", features = ["derive"] }
@@ -58,6 +64,9 @@ half = { version = "2.4", features = ["std"] }
 [dev-dependencies]
 # Benchmarking
 criterion = { version = "0.5", features = ["html_reports"] }
+
+# Arrow for data pipeline example
+arrow = { version = "53", default-features = false }
 
 # Property-based testing
 proptest = "1.4"
@@ -82,7 +91,8 @@ gpu = ["trueno/gpu"]  # Enable GPU acceleration via Trueno
 server = ["dep:axum", "dep:tokio", "dep:tokio-stream", "dep:tower", "dep:futures", "dep:async-stream"]  # HTTP server support
 cli = ["dep:clap", "server"]  # CLI binary (requires server)
 aprender-serve = ["dep:aprender", "server"]  # Aprender ML model serving (requires server)
-lambda = []  # AWS Lambda handler for aprender model serving (lightweight, no server deps)
+lambda = ["dep:ureq"]  # AWS Lambda handler (lightweight HTTP runtime)
+alimentar-data = ["dep:alimentar"]  # Data loading with alimentar
 
 # Testing features
 load-test-enabled = ["server"]  # Enable load tests (requires running server)
@@ -94,6 +104,10 @@ minimal = []  # Only core inference engine
 [[bin]]
 name = "realizar"
 required-features = ["cli"]
+
+[[bin]]
+name = "wine_lambda"
+required-features = ["lambda"]
 
 [[bench]]
 name = "tensor_ops"

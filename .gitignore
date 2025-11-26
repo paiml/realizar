@@ -27,3 +27,4 @@ book/book/
 coverage.json
 *.profraw
 *.profdata
+*.apr
