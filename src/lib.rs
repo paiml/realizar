@@ -85,6 +85,8 @@ pub mod tensor;
 /// AWS Lambda handler for aprender model serving
 #[cfg(feature = "lambda")]
 pub mod lambda;
+/// Multi-target deployment support (Lambda, Docker, WASM)
+pub mod target;
 pub mod tokenizer;
 
 // Re-exports for convenience
