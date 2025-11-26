@@ -24,7 +24,8 @@ redundant_clone = "warn"
 trueno = { version = "0.7.0", features = ["gpu"] }
 
 # ML algorithms and .apr model format (optional for aprender model serving)
-aprender = { version = "0.9", optional = true, path = "../aprender" }
+# Note: Use crates.io version for CI; locally override with path in .cargo/config.toml if needed
+aprender = { version = "0.9", optional = true }
 
 # HTTP server ONLY (swappable via HttpServer trait)
 axum = { version = "0.7", optional = true }
