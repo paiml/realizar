@@ -81,6 +81,7 @@ gpu = ["trueno/gpu"]  # Enable GPU acceleration via Trueno
 server = ["dep:axum", "dep:tokio", "dep:tokio-stream", "dep:tower", "dep:futures", "dep:async-stream"]  # HTTP server support
 cli = ["dep:clap", "server"]  # CLI binary (requires server)
 aprender-serve = ["dep:aprender", "server"]  # Aprender ML model serving (requires server)
+lambda = []  # AWS Lambda handler for aprender model serving (lightweight, no server deps)
 
 # Testing features
 load-test-enabled = ["server"]  # Enable load tests (requires running server)

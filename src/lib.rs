@@ -81,6 +81,10 @@ pub mod safetensors;
 #[cfg(feature = "aprender-serve")]
 pub mod serve;
 pub mod tensor;
+
+/// AWS Lambda handler for aprender model serving
+#[cfg(feature = "lambda")]
+pub mod lambda;
 pub mod tokenizer;
 
 // Re-exports for convenience

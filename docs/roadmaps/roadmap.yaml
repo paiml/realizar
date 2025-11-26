@@ -43,3 +43,19 @@ roadmap:
   - http
   - phase-1
   notes: Per docs/specifications/serve-deploy-apr.md Section 11.1
+- id: LAMBDA-001
+  github_issue: null
+  item_type: task
+  title: 'New task: LAMBDA-001'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2025-11-26T12:31:07.258473565+00:00
+  updated: 2025-11-26T12:36:15.983632782+00:00
+  spec: null
+  acceptance_criteria: []
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels: []
+  notes: null
