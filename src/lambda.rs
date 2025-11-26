@@ -776,8 +776,8 @@ mod tests {
     #[test]
     fn test_benchmark_targets() {
         // Verify target constants match spec §8.1
-        assert_eq!(benchmark::TARGET_COLD_START_MS, 50.0);
-        assert_eq!(benchmark::TARGET_WARM_INFERENCE_MS, 10.0);
+        assert!((benchmark::TARGET_COLD_START_MS - 50.0).abs() < f64::EPSILON);
+        assert!((benchmark::TARGET_WARM_INFERENCE_MS - 10.0).abs() < f64::EPSILON);
     }
 
     #[test]

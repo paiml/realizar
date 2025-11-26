@@ -91,3 +91,19 @@ roadmap:
   estimated_effort: null
   labels: []
   notes: null
+- id: INTEG-001
+  github_issue: null
+  item_type: task
+  title: 'New task: INTEG-001'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2025-11-26T13:10:08.571178928+00:00
+  updated: 2025-11-26T13:12:34.958344521+00:00
+  spec: null
+  acceptance_criteria: []
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels: []
+  notes: null
