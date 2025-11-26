@@ -224,7 +224,11 @@ fn bench_pipeline(c: &mut Criterion) {
 
         b.iter(|| {
             let response = handler.handle_batch(black_box(&batch)).unwrap();
-            metrics.record_batch(response.success_count, response.error_count, response.total_latency_ms);
+            metrics.record_batch(
+                response.success_count,
+                response.error_count,
+                response.total_latency_ms,
+            );
             black_box(response)
         });
     });

@@ -34,7 +34,10 @@ fn valid_apr_model() -> impl Strategy<Value = &'static [u8]> {
 
 /// Generate valid feature vectors (non-empty)
 fn valid_features() -> impl Strategy<Value = Vec<f32>> {
-    prop::collection::vec(any::<f32>().prop_filter("finite", |f| f.is_finite()), 1..100)
+    prop::collection::vec(
+        any::<f32>().prop_filter("finite", |f| f.is_finite()),
+        1..100,
+    )
 }
 
 /// Generate valid Lambda requests
