@@ -24,11 +24,14 @@ redundant_clone = "warn"
 trueno = { version = "0.7.0", features = ["gpu"] }
 
 # ML algorithms and .apr model format (optional for aprender model serving)
-# v0.10: metrics::evaluator, metrics::drift, classification metrics
-aprender = { version = "0.10", optional = true }
+# v0.11: format module with .apr save/load, CRC32, signatures, encryption
+aprender = { version = "0.11", optional = true }
 
 # Data loading library (optional for data pipeline examples)
 alimentar = { version = "0.1", optional = true, default-features = false, features = ["local", "shuffle"] }
+
+# Terminal/PNG visualization for benchmarks and metrics
+trueno-viz = { version = "0.1", optional = true, features = ["terminal"] }
 
 # HTTP server ONLY (swappable via HttpServer trait)
 axum = { version = "0.7", optional = true }
@@ -48,9 +51,16 @@ ureq = { version = "2", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+# Lock-free concurrent data structures
+arc-swap = { version = "1.7", optional = true }
+
 # Error handling
 thiserror = "1.0"
 anyhow = "1.0"
+
+# System interface for memory pinning (mlock)
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 # Numerical traits (for generic code)
 num-traits = "0.2"
@@ -74,7 +84,12 @@ proptest = "1.4"
 # Test utilities
 approx = "0.5"
 
-# For testing HTTP endpoints (Phase 1)
+# For testing HTTP endpoints (canonical tower/axum testing)
+http-body-util = "0.1"
+hyper = { version = "1.4", features = ["full"] }
+mime = "0.3"
+
+# For external HTTP testing (integration tests)
 reqwest = { version = "0.11", features = ["json"] }
 
 # For CLI integration tests
@@ -88,11 +103,12 @@ default = ["server", "cli", "gpu"]
 gpu = ["trueno/gpu"]  # Enable GPU acceleration via Trueno
 
 # Optional components
-server = ["dep:axum", "dep:tokio", "dep:tokio-stream", "dep:tower", "dep:futures", "dep:async-stream"]  # HTTP server support
+server = ["dep:axum", "dep:tokio", "dep:tokio-stream", "dep:tower", "dep:futures", "dep:async-stream", "dep:arc-swap"]  # HTTP server support
 cli = ["dep:clap", "server"]  # CLI binary (requires server)
 aprender-serve = ["dep:aprender", "server"]  # Aprender ML model serving (requires server)
 lambda = ["dep:ureq"]  # AWS Lambda handler (lightweight HTTP runtime)
 alimentar-data = ["dep:alimentar"]  # Data loading with alimentar
+visualization = ["dep:trueno-viz"]  # Terminal/PNG benchmark visualization
 
 # Testing features
 load-test-enabled = ["server"]  # Enable load tests (requires running server)
@@ -108,6 +124,10 @@ required-features = ["cli"]
 [[bin]]
 name = "wine_lambda"
 required-features = ["lambda"]
+
+[[bin]]
+name = "mnist_lambda"
+required-features = ["aprender-serve", "lambda"]
 
 [[bench]]
 name = "tensor_ops"
@@ -133,6 +153,30 @@ harness = false
 name = "lambda"
 harness = false
 required-features = ["lambda"]
+
+[[bench]]
+name = "comparative"
+harness = false
+
+[[example]]
+name = "build_mnist_model"
+required-features = ["aprender-serve"]
+
+[[example]]
+name = "serve_mnist"
+required-features = ["aprender-serve"]
+
+[[example]]
+name = "mnist_apr_benchmark"
+required-features = ["aprender-serve"]
+
+[[example]]
+name = "train_model"
+required-features = ["aprender-serve"]
+
+[[example]]
+name = "data_pipeline"
+required-features = ["alimentar-data"]
 
 [profile.release]
 opt-level = 3

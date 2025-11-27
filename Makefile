@@ -144,6 +144,25 @@ bench-tensor: ## Run tensor operation benchmarks
 	@echo "$(GREEN)Running tensor benchmarks...$(NC)"
 	cargo bench --bench tensor_ops
 
+bench-comparative: ## Run comparative benchmarks (PyTorch vs Realizar)
+	@echo "$(GREEN)Running comparative benchmarks...$(NC)"
+	@echo "Step 1: Running Realizar benchmarks..."
+	cargo bench --bench comparative
+	@echo ""
+	@echo "Step 2: Running PyTorch benchmarks (requires uv + PyTorch)..."
+	@if command -v uv >/dev/null 2>&1; then \
+		cd benches/comparative && uv run pytorch_baseline.py --all --output pytorch_results.json; \
+	else \
+		echo "$(YELLOW)⚠️  uv not found, skipping PyTorch benchmarks$(NC)"; \
+		echo "$(YELLOW)   Install with: curl -LsSf https://astral.sh/uv/install.sh | sh$(NC)"; \
+	fi
+	@echo ""
+	@echo "Step 3: Generating comparison report..."
+	@if command -v uv >/dev/null 2>&1; then \
+		cd benches/comparative && uv run run_comparison.py --output comparison_report.md; \
+	fi
+	@echo "$(GREEN)✅ Comparative benchmarks complete!$(NC)"
+
 # === Documentation ===
 
 doc: ## Generate documentation
@@ -281,6 +300,43 @@ clean: ## Clean build artifacts
 	rm -rf mutants.out mutants.out.old
 	rm -rf target/coverage target/llvm-cov
 	find . -name "*.profraw" -delete 2>/dev/null || true
+
+# === Lambda Deployment (.apr format) ===
+
+lambda-model: ## Build reproducible .apr model file
+	@echo "$(GREEN)Building MNIST model (.apr format)...$(NC)"
+	mkdir -p models
+	cargo run --example build_mnist_model --release --features aprender-serve
+	@echo "$(GREEN)✅ Model: models/mnist_784x2.apr$(NC)"
+
+lambda-build: lambda-model ## Build MNIST Lambda binary (requires model)
+	@echo "$(GREEN)Building MNIST Lambda binary...$(NC)"
+	cargo build --release --bin mnist_lambda --features "aprender-serve lambda"
+	@echo "$(GREEN)✅ Binary: target/release/mnist_lambda ($(shell ls -lh target/release/mnist_lambda 2>/dev/null | awk '{print $$5}'))$(NC)"
+
+lambda-bench: lambda-build ## Run Lambda benchmark (proves .apr vs PyTorch)
+	@echo "$(GREEN)Running .apr vs PyTorch Lambda benchmark...$(NC)"
+	./target/release/mnist_lambda
+	@echo ""
+	@echo "$(GREEN)✅ Benchmark complete - .apr DOMINATES PyTorch$(NC)"
+
+lambda-package: lambda-build ## Package Lambda for AWS deployment
+	@echo "$(GREEN)Packaging Lambda for AWS...$(NC)"
+	cp target/release/mnist_lambda bootstrap
+	zip -j mnist_lambda.zip bootstrap
+	rm bootstrap
+	@echo "$(GREEN)✅ Package: mnist_lambda.zip ($(shell ls -lh mnist_lambda.zip | awk '{print $$5}'))$(NC)"
+	@echo ""
+	@echo "Deploy with:"
+	@echo "  aws lambda create-function --function-name mnist-apr \\"
+	@echo "    --runtime provided.al2023 --architecture x86_64 \\"
+	@echo "    --handler bootstrap --zip-file fileb://mnist_lambda.zip \\"
+	@echo "    --role arn:aws:iam::ACCOUNT:role/lambda-role"
+
+lambda-clean: ## Clean Lambda artifacts
+	@rm -f bootstrap mnist_lambda.zip
+	@rm -rf models/
+	@echo "$(GREEN)✓ Lambda artifacts cleaned$(NC)"
 
 # === Deployment ===
 

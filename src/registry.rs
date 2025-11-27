@@ -23,8 +23,10 @@
 
 use std::{
     collections::HashMap,
-    sync::{Arc, RwLock},
+    sync::{Arc, Mutex},
 };
+
+use arc_swap::ArcSwap;
 
 use crate::{
     cache::ModelCache,
@@ -59,8 +61,8 @@ struct ModelEntry {
     info: ModelInfo,
 }
 
-/// Type alias for the models map
-type ModelsMap = Arc<RwLock<HashMap<String, ModelEntry>>>;
+/// Type alias for the models map (immutable snapshot)
+type ModelsMap = HashMap<String, ModelEntry>;
 
 /// Type alias for model and tokenizer tuple
 type ModelTuple = (Arc<Model>, Arc<BPETokenizer>);
@@ -69,9 +71,13 @@ type ModelTuple = (Arc<Model>, Arc<BPETokenizer>);
 ///
 /// The `ModelRegistry` provides thread-safe access to multiple models,
 /// with automatic caching and lifecycle management.
+///
+/// Uses `ArcSwap` for lock-free reads (per `McKenney` 2011).
 pub struct ModelRegistry {
-    /// Registry of loaded models
-    models: ModelsMap,
+    /// Registry of loaded models (lock-free reads via `ArcSwap`)
+    models: ArcSwap<ModelsMap>,
+    /// Write lock to serialize modifications
+    write_lock: Mutex<()>,
     /// Model cache for memory management (reserved for future use)
     #[allow(dead_code)]
     cache: Arc<ModelCache>,
@@ -86,7 +92,8 @@ impl ModelRegistry {
     #[must_use]
     pub fn new(cache_capacity: usize) -> Self {
         Self {
-            models: Arc::new(RwLock::new(HashMap::new())),
+            models: ArcSwap::from_pointee(HashMap::new()),
+            write_lock: Mutex::new(()),
             cache: Arc::new(ModelCache::new(cache_capacity)),
         }
     }
@@ -103,11 +110,12 @@ impl ModelRegistry {
     ///
     /// Returns error if model ID already exists
     pub fn register(&self, id: &str, model: Model, tokenizer: BPETokenizer) -> Result<()> {
-        let mut models = self.models.write().map_err(|_| {
+        let _guard = self.write_lock.lock().map_err(|_| {
             RealizarError::RegistryError("Failed to acquire write lock".to_string())
         })?;
 
-        if models.contains_key(id) {
+        let current = self.models.load();
+        if current.contains_key(id) {
             return Err(RealizarError::ModelAlreadyExists(id.to_string()));
         }
 
@@ -123,7 +131,9 @@ impl ModelRegistry {
             },
         };
 
-        models.insert(id.to_string(), entry);
+        let mut new_map: ModelsMap = (**current).clone();
+        new_map.insert(id.to_string(), entry);
+        self.models.store(Arc::new(new_map));
         Ok(())
     }
 
@@ -144,11 +154,12 @@ impl ModelRegistry {
         model: Model,
         tokenizer: BPETokenizer,
     ) -> Result<()> {
-        let mut models = self.models.write().map_err(|_| {
+        let _guard = self.write_lock.lock().map_err(|_| {
             RealizarError::RegistryError("Failed to acquire write lock".to_string())
         })?;
 
-        if models.contains_key(&info.id) {
+        let current = self.models.load();
+        if current.contains_key(&info.id) {
             return Err(RealizarError::ModelAlreadyExists(info.id));
         }
 
@@ -160,7 +171,9 @@ impl ModelRegistry {
         };
 
         let id = entry.info.id.clone();
-        models.insert(id, entry);
+        let mut new_map: ModelsMap = (**current).clone();
+        new_map.insert(id, entry);
+        self.models.store(Arc::new(new_map));
         Ok(())
     }
 
@@ -174,10 +187,8 @@ impl ModelRegistry {
     ///
     /// Returns error if model not found
     pub fn get(&self, id: &str) -> Result<ModelTuple> {
-        let models = self
-            .models
-            .read()
-            .map_err(|_| RealizarError::RegistryError("Failed to acquire read lock".to_string()))?;
+        // Lock-free read via ArcSwap::load()
+        let models = self.models.load();
 
         let entry = models
             .get(id)
@@ -196,10 +207,7 @@ impl ModelRegistry {
     ///
     /// Returns error if model not found
     pub fn get_info(&self, id: &str) -> Result<ModelInfo> {
-        let models = self
-            .models
-            .read()
-            .map_err(|_| RealizarError::RegistryError("Failed to acquire read lock".to_string()))?;
+        let models = self.models.load();
 
         let entry = models
             .get(id)
@@ -208,18 +216,11 @@ impl ModelRegistry {
         Ok(entry.info.clone())
     }
 
-    /// List all registered models
-    ///
-    /// # Errors
-    ///
-    /// Returns error if the registry lock is poisoned (indicates prior panic)
-    pub fn list(&self) -> Result<Vec<ModelInfo>> {
-        let models = self.models.read().map_err(|_| {
-            RealizarError::RegistryError(
-                "Registry lock poisoned - prior writer panic detected".to_string(),
-            )
-        })?;
-        Ok(models.values().map(|entry| entry.info.clone()).collect())
+    /// List all registered models (lock-free)
+    #[must_use]
+    pub fn list(&self) -> Vec<ModelInfo> {
+        let models = self.models.load();
+        models.values().map(|entry| entry.info.clone()).collect()
     }
 
     /// Unregister a model
@@ -232,52 +233,39 @@ impl ModelRegistry {
     ///
     /// Returns error if model not found
     pub fn unregister(&self, id: &str) -> Result<()> {
-        let mut models = self.models.write().map_err(|_| {
+        let _guard = self.write_lock.lock().map_err(|_| {
             RealizarError::RegistryError("Failed to acquire write lock".to_string())
         })?;
 
-        models
-            .remove(id)
-            .ok_or_else(|| RealizarError::ModelNotFound(id.to_string()))?;
+        let current = self.models.load();
+        if !current.contains_key(id) {
+            return Err(RealizarError::ModelNotFound(id.to_string()));
+        }
 
+        let mut new_map: ModelsMap = (**current).clone();
+        new_map.remove(id);
+        self.models.store(Arc::new(new_map));
         Ok(())
     }
 
-    /// Check if a model is registered
-    ///
-    /// # Errors
-    ///
-    /// Returns error if the registry lock is poisoned (indicates prior panic)
-    pub fn contains(&self, id: &str) -> Result<bool> {
-        let models = self.models.read().map_err(|_| {
-            RealizarError::RegistryError(
-                "Registry lock poisoned - prior writer panic detected".to_string(),
-            )
-        })?;
-        Ok(models.contains_key(id))
+    /// Check if a model is registered (lock-free)
+    #[must_use]
+    pub fn contains(&self, id: &str) -> bool {
+        let models = self.models.load();
+        models.contains_key(id)
     }
 
-    /// Get the number of registered models
-    ///
-    /// # Errors
-    ///
-    /// Returns error if the registry lock is poisoned (indicates prior panic)
-    pub fn len(&self) -> Result<usize> {
-        let models = self.models.read().map_err(|_| {
-            RealizarError::RegistryError(
-                "Registry lock poisoned - prior writer panic detected".to_string(),
-            )
-        })?;
-        Ok(models.len())
+    /// Get the number of registered models (lock-free)
+    #[must_use]
+    pub fn len(&self) -> usize {
+        let models = self.models.load();
+        models.len()
     }
 
-    /// Check if the registry is empty
-    ///
-    /// # Errors
-    ///
-    /// Returns error if the registry lock is poisoned (indicates prior panic)
-    pub fn is_empty(&self) -> Result<bool> {
-        Ok(self.len()? == 0)
+    /// Check if the registry is empty (lock-free)
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 
@@ -314,8 +302,8 @@ mod tests {
     #[test]
     fn test_registry_creation() {
         let registry = ModelRegistry::new(5);
-        assert_eq!(registry.len().unwrap(), 0);
-        assert!(registry.is_empty().unwrap());
+        assert_eq!(registry.len(), 0);
+        assert!(registry.is_empty());
     }
 
     #[test]
@@ -325,9 +313,9 @@ mod tests {
 
         registry.register("test-model", model, tokenizer).unwrap();
 
-        assert_eq!(registry.len().unwrap(), 1);
-        assert!(!registry.is_empty().unwrap());
-        assert!(registry.contains("test-model").unwrap());
+        assert_eq!(registry.len(), 1);
+        assert!(!registry.is_empty());
+        assert!(registry.contains("test-model"));
     }
 
     #[test]
@@ -340,7 +328,7 @@ mod tests {
         let result = registry.register("test-model", model2, tokenizer2);
 
         assert!(result.is_err());
-        assert_eq!(registry.len().unwrap(), 1);
+        assert_eq!(registry.len(), 1);
     }
 
     #[test]
@@ -397,7 +385,7 @@ mod tests {
         registry.register("model-1", model1, tokenizer1).unwrap();
         registry.register("model-2", model2, tokenizer2).unwrap();
 
-        let model_list = registry.list().unwrap();
+        let model_list = registry.list();
         assert_eq!(model_list.len(), 2);
 
         let ids: Vec<String> = model_list.iter().map(|m| m.id.clone()).collect();
@@ -411,11 +399,11 @@ mod tests {
         let (model, tokenizer) = create_test_model();
 
         registry.register("test-model", model, tokenizer).unwrap();
-        assert_eq!(registry.len().unwrap(), 1);
+        assert_eq!(registry.len(), 1);
 
         registry.unregister("test-model").unwrap();
-        assert_eq!(registry.len().unwrap(), 0);
-        assert!(!registry.contains("test-model").unwrap());
+        assert_eq!(registry.len(), 0);
+        assert!(!registry.contains("test-model"));
     }
 
     #[test]
@@ -449,7 +437,7 @@ mod tests {
             handle.join().unwrap();
         }
 
-        assert_eq!(registry.len().unwrap(), 5);
+        assert_eq!(registry.len(), 5);
     }
 
     #[test]

@@ -131,11 +131,11 @@ cmake -B build -DLLAMA_NATIVE=OFF -DLLAMA_AVX2=ON -DLLAMA_F16C=ON
 cmake --build build --config Release
 
 # vLLM
-pip install vllm --no-cache-dir
+uv install vllm --no-cache-dir
 export VLLM_CPU_ONLY=1
 
 # ONNX Runtime
-pip install onnxruntime
+uv install onnxruntime
 
 # Candle
 cargo build --release --features accelerate

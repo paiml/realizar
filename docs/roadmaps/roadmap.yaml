@@ -155,3 +155,133 @@ roadmap:
   estimated_effort: null
   labels: []
   notes: null
+- id: MOE-001
+  github_issue: null
+  item_type: task
+  title: Capacity Factor routing for inference-time MOE load balancing
+  status: inprogress
+  priority: high
+  assigned_to: null
+  created: 2025-11-27T00:00:00+00:00
+  updated: 2025-11-27T17:31:50.462643737+00:00
+  spec: docs/specifications/apr-hosting-moe-ab-testing-spec.md
+  acceptance_criteria:
+  - Implement CapacityFactorRouter with queue depth tracking
+  - Route to second-best expert when primary exceeds capacity threshold
+  - Support Power-of-Two-Choices algorithm (Mitzenmacher 2001)
+  - Replace auxiliary loss with runtime load balancing
+  - Unit tests with ≥85% coverage
+  - Property-based tests for load distribution fairness
+  phases: []
+  subtasks: []
+  estimated_effort: 3 days
+  labels:
+  - moe
+  - heijunka
+  - load-balancing
+  - review-action
+  notes: 'Per review: Fedus et al. (2022) on Switch Transformers for serving stability'
+- id: MOE-002
+  github_issue: null
+  item_type: task
+  title: Replace RwLock with lock-free reads (ArcSwap) in ModelRegistry
+  status: inprogress
+  priority: high
+  assigned_to: null
+  created: 2025-11-27T00:00:00+00:00
+  updated: 2025-11-27T17:40:23.563001950+00:00
+  spec: docs/specifications/apr-hosting-moe-ab-testing-spec.md
+  acceptance_criteria:
+  - Replace RwLock<HashMap> with ArcSwap for lock-free reads
+  - Maintain write safety via interior mutability pattern
+  - Benchmark read throughput improvement (target 10x under contention)
+  - Zero breaking changes to public API
+  - Unit tests for concurrent access patterns
+  - Stress test with 100+ concurrent readers
+  phases: []
+  subtasks: []
+  estimated_effort: 2 days
+  labels:
+  - registry
+  - concurrency
+  - just-in-time
+  - review-action
+  notes: 'Per review: McKenney (2011) on reader-writer lock starvation'
+- id: MOE-003
+  github_issue: null
+  item_type: task
+  title: Log-transform for latency A/B testing statistics
+  status: inprogress
+  priority: medium
+  assigned_to: null
+  created: 2025-11-27T00:00:00+00:00
+  updated: 2025-11-27T17:45:18.735044636+00:00
+  spec: docs/specifications/apr-hosting-moe-ab-testing-spec.md
+  acceptance_criteria:
+  - Add LogNormalAnalyzer for latency metrics
+  - Support Mann-Whitney U test as non-parametric alternative
+  - Auto-detect skewed distributions and recommend appropriate test
+  - Validate with simulated log-normal latency data
+  - Unit tests for statistical correctness
+  - Property-based tests with known distributions
+  phases: []
+  subtasks: []
+  estimated_effort: 2 days
+  labels:
+  - ab-testing
+  - statistics
+  - kaizen
+  - review-action
+  notes: 'Per review: Box et al. (2005) on statistical robustness for skewed data'
+- id: MOE-004
+  github_issue: null
+  item_type: task
+  title: Auto-rollback behavior for Andon triggers
+  status: inprogress
+  priority: medium
+  assigned_to: null
+  created: 2025-11-27T00:00:00+00:00
+  updated: 2025-11-27T17:47:26.075685915+00:00
+  spec: docs/specifications/apr-hosting-moe-ab-testing-spec.md
+  acceptance_criteria:
+  - Define AndonResponse enum (Rollback, Notify, Quarantine)
+  - Implement automatic rollback on ModelChecksumMismatch
+  - Add bulkhead isolation for failed experts
+  - Define "Fix" phase workflow with operator escalation
+  - Unit tests for each trigger type
+  - Integration test for rollback workflow
+  phases: []
+  subtasks: []
+  estimated_effort: 2 days
+  labels:
+  - jidoka
+  - andon
+  - reliability
+  - review-action
+  notes: 'Per review: Nygard (2018) on circuit breakers with bulkheads'
+- id: MOE-005
+  github_issue: null
+  item_type: task
+  title: Add mlock option for hot experts (prevent swap)
+  status: planned
+  priority: low
+  assigned_to: null
+  created: 2025-11-27T00:00:00+00:00
+  updated: 2025-11-27T00:00:00+00:00
+  spec: docs/specifications/apr-hosting-moe-ab-testing-spec.md
+  acceptance_criteria:
+  - Add MlockConfig for pinning hot experts in memory
+  - Implement mlock/munlock wrappers for model memory regions
+  - Add hot/cold tier classification for experts
+  - Graceful degradation if mlock fails (CAP_IPC_LOCK)
+  - Unit tests for mlock behavior
+  - Document memory requirements for hot tier
+  phases: []
+  subtasks: []
+  estimated_effort: 1 day
+  labels:
+  - memory
+  - performance
+  - genchi-genbutsu
+  - review-action
+  notes: 'Per review: Dean & Barroso (2013) on tail latency from page faults'

@@ -125,7 +125,10 @@ impl WinePredictor {
         .to_string();
 
         // Confidence
-        let confidence = normalized.iter().filter(|&&x| x >= 0.0 && x <= 1.0).count() as f32
+        let confidence = normalized
+            .iter()
+            .filter(|&&x| (0.0..=1.0).contains(&x))
+            .count() as f32
             / normalized.len() as f32;
 
         // Top factors

@@ -650,3 +650,247 @@ fn load_tests_disabled() {
     println!("Load tests are disabled. Enable with --features load-test-enabled");
     println!("Note: Requires a running server at http://127.0.0.1:8080");
 }
+
+// ============================================================================
+// MOE Infrastructure Load Tests (actix-style in-process)
+// ============================================================================
+// These tests run without requiring an external server
+
+mod moe_load_tests {
+    use std::{sync::Arc, thread, time::Instant};
+
+    use realizar::moe::{CapacityConfig, CapacityFactorRouter};
+    #[cfg(feature = "server")]
+    use realizar::registry::ModelRegistry;
+
+    /// Test MOE router under concurrent routing load
+    #[test]
+    fn test_moe_router_concurrent_load() {
+        let router = Arc::new(CapacityFactorRouter::new(CapacityConfig {
+            capacity: 100,
+            num_experts: 8,
+        }));
+
+        let num_threads = 10;
+        let requests_per_thread = 1000;
+        let mut handles = vec![];
+
+        let start = Instant::now();
+
+        for _ in 0..num_threads {
+            let router = Arc::clone(&router);
+            let handle = thread::spawn(move || {
+                let mut successes = 0u64;
+                let scores = vec![0.1, 0.2, 0.15, 0.3, 0.05, 0.1, 0.05, 0.05];
+
+                for _ in 0..requests_per_thread {
+                    if router.route(&scores).is_ok() {
+                        successes += 1;
+                    }
+                }
+                successes
+            });
+            handles.push(handle);
+        }
+
+        let total_success: u64 = handles.into_iter().map(|h| h.join().unwrap()).sum();
+        let duration = start.elapsed();
+
+        let total_requests = (num_threads * requests_per_thread) as u64;
+        let throughput = total_requests as f64 / duration.as_secs_f64();
+
+        println!("\n=== MOE Router Load Test ===");
+        println!("Threads: {num_threads}");
+        println!("Requests: {total_requests}");
+        println!("Successes: {total_success}");
+        println!("Duration: {:.2}ms", duration.as_secs_f64() * 1000.0);
+        println!("Throughput: {throughput:.0} routes/sec");
+
+        assert_eq!(total_success, total_requests);
+        assert!(
+            throughput > 100_000.0,
+            "Routing too slow: {throughput} routes/sec"
+        );
+    }
+
+    /// Test MOE router with capacity overflow (stress test)
+    #[test]
+    fn test_moe_router_capacity_overflow() {
+        let router = Arc::new(CapacityFactorRouter::new(CapacityConfig {
+            capacity: 5, // Very low capacity to force fallback
+            num_experts: 4,
+        }));
+
+        let num_threads = 20;
+        let mut handles = vec![];
+        let scores = vec![0.7, 0.2, 0.05, 0.05]; // Expert 0 heavily favored
+
+        // Fill up expert 0
+        for _ in 0..5 {
+            router.record_start(0);
+        }
+
+        for _ in 0..num_threads {
+            let router = Arc::clone(&router);
+            let scores = scores.clone();
+            let handle = thread::spawn(move || {
+                // Should fallback to expert 1 since expert 0 is full
+                router.route(&scores).unwrap()
+            });
+            handles.push(handle);
+        }
+
+        let results: Vec<usize> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+
+        // All should route to expert 1 (second best) due to overflow
+        let expert_1_count = results.iter().filter(|&&x| x == 1).count();
+        println!("\n=== Capacity Overflow Test ===");
+        println!("Routed to expert 1 (fallback): {expert_1_count}/{num_threads}");
+
+        assert_eq!(expert_1_count, num_threads);
+    }
+
+    /// Test registry under heavy read contention (lock-free reads)
+    #[test]
+    #[cfg(feature = "server")]
+    fn test_registry_read_contention() {
+        use realizar::{
+            layers::{Model, ModelConfig},
+            tokenizer::BPETokenizer,
+        };
+
+        let registry = Arc::new(ModelRegistry::new(10));
+
+        // Register a model
+        let config = ModelConfig {
+            vocab_size: 100,
+            hidden_dim: 32,
+            num_heads: 1,
+            num_layers: 1,
+            intermediate_dim: 64,
+            eps: 1e-5,
+        };
+        let model = Model::new(config).unwrap();
+        let vocab: Vec<String> = (0..100).map(|i| format!("t{i}")).collect();
+        let tokenizer = BPETokenizer::new(vocab, vec![], "t0").unwrap();
+        registry.register("test-model", model, tokenizer).unwrap();
+
+        let num_readers = 50;
+        let reads_per_thread = 10_000;
+        let mut handles = vec![];
+
+        let start = Instant::now();
+
+        for _ in 0..num_readers {
+            let registry = Arc::clone(&registry);
+            let handle = thread::spawn(move || {
+                let mut successes = 0u64;
+                for _ in 0..reads_per_thread {
+                    if registry.get("test-model").is_ok() {
+                        successes += 1;
+                    }
+                }
+                successes
+            });
+            handles.push(handle);
+        }
+
+        let total_success: u64 = handles.into_iter().map(|h| h.join().unwrap()).sum();
+        let duration = start.elapsed();
+
+        let total_reads = (num_readers * reads_per_thread) as u64;
+        let throughput = total_reads as f64 / duration.as_secs_f64();
+
+        println!("\n=== Registry Read Contention Test (ArcSwap) ===");
+        println!("Readers: {num_readers}");
+        println!("Total reads: {total_reads}");
+        println!("Successes: {total_success}");
+        println!("Duration: {:.2}ms", duration.as_secs_f64() * 1000.0);
+        println!("Throughput: {throughput:.0} reads/sec");
+
+        assert_eq!(total_success, total_reads);
+        // Lock-free reads should be very fast
+        assert!(throughput > 1_000_000.0, "Reads too slow: {throughput}/sec");
+    }
+
+    /// Test mixed read/write workload on registry
+    #[test]
+    #[cfg(feature = "server")]
+    fn test_registry_mixed_workload() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        use realizar::{
+            layers::{Model, ModelConfig},
+            tokenizer::BPETokenizer,
+        };
+
+        let registry = Arc::new(ModelRegistry::new(100));
+        let model_counter = Arc::new(AtomicUsize::new(0));
+
+        let num_readers = 10;
+        let num_writers = 2;
+        let ops_per_thread = 1000;
+
+        let mut handles = vec![];
+
+        // Spawn readers
+        for _ in 0..num_readers {
+            let registry = Arc::clone(&registry);
+            let handle = thread::spawn(move || {
+                let mut hits = 0u64;
+                for _ in 0..ops_per_thread {
+                    if registry.get("model-0").is_ok() {
+                        hits += 1;
+                    }
+                    // Small delay to allow writers
+                    thread::yield_now();
+                }
+                hits
+            });
+            handles.push(handle);
+        }
+
+        // Spawn writers
+        for writer_id in 0..num_writers {
+            let registry = Arc::clone(&registry);
+            let counter = Arc::clone(&model_counter);
+            let handle = thread::spawn(move || {
+                for _ in 0..ops_per_thread {
+                    let model_id = format!("model-{}", counter.fetch_add(1, Ordering::SeqCst));
+                    let config = ModelConfig {
+                        vocab_size: 100,
+                        hidden_dim: 32,
+                        num_heads: 1,
+                        num_layers: 1,
+                        intermediate_dim: 64,
+                        eps: 1e-5,
+                    };
+                    if let Ok(model) = Model::new(config) {
+                        let vocab: Vec<String> = (0..100).map(|j| format!("t{j}")).collect();
+                        if let Ok(tokenizer) = BPETokenizer::new(vocab, vec![], "t0") {
+                            let _ = registry.register(&model_id, model, tokenizer);
+                        }
+                    }
+                    thread::yield_now();
+                }
+                writer_id
+            });
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let final_count = registry.len();
+        println!("\n=== Registry Mixed Workload Test ===");
+        println!("Readers: {num_readers}, Writers: {num_writers}");
+        println!("Final model count: {final_count}");
+
+        // Should have registered many models without deadlock
+        assert!(
+            final_count > 100,
+            "Too few models registered: {final_count}"
+        );
+    }
+}

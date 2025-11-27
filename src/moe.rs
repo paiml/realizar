@@ -10,9 +10,13 @@
 //! - **Heijunka Controller**: Toyota Production System load leveling via Little's Law
 //! - **Andon Triggers**: Jidoka (built-in quality) automated quality control
 
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::{
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Mutex,
+    },
+    time::{Duration, Instant},
+};
 
 use crate::error::{RealizarError, Result};
 
@@ -38,7 +42,10 @@ impl CapacityFactorRouter {
         let queue_depths = (0..config.num_experts)
             .map(|_| AtomicUsize::new(0))
             .collect();
-        Self { config, queue_depths }
+        Self {
+            config,
+            queue_depths,
+        }
     }
 
     /// Route to best expert, falling back if at capacity
@@ -49,9 +56,11 @@ impl CapacityFactorRouter {
     /// Returns `ExpertCapacityExceeded` if all top experts are at capacity.
     pub fn route(&self, scores: &[f32]) -> Result<usize> {
         if scores.len() != self.config.num_experts {
-            return Err(RealizarError::MoeError(
-                format!("Expected {} scores, got {}", self.config.num_experts, scores.len())
-            ));
+            return Err(RealizarError::MoeError(format!(
+                "Expected {} scores, got {}",
+                self.config.num_experts,
+                scores.len()
+            )));
         }
 
         let top2 = Self::top_k_indices(scores, 2);
@@ -134,7 +143,10 @@ impl PowerOfTwoChoicesRouter {
         let queue_depths = (0..config.num_experts)
             .map(|_| AtomicUsize::new(0))
             .collect();
-        Self { config, queue_depths }
+        Self {
+            config,
+            queue_depths,
+        }
     }
 
     /// Route request using Power of Two Choices algorithm
@@ -307,7 +319,7 @@ impl CircuitBreaker {
         match state.current {
             CircuitState::Closed => {
                 state.failure_count = 0; // Reset on success
-            }
+            },
             CircuitState::HalfOpen => {
                 state.success_count += 1;
                 if state.success_count >= self.config.success_threshold {
@@ -315,8 +327,8 @@ impl CircuitBreaker {
                     state.failure_count = 0;
                     state.success_count = 0;
                 }
-            }
-            CircuitState::Open => {} // Shouldn't happen, but ignore
+            },
+            CircuitState::Open => {}, // Shouldn't happen, but ignore
         }
     }
 
@@ -421,7 +433,11 @@ impl HeijunkaController {
     #[allow(clippy::cast_possible_truncation)]
     #[allow(clippy::cast_sign_loss)]
     #[allow(clippy::cast_precision_loss)]
-    pub fn should_shed_load(&self, current_latency_ms: f64, current_concurrency: usize) -> LoadSheddingDecision {
+    pub fn should_shed_load(
+        &self,
+        current_latency_ms: f64,
+        current_concurrency: usize,
+    ) -> LoadSheddingDecision {
         let should_shed = current_latency_ms > self.config.target_latency_ms
             && current_concurrency >= self.config.max_concurrency;
 
@@ -496,7 +512,7 @@ impl AndonTrigger {
                 } else {
                     AndonResponse::Notify
                 }
-            }
+            },
             Self::LatencyExceeded { .. } | Self::ExpertImbalance { .. } => AndonResponse::Notify,
         }
     }
