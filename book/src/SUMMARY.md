@@ -98,6 +98,8 @@
 
 - [Command Structure](./cli/command-structure.md)
 - [Serve Command](./cli/serve.md)
+- [Bench Command](./cli/bench.md)
+- [Viz Command](./cli/viz.md)
 - [Info Command](./cli/info.md)
 - [CLI Testing with assert_cmd](./cli/testing.md)
 
@@ -113,11 +115,22 @@
 # AWS Lambda
 
 - [Overview](./lambda/overview.md)
+- [MNIST Benchmark: .apr vs PyTorch](./lambda/mnist-benchmark.md)
 - [Lambda Handler](./lambda/handler.md)
 - [Batch Inference](./lambda/batch.md)
 - [Metrics & Observability](./lambda/metrics.md)
 - [ARM64 Graviton Optimization](./lambda/arm64.md)
 - [Cold Start Optimization](./lambda/cold-start.md)
+
+# Mixture-of-Experts (MOE)
+
+- [Overview](./moe/overview.md)
+- [Capacity Factor Routing](./moe/capacity-routing.md)
+- [Andon Triggers (Jidoka)](./moe/andon.md)
+- [A/B Testing Statistics](./moe/ab-testing.md)
+- [Memory Pinning (mlock)](./moe/memory-pinning.md)
+- [Load Testing](./moe/load-testing.md)
+- [Reproducible Benchmarks](./moe/benchmarks.md)
 
 # GPU Acceleration
 

@@ -28,3 +28,5 @@ coverage.json
 *.profraw
 *.profdata
 *.apr
+# But keep model files in models/ for reproducibility
+!models/*.apr
