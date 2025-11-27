@@ -77,13 +77,14 @@ pub mod memory;
 pub mod metrics;
 pub mod moe;
 pub mod quantize;
-pub mod stats;
 #[cfg(feature = "server")]
 pub mod registry;
 pub mod safetensors;
 #[cfg(feature = "aprender-serve")]
 pub mod serve;
+pub mod stats;
 pub mod tensor;
+pub mod viz;
 
 /// AWS Lambda handler for aprender model serving
 #[cfg(feature = "lambda")]

@@ -103,7 +103,7 @@ impl AppState {
         default_model_id: &str,
     ) -> Result<Self, RealizarError> {
         // Verify default model exists
-        if !registry.contains(default_model_id)? {
+        if !registry.contains(default_model_id) {
             return Err(RealizarError::ModelNotFound(default_model_id.to_string()));
         }
 
@@ -412,14 +412,7 @@ async fn models_handler(
     State(state): State<AppState>,
 ) -> Result<Json<ModelsResponse>, (StatusCode, Json<ErrorResponse>)> {
     if let Some(registry) = &state.registry {
-        let models = registry.list().map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: format!("Registry error: {e}"),
-                }),
-            )
-        })?;
+        let models = registry.list();
         Ok(Json(ModelsResponse { models }))
     } else {
         // Single model mode - return the single model info

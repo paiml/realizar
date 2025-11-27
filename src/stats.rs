@@ -138,7 +138,11 @@ fn compute_skewness(data: &[f64]) -> f64 {
         return 0.0;
     }
 
-    let m3 = data.iter().map(|x| ((x - mean) / std_dev).powi(3)).sum::<f64>() / n;
+    let m3 = data
+        .iter()
+        .map(|x| ((x - mean) / std_dev).powi(3))
+        .sum::<f64>()
+        / n;
     m3
 }
 
@@ -341,8 +345,7 @@ pub fn analyze_with_auto_select(
 
     if config.auto_detect_skew && skewness.abs() > SKEWNESS_THRESHOLD {
         // Check if all values are positive (required for log-transform)
-        let all_positive = control.iter().all(|&x| x > 0.0)
-            && treatment.iter().all(|&x| x > 0.0);
+        let all_positive = control.iter().all(|&x| x > 0.0) && treatment.iter().all(|&x| x > 0.0);
 
         if all_positive {
             analyze_log_transform(control, treatment, config.alpha)
@@ -486,10 +489,14 @@ mod tests {
     #[test]
     fn test_auto_select_uses_log_transform_for_latency_like_data() {
         // Generate log-normal-ish data (typical latency distribution)
-        let control: Vec<f64> = vec![10.0, 12.0, 11.0, 15.0, 100.0, 13.0, 14.0, 11.0, 12.0, 10.0,
-                                     11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 200.0];
-        let treatment: Vec<f64> = vec![8.0, 9.0, 10.0, 11.0, 50.0, 9.0, 10.0, 8.0, 9.0, 10.0,
-                                       11.0, 12.0, 13.0, 14.0, 15.0, 8.0, 9.0, 10.0, 11.0, 80.0];
+        let control: Vec<f64> = vec![
+            10.0, 12.0, 11.0, 15.0, 100.0, 13.0, 14.0, 11.0, 12.0, 10.0, 11.0, 12.0, 13.0, 14.0,
+            15.0, 16.0, 17.0, 18.0, 19.0, 200.0,
+        ];
+        let treatment: Vec<f64> = vec![
+            8.0, 9.0, 10.0, 11.0, 50.0, 9.0, 10.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
+            8.0, 9.0, 10.0, 11.0, 80.0,
+        ];
 
         let config = AnalysisConfig {
             alpha: 0.05,
