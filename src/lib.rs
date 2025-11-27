@@ -72,9 +72,12 @@ pub mod error;
 pub mod generate;
 pub mod gguf;
 pub mod layers;
+pub mod memory;
 #[cfg(feature = "server")]
 pub mod metrics;
+pub mod moe;
 pub mod quantize;
+pub mod stats;
 #[cfg(feature = "server")]
 pub mod registry;
 pub mod safetensors;

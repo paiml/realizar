@@ -92,6 +92,21 @@ pub enum RealizarError {
     /// Model already registered
     #[error("Model '{0}' already registered")]
     ModelAlreadyExists(String),
+
+    /// MOE routing error
+    #[error("MOE routing error: {0}")]
+    MoeError(String),
+
+    /// Expert capacity exceeded
+    #[error("Expert {expert_id} capacity exceeded: {queue_depth}/{capacity}")]
+    ExpertCapacityExceeded {
+        /// Expert index
+        expert_id: usize,
+        /// Current queue depth
+        queue_depth: usize,
+        /// Maximum capacity
+        capacity: usize,
+    },
 }
 
 #[cfg(test)]
