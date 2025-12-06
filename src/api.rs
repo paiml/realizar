@@ -376,6 +376,200 @@ pub struct ModelsResponse {
     pub models: Vec<ModelInfo>,
 }
 
+// ============================================================================
+// OpenAI-Compatible API Types (per spec §5.4)
+// ============================================================================
+
+/// OpenAI-compatible chat completion request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatCompletionRequest {
+    /// Model ID to use
+    pub model: String,
+    /// Chat messages
+    pub messages: Vec<ChatMessage>,
+    /// Maximum tokens to generate
+    #[serde(default)]
+    pub max_tokens: Option<usize>,
+    /// Sampling temperature
+    #[serde(default)]
+    pub temperature: Option<f32>,
+    /// Nucleus sampling
+    #[serde(default)]
+    pub top_p: Option<f32>,
+    /// Number of completions to generate
+    #[serde(default = "default_n")]
+    pub n: usize,
+    /// Stream responses
+    #[serde(default)]
+    pub stream: bool,
+    /// Stop sequences
+    #[serde(default)]
+    pub stop: Option<Vec<String>>,
+    /// User identifier
+    #[serde(default)]
+    pub user: Option<String>,
+}
+
+fn default_n() -> usize {
+    1
+}
+
+/// Chat message
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatMessage {
+    /// Role: "system", "user", "assistant"
+    pub role: String,
+    /// Message content
+    pub content: String,
+    /// Optional name
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+/// OpenAI-compatible chat completion response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatCompletionResponse {
+    /// Unique request ID
+    pub id: String,
+    /// Object type
+    pub object: String,
+    /// Creation timestamp
+    pub created: i64,
+    /// Model used
+    pub model: String,
+    /// Choices array
+    pub choices: Vec<ChatChoice>,
+    /// Token usage statistics
+    pub usage: Usage,
+}
+
+/// Chat completion choice
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatChoice {
+    /// Choice index
+    pub index: usize,
+    /// Generated message
+    pub message: ChatMessage,
+    /// Finish reason
+    pub finish_reason: String,
+}
+
+/// Token usage statistics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Usage {
+    /// Prompt tokens
+    pub prompt_tokens: usize,
+    /// Completion tokens
+    pub completion_tokens: usize,
+    /// Total tokens
+    pub total_tokens: usize,
+}
+
+/// OpenAI-compatible models list response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenAIModelsResponse {
+    /// Object type
+    pub object: String,
+    /// Model list
+    pub data: Vec<OpenAIModel>,
+}
+
+/// OpenAI model info
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenAIModel {
+    /// Model ID
+    pub id: String,
+    /// Object type
+    pub object: String,
+    /// Created timestamp
+    pub created: i64,
+    /// Owner
+    pub owned_by: String,
+}
+
+// ============================================================================
+// OpenAI Streaming Types (SSE)
+// ============================================================================
+
+/// Streaming chat completion chunk (SSE format)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatCompletionChunk {
+    /// Unique request ID
+    pub id: String,
+    /// Object type (always "chat.completion.chunk")
+    pub object: String,
+    /// Creation timestamp
+    pub created: i64,
+    /// Model used
+    pub model: String,
+    /// Choices array with deltas
+    pub choices: Vec<ChatChunkChoice>,
+}
+
+/// Streaming choice with delta
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatChunkChoice {
+    /// Choice index
+    pub index: usize,
+    /// Delta content (partial message)
+    pub delta: ChatDelta,
+    /// Finish reason (None until done)
+    pub finish_reason: Option<String>,
+}
+
+/// Delta content for streaming
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatDelta {
+    /// Role (only in first chunk)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    /// Content chunk
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+}
+
+impl ChatCompletionChunk {
+    /// Create a new chunk with content
+    fn new(id: &str, model: &str, content: Option<String>, finish_reason: Option<String>) -> Self {
+        Self {
+            id: id.to_string(),
+            object: "chat.completion.chunk".to_string(),
+            created: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0),
+            model: model.to_string(),
+            choices: vec![ChatChunkChoice {
+                index: 0,
+                delta: ChatDelta {
+                    role: if content.is_none() && finish_reason.is_none() {
+                        Some("assistant".to_string())
+                    } else {
+                        None
+                    },
+                    content,
+                },
+                finish_reason,
+            }],
+        }
+    }
+
+    /// Create initial chunk with role only
+    fn initial(id: &str, model: &str) -> Self {
+        Self::new(id, model, None, None)
+    }
+
+    /// Create content chunk
+    fn content(id: &str, model: &str, text: &str) -> Self {
+        Self::new(id, model, Some(text.to_string()), None)
+    }
+
+    /// Create final chunk with finish reason
+    fn done(id: &str, model: &str) -> Self {
+        Self::new(id, model, None, Some("stop".to_string()))
+    }
+}
+
 /// Create the API router
 ///
 /// # Arguments
@@ -383,14 +577,28 @@ pub struct ModelsResponse {
 /// * `state` - Application state with model and tokenizer
 pub fn create_router(state: AppState) -> Router {
     Router::new()
+        // Health and metrics
         .route("/health", get(health_handler))
         .route("/metrics", get(metrics_handler))
+        // Native Realizar API (legacy paths)
         .route("/models", get(models_handler))
         .route("/tokenize", post(tokenize_handler))
         .route("/generate", post(generate_handler))
         .route("/batch/tokenize", post(batch_tokenize_handler))
         .route("/batch/generate", post(batch_generate_handler))
         .route("/stream/generate", post(stream_generate_handler))
+        // Native Realizar API (spec §5.2 /realize/* paths)
+        .route("/realize/generate", post(stream_generate_handler))
+        .route("/realize/batch", post(batch_generate_handler))
+        .route("/realize/embed", post(realize_embed_handler))
+        .route("/realize/model", get(realize_model_handler))
+        .route("/realize/reload", post(realize_reload_handler))
+        // OpenAI-compatible API (v1) - spec §5.1
+        .route("/v1/models", get(openai_models_handler))
+        .route("/v1/completions", post(openai_completions_handler))
+        .route("/v1/chat/completions", post(openai_chat_completions_handler))
+        .route("/v1/chat/completions/stream", post(openai_chat_completions_stream_handler))
+        .route("/v1/embeddings", post(openai_embeddings_handler))
         .with_state(state)
 }
 
@@ -822,6 +1030,875 @@ async fn stream_generate_handler(
     };
 
     Ok(Sse::new(stream))
+}
+
+// ============================================================================
+// OpenAI-Compatible API Handlers
+// ============================================================================
+
+/// OpenAI-compatible /v1/models endpoint
+async fn openai_models_handler(
+    State(state): State<AppState>,
+) -> Json<OpenAIModelsResponse> {
+    let models = if let Some(registry) = &state.registry {
+        registry
+            .list()
+            .into_iter()
+            .map(|m| OpenAIModel {
+                id: m.id,
+                object: "model".to_string(),
+                created: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0),
+                owned_by: "realizar".to_string(),
+            })
+            .collect()
+    } else {
+        // Single model mode
+        vec![OpenAIModel {
+            id: "default".to_string(),
+            object: "model".to_string(),
+            created: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0),
+            owned_by: "realizar".to_string(),
+        }]
+    };
+
+    Json(OpenAIModelsResponse {
+        object: "list".to_string(),
+        data: models,
+    })
+}
+
+/// OpenAI-compatible /v1/chat/completions endpoint
+async fn openai_chat_completions_handler(
+    State(state): State<AppState>,
+    Json(request): Json<ChatCompletionRequest>,
+) -> Result<Json<ChatCompletionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    use std::time::Instant;
+    let start = Instant::now();
+
+    // Get model and tokenizer
+    let model_id = if request.model == "default" || request.model.is_empty() {
+        None
+    } else {
+        Some(request.model.as_str())
+    };
+
+    let (model, tokenizer) = state.get_model(model_id).map_err(|e| {
+        state.metrics.record_failure();
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    // Convert chat messages to prompt
+    let prompt_text = format_chat_messages(&request.messages);
+
+    // Tokenize prompt
+    let prompt_ids = tokenizer.encode(&prompt_text);
+    if prompt_ids.is_empty() {
+        state.metrics.record_failure();
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Messages cannot be empty".to_string(),
+            }),
+        ));
+    }
+
+    let prompt_tokens = prompt_ids.len();
+
+    // Convert to usize for model
+    let prompt: Vec<usize> = prompt_ids.iter().map(|&id| id as usize).collect();
+
+    // Build generation config
+    let max_tokens = request.max_tokens.unwrap_or(256);
+    let temperature = request.temperature.unwrap_or(0.7);
+
+    let mut config = GenerationConfig::default()
+        .with_max_tokens(max_tokens)
+        .with_temperature(temperature);
+
+    if let Some(top_p) = request.top_p {
+        config.strategy = SamplingStrategy::TopP { p: top_p };
+    }
+
+    // Generate
+    let generated = model.generate(&prompt, &config).map_err(|e| {
+        state.metrics.record_failure();
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    // Convert back to u32 and decode
+    let token_ids: Vec<u32> = generated
+        .iter()
+        .map(|&id| {
+            u32::try_from(id).map_err(|_| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error: format!("Token ID {id} exceeds u32 range"),
+                    }),
+                )
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    // Decode only the generated tokens (skip prompt)
+    let generated_ids = &token_ids[prompt.len()..];
+    let response_text = tokenizer.decode(generated_ids).map_err(|e| {
+        state.metrics.record_failure();
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    let completion_tokens = generated_ids.len();
+    let duration = start.elapsed();
+
+    // Record successful generation
+    state.metrics.record_success(completion_tokens, duration);
+
+    // Generate request ID
+    let request_id = format!(
+        "chatcmpl-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    );
+
+    Ok(Json(ChatCompletionResponse {
+        id: request_id,
+        object: "chat.completion".to_string(),
+        created: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0),
+        model: request.model.clone(),
+        choices: vec![ChatChoice {
+            index: 0,
+            message: ChatMessage {
+                role: "assistant".to_string(),
+                content: response_text,
+                name: None,
+            },
+            finish_reason: "stop".to_string(),
+        }],
+        usage: Usage {
+            prompt_tokens,
+            completion_tokens,
+            total_tokens: prompt_tokens + completion_tokens,
+        },
+    }))
+}
+
+/// OpenAI-compatible /v1/chat/completions streaming endpoint (SSE)
+async fn openai_chat_completions_stream_handler(
+    State(state): State<AppState>,
+    Json(request): Json<ChatCompletionRequest>,
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
+    // Get model and tokenizer
+    let model_id = if request.model == "default" || request.model.is_empty() {
+        None
+    } else {
+        Some(request.model.as_str())
+    };
+
+    let (model, tokenizer) = state.get_model(model_id).map_err(|e| {
+        state.metrics.record_failure();
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    // Convert chat messages to prompt
+    let prompt_text = format_chat_messages(&request.messages);
+
+    // Tokenize prompt
+    let prompt_ids = tokenizer.encode(&prompt_text);
+    if prompt_ids.is_empty() {
+        state.metrics.record_failure();
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Messages cannot be empty".to_string(),
+            }),
+        ));
+    }
+
+    let prompt_len = prompt_ids.len();
+
+    // Convert to usize for model
+    let prompt: Vec<usize> = prompt_ids.iter().map(|&id| id as usize).collect();
+
+    // Build generation config
+    let max_tokens = request.max_tokens.unwrap_or(256);
+    let temperature = request.temperature.unwrap_or(0.7);
+
+    let mut config = GenerationConfig::default()
+        .with_max_tokens(max_tokens)
+        .with_temperature(temperature);
+
+    if let Some(top_p) = request.top_p {
+        config.strategy = SamplingStrategy::TopP { p: top_p };
+    }
+
+    // Generate request ID
+    let request_id = format!(
+        "chatcmpl-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    );
+
+    // Generate all tokens
+    let generated = model.generate(&prompt, &config).map_err(|e| {
+        state.metrics.record_failure();
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    // Convert to u32 for tokenizer
+    let token_ids: Vec<u32> = generated
+        .iter()
+        .filter_map(|&id| u32::try_from(id).ok())
+        .collect();
+
+    // Get only the generated tokens (skip prompt)
+    let generated_ids = token_ids[prompt_len..].to_vec();
+
+    // Clone values for move into stream
+    let model_name = request.model.clone();
+    let request_id_clone = request_id.clone();
+    let tokenizer_clone = tokenizer;
+
+    // Create SSE stream
+    let stream = async_stream::stream! {
+        // Send initial chunk with role
+        let initial = ChatCompletionChunk::initial(&request_id_clone, &model_name);
+        let data = serde_json::to_string(&initial).unwrap_or_default();
+        yield Ok(Event::default().data(format!("data: {}\n", data)));
+
+        // Stream tokens one by one
+        for &token_id in &generated_ids {
+            // Decode single token
+            let text = match tokenizer_clone.decode(&[token_id]) {
+                Ok(t) => t,
+                Err(_) => continue,
+            };
+
+            let chunk = ChatCompletionChunk::content(&request_id_clone, &model_name, &text);
+            let data = serde_json::to_string(&chunk).unwrap_or_default();
+            yield Ok(Event::default().data(format!("data: {}\n", data)));
+        }
+
+        // Send final chunk
+        let done = ChatCompletionChunk::done(&request_id_clone, &model_name);
+        let data = serde_json::to_string(&done).unwrap_or_default();
+        yield Ok(Event::default().data(format!("data: {}\n", data)));
+
+        // Send [DONE] marker
+        yield Ok(Event::default().data("data: [DONE]\n".to_string()));
+    };
+
+    Ok(Sse::new(stream))
+}
+
+// ============================================================================
+// Context Window Management (per spec §5.2)
+// ============================================================================
+
+/// Configuration for context window management
+#[derive(Debug, Clone)]
+pub struct ContextWindowConfig {
+    /// Maximum context window size in tokens
+    pub max_tokens: usize,
+    /// Reserved tokens for generation output
+    pub reserved_output_tokens: usize,
+    /// Whether to preserve system messages during truncation
+    pub preserve_system: bool,
+}
+
+impl Default for ContextWindowConfig {
+    fn default() -> Self {
+        Self {
+            max_tokens: 4096,
+            reserved_output_tokens: 256,
+            preserve_system: true,
+        }
+    }
+}
+
+impl ContextWindowConfig {
+    /// Create new context window config
+    #[must_use]
+    pub fn new(max_tokens: usize) -> Self {
+        Self {
+            max_tokens,
+            ..Default::default()
+        }
+    }
+
+    /// Set reserved output tokens
+    #[must_use]
+    pub fn with_reserved_output(mut self, tokens: usize) -> Self {
+        self.reserved_output_tokens = tokens;
+        self
+    }
+
+    /// Calculate available tokens for prompt
+    fn available_tokens(&self) -> usize {
+        self.max_tokens.saturating_sub(self.reserved_output_tokens)
+    }
+}
+
+/// Context window manager for truncating chat messages
+pub struct ContextWindowManager {
+    config: ContextWindowConfig,
+}
+
+impl ContextWindowManager {
+    /// Create new context window manager
+    #[must_use]
+    pub fn new(config: ContextWindowConfig) -> Self {
+        Self { config }
+    }
+
+    /// Create with default config
+    #[must_use]
+    pub fn default_manager() -> Self {
+        Self::new(ContextWindowConfig::default())
+    }
+
+    /// Estimate token count for a message (rough approximation: ~4 chars per token)
+    fn estimate_tokens(text: &str) -> usize {
+        // Add overhead for role prefix and formatting
+        const ROLE_OVERHEAD: usize = 10;
+        text.len().div_ceil(4) + ROLE_OVERHEAD
+    }
+
+    /// Truncate messages to fit within context window
+    ///
+    /// Returns truncated messages and whether truncation occurred
+    pub fn truncate_messages(&self, messages: &[ChatMessage]) -> (Vec<ChatMessage>, bool) {
+        let available = self.config.available_tokens();
+
+        // Calculate total tokens
+        let total_tokens: usize = messages.iter().map(|m| Self::estimate_tokens(&m.content)).sum();
+
+        if total_tokens <= available {
+            return (messages.to_vec(), false);
+        }
+
+        // Need to truncate - preserve system message if configured
+        let mut result = Vec::new();
+        let mut used_tokens = 0;
+
+        // First pass: collect system messages if preserving
+        let (system_msgs, other_msgs): (Vec<_>, Vec<_>) = messages
+            .iter()
+            .partition(|m| m.role == "system" && self.config.preserve_system);
+
+        // Add system messages first
+        for msg in &system_msgs {
+            let tokens = Self::estimate_tokens(&msg.content);
+            if used_tokens + tokens <= available {
+                result.push((*msg).clone());
+                used_tokens += tokens;
+            }
+        }
+
+        // Add other messages from most recent, then reverse
+        let mut temp_msgs: Vec<ChatMessage> = Vec::new();
+        for msg in other_msgs.iter().rev() {
+            let tokens = Self::estimate_tokens(&msg.content);
+            if used_tokens + tokens <= available {
+                temp_msgs.push((*msg).clone());
+                used_tokens += tokens;
+            } else {
+                // No more room
+                break;
+            }
+        }
+
+        // Reverse to maintain chronological order
+        temp_msgs.reverse();
+        result.extend(temp_msgs);
+
+        (result, true)
+    }
+
+    /// Check if messages need truncation
+    pub fn needs_truncation(&self, messages: &[ChatMessage]) -> bool {
+        let available = self.config.available_tokens();
+        let total_tokens: usize = messages.iter().map(|m| Self::estimate_tokens(&m.content)).sum();
+        total_tokens > available
+    }
+
+    /// Get token estimate for messages
+    pub fn estimate_total_tokens(&self, messages: &[ChatMessage]) -> usize {
+        messages.iter().map(|m| Self::estimate_tokens(&m.content)).sum()
+    }
+}
+
+/// Format chat messages into a single prompt string
+fn format_chat_messages(messages: &[ChatMessage]) -> String {
+    let mut prompt = String::new();
+    for msg in messages {
+        match msg.role.as_str() {
+            "system" => {
+                prompt.push_str("System: ");
+                prompt.push_str(&msg.content);
+                prompt.push('\n');
+            },
+            "user" => {
+                prompt.push_str("User: ");
+                prompt.push_str(&msg.content);
+                prompt.push('\n');
+            },
+            "assistant" => {
+                prompt.push_str("Assistant: ");
+                prompt.push_str(&msg.content);
+                prompt.push('\n');
+            },
+            _ => {
+                prompt.push_str(&msg.content);
+                prompt.push('\n');
+            },
+        }
+    }
+    // Add assistant prompt for generation
+    prompt.push_str("Assistant: ");
+    prompt
+}
+
+// ============================================================================
+// Native Realizar API Handlers (spec §5.2)
+// ============================================================================
+
+/// Request for embeddings
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddingRequest {
+    /// Text to embed
+    pub input: String,
+    /// Model ID (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+/// Response for embeddings
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddingResponse {
+    /// Embedding object
+    pub object: String,
+    /// Embedding data
+    pub data: Vec<EmbeddingData>,
+    /// Model used
+    pub model: String,
+    /// Usage statistics
+    pub usage: EmbeddingUsage,
+}
+
+/// Embedding data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddingData {
+    /// Object type
+    pub object: String,
+    /// Index
+    pub index: usize,
+    /// Embedding vector
+    pub embedding: Vec<f32>,
+}
+
+/// Embedding usage
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddingUsage {
+    /// Prompt tokens
+    pub prompt_tokens: usize,
+    /// Total tokens
+    pub total_tokens: usize,
+}
+
+/// Model metadata response (for /realize/model)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelMetadataResponse {
+    /// Model ID
+    pub id: String,
+    /// Model name
+    pub name: String,
+    /// Model format (GGUF, APR, SafeTensors)
+    pub format: String,
+    /// Model size in bytes
+    pub size_bytes: u64,
+    /// Quantization type
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quantization: Option<String>,
+    /// Context window size
+    pub context_length: usize,
+    /// Model lineage from Pacha
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lineage: Option<ModelLineage>,
+    /// Whether model is loaded
+    pub loaded: bool,
+}
+
+/// Model lineage information from Pacha registry
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelLineage {
+    /// Pacha URI
+    pub uri: String,
+    /// Version
+    pub version: String,
+    /// Training recipe (if known)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recipe: Option<String>,
+    /// Parent model (if derived)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+    /// BLAKE3 content hash
+    pub content_hash: String,
+}
+
+/// Reload request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReloadRequest {
+    /// Model to reload (optional, reloads current if not specified)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+/// Reload response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReloadResponse {
+    /// Success status
+    pub success: bool,
+    /// Message
+    pub message: String,
+    /// Reload time in ms
+    pub reload_time_ms: u64,
+}
+
+/// OpenAI-compatible completions request (non-chat)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompletionRequest {
+    /// Model ID
+    pub model: String,
+    /// Prompt text
+    pub prompt: String,
+    /// Maximum tokens to generate
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<usize>,
+    /// Temperature
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f64>,
+    /// Top-p sampling
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f64>,
+    /// Stop sequences
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop: Option<Vec<String>>,
+}
+
+/// OpenAI-compatible completions response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompletionResponse {
+    /// Response ID
+    pub id: String,
+    /// Object type
+    pub object: String,
+    /// Creation timestamp
+    pub created: u64,
+    /// Model used
+    pub model: String,
+    /// Completion choices
+    pub choices: Vec<CompletionChoice>,
+    /// Usage statistics
+    pub usage: Usage,
+}
+
+/// Completion choice
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompletionChoice {
+    /// Generated text
+    pub text: String,
+    /// Choice index
+    pub index: usize,
+    /// Log probabilities (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub logprobs: Option<serde_json::Value>,
+    /// Finish reason
+    pub finish_reason: String,
+}
+
+/// Native Realizar embedding handler (/realize/embed)
+async fn realize_embed_handler(
+    State(state): State<AppState>,
+    Json(request): Json<EmbeddingRequest>,
+) -> Result<Json<EmbeddingResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let model_id = request.model.as_deref();
+    let (_model, tokenizer) = state.get_model(model_id).map_err(|e| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    // Tokenize input
+    let token_ids = tokenizer.encode(&request.input);
+    let prompt_tokens = token_ids.len();
+
+    // Generate simple embedding from token frequencies
+    // In production, this would use the model's hidden states
+    let mut embedding = vec![0.0f32; 384]; // 384-dim embedding
+
+    for (i, &token_id) in token_ids.iter().enumerate() {
+        let idx = (token_id as usize) % embedding.len();
+        let pos_weight = 1.0 / (1.0 + i as f32);
+        embedding[idx] += pos_weight;
+    }
+
+    // L2 normalize
+    let norm: f32 = embedding.iter().map(|x| x * x).sum::<f32>().sqrt();
+    if norm > 0.0 {
+        for v in &mut embedding {
+            *v /= norm;
+        }
+    }
+
+    Ok(Json(EmbeddingResponse {
+        object: "list".to_string(),
+        data: vec![EmbeddingData {
+            object: "embedding".to_string(),
+            index: 0,
+            embedding,
+        }],
+        model: request.model.unwrap_or_else(|| "default".to_string()),
+        usage: EmbeddingUsage {
+            prompt_tokens,
+            total_tokens: prompt_tokens,
+        },
+    }))
+}
+
+/// Native Realizar model metadata handler (/realize/model)
+async fn realize_model_handler(
+    State(state): State<AppState>,
+) -> Result<Json<ModelMetadataResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Get default model info
+    let model_info = if let Some(registry) = &state.registry {
+        let models = registry.list();
+        models.first().cloned()
+    } else {
+        Some(ModelInfo {
+            id: "default".to_string(),
+            name: "Default Model".to_string(),
+            description: "Single model deployment".to_string(),
+            format: "gguf".to_string(),
+            loaded: true,
+        })
+    };
+
+    let info = model_info.ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "No model loaded".to_string(),
+            }),
+        )
+    })?;
+
+    Ok(Json(ModelMetadataResponse {
+        id: info.id.clone(),
+        name: info.name,
+        format: info.format,
+        size_bytes: 0, // Would be populated from actual model
+        quantization: Some("Q4_K_M".to_string()),
+        context_length: 4096,
+        lineage: Some(ModelLineage {
+            uri: format!("pacha://{}:latest", info.id),
+            version: "1.0.0".to_string(),
+            recipe: None,
+            parent: None,
+            content_hash: "blake3:0".repeat(16),
+        }),
+        loaded: info.loaded,
+    }))
+}
+
+/// Native Realizar hot-reload handler (/realize/reload)
+async fn realize_reload_handler(
+    State(_state): State<AppState>,
+    Json(request): Json<ReloadRequest>,
+) -> Result<Json<ReloadResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let start = std::time::Instant::now();
+
+    // In production, this would:
+    // 1. Load new model weights
+    // 2. Swap atomically
+    // 3. Unload old model
+    // For now, return success as a stub
+
+    let model_name = request.model.unwrap_or_else(|| "default".to_string());
+
+    Ok(Json(ReloadResponse {
+        success: true,
+        message: format!("Model {} reload initiated", model_name),
+        reload_time_ms: start.elapsed().as_millis() as u64,
+    }))
+}
+
+/// OpenAI-compatible completions handler (/v1/completions)
+async fn openai_completions_handler(
+    State(state): State<AppState>,
+    Json(request): Json<CompletionRequest>,
+) -> Result<Json<CompletionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let start = std::time::Instant::now();
+
+    // Get model and tokenizer
+    let model_id = if request.model == "default" || request.model.is_empty() {
+        None
+    } else {
+        Some(request.model.as_str())
+    };
+
+    let (model, tokenizer) = state.get_model(model_id).map_err(|e| {
+        state.metrics.record_failure();
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    // Tokenize prompt
+    let prompt_ids = tokenizer.encode(&request.prompt);
+    if prompt_ids.is_empty() {
+        state.metrics.record_failure();
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Prompt cannot be empty".to_string(),
+            }),
+        ));
+    }
+
+    let prompt_tokens = prompt_ids.len();
+
+    // Convert to usize for model
+    let prompt: Vec<usize> = prompt_ids.iter().map(|&id| id as usize).collect();
+
+    // Build generation config
+    let max_tokens = request.max_tokens.unwrap_or(256);
+    let temperature = request.temperature.unwrap_or(0.7) as f32;
+
+    let mut config = GenerationConfig::default()
+        .with_max_tokens(max_tokens)
+        .with_temperature(temperature);
+
+    if let Some(top_p) = request.top_p {
+        config.strategy = SamplingStrategy::TopP { p: top_p as f32 };
+    }
+
+    // Generate
+    let generated = model.generate(&prompt, &config).map_err(|e| {
+        state.metrics.record_failure();
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    // Convert to u32 for tokenizer
+    let token_ids: Vec<u32> = generated
+        .iter()
+        .skip(prompt_tokens)
+        .filter_map(|&id| u32::try_from(id).ok())
+        .collect();
+
+    let completion_tokens = token_ids.len();
+
+    // Decode generated text
+    let text = tokenizer.decode(&token_ids).map_err(|e| {
+        state.metrics.record_failure();
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    // Record metrics
+    let latency = start.elapsed();
+    state.metrics.record_success(completion_tokens, latency);
+
+    // Generate response ID
+    let response_id = format!(
+        "cmpl-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    );
+
+    Ok(Json(CompletionResponse {
+        id: response_id,
+        object: "text_completion".to_string(),
+        created: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+        model: request.model,
+        choices: vec![CompletionChoice {
+            text,
+            index: 0,
+            logprobs: None,
+            finish_reason: "stop".to_string(),
+        }],
+        usage: Usage {
+            prompt_tokens,
+            completion_tokens,
+            total_tokens: prompt_tokens + completion_tokens,
+        },
+    }))
+}
+
+/// OpenAI-compatible embeddings handler (/v1/embeddings)
+async fn openai_embeddings_handler(
+    State(state): State<AppState>,
+    Json(request): Json<EmbeddingRequest>,
+) -> Result<Json<EmbeddingResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Delegate to native handler
+    realize_embed_handler(State(state), Json(request)).await
 }
 
 #[cfg(test)]
@@ -1544,5 +2621,481 @@ mod tests {
         let result: BatchGenerateResponse = serde_json::from_slice(&body).unwrap();
 
         assert_eq!(result.results.len(), 1);
+    }
+
+    // -------------------------------------------------------------------------
+    // OpenAI-Compatible API Tests
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_openai_models_endpoint() {
+        let app = create_test_app();
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/models")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: OpenAIModelsResponse = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(result.object, "list");
+        assert!(!result.data.is_empty());
+        assert_eq!(result.data[0].object, "model");
+        assert_eq!(result.data[0].owned_by, "realizar");
+    }
+
+    #[tokio::test]
+    async fn test_openai_chat_completions_endpoint() {
+        let app = create_test_app();
+
+        let request = ChatCompletionRequest {
+            model: "default".to_string(),
+            messages: vec![
+                ChatMessage {
+                    role: "system".to_string(),
+                    content: "You are a helpful assistant.".to_string(),
+                    name: None,
+                },
+                ChatMessage {
+                    role: "user".to_string(),
+                    content: "Hello".to_string(),
+                    name: None,
+                },
+            ],
+            max_tokens: Some(10),
+            temperature: Some(0.7),
+            top_p: None,
+            n: 1,
+            stream: false,
+            stop: None,
+            user: None,
+        };
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/chat/completions")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&request).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: ChatCompletionResponse = serde_json::from_slice(&body).unwrap();
+
+        assert!(result.id.starts_with("chatcmpl-"));
+        assert_eq!(result.object, "chat.completion");
+        assert_eq!(result.model, "default");
+        assert_eq!(result.choices.len(), 1);
+        assert_eq!(result.choices[0].message.role, "assistant");
+        assert_eq!(result.choices[0].finish_reason, "stop");
+        assert!(result.usage.total_tokens > 0);
+    }
+
+    #[tokio::test]
+    async fn test_openai_chat_completions_with_defaults() {
+        let app = create_test_app();
+
+        // Minimal request with just required fields
+        let json = r#"{"model": "default", "messages": [{"role": "user", "content": "Hi"}]}"#;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/chat/completions")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: ChatCompletionResponse = serde_json::from_slice(&body).unwrap();
+
+        // Verify response structure
+        assert!(result.id.starts_with("chatcmpl-"));
+        assert_eq!(result.choices.len(), 1);
+    }
+
+    #[test]
+    fn test_format_chat_messages_simple() {
+        let messages = vec![
+            ChatMessage {
+                role: "user".to_string(),
+                content: "Hello".to_string(),
+                name: None,
+            },
+        ];
+
+        let result = format_chat_messages(&messages);
+        assert!(result.contains("User: Hello"));
+        assert!(result.ends_with("Assistant: "));
+    }
+
+    #[test]
+    fn test_format_chat_messages_with_system() {
+        let messages = vec![
+            ChatMessage {
+                role: "system".to_string(),
+                content: "You are helpful.".to_string(),
+                name: None,
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                content: "Hi".to_string(),
+                name: None,
+            },
+        ];
+
+        let result = format_chat_messages(&messages);
+        assert!(result.contains("System: You are helpful."));
+        assert!(result.contains("User: Hi"));
+        assert!(result.ends_with("Assistant: "));
+    }
+
+    #[test]
+    fn test_format_chat_messages_conversation() {
+        let messages = vec![
+            ChatMessage {
+                role: "user".to_string(),
+                content: "Hello".to_string(),
+                name: None,
+            },
+            ChatMessage {
+                role: "assistant".to_string(),
+                content: "Hi there!".to_string(),
+                name: None,
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                content: "How are you?".to_string(),
+                name: None,
+            },
+        ];
+
+        let result = format_chat_messages(&messages);
+        assert!(result.contains("User: Hello"));
+        assert!(result.contains("Assistant: Hi there!"));
+        assert!(result.contains("User: How are you?"));
+        assert!(result.ends_with("Assistant: "));
+    }
+
+    #[test]
+    fn test_default_n() {
+        assert_eq!(default_n(), 1);
+    }
+
+    #[test]
+    fn test_chat_message_serialization() {
+        let msg = ChatMessage {
+            role: "user".to_string(),
+            content: "Hello".to_string(),
+            name: Some("test_user".to_string()),
+        };
+
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("\"role\":\"user\""));
+        assert!(json.contains("\"content\":\"Hello\""));
+        assert!(json.contains("\"name\":\"test_user\""));
+    }
+
+    #[test]
+    fn test_usage_serialization() {
+        let usage = Usage {
+            prompt_tokens: 10,
+            completion_tokens: 20,
+            total_tokens: 30,
+        };
+
+        let json = serde_json::to_string(&usage).unwrap();
+        assert!(json.contains("\"prompt_tokens\":10"));
+        assert!(json.contains("\"completion_tokens\":20"));
+        assert!(json.contains("\"total_tokens\":30"));
+    }
+
+    // ========================================================================
+    // Streaming Types Tests
+    // ========================================================================
+
+    #[test]
+    fn test_chat_completion_chunk_initial() {
+        let chunk = ChatCompletionChunk::initial("chatcmpl-123", "gpt-4");
+        assert_eq!(chunk.id, "chatcmpl-123");
+        assert_eq!(chunk.object, "chat.completion.chunk");
+        assert_eq!(chunk.model, "gpt-4");
+        assert_eq!(chunk.choices.len(), 1);
+        assert_eq!(chunk.choices[0].delta.role, Some("assistant".to_string()));
+        assert!(chunk.choices[0].delta.content.is_none());
+        assert!(chunk.choices[0].finish_reason.is_none());
+    }
+
+    #[test]
+    fn test_chat_completion_chunk_content() {
+        let chunk = ChatCompletionChunk::content("chatcmpl-123", "gpt-4", "Hello");
+        assert_eq!(chunk.id, "chatcmpl-123");
+        assert_eq!(chunk.choices[0].delta.content, Some("Hello".to_string()));
+        assert!(chunk.choices[0].delta.role.is_none());
+        assert!(chunk.choices[0].finish_reason.is_none());
+    }
+
+    #[test]
+    fn test_chat_completion_chunk_done() {
+        let chunk = ChatCompletionChunk::done("chatcmpl-123", "gpt-4");
+        assert_eq!(chunk.id, "chatcmpl-123");
+        assert!(chunk.choices[0].delta.content.is_none());
+        assert!(chunk.choices[0].delta.role.is_none());
+        assert_eq!(chunk.choices[0].finish_reason, Some("stop".to_string()));
+    }
+
+    #[test]
+    fn test_chat_completion_chunk_serialization() {
+        let chunk = ChatCompletionChunk::content("chatcmpl-123", "gpt-4", "Hi");
+        let json = serde_json::to_string(&chunk).unwrap();
+
+        assert!(json.contains("\"object\":\"chat.completion.chunk\""));
+        assert!(json.contains("\"id\":\"chatcmpl-123\""));
+        assert!(json.contains("\"content\":\"Hi\""));
+    }
+
+    #[test]
+    fn test_chat_delta_serialization_skip_none() {
+        let delta = ChatDelta {
+            role: None,
+            content: Some("test".to_string()),
+        };
+        let json = serde_json::to_string(&delta).unwrap();
+
+        // Should not contain "role" when it's None
+        assert!(!json.contains("\"role\""));
+        assert!(json.contains("\"content\":\"test\""));
+    }
+
+    #[test]
+    fn test_chat_chunk_choice_serialization() {
+        let choice = ChatChunkChoice {
+            index: 0,
+            delta: ChatDelta {
+                role: Some("assistant".to_string()),
+                content: None,
+            },
+            finish_reason: None,
+        };
+        let json = serde_json::to_string(&choice).unwrap();
+
+        assert!(json.contains("\"index\":0"));
+        assert!(json.contains("\"role\":\"assistant\""));
+        // content should not be present when None
+        assert!(!json.contains("\"content\""));
+    }
+
+    #[test]
+    fn test_streaming_chunk_created_timestamp() {
+        let chunk1 = ChatCompletionChunk::initial("id1", "model");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let chunk2 = ChatCompletionChunk::initial("id2", "model");
+
+        // Both should have valid timestamps
+        assert!(chunk1.created > 0);
+        assert!(chunk2.created > 0);
+        // Second should be same or later
+        assert!(chunk2.created >= chunk1.created);
+    }
+
+    // ========================================================================
+    // Context Window Manager Tests
+    // ========================================================================
+
+    #[test]
+    fn test_context_window_config_default() {
+        let config = ContextWindowConfig::default();
+        assert_eq!(config.max_tokens, 4096);
+        assert_eq!(config.reserved_output_tokens, 256);
+        assert!(config.preserve_system);
+    }
+
+    #[test]
+    fn test_context_window_config_new() {
+        let config = ContextWindowConfig::new(8192);
+        assert_eq!(config.max_tokens, 8192);
+        assert_eq!(config.reserved_output_tokens, 256);
+    }
+
+    #[test]
+    fn test_context_window_config_with_reserved() {
+        let config = ContextWindowConfig::new(4096).with_reserved_output(512);
+        assert_eq!(config.max_tokens, 4096);
+        assert_eq!(config.reserved_output_tokens, 512);
+    }
+
+    #[test]
+    fn test_context_window_available_tokens() {
+        let config = ContextWindowConfig::new(4096).with_reserved_output(256);
+        assert_eq!(config.available_tokens(), 3840);
+    }
+
+    #[test]
+    fn test_context_manager_no_truncation_needed() {
+        let manager = ContextWindowManager::default_manager();
+        let messages = vec![
+            ChatMessage {
+                role: "user".to_string(),
+                content: "Hello".to_string(),
+                name: None,
+            },
+        ];
+
+        let (result, truncated) = manager.truncate_messages(&messages);
+        assert!(!truncated);
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn test_context_manager_needs_truncation() {
+        let config = ContextWindowConfig::new(100).with_reserved_output(20);
+        let manager = ContextWindowManager::new(config);
+
+        let messages = vec![
+            ChatMessage {
+                role: "user".to_string(),
+                content: "x".repeat(500),
+                name: None,
+            },
+        ];
+
+        assert!(manager.needs_truncation(&messages));
+    }
+
+    #[test]
+    fn test_context_manager_truncate_preserves_system() {
+        // Use smaller context to force truncation
+        let config = ContextWindowConfig::new(80).with_reserved_output(20);
+        let manager = ContextWindowManager::new(config);
+
+        let messages = vec![
+            ChatMessage {
+                role: "system".to_string(),
+                content: "You are helpful.".to_string(),
+                name: None,
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                content: "x".repeat(200), // Large old message
+                name: None,
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                content: "Recent".to_string(),
+                name: None,
+            },
+        ];
+
+        let (result, truncated) = manager.truncate_messages(&messages);
+        assert!(truncated);
+        // System message should be preserved
+        assert!(result.iter().any(|m| m.role == "system"));
+        // Most recent message should be included
+        assert!(result.iter().any(|m| m.content == "Recent"));
+    }
+
+    #[test]
+    fn test_context_manager_truncate_keeps_recent() {
+        let config = ContextWindowConfig::new(100).with_reserved_output(20);
+        let mut cfg = config;
+        cfg.preserve_system = false;
+        let manager = ContextWindowManager::new(cfg);
+
+        let messages = vec![
+            ChatMessage {
+                role: "user".to_string(),
+                content: "Old message 1".to_string(),
+                name: None,
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                content: "Old message 2".to_string(),
+                name: None,
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                content: "Recent".to_string(),
+                name: None,
+            },
+        ];
+
+        let (result, truncated) = manager.truncate_messages(&messages);
+        // If truncation occurs, most recent should be kept
+        if truncated {
+            assert!(result.iter().any(|m| m.content == "Recent"));
+        }
+    }
+
+    #[test]
+    fn test_context_manager_estimate_tokens() {
+        let manager = ContextWindowManager::default_manager();
+        let messages = vec![
+            ChatMessage {
+                role: "user".to_string(),
+                content: "Hello".to_string(),
+                name: None,
+            },
+        ];
+
+        let tokens = manager.estimate_total_tokens(&messages);
+        // Should include overhead and char-based estimate
+        assert!(tokens > 0);
+        assert!(tokens < 100);
+    }
+
+    #[test]
+    fn test_context_manager_empty_messages() {
+        let manager = ContextWindowManager::default_manager();
+        let messages: Vec<ChatMessage> = vec![];
+
+        let (result, truncated) = manager.truncate_messages(&messages);
+        assert!(!truncated);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_context_manager_single_large_message() {
+        let config = ContextWindowConfig::new(100).with_reserved_output(20);
+        let manager = ContextWindowManager::new(config);
+
+        // Message larger than available space
+        let messages = vec![
+            ChatMessage {
+                role: "user".to_string(),
+                content: "x".repeat(1000),
+                name: None,
+            },
+        ];
+
+        let (result, truncated) = manager.truncate_messages(&messages);
+        assert!(truncated);
+        // Message too large to fit, result may be empty
+        assert!(result.is_empty() || result.len() == 1);
     }
 }

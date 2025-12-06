@@ -1,6 +1,6 @@
 [package]
 name = "realizar"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 rust-version = "1.75"
 authors = ["Pragmatic AI Labs <contact@paiml.com>"]
@@ -21,17 +21,20 @@ redundant_clone = "warn"
 
 [dependencies]
 # OUR ecosystem - SIMD/GPU compute primitives (we control this)
-trueno = { version = "0.7.0", features = ["gpu"] }
+trueno = { version = "0.7.4", features = ["gpu"] }
 
 # ML algorithms and .apr model format (optional for aprender model serving)
-# v0.11: format module with .apr save/load, CRC32, signatures, encryption
-aprender = { version = "0.11", optional = true }
+# v0.14: format module with .apr save/load, CRC32, signatures, encryption
+aprender = { version = "0.14", optional = true }
 
 # Data loading library (optional for data pipeline examples)
-alimentar = { version = "0.1", optional = true, default-features = false, features = ["local", "shuffle"] }
+alimentar = { version = "0.2", optional = true, default-features = false, features = ["local", "shuffle"] }
+
+# Model registry (optional for pull/push commands)
+pacha = { version = "0.1.1", optional = true }
 
 # Terminal/PNG visualization for benchmarks and metrics
-trueno-viz = { version = "0.1", optional = true, features = ["terminal"] }
+trueno-viz = { version = "0.1.2", optional = true, features = ["terminal"] }
 
 # HTTP server ONLY (swappable via HttpServer trait)
 axum = { version = "0.7", optional = true }
@@ -109,12 +112,13 @@ aprender-serve = ["dep:aprender", "server"]  # Aprender ML model serving (requir
 lambda = ["dep:ureq"]  # AWS Lambda handler (lightweight HTTP runtime)
 alimentar-data = ["dep:alimentar"]  # Data loading with alimentar
 visualization = ["dep:trueno-viz"]  # Terminal/PNG benchmark visualization
+registry = ["dep:pacha"]  # Model registry with Pacha (pull/push/cache)
 
 # Testing features
 load-test-enabled = ["server"]  # Enable load tests (requires running server)
 
 # Convenience meta-features
-full = ["server", "cli", "gpu"]  # Everything enabled
+full = ["server", "cli", "gpu", "registry"]  # Everything enabled
 minimal = []  # Only core inference engine
 
 [[bin]]

@@ -76,6 +76,9 @@ pub mod memory;
 #[cfg(feature = "server")]
 pub mod metrics;
 pub mod moe;
+/// Observability: metrics, tracing, and A/B testing
+#[cfg(feature = "server")]
+pub mod observability;
 pub mod quantize;
 #[cfg(feature = "server")]
 pub mod registry;
@@ -85,6 +88,8 @@ pub mod serve;
 pub mod stats;
 pub mod tensor;
 pub mod viz;
+/// Model warm-up and pre-loading
+pub mod warmup;
 
 /// AWS Lambda handler for aprender model serving
 #[cfg(feature = "lambda")]
