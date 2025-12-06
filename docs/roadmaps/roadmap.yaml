@@ -285,3 +285,29 @@ roadmap:
   - genchi-genbutsu
   - review-action
   notes: 'Per review: Dean & Barroso (2013) on tail latency from page faults'
+- id: OBS-001
+  github_issue: null
+  item_type: task
+  title: W3C Trace Context and OpenTelemetry export for distributed tracing
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2025-12-06T00:00:00+00:00
+  updated: 2025-12-06T00:00:00+00:00
+  spec: docs/specifications/initial-release-spec.md
+  acceptance_criteria:
+  - W3C Trace Context (traceparent header parsing/generation)
+  - LatencyHistogram with p50/p95/p99 percentile calculations
+  - OpenTelemetry-compatible span export (OtelSpan, SpanKind, OtelStatus)
+  - Span.to_otel() for OTLP export compatibility
+  - Span.traceparent() for W3C header propagation
+  - Prometheus histogram format export
+  - 59 comprehensive tests
+  phases: []
+  subtasks: []
+  estimated_effort: 1 day
+  labels:
+  - observability
+  - tracing
+  - opentelemetry
+  notes: 'Per Initial Release Specification §5: Observability'

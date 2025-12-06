@@ -77,7 +77,15 @@ pub mod memory;
 pub mod metrics;
 pub mod moe;
 /// Observability: metrics, tracing, and A/B testing
+///
+/// Safe numeric casts for observability metrics:
+/// - Duration microseconds: u128 -> u64 (durations under 584,942 years won't overflow)
+/// - Timestamps: u128 -> u64 (Unix epoch nanoseconds/microseconds fit in u64 until ~2554)
+/// - Percentages: integer -> f64 (exact for values under 2^53)
 #[cfg(feature = "server")]
+#[allow(clippy::cast_possible_truncation)]
+#[allow(clippy::cast_precision_loss)]
+#[allow(clippy::cast_sign_loss)]
 pub mod observability;
 pub mod quantize;
 #[cfg(feature = "server")]
