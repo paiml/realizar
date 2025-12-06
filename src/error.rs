@@ -107,6 +107,10 @@ pub enum RealizarError {
         /// Maximum capacity
         capacity: usize,
     },
+
+    /// Invalid URI format
+    #[error("Invalid URI: {0}")]
+    InvalidUri(String),
 }
 
 #[cfg(test)]

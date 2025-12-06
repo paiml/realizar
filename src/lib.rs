@@ -105,6 +105,8 @@ pub mod lambda;
 /// Multi-target deployment support (Lambda, Docker, WASM)
 pub mod target;
 pub mod tokenizer;
+/// Pacha URI scheme support for model loading
+pub mod uri;
 
 // Re-exports for convenience
 pub use error::{RealizarError, Result};
