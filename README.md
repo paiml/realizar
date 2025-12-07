@@ -127,7 +127,19 @@ Full methodology + reproducible benchmark: github.com/paiml/realizar
 
 </details>
 
-## 🚀 Quick Start
+## Installation
+
+```bash
+# From crates.io
+cargo install realizar
+
+# From source
+git clone https://github.com/paiml/realizar
+cd realizar
+cargo install --path .
+```
+
+## Usage
 
 ```bash
 # Build the binary
