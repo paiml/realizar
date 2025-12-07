@@ -1,12 +1,78 @@
-# Realizar ⚡
+<div align="center">
 
-> **Pure Rust Model Serving - Built from Scratch**
+<p align="center">
+  <img src=".github/realizar-hero.svg" alt="realizar" width="800">
+</p>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Rust](https://img.shields.io/badge/rust-1.75%2B-blue.svg)](https://www.rust-lang.org)
-[![Benchmark](https://img.shields.io/badge/vs_PyTorch-9.6x_faster-brightgreen.svg)](benches/comparative/BENCHMARK_RESULTS.md)
+<h1 align="center">realizar</h1>
 
-**Realizar** - Production ML inference engine built **100% from scratch** in pure Rust.
+<p align="center">
+  <b>Pure Rust ML Inference Engine - 9.6x Faster Than PyTorch</b>
+</p>
+
+<p align="center">
+  <a href="https://github.com/paiml/realizar/actions"><img src="https://github.com/paiml/realizar/workflows/CI/badge.svg" alt="CI"></a>
+  <a href="https://crates.io/crates/realizar"><img src="https://img.shields.io/crates/v/realizar.svg" alt="Crates.io"></a>
+  <a href="https://docs.rs/realizar"><img src="https://docs.rs/realizar/badge.svg" alt="Documentation"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License"></a>
+  <a href="benches/comparative/BENCHMARK_RESULTS.md"><img src="https://img.shields.io/badge/vs_PyTorch-9.6x_faster-brightgreen.svg" alt="Benchmark"></a>
+</p>
+
+</div>
+
+---
+
+**Realizar** is a high-performance machine learning inference engine for serving transformer models in production. Built entirely from scratch in Rust with zero external ML dependencies, it delivers 9.6x faster inference than PyTorch for CPU-only deployments while maintaining 94% test coverage and full GGUF/SafeTensors compatibility.
+
+## Table of Contents
+
+- [Quick Start](#quick-start)
+- [Features](#features)
+- [Benchmark: 9.6x Faster Than PyTorch](#benchmark-96x-faster-than-pytorch)
+- [AWS Lambda: 53,000x Faster Cold Start](#aws-lambda-53000x-faster-cold-start)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Feature Flags](#feature-flags)
+- [Philosophy](#philosophy)
+- [Target API](#target-api)
+- [Architecture](#architecture)
+- [Examples](#examples)
+- [Reproducible Benchmarks](#reproducible-benchmarks)
+- [Roadmap](#roadmap)
+- [Development](#development)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
+- [License](#license)
+
+## Quick Start
+
+```bash
+# Install from crates.io
+cargo install realizar
+
+# Start the demo server
+realizar serve --demo --port 8080
+
+# Test inference
+curl -X POST http://localhost:8080/generate \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Hello", "max_tokens": 10, "strategy": "greedy"}'
+```
+
+For production use with custom models, see the [Installation](#installation) and [Usage](#usage) sections.
+
+## Features
+
+**Realizar** is a production-ready ML inference engine built entirely from scratch in pure Rust:
+
+- **🚀 Blazing Fast**: 9.6x faster than PyTorch for CPU-only inference with 0.52µs latency
+- **📦 Zero Dependencies**: No external ML libraries - 100% custom implementation using Trueno
+- **🔧 Multiple Model Formats**: Native GGUF and SafeTensors parsers built from scratch
+- **⚡ Advanced Quantization**: Q4_0, Q8_0, Q4_K, Q5_K, Q6_K support for reduced memory footprint
+- **🎯 Production Ready**: REST API server, streaming responses, model caching, Prometheus metrics
+- **☁️ Serverless Optimized**: 53,000x faster cold starts for AWS Lambda deployments
+- **🔌 Swappable Backends**: Modular HTTP server design (axum default, hyper/actix-web ready)
+- **🧪 Extreme Testing**: 260+ tests with 94.61% coverage, property-based and mutation testing
 
 ## 📊 Benchmark: 9.6x Faster Than PyTorch
 
