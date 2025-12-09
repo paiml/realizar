@@ -72,8 +72,17 @@ load-test-no-server: ## Run load tests against existing server
 lint: fmt-check clippy ## Run all linting (Batuta stack standard)
 	@echo "$(GREEN)✅ Lint passed!$(NC)"
 
-test-fast: test-lib ## Run fast tests (Batuta stack standard)
-	@echo "$(GREEN)✅ Fast tests passed!$(NC)"
+test-fast: ## Fast unit tests with nextest (<30s target, Batuta stack standard)
+	@echo "$(GREEN)⚡ Running fast tests (target: <30s)...$(NC)"
+	@if command -v cargo-nextest >/dev/null 2>&1; then \
+		time env PROPTEST_CASES=50 cargo nextest run --workspace --lib \
+			--status-level skip \
+			--failure-output immediate; \
+	else \
+		echo "$(YELLOW)💡 Install cargo-nextest for faster tests: cargo install cargo-nextest$(NC)"; \
+		time env PROPTEST_CASES=50 cargo test --workspace --lib; \
+	fi
+	@echo "$(GREEN)✅ Fast tests passed$(NC)"
 
 # === Quality Gates ===
 
@@ -96,19 +105,25 @@ clippy-fix: ## Automatically fix clippy warnings
 	@echo "$(GREEN)Fixing clippy warnings...$(NC)"
 	cargo clippy --all-targets --all-features --fix
 
-# === Coverage (trueno style: simple llvm-cov) ===
+# === Coverage (Batuta stack standard: two-phase nextest) ===
 
-coverage: ## Generate coverage report (>85% required)
-	@echo "$(GREEN)📊 Generating coverage report (target: >85%)...$(NC)"
+coverage: ## Generate HTML coverage report (target: >95%, Batuta stack standard)
+	@echo "$(GREEN)📊 Running coverage analysis (target: >95%)...$(NC)"
+	@which cargo-llvm-cov > /dev/null 2>&1 || (echo "$(YELLOW)📦 Installing cargo-llvm-cov...$(NC)" && cargo install cargo-llvm-cov --locked)
+	@which cargo-nextest > /dev/null 2>&1 || (echo "$(YELLOW)📦 Installing cargo-nextest...$(NC)" && cargo install cargo-nextest --locked)
 	@# Temporarily disable mold linker (breaks LLVM coverage)
 	@test -f ~/.cargo/config.toml && mv ~/.cargo/config.toml ~/.cargo/config.toml.cov-backup || true
-	@# Exclude load-test-enabled (requires running server)
-	@cargo llvm-cov --features "server,cli,gpu" --workspace --lcov --output-path lcov.info
+	@cargo llvm-cov clean --workspace
+	@mkdir -p target/coverage
+	@# Phase 1: Run tests with coverage instrumentation (no report)
+	@env PROPTEST_CASES=100 cargo llvm-cov --no-report nextest --no-tests=warn --workspace --no-fail-fast --features "server,cli,gpu"
+	@# Phase 2: Generate reports
 	@cargo llvm-cov report --html --output-dir target/coverage/html
+	@cargo llvm-cov report --lcov --output-path target/coverage/lcov.info
 	@# Restore mold linker
 	@test -f ~/.cargo/config.toml.cov-backup && mv ~/.cargo/config.toml.cov-backup ~/.cargo/config.toml || true
+	@cargo llvm-cov report --summary-only
 	@echo "$(GREEN)✅ Coverage report: target/coverage/html/index.html$(NC)"
-	@cargo llvm-cov report | grep TOTAL
 
 coverage-summary: ## Show coverage summary
 	@cargo llvm-cov report --summary-only 2>/dev/null || echo "Run 'make coverage' first"
@@ -363,7 +378,8 @@ ci: quality-gates mutate-fast ## Run CI pipeline (all checks)
 
 install-tools: ## Install development tools
 	@echo "$(GREEN)Installing development tools...$(NC)"
-	cargo install cargo-llvm-cov || true
+	cargo install cargo-nextest --locked || true
+	cargo install cargo-llvm-cov --locked || true
 	cargo install cargo-mutants || true
 	cargo install cargo-audit || true
 	cargo install cargo-deny || true
