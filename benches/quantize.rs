@@ -11,6 +11,8 @@
 //! - Q4_0/Q8_0: <1μs per block (32 values)
 //! - Q4_K/Q5_K/Q6_K: <10μs per super-block (256 values)
 
+#![allow(clippy::same_item_push)] // Demo benchmark data uses simple push patterns
+
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use realizar::quantize::{
     dequantize_q4_0, dequantize_q4_k, dequantize_q5_k, dequantize_q6_k, dequantize_q8_0,

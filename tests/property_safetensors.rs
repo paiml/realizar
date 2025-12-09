@@ -148,7 +148,7 @@ proptest! {
         prop_assume!(!name.is_empty());
 
         let shape = vec![data.len()];
-        let safetensors = create_safetensors_file(vec![(&name, data.clone(), shape)]);
+        let safetensors = create_safetensors_file(vec![(&name, data, shape)]);
 
         let model = SafetensorsModel::from_bytes(&safetensors).unwrap();
 

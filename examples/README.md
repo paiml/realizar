@@ -2,7 +2,7 @@
 
 This directory contains example programs demonstrating the capabilities of realizar, a pure Rust ML inference engine.
 
-## Available Examples (9 total)
+## Available Examples (10 total)
 
 ### 1. `inference.rs` - End-to-End Text Generation
 
@@ -145,6 +145,25 @@ cargo run --example train_model --features "aprender-serve"
 
 **Output:**
 - `wine_regressor.apr` (141 bytes, gitignored)
+
+### 10. `apr_loading.rs` - APR Format Loading (Sovereign Stack)
+
+Demonstrates Aprender's native .apr format - the PRIMARY inference format
+for the sovereign AI stack:
+- APR format specification (magic, header, flags)
+- All supported model types (Linear, NN, MoE, etc.)
+- Header parsing and format detection
+- Inference with synthetic models
+- Batch prediction
+
+**Run:**
+```bash
+cargo run --example apr_loading
+```
+
+**Integration with single-shot-eval:**
+For SLM Pareto Frontier evaluation with .apr models, see:
+[`single-shot-eval`](https://github.com/paiml/single-shot-eval)
 
 ## Requirements
 

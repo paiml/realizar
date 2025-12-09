@@ -65,7 +65,7 @@ fn create_sentencepiece_tokenizer(vocab_size: usize) -> SentencePieceTokenizer {
 fn benchmark_basic_encode(c: &mut Criterion) {
     let mut group = c.benchmark_group("basic_encode");
 
-    let texts = vec![
+    let texts = [
         ("short", "token1 token2"),
         ("medium", "token1 token2 token3 token4 token5"),
         (
@@ -91,7 +91,7 @@ fn benchmark_basic_encode(c: &mut Criterion) {
 fn benchmark_basic_decode(c: &mut Criterion) {
     let mut group = c.benchmark_group("basic_decode");
 
-    let token_sequences = vec![
+    let token_sequences = [
         ("short", vec![1, 2]),
         ("medium", vec![1, 2, 3, 4, 5]),
         ("long", vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]),
@@ -114,7 +114,7 @@ fn benchmark_basic_decode(c: &mut Criterion) {
 fn benchmark_bpe_encode(c: &mut Criterion) {
     let mut group = c.benchmark_group("bpe_encode");
 
-    let texts = vec![
+    let texts = [
         ("short", "tokens"),
         ("medium", "tokens tokens tokens"),
         ("long", "tokens tokens tokens tokens tokens tokens"),
@@ -137,7 +137,7 @@ fn benchmark_bpe_encode(c: &mut Criterion) {
 fn benchmark_bpe_decode(c: &mut Criterion) {
     let mut group = c.benchmark_group("bpe_decode");
 
-    let token_sequences = vec![
+    let token_sequences = [
         ("short", vec![1, 2]),
         ("medium", vec![1, 2, 3, 4, 5]),
         ("long", vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]),
@@ -160,7 +160,7 @@ fn benchmark_bpe_decode(c: &mut Criterion) {
 fn benchmark_sentencepiece_encode(c: &mut Criterion) {
     let mut group = c.benchmark_group("sentencepiece_encode");
 
-    let texts = vec![
+    let texts = [
         ("short", "hello"),
         ("medium", "hello world test"),
         ("long", "hello world test example sentence piece"),
@@ -183,7 +183,7 @@ fn benchmark_sentencepiece_encode(c: &mut Criterion) {
 fn benchmark_sentencepiece_decode(c: &mut Criterion) {
     let mut group = c.benchmark_group("sentencepiece_decode");
 
-    let token_sequences = vec![
+    let token_sequences = [
         ("short", vec![1, 2]),
         ("medium", vec![1, 2, 3, 4, 5]),
         ("long", vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]),
@@ -229,7 +229,7 @@ fn benchmark_vocab_lookup(c: &mut Criterion) {
 fn benchmark_roundtrip(c: &mut Criterion) {
     let mut group = c.benchmark_group("roundtrip");
 
-    let texts = vec![
+    let texts = [
         ("short", "token1 token2"),
         ("medium", "token1 token2 token3 token4 token5"),
         (

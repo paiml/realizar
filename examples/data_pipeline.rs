@@ -229,10 +229,7 @@ impl ClassificationMetrics {
         }
 
         // Update per-class metrics
-        let pred_entry = self
-            .per_class
-            .entry(predicted.to_string())
-            .or_insert_with(ClassMetrics::default);
+        let pred_entry = self.per_class.entry(predicted.to_string()).or_default();
         if predicted == actual {
             pred_entry.true_positives += 1;
         } else {
@@ -240,10 +237,7 @@ impl ClassificationMetrics {
         }
 
         if predicted != actual {
-            let actual_entry = self
-                .per_class
-                .entry(actual.to_string())
-                .or_insert_with(ClassMetrics::default);
+            let actual_entry = self.per_class.entry(actual.to_string()).or_default();
             actual_entry.false_negatives += 1;
         }
     }

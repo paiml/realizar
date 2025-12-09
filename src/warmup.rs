@@ -28,9 +28,13 @@
 //! - Jidoka: Validate model before serving
 //! - Poka-Yoke: Prevent cold start errors
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::{
+    sync::{
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc,
+    },
+    time::{Duration, Instant},
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -195,19 +199,14 @@ pub struct WarmupResult {
 impl WarmupResult {
     /// Create a successful result
     #[must_use]
-    pub fn success(
-        iterations: usize,
-        duration: Duration,
-        latencies: &[Duration],
-    ) -> Self {
+    pub fn success(iterations: usize, duration: Duration, latencies: &[Duration]) -> Self {
         let first = latencies.first().copied().unwrap_or(Duration::ZERO);
         let last = latencies.last().copied().unwrap_or(Duration::ZERO);
         let avg = if latencies.is_empty() {
             Duration::ZERO
         } else {
             Duration::from_nanos(
-                latencies.iter().map(|d| d.as_nanos() as u64).sum::<u64>()
-                    / latencies.len() as u64
+                latencies.iter().map(|d| d.as_nanos() as u64).sum::<u64>() / latencies.len() as u64,
             )
         };
 
@@ -451,14 +450,11 @@ impl WarmupExecutor {
             latencies.push(latency);
         }
 
-        WarmupResult::success(
-            self.config.warmup_iterations,
-            start.elapsed(),
-            &latencies,
-        )
+        WarmupResult::success(self.config.warmup_iterations, start.elapsed(), &latencies)
     }
 
     /// Check if timeout has been exceeded
+    #[allow(dead_code)]
     fn check_timeout(&self, start: Instant, iterations: usize) -> Option<WarmupResult> {
         if start.elapsed() > self.config.timeout {
             Some(WarmupResult::timed_out(iterations, start.elapsed()))
@@ -946,15 +942,12 @@ mod tests {
 
     #[test]
     fn test_warmup_result_serialization() {
-        let result = WarmupResult::success(
-            3,
-            Duration::from_millis(100),
-            &[Duration::from_millis(50)],
-        );
+        let result =
+            WarmupResult::success(3, Duration::from_millis(100), &[Duration::from_millis(50)]);
 
         let json = serde_json::to_string(&result).unwrap();
         assert!(json.contains("Ready"));
-        assert!(json.contains("3"));
+        assert!(json.contains('3'));
     }
 
     #[test]
