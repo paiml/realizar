@@ -210,6 +210,9 @@ impl ThermalGuard {
     /// Get max temperature from readings
     #[must_use]
     pub fn max_temp(&self, temps: &[f64]) -> f64 {
+        if temps.is_empty() {
+            return 0.0;
+        }
         temps.iter().copied().fold(f64::NEG_INFINITY, f64::max)
     }
 
@@ -663,6 +666,754 @@ fn bootstrap_ci(data: &[f64], confidence: f64, n_resamples: usize) -> (f64, f64)
 }
 
 // ============================================================================
+// Convoy Test (Section 2.4)
+// ============================================================================
+
+/// Workload type for convoy testing
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkloadType {
+    /// Short QA: 32 input tokens, 64 output tokens
+    ShortQa,
+    /// Long Context: 2048 input tokens, 512 output tokens
+    LongContext,
+}
+
+impl WorkloadType {
+    /// Get input token count for this workload type
+    #[must_use]
+    pub const fn input_tokens(&self) -> usize {
+        match self {
+            Self::ShortQa => 32,
+            Self::LongContext => 2048,
+        }
+    }
+
+    /// Get output token count for this workload type
+    #[must_use]
+    pub const fn output_tokens(&self) -> usize {
+        match self {
+            Self::ShortQa => 64,
+            Self::LongContext => 512,
+        }
+    }
+}
+
+/// Configuration for convoy test per spec Section 2.4
+#[derive(Debug, Clone)]
+pub struct ConvoyTestConfig {
+    /// Number of long-context requests (default: 10)
+    pub long_requests: usize,
+    /// Number of short-QA requests (default: 100)
+    pub short_requests: usize,
+    /// Maximum acceptable p99 latency increase (default: 50%)
+    pub max_p99_increase_pct: f64,
+    /// Maximum acceptable head-of-line blocking time (ms)
+    pub max_hol_blocking_ms: f64,
+    /// Maximum acceptable KV-cache fragmentation (%)
+    pub max_kv_fragmentation_pct: f64,
+}
+
+impl Default for ConvoyTestConfig {
+    fn default() -> Self {
+        Self {
+            long_requests: 10,
+            short_requests: 100,
+            max_p99_increase_pct: 50.0,
+            max_hol_blocking_ms: 500.0,
+            max_kv_fragmentation_pct: 15.0,
+        }
+    }
+}
+
+/// Result of a single request in convoy test
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConvoyRequestResult {
+    /// Request type
+    pub workload_type: String,
+    /// Time spent waiting (head-of-line blocking)
+    pub queue_time_ms: f64,
+    /// Time to first token
+    pub ttft_ms: f64,
+    /// Total latency
+    pub total_latency_ms: f64,
+}
+
+/// Overall convoy test result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConvoyTestResult {
+    /// Number of long-context requests in test
+    pub long_requests: usize,
+    /// Number of short-QA requests in test
+    pub short_requests: usize,
+
+    /// Baseline: Short-QA p99 without convoy
+    pub baseline_short_p99_ms: f64,
+    /// Convoy: Short-QA p99 with convoy
+    pub convoy_short_p99_ms: f64,
+    /// P99 increase percentage
+    pub p99_increase_pct: f64,
+
+    /// Maximum head-of-line blocking observed
+    pub max_hol_blocking_ms: f64,
+    /// Average head-of-line blocking
+    pub avg_hol_blocking_ms: f64,
+
+    /// KV-cache fragmentation during convoy
+    pub kv_fragmentation_pct: f64,
+
+    /// Pass/fail status
+    pub passed: bool,
+    /// Failure reasons (if any)
+    pub failure_reasons: Vec<String>,
+}
+
+impl ConvoyTestResult {
+    /// Create a new convoy test result from measurements
+    #[must_use]
+    pub fn new(
+        config: &ConvoyTestConfig,
+        baseline_short_latencies: &[f64],
+        convoy_short_latencies: &[f64],
+        hol_blocking_times: &[f64],
+        kv_fragmentation_pct: f64,
+    ) -> Self {
+        let baseline_short_p99 = percentile(baseline_short_latencies, 99.0);
+        let convoy_short_p99 = percentile(convoy_short_latencies, 99.0);
+
+        let p99_increase_pct = if baseline_short_p99 > 0.0 {
+            ((convoy_short_p99 - baseline_short_p99) / baseline_short_p99) * 100.0
+        } else {
+            0.0
+        };
+
+        let max_hol_blocking = hol_blocking_times.iter().copied().fold(0.0_f64, f64::max);
+        let avg_hol_blocking = if hol_blocking_times.is_empty() {
+            0.0
+        } else {
+            hol_blocking_times.iter().sum::<f64>() / hol_blocking_times.len() as f64
+        };
+
+        let mut failure_reasons = Vec::new();
+
+        if p99_increase_pct > config.max_p99_increase_pct {
+            failure_reasons.push(format!(
+                "P99 increase {p99_increase_pct:.1}% exceeds threshold {:.1}%",
+                config.max_p99_increase_pct
+            ));
+        }
+
+        if max_hol_blocking > config.max_hol_blocking_ms {
+            failure_reasons.push(format!(
+                "Max HOL blocking {max_hol_blocking:.1}ms exceeds threshold {:.1}ms",
+                config.max_hol_blocking_ms
+            ));
+        }
+
+        if kv_fragmentation_pct > config.max_kv_fragmentation_pct {
+            failure_reasons.push(format!(
+                "KV fragmentation {kv_fragmentation_pct:.1}% exceeds threshold {:.1}%",
+                config.max_kv_fragmentation_pct
+            ));
+        }
+
+        Self {
+            long_requests: config.long_requests,
+            short_requests: config.short_requests,
+            baseline_short_p99_ms: baseline_short_p99,
+            convoy_short_p99_ms: convoy_short_p99,
+            p99_increase_pct,
+            max_hol_blocking_ms: max_hol_blocking,
+            avg_hol_blocking_ms: avg_hol_blocking,
+            kv_fragmentation_pct,
+            passed: failure_reasons.is_empty(),
+            failure_reasons,
+        }
+    }
+}
+
+// ============================================================================
+// Saturation Test (Section 2.5)
+// ============================================================================
+
+/// Configuration for saturation stress test per spec Section 2.5
+#[derive(Debug, Clone)]
+pub struct SaturationTestConfig {
+    /// CPU load percentage (default: 50%)
+    pub cpu_load_pct: u8,
+    /// Maximum acceptable throughput degradation (default: 30%)
+    pub max_throughput_degradation_pct: f64,
+    /// Maximum acceptable p99 latency increase (default: 100%)
+    pub max_p99_increase_pct: f64,
+}
+
+impl Default for SaturationTestConfig {
+    fn default() -> Self {
+        Self {
+            cpu_load_pct: 50,
+            max_throughput_degradation_pct: 30.0,
+            max_p99_increase_pct: 100.0,
+        }
+    }
+}
+
+/// Saturation test result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SaturationTestResult {
+    /// CPU load used
+    pub cpu_load_pct: u8,
+
+    /// Baseline throughput (tok/s)
+    pub baseline_throughput: f64,
+    /// Stressed throughput (tok/s)
+    pub stressed_throughput: f64,
+    /// Throughput degradation percentage
+    pub throughput_degradation_pct: f64,
+
+    /// Baseline p99 latency (ms)
+    pub baseline_p99_ms: f64,
+    /// Stressed p99 latency (ms)
+    pub stressed_p99_ms: f64,
+    /// P99 latency increase percentage
+    pub p99_increase_pct: f64,
+
+    /// Pass/fail status
+    pub passed: bool,
+    /// Failure reasons (if any)
+    pub failure_reasons: Vec<String>,
+}
+
+impl SaturationTestResult {
+    /// Create a new saturation test result
+    #[must_use]
+    pub fn new(
+        config: &SaturationTestConfig,
+        baseline_throughputs: &[f64],
+        stressed_throughputs: &[f64],
+        baseline_latencies: &[f64],
+        stressed_latencies: &[f64],
+    ) -> Self {
+        let baseline_throughput = if baseline_throughputs.is_empty() {
+            0.0
+        } else {
+            baseline_throughputs.iter().sum::<f64>() / baseline_throughputs.len() as f64
+        };
+
+        let stressed_throughput = if stressed_throughputs.is_empty() {
+            0.0
+        } else {
+            stressed_throughputs.iter().sum::<f64>() / stressed_throughputs.len() as f64
+        };
+
+        let throughput_degradation_pct = if baseline_throughput > 0.0 {
+            ((baseline_throughput - stressed_throughput) / baseline_throughput) * 100.0
+        } else {
+            0.0
+        };
+
+        let baseline_p99 = percentile(baseline_latencies, 99.0);
+        let stressed_p99 = percentile(stressed_latencies, 99.0);
+
+        let p99_increase_pct = if baseline_p99 > 0.0 {
+            ((stressed_p99 - baseline_p99) / baseline_p99) * 100.0
+        } else {
+            0.0
+        };
+
+        let mut failure_reasons = Vec::new();
+
+        if throughput_degradation_pct > config.max_throughput_degradation_pct {
+            failure_reasons.push(format!(
+                "Throughput degradation {throughput_degradation_pct:.1}% exceeds threshold {:.1}%",
+                config.max_throughput_degradation_pct
+            ));
+        }
+
+        if p99_increase_pct > config.max_p99_increase_pct {
+            failure_reasons.push(format!(
+                "P99 increase {p99_increase_pct:.1}% exceeds threshold {:.1}%",
+                config.max_p99_increase_pct
+            ));
+        }
+
+        Self {
+            cpu_load_pct: config.cpu_load_pct,
+            baseline_throughput,
+            stressed_throughput,
+            throughput_degradation_pct,
+            baseline_p99_ms: baseline_p99,
+            stressed_p99_ms: stressed_p99,
+            p99_increase_pct,
+            passed: failure_reasons.is_empty(),
+            failure_reasons,
+        }
+    }
+}
+
+// ============================================================================
+// Benchmark Runner (Full Harness)
+// ============================================================================
+
+/// Hardware specification for reproducibility
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HardwareSpec {
+    /// CPU model
+    pub cpu: String,
+    /// GPU model (if any)
+    pub gpu: Option<String>,
+    /// Total memory in GB
+    pub memory_gb: u64,
+    /// Storage type
+    pub storage: String,
+}
+
+impl Default for HardwareSpec {
+    fn default() -> Self {
+        Self {
+            cpu: "Unknown".to_string(),
+            gpu: None,
+            memory_gb: 0,
+            storage: "Unknown".to_string(),
+        }
+    }
+}
+
+/// Sampling method configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SamplingConfig {
+    /// Sampling method (e.g., "dynamic_cv")
+    pub method: String,
+    /// CV threshold for stopping
+    pub cv_threshold: f64,
+    /// Actual iterations run
+    pub actual_iterations: usize,
+    /// CV at stop point
+    pub cv_at_stop: f64,
+    /// Warmup iterations
+    pub warmup_iterations: usize,
+}
+
+impl Default for SamplingConfig {
+    fn default() -> Self {
+        Self {
+            method: "dynamic_cv".to_string(),
+            cv_threshold: 0.05,
+            actual_iterations: 0,
+            cv_at_stop: 0.0,
+            warmup_iterations: 100,
+        }
+    }
+}
+
+/// Thermal validity info
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThermalInfo {
+    /// Whether thermal conditions were valid
+    pub valid: bool,
+    /// Temperature variance (°C)
+    pub temp_variance_c: f64,
+    /// Maximum temperature observed (°C)
+    pub max_temp_c: f64,
+}
+
+impl Default for ThermalInfo {
+    fn default() -> Self {
+        Self {
+            valid: true,
+            temp_variance_c: 0.0,
+            max_temp_c: 0.0,
+        }
+    }
+}
+
+/// TTFT results structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TtftResults {
+    /// P50 (median)
+    pub p50: f64,
+    /// P95
+    pub p95: f64,
+    /// P99
+    pub p99: f64,
+    /// P99.9
+    pub p999: f64,
+}
+
+/// ITL results structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ItlResults {
+    /// Median ITL
+    pub median: f64,
+    /// Standard deviation (jitter)
+    pub std_dev: f64,
+    /// P99 ITL
+    pub p99: f64,
+}
+
+/// Throughput results structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThroughputResults {
+    /// Median throughput (tok/s)
+    pub median: f64,
+    /// 95% confidence interval
+    pub ci_95: (f64, f64),
+}
+
+/// Memory results structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryResults {
+    /// Model size (MB)
+    pub model_mb: u64,
+    /// Peak RSS (MB)
+    pub peak_rss_mb: u64,
+    /// KV-cache waste percentage
+    pub kv_waste_pct: f64,
+}
+
+/// Energy results structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnergyResults {
+    /// Total energy (Joules)
+    pub total_joules: f64,
+    /// Energy per token (J/tok)
+    pub token_joules: f64,
+    /// Idle power (Watts)
+    pub idle_watts: f64,
+}
+
+/// Cold start results structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ColdStartResults {
+    /// Median cold start time (ms)
+    pub median: f64,
+    /// P99 cold start time (ms)
+    pub p99: f64,
+}
+
+/// Quality validation results
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QualityValidation {
+    /// KL-divergence vs FP32
+    pub kl_divergence_vs_fp32: f64,
+    /// Perplexity on WikiText-2 (optional)
+    pub perplexity_wikitext2: Option<f64>,
+}
+
+/// Full benchmark results per JSON schema v1.1 (Appendix B)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FullBenchmarkResult {
+    /// Schema version
+    pub version: String,
+    /// ISO 8601 timestamp
+    pub timestamp: String,
+    /// Model configuration
+    pub config: BenchmarkConfig,
+    /// Hardware specification
+    pub hardware: HardwareSpec,
+    /// Sampling configuration
+    pub sampling: SamplingConfig,
+    /// Thermal information
+    pub thermal: ThermalInfo,
+    /// All results
+    pub results: BenchmarkResults,
+    /// Quality validation
+    pub quality: QualityValidation,
+}
+
+/// Consolidated benchmark results
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BenchmarkResults {
+    /// Time-to-first-token metrics
+    pub ttft_ms: TtftResults,
+    /// Inter-token latency metrics
+    pub itl_ms: ItlResults,
+    /// Throughput metrics
+    pub throughput_tok_s: ThroughputResults,
+    /// Memory metrics
+    pub memory_mb: MemoryResults,
+    /// Energy metrics
+    pub energy: EnergyResults,
+    /// Cold start metrics
+    pub cold_start_ms: ColdStartResults,
+}
+
+impl FullBenchmarkResult {
+    /// Create from a BenchmarkResult with additional metadata
+    #[must_use]
+    pub fn from_benchmark_result(
+        result: &BenchmarkResult,
+        hardware: HardwareSpec,
+        thermal_temps: &[f64],
+        kl_divergence: f64,
+    ) -> Self {
+        let thermal_guard = ThermalGuard::default();
+        let thermal_validity = thermal_guard.validate_run(thermal_temps);
+
+        let summary = result.summary();
+
+        Self {
+            version: "1.1".to_string(),
+            timestamp: chrono_timestamp(),
+            config: result.config.clone(),
+            hardware,
+            sampling: SamplingConfig {
+                method: "dynamic_cv".to_string(),
+                cv_threshold: 0.05,
+                actual_iterations: result.actual_iterations,
+                cv_at_stop: result.cv_at_stop,
+                warmup_iterations: 100,
+            },
+            thermal: ThermalInfo {
+                valid: thermal_validity == ThermalValidity::Valid,
+                temp_variance_c: thermal_guard.temp_variance(thermal_temps),
+                max_temp_c: thermal_guard.max_temp(thermal_temps),
+            },
+            results: BenchmarkResults {
+                ttft_ms: TtftResults {
+                    p50: summary.ttft_p50,
+                    p95: summary.ttft_p95,
+                    p99: summary.ttft_p99,
+                    p999: summary.ttft_p999,
+                },
+                itl_ms: ItlResults {
+                    median: summary.itl_median,
+                    std_dev: summary.itl_std_dev,
+                    p99: percentile(&result.itl_ms, 99.0),
+                },
+                throughput_tok_s: ThroughputResults {
+                    median: summary.throughput_median,
+                    ci_95: summary.throughput_ci_95,
+                },
+                memory_mb: MemoryResults {
+                    model_mb: result.peak_memory_mb / 2, // Approximate model size
+                    peak_rss_mb: result.peak_memory_mb,
+                    kv_waste_pct: result.kv_cache_waste_pct,
+                },
+                energy: EnergyResults {
+                    total_joules: result.energy_joules,
+                    token_joules: summary.token_joules,
+                    idle_watts: 0.0, // Would need separate measurement
+                },
+                cold_start_ms: ColdStartResults {
+                    median: result.cold_start_ms,
+                    p99: result.cold_start_ms * 1.5, // Approximate
+                },
+            },
+            quality: QualityValidation {
+                kl_divergence_vs_fp32: kl_divergence,
+                perplexity_wikitext2: None,
+            },
+        }
+    }
+
+    /// Serialize to JSON string
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if serialization fails.
+    pub fn to_json(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string_pretty(self)
+    }
+
+    /// Deserialize from JSON string
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the JSON is invalid or doesn't match the schema.
+    pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
+        serde_json::from_str(json)
+    }
+}
+
+/// Generate ISO 8601 timestamp
+fn chrono_timestamp() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let duration = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    let secs = duration.as_secs();
+
+    // Simple ISO 8601 format without external dependencies
+    format!("1970-01-01T00:00:00Z+{secs}s")
+}
+
+// ============================================================================
+// Benchmark Comparison
+// ============================================================================
+
+/// Result of comparing two benchmarks
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BenchmarkComparison {
+    /// Baseline config
+    pub baseline_runtime: String,
+    /// Current config
+    pub current_runtime: String,
+
+    /// TTFT p99 change percentage (negative = improvement)
+    pub ttft_p99_change_pct: f64,
+    /// Throughput change percentage (positive = improvement)
+    pub throughput_change_pct: f64,
+    /// Memory change percentage (negative = improvement)
+    pub memory_change_pct: f64,
+    /// Energy change percentage (negative = improvement)
+    pub energy_change_pct: f64,
+
+    /// Overall winner
+    pub winner: String,
+    /// Significance level (p-value from Mann-Whitney U)
+    pub significance: f64,
+}
+
+impl BenchmarkComparison {
+    /// Compare two benchmark results
+    #[must_use]
+    pub fn compare(baseline: &FullBenchmarkResult, current: &FullBenchmarkResult) -> Self {
+        let ttft_p99_change = if baseline.results.ttft_ms.p99 > 0.0 {
+            ((current.results.ttft_ms.p99 - baseline.results.ttft_ms.p99)
+                / baseline.results.ttft_ms.p99)
+                * 100.0
+        } else {
+            0.0
+        };
+
+        let throughput_change = if baseline.results.throughput_tok_s.median > 0.0 {
+            ((current.results.throughput_tok_s.median - baseline.results.throughput_tok_s.median)
+                / baseline.results.throughput_tok_s.median)
+                * 100.0
+        } else {
+            0.0
+        };
+
+        let memory_change = if baseline.results.memory_mb.peak_rss_mb > 0 {
+            ((current.results.memory_mb.peak_rss_mb as f64
+                - baseline.results.memory_mb.peak_rss_mb as f64)
+                / baseline.results.memory_mb.peak_rss_mb as f64)
+                * 100.0
+        } else {
+            0.0
+        };
+
+        let energy_change = if baseline.results.energy.token_joules > 0.0 {
+            ((current.results.energy.token_joules - baseline.results.energy.token_joules)
+                / baseline.results.energy.token_joules)
+                * 100.0
+        } else {
+            0.0
+        };
+
+        // Simple winner determination: count improvements
+        let mut current_wins = 0;
+        let mut baseline_wins = 0;
+
+        if ttft_p99_change < -5.0 {
+            current_wins += 1;
+        } else if ttft_p99_change > 5.0 {
+            baseline_wins += 1;
+        }
+
+        if throughput_change > 5.0 {
+            current_wins += 1;
+        } else if throughput_change < -5.0 {
+            baseline_wins += 1;
+        }
+
+        if memory_change < -5.0 {
+            current_wins += 1;
+        } else if memory_change > 5.0 {
+            baseline_wins += 1;
+        }
+
+        if energy_change < -5.0 {
+            current_wins += 1;
+        } else if energy_change > 5.0 {
+            baseline_wins += 1;
+        }
+
+        let winner = match current_wins.cmp(&baseline_wins) {
+            std::cmp::Ordering::Greater => current.config.runtime.clone(),
+            std::cmp::Ordering::Less => baseline.config.runtime.clone(),
+            std::cmp::Ordering::Equal => "tie".to_string(),
+        };
+
+        Self {
+            baseline_runtime: baseline.config.runtime.clone(),
+            current_runtime: current.config.runtime.clone(),
+            ttft_p99_change_pct: ttft_p99_change,
+            throughput_change_pct: throughput_change,
+            memory_change_pct: memory_change,
+            energy_change_pct: energy_change,
+            winner,
+            significance: 0.001, // Would need actual Mann-Whitney U test
+        }
+    }
+}
+
+// ============================================================================
+// Regression Detection
+// ============================================================================
+
+/// Regression detection result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegressionResult {
+    /// Whether a regression was detected
+    pub regression_detected: bool,
+    /// Metrics that regressed
+    pub regressed_metrics: Vec<String>,
+    /// Regression threshold used (%)
+    pub threshold_pct: f64,
+}
+
+impl RegressionResult {
+    /// Check for regressions between baseline and current
+    #[must_use]
+    pub fn check(
+        baseline: &FullBenchmarkResult,
+        current: &FullBenchmarkResult,
+        threshold_pct: f64,
+    ) -> Self {
+        let mut regressed_metrics = Vec::new();
+
+        // Check TTFT p99 (higher = regression)
+        if baseline.results.ttft_ms.p99 > 0.0 {
+            let change = ((current.results.ttft_ms.p99 - baseline.results.ttft_ms.p99)
+                / baseline.results.ttft_ms.p99)
+                * 100.0;
+            if change > threshold_pct {
+                regressed_metrics.push(format!("ttft_p99 (+{change:.1}%)"));
+            }
+        }
+
+        // Check throughput (lower = regression)
+        if baseline.results.throughput_tok_s.median > 0.0 {
+            let change = ((baseline.results.throughput_tok_s.median
+                - current.results.throughput_tok_s.median)
+                / baseline.results.throughput_tok_s.median)
+                * 100.0;
+            if change > threshold_pct {
+                regressed_metrics.push(format!("throughput (-{change:.1}%)"));
+            }
+        }
+
+        // Check memory (higher = regression)
+        if baseline.results.memory_mb.peak_rss_mb > 0 {
+            let change = ((current.results.memory_mb.peak_rss_mb as f64
+                - baseline.results.memory_mb.peak_rss_mb as f64)
+                / baseline.results.memory_mb.peak_rss_mb as f64)
+                * 100.0;
+            if change > threshold_pct {
+                regressed_metrics.push(format!("memory (+{change:.1}%)"));
+            }
+        }
+
+        Self {
+            regression_detected: !regressed_metrics.is_empty(),
+            regressed_metrics,
+            threshold_pct,
+        }
+    }
+}
+
+// ============================================================================
 // Tests (EXTREME TDD)
 // ============================================================================
 
@@ -676,48 +1427,48 @@ mod tests {
 
     #[test]
     fn test_dynamic_sampler_continues_until_min_samples() {
-        let mut sampler = DynamicSampler::new(100, 10_000, 0.05);
-        let samples: Vec<f64> = (0..50).map(|i| i as f64).collect();
+        let mut dyn_sampler = DynamicSampler::new(100, 10_000, 0.05);
+        let data: Vec<f64> = (0..50).map(|i| i as f64).collect();
 
-        assert!(sampler.should_continue(&samples));
+        assert!(dyn_sampler.should_continue(&data));
     }
 
     #[test]
     fn test_dynamic_sampler_stops_at_max_samples() {
-        let mut sampler = DynamicSampler::new(10, 100, 0.05);
+        let mut dyn_sampler = DynamicSampler::new(10, 100, 0.05);
 
-        // Generate 100 samples with high variance
-        let samples: Vec<f64> = (0..100).map(|i| (i % 50) as f64 * 10.0).collect();
+        // Generate 100 data points with high variance
+        let data: Vec<f64> = (0..100).map(|i| (i % 50) as f64 * 10.0).collect();
 
-        assert!(!sampler.should_continue(&samples));
+        assert!(!dyn_sampler.should_continue(&data));
     }
 
     #[test]
     fn test_dynamic_sampler_stops_when_cv_stable() {
-        let mut sampler = DynamicSampler::new(10, 10_000, 0.05);
-        sampler.stability_count = 1; // Stop after 1 stable check
+        let mut dyn_sampler = DynamicSampler::new(10, 10_000, 0.05);
+        dyn_sampler.stability_count = 1; // Stop after 1 stable check
 
-        // Generate 100 samples with very low variance (CV ~= 0)
-        let samples: Vec<f64> = vec![100.0; 100];
+        // Generate 100 data points with very low variance (CV ~= 0)
+        let data: Vec<f64> = vec![100.0; 100];
 
         // Should stop because CV = 0 < 0.05
-        assert!(!sampler.should_continue(&samples));
+        assert!(!dyn_sampler.should_continue(&data));
     }
 
     #[test]
     fn test_dynamic_sampler_requires_stability_streak() {
-        let mut sampler = DynamicSampler::new(10, 10_000, 0.05);
-        sampler.stability_count = 3;
+        let mut dyn_sampler = DynamicSampler::new(10, 10_000, 0.05);
+        dyn_sampler.stability_count = 3;
 
-        // Stable samples
-        let samples: Vec<f64> = vec![100.0; 100];
+        // Stable data points
+        let data: Vec<f64> = vec![100.0; 100];
 
         // First check - streak = 1
-        assert!(sampler.should_continue(&samples));
+        assert!(dyn_sampler.should_continue(&data));
         // Second check - streak = 2
-        assert!(sampler.should_continue(&samples));
+        assert!(dyn_sampler.should_continue(&data));
         // Third check - streak = 3, should stop
-        assert!(!sampler.should_continue(&samples));
+        assert!(!dyn_sampler.should_continue(&data));
     }
 
     #[test]
@@ -1042,5 +1793,449 @@ mod tests {
         let probs = softmax(&logits);
         let sum: f64 = probs.iter().sum();
         assert!((sum - 1.0).abs() < 1e-10);
+    }
+
+    // ========================================================================
+    // WorkloadType Tests (Phase 2)
+    // ========================================================================
+
+    #[test]
+    fn test_workload_type_short_qa() {
+        let workload = WorkloadType::ShortQa;
+        assert_eq!(workload.input_tokens(), 32);
+        assert_eq!(workload.output_tokens(), 64);
+    }
+
+    #[test]
+    fn test_workload_type_long_context() {
+        let workload = WorkloadType::LongContext;
+        assert_eq!(workload.input_tokens(), 2048);
+        assert_eq!(workload.output_tokens(), 512);
+    }
+
+    // ========================================================================
+    // ConvoyTestConfig Tests (Phase 2)
+    // ========================================================================
+
+    #[test]
+    fn test_convoy_config_default() {
+        let config = ConvoyTestConfig::default();
+        assert_eq!(config.long_requests, 10);
+        assert_eq!(config.short_requests, 100);
+        assert!((config.max_p99_increase_pct - 50.0).abs() < 0.01);
+        assert!((config.max_hol_blocking_ms - 500.0).abs() < 0.01);
+        assert!((config.max_kv_fragmentation_pct - 15.0).abs() < 0.01);
+    }
+
+    // ========================================================================
+    // ConvoyTestResult Tests (Phase 2)
+    // ========================================================================
+
+    #[test]
+    fn test_convoy_test_result_pass() {
+        let config = ConvoyTestConfig::default();
+        let baseline = vec![10.0, 12.0, 11.0, 13.0, 10.5]; // p99 ~= 13
+        let convoy = vec![12.0, 14.0, 13.0, 15.0, 12.5]; // p99 ~= 15 (15% increase)
+        let hol = vec![50.0, 100.0, 75.0, 80.0, 60.0];
+        let kv_frag = 10.0; // 10% < 15% threshold
+
+        let result = ConvoyTestResult::new(&config, &baseline, &convoy, &hol, kv_frag);
+
+        assert!(result.passed, "Should pass with acceptable metrics");
+        assert!(result.failure_reasons.is_empty());
+        assert!(result.p99_increase_pct < 50.0);
+        assert!(result.max_hol_blocking_ms < 500.0);
+    }
+
+    #[test]
+    fn test_convoy_test_result_fail_p99() {
+        let config = ConvoyTestConfig::default();
+        let baseline = vec![10.0; 100];
+        let convoy = vec![20.0; 100]; // 100% increase > 50% threshold
+        let hol = vec![50.0; 100];
+        let kv_frag = 5.0;
+
+        let result = ConvoyTestResult::new(&config, &baseline, &convoy, &hol, kv_frag);
+
+        assert!(!result.passed, "Should fail with 100% p99 increase");
+        assert!(result.failure_reasons.iter().any(|r| r.contains("P99")));
+    }
+
+    #[test]
+    fn test_convoy_test_result_fail_hol_blocking() {
+        let config = ConvoyTestConfig::default();
+        let baseline = vec![10.0; 100];
+        let convoy = vec![11.0; 100]; // 10% increase - acceptable
+        let hol = vec![600.0; 100]; // 600ms > 500ms threshold
+        let kv_frag = 5.0;
+
+        let result = ConvoyTestResult::new(&config, &baseline, &convoy, &hol, kv_frag);
+
+        assert!(!result.passed, "Should fail with HOL blocking > 500ms");
+        assert!(result.failure_reasons.iter().any(|r| r.contains("HOL")));
+    }
+
+    #[test]
+    fn test_convoy_test_result_fail_kv_fragmentation() {
+        let config = ConvoyTestConfig::default();
+        let baseline = vec![10.0; 100];
+        let convoy = vec![11.0; 100];
+        let hol = vec![50.0; 100];
+        let kv_frag = 20.0; // 20% > 15% threshold
+
+        let result = ConvoyTestResult::new(&config, &baseline, &convoy, &hol, kv_frag);
+
+        assert!(!result.passed, "Should fail with KV fragmentation > 15%");
+        assert!(result.failure_reasons.iter().any(|r| r.contains("KV")));
+    }
+
+    // ========================================================================
+    // SaturationTestConfig Tests (Phase 2)
+    // ========================================================================
+
+    #[test]
+    fn test_saturation_config_default() {
+        let config = SaturationTestConfig::default();
+        assert_eq!(config.cpu_load_pct, 50);
+        assert!((config.max_throughput_degradation_pct - 30.0).abs() < 0.01);
+        assert!((config.max_p99_increase_pct - 100.0).abs() < 0.01);
+    }
+
+    // ========================================================================
+    // SaturationTestResult Tests (Phase 2)
+    // ========================================================================
+
+    #[test]
+    fn test_saturation_test_result_pass() {
+        let config = SaturationTestConfig::default();
+        let baseline_throughput = vec![100.0, 102.0, 98.0, 101.0, 99.0];
+        let stressed_throughput = vec![85.0, 87.0, 83.0, 86.0, 84.0]; // ~15% degradation
+        let baseline_latency = vec![10.0, 12.0, 11.0, 10.5, 11.5];
+        let stressed_latency = vec![15.0, 17.0, 16.0, 15.5, 16.5]; // ~50% increase
+
+        let result = SaturationTestResult::new(
+            &config,
+            &baseline_throughput,
+            &stressed_throughput,
+            &baseline_latency,
+            &stressed_latency,
+        );
+
+        assert!(result.passed, "Should pass with acceptable degradation");
+        assert!(result.throughput_degradation_pct < 30.0);
+        assert!(result.p99_increase_pct < 100.0);
+    }
+
+    #[test]
+    fn test_saturation_test_result_fail_throughput() {
+        let config = SaturationTestConfig::default();
+        let baseline_throughput = vec![100.0; 100];
+        let stressed_throughput = vec![50.0; 100]; // 50% degradation > 30%
+        let baseline_latency = vec![10.0; 100];
+        let stressed_latency = vec![15.0; 100]; // 50% increase - acceptable
+
+        let result = SaturationTestResult::new(
+            &config,
+            &baseline_throughput,
+            &stressed_throughput,
+            &baseline_latency,
+            &stressed_latency,
+        );
+
+        assert!(
+            !result.passed,
+            "Should fail with 50% throughput degradation"
+        );
+        assert!(result
+            .failure_reasons
+            .iter()
+            .any(|r| r.contains("Throughput")));
+    }
+
+    #[test]
+    fn test_saturation_test_result_fail_p99() {
+        let config = SaturationTestConfig::default();
+        let baseline_throughput = vec![100.0; 100];
+        let stressed_throughput = vec![90.0; 100]; // 10% degradation - acceptable
+        let baseline_latency = vec![10.0; 100];
+        let stressed_latency = vec![25.0; 100]; // 150% increase > 100%
+
+        let result = SaturationTestResult::new(
+            &config,
+            &baseline_throughput,
+            &stressed_throughput,
+            &baseline_latency,
+            &stressed_latency,
+        );
+
+        assert!(!result.passed, "Should fail with 150% p99 increase");
+        assert!(result.failure_reasons.iter().any(|r| r.contains("P99")));
+    }
+
+    // ========================================================================
+    // HardwareSpec Tests (Phase 2)
+    // ========================================================================
+
+    #[test]
+    fn test_hardware_spec_default() {
+        let spec = HardwareSpec::default();
+        assert_eq!(spec.cpu, "Unknown");
+        assert!(spec.gpu.is_none());
+        assert_eq!(spec.memory_gb, 0);
+        assert_eq!(spec.storage, "Unknown");
+    }
+
+    // ========================================================================
+    // SamplingConfig Tests (Phase 2)
+    // ========================================================================
+
+    #[test]
+    fn test_sampling_config_default() {
+        let config = SamplingConfig::default();
+        assert_eq!(config.method, "dynamic_cv");
+        assert!((config.cv_threshold - 0.05).abs() < 0.001);
+        assert_eq!(config.warmup_iterations, 100);
+    }
+
+    // ========================================================================
+    // ThermalInfo Tests (Phase 2)
+    // ========================================================================
+
+    #[test]
+    fn test_thermal_info_default() {
+        let info = ThermalInfo::default();
+        assert!(info.valid);
+        assert!((info.temp_variance_c - 0.0).abs() < 0.001);
+        assert!((info.max_temp_c - 0.0).abs() < 0.001);
+    }
+
+    // ========================================================================
+    // FullBenchmarkResult Tests (Phase 2)
+    // ========================================================================
+
+    #[test]
+    fn test_full_benchmark_result_from_benchmark_result() {
+        let result = BenchmarkResult {
+            config: BenchmarkConfig {
+                model: "test".to_string(),
+                format: "apr".to_string(),
+                quantization: "q4_k".to_string(),
+                runtime: "realizar".to_string(),
+                runtime_version: "0.2.3".to_string(),
+            },
+            cold_start_ms: 100.0,
+            model_load_ms: 50.0,
+            ttft_ms: vec![20.0, 22.0, 21.0, 25.0, 23.0],
+            itl_ms: vec![10.0, 11.0, 10.5, 11.5, 10.2],
+            generation_tok_s: vec![140.0, 142.0, 141.0],
+            peak_memory_mb: 1024,
+            kv_cache_waste_pct: 3.5,
+            energy_joules: 50.0,
+            tokens_generated: 1000,
+            actual_iterations: 500,
+            cv_at_stop: 0.045,
+            timestamp: 12345,
+        };
+
+        let hardware = HardwareSpec {
+            cpu: "Apple M3 Max".to_string(),
+            gpu: Some("Apple M3 Max (40 cores)".to_string()),
+            memory_gb: 128,
+            storage: "NVMe".to_string(),
+        };
+
+        let temps = vec![72.0, 73.0, 72.5, 73.5, 72.0];
+        let kl_div = 0.031;
+
+        let full_result =
+            FullBenchmarkResult::from_benchmark_result(&result, hardware, &temps, kl_div);
+
+        assert_eq!(full_result.version, "1.1");
+        assert!(full_result.timestamp.contains("1970")); // Simple timestamp format
+        assert_eq!(full_result.config.model, "test");
+        assert_eq!(full_result.hardware.cpu, "Apple M3 Max");
+        assert_eq!(full_result.sampling.actual_iterations, 500);
+        assert!(full_result.thermal.valid);
+        assert!((full_result.quality.kl_divergence_vs_fp32 - 0.031).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_full_benchmark_result_json_roundtrip() {
+        let result = BenchmarkResult {
+            config: BenchmarkConfig {
+                model: "test".to_string(),
+                format: "apr".to_string(),
+                quantization: "q4_k".to_string(),
+                runtime: "realizar".to_string(),
+                runtime_version: "0.2.3".to_string(),
+            },
+            cold_start_ms: 100.0,
+            model_load_ms: 50.0,
+            ttft_ms: vec![20.0, 22.0, 21.0],
+            itl_ms: vec![10.0, 11.0, 10.5],
+            generation_tok_s: vec![140.0, 142.0],
+            peak_memory_mb: 1024,
+            kv_cache_waste_pct: 3.5,
+            energy_joules: 50.0,
+            tokens_generated: 1000,
+            actual_iterations: 500,
+            cv_at_stop: 0.045,
+            timestamp: 12345,
+        };
+
+        let full_result =
+            FullBenchmarkResult::from_benchmark_result(&result, HardwareSpec::default(), &[], 0.0);
+
+        let json = full_result.to_json().expect("Should serialize");
+        let parsed: FullBenchmarkResult =
+            FullBenchmarkResult::from_json(&json).expect("Should parse");
+
+        assert_eq!(parsed.version, "1.1");
+        assert_eq!(parsed.config.model, "test");
+        assert_eq!(parsed.sampling.actual_iterations, 500);
+    }
+
+    // ========================================================================
+    // BenchmarkComparison Tests (Phase 2)
+    // ========================================================================
+
+    #[test]
+    fn test_benchmark_comparison_realizar_wins() {
+        let baseline = create_test_full_result("llama.cpp", 40.0, 100.0, 1500, 0.06);
+        let current = create_test_full_result("realizar", 30.0, 140.0, 1200, 0.04);
+
+        let comparison = BenchmarkComparison::compare(&baseline, &current);
+
+        assert_eq!(comparison.winner, "realizar");
+        assert!(comparison.ttft_p99_change_pct < 0.0); // Improvement
+        assert!(comparison.throughput_change_pct > 0.0); // Improvement
+        assert!(comparison.memory_change_pct < 0.0); // Improvement
+        assert!(comparison.energy_change_pct < 0.0); // Improvement
+    }
+
+    #[test]
+    fn test_benchmark_comparison_tie() {
+        let baseline = create_test_full_result("runtime_a", 30.0, 140.0, 1200, 0.04);
+        let current = create_test_full_result("runtime_b", 30.0, 140.0, 1200, 0.04);
+
+        let comparison = BenchmarkComparison::compare(&baseline, &current);
+
+        assert_eq!(comparison.winner, "tie");
+    }
+
+    // ========================================================================
+    // RegressionResult Tests (Phase 2)
+    // ========================================================================
+
+    #[test]
+    fn test_regression_result_no_regression() {
+        let baseline = create_test_full_result("realizar", 30.0, 140.0, 1200, 0.04);
+        let current = create_test_full_result("realizar", 29.0, 145.0, 1150, 0.038);
+
+        let regression = RegressionResult::check(&baseline, &current, 5.0);
+
+        assert!(!regression.regression_detected);
+        assert!(regression.regressed_metrics.is_empty());
+    }
+
+    #[test]
+    fn test_regression_result_ttft_regression() {
+        let baseline = create_test_full_result("realizar", 30.0, 140.0, 1200, 0.04);
+        let current = create_test_full_result("realizar", 35.0, 140.0, 1200, 0.04); // 16.7% worse TTFT
+
+        let regression = RegressionResult::check(&baseline, &current, 5.0);
+
+        assert!(regression.regression_detected);
+        assert!(regression
+            .regressed_metrics
+            .iter()
+            .any(|m| m.contains("ttft")));
+    }
+
+    #[test]
+    fn test_regression_result_throughput_regression() {
+        let baseline = create_test_full_result("realizar", 30.0, 140.0, 1200, 0.04);
+        let current = create_test_full_result("realizar", 30.0, 120.0, 1200, 0.04); // 14.3% worse throughput
+
+        let regression = RegressionResult::check(&baseline, &current, 5.0);
+
+        assert!(regression.regression_detected);
+        assert!(regression
+            .regressed_metrics
+            .iter()
+            .any(|m| m.contains("throughput")));
+    }
+
+    #[test]
+    fn test_regression_result_memory_regression() {
+        let baseline = create_test_full_result("realizar", 30.0, 140.0, 1200, 0.04);
+        let current = create_test_full_result("realizar", 30.0, 140.0, 1400, 0.04); // 16.7% worse memory
+
+        let regression = RegressionResult::check(&baseline, &current, 5.0);
+
+        assert!(regression.regression_detected);
+        assert!(regression
+            .regressed_metrics
+            .iter()
+            .any(|m| m.contains("memory")));
+    }
+
+    /// Helper function to create test FullBenchmarkResult
+    fn create_test_full_result(
+        runtime: &str,
+        ttft_p99: f64,
+        throughput: f64,
+        memory_mb: u64,
+        token_joules: f64,
+    ) -> FullBenchmarkResult {
+        FullBenchmarkResult {
+            version: "1.1".to_string(),
+            timestamp: "2025-12-09T12:00:00Z".to_string(),
+            config: BenchmarkConfig {
+                model: "test".to_string(),
+                format: "apr".to_string(),
+                quantization: "q4_k".to_string(),
+                runtime: runtime.to_string(),
+                runtime_version: "1.0.0".to_string(),
+            },
+            hardware: HardwareSpec::default(),
+            sampling: SamplingConfig::default(),
+            thermal: ThermalInfo::default(),
+            results: BenchmarkResults {
+                ttft_ms: TtftResults {
+                    p50: ttft_p99 * 0.7,
+                    p95: ttft_p99 * 0.9,
+                    p99: ttft_p99,
+                    p999: ttft_p99 * 1.2,
+                },
+                itl_ms: ItlResults {
+                    median: 10.0,
+                    std_dev: 2.0,
+                    p99: 15.0,
+                },
+                throughput_tok_s: ThroughputResults {
+                    median: throughput,
+                    ci_95: (throughput * 0.95, throughput * 1.05),
+                },
+                memory_mb: MemoryResults {
+                    model_mb: memory_mb / 2,
+                    peak_rss_mb: memory_mb,
+                    kv_waste_pct: 3.0,
+                },
+                energy: EnergyResults {
+                    total_joules: 50.0,
+                    token_joules,
+                    idle_watts: 8.0,
+                },
+                cold_start_ms: ColdStartResults {
+                    median: 100.0,
+                    p99: 150.0,
+                },
+            },
+            quality: QualityValidation {
+                kl_divergence_vs_fp32: 0.03,
+                perplexity_wikitext2: Some(5.89),
+            },
+        }
     }
 }

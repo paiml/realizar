@@ -12,6 +12,9 @@
 //! - Error rates
 //! - Resource usage
 
+// Test infrastructure types used when load-test-enabled feature is active
+#![allow(dead_code)]
+
 use std::{
     sync::{
         atomic::{AtomicU64, Ordering},
