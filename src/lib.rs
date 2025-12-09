@@ -103,6 +103,8 @@ pub mod apr;
 /// - KL-Divergence quality validation
 pub mod bench;
 pub mod cache;
+/// CLI command implementations (extracted for testability)
+pub mod cli;
 pub mod error;
 pub mod generate;
 pub mod gguf;
