@@ -93,6 +93,15 @@ pub mod api;
 /// The .apr format is the native format for the sovereign AI stack.
 /// GGUF and safetensors are supported as fallback formats.
 pub mod apr;
+/// Benchmark harness for model runner comparison
+///
+/// Implements the benchmark specification v1.1 with Toyota Way engineering principles:
+/// - Dynamic CV-based stop-rule (Hoefler & Belli)
+/// - Thermal throttling protocol
+/// - ITL variance measurement
+/// - KV-cache fragmentation detection
+/// - KL-Divergence quality validation
+pub mod bench;
 pub mod cache;
 pub mod error;
 pub mod generate;
