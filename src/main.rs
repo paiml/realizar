@@ -23,6 +23,7 @@ use pacha::resolver::{ModelResolver, ModelSource};
 use pacha::uri::ModelUri;
 use realizar::{
     api::{create_router, AppState},
+    cli,
     error::Result,
 };
 
@@ -40,11 +41,6 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Run a model for inference (like `ollama run`)
-    ///
-    /// Examples:
-    ///   realizar run llama3:8b "What is Rust?"
-    ///   realizar run pacha://my-model:v1.0 "Hello"
-    ///   realizar run ./model.gguf "Prompt"
     Run {
         /// Model reference (pacha://name:version, hf://org/model, or path)
         #[arg(value_name = "MODEL")]
@@ -67,10 +63,6 @@ enum Commands {
         format: String,
     },
     /// Interactive chat mode (like `ollama chat`)
-    ///
-    /// Examples:
-    ///   realizar chat llama3:8b
-    ///   realizar chat pacha://assistant:v2.0
     Chat {
         /// Model reference
         #[arg(value_name = "MODEL")]
@@ -85,10 +77,6 @@ enum Commands {
         history: Option<String>,
     },
     /// List available models (like `ollama list`)
-    ///
-    /// Examples:
-    ///   realizar list
-    ///   realizar list --remote pacha://registry.example.com
     List {
         /// Show remote registry models
         #[arg(short, long)]
@@ -99,11 +87,6 @@ enum Commands {
         format: String,
     },
     /// Pull a model from registry (like `ollama pull`)
-    ///
-    /// Examples:
-    ///   realizar pull llama3:8b
-    ///   realizar pull pacha://registry.example.com/model:v1.0
-    ///   realizar pull hf://meta-llama/Llama-3-8B
     Pull {
         /// Model reference to pull
         #[arg(value_name = "MODEL")]
@@ -118,10 +101,6 @@ enum Commands {
         quantize: Option<String>,
     },
     /// Push a model to registry (like `ollama push`)
-    ///
-    /// Examples:
-    ///   realizar push my-model:v1.0
-    ///   realizar push --to pacha://registry.example.com my-model:latest
     Push {
         /// Model to push
         #[arg(value_name = "MODEL")]
@@ -155,7 +134,7 @@ enum Commands {
     },
     /// Run performance benchmarks (wraps cargo bench)
     Bench {
-        /// Benchmark suite to run (tensor_ops, inference, cache, tokenizer, quantize, lambda)
+        /// Benchmark suite to run
         #[arg(value_name = "SUITE")]
         suite: Option<String>,
 
@@ -176,11 +155,8 @@ enum Commands {
         output: Option<String>,
     },
     /// Run convoy test for continuous batching validation (spec 2.4)
-    ///
-    /// Tests mixed workloads: 10 long-context + 100 short-QA requests.
-    /// Validates p99 increase, head-of-line blocking, and KV fragmentation.
     BenchConvoy {
-        /// Runtime to benchmark (realizar, llama-cpp, vllm)
+        /// Runtime to benchmark
         #[arg(long)]
         runtime: Option<String>,
 
@@ -193,11 +169,8 @@ enum Commands {
         output: Option<String>,
     },
     /// Run saturation stress test (spec 2.5)
-    ///
-    /// Tests scheduler behavior under 50% CPU saturation.
-    /// Validates throughput degradation and p99 latency increase.
     BenchSaturation {
-        /// Runtime to benchmark (realizar, llama-cpp, vllm)
+        /// Runtime to benchmark
         #[arg(long)]
         runtime: Option<String>,
 
@@ -210,9 +183,6 @@ enum Commands {
         output: Option<String>,
     },
     /// Compare two benchmark result files
-    ///
-    /// Compares TTFT, throughput, ITL, and memory across results.
-    /// Reports winner and percentage differences.
     BenchCompare {
         /// First benchmark result file (JSON)
         #[arg(value_name = "FILE1")]
@@ -227,9 +197,6 @@ enum Commands {
         threshold: f64,
     },
     /// Detect performance regressions between baseline and current
-    ///
-    /// Fails if any metric regresses beyond threshold.
-    /// Used in CI/CD pipelines.
     BenchRegression {
         /// Baseline benchmark result file (JSON)
         #[arg(value_name = "BASELINE")]
@@ -239,7 +206,7 @@ enum Commands {
         #[arg(value_name = "CURRENT")]
         current: String,
 
-        /// Strict mode: fail on any regression (default: 10% threshold)
+        /// Strict mode: fail on any regression
         #[arg(long)]
         strict: bool,
     },
@@ -259,9 +226,9 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let cli = Cli::parse();
+    let parsed = Cli::parse();
 
-    match cli.command {
+    match parsed.command {
         Commands::Run {
             model,
             prompt,
@@ -318,49 +285,43 @@ async fn main() -> Result<()> {
             model,
             output,
         } => {
-            run_benchmarks(suite, list, runtime, model, output)?;
+            cli::run_benchmarks(suite, list, runtime, model, output)?;
         },
         Commands::BenchConvoy {
             runtime,
             model,
             output,
         } => {
-            run_convoy_test(runtime, model, output)?;
+            cli::run_convoy_test(runtime, model, output)?;
         },
         Commands::BenchSaturation {
             runtime,
             model,
             output,
         } => {
-            run_saturation_test(runtime, model, output)?;
+            cli::run_saturation_test(runtime, model, output)?;
         },
         Commands::BenchCompare {
             file1,
             file2,
             threshold,
         } => {
-            run_bench_compare(&file1, &file2, threshold)?;
+            cli::run_bench_compare(&file1, &file2, threshold)?;
         },
         Commands::BenchRegression {
             baseline,
             current,
             strict,
         } => {
-            run_bench_regression(&baseline, &current, strict)?;
+            if cli::run_bench_regression(&baseline, &current, strict).is_err() {
+                std::process::exit(1);
+            }
         },
         Commands::Viz { color, samples } => {
-            run_visualization(color, samples);
+            cli::run_visualization(color, samples);
         },
         Commands::Info => {
-            println!("Realizar v{}", realizar::VERSION);
-            println!("Pure Rust ML inference engine");
-            println!();
-            println!("Features:");
-            println!("  - GGUF and Safetensors model formats");
-            println!("  - Transformer inference (LLaMA architecture)");
-            println!("  - BPE and SentencePiece tokenizers");
-            println!("  - Greedy, top-k, and top-p sampling");
-            println!("  - REST API for inference");
+            cli::print_info();
         },
     }
 
@@ -409,7 +370,6 @@ async fn serve_model(_host: &str, _port: u16, model_path: &str) -> Result<()> {
     println!("Loading model from: {model_path}");
     println!();
 
-    // Read model file
     let file_data = std::fs::read(model_path).map_err(|e| {
         realizar::error::RealizarError::UnsupportedOperation {
             operation: "read_model_file".to_string(),
@@ -417,11 +377,10 @@ async fn serve_model(_host: &str, _port: u16, model_path: &str) -> Result<()> {
         }
     })?;
 
-    // Detect file type and parse
     if model_path.ends_with(".gguf") {
-        load_gguf_model(&file_data)?;
+        cli::load_gguf_model(&file_data)?;
     } else if model_path.ends_with(".safetensors") {
-        load_safetensors_model(&file_data)?;
+        cli::load_safetensors_model(&file_data)?;
     } else {
         return Err(realizar::error::RealizarError::UnsupportedOperation {
             operation: "detect_model_type".to_string(),
@@ -432,576 +391,10 @@ async fn serve_model(_host: &str, _port: u16, model_path: &str) -> Result<()> {
     Ok(())
 }
 
-fn load_gguf_model(file_data: &[u8]) -> Result<()> {
-    use realizar::gguf::GGUFModel;
-
-    println!("Parsing GGUF file...");
-    let gguf = GGUFModel::from_bytes(file_data)?;
-
-    println!("✓ Successfully parsed GGUF file");
-    println!();
-    println!("Model Information:");
-    println!("  Version: {}", gguf.header.version);
-    println!("  Tensors: {}", gguf.header.tensor_count);
-    println!("  Metadata entries: {}", gguf.header.metadata_count);
-    println!();
-
-    // Show some metadata
-    if !gguf.metadata.is_empty() {
-        println!("Metadata (first 5 entries):");
-        for (key, _value) in gguf.metadata.iter().take(5) {
-            println!("  - {key}");
-        }
-        if gguf.metadata.len() > 5 {
-            println!("  ... and {} more", gguf.metadata.len() - 5);
-        }
-        println!();
-    }
-
-    // Show tensor names
-    if !gguf.tensors.is_empty() {
-        println!("Tensors (first 10):");
-        for tensor in gguf.tensors.iter().take(10) {
-            let dims: Vec<String> = tensor.dims.iter().map(|d| d.to_string()).collect();
-            println!(
-                "  - {} [{}, qtype={}]",
-                tensor.name,
-                dims.join("×"),
-                tensor.qtype
-            );
-        }
-        if gguf.tensors.len() > 10 {
-            println!("  ... and {} more", gguf.tensors.len() - 10);
-        }
-        println!();
-    }
-
-    println!("Model loading infrastructure is ready!");
-    println!();
-    println!("Next steps to complete model loading:");
-    println!("  1. Extract ModelConfig from metadata (vocab_size, hidden_dim, etc.)");
-    println!("  2. Map tensor names to Model layers (see src/layers.rs docs)");
-    println!("  3. Load weights into each layer");
-    println!();
-    println!("See documentation: cargo doc --open");
-    println!("Example: src/layers.rs module documentation");
-
-    Ok(())
-}
-
-fn load_safetensors_model(file_data: &[u8]) -> Result<()> {
-    use realizar::safetensors::SafetensorsModel;
-
-    println!("Parsing Safetensors file...");
-    let safetensors = SafetensorsModel::from_bytes(file_data)?;
-
-    println!("✓ Successfully parsed Safetensors file");
-    println!();
-    println!("Model Information:");
-    println!("  Tensors: {}", safetensors.tensors.len());
-    println!("  Data size: {} bytes", safetensors.data.len());
-    println!();
-
-    // Show tensor names
-    if !safetensors.tensors.is_empty() {
-        println!("Tensors (first 10):");
-        for (name, tensor_info) in safetensors.tensors.iter().take(10) {
-            let shape: Vec<String> = tensor_info.shape.iter().map(|s| s.to_string()).collect();
-            println!(
-                "  - {} [{}, dtype={:?}]",
-                name,
-                shape.join("×"),
-                tensor_info.dtype
-            );
-        }
-        if safetensors.tensors.len() > 10 {
-            println!("  ... and {} more", safetensors.tensors.len() - 10);
-        }
-        println!();
-    }
-
-    println!("Model loading infrastructure is ready!");
-    println!();
-    println!("Next steps to complete model loading:");
-    println!("  1. Extract ModelConfig from tensor shapes");
-    println!("  2. Map tensor names to Model layers (see src/layers.rs docs)");
-    println!("  3. Load weights into each layer");
-    println!();
-    println!("See documentation: cargo doc --open");
-    println!("Example: src/layers.rs module documentation");
-
-    Ok(())
-}
-
-fn run_visualization(use_color: bool, samples: usize) {
-    use realizar::viz::{
-        print_benchmark_results, render_ascii_histogram, render_sparkline, BenchmarkData,
-    };
-
-    println!("Realizar Benchmark Visualization Demo");
-    println!("=====================================");
-    println!();
-
-    // Generate synthetic benchmark data (simulating inference latencies)
-    let mut rng_state = 42u64;
-    let latencies: Vec<f64> = (0..samples)
-        .map(|_| {
-            // Simple LCG for reproducible pseudo-random numbers
-            rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1);
-            let uniform = (rng_state >> 33) as f64 / (1u64 << 31) as f64;
-            // Log-normal distribution (typical for latencies)
-            let log_mean = 3.0; // ~20us median
-            let log_std = 0.5;
-            (log_mean + log_std * (2.0 * uniform - 1.0)).exp()
-        })
-        .collect();
-
-    // Demo 1: Sparkline
-    println!("1. Sparkline (latency trend)");
-    println!("   {}", render_sparkline(&latencies, 60));
-    println!();
-
-    // Demo 2: ASCII histogram
-    println!("2. ASCII Histogram (latency distribution)");
-    let hist = render_ascii_histogram(&latencies, 12, 50);
-    for line in hist.lines() {
-        println!("   {line}");
-    }
-    println!();
-
-    // Demo 3: Full benchmark report
-    println!("3. Full Benchmark Report");
-    let data = BenchmarkData::new("inference_latency", latencies);
-    print_benchmark_results(&data, use_color);
-    println!();
-
-    // Demo 4: Multi-benchmark comparison
-    println!("4. Multi-Benchmark Comparison");
-    println!();
-
-    let benchmarks = [
-        ("tensor_add", 15.2, 18.1),
-        ("tensor_mul", 16.8, 20.3),
-        ("matmul_128", 145.3, 172.1),
-        ("softmax", 23.4, 28.9),
-        ("attention", 892.1, 1024.5),
-    ];
-
-    println!(
-        "   {:.<20} {:>10} {:>10} {:>10}",
-        "Benchmark", "p50 (us)", "p99 (us)", "Trend"
-    );
-    println!("   {}", "-".repeat(55));
-
-    for (name, p50, p99) in benchmarks {
-        // Generate mini trend data
-        let trend: Vec<f64> = (0..20)
-            .map(|i| p50 + (i as f64 / 20.0) * (p99 - p50) * 0.3)
-            .collect();
-        let sparkline = render_sparkline(&trend, 10);
-        println!("   {:.<20} {:>10.1} {:>10.1} {}", name, p50, p99, sparkline);
-    }
-    println!();
-
-    println!("Visualization powered by trueno-viz");
-}
-
-/// Available benchmark suites
-const BENCHMARK_SUITES: &[(&str, &str)] = &[
-    (
-        "tensor_ops",
-        "Core tensor operations (add, mul, matmul, softmax)",
-    ),
-    ("inference", "End-to-end inference pipeline benchmarks"),
-    ("cache", "KV cache operations and memory management"),
-    ("tokenizer", "BPE and SentencePiece tokenization"),
-    ("quantize", "Quantization/dequantization (Q4_0, Q8_0)"),
-    ("lambda", "AWS Lambda cold start and warm invocation"),
-    (
-        "comparative",
-        "Framework comparison (MNIST, CIFAR-10, Iris)",
-    ),
-];
-
-fn run_benchmarks(
-    suite: Option<String>,
-    list: bool,
-    runtime: Option<String>,
-    model: Option<String>,
-    output: Option<String>,
-) -> Result<()> {
-    if list {
-        println!("Available benchmark suites:");
-        println!();
-        for (name, description) in BENCHMARK_SUITES {
-            println!("  {name:<12} - {description}");
-        }
-        println!();
-        println!("Usage:");
-        println!("  realizar bench                        # Run all benchmarks");
-        println!("  realizar bench tensor_ops             # Run specific suite");
-        println!("  realizar bench --list                 # List available suites");
-        println!("  realizar bench --runtime realizar     # Specify runtime");
-        println!("  realizar bench --output results.json  # Save JSON results");
-        return Ok(());
-    }
-
-    let runtime_name = runtime.unwrap_or_else(|| "realizar".to_string());
-    println!("Benchmark Configuration:");
-    println!("  Runtime: {runtime_name}");
-    if let Some(ref m) = model {
-        println!("  Model: {m}");
-    }
-    if let Some(ref o) = output {
-        println!("  Output: {o}");
-    }
-    println!();
-
-    let mut cmd = std::process::Command::new("cargo");
-    cmd.arg("bench");
-
-    if let Some(ref suite_name) = suite {
-        // Validate suite name
-        if !BENCHMARK_SUITES.iter().any(|(name, _)| *name == suite_name) {
-            eprintln!("Error: Unknown benchmark suite '{suite_name}'");
-            eprintln!();
-            eprintln!("Available suites:");
-            for (name, _) in BENCHMARK_SUITES {
-                eprintln!("  {name}");
-            }
-            std::process::exit(1);
-        }
-        cmd.arg("--bench").arg(suite_name);
-    }
-
-    println!("Running benchmarks...");
-    println!();
-
-    let status =
-        cmd.status()
-            .map_err(|e| realizar::error::RealizarError::UnsupportedOperation {
-                operation: "run_benchmarks".to_string(),
-                reason: format!("Failed to execute cargo bench: {e}"),
-            })?;
-
-    if !status.success() {
-        return Err(realizar::error::RealizarError::UnsupportedOperation {
-            operation: "run_benchmarks".to_string(),
-            reason: format!("Benchmarks failed with exit code: {:?}", status.code()),
-        });
-    }
-
-    // TODO: Generate JSON output if --output specified
-    if let Some(ref output_path) = output {
-        println!();
-        println!("Note: JSON output to {output_path} is a placeholder.");
-        println!("      Full benchmark harness integration coming soon.");
-    }
-
-    Ok(())
-}
-
-/// Run convoy test for continuous batching validation (spec 2.4)
-fn run_convoy_test(
-    runtime: Option<String>,
-    model: Option<String>,
-    output: Option<String>,
-) -> Result<()> {
-    use realizar::bench::{ConvoyTestConfig, ConvoyTestResult};
-
-    let runtime_name = runtime.unwrap_or_else(|| "realizar".to_string());
-    println!("=== Convoy Test (Continuous Batching Validation) ===");
-    println!();
-    println!("Configuration:");
-    println!("  Runtime: {runtime_name}");
-    if let Some(ref m) = model {
-        println!("  Model: {m}");
-    }
-    println!();
-
-    let config = ConvoyTestConfig::default();
-    println!("Test Parameters:");
-    println!("  Long-context requests: {}", config.long_requests);
-    println!("  Short-QA requests: {}", config.short_requests);
-    println!("  Max p99 increase: {}%", config.max_p99_increase_pct);
-    println!("  Max HOL blocking: {}ms", config.max_hol_blocking_ms);
-    println!(
-        "  Max KV fragmentation: {}%",
-        config.max_kv_fragmentation_pct
-    );
-    println!();
-
-    // Create simulated result for demo (actual benchmark would run inference)
-    // Using the constructor with synthetic measurement data
-    let baseline_latencies: Vec<f64> = (0..100).map(|i| 45.0 + (i as f64) * 0.1).collect();
-    let convoy_latencies: Vec<f64> = (0..100).map(|i| 60.0 + (i as f64) * 0.15).collect();
-    let hol_blocking_times: Vec<f64> = vec![80.0, 120.0, 95.0, 110.0, 85.0];
-    let result = ConvoyTestResult::new(
-        &config,
-        &baseline_latencies,
-        &convoy_latencies,
-        &hol_blocking_times,
-        8.5, // KV fragmentation %
-    );
-
-    println!("Results:");
-    println!("  Baseline p99: {:.1}ms", result.baseline_short_p99_ms);
-    println!("  Convoy p99: {:.1}ms", result.convoy_short_p99_ms);
-    println!("  p99 increase: {:.1}%", result.p99_increase_pct);
-    println!("  Max HOL blocking: {:.1}ms", result.max_hol_blocking_ms);
-    println!("  Avg HOL blocking: {:.1}ms", result.avg_hol_blocking_ms);
-    println!("  KV fragmentation: {:.1}%", result.kv_fragmentation_pct);
-    println!();
-
-    if result.passed {
-        println!("✅ CONVOY TEST PASSED");
-    } else {
-        println!("❌ CONVOY TEST FAILED");
-        for failure in &result.failure_reasons {
-            println!("   - {failure}");
-        }
-    }
-
-    if let Some(ref output_path) = output {
-        // Write JSON results
-        if let Ok(json) = serde_json::to_string_pretty(&result) {
-            let _ = std::fs::write(output_path, json);
-            println!();
-            println!("Results saved to: {output_path}");
-        }
-    }
-
-    Ok(())
-}
-
-/// Run saturation stress test (spec 2.5)
-fn run_saturation_test(
-    runtime: Option<String>,
-    model: Option<String>,
-    output: Option<String>,
-) -> Result<()> {
-    use realizar::bench::{SaturationTestConfig, SaturationTestResult};
-
-    let runtime_name = runtime.unwrap_or_else(|| "realizar".to_string());
-    println!("=== Saturation Stress Test ===");
-    println!();
-    println!("Configuration:");
-    println!("  Runtime: {runtime_name}");
-    if let Some(ref m) = model {
-        println!("  Model: {m}");
-    }
-    println!();
-
-    let config = SaturationTestConfig::default();
-    println!("Test Parameters:");
-    println!("  CPU load target: {}%", config.cpu_load_pct);
-    println!(
-        "  Max throughput degradation: {}%",
-        config.max_throughput_degradation_pct
-    );
-    println!("  Max p99 increase: {}%", config.max_p99_increase_pct);
-    println!();
-
-    // Create simulated result for demo using constructor with synthetic data
-    let baseline_throughputs: Vec<f64> = (0..50).map(|i| 95.0 + (i as f64) * 0.2).collect();
-    let stressed_throughputs: Vec<f64> = (0..50).map(|i| 78.0 + (i as f64) * 0.15).collect();
-    let baseline_latencies: Vec<f64> = (0..100).map(|i| 45.0 + (i as f64) * 0.1).collect();
-    let stressed_latencies: Vec<f64> = (0..100).map(|i| 75.0 + (i as f64) * 0.2).collect();
-    let result = SaturationTestResult::new(
-        &config,
-        &baseline_throughputs,
-        &stressed_throughputs,
-        &baseline_latencies,
-        &stressed_latencies,
-    );
-
-    println!("Results:");
-    println!(
-        "  Baseline throughput: {:.1} tok/s",
-        result.baseline_throughput
-    );
-    println!(
-        "  Stressed throughput: {:.1} tok/s",
-        result.stressed_throughput
-    );
-    println!(
-        "  Throughput degradation: {:.1}%",
-        result.throughput_degradation_pct
-    );
-    println!("  Baseline p99: {:.1}ms", result.baseline_p99_ms);
-    println!("  Stressed p99: {:.1}ms", result.stressed_p99_ms);
-    println!("  P99 increase: {:.1}%", result.p99_increase_pct);
-    println!();
-
-    if result.passed {
-        println!("✅ SATURATION TEST PASSED");
-    } else {
-        println!("❌ SATURATION TEST FAILED");
-        for failure in &result.failure_reasons {
-            println!("   - {failure}");
-        }
-    }
-
-    if let Some(ref output_path) = output {
-        // Write JSON results
-        if let Ok(json) = serde_json::to_string_pretty(&result) {
-            let _ = std::fs::write(output_path, json);
-            println!();
-            println!("Results saved to: {output_path}");
-        }
-    }
-
-    Ok(())
-}
-
-/// Compare two benchmark result files
-fn run_bench_compare(file1: &str, file2: &str, threshold: f64) -> Result<()> {
-    use realizar::bench::{BenchmarkComparison, FullBenchmarkResult};
-
-    println!("=== Benchmark Comparison ===");
-    println!();
-    println!("File 1: {file1}");
-    println!("File 2: {file2}");
-    println!("Significance threshold: {threshold}%");
-    println!();
-
-    // Read and parse JSON files
-    let json1 = std::fs::read_to_string(file1).map_err(|e| {
-        realizar::error::RealizarError::UnsupportedOperation {
-            operation: "read_benchmark".to_string(),
-            reason: format!("Failed to read {file1}: {e}"),
-        }
-    })?;
-
-    let json2 = std::fs::read_to_string(file2).map_err(|e| {
-        realizar::error::RealizarError::UnsupportedOperation {
-            operation: "read_benchmark".to_string(),
-            reason: format!("Failed to read {file2}: {e}"),
-        }
-    })?;
-
-    let result1 = FullBenchmarkResult::from_json(&json1).map_err(|e| {
-        realizar::error::RealizarError::UnsupportedOperation {
-            operation: "parse_benchmark".to_string(),
-            reason: format!("Failed to parse {file1}: {e}"),
-        }
-    })?;
-
-    let result2 = FullBenchmarkResult::from_json(&json2).map_err(|e| {
-        realizar::error::RealizarError::UnsupportedOperation {
-            operation: "parse_benchmark".to_string(),
-            reason: format!("Failed to parse {file2}: {e}"),
-        }
-    })?;
-
-    // Use static method for comparison
-    let comparison = BenchmarkComparison::compare(&result1, &result2);
-
-    println!("Comparison Results:");
-    println!("  TTFT p99: {:.1}% change", comparison.ttft_p99_change_pct);
-    println!(
-        "  Throughput: {:.1}% change",
-        comparison.throughput_change_pct
-    );
-    println!("  Memory: {:.1}% change", comparison.memory_change_pct);
-    println!("  Energy: {:.1}% change", comparison.energy_change_pct);
-    println!();
-    println!("Winner: {}", comparison.winner);
-    println!("Significance (p-value): {:.4}", comparison.significance);
-
-    // Determine if differences are significant based on threshold
-    let ttft_significant = comparison.ttft_p99_change_pct.abs() > threshold;
-    let throughput_significant = comparison.throughput_change_pct.abs() > threshold;
-
-    println!();
-    if ttft_significant || throughput_significant {
-        println!("Significant differences detected (>{threshold}%)");
-    } else {
-        println!("No significant differences (threshold: {threshold}%)");
-    }
-
-    Ok(())
-}
-
-/// Detect performance regressions between baseline and current
-fn run_bench_regression(baseline_path: &str, current_path: &str, strict: bool) -> Result<()> {
-    use realizar::bench::{FullBenchmarkResult, RegressionResult};
-
-    let threshold = if strict { 0.0 } else { 10.0 };
-
-    println!("=== Regression Detection ===");
-    println!();
-    println!("Baseline: {baseline_path}");
-    println!("Current: {current_path}");
-    println!(
-        "Mode: {}",
-        if strict {
-            "strict (0%)"
-        } else {
-            "normal (10%)"
-        }
-    );
-    println!("Threshold: {threshold}%");
-    println!();
-
-    // Read and parse JSON files
-    let baseline_json = std::fs::read_to_string(baseline_path).map_err(|e| {
-        realizar::error::RealizarError::UnsupportedOperation {
-            operation: "read_baseline".to_string(),
-            reason: format!("Failed to read {baseline_path}: {e}"),
-        }
-    })?;
-
-    let current_json = std::fs::read_to_string(current_path).map_err(|e| {
-        realizar::error::RealizarError::UnsupportedOperation {
-            operation: "read_current".to_string(),
-            reason: format!("Failed to read {current_path}: {e}"),
-        }
-    })?;
-
-    let baseline = FullBenchmarkResult::from_json(&baseline_json).map_err(|e| {
-        realizar::error::RealizarError::UnsupportedOperation {
-            operation: "parse_baseline".to_string(),
-            reason: format!("Failed to parse {baseline_path}: {e}"),
-        }
-    })?;
-
-    let current = FullBenchmarkResult::from_json(&current_json).map_err(|e| {
-        realizar::error::RealizarError::UnsupportedOperation {
-            operation: "parse_current".to_string(),
-            reason: format!("Failed to parse {current_path}: {e}"),
-        }
-    })?;
-
-    // Use static method for regression check
-    let regression = RegressionResult::check(&baseline, &current, threshold);
-
-    println!("Regression Analysis:");
-    println!("  Threshold: {:.1}%", regression.threshold_pct);
-    println!("  Regression detected: {}", regression.regression_detected);
-    if !regression.regressed_metrics.is_empty() {
-        println!("  Regressed metrics:");
-        for metric in &regression.regressed_metrics {
-            println!("    - {metric}");
-        }
-    }
-    println!();
-
-    if regression.regression_detected {
-        println!("❌ REGRESSION DETECTED");
-        std::process::exit(1);
-    } else {
-        println!("✅ NO REGRESSION DETECTED");
-    }
-
-    Ok(())
-}
-
 // ============================================================================
-// New ollama-like Commands
+// Model Commands (run, chat, list, pull, push)
 // ============================================================================
 
-/// Run a model for inference (like `ollama run`) - with registry support
 #[cfg(feature = "registry")]
 async fn run_model(
     model_ref: &str,
@@ -1012,10 +405,8 @@ async fn run_model(
 ) -> Result<()> {
     println!("Loading model: {model_ref}");
 
-    // Try to resolve via Pacha URI
     let file_data = match ModelUri::parse(model_ref) {
         Ok(uri) => {
-            // Use Pacha resolver
             let resolver = ModelResolver::new_default().map_err(|e| {
                 realizar::error::RealizarError::UnsupportedOperation {
                     operation: "init_resolver".to_string(),
@@ -1047,7 +438,6 @@ async fn run_model(
                     resolved.data
                 },
                 Err(e) => {
-                    // Fall back to direct file read for local paths
                     if std::path::Path::new(model_ref).exists() {
                         println!("  Source: local file");
                         std::fs::read(model_ref).map_err(|e| {
@@ -1066,7 +456,6 @@ async fn run_model(
             }
         },
         Err(_) => {
-            // Direct file path
             if !std::path::Path::new(model_ref).exists() {
                 return Err(realizar::error::RealizarError::ModelNotFound(
                     model_ref.to_string(),
@@ -1082,12 +471,9 @@ async fn run_model(
         },
     };
 
-    // Detect and display model info
-    display_model_info(model_ref, &file_data)?;
-
+    cli::display_model_info(model_ref, &file_data)?;
     println!();
 
-    // Handle prompt
     if let Some(prompt_text) = prompt {
         println!("Prompt: {prompt_text}");
         println!("Max tokens: {max_tokens}");
@@ -1099,7 +485,6 @@ async fn run_model(
             file_data.len()
         );
     } else {
-        // Interactive mode
         println!("Interactive mode (Ctrl+D to exit)");
         println!();
         println!("Model loaded ({} bytes)", file_data.len());
@@ -1110,7 +495,6 @@ async fn run_model(
     Ok(())
 }
 
-/// Run a model for inference (like `ollama run`) - without registry
 #[cfg(not(feature = "registry"))]
 async fn run_model(
     model_ref: &str,
@@ -1121,15 +505,7 @@ async fn run_model(
 ) -> Result<()> {
     println!("Loading model: {model_ref}");
 
-    // Parse model URI
-    let is_local_file = model_ref.starts_with("./")
-        || model_ref.starts_with('/')
-        || model_ref.ends_with(".gguf")
-        || model_ref.ends_with(".safetensors")
-        || model_ref.ends_with(".apr");
-
-    if is_local_file {
-        // Load from file
+    if cli::is_local_file_path(model_ref) {
         if !std::path::Path::new(model_ref).exists() {
             return Err(realizar::error::RealizarError::ModelNotFound(
                 model_ref.to_string(),
@@ -1137,7 +513,6 @@ async fn run_model(
         }
         println!("  Source: local file");
     } else if model_ref.starts_with("pacha://") || model_ref.contains(':') {
-        // Load from Pacha registry
         println!("  Source: Pacha registry");
         println!();
         println!("Enable registry support: --features registry");
@@ -1145,7 +520,6 @@ async fn run_model(
         println!("  realizar run ./model.gguf \"Your prompt\"");
         return Ok(());
     } else if model_ref.starts_with("hf://") {
-        // HuggingFace Hub
         println!("  Source: HuggingFace Hub");
         println!();
         println!("Enable registry support: --features registry");
@@ -1154,7 +528,6 @@ async fn run_model(
         return Ok(());
     }
 
-    // Read and parse model file
     let file_data = std::fs::read(model_ref).map_err(|e| {
         realizar::error::RealizarError::UnsupportedOperation {
             operation: "read_model".to_string(),
@@ -1162,12 +535,9 @@ async fn run_model(
         }
     })?;
 
-    // Detect and display model info
-    display_model_info(model_ref, &file_data)?;
-
+    cli::display_model_info(model_ref, &file_data)?;
     println!();
 
-    // Handle prompt
     if let Some(prompt_text) = prompt {
         println!("Prompt: {prompt_text}");
         println!("Max tokens: {max_tokens}");
@@ -1179,7 +549,6 @@ async fn run_model(
             file_data.len()
         );
     } else {
-        // Interactive mode
         println!("Interactive mode (Ctrl+D to exit)");
         println!();
         println!("Model loaded ({} bytes)", file_data.len());
@@ -1190,25 +559,6 @@ async fn run_model(
     Ok(())
 }
 
-/// Display model information based on file type
-fn display_model_info(model_ref: &str, file_data: &[u8]) -> Result<()> {
-    if model_ref.ends_with(".gguf") || file_data.starts_with(b"GGUF") {
-        use realizar::gguf::GGUFModel;
-        let gguf = GGUFModel::from_bytes(file_data)?;
-        println!("  Format: GGUF v{}", gguf.header.version);
-        println!("  Tensors: {}", gguf.header.tensor_count);
-    } else if model_ref.ends_with(".safetensors") {
-        use realizar::safetensors::SafetensorsModel;
-        let st = SafetensorsModel::from_bytes(file_data)?;
-        println!("  Format: SafeTensors");
-        println!("  Tensors: {}", st.tensors.len());
-    } else {
-        println!("  Format: Unknown ({} bytes)", file_data.len());
-    }
-    Ok(())
-}
-
-/// Run interactive chat mode (like `ollama chat`) - with registry support
 #[cfg(feature = "registry")]
 async fn run_chat(
     model_ref: &str,
@@ -1219,7 +569,6 @@ async fn run_chat(
 
     println!("Loading model: {model_ref}");
 
-    // Try to resolve via Pacha URI
     let file_data = match ModelUri::parse(model_ref) {
         Ok(uri) => {
             let resolver = ModelResolver::new_default().map_err(|e| {
@@ -1266,11 +615,10 @@ async fn run_chat(
         },
     };
 
-    display_model_info(model_ref, &file_data)?;
+    cli::display_model_info(model_ref, &file_data)?;
     println!("  Size: {} bytes", file_data.len());
     println!();
 
-    // Load history if provided
     let mut history: Vec<(String, String)> = if let Some(path) = history_file {
         if std::path::Path::new(path).exists() {
             let content = std::fs::read_to_string(path).unwrap_or_default();
@@ -1301,7 +649,6 @@ async fn run_chat(
         let mut input = String::new();
         match stdin.lock().read_line(&mut input) {
             Ok(0) => {
-                // EOF (Ctrl+D)
                 println!();
                 break;
             },
@@ -1312,7 +659,6 @@ async fn run_chat(
                     continue;
                 }
 
-                // Handle commands
                 if input == "exit" || input == "/exit" || input == "/quit" {
                     break;
                 }
@@ -1335,14 +681,12 @@ async fn run_chat(
                     continue;
                 }
 
-                // Simulate response (model inference would go here)
                 let response = format!("[Model loaded: {} bytes] Echo: {}", file_data.len(), input);
 
                 println!();
                 println!("{response}");
                 println!();
 
-                // Add to history
                 history.push((input.to_string(), response));
             },
             Err(e) => {
@@ -1352,7 +696,6 @@ async fn run_chat(
         }
     }
 
-    // Save history if path provided
     if let Some(path) = history_file {
         if let Ok(json) = serde_json::to_string_pretty(&history) {
             let _ = std::fs::write(path, json);
@@ -1364,7 +707,6 @@ async fn run_chat(
     Ok(())
 }
 
-/// Run interactive chat mode (like `ollama chat`) - without registry
 #[cfg(not(feature = "registry"))]
 async fn run_chat(
     model_ref: &str,
@@ -1375,7 +717,6 @@ async fn run_chat(
 
     println!("Loading model: {model_ref}");
 
-    // Check file exists
     if !std::path::Path::new(model_ref).exists()
         && !model_ref.starts_with("pacha://")
         && !model_ref.starts_with("hf://")
@@ -1398,11 +739,10 @@ async fn run_chat(
         }
     })?;
 
-    display_model_info(model_ref, &file_data)?;
+    cli::display_model_info(model_ref, &file_data)?;
     println!("  Size: {} bytes", file_data.len());
     println!();
 
-    // Load history if provided
     let mut history: Vec<(String, String)> = if let Some(path) = history_file {
         if std::path::Path::new(path).exists() {
             let content = std::fs::read_to_string(path).unwrap_or_default();
@@ -1491,7 +831,6 @@ async fn run_chat(
     Ok(())
 }
 
-/// List available models (like `ollama list`)
 #[cfg(feature = "registry")]
 fn list_models(remote: Option<&str>, format: &str) -> Result<()> {
     println!("Available Models");
@@ -1505,7 +844,6 @@ fn list_models(remote: Option<&str>, format: &str) -> Result<()> {
         return Ok(());
     }
 
-    // Use Pacha resolver
     let resolver = match ModelResolver::new_default() {
         Ok(r) => r,
         Err(_) => {
@@ -1528,7 +866,6 @@ fn list_models(remote: Option<&str>, format: &str) -> Result<()> {
         return Ok(());
     }
 
-    // List models from registry
     let models = match resolver.list_models() {
         Ok(m) => m,
         Err(e) => {
@@ -1577,7 +914,6 @@ fn list_models(remote: Option<&str>, format: &str) -> Result<()> {
     Ok(())
 }
 
-/// List available models (like `ollama list`) - fallback without registry feature
 #[cfg(not(feature = "registry"))]
 fn list_models(remote: Option<&str>, format: &str) -> Result<()> {
     println!("Available Models");
@@ -1591,8 +927,7 @@ fn list_models(remote: Option<&str>, format: &str) -> Result<()> {
         return Ok(());
     }
 
-    // List local models from ~/.pacha/
-    let pacha_dir = dirs::home_dir()
+    let pacha_dir = cli::home_dir()
         .map(|h| h.join(".pacha").join("models"))
         .unwrap_or_else(|| std::path::PathBuf::from(".pacha/models"));
 
@@ -1607,7 +942,6 @@ fn list_models(remote: Option<&str>, format: &str) -> Result<()> {
         return Ok(());
     }
 
-    // Scan for models
     let mut models_found = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&pacha_dir) {
         for entry in entries.flatten() {
@@ -1636,7 +970,7 @@ fn list_models(remote: Option<&str>, format: &str) -> Result<()> {
                         serde_json::json!({
                             "name": name,
                             "size_bytes": size,
-                            "size_human": format_size(*size)
+                            "size_human": cli::format_size(*size)
                         })
                     })
                     .collect();
@@ -1649,7 +983,7 @@ fn list_models(remote: Option<&str>, format: &str) -> Result<()> {
                 println!("{:<40} {:>12}", "NAME", "SIZE");
                 println!("{}", "-".repeat(54));
                 for (name, size) in &models_found {
-                    println!("{:<40} {:>12}", name, format_size(*size));
+                    println!("{:<40} {:>12}", name, cli::format_size(*size));
                 }
             },
         }
@@ -1658,25 +992,6 @@ fn list_models(remote: Option<&str>, format: &str) -> Result<()> {
     Ok(())
 }
 
-/// Format file size in human-readable form
-#[allow(dead_code)]
-fn format_size(bytes: u64) -> String {
-    const KB: u64 = 1024;
-    const MB: u64 = KB * 1024;
-    const GB: u64 = MB * 1024;
-
-    if bytes >= GB {
-        format!("{:.1} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1} MB", bytes as f64 / MB as f64)
-    } else if bytes >= KB {
-        format!("{:.1} KB", bytes as f64 / KB as f64)
-    } else {
-        format!("{} B", bytes)
-    }
-}
-
-/// Pull a model from registry (like `ollama pull`) - with registry support
 #[cfg(feature = "registry")]
 async fn pull_model(model_ref: &str, force: bool, quantize: Option<&str>) -> Result<()> {
     println!("Pulling model: {model_ref}");
@@ -1688,7 +1003,6 @@ async fn pull_model(model_ref: &str, force: bool, quantize: Option<&str>) -> Res
     }
     println!();
 
-    // Parse URI
     let uri = ModelUri::parse(model_ref).map_err(|e| {
         realizar::error::RealizarError::UnsupportedOperation {
             operation: "parse_uri".to_string(),
@@ -1696,7 +1010,6 @@ async fn pull_model(model_ref: &str, force: bool, quantize: Option<&str>) -> Res
         }
     })?;
 
-    // Initialize resolver
     let resolver = ModelResolver::new_default().map_err(|e| {
         realizar::error::RealizarError::UnsupportedOperation {
             operation: "init_resolver".to_string(),
@@ -1704,14 +1017,12 @@ async fn pull_model(model_ref: &str, force: bool, quantize: Option<&str>) -> Res
         }
     })?;
 
-    // Check if already cached (unless force)
     if !force && resolver.exists(&uri) {
         println!("Model already cached locally.");
         println!("Use --force to re-download.");
         return Ok(());
     }
 
-    // Resolve (pull) the model
     println!("Downloading...");
     let resolved = resolver.resolve(&uri).map_err(|e| {
         realizar::error::RealizarError::UnsupportedOperation {
@@ -1750,7 +1061,6 @@ async fn pull_model(model_ref: &str, force: bool, quantize: Option<&str>) -> Res
     Ok(())
 }
 
-/// Pull a model from registry (like `ollama pull`) - without registry
 #[cfg(not(feature = "registry"))]
 async fn pull_model(model_ref: &str, force: bool, quantize: Option<&str>) -> Result<()> {
     println!("Pulling model: {model_ref}");
@@ -1762,7 +1072,6 @@ async fn pull_model(model_ref: &str, force: bool, quantize: Option<&str>) -> Res
     }
     println!();
 
-    // Parse model reference
     if let Some(hf_path) = model_ref.strip_prefix("hf://") {
         println!("Source: HuggingFace Hub");
         println!("Model: {hf_path}");
@@ -1776,7 +1085,6 @@ async fn pull_model(model_ref: &str, force: bool, quantize: Option<&str>) -> Res
         println!();
         println!("Enable registry support: --features registry");
     } else {
-        // Assume short format like "llama3:8b"
         println!("Source: Default registry (Pacha)");
         println!("Model: {model_ref}");
         println!();
@@ -1788,14 +1096,12 @@ async fn pull_model(model_ref: &str, force: bool, quantize: Option<&str>) -> Res
     Ok(())
 }
 
-/// Push a model to registry (like `ollama push`) - with registry support
 #[cfg(feature = "registry")]
 async fn push_model(model_ref: &str, target: Option<&str>) -> Result<()> {
     use pacha::Registry;
 
     println!("Pushing model: {model_ref}");
 
-    // Parse model reference (name:version)
     let (name, version_str) = if let Some(idx) = model_ref.rfind(':') {
         (&model_ref[..idx], &model_ref[idx + 1..])
     } else {
@@ -1815,7 +1121,6 @@ async fn push_model(model_ref: &str, target: Option<&str>) -> Result<()> {
         println!("  Target: local Pacha registry");
         println!();
 
-        // Check if local file exists
         let local_path = format!("{name}.gguf");
         if !std::path::Path::new(&local_path).exists() {
             println!("Local file not found: {local_path}");
@@ -1826,7 +1131,6 @@ async fn push_model(model_ref: &str, target: Option<&str>) -> Result<()> {
             return Ok(());
         }
 
-        // Read model data
         let data = std::fs::read(&local_path).map_err(|e| {
             realizar::error::RealizarError::UnsupportedOperation {
                 operation: "read_model".to_string(),
@@ -1834,7 +1138,6 @@ async fn push_model(model_ref: &str, target: Option<&str>) -> Result<()> {
             }
         })?;
 
-        // Open registry
         let registry = Registry::open_default().map_err(|e| {
             realizar::error::RealizarError::UnsupportedOperation {
                 operation: "open_registry".to_string(),
@@ -1842,10 +1145,8 @@ async fn push_model(model_ref: &str, target: Option<&str>) -> Result<()> {
             }
         })?;
 
-        // Parse version
         let version = parse_model_version(version_str)?;
 
-        // Register model
         let card = pacha::model::ModelCard::new(format!("Model {name} pushed via realizar"));
         registry
             .register_model(name, &version, &data, card)
@@ -1863,7 +1164,6 @@ async fn push_model(model_ref: &str, target: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-/// Push a model to registry (like `ollama push`) - without registry
 #[cfg(not(feature = "registry"))]
 async fn push_model(model_ref: &str, target: Option<&str>) -> Result<()> {
     println!("Pushing model: {model_ref}");
@@ -1877,7 +1177,6 @@ async fn push_model(model_ref: &str, target: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-/// Parse a version string into ModelVersion
 #[cfg(feature = "registry")]
 fn parse_model_version(s: &str) -> Result<pacha::model::ModelVersion> {
     let parts: Vec<&str> = s.split('.').collect();
@@ -1906,7 +1205,6 @@ fn parse_model_version(s: &str) -> Result<pacha::model::ModelVersion> {
         return Ok(pacha::model::ModelVersion::new(major, minor, patch));
     }
 
-    // Single number or "latest" -> 1.0.0
     if s == "latest" {
         return Ok(pacha::model::ModelVersion::new(1, 0, 0));
     }
@@ -1918,464 +1216,4 @@ fn parse_model_version(s: &str) -> Result<pacha::model::ModelVersion> {
         operation: "parse_version".to_string(),
         reason: format!("Invalid version format: {s}. Expected: x.y.z"),
     })
-}
-
-// Simple home directory resolution (avoids extra dependency)
-#[allow(dead_code)]
-mod dirs {
-    pub(crate) fn home_dir() -> Option<std::path::PathBuf> {
-        std::env::var_os("HOME").map(std::path::PathBuf::from)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // -------------------------------------------------------------------------
-    // Run Command Tests
-    // -------------------------------------------------------------------------
-
-    #[test]
-    fn test_cli_parsing_run_with_prompt() {
-        let cli = Cli::parse_from(["realizar", "run", "llama3:8b", "Hello world"]);
-        match cli.command {
-            Commands::Run {
-                model,
-                prompt,
-                max_tokens,
-                temperature,
-                format,
-            } => {
-                assert_eq!(model, "llama3:8b");
-                assert_eq!(prompt, Some("Hello world".to_string()));
-                assert_eq!(max_tokens, 256); // default
-                assert!((temperature - 0.7).abs() < 0.01); // default
-                assert_eq!(format, "text"); // default
-            },
-            _ => panic!("Expected Run command"),
-        }
-    }
-
-    #[test]
-    fn test_cli_parsing_run_without_prompt() {
-        let cli = Cli::parse_from(["realizar", "run", "llama3:8b"]);
-        match cli.command {
-            Commands::Run { model, prompt, .. } => {
-                assert_eq!(model, "llama3:8b");
-                assert!(prompt.is_none());
-            },
-            _ => panic!("Expected Run command"),
-        }
-    }
-
-    #[test]
-    fn test_cli_parsing_run_with_options() {
-        let cli = Cli::parse_from([
-            "realizar",
-            "run",
-            "llama3:8b",
-            "Hello",
-            "-n",
-            "100",
-            "-t",
-            "0.5",
-            "-f",
-            "json",
-        ]);
-        match cli.command {
-            Commands::Run {
-                max_tokens,
-                temperature,
-                format,
-                ..
-            } => {
-                assert_eq!(max_tokens, 100);
-                assert!((temperature - 0.5).abs() < 0.01);
-                assert_eq!(format, "json");
-            },
-            _ => panic!("Expected Run command"),
-        }
-    }
-
-    #[test]
-    fn test_cli_parsing_run_pacha_uri() {
-        let cli = Cli::parse_from(["realizar", "run", "pacha://model:v1.0", "test"]);
-        match cli.command {
-            Commands::Run { model, .. } => {
-                assert_eq!(model, "pacha://model:v1.0");
-            },
-            _ => panic!("Expected Run command"),
-        }
-    }
-
-    #[test]
-    fn test_cli_parsing_run_file_path() {
-        let cli = Cli::parse_from(["realizar", "run", "./model.gguf", "test"]);
-        match cli.command {
-            Commands::Run { model, .. } => {
-                assert_eq!(model, "./model.gguf");
-            },
-            _ => panic!("Expected Run command"),
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // Chat Command Tests
-    // -------------------------------------------------------------------------
-
-    #[test]
-    fn test_cli_parsing_chat() {
-        let cli = Cli::parse_from(["realizar", "chat", "llama3:8b"]);
-        match cli.command {
-            Commands::Chat {
-                model,
-                system,
-                history,
-            } => {
-                assert_eq!(model, "llama3:8b");
-                assert!(system.is_none());
-                assert!(history.is_none());
-            },
-            _ => panic!("Expected Chat command"),
-        }
-    }
-
-    #[test]
-    fn test_cli_parsing_chat_with_system() {
-        let cli = Cli::parse_from([
-            "realizar",
-            "chat",
-            "llama3:8b",
-            "-s",
-            "You are a helpful assistant.",
-        ]);
-        match cli.command {
-            Commands::Chat { system, .. } => {
-                assert_eq!(system, Some("You are a helpful assistant.".to_string()));
-            },
-            _ => panic!("Expected Chat command"),
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // List Command Tests
-    // -------------------------------------------------------------------------
-
-    #[test]
-    fn test_cli_parsing_list() {
-        let cli = Cli::parse_from(["realizar", "list"]);
-        match cli.command {
-            Commands::List { remote, format } => {
-                assert!(remote.is_none());
-                assert_eq!(format, "table");
-            },
-            _ => panic!("Expected List command"),
-        }
-    }
-
-    #[test]
-    fn test_cli_parsing_list_with_remote() {
-        let cli = Cli::parse_from(["realizar", "list", "-r", "pacha://registry.example.com"]);
-        match cli.command {
-            Commands::List { remote, .. } => {
-                assert_eq!(remote, Some("pacha://registry.example.com".to_string()));
-            },
-            _ => panic!("Expected List command"),
-        }
-    }
-
-    #[test]
-    fn test_cli_parsing_list_json() {
-        let cli = Cli::parse_from(["realizar", "list", "-f", "json"]);
-        match cli.command {
-            Commands::List { format, .. } => {
-                assert_eq!(format, "json");
-            },
-            _ => panic!("Expected List command"),
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // Pull Command Tests
-    // -------------------------------------------------------------------------
-
-    #[test]
-    fn test_cli_parsing_pull() {
-        let cli = Cli::parse_from(["realizar", "pull", "llama3:8b"]);
-        match cli.command {
-            Commands::Pull {
-                model,
-                force,
-                quantize,
-            } => {
-                assert_eq!(model, "llama3:8b");
-                assert!(!force);
-                assert!(quantize.is_none());
-            },
-            _ => panic!("Expected Pull command"),
-        }
-    }
-
-    #[test]
-    fn test_cli_parsing_pull_with_force() {
-        let cli = Cli::parse_from(["realizar", "pull", "llama3:8b", "-f"]);
-        match cli.command {
-            Commands::Pull { force, .. } => {
-                assert!(force);
-            },
-            _ => panic!("Expected Pull command"),
-        }
-    }
-
-    #[test]
-    fn test_cli_parsing_pull_with_quantize() {
-        let cli = Cli::parse_from(["realizar", "pull", "llama3:8b", "-q", "q4"]);
-        match cli.command {
-            Commands::Pull { quantize, .. } => {
-                assert_eq!(quantize, Some("q4".to_string()));
-            },
-            _ => panic!("Expected Pull command"),
-        }
-    }
-
-    #[test]
-    fn test_cli_parsing_pull_hf() {
-        let cli = Cli::parse_from(["realizar", "pull", "hf://meta-llama/Llama-3-8B"]);
-        match cli.command {
-            Commands::Pull { model, .. } => {
-                assert_eq!(model, "hf://meta-llama/Llama-3-8B");
-            },
-            _ => panic!("Expected Pull command"),
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // Push Command Tests
-    // -------------------------------------------------------------------------
-
-    #[test]
-    fn test_cli_parsing_push() {
-        let cli = Cli::parse_from(["realizar", "push", "my-model:v1.0"]);
-        match cli.command {
-            Commands::Push { model, to } => {
-                assert_eq!(model, "my-model:v1.0");
-                assert!(to.is_none());
-            },
-            _ => panic!("Expected Push command"),
-        }
-    }
-
-    #[test]
-    fn test_cli_parsing_push_with_target() {
-        let cli = Cli::parse_from([
-            "realizar",
-            "push",
-            "my-model:v1.0",
-            "--to",
-            "pacha://registry.example.com",
-        ]);
-        match cli.command {
-            Commands::Push { to, .. } => {
-                assert_eq!(to, Some("pacha://registry.example.com".to_string()));
-            },
-            _ => panic!("Expected Push command"),
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // Format Size Tests
-    // -------------------------------------------------------------------------
-
-    #[test]
-    fn test_format_size_bytes() {
-        assert_eq!(format_size(500), "500 B");
-    }
-
-    #[test]
-    fn test_format_size_kb() {
-        assert_eq!(format_size(1024), "1.0 KB");
-        assert_eq!(format_size(1536), "1.5 KB");
-    }
-
-    #[test]
-    fn test_format_size_mb() {
-        assert_eq!(format_size(1024 * 1024), "1.0 MB");
-        assert_eq!(format_size(10 * 1024 * 1024), "10.0 MB");
-    }
-
-    #[test]
-    fn test_format_size_gb() {
-        assert_eq!(format_size(1024 * 1024 * 1024), "1.0 GB");
-        assert_eq!(format_size(7 * 1024 * 1024 * 1024), "7.0 GB");
-    }
-
-    // -------------------------------------------------------------------------
-    // Original Serve Command Tests
-    // -------------------------------------------------------------------------
-
-    #[test]
-    fn test_cli_parsing_serve_demo() {
-        let cli = Cli::parse_from(["realizar", "serve", "--demo"]);
-        match cli.command {
-            Commands::Serve { demo, model, .. } => {
-                assert!(demo);
-                assert!(model.is_none());
-            },
-            _ => panic!("Expected Serve command"),
-        }
-    }
-
-    #[test]
-    fn test_cli_parsing_serve_with_port() {
-        let cli = Cli::parse_from(["realizar", "serve", "--demo", "--port", "9090"]);
-        match cli.command {
-            Commands::Serve { port, demo, .. } => {
-                assert_eq!(port, 9090);
-                assert!(demo);
-            },
-            _ => panic!("Expected Serve command"),
-        }
-    }
-
-    #[test]
-    fn test_cli_parsing_serve_with_host() {
-        let cli = Cli::parse_from(["realizar", "serve", "--demo", "--host", "0.0.0.0"]);
-        match cli.command {
-            Commands::Serve { host, demo, .. } => {
-                assert_eq!(host, "0.0.0.0");
-                assert!(demo);
-            },
-            _ => panic!("Expected Serve command"),
-        }
-    }
-
-    #[test]
-    fn test_cli_parsing_serve_with_model() {
-        let cli = Cli::parse_from(["realizar", "serve", "--model", "model.gguf"]);
-        match cli.command {
-            Commands::Serve { model, demo, .. } => {
-                assert_eq!(model, Some("model.gguf".to_string()));
-                assert!(!demo);
-            },
-            _ => panic!("Expected Serve command"),
-        }
-    }
-
-    #[test]
-    fn test_cli_parsing_info() {
-        let cli = Cli::parse_from(["realizar", "info"]);
-        match cli.command {
-            Commands::Info => {},
-            _ => panic!("Expected Info command"),
-        }
-    }
-
-    #[test]
-    fn test_default_host_and_port() {
-        let cli = Cli::parse_from(["realizar", "serve", "--demo"]);
-        match cli.command {
-            Commands::Serve { host, port, .. } => {
-                assert_eq!(host, "127.0.0.1");
-                assert_eq!(port, 8080);
-            },
-            _ => panic!("Expected Serve command"),
-        }
-    }
-
-    #[test]
-    fn test_version_constant_exists() {
-        let version = realizar::VERSION;
-        assert!(!version.is_empty());
-        assert!(version.starts_with("0."));
-    }
-
-    #[test]
-    fn test_cli_parsing_bench_list() {
-        let cli = Cli::parse_from(["realizar", "bench", "--list"]);
-        match cli.command {
-            Commands::Bench { list, suite, .. } => {
-                assert!(list);
-                assert!(suite.is_none());
-            },
-            _ => panic!("Expected Bench command"),
-        }
-    }
-
-    #[test]
-    fn test_cli_parsing_bench_with_suite() {
-        let cli = Cli::parse_from(["realizar", "bench", "tensor_ops"]);
-        match cli.command {
-            Commands::Bench { suite, list, .. } => {
-                assert_eq!(suite, Some("tensor_ops".to_string()));
-                assert!(!list);
-            },
-            _ => panic!("Expected Bench command"),
-        }
-    }
-
-    #[test]
-    fn test_cli_parsing_bench_all() {
-        let cli = Cli::parse_from(["realizar", "bench"]);
-        match cli.command {
-            Commands::Bench { suite, list, .. } => {
-                assert!(suite.is_none());
-                assert!(!list);
-            },
-            _ => panic!("Expected Bench command"),
-        }
-    }
-
-    #[test]
-    fn test_benchmark_suites_not_empty() {
-        assert!(!BENCHMARK_SUITES.is_empty());
-        assert!(BENCHMARK_SUITES.len() >= 5);
-    }
-
-    #[test]
-    fn test_benchmark_suites_have_descriptions() {
-        for (name, description) in BENCHMARK_SUITES {
-            assert!(!name.is_empty(), "Benchmark name should not be empty");
-            assert!(
-                !description.is_empty(),
-                "Benchmark description should not be empty"
-            );
-        }
-    }
-
-    #[test]
-    fn test_cli_parsing_viz_default() {
-        let cli = Cli::parse_from(["realizar", "viz"]);
-        match cli.command {
-            Commands::Viz { color, samples } => {
-                assert!(!color);
-                assert_eq!(samples, 100);
-            },
-            _ => panic!("Expected Viz command"),
-        }
-    }
-
-    #[test]
-    fn test_cli_parsing_viz_with_color() {
-        let cli = Cli::parse_from(["realizar", "viz", "--color"]);
-        match cli.command {
-            Commands::Viz { color, samples } => {
-                assert!(color);
-                assert_eq!(samples, 100);
-            },
-            _ => panic!("Expected Viz command"),
-        }
-    }
-
-    #[test]
-    fn test_cli_parsing_viz_with_samples() {
-        let cli = Cli::parse_from(["realizar", "viz", "--samples", "500"]);
-        match cli.command {
-            Commands::Viz { color, samples } => {
-                assert!(!color);
-                assert_eq!(samples, 500);
-            },
-            _ => panic!("Expected Viz command"),
-        }
-    }
 }

@@ -2267,8 +2267,10 @@ mod tests {
 
     #[test]
     fn test_dynamic_sampler_current_cv_varied_window() {
-        let mut sampler = DynamicSampler::default();
-        sampler.cv_window = 10;
+        let sampler = DynamicSampler {
+            cv_window: 10,
+            ..Default::default()
+        };
         let data: Vec<f64> = (0..100).map(|i| 100.0 + (i as f64 % 10.0)).collect();
         let cv = sampler.current_cv(&data);
         assert!(cv > 0.0 && cv < 1.0);
@@ -2276,8 +2278,10 @@ mod tests {
 
     #[test]
     fn test_dynamic_sampler_current_cv_small_window() {
-        let mut sampler = DynamicSampler::default();
-        sampler.cv_window = 5;
+        let sampler = DynamicSampler {
+            cv_window: 5,
+            ..Default::default()
+        };
         let data = vec![10.0, 20.0, 30.0, 40.0, 50.0];
         let cv = sampler.current_cv(&data);
         assert!(cv > 0.4 && cv < 0.6);

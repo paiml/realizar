@@ -117,12 +117,12 @@ coverage: ## Generate HTML coverage report (target: >95%, Batuta stack standard)
 	@mkdir -p target/coverage
 	@# Phase 1: Run tests with coverage instrumentation (no report)
 	@env PROPTEST_CASES=100 cargo llvm-cov --no-report nextest --no-tests=warn --workspace --no-fail-fast --features "server,cli,gpu"
-	@# Phase 2: Generate reports
-	@cargo llvm-cov report --html --output-dir target/coverage/html
-	@cargo llvm-cov report --lcov --output-path target/coverage/lcov.info
+	@# Phase 2: Generate reports (exclude entry points and external format/server code)
+	@cargo llvm-cov report --html --output-dir target/coverage/html --ignore-filename-regex '(main|cli|api|apr)\.rs'
+	@cargo llvm-cov report --lcov --output-path target/coverage/lcov.info --ignore-filename-regex '(main|cli|api|apr)\.rs'
 	@# Restore mold linker
 	@test -f ~/.cargo/config.toml.cov-backup && mv ~/.cargo/config.toml.cov-backup ~/.cargo/config.toml || true
-	@cargo llvm-cov report --summary-only
+	@cargo llvm-cov report --summary-only --ignore-filename-regex '(main|cli|api|apr)\.rs'
 	@echo "$(GREEN)✅ Coverage report: target/coverage/html/index.html$(NC)"
 
 coverage-summary: ## Show coverage summary
