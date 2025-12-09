@@ -67,7 +67,7 @@ For production use with custom models, see the [Installation](#installation) and
 
 - **🚀 Blazing Fast**: 9.6x faster than PyTorch for CPU-only inference with 0.52µs latency
 - **📦 Zero Dependencies**: No external ML libraries - 100% custom implementation using Trueno
-- **🔧 Multiple Model Formats**: Native GGUF and SafeTensors parsers built from scratch
+- **🔧 Multiple Model Formats**: Native APR, GGUF, and SafeTensors parsers built from scratch
 - **⚡ Advanced Quantization**: Q4_0, Q8_0, Q4_K, Q5_K, Q6_K support for reduced memory footprint
 - **🎯 Production Ready**: REST API server, streaming responses, model caching, Prometheus metrics
 - **☁️ Serverless Optimized**: 53,000x faster cold starts for AWS Lambda deployments
@@ -351,6 +351,7 @@ serde_json = "1"
 ## 🔧 What We Build from Scratch
 
 ### 1. Model Formats (Pure Rust Parsers)
+- **APR** - Aprender native format (PRIMARY, sovereign stack)
 - **GGUF** - Ollama/llama.cpp format
 - **Safetensors** - HuggingFace format
 - No external dependencies, complete control
@@ -506,7 +507,17 @@ Load and inspect GGUF files (llama.cpp/Ollama format), parse headers and metadat
 cargo run --example gguf_loading
 ```
 
+### 7. APR Format Loading (`apr_loading.rs`)
+Load and use Aprender's native .apr format - the PRIMARY inference format for the sovereign AI stack. Demonstrates format specification, model types, and inference.
+
+```bash
+cargo run --example apr_loading
+```
+
 See [`examples/README.md`](examples/README.md) for detailed documentation.
+
+**For SLM evaluation with Pareto frontier analysis:**
+See [`single-shot-eval`](https://github.com/paiml/single-shot-eval) - SLM Pareto Frontier Evaluation Framework.
 
 ## ⚡ Reproducible Benchmarks
 
@@ -808,6 +819,7 @@ MIT License - see [LICENSE](LICENSE)
 - **[Trueno](https://github.com/paiml/trueno)** - SIMD/GPU compute primitives (our ecosystem)
 - **[Aprender](https://github.com/paiml/aprender)** - ML algorithms (Phase 2+)
 - **[Renacer](https://github.com/paiml/renacer)** - Profiling
+- **[single-shot-eval](https://github.com/paiml/single-shot-eval)** - SLM Pareto Frontier Evaluation
 - **[paiml-mcp-agent-toolkit](https://github.com/paiml/paiml-mcp-agent-toolkit)** - Quality gates
 - **[bashrs](https://github.com/paiml/bashrs)** - Script enforcement
 

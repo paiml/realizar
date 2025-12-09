@@ -26,11 +26,16 @@
 //! let variant = ab_test.select("user-123");
 //! ```
 
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, RwLock,
+    },
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
+
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 // ============================================================================
 // W3C Trace Context (per OpenTelemetry specification)
@@ -108,10 +113,7 @@ impl TraceContext {
     /// Generate W3C traceparent header
     #[must_use]
     pub fn to_traceparent(&self, span_id: &str) -> String {
-        format!(
-            "00-{}-{}-{:02x}",
-            self.trace_id, span_id, self.trace_flags
-        )
+        format!("00-{}-{}-{:02x}", self.trace_id, span_id, self.trace_flags)
     }
 
     /// Set tracestate header value
@@ -322,10 +324,7 @@ impl LatencyHistogram {
         }
         // +Inf bucket
         cumulative += self.counts.last().copied().unwrap_or(0);
-        let _ = writeln!(
-            output,
-            "{name}_bucket{{le=\"+Inf\",{labels}}} {cumulative}"
-        );
+        let _ = writeln!(output, "{name}_bucket{{le=\"+Inf\",{labels}}} {cumulative}");
 
         // Sum and count
         let sum_secs = self.sum as f64 / 1_000_000.0;
@@ -716,7 +715,8 @@ impl Span {
     /// Set span kind
     #[must_use]
     pub fn with_kind(mut self, kind: SpanKind) -> Self {
-        self.attributes.insert("span.kind".to_string(), format!("{kind:?}"));
+        self.attributes
+            .insert("span.kind".to_string(), format!("{kind:?}"));
         self
     }
 
@@ -749,7 +749,8 @@ impl Span {
             })
             .collect();
 
-        let kind = self.attributes
+        let kind = self
+            .attributes
             .get("span.kind")
             .map_or(SpanKind::Internal, |k| match k.as_str() {
                 "Server" => SpanKind::Server,
@@ -982,28 +983,20 @@ impl Observer {
     }
 
     /// Record an inference metric
-    pub fn record_inference(
-        &self,
-        model: &str,
-        tokens: usize,
-        latency_ms: u64,
-    ) {
+    pub fn record_inference(&self, model: &str, tokens: usize, latency_ms: u64) {
         // Tokens metric
         self.record_metric(
-            MetricPoint::new("realizar_tokens_total", tokens as f64)
-                .with_label("model", model),
+            MetricPoint::new("realizar_tokens_total", tokens as f64).with_label("model", model),
         );
 
         // Latency metric
         self.record_metric(
-            MetricPoint::new("realizar_latency_ms", latency_ms as f64)
-                .with_label("model", model),
+            MetricPoint::new("realizar_latency_ms", latency_ms as f64).with_label("model", model),
         );
 
         // Request count
         self.record_metric(
-            MetricPoint::new("realizar_requests_total", 1.0)
-                .with_label("model", model),
+            MetricPoint::new("realizar_requests_total", 1.0).with_label("model", model),
         );
     }
 
@@ -1054,12 +1047,13 @@ impl Observer {
         }
 
         if let Ok(mut results) = self.ab_results.write() {
-            let test_result = results
-                .entry(test_name.to_string())
-                .or_insert_with(|| ABTestResult {
-                    test_name: test_name.to_string(),
-                    variants: HashMap::new(),
-                });
+            let test_result =
+                results
+                    .entry(test_name.to_string())
+                    .or_insert_with(|| ABTestResult {
+                        test_name: test_name.to_string(),
+                        variants: HashMap::new(),
+                    });
 
             let variant_result = test_result
                 .variants
@@ -1159,8 +1153,10 @@ impl Default for Observer {
 
 /// Generate a unique ID (16 hex chars / 8 bytes for span ID)
 fn generate_id() -> String {
-    use std::collections::hash_map::RandomState;
-    use std::hash::{BuildHasher, Hasher};
+    use std::{
+        collections::hash_map::RandomState,
+        hash::{BuildHasher, Hasher},
+    };
 
     let hasher_state = RandomState::new();
     let mut hasher = hasher_state.build_hasher();
@@ -1175,8 +1171,10 @@ fn generate_id() -> String {
 
 /// Generate a trace ID (32 hex chars / 16 bytes per W3C spec)
 fn generate_trace_id() -> String {
-    use std::collections::hash_map::RandomState;
-    use std::hash::{BuildHasher, Hasher};
+    use std::{
+        collections::hash_map::RandomState,
+        hash::{BuildHasher, Hasher},
+    };
 
     let hasher_state = RandomState::new();
     let now = SystemTime::now()
@@ -1296,7 +1294,10 @@ mod tests {
         span.end_error("Something went wrong");
 
         assert_eq!(span.status, SpanStatus::Error);
-        assert_eq!(span.attributes.get("error"), Some(&"Something went wrong".to_string()));
+        assert_eq!(
+            span.attributes.get("error"),
+            Some(&"Something went wrong".to_string())
+        );
     }
 
     #[test]
@@ -1413,9 +1414,7 @@ mod tests {
     #[test]
     fn test_observer_prometheus_format() {
         let observer = Observer::default_observer();
-        observer.record_metric(
-            MetricPoint::new("test_metric", 42.0).with_label("env", "prod"),
-        );
+        observer.record_metric(MetricPoint::new("test_metric", 42.0).with_label("env", "prod"));
 
         let prom = observer.prometheus_metrics();
         assert!(prom.contains("test_metric"));
@@ -1508,7 +1507,10 @@ mod tests {
         let child_ctx = parent_ctx.child("abcdef0123456789");
 
         assert_eq!(child_ctx.trace_id, parent_ctx.trace_id);
-        assert_eq!(child_ctx.parent_span_id, Some("abcdef0123456789".to_string()));
+        assert_eq!(
+            child_ctx.parent_span_id,
+            Some("abcdef0123456789".to_string())
+        );
         assert_eq!(child_ctx.trace_flags, parent_ctx.trace_flags);
     }
 
@@ -1554,7 +1556,10 @@ mod tests {
         };
 
         let traceparent = ctx.to_traceparent("b7ad6b7169203331");
-        assert_eq!(traceparent, "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01");
+        assert_eq!(
+            traceparent,
+            "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+        );
     }
 
     #[test]
@@ -1638,7 +1643,7 @@ mod tests {
 
         // p50 should be around 50ms
         let p50 = hist.p50().unwrap();
-        assert!(p50 >= 25000 && p50 <= 100000);
+        assert!(p50 >= 25_000 && p50 <= 100_000);
 
         // p95 should be around 95ms
         let p95 = hist.p95().unwrap();
@@ -1672,9 +1677,9 @@ mod tests {
         let buckets = vec![100, 500, 1000, 5000, 10000];
         let mut hist = LatencyHistogram::with_buckets(buckets);
 
-        hist.observe(50);   // bucket 0 (<=100)
-        hist.observe(200);  // bucket 1 (<=500)
-        hist.observe(750);  // bucket 2 (<=1000)
+        hist.observe(50); // bucket 0 (<=100)
+        hist.observe(200); // bucket 1 (<=500)
+        hist.observe(750); // bucket 2 (<=1000)
         hist.observe(20000); // overflow bucket
 
         assert_eq!(hist.count(), 4);
@@ -1685,7 +1690,7 @@ mod tests {
     #[test]
     fn test_latency_histogram_to_prometheus() {
         let mut hist = LatencyHistogram::new();
-        hist.observe(1000);  // 1ms
+        hist.observe(1000); // 1ms
         hist.observe(50000); // 50ms
 
         let prom = hist.to_prometheus("request_latency", "service=\"api\"");
@@ -1753,8 +1758,8 @@ mod tests {
 
     #[test]
     fn test_span_to_otel_with_kind() {
-        let mut span = Span::new("server-op", "trace123456789012345678901234")
-            .with_kind(SpanKind::Server);
+        let mut span =
+            Span::new("server-op", "trace123456789012345678901234").with_kind(SpanKind::Server);
         span.end_ok();
 
         let otel = span.to_otel();

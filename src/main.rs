@@ -17,17 +17,14 @@
 use std::net::SocketAddr;
 
 use clap::{Parser, Subcommand};
-use realizar::{
-    api::{create_router, AppState},
-    error::Result,
-};
-
 #[cfg(feature = "registry")]
 use pacha::resolver::{ModelResolver, ModelSource};
 #[cfg(feature = "registry")]
 use pacha::uri::ModelUri;
-#[cfg(feature = "registry")]
-use pacha::remote::RegistryAuth;
+use realizar::{
+    api::{create_router, AppState},
+    error::Result,
+};
 
 /// Realizar - Pure Rust ML inference engine
 ///
@@ -595,20 +592,24 @@ async fn run_model(
                     match &resolved.source {
                         ModelSource::LocalFile(path) => {
                             println!("  Source: local file ({path})");
-                        }
+                        },
                         ModelSource::PachaLocal { name, version } => {
                             println!("  Source: Pacha registry ({name}:{version})");
-                        }
-                        ModelSource::PachaRemote { host, name, version } => {
+                        },
+                        ModelSource::PachaRemote {
+                            host,
+                            name,
+                            version,
+                        } => {
                             println!("  Source: Remote registry {host} ({name}:{version})");
-                        }
+                        },
                         ModelSource::HuggingFace { repo_id, revision } => {
                             let rev = revision.as_deref().unwrap_or("main");
                             println!("  Source: HuggingFace ({repo_id}@{rev})");
-                        }
+                        },
                     }
                     resolved.data
-                }
+                },
                 Err(e) => {
                     // Fall back to direct file read for local paths
                     if std::path::Path::new(model_ref).exists() {
@@ -625,9 +626,9 @@ async fn run_model(
                             reason: format!("Failed to resolve model: {e}"),
                         });
                     }
-                }
+                },
             }
-        }
+        },
         Err(_) => {
             // Direct file path
             if !std::path::Path::new(model_ref).exists() {
@@ -642,7 +643,7 @@ async fn run_model(
                     reason: format!("Failed to read {model_ref}: {e}"),
                 }
             })?
-        }
+        },
     };
 
     // Detect and display model info
@@ -657,7 +658,10 @@ async fn run_model(
         println!("Temperature: {temperature}");
         println!("Format: {format}");
         println!();
-        println!("Model loaded ({} bytes) - ready for inference!", file_data.len());
+        println!(
+            "Model loaded ({} bytes) - ready for inference!",
+            file_data.len()
+        );
     } else {
         // Interactive mode
         println!("Interactive mode (Ctrl+D to exit)");
@@ -734,7 +738,10 @@ async fn run_model(
         println!("Temperature: {temperature}");
         println!("Format: {format}");
         println!();
-        println!("Model loaded ({} bytes) - ready for inference!", file_data.len());
+        println!(
+            "Model loaded ({} bytes) - ready for inference!",
+            file_data.len()
+        );
     } else {
         // Interactive mode
         println!("Interactive mode (Ctrl+D to exit)");
@@ -790,7 +797,7 @@ async fn run_chat(
                 Ok(resolved) => {
                     println!("  Source: {:?}", resolved.source);
                     resolved.data
-                }
+                },
                 Err(e) => {
                     if std::path::Path::new(model_ref).exists() {
                         std::fs::read(model_ref).map_err(|e| {
@@ -805,12 +812,14 @@ async fn run_chat(
                             reason: format!("Failed to resolve: {e}"),
                         });
                     }
-                }
+                },
             }
-        }
+        },
         Err(_) => {
             if !std::path::Path::new(model_ref).exists() {
-                return Err(realizar::error::RealizarError::ModelNotFound(model_ref.to_string()));
+                return Err(realizar::error::RealizarError::ModelNotFound(
+                    model_ref.to_string(),
+                ));
             }
             std::fs::read(model_ref).map_err(|e| {
                 realizar::error::RealizarError::UnsupportedOperation {
@@ -818,7 +827,7 @@ async fn run_chat(
                     reason: format!("Failed to read: {e}"),
                 }
             })?
-        }
+        },
     };
 
     display_model_info(model_ref, &file_data)?;
@@ -859,7 +868,7 @@ async fn run_chat(
                 // EOF (Ctrl+D)
                 println!();
                 break;
-            }
+            },
             Ok(_) => {
                 let input = input.trim();
 
@@ -891,11 +900,7 @@ async fn run_chat(
                 }
 
                 // Simulate response (model inference would go here)
-                let response = format!(
-                    "[Model loaded: {} bytes] Echo: {}",
-                    file_data.len(),
-                    input
-                );
+                let response = format!("[Model loaded: {} bytes] Echo: {}", file_data.len(), input);
 
                 println!();
                 println!("{response}");
@@ -903,11 +908,11 @@ async fn run_chat(
 
                 // Add to history
                 history.push((input.to_string(), response));
-            }
+            },
             Err(e) => {
                 eprintln!("Error reading input: {e}");
                 break;
-            }
+            },
         }
     }
 
@@ -939,7 +944,9 @@ async fn run_chat(
         && !model_ref.starts_with("pacha://")
         && !model_ref.starts_with("hf://")
     {
-        return Err(realizar::error::RealizarError::ModelNotFound(model_ref.to_string()));
+        return Err(realizar::error::RealizarError::ModelNotFound(
+            model_ref.to_string(),
+        ));
     }
 
     if model_ref.starts_with("pacha://") || model_ref.starts_with("hf://") {
@@ -992,7 +999,7 @@ async fn run_chat(
             Ok(0) => {
                 println!();
                 break;
-            }
+            },
             Ok(_) => {
                 let input = input.trim();
 
@@ -1022,22 +1029,18 @@ async fn run_chat(
                     continue;
                 }
 
-                let response = format!(
-                    "[Model loaded: {} bytes] Echo: {}",
-                    file_data.len(),
-                    input
-                );
+                let response = format!("[Model loaded: {} bytes] Echo: {}", file_data.len(), input);
 
                 println!();
                 println!("{response}");
                 println!();
 
                 history.push((input.to_string(), response));
-            }
+            },
             Err(e) => {
                 eprintln!("Error reading input: {e}");
                 break;
-            }
+            },
         }
     }
 
@@ -1078,7 +1081,7 @@ fn list_models(remote: Option<&str>, format: &str) -> Result<()> {
             println!("Or run a local file:");
             println!("  realizar run ./model.gguf \"prompt\"");
             return Ok(());
-        }
+        },
     };
 
     if !resolver.has_registry() {
@@ -1095,7 +1098,7 @@ fn list_models(remote: Option<&str>, format: &str) -> Result<()> {
         Err(e) => {
             println!("Failed to list models: {e}");
             return Ok(());
-        }
+        },
     };
 
     if models.is_empty() {
@@ -1119,7 +1122,10 @@ fn list_models(remote: Option<&str>, format: &str) -> Result<()> {
                         })
                     })
                     .collect();
-                println!("{}", serde_json::to_string_pretty(&json_models).unwrap_or_default());
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json_models).unwrap_or_default()
+                );
             },
             _ => {
                 println!("{:<40} {:>12}", "NAME", "VERSIONS");
@@ -1172,7 +1178,10 @@ fn list_models(remote: Option<&str>, format: &str) -> Result<()> {
             let path = entry.path();
             if path.is_file() {
                 let name = path.file_name().unwrap_or_default().to_string_lossy();
-                if name.ends_with(".gguf") || name.ends_with(".safetensors") || name.ends_with(".apr") {
+                if name.ends_with(".gguf")
+                    || name.ends_with(".safetensors")
+                    || name.ends_with(".apr")
+                {
                     let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
                     models_found.push((name.to_string(), size));
                 }
@@ -1195,7 +1204,10 @@ fn list_models(remote: Option<&str>, format: &str) -> Result<()> {
                         })
                     })
                     .collect();
-                println!("{}", serde_json::to_string_pretty(&json_models).unwrap_or_default());
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json_models).unwrap_or_default()
+                );
             },
             _ => {
                 println!("{:<40} {:>12}", "NAME", "SIZE");
@@ -1211,6 +1223,7 @@ fn list_models(remote: Option<&str>, format: &str) -> Result<()> {
 }
 
 /// Format file size in human-readable form
+#[allow(dead_code)]
 fn format_size(bytes: u64) -> String {
     const KB: u64 = 1024;
     const MB: u64 = KB * 1024;
@@ -1229,11 +1242,7 @@ fn format_size(bytes: u64) -> String {
 
 /// Pull a model from registry (like `ollama pull`) - with registry support
 #[cfg(feature = "registry")]
-async fn pull_model(
-    model_ref: &str,
-    force: bool,
-    quantize: Option<&str>,
-) -> Result<()> {
+async fn pull_model(model_ref: &str, force: bool, quantize: Option<&str>) -> Result<()> {
     println!("Pulling model: {model_ref}");
     if force {
         println!("  Force: re-downloading even if cached");
@@ -1280,18 +1289,22 @@ async fn pull_model(
     match &resolved.source {
         ModelSource::LocalFile(path) => {
             println!("  Source: local file ({path})");
-        }
+        },
         ModelSource::PachaLocal { name, version } => {
             println!("  Source: Pacha local ({name}:{version})");
-        }
-        ModelSource::PachaRemote { host, name, version } => {
+        },
+        ModelSource::PachaRemote {
+            host,
+            name,
+            version,
+        } => {
             println!("  Source: Remote {host} ({name}:{version})");
             println!("  Cached to local registry.");
-        }
+        },
         ModelSource::HuggingFace { repo_id, revision } => {
             let rev = revision.as_deref().unwrap_or("main");
             println!("  Source: HuggingFace ({repo_id}@{rev})");
-        }
+        },
     }
 
     println!();
@@ -1303,11 +1316,7 @@ async fn pull_model(
 
 /// Pull a model from registry (like `ollama pull`) - without registry
 #[cfg(not(feature = "registry"))]
-async fn pull_model(
-    model_ref: &str,
-    force: bool,
-    quantize: Option<&str>,
-) -> Result<()> {
+async fn pull_model(model_ref: &str, force: bool, quantize: Option<&str>) -> Result<()> {
     println!("Pulling model: {model_ref}");
     if force {
         println!("  Force: re-downloading even if cached");
@@ -1318,16 +1327,14 @@ async fn pull_model(
     println!();
 
     // Parse model reference
-    if model_ref.starts_with("hf://") {
-        let hf_path = &model_ref[5..];
+    if let Some(hf_path) = model_ref.strip_prefix("hf://") {
         println!("Source: HuggingFace Hub");
         println!("Model: {hf_path}");
         println!();
         println!("Enable registry support: --features registry");
         println!("Or manual download:");
         println!("  huggingface-cli download {hf_path}");
-    } else if model_ref.starts_with("pacha://") {
-        let pacha_path = &model_ref[8..];
+    } else if let Some(pacha_path) = model_ref.strip_prefix("pacha://") {
         println!("Source: Pacha Registry");
         println!("Model: {pacha_path}");
         println!();
@@ -1403,14 +1410,12 @@ async fn push_model(model_ref: &str, target: Option<&str>) -> Result<()> {
         let version = parse_model_version(version_str)?;
 
         // Register model
-        let card = pacha::model::ModelCard::new(&format!("Model {name} pushed via realizar"));
+        let card = pacha::model::ModelCard::new(format!("Model {name} pushed via realizar"));
         registry
             .register_model(name, &version, &data, card)
-            .map_err(|e| {
-                realizar::error::RealizarError::UnsupportedOperation {
-                    operation: "register_model".to_string(),
-                    reason: format!("Failed to register model: {e}"),
-                }
+            .map_err(|e| realizar::error::RealizarError::UnsupportedOperation {
+                operation: "register_model".to_string(),
+                reason: format!("Failed to register model: {e}"),
             })?;
 
         println!("Model registered successfully!");
@@ -1441,24 +1446,27 @@ async fn push_model(model_ref: &str, target: Option<&str>) -> Result<()> {
 fn parse_model_version(s: &str) -> Result<pacha::model::ModelVersion> {
     let parts: Vec<&str> = s.split('.').collect();
     if parts.len() == 3 {
-        let major: u32 = parts[0].parse().map_err(|_| {
-            realizar::error::RealizarError::UnsupportedOperation {
-                operation: "parse_version".to_string(),
-                reason: format!("Invalid version: {s}"),
-            }
-        })?;
-        let minor: u32 = parts[1].parse().map_err(|_| {
-            realizar::error::RealizarError::UnsupportedOperation {
-                operation: "parse_version".to_string(),
-                reason: format!("Invalid version: {s}"),
-            }
-        })?;
-        let patch: u32 = parts[2].parse().map_err(|_| {
-            realizar::error::RealizarError::UnsupportedOperation {
-                operation: "parse_version".to_string(),
-                reason: format!("Invalid version: {s}"),
-            }
-        })?;
+        let major: u32 =
+            parts[0]
+                .parse()
+                .map_err(|_| realizar::error::RealizarError::UnsupportedOperation {
+                    operation: "parse_version".to_string(),
+                    reason: format!("Invalid version: {s}"),
+                })?;
+        let minor: u32 =
+            parts[1]
+                .parse()
+                .map_err(|_| realizar::error::RealizarError::UnsupportedOperation {
+                    operation: "parse_version".to_string(),
+                    reason: format!("Invalid version: {s}"),
+                })?;
+        let patch: u32 =
+            parts[2]
+                .parse()
+                .map_err(|_| realizar::error::RealizarError::UnsupportedOperation {
+                    operation: "parse_version".to_string(),
+                    reason: format!("Invalid version: {s}"),
+                })?;
         return Ok(pacha::model::ModelVersion::new(major, minor, patch));
     }
 
@@ -1477,6 +1485,7 @@ fn parse_model_version(s: &str) -> Result<pacha::model::ModelVersion> {
 }
 
 // Simple home directory resolution (avoids extra dependency)
+#[allow(dead_code)]
 mod dirs {
     pub(crate) fn home_dir() -> Option<std::path::PathBuf> {
         std::env::var_os("HOME").map(std::path::PathBuf::from)

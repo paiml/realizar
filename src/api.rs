@@ -596,8 +596,14 @@ pub fn create_router(state: AppState) -> Router {
         // OpenAI-compatible API (v1) - spec §5.1
         .route("/v1/models", get(openai_models_handler))
         .route("/v1/completions", post(openai_completions_handler))
-        .route("/v1/chat/completions", post(openai_chat_completions_handler))
-        .route("/v1/chat/completions/stream", post(openai_chat_completions_stream_handler))
+        .route(
+            "/v1/chat/completions",
+            post(openai_chat_completions_handler),
+        )
+        .route(
+            "/v1/chat/completions/stream",
+            post(openai_chat_completions_stream_handler),
+        )
         .route("/v1/embeddings", post(openai_embeddings_handler))
         .with_state(state)
 }
@@ -1037,9 +1043,7 @@ async fn stream_generate_handler(
 // ============================================================================
 
 /// OpenAI-compatible /v1/models endpoint
-async fn openai_models_handler(
-    State(state): State<AppState>,
-) -> Json<OpenAIModelsResponse> {
+async fn openai_models_handler(State(state): State<AppState>) -> Json<OpenAIModelsResponse> {
     let models = if let Some(registry) = &state.registry {
         registry
             .list()
@@ -1408,7 +1412,10 @@ impl ContextWindowManager {
         let available = self.config.available_tokens();
 
         // Calculate total tokens
-        let total_tokens: usize = messages.iter().map(|m| Self::estimate_tokens(&m.content)).sum();
+        let total_tokens: usize = messages
+            .iter()
+            .map(|m| Self::estimate_tokens(&m.content))
+            .sum();
 
         if total_tokens <= available {
             return (messages.to_vec(), false);
@@ -1455,13 +1462,19 @@ impl ContextWindowManager {
     /// Check if messages need truncation
     pub fn needs_truncation(&self, messages: &[ChatMessage]) -> bool {
         let available = self.config.available_tokens();
-        let total_tokens: usize = messages.iter().map(|m| Self::estimate_tokens(&m.content)).sum();
+        let total_tokens: usize = messages
+            .iter()
+            .map(|m| Self::estimate_tokens(&m.content))
+            .sum();
         total_tokens > available
     }
 
     /// Get token estimate for messages
     pub fn estimate_total_tokens(&self, messages: &[ChatMessage]) -> usize {
-        messages.iter().map(|m| Self::estimate_tokens(&m.content)).sum()
+        messages
+            .iter()
+            .map(|m| Self::estimate_tokens(&m.content))
+            .sum()
     }
 }
 
@@ -2742,13 +2755,11 @@ mod tests {
 
     #[test]
     fn test_format_chat_messages_simple() {
-        let messages = vec![
-            ChatMessage {
-                role: "user".to_string(),
-                content: "Hello".to_string(),
-                name: None,
-            },
-        ];
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: "Hello".to_string(),
+            name: None,
+        }];
 
         let result = format_chat_messages(&messages);
         assert!(result.contains("User: Hello"));
@@ -2959,13 +2970,11 @@ mod tests {
     #[test]
     fn test_context_manager_no_truncation_needed() {
         let manager = ContextWindowManager::default_manager();
-        let messages = vec![
-            ChatMessage {
-                role: "user".to_string(),
-                content: "Hello".to_string(),
-                name: None,
-            },
-        ];
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: "Hello".to_string(),
+            name: None,
+        }];
 
         let (result, truncated) = manager.truncate_messages(&messages);
         assert!(!truncated);
@@ -2977,13 +2986,11 @@ mod tests {
         let config = ContextWindowConfig::new(100).with_reserved_output(20);
         let manager = ContextWindowManager::new(config);
 
-        let messages = vec![
-            ChatMessage {
-                role: "user".to_string(),
-                content: "x".repeat(500),
-                name: None,
-            },
-        ];
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: "x".repeat(500),
+            name: None,
+        }];
 
         assert!(manager.needs_truncation(&messages));
     }
@@ -3055,13 +3062,11 @@ mod tests {
     #[test]
     fn test_context_manager_estimate_tokens() {
         let manager = ContextWindowManager::default_manager();
-        let messages = vec![
-            ChatMessage {
-                role: "user".to_string(),
-                content: "Hello".to_string(),
-                name: None,
-            },
-        ];
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: "Hello".to_string(),
+            name: None,
+        }];
 
         let tokens = manager.estimate_total_tokens(&messages);
         // Should include overhead and char-based estimate
@@ -3085,13 +3090,11 @@ mod tests {
         let manager = ContextWindowManager::new(config);
 
         // Message larger than available space
-        let messages = vec![
-            ChatMessage {
-                role: "user".to_string(),
-                content: "x".repeat(1000),
-                name: None,
-            },
-        ];
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: "x".repeat(1000),
+            name: None,
+        }];
 
         let (result, truncated) = manager.truncate_messages(&messages);
         assert!(truncated);

@@ -111,6 +111,20 @@ pub enum RealizarError {
     /// Invalid URI format
     #[error("Invalid URI: {0}")]
     InvalidUri(String),
+
+    /// File format error
+    #[error("Format error: {reason}")]
+    FormatError {
+        /// Reason for format error
+        reason: String,
+    },
+
+    /// IO error
+    #[error("IO error: {message}")]
+    IoError {
+        /// Error message
+        message: String,
+    },
 }
 
 #[cfg(test)]

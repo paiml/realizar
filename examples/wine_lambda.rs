@@ -310,7 +310,10 @@ impl WinePredictor {
     /// Calculate confidence based on feature values being in typical ranges
     fn calculate_confidence(&self, normalized: &[f32]) -> f32 {
         // Features outside [0, 1] after normalization are atypical
-        let in_range_count = normalized.iter().filter(|&&x| (0.0..=1.0).contains(&x)).count();
+        let in_range_count = normalized
+            .iter()
+            .filter(|&&x| (0.0..=1.0).contains(&x))
+            .count();
 
         (in_range_count as f32) / (normalized.len() as f32)
     }

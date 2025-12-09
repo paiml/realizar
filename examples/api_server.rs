@@ -74,7 +74,9 @@ async fn main() -> Result<()> {
     println!("# OpenAI completions");
     println!("curl -X POST http://127.0.0.1:3000/v1/completions \\");
     println!("  -H 'Content-Type: application/json' \\");
-    println!("  -d '{{\"model\": \"default\", \"prompt\": \"Once upon a\", \"max_tokens\": 50}}'\n");
+    println!(
+        "  -d '{{\"model\": \"default\", \"prompt\": \"Once upon a\", \"max_tokens\": 50}}'\n"
+    );
 
     println!("# OpenAI embeddings");
     println!("curl -X POST http://127.0.0.1:3000/v1/embeddings \\");

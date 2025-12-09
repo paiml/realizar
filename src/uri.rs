@@ -20,8 +20,10 @@
 //! - Lineage tracking for inference metrics
 //! - Content addressing for integrity verification
 
-use crate::error::{RealizarError, Result};
+#[cfg(feature = "registry")]
 use std::path::PathBuf;
+
+use crate::error::{RealizarError, Result};
 
 /// Parsed Pacha URI
 ///
@@ -140,9 +142,8 @@ impl PachaResolver {
     ///
     /// Returns error if registry cannot be opened
     pub fn new() -> Result<Self> {
-        let registry = pacha::Registry::open_default().map_err(|e| {
-            RealizarError::RegistryError(format!("Failed to open registry: {e}"))
-        })?;
+        let registry = pacha::Registry::open_default()
+            .map_err(|e| RealizarError::RegistryError(format!("Failed to open registry: {e}")))?;
         Ok(Self { registry })
     }
 
@@ -169,21 +170,24 @@ impl PachaResolver {
 
         // Parse version
         let version = match &uri.version {
-            Some(v) => ModelVersion::parse(v).map_err(|e| {
-                RealizarError::RegistryError(format!("Invalid version: {e}"))
-            })?,
+            Some(v) => ModelVersion::parse(v)
+                .map_err(|e| RealizarError::RegistryError(format!("Invalid version: {e}")))?,
             None => ModelVersion::new(0, 0, 0), // Will get latest
         };
 
         // Get model metadata from registry
-        let model = self.registry.get_model(&uri.model, &version).map_err(|e| {
-            RealizarError::ModelNotFound(format!("{}: {e}", uri.model))
-        })?;
+        let model = self
+            .registry
+            .get_model(&uri.model, &version)
+            .map_err(|e| RealizarError::ModelNotFound(format!("{}: {e}", uri.model)))?;
 
         // Get the artifact data
-        let artifact = self.registry.get_model_artifact(&uri.model, &version).map_err(|e| {
-            RealizarError::RegistryError(format!("Failed to get model artifact: {e}"))
-        })?;
+        let artifact = self
+            .registry
+            .get_model_artifact(&uri.model, &version)
+            .map_err(|e| {
+                RealizarError::RegistryError(format!("Failed to get model artifact: {e}"))
+            })?;
 
         let metadata = ModelMetadata {
             name: uri.model.clone(),
@@ -205,15 +209,15 @@ impl PachaResolver {
         use pacha::model::ModelVersion;
 
         let version = match &uri.version {
-            Some(v) => ModelVersion::parse(v).map_err(|e| {
-                RealizarError::RegistryError(format!("Invalid version: {e}"))
-            })?,
+            Some(v) => ModelVersion::parse(v)
+                .map_err(|e| RealizarError::RegistryError(format!("Invalid version: {e}")))?,
             None => ModelVersion::new(0, 0, 0),
         };
 
-        let model = self.registry.get_model(&uri.model, &version).map_err(|e| {
-            RealizarError::ModelNotFound(format!("{}: {e}", uri.model))
-        })?;
+        let model = self
+            .registry
+            .get_model(&uri.model, &version)
+            .map_err(|e| RealizarError::ModelNotFound(format!("{}: {e}", uri.model)))?;
 
         Ok(ModelMetadata {
             name: uri.model.clone(),

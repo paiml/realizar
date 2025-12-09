@@ -7,6 +7,9 @@ authors = ["Pragmatic AI Labs <contact@paiml.com>"]
 license = "MIT"
 description = "Pure Rust ML inference engine built from scratch - model serving for GGUF and safetensors"
 repository = "https://github.com/paiml/realizar"
+homepage = "https://github.com/paiml/realizar"
+documentation = "https://docs.rs/realizar"
+readme = "README.md"
 keywords = ["machine-learning", "inference", "model-serving", "gguf", "transformer"]
 categories = ["science", "web-programming::http-server"]
 
@@ -31,7 +34,7 @@ aprender = { version = "0.14", optional = true }
 alimentar = { version = "0.2", optional = true, default-features = false, features = ["local", "shuffle"] }
 
 # Model registry (optional for pull/push commands)
-pacha = { version = "0.1.1", optional = true }
+pacha = { version = "0.1.2", optional = true }
 
 # Terminal/PNG visualization for benchmarks and metrics
 trueno-viz = { version = "0.1.2", optional = true, features = ["terminal"] }

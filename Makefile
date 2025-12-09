@@ -4,7 +4,7 @@
 
 .SUFFIXES:
 .DELETE_ON_ERROR:
-.PHONY: help build test quality-gates deploy clean
+.PHONY: help build test test-fast lint quality-gates deploy clean
 .PHONY: coverage coverage-open coverage-clean clean-coverage coverage-summary
 .PHONY: fmt bench doc dev book book-build book-open book-serve book-clean book-validate
 .DEFAULT_GOAL := help
@@ -66,6 +66,14 @@ load-test: ## Run HTTP API load tests (requires running server)
 load-test-no-server: ## Run load tests against existing server
 	@echo "$(GREEN)Running load tests (no server start)...$(NC)"
 	@./scripts/load_test.sh --no-server
+
+# === Standard Batuta Stack Targets ===
+
+lint: fmt-check clippy ## Run all linting (Batuta stack standard)
+	@echo "$(GREEN)✅ Lint passed!$(NC)"
+
+test-fast: test-lib ## Run fast tests (Batuta stack standard)
+	@echo "$(GREEN)✅ Fast tests passed!$(NC)"
 
 # === Quality Gates ===
 

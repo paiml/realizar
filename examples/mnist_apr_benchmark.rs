@@ -82,7 +82,7 @@ impl BenchmarkResult {
         let se = std / n.sqrt();
         let ci_95 = 1.96 * se;
 
-        let mut sorted = latencies_us.clone();
+        let mut sorted = latencies_us;
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
 
         Self {

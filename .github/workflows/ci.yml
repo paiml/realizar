@@ -13,9 +13,10 @@ env:
 jobs:
   # Multi-platform build matrix (Linux, macOS, Windows)
   test:
-    name: Test Suite
+    name: Test Suite (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         rust: [stable]
@@ -52,6 +53,9 @@ jobs:
 
       - name: Run tests with all features
         run: cargo test --lib --all-features --verbose
+
+      - name: Run doc tests
+        run: cargo test --doc --verbose
 
   # Format check
   fmt:
