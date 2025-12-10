@@ -135,6 +135,7 @@
 # GPU Acceleration
 
 - [Trueno Backend](./gpu/trueno-backend.md)
+- [CUDA PTX Generation](./gpu/cuda-ptx.md)
 - [SIMD Optimization](./gpu/simd.md)
 - [GPU Dispatch Strategy](./gpu/dispatch-strategy.md)
 - [Memory Management](./gpu/memory-management.md)
