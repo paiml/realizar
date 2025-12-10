@@ -62,7 +62,13 @@
 use std::{sync::Arc, time::Instant};
 
 #[cfg(feature = "aprender-serve")]
-use aprender::{classification::LogisticRegression, primitives::Matrix};
+use aprender::{
+    classification::{GaussianNB, KNearestNeighbors, LinearSVM, LogisticRegression},
+    linear_model::LinearRegression,
+    primitives::Matrix,
+    tree::{DecisionTreeClassifier, GradientBoostingClassifier, RandomForestClassifier},
+    AprenderError, Estimator,
+};
 use axum::{
     extract::State,
     http::StatusCode,
@@ -72,12 +78,31 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 /// Loaded model variant for type-erased serving
+///
+/// Per spec §5: Supports all 18 APR model types.
+/// Currently implemented: 8 most common prediction-capable types.
 #[cfg(feature = "aprender-serve")]
 #[derive(Clone)]
 pub enum LoadedModel {
+    // ===== Classification Models =====
     /// Logistic regression model (binary classification)
     LogisticRegression(Arc<LogisticRegression>),
-    // Future: DecisionTree, RandomForest, etc.
+    /// K-nearest neighbors classifier
+    KNearestNeighbors(Arc<KNearestNeighbors>),
+    /// Gaussian Naive Bayes classifier
+    GaussianNB(Arc<GaussianNB>),
+    /// Linear SVM classifier
+    LinearSVM(Arc<LinearSVM>),
+    /// Decision tree classifier (CART)
+    DecisionTreeClassifier(Arc<DecisionTreeClassifier>),
+    /// Random forest classifier (bagging ensemble)
+    RandomForestClassifier(Arc<RandomForestClassifier>),
+    /// Gradient boosting classifier
+    GradientBoostingClassifier(Arc<GradientBoostingClassifier>),
+
+    // ===== Regression Models =====
+    /// Linear regression model (OLS/Ridge/Lasso)
+    LinearRegression(Arc<LinearRegression>),
 }
 
 /// Application state for aprender model serving
@@ -419,39 +444,138 @@ async fn predict_handler(
     // Perform inference with timing
     let start = Instant::now();
 
+    // Create input matrix
+    let n_features = payload.features.len();
+    let input = Matrix::from_vec(1, n_features, payload.features.clone()).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!("Failed to create input matrix: {e}"),
+                code: Some("E_MATRIX_ERROR".to_string()),
+            }),
+        )
+    })?;
+
+    let return_probs = payload
+        .options
+        .as_ref()
+        .is_some_and(|o| o.return_probabilities);
+
+    // Helper to map aprender errors to HTTP errors
+    let map_err = |e: aprender::AprenderError| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Model inference error: {e}"),
+                code: Some("E_INFERENCE_ERROR".to_string()),
+            }),
+        )
+    };
+
     let (prediction, probabilities) = match model {
         LoadedModel::LogisticRegression(lr) => {
-            // Create 1-row matrix from features
-            let n_features = payload.features.len();
-            let input = Matrix::from_vec(1, n_features, payload.features.clone()).map_err(|e| {
-                (
-                    StatusCode::BAD_REQUEST,
-                    Json(ErrorResponse {
-                        error: format!("Failed to create input matrix: {e}"),
-                        code: Some("E_MATRIX_ERROR".to_string()),
-                    }),
-                )
-            })?;
-
-            // Run prediction (class is 0 or 1, no precision loss)
+            // LogisticRegression.predict() returns Vec<usize> directly
             let predictions = lr.predict(&input);
             #[allow(clippy::cast_precision_loss)]
             let pred = predictions.first().copied().unwrap_or(0) as f32;
 
-            // Get probabilities if requested
-            let probs = if payload
-                .options
-                .as_ref()
-                .is_some_and(|o| o.return_probabilities)
-            {
+            let probs = if return_probs {
                 let prob_vec = lr.predict_proba(&input);
                 let p1 = prob_vec.as_slice().first().copied().unwrap_or(0.5);
-                Some(vec![1.0 - p1, p1]) // [P(class=0), P(class=1)]
+                Some(vec![1.0 - p1, p1])
             } else {
                 None
             };
-
             (pred, probs)
+        },
+        LoadedModel::KNearestNeighbors(knn) => {
+            // KNN.predict() returns Result<Vec<usize>>
+            let predictions = knn.predict(&input).map_err(map_err)?;
+            #[allow(clippy::cast_precision_loss)]
+            let pred = predictions.first().copied().unwrap_or(0) as f32;
+            // KNN doesn't support predict_proba
+            (pred, None)
+        },
+        LoadedModel::GaussianNB(nb) => {
+            // GaussianNB.predict() returns Result<Vec<usize>>
+            let predictions = nb.predict(&input).map_err(map_err)?;
+            #[allow(clippy::cast_precision_loss)]
+            let pred = predictions.first().copied().unwrap_or(0) as f32;
+
+            let probs = if return_probs {
+                // predict_proba returns Result<Vec<Vec<f32>>>
+                let prob_vecs = nb.predict_proba(&input).map_err(map_err)?;
+                if let Some(first_row) = prob_vecs.first() {
+                    Some(first_row.clone())
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            (pred, probs)
+        },
+        LoadedModel::LinearSVM(svm) => {
+            // LinearSVM.predict() returns Result<Vec<usize>>
+            let predictions = svm.predict(&input).map_err(map_err)?;
+            #[allow(clippy::cast_precision_loss)]
+            let pred = predictions.first().copied().unwrap_or(0) as f32;
+            // SVM doesn't support predict_proba
+            (pred, None)
+        },
+        LoadedModel::DecisionTreeClassifier(dt) => {
+            // DecisionTree.predict() returns Vec<usize> directly
+            let predictions = dt.predict(&input);
+            #[allow(clippy::cast_precision_loss)]
+            let pred = predictions.first().copied().unwrap_or(0) as f32;
+            // DecisionTree doesn't support predict_proba in this API
+            (pred, None)
+        },
+        LoadedModel::RandomForestClassifier(rf) => {
+            // RandomForest.predict() returns Vec<usize> directly
+            let predictions = rf.predict(&input);
+            #[allow(clippy::cast_precision_loss)]
+            let pred = predictions.first().copied().unwrap_or(0) as f32;
+
+            let probs = if return_probs {
+                // predict_proba returns Matrix<f32>
+                let prob_matrix = rf.predict_proba(&input);
+                let n_classes = prob_matrix.n_cols();
+                let mut probs_vec = Vec::with_capacity(n_classes);
+                for j in 0..n_classes {
+                    probs_vec.push(prob_matrix.get(0, j) as f32);
+                }
+                Some(probs_vec)
+            } else {
+                None
+            };
+            (pred, probs)
+        },
+        LoadedModel::GradientBoostingClassifier(gb) => {
+            // GradientBoosting.predict() returns Result<Vec<usize>>
+            let predictions = gb.predict(&input).map_err(map_err)?;
+            #[allow(clippy::cast_precision_loss)]
+            let pred = predictions.first().copied().unwrap_or(0) as f32;
+
+            let probs = if return_probs {
+                // predict_proba returns Result<Vec<Vec<f32>>>
+                let prob_vecs = gb.predict_proba(&input).map_err(map_err)?;
+                if let Some(first_row) = prob_vecs.first() {
+                    Some(first_row.clone())
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            (pred, probs)
+        },
+        LoadedModel::LinearRegression(lr) => {
+            // LinearRegression.predict() returns Vector<f32> directly
+            let predictions = lr.predict(&input);
+            let pred = predictions.as_slice().first().copied().unwrap_or(0.0) as f32;
+            // Regression doesn't have probabilities
+            (pred, None)
         },
     };
 
@@ -537,25 +661,76 @@ async fn batch_predict_handler(
 
         let start = Instant::now();
 
+        // Create input matrix for this instance
+        let n_features = instance.features.len();
+        let input = Matrix::from_vec(1, n_features, instance.features.clone()).map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: format!("Failed to create input matrix: {e}"),
+                    code: Some("E_MATRIX_ERROR".to_string()),
+                }),
+            )
+        })?;
+
+        // Helper for batch error mapping
+        let map_err = |e: AprenderError| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Model inference error: {e}"),
+                    code: Some("E_INFERENCE_ERROR".to_string()),
+                }),
+            )
+        };
+
+        // For batch, don't return probabilities to keep response smaller
         let (prediction, probabilities) = match model {
             LoadedModel::LogisticRegression(lr) => {
-                let n_features = instance.features.len();
-                let input =
-                    Matrix::from_vec(1, n_features, instance.features.clone()).map_err(|e| {
-                        (
-                            StatusCode::BAD_REQUEST,
-                            Json(ErrorResponse {
-                                error: format!("Failed to create input matrix: {e}"),
-                                code: Some("E_MATRIX_ERROR".to_string()),
-                            }),
-                        )
-                    })?;
-
                 let preds = lr.predict(&input);
                 #[allow(clippy::cast_precision_loss)]
                 let pred = preds.first().copied().unwrap_or(0) as f32;
-
-                // For batch, don't return probabilities to keep response smaller
+                (pred, None)
+            },
+            LoadedModel::KNearestNeighbors(knn) => {
+                let preds = knn.predict(&input).map_err(map_err)?;
+                #[allow(clippy::cast_precision_loss)]
+                let pred = preds.first().copied().unwrap_or(0) as f32;
+                (pred, None)
+            },
+            LoadedModel::GaussianNB(nb) => {
+                let preds = nb.predict(&input).map_err(map_err)?;
+                #[allow(clippy::cast_precision_loss)]
+                let pred = preds.first().copied().unwrap_or(0) as f32;
+                (pred, None)
+            },
+            LoadedModel::LinearSVM(svm) => {
+                let preds = svm.predict(&input).map_err(map_err)?;
+                #[allow(clippy::cast_precision_loss)]
+                let pred = preds.first().copied().unwrap_or(0) as f32;
+                (pred, None)
+            },
+            LoadedModel::DecisionTreeClassifier(dt) => {
+                let preds = dt.predict(&input);
+                #[allow(clippy::cast_precision_loss)]
+                let pred = preds.first().copied().unwrap_or(0) as f32;
+                (pred, None)
+            },
+            LoadedModel::RandomForestClassifier(rf) => {
+                let preds = rf.predict(&input);
+                #[allow(clippy::cast_precision_loss)]
+                let pred = preds.first().copied().unwrap_or(0) as f32;
+                (pred, None)
+            },
+            LoadedModel::GradientBoostingClassifier(gb) => {
+                let preds = gb.predict(&input).map_err(map_err)?;
+                #[allow(clippy::cast_precision_loss)]
+                let pred = preds.first().copied().unwrap_or(0) as f32;
+                (pred, None)
+            },
+            LoadedModel::LinearRegression(lr) => {
+                let preds = lr.predict(&input);
+                let pred = preds.as_slice().first().copied().unwrap_or(0.0) as f32;
                 (pred, None)
             },
         };

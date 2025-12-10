@@ -120,7 +120,7 @@ enum Commands {
         #[arg(short, long, default_value = "8080")]
         port: u16,
 
-        /// Path to model file (GGUF or Safetensors)
+        /// Path to model file (APR, GGUF, or SafeTensors)
         #[arg(short, long)]
         model: Option<String>,
 
@@ -386,10 +386,12 @@ async fn serve_model(_host: &str, _port: u16, model_path: &str) -> Result<()> {
         cli::load_gguf_model(&file_data)?;
     } else if model_path.ends_with(".safetensors") {
         cli::load_safetensors_model(&file_data)?;
+    } else if model_path.ends_with(".apr") {
+        cli::load_apr_model(&file_data)?;
     } else {
         return Err(realizar::error::RealizarError::UnsupportedOperation {
             operation: "detect_model_type".to_string(),
-            reason: "Unsupported file extension. Expected .gguf or .safetensors".to_string(),
+            reason: "Unsupported file extension. Expected .gguf, .safetensors, or .apr".to_string(),
         });
     }
 

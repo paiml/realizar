@@ -3063,6 +3063,7 @@ dependencies = [
  "assert_cmd",
  "async-stream",
  "axum",
+ "chrono",
  "clap",
  "comfy-table 6.2.0",
  "console",
@@ -3088,6 +3089,7 @@ dependencies = [
  "trueno",
  "trueno-viz",
  "ureq",
+ "uuid",
 ]
 
 [[package]]
