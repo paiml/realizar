@@ -126,7 +126,11 @@ fn train_wine_regressor() {
     ];
 
     let mut coef_pairs: Vec<_> = feature_names.iter().zip(coeffs.as_slice().iter()).collect();
-    coef_pairs.sort_by(|a, b| b.1.abs().partial_cmp(&a.1.abs()).unwrap());
+    coef_pairs.sort_by(|a, b| {
+        b.1.abs()
+            .partial_cmp(&a.1.abs())
+            .expect("coefficients should be comparable floats")
+    });
 
     for (name, coef) in coef_pairs.iter().take(3) {
         println!("    {}: {:.4}", name, coef);

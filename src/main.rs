@@ -142,13 +142,17 @@ enum Commands {
         #[arg(short, long)]
         list: bool,
 
-        /// Runtime to benchmark (realizar, llama-cpp, vllm)
+        /// Runtime to benchmark (realizar, llama-cpp, vllm, ollama)
         #[arg(long)]
         runtime: Option<String>,
 
-        /// Model path for inference benchmarks
+        /// Model path or name for inference benchmarks
         #[arg(long)]
         model: Option<String>,
+
+        /// Server URL for external runtime benchmarking (e.g., http://localhost:11434)
+        #[arg(long)]
+        url: Option<String>,
 
         /// Output file for JSON results (v1.1 schema)
         #[arg(short, long)]
@@ -283,9 +287,10 @@ async fn main() -> Result<()> {
             list,
             runtime,
             model,
+            url,
             output,
         } => {
-            cli::run_benchmarks(suite, list, runtime, model, output)?;
+            cli::run_benchmarks(suite, list, runtime, model, url, output)?;
         },
         Commands::BenchConvoy {
             runtime,

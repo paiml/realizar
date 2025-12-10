@@ -572,7 +572,10 @@ fn main() {
 
         // Top 3 influential features
         let mut importance: Vec<_> = prediction.feature_importance.iter().collect();
-        importance.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
+        importance.sort_by(|a, b| {
+            b.1.partial_cmp(a.1)
+                .expect("importance values should be comparable floats")
+        });
         println!(
             "  Top factors: {}, {}, {}",
             importance[0].0, importance[1].0, importance[2].0

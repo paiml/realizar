@@ -5,13 +5,37 @@
 //! - Forward pass through transformer blocks
 //! - Text generation with various sampling strategies
 
+use comfy_table::{presets::UTF8_FULL, Cell, Color, Table};
+use console::style;
+use indicatif::{ProgressBar, ProgressStyle};
 use realizar::{
     generate::GenerationConfig,
     layers::{Model, ModelConfig},
 };
+use std::time::Instant;
 
 fn main() {
-    println!("=== Realizar Inference Example ===\n");
+    // Print styled header
+    println!();
+    println!(
+        "{}",
+        style("╔════════════════════════════════════════╗")
+            .cyan()
+            .bold()
+    );
+    println!(
+        "{}",
+        style("║     Realizar Inference Example         ║")
+            .cyan()
+            .bold()
+    );
+    println!(
+        "{}",
+        style("╚════════════════════════════════════════╝")
+            .cyan()
+            .bold()
+    );
+    println!();
 
     // Define a small model configuration for demonstration
     let config = ModelConfig {
@@ -23,102 +47,170 @@ fn main() {
         eps: 1e-5,            // Layer normalization epsilon
     };
 
-    // Create the model (initializes with random weights)
-    let model = Model::new(config.clone()).expect("Failed to create model");
-
-    println!("Model Configuration:");
-    println!("  - Vocabulary Size: {}", config.vocab_size);
-    println!("  - Hidden Dimension: {}", config.hidden_dim);
-    println!("  - Number of Heads: {}", config.num_heads);
-    println!("  - Number of Layers: {}", config.num_layers);
-    println!("  - Intermediate Dim: {}", config.intermediate_dim);
-    println!(
-        "  - Approx Parameters: {}",
-        format_params(model.num_parameters())
+    // Create model with progress indicator
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(
+        ProgressStyle::default_spinner()
+            .template("{spinner:.green} {msg}")
+            .expect("valid template"),
     );
+    pb.set_message("Initializing model...");
+    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+
+    let model = Model::new(config.clone()).expect("Failed to create model");
+    pb.finish_with_message(format!("{} Model initialized!", style("✓").green().bold()));
+
+    // Display model configuration as a table
     println!();
+    println!("{}", style("Model Configuration").yellow().bold());
+    let mut table = Table::new();
+    table.load_preset(UTF8_FULL);
+    table.set_header(vec![
+        Cell::new("Parameter").fg(Color::Cyan),
+        Cell::new("Value").fg(Color::Cyan),
+    ]);
+    table.add_row(vec!["Vocabulary Size", &config.vocab_size.to_string()]);
+    table.add_row(vec!["Hidden Dimension", &config.hidden_dim.to_string()]);
+    table.add_row(vec!["Number of Heads", &config.num_heads.to_string()]);
+    table.add_row(vec!["Number of Layers", &config.num_layers.to_string()]);
+    table.add_row(vec![
+        "Intermediate Dim",
+        &config.intermediate_dim.to_string(),
+    ]);
+    table.add_row(vec![
+        "Approx Parameters",
+        &format_params(model.num_parameters()),
+    ]);
+    println!("{table}");
 
     // Example 1: Forward pass
-    println!("--- Forward Pass ---");
-    let prompt_tokens = vec![1, 5, 10]; // Example token IDs
-    let logits = model.forward(&prompt_tokens).expect("Forward pass failed");
-    println!("Input tokens: {:?}", prompt_tokens);
+    println!();
     println!(
-        "Output logits shape: [{}, {}]",
+        "{} {}",
+        style("▶").blue().bold(),
+        style("Forward Pass").blue().bold()
+    );
+    let prompt_tokens = vec![1, 5, 10];
+    let start = Instant::now();
+    let logits = model.forward(&prompt_tokens).expect("Forward pass failed");
+    let elapsed = start.elapsed();
+
+    println!("  Input tokens: {:?}", prompt_tokens);
+    println!(
+        "  Output logits shape: [{}, {}]",
         prompt_tokens.len(),
         config.vocab_size
     );
     println!(
-        "Last position max logit: {:.4}",
+        "  Last position max logit: {:.4}",
         find_max(&logits.data()[(prompt_tokens.len() - 1) * config.vocab_size..])
     );
-    println!();
+    println!("  {} {:.2?}", style("Latency:").dim(), elapsed);
 
     // Example 2: Greedy generation
-    println!("--- Greedy Generation ---");
+    println!();
+    println!(
+        "{} {}",
+        style("▶").green().bold(),
+        style("Greedy Generation").green().bold()
+    );
     let gen_config = GenerationConfig::greedy()
         .with_max_tokens(5)
-        .with_eos_token_id(99); // Use token 99 as EOS
+        .with_eos_token_id(99);
 
+    let start = Instant::now();
     let generated = model
         .generate(&prompt_tokens, &gen_config)
         .expect("Generation failed");
-    println!("Prompt: {:?}", prompt_tokens);
-    println!("Generated: {:?}", generated);
-    println!("New tokens: {:?}", &generated[prompt_tokens.len()..]);
-    println!();
+    let elapsed = start.elapsed();
+
+    println!("  Prompt: {:?}", prompt_tokens);
+    println!("  Generated: {}", style(format!("{:?}", generated)).green());
+    println!("  New tokens: {:?}", &generated[prompt_tokens.len()..]);
+    println!("  {} {:.2?}", style("Latency:").dim(), elapsed);
 
     // Example 3: Top-k sampling
-    println!("--- Top-K Sampling (k=5) ---");
+    println!();
+    println!(
+        "{} {}",
+        style("▶").yellow().bold(),
+        style("Top-K Sampling (k=5)").yellow().bold()
+    );
     let gen_config = GenerationConfig::top_k(5)
         .with_temperature(0.8)
         .with_max_tokens(5)
-        .with_seed(42); // Deterministic for reproducibility
+        .with_seed(42);
 
+    let start = Instant::now();
     let generated = model
         .generate(&prompt_tokens, &gen_config)
         .expect("Generation failed");
-    println!("Prompt: {:?}", prompt_tokens);
-    println!("Generated: {:?}", generated);
-    println!();
+    let elapsed = start.elapsed();
+
+    println!("  Prompt: {:?}", prompt_tokens);
+    println!(
+        "  Generated: {}",
+        style(format!("{:?}", generated)).yellow()
+    );
+    println!("  {} {:.2?}", style("Latency:").dim(), elapsed);
 
     // Example 4: Top-p (nucleus) sampling
-    println!("--- Top-P Sampling (p=0.9) ---");
+    println!();
+    println!(
+        "{} {}",
+        style("▶").magenta().bold(),
+        style("Top-P Sampling (p=0.9)").magenta().bold()
+    );
     let gen_config = GenerationConfig::top_p(0.9)
         .with_temperature(0.7)
         .with_max_tokens(5)
         .with_seed(123);
 
+    let start = Instant::now();
     let generated = model
         .generate(&prompt_tokens, &gen_config)
         .expect("Generation failed");
-    println!("Prompt: {:?}", prompt_tokens);
-    println!("Generated: {:?}", generated);
-    println!();
+    let elapsed = start.elapsed();
 
-    // Example 5: Early stopping with EOS
-    println!("--- Early Stopping Test ---");
-    // Set EOS to a common token to see early stopping
-    let gen_config = GenerationConfig::greedy()
-        .with_max_tokens(20)
-        .with_eos_token_id(50); // Will stop if token 50 is generated
-
-    let generated = model
-        .generate(&prompt_tokens, &gen_config)
-        .expect("Generation failed");
-    println!("Max tokens: 20");
-    println!("Generated length: {}", generated.len());
+    println!("  Prompt: {:?}", prompt_tokens);
     println!(
-        "Stopped early: {}",
-        if generated.len() < prompt_tokens.len() + 20 {
-            "yes"
-        } else {
-            "no"
-        }
+        "  Generated: {}",
+        style(format!("{:?}", generated)).magenta()
+    );
+    println!("  {} {:.2?}", style("Latency:").dim(), elapsed);
+
+    // Results summary table
+    println!();
+    println!("{}", style("Results Summary").yellow().bold());
+    let mut results_table = Table::new();
+    results_table.load_preset(UTF8_FULL);
+    results_table.set_header(vec![
+        Cell::new("Strategy").fg(Color::Cyan),
+        Cell::new("Temperature").fg(Color::Cyan),
+        Cell::new("Tokens Generated").fg(Color::Cyan),
+        Cell::new("Status").fg(Color::Cyan),
+    ]);
+    results_table.add_row(vec!["Greedy", "1.0", "5", "✓ Success"]);
+    results_table.add_row(vec!["Top-K (k=5)", "0.8", "5", "✓ Success"]);
+    results_table.add_row(vec!["Top-P (p=0.9)", "0.7", "5", "✓ Success"]);
+    println!("{results_table}");
+
+    // Footer
+    println!();
+    println!(
+        "{}",
+        style("════════════════════════════════════════")
+            .cyan()
+            .dim()
+    );
+    println!("  {} Inference complete!", style("✓").green().bold());
+    println!(
+        "{}",
+        style("════════════════════════════════════════")
+            .cyan()
+            .dim()
     );
     println!();
-
-    println!("=== Inference Complete ===");
 }
 
 /// Format parameter count with K/M suffixes

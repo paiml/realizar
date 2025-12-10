@@ -125,6 +125,10 @@ pub enum RealizarError {
         /// Error message
         message: String,
     },
+
+    /// Connection error (network/HTTP)
+    #[error("Connection error: {0}")]
+    ConnectionError(String),
 }
 
 #[cfg(test)]

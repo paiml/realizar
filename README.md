@@ -18,14 +18,31 @@
   <a href="benches/comparative/BENCHMARK_RESULTS.md"><img src="https://img.shields.io/badge/vs_PyTorch-9.6x_faster-brightgreen.svg" alt="Benchmark"></a>
 </p>
 
+<p align="center">
+  <a href="https://codecov.io/gh/paiml/realizar"><img src="https://codecov.io/gh/paiml/realizar/branch/master/graph/badge.svg" alt="Coverage"></a>
+  <a href="https://github.com/paiml/realizar/releases"><img src="https://img.shields.io/github/v/release/paiml/realizar" alt="Release"></a>
+  <a href="https://github.com/paiml/realizar"><img src="https://img.shields.io/github/stars/paiml/realizar?style=social" alt="Stars"></a>
+  <a href="https://deps.rs/repo/github/paiml/realizar"><img src="https://deps.rs/repo/github/paiml/realizar/status.svg" alt="Dependencies"></a>
+  <a href="https://github.com/paiml/realizar/blob/master/CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome"></a>
+</p>
+
+<p align="center">
+  <img src="docs/assets/realizar-demo.svg" alt="Realizar Demo" width="700">
+</p>
+
 </div>
 
 ---
 
 **Realizar** is a high-performance machine learning inference engine for serving transformer models in production. Built entirely from scratch in Rust with zero external ML dependencies, it delivers 9.6x faster inference than PyTorch for CPU-only deployments while maintaining 94% test coverage and full GGUF/SafeTensors compatibility.
 
+## Try It Now
+
+**[Live Demo](https://realizar-demo.paiml.com)** | **[Interactive Playground](https://github.com/paiml/realizar/tree/master/examples)** | **[API Documentation](https://docs.rs/realizar)**
+
 ## Table of Contents
 
+- [Try It Now](#try-it-now)
 - [Quick Start](#quick-start)
 - [Features](#features)
 - [Benchmark: 9.6x Faster Than PyTorch](#benchmark-96x-faster-than-pytorch)
@@ -680,6 +697,65 @@ tensor_creation/10      time:   [17.887 ns 17.966 ns 18.043 ns]
 # - Multi-benchmark comparison tables
 ```
 
+### External Runtime Benchmarking (Ollama, vLLM, llama.cpp)
+
+Realizar includes a **real HTTP benchmark harness** for comparing against external inference servers:
+
+```bash
+# Build with HTTP benchmarking feature
+cargo build --release --features bench-http
+
+# Benchmark against Ollama (requires running server)
+./target/release/realizar bench --runtime ollama --url http://localhost:11434 --model phi2:2.7b
+
+# Benchmark against vLLM (OpenAI-compatible)
+./target/release/realizar bench --runtime vllm --url http://localhost:8000 --model meta-llama/Llama-2-7b-hf
+
+# Benchmark against llama.cpp server
+./target/release/realizar bench --runtime llama-cpp --url http://localhost:8080
+
+# Save results to JSON
+./target/release/realizar bench --runtime ollama --url http://localhost:11434 --output results.json
+```
+
+**Real Benchmark Example (Ollama phi2:2.7b):**
+
+```
+=== External Runtime Benchmark (REAL HTTP) ===
+
+This measures ACTUAL inference latency from http://localhost:11434
+NO MOCK DATA - real network + inference timing
+
+Running 5 inference iterations...
+Prompt: "Explain the concept of machine learning in one sentence."
+
+  [1/5] TTFT: 2253ms, Inference: 2253ms, Tokens: 30, E2E: 2253ms
+  [2/5] TTFT: 130ms, Inference: 130ms, Tokens: 30, E2E: 130ms
+  [3/5] TTFT: 166ms, Inference: 166ms, Tokens: 39, E2E: 166ms
+  [4/5] TTFT: 154ms, Inference: 154ms, Tokens: 38, E2E: 154ms
+  [5/5] TTFT: 194ms, Inference: 195ms, Tokens: 50, E2E: 195ms
+
+=== Results ===
+  Latency (ms):
+    Mean: 579.7
+    p50:  165.9
+    p99:  2253.4
+
+  Throughput: 196.4 tokens/sec
+```
+
+**What this measures:**
+- **TTFT (Time to First Token)**: End-to-end latency including HTTP overhead
+- **Total inference time**: Full request/response cycle
+- **Throughput**: Actual tokens/second from the server
+- **Cold start**: First request includes model loading
+
+**Important notes:**
+- The 9.6x benchmark refers specifically to Aprender `.apr` models vs PyTorch for CPU-only MNIST inference
+- External server benchmarks measure different workloads (real LLM inference with HTTP overhead)
+- First request is always slow due to model loading; subsequent requests show steady-state performance
+- Results depend on hardware, model size, quantization level, and server configuration
+
 ### References
 
 1. MLPerf™ Inference Benchmark Suite. MLCommons. https://mlcommons.org/benchmarks/inference/
@@ -805,10 +881,36 @@ Full spec: [docs/specifications/pure-rust-ml-library-research-spec.md](docs/spec
 
 ## 🤝 Contributing
 
-1. Fork repo
-2. EXTREME TDD (tests first)
-3. `make quality-gates` passes
-4. All commits on `master`
+We welcome contributions! Please follow these guidelines:
+
+### Getting Started
+
+1. Fork the repository
+2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/realizar.git`
+3. Install dependencies: `cargo build`
+4. Run tests: `cargo test`
+
+### Development Workflow
+
+1. **EXTREME TDD**: Write tests first, then implement
+2. **Quality Gates**: Run `make quality-gates` before committing
+3. **Branch Policy**: All commits directly on `master` (no feature branches)
+4. **Code Style**: Run `cargo fmt` and `cargo clippy`
+
+### Pull Request Process
+
+1. Ensure all tests pass: `cargo test`
+2. Update documentation if needed
+3. Add yourself to CONTRIBUTORS if this is your first contribution
+4. Submit PR with clear description of changes
+
+### Code of Conduct
+
+- Be respectful and inclusive
+- Focus on constructive feedback
+- Help others learn and grow
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
 ## 📄 License
 
