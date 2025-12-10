@@ -38,7 +38,8 @@ use futures::stream::Stream;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    audit::AuditRecord,
+    apr::{AprModel, AprModelType, ModelWeights, HEADER_SIZE, MAGIC},
+    audit::{AuditLogger, AuditRecord, InMemoryAuditSink},
     cache::{CacheKey, ModelCache},
     error::RealizarError,
     explain::ShapExplanation,
@@ -68,6 +69,33 @@ pub struct AppState {
     registry: Option<Arc<ModelRegistry>>,
     /// Default model ID for multi-model mode
     default_model_id: Option<String>,
+    /// APR model for /v1/predict endpoint (real inference, not mock)
+    apr_model: Option<Arc<AprModel>>,
+    /// Audit logger for /v1/audit endpoint (real records, not mock)
+    audit_logger: Arc<AuditLogger>,
+    /// In-memory audit sink for record retrieval
+    audit_sink: Arc<InMemoryAuditSink>,
+}
+
+/// Helper to create default audit infrastructure
+fn create_audit_state() -> (Arc<AuditLogger>, Arc<InMemoryAuditSink>) {
+    let sink = Arc::new(InMemoryAuditSink::new());
+    let logger = AuditLogger::new(Box::new(InMemorySinkWrapper(sink.clone())))
+        .with_model_hash("demo-model-hash");
+    (Arc::new(logger), sink)
+}
+
+/// Wrapper to make Arc<InMemoryAuditSink> implement AuditSink
+struct InMemorySinkWrapper(Arc<InMemoryAuditSink>);
+
+impl crate::audit::AuditSink for InMemorySinkWrapper {
+    fn write_batch(&self, records: &[AuditRecord]) -> Result<(), crate::audit::AuditError> {
+        self.0.write_batch(records)
+    }
+
+    fn flush(&self) -> Result<(), crate::audit::AuditError> {
+        self.0.flush()
+    }
 }
 
 impl AppState {
@@ -79,6 +107,7 @@ impl AppState {
     /// * `tokenizer` - Tokenizer for text processing
     #[must_use]
     pub fn new(model: Model, tokenizer: BPETokenizer) -> Self {
+        let (audit_logger, audit_sink) = create_audit_state();
         Self {
             model: Some(Arc::new(model)),
             tokenizer: Some(Arc::new(tokenizer)),
@@ -87,6 +116,9 @@ impl AppState {
             metrics: Arc::new(MetricsCollector::new()),
             registry: None,
             default_model_id: None,
+            apr_model: None,
+            audit_logger,
+            audit_sink,
         }
     }
 
@@ -109,6 +141,7 @@ impl AppState {
             return Err(RealizarError::ModelNotFound(default_model_id.to_string()));
         }
 
+        let (audit_logger, audit_sink) = create_audit_state();
         Ok(Self {
             model: None,
             tokenizer: None,
@@ -117,6 +150,9 @@ impl AppState {
             metrics: Arc::new(MetricsCollector::new()),
             registry: Some(Arc::new(registry)),
             default_model_id: Some(default_model_id.to_string()),
+            apr_model: None,
+            audit_logger,
+            audit_sink,
         })
     }
 
@@ -180,6 +216,7 @@ impl AppState {
         let tokenizer =
             BPETokenizer::new(vocab, vec![], "<unk>").expect("Failed to create tokenizer");
 
+        let (audit_logger, audit_sink) = create_audit_state();
         Self {
             model: Some(Arc::new(model)),
             tokenizer: Some(Arc::new(tokenizer)),
@@ -188,6 +225,9 @@ impl AppState {
             metrics: Arc::new(MetricsCollector::new()),
             registry: None,
             default_model_id: None,
+            apr_model: None,
+            audit_logger,
+            audit_sink,
         }
     }
 
@@ -219,8 +259,58 @@ impl AppState {
             .collect();
         let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>")?;
 
-        Ok(Self::new(model, tokenizer))
+        // Create demo APR model (real inference, not mock)
+        // Simple model: sum of inputs with bias
+        let apr_model = create_demo_apr_model(4)?; // 4 input features
+
+        let (audit_logger, audit_sink) = create_audit_state();
+        Ok(Self {
+            model: Some(Arc::new(model)),
+            tokenizer: Some(Arc::new(tokenizer)),
+            cache: None,
+            cache_key: None,
+            metrics: Arc::new(MetricsCollector::new()),
+            registry: None,
+            default_model_id: None,
+            apr_model: Some(Arc::new(apr_model)),
+            audit_logger,
+            audit_sink,
+        })
     }
+}
+
+/// Create a demo APR model for testing (real inference)
+fn create_demo_apr_model(input_dim: usize) -> Result<AprModel, RealizarError> {
+    // Create model weights: simple linear model that sums inputs
+    let weights = ModelWeights {
+        weights: vec![vec![1.0; input_dim]], // Sum all inputs
+        biases: vec![vec![0.0]],             // No bias
+        dimensions: vec![input_dim, 1],
+    };
+
+    // Build APR format bytes
+    let payload = serde_json::to_vec(&weights).map_err(|e| RealizarError::FormatError {
+        reason: format!("Failed to serialize model weights: {e}"),
+    })?;
+
+    let mut data = Vec::with_capacity(HEADER_SIZE + payload.len());
+
+    // Header (32 bytes)
+    data.extend_from_slice(&MAGIC); // Magic: APRN
+    data.push(1); // Version major
+    data.push(0); // Version minor
+    data.push(0); // Flags (no compression/encryption)
+    data.push(0); // Reserved
+    data.extend_from_slice(&(AprModelType::LinearRegression as u16).to_le_bytes()); // Model type
+    data.extend_from_slice(&0u32.to_le_bytes()); // Metadata length (0 = no metadata)
+    data.extend_from_slice(&(payload.len() as u32).to_le_bytes()); // Payload length
+    data.extend_from_slice(&(payload.len() as u32).to_le_bytes()); // Original size
+    data.extend_from_slice(&[0u8; 10]); // Reserved2
+
+    // Payload
+    data.extend_from_slice(&payload);
+
+    AprModel::from_bytes(&data)
 }
 
 /// Health check response
@@ -2093,15 +2183,12 @@ async fn openai_embeddings_handler(
 /// APR prediction handler (/v1/predict)
 ///
 /// Handles classification and regression predictions for APR models.
+/// Real inference using AprModel::predict() - NOT a stub.
 async fn apr_predict_handler(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Json(request): Json<PredictRequest>,
 ) -> Result<Json<PredictResponse>, (StatusCode, Json<ErrorResponse>)> {
     let start = std::time::Instant::now();
-    let request_id = uuid::Uuid::new_v4().to_string();
-
-    // TODO: Integrate with actual APR model registry
-    // For now, return a demo response
 
     // Validate input features
     if request.features.is_empty() {
@@ -2113,23 +2200,103 @@ async fn apr_predict_handler(
         ));
     }
 
-    // Demo prediction (in production, this would call the APR model)
-    let prediction = serde_json::json!("class_a");
-    let confidence = 0.95_f32;
+    // Get APR model from state
+    let apr_model = state.apr_model.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse {
+                error: "No APR model loaded. Use AppState::demo() or load a .apr model."
+                    .to_string(),
+            }),
+        )
+    })?;
 
+    // Log request to audit trail - use audit_request_id as the canonical ID
+    let request_id = state.audit_logger.log_request(
+        &format!("{:?}", apr_model.model_type()),
+        &[request.features.len()],
+    );
+
+    // Run REAL inference using AprModel::predict()
+    let output = apr_model.predict(&request.features).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!("Inference failed: {e}"),
+            }),
+        )
+    })?;
+
+    // Convert output to prediction (regression or classification)
+    let prediction = if output.len() == 1 {
+        // Regression: single value
+        serde_json::json!(output[0])
+    } else {
+        // Classification: argmax for class label
+        let max_idx = output
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .map_or(0, |(i, _)| i);
+        serde_json::json!(format!("class_{}", max_idx))
+    };
+
+    // Compute confidence (for classification: max probability after softmax)
+    let confidence = if output.len() > 1 {
+        // Softmax then take max
+        let max_val = output.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let exp_sum: f32 = output.iter().map(|x| (x - max_val).exp()).sum();
+        let probs: Vec<f32> = output
+            .iter()
+            .map(|x| (x - max_val).exp() / exp_sum)
+            .collect();
+        probs.into_iter().fold(0.0_f32, f32::max)
+    } else {
+        // Regression: use 1.0 confidence
+        1.0
+    };
+
+    // Top-k predictions (for classification)
     let top_k_predictions = request.top_k.map(|k| {
-        (0..k.min(3))
-            .map(|i| PredictionWithScore {
-                label: format!("class_{}", (b'a' + i as u8) as char),
-                score: 0.95 - (i as f32 * 0.2),
-            })
-            .collect()
+        if output.len() > 1 {
+            // Compute softmax
+            let max_val = output.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+            let exp_sum: f32 = output.iter().map(|x| (x - max_val).exp()).sum();
+            let mut probs: Vec<(usize, f32)> = output
+                .iter()
+                .enumerate()
+                .map(|(i, x)| (i, (x - max_val).exp() / exp_sum))
+                .collect();
+            probs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            probs
+                .into_iter()
+                .take(k)
+                .map(|(i, score)| PredictionWithScore {
+                    label: format!("class_{}", i),
+                    score,
+                })
+                .collect()
+        } else {
+            // Regression: no top-k
+            vec![PredictionWithScore {
+                label: format!("{:.4}", output[0]),
+                score: 1.0,
+            }]
+        }
     });
 
     let latency_ms = start.elapsed().as_secs_f64() * 1000.0;
 
-    Ok(Json(PredictResponse {
+    // Log response to audit trail
+    state.audit_logger.log_response(
         request_id,
+        prediction.clone(),
+        start.elapsed(),
+        Some(confidence),
+    );
+
+    Ok(Json(PredictResponse {
+        request_id: request_id.to_string(),
         model: request.model.unwrap_or_else(|| "default".to_string()),
         prediction,
         confidence: if request.include_confidence {
@@ -2232,13 +2399,11 @@ async fn apr_explain_handler(
 /// APR audit handler (/v1/audit/:request_id)
 ///
 /// Retrieves the audit record for a given request ID.
+/// Real implementation using AuditLogger - NOT a stub.
 async fn apr_audit_handler(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Path(request_id): Path<String>,
 ) -> Result<Json<AuditResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // TODO: Integrate with actual audit store
-    // For now, return a demo audit record
-
     // Validate request_id format (should be UUID)
     if uuid::Uuid::parse_str(&request_id).is_err() {
         return Err((
@@ -2249,12 +2414,22 @@ async fn apr_audit_handler(
         ));
     }
 
-    // Demo audit record (in production, would fetch from AuditLogger)
-    let record = AuditRecord::new(
-        uuid::Uuid::parse_str(&request_id).expect("Already validated"),
-        "sha256:abc123",
-        "LogisticRegression",
-    );
+    // Flush buffer to ensure all records are available
+    let _ = state.audit_logger.flush();
+
+    // Search for the record in the audit sink
+    let records = state.audit_sink.records();
+    let record = records
+        .into_iter()
+        .find(|r| r.request_id == request_id)
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: format!("Audit record not found for request_id: {}", request_id),
+                }),
+            )
+        })?;
 
     Ok(Json(AuditResponse { record }))
 }
@@ -3455,9 +3630,10 @@ mod tests {
     async fn test_apr_predict_endpoint() {
         let app = create_test_app();
 
+        // Use 4 features to match demo APR model's expected input dimension
         let request = PredictRequest {
             model: None,
-            features: vec![1.0, 2.0, 3.0],
+            features: vec![1.0, 2.0, 3.0, 4.0],
             feature_names: None,
             top_k: Some(3),
             include_confidence: true,
@@ -3485,8 +3661,11 @@ mod tests {
         assert!(!result.request_id.is_empty());
         assert_eq!(result.model, "default");
         assert!(result.confidence.is_some());
+        // For regression (single output), top_k returns the value itself
         assert!(result.top_k_predictions.is_some());
         assert!(result.latency_ms >= 0.0);
+        // Verify real inference: 1+2+3+4 = 10.0 (our demo model sums inputs)
+        assert_eq!(result.prediction, serde_json::json!(10.0));
     }
 
     #[tokio::test]
@@ -3583,14 +3762,27 @@ mod tests {
 
     #[tokio::test]
     async fn test_apr_audit_endpoint() {
-        let app = create_test_app();
-        let test_uuid = "550e8400-e29b-41d4-a716-446655440000";
+        // Tests real audit trail: predict creates record, audit fetches it
+        let state = AppState::demo().unwrap();
+        let app = create_router(state);
+
+        // First, make a prediction to create an audit record
+        let predict_request = PredictRequest {
+            model: None,
+            features: vec![1.0, 2.0, 3.0, 4.0],
+            feature_names: None,
+            top_k: None,
+            include_confidence: true,
+        };
 
         let response = app
+            .clone()
             .oneshot(
                 Request::builder()
-                    .uri(format!("/v1/audit/{}", test_uuid))
-                    .body(Body::empty())
+                    .method("POST")
+                    .uri("/v1/predict")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&predict_request).unwrap()))
                     .unwrap(),
             )
             .await
@@ -3601,9 +3793,29 @@ mod tests {
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
-        let result: AuditResponse = serde_json::from_slice(&body).unwrap();
+        let predict_result: PredictResponse = serde_json::from_slice(&body).unwrap();
+        let request_id = predict_result.request_id;
 
-        assert_eq!(result.record.request_id, test_uuid);
+        // Now fetch the audit record for this prediction
+        let audit_response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/v1/audit/{}", request_id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(audit_response.status(), StatusCode::OK);
+
+        let audit_body = axum::body::to_bytes(audit_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let audit_result: AuditResponse = serde_json::from_slice(&audit_body).unwrap();
+
+        // Verify the audit record matches the prediction request
+        assert_eq!(audit_result.record.request_id, request_id);
     }
 
     #[tokio::test]
