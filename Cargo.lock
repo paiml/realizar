@@ -3089,6 +3089,7 @@ dependencies = [
  "tokio-stream",
  "tower 0.4.13",
  "trueno",
+ "trueno-gpu",
  "trueno-viz",
  "ureq",
  "uuid",
@@ -4013,6 +4014,15 @@ dependencies = [
  "pollster",
  "thiserror 2.0.17",
  "wgpu",
+]
+
+[[package]]
+name = "trueno-gpu"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "63bb4453bac67edf623c1b1c4dbaac4c431a19362711f2e2512d3e1cc55204fc"
+dependencies = [
+ "thiserror 2.0.17",
 ]
 
 [[package]]
