@@ -83,7 +83,10 @@ impl BenchmarkResult {
         let ci_95 = 1.96 * se;
 
         let mut sorted = latencies_us;
-        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        sorted.sort_by(|a, b| {
+            a.partial_cmp(b)
+                .expect("latency values should be comparable floats")
+        });
 
         Self {
             name: name.to_string(),

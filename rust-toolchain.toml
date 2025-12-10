@@ -1,0 +1,29 @@
+# Rust toolchain configuration for reproducible builds
+# This file pins the exact Rust version used for development and CI
+
+[toolchain]
+# Pin to stable channel with specific version for reproducibility
+# Update this version deliberately, not automatically
+channel = "1.91.1"
+
+# Components required for development
+components = [
+    "rustfmt",      # Code formatting
+    "clippy",       # Linting
+    "llvm-tools",   # Coverage (cargo-llvm-cov)
+]
+
+# Target platforms
+# Default is host platform; add cross-compilation targets as needed
+targets = [
+    # Uncomment for cross-compilation:
+    # "x86_64-unknown-linux-gnu",
+    # "aarch64-unknown-linux-gnu",
+    # "x86_64-apple-darwin",
+    # "aarch64-apple-darwin",
+    # "wasm32-unknown-unknown",
+]
+
+# Profile for consistent optimization levels
+# Inherits from Cargo.toml [profile.*] sections
+profile = "default"

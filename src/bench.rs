@@ -20,6 +20,9 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "bench-http")]
+use crate::http_client::{CompletionRequest, ModelHttpClient, OllamaOptions, OllamaRequest};
+
 // ============================================================================
 // Dynamic Sampler (Section 2.1)
 // ============================================================================
@@ -180,6 +183,28 @@ pub enum ThermalValidity {
 }
 
 impl ThermalGuard {
+    /// Create a new ThermalGuard with custom parameters
+    #[must_use]
+    pub fn new(
+        max_temp_c: f64,
+        cooldown_threshold_c: f64,
+        cooldown_sleep_ms: u64,
+        temp_variance_c: f64,
+    ) -> Self {
+        Self {
+            max_temp_c,
+            cooldown_threshold_c,
+            cooldown_sleep_ms,
+            temp_variance_c,
+        }
+    }
+
+    /// Check if cooldown is needed (without sleeping)
+    #[must_use]
+    pub fn needs_cooldown(&self, current_temp: f64) -> bool {
+        current_temp > self.max_temp_c
+    }
+
     /// Check if benchmark results are thermally valid
     #[must_use]
     pub fn validate_run(&self, temps: &[f64]) -> ThermalValidity {
@@ -1411,6 +1436,1176 @@ impl RegressionResult {
             threshold_pct,
         }
     }
+}
+
+// ============================================================================
+// BENCH-002: Runtime Backend Abstraction (Refs BENCH-002)
+// ============================================================================
+
+use std::collections::HashMap;
+
+use crate::error::RealizarError;
+
+/// Supported runtime types for inference benchmarking
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum RuntimeType {
+    /// Native Realizar runtime (.apr format)
+    Realizar,
+    /// llama.cpp (GGUF format)
+    LlamaCpp,
+    /// vLLM (safetensors, HuggingFace)
+    Vllm,
+    /// Ollama (wraps llama.cpp)
+    Ollama,
+}
+
+impl RuntimeType {
+    /// Get string representation
+    #[must_use]
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Realizar => "realizar",
+            Self::LlamaCpp => "llama-cpp",
+            Self::Vllm => "vllm",
+            Self::Ollama => "ollama",
+        }
+    }
+
+    /// Parse from string
+    #[must_use]
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "realizar" => Some(Self::Realizar),
+            "llama-cpp" | "llama.cpp" | "llamacpp" => Some(Self::LlamaCpp),
+            "vllm" => Some(Self::Vllm),
+            "ollama" => Some(Self::Ollama),
+            _ => None,
+        }
+    }
+}
+
+/// Request for inference
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InferenceRequest {
+    /// Input prompt
+    pub prompt: String,
+    /// Maximum tokens to generate
+    pub max_tokens: usize,
+    /// Sampling temperature
+    pub temperature: f64,
+    /// Optional stop sequences
+    pub stop: Vec<String>,
+}
+
+impl Default for InferenceRequest {
+    fn default() -> Self {
+        Self {
+            prompt: String::new(),
+            max_tokens: 100,
+            temperature: 0.7,
+            stop: Vec::new(),
+        }
+    }
+}
+
+impl InferenceRequest {
+    /// Create new request with prompt
+    #[must_use]
+    pub fn new(prompt: &str) -> Self {
+        Self {
+            prompt: prompt.to_string(),
+            ..Default::default()
+        }
+    }
+
+    /// Set max tokens
+    #[must_use]
+    pub fn with_max_tokens(mut self, max_tokens: usize) -> Self {
+        self.max_tokens = max_tokens;
+        self
+    }
+
+    /// Set temperature
+    #[must_use]
+    pub fn with_temperature(mut self, temperature: f64) -> Self {
+        self.temperature = temperature;
+        self
+    }
+}
+
+/// Response from inference
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InferenceResponse {
+    /// Generated text
+    pub text: String,
+    /// Number of tokens generated
+    pub tokens_generated: usize,
+    /// Time to first token (ms)
+    pub ttft_ms: f64,
+    /// Total generation time (ms)
+    pub total_time_ms: f64,
+    /// Inter-token latencies (ms)
+    pub itl_ms: Vec<f64>,
+}
+
+impl InferenceResponse {
+    /// Calculate tokens per second
+    #[must_use]
+    pub fn tokens_per_second(&self) -> f64 {
+        if self.total_time_ms <= 0.0 {
+            return 0.0;
+        }
+        (self.tokens_generated as f64) / (self.total_time_ms / 1000.0)
+    }
+}
+
+/// Runtime backend information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackendInfo {
+    /// Runtime type
+    pub runtime_type: RuntimeType,
+    /// Version string
+    pub version: String,
+    /// Whether streaming is supported
+    pub supports_streaming: bool,
+    /// Model currently loaded (if any)
+    pub loaded_model: Option<String>,
+}
+
+/// Trait for inference runtime backends
+pub trait RuntimeBackend: Send + Sync {
+    /// Get backend information
+    fn info(&self) -> BackendInfo;
+
+    /// Run inference
+    ///
+    /// # Errors
+    ///
+    /// Returns `RealizarError` if inference fails due to:
+    /// - Model not loaded
+    /// - Backend communication failure
+    /// - Invalid request parameters
+    fn inference(&self, request: &InferenceRequest) -> Result<InferenceResponse, RealizarError>;
+
+    /// Load a model (if applicable)
+    ///
+    /// # Errors
+    ///
+    /// Returns `RealizarError` if model loading fails due to:
+    /// - Model file not found
+    /// - Invalid model format
+    /// - Insufficient memory
+    fn load_model(&mut self, _model_path: &str) -> Result<(), RealizarError> {
+        Ok(()) // Default: no-op
+    }
+}
+
+/// Mock backend for testing
+pub struct MockBackend {
+    ttft_ms: f64,
+    tokens_per_second: f64,
+}
+
+impl MockBackend {
+    /// Create a new mock backend with specified latencies
+    #[must_use]
+    pub fn new(ttft_ms: f64, tokens_per_second: f64) -> Self {
+        Self {
+            ttft_ms,
+            tokens_per_second,
+        }
+    }
+}
+
+impl RuntimeBackend for MockBackend {
+    fn info(&self) -> BackendInfo {
+        BackendInfo {
+            runtime_type: RuntimeType::Realizar,
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            supports_streaming: true,
+            loaded_model: None,
+        }
+    }
+
+    fn inference(&self, request: &InferenceRequest) -> Result<InferenceResponse, RealizarError> {
+        let tokens = request.max_tokens.min(100);
+        let gen_time_ms = (tokens as f64) / self.tokens_per_second * 1000.0;
+
+        Ok(InferenceResponse {
+            text: "Mock response".to_string(),
+            tokens_generated: tokens,
+            ttft_ms: self.ttft_ms,
+            total_time_ms: self.ttft_ms + gen_time_ms,
+            itl_ms: vec![gen_time_ms / tokens as f64; tokens],
+        })
+    }
+}
+
+/// Registry of available backends
+pub struct BackendRegistry {
+    backends: HashMap<RuntimeType, Box<dyn RuntimeBackend>>,
+}
+
+impl BackendRegistry {
+    /// Create empty registry
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            backends: HashMap::new(),
+        }
+    }
+
+    /// Register a backend
+    pub fn register(&mut self, runtime: RuntimeType, backend: Box<dyn RuntimeBackend>) {
+        self.backends.insert(runtime, backend);
+    }
+
+    /// Get a backend by type
+    #[must_use]
+    pub fn get(&self, runtime: RuntimeType) -> Option<&dyn RuntimeBackend> {
+        self.backends.get(&runtime).map(AsRef::as_ref)
+    }
+
+    /// List registered runtimes
+    #[must_use]
+    pub fn list(&self) -> Vec<RuntimeType> {
+        self.backends.keys().copied().collect()
+    }
+}
+
+impl Default for BackendRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Configuration for llama.cpp backend
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlamaCppConfig {
+    /// Path to llama-cli binary
+    pub binary_path: String,
+    /// Path to model file
+    pub model_path: Option<String>,
+    /// Number of GPU layers to offload
+    pub n_gpu_layers: u32,
+    /// Context size
+    pub ctx_size: usize,
+    /// Number of threads
+    pub threads: usize,
+}
+
+impl Default for LlamaCppConfig {
+    fn default() -> Self {
+        Self {
+            binary_path: "llama-cli".to_string(),
+            model_path: None,
+            n_gpu_layers: 0,
+            ctx_size: 2048,
+            threads: 4,
+        }
+    }
+}
+
+impl LlamaCppConfig {
+    /// Create new config with binary path
+    #[must_use]
+    pub fn new(binary_path: &str) -> Self {
+        Self {
+            binary_path: binary_path.to_string(),
+            ..Default::default()
+        }
+    }
+
+    /// Set model path
+    #[must_use]
+    pub fn with_model(mut self, model_path: &str) -> Self {
+        self.model_path = Some(model_path.to_string());
+        self
+    }
+
+    /// Set GPU layers
+    #[must_use]
+    pub fn with_gpu_layers(mut self, layers: u32) -> Self {
+        self.n_gpu_layers = layers;
+        self
+    }
+
+    /// Set context size
+    #[must_use]
+    pub fn with_ctx_size(mut self, ctx_size: usize) -> Self {
+        self.ctx_size = ctx_size;
+        self
+    }
+}
+
+/// Configuration for vLLM backend
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VllmConfig {
+    /// Base URL for vLLM server
+    pub base_url: String,
+    /// API version
+    pub api_version: String,
+    /// Model name/path
+    pub model: Option<String>,
+    /// API key (if required)
+    pub api_key: Option<String>,
+}
+
+impl Default for VllmConfig {
+    fn default() -> Self {
+        Self {
+            base_url: "http://localhost:8000".to_string(),
+            api_version: "v1".to_string(),
+            model: None,
+            api_key: None,
+        }
+    }
+}
+
+impl VllmConfig {
+    /// Create new config with base URL
+    #[must_use]
+    pub fn new(base_url: &str) -> Self {
+        Self {
+            base_url: base_url.to_string(),
+            ..Default::default()
+        }
+    }
+
+    /// Set model
+    #[must_use]
+    pub fn with_model(mut self, model: &str) -> Self {
+        self.model = Some(model.to_string());
+        self
+    }
+
+    /// Set API key
+    #[must_use]
+    pub fn with_api_key(mut self, api_key: &str) -> Self {
+        self.api_key = Some(api_key.to_string());
+        self
+    }
+}
+
+// ============================================================================
+// LlamaCppBackend Implementation (BENCH-002)
+// ============================================================================
+
+/// llama.cpp backend for GGUF model inference via subprocess
+pub struct LlamaCppBackend {
+    config: LlamaCppConfig,
+}
+
+impl LlamaCppBackend {
+    /// Create new llama.cpp backend
+    #[must_use]
+    pub fn new(config: LlamaCppConfig) -> Self {
+        Self { config }
+    }
+}
+
+impl RuntimeBackend for LlamaCppBackend {
+    fn info(&self) -> BackendInfo {
+        BackendInfo {
+            runtime_type: RuntimeType::LlamaCpp,
+            version: "b2345".to_string(), // Would be detected from binary
+            supports_streaming: false,    // CLI mode doesn't stream
+            loaded_model: self.config.model_path.clone(),
+        }
+    }
+
+    fn inference(&self, request: &InferenceRequest) -> Result<InferenceResponse, RealizarError> {
+        use std::process::Command;
+
+        // Check if binary exists
+        let output = Command::new(&self.config.binary_path)
+            .arg("--version")
+            .output();
+
+        match output {
+            Ok(_) => {
+                // Simulate inference (real impl would run the binary)
+                Ok(InferenceResponse {
+                    text: format!("Response to: {}", request.prompt),
+                    tokens_generated: 10,
+                    ttft_ms: 50.0,
+                    total_time_ms: 200.0,
+                    itl_ms: vec![15.0; 9],
+                })
+            },
+            Err(_) => Err(RealizarError::ModelNotFound(
+                self.config.binary_path.clone(),
+            )),
+        }
+    }
+}
+
+// ============================================================================
+// VllmBackend Implementation (BENCH-003) - REAL HTTP CALLS
+// ============================================================================
+
+/// vLLM backend for inference via HTTP API
+///
+/// **REAL IMPLEMENTATION** - makes actual HTTP requests to vLLM servers.
+/// No mock data. Measures real latency and throughput.
+#[cfg(feature = "bench-http")]
+pub struct VllmBackend {
+    config: VllmConfig,
+    http_client: ModelHttpClient,
+}
+
+#[cfg(feature = "bench-http")]
+impl VllmBackend {
+    /// Create new vLLM backend with default HTTP client
+    #[must_use]
+    pub fn new(config: VllmConfig) -> Self {
+        Self {
+            config,
+            http_client: ModelHttpClient::new(),
+        }
+    }
+
+    /// Create new vLLM backend with custom HTTP client
+    #[must_use]
+    pub fn with_client(config: VllmConfig, client: ModelHttpClient) -> Self {
+        Self {
+            config,
+            http_client: client,
+        }
+    }
+}
+
+#[cfg(feature = "bench-http")]
+impl RuntimeBackend for VllmBackend {
+    fn info(&self) -> BackendInfo {
+        BackendInfo {
+            runtime_type: RuntimeType::Vllm,
+            version: "0.4.0".to_string(), // Would be detected from API
+            supports_streaming: true,
+            loaded_model: self.config.model.clone(),
+        }
+    }
+
+    fn inference(&self, request: &InferenceRequest) -> Result<InferenceResponse, RealizarError> {
+        // Parse URL to check for invalid port
+        let url = &self.config.base_url;
+        if let Some(port_str) = url.split(':').next_back() {
+            if let Ok(port) = port_str.parse::<u32>() {
+                if port > 65535 {
+                    return Err(RealizarError::ConnectionError(format!(
+                        "Invalid port in URL: {}",
+                        url
+                    )));
+                }
+            }
+        }
+
+        // REAL HTTP request to vLLM server via OpenAI-compatible API
+        #[allow(clippy::cast_possible_truncation)]
+        let completion_request = CompletionRequest {
+            model: self
+                .config
+                .model
+                .clone()
+                .unwrap_or_else(|| "default".to_string()),
+            prompt: request.prompt.clone(),
+            max_tokens: request.max_tokens,
+            temperature: Some(request.temperature as f32),
+            stream: false,
+        };
+
+        let timing = self.http_client.openai_completion(
+            &self.config.base_url,
+            &completion_request,
+            self.config.api_key.as_deref(),
+        )?;
+
+        Ok(InferenceResponse {
+            text: timing.text,
+            tokens_generated: timing.tokens_generated,
+            ttft_ms: timing.ttft_ms,
+            total_time_ms: timing.total_time_ms,
+            itl_ms: vec![], // ITL requires streaming, not available in blocking mode
+        })
+    }
+}
+
+// ============================================================================
+// OllamaBackend Implementation - REAL HTTP CALLS
+// ============================================================================
+
+/// Configuration for Ollama backend
+#[cfg(feature = "bench-http")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OllamaConfig {
+    /// Base URL for Ollama server
+    pub base_url: String,
+    /// Model name
+    pub model: String,
+}
+
+#[cfg(feature = "bench-http")]
+impl Default for OllamaConfig {
+    fn default() -> Self {
+        Self {
+            base_url: "http://localhost:11434".to_string(),
+            model: "llama2".to_string(),
+        }
+    }
+}
+
+/// Ollama backend for inference via HTTP API
+///
+/// **REAL IMPLEMENTATION** - makes actual HTTP requests to Ollama servers.
+/// No mock data. Measures real latency and throughput.
+#[cfg(feature = "bench-http")]
+pub struct OllamaBackend {
+    config: OllamaConfig,
+    http_client: ModelHttpClient,
+}
+
+#[cfg(feature = "bench-http")]
+impl OllamaBackend {
+    /// Create new Ollama backend with default HTTP client
+    #[must_use]
+    pub fn new(config: OllamaConfig) -> Self {
+        Self {
+            config,
+            http_client: ModelHttpClient::new(),
+        }
+    }
+
+    /// Create new Ollama backend with custom HTTP client
+    #[must_use]
+    pub fn with_client(config: OllamaConfig, client: ModelHttpClient) -> Self {
+        Self {
+            config,
+            http_client: client,
+        }
+    }
+}
+
+#[cfg(feature = "bench-http")]
+impl RuntimeBackend for OllamaBackend {
+    fn info(&self) -> BackendInfo {
+        BackendInfo {
+            runtime_type: RuntimeType::Ollama,
+            version: "0.1.0".to_string(), // Would be detected from API
+            supports_streaming: true,
+            loaded_model: Some(self.config.model.clone()),
+        }
+    }
+
+    fn inference(&self, request: &InferenceRequest) -> Result<InferenceResponse, RealizarError> {
+        // REAL HTTP request to Ollama server
+        #[allow(clippy::cast_possible_truncation)]
+        let ollama_request = OllamaRequest {
+            model: self.config.model.clone(),
+            prompt: request.prompt.clone(),
+            stream: false,
+            options: Some(OllamaOptions {
+                num_predict: Some(request.max_tokens),
+                temperature: Some(request.temperature as f32),
+            }),
+        };
+
+        let timing = self
+            .http_client
+            .ollama_generate(&self.config.base_url, &ollama_request)?;
+
+        Ok(InferenceResponse {
+            text: timing.text,
+            tokens_generated: timing.tokens_generated,
+            ttft_ms: timing.ttft_ms,
+            total_time_ms: timing.total_time_ms,
+            itl_ms: vec![], // ITL requires streaming, not available in blocking mode
+        })
+    }
+}
+
+// ============================================================================
+// BENCH-004: MeasurementProtocol (following SPEC-BENCH-001)
+// ============================================================================
+
+/// Complete measurement protocol for benchmarking
+///
+/// Follows MLPerf™ Inference benchmarking principles for scientific rigor.
+#[derive(Debug, Clone)]
+pub struct MeasurementProtocol {
+    /// Number of latency samples to collect
+    pub latency_samples: usize,
+    /// Percentiles to compute (e.g., 50, 90, 95, 99, 99.9)
+    pub latency_percentiles: Vec<f64>,
+    /// Duration for throughput measurement
+    pub throughput_duration: Duration,
+    /// Ramp-up time before throughput measurement
+    pub throughput_ramp_up: Duration,
+    /// Number of memory samples to collect
+    pub memory_samples: usize,
+    /// Interval between memory samples
+    pub memory_interval: Duration,
+}
+
+impl Default for MeasurementProtocol {
+    fn default() -> Self {
+        Self {
+            latency_samples: 100,
+            latency_percentiles: vec![50.0, 90.0, 95.0, 99.0, 99.9],
+            throughput_duration: Duration::from_secs(60),
+            throughput_ramp_up: Duration::from_secs(10),
+            memory_samples: 10,
+            memory_interval: Duration::from_secs(1),
+        }
+    }
+}
+
+impl MeasurementProtocol {
+    /// Create a new measurement protocol with default values
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the number of latency samples
+    #[must_use]
+    pub fn with_latency_samples(mut self, samples: usize) -> Self {
+        self.latency_samples = samples;
+        self
+    }
+
+    /// Set the percentiles to compute
+    #[must_use]
+    pub fn with_percentiles(mut self, percentiles: Vec<f64>) -> Self {
+        self.latency_percentiles = percentiles;
+        self
+    }
+
+    /// Set the throughput measurement duration
+    #[must_use]
+    pub fn with_throughput_duration(mut self, duration: Duration) -> Self {
+        self.throughput_duration = duration;
+        self
+    }
+
+    /// Set the number of memory samples
+    #[must_use]
+    pub fn with_memory_samples(mut self, samples: usize) -> Self {
+        self.memory_samples = samples;
+        self
+    }
+}
+
+// ============================================================================
+// BENCH-005: LatencyStatistics (following SPEC-BENCH-001 Section 7.1)
+// ============================================================================
+
+/// Comprehensive latency statistics following MLPerf™ reporting standards
+#[derive(Debug, Clone)]
+pub struct LatencyStatistics {
+    /// Mean latency
+    pub mean: Duration,
+    /// Standard deviation
+    pub std_dev: Duration,
+    /// Minimum latency
+    pub min: Duration,
+    /// Maximum latency
+    pub max: Duration,
+    /// 50th percentile (median)
+    pub p50: Duration,
+    /// 90th percentile
+    pub p90: Duration,
+    /// 95th percentile
+    pub p95: Duration,
+    /// 99th percentile
+    pub p99: Duration,
+    /// 99.9th percentile (tail latency)
+    pub p999: Duration,
+    /// Number of samples
+    pub samples: usize,
+    /// 95% confidence interval (lower, upper)
+    pub confidence_interval_95: (Duration, Duration),
+}
+
+impl LatencyStatistics {
+    /// Compute statistics from a slice of duration samples
+    ///
+    /// # Panics
+    /// Panics if samples is empty
+    #[must_use]
+    pub fn from_samples(samples: &[Duration]) -> Self {
+        assert!(!samples.is_empty(), "samples must not be empty");
+
+        let n = samples.len();
+        let n_f64 = n as f64;
+
+        // Compute mean
+        let sum_nanos: u128 = samples.iter().map(Duration::as_nanos).sum();
+        let mean_nanos = sum_nanos / n as u128;
+        let mean = Duration::from_nanos(mean_nanos as u64);
+
+        // Compute standard deviation
+        let variance: f64 = samples
+            .iter()
+            .map(|s| {
+                let diff = s.as_nanos() as f64 - mean_nanos as f64;
+                diff * diff
+            })
+            .sum::<f64>()
+            / (n_f64 - 1.0).max(1.0);
+        let std_dev_nanos = variance.sqrt();
+        let std_dev = Duration::from_nanos(std_dev_nanos as u64);
+
+        // Sort for percentile computation
+        let mut sorted: Vec<Duration> = samples.to_vec();
+        sorted.sort();
+
+        // Min/max
+        let min = sorted[0];
+        let max = sorted[n - 1];
+
+        // Percentiles using nearest-rank method
+        let percentile = |p: f64| -> Duration {
+            let idx = ((p / 100.0) * n_f64).ceil() as usize;
+            sorted[idx.saturating_sub(1).min(n - 1)]
+        };
+
+        let p50 = percentile(50.0);
+        let p90 = percentile(90.0);
+        let p95 = percentile(95.0);
+        let p99 = percentile(99.0);
+        let p999 = percentile(99.9);
+
+        // 95% confidence interval using t-distribution approximation
+        // For large n, t ≈ 1.96
+        let t_value = if n >= 30 { 1.96 } else { 2.0 + 4.0 / n_f64 };
+        let margin = std_dev_nanos * t_value / n_f64.sqrt();
+        let lower = Duration::from_nanos((mean_nanos as f64 - margin).max(0.0) as u64);
+        let upper = Duration::from_nanos((mean_nanos as f64 + margin) as u64);
+
+        Self {
+            mean,
+            std_dev,
+            min,
+            max,
+            p50,
+            p90,
+            p95,
+            p99,
+            p999,
+            samples: n,
+            confidence_interval_95: (lower, upper),
+        }
+    }
+}
+
+// ============================================================================
+// BENCH-006: Outlier Detection (MAD-based)
+// ============================================================================
+
+/// Detect outliers using Median Absolute Deviation (MAD) method
+///
+/// More robust than standard deviation for non-normal distributions.
+/// Uses the modified Z-score method with configurable threshold.
+///
+/// # Arguments
+/// * `samples` - Slice of f64 samples
+/// * `threshold` - Modified Z-score threshold (typically 3.5 for strict, 2.0 for lenient)
+///
+/// # Returns
+/// Vector of indices that are considered outliers
+pub fn detect_outliers(samples: &[f64], threshold: f64) -> Vec<usize> {
+    if samples.len() < 3 {
+        return Vec::new();
+    }
+
+    // Calculate median
+    let mut sorted = samples.to_vec();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let median = if sorted.len() % 2 == 0 {
+        (sorted[sorted.len() / 2 - 1] + sorted[sorted.len() / 2]) / 2.0
+    } else {
+        sorted[sorted.len() / 2]
+    };
+
+    // Calculate MAD (Median Absolute Deviation)
+    let mut deviations: Vec<f64> = samples.iter().map(|x| (x - median).abs()).collect();
+    deviations.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let mad = if deviations.len() % 2 == 0 {
+        (deviations[deviations.len() / 2 - 1] + deviations[deviations.len() / 2]) / 2.0
+    } else {
+        deviations[deviations.len() / 2]
+    };
+
+    // Avoid division by zero
+    if mad < f64::EPSILON {
+        return Vec::new();
+    }
+
+    // Constant for normal distribution approximation
+    let k = 1.4826;
+
+    // Find outliers using modified Z-score
+    samples
+        .iter()
+        .enumerate()
+        .filter(|(_, &x)| {
+            let modified_z = (x - median) / (k * mad);
+            modified_z.abs() > threshold
+        })
+        .map(|(i, _)| i)
+        .collect()
+}
+
+// ============================================================================
+// BENCH-007: Regression Detection
+// ============================================================================
+
+/// Single benchmark metric for comparison
+#[derive(Debug, Clone)]
+pub struct BenchmarkMetrics {
+    /// Metric name
+    pub name: String,
+    /// Mean value
+    pub mean: f64,
+    /// Standard deviation
+    pub std_dev: f64,
+    /// Number of samples
+    pub samples: usize,
+}
+
+/// Individual regression item
+#[derive(Debug, Clone)]
+pub struct Regression {
+    /// Metric that regressed
+    pub metric: String,
+    /// Baseline value
+    pub baseline: f64,
+    /// Current value
+    pub current: f64,
+    /// Percentage change
+    pub change_percent: f64,
+}
+
+/// Report from regression analysis
+#[derive(Debug, Clone)]
+pub struct RegressionReport {
+    /// Metrics that exceeded failure threshold
+    pub regressions: Vec<Regression>,
+    /// Metrics that exceeded warning threshold
+    pub warnings: Vec<Regression>,
+    /// Metrics that improved significantly
+    pub improvements: Vec<Regression>,
+    /// Overall pass/fail (no regressions)
+    pub passed: bool,
+}
+
+/// Performance regression detector
+///
+/// Compares baseline and current benchmark results to detect
+/// performance regressions, warnings, and improvements.
+#[derive(Debug, Clone)]
+pub struct RegressionDetector {
+    /// Warning threshold (default: 2%)
+    pub warning_threshold: f64,
+    /// Failure threshold (default: 5%)
+    pub failure_threshold: f64,
+}
+
+impl Default for RegressionDetector {
+    fn default() -> Self {
+        Self {
+            warning_threshold: 0.02, // 2%
+            failure_threshold: 0.05, // 5%
+        }
+    }
+}
+
+impl RegressionDetector {
+    /// Compare baseline and current metrics
+    pub fn compare(
+        &self,
+        baseline: &BenchmarkMetrics,
+        current: &BenchmarkMetrics,
+    ) -> RegressionReport {
+        let mut regressions = Vec::new();
+        let mut warnings = Vec::new();
+        let mut improvements = Vec::new();
+
+        // Calculate percentage change (positive = regression for latency-like metrics)
+        let change = (current.mean - baseline.mean) / baseline.mean;
+
+        let item = Regression {
+            metric: baseline.name.clone(),
+            baseline: baseline.mean,
+            current: current.mean,
+            change_percent: change * 100.0,
+        };
+
+        if change > self.failure_threshold {
+            regressions.push(item);
+        } else if change > self.warning_threshold {
+            warnings.push(item);
+        } else if change < -self.warning_threshold {
+            improvements.push(item);
+        }
+
+        RegressionReport {
+            passed: regressions.is_empty(),
+            regressions,
+            warnings,
+            improvements,
+        }
+    }
+}
+
+// ============================================================================
+// BENCH-008: Welch's t-test for Statistical Significance
+// Per Hoefler & Belli [17], statistical testing is required for valid comparisons
+// ============================================================================
+
+/// Result of Welch's t-test for comparing two sample means
+#[derive(Debug, Clone)]
+pub struct WelchTTestResult {
+    /// Calculated t-statistic
+    pub t_statistic: f64,
+    /// Welch-Satterthwaite degrees of freedom
+    pub degrees_of_freedom: f64,
+    /// Two-tailed p-value
+    pub p_value: f64,
+    /// Whether the difference is statistically significant at given alpha
+    pub significant: bool,
+}
+
+/// Perform Welch's t-test to compare two sample means
+///
+/// Welch's t-test is used when samples may have unequal variances.
+/// Returns statistical significance information.
+///
+/// # Arguments
+/// * `sample_a` - First sample
+/// * `sample_b` - Second sample
+/// * `alpha` - Significance level (e.g., 0.05 for 95% confidence)
+///
+/// # Example
+/// ```
+/// use realizar::bench::welch_t_test;
+///
+/// let a = vec![10.0, 11.0, 10.5, 10.2, 10.8];
+/// let b = vec![20.0, 21.0, 20.5, 20.2, 20.8];
+/// let result = welch_t_test(&a, &b, 0.05);
+/// assert!(result.significant); // Clearly different means
+/// ```
+pub fn welch_t_test(sample_a: &[f64], sample_b: &[f64], alpha: f64) -> WelchTTestResult {
+    let n1 = sample_a.len() as f64;
+    let n2 = sample_b.len() as f64;
+
+    // Calculate means
+    let mean1 = sample_a.iter().sum::<f64>() / n1;
+    let mean2 = sample_b.iter().sum::<f64>() / n2;
+
+    // Calculate sample variances (using n-1 for unbiased estimator)
+    let var1 = if n1 > 1.0 {
+        sample_a.iter().map(|x| (x - mean1).powi(2)).sum::<f64>() / (n1 - 1.0)
+    } else {
+        0.0
+    };
+    let var2 = if n2 > 1.0 {
+        sample_b.iter().map(|x| (x - mean2).powi(2)).sum::<f64>() / (n2 - 1.0)
+    } else {
+        0.0
+    };
+
+    // Handle zero variance case
+    let se1 = var1 / n1;
+    let se2 = var2 / n2;
+    let se_diff = (se1 + se2).sqrt();
+
+    if se_diff < f64::EPSILON {
+        // Both samples have zero variance - cannot compute t-statistic
+        return WelchTTestResult {
+            t_statistic: 0.0,
+            degrees_of_freedom: n1 + n2 - 2.0,
+            p_value: 1.0,
+            significant: false,
+        };
+    }
+
+    // Calculate t-statistic
+    let t_stat = (mean1 - mean2) / se_diff;
+
+    // Welch-Satterthwaite degrees of freedom
+    let df_num = (se1 + se2).powi(2);
+    let df_denom = if n1 > 1.0 && se1 > f64::EPSILON {
+        se1.powi(2) / (n1 - 1.0)
+    } else {
+        0.0
+    } + if n2 > 1.0 && se2 > f64::EPSILON {
+        se2.powi(2) / (n2 - 1.0)
+    } else {
+        0.0
+    };
+
+    let df = if df_denom > f64::EPSILON {
+        df_num / df_denom
+    } else {
+        n1 + n2 - 2.0
+    };
+
+    // Approximate p-value using normal distribution for large df
+    // For small df, we use a more conservative approximation
+    let p_value = approximate_t_pvalue(t_stat.abs(), df);
+
+    WelchTTestResult {
+        t_statistic: t_stat,
+        degrees_of_freedom: df,
+        p_value,
+        significant: p_value < alpha,
+    }
+}
+
+/// Approximate two-tailed p-value from t-distribution
+///
+/// Uses normal approximation for large df, conservative approximation for small df
+fn approximate_t_pvalue(t_abs: f64, df: f64) -> f64 {
+    // For very large df, use normal approximation
+    if df > 100.0 {
+        // Use error function approximation for normal CDF
+        let z = t_abs;
+        let p = erfc_approx(z / std::f64::consts::SQRT_2);
+        return p;
+    }
+
+    // For smaller df, use a polynomial approximation of t-distribution CDF
+    // Based on Abramowitz and Stegun approximation
+    let ratio = df / (df + t_abs * t_abs);
+    incomplete_beta_approx(ratio, df / 2.0, 0.5)
+}
+
+/// Approximate complementary error function
+fn erfc_approx(x: f64) -> f64 {
+    // Horner form coefficients for erfc approximation
+    // From Abramowitz and Stegun, formula 7.1.26
+    let a1 = 0.254_829_592;
+    let a2 = -0.284_496_736;
+    let a3 = 1.421_413_741;
+    let a4 = -1.453_152_027;
+    let a5 = 1.061_405_429;
+    let p = 0.327_591_1;
+
+    let sign = if x < 0.0 { -1.0 } else { 1.0 };
+    let x = x.abs();
+
+    let t = 1.0 / (1.0 + p * x);
+    let y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * (-x * x).exp();
+
+    if sign < 0.0 {
+        2.0 - y
+    } else {
+        y
+    }
+}
+
+/// Approximate incomplete beta function (simplified for t-test)
+fn incomplete_beta_approx(x: f64, a: f64, b: f64) -> f64 {
+    // Use continued fraction expansion for better accuracy
+    // Simplified approximation suitable for t-distribution p-values
+    if x < (a + 1.0) / (a + b + 2.0) {
+        let beta_factor =
+            gamma_ln(a + b) - gamma_ln(a) - gamma_ln(b) + a * x.ln() + b * (1.0 - x).ln();
+        let beta_factor = beta_factor.exp();
+        beta_factor * cf_beta(x, a, b) / a
+    } else {
+        1.0 - incomplete_beta_approx(1.0 - x, b, a)
+    }
+}
+
+/// Continued fraction for incomplete beta
+#[allow(clippy::many_single_char_names)] // Standard math notation for beta function
+fn cf_beta(x: f64, a: f64, b: f64) -> f64 {
+    let max_iter = 100;
+    let eps = 1e-10;
+    let tiny = 1e-30;
+
+    let qab = a + b;
+    let qap = a + 1.0;
+    let qam = a - 1.0;
+
+    let mut c = 1.0;
+    let mut d = 1.0 - qab * x / qap;
+    if d.abs() < tiny {
+        d = tiny;
+    }
+    d = 1.0 / d;
+    let mut h = d;
+
+    for m in 1..=max_iter {
+        let m_f = m as f64;
+        let m2 = 2.0 * m_f;
+
+        // Even step
+        let aa = m_f * (b - m_f) * x / ((qam + m2) * (a + m2));
+        d = 1.0 + aa * d;
+        if d.abs() < tiny {
+            d = tiny;
+        }
+        c = 1.0 + aa / c;
+        if c.abs() < tiny {
+            c = tiny;
+        }
+        d = 1.0 / d;
+        h *= d * c;
+
+        // Odd step
+        let aa = -(a + m_f) * (qab + m_f) * x / ((a + m2) * (qap + m2));
+        d = 1.0 + aa * d;
+        if d.abs() < tiny {
+            d = tiny;
+        }
+        c = 1.0 + aa / c;
+        if c.abs() < tiny {
+            c = tiny;
+        }
+        d = 1.0 / d;
+        let del = d * c;
+        h *= del;
+
+        if (del - 1.0).abs() < eps {
+            break;
+        }
+    }
+
+    h
+}
+
+/// Approximate log-gamma function (Stirling's approximation)
+#[allow(clippy::excessive_precision)] // Lanczos coefficients require high precision
+fn gamma_ln(x: f64) -> f64 {
+    if x <= 0.0 {
+        return f64::INFINITY;
+    }
+
+    // Lanczos approximation coefficients
+    let g = 7.0;
+    let c = [
+        0.999_999_999_999_81,
+        676.520_368_121_885,
+        -1_259.139_216_722_403,
+        771.323_428_777_653,
+        -176.615_029_162_141,
+        12.507_343_278_687,
+        -0.138_571_095_265_72,
+        9.984_369_578_02e-6,
+        1.505_632_735_15e-7,
+    ];
+
+    let x = x - 1.0;
+    let mut sum = c[0];
+    for (i, &coef) in c.iter().enumerate().skip(1) {
+        sum += coef / (x + i as f64);
+    }
+
+    let t = x + g + 0.5;
+    0.5 * (2.0 * std::f64::consts::PI).ln() + (x + 0.5) * t.ln() - t + sum.ln()
 }
 
 // ============================================================================
@@ -2672,5 +3867,758 @@ mod tests {
         let wt = WorkloadType::ShortQa;
         let wt_copy = wt;
         assert_eq!(wt, wt_copy);
+    }
+
+    // ========================================================================
+    // BENCH-002: RuntimeBackend trait tests (TDD RED -> GREEN)
+    // ========================================================================
+
+    #[test]
+    fn test_runtime_type_display() {
+        assert_eq!(RuntimeType::Realizar.as_str(), "realizar");
+        assert_eq!(RuntimeType::LlamaCpp.as_str(), "llama-cpp");
+        assert_eq!(RuntimeType::Vllm.as_str(), "vllm");
+        assert_eq!(RuntimeType::Ollama.as_str(), "ollama");
+    }
+
+    #[test]
+    fn test_runtime_type_from_str() {
+        assert_eq!(RuntimeType::parse("realizar"), Some(RuntimeType::Realizar));
+        assert_eq!(RuntimeType::parse("llama-cpp"), Some(RuntimeType::LlamaCpp));
+        assert_eq!(RuntimeType::parse("llama.cpp"), Some(RuntimeType::LlamaCpp));
+        assert_eq!(RuntimeType::parse("vllm"), Some(RuntimeType::Vllm));
+        assert_eq!(RuntimeType::parse("ollama"), Some(RuntimeType::Ollama));
+        assert_eq!(RuntimeType::parse("unknown"), None);
+    }
+
+    #[test]
+    fn test_inference_request_default() {
+        let req = InferenceRequest::default();
+        assert_eq!(req.prompt, "");
+        assert_eq!(req.max_tokens, 100);
+        assert!(req.temperature > 0.0);
+    }
+
+    #[test]
+    fn test_inference_request_builder() {
+        let req = InferenceRequest::new("Hello, world!")
+            .with_max_tokens(50)
+            .with_temperature(0.5);
+        assert_eq!(req.prompt, "Hello, world!");
+        assert_eq!(req.max_tokens, 50);
+        assert!((req.temperature - 0.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_inference_response_tokens_per_second() {
+        let response = InferenceResponse {
+            text: "Hello".to_string(),
+            tokens_generated: 100,
+            ttft_ms: 50.0,
+            total_time_ms: 1000.0,
+            itl_ms: vec![10.0, 10.0, 10.0],
+        };
+        assert!((response.tokens_per_second() - 100.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_inference_response_tokens_per_second_zero_time() {
+        let response = InferenceResponse {
+            text: String::new(),
+            tokens_generated: 100,
+            ttft_ms: 0.0,
+            total_time_ms: 0.0,
+            itl_ms: vec![],
+        };
+        assert_eq!(response.tokens_per_second(), 0.0);
+    }
+
+    #[test]
+    fn test_mock_backend_inference() {
+        let backend = MockBackend::new(42.0, 150.0);
+        let req = InferenceRequest::new("test prompt");
+        let response = backend.inference(&req);
+
+        assert!(response.is_ok());
+        let resp = response.unwrap();
+        assert!((resp.ttft_ms - 42.0).abs() < 0.001);
+        assert!(resp.tokens_generated > 0);
+    }
+
+    #[test]
+    fn test_mock_backend_info() {
+        let backend = MockBackend::new(30.0, 140.0);
+        let info = backend.info();
+
+        assert_eq!(info.runtime_type, RuntimeType::Realizar);
+        assert!(!info.version.is_empty());
+        assert!(info.supports_streaming);
+    }
+
+    #[test]
+    fn test_backend_registry_default() {
+        let registry = BackendRegistry::new();
+        assert!(registry.get(RuntimeType::Realizar).is_none());
+    }
+
+    #[test]
+    fn test_backend_registry_register_and_get() {
+        let mut registry = BackendRegistry::new();
+        let backend = Box::new(MockBackend::new(30.0, 140.0));
+        registry.register(RuntimeType::Realizar, backend);
+
+        assert!(registry.get(RuntimeType::Realizar).is_some());
+        assert!(registry.get(RuntimeType::LlamaCpp).is_none());
+    }
+
+    #[test]
+    fn test_backend_registry_list() {
+        let mut registry = BackendRegistry::new();
+        registry.register(
+            RuntimeType::Realizar,
+            Box::new(MockBackend::new(30.0, 140.0)),
+        );
+        registry.register(
+            RuntimeType::LlamaCpp,
+            Box::new(MockBackend::new(35.0, 130.0)),
+        );
+
+        let list = registry.list();
+        assert_eq!(list.len(), 2);
+        assert!(list.contains(&RuntimeType::Realizar));
+        assert!(list.contains(&RuntimeType::LlamaCpp));
+    }
+
+    #[test]
+    fn test_llama_cpp_config_default() {
+        let config = LlamaCppConfig::default();
+        assert_eq!(config.binary_path, "llama-cli");
+        assert_eq!(config.n_gpu_layers, 0);
+        assert_eq!(config.ctx_size, 2048);
+    }
+
+    #[test]
+    fn test_llama_cpp_config_builder() {
+        let config = LlamaCppConfig::new("/usr/bin/llama-cli")
+            .with_model("/models/test.gguf")
+            .with_gpu_layers(32)
+            .with_ctx_size(4096);
+
+        assert_eq!(config.binary_path, "/usr/bin/llama-cli");
+        assert_eq!(config.model_path, Some("/models/test.gguf".to_string()));
+        assert_eq!(config.n_gpu_layers, 32);
+        assert_eq!(config.ctx_size, 4096);
+    }
+
+    #[test]
+    fn test_vllm_config_default() {
+        let config = VllmConfig::default();
+        assert_eq!(config.base_url, "http://localhost:8000");
+        assert_eq!(config.api_version, "v1");
+    }
+
+    #[test]
+    fn test_vllm_config_builder() {
+        let config = VllmConfig::new("http://gpu-server:8080")
+            .with_model("meta-llama/Llama-2-7b")
+            .with_api_key("test-key");
+
+        assert_eq!(config.base_url, "http://gpu-server:8080");
+        assert_eq!(config.model, Some("meta-llama/Llama-2-7b".to_string()));
+        assert_eq!(config.api_key, Some("test-key".to_string()));
+    }
+
+    // =========================================================================
+    // LlamaCppBackend Tests (BENCH-002: Runtime Backend Integration)
+    // =========================================================================
+
+    #[test]
+    fn test_llama_cpp_backend_creation() {
+        let config = LlamaCppConfig::new("llama-cli");
+        let backend = LlamaCppBackend::new(config);
+        let info = backend.info();
+        assert_eq!(info.runtime_type, RuntimeType::LlamaCpp);
+        assert!(!info.version.is_empty());
+    }
+
+    #[test]
+    fn test_llama_cpp_backend_info() {
+        let config = LlamaCppConfig::new("llama-cli").with_model("test.gguf");
+        let backend = LlamaCppBackend::new(config);
+        let info = backend.info();
+
+        assert_eq!(info.runtime_type, RuntimeType::LlamaCpp);
+        assert!(!info.supports_streaming); // CLI doesn't support streaming
+    }
+
+    #[test]
+    fn test_llama_cpp_backend_missing_binary() {
+        let config = LlamaCppConfig::new("/nonexistent/llama-cli");
+        let backend = LlamaCppBackend::new(config);
+        let request = InferenceRequest::new("test");
+        let result = backend.inference(&request);
+
+        // Should return error for missing binary
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // VllmBackend Tests (BENCH-003: HTTP Client Integration)
+    // =========================================================================
+
+    #[test]
+    fn test_vllm_backend_creation() {
+        let config = VllmConfig::new("http://localhost:8000");
+        let backend = VllmBackend::new(config);
+        let info = backend.info();
+        assert_eq!(info.runtime_type, RuntimeType::Vllm);
+    }
+
+    #[test]
+    fn test_vllm_backend_info() {
+        let config = VllmConfig::new("http://localhost:8000").with_model("meta-llama/Llama-2-7b");
+        let backend = VllmBackend::new(config);
+        let info = backend.info();
+
+        assert_eq!(info.runtime_type, RuntimeType::Vllm);
+        assert!(info.supports_streaming); // vLLM supports streaming
+    }
+
+    #[test]
+    fn test_vllm_backend_connection_error() {
+        let config = VllmConfig::new("http://localhost:99999"); // Invalid port
+        let backend = VllmBackend::new(config);
+        let request = InferenceRequest::new("test");
+        let result = backend.inference(&request);
+
+        // Should return error for connection failure
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // BENCH-004: MeasurementProtocol Tests (TDD RED)
+    // =========================================================================
+
+    #[test]
+    fn test_measurement_protocol_default() {
+        let protocol = MeasurementProtocol::default();
+        assert_eq!(protocol.latency_samples, 100);
+        assert_eq!(
+            protocol.latency_percentiles,
+            vec![50.0, 90.0, 95.0, 99.0, 99.9]
+        );
+        assert_eq!(protocol.throughput_duration.as_secs(), 60);
+        assert_eq!(protocol.throughput_ramp_up.as_secs(), 10);
+        assert_eq!(protocol.memory_samples, 10);
+    }
+
+    #[test]
+    fn test_measurement_protocol_builder() {
+        let protocol = MeasurementProtocol::new()
+            .with_latency_samples(200)
+            .with_percentiles(vec![50.0, 95.0, 99.0])
+            .with_throughput_duration(Duration::from_secs(120))
+            .with_memory_samples(20);
+
+        assert_eq!(protocol.latency_samples, 200);
+        assert_eq!(protocol.latency_percentiles, vec![50.0, 95.0, 99.0]);
+        assert_eq!(protocol.throughput_duration.as_secs(), 120);
+        assert_eq!(protocol.memory_samples, 20);
+    }
+
+    // =========================================================================
+    // BENCH-005: LatencyStatistics Tests (TDD RED)
+    // =========================================================================
+
+    #[test]
+    fn test_latency_statistics_from_samples() {
+        let samples = vec![
+            Duration::from_millis(10),
+            Duration::from_millis(20),
+            Duration::from_millis(30),
+            Duration::from_millis(40),
+            Duration::from_millis(50),
+        ];
+        let stats = LatencyStatistics::from_samples(&samples);
+
+        assert_eq!(stats.samples, 5);
+        assert_eq!(stats.min, Duration::from_millis(10));
+        assert_eq!(stats.max, Duration::from_millis(50));
+        assert_eq!(stats.mean, Duration::from_millis(30));
+    }
+
+    #[test]
+    fn test_latency_statistics_percentiles() {
+        // 100 samples from 1ms to 100ms
+        let samples: Vec<Duration> = (1..=100).map(Duration::from_millis).collect();
+        let stats = LatencyStatistics::from_samples(&samples);
+
+        // p50 should be around 50ms
+        assert!(stats.p50 >= Duration::from_millis(49));
+        assert!(stats.p50 <= Duration::from_millis(51));
+
+        // p95 should be around 95ms
+        assert!(stats.p95 >= Duration::from_millis(94));
+        assert!(stats.p95 <= Duration::from_millis(96));
+
+        // p99 should be around 99ms
+        assert!(stats.p99 >= Duration::from_millis(98));
+        assert!(stats.p99 <= Duration::from_millis(100));
+    }
+
+    #[test]
+    fn test_latency_statistics_confidence_interval() {
+        let samples: Vec<Duration> = (1..=100).map(Duration::from_millis).collect();
+        let stats = LatencyStatistics::from_samples(&samples);
+
+        // 95% CI should contain the mean
+        let (lower, upper) = stats.confidence_interval_95;
+        assert!(lower < stats.mean);
+        assert!(upper > stats.mean);
+    }
+
+    #[test]
+    fn test_latency_statistics_std_dev() {
+        // Uniform samples should have non-zero std dev
+        let samples: Vec<Duration> = (1..=10).map(|i| Duration::from_millis(i * 10)).collect();
+        let stats = LatencyStatistics::from_samples(&samples);
+
+        assert!(stats.std_dev > Duration::ZERO);
+    }
+
+    // ==========================================
+    // BENCH-006: OutlierDetector Tests (MAD-based)
+    // ==========================================
+
+    #[test]
+    fn test_outlier_detector_no_outliers() {
+        // Normal distribution with no outliers
+        let samples = vec![10.0, 11.0, 10.5, 9.5, 10.2, 9.8, 10.1, 10.3];
+        let outliers = detect_outliers(&samples, 3.5); // Standard threshold
+        assert!(outliers.is_empty());
+    }
+
+    #[test]
+    fn test_outlier_detector_single_outlier() {
+        // One clear outlier at position 8 (value 100.0)
+        let samples = vec![10.0, 11.0, 10.5, 9.5, 10.2, 9.8, 10.1, 10.3, 100.0];
+        let outliers = detect_outliers(&samples, 3.5);
+        assert_eq!(outliers.len(), 1);
+        assert_eq!(outliers[0], 8);
+    }
+
+    #[test]
+    fn test_outlier_detector_multiple_outliers() {
+        // Two outliers: one high, one low
+        let samples = vec![0.1, 10.0, 11.0, 10.5, 9.5, 10.2, 9.8, 10.1, 100.0];
+        let outliers = detect_outliers(&samples, 3.5);
+        assert_eq!(outliers.len(), 2);
+        assert!(outliers.contains(&0)); // 0.1 is an outlier
+        assert!(outliers.contains(&8)); // 100.0 is an outlier
+    }
+
+    #[test]
+    fn test_outlier_detector_threshold_sensitivity() {
+        // Lower threshold should catch more outliers
+        let samples = vec![10.0, 11.0, 10.5, 9.5, 10.2, 9.8, 10.1, 15.0];
+        let strict_outliers = detect_outliers(&samples, 2.0);
+        let lenient_outliers = detect_outliers(&samples, 5.0);
+        assert!(strict_outliers.len() >= lenient_outliers.len());
+    }
+
+    // ==========================================
+    // BENCH-007: RegressionDetector Tests
+    // ==========================================
+
+    #[test]
+    fn test_regression_detector_default() {
+        let detector = RegressionDetector::default();
+        assert_eq!(detector.warning_threshold, 0.02); // 2%
+        assert_eq!(detector.failure_threshold, 0.05); // 5%
+    }
+
+    #[test]
+    fn test_regression_detector_no_regression() {
+        let baseline = BenchmarkMetrics {
+            name: "latency".to_string(),
+            mean: 100.0,
+            std_dev: 5.0,
+            samples: 100,
+        };
+        let current = BenchmarkMetrics {
+            name: "latency".to_string(),
+            mean: 101.0, // 1% increase - within warning
+            std_dev: 5.0,
+            samples: 100,
+        };
+        let detector = RegressionDetector::default();
+        let report = detector.compare(&baseline, &current);
+        assert!(report.passed);
+        assert!(report.regressions.is_empty());
+    }
+
+    #[test]
+    fn test_regression_detector_warning() {
+        let baseline = BenchmarkMetrics {
+            name: "latency".to_string(),
+            mean: 100.0,
+            std_dev: 5.0,
+            samples: 100,
+        };
+        let current = BenchmarkMetrics {
+            name: "latency".to_string(),
+            mean: 103.0, // 3% increase - warning
+            std_dev: 5.0,
+            samples: 100,
+        };
+        let detector = RegressionDetector::default();
+        let report = detector.compare(&baseline, &current);
+        assert!(report.passed); // Warnings don't fail
+        assert_eq!(report.warnings.len(), 1);
+    }
+
+    #[test]
+    fn test_regression_detector_failure() {
+        let baseline = BenchmarkMetrics {
+            name: "latency".to_string(),
+            mean: 100.0,
+            std_dev: 5.0,
+            samples: 100,
+        };
+        let current = BenchmarkMetrics {
+            name: "latency".to_string(),
+            mean: 110.0, // 10% increase - failure
+            std_dev: 5.0,
+            samples: 100,
+        };
+        let detector = RegressionDetector::default();
+        let report = detector.compare(&baseline, &current);
+        assert!(!report.passed);
+        assert_eq!(report.regressions.len(), 1);
+    }
+
+    #[test]
+    fn test_regression_detector_improvement() {
+        let baseline = BenchmarkMetrics {
+            name: "latency".to_string(),
+            mean: 100.0,
+            std_dev: 5.0,
+            samples: 100,
+        };
+        let current = BenchmarkMetrics {
+            name: "latency".to_string(),
+            mean: 90.0, // 10% decrease - improvement!
+            std_dev: 5.0,
+            samples: 100,
+        };
+        let detector = RegressionDetector::default();
+        let report = detector.compare(&baseline, &current);
+        assert!(report.passed);
+        assert_eq!(report.improvements.len(), 1);
+    }
+
+    // ==========================================
+    // BENCH-008: Welch's t-test Tests
+    // ==========================================
+
+    #[test]
+    fn test_welch_t_test_result_fields() {
+        // Verify result struct has all required fields
+        let sample_a = vec![10.0, 11.0, 10.5, 10.2, 10.8];
+        let sample_b = vec![20.0, 21.0, 20.5, 20.2, 20.8];
+        let result = welch_t_test(&sample_a, &sample_b, 0.05);
+        // Result should have t_statistic, degrees_of_freedom, p_value, significant
+        assert!(result.t_statistic.is_finite());
+        assert!(result.degrees_of_freedom > 0.0);
+        assert!(result.p_value >= 0.0 && result.p_value <= 1.0);
+        // These are clearly different - should be significant
+        assert!(result.significant);
+    }
+
+    #[test]
+    fn test_welch_t_test_identical_samples() {
+        // Identical samples should NOT be significant
+        let sample_a = vec![10.0, 10.0, 10.0, 10.0, 10.0];
+        let sample_b = vec![10.0, 10.0, 10.0, 10.0, 10.0];
+        let result = welch_t_test(&sample_a, &sample_b, 0.05);
+        assert!(!result.significant);
+        assert!(result.t_statistic.abs() < 1e-10 || result.p_value > 0.05);
+    }
+
+    #[test]
+    fn test_welch_t_test_clearly_different() {
+        // Clearly different samples should be significant
+        let sample_a = vec![10.0, 11.0, 10.5, 10.2, 10.8, 10.3, 10.7, 10.1];
+        let sample_b = vec![50.0, 51.0, 50.5, 50.2, 50.8, 50.3, 50.7, 50.1];
+        let result = welch_t_test(&sample_a, &sample_b, 0.05);
+        assert!(result.significant);
+        assert!(result.p_value < 0.001); // Very significant
+    }
+
+    #[test]
+    fn test_welch_t_test_unequal_variance() {
+        // Welch's t-test handles unequal variances correctly
+        let sample_a = vec![10.0, 10.1, 10.0, 10.1, 10.0]; // Low variance
+        let sample_b = vec![10.0, 15.0, 5.0, 20.0, 0.0]; // High variance, same mean
+        let result = welch_t_test(&sample_a, &sample_b, 0.05);
+        // Same mean, different variance - should NOT be significant
+        assert!(!result.significant);
+    }
+
+    #[test]
+    fn test_welch_t_test_small_samples() {
+        // Small samples require larger differences
+        let sample_a = vec![10.0, 11.0, 12.0];
+        let sample_b = vec![12.0, 13.0, 14.0];
+        let result = welch_t_test(&sample_a, &sample_b, 0.05);
+        // With only 3 samples each, difference may not be significant
+        assert!(result.degrees_of_freedom > 0.0);
+    }
+
+    #[test]
+    fn test_welch_t_test_alpha_levels() {
+        // Different alpha levels affect significance
+        let sample_a = vec![10.0, 11.0, 10.5, 10.2, 10.8];
+        let sample_b = vec![11.0, 12.0, 11.5, 11.2, 11.8];
+        let result_strict = welch_t_test(&sample_a, &sample_b, 0.01);
+        let result_lenient = welch_t_test(&sample_a, &sample_b, 0.10);
+        // Lenient alpha should be at least as likely to find significance
+        if result_strict.significant {
+            assert!(result_lenient.significant);
+        }
+    }
+
+    // BENCH-009: ThermalGuard Tests (TDD RED)
+    #[test]
+    fn test_thermal_guard_struct_fields() {
+        // Per spec: ThermalGuard has max_temp_c, cooldown_threshold_c, cooldown_sleep_ms, temp_variance_c
+        let guard = ThermalGuard::new(80.0, 70.0, 10_000, 2.0);
+        assert_eq!(guard.max_temp_c, 80.0);
+        assert_eq!(guard.cooldown_threshold_c, 70.0);
+        assert_eq!(guard.cooldown_sleep_ms, 10_000);
+        assert_eq!(guard.temp_variance_c, 2.0);
+    }
+
+    #[test]
+    fn test_thermal_guard_default() {
+        // Default should use spec values: 80°C, 70°C, 10000ms, 2°C
+        let guard = ThermalGuard::default();
+        assert_eq!(guard.max_temp_c, 80.0);
+        assert_eq!(guard.cooldown_threshold_c, 70.0);
+        assert_eq!(guard.cooldown_sleep_ms, 10_000);
+        assert_eq!(guard.temp_variance_c, 2.0);
+    }
+
+    #[test]
+    fn test_thermal_validity_valid() {
+        // Low variance temps should be valid
+        let guard = ThermalGuard::default();
+        let temps = vec![75.0, 76.0, 75.5, 76.5, 75.2]; // Variance < 2°C
+        let result = guard.validate_run(&temps);
+        assert!(matches!(result, ThermalValidity::Valid));
+    }
+
+    #[test]
+    fn test_thermal_validity_invalid_high_variance() {
+        // High variance temps should be invalid
+        let guard = ThermalGuard::default();
+        let temps = vec![60.0, 80.0, 65.0, 85.0, 70.0]; // High variance
+        let result = guard.validate_run(&temps);
+        assert!(matches!(result, ThermalValidity::Invalid(_)));
+    }
+
+    #[test]
+    fn test_thermal_needs_cooldown_above_max() {
+        // Above max temp should need cooldown
+        let guard = ThermalGuard::default();
+        assert!(guard.needs_cooldown(85.0)); // 85 > 80
+    }
+
+    #[test]
+    fn test_thermal_needs_cooldown_below_max() {
+        // Below max temp should not need cooldown
+        let guard = ThermalGuard::default();
+        assert!(!guard.needs_cooldown(75.0)); // 75 < 80
+    }
+
+    // BENCH-010: KL-Divergence Quality Validation Tests (TDD RED)
+    #[test]
+    fn test_quality_result_pass() {
+        // QualityResult::Pass should contain kl_divergence
+        let result = QualityResult::Pass {
+            kl_divergence: 0.001,
+        };
+        match result {
+            QualityResult::Pass { kl_divergence } => assert!(kl_divergence < 0.01),
+            QualityResult::Fail { .. } => panic!("Expected Pass"),
+        }
+    }
+
+    #[test]
+    fn test_quality_result_fail() {
+        // QualityResult::Fail should contain kl_divergence, threshold, message
+        let result = QualityResult::Fail {
+            kl_divergence: 0.1,
+            threshold: 0.05,
+            message: "Degradation detected",
+        };
+        match result {
+            QualityResult::Fail {
+                kl_divergence,
+                threshold,
+                message,
+            } => {
+                assert!(kl_divergence > threshold);
+                assert!(!message.is_empty());
+            },
+            QualityResult::Pass { .. } => panic!("Expected Fail"),
+        }
+    }
+
+    #[test]
+    fn test_validate_quantization_identical() {
+        // Identical logits should pass with kl_div ~= 0
+        let fp32_logits: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
+        let quant_logits: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
+        let result = validate_quantization_quality(&fp32_logits, &quant_logits, 0.01);
+        assert!(matches!(result, QualityResult::Pass { .. }));
+    }
+
+    #[test]
+    fn test_validate_quantization_slight_difference() {
+        // Small difference should still pass
+        let fp32_logits: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
+        let quant_logits: Vec<f32> = vec![1.01, 2.01, 3.01, 4.01]; // ~1% off
+        let result = validate_quantization_quality(&fp32_logits, &quant_logits, 0.05);
+        assert!(matches!(result, QualityResult::Pass { .. }));
+    }
+
+    #[test]
+    fn test_validate_quantization_large_difference() {
+        // Large difference should fail
+        let fp32_logits: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
+        let quant_logits: Vec<f32> = vec![4.0, 3.0, 2.0, 1.0]; // Reversed distribution
+        let result = validate_quantization_quality(&fp32_logits, &quant_logits, 0.01);
+        assert!(matches!(result, QualityResult::Fail { .. }));
+    }
+
+    #[test]
+    fn test_softmax_basic() {
+        // Test softmax via validate_quantization_quality
+        // Softmax should produce probability distribution
+        let logits: Vec<f32> = vec![1.0, 2.0, 3.0];
+        let probs = softmax(&logits);
+        // Sum should be ~1.0
+        let sum: f64 = probs.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-10);
+        // Higher logit = higher probability
+        assert!(probs[2] > probs[1]);
+        assert!(probs[1] > probs[0]);
+    }
+
+    // =========================================================================
+    // OllamaBackend Tests (EXTREME TDD - REAL HTTP Integration)
+    // =========================================================================
+
+    #[cfg(feature = "bench-http")]
+    #[test]
+    fn test_ollama_backend_creation() {
+        let config = OllamaConfig {
+            base_url: "http://localhost:11434".to_string(),
+            model: "llama2".to_string(),
+        };
+        let backend = OllamaBackend::new(config);
+        let info = backend.info();
+        assert_eq!(info.runtime_type, RuntimeType::Ollama);
+    }
+
+    #[cfg(feature = "bench-http")]
+    #[test]
+    fn test_ollama_backend_info() {
+        let config = OllamaConfig {
+            base_url: "http://localhost:11434".to_string(),
+            model: "phi2:2.7b".to_string(),
+        };
+        let backend = OllamaBackend::new(config);
+        let info = backend.info();
+
+        assert_eq!(info.runtime_type, RuntimeType::Ollama);
+        assert!(info.supports_streaming);
+        assert_eq!(info.loaded_model, Some("phi2:2.7b".to_string()));
+    }
+
+    #[cfg(feature = "bench-http")]
+    #[test]
+    fn test_ollama_backend_connection_error() {
+        // Invalid port should fail
+        let config = OllamaConfig {
+            base_url: "http://localhost:59999".to_string(),
+            model: "test".to_string(),
+        };
+        let backend = OllamaBackend::new(config);
+        let request = InferenceRequest::new("test");
+        let result = backend.inference(&request);
+
+        assert!(result.is_err());
+    }
+
+    #[cfg(feature = "bench-http")]
+    #[test]
+    fn test_ollama_config_default() {
+        let config = OllamaConfig::default();
+        assert_eq!(config.base_url, "http://localhost:11434");
+        assert_eq!(config.model, "llama2");
+    }
+
+    #[cfg(feature = "bench-http")]
+    #[test]
+    fn test_ollama_backend_with_custom_client() {
+        use crate::http_client::ModelHttpClient;
+
+        let config = OllamaConfig {
+            base_url: "http://localhost:11434".to_string(),
+            model: "llama2".to_string(),
+        };
+        let client = ModelHttpClient::with_timeout(30);
+        let backend = OllamaBackend::with_client(config, client);
+
+        // Should create without panicking
+        let info = backend.info();
+        assert_eq!(info.runtime_type, RuntimeType::Ollama);
+    }
+
+    // Integration test - requires running Ollama server
+    #[cfg(feature = "bench-http")]
+    #[test]
+    #[ignore = "Requires Ollama server at localhost:11434"]
+    fn test_ollama_backend_real_inference() {
+        let config = OllamaConfig {
+            base_url: "http://localhost:11434".to_string(),
+            model: "phi2:2.7b".to_string(),
+        };
+        let backend = OllamaBackend::new(config);
+        let request = InferenceRequest::new("What is 2+2?")
+            .with_max_tokens(20)
+            .with_temperature(0.1);
+
+        let result = backend.inference(&request);
+
+        // MUST succeed with real server
+        let response = result.expect("Ollama inference failed - is server running?");
+
+        // Verify REAL data
+        assert!(
+            response.ttft_ms > 0.0,
+            "TTFT must be positive (real latency)"
+        );
+        assert!(response.total_time_ms > 0.0, "Total time must be positive");
+        assert!(response.tokens_generated > 0, "Must generate tokens");
+        assert!(!response.text.is_empty(), "Must get actual text");
+
+        println!("Ollama Real Inference via Backend:");
+        println!("  TTFT: {:.2}ms", response.ttft_ms);
+        println!("  Total: {:.2}ms", response.total_time_ms);
+        println!("  Tokens: {}", response.tokens_generated);
+        println!("  Text: {}", response.text);
     }
 }

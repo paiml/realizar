@@ -137,12 +137,13 @@ pub fn run_visualization(use_color: bool, samples: usize) {
     println!("Visualization powered by trueno-viz");
 }
 
-/// Run benchmarks with cargo bench
+/// Run benchmarks with cargo bench or real HTTP client
 pub fn run_benchmarks(
     suite: Option<String>,
     list: bool,
     runtime: Option<String>,
     model: Option<String>,
+    url: Option<String>,
     output: Option<String>,
 ) -> Result<()> {
     if list {
@@ -158,19 +159,32 @@ pub fn run_benchmarks(
         println!("  realizar bench --list                 # List available suites");
         println!("  realizar bench --runtime realizar     # Specify runtime");
         println!("  realizar bench --output results.json  # Save JSON results");
+        println!();
+        println!("External Runtime Benchmarking (REAL HTTP calls):");
+        println!("  realizar bench --runtime ollama --url http://localhost:11434 --model llama3.2");
+        println!("  realizar bench --runtime vllm --url http://localhost:8000 --model meta-llama/Llama-3.2-1B");
+        println!("  realizar bench --runtime llama-cpp --url http://localhost:8080");
         return Ok(());
     }
 
-    let runtime_name = runtime.unwrap_or_else(|| "realizar".to_string());
+    let runtime_name = runtime.clone().unwrap_or_else(|| "realizar".to_string());
     println!("Benchmark Configuration:");
     println!("  Runtime: {runtime_name}");
     if let Some(ref m) = model {
         println!("  Model: {m}");
     }
+    if let Some(ref u) = url {
+        println!("  URL: {u}");
+    }
     if let Some(ref o) = output {
         println!("  Output: {o}");
     }
     println!();
+
+    // Check if this is an external runtime benchmark (requires bench-http feature)
+    if let (Some(ref rt), Some(ref server_url)) = (&runtime, &url) {
+        return run_external_benchmark(rt, server_url, model.as_deref(), output.as_deref());
+    }
 
     let mut cmd = std::process::Command::new("cargo");
     cmd.arg("bench");
@@ -214,6 +228,170 @@ pub fn run_benchmarks(
     }
 
     Ok(())
+}
+
+/// Run external runtime benchmark using REAL HTTP calls
+#[cfg(feature = "bench-http")]
+fn run_external_benchmark(
+    runtime: &str,
+    url: &str,
+    model: Option<&str>,
+    output: Option<&str>,
+) -> Result<()> {
+    use crate::http_client::{CompletionRequest, ModelHttpClient, OllamaOptions, OllamaRequest};
+    use std::time::Instant;
+
+    println!("=== External Runtime Benchmark (REAL HTTP) ===");
+    println!();
+    println!("This measures ACTUAL inference latency from {url}");
+    println!("NO MOCK DATA - real network + inference timing");
+    println!();
+
+    let client = ModelHttpClient::new();
+
+    // Test prompt
+    let prompt = "Explain the concept of machine learning in one sentence.";
+    let num_iterations = 5;
+    let mut latencies: Vec<f64> = Vec::with_capacity(num_iterations);
+    let mut tokens_per_sec: Vec<f64> = Vec::with_capacity(num_iterations);
+
+    println!("Running {num_iterations} inference iterations...");
+    println!("Prompt: \"{prompt}\"");
+    println!();
+
+    for i in 0..num_iterations {
+        let start = Instant::now();
+
+        let timing = match runtime.to_lowercase().as_str() {
+            "ollama" => {
+                let model_name = model.unwrap_or("llama3.2");
+                let request = OllamaRequest {
+                    model: model_name.to_string(),
+                    prompt: prompt.to_string(),
+                    stream: false,
+                    options: Some(OllamaOptions {
+                        num_predict: Some(50),
+                        temperature: Some(0.7),
+                    }),
+                };
+                client
+                    .ollama_generate(url, &request)
+                    .map_err(|e| RealizarError::ConnectionError(e.to_string()))?
+            },
+            "vllm" | "llama-cpp" => {
+                let model_name = model.unwrap_or("default");
+                let request = CompletionRequest {
+                    model: model_name.to_string(),
+                    prompt: prompt.to_string(),
+                    max_tokens: 50,
+                    temperature: Some(0.7),
+                    stream: false,
+                };
+                client
+                    .openai_completion(url, &request, None)
+                    .map_err(|e| RealizarError::ConnectionError(e.to_string()))?
+            },
+            _ => {
+                return Err(RealizarError::UnsupportedOperation {
+                    operation: "external_benchmark".to_string(),
+                    reason: format!(
+                        "Unknown runtime: {}. Supported: ollama, vllm, llama-cpp",
+                        runtime
+                    ),
+                });
+            },
+        };
+
+        let elapsed = start.elapsed();
+        let latency_ms = elapsed.as_secs_f64() * 1000.0;
+        latencies.push(latency_ms);
+
+        if timing.tokens_generated > 0 {
+            let tps = timing.tokens_generated as f64 / elapsed.as_secs_f64();
+            tokens_per_sec.push(tps);
+        }
+
+        println!(
+            "  [{}/{}] TTFT: {:.0}ms, Inference: {:.0}ms, Tokens: {}, E2E: {:.0}ms",
+            i + 1,
+            num_iterations,
+            timing.ttft_ms,
+            timing.total_time_ms,
+            timing.tokens_generated,
+            latency_ms
+        );
+    }
+
+    // Calculate statistics
+    latencies.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let p50 = latencies[latencies.len() / 2];
+    let p99_idx = (latencies.len() as f64 * 0.99) as usize;
+    let p99 = latencies[p99_idx.min(latencies.len() - 1)];
+    let mean: f64 = latencies.iter().sum::<f64>() / latencies.len() as f64;
+
+    let avg_tps = if tokens_per_sec.is_empty() {
+        0.0
+    } else {
+        tokens_per_sec.iter().sum::<f64>() / tokens_per_sec.len() as f64
+    };
+
+    println!();
+    println!("=== Results ===");
+    println!("  Runtime: {runtime}");
+    println!("  URL: {url}");
+    println!("  Model: {}", model.unwrap_or("default"));
+    println!("  Iterations: {num_iterations}");
+    println!();
+    println!("  Latency (ms):");
+    println!("    Mean: {mean:.1}");
+    println!("    p50:  {p50:.1}");
+    println!("    p99:  {p99:.1}");
+    println!();
+    println!("  Throughput: {avg_tps:.1} tokens/sec");
+
+    // Save JSON output if requested
+    if let Some(output_path) = output {
+        let result = serde_json::json!({
+            "runtime": runtime,
+            "url": url,
+            "model": model.unwrap_or("default"),
+            "iterations": num_iterations,
+            "latency_ms": {
+                "mean": mean,
+                "p50": p50,
+                "p99": p99,
+                "samples": latencies,
+            },
+            "throughput_tokens_per_sec": avg_tps,
+        });
+
+        if let Ok(json) = serde_json::to_string_pretty(&result) {
+            let _ = std::fs::write(output_path, json);
+            println!();
+            println!("Results saved to: {output_path}");
+        }
+    }
+
+    Ok(())
+}
+
+/// Stub for when bench-http feature is not enabled
+#[cfg(not(feature = "bench-http"))]
+fn run_external_benchmark(
+    runtime: &str,
+    url: &str,
+    _model: Option<&str>,
+    _output: Option<&str>,
+) -> Result<()> {
+    Err(RealizarError::UnsupportedOperation {
+        operation: "external_benchmark".to_string(),
+        reason: format!(
+            "External runtime benchmarking requires the 'bench-http' feature.\n\
+             Run with: cargo build --features bench-http\n\
+             Then: realizar bench --runtime {} --url {}",
+            runtime, url
+        ),
+    })
 }
 
 /// Run convoy test for continuous batching validation (spec 2.4)
@@ -854,28 +1032,35 @@ mod tests {
     #[test]
     fn test_run_benchmarks_list_mode() {
         // List mode should succeed without running cargo bench
-        let result = run_benchmarks(None, true, None, None, None);
+        let result = run_benchmarks(None, true, None, None, None, None);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_run_benchmarks_with_runtime() {
         // List mode with runtime specified
-        let result = run_benchmarks(None, true, Some("realizar".to_string()), None, None);
+        let result = run_benchmarks(None, true, Some("realizar".to_string()), None, None, None);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_run_benchmarks_with_model() {
         // List mode with model specified
-        let result = run_benchmarks(None, true, None, Some("model.gguf".to_string()), None);
+        let result = run_benchmarks(None, true, None, Some("model.gguf".to_string()), None, None);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_run_benchmarks_with_output() {
         // List mode with output specified
-        let result = run_benchmarks(None, true, None, None, Some("/tmp/output.json".to_string()));
+        let result = run_benchmarks(
+            None,
+            true,
+            None,
+            None,
+            None,
+            Some("/tmp/output.json".to_string()),
+        );
         assert!(result.is_ok());
     }
 

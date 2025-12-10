@@ -108,6 +108,12 @@ pub mod cli;
 pub mod error;
 pub mod generate;
 pub mod gguf;
+/// HTTP client for real model server benchmarking
+///
+/// Implements actual HTTP calls to external servers (vLLM, Ollama, llama.cpp).
+/// **NO MOCK DATA** - measures real network latency and inference timing.
+#[cfg(feature = "bench-http")]
+pub mod http_client;
 pub mod layers;
 pub mod memory;
 #[cfg(feature = "server")]
