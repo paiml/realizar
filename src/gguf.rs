@@ -1944,6 +1944,171 @@ impl<'a> QuantizedGGUFTransformer<'a> {
             })?;
         Ok(max_idx as u32)
     }
+
+    /// Generate a sequence of tokens
+    ///
+    /// This is the end-to-end generation loop that uses fused Q4_K operations.
+    /// Per benchmark-model-runners-spec.md "What's Remaining" item 1.
+    ///
+    /// # Arguments
+    ///
+    /// * `prompt` - Initial token IDs
+    /// * `config` - Generation configuration
+    ///
+    /// # Returns
+    ///
+    /// Generated token sequence including prompt
+    ///
+    /// # Errors
+    ///
+    /// Returns error if forward pass fails
+    pub fn generate(&self, prompt: &[u32], config: &QuantizedGenerateConfig) -> Result<Vec<u32>> {
+        if prompt.is_empty() {
+            return Err(RealizarError::InvalidShape {
+                reason: "Prompt cannot be empty".to_string(),
+            });
+        }
+
+        let mut tokens = prompt.to_vec();
+        let max_len = prompt.len() + config.max_tokens;
+
+        for _ in 0..config.max_tokens {
+            // Forward pass with fused Q4_K ops
+            let logits = self.forward(&tokens)?;
+
+            // Sample next token
+            let next_token = if config.temperature == 0.0 || config.top_k == 1 {
+                // Greedy decoding
+                Self::argmax(&logits)
+            } else {
+                // Temperature + top-k sampling
+                Self::sample_topk(&logits, config.temperature, config.top_k)
+            };
+
+            // Check stop condition
+            if config.stop_tokens.contains(&next_token) {
+                break;
+            }
+
+            tokens.push(next_token);
+
+            // Check max length
+            if tokens.len() >= max_len {
+                break;
+            }
+        }
+
+        Ok(tokens)
+    }
+
+    /// Greedy argmax over logits
+    fn argmax(logits: &[f32]) -> u32 {
+        logits
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .map_or(0, |(idx, _)| idx as u32)
+    }
+
+    /// Top-k sampling with temperature
+    fn sample_topk(logits: &[f32], temperature: f32, top_k: usize) -> u32 {
+        // Apply temperature
+        let scaled: Vec<f32> = logits.iter().map(|&x| x / temperature).collect();
+
+        // Get top-k indices
+        let mut indexed: Vec<(usize, f32)> = scaled.iter().copied().enumerate().collect();
+        indexed.sort_by(|(_, a), (_, b)| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+        indexed.truncate(top_k);
+
+        // Softmax over top-k
+        let max_val = indexed.first().map_or(0.0, |(_, v)| *v);
+        let exp_sum: f32 = indexed.iter().map(|(_, v)| (v - max_val).exp()).sum();
+        let probs: Vec<(usize, f32)> = indexed
+            .iter()
+            .map(|(i, v)| (*i, (v - max_val).exp() / exp_sum))
+            .collect();
+
+        // Sample from distribution (deterministic for now via cumulative)
+        // Use a simple hash-based pseudo-random for reproducibility
+        let hash = logits.len() as u32 ^ (top_k as u32) ^ ((temperature * 1000.0) as u32);
+        let r = (hash % 1000) as f32 / 1000.0;
+        let mut cumsum = 0.0;
+        for (idx, prob) in &probs {
+            cumsum += prob;
+            if cumsum >= r {
+                return *idx as u32;
+            }
+        }
+        probs.last().map_or(0, |(idx, _)| *idx as u32)
+    }
+}
+
+/// Configuration for quantized generation
+///
+/// Per benchmark-model-runners-spec.md "What's Remaining" item 1:
+/// End-to-end Q4_K inference with generation config.
+#[derive(Debug, Clone)]
+pub struct QuantizedGenerateConfig {
+    /// Maximum tokens to generate
+    pub max_tokens: usize,
+    /// Sampling temperature (0.0 = greedy)
+    pub temperature: f32,
+    /// Top-k sampling (1 = greedy)
+    pub top_k: usize,
+    /// Stop token IDs
+    pub stop_tokens: Vec<u32>,
+}
+
+impl Default for QuantizedGenerateConfig {
+    fn default() -> Self {
+        Self {
+            max_tokens: 64,
+            temperature: 0.0,
+            top_k: 1,
+            stop_tokens: Vec::new(),
+        }
+    }
+}
+
+impl QuantizedGenerateConfig {
+    /// Create config for deterministic (greedy) generation
+    #[must_use]
+    pub fn deterministic(max_tokens: usize) -> Self {
+        Self {
+            max_tokens,
+            temperature: 0.0,
+            top_k: 1,
+            stop_tokens: Vec::new(),
+        }
+    }
+
+    /// Set max tokens
+    #[must_use]
+    pub fn with_max_tokens(mut self, max_tokens: usize) -> Self {
+        self.max_tokens = max_tokens;
+        self
+    }
+
+    /// Set temperature
+    #[must_use]
+    pub fn with_temperature(mut self, temperature: f32) -> Self {
+        self.temperature = temperature;
+        self
+    }
+
+    /// Set top-k
+    #[must_use]
+    pub fn with_top_k(mut self, top_k: usize) -> Self {
+        self.top_k = top_k;
+        self
+    }
+
+    /// Set stop tokens
+    #[must_use]
+    pub fn with_stop_tokens(mut self, stop_tokens: Vec<u32>) -> Self {
+        self.stop_tokens = stop_tokens;
+        self
+    }
 }
 
 #[cfg(test)]
@@ -2821,5 +2986,42 @@ mod tests {
         if let Err(RealizarError::UnsupportedOperation { reason, .. }) = result {
             assert!(reason.contains("Unsupported quantization type"));
         }
+    }
+
+    // ============================================================
+    // QuantizedGGUFTransformer::generate() tests
+    // Per benchmark-model-runners-spec.md "What's Remaining" item 1
+    // ============================================================
+
+    #[test]
+    fn test_generate_config_default() {
+        let config = QuantizedGenerateConfig::default();
+        assert_eq!(config.max_tokens, 64);
+        assert_eq!(config.temperature, 0.0);
+        assert_eq!(config.top_k, 1);
+        assert!(config.stop_tokens.is_empty());
+    }
+
+    #[test]
+    fn test_generate_config_builder() {
+        let config = QuantizedGenerateConfig::default()
+            .with_max_tokens(128)
+            .with_temperature(0.7)
+            .with_top_k(40)
+            .with_stop_tokens(vec![50256]);
+
+        assert_eq!(config.max_tokens, 128);
+        assert!((config.temperature - 0.7).abs() < 1e-6);
+        assert_eq!(config.top_k, 40);
+        assert_eq!(config.stop_tokens, vec![50256]);
+    }
+
+    #[test]
+    fn test_generate_config_deterministic() {
+        // Temperature 0.0 = greedy decoding
+        let config = QuantizedGenerateConfig::deterministic(32);
+        assert_eq!(config.temperature, 0.0);
+        assert_eq!(config.top_k, 1);
+        assert_eq!(config.max_tokens, 32);
     }
 }

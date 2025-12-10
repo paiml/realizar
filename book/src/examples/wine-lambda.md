@@ -323,15 +323,16 @@ test result: ok. 11 passed
 
 ## Integration with Aprender
 
-For production deployment with trained `.apr` models:
+For production deployment with trained `.apr` models, realizar's `LambdaHandler` provides **real APR model inference** (not mocked):
 
 ```rust
 use realizar::lambda::{LambdaHandler, LambdaRequest};
 
-// Load trained wine model
+// Load trained wine model (must have APRN magic bytes)
 const MODEL_BYTES: &[u8] = include_bytes!("wine_model.apr");
 
 fn predict_wine(features: &WineFeatures) -> Result<f32, LambdaError> {
+    // Handler validates APRN format and lazily initializes AprModel
     let handler = LambdaHandler::from_bytes(MODEL_BYTES)?;
 
     let request = LambdaRequest {
@@ -339,10 +340,24 @@ fn predict_wine(features: &WineFeatures) -> Result<f32, LambdaError> {
         model_id: Some("wine_quality_v1".to_string()),
     };
 
+    // Real inference using AprModel::predict() with OnceLock caching
     let response = handler.handle(&request)?;
+
+    // Multi-output models return probabilities
+    if let Some(probs) = response.probabilities {
+        println!("Class probabilities: {:?}", probs);
+    }
+
     Ok(response.prediction)
 }
 ```
+
+### APR Format Requirements
+
+The `.apr` model file must have:
+- **Magic bytes**: `APRN` (0x4150524E)
+- **Format version**: 1.0
+- **Uncompressed JSON payload** (compression support coming soon)
 
 ## Next Steps
 
