@@ -1,15 +1,35 @@
+# Benchmark CI with Performance Regression Detection
+#
+# Per benchmark-model-runners-spec.md v2.0:
+# - Toyota Way Jidoka: Stop-the-line on >10% regression
+# - Scientific benchmarking: Criterion.rs with statistical analysis
+# - Baseline tracking: Criterion.baseline for regression detection
+#
+# References:
+# - [17] Hoefler & Belli, "Scientific Benchmarking", SC'15
+# - [10] Fleming & Wallace, "How Not to Lie with Statistics", CACM 1986
+
 name: Benchmarks
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
+  # Weekly scheduled run for baseline updates
+  schedule:
+    - cron: '0 6 * * 0'  # Every Sunday at 6 AM UTC
 
 env:
   CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # Regression threshold: 10% per spec Section 9.5
+  REGRESSION_THRESHOLD: "10"
 
 jobs:
+  # ==========================================================================
+  # Core Benchmark Suite
+  # ==========================================================================
   benchmark:
     name: Run Benchmarks
     runs-on: ubuntu-latest
@@ -28,24 +48,204 @@ jobs:
           path: ~/.cargo/registry
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Cache cargo index
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/git
-          key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
-
       - name: Cache cargo build
         uses: actions/cache@v4
         with:
           path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-build-bench-${{ hashFiles('**/Cargo.lock') }}
 
+      # Download baseline from previous successful run (if exists)
+      - name: Download baseline
+        uses: actions/download-artifact@v4
+        continue-on-error: true  # First run won't have baseline
+        with:
+          name: benchmark-baseline
+          path: target/criterion-baseline/
+
+      # Copy baseline if it exists
+      - name: Restore baseline
+        run: |
+          if [ -d "target/criterion-baseline" ]; then
+            echo "Baseline found, copying for comparison..."
+            mkdir -p target/criterion
+            cp -r target/criterion-baseline/* target/criterion/ 2>/dev/null || true
+          else
+            echo "No baseline found, this will be the new baseline."
+          fi
+
+      # Run benchmarks with baseline comparison
       - name: Run benchmarks
-        run: cargo bench --verbose
+        run: |
+          echo "=== Running Criterion Benchmarks ==="
+          cargo bench --verbose 2>&1 | tee benchmark-output.txt
 
+          # Check for regressions in output
+          echo ""
+          echo "=== Checking for Regressions ==="
+          if grep -q "Performance has regressed" benchmark-output.txt; then
+            echo "WARNING: Performance regressions detected!"
+            grep -A2 "Performance has regressed" benchmark-output.txt
+
+            # Extract regression percentages and check threshold
+            # Criterion format: "Performance has regressed by -X.XX%"
+            REGRESSIONS=$(grep "regressed" benchmark-output.txt | grep -oP '[-]?\d+\.\d+%' | head -5)
+            echo "Detected regressions: $REGRESSIONS"
+
+            # Fail if any regression exceeds threshold
+            for REG in $REGRESSIONS; do
+              PCT=$(echo "$REG" | tr -d '%-')
+              if (( $(echo "$PCT > $REGRESSION_THRESHOLD" | bc -l) )); then
+                echo "JIDOKA: Regression $REG exceeds ${REGRESSION_THRESHOLD}% threshold!"
+                echo "Per Toyota Way: Stop-the-line on quality gate failure."
+                exit 1
+              fi
+            done
+          else
+            echo "No significant regressions detected."
+          fi
+
+      # Save current results as new baseline (only on main branch push)
+      - name: Update baseline
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          echo "Updating baseline for main branch..."
+          mkdir -p target/criterion-baseline
+          cp -r target/criterion/* target/criterion-baseline/ 2>/dev/null || true
+
+      # Archive benchmark results
       - name: Archive benchmark results
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-results
-          path: target/criterion/
+          path: |
+            target/criterion/
+            benchmark-output.txt
           retention-days: 30
+
+      # Archive baseline (only on main)
+      - name: Archive baseline
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-baseline
+          path: target/criterion-baseline/
+          retention-days: 90
+
+  # ==========================================================================
+  # Quantization Performance Tests (BENCH-001)
+  # ==========================================================================
+  quantize-bench:
+    name: Quantization Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-quant-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run quantization benchmarks
+        run: |
+          echo "=== Q4_K/Q5_K/Q6_K Dequantization Benchmarks ==="
+          cargo bench --bench quantize -- --noplot 2>&1 | tee quant-bench.txt
+
+          echo ""
+          echo "=== Performance Summary ==="
+          grep -E "time:.*\[" quant-bench.txt | head -20
+
+      - name: Archive quantize results
+        uses: actions/upload-artifact@v4
+        with:
+          name: quantize-bench-results
+          path: quant-bench.txt
+          retention-days: 14
+
+  # ==========================================================================
+  # APR Format Benchmarks
+  # ==========================================================================
+  apr-bench:
+    name: APR Format Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-apr-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run APR benchmarks
+        run: |
+          echo "=== APR Format Inference Benchmarks ==="
+          cargo bench --bench apr_real -- --noplot 2>&1 | tee apr-bench.txt
+
+          echo ""
+          echo "=== .apr vs Reference Performance ==="
+          grep -E "time:.*\[|thrpt:" apr-bench.txt | head -30
+
+      - name: Archive APR results
+        uses: actions/upload-artifact@v4
+        with:
+          name: apr-bench-results
+          path: apr-bench.txt
+          retention-days: 14
+
+  # ==========================================================================
+  # Performance Summary Report
+  # ==========================================================================
+  summary:
+    name: Performance Summary
+    runs-on: ubuntu-latest
+    needs: [benchmark, quantize-bench, apr-bench]
+    if: always()
+    steps:
+      - name: Download all results
+        uses: actions/download-artifact@v4
+        with:
+          path: results/
+
+      - name: Generate summary
+        run: |
+          echo "# Benchmark Results Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Date:** $(date -u '+%Y-%m-%d %H:%M UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "## Regression Status" >> $GITHUB_STEP_SUMMARY
+          if [ -f "results/benchmark-results/benchmark-output.txt" ]; then
+            if grep -q "Performance has regressed" results/benchmark-results/benchmark-output.txt; then
+              echo ":warning: **Regressions detected** - Review benchmark output" >> $GITHUB_STEP_SUMMARY
+            else
+              echo ":white_check_mark: **No significant regressions**" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo ":grey_question: Results not available" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Toyota Way Compliance" >> $GITHUB_STEP_SUMMARY
+          echo "- Regression Threshold: ${REGRESSION_THRESHOLD}%" >> $GITHUB_STEP_SUMMARY
+          echo "- Jidoka: Auto-fail on threshold breach" >> $GITHUB_STEP_SUMMARY
+          echo "- Kaizen: Baseline updated on main branch push" >> $GITHUB_STEP_SUMMARY
