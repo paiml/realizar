@@ -47,13 +47,13 @@
 | **CI Regression tests** | ✅ Complete | `.github/workflows/bench.yml` |
 | **CUDA PTX Generation** | ✅ Complete | trueno-gpu v0.1.0 integration |
 
-### What's Remaining (⚠️ Future Work)
+### Previously Future Work (✅ ALL COMPLETE)
 
-| Component | Status | Gap | Path Forward |
-|-----------|--------|-----|------------|
+| Component | Status | Implementation | Notes |
+|-----------|--------|----------------|-------|
 | End-to-end Q4_K inference | ✅ Complete | `QuantizedGGUFTransformer::generate()` | Fused Q4_K with greedy/top-k sampling |
-| GPU acceleration | ✅ wgpu + CUDA PTX | PTX via trueno-gpu, execution via CUDA driver | Load PTX with `cuModuleLoadData` |
-| Real HTTP benchmarks | ✅ Complete | Live server tested | llama.cpp: ~260 tok/s on RTX 4090 |
+| GPU acceleration | ✅ Complete | wgpu + CUDA PTX via trueno-gpu | PTX execution via CUDA driver API |
+| Real HTTP benchmarks | ✅ Complete | `http_client.rs` with reqwest | llama.cpp: ~260 tok/s on RTX 4090 |
 
 **Benchmark Results (2025-12-10)**:
 - llama.cpp (phi-2 Q4_K on RTX 4090): 257-265 tok/s, ~255ms for 64 tokens
