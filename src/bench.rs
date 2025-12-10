@@ -5857,7 +5857,7 @@ mod tests {
 
     #[test]
     fn test_parse_llama_cli_timing_prompt_eval() {
-        let output = r#"llama_perf_context_print: prompt eval time =      12.34 ms /    10 tokens (    1.23 ms per token,   810.37 tokens per second)"#;
+        let output = r"llama_perf_context_print: prompt eval time =      12.34 ms /    10 tokens (    1.23 ms per token,   810.37 tokens per second)";
         let timing = LlamaCppBackend::parse_timing_line(output, "prompt eval time");
         assert!(timing.is_some());
         let (total_ms, tokens) = timing.unwrap();
@@ -5867,7 +5867,7 @@ mod tests {
 
     #[test]
     fn test_parse_llama_cli_timing_eval() {
-        let output = r#"llama_perf_context_print:        eval time =      22.60 ms /     5 runs   (    4.52 ms per token,   221.28 tokens per second)"#;
+        let output = r"llama_perf_context_print:        eval time =      22.60 ms /     5 runs   (    4.52 ms per token,   221.28 tokens per second)";
         let timing = LlamaCppBackend::parse_timing_line(output, "eval time");
         assert!(timing.is_some());
         let (total_ms, runs) = timing.unwrap();
@@ -5877,7 +5877,7 @@ mod tests {
 
     #[test]
     fn test_parse_llama_cli_timing_total() {
-        let output = r#"llama_perf_context_print:       total time =      23.27 ms /     6 tokens"#;
+        let output = r"llama_perf_context_print:       total time =      23.27 ms /     6 tokens";
         let timing = LlamaCppBackend::parse_timing_line(output, "total time");
         assert!(timing.is_some());
         let (total_ms, tokens) = timing.unwrap();

@@ -26,6 +26,8 @@ use std::{sync::OnceLock, time::Instant};
 
 use serde::{Deserialize, Serialize};
 
+use crate::apr::{AprModel, MAGIC as APR_MAGIC};
+
 /// Embedded model bytes placeholder
 /// In production: `static MODEL_BYTES: &[u8] = include_bytes!("../models/model.apr");`
 #[allow(dead_code)]
@@ -198,14 +200,27 @@ pub struct ColdStartMetrics {
 /// Lambda handler state
 ///
 /// Per spec §6.1: Uses `OnceLock` for lazy initialization
-#[derive(Debug)]
 pub struct LambdaHandler {
     /// Model bytes (embedded via `include_bytes!()`)
     model_bytes: &'static [u8],
+    /// Parsed APR model (lazy-initialized on first inference)
+    model: OnceLock<AprModel>,
     /// Initialization time tracking
     init_time: OnceLock<Instant>,
     /// Cold start metrics
     cold_start_metrics: OnceLock<ColdStartMetrics>,
+}
+
+// Manual Debug impl since AprModel doesn't derive Debug for OnceLock
+impl std::fmt::Debug for LambdaHandler {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LambdaHandler")
+            .field("model_bytes_len", &self.model_bytes.len())
+            .field("model_initialized", &self.model.get().is_some())
+            .field("init_time", &self.init_time)
+            .field("cold_start_metrics", &self.cold_start_metrics)
+            .finish()
+    }
 }
 
 impl LambdaHandler {
@@ -226,13 +241,12 @@ impl LambdaHandler {
             return Err(LambdaError::EmptyModel);
         }
 
-        // Validate .apr magic bytes (per aprender model-format-spec.md)
+        // Validate .apr magic bytes (per apr.rs: MAGIC = "APRN" = 0x4150524E)
         if model_bytes.len() >= 4 {
             let magic = &model_bytes[0..4];
-            // .apr format uses "APR\0" magic bytes
-            if magic != b"APR\0" {
+            if magic != APR_MAGIC {
                 return Err(LambdaError::InvalidMagic {
-                    expected: "APR\\0".to_string(),
+                    expected: "APRN".to_string(),
                     found: format!("{:?}", &model_bytes[0..4.min(model_bytes.len())]),
                 });
             }
@@ -240,6 +254,7 @@ impl LambdaHandler {
 
         Ok(Self {
             model_bytes,
+            model: OnceLock::new(),
             init_time: OnceLock::new(),
             cold_start_metrics: OnceLock::new(),
         })
@@ -271,6 +286,7 @@ impl LambdaHandler {
     /// # Errors
     ///
     /// Returns `LambdaError::EmptyFeatures` if request features are empty.
+    /// Returns `LambdaError::InferenceFailed` if model inference fails.
     pub fn handle(&self, request: &LambdaRequest) -> Result<LambdaResponse, LambdaError> {
         let start = Instant::now();
         let is_cold = self.is_cold_start();
@@ -283,25 +299,43 @@ impl LambdaHandler {
             return Err(LambdaError::EmptyFeatures);
         }
 
-        // TODO: Implement actual model inference
-        // Per spec: Load model via OnceLock, run inference with trueno SIMD
-        let prediction = self.mock_inference(&request.features)?;
+        // Lazy-initialize model from bytes (per spec §6.1: OnceLock pattern)
+        let model_load_start = Instant::now();
+        let model = self.model.get_or_init(|| {
+            AprModel::from_bytes(self.model_bytes)
+                .expect("Model bytes already validated in from_bytes()")
+        });
+        let model_load_ms = model_load_start.elapsed().as_secs_f64() * 1000.0;
+
+        // Run real inference using AprModel::predict()
+        let inference_start = Instant::now();
+        let output = model
+            .predict(&request.features)
+            .map_err(|e| LambdaError::InferenceFailed(format!("Model inference failed: {e}")))?;
+        let inference_ms = inference_start.elapsed().as_secs_f64() * 1000.0;
+
+        // Extract scalar prediction (first output element or sum for multi-output)
+        let prediction = if output.len() == 1 {
+            output[0]
+        } else {
+            output.iter().sum()
+        };
 
         let latency = start.elapsed();
 
         // Record cold start metrics on first invocation
         if is_cold {
             let _ = self.cold_start_metrics.get_or_init(|| ColdStartMetrics {
-                runtime_init_ms: 0.0, // Would be measured externally
-                model_load_ms: 0.0,   // Would include model deserialization
-                first_inference_ms: latency.as_secs_f64() * 1000.0,
+                runtime_init_ms: 0.0,
+                model_load_ms,
+                first_inference_ms: inference_ms,
                 total_ms: latency.as_secs_f64() * 1000.0,
             });
         }
 
         Ok(LambdaResponse {
             prediction,
-            probabilities: None,
+            probabilities: if output.len() > 1 { Some(output) } else { None },
             latency_ms: latency.as_secs_f64() * 1000.0,
             cold_start: is_cold,
         })
@@ -356,17 +390,6 @@ impl LambdaHandler {
             success_count,
             error_count,
         })
-    }
-
-    /// Mock inference for testing
-    ///
-    /// TODO: Replace with real model inference using trueno SIMD
-    #[allow(clippy::unused_self)] // Will use self when real model is implemented
-    #[allow(clippy::unnecessary_wraps)] // Will return errors when real model inference is added
-    fn mock_inference(&self, features: &[f32]) -> Result<f32, LambdaError> {
-        // Placeholder: compute simple sum
-        // Real implementation would deserialize model and run inference
-        Ok(features.iter().sum())
     }
 }
 
@@ -554,10 +577,43 @@ pub mod benchmark {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::apr::{AprModelType, ModelWeights, HEADER_SIZE, MAGIC};
 
     // ==========================================================================
-    // RED PHASE: Failing tests for Lambda handler
-    // Per EXTREME TDD: Write tests FIRST, then implement to pass
+    // Test Helpers: Create valid APR model bytes for testing
+    // ==========================================================================
+
+    /// Create APR model bytes where output = sum of inputs (for easy verification)
+    fn create_sum_model(input_dim: usize) -> &'static [u8] {
+        // Single output that sums all inputs: output[0] = sum(input[i])
+        let weights = ModelWeights {
+            weights: vec![vec![1.0; input_dim]], // 1 x input_dim weights (all 1.0)
+            biases: vec![vec![0.0]],             // Single bias of 0
+            dimensions: vec![input_dim, 1],
+        };
+
+        let payload = serde_json::to_vec(&weights).expect("serialize weights");
+        let mut data = Vec::with_capacity(HEADER_SIZE + payload.len());
+
+        data.extend_from_slice(&MAGIC);
+        data.push(1);
+        data.push(0);
+        data.push(0);
+        data.push(0);
+        data.extend_from_slice(&AprModelType::LinearRegression.as_u16().to_le_bytes());
+        data.extend_from_slice(&0u32.to_le_bytes());
+        #[allow(clippy::cast_possible_truncation)]
+        data.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        #[allow(clippy::cast_possible_truncation)]
+        data.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        data.extend_from_slice(&[0u8; 10]);
+        data.extend_from_slice(&payload);
+
+        Box::leak(data.into_boxed_slice())
+    }
+
+    // ==========================================================================
+    // GREEN PHASE: Tests for Lambda handler with real APR inference
     // ==========================================================================
 
     // --------------------------------------------------------------------------
@@ -566,12 +622,11 @@ mod tests {
 
     #[test]
     fn test_lambda_handler_creation_with_valid_apr_model() {
-        // Valid .apr model bytes with magic header
-        let model_bytes: &'static [u8] = b"APR\0\x01\x00\x00\x00testmodel";
+        let model_bytes = create_sum_model(3);
         let handler = LambdaHandler::from_bytes(model_bytes);
         assert!(handler.is_ok(), "Should accept valid .apr model");
         let handler = handler.unwrap();
-        assert_eq!(handler.model_size_bytes(), model_bytes.len());
+        assert!(handler.model_size_bytes() > HEADER_SIZE);
     }
 
     #[test]
@@ -584,14 +639,13 @@ mod tests {
 
     #[test]
     fn test_lambda_handler_rejects_invalid_magic() {
-        // Invalid magic bytes (not .apr format)
+        // Invalid magic bytes (GGUF instead of APRN)
         let model_bytes: &'static [u8] = b"GGUF\x01\x00\x00\x00testmodel";
         let result = LambdaHandler::from_bytes(model_bytes);
         assert!(result.is_err());
         match result.unwrap_err() {
             LambdaError::InvalidMagic { expected, found } => {
-                assert_eq!(expected, "APR\\0");
-                // Verify that the found bytes are captured (format: "[71, 71, 85, 70]")
+                assert_eq!(expected, "APRN");
                 assert!(!found.is_empty());
                 assert!(found.contains("71")); // 'G' = 71 in ASCII
             },
@@ -644,7 +698,7 @@ mod tests {
 
     #[test]
     fn test_lambda_handler_cold_start_detection() {
-        let model_bytes: &'static [u8] = b"APR\0\x01\x00\x00\x00testmodel";
+        let model_bytes = create_sum_model(3);
         let handler = LambdaHandler::from_bytes(model_bytes).unwrap();
 
         // Before first invocation: cold start
@@ -672,7 +726,7 @@ mod tests {
 
     #[test]
     fn test_lambda_handler_rejects_empty_features() {
-        let model_bytes: &'static [u8] = b"APR\0\x01\x00\x00\x00testmodel";
+        let model_bytes = create_sum_model(3);
         let handler = LambdaHandler::from_bytes(model_bytes).unwrap();
 
         let request = LambdaRequest {
@@ -686,8 +740,9 @@ mod tests {
     }
 
     #[test]
-    fn test_lambda_handler_mock_inference() {
-        let model_bytes: &'static [u8] = b"APR\0\x01\x00\x00\x00testmodel";
+    fn test_lambda_handler_real_inference() {
+        // Create a model where output = sum of 3 inputs
+        let model_bytes = create_sum_model(3);
         let handler = LambdaHandler::from_bytes(model_bytes).unwrap();
 
         let request = LambdaRequest {
@@ -696,7 +751,8 @@ mod tests {
         };
 
         let response = handler.handle(&request).unwrap();
-        // Mock inference returns sum of features
+        // Real inference: sum model returns sum of features
+        // output = 1.0 * 1.0 + 1.0 * 2.0 + 1.0 * 3.0 = 6.0
         assert!((response.prediction - 6.0).abs() < 0.001);
         assert!(response.latency_ms >= 0.0);
     }
@@ -707,7 +763,7 @@ mod tests {
 
     #[test]
     fn test_cold_start_metrics_recorded() {
-        let model_bytes: &'static [u8] = b"APR\0\x01\x00\x00\x00testmodel";
+        let model_bytes = create_sum_model(1);
         let handler = LambdaHandler::from_bytes(model_bytes).unwrap();
 
         // No metrics before first invocation
@@ -726,6 +782,7 @@ mod tests {
         let metrics = metrics.unwrap();
         assert!(metrics.total_ms >= 0.0);
         assert!(metrics.first_inference_ms >= 0.0);
+        assert!(metrics.model_load_ms >= 0.0);
     }
 
     // --------------------------------------------------------------------------
@@ -757,7 +814,7 @@ mod tests {
 
     #[test]
     fn test_benchmark_cold_start() {
-        let model_bytes: &'static [u8] = b"APR\0\x01\x00\x00\x00testmodel";
+        let model_bytes = create_sum_model(2);
         let handler = LambdaHandler::from_bytes(model_bytes).unwrap();
 
         let request = LambdaRequest {
@@ -885,7 +942,7 @@ mod tests {
 
     #[test]
     fn test_batch_handler_success() {
-        let model_bytes: &'static [u8] = b"APR\0\x01\x00\x00\x00testmodel";
+        let model_bytes = create_sum_model(2);
         let handler = LambdaHandler::from_bytes(model_bytes).unwrap();
 
         let request = BatchLambdaRequest {
@@ -909,14 +966,14 @@ mod tests {
         assert_eq!(response.error_count, 0);
         assert!(response.total_latency_ms >= 0.0);
 
-        // Mock inference returns sum of features
+        // Real inference: sum model returns sum of features
         assert!((response.predictions[0].prediction - 3.0).abs() < 0.001);
         assert!((response.predictions[1].prediction - 7.0).abs() < 0.001);
     }
 
     #[test]
     fn test_batch_handler_with_errors() {
-        let model_bytes: &'static [u8] = b"APR\0\x01\x00\x00\x00testmodel";
+        let model_bytes = create_sum_model(2);
         let handler = LambdaHandler::from_bytes(model_bytes).unwrap();
 
         let request = BatchLambdaRequest {
@@ -930,7 +987,7 @@ mod tests {
                     model_id: None,
                 },
                 LambdaRequest {
-                    features: vec![5.0],
+                    features: vec![5.0, 0.0],
                     model_id: None,
                 },
             ],
@@ -951,7 +1008,7 @@ mod tests {
 
     #[test]
     fn test_batch_handler_rejects_empty_batch() {
-        let model_bytes: &'static [u8] = b"APR\0\x01\x00\x00\x00testmodel";
+        let model_bytes = create_sum_model(2);
         let handler = LambdaHandler::from_bytes(model_bytes).unwrap();
 
         let request = BatchLambdaRequest {
