@@ -303,6 +303,173 @@ fn benchmark_quantization_comparison(c: &mut Criterion) {
     group.finish();
 }
 
+// =============================================================================
+// BENCH-SPRINT-002: QuantizedLinear Forward Pass Benchmarks
+// Per benchmark-model-runners-spec.md v2.0: Measure fused dequant+dot throughput
+// =============================================================================
+
+use realizar::layers::QuantizedLinear;
+use realizar::tensor::Tensor;
+
+/// Create Q4_K weight data for QuantizedLinear benchmarking
+///
+/// Per Q4_K spec: 144 bytes per super-block of 256 values
+fn create_q4k_weight_data(in_features: usize, out_features: usize) -> Vec<u8> {
+    const SUPER_BLOCK_VALUES: usize = 256;
+    const SUPER_BLOCK_BYTES: usize = 144;
+
+    let super_blocks_per_row = in_features.div_ceil(SUPER_BLOCK_VALUES);
+    let bytes_per_row = super_blocks_per_row * SUPER_BLOCK_BYTES;
+    let total_bytes = out_features * bytes_per_row;
+
+    // Create synthetic Q4_K data with realistic scale values
+    let mut data = Vec::with_capacity(total_bytes);
+    for _ in 0..out_features {
+        for sb in 0..super_blocks_per_row {
+            // d (f16 as 2 bytes) - scale factor
+            let scale = 0.01f32 * (sb as f32 + 1.0);
+            let scale_bytes = half::f16::from_f32(scale).to_le_bytes();
+            data.extend_from_slice(&scale_bytes);
+
+            // dmin (f16 as 2 bytes) - min factor
+            data.extend_from_slice(&half::f16::from_f32(0.0).to_le_bytes());
+
+            // scales (12 bytes) - 6-bit quantized scales
+            data.extend_from_slice(&[0x55u8; 12]);
+
+            // qs (128 bytes) - 4-bit quantized values
+            data.extend_from_slice(&[0x55u8; 128]);
+        }
+    }
+
+    data
+}
+
+/// Benchmark QuantizedLinear forward pass (fused dequant+dot)
+///
+/// This measures the critical path for LLM inference:
+/// - Memory-bound: ~4.5 bits/weight vs 32 bits for f32
+/// - Target: Match or approach llama.cpp performance
+fn benchmark_quantized_linear_forward(c: &mut Criterion) {
+    let mut group = c.benchmark_group("quantized_linear_forward");
+
+    // Test various realistic dimensions (phi-2 style)
+    let test_cases = [
+        (256, 256, "256x256"),       // Small layer
+        (512, 512, "512x512"),       // Medium layer
+        (2560, 2560, "2560x2560"),   // phi-2 hidden dim
+        (2560, 10240, "2560x10240"), // phi-2 FFN up
+    ];
+
+    for (in_features, out_features, label) in test_cases.iter() {
+        let weight_data = create_q4k_weight_data(*in_features, *out_features);
+        let bias = vec![0.0f32; *out_features];
+
+        let layer = QuantizedLinear::new(*in_features, *out_features, weight_data, bias)
+            .expect("Should create QuantizedLinear");
+
+        // Create input tensor
+        let input = Tensor::from_vec(vec![*in_features], vec![1.0f32; *in_features])
+            .expect("Should create input");
+
+        group.bench_function(*label, |b| {
+            b.iter(|| {
+                let result = layer.forward(black_box(&input)).expect("Forward failed");
+                black_box(result)
+            });
+        });
+    }
+
+    group.finish();
+}
+
+/// Benchmark QuantizedLinear vs f32 Linear comparison
+///
+/// Per spec: Q4_K should be memory-bound, achieving ~7x memory reduction
+/// while maintaining similar compute throughput.
+fn benchmark_quantized_vs_f32(c: &mut Criterion) {
+    use realizar::layers::Linear;
+
+    let mut group = c.benchmark_group("quantized_vs_f32");
+
+    let in_features = 2560; // phi-2 hidden dim
+    let out_features = 2560;
+
+    // Q4_K layer
+    let q4k_weight_data = create_q4k_weight_data(in_features, out_features);
+    let q4k_bias = vec![0.0f32; out_features];
+    let q4k_layer = QuantizedLinear::new(in_features, out_features, q4k_weight_data, q4k_bias)
+        .expect("Should create QuantizedLinear");
+
+    // f32 layer
+    let f32_layer = Linear::new(in_features, out_features).expect("Should create Linear");
+
+    // Input tensor
+    let input = Tensor::from_vec(vec![in_features], vec![1.0f32; in_features])
+        .expect("Should create input");
+
+    // Memory comparison
+    let q4k_bytes = q4k_layer.memory_bytes();
+    let f32_bytes = in_features * out_features * 4 + out_features * 4; // weights + bias
+    let memory_ratio = f32_bytes as f64 / q4k_bytes as f64;
+    eprintln!(
+        "\nMemory comparison: Q4_K={} bytes, f32={} bytes, ratio={:.2}x",
+        q4k_bytes, f32_bytes, memory_ratio
+    );
+
+    group.bench_function("q4k_2560x2560", |b| {
+        b.iter(|| {
+            let result = q4k_layer
+                .forward(black_box(&input))
+                .expect("Forward failed");
+            black_box(result)
+        });
+    });
+
+    group.bench_function("f32_2560x2560", |b| {
+        b.iter(|| {
+            let result = f32_layer
+                .forward(black_box(&input))
+                .expect("Forward failed");
+            black_box(result)
+        });
+    });
+
+    group.finish();
+}
+
+/// Benchmark batch throughput for QuantizedLinear
+///
+/// Simulates token generation where multiple positions need forward pass
+fn benchmark_quantized_batch_throughput(c: &mut Criterion) {
+    let mut group = c.benchmark_group("quantized_batch_throughput");
+
+    let in_features = 2560; // phi-2 hidden dim
+    let out_features = 2560;
+
+    let weight_data = create_q4k_weight_data(in_features, out_features);
+    let bias = vec![0.0f32; out_features];
+    let layer = QuantizedLinear::new(in_features, out_features, weight_data, bias)
+        .expect("Should create QuantizedLinear");
+
+    for batch_size in [1, 4, 8, 16, 32].iter() {
+        let input = Tensor::from_vec(
+            vec![*batch_size, in_features],
+            vec![1.0f32; batch_size * in_features],
+        )
+        .expect("Should create batch input");
+
+        group.bench_function(format!("batch_{}", batch_size), |b| {
+            b.iter(|| {
+                let result = layer.forward(black_box(&input)).expect("Forward failed");
+                black_box(result)
+            });
+        });
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     benchmark_q4_0_dequantize,
@@ -310,6 +477,9 @@ criterion_group!(
     benchmark_q4_k_dequantize,
     benchmark_q5_k_dequantize,
     benchmark_q6_k_dequantize,
-    benchmark_quantization_comparison
+    benchmark_quantization_comparison,
+    benchmark_quantized_linear_forward,
+    benchmark_quantized_vs_f32,
+    benchmark_quantized_batch_throughput
 );
 criterion_main!(benches);
