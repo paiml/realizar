@@ -1,8 +1,8 @@
 # Realizar: Model Runner Benchmark Specification
 
-**Version**: 2.1
+**Version**: 2.2
 **Date**: 2025-12-10
-**Status**: IMPLEMENTED - All Core Components Complete
+**Status**: IMPLEMENTED - All Core Components Complete + CUDA PTX Generation
 **Priority**: CRITICAL - Scientific Validation of Inference Performance
 **Review Status**: Revised per Toyota Way Engineering Review + QA Checklist (99/100)
 **Sprint Status**: BENCH-SPRINT-001 ✅ COMPLETE, BENCH-SPRINT-002 ✅ COMPLETE
@@ -17,6 +17,7 @@
 | 1.1 | 2025-12-09 | Batuta Team | Dynamic sampling, ITL, KV-cache, energy, thermal guards |
 | 2.0 | 2025-12-10 | Batuta Team | Current state analysis, sprint planning, +10 citations, honest gap assessment |
 | 2.1 | 2025-12-10 | Claude Code | BENCH-SPRINT-001/002 complete, QuantizedLinear 21x faster than f32 |
+| 2.2 | 2025-12-10 | Claude Code | Added trueno-gpu CUDA PTX generation integration |
 
 ---
 
@@ -44,13 +45,14 @@
 | **RegressionDetector** | ✅ Complete | Welch t-test with configurable threshold |
 | **Backend infrastructure** | ✅ Complete | LlamaCpp, vLLM, Ollama backends |
 | **CI Regression tests** | ✅ Complete | `.github/workflows/bench.yml` |
+| **CUDA PTX Generation** | ✅ Complete | trueno-gpu v0.1.0 integration |
 
 ### What's Remaining (⚠️ Future Work)
 
 | Component | Status | Gap | Path Forward |
 |-----------|--------|-----|------------|
 | End-to-end Q4_K inference | ✅ Complete | `QuantizedGGUFTransformer::generate()` | Fused Q4_K with greedy/top-k sampling |
-| GPU acceleration | ⚠️ wgpu only | 10-100x slower than CUDA | cuBLAS bindings for critical path |
+| GPU acceleration | ✅ wgpu + CUDA PTX | PTX via trueno-gpu, execution via CUDA driver | Load PTX with `cuModuleLoadData` |
 | Real HTTP benchmarks | ✅ Complete | Live server tested | llama.cpp: ~260 tok/s on RTX 4090 |
 
 **Benchmark Results (2025-12-10)**:
