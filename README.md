@@ -692,12 +692,28 @@ tensor_creation/10      time:   [17.887 ns 17.966 ns 18.043 ns]
 # - Multi-benchmark comparison tables
 ```
 
-### Comparative Benchmark: Ollama vs llama.cpp (Real Data)
+### Comparative Benchmark: llama.cpp Performance (Real Data)
 
-**Hardware:** NVIDIA RTX 4090, 48 threads, Ubuntu 22.04
-**Model:** phi-2 Q4_K_M (2.78B params)
-**Prompt:** "Explain the concept of machine learning in one sentence."
-**Max tokens:** 50
+**Hardware:** NVIDIA RTX 4090 (24GB), Intel i7, 48 threads, Ubuntu 22.04
+**Date:** December 2025
+
+| Model | Size | Tokens/sec (Gen) | p50 Latency (50 tok) |
+|-------|------|-----------------|---------------------|
+| **DeepSeek-Coder 1.3B** Q4_K_M | 833MB | **477 tok/s** | 114ms |
+| **Phi-2** Q4_K_M | 1.7GB | ~270 tok/s | 140ms |
+| **Ollama** (phi2:2.7b) | - | ~250 tok/s | 200ms |
+
+**Latest llama.cpp Benchmark (DeepSeek-Coder 1.3B):**
+
+```
+  [ 1/10] Latency:  161ms | Gen:  454.0 tok/s | Prompt:  246.9 tok/s (cold)
+  [ 2/10] Latency:  115ms | Gen:  477.1 tok/s | Prompt:  292.2 tok/s
+  [ 3/10] Latency:  115ms | Gen:  479.1 tok/s | Prompt:  314.1 tok/s
+  ...
+  [10/10] Latency:  114ms | Gen:  479.7 tok/s | Prompt:  289.4 tok/s
+```
+
+**Phi-2 Results (Historical):**
 
 | Runtime | Cold Start | Steady State (p50) | Tokens/sec |
 |---------|------------|-------------------|------------|

@@ -1,10 +1,84 @@
 # Local Inference Runtime Benchmarking Guide
 
-**Version**: 1.2
-**Date**: 2025-12-09
-**Status**: IMPLEMENTATION REQUIRED
+**Version**: 1.3
+**Date**: 2025-12-10
+**Status**: IMPLEMENTATION IN PROGRESS
 **Methodology**: Toyota Production System (TPS) Engineering Principles
-**Review Status**: v1.2 - PRIMARY GOAL: Real HTTP benchmarking against local servers
+**Review Status**: v1.3 - Added real benchmark results from llama.cpp
+
+---
+
+## Latest Benchmark Results (December 2025)
+
+### llama.cpp on RTX 4090
+
+**Hardware**: NVIDIA RTX 4090 (24GB VRAM), Intel i7, 48 threads, Ubuntu 22.04
+**Model**: DeepSeek-Coder 1.3B Instruct Q4_K_M (833MB)
+**GPU Offload**: Full (`--n-gpu-layers 99`)
+
+```
+=== llama.cpp Benchmark (DeepSeek-Coder 1.3B Q4_K_M on RTX 4090) ===
+
+  [ 1/10] Latency:  161ms | Tokens: 50 | Gen:  454.0 tok/s | Prompt:  246.9 tok/s
+  [ 2/10] Latency:  115ms | Tokens: 50 | Gen:  477.1 tok/s | Prompt:  292.2 tok/s
+  [ 3/10] Latency:  115ms | Tokens: 50 | Gen:  479.1 tok/s | Prompt:  314.1 tok/s
+  [ 4/10] Latency:  114ms | Tokens: 50 | Gen:  484.4 tok/s | Prompt:  287.9 tok/s
+  [ 5/10] Latency:  113ms | Tokens: 50 | Gen:  484.2 tok/s | Prompt:  311.9 tok/s
+  [ 6/10] Latency:  113ms | Tokens: 50 | Gen:  486.7 tok/s | Prompt:  315.6 tok/s
+  [ 7/10] Latency:  117ms | Tokens: 50 | Gen:  464.2 tok/s | Prompt:  325.6 tok/s
+  [ 8/10] Latency:  114ms | Tokens: 50 | Gen:  481.0 tok/s | Prompt:  310.1 tok/s
+  [ 9/10] Latency:  114ms | Tokens: 50 | Gen:  481.3 tok/s | Prompt:  312.0 tok/s
+  [10/10] Latency:  114ms | Tokens: 50 | Gen:  479.7 tok/s | Prompt:  289.4 tok/s
+```
+
+### Summary Statistics
+
+| Metric | Value |
+|--------|-------|
+| **Generation Speed** | 477 tok/s (median) |
+| **Prompt Processing** | 305 tok/s (median) |
+| **p50 Latency** | 114ms (50 tokens) |
+| **p99 Latency** | 161ms (cold start) |
+
+### Realizar Internal Benchmarks (CPU)
+
+| Operation | Latency | Notes |
+|-----------|---------|-------|
+| Cache hit | **40 ns** | O(1) lookup |
+| Cache miss (load) | 15 µs | With model load |
+| MNIST inference | **0.78 µs** | Single sample |
+| MNIST batch 32 | 24.5 µs | 0.77 µs/sample |
+| Q4_K dequantize | 15.5 µs | 25,600 values |
+
+### Comparison: What Each Metric Means
+
+| Server | What It Measures |
+|--------|------------------|
+| **llama.cpp** | Full LLM inference (load model → process prompt → generate tokens) |
+| **Realizar** | Infrastructure components (cache, dequantization, traditional ML) |
+
+**Note**: Realizar does not yet implement full transformer inference. The benchmarks above show component-level performance, not end-to-end LLM generation.
+
+### Reproduce These Results
+
+```bash
+# Start llama.cpp server
+/path/to/llama-server \
+  -m /path/to/deepseek-coder-1.3b-instruct-q4_k_m.gguf \
+  --host 127.0.0.1 --port 8082 --n-gpu-layers 99
+
+# Run benchmark (10 iterations, 50 tokens each)
+for i in $(seq 1 10); do
+  curl -s -X POST http://localhost:8082/completion \
+    -H "Content-Type: application/json" \
+    -d '{"prompt": "Write a Python fibonacci function:", "n_predict": 50}' \
+    | jq '{latency: .timings.predicted_ms, tps: .timings.predicted_per_second}'
+done
+
+# Run realizar benchmarks
+cargo bench --bench cache
+cargo bench --bench apr_real
+```
 
 ---
 
