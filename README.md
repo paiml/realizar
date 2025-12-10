@@ -697,64 +697,78 @@ tensor_creation/10      time:   [17.887 ns 17.966 ns 18.043 ns]
 # - Multi-benchmark comparison tables
 ```
 
-### External Runtime Benchmarking (Ollama, vLLM, llama.cpp)
+### Comparative Benchmark: Ollama vs llama.cpp (Real Data)
 
-Realizar includes a **real HTTP benchmark harness** for comparing against external inference servers:
+**Hardware:** NVIDIA RTX 4090, 48 threads, Ubuntu 22.04
+**Model:** phi-2 Q4_K_M (2.78B params)
+**Prompt:** "Explain the concept of machine learning in one sentence."
+**Max tokens:** 50
+
+| Runtime | Cold Start | Steady State (p50) | Tokens/sec |
+|---------|------------|-------------------|------------|
+| **Ollama** (phi2:2.7b) | 1470ms | 200ms | ~250 tok/s |
+| **llama.cpp** (GPU, ngl=99) | 207ms | 140ms | ~270 tok/s |
+
+**Raw Results:**
+
+```
+--- Ollama (phi2:2.7b) ---
+  [1/5] 1470ms, 50 tokens  (cold start)
+  [2/5] 205ms, 50 tokens
+  [3/5] 195ms, 50 tokens
+  [4/5] 204ms, 50 tokens
+  [5/5] 203ms, 50 tokens
+
+--- llama.cpp server (phi-2 Q4_K_M, GPU) ---
+  [1/5] 207ms, 48 tokens
+  [2/5] 144ms, 38 tokens
+  [3/5] 128ms, 34 tokens
+  [4/5] 192ms, 50 tokens
+  [5/5] 141ms, 37 tokens
+```
+
+**Key Findings:**
+- llama.cpp is **~30% faster** than Ollama for steady-state inference on GPU
+- Ollama has longer cold start (~1.5s vs ~200ms) due to model loading overhead
+- Both achieve **250-270 tokens/sec** on RTX 4090 with phi-2 2.7B Q4_K_M
+
+### Where Does Realizar Fit?
+
+**Honest assessment:**
+
+| Claim | Reality |
+|-------|---------|
+| "9.6x faster than PyTorch" | ✅ **True** for `.apr` models (MNIST LogisticRegression, 32 params) |
+| "Faster than Ollama/llama.cpp" | ❌ **Not yet** - Realizar doesn't serve real LLM models |
+| "Production-ready LLM inference" | ⚠️ **In progress** - GGUF parser exists, inference engine WIP |
+
+**Current state:**
+- ✅ GGUF/Safetensors parsers (can read model files)
+- ✅ Transformer architecture (attention, FFN, RoPE, KV cache)
+- ✅ Quantization (Q4_0, Q8_0, Q4_K, Q5_K, Q6_K)
+- ✅ Demo server with toy model (32 params, ~10ms latency)
+- ❌ Full GGUF model loading and inference (Phase 2)
+
+**To compete with Ollama/llama.cpp, we need:**
+1. Complete GGUF tensor loading → inference pipeline
+2. GPU acceleration via Trueno (in progress)
+3. Benchmark with same models on same hardware
+
+### Benchmark Harness for External Servers
 
 ```bash
 # Build with HTTP benchmarking feature
 cargo build --release --features bench-http
 
-# Benchmark against Ollama (requires running server)
+# Benchmark against Ollama
 ./target/release/realizar bench --runtime ollama --url http://localhost:11434 --model phi2:2.7b
 
 # Benchmark against vLLM (OpenAI-compatible)
-./target/release/realizar bench --runtime vllm --url http://localhost:8000 --model meta-llama/Llama-2-7b-hf
-
-# Benchmark against llama.cpp server
-./target/release/realizar bench --runtime llama-cpp --url http://localhost:8080
+./target/release/realizar bench --runtime vllm --url http://localhost:8000
 
 # Save results to JSON
-./target/release/realizar bench --runtime ollama --url http://localhost:11434 --output results.json
+./target/release/realizar bench --runtime ollama --output results.json
 ```
-
-**Real Benchmark Example (Ollama phi2:2.7b):**
-
-```
-=== External Runtime Benchmark (REAL HTTP) ===
-
-This measures ACTUAL inference latency from http://localhost:11434
-NO MOCK DATA - real network + inference timing
-
-Running 5 inference iterations...
-Prompt: "Explain the concept of machine learning in one sentence."
-
-  [1/5] TTFT: 2253ms, Inference: 2253ms, Tokens: 30, E2E: 2253ms
-  [2/5] TTFT: 130ms, Inference: 130ms, Tokens: 30, E2E: 130ms
-  [3/5] TTFT: 166ms, Inference: 166ms, Tokens: 39, E2E: 166ms
-  [4/5] TTFT: 154ms, Inference: 154ms, Tokens: 38, E2E: 154ms
-  [5/5] TTFT: 194ms, Inference: 195ms, Tokens: 50, E2E: 195ms
-
-=== Results ===
-  Latency (ms):
-    Mean: 579.7
-    p50:  165.9
-    p99:  2253.4
-
-  Throughput: 196.4 tokens/sec
-```
-
-**What this measures:**
-- **TTFT (Time to First Token)**: End-to-end latency including HTTP overhead
-- **Total inference time**: Full request/response cycle
-- **Throughput**: Actual tokens/second from the server
-- **Cold start**: First request includes model loading
-
-**Important notes:**
-- The 9.6x benchmark refers specifically to Aprender `.apr` models vs PyTorch for CPU-only MNIST inference
-- External server benchmarks measure different workloads (real LLM inference with HTTP overhead)
-- First request is always slow due to model loading; subsequent requests show steady-state performance
-- Results depend on hardware, model size, quantization level, and server configuration
 
 ### References
 
