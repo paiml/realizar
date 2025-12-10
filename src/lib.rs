@@ -93,6 +93,14 @@ pub mod api;
 /// The .apr format is the native format for the sovereign AI stack.
 /// GGUF and safetensors are supported as fallback formats.
 pub mod apr;
+/// Audit trail and provenance logging
+///
+/// Per spec §12: Comprehensive audit record for every inference request.
+/// Implements GDPR Article 13/14 and SOC 2 compliance requirements.
+/// - Full provenance tracking (model hash, distillation lineage)
+/// - Latency breakdown (preprocessing, inference, postprocessing)
+/// - Quality gates (Jidoka: NaN check, confidence check)
+pub mod audit;
 /// Benchmark harness for model runner comparison
 ///
 /// Implements the benchmark specification v1.1 with Toyota Way engineering principles:
@@ -106,6 +114,19 @@ pub mod cache;
 /// CLI command implementations (extracted for testability)
 pub mod cli;
 pub mod error;
+/// Model explainability (SHAP, Attention)
+///
+/// Per spec §13: Model explainability for APR classical ML models.
+/// Implements SHAP TreeExplainer for tree ensembles and KernelSHAP for any model.
+/// - TreeSHAP: O(TLD) complexity for tree-based models
+/// - KernelSHAP: Model-agnostic with weighted linear regression
+/// - Feature importance: Top-k features by absolute SHAP value
+pub mod explain;
+/// Unified model format detection (APR, GGUF, SafeTensors)
+///
+/// Per spec §3: Format Support Matrix - auto-detect from magic bytes.
+/// APR is first-class, GGUF and SafeTensors are backwards-compatible.
+pub mod format;
 pub mod generate;
 pub mod gguf;
 /// HTTP client for real model server benchmarking
@@ -118,6 +139,11 @@ pub mod layers;
 pub mod memory;
 #[cfg(feature = "server")]
 pub mod metrics;
+/// Unified model loader for APR, GGUF, and SafeTensors
+///
+/// Per spec §3.2 and §5: Combines format detection with model loading.
+/// Supports all 18 APR model types.
+pub mod model_loader;
 pub mod moe;
 /// Observability: metrics, tracing, and A/B testing
 ///
@@ -130,12 +156,46 @@ pub mod moe;
 #[allow(clippy::cast_precision_loss)]
 #[allow(clippy::cast_sign_loss)]
 pub mod observability;
+/// PagedAttention KV cache management
+///
+/// Per spec §8.1: Efficient KV cache management based on vLLM's PagedAttention.
+/// Reference: [4] Kwon et al. (2023) "Efficient Memory Management for LLM Serving"
+/// - Physical pages: Fixed-size memory blocks for KV cache
+/// - Page tables: Logical to physical mapping per sequence
+/// - Copy-on-Write: Efficient prefix sharing between sequences
+pub mod paged_kv;
+/// Multi-GPU and Distributed Inference
+///
+/// Per spec §10: Implements parallelism strategies for 70B+ model inference.
+/// Reference: [11] Shoeybi et al. (2019) "Megatron-LM: Training Multi-Billion Parameter LMs"
+/// - Tensor Parallelism (TP): Split tensors across GPUs within node (2-8 GPUs)
+/// - Pipeline Parallelism (PP): Split layers across GPUs/nodes (2-64 GPUs)
+/// - Data Parallelism (DP): Replicate model, split batches
+/// - ZeRO-Inference: Memory offload to CPU
+pub mod parallel;
 pub mod quantize;
 #[cfg(feature = "server")]
 pub mod registry;
 pub mod safetensors;
+/// Continuous batching scheduler
+///
+/// Per spec §8: Implements continuous batching for LLM serving based on vLLM/Orca.
+/// Reference: [8] Yu et al. (2022) "Orca: A Distributed Serving System"
+/// - Iteration-level scheduling: New requests join batch at any iteration
+/// - Preemption: Low-priority requests can be preempted for high-priority
+/// - Memory-aware: Respects KV cache limits when scheduling
+pub mod scheduler;
 #[cfg(feature = "aprender-serve")]
 pub mod serve;
+/// Speculative decoding for LLM inference acceleration
+///
+/// Per spec §8.3: Implements speculative decoding based on SGLang/DeepMind research.
+/// Reference: [9] Leviathan et al. (2023) "Fast Inference from Transformers via Speculative Decoding"
+/// - Draft model: Small model generates K candidate tokens
+/// - Target model: Verifies all K tokens in single forward pass
+/// - Rejection sampling: Maintains exact target distribution
+/// - Speedup: Up to 3x with well-matched draft/target pairs
+pub mod speculative;
 pub mod stats;
 pub mod tensor;
 pub mod viz;

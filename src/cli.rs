@@ -47,7 +47,9 @@ pub fn format_size(bytes: u64) -> String {
 
 /// Display model information based on file type
 pub fn display_model_info(model_ref: &str, file_data: &[u8]) -> Result<()> {
-    if model_ref.ends_with(".gguf") || file_data.starts_with(b"GGUF") {
+    use crate::format::{APR_MAGIC, GGUF_MAGIC};
+
+    if model_ref.ends_with(".gguf") || file_data.starts_with(GGUF_MAGIC) {
         use crate::gguf::GGUFModel;
         let gguf = GGUFModel::from_bytes(file_data)?;
         println!("  Format: GGUF v{}", gguf.header.version);
@@ -57,6 +59,11 @@ pub fn display_model_info(model_ref: &str, file_data: &[u8]) -> Result<()> {
         let st = SafetensorsModel::from_bytes(file_data)?;
         println!("  Format: SafeTensors");
         println!("  Tensors: {}", st.tensors.len());
+    } else if model_ref.ends_with(".apr") || file_data.starts_with(APR_MAGIC) {
+        use crate::model_loader::read_apr_model_type;
+        let model_type = read_apr_model_type(file_data).unwrap_or_else(|| "Unknown".to_string());
+        println!("  Format: APR (Aprender Native)");
+        println!("  Model Type: {model_type}");
     } else {
         println!("  Format: Unknown ({} bytes)", file_data.len());
     }
@@ -805,6 +812,69 @@ pub fn load_safetensors_model(file_data: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// Load APR model file (aprender native format)
+///
+/// Per spec §3.1: APR is the first-class format for classical ML models.
+///
+/// # Arguments
+///
+/// * `file_data` - APR file bytes
+///
+/// # Errors
+///
+/// Returns error if:
+/// - Magic bytes don't match (not "APRN")
+/// - Model type is unknown
+/// - File is corrupted
+pub fn load_apr_model(file_data: &[u8]) -> Result<()> {
+    use crate::format::{detect_format, ModelFormat};
+    use crate::model_loader::read_apr_model_type;
+
+    println!("Parsing APR file...");
+
+    // Verify format
+    let format = detect_format(file_data).map_err(|e| RealizarError::UnsupportedOperation {
+        operation: "detect_apr_format".to_string(),
+        reason: format!("Format detection failed: {e}"),
+    })?;
+
+    if format != ModelFormat::Apr {
+        return Err(RealizarError::UnsupportedOperation {
+            operation: "verify_apr_magic".to_string(),
+            reason: format!("Expected APR format, got {format}"),
+        });
+    }
+
+    // Extract model type
+    let model_type = read_apr_model_type(file_data).unwrap_or_else(|| "Unknown".to_string());
+
+    println!("Successfully parsed APR file");
+    println!();
+    println!("Model Information:");
+    println!("  Format: APR (Aprender Native)");
+    println!("  Model Type: {model_type}");
+    println!("  File Size: {} bytes", file_data.len());
+    println!();
+
+    // APR header structure: APRN (4) + type_id (2) + version (2) = 8 bytes minimum
+    if file_data.len() >= 8 {
+        let version = u16::from_le_bytes([file_data[6], file_data[7]]);
+        println!("  Header Version: {version}");
+    }
+
+    println!();
+    println!("APR model ready for serving!");
+    println!("Supported model types for inference:");
+    println!("  - LogisticRegression, LinearRegression");
+    println!("  - DecisionTree, RandomForest, GradientBoosting");
+    println!("  - KNN, GaussianNB, LinearSVM");
+    println!();
+    println!("To serve this model, the serve API will auto-detect");
+    println!("the model type and dispatch to the appropriate handler.");
+
+    Ok(())
+}
+
 /// Check if a model reference is a local file path
 pub fn is_local_file_path(model_ref: &str) -> bool {
     model_ref.starts_with("./")
@@ -1158,6 +1228,128 @@ mod tests {
     #[test]
     fn test_display_model_info_safetensors_extension() {
         let result = display_model_info("test.safetensors", &[0, 1, 2, 3]);
+        assert!(result.is_err());
+    }
+
+    // -------------------------------------------------------------------------
+    // APR Format Support Tests (EXTREME TDD)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_display_model_info_apr_extension() {
+        // Create minimal APR data with magic header + model type
+        // APR header: APRN (4 bytes) + type_id (2 bytes) + version (2 bytes)
+        let mut data = vec![0u8; 16];
+        data[0..4].copy_from_slice(b"APRN");
+        data[4..6].copy_from_slice(&0x0001u16.to_le_bytes()); // LinearRegression
+        data[6..8].copy_from_slice(&1u16.to_le_bytes()); // version 1
+        let result = display_model_info("test.apr", &data);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_display_model_info_apr_magic() {
+        // Test detection via magic bytes, not extension
+        let mut data = vec![0u8; 16];
+        data[0..4].copy_from_slice(b"APRN");
+        data[4..6].copy_from_slice(&0x0002u16.to_le_bytes()); // LogisticRegression
+        data[6..8].copy_from_slice(&1u16.to_le_bytes()); // version 1
+        let result = display_model_info("model.bin", &data); // Unknown extension
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_display_model_info_zero_bytes_unknown() {
+        let data = b"\x00\x00\x00\x00\x00\x00\x00\x00"; // All zeros (not SafeTensors either)
+        let result = display_model_info("test.bin", data);
+        // Should not error, just show "Unknown"
+        assert!(result.is_ok());
+    }
+
+    // -------------------------------------------------------------------------
+    // load_apr_model Tests (EXTREME TDD)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_load_apr_model_valid() {
+        // Valid APR data with magic and model type
+        // APR header: APRN (4 bytes) + type_id (2 bytes) + version (2 bytes)
+        let mut data = vec![0u8; 16];
+        data[0..4].copy_from_slice(b"APRN");
+        data[4..6].copy_from_slice(&0x0003u16.to_le_bytes()); // DecisionTree
+        data[6..8].copy_from_slice(&1u16.to_le_bytes()); // version 1
+        let result = load_apr_model(&data);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_load_apr_model_all_recognized_types() {
+        // Test recognized APR model types per model_loader mapping
+        let type_codes = [
+            0x0001u16, // LinearRegression
+            0x0002,    // LogisticRegression
+            0x0003,    // DecisionTree
+            0x0004,    // RandomForest
+            0x0005,    // GradientBoosting
+            0x0006,    // KMeans
+            0x0007,    // PCA
+            0x0008,    // NaiveBayes
+            0x0009,    // KNN
+            0x000A,    // SVM
+            0x0010,    // NgramLM
+            0x0011,    // TFIDF
+            0x0012,    // CountVectorizer
+            0x0020,    // NeuralSequential
+            0x0021,    // NeuralCustom
+            0x0030,    // ContentRecommender
+            0x0040,    // MixtureOfExperts
+            0x00FF,    // Custom
+        ];
+
+        for type_code in type_codes {
+            let mut data = vec![0u8; 16];
+            data[0..4].copy_from_slice(b"APRN");
+            data[4..6].copy_from_slice(&type_code.to_le_bytes());
+            data[6..8].copy_from_slice(&1u16.to_le_bytes());
+            let result = load_apr_model(&data);
+            assert!(result.is_ok(), "Failed for type code 0x{:04X}", type_code);
+        }
+    }
+
+    #[test]
+    fn test_load_apr_model_invalid_magic() {
+        // Wrong magic bytes
+        let data = b"GGUFxxxxxxxxxxxxxxxx";
+        let result = load_apr_model(data);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("Expected APR format"));
+    }
+
+    #[test]
+    fn test_load_apr_model_too_short() {
+        // Data too short for format detection
+        let data = b"APR"; // Only 3 bytes
+        let result = load_apr_model(data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_apr_model_unknown_type() {
+        // Valid magic but unknown model type
+        // APR header: APRN (4 bytes) + type_id (2 bytes) + version (2 bytes)
+        let mut data = vec![0u8; 16];
+        data[0..4].copy_from_slice(b"APRN");
+        data[4..6].copy_from_slice(&0xFFFEu16.to_le_bytes()); // Unknown type (not 0x00FF)
+        data[6..8].copy_from_slice(&1u16.to_le_bytes()); // version 1
+        let result = load_apr_model(&data);
+        // Should succeed (shows "Unknown" type)
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_load_apr_model_empty_data() {
+        let result = load_apr_model(&[]);
         assert!(result.is_err());
     }
 }

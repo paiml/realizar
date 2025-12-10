@@ -28,7 +28,7 @@ use std::{
 };
 
 use axum::{
-    extract::State,
+    extract::{Path, State},
     http::StatusCode,
     response::sse::{Event, Sse},
     routing::{get, post},
@@ -38,8 +38,10 @@ use futures::stream::Stream;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    audit::AuditRecord,
     cache::{CacheKey, ModelCache},
     error::RealizarError,
+    explain::ShapExplanation,
     generate::{GenerationConfig, SamplingStrategy},
     layers::{Model, ModelConfig},
     metrics::MetricsCollector,
@@ -570,6 +572,114 @@ impl ChatCompletionChunk {
     }
 }
 
+// ============================================================================
+// APR-Specific API Types (spec §15.1)
+// ============================================================================
+
+/// APR prediction request (classification/regression)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PredictRequest {
+    /// Model ID (optional, uses default if not specified)
+    #[serde(default)]
+    pub model: Option<String>,
+    /// Input features as flat array
+    pub features: Vec<f32>,
+    /// Feature names (optional, for explainability)
+    #[serde(default)]
+    pub feature_names: Option<Vec<String>>,
+    /// Return top-k predictions for classification
+    #[serde(default)]
+    pub top_k: Option<usize>,
+    /// Include confidence scores
+    #[serde(default = "default_true")]
+    pub include_confidence: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// APR prediction response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PredictResponse {
+    /// Request ID for audit trail
+    pub request_id: String,
+    /// Model ID used
+    pub model: String,
+    /// Prediction result (class label or regression value)
+    pub prediction: serde_json::Value,
+    /// Confidence score (0.0-1.0) for classification
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f32>,
+    /// Top-k predictions with probabilities
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_k_predictions: Option<Vec<PredictionWithScore>>,
+    /// Latency in milliseconds
+    pub latency_ms: f64,
+}
+
+/// Prediction with confidence score
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PredictionWithScore {
+    /// Class label or value
+    pub label: String,
+    /// Probability/confidence
+    pub score: f32,
+}
+
+/// APR explanation request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExplainRequest {
+    /// Model ID (optional)
+    #[serde(default)]
+    pub model: Option<String>,
+    /// Input features
+    pub features: Vec<f32>,
+    /// Feature names (required for meaningful explanations)
+    pub feature_names: Vec<String>,
+    /// Number of top features to include
+    #[serde(default = "default_top_k_features")]
+    pub top_k_features: usize,
+    /// Explanation method (shap, lime, attention)
+    #[serde(default = "default_explain_method")]
+    pub method: String,
+}
+
+fn default_top_k_features() -> usize {
+    5
+}
+
+fn default_explain_method() -> String {
+    "shap".to_string()
+}
+
+/// APR explanation response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExplainResponse {
+    /// Request ID for audit trail
+    pub request_id: String,
+    /// Model ID used
+    pub model: String,
+    /// Prediction (same as /v1/predict)
+    pub prediction: serde_json::Value,
+    /// Confidence score
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f32>,
+    /// SHAP explanation
+    pub explanation: ShapExplanation,
+    /// Human-readable summary
+    pub summary: String,
+    /// Latency in milliseconds
+    pub latency_ms: f64,
+}
+
+/// Audit record retrieval response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditResponse {
+    /// The audit record
+    pub record: AuditRecord,
+}
+
 /// Create the API router
 ///
 /// # Arguments
@@ -605,6 +715,10 @@ pub fn create_router(state: AppState) -> Router {
             post(openai_chat_completions_stream_handler),
         )
         .route("/v1/embeddings", post(openai_embeddings_handler))
+        // APR-specific API (spec §15.1)
+        .route("/v1/predict", post(apr_predict_handler))
+        .route("/v1/explain", post(apr_explain_handler))
+        .route("/v1/audit/:request_id", get(apr_audit_handler))
         .with_state(state)
 }
 
@@ -1914,6 +2028,179 @@ async fn openai_embeddings_handler(
     realize_embed_handler(State(state), Json(request)).await
 }
 
+// ============================================================================
+// APR-Specific API Handlers (spec §15.1)
+// ============================================================================
+
+/// APR prediction handler (/v1/predict)
+///
+/// Handles classification and regression predictions for APR models.
+async fn apr_predict_handler(
+    State(_state): State<AppState>,
+    Json(request): Json<PredictRequest>,
+) -> Result<Json<PredictResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let start = std::time::Instant::now();
+    let request_id = uuid::Uuid::new_v4().to_string();
+
+    // TODO: Integrate with actual APR model registry
+    // For now, return a demo response
+
+    // Validate input features
+    if request.features.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Input features cannot be empty".to_string(),
+            }),
+        ));
+    }
+
+    // Demo prediction (in production, this would call the APR model)
+    let prediction = serde_json::json!("class_a");
+    let confidence = 0.95_f32;
+
+    let top_k_predictions = request.top_k.map(|k| {
+        (0..k.min(3))
+            .map(|i| PredictionWithScore {
+                label: format!("class_{}", (b'a' + i as u8) as char),
+                score: 0.95 - (i as f32 * 0.2),
+            })
+            .collect()
+    });
+
+    let latency_ms = start.elapsed().as_secs_f64() * 1000.0;
+
+    Ok(Json(PredictResponse {
+        request_id,
+        model: request.model.unwrap_or_else(|| "default".to_string()),
+        prediction,
+        confidence: if request.include_confidence {
+            Some(confidence)
+        } else {
+            None
+        },
+        top_k_predictions,
+        latency_ms,
+    }))
+}
+
+/// APR explanation handler (/v1/explain)
+///
+/// Returns SHAP-based feature importance explanations for APR models.
+async fn apr_explain_handler(
+    State(_state): State<AppState>,
+    Json(request): Json<ExplainRequest>,
+) -> Result<Json<ExplainResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let start = std::time::Instant::now();
+    let request_id = uuid::Uuid::new_v4().to_string();
+
+    // Validate inputs
+    if request.features.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Input features cannot be empty".to_string(),
+            }),
+        ));
+    }
+
+    if request.feature_names.len() != request.features.len() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!(
+                    "Feature names count ({}) must match features count ({})",
+                    request.feature_names.len(),
+                    request.features.len()
+                ),
+            }),
+        ));
+    }
+
+    // Demo SHAP values (in production, would use ShapExplainer)
+    let shap_values: Vec<f32> = request
+        .features
+        .iter()
+        .enumerate()
+        .map(|(i, _)| 0.1 - (i as f32 * 0.02))
+        .collect();
+
+    let explanation = ShapExplanation {
+        base_value: 0.0,
+        shap_values: shap_values.clone(),
+        feature_names: request.feature_names.clone(),
+        prediction: 0.95,
+    };
+
+    // Build summary from top features
+    let mut feature_importance: Vec<_> = request
+        .feature_names
+        .iter()
+        .zip(shap_values.iter())
+        .collect();
+    feature_importance.sort_by(|a, b| b.1.abs().partial_cmp(&a.1.abs()).unwrap());
+
+    let top_features: Vec<_> = feature_importance
+        .iter()
+        .take(request.top_k_features)
+        .collect();
+
+    let summary = if top_features.is_empty() {
+        "No significant features found.".to_string()
+    } else {
+        let feature_strs: Vec<String> = top_features
+            .iter()
+            .map(|(name, val)| {
+                let direction = if **val > 0.0 { "+" } else { "-" };
+                format!("{} ({})", name, direction)
+            })
+            .collect();
+        format!("Top contributing features: {}", feature_strs.join(", "))
+    };
+
+    let latency_ms = start.elapsed().as_secs_f64() * 1000.0;
+
+    Ok(Json(ExplainResponse {
+        request_id,
+        model: request.model.unwrap_or_else(|| "default".to_string()),
+        prediction: serde_json::json!(0.95),
+        confidence: Some(0.95),
+        explanation,
+        summary,
+        latency_ms,
+    }))
+}
+
+/// APR audit handler (/v1/audit/:request_id)
+///
+/// Retrieves the audit record for a given request ID.
+async fn apr_audit_handler(
+    State(_state): State<AppState>,
+    Path(request_id): Path<String>,
+) -> Result<Json<AuditResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // TODO: Integrate with actual audit store
+    // For now, return a demo audit record
+
+    // Validate request_id format (should be UUID)
+    if uuid::Uuid::parse_str(&request_id).is_err() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!("Invalid request ID format: {}", request_id),
+            }),
+        ));
+    }
+
+    // Demo audit record (in production, would fetch from AuditLogger)
+    let record = AuditRecord::new(
+        uuid::Uuid::parse_str(&request_id).expect("Already validated"),
+        "sha256:abc123",
+        "LogisticRegression",
+    );
+
+    Ok(Json(AuditResponse { record }))
+}
+
 #[cfg(test)]
 mod tests {
     use axum::{
@@ -3100,5 +3387,209 @@ mod tests {
         assert!(truncated);
         // Message too large to fit, result may be empty
         assert!(result.is_empty() || result.len() == 1);
+    }
+
+    // =========================================================================
+    // APR-Specific API Tests (spec §15.1)
+    // =========================================================================
+
+    #[tokio::test]
+    async fn test_apr_predict_endpoint() {
+        let app = create_test_app();
+
+        let request = PredictRequest {
+            model: None,
+            features: vec![1.0, 2.0, 3.0],
+            feature_names: None,
+            top_k: Some(3),
+            include_confidence: true,
+        };
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/predict")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&request).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: PredictResponse = serde_json::from_slice(&body).unwrap();
+
+        assert!(!result.request_id.is_empty());
+        assert_eq!(result.model, "default");
+        assert!(result.confidence.is_some());
+        assert!(result.top_k_predictions.is_some());
+        assert!(result.latency_ms >= 0.0);
+    }
+
+    #[tokio::test]
+    async fn test_apr_predict_empty_features() {
+        let app = create_test_app();
+
+        let request = PredictRequest {
+            model: None,
+            features: vec![],
+            feature_names: None,
+            top_k: None,
+            include_confidence: true,
+        };
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/predict")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&request).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_apr_explain_endpoint() {
+        let app = create_test_app();
+
+        let request = ExplainRequest {
+            model: None,
+            features: vec![1.0, 2.0, 3.0],
+            feature_names: vec!["f1".to_string(), "f2".to_string(), "f3".to_string()],
+            top_k_features: 2,
+            method: "shap".to_string(),
+        };
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/explain")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&request).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: ExplainResponse = serde_json::from_slice(&body).unwrap();
+
+        assert!(!result.request_id.is_empty());
+        assert_eq!(result.model, "default");
+        assert!(!result.summary.is_empty());
+        assert_eq!(result.explanation.feature_names.len(), 3);
+        assert_eq!(result.explanation.shap_values.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_apr_explain_mismatched_features() {
+        let app = create_test_app();
+
+        let request = ExplainRequest {
+            model: None,
+            features: vec![1.0, 2.0, 3.0],
+            feature_names: vec!["f1".to_string()], // Mismatched count
+            top_k_features: 2,
+            method: "shap".to_string(),
+        };
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/explain")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&request).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_apr_audit_endpoint() {
+        let app = create_test_app();
+        let test_uuid = "550e8400-e29b-41d4-a716-446655440000";
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/v1/audit/{}", test_uuid))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: AuditResponse = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(result.record.request_id, test_uuid);
+    }
+
+    #[tokio::test]
+    async fn test_apr_audit_invalid_id() {
+        let app = create_test_app();
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/audit/not-a-valid-uuid")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn test_predict_request_serialization() {
+        let request = PredictRequest {
+            model: Some("test-model".to_string()),
+            features: vec![1.0, 2.0, 3.0],
+            feature_names: Some(vec!["f1".to_string(), "f2".to_string(), "f3".to_string()]),
+            top_k: Some(3),
+            include_confidence: true,
+        };
+
+        let json = serde_json::to_string(&request).unwrap();
+        assert!(json.contains("test-model"));
+        assert!(json.contains("features"));
+
+        // Deserialize back
+        let deserialized: PredictRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.features.len(), 3);
+    }
+
+    #[test]
+    fn test_explain_request_defaults() {
+        let json = r#"{"features": [1.0], "feature_names": ["f1"]}"#;
+        let request: ExplainRequest = serde_json::from_str(json).unwrap();
+
+        assert_eq!(request.top_k_features, 5); // default
+        assert_eq!(request.method, "shap"); // default
     }
 }
