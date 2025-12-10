@@ -700,7 +700,7 @@ mod tests {
         let _ = cache.allocate_sequence(16).unwrap();
 
         // 1 page * 16 tokens * 8 heads * 64 dim * 4 bytes * 2 (K+V)
-        let expected = 1 * 16 * 8 * 64 * 4 * 2;
+        let expected = 16 * 8 * 64 * 4 * 2;
         assert_eq!(cache.memory_usage(), expected);
     }
 

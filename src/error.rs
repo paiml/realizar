@@ -129,6 +129,13 @@ pub enum RealizarError {
     /// Connection error (network/HTTP)
     #[error("Connection error: {0}")]
     ConnectionError(String),
+
+    /// GPU compute error
+    #[error("GPU error: {reason}")]
+    GpuError {
+        /// Reason for GPU error
+        reason: String,
+    },
 }
 
 #[cfg(test)]

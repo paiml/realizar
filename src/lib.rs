@@ -129,6 +129,14 @@ pub mod explain;
 pub mod format;
 pub mod generate;
 pub mod gguf;
+/// GPU acceleration module (Phase 4: ≥100 tok/s target)
+///
+/// Implements GPU-accelerated matrix operations via Trueno's wgpu backend.
+/// - GPU matmul shader for large matrix multiplications
+/// - Hybrid CPU/GPU scheduling based on workload size
+/// - Automatic fallback to SIMD when GPU unavailable
+#[cfg(feature = "gpu")]
+pub mod gpu;
 /// HTTP client for real model server benchmarking
 ///
 /// Implements actual HTTP calls to external servers (vLLM, Ollama, llama.cpp).

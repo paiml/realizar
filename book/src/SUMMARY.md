@@ -206,8 +206,10 @@
 - [Inference Demo](./examples/inference.md)
 - [Tokenization Comparison](./examples/tokenization.md)
 - [API Server Demo](./examples/api-server.md)
+- [Observability Demo](./examples/observability.md)
 - [Wine Quality Lambda](./examples/wine-lambda.md)
 - [Data Pipeline (Alimentar)](./examples/data-pipeline.md)
+- [MNIST Examples](./examples/mnist.md)
 - [Custom Model Loading (Phase 2)](./examples/custom-model.md)
 
 # Tools and Setup

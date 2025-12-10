@@ -89,7 +89,7 @@ For production use with custom models, see the [Installation](#installation) and
 - **🎯 Production Ready**: REST API server, streaming responses, model caching, Prometheus metrics
 - **☁️ Serverless Optimized**: 53,000x faster cold starts for AWS Lambda deployments
 - **🔌 Swappable Backends**: Modular HTTP server design (axum default, hyper/actix-web ready)
-- **🧪 Extreme Testing**: 260+ tests with 94.61% coverage, property-based and mutation testing
+- **🧪 Extreme Testing**: 1,047 tests with 95.23% coverage, property-based and mutation testing
 
 ## 📊 Benchmark: 9.6x Faster Than PyTorch
 
@@ -108,6 +108,8 @@ For **CPU-only, single-request inference** (AWS Lambda, edge, embedded):
 | **Lambda Memory** | 128 MB | 512 MB+ | **4x less** |
 
 **Statistical Validation:** p < 0.001, Cohen's d = 5.19 (large effect), 10,000 iterations
+
+**Quality Assurance:** 100-point QA checklist (Toyota Way + NASA/JPL + Popperian falsification) - 99/100 pass rate
 
 <details>
 <summary>📈 Reproduce the benchmark</summary>
@@ -478,58 +480,24 @@ let server = Server::new(model)
 
 ## 💡 Examples
 
-Realizar includes **6 comprehensive examples** demonstrating all major features:
+Realizar includes **14 comprehensive examples** demonstrating all major features:
 
-### 1. End-to-End Inference (`inference.rs`)
-Complete text generation pipeline with model initialization, forward pass, and multiple sampling strategies (greedy, top-k, top-p).
-
-```bash
-cargo run --example inference
-```
-
-### 2. HTTP API Server (`api_server.rs`)
-Deploy Realizar as a REST API service with demo model, handling tokenization and generation requests.
-
-```bash
-cargo run --example api_server
-# Server runs at http://127.0.0.1:3000
-# Test: curl http://127.0.0.1:3000/health
-```
-
-### 3. Tokenization (`tokenization.rs`)
-Compare different tokenization strategies: Basic (vocabulary-based), BPE (Byte Pair Encoding), and SentencePiece.
-
-```bash
-cargo run --example tokenization
-```
-
-### 4. SafeTensors Loading (`safetensors_loading.rs`)
-Load and inspect SafeTensors files (aprender compatibility), extract tensor data, interoperate with aprender-trained models.
-
-```bash
-cargo run --example safetensors_loading
-```
-
-### 5. Model Caching (`model_cache.rs`)
-Demonstrate ModelCache for efficient model reuse with LRU eviction, metrics tracking, and config-based cache keys.
-
-```bash
-cargo run --example model_cache
-```
-
-### 6. GGUF Format Loading (`gguf_loading.rs`)
-Load and inspect GGUF files (llama.cpp/Ollama format), parse headers and metadata, extract tensor data with dequantization support.
-
-```bash
-cargo run --example gguf_loading
-```
-
-### 7. APR Format Loading (`apr_loading.rs`)
-Load and use Aprender's native .apr format - the PRIMARY inference format for the sovereign AI stack. Demonstrates format specification, model types, and inference.
-
-```bash
-cargo run --example apr_loading
-```
+| Example | Command | Description |
+|---------|---------|-------------|
+| `inference` | `cargo run --example inference` | Text generation with greedy/top-k/top-p sampling |
+| `api_server` | `cargo run --example api_server` | HTTP REST API server |
+| `tokenization` | `cargo run --example tokenization` | BPE/SentencePiece comparison |
+| `safetensors_loading` | `cargo run --example safetensors_loading` | Load .safetensors files |
+| `model_cache` | `cargo run --example model_cache` | LRU caching demo |
+| `gguf_loading` | `cargo run --example gguf_loading` | Load llama.cpp GGUF models |
+| `apr_loading` | `cargo run --example apr_loading` | Load .apr models (sovereign stack) |
+| `observability_demo` | `cargo run --example observability_demo` | Tracing, metrics, A/B testing |
+| `wine_lambda` | `cargo run --example wine_lambda` | AWS Lambda predictor |
+| `data_pipeline` | `cargo run --example data_pipeline --features alimentar-data` | End-to-end ML pipeline |
+| `train_model` | `cargo run --example train_model --features aprender-serve` | Train & save models |
+| `build_mnist_model` | `cargo run --example build_mnist_model --features aprender-serve` | Build MNIST classifier |
+| `serve_mnist` | `cargo run --example serve_mnist --features aprender-serve` | Serve MNIST via HTTP |
+| `mnist_apr_benchmark` | `cargo run --example mnist_apr_benchmark --features aprender-serve` | .apr vs PyTorch benchmark |
 
 See [`examples/README.md`](examples/README.md) for detailed documentation.
 
@@ -818,7 +786,7 @@ cargo build --release --features bench-http
 - ✅ Inference engine (generation loop, greedy/top-k/top-p)
 - ✅ HTTP server with axum (REST API)
 - ✅ CLI: `realizar serve --demo` (model loading in Phase 2)
-- ✅ 260 tests (211 unit + 42 property + 7 integration), 94.61% coverage
+- ✅ 1,047 tests (unit + property + integration), 95.23% coverage
 
 **Success criteria:**
 - ✅ GGUF and Safetensors parsers working
