@@ -113,6 +113,14 @@ pub mod bench;
 pub mod cache;
 /// CLI command implementations (extracted for testability)
 pub mod cli;
+/// CUDA PTX generation for NVIDIA GPUs
+///
+/// Provides native CUDA kernel generation via trueno-gpu.
+/// - Pure Rust PTX generation (no LLVM, no nvcc)
+/// - Hand-optimized kernels: GEMM, Softmax, LayerNorm, Attention, Q4K
+/// - FlashAttention-style tiled attention
+#[cfg(feature = "cuda")]
+pub mod cuda;
 pub mod error;
 /// Model explainability (SHAP, Attention)
 ///

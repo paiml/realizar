@@ -25,6 +25,8 @@ redundant_clone = "warn"
 [dependencies]
 # OUR ecosystem - SIMD/GPU compute primitives (we control this)
 trueno = { version = "0.7.4", features = ["gpu"] }
+# CUDA PTX generation for NVIDIA GPUs (optional, pure Rust, no LLVM/nvcc)
+trueno-gpu = { version = "0.1", optional = true }
 
 # ML algorithms and .apr model format (optional for aprender model serving)
 # v0.14: format module with .apr save/load, CRC32, signatures, encryption
@@ -124,7 +126,8 @@ predicates = "3.0"
 default = ["server", "cli", "gpu"]
 
 # Core features
-gpu = ["trueno/gpu"]  # Enable GPU acceleration via Trueno
+gpu = ["trueno/gpu"]  # Enable GPU acceleration via Trueno (wgpu)
+cuda = ["dep:trueno-gpu"]  # Enable CUDA PTX generation for NVIDIA GPUs
 
 # Optional components
 server = ["dep:axum", "dep:tokio", "dep:tokio-stream", "dep:tower", "dep:futures", "dep:async-stream", "dep:arc-swap"]  # HTTP server support
@@ -140,7 +143,7 @@ bench-http = ["dep:reqwest"]  # Real HTTP benchmarking of external model servers
 load-test-enabled = ["server"]  # Enable load tests (requires running server)
 
 # Convenience meta-features
-full = ["server", "cli", "gpu", "registry"]  # Everything enabled
+full = ["server", "cli", "gpu", "cuda", "registry"]  # Everything enabled
 minimal = []  # Only core inference engine
 
 [[bin]]
