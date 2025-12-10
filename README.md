@@ -565,6 +565,33 @@ make bench-comparative
 | `tokenizer` | `cargo bench --bench tokenizer` | BPE/SentencePiece encode/decode |
 | `quantize` | `cargo bench --bench quantize` | Q4_0/Q8_0 dequantization |
 | `comparative` | `cargo bench --bench comparative` | MNIST, CIFAR-10, Iris vs PyTorch |
+| `apr_real` | `cargo bench --bench apr_real` | APR format with reproducible models |
+
+### APR Model Benchmarks (Reproducible)
+
+<p align="center">
+  <img src="docs/assets/apr-benchmark.svg" alt="APR Benchmark Results" width="700">
+</p>
+
+All APR benchmarks use **deterministic weight generation** (seed: 42) for 100% reproducible results:
+
+| Model | Parameters | Inference | Throughput | Load Speed |
+|-------|------------|-----------|------------|------------|
+| **Iris** | 131 | 103ns | 9.6 Melem/s | 559 MiB/s |
+| **MNIST** | 102,794 | 73us | 13.6 Kelem/s | 533 MiB/s |
+| **CIFAR** | 789,770 | 578us | 1.7 Kelem/s | 535 MiB/s |
+| **Large** | 655,872 | 445us | 2.2 Kelem/s | 491 MiB/s |
+
+**Batch Throughput:** 15.7 Kelem/s (256-sample MNIST batch)
+**Header Parse:** 14ns (constant across all models)
+
+```bash
+# Run APR benchmarks
+cargo bench --bench apr_real
+
+# Verify reproducibility (6 unit tests)
+cargo test apr::tests::test_reproducibility
+```
 
 ### Reproducing Results
 

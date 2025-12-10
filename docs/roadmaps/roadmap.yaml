@@ -311,3 +311,19 @@ roadmap:
   - tracing
   - opentelemetry
   notes: 'Per Initial Release Specification §5: Observability'
+- id: APR-BENCH-001
+  github_issue: null
+  item_type: task
+  title: 'New task: APR-BENCH-001'
+  status: inprogress
+  priority: medium
+  assigned_to: null
+  created: 2025-12-10T14:01:16.130182096+00:00
+  updated: 2025-12-10T14:01:16.130182096+00:00
+  spec: null
+  acceptance_criteria: []
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels: []
+  notes: null

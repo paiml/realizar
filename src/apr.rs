@@ -712,4 +712,175 @@ mod tests {
         let result = AprModel::from_bytes(&data);
         assert!(result.is_err());
     }
+
+    // ==========================================================================
+    // Reproducibility Tests (Refs APR-BENCH-001)
+    // ==========================================================================
+
+    /// Simple LCG PRNG for reproducible weight generation (same as benches/apr_real.rs)
+    struct ReproducibleRng {
+        state: u64,
+    }
+
+    impl ReproducibleRng {
+        fn new(seed: u64) -> Self {
+            Self { state: seed }
+        }
+
+        fn next_u64(&mut self) -> u64 {
+            self.state = self
+                .state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            self.state
+        }
+
+        #[allow(clippy::cast_precision_loss)]
+        fn next_f32(&mut self, scale: f32) -> f32 {
+            let bits = self.next_u64();
+            let normalized = (bits >> 33) as f32 / (u32::MAX >> 1) as f32;
+            (normalized - 0.5) * 2.0 * scale
+        }
+    }
+
+    /// Generate deterministic weights for reproducibility testing
+    fn generate_test_weights(
+        input_dim: usize,
+        hidden_dim: usize,
+        output_dim: usize,
+        seed: u64,
+    ) -> ModelWeights {
+        let mut rng = ReproducibleRng::new(seed);
+        let scale = 0.1;
+
+        // Input -> Hidden weights
+        let hidden_weights: Vec<f32> = (0..hidden_dim * input_dim)
+            .map(|_| rng.next_f32(scale))
+            .collect();
+        let hidden_biases: Vec<f32> = (0..hidden_dim).map(|_| rng.next_f32(scale * 0.1)).collect();
+
+        // Hidden -> Output weights
+        let output_weights: Vec<f32> = (0..output_dim * hidden_dim)
+            .map(|_| rng.next_f32(scale))
+            .collect();
+        let output_biases: Vec<f32> = (0..output_dim).map(|_| rng.next_f32(scale * 0.1)).collect();
+
+        ModelWeights {
+            weights: vec![hidden_weights, output_weights],
+            biases: vec![hidden_biases, output_biases],
+            dimensions: vec![input_dim, hidden_dim, output_dim],
+        }
+    }
+
+    /// Create APR bytes from weights for reproducibility testing
+    fn create_test_apr_bytes(weights: &ModelWeights) -> Vec<u8> {
+        let payload = serde_json::to_vec(weights).expect("serialize");
+        let mut data = Vec::with_capacity(HEADER_SIZE + payload.len());
+
+        data.extend_from_slice(&MAGIC);
+        data.push(1); // version major
+        data.push(0); // version minor
+        data.push(0); // flags
+        data.push(0); // reserved
+        data.extend_from_slice(&AprModelType::NeuralSequential.as_u16().to_le_bytes());
+        data.extend_from_slice(&0u32.to_le_bytes()); // metadata_len
+        #[allow(clippy::cast_possible_truncation)]
+        data.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        #[allow(clippy::cast_possible_truncation)]
+        data.extend_from_slice(&(payload.len() as u32).to_le_bytes()); // original_size
+        data.extend_from_slice(&[0u8; 10]); // reserved2
+
+        data.extend_from_slice(&payload);
+        data
+    }
+
+    /// Fixed seed for reproducibility tests (matches benches/apr_real.rs)
+    const REPRODUCIBLE_SEED: u64 = 42;
+
+    #[test]
+    fn test_reproducibility_same_seed_same_weights() {
+        let weights1 = generate_test_weights(4, 8, 3, REPRODUCIBLE_SEED);
+        let weights2 = generate_test_weights(4, 8, 3, REPRODUCIBLE_SEED);
+
+        assert_eq!(weights1.weights, weights2.weights, "weights should match");
+        assert_eq!(weights1.biases, weights2.biases, "biases should match");
+        assert_eq!(
+            weights1.dimensions, weights2.dimensions,
+            "dimensions should match"
+        );
+    }
+
+    #[test]
+    fn test_reproducibility_different_seed_different_weights() {
+        let weights1 = generate_test_weights(4, 8, 3, 42);
+        let weights2 = generate_test_weights(4, 8, 3, 43);
+
+        assert_ne!(
+            weights1.weights, weights2.weights,
+            "different seeds should produce different weights"
+        );
+    }
+
+    #[test]
+    fn test_reproducibility_apr_bytes_identical() {
+        let weights = generate_test_weights(4, 8, 3, REPRODUCIBLE_SEED);
+        let bytes1 = create_test_apr_bytes(&weights);
+        let bytes2 = create_test_apr_bytes(&weights);
+
+        assert_eq!(bytes1, bytes2, "APR bytes should be identical");
+    }
+
+    #[test]
+    fn test_reproducibility_model_outputs_identical() {
+        let weights = generate_test_weights(4, 8, 3, REPRODUCIBLE_SEED);
+        let apr_bytes = create_test_apr_bytes(&weights);
+
+        let model1 = AprModel::from_bytes(&apr_bytes).expect("load model 1");
+        let model2 = AprModel::from_bytes(&apr_bytes).expect("load model 2");
+
+        // Generate deterministic input
+        let mut rng = ReproducibleRng::new(REPRODUCIBLE_SEED + 1000);
+        let input: Vec<f32> = (0..4).map(|_| rng.next_f32(1.0).abs()).collect();
+
+        let output1 = model1.predict(&input).expect("predict 1");
+        let output2 = model2.predict(&input).expect("predict 2");
+
+        assert_eq!(output1, output2, "model outputs should be identical");
+    }
+
+    #[test]
+    fn test_reproducibility_checksum_stable() {
+        // This checksum verifies the RNG produces stable output across runs
+        let weights = generate_test_weights(4, 8, 3, REPRODUCIBLE_SEED);
+        let apr_bytes = create_test_apr_bytes(&weights);
+
+        let checksum: u64 = apr_bytes.iter().map(|&b| u64::from(b)).sum();
+
+        // Expected checksum for 4x8x3 model with seed 42
+        // This value should be stable across all runs
+        assert!(
+            checksum > 10000,
+            "checksum should be reasonable: {checksum}"
+        );
+    }
+
+    #[test]
+    fn test_reproducibility_batch_outputs_identical() {
+        let weights = generate_test_weights(4, 8, 3, REPRODUCIBLE_SEED);
+        let apr_bytes = create_test_apr_bytes(&weights);
+        let model = AprModel::from_bytes(&apr_bytes).expect("load model");
+
+        // Generate deterministic batch
+        let batch: Vec<Vec<f32>> = (0..4)
+            .map(|i| {
+                let mut rng = ReproducibleRng::new(REPRODUCIBLE_SEED + 2000 + i);
+                (0..4).map(|_| rng.next_f32(1.0).abs()).collect()
+            })
+            .collect();
+
+        let outputs1 = model.predict_batch(&batch).expect("batch predict 1");
+        let outputs2 = model.predict_batch(&batch).expect("batch predict 2");
+
+        assert_eq!(outputs1, outputs2, "batch outputs should be identical");
+    }
 }

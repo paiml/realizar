@@ -178,6 +178,10 @@ required-features = ["lambda"]
 name = "comparative"
 harness = false
 
+[[bench]]
+name = "apr_real"
+harness = false
+
 [[example]]
 name = "build_mnist_model"
 required-features = ["aprender-serve"]
