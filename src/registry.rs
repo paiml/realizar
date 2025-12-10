@@ -248,6 +248,51 @@ impl ModelRegistry {
         Ok(())
     }
 
+    /// Atomically replace a model (for hot-reload)
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Model identifier to replace
+    /// * `model` - New model instance
+    /// * `tokenizer` - New tokenizer instance
+    ///
+    /// # Errors
+    ///
+    /// Returns error if model not found or lock acquisition fails
+    pub fn replace(&self, id: &str, model: Model, tokenizer: BPETokenizer) -> Result<()> {
+        let _guard = self.write_lock.lock().map_err(|_| {
+            RealizarError::RegistryError("Failed to acquire write lock".to_string())
+        })?;
+
+        let current = self.models.load();
+        if !current.contains_key(id) {
+            return Err(RealizarError::ModelNotFound(id.to_string()));
+        }
+
+        // Get existing info to preserve metadata
+        let existing_info = current.get(id).map_or_else(
+            || ModelInfo {
+                id: id.to_string(),
+                name: id.to_string(),
+                description: String::new(),
+                format: "unknown".to_string(),
+                loaded: true,
+            },
+            |e| e.info.clone(),
+        );
+
+        let entry = ModelEntry {
+            model: Arc::new(model),
+            tokenizer: Arc::new(tokenizer),
+            info: existing_info,
+        };
+
+        let mut new_map: ModelsMap = (**current).clone();
+        new_map.insert(id.to_string(), entry);
+        self.models.store(Arc::new(new_map));
+        Ok(())
+    }
+
     /// Check if a model is registered (lock-free)
     #[must_use]
     pub fn contains(&self, id: &str) -> bool {

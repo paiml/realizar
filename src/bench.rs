@@ -1802,6 +1802,137 @@ impl LlamaCppBackend {
     pub fn new(config: LlamaCppConfig) -> Self {
         Self { config }
     }
+
+    /// Build CLI arguments for llama-cli invocation
+    #[must_use]
+    pub fn build_cli_args(&self, request: &InferenceRequest) -> Vec<String> {
+        let mut args = Vec::new();
+
+        // Model path
+        if let Some(ref model_path) = self.config.model_path {
+            args.push("-m".to_string());
+            args.push(model_path.clone());
+        }
+
+        // Prompt
+        args.push("-p".to_string());
+        args.push(request.prompt.clone());
+
+        // Number of tokens to generate
+        args.push("-n".to_string());
+        args.push(request.max_tokens.to_string());
+
+        // GPU layers
+        args.push("-ngl".to_string());
+        args.push(self.config.n_gpu_layers.to_string());
+
+        // Context size
+        args.push("-c".to_string());
+        args.push(self.config.ctx_size.to_string());
+
+        // Threads
+        args.push("-t".to_string());
+        args.push(self.config.threads.to_string());
+
+        // Temperature (if non-default)
+        if (request.temperature - 0.8).abs() > 0.01 {
+            args.push("--temp".to_string());
+            args.push(format!("{:.2}", request.temperature));
+        }
+
+        args
+    }
+
+    /// Parse a timing line from llama-cli output
+    ///
+    /// Example: `llama_perf_context_print: prompt eval time =      12.34 ms /    10 tokens`
+    /// Returns: `Some((12.34, 10))`
+    #[must_use]
+    pub fn parse_timing_line(output: &str, metric_name: &str) -> Option<(f64, usize)> {
+        for line in output.lines() {
+            // For "eval time", we need to exclude "prompt eval time"
+            let matches = if metric_name == "eval time" {
+                line.contains(metric_name) && !line.contains("prompt eval time")
+            } else {
+                line.contains(metric_name)
+            };
+
+            if matches && line.contains('=') {
+                // Extract the value after "=" and before "ms"
+                // Format: "metric_name =      12.34 ms /    10 tokens"
+                if let Some(eq_pos) = line.find('=') {
+                    let after_eq = &line[eq_pos + 1..];
+                    // Find ms position
+                    if let Some(ms_pos) = after_eq.find("ms") {
+                        let value_str = after_eq[..ms_pos].trim();
+                        if let Ok(value) = value_str.parse::<f64>() {
+                            // Find the count after "/"
+                            if let Some(slash_pos) = after_eq.find('/') {
+                                let after_slash = &after_eq[slash_pos + 1..];
+                                // Extract number before "tokens" or "runs"
+                                let count_str =
+                                    after_slash.split_whitespace().next().unwrap_or("0");
+                                if let Ok(count) = count_str.parse::<usize>() {
+                                    return Some((value, count));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Extract generated text from llama-cli output (before timing lines)
+    #[must_use]
+    pub fn extract_generated_text(output: &str) -> String {
+        let mut text_lines = Vec::new();
+        for line in output.lines() {
+            // Stop when we hit timing/performance lines
+            if line.contains("llama_perf_") || line.contains("sampler") {
+                break;
+            }
+            text_lines.push(line);
+        }
+        text_lines.join("\n").trim().to_string()
+    }
+
+    /// Parse full CLI output into InferenceResponse
+    ///
+    /// # Errors
+    ///
+    /// Returns error if timing information cannot be parsed from output.
+    pub fn parse_cli_output(output: &str) -> Result<InferenceResponse, RealizarError> {
+        // Extract generated text
+        let text = Self::extract_generated_text(output);
+
+        // Parse timing metrics
+        let ttft_ms = Self::parse_timing_line(output, "prompt eval time").map_or(0.0, |(ms, _)| ms);
+
+        let (total_time_ms, _) = Self::parse_timing_line(output, "total time").unwrap_or((0.0, 0));
+
+        let (_, tokens_generated) =
+            Self::parse_timing_line(output, "eval time").unwrap_or((0.0, 0));
+
+        // ITL is not directly available from CLI output, estimate from eval time
+        let eval_time = Self::parse_timing_line(output, "eval time").map_or(0.0, |(ms, _)| ms);
+
+        let itl_ms = if tokens_generated > 1 {
+            let avg_itl = eval_time / (tokens_generated as f64);
+            vec![avg_itl; tokens_generated.saturating_sub(1)]
+        } else {
+            vec![]
+        };
+
+        Ok(InferenceResponse {
+            text,
+            tokens_generated,
+            ttft_ms,
+            total_time_ms,
+            itl_ms,
+        })
+    }
 }
 
 impl RuntimeBackend for LlamaCppBackend {
@@ -1817,26 +1948,40 @@ impl RuntimeBackend for LlamaCppBackend {
     fn inference(&self, request: &InferenceRequest) -> Result<InferenceResponse, RealizarError> {
         use std::process::Command;
 
-        // Check if binary exists
-        let output = Command::new(&self.config.binary_path)
-            .arg("--version")
-            .output();
+        // Require model path
+        let model_path = self.config.model_path.as_ref().ok_or_else(|| {
+            RealizarError::InvalidConfiguration("model_path is required".to_string())
+        })?;
 
-        match output {
-            Ok(_) => {
-                // Simulate inference (real impl would run the binary)
-                Ok(InferenceResponse {
-                    text: format!("Response to: {}", request.prompt),
-                    tokens_generated: 10,
-                    ttft_ms: 50.0,
-                    total_time_ms: 200.0,
-                    itl_ms: vec![15.0; 9],
-                })
-            },
-            Err(_) => Err(RealizarError::ModelNotFound(
-                self.config.binary_path.clone(),
-            )),
+        // Build CLI arguments
+        let args = self.build_cli_args(request);
+
+        // Execute llama-cli
+        let output = Command::new(&self.config.binary_path)
+            .args(&args)
+            .output()
+            .map_err(|e| {
+                RealizarError::ModelNotFound(format!(
+                    "Failed to execute {}: {}",
+                    self.config.binary_path, e
+                ))
+            })?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(RealizarError::InferenceError(format!(
+                "llama-cli failed: {} (model: {})",
+                stderr, model_path
+            )));
         }
+
+        // Parse stdout for response and timing
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        // Timing info is often in stderr, combine both
+        let combined_output = format!("{}\n{}", stdout, stderr);
+        Self::parse_cli_output(&combined_output)
     }
 }
 
@@ -5704,5 +5849,123 @@ mod tests {
             passed_latency_threshold: true,
         };
         assert!((result.throughput_mbps() - 1.0).abs() < 0.001); // 10MB / 10s = 1 MB/s
+    }
+
+    // ========================================================================
+    // LlamaCppBackend REAL CLI Output Parsing Tests (P0 - No Stubs)
+    // ========================================================================
+
+    #[test]
+    fn test_parse_llama_cli_timing_prompt_eval() {
+        let output = r#"llama_perf_context_print: prompt eval time =      12.34 ms /    10 tokens (    1.23 ms per token,   810.37 tokens per second)"#;
+        let timing = LlamaCppBackend::parse_timing_line(output, "prompt eval time");
+        assert!(timing.is_some());
+        let (total_ms, tokens) = timing.unwrap();
+        assert!((total_ms - 12.34).abs() < 0.01);
+        assert_eq!(tokens, 10);
+    }
+
+    #[test]
+    fn test_parse_llama_cli_timing_eval() {
+        let output = r#"llama_perf_context_print:        eval time =      22.60 ms /     5 runs   (    4.52 ms per token,   221.28 tokens per second)"#;
+        let timing = LlamaCppBackend::parse_timing_line(output, "eval time");
+        assert!(timing.is_some());
+        let (total_ms, runs) = timing.unwrap();
+        assert!((total_ms - 22.60).abs() < 0.01);
+        assert_eq!(runs, 5);
+    }
+
+    #[test]
+    fn test_parse_llama_cli_timing_total() {
+        let output = r#"llama_perf_context_print:       total time =      23.27 ms /     6 tokens"#;
+        let timing = LlamaCppBackend::parse_timing_line(output, "total time");
+        assert!(timing.is_some());
+        let (total_ms, tokens) = timing.unwrap();
+        assert!((total_ms - 23.27).abs() < 0.01);
+        assert_eq!(tokens, 6);
+    }
+
+    #[test]
+    fn test_parse_llama_cli_full_output() {
+        let output = r#"Hello world",
+```
+
+llama_perf_sampler_print:    sampling time =       0.14 ms /     6 runs   (    0.02 ms per token, 42553.19 tokens per second)
+llama_perf_context_print:        load time =    1349.68 ms
+llama_perf_context_print: prompt eval time =       5.00 ms /     1 tokens (    5.00 ms per token,   200.00 tokens per second)
+llama_perf_context_print:        eval time =      22.60 ms /     5 runs   (    4.52 ms per token,   221.28 tokens per second)
+llama_perf_context_print:       total time =      27.60 ms /     6 tokens"#;
+
+        let result = LlamaCppBackend::parse_cli_output(output);
+        assert!(result.is_ok());
+        let response = result.unwrap();
+        // TTFT = prompt eval time (time to first token)
+        assert!((response.ttft_ms - 5.0).abs() < 0.1);
+        // Total time from parse
+        assert!((response.total_time_ms - 27.60).abs() < 0.1);
+        // Tokens generated = eval runs (5 tokens generated after prompt)
+        assert_eq!(response.tokens_generated, 5);
+        // Text should contain the generated content
+        assert!(response.text.contains("Hello world"));
+    }
+
+    #[test]
+    fn test_parse_llama_cli_extract_generated_text() {
+        let output =
+            "The answer is 42.\n\nllama_perf_context_print: total time = 100.0 ms / 10 tokens";
+        let text = LlamaCppBackend::extract_generated_text(output);
+        assert_eq!(text, "The answer is 42.");
+    }
+
+    #[test]
+    fn test_llama_cpp_backend_build_command() {
+        let config = LlamaCppConfig {
+            binary_path: "/path/to/llama-cli".to_string(),
+            model_path: Some("/path/to/model.gguf".to_string()),
+            n_gpu_layers: 99,
+            ctx_size: 4096,
+            threads: 8,
+        };
+        let backend = LlamaCppBackend::new(config);
+        let request = InferenceRequest {
+            prompt: "Hello".to_string(),
+            max_tokens: 10,
+            temperature: 0.7,
+            stop: vec![],
+        };
+        let args = backend.build_cli_args(&request);
+
+        assert!(args.contains(&"-m".to_string()));
+        assert!(args.contains(&"/path/to/model.gguf".to_string()));
+        assert!(args.contains(&"-p".to_string()));
+        assert!(args.contains(&"Hello".to_string()));
+        assert!(args.contains(&"-n".to_string()));
+        assert!(args.contains(&"10".to_string()));
+        assert!(args.contains(&"-ngl".to_string()));
+        assert!(args.contains(&"99".to_string()));
+        assert!(args.contains(&"-c".to_string()));
+        assert!(args.contains(&"4096".to_string()));
+        assert!(args.contains(&"-t".to_string()));
+        assert!(args.contains(&"8".to_string()));
+    }
+
+    #[test]
+    fn test_llama_cpp_backend_no_model_path_error() {
+        let config = LlamaCppConfig {
+            binary_path: "/path/to/llama-cli".to_string(),
+            model_path: None, // No model
+            n_gpu_layers: 0,
+            ctx_size: 2048,
+            threads: 4,
+        };
+        let backend = LlamaCppBackend::new(config);
+        let request = InferenceRequest {
+            prompt: "Hello".to_string(),
+            max_tokens: 10,
+            temperature: 0.7,
+            stop: vec![],
+        };
+        let result = backend.inference(&request);
+        assert!(result.is_err());
     }
 }

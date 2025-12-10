@@ -136,6 +136,14 @@ pub enum RealizarError {
         /// Reason for GPU error
         reason: String,
     },
+
+    /// Invalid configuration error
+    #[error("Invalid configuration: {0}")]
+    InvalidConfiguration(String),
+
+    /// Inference execution error
+    #[error("Inference error: {0}")]
+    InferenceError(String),
 }
 
 #[cfg(test)]
