@@ -1,10 +1,64 @@
 # Realizar: Model Runner Benchmark Specification
 
-**Version**: 1.1
-**Date**: 2025-12-09
-**Status**: Living Document
+**Version**: 2.0
+**Date**: 2025-12-10
+**Status**: ACTIVE - Sprint Planning Ready
 **Priority**: CRITICAL - Scientific Validation of Inference Performance
-**Review Status**: Revised per Toyota Way Engineering Review
+**Review Status**: Revised per Toyota Way Engineering Review + QA Checklist (99/100)
+**Next Sprint**: BENCH-SPRINT-001 (Quantized Inference + Real HTTP Benchmarks)
+
+---
+
+## Revision History
+
+| Version | Date | Author | Changes |
+|---------|------|--------|---------|
+| 1.0 | 2025-12-09 | Batuta Team | Initial specification |
+| 1.1 | 2025-12-09 | Batuta Team | Dynamic sampling, ITL, KV-cache, energy, thermal guards |
+| 2.0 | 2025-12-10 | Batuta Team | Current state analysis, sprint planning, +10 citations, honest gap assessment |
+
+---
+
+## Current Implementation Status (Genchi Genbutsu)
+
+### What's Working (✅ Verified)
+
+| Component | Status | Evidence |
+|-----------|--------|----------|
+| Criterion.rs benchmarks | ✅ 8 suites | `cargo bench` runs successfully |
+| .apr format inference | ✅ 9.6x faster than PyTorch | `mnist_apr_benchmark` example |
+| GGUF parser | ✅ Complete | 26 tests passing |
+| Safetensors parser | ✅ Complete | Zero-copy loading |
+| Test coverage | ✅ 95.23% | 1,047 tests passing |
+| QA checklist | ✅ 99/100 | Toyota Way + NASA/JPL methodology |
+| Demo server | ✅ Working | `realizar serve --demo` |
+
+### What's NOT Working (❌ Honest Assessment)
+
+| Component | Status | Gap | Root Cause |
+|-----------|--------|-----|------------|
+| LLM inference speed | ❌ 1,200x slower than llama.cpp | 0.04 vs 45 tok/s | F32 weights (8x memory traffic) |
+| Quantized compute | ❌ Dequant only | No Q4_K matmul | Missing SIMD quantized kernels |
+| GPU acceleration | ⚠️ wgpu only | 10-100x slower than CUDA | No cuBLAS bindings |
+| Real HTTP benchmarks | ⚠️ Mock data | Hardcoded responses | `VllmBackend` not wired |
+
+### The Memory Wall Problem (Root Cause Analysis)
+
+Per Wulf & McKee [21] and Williams et al. [19], LLM inference is **memory-bound**, not compute-bound:
+
+```
+Memory Traffic Analysis (phi-2 forward pass):
+├── Realizar (f32):     2.78B × 4 bytes = 11.1 GB
+├── llama.cpp (Q4_K):   2.78B × 0.5 bytes = 1.4 GB
+└── Gap:                8x more memory traffic
+
+DDR4-3200 Bandwidth:    ~35 GB/s practical
+├── Realizar floor:     11.1 GB / 35 GB/s = 317ms minimum
+├── llama.cpp floor:    1.4 GB / 35 GB/s = 40ms minimum
+└── Actual llama.cpp:   ~22ms (exceeds floor via caching)
+```
+
+**Conclusion**: Quantized inference (Q4_K/Q5_K/Q6_K) is **mandatory** before any SIMD optimization will matter.
 
 ---
 
@@ -711,55 +765,7 @@ Acceptable: KL-Div within thresholds above
 
 ---
 
-## 8. References
-
-### Original Citations (v1.0)
-
-[1] T. Mytkowicz, A. Diwan, M. Hauswirth, and P. F. Sweeney, "Producing Wrong Data Without Doing Anything Obviously Wrong!" in *Proceedings of ASPLOS*, 2009, pp. 265-276. DOI: 10.1145/1508244.1508275
-
-[2] A. Georges, D. Buytaert, and L. Eeckhout, "Statistically Rigorous Java Performance Evaluation," in *Proceedings of OOPSLA*, 2007, pp. 57-76. DOI: 10.1145/1297027.1297033
-
-[3] S. Chen, A. Ailamaki, P. B. Gibbons, and T. C. Mowry, "Improving Hash Join Performance Through Prefetching," in *Proceedings of ICDE*, 2004, pp. 116-127. DOI: 10.1109/ICDE.2004.1319989
-
-[4] B. Efron and R. J. Tibshirani, *An Introduction to the Bootstrap*. Chapman & Hall/CRC, 1993. ISBN: 978-0412042317
-
-[5] J. Vitek and T. Kalibera, "Repeatability, Reproducibility, and Rigor in Systems Research," in *Proceedings of EMSOFT*, 2011, pp. 33-38. DOI: 10.1145/2038642.2038650
-
-[6] C. Collberg and T. A. Proebsting, "Repeatability in Computer Systems Research," *Communications of the ACM*, vol. 59, no. 3, pp. 62-69, 2016. DOI: 10.1145/2812803
-
-[7] P. Zhang et al., "TinyLlama: An Open-Source Small Language Model," arXiv:2401.02385, 2024. URL: https://arxiv.org/abs/2401.02385
-
-[8] J. L. Henning, "SPEC CPU2006 Benchmark Descriptions," *ACM SIGARCH Computer Architecture News*, vol. 34, no. 4, pp. 1-17, 2006. DOI: 10.1145/1186736.1186737
-
-[9] S. Blackburn et al., "The DaCapo Benchmarks: Java Benchmarking Development and Analysis," in *Proceedings of OOPSLA*, 2006, pp. 169-190. DOI: 10.1145/1167473.1167488
-
-[10] P. J. Fleming and J. J. Wallace, "How Not to Lie with Statistics: The Correct Way to Summarize Benchmark Results," *Communications of the ACM*, vol. 29, no. 3, pp. 218-221, 1986. DOI: 10.1145/5666.5673
-
-### New Citations (v1.1 - per Engineering Review)
-
-[11] J. Dean and L. A. Barroso, "The Tail at Scale," *Communications of the ACM*, vol. 56, no. 2, pp. 74-80, 2013. DOI: 10.1145/2408776.2408794
-
-[12] W. Kwon et al., "Efficient Memory Management for Large Language Model Serving with PagedAttention," in *Proceedings of SOSP '23*, 2023. DOI: 10.1145/3600006.3613165
-
-[13] T. Dettmers et al., "LLM.int8(): 8-bit Matrix Multiplication for Transformers at Scale," in *NeurIPS*, 2022. arXiv:2208.07339
-
-[14] E. Garcia-Martin et al., "Estimation of Energy Consumption in Machine Learning," *Journal of Parallel and Distributed Computing*, vol. 134, pp. 75-88, 2019. DOI: 10.1016/j.jpdc.2019.07.007
-
-[15] G. Yu et al., "Orca: A Distributed Serving System for Transformer-Based Generative Models," in *OSDI '22*, 2022. URL: https://www.usenix.org/conference/osdi22/presentation/yu
-
-[16] T. Dao et al., "FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness," in *NeurIPS*, 2022. arXiv:2205.14135
-
-[17] T. Hoefler and R. Belli, "Scientific Benchmarking of Parallel Computing Systems," in *SC '15*, 2015. DOI: 10.1145/2807591.2807644
-
-[18] R. Y. Aminabadi et al., "DeepSpeed-Inference: Enabling Efficient Inference of Transformer Models at Unprecedented Scale," in *SC '22*, 2022. DOI: 10.1109/SC41404.2022.00051
-
-[19] S. Williams, A. Waterman, and D. Patterson, "Roofline: An Insightful Visual Performance Model for Multicore Architectures," *Communications of the ACM*, vol. 52, no. 4, pp. 65-76, 2009. DOI: 10.1145/1498765.1498785
-
-[20] J. Kaplan et al., "Scaling Laws for Neural Language Models," arXiv:2001.08361, 2020. URL: https://arxiv.org/abs/2001.08361
-
----
-
-## Appendix A: Benchmark Command Reference
+## 8. Appendix A: Benchmark Command Reference
 
 ```bash
 # Full benchmark suite with all new metrics
@@ -792,7 +798,7 @@ realizar bench-compare --results results/ --output report.md
 realizar bench-regression --baseline baseline.json --current current.json
 ```
 
-## Appendix B: Result Schema (v1.1)
+## 8.1 Appendix B: Result Schema (v2.0)
 
 ```json
 {
@@ -841,10 +847,158 @@ realizar bench-regression --baseline baseline.json --current current.json
 
 ---
 
+## 9. Sprint Planning: BENCH-SPRINT-001
+
+### 9.1 Sprint Objectives (Kaizen Cycle)
+
+**Sprint Goal**: Close the performance gap from 1,200x to ≤10x vs llama.cpp through quantized inference.
+
+**Duration**: 2 weeks
+**Start Date**: Next sprint cycle
+**Success Criteria**: ≥5 tok/s CPU inference on phi-2 (from 0.04 tok/s)
+
+### 9.2 Sprint Backlog (Priority Order)
+
+| ID | Task | Effort | Dependency | Acceptance Criteria |
+|----|------|--------|------------|---------------------|
+| BENCH-001 | Q4_K SIMD matmul kernel | 3 days | None | 4-bit × 4-bit matmul with AVX2 |
+| BENCH-002 | Q4_K inline dequant | 2 days | BENCH-001 | Dequant during compute, not before |
+| BENCH-003 | Memory-mapped GGUF weights | 2 days | None | mmap for zero-copy model loading |
+| BENCH-004 | Real HTTP benchmark wiring | 2 days | None | `reqwest` calls to Ollama/vLLM endpoints |
+| BENCH-005 | Benchmark automation CI | 1 day | BENCH-004 | GitHub Actions with result tracking |
+| BENCH-006 | Performance regression tests | 1 day | BENCH-001 | Fail CI if >10% regression |
+
+### 9.3 Toyota Way Sprint Rituals
+
+**Daily Standup (Genchi Genbutsu)**:
+- What did I measure yesterday? (not "what did I do")
+- What will I measure today?
+- What blockers prevent measurement?
+
+**Sprint Review (Jidoka)**:
+- Demo actual benchmark runs, not slides
+- Compare before/after with statistical significance
+- Human review gate before merging
+
+**Retrospective (Kaizen)**:
+- What waste (Muda) did we eliminate?
+- What measurement surprised us?
+- What should we measure next sprint?
+
+### 9.4 Definition of Done
+
+A task is DONE when:
+- [ ] Unit tests pass with ≥85% coverage on new code
+- [ ] Benchmark shows measurable improvement (p < 0.05)
+- [ ] No regression in existing benchmarks (>5% threshold)
+- [ ] Documentation updated with honest results
+- [ ] Code reviewed by at least one team member
+
+### 9.5 Risk Mitigation (Jidoka - Stop the Line)
+
+| Risk | Mitigation | Stop Condition |
+|------|------------|----------------|
+| SIMD kernel bugs | Property-based testing | Any incorrect output |
+| Performance regression | CI benchmark gates | >10% slowdown |
+| Memory safety | ASan in CI | Any memory error |
+| Thermal throttling | ThermalGuard in benchmarks | T > 80°C |
+
+### 9.6 Expected Outcomes
+
+| Metric | Current | Sprint Target | Rationale |
+|--------|---------|---------------|-----------|
+| tok/s (CPU, phi-2) | 0.04 | ≥5 | Q4_K reduces memory 8x |
+| Memory (phi-2) | 11.1 GB | ~1.4 GB | Quantized weights |
+| HTTP benchmarks | Mock | Real | Honest comparison |
+| CI automation | Manual | Automated | Reproducibility |
+
+---
+
+## 10. References
+
+### Original Citations (v1.0)
+
+[1] T. Mytkowicz, A. Diwan, M. Hauswirth, and P. F. Sweeney, "Producing Wrong Data Without Doing Anything Obviously Wrong!" in *Proceedings of ASPLOS*, 2009, pp. 265-276. DOI: 10.1145/1508244.1508275
+
+[2] A. Georges, D. Buytaert, and L. Eeckhout, "Statistically Rigorous Java Performance Evaluation," in *Proceedings of OOPSLA*, 2007, pp. 57-76. DOI: 10.1145/1297027.1297033
+
+[3] S. Chen, A. Ailamaki, P. B. Gibbons, and T. C. Mowry, "Improving Hash Join Performance Through Prefetching," in *Proceedings of ICDE*, 2004, pp. 116-127. DOI: 10.1109/ICDE.2004.1319989
+
+[4] B. Efron and R. J. Tibshirani, *An Introduction to the Bootstrap*. Chapman & Hall/CRC, 1993. ISBN: 978-0412042317
+
+[5] J. Vitek and T. Kalibera, "Repeatability, Reproducibility, and Rigor in Systems Research," in *Proceedings of EMSOFT*, 2011, pp. 33-38. DOI: 10.1145/2038642.2038650
+
+[6] C. Collberg and T. A. Proebsting, "Repeatability in Computer Systems Research," *Communications of the ACM*, vol. 59, no. 3, pp. 62-69, 2016. DOI: 10.1145/2812803
+
+[7] P. Zhang et al., "TinyLlama: An Open-Source Small Language Model," arXiv:2401.02385, 2024. URL: https://arxiv.org/abs/2401.02385
+
+[8] J. L. Henning, "SPEC CPU2006 Benchmark Descriptions," *ACM SIGARCH Computer Architecture News*, vol. 34, no. 4, pp. 1-17, 2006. DOI: 10.1145/1186736.1186737
+
+[9] S. Blackburn et al., "The DaCapo Benchmarks: Java Benchmarking Development and Analysis," in *Proceedings of OOPSLA*, 2006, pp. 169-190. DOI: 10.1145/1167473.1167488
+
+[10] P. J. Fleming and J. J. Wallace, "How Not to Lie with Statistics: The Correct Way to Summarize Benchmark Results," *Communications of the ACM*, vol. 29, no. 3, pp. 218-221, 1986. DOI: 10.1145/5666.5673
+
+### Citations Added in v1.1
+
+[11] J. Dean and L. A. Barroso, "The Tail at Scale," *Communications of the ACM*, vol. 56, no. 2, pp. 74-80, 2013. DOI: 10.1145/2408776.2408794
+
+[12] W. Kwon et al., "Efficient Memory Management for Large Language Model Serving with PagedAttention," in *Proceedings of SOSP '23*, 2023. DOI: 10.1145/3600006.3613165
+
+[13] T. Dettmers et al., "LLM.int8(): 8-bit Matrix Multiplication for Transformers at Scale," in *NeurIPS*, 2022. arXiv:2208.07339
+
+[14] E. Garcia-Martin et al., "Estimation of Energy Consumption in Machine Learning," *Journal of Parallel and Distributed Computing*, vol. 134, pp. 75-88, 2019. DOI: 10.1016/j.jpdc.2019.07.007
+
+[15] G. Yu et al., "Orca: A Distributed Serving System for Transformer-Based Generative Models," in *OSDI '22*, 2022. URL: https://www.usenix.org/conference/osdi22/presentation/yu
+
+[16] T. Dao et al., "FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness," in *NeurIPS*, 2022. arXiv:2205.14135
+
+[17] T. Hoefler and R. Belli, "Scientific Benchmarking of Parallel Computing Systems," in *SC '15*, 2015. DOI: 10.1145/2807591.2807644
+
+[18] R. Y. Aminabadi et al., "DeepSpeed-Inference: Enabling Efficient Inference of Transformer Models at Unprecedented Scale," in *SC '22*, 2022. DOI: 10.1109/SC41404.2022.00051
+
+[19] S. Williams, A. Waterman, and D. Patterson, "Roofline: An Insightful Visual Performance Model for Multicore Architectures," *Communications of the ACM*, vol. 52, no. 4, pp. 65-76, 2009. DOI: 10.1145/1498765.1498785
+
+[20] J. Kaplan et al., "Scaling Laws for Neural Language Models," arXiv:2001.08361, 2020. URL: https://arxiv.org/abs/2001.08361
+
+### New Citations (v2.0 - Quantized Inference & Memory Optimization)
+
+[21] W. A. Wulf and S. A. McKee, "Hitting the Memory Wall: Implications of the Obvious," *ACM SIGARCH Computer Architecture News*, vol. 23, no. 1, pp. 20-24, 1995. DOI: 10.1145/216585.216588
+*(Foundational paper on memory-bound computation; explains why bandwidth, not FLOPS, limits LLM inference)*
+
+[22] G. Xiao et al., "SmoothQuant: Accurate and Efficient Post-Training Quantization for Large Language Models," in *ICML*, 2023. arXiv:2211.10438
+*(Per-channel scaling for outlier features; critical for Q4 quality preservation)*
+
+[23] J. Lin et al., "AWQ: Activation-aware Weight Quantization for LLM Compression and Acceleration," in *MLSys*, 2024. arXiv:2306.00978
+*(Activation-aware quantization preserves salient weights; 4-bit with minimal quality loss)*
+
+[24] E. Frantar et al., "GPTQ: Accurate Post-Training Quantization for Generative Pre-trained Transformers," in *ICLR*, 2023. arXiv:2210.17323
+*(One-shot quantization via approximate second-order information; enables Q4 without retraining)*
+
+[25] Y. Kim et al., "Squeezellm: Dense-and-Sparse Quantization," in *ICML*, 2024. arXiv:2306.07629
+*(Sensitivity-based non-uniform quantization; sparse outlier handling)*
+
+[26] S. Shen et al., "Q-BERT: Hessian Based Ultra Low Precision Quantization of BERT," in *AAAI*, 2020. arXiv:1909.05840
+*(Mixed-precision quantization guided by Hessian sensitivity; foundational for transformer quantization)*
+
+[27] A. Gholami et al., "A Survey of Quantization Methods for Efficient Neural Network Inference," arXiv:2103.13630, 2021.
+*(Comprehensive survey of quantization techniques; taxonomy of PTQ vs QAT approaches)*
+
+[28] Z. Yao et al., "ZeroQuant: Efficient and Affordable Post-Training Quantization for Large-Scale Transformers," in *NeurIPS*, 2022. arXiv:2206.01861
+*(Layer-wise knowledge distillation for INT8; maintains quality at scale)*
+
+[29] H. Wu et al., "Integer Quantization for Deep Learning Inference: Principles and Empirical Evaluation," arXiv:2004.09602, 2020.
+*(NVIDIA's INT8 inference guide; practical implementation patterns for quantized GEMM)*
+
+[30] P. Micikevicius et al., "Mixed Precision Training," in *ICLR*, 2018. arXiv:1710.03740
+*(FP16/BF16 training with loss scaling; foundational for mixed-precision inference)*
+
+---
+
 **Document Control**
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0 | 2025-12-09 | Batuta Team | Initial specification |
-| 1.1 | 2025-12-09 | Batuta Team | Kaizen: Dynamic sampling, ITL, KV-cache, energy, thermal guards, KL-divergence, +10 citations |
+| 1.1 | 2025-12-09 | Batuta Team | Dynamic sampling, ITL, KV-cache, energy, thermal guards |
+| 2.0 | 2025-12-10 | Batuta Team | Current state (honest gap), sprint planning, +10 citations [21-30] |
 
