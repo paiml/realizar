@@ -2,13 +2,15 @@
 
 This directory contains example programs demonstrating the capabilities of realizar, a pure Rust ML inference engine.
 
-## Available Examples (10 total)
+## Available Examples (14 total)
 
-### 1. `inference.rs` - End-to-End Text Generation
+### Core Examples (No Extra Features Required)
+
+#### 1. `inference.rs` - End-to-End Text Generation
 
 Demonstrates the complete text generation pipeline:
 - Model initialization with configuration
-- Forward pass through transformer blocks  
+- Forward pass through transformer blocks
 - Text generation with various sampling strategies (greedy, top-k, top-p)
 
 **Run:**
@@ -16,7 +18,7 @@ Demonstrates the complete text generation pipeline:
 cargo run --example inference
 ```
 
-### 2. `api_server.rs` - HTTP API Server
+#### 2. `api_server.rs` - HTTP API Server
 
 Shows how to deploy realizar as a REST API service:
 - Create a demo model
@@ -30,7 +32,7 @@ cargo run --example api_server
 # Test: curl http://127.0.0.1:3000/health
 ```
 
-### 3. `tokenization.rs` - Tokenizer Comparison
+#### 3. `tokenization.rs` - Tokenizer Comparison
 
 Compares different tokenization strategies:
 - Basic tokenizer (vocabulary-based)
@@ -43,7 +45,7 @@ Compares different tokenization strategies:
 cargo run --example tokenization
 ```
 
-### 4. `safetensors_loading.rs` - Model Loading
+#### 4. `safetensors_loading.rs` - SafeTensors Model Loading
 
 Demonstrates SafeTensors file format support:
 - Load SafeTensors files (aprender compatibility)
@@ -56,7 +58,7 @@ Demonstrates SafeTensors file format support:
 cargo run --example safetensors_loading
 ```
 
-### 5. `model_cache.rs` - Model Caching
+#### 5. `model_cache.rs` - Model Caching with LRU
 
 Demonstrates ModelCache for efficient model reuse:
 - Cache creation with capacity limits
@@ -70,7 +72,7 @@ Demonstrates ModelCache for efficient model reuse:
 cargo run --example model_cache
 ```
 
-### 6. `gguf_loading.rs` - GGUF Format Loading
+#### 6. `gguf_loading.rs` - GGUF Format Loading
 
 Demonstrates GGUF file format support (llama.cpp/Ollama):
 - Load GGUF files (binary format parsing)
@@ -84,7 +86,38 @@ Demonstrates GGUF file format support (llama.cpp/Ollama):
 cargo run --example gguf_loading
 ```
 
-### 7. `wine_lambda.rs` - AWS Lambda Wine Quality Predictor
+#### 7. `apr_loading.rs` - APR Format Loading (Sovereign Stack)
+
+Demonstrates Aprender's native .apr format - the PRIMARY inference format
+for the sovereign AI stack:
+- APR format specification (magic, header, flags)
+- All supported model types (Linear, NN, MoE, etc.)
+- Header parsing and format detection
+- Inference with synthetic models
+- Batch prediction
+
+**Run:**
+```bash
+cargo run --example apr_loading
+```
+
+#### 8. `observability_demo.rs` - Distributed Tracing & Metrics
+
+Demonstrates the observability stack:
+- OpenTelemetry-style tracing with span creation
+- W3C TraceContext propagation (traceparent header)
+- Prometheus metrics export
+- A/B testing with variant tracking
+- Custom span attributes and events
+
+**Run:**
+```bash
+cargo run --example observability_demo
+```
+
+### Examples Requiring Features
+
+#### 9. `wine_lambda.rs` - AWS Lambda Wine Quality Predictor
 
 Production-ready wine quality rating predictor for AWS Lambda deployment.
 Inspired by [paiml/wine-ratings](https://github.com/paiml/wine-ratings).
@@ -114,7 +147,7 @@ aws lambda create-function --function-name wine-predictor --runtime provided.al2
   --architecture arm64 --handler bootstrap --zip-file fileb://wine_lambda.zip
 ```
 
-### 8. `data_pipeline.rs` - Alimentar Data Pipeline Integration
+#### 10. `data_pipeline.rs` - Alimentar Data Pipeline Integration
 
 End-to-end ML data pipeline demonstrating alimentar + realizar integration:
 - Load built-in Iris dataset (embedded, no download)
@@ -130,7 +163,7 @@ End-to-end ML data pipeline demonstrating alimentar + realizar integration:
 cargo run --example data_pipeline --features alimentar-data
 ```
 
-### 9. `train_model.rs` - Train Real .apr Models
+#### 11. `train_model.rs` - Train Real .apr Models
 
 Train actual ML models with aprender and save as .apr format:
 - Wine quality linear regression (R² ~0.93)
@@ -146,33 +179,61 @@ cargo run --example train_model --features "aprender-serve"
 **Output:**
 - `wine_regressor.apr` (141 bytes, gitignored)
 
-### 10. `apr_loading.rs` - APR Format Loading (Sovereign Stack)
+#### 12. `build_mnist_model.rs` - Build MNIST Classifier
 
-Demonstrates Aprender's native .apr format - the PRIMARY inference format
-for the sovereign AI stack:
-- APR format specification (magic, header, flags)
-- All supported model types (Linear, NN, MoE, etc.)
-- Header parsing and format detection
-- Inference with synthetic models
-- Batch prediction
+Build and save an MNIST digit classifier:
+- Create neural network architecture
+- Save as .apr format for deployment
+- Compatible with serve_mnist example
 
 **Run:**
 ```bash
-cargo run --example apr_loading
+cargo run --example build_mnist_model --features "aprender-serve"
 ```
 
-**Integration with single-shot-eval:**
-For SLM Pareto Frontier evaluation with .apr models, see:
-[`single-shot-eval`](https://github.com/paiml/single-shot-eval)
+#### 13. `serve_mnist.rs` - Serve MNIST Model via HTTP
 
-## Requirements
+Serve an MNIST classifier via HTTP API:
+- Load pre-built MNIST model
+- REST API for digit classification
+- Batch prediction support
 
-All examples use the default features. Some examples (api_server) require the `server` feature:
-
-```toml
-[features]
-default = ["server", "cli", "gpu"]
+**Run:**
+```bash
+cargo run --example serve_mnist --features "aprender-serve"
 ```
+
+#### 14. `mnist_apr_benchmark.rs` - MNIST APR vs PyTorch Benchmark
+
+Benchmark .apr format inference against PyTorch baseline:
+- Cold start latency comparison
+- Inference throughput measurement
+- Memory usage analysis
+- Pareto frontier visualization data
+
+**Run:**
+```bash
+cargo run --example mnist_apr_benchmark --features "aprender-serve"
+```
+
+## Quick Reference
+
+| Example | Features Required | Description |
+|---------|------------------|-------------|
+| `inference` | None | Text generation with sampling |
+| `api_server` | None | HTTP REST API server |
+| `tokenization` | None | BPE/SentencePiece comparison |
+| `safetensors_loading` | None | Load .safetensors files |
+| `model_cache` | None | LRU caching demo |
+| `gguf_loading` | None | Load llama.cpp models |
+| `apr_loading` | None | Load .apr models |
+| `observability_demo` | None | Tracing & metrics |
+| `wine_lambda` | None | AWS Lambda predictor |
+| `data_pipeline` | `alimentar-data` | End-to-end ML pipeline |
+| `train_model` | `aprender-serve` | Train & save models |
+| `build_mnist_model` | `aprender-serve` | Build MNIST classifier |
+| `serve_mnist` | `aprender-serve` | Serve MNIST via HTTP |
+| `mnist_apr_benchmark` | `aprender-serve` | Benchmark .apr vs PyTorch |
 
 ## Quick Start
 
@@ -186,9 +247,14 @@ Run a specific example:
 cargo run --example <name>
 ```
 
+Run with features:
+```bash
+cargo run --example <name> --features "<feature-list>"
+```
+
 ## Notes
 
 - Examples use demo/synthetic models for demonstration
 - Real model loading requires proper GGUF or SafeTensors files
-- API server example runs indefinitely (Ctrl+C to stop)
+- API server examples run indefinitely (Ctrl+C to stop)
 - All examples follow EXTREME TDD principles with comprehensive testing

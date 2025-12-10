@@ -207,4 +207,55 @@ mod tests {
         assert_eq!(region.len(), 1024);
         assert!(!region.is_empty());
     }
+
+    #[test]
+    fn test_pinned_region_empty() {
+        let config = MlockConfig::default();
+        let data: Vec<u8> = vec![];
+        let (region, _) = unsafe { PinnedRegion::new(data.as_ptr(), data.len(), &config) };
+        assert_eq!(region.len(), 0);
+        assert!(region.is_empty());
+    }
+
+    #[test]
+    fn test_mlock_config_default() {
+        let config = MlockConfig::default();
+        assert!(!config.enabled);
+        assert_eq!(config.max_locked_bytes, 0);
+    }
+
+    #[test]
+    fn test_mlock_result_equality() {
+        assert_eq!(MlockResult::Locked, MlockResult::Locked);
+        assert_eq!(MlockResult::Disabled, MlockResult::Disabled);
+        assert_ne!(MlockResult::Locked, MlockResult::Disabled);
+    }
+
+    #[test]
+    fn test_expert_tier_boundary() {
+        // Test exact boundary conditions
+        assert_eq!(ExpertTier::from_access_count(100, 100, 10), ExpertTier::Hot);
+        assert_eq!(ExpertTier::from_access_count(99, 100, 10), ExpertTier::Warm);
+        assert_eq!(ExpertTier::from_access_count(10, 100, 10), ExpertTier::Warm);
+        assert_eq!(ExpertTier::from_access_count(9, 100, 10), ExpertTier::Cold);
+    }
+
+    #[test]
+    fn test_mlock_enabled_within_limit() {
+        // Test when enabled and within limit - will try actual mlock
+        let config = MlockConfig {
+            enabled: true,
+            max_locked_bytes: 0, // 0 = unlimited
+        };
+        let data: [u8; 64] = [0u8; 64];
+        let (region, result) = unsafe { PinnedRegion::new(data.as_ptr(), data.len(), &config) };
+        // Result depends on system permissions, but API should work
+        assert!(
+            result == MlockResult::Locked
+                || result == MlockResult::InsufficientPrivileges
+                || result == MlockResult::ResourceLimit
+                || result == MlockResult::Unsupported
+        );
+        assert_eq!(region.len(), 64);
+    }
 }

@@ -625,9 +625,11 @@ mod tests {
 
     #[test]
     fn test_scheduler_output_total_tokens() {
-        let mut output = SchedulerOutput::default();
-        output.num_prefill_tokens = 100;
-        output.num_decode_tokens = 10;
+        let output = SchedulerOutput {
+            num_prefill_tokens: 100,
+            num_decode_tokens: 10,
+            ..Default::default()
+        };
         assert_eq!(output.total_tokens(), 110);
     }
 

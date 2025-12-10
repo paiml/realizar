@@ -1,45 +1,23 @@
 # rustfmt configuration for Realizar
-# Consistent formatting across the project
+# Using only stable features (no nightly required)
 
 edition = "2021"
 
-# Imports
-imports_granularity = "Crate"
-group_imports = "StdExternalCrate"
-
 # Line width
 max_width = 100
-comment_width = 80
 
 # Function formatting
 fn_params_layout = "Tall"
-fn_single_line = false
 
 # Use field init shorthand
 use_field_init_shorthand = true
 
-# Force explicit `where` clauses
-where_single_line = false
-
 # Newlines
 newline_style = "Unix"
 
-# Spacing
-spaces_around_ranges = false
-space_before_colon = false
-space_after_colon = true
-
 # Match arms
-match_arm_blocks = true
 match_block_trailing_comma = true
-
-# Control flow
-control_brace_style = "AlwaysSameLine"
 
 # Reordering
 reorder_imports = true
 reorder_modules = true
-
-# Blank lines
-blank_lines_upper_bound = 2
-blank_lines_lower_bound = 0

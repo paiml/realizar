@@ -505,11 +505,7 @@ async fn predict_handler(
             let probs = if return_probs {
                 // predict_proba returns Result<Vec<Vec<f32>>>
                 let prob_vecs = nb.predict_proba(&input).map_err(map_err)?;
-                if let Some(first_row) = prob_vecs.first() {
-                    Some(first_row.clone())
-                } else {
-                    None
-                }
+                prob_vecs.first().cloned()
             } else {
                 None
             };
@@ -543,7 +539,7 @@ async fn predict_handler(
                 let n_classes = prob_matrix.n_cols();
                 let mut probs_vec = Vec::with_capacity(n_classes);
                 for j in 0..n_classes {
-                    probs_vec.push(prob_matrix.get(0, j) as f32);
+                    probs_vec.push(prob_matrix.get(0, j));
                 }
                 Some(probs_vec)
             } else {
@@ -560,11 +556,7 @@ async fn predict_handler(
             let probs = if return_probs {
                 // predict_proba returns Result<Vec<Vec<f32>>>
                 let prob_vecs = gb.predict_proba(&input).map_err(map_err)?;
-                if let Some(first_row) = prob_vecs.first() {
-                    Some(first_row.clone())
-                } else {
-                    None
-                }
+                prob_vecs.first().cloned()
             } else {
                 None
             };
@@ -573,7 +565,7 @@ async fn predict_handler(
         LoadedModel::LinearRegression(lr) => {
             // LinearRegression.predict() returns Vector<f32> directly
             let predictions = lr.predict(&input);
-            let pred = predictions.as_slice().first().copied().unwrap_or(0.0) as f32;
+            let pred = predictions.as_slice().first().copied().unwrap_or(0.0);
             // Regression doesn't have probabilities
             (pred, None)
         },
@@ -730,7 +722,7 @@ async fn batch_predict_handler(
             },
             LoadedModel::LinearRegression(lr) => {
                 let preds = lr.predict(&input);
-                let pred = preds.as_slice().first().copied().unwrap_or(0.0) as f32;
+                let pred = preds.as_slice().first().copied().unwrap_or(0.0);
                 (pred, None)
             },
         };

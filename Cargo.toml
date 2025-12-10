@@ -81,6 +81,12 @@ num-traits = "0.2"
 # Half-precision floats (for Q4_K and other K-quantization formats)
 half = { version = "2.4", features = ["std"] }
 
+# Memory-mapped file I/O for zero-copy model loading (per spec Phase 1)
+memmap2 = "0.9"
+
+# Parallel processing for multi-core inference (per spec Phase 2/3)
+rayon = "1.10"
+
 # That's it. NO candle, NO llama-cpp-rs, NO hf-hub
 # We build everything from scratch: GGUF parser, safetensors, transformer, quantization, tokenizer
 

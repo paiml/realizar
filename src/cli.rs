@@ -935,8 +935,10 @@ mod tests {
 
     #[test]
     fn test_benchmark_suites_not_empty() {
-        assert!(!BENCHMARK_SUITES.is_empty());
-        assert!(BENCHMARK_SUITES.len() >= 5);
+        // BENCHMARK_SUITES is a static const array, verify it has entries
+        let suites_len = BENCHMARK_SUITES.len();
+        assert!(suites_len > 0, "BENCHMARK_SUITES should not be empty");
+        assert!(suites_len >= 5, "Should have at least 5 benchmark suites");
     }
 
     #[test]
