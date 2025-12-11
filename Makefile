@@ -9,6 +9,8 @@
 .PHONY: mutants mutants-quick mutants-quantize mutants-layers mutants-tokenizer
 .PHONY: mutants-generate mutants-report mutants-clean mutation-file mutate mutate-fast
 .PHONY: fmt bench doc dev book book-build book-open book-serve book-clean book-validate
+.PHONY: bench-inference-all bench-pytorch-inference bench-cpu-inference bench-wgpu
+.PHONY: bench-gguf-gpu-inference bench-apr-gpu-inference
 .DEFAULT_GOAL := help
 
 # Color output
@@ -250,6 +252,72 @@ bench-comparative: ## Run comparative benchmarks (PyTorch vs Realizar)
 		cd benches/comparative && uv run run_comparison.py --output comparison_report.md; \
 	fi
 	@echo "$(GREEN)✅ Comparative benchmarks complete!$(NC)"
+
+# === KISS Inference Benchmarks (Refs PERF-PARITY-001) ===
+
+bench-inference-all: ## Run ALL inference benchmarks (master target)
+	@echo "$(GREEN)╔════════════════════════════════════════════════════════════════╗$(NC)"
+	@echo "$(GREEN)║          Running Complete Inference Benchmark Suite            ║$(NC)"
+	@echo "$(GREEN)╚════════════════════════════════════════════════════════════════╝$(NC)"
+	@$(MAKE) bench-pytorch-inference
+	@$(MAKE) bench-cpu-inference
+	@$(MAKE) bench-wgpu
+	@$(MAKE) bench-gguf-gpu-inference
+	@$(MAKE) bench-apr-gpu-inference
+	@echo "$(GREEN)✅ All inference benchmarks complete$(NC)"
+
+bench-pytorch-inference: ## PyTorch vs APR MNIST benchmark
+	@echo "$(GREEN)Running PyTorch vs APR MNIST comparison...$(NC)"
+	cargo bench --bench apr_real
+	@if command -v uv >/dev/null 2>&1; then \
+		echo "Running PyTorch baseline..."; \
+		cd benches/comparative && uv run pytorch_baseline.py --mnist 2>/dev/null || true; \
+	else \
+		echo "$(YELLOW)⚠️  uv not found, skipping PyTorch comparison$(NC)"; \
+	fi
+	@echo "$(GREEN)✅ PyTorch vs APR benchmark complete$(NC)"
+
+bench-cpu-inference: ## All inference servers on CPU only
+	@echo "$(GREEN)Running CPU-only inference benchmarks...$(NC)"
+	cargo bench --bench gguf_real
+	@if [ -f scripts/bench-cpu-matrix.sh ]; then \
+		./scripts/bench-cpu-matrix.sh; \
+	else \
+		echo "$(YELLOW)⚠️  scripts/bench-cpu-matrix.sh not found$(NC)"; \
+	fi
+	@echo "$(GREEN)✅ CPU inference benchmark complete$(NC)"
+
+bench-wgpu: ## WGPU backend benchmark (no-op if unavailable)
+	@echo "$(GREEN)Running WGPU inference benchmarks...$(NC)"
+	@if cargo build --features gpu --quiet 2>/dev/null; then \
+		echo "WGPU available, running GPU benchmarks..."; \
+		cargo bench --bench gguf_real --features gpu 2>/dev/null || \
+			echo "$(YELLOW)⚠️  WGPU benchmark failed, GPU may not be available$(NC)"; \
+	else \
+		echo "$(YELLOW)⚠️  WGPU not available (GPU feature not compilable), skipping$(NC)"; \
+	fi
+
+bench-gguf-gpu-inference: ## GGUF GPU inference: realizar/ollama/llama.cpp
+	@echo "$(GREEN)Running GGUF GPU inference matrix...$(NC)"
+	@if [ -f scripts/bench-gguf-gpu-matrix.sh ]; then \
+		./scripts/bench-gguf-gpu-matrix.sh; \
+	else \
+		echo "Running external matrix benchmark..."; \
+		cargo bench --bench external_matrix --features bench-http 2>/dev/null || \
+			echo "$(YELLOW)⚠️  External matrix benchmark requires bench-http feature$(NC)"; \
+	fi
+	@echo "$(GREEN)✅ GGUF GPU inference benchmark complete$(NC)"
+
+bench-apr-gpu-inference: ## APR format GPU inference vs GGUF
+	@echo "$(GREEN)Running APR vs GGUF GPU comparison...$(NC)"
+	@if cargo build --features gpu --quiet 2>/dev/null; then \
+		cargo bench --bench comparative --features gpu 2>/dev/null || \
+			echo "Running without GPU..."; \
+		cargo bench --bench comparative; \
+	else \
+		cargo bench --bench comparative; \
+	fi
+	@echo "$(GREEN)✅ APR vs GGUF benchmark complete$(NC)"
 
 # === Documentation ===
 
