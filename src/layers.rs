@@ -1786,6 +1786,362 @@ impl Attention {
     }
 }
 
+// ============================================================================
+// Sliding Window Attention (Mistral/Mixtral style)
+// ============================================================================
+//
+// Limits attention to a fixed window of recent tokens for efficient
+// long-context inference. Used by Mistral-7B, Mixtral, and similar models.
+//
+// Benefits:
+// - Reduces memory from O(n²) to O(n*w) where w = window_size
+// - Enables very long context with bounded KV cache
+// - Compatible with Flash Attention algorithms
+//
+// Reference: "Mistral 7B" - Jiang et al., 2023
+// ============================================================================
+
+/// Sliding Window Attention
+///
+/// Limits each token to attending only to the most recent `window_size` tokens.
+/// This provides linear memory scaling for long sequences while maintaining
+/// local context.
+///
+/// # Algorithm
+///
+/// For each query position i, attention is computed only over keys/values
+/// in positions `[max(0, i - window_size + 1), i]`.
+///
+/// ```text
+/// Standard Attention (full):  Sliding Window (w=3):
+///   Q K K K K K                 Q K K K . .
+///   Q K K K K K                 . Q K K K .
+///   Q K K K K K                 . . Q K K K
+///   Q K K K K K                 . . . Q K K
+/// ```
+///
+/// # References
+///
+/// - "Mistral 7B" - Jiang et al., 2023
+/// - "Longformer: The Long-Document Transformer" - Beltagy et al., 2020
+#[derive(Debug, Clone)]
+pub struct SlidingWindowAttention {
+    /// Head dimension (`d_k` = `d_model` / `num_heads`)
+    head_dim: usize,
+    /// Scale factor: 1 / `sqrt(head_dim)`
+    scale: f32,
+    /// Window size (number of tokens each query can attend to)
+    window_size: usize,
+}
+
+impl SlidingWindowAttention {
+    /// Create a new sliding window attention layer
+    ///
+    /// # Arguments
+    ///
+    /// * `head_dim` - Dimension of each attention head
+    /// * `window_size` - Number of tokens each query can attend to
+    ///
+    /// # Errors
+    ///
+    /// Returns error if `head_dim` is zero or `window_size` is zero
+    pub fn new(head_dim: usize, window_size: usize) -> Result<Self> {
+        if head_dim == 0 {
+            return Err(RealizarError::InvalidShape {
+                reason: "head_dim must be > 0".to_string(),
+            });
+        }
+        if window_size == 0 {
+            return Err(RealizarError::InvalidShape {
+                reason: "window_size must be > 0".to_string(),
+            });
+        }
+
+        #[allow(clippy::cast_precision_loss)]
+        let scale = 1.0 / (head_dim as f32).sqrt();
+
+        Ok(Self {
+            head_dim,
+            scale,
+            window_size,
+        })
+    }
+
+    /// Compute sliding window attention
+    ///
+    /// # Arguments
+    ///
+    /// * `query` - Query tensor `[seq_len, head_dim]`
+    /// * `key` - Key tensor `[seq_len, head_dim]`
+    /// * `value` - Value tensor `[seq_len, head_dim]`
+    ///
+    /// # Returns
+    ///
+    /// Output tensor `[seq_len, head_dim]`
+    ///
+    /// # Errors
+    ///
+    /// Returns error if shapes don't match
+    pub fn forward(
+        &self,
+        query: &Tensor<f32>,
+        key: &Tensor<f32>,
+        value: &Tensor<f32>,
+    ) -> Result<Tensor<f32>> {
+        let q_shape = query.shape();
+        let k_shape = key.shape();
+        let v_shape = value.shape();
+
+        // Validate shapes
+        if q_shape.is_empty() || k_shape.is_empty() || v_shape.is_empty() {
+            return Err(RealizarError::InvalidShape {
+                reason: "Query, key, value tensors must have at least 1 dimension".to_string(),
+            });
+        }
+
+        let q_last = q_shape[q_shape.len() - 1];
+        let k_last = k_shape[k_shape.len() - 1];
+        let v_last = v_shape[v_shape.len() - 1];
+
+        if q_last != self.head_dim || k_last != self.head_dim || v_last != self.head_dim {
+            return Err(RealizarError::InvalidShape {
+                reason: format!(
+                    "Expected head_dim={}, got Q={}, K={}, V={}",
+                    self.head_dim, q_last, k_last, v_last
+                ),
+            });
+        }
+
+        // Get sequence lengths
+        let q_seq_len = if q_shape.len() > 1 { q_shape[0] } else { 1 };
+        let k_seq_len = if k_shape.len() > 1 { k_shape[0] } else { 1 };
+        let v_seq_len = if v_shape.len() > 1 { v_shape[0] } else { 1 };
+
+        if k_seq_len != v_seq_len {
+            return Err(RealizarError::InvalidShape {
+                reason: format!("Key seq_len {k_seq_len} != Value seq_len {v_seq_len}"),
+            });
+        }
+
+        let q_data = query.data();
+        let k_data = key.data();
+        let v_data = value.data();
+
+        let mut output = Vec::with_capacity(q_seq_len * self.head_dim);
+
+        // Process each query position with sliding window
+        for i in 0..q_seq_len {
+            // Compute window boundaries [window_start, window_end)
+            // For causal attention: can only attend to positions <= i
+            let window_end = (i + 1).min(k_seq_len);
+            let window_start = window_end.saturating_sub(self.window_size);
+            let window_len = window_end - window_start;
+
+            if window_len == 0 {
+                // No keys to attend to, output zeros
+                output.extend(std::iter::repeat(0.0).take(self.head_dim));
+                continue;
+            }
+
+            // Compute attention scores for this window
+            let mut scores = Vec::with_capacity(window_len);
+            for j in window_start..window_end {
+                let mut dot = 0.0;
+                for k in 0..self.head_dim {
+                    dot += q_data[i * self.head_dim + k] * k_data[j * self.head_dim + k];
+                }
+                scores.push(dot * self.scale);
+            }
+
+            // Apply softmax over window scores
+            let max_score = scores.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+            let mut exp_sum = 0.0;
+            for score in &mut scores {
+                let exp_val = (*score - max_score).exp();
+                *score = exp_val;
+                exp_sum += exp_val;
+            }
+            let inv_sum = 1.0 / exp_sum;
+            for score in &mut scores {
+                *score *= inv_sum;
+            }
+
+            // Compute weighted sum of values
+            for k in 0..self.head_dim {
+                let mut sum = 0.0;
+                for (idx, j) in (window_start..window_end).enumerate() {
+                    sum += scores[idx] * v_data[j * self.head_dim + k];
+                }
+                output.push(sum);
+            }
+        }
+
+        Tensor::from_vec(vec![q_seq_len, self.head_dim], output)
+    }
+
+    /// Compute sliding window attention with mask
+    ///
+    /// Supports bidirectional attention (non-causal) with the sliding window.
+    ///
+    /// # Arguments
+    ///
+    /// * `query` - Query tensor `[seq_len, head_dim]`
+    /// * `key` - Key tensor `[seq_len, head_dim]`
+    /// * `value` - Value tensor `[seq_len, head_dim]`
+    /// * `causal` - If true, only attend to past positions (causal/autoregressive)
+    ///
+    /// # Returns
+    ///
+    /// Output tensor `[seq_len, head_dim]`
+    ///
+    /// # Errors
+    ///
+    /// Returns error if shapes don't match
+    pub fn forward_with_mask(
+        &self,
+        query: &Tensor<f32>,
+        key: &Tensor<f32>,
+        value: &Tensor<f32>,
+        causal: bool,
+    ) -> Result<Tensor<f32>> {
+        if causal {
+            // Causal is the default behavior
+            return self.forward(query, key, value);
+        }
+
+        let q_shape = query.shape();
+        let k_shape = key.shape();
+        let v_shape = value.shape();
+
+        // Validate shapes
+        if q_shape.is_empty() || k_shape.is_empty() || v_shape.is_empty() {
+            return Err(RealizarError::InvalidShape {
+                reason: "Query, key, value tensors must have at least 1 dimension".to_string(),
+            });
+        }
+
+        let q_last = q_shape[q_shape.len() - 1];
+        let k_last = k_shape[k_shape.len() - 1];
+        let v_last = v_shape[v_shape.len() - 1];
+
+        if q_last != self.head_dim || k_last != self.head_dim || v_last != self.head_dim {
+            return Err(RealizarError::InvalidShape {
+                reason: format!(
+                    "Expected head_dim={}, got Q={}, K={}, V={}",
+                    self.head_dim, q_last, k_last, v_last
+                ),
+            });
+        }
+
+        let q_seq_len = if q_shape.len() > 1 { q_shape[0] } else { 1 };
+        let k_seq_len = if k_shape.len() > 1 { k_shape[0] } else { 1 };
+        let v_seq_len = if v_shape.len() > 1 { v_shape[0] } else { 1 };
+
+        if k_seq_len != v_seq_len {
+            return Err(RealizarError::InvalidShape {
+                reason: format!("Key seq_len {k_seq_len} != Value seq_len {v_seq_len}"),
+            });
+        }
+
+        let q_data = query.data();
+        let k_data = key.data();
+        let v_data = value.data();
+
+        let mut output = Vec::with_capacity(q_seq_len * self.head_dim);
+        let half_window = self.window_size / 2;
+
+        // Process each query position with bidirectional sliding window
+        for i in 0..q_seq_len {
+            // Bidirectional window centered on position i
+            let window_start = i.saturating_sub(half_window);
+            let window_end = (i + half_window + 1).min(k_seq_len);
+            let window_len = window_end - window_start;
+
+            if window_len == 0 {
+                output.extend(std::iter::repeat(0.0).take(self.head_dim));
+                continue;
+            }
+
+            // Compute attention scores for this window
+            let mut scores = Vec::with_capacity(window_len);
+            for j in window_start..window_end {
+                let mut dot = 0.0;
+                for k in 0..self.head_dim {
+                    dot += q_data[i * self.head_dim + k] * k_data[j * self.head_dim + k];
+                }
+                scores.push(dot * self.scale);
+            }
+
+            // Apply softmax over window scores
+            let max_score = scores.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+            let mut exp_sum = 0.0;
+            for score in &mut scores {
+                let exp_val = (*score - max_score).exp();
+                *score = exp_val;
+                exp_sum += exp_val;
+            }
+            let inv_sum = 1.0 / exp_sum;
+            for score in &mut scores {
+                *score *= inv_sum;
+            }
+
+            // Compute weighted sum of values
+            for k in 0..self.head_dim {
+                let mut sum = 0.0;
+                for (idx, j) in (window_start..window_end).enumerate() {
+                    sum += scores[idx] * v_data[j * self.head_dim + k];
+                }
+                output.push(sum);
+            }
+        }
+
+        Tensor::from_vec(vec![q_seq_len, self.head_dim], output)
+    }
+
+    /// Get head dimension
+    #[must_use]
+    pub fn head_dim(&self) -> usize {
+        self.head_dim
+    }
+
+    /// Get scale factor
+    #[must_use]
+    pub fn scale(&self) -> f32 {
+        self.scale
+    }
+
+    /// Get window size
+    #[must_use]
+    pub fn window_size(&self) -> usize {
+        self.window_size
+    }
+
+    /// Compute the effective context at a given position
+    ///
+    /// Returns the number of tokens this position can attend to
+    #[must_use]
+    pub fn effective_context(&self, position: usize, seq_len: usize) -> usize {
+        let window_end = (position + 1).min(seq_len);
+        let window_start = window_end.saturating_sub(self.window_size);
+        window_end - window_start
+    }
+
+    /// Memory usage relative to full attention
+    ///
+    /// Returns the ratio of memory used compared to full attention.
+    /// For window_size w and seq_len n: memory = O(n*w) vs O(n²)
+    #[must_use]
+    pub fn memory_ratio(&self, seq_len: usize) -> f32 {
+        if seq_len == 0 {
+            return 1.0;
+        }
+        #[allow(clippy::cast_precision_loss)]
+        {
+            (self.window_size.min(seq_len) as f32) / (seq_len as f32)
+        }
+    }
+}
+
 /// Multi-Head Attention with support for MHA, MQA, and GQA
 ///
 /// Implements three attention variants through configurable `KV` head count:
@@ -2299,6 +2655,401 @@ impl RoPE {
     #[must_use]
     pub fn inv_freq(&self) -> &[f32] {
         &self.inv_freq
+    }
+}
+
+// ============================================================================
+// RoPE Scaling Methods (NTK, YaRN, Linear, Dynamic NTK)
+// ============================================================================
+//
+// These methods extend RoPE to handle longer context lengths than trained.
+// References:
+// - NTK-aware: https://www.reddit.com/r/LocalLLaMA/comments/14lz7j5/
+// - YaRN: https://arxiv.org/abs/2309.00071
+// - Code Llama linear scaling: https://arxiv.org/abs/2308.12950
+// ============================================================================
+
+/// RoPE scaling type for context length extension
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum RopeScalingType {
+    /// No scaling (original RoPE)
+    #[default]
+    None,
+    /// Linear interpolation (Code Llama style)
+    /// scale = trained_length / target_length
+    Linear {
+        /// Scale factor (typically trained_length / target_length)
+        scale: f32,
+    },
+    /// NTK-aware scaling
+    /// Modifies base frequency: base' = base * scale^(dim / (dim - 2))
+    Ntk {
+        /// Scale factor for context extension
+        scale: f32,
+    },
+    /// Dynamic NTK-aware scaling
+    /// Adjusts scale dynamically based on current sequence length
+    DynamicNtk {
+        /// Original training context length
+        original_max_len: usize,
+        /// Target extended context length
+        target_max_len: usize,
+    },
+    /// YaRN (Yet another RoPE extensioN)
+    /// Combines NTK interpolation with attention scaling
+    Yarn {
+        /// Original training context length
+        original_max_len: usize,
+        /// Target extended context length
+        target_max_len: usize,
+        /// Attention scaling factor (typically sqrt(scale))
+        attn_factor: f32,
+        /// Beta for interpolation ramp (default: 32)
+        beta_fast: f32,
+        /// Beta for extrapolation (default: 1)
+        beta_slow: f32,
+    },
+}
+
+/// Scaled Rotary Position Embeddings
+///
+/// Extends `RoPE` with various scaling methods for context length extension.
+/// Supports NTK-aware, Linear, Dynamic NTK, and YaRN scaling.
+///
+/// # Scaling Methods
+///
+/// ## Linear Scaling (Code Llama)
+/// Simply scales down the position: pos' = pos / scale
+///
+/// ## NTK-aware Scaling
+/// Modifies the base frequency to reduce high-frequency component decay:
+/// base' = base * scale^(dim / (dim - 2))
+///
+/// ## Dynamic NTK
+/// Dynamically adjusts NTK scale based on current sequence length
+///
+/// ## YaRN (Yet another RoPE extensioN)
+/// Combines NTK with attention factor and interpolation ramp
+///
+/// # References
+///
+/// - "Code Llama: Open Foundation Models for Code" - Rozière et al., 2023
+/// - "YaRN: Efficient Context Window Extension of Large Language Models" - Peng et al., 2023
+#[derive(Debug, Clone)]
+pub struct ScaledRoPE {
+    /// Base RoPE parameters
+    dim: usize,
+    /// Original base frequency
+    original_base: f32,
+    /// Scaled base frequency (after NTK adjustment)
+    scaled_base: f32,
+    /// Scaling configuration
+    scaling: RopeScalingType,
+    /// Precomputed inverse frequencies (with scaling applied)
+    inv_freq: Vec<f32>,
+    /// Attention scaling factor (for YaRN)
+    mscale: f32,
+}
+
+impl ScaledRoPE {
+    /// Create a new scaled `RoPE` layer
+    ///
+    /// # Arguments
+    ///
+    /// * `dim` - Embedding dimension (must be even)
+    /// * `base` - Base frequency (typically 10000)
+    /// * `scaling` - Scaling method to use
+    ///
+    /// # Errors
+    ///
+    /// Returns error if `dim` is zero or odd
+    pub fn new(dim: usize, base: f32, scaling: RopeScalingType) -> Result<Self> {
+        if dim == 0 {
+            return Err(RealizarError::InvalidShape {
+                reason: "dim must be > 0".to_string(),
+            });
+        }
+        if dim % 2 != 0 {
+            return Err(RealizarError::InvalidShape {
+                reason: "dim must be even for RoPE".to_string(),
+            });
+        }
+
+        let (scaled_base, mscale, inv_freq) = Self::compute_frequencies(dim, base, &scaling);
+
+        Ok(Self {
+            dim,
+            original_base: base,
+            scaled_base,
+            scaling,
+            inv_freq,
+            mscale,
+        })
+    }
+
+    /// Create scaled `RoPE` with default base (10000)
+    ///
+    /// # Errors
+    ///
+    /// Returns error if `dim` is zero or odd
+    pub fn with_default_base(dim: usize, scaling: RopeScalingType) -> Result<Self> {
+        Self::new(dim, 10000.0, scaling)
+    }
+
+    /// Compute inverse frequencies with scaling applied
+    fn compute_frequencies(
+        dim: usize,
+        base: f32,
+        scaling: &RopeScalingType,
+    ) -> (f32, f32, Vec<f32>) {
+        let half_dim = dim / 2;
+
+        // Compute scaled base and mscale based on scaling type
+        #[allow(clippy::cast_precision_loss)]
+        let (scaled_base, mscale) = match scaling {
+            RopeScalingType::None | RopeScalingType::Linear { .. } => (base, 1.0),
+            RopeScalingType::Ntk { scale } => {
+                // NTK formula: base' = base * scale^(dim / (dim - 2))
+                let dim_f = dim as f32;
+                let exponent = dim_f / (dim_f - 2.0);
+                let ntk_base = base * scale.powf(exponent);
+                (ntk_base, 1.0)
+            },
+            RopeScalingType::DynamicNtk {
+                original_max_len,
+                target_max_len,
+            } => {
+                // Dynamic NTK uses scale = target / original
+                let scale = (*target_max_len as f32) / (*original_max_len as f32);
+                let dim_f = dim as f32;
+                let exponent = dim_f / (dim_f - 2.0);
+                let ntk_base = base * scale.powf(exponent);
+                (ntk_base, 1.0)
+            },
+            RopeScalingType::Yarn {
+                original_max_len,
+                target_max_len,
+                attn_factor,
+                beta_fast,
+                beta_slow,
+            } => {
+                // YaRN combines NTK with attention scaling
+                let scale = (*target_max_len as f32) / (*original_max_len as f32);
+                let dim_f = dim as f32;
+
+                // Compute NTK-style base modification
+                // YaRN uses a smoother interpolation based on frequency
+                let exponent = dim_f / (dim_f - 2.0);
+                let ntk_base = base * scale.powf(exponent);
+
+                // Compute mscale (attention factor)
+                // Default: sqrt(1 + ln(scale) / ln(original_max_len))
+                let mscale = if *attn_factor > 0.0 {
+                    *attn_factor
+                } else {
+                    let log_scale = scale.ln();
+                    let log_orig = (*original_max_len as f32).ln();
+                    (1.0 + log_scale / log_orig).sqrt()
+                };
+
+                // The beta parameters affect the interpolation ramp
+                // but are applied per-frequency in the forward pass
+                let _ = (beta_fast, beta_slow); // Used in forward
+
+                (ntk_base, mscale)
+            },
+        };
+
+        // Compute inverse frequencies with scaled base
+        let mut inv_freq = Vec::with_capacity(half_dim);
+
+        #[allow(clippy::cast_precision_loss)]
+        for i in 0..half_dim {
+            let exponent = -2.0 * (i as f32) / (dim as f32);
+            inv_freq.push(scaled_base.powf(exponent));
+        }
+
+        (scaled_base, mscale, inv_freq)
+    }
+
+    /// Apply scaled rotary embeddings to input at given position
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - Input tensor with last dimension equal to `dim`
+    /// * `position` - Position index for computing rotation angles
+    ///
+    /// # Returns
+    ///
+    /// Tensor with same shape as input, with scaled rotary embeddings applied
+    ///
+    /// # Errors
+    ///
+    /// Returns error if input's last dimension doesn't match `dim`
+    pub fn forward(&self, input: &Tensor<f32>, position: usize) -> Result<Tensor<f32>> {
+        let shape = input.shape();
+
+        if shape.is_empty() {
+            return Err(RealizarError::InvalidShape {
+                reason: "Input tensor must have at least 1 dimension".to_string(),
+            });
+        }
+
+        let last_dim = shape[shape.len() - 1];
+        if last_dim != self.dim {
+            return Err(RealizarError::InvalidShape {
+                reason: format!("Expected last dimension {}, got {}", self.dim, last_dim),
+            });
+        }
+
+        let data = input.data();
+        let num_vectors = data.len() / self.dim;
+        let mut output = Vec::with_capacity(data.len());
+
+        // Compute effective position based on scaling type
+        #[allow(clippy::cast_precision_loss)]
+        let effective_pos = match &self.scaling {
+            RopeScalingType::None
+            | RopeScalingType::Ntk { .. }
+            | RopeScalingType::DynamicNtk { .. }
+            | RopeScalingType::Yarn { .. } => position as f32,
+            RopeScalingType::Linear { scale } => (position as f32) / scale,
+        };
+
+        // Compute sin/cos for this position
+        let half_dim = self.dim / 2;
+        let mut cos_vals = Vec::with_capacity(half_dim);
+        let mut sin_vals = Vec::with_capacity(half_dim);
+
+        // Apply YaRN interpolation ramp if applicable
+        #[allow(clippy::cast_precision_loss)]
+        for (i, inv_f) in self.inv_freq.iter().enumerate() {
+            let angle = inv_f * effective_pos;
+
+            // For YaRN, apply interpolation ramp based on frequency index
+            let (cos_val, sin_val) = if let RopeScalingType::Yarn {
+                original_max_len,
+                target_max_len,
+                beta_fast,
+                beta_slow,
+                ..
+            } = &self.scaling
+            {
+                // Compute wavelength for this frequency
+                let freq = 1.0 / inv_f;
+                let wavelength = 2.0 * std::f32::consts::PI * freq;
+
+                // Compute interpolation factor
+                let low_freq_wavelen = (*original_max_len as f32) / *beta_slow;
+                let high_freq_wavelen = (*original_max_len as f32) / *beta_fast;
+
+                let ramp = if wavelength < high_freq_wavelen {
+                    0.0 // Full extrapolation (use NTK-scaled frequency)
+                } else if wavelength > low_freq_wavelen {
+                    1.0 // Full interpolation (use linear-scaled position)
+                } else {
+                    // Linear ramp between extrapolation and interpolation
+                    (wavelength - high_freq_wavelen) / (low_freq_wavelen - high_freq_wavelen)
+                };
+
+                // Interpolate between NTK angle and linear angle
+                let scale = (*target_max_len as f32) / (*original_max_len as f32);
+                let linear_pos = effective_pos / scale;
+
+                // Original frequency from unscaled base
+                let orig_inv_f = self
+                    .original_base
+                    .powf(-2.0 * (i as f32) / (self.dim as f32));
+                let linear_angle = orig_inv_f * linear_pos;
+
+                // Interpolate angles
+                let final_angle = angle * (1.0 - ramp) + linear_angle * ramp;
+
+                (final_angle.cos(), final_angle.sin())
+            } else {
+                (angle.cos(), angle.sin())
+            };
+
+            cos_vals.push(cos_val);
+            sin_vals.push(sin_val);
+        }
+
+        // Apply rotation to each vector (with mscale for YaRN)
+        for vec_idx in 0..num_vectors {
+            let offset = vec_idx * self.dim;
+
+            for i in 0..half_dim {
+                let x0 = data[offset + 2 * i];
+                let x1 = data[offset + 2 * i + 1];
+                let cos_val = cos_vals[i];
+                let sin_val = sin_vals[i];
+
+                // Apply 2D rotation with mscale
+                let y0 = (x0 * cos_val - x1 * sin_val) * self.mscale;
+                let y1 = (x0 * sin_val + x1 * cos_val) * self.mscale;
+
+                output.push(y0);
+                output.push(y1);
+            }
+        }
+
+        Tensor::from_vec(shape.to_vec(), output)
+    }
+
+    /// Get embedding dimension
+    #[must_use]
+    pub fn dim(&self) -> usize {
+        self.dim
+    }
+
+    /// Get original base frequency
+    #[must_use]
+    pub fn original_base(&self) -> f32 {
+        self.original_base
+    }
+
+    /// Get scaled base frequency
+    #[must_use]
+    pub fn scaled_base(&self) -> f32 {
+        self.scaled_base
+    }
+
+    /// Get scaling configuration
+    #[must_use]
+    pub fn scaling(&self) -> &RopeScalingType {
+        &self.scaling
+    }
+
+    /// Get inverse frequencies
+    #[must_use]
+    pub fn inv_freq(&self) -> &[f32] {
+        &self.inv_freq
+    }
+
+    /// Get attention scaling factor (mscale)
+    #[must_use]
+    pub fn mscale(&self) -> f32 {
+        self.mscale
+    }
+
+    /// Compute effective context length multiplier
+    ///
+    /// Returns the factor by which the original context length is extended
+    #[must_use]
+    pub fn context_length_multiplier(&self) -> f32 {
+        match &self.scaling {
+            RopeScalingType::None => 1.0,
+            RopeScalingType::Linear { scale } | RopeScalingType::Ntk { scale } => *scale,
+            RopeScalingType::DynamicNtk {
+                original_max_len,
+                target_max_len,
+            }
+            | RopeScalingType::Yarn {
+                original_max_len,
+                target_max_len,
+                ..
+            } => (*target_max_len as f32) / (*original_max_len as f32),
+        }
     }
 }
 
@@ -4549,6 +5300,185 @@ mod tests {
         assert!((inv_freq[1] - 0.01).abs() < 1e-6);
     }
 
+    // ScaledRoPE (NTK, YaRN, Linear, Dynamic NTK) tests
+
+    #[test]
+    fn test_scaled_rope_no_scaling() {
+        // ScaledRoPE with None scaling should behave like regular RoPE
+        let scaled = ScaledRoPE::new(64, 10000.0, RopeScalingType::None).unwrap();
+        assert_eq!(scaled.dim(), 64);
+        assert!((scaled.original_base() - 10000.0).abs() < 1e-6);
+        assert!((scaled.scaled_base() - 10000.0).abs() < 1e-6);
+        assert!((scaled.mscale() - 1.0).abs() < 1e-6);
+        assert!((scaled.context_length_multiplier() - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_scaled_rope_linear_scaling() {
+        // Linear scaling (Code Llama style)
+        let scaling = RopeScalingType::Linear { scale: 4.0 };
+        let scaled = ScaledRoPE::new(64, 10000.0, scaling).unwrap();
+
+        assert!((scaled.context_length_multiplier() - 4.0).abs() < 1e-6);
+        // Linear scaling doesn't change base frequency
+        assert!((scaled.scaled_base() - 10000.0).abs() < 1e-6);
+        assert!((scaled.mscale() - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_scaled_rope_ntk_scaling() {
+        // NTK-aware scaling
+        let scaling = RopeScalingType::Ntk { scale: 4.0 };
+        let scaled = ScaledRoPE::new(64, 10000.0, scaling).unwrap();
+
+        assert!((scaled.context_length_multiplier() - 4.0).abs() < 1e-6);
+        // NTK should increase base: base' = base * scale^(dim/(dim-2))
+        // For dim=64: exponent = 64/62 ≈ 1.032
+        // scaled_base = 10000 * 4^1.032 ≈ 41,376
+        assert!(scaled.scaled_base() > 10000.0);
+        assert!(scaled.scaled_base() > 40000.0);
+        assert!((scaled.mscale() - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_scaled_rope_dynamic_ntk() {
+        // Dynamic NTK scaling
+        let scaling = RopeScalingType::DynamicNtk {
+            original_max_len: 2048,
+            target_max_len: 8192,
+        };
+        let scaled = ScaledRoPE::new(64, 10000.0, scaling).unwrap();
+
+        assert!((scaled.context_length_multiplier() - 4.0).abs() < 1e-6);
+        // Should behave like NTK with scale = 4.0
+        assert!(scaled.scaled_base() > 40000.0);
+    }
+
+    #[test]
+    fn test_scaled_rope_yarn() {
+        // YaRN scaling
+        let scaling = RopeScalingType::Yarn {
+            original_max_len: 2048,
+            target_max_len: 32768,
+            attn_factor: 0.0, // Compute automatically
+            beta_fast: 32.0,
+            beta_slow: 1.0,
+        };
+        let scaled = ScaledRoPE::new(64, 10000.0, scaling).unwrap();
+
+        // Context multiplier = 32768 / 2048 = 16
+        assert!((scaled.context_length_multiplier() - 16.0).abs() < 1e-6);
+        // YaRN should have mscale > 1.0 for large extensions
+        assert!(scaled.mscale() > 1.0);
+        // YaRN should have modified base
+        assert!(scaled.scaled_base() > 10000.0);
+    }
+
+    #[test]
+    fn test_scaled_rope_yarn_custom_attn_factor() {
+        // YaRN with custom attention factor
+        let scaling = RopeScalingType::Yarn {
+            original_max_len: 2048,
+            target_max_len: 8192,
+            attn_factor: 1.5, // Custom value
+            beta_fast: 32.0,
+            beta_slow: 1.0,
+        };
+        let scaled = ScaledRoPE::new(64, 10000.0, scaling).unwrap();
+
+        // Should use custom attn_factor
+        assert!((scaled.mscale() - 1.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_scaled_rope_forward_no_scaling() {
+        let scaled = ScaledRoPE::new(4, 10000.0, RopeScalingType::None).unwrap();
+        let input = Tensor::from_vec(vec![4], vec![1.0, 0.0, 0.0, 1.0]).unwrap();
+        let output = scaled.forward(&input, 0).unwrap();
+
+        // At position 0, rotation should be identity-like
+        assert_eq!(output.shape(), &[4]);
+    }
+
+    #[test]
+    fn test_scaled_rope_forward_linear() {
+        let scaling = RopeScalingType::Linear { scale: 2.0 };
+        let scaled = ScaledRoPE::new(4, 10000.0, scaling).unwrap();
+        let input = Tensor::from_vec(vec![4], vec![1.0, 0.0, 0.0, 1.0]).unwrap();
+
+        // Position 10 with scale 2 should behave like position 5
+        let output = scaled.forward(&input, 10).unwrap();
+        assert_eq!(output.shape(), &[4]);
+    }
+
+    #[test]
+    fn test_scaled_rope_forward_ntk() {
+        let scaling = RopeScalingType::Ntk { scale: 4.0 };
+        let scaled = ScaledRoPE::new(4, 10000.0, scaling).unwrap();
+        let input = Tensor::from_vec(vec![4], vec![1.0, 0.0, 0.0, 1.0]).unwrap();
+
+        let output = scaled.forward(&input, 100).unwrap();
+        assert_eq!(output.shape(), &[4]);
+        // Output should preserve norm (rotation is norm-preserving)
+        let norm: f32 = output.data().iter().map(|x| x * x).sum::<f32>().sqrt();
+        assert!((norm - 2.0_f32.sqrt()).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_scaled_rope_forward_yarn() {
+        let scaling = RopeScalingType::Yarn {
+            original_max_len: 2048,
+            target_max_len: 8192,
+            attn_factor: 1.0,
+            beta_fast: 32.0,
+            beta_slow: 1.0,
+        };
+        let scaled = ScaledRoPE::new(4, 10000.0, scaling).unwrap();
+        let input = Tensor::from_vec(vec![4], vec![1.0, 0.0, 0.0, 1.0]).unwrap();
+
+        let output = scaled.forward(&input, 5000).unwrap();
+        assert_eq!(output.shape(), &[4]);
+    }
+
+    #[test]
+    fn test_scaled_rope_zero_dim_error() {
+        let result = ScaledRoPE::new(0, 10000.0, RopeScalingType::None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_scaled_rope_odd_dim_error() {
+        let result = ScaledRoPE::new(63, 10000.0, RopeScalingType::None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_scaled_rope_dimension_mismatch() {
+        let scaled = ScaledRoPE::new(4, 10000.0, RopeScalingType::None).unwrap();
+        let input = Tensor::from_vec(vec![8], vec![0.0; 8]).unwrap();
+
+        let result = scaled.forward(&input, 0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_rope_scaling_type_default() {
+        let scaling = RopeScalingType::default();
+        assert_eq!(scaling, RopeScalingType::None);
+    }
+
+    #[test]
+    fn test_scaled_rope_with_default_base() {
+        let scaled = ScaledRoPE::with_default_base(64, RopeScalingType::None).unwrap();
+        assert!((scaled.original_base() - 10000.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_scaled_rope_inv_freq_length() {
+        let scaled = ScaledRoPE::new(128, 10000.0, RopeScalingType::None).unwrap();
+        assert_eq!(scaled.inv_freq().len(), 64); // dim / 2
+    }
+
     // ALiBi (Attention with Linear Biases) tests
 
     #[test]
@@ -5835,5 +6765,202 @@ mod tests {
             "Memory efficiency: f32={} bytes, Q4_K={} bytes, ratio={:.2}x",
             f32_bytes, q4k_bytes, ratio
         );
+    }
+
+    // ========================
+    // SlidingWindowAttention Tests
+    // ========================
+
+    #[test]
+    fn test_sliding_window_attention_new() {
+        let swa = SlidingWindowAttention::new(64, 4096).unwrap();
+        assert_eq!(swa.head_dim(), 64);
+        assert_eq!(swa.window_size(), 4096);
+        assert!((swa.scale() - 0.125).abs() < 1e-6); // 1/sqrt(64) = 0.125
+    }
+
+    #[test]
+    fn test_sliding_window_attention_new_errors() {
+        // Zero head_dim should error
+        assert!(SlidingWindowAttention::new(0, 4096).is_err());
+        // Zero window_size should error
+        assert!(SlidingWindowAttention::new(64, 0).is_err());
+    }
+
+    #[test]
+    fn test_sliding_window_attention_forward_basic() {
+        let swa = SlidingWindowAttention::new(4, 3).unwrap();
+        // Small test: 5 positions, window size 3
+        // Query: 5x4, Key: 5x4, Value: 5x4
+        let query_data: Vec<f32> = (0..20).map(|i| i as f32 * 0.1).collect();
+        let key_data: Vec<f32> = (0..20).map(|i| i as f32 * 0.1).collect();
+        let value_data: Vec<f32> = (0..20).map(|i| (i % 4) as f32).collect();
+
+        let query = Tensor::from_vec(vec![5, 4], query_data).unwrap();
+        let key = Tensor::from_vec(vec![5, 4], key_data).unwrap();
+        let value = Tensor::from_vec(vec![5, 4], value_data).unwrap();
+
+        let output = swa.forward(&query, &key, &value).unwrap();
+        assert_eq!(output.size(), 20); // 5 positions * 4 head_dim
+    }
+
+    #[test]
+    fn test_sliding_window_attention_causal_masking() {
+        // Test that position i can only attend to positions <= i
+        let swa = SlidingWindowAttention::new(2, 10).unwrap(); // Large window, so only causal matters
+                                                               // Query: 3x2, Key: 3x2, Value: 3x2
+        let query = Tensor::from_vec(vec![3, 2], vec![1.0, 0.0, 1.0, 0.0, 1.0, 0.0]).unwrap();
+        let key = Tensor::from_vec(vec![3, 2], vec![1.0, 0.0, 0.0, 1.0, 1.0, 1.0]).unwrap();
+        let value = Tensor::from_vec(vec![3, 2], vec![1.0, 0.0, 0.0, 1.0, 0.5, 0.5]).unwrap();
+
+        let output = swa.forward(&query, &key, &value).unwrap();
+        assert_eq!(output.size(), 6);
+
+        // Position 0 can only attend to itself
+        // Position 1 can attend to positions 0,1
+        // Position 2 can attend to positions 0,1,2
+        // All positions produce valid outputs (not zeros)
+        let data = output.data();
+        assert!(data[0].abs() > 0.0 || data[1].abs() > 0.0);
+    }
+
+    #[test]
+    fn test_sliding_window_attention_window_boundary() {
+        // Window size 2: each position can attend to at most 2 keys
+        let swa = SlidingWindowAttention::new(2, 2).unwrap();
+        // 5 positions, window=2
+        let query = Tensor::from_vec(vec![5, 2], vec![1.0; 10]).unwrap();
+        let key = Tensor::from_vec(vec![5, 2], vec![1.0; 10]).unwrap();
+        let value_data: Vec<f32> = (0..10).map(|i| i as f32).collect();
+        let value = Tensor::from_vec(vec![5, 2], value_data).unwrap();
+
+        let output = swa.forward(&query, &key, &value).unwrap();
+        assert_eq!(output.size(), 10);
+
+        // Position 0: attends to [0] (only 1 key available due to causality)
+        // Position 1: attends to [0,1] (2 keys)
+        // Position 2: attends to [1,2] (window slides, excludes 0)
+        // Position 3: attends to [2,3]
+        // Position 4: attends to [3,4]
+    }
+
+    #[test]
+    fn test_sliding_window_attention_effective_context() {
+        let swa = SlidingWindowAttention::new(64, 4).unwrap();
+
+        // Position 0, seq_len 10: can attend to min(1, 4) = 1
+        assert_eq!(swa.effective_context(0, 10), 1);
+
+        // Position 3, seq_len 10: can attend to min(4, 4) = 4
+        assert_eq!(swa.effective_context(3, 10), 4);
+
+        // Position 7, seq_len 10: can attend to 4 (window kicks in)
+        assert_eq!(swa.effective_context(7, 10), 4);
+
+        // Position 2, seq_len 3: can attend to min(3, 4) = 3
+        assert_eq!(swa.effective_context(2, 3), 3);
+    }
+
+    #[test]
+    fn test_sliding_window_attention_memory_ratio() {
+        let swa = SlidingWindowAttention::new(64, 4096).unwrap();
+
+        // For short sequences, ratio ~= 1.0
+        let ratio_short = swa.memory_ratio(1000);
+        assert!(
+            ratio_short > 0.9,
+            "Short sequences should use ~full attention"
+        );
+
+        // For long sequences, ratio approaches window_size / seq_len
+        let ratio_long = swa.memory_ratio(100_000);
+        let expected = 4096.0 / 100_000.0;
+        assert!(
+            (ratio_long - expected).abs() < 0.01,
+            "Long sequences should use ~window_size/seq_len memory: got {}, expected {}",
+            ratio_long,
+            expected
+        );
+    }
+
+    #[test]
+    fn test_sliding_window_attention_error_mismatched_kv() {
+        let swa = SlidingWindowAttention::new(4, 3).unwrap();
+        let query = Tensor::from_vec(vec![2, 4], vec![1.0; 8]).unwrap();
+        let key = Tensor::from_vec(vec![3, 4], vec![1.0; 12]).unwrap();
+        let value = Tensor::from_vec(vec![2, 4], vec![1.0; 8]).unwrap(); // Different from K
+
+        // K and V must have same seq_len
+        let result = swa.forward(&query, &key, &value);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_sliding_window_attention_error_bad_head_dim() {
+        let swa = SlidingWindowAttention::new(4, 3).unwrap();
+        // Key has wrong head_dim (3 instead of 4)
+        let query = Tensor::from_vec(vec![2, 4], vec![1.0; 8]).unwrap();
+        let key = Tensor::from_vec(vec![2, 3], vec![1.0; 6]).unwrap();
+        let value = Tensor::from_vec(vec![2, 4], vec![1.0; 8]).unwrap();
+
+        let result = swa.forward(&query, &key, &value);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_sliding_window_attention_bidirectional() {
+        let swa = SlidingWindowAttention::new(2, 4).unwrap();
+        // 5 positions, bidirectional window
+        let query = Tensor::from_vec(vec![5, 2], vec![1.0; 10]).unwrap();
+        let key = Tensor::from_vec(vec![5, 2], vec![1.0; 10]).unwrap();
+        let value_data: Vec<f32> = (0..10).map(|i| i as f32).collect();
+        let value = Tensor::from_vec(vec![5, 2], value_data).unwrap();
+
+        let output_causal = swa.forward(&query, &key, &value).unwrap();
+        let output_bidir = swa.forward_with_mask(&query, &key, &value, false).unwrap();
+
+        // Bidirectional can attend to more positions, so outputs may differ
+        assert_eq!(output_causal.size(), output_bidir.size());
+        // Both should produce valid outputs
+        assert!(output_causal.data().iter().any(|&x| x.abs() > 0.0));
+        assert!(output_bidir.data().iter().any(|&x| x.abs() > 0.0));
+    }
+
+    #[test]
+    fn test_sliding_window_attention_forward_with_mask_causal() {
+        let swa = SlidingWindowAttention::new(2, 3).unwrap();
+        let query = Tensor::from_vec(vec![3, 2], vec![1.0; 6]).unwrap();
+        let key = Tensor::from_vec(vec![3, 2], vec![1.0; 6]).unwrap();
+        let value = Tensor::from_vec(vec![3, 2], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+
+        // forward_with_mask(causal=true) should match forward()
+        let output_forward = swa.forward(&query, &key, &value).unwrap();
+        let output_mask = swa.forward_with_mask(&query, &key, &value, true).unwrap();
+
+        for (a, b) in output_forward.data().iter().zip(output_mask.data().iter()) {
+            assert!(
+                (a - b).abs() < 1e-6,
+                "Causal outputs should match: {} vs {}",
+                a,
+                b
+            );
+        }
+    }
+
+    #[test]
+    fn test_sliding_window_attention_single_token() {
+        let swa = SlidingWindowAttention::new(4, 3).unwrap();
+        // Single token input
+        let query = Tensor::from_vec(vec![1, 4], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+        let key = Tensor::from_vec(vec![1, 4], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+        let value = Tensor::from_vec(vec![1, 4], vec![0.5, 0.5, 0.5, 0.5]).unwrap();
+
+        let output = swa.forward(&query, &key, &value).unwrap();
+        assert_eq!(output.size(), 4);
+        // Self-attention on single token returns the value
+        let data = output.data();
+        for &v in data {
+            assert!((v - 0.5).abs() < 1e-6);
+        }
     }
 }

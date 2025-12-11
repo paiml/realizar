@@ -93,6 +93,11 @@ pub mod api;
 /// The .apr format is the native format for the sovereign AI stack.
 /// GGUF and safetensors are supported as fallback formats.
 pub mod apr;
+/// APR Transformer format for WASM-compatible LLM inference
+///
+/// Provides F32 transformer weights for fair APR vs GGUF comparison.
+/// Designed for WASM compatibility - no SIMD requirements.
+pub mod apr_transformer;
 /// Audit trail and provenance logging
 ///
 /// Per spec §12: Comprehensive audit record for every inference request.
@@ -113,6 +118,11 @@ pub mod bench;
 pub mod cache;
 /// CLI command implementations (extracted for testability)
 pub mod cli;
+/// GGUF to APR Transformer converter
+///
+/// Converts GGUF models to APR format for fair comparison.
+/// All weights are dequantized to F32 for WASM compatibility.
+pub mod convert;
 /// CUDA PTX generation for NVIDIA GPUs
 ///
 /// Provides native CUDA kernel generation via trueno-gpu.
@@ -145,12 +155,25 @@ pub mod gguf;
 /// - Automatic fallback to SIMD when GPU unavailable
 #[cfg(feature = "gpu")]
 pub mod gpu;
+/// Grammar-constrained generation for structured output
+///
+/// Implements GBNF-style grammar constraints for LLM generation.
+/// - JSON schema validation
+/// - Custom grammar rules (GBNF format)
+/// - Token masking for efficient constrained generation
+/// - State machine for tracking grammar state
+pub mod grammar;
 /// HTTP client for real model server benchmarking
 ///
 /// Implements actual HTTP calls to external servers (vLLM, Ollama, llama.cpp).
 /// **NO MOCK DATA** - measures real network latency and inference timing.
 #[cfg(feature = "bench-http")]
 pub mod http_client;
+/// SIMD-accelerated inference engine using trueno
+///
+/// Provides high-performance transformer inference competing with llama.cpp.
+/// Uses trueno's SIMD primitives for matrix operations.
+pub mod inference;
 pub mod layers;
 pub mod memory;
 #[cfg(feature = "server")]

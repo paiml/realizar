@@ -80,6 +80,9 @@ pub enum AprModelType {
     ContentRecommender = 0x0030,
     /// Mixture of Experts (sparse/dense `MoE`)
     MixtureOfExperts = 0x0040,
+    /// Transformer Language Model (decoder-only LLM)
+    /// WASM-compatible format for fair APR vs GGUF comparison
+    TransformerLM = 0x0050,
     /// User-defined model
     Custom = 0x00FF,
 }
@@ -106,6 +109,7 @@ impl AprModelType {
             0x0021 => Some(Self::NeuralCustom),
             0x0030 => Some(Self::ContentRecommender),
             0x0040 => Some(Self::MixtureOfExperts),
+            0x0050 => Some(Self::TransformerLM),
             0x00FF => Some(Self::Custom),
             _ => None,
         }
@@ -574,6 +578,10 @@ mod tests {
             AprModelType::from_u16(0x0040),
             Some(AprModelType::MixtureOfExperts)
         );
+        assert_eq!(
+            AprModelType::from_u16(0x0050),
+            Some(AprModelType::TransformerLM)
+        );
         assert_eq!(AprModelType::from_u16(0xFFFF), None);
     }
 
@@ -582,6 +590,7 @@ mod tests {
         assert_eq!(AprModelType::LinearRegression.as_u16(), 0x0001);
         assert_eq!(AprModelType::NeuralSequential.as_u16(), 0x0020);
         assert_eq!(AprModelType::MixtureOfExperts.as_u16(), 0x0040);
+        assert_eq!(AprModelType::TransformerLM.as_u16(), 0x0050);
     }
 
     #[test]

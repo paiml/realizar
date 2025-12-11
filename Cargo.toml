@@ -191,6 +191,14 @@ harness = false
 name = "apr_real"
 harness = false
 
+[[bench]]
+name = "gguf_real"
+harness = false
+
+[[bench]]
+name = "external_matrix"
+harness = false
+
 [[example]]
 name = "build_mnist_model"
 required-features = ["aprender-serve"]

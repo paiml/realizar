@@ -38,8 +38,20 @@ pub const GGUF_VERSION_V3: u32 = 3;
 /// GGUF quantization type: F32 (unquantized float32)
 pub const GGUF_TYPE_F32: u32 = 0;
 
+/// GGUF quantization type: F16 (half precision float16)
+pub const GGUF_TYPE_F16: u32 = 1;
+
 /// GGUF quantization type: `Q4_0` (4-bit quantization, block size 32)
 pub const GGUF_TYPE_Q4_0: u32 = 2;
+
+/// GGUF quantization type: `Q4_1` (4-bit quantization with min, block size 32)
+pub const GGUF_TYPE_Q4_1: u32 = 3;
+
+/// GGUF quantization type: `Q5_0` (5-bit quantization, block size 32)
+pub const GGUF_TYPE_Q5_0: u32 = 6;
+
+/// GGUF quantization type: `Q5_1` (5-bit quantization with min, block size 32)
+pub const GGUF_TYPE_Q5_1: u32 = 7;
 
 /// GGUF quantization type: `Q8_0` (8-bit quantization, block size 32)
 pub const GGUF_TYPE_Q8_0: u32 = 8;
@@ -238,6 +250,63 @@ impl MappedGGUFModel {
     #[must_use]
     pub fn file_size(&self) -> usize {
         self.mmap.len()
+    }
+
+    /// Advise kernel to prefetch model data sequentially
+    ///
+    /// Per llama.cpp: Use madvise(MADV_SEQUENTIAL) to hint that the model
+    /// will be read sequentially during loading. This improves prefetching.
+    #[cfg(unix)]
+    pub fn advise_sequential(&self) {
+        // MADV_SEQUENTIAL = 2 on Linux
+        unsafe {
+            libc::madvise(
+                self.mmap.as_ptr().cast_mut().cast::<libc::c_void>(),
+                self.mmap.len(),
+                libc::MADV_SEQUENTIAL,
+            );
+        }
+    }
+
+    /// Advise kernel for random access pattern during inference
+    ///
+    /// Per llama.cpp: Use madvise(MADV_RANDOM) during inference when
+    /// accessing weights non-sequentially.
+    #[cfg(unix)]
+    pub fn advise_random(&self) {
+        // MADV_RANDOM = 1 on Linux
+        unsafe {
+            libc::madvise(
+                self.mmap.as_ptr().cast_mut().cast::<libc::c_void>(),
+                self.mmap.len(),
+                libc::MADV_RANDOM,
+            );
+        }
+    }
+
+    /// Advise kernel to keep model in memory (reduce swap pressure)
+    ///
+    /// Per llama.cpp: Use madvise(MADV_WILLNEED) to hint that the model
+    /// will be needed soon, triggering prefetch.
+    #[cfg(unix)]
+    pub fn advise_willneed(&self) {
+        // MADV_WILLNEED = 3 on Linux
+        unsafe {
+            libc::madvise(
+                self.mmap.as_ptr().cast_mut().cast::<libc::c_void>(),
+                self.mmap.len(),
+                libc::MADV_WILLNEED,
+            );
+        }
+    }
+
+    /// Lock model in memory to prevent swapping (requires privileges)
+    ///
+    /// Per llama.cpp: Use mlock() to ensure model stays in RAM.
+    /// Returns true if successful, false if failed (often due to ulimit).
+    #[cfg(unix)]
+    pub fn lock_memory(&self) -> bool {
+        unsafe { libc::mlock(self.mmap.as_ptr().cast::<libc::c_void>(), self.mmap.len()) == 0 }
     }
 }
 
@@ -722,8 +791,8 @@ impl GGUFModel {
                 Ok(values)
             },
             GGUF_TYPE_Q8_0 => {
-                // Q8_0 quantized data
-                use crate::quantize::dequantize_q8_0;
+                // Q8_0 quantized data - use SIMD-parallel for faster loading
+                use crate::quantize::dequantize_q8_0_simd;
 
                 // Q8_0 block size: 36 bytes (4 for scale + 32 for quants)
                 const BLOCK_BYTES: usize = 36;
@@ -745,15 +814,15 @@ impl GGUFModel {
                 }
 
                 let bytes = &file_data[offset..offset + byte_size];
-                let mut values = dequantize_q8_0(bytes)?;
+                let mut values = dequantize_q8_0_simd(bytes)?;
 
                 // Trim to exact size
                 values.truncate(size);
                 Ok(values)
             },
             GGUF_TYPE_Q4_K => {
-                // Q4_K quantized data (K-quantization)
-                use crate::quantize::{dequantize_q4_k, QK_K};
+                // Q4_K quantized data (K-quantization) - use SIMD-parallel for faster loading
+                use crate::quantize::{dequantize_q4_k_simd, QK_K};
 
                 // Q4_K super-block size: 144 bytes for 256 values
                 const SUPER_BLOCK_BYTES: usize = 144;
@@ -774,7 +843,7 @@ impl GGUFModel {
                 }
 
                 let bytes = &file_data[offset..offset + byte_size];
-                let mut values = dequantize_q4_k(bytes)?;
+                let mut values = dequantize_q4_k_simd(bytes)?;
 
                 // Trim to exact size
                 values.truncate(size);
@@ -833,6 +902,117 @@ impl GGUFModel {
 
                 let bytes = &file_data[offset..offset + byte_size];
                 let mut values = dequantize_q6_k(bytes)?;
+
+                // Trim to exact size
+                values.truncate(size);
+                Ok(values)
+            },
+            GGUF_TYPE_F16 => {
+                // F16 (half-precision float) data
+                use crate::quantize::dequantize_f16;
+
+                let byte_size = size * 2; // 2 bytes per f16
+                if offset + byte_size > file_data.len() {
+                    return Err(RealizarError::UnsupportedOperation {
+                        operation: "get_tensor_f32".to_string(),
+                        reason: format!(
+                            "Data range [{}, {}) exceeds file size {}",
+                            offset,
+                            offset + byte_size,
+                            file_data.len()
+                        ),
+                    });
+                }
+
+                let bytes = &file_data[offset..offset + byte_size];
+                let values = dequantize_f16(bytes)?;
+                Ok(values)
+            },
+            GGUF_TYPE_Q4_1 => {
+                // Q4_1 quantized data
+                use crate::quantize::dequantize_q4_1;
+
+                // Q4_1 block size: 20 bytes (2 for scale + 2 for min + 16 for quants)
+                const BLOCK_BYTES: usize = 20;
+                const BLOCK_SIZE: usize = 32;
+
+                let num_blocks = size.div_ceil(BLOCK_SIZE);
+                let byte_size = num_blocks * BLOCK_BYTES;
+
+                if offset + byte_size > file_data.len() {
+                    return Err(RealizarError::UnsupportedOperation {
+                        operation: "get_tensor_f32".to_string(),
+                        reason: format!(
+                            "Data range [{}, {}) exceeds file size {}",
+                            offset,
+                            offset + byte_size,
+                            file_data.len()
+                        ),
+                    });
+                }
+
+                let bytes = &file_data[offset..offset + byte_size];
+                let mut values = dequantize_q4_1(bytes)?;
+
+                // Trim to exact size
+                values.truncate(size);
+                Ok(values)
+            },
+            GGUF_TYPE_Q5_0 => {
+                // Q5_0 quantized data
+                use crate::quantize::dequantize_q5_0;
+
+                // Q5_0 block size: 22 bytes (2 for scale + 4 for high bits + 16 for quants)
+                const BLOCK_BYTES: usize = 22;
+                const BLOCK_SIZE: usize = 32;
+
+                let num_blocks = size.div_ceil(BLOCK_SIZE);
+                let byte_size = num_blocks * BLOCK_BYTES;
+
+                if offset + byte_size > file_data.len() {
+                    return Err(RealizarError::UnsupportedOperation {
+                        operation: "get_tensor_f32".to_string(),
+                        reason: format!(
+                            "Data range [{}, {}) exceeds file size {}",
+                            offset,
+                            offset + byte_size,
+                            file_data.len()
+                        ),
+                    });
+                }
+
+                let bytes = &file_data[offset..offset + byte_size];
+                let mut values = dequantize_q5_0(bytes)?;
+
+                // Trim to exact size
+                values.truncate(size);
+                Ok(values)
+            },
+            GGUF_TYPE_Q5_1 => {
+                // Q5_1 quantized data
+                use crate::quantize::dequantize_q5_1;
+
+                // Q5_1 block size: 24 bytes (2 for scale + 2 for min + 4 for high bits + 16 for quants)
+                const BLOCK_BYTES: usize = 24;
+                const BLOCK_SIZE: usize = 32;
+
+                let num_blocks = size.div_ceil(BLOCK_SIZE);
+                let byte_size = num_blocks * BLOCK_BYTES;
+
+                if offset + byte_size > file_data.len() {
+                    return Err(RealizarError::UnsupportedOperation {
+                        operation: "get_tensor_f32".to_string(),
+                        reason: format!(
+                            "Data range [{}, {}) exceeds file size {}",
+                            offset,
+                            offset + byte_size,
+                            file_data.len()
+                        ),
+                    });
+                }
+
+                let bytes = &file_data[offset..offset + byte_size];
+                let mut values = dequantize_q5_1(bytes)?;
 
                 // Trim to exact size
                 values.truncate(size);
@@ -1020,7 +1200,7 @@ pub struct GGUFTransformerLayer {
     pub attn_norm_weight: Vec<f32>,
     /// Attention norm bias
     pub attn_norm_bias: Option<Vec<f32>>,
-    /// QKV projection weights (combined for phi-2, separate for llama)
+    /// QKV projection weights (combined for phi-2, concatenated Q+K+V for llama)
     pub qkv_weight: Vec<f32>,
     /// QKV bias (phi-2 has bias, llama doesn't)
     pub qkv_bias: Option<Vec<f32>>,
@@ -1028,6 +1208,10 @@ pub struct GGUFTransformerLayer {
     pub attn_output_weight: Vec<f32>,
     /// Attention output projection bias
     pub attn_output_bias: Option<Vec<f32>>,
+    /// FFN gate projection weight (SwiGLU models like llama)
+    pub ffn_gate_weight: Option<Vec<f32>>,
+    /// FFN gate projection bias
+    pub ffn_gate_bias: Option<Vec<f32>>,
     /// FFN up projection weight
     pub ffn_up_weight: Vec<f32>,
     /// FFN up projection bias
@@ -1036,6 +1220,10 @@ pub struct GGUFTransformerLayer {
     pub ffn_down_weight: Vec<f32>,
     /// FFN down projection bias
     pub ffn_down_bias: Option<Vec<f32>>,
+    /// FFN norm weight (for models with separate FFN normalization)
+    pub ffn_norm_weight: Option<Vec<f32>>,
+    /// FFN norm bias
+    pub ffn_norm_bias: Option<Vec<f32>>,
 }
 
 #[allow(clippy::unused_self)]
@@ -1084,6 +1272,10 @@ impl GGUFTransformer {
     }
 
     /// Load a single transformer layer
+    ///
+    /// Supports both tensor naming conventions:
+    /// - phi-2 style: combined `attn_qkv.weight`
+    /// - llama style: separate `attn_q.weight`, `attn_k.weight`, `attn_v.weight`
     fn load_layer(
         model: &GGUFModel,
         file_data: &[u8],
@@ -1098,19 +1290,51 @@ impl GGUFTransformer {
             .get_tensor_f32(&format!("{}.attn_norm.bias", prefix), file_data)
             .ok();
 
-        // QKV weights (phi-2 uses combined attn_qkv, llama uses separate q/k/v)
-        let qkv_weight = model
-            .get_tensor_f32(&format!("{}.attn_qkv.weight", prefix), file_data)
-            .map_err(|_| {
-                // For llama-style models, we'd need to concat q, k, v weights
-                // For now, return error if not found
-                RealizarError::InvalidShape {
-                    reason: format!("Combined QKV tensor not found for layer {}", layer_idx),
-                }
-            })?;
-        let qkv_bias = model
-            .get_tensor_f32(&format!("{}.attn_qkv.bias", prefix), file_data)
-            .ok();
+        // QKV weights - try combined first (phi-2), fall back to separate (llama)
+        let (qkv_weight, qkv_bias) = if let Ok(combined) =
+            model.get_tensor_f32(&format!("{}.attn_qkv.weight", prefix), file_data)
+        {
+            // phi-2 style: combined QKV tensor
+            let bias = model
+                .get_tensor_f32(&format!("{}.attn_qkv.bias", prefix), file_data)
+                .ok();
+            (combined, bias)
+        } else {
+            // llama style: separate Q, K, V tensors - concatenate them
+            let q_weight = model.get_tensor_f32(&format!("{}.attn_q.weight", prefix), file_data)?;
+            let k_weight = model.get_tensor_f32(&format!("{}.attn_k.weight", prefix), file_data)?;
+            let v_weight = model.get_tensor_f32(&format!("{}.attn_v.weight", prefix), file_data)?;
+
+            // Concatenate Q, K, V weights
+            let mut qkv = Vec::with_capacity(q_weight.len() + k_weight.len() + v_weight.len());
+            qkv.extend_from_slice(&q_weight);
+            qkv.extend_from_slice(&k_weight);
+            qkv.extend_from_slice(&v_weight);
+
+            // Try to get biases (llama usually doesn't have them)
+            let q_bias = model
+                .get_tensor_f32(&format!("{}.attn_q.bias", prefix), file_data)
+                .ok();
+            let k_bias = model
+                .get_tensor_f32(&format!("{}.attn_k.bias", prefix), file_data)
+                .ok();
+            let v_bias = model
+                .get_tensor_f32(&format!("{}.attn_v.bias", prefix), file_data)
+                .ok();
+
+            let bias = match (q_bias, k_bias, v_bias) {
+                (Some(q), Some(k), Some(v)) => {
+                    let mut combined_bias = Vec::with_capacity(q.len() + k.len() + v.len());
+                    combined_bias.extend_from_slice(&q);
+                    combined_bias.extend_from_slice(&k);
+                    combined_bias.extend_from_slice(&v);
+                    Some(combined_bias)
+                },
+                _ => None,
+            };
+
+            (qkv, bias)
+        };
 
         // Attention output
         let attn_output_weight =
@@ -1119,7 +1343,15 @@ impl GGUFTransformer {
             .get_tensor_f32(&format!("{}.attn_output.bias", prefix), file_data)
             .ok();
 
-        // FFN
+        // FFN gate (SwiGLU models like llama have this)
+        let ffn_gate_weight = model
+            .get_tensor_f32(&format!("{}.ffn_gate.weight", prefix), file_data)
+            .ok();
+        let ffn_gate_bias = model
+            .get_tensor_f32(&format!("{}.ffn_gate.bias", prefix), file_data)
+            .ok();
+
+        // FFN up/down projections
         let ffn_up_weight =
             model.get_tensor_f32(&format!("{}.ffn_up.weight", prefix), file_data)?;
         let ffn_up_bias = model
@@ -1131,6 +1363,14 @@ impl GGUFTransformer {
             .get_tensor_f32(&format!("{}.ffn_down.bias", prefix), file_data)
             .ok();
 
+        // FFN norm (models with separate FFN normalization)
+        let ffn_norm_weight = model
+            .get_tensor_f32(&format!("{}.ffn_norm.weight", prefix), file_data)
+            .ok();
+        let ffn_norm_bias = model
+            .get_tensor_f32(&format!("{}.ffn_norm.bias", prefix), file_data)
+            .ok();
+
         Ok(GGUFTransformerLayer {
             attn_norm_weight,
             attn_norm_bias,
@@ -1138,10 +1378,14 @@ impl GGUFTransformer {
             qkv_bias,
             attn_output_weight,
             attn_output_bias,
+            ffn_gate_weight,
+            ffn_gate_bias,
             ffn_up_weight,
             ffn_up_bias,
             ffn_down_weight,
             ffn_down_bias,
+            ffn_norm_weight,
+            ffn_norm_bias,
         })
     }
 
