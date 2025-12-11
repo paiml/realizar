@@ -1,0 +1,19 @@
+{
+  "iterations": 5,
+  "latency_ms": {
+    "mean": 193.5337334,
+    "p50": 196.950142,
+    "p99": 244.00876599999998,
+    "samples": [
+      144.369197,
+      151.80681700000002,
+      196.950142,
+      230.533745,
+      244.00876599999998
+    ]
+  },
+  "model": "default",
+  "runtime": "llama-cpp",
+  "throughput_tokens_per_sec": 213.797439569172,
+  "url": "http://localhost:8082"
+}

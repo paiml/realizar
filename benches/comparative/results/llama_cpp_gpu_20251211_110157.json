@@ -1,0 +1,18 @@
+{
+  "runtime": "llama-cpp",
+  "backend": "gpu",
+  "available": true,
+  "model": "phi-2-q4_k_m",
+  "url": "http://localhost:8082",
+  "iterations": 10,
+  "latency_ms": {
+    "mean": 159.505800,
+    "p50": 161.649,
+    "p99": 208.269,
+    "samples": [161.649,190.273,123.398,194.127,115.012,135.560,129.405,141.566,195.799,208.269]
+  },
+  "throughput_tokens_per_sec": 256.275000,
+  "cold_start_ms": 161.649,
+  "cv_at_stop": .218476,
+  "ngl": 99
+}

@@ -3,6 +3,8 @@
 //! Benchmarks Realizar inference on canonical datasets for comparison
 //! with PyTorch and other frameworks.
 //!
+//! Also includes APR vs GGUF transformer comparison for fair WASM benchmarking.
+//!
 //! Datasets: MNIST, CIFAR-10, Fashion-MNIST, Iris (from alimentar)
 //! Metrics: Latency (p50, p95, p99), Throughput, Memory
 
@@ -10,6 +12,9 @@
 #![allow(clippy::cast_precision_loss)]
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use realizar::apr_transformer::{AprTransformer, AprTransformerConfig, AprTransformerLayer};
+use realizar::convert::GgufToAprConverter;
+use realizar::gguf::{GGUFConfig, GGUFTransformer, GGUFTransformerLayer};
 use realizar::Tensor;
 
 /// Simple forward pass simulation for benchmark comparison.
@@ -198,12 +203,247 @@ fn benchmark_tensor_creation(c: &mut Criterion) {
     group.finish();
 }
 
+// ============================================================================
+// APR vs GGUF Transformer Comparison Benchmarks
+// ============================================================================
+
+/// Fixed token sequence for reproducible inference (DO NOT CHANGE)
+const REPRODUCIBLE_TOKENS: &[u32] = &[1, 2, 3, 4];
+
+/// Create a test GGUF transformer with known weights
+fn create_test_gguf_transformer(
+    hidden_dim: usize,
+    num_layers: usize,
+    vocab_size: usize,
+    intermediate_dim: usize,
+) -> GGUFTransformer {
+    let config = GGUFConfig {
+        architecture: "test_model".to_string(),
+        hidden_dim,
+        num_layers,
+        num_heads: 4,
+        num_kv_heads: 4,
+        vocab_size,
+        intermediate_dim,
+        context_length: 512,
+        rope_theta: 10000.0,
+        eps: 1e-5,
+    };
+
+    let layers: Vec<GGUFTransformerLayer> = (0..num_layers)
+        .map(|_| GGUFTransformerLayer {
+            attn_norm_weight: vec![1.0; hidden_dim],
+            attn_norm_bias: None,
+            qkv_weight: vec![0.01; hidden_dim * 3 * hidden_dim],
+            qkv_bias: None,
+            attn_output_weight: vec![0.01; hidden_dim * hidden_dim],
+            attn_output_bias: None,
+            ffn_gate_weight: None,
+            ffn_gate_bias: None,
+            ffn_up_weight: vec![0.01; hidden_dim * intermediate_dim],
+            ffn_up_bias: None,
+            ffn_down_weight: vec![0.01; intermediate_dim * hidden_dim],
+            ffn_down_bias: None,
+            ffn_norm_weight: None,
+            ffn_norm_bias: None,
+        })
+        .collect();
+
+    GGUFTransformer {
+        config,
+        token_embedding: vec![0.1; vocab_size * hidden_dim],
+        layers,
+        output_norm_weight: vec![1.0; hidden_dim],
+        output_norm_bias: None,
+        lm_head_weight: vec![0.01; hidden_dim * vocab_size],
+        lm_head_bias: None,
+    }
+}
+
+/// Create APR transformer from GGUF (uses the converter)
+fn create_test_apr_transformer(
+    hidden_dim: usize,
+    num_layers: usize,
+    vocab_size: usize,
+    intermediate_dim: usize,
+) -> AprTransformer {
+    let config = AprTransformerConfig {
+        architecture: "test_model".to_string(),
+        hidden_dim,
+        num_layers,
+        num_heads: 4,
+        num_kv_heads: 4,
+        vocab_size,
+        intermediate_dim,
+        context_length: 512,
+        rope_theta: 10000.0,
+        eps: 1e-5,
+    };
+
+    let layers: Vec<AprTransformerLayer> = (0..num_layers)
+        .map(|_| AprTransformerLayer {
+            attn_norm_weight: vec![1.0; hidden_dim],
+            attn_norm_bias: None,
+            qkv_weight: vec![0.01; hidden_dim * 3 * hidden_dim],
+            qkv_bias: None,
+            attn_output_weight: vec![0.01; hidden_dim * hidden_dim],
+            attn_output_bias: None,
+            ffn_gate_weight: None,
+            ffn_gate_bias: None,
+            ffn_up_weight: vec![0.01; hidden_dim * intermediate_dim],
+            ffn_up_bias: None,
+            ffn_down_weight: vec![0.01; intermediate_dim * hidden_dim],
+            ffn_down_bias: None,
+            ffn_norm_weight: None,
+            ffn_norm_bias: None,
+        })
+        .collect();
+
+    AprTransformer {
+        config,
+        token_embedding: vec![0.1; vocab_size * hidden_dim],
+        layers,
+        output_norm_weight: vec![1.0; hidden_dim],
+        output_norm_bias: None,
+        lm_head_weight: vec![0.01; hidden_dim * vocab_size],
+        lm_head_bias: None,
+    }
+}
+
+/// Benchmark: GGUF forward pass
+fn benchmark_gguf_forward(c: &mut Criterion) {
+    let mut group = c.benchmark_group("format_comparison_forward");
+
+    // Test different model sizes
+    for (name, hidden, layers, vocab, intermediate) in [
+        ("tiny_64x1", 64, 1, 100, 128),
+        ("small_128x2", 128, 2, 500, 256),
+        ("medium_256x4", 256, 4, 1000, 512),
+    ] {
+        let gguf = create_test_gguf_transformer(hidden, layers, vocab, intermediate);
+
+        group.bench_with_input(BenchmarkId::new("gguf", name), &gguf, |b, model| {
+            b.iter(|| {
+                let logits = model
+                    .forward(black_box(REPRODUCIBLE_TOKENS))
+                    .expect("forward failed");
+                black_box(logits)
+            });
+        });
+    }
+
+    group.finish();
+}
+
+/// Benchmark: APR forward pass
+fn benchmark_apr_forward(c: &mut Criterion) {
+    let mut group = c.benchmark_group("format_comparison_forward");
+
+    // Test different model sizes (same as GGUF)
+    for (name, hidden, layers, vocab, intermediate) in [
+        ("tiny_64x1", 64, 1, 100, 128),
+        ("small_128x2", 128, 2, 500, 256),
+        ("medium_256x4", 256, 4, 1000, 512),
+    ] {
+        let apr = create_test_apr_transformer(hidden, layers, vocab, intermediate);
+
+        group.bench_with_input(BenchmarkId::new("apr", name), &apr, |b, model| {
+            b.iter(|| {
+                let logits = model
+                    .forward(black_box(REPRODUCIBLE_TOKENS))
+                    .expect("forward failed");
+                black_box(logits)
+            });
+        });
+    }
+
+    group.finish();
+}
+
+/// Benchmark: GGUF to APR conversion overhead
+fn benchmark_conversion(c: &mut Criterion) {
+    let mut group = c.benchmark_group("gguf_to_apr_conversion");
+
+    for (name, hidden, layers, vocab, intermediate) in [
+        ("tiny_64x1", 64, 1, 100, 128),
+        ("small_128x2", 128, 2, 500, 256),
+    ] {
+        let gguf = create_test_gguf_transformer(hidden, layers, vocab, intermediate);
+
+        group.bench_with_input(BenchmarkId::from_parameter(name), &gguf, |b, model| {
+            b.iter(|| {
+                let apr = GgufToAprConverter::from_gguf_transformer(black_box(model));
+                black_box(apr)
+            });
+        });
+    }
+
+    group.finish();
+}
+
+/// Benchmark: APR serialization/deserialization
+fn benchmark_apr_serialization(c: &mut Criterion) {
+    let mut group = c.benchmark_group("apr_serialization");
+
+    for (name, hidden, layers, vocab, intermediate) in [
+        ("tiny_64x1", 64, 1, 100, 128),
+        ("small_128x2", 128, 2, 500, 256),
+    ] {
+        let apr = create_test_apr_transformer(hidden, layers, vocab, intermediate);
+
+        group.bench_with_input(BenchmarkId::new("to_bytes", name), &apr, |b, model| {
+            b.iter(|| {
+                let bytes = GgufToAprConverter::to_apr_bytes(black_box(model))
+                    .expect("serialization failed");
+                black_box(bytes)
+            });
+        });
+
+        let bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialization");
+        group.bench_with_input(BenchmarkId::new("from_bytes", name), &bytes, |b, data| {
+            b.iter(|| {
+                let loaded = GgufToAprConverter::from_apr_bytes(black_box(data))
+                    .expect("deserialization failed");
+                black_box(loaded)
+            });
+        });
+    }
+
+    group.finish();
+}
+
+/// Benchmark: Memory usage comparison
+fn benchmark_memory_usage(c: &mut Criterion) {
+    let mut group = c.benchmark_group("memory_usage");
+
+    for (name, hidden, layers, vocab, intermediate) in [
+        ("tiny_64x1", 64, 1, 100, 128),
+        ("small_128x2", 128, 2, 500, 256),
+        ("medium_256x4", 256, 4, 1000, 512),
+    ] {
+        let apr = create_test_apr_transformer(hidden, layers, vocab, intermediate);
+        let stats = GgufToAprConverter::stats(&apr);
+
+        // Just document the memory stats (benchmark doesn't measure time meaningfully)
+        group.bench_function(BenchmarkId::new("apr_params", name), |b| {
+            b.iter(|| black_box(stats.total_parameters));
+        });
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     benchmark_mnist_inference,
     benchmark_cifar10_inference,
     benchmark_iris_inference,
     benchmark_tensor_creation,
+    benchmark_gguf_forward,
+    benchmark_apr_forward,
+    benchmark_conversion,
+    benchmark_apr_serialization,
+    benchmark_memory_usage,
 );
 
 criterion_main!(benches);

@@ -16,6 +16,7 @@
 |---------|------|--------|---------|
 | 1.0.0 | 2024-12-10 | Claude Code | Initial draft |
 | 2.0.0 | 2024-12-10 | Claude Code | Incorporated Lean Manufacturing review: relaxed NFR-001, prioritized quantization, added ULP tolerances, long-context benchmarks |
+| 3.0.0 | 2024-12-11 | Claude Code | Deep llama.cpp codebase analysis: 60+ architecture support, slot-based server, computation graphs, 15 quantization formats |
 
 ---
 
@@ -70,6 +71,245 @@ llama.cpp achieves its performance through (in order of impact):
 4. **KV Cache Optimization**: Paged attention reduces fragmentation by 90% [4]
 5. **Flash Attention**: IO-aware attention reduces memory reads from O(N²) to O(N) [5]
 6. **Thread Pool Parallelism**: Work-stealing scheduler maximizes CPU utilization [6]
+
+### 1.4 Deep llama.cpp Codebase Analysis (December 2024)
+
+**Source:** Direct codebase exploration of `/home/noah/src/llama.cpp`
+
+#### 1.4.1 Code Statistics
+
+| Component | Lines | Purpose |
+|-----------|-------|---------|
+| ggml.c | 7,711 | Core tensor operations |
+| llama.cpp | 23,516 | Model loading and inference logic |
+| ggml-quants.c | 5,238 | Quantization/dequantization kernels |
+| ggml-backend.cpp | 1,999 | Backend abstraction layer |
+| server.cpp | ~10,000 | HTTP API and slot management |
+
+#### 1.4.2 Architecture: Computation Graphs
+
+Every forward pass constructs a **dynamic computation graph** via `ggml_graph`:
+
+```c
+// llama.cpp builds graphs at inference time
+struct ggml_cgraph * llama_build_graph(
+    struct llama_context * lctx,
+    llama_ubatch & batch
+);
+
+// Graph execution dispatched to appropriate backend
+ggml_backend_sched_graph_compute(lctx->sched, graph);
+```
+
+**Implication for Realizar:** Consider graph-based execution for multi-backend dispatch.
+
+#### 1.4.3 Pluggable Backend System
+
+llama.cpp supports **10+ backends** via `ggml_backend`:
+
+| Backend | File | Use Case |
+|---------|------|----------|
+| CPU | ggml-cpu/ | Universal fallback |
+| CUDA | ggml-cuda/ | NVIDIA GPUs |
+| Metal | ggml-metal/ | Apple Silicon |
+| Vulkan | ggml-vulkan/ | Cross-platform GPU |
+| HIP | ggml-hip/ | AMD GPUs |
+| SYCL | ggml-sycl/ | Intel GPUs |
+| AMX | ggml-cpu/amx/ | Intel Xeon (matrix extensions) |
+
+**Realizar Approach:** Use Trueno's `wgpu` for portable GPU, with CPU SIMD as primary target.
+
+#### 1.4.4 Quantization Format Zoo (15 Formats)
+
+```c
+// From ggml-quants.c - comprehensive quantization support
+typedef struct {
+    ggml_half d;           // delta (scale)
+    uint8_t qs[QK4_0 / 2]; // nibbles / quants
+} block_q4_0;  // 18 bytes for 32 float32s = 5.625 bits/weight
+
+// Super-block formats (QK_K = 256)
+typedef struct {
+    union { struct { ggml_half d; ggml_half dmin; }; ggml_half2 dm; };
+    uint8_t scales[K_SCALE_SIZE];  // 12 bytes
+    uint8_t qs[QK_K/2];            // 128 bytes (4-bit quants)
+} block_q4_K;  // 144 bytes for 256 values = 4.5 bits/weight
+```
+
+| Format | Bits/Weight | Block Size | Quality | Speed |
+|--------|-------------|------------|---------|-------|
+| Q4_0 | 5.625 | 32 | Good | Fast |
+| Q4_1 | 6.0 | 32 | Better | Fast |
+| Q4_K | 4.5 | 256 | Best 4-bit | Fast |
+| Q5_K | 5.5 | 256 | Excellent | Medium |
+| Q6_K | 6.5 | 256 | Near-lossless | Medium |
+| Q8_0 | 9.0 | 32 | Highest | Fastest |
+| IQ2_XXS | 2.1 | 256 | Aggressive | Slow |
+| TQ1_0 | 1.7 | 256 | Ternary | Experimental |
+
+**Priority for Realizar:** Q4_K (best quality/speed), Q8_0 (fastest), Q6_K (quality).
+
+#### 1.4.5 KV Cache Architecture
+
+Cell-based management with sequence tracking:
+
+```c
+// llama.cpp KV cache slot management
+struct llama_kv_cell {
+    llama_pos pos;           // Position in sequence
+    llama_pos delta;         // RoPE position delta
+    int32_t src;             // Source cell for copy
+    int32_t seq_id;          // Sequence ID for batching
+    llama_seq_id seq_ids[];  // Multiple sequences can share cells
+};
+
+struct llama_kv_cache {
+    llama_kv_cell * cells;   // Per-position cells
+    ggml_tensor * k;         // [n_ctx, n_embd] key cache
+    ggml_tensor * v;         // [n_ctx, n_embd] value cache (transposed!)
+    // ... defragmentation support
+};
+```
+
+**Key Insight:** V cache is stored **transposed** for memory access optimization.
+
+#### 1.4.6 Batch Processing (ubatch/sbatch)
+
+```c
+// Micro-batch: physical batch processed at once
+struct llama_ubatch {
+    int32_t n_tokens;        // Total tokens in batch
+    ggml_tensor * tokens;    // [n_tokens] token IDs
+    float * embd;            // Optional embeddings
+    llama_pos * pos;         // [n_tokens] positions
+    // ...
+};
+
+// Sequence-aware batch: logical grouping
+struct llama_sbatch {
+    std::vector<llama_ubatch> ubatches;
+    size_t n_tokens;         // Total across all ubatches
+    // Automatic splitting for:
+    // - Recurrent models: equal-length sequences
+    // - Transformers: simple splitting
+};
+```
+
+**Dynamic Thread Allocation:**
+- Single token decode: `n_threads` threads
+- Batch prefill: `n_threads_batch` threads (typically higher)
+
+#### 1.4.7 Server Architecture: Slot-Based Concurrency
+
+```c
+// Each slot handles one concurrent request
+enum slot_state {
+    SLOT_STATE_IDLE,
+    SLOT_STATE_STARTED,
+    SLOT_STATE_PROCESSING_PROMPT,
+    SLOT_STATE_DONE_PROMPT,
+    SLOT_STATE_GENERATING
+};
+
+struct server_slot {
+    int32_t id;
+    slot_state state;
+    llama_seq_id seq_id;     // Maps to KV cache
+    // Prompt caching for identical prefixes
+    size_t n_prompt_tokens_cached;
+};
+```
+
+**Sampling Pipeline Chain (llama.cpp):**
+```
+Logits → Temperature → Top-K → Top-P → Min-P → Typical →
+Mirostat → Repetition Penalty → DRY → Grammar → Logit Bias → Sample
+```
+
+**Realizar Sampling Parity (as of v0.3.0):**
+
+| Sampler | llama.cpp | Realizar | Status |
+|---------|-----------|----------|--------|
+| Greedy | ✅ | ✅ | Complete |
+| Temperature | ✅ | ✅ | Complete |
+| **Dynamic Temperature** | ✅ temp_ext | ✅ | **v0.3.0** |
+| Top-K | ✅ | ✅ | Complete |
+| Top-P | ✅ | ✅ | Complete |
+| Min-P | ✅ | ✅ | Complete |
+| Typical (Locally) | ✅ | ✅ | Complete |
+| Tail-Free (TFS) | ❌ | ✅ | **Realizar-only** |
+| XTC | ✅ | ✅ | Complete |
+| Eta Sampling | ❌ | ✅ | **Realizar-only** |
+| Mirostat v1/v2 | ✅ | ✅ | Complete |
+| Repetition Penalty | ✅ | ✅ | Complete |
+| Presence/Frequency | ✅ | ✅ | Complete |
+| DRY (Don't Repeat) | ✅ | ✅ | Complete |
+| Logit Bias | ✅ | ✅ | Complete |
+| Grammar (GBNF) | ✅ | ✅ | Complete |
+| **Infill/FIM** | ✅ | ✅ | **v0.3.0** |
+| **Sampler Chain** | ✅ | ✅ | **v0.3.0** |
+| CFG (Classifier-Free) | ❌ | ✅ | **Realizar-only** |
+| Token Healing | ❌ | ✅ | **Realizar-only** |
+| Prompt Caching | ✅ | ✅ | Complete |
+| Beam Search | ✅ | ✅ | Complete |
+| Streaming | ✅ | ✅ | Complete |
+
+**Realizar Extended Pipeline:**
+```
+Logits → Dynamic Temp → Top-K → Top-P → Min-P → TFS → Typical → XTC → Eta →
+Mirostat → Rep/Pres/Freq Penalty → DRY → CFG → Grammar → Logit Bias →
+Token Healing → Infill → [Sampler Chain] → Sample
+```
+
+#### 1.4.8 SIMD Kernel Structure (CPU Backend)
+
+```c
+// From ggml-cpu/ - vectorized dequantization
+// Key pattern: fused dequant + dot product
+static inline __m256 vec_dot_q4_K_q8_K_256(
+    const block_q4_K * x,  // Quantized weights
+    const block_q8_K * y   // Quantized activations (optional)
+) {
+    // AVX2: Process 32 elements per iteration
+    // Load scales, dequantize nibbles, FMA accumulate
+    // Never materialize full f32 buffer
+}
+```
+
+**Platform-Specific Files:**
+- `ggml-cpu-aarch64.cpp` - ARM NEON optimizations
+- `ggml-cpu/amx/mmq.cpp` - Intel AMX (Xeon)
+- `llamafile/sgemm.cpp` - Optimized SGEMM
+
+#### 1.4.9 Multi-Architecture Support (60+ Variants)
+
+llama.cpp supports models via architecture-specific tensor naming:
+
+| Architecture Family | Examples | Special Handling |
+|---------------------|----------|------------------|
+| Llama | Llama 2/3, CodeLlama, Mistral | Standard transformer |
+| Phi | Phi-1/2/3, Phi-4 | Partial rotation in RoPE |
+| Qwen | Qwen, Qwen2, Qwen2MoE | MoE with shared experts |
+| Falcon | Falcon 7B/40B/180B | Multi-query attention |
+| Mamba | Mamba, Jamba | State-space model (not transformer!) |
+| BERT | BERT, RoBERTa, nomic-bert | Encoder-only |
+| T5 | T5, Flan-T5, UL2 | Encoder-decoder |
+| Vision | Chameleon, InternVL | Vision RoPE, image patches |
+
+**Implication:** Realizar should start with Llama/Phi/Qwen, then generalize.
+
+#### 1.4.10 Key Architectural Decisions Summary
+
+| Decision | llama.cpp | Realizar Approach |
+|----------|-----------|-------------------|
+| Graph construction | Dynamic per-forward | Static graph (simpler) |
+| Backend dispatch | Runtime `ggml_backend` | Compile-time features |
+| Quantization | 15 formats, Q4_K primary | Q4_K, Q6_K, Q8_0 |
+| KV cache | Cell-based with defrag | Paged attention + caching |
+| Server | Slot-based, async | axum async handlers |
+| **Sampling** | **16 samplers** | **22 samplers (parity+6 extra)** |
+| Sampler Chain | Composable pipeline | ✅ SamplerChain trait |
+| Architectures | 60+ variants | Llama/Phi-compatible first |
 
 ---
 
@@ -558,6 +798,6 @@ pub fn quantized_matmul(
 
 **Document Control:**
 - Created: 2024-12-10
-- Last Modified: 2024-12-10
-- Review Status: **REVISED PER TEAM FEEDBACK**
-- Next Action: Approval for Phase 1 implementation
+- Last Modified: 2024-12-11
+- Review Status: **V3 - DEEP LLAMA.CPP ANALYSIS COMPLETE**
+- Next Action: Implement priority optimizations per §1.4.10

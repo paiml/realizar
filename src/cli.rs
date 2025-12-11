@@ -377,7 +377,7 @@ fn run_external_benchmark(
                     .ollama_generate(url, &request)
                     .map_err(|e| RealizarError::ConnectionError(e.to_string()))?
             },
-            "vllm" | "llama-cpp" => {
+            "vllm" => {
                 let model_name = model.unwrap_or("default");
                 let request = CompletionRequest {
                     model: model_name.to_string(),
@@ -388,6 +388,19 @@ fn run_external_benchmark(
                 };
                 client
                     .openai_completion(url, &request, None)
+                    .map_err(|e| RealizarError::ConnectionError(e.to_string()))?
+            },
+            "llama-cpp" => {
+                // llama.cpp uses native /completion endpoint with different format
+                let request = CompletionRequest {
+                    model: "default".to_string(),
+                    prompt: prompt.to_string(),
+                    max_tokens: 50,
+                    temperature: Some(0.7),
+                    stream: false,
+                };
+                client
+                    .llamacpp_completion(url, &request)
                     .map_err(|e| RealizarError::ConnectionError(e.to_string()))?
             },
             _ => {

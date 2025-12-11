@@ -487,16 +487,116 @@ async fn run_model(
         println!("Temperature: {temperature}");
         println!("Format: {format}");
         println!();
-        println!(
-            "Model loaded ({} bytes) - ready for inference!",
-            file_data.len()
-        );
+
+        // Run actual GGUF inference with TruenoInferenceEngine
+        run_gguf_inference(
+            model_ref,
+            &file_data,
+            prompt_text,
+            max_tokens,
+            temperature,
+            format,
+        )?;
     } else {
         println!("Interactive mode (Ctrl+D to exit)");
         println!();
         println!("Model loaded ({} bytes)", file_data.len());
         println!("Use a prompt argument:");
         println!("  realizar run {model_ref} \"Your prompt here\"");
+    }
+
+    Ok(())
+}
+
+/// Run GGUF inference with performance timing
+fn run_gguf_inference(
+    model_ref: &str,
+    file_data: &[u8],
+    prompt: &str,
+    max_tokens: usize,
+    temperature: f32,
+    format: &str,
+) -> Result<()> {
+    use realizar::gguf::{GGUFModel, GGUFTransformer};
+    use realizar::inference::TruenoInferenceEngine;
+    use std::time::Instant;
+
+    let load_start = Instant::now();
+
+    // Parse GGUF model first
+    let gguf_model = GGUFModel::from_bytes(file_data).map_err(|e| {
+        realizar::error::RealizarError::UnsupportedOperation {
+            operation: "parse_gguf".to_string(),
+            reason: format!("Failed to parse GGUF: {e}"),
+        }
+    })?;
+
+    // Create transformer from model
+    let transformer = GGUFTransformer::from_gguf(&gguf_model, file_data).map_err(|e| {
+        realizar::error::RealizarError::UnsupportedOperation {
+            operation: "create_transformer".to_string(),
+            reason: format!("Failed to create transformer: {e}"),
+        }
+    })?;
+
+    let load_time = load_start.elapsed();
+    println!("Model loaded in {:.2}ms", load_time.as_secs_f64() * 1000.0);
+
+    // Create inference engine
+    let engine = TruenoInferenceEngine::from_gguf_transformer(transformer);
+
+    // Simple tokenization (split by chars for now - real tokenizer would be better)
+    let prompt_tokens: Vec<u32> = prompt.chars().map(|c| c as u32).collect();
+    let prompt_len = prompt_tokens.len();
+
+    println!("Prompt tokens: {}", prompt_len);
+    println!("Temperature: {:.1} (using greedy decoding)", temperature);
+    println!();
+
+    // Run inference with timing using KV cache for O(n) complexity
+    // Note: temperature is for display only - generate_with_cache uses greedy decoding
+    let gen_start = Instant::now();
+    let generated = engine.generate_with_cache(&prompt_tokens, max_tokens, None)?;
+    let gen_time = gen_start.elapsed();
+
+    let tokens_generated = generated.len() - prompt_len;
+    let tokens_per_sec = if gen_time.as_secs_f64() > 0.0 {
+        tokens_generated as f64 / gen_time.as_secs_f64()
+    } else {
+        0.0
+    };
+
+    // Decode output (simple ASCII for now)
+    let output_text: String = generated[prompt_len..]
+        .iter()
+        .map(|&t| char::from_u32(t.min(127)).unwrap_or('?'))
+        .collect();
+
+    match format {
+        "json" => {
+            let json = serde_json::json!({
+                "model": model_ref,
+                "prompt": prompt,
+                "generated_text": output_text,
+                "tokens_generated": tokens_generated,
+                "generation_time_ms": gen_time.as_secs_f64() * 1000.0,
+                "tokens_per_second": tokens_per_sec,
+                "temperature": temperature,
+            });
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json).unwrap_or_default()
+            );
+        },
+        _ => {
+            println!(
+                "Generated ({tokens_generated} tokens in {:.2}ms):",
+                gen_time.as_secs_f64() * 1000.0
+            );
+            println!("{prompt}{output_text}");
+            println!();
+            println!("Performance: {:.1} tok/s", tokens_per_sec);
+        },
     }
 
     Ok(())
@@ -551,10 +651,16 @@ async fn run_model(
         println!("Temperature: {temperature}");
         println!("Format: {format}");
         println!();
-        println!(
-            "Model loaded ({} bytes) - ready for inference!",
-            file_data.len()
-        );
+
+        // Run actual GGUF inference with TruenoInferenceEngine
+        run_gguf_inference(
+            model_ref,
+            &file_data,
+            prompt_text,
+            max_tokens,
+            temperature,
+            format,
+        )?;
     } else {
         println!("Interactive mode (Ctrl+D to exit)");
         println!();
