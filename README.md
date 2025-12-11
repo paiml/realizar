@@ -96,19 +96,89 @@ curl -X POST http://localhost:8080/generate -d '{"prompt": "Hello", "max_tokens"
 
 ### Run Benchmarks
 
+#### Quick Start
+
 ```bash
-# APR format (classical ML)
-cargo bench --bench apr_real
+# Internal benchmarks (no external servers required)
+cargo bench --bench apr_real      # APR format (classical ML)
+cargo bench --bench gguf_real     # GGUF format (transformers)
+cargo bench --bench comparative   # APR vs GGUF comparison
+```
 
-# GGUF format (transformers)
-cargo bench --bench gguf_real
+#### Benchmark Against llama.cpp and Ollama
 
-# Compare APR vs GGUF on same workload
-cargo bench --bench comparative
+**Step 1: Start External Servers**
 
-# External servers (llama.cpp, Ollama)
+```bash
+# Terminal 1: llama.cpp with GPU (full GPU offload)
+llama-server -m /path/to/phi-2-q4_k_m.gguf --host 127.0.0.1 --port 8082 -ngl 99
+
+# Terminal 2: llama.cpp with CPU only
+llama-server -m /path/to/phi-2-q4_k_m.gguf --host 127.0.0.1 --port 8083 -ngl 0
+
+# Terminal 3: Ollama (uses GPU by default)
+ollama serve   # Default port 11434
+ollama pull phi2:2.7b  # Pull model first
+```
+
+**Step 2: Run the Benchmark Matrix**
+
+```bash
+# Full benchmark matrix (CV-based stopping, statistically significant)
+./scripts/bench-matrix.sh --full
+
+# Quick benchmark (fewer iterations)
+./scripts/bench-matrix.sh --quick
+
+# Programmatic benchmark via Rust
 cargo bench --bench external_matrix --features bench-http
 ```
+
+**Step 3: View Results**
+
+Results are saved to `benches/comparative/results/`:
+- `benchmark_matrix_TIMESTAMP.json` - Raw data
+- `benchmark_matrix_TIMESTAMP.md` - Markdown table
+
+#### Full Backend × Runtime Matrix
+
+| What to Benchmark | Command |
+|-------------------|---------|
+| realizar (CPU) | `cargo bench --bench apr_real` |
+| realizar (WGPU) | `cargo bench --bench gguf_real --features gpu` |
+| llama.cpp (CPU) | Start server with `-ngl 0`, run `./scripts/bench-matrix.sh` |
+| llama.cpp (CUDA) | Start server with `-ngl 99`, run `./scripts/bench-matrix.sh` |
+| Ollama (GPU) | Start `ollama serve`, run `./scripts/bench-matrix.sh` |
+
+#### Methodology
+
+All benchmarks follow [Hoefler & Belli SC'15](https://doi.org/10.1145/2807591.2807644):
+- **CV-based stopping**: Iterate until coefficient of variation < 10%
+- **Warmup**: 2-10 iterations discarded before measurement
+- **Metrics**: p50, p99 latency, throughput (tok/s), cold start
+
+#### Example Output
+
+```
+╔════════════════════════════════════════════════════════════════╗
+║          Realizar Benchmark Matrix v1.1                        ║
+╚════════════════════════════════════════════════════════════════╝
+
+=== llama.cpp (GPU) ===
+  [10/30] Latency: 114.2ms | TPS: 477.1
+  CV stable at 0.048 after 10 iterations
+
+=== Ollama (GPU) ===
+  [12/30] Latency: 123.4ms | TPS: 258.6
+  CV stable at 0.089 after 12 iterations
+
+| Runtime | Backend | p50 Latency | p99 Latency | Throughput |
+|---------|---------|-------------|-------------|------------|
+| llama-cpp | gpu | 114.2ms | 161.0ms | 477.1 tok/s |
+| ollama | gpu | 123.4ms | 145.2ms | 258.6 tok/s |
+```
+
+See [docs/benchmarking-other-servers.md](docs/benchmarking-other-servers.md) for full methodology.
 
 ## Examples
 
