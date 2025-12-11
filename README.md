@@ -41,12 +41,14 @@ curl -X POST http://localhost:8080/generate -d '{"prompt": "Hello", "max_tokens"
 | MNIST | 103K | **73µs** | 13.6K inferences/sec |
 | Large NN | 1M | **410µs** | 2.4K inferences/sec |
 
-### GGUF Format (LLMs)
+### GGUF Format (LLMs via llama.cpp)
 
 | Model | Size | Backend | Throughput |
 |-------|------|---------|------------|
-| Phi-2 Q4_K_M | 2.7B | RTX 4090 (CUDA) | **477 tok/s** |
+| Phi-2 Q4_K_M | 2.7B | RTX 4090 (CUDA) | **256 tok/s** |
 | Phi-2 Q4_K_M | 2.7B | CPU (AVX2) | ~15 tok/s |
+
+*Measured via HTTP benchmark against llama-server on AMD Ryzen 7960X + RTX 4090*
 
 ### The Complete Benchmark Matrix
 
@@ -58,18 +60,23 @@ curl -X POST http://localhost:8080/generate -d '{"prompt": "Hello", "max_tokens"
 ├──────────────┬─────────┬─────────────┬─────────────┬───────────────────────┤
 │ Runtime      │ Backend │ p50 Latency │ Throughput  │ Command               │
 ├──────────────┼─────────┼─────────────┼─────────────┼───────────────────────┤
-│ llama.cpp    │ CUDA    │ 114ms       │ 477 tok/s   │ llama-server -ngl 99  │
+│ llama.cpp    │ CUDA    │ 162ms       │ 256 tok/s   │ llama-server -ngl 99  │
 │ llama.cpp    │ CPU     │ ~3000ms     │ ~15 tok/s   │ llama-server -ngl 0   │
-│ Ollama       │ CUDA    │ ~123ms      │ ~260 tok/s  │ ollama serve          │
-│ realizar     │ WGPU    │ TBD         │ TBD         │ cargo bench gguf_real │
-│ realizar     │ CPU     │ TBD         │ TBD         │ cargo bench gguf_real │
+│ Ollama       │ CUDA    │ ~120ms      │ ~260 tok/s  │ ollama serve          │
+│ realizar     │ CPU     │ ~500ms*     │ ~2 tok/s*   │ cargo bench gguf_real │
 ├──────────────┴─────────┴─────────────┴─────────────┴───────────────────────┤
-│                     APR Format (Same Model Converted)                       │
+│                     APR Format (Synthetic Transformer)                      │
 ├──────────────┬─────────┬─────────────┬─────────────┬───────────────────────┤
-│ realizar     │ CPU     │ TBD         │ TBD         │ cargo bench comparative│
-│ realizar     │ WGPU    │ TBD         │ TBD         │ cargo bench comparative│
+│ realizar     │ CPU     │ 18.5ms      │ N/A**       │ cargo bench comparative│
 └──────────────┴─────────┴─────────────┴─────────────┴───────────────────────┘
+
+*  realizar CPU: Pure Rust, no SIMD optimization yet - educational/correctness focus
+** APR synthetic: Forward pass only, not full generation loop
 ```
+
+> **Note**: realizar is a pure Rust implementation focused on correctness and educational
+> value. For production LLM inference, use llama.cpp or Ollama. realizar excels at
+> small ML models (APR format) with nanosecond latency.
 
 **Run the full matrix yourself:**
 
@@ -124,7 +131,7 @@ realizar convert model.gguf --output model.apr  # Coming soon
 │                                                                  │
 │  Matrix Result = Runtime × Backend × Format                      │
 │                                                                  │
-│  Example: "llama.cpp + CUDA + GGUF" = 477 tok/s on RTX 4090     │
+│  Example: "llama.cpp + CUDA + GGUF" = 256 tok/s on RTX 4090     │
 │           "realizar + CPU + APR"   = 9.6M inf/s for tiny models │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
