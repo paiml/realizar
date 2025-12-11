@@ -115,6 +115,17 @@ pub mod audit;
 /// - KV-cache fragmentation detection
 /// - KL-Divergence quality validation
 pub mod bench;
+/// Preflight validation protocol for deterministic benchmarking
+///
+/// Per spec v1.0.1, implements Toyota Way principles:
+/// - Jidoka: Fail-fast validation, stop on anomaly
+/// - Poka-yoke: Error-proofing through type-safe configurations
+/// - Genchi Genbutsu: Verify actual system state
+///
+/// References:
+/// - Hoefler & Belli SC'15: CV-based stopping
+/// - Vitek & Kalibera EMSOFT'11: Reproducibility requirements
+pub mod bench_preflight;
 pub mod cache;
 /// CLI command implementations (extracted for testability)
 pub mod cli;

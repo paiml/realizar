@@ -34,6 +34,9 @@ use realizar::http_client::{
 };
 
 #[cfg(feature = "bench-http")]
+use realizar::bench_preflight::CvStoppingCriterion;
+
+#[cfg(feature = "bench-http")]
 use realizar::bench::{
     BenchmarkMatrix, ComputeBackendType, HardwareSpec, MatrixBenchmarkEntry, RuntimeType,
 };
@@ -63,7 +66,7 @@ const LLAMACPP_CPU_URL: &str = "http://localhost:8083";
 const OLLAMA_URL: &str = "http://localhost:11434";
 
 /// Model name for Ollama
-const OLLAMA_MODEL: &str = "phi";
+const OLLAMA_MODEL: &str = "phi2:2.7b";
 
 // ============================================================================
 // Realizar Native Benchmark (CPU)
@@ -226,14 +229,13 @@ fn benchmark_llamacpp_http(c: &mut Criterion) {
 
     if gpu_available {
         group.bench_function(BenchmarkId::new("gpu", "forward"), |b| {
-            let runner = HttpBenchmarkRunner::new(HttpBenchmarkConfig {
-                min_samples: 3,
-                max_samples: 5,
-                cv_threshold: 0.20,
+            let mut runner = HttpBenchmarkRunner::new(HttpBenchmarkConfig {
+                cv_criterion: CvStoppingCriterion::new(3, 5, 0.20),
                 warmup_iterations: 1,
                 prompt: BENCHMARK_PROMPT.to_string(),
                 max_tokens: MAX_TOKENS,
                 temperature: TEMPERATURE,
+                ..Default::default()
             });
 
             b.iter(|| {
@@ -253,14 +255,13 @@ fn benchmark_llamacpp_http(c: &mut Criterion) {
 
     if cpu_available {
         group.bench_function(BenchmarkId::new("cpu", "forward"), |b| {
-            let runner = HttpBenchmarkRunner::new(HttpBenchmarkConfig {
-                min_samples: 3,
-                max_samples: 5,
-                cv_threshold: 0.20,
+            let mut runner = HttpBenchmarkRunner::new(HttpBenchmarkConfig {
+                cv_criterion: CvStoppingCriterion::new(3, 5, 0.20),
                 warmup_iterations: 1,
                 prompt: BENCHMARK_PROMPT.to_string(),
                 max_tokens: MAX_TOKENS,
                 temperature: TEMPERATURE,
+                ..Default::default()
             });
 
             b.iter(|| {
@@ -303,14 +304,13 @@ fn benchmark_ollama_http(c: &mut Criterion) {
 
     if ollama_available {
         group.bench_function("gpu_forward", |b| {
-            let runner = HttpBenchmarkRunner::new(HttpBenchmarkConfig {
-                min_samples: 3,
-                max_samples: 5,
-                cv_threshold: 0.20,
+            let mut runner = HttpBenchmarkRunner::new(HttpBenchmarkConfig {
+                cv_criterion: CvStoppingCriterion::new(3, 5, 0.20),
                 warmup_iterations: 1,
                 prompt: BENCHMARK_PROMPT.to_string(),
                 max_tokens: MAX_TOKENS,
                 temperature: TEMPERATURE,
+                ..Default::default()
             });
 
             b.iter(|| {
@@ -372,14 +372,13 @@ fn generate_benchmark_matrix() -> BenchmarkMatrix {
         .unwrap_or(false)
     {
         println!("\n=== llama.cpp (GPU) ===");
-        let runner = HttpBenchmarkRunner::new(HttpBenchmarkConfig {
-            min_samples: 5,
-            max_samples: 30,
-            cv_threshold: 0.10,
+        let mut runner = HttpBenchmarkRunner::new(HttpBenchmarkConfig {
+            cv_criterion: CvStoppingCriterion::new(5, 30, 0.10),
             warmup_iterations: 2,
             prompt: BENCHMARK_PROMPT.to_string(),
             max_tokens: MAX_TOKENS,
             temperature: TEMPERATURE,
+            ..Default::default()
         });
 
         match runner.benchmark_llamacpp(LLAMACPP_GPU_URL) {
@@ -422,14 +421,13 @@ fn generate_benchmark_matrix() -> BenchmarkMatrix {
         .unwrap_or(false)
     {
         println!("\n=== llama.cpp (CPU) ===");
-        let runner = HttpBenchmarkRunner::new(HttpBenchmarkConfig {
-            min_samples: 5,
-            max_samples: 30,
-            cv_threshold: 0.10,
+        let mut runner = HttpBenchmarkRunner::new(HttpBenchmarkConfig {
+            cv_criterion: CvStoppingCriterion::new(5, 30, 0.10),
             warmup_iterations: 2,
             prompt: BENCHMARK_PROMPT.to_string(),
             max_tokens: MAX_TOKENS,
             temperature: TEMPERATURE,
+            ..Default::default()
         });
 
         match runner.benchmark_llamacpp(LLAMACPP_CPU_URL) {
@@ -469,14 +467,13 @@ fn generate_benchmark_matrix() -> BenchmarkMatrix {
     // 4. Benchmark Ollama (GPU)
     if client.health_check_ollama(OLLAMA_URL).unwrap_or(false) {
         println!("\n=== Ollama (GPU) ===");
-        let runner = HttpBenchmarkRunner::new(HttpBenchmarkConfig {
-            min_samples: 5,
-            max_samples: 30,
-            cv_threshold: 0.10,
+        let mut runner = HttpBenchmarkRunner::new(HttpBenchmarkConfig {
+            cv_criterion: CvStoppingCriterion::new(5, 30, 0.10),
             warmup_iterations: 2,
             prompt: BENCHMARK_PROMPT.to_string(),
             max_tokens: MAX_TOKENS,
             temperature: TEMPERATURE,
+            ..Default::default()
         });
 
         match runner.benchmark_ollama(OLLAMA_URL, OLLAMA_MODEL) {
@@ -628,8 +625,11 @@ mod tests {
     #[test]
     #[cfg(feature = "bench-http")]
     fn test_http_result_to_entry() {
+        use realizar::bench_preflight::QualityMetrics;
+
         let result = HttpBenchmarkResult {
             latency_samples: vec![100.0, 110.0, 90.0],
+            latency_samples_filtered: vec![100.0, 110.0, 90.0],
             mean_latency_ms: 100.0,
             p50_latency_ms: 100.0,
             p99_latency_ms: 110.0,
@@ -638,7 +638,9 @@ mod tests {
             throughput_tps: 50.0,
             cold_start_ms: 150.0,
             sample_count: 3,
+            filtered_sample_count: 3,
             cv_converged: true,
+            quality_metrics: QualityMetrics::default(),
         };
 
         let entry = http_result_to_entry(

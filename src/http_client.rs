@@ -8,15 +8,26 @@
 //! - Ollama: `/api/generate` endpoint
 //! - llama.cpp: OpenAI-compatible `/v1/completions` endpoint
 //!
+//! ## Quality Features
+//! - Preflight validation per Toyota Way principles (Jidoka, Poka-yoke)
+//! - CV-based stopping criterion per Hoefler & Belli SC'15
+//! - MAD-based outlier detection per Chen et al.
+//!
 //! ## References
 //! - [1] OpenAI API Spec: https://platform.openai.com/docs/api-reference
 //! - [2] Ollama API Spec: https://github.com/ollama/ollama/blob/main/docs/api.md
+//! - [3] Hoefler & Belli SC'15: CV-based stopping for reproducible benchmarks
+//! - [4] Chen et al.: Robust outlier detection using MAD
 
 use std::time::Instant;
 
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 
+use crate::bench_preflight::{
+    canonical_inputs, CvStoppingCriterion, OutlierDetector, PreflightRunner, QualityMetrics,
+    ServerAvailabilityCheck, StopDecision,
+};
 use crate::error::{RealizarError, Result};
 
 /// OpenAI-compatible completion request (vLLM, llama.cpp)
@@ -312,10 +323,20 @@ impl ModelHttpClient {
 
         let total_time_ms = start.elapsed().as_secs_f64() * 1000.0;
 
+        // Use eval_count if available, otherwise estimate from response text
+        // Ollama doesn't always return eval_count (depends on model/config)
+        let tokens_generated = if ollama_resp.eval_count > 0 {
+            ollama_resp.eval_count
+        } else {
+            // Estimate: ~4 chars per token (common for LLMs)
+            // This is a reasonable fallback for scientific reproducibility
+            (ollama_resp.response.len() / 4).max(1)
+        };
+
         Ok(InferenceTiming {
             ttft_ms,
             total_time_ms,
-            tokens_generated: ollama_resp.eval_count,
+            tokens_generated,
             text: ollama_resp.response,
         })
     }
@@ -411,44 +432,98 @@ impl ModelHttpClient {
 // ============================================================================
 
 /// Configuration for HTTP benchmark runs
+///
+/// Per spec v1.0.1, uses canonical inputs and CV-based stopping criterion.
 #[derive(Debug, Clone)]
 pub struct HttpBenchmarkConfig {
-    /// Minimum samples before CV check
-    pub min_samples: usize,
-    /// Maximum samples to collect
-    pub max_samples: usize,
-    /// Target coefficient of variation (e.g., 0.05 = 5%)
-    pub cv_threshold: f64,
+    /// CV-based stopping criterion (per Hoefler & Belli SC'15)
+    pub cv_criterion: CvStoppingCriterion,
     /// Warmup iterations (not counted in stats)
     pub warmup_iterations: usize,
-    /// Prompt for inference
+    /// Prompt for inference (uses canonical input by default)
     pub prompt: String,
-    /// Max tokens to generate
+    /// Max tokens to generate (uses canonical input by default)
     pub max_tokens: usize,
-    /// Temperature for sampling
+    /// Temperature for sampling (0.0 = deterministic)
     pub temperature: f32,
+    /// Whether to run preflight validation
+    pub run_preflight: bool,
+    /// Whether to filter outliers using MAD
+    pub filter_outliers: bool,
+    /// Outlier k-factor (3.0 = 99.7% for normal distribution)
+    pub outlier_k_factor: f64,
 }
 
 impl Default for HttpBenchmarkConfig {
     fn default() -> Self {
         Self {
-            min_samples: 5,
-            max_samples: 30,
-            cv_threshold: 0.10, // 10% CV target
+            cv_criterion: CvStoppingCriterion::default(), // 5% CV, 5-30 samples
             warmup_iterations: 2,
-            prompt: "Explain machine learning in one sentence.".to_string(),
-            max_tokens: 50,
-            temperature: 0.7,
+            prompt: canonical_inputs::LATENCY_PROMPT.to_string(),
+            max_tokens: canonical_inputs::MAX_TOKENS,
+            temperature: 0.0, // Deterministic by default
+            run_preflight: true,
+            filter_outliers: true,
+            outlier_k_factor: 3.0,
         }
     }
 }
 
+impl HttpBenchmarkConfig {
+    /// Create config with relaxed CV threshold (for quicker benchmarks)
+    #[must_use]
+    pub fn relaxed() -> Self {
+        Self {
+            cv_criterion: CvStoppingCriterion::new(3, 10, 0.20), // 20% CV
+            warmup_iterations: 1,
+            run_preflight: false,
+            filter_outliers: false,
+            ..Default::default()
+        }
+    }
+
+    /// Create config optimized for reproducibility (strict CV)
+    #[must_use]
+    pub fn reproducible() -> Self {
+        Self {
+            cv_criterion: CvStoppingCriterion::new(10, 50, 0.03), // 3% CV, more samples
+            warmup_iterations: 3,
+            run_preflight: true,
+            filter_outliers: true,
+            outlier_k_factor: 2.5, // Stricter outlier detection
+            ..Default::default()
+        }
+    }
+
+    /// Backward-compatible accessors for min_samples
+    #[must_use]
+    pub fn min_samples(&self) -> usize {
+        self.cv_criterion.min_samples
+    }
+
+    /// Backward-compatible accessor for max_samples
+    #[must_use]
+    pub fn max_samples(&self) -> usize {
+        self.cv_criterion.max_samples
+    }
+
+    /// Backward-compatible accessor for cv_threshold
+    #[must_use]
+    pub fn cv_threshold(&self) -> f64 {
+        self.cv_criterion.cv_threshold
+    }
+}
+
 /// Results from a benchmark run
+///
+/// Per spec v1.0.1, includes quality metrics for reproducibility assessment.
 #[derive(Debug, Clone)]
 pub struct HttpBenchmarkResult {
-    /// Collected latency samples (ms)
+    /// Collected latency samples (ms) - raw, before outlier filtering
     pub latency_samples: Vec<f64>,
-    /// Mean latency (ms)
+    /// Filtered latency samples (ms) - after outlier removal
+    pub latency_samples_filtered: Vec<f64>,
+    /// Mean latency (ms) - computed from filtered samples
     pub mean_latency_ms: f64,
     /// P50 latency (ms)
     pub p50_latency_ms: f64,
@@ -462,41 +537,153 @@ pub struct HttpBenchmarkResult {
     pub throughput_tps: f64,
     /// Cold start latency (first iteration after warmup)
     pub cold_start_ms: f64,
-    /// Number of samples collected
+    /// Number of samples collected (raw)
     pub sample_count: usize,
+    /// Number of samples after outlier filtering
+    pub filtered_sample_count: usize,
     /// Whether CV threshold was achieved
     pub cv_converged: bool,
+    /// Quality metrics for reproducibility assessment
+    pub quality_metrics: QualityMetrics,
 }
 
-/// HTTP benchmark runner with CV-based stopping
+/// HTTP benchmark runner with CV-based stopping and preflight validation
+///
+/// Per spec v1.0.1, implements Toyota Way principles:
+/// - Jidoka: Fail-fast via preflight validation
+/// - Poka-yoke: Type-safe configuration
+/// - Genchi Genbutsu: Verify actual server state before benchmark
 pub struct HttpBenchmarkRunner {
     client: ModelHttpClient,
     config: HttpBenchmarkConfig,
+    preflight_runner: Option<PreflightRunner>,
+    outlier_detector: OutlierDetector,
 }
 
 impl HttpBenchmarkRunner {
     /// Create a new benchmark runner
     #[must_use]
     pub fn new(config: HttpBenchmarkConfig) -> Self {
+        let outlier_detector = OutlierDetector::new(config.outlier_k_factor);
         Self {
             client: ModelHttpClient::with_timeout(120), // 2 minute timeout for benchmarks
             config,
+            preflight_runner: None,
+            outlier_detector,
         }
     }
 
-    /// Create with default configuration
+    /// Create with default configuration (5% CV, preflight enabled, outlier filtering)
     #[must_use]
     pub fn with_defaults() -> Self {
         Self::new(HttpBenchmarkConfig::default())
     }
 
-    /// Run benchmark against llama.cpp server
+    /// Create with relaxed configuration (20% CV, no preflight, no outlier filtering)
+    #[must_use]
+    pub fn with_relaxed() -> Self {
+        Self::new(HttpBenchmarkConfig::relaxed())
+    }
+
+    /// Create with reproducible configuration (3% CV, strict preflight, outlier filtering)
+    #[must_use]
+    pub fn with_reproducible() -> Self {
+        Self::new(HttpBenchmarkConfig::reproducible())
+    }
+
+    /// Run preflight validation for llama.cpp server
     ///
     /// # Errors
-    /// Returns error if server is unreachable or all requests fail
-    pub fn benchmark_llamacpp(&self, base_url: &str) -> Result<HttpBenchmarkResult> {
-        let mut latencies = Vec::with_capacity(self.config.max_samples);
-        let mut throughputs = Vec::with_capacity(self.config.max_samples);
+    /// Returns error if preflight validation fails
+    pub fn run_preflight_llamacpp(&mut self, base_url: &str) -> Result<Vec<String>> {
+        let mut runner = PreflightRunner::new();
+
+        // Add server availability check
+        let url_parts: Vec<&str> = base_url.trim_end_matches('/').split(':').collect();
+        let port = url_parts
+            .last()
+            .and_then(|p| p.parse::<u16>().ok())
+            .unwrap_or(8080);
+
+        let mut server_check = ServerAvailabilityCheck::llama_cpp(port);
+
+        // Perform actual health check
+        match self.client.health_check_openai(base_url) {
+            Ok(true) => server_check.set_health_status(200),
+            Ok(false) => server_check.set_health_status(500),
+            Err(_) => server_check.set_health_status(0),
+        }
+
+        runner.add_check(Box::new(server_check));
+
+        let passed = runner
+            .run()
+            .map_err(|e| RealizarError::ConnectionError(format!("Preflight failed: {}", e)))?;
+
+        self.preflight_runner = Some(runner);
+        Ok(passed)
+    }
+
+    /// Run preflight validation for Ollama server
+    ///
+    /// # Errors
+    /// Returns error if preflight validation fails
+    pub fn run_preflight_ollama(&mut self, base_url: &str) -> Result<Vec<String>> {
+        let mut runner = PreflightRunner::new();
+
+        // Add server availability check
+        let url_parts: Vec<&str> = base_url.trim_end_matches('/').split(':').collect();
+        let port = url_parts
+            .last()
+            .and_then(|p| p.parse::<u16>().ok())
+            .unwrap_or(11434);
+
+        let mut server_check = ServerAvailabilityCheck::ollama(port);
+
+        // Perform actual health check
+        match self.client.health_check_ollama(base_url) {
+            Ok(true) => server_check.set_health_status(200),
+            Ok(false) => server_check.set_health_status(500),
+            Err(_) => server_check.set_health_status(0),
+        }
+
+        runner.add_check(Box::new(server_check));
+
+        let passed = runner
+            .run()
+            .map_err(|e| RealizarError::ConnectionError(format!("Preflight failed: {}", e)))?;
+
+        self.preflight_runner = Some(runner);
+        Ok(passed)
+    }
+
+    /// Get list of passed preflight checks
+    #[must_use]
+    pub fn preflight_checks_passed(&self) -> Vec<String> {
+        self.preflight_runner
+            .as_ref()
+            .map(|r| r.passed_checks().to_vec())
+            .unwrap_or_default()
+    }
+
+    /// Run benchmark against llama.cpp server
+    ///
+    /// Per spec v1.0.1:
+    /// 1. Runs optional preflight validation (Jidoka)
+    /// 2. Uses CV-based stopping criterion (Hoefler & Belli SC'15)
+    /// 3. Applies MAD-based outlier detection
+    /// 4. Returns quality metrics for reproducibility assessment
+    ///
+    /// # Errors
+    /// Returns error if preflight fails or server is unreachable
+    pub fn benchmark_llamacpp(&mut self, base_url: &str) -> Result<HttpBenchmarkResult> {
+        // Preflight validation (Jidoka: fail-fast)
+        if self.config.run_preflight {
+            self.run_preflight_llamacpp(base_url)?;
+        }
+
+        let mut latencies = Vec::with_capacity(self.config.max_samples());
+        let mut throughputs = Vec::with_capacity(self.config.max_samples());
         let mut cold_start_ms = 0.0;
 
         // Warmup
@@ -511,8 +698,8 @@ impl HttpBenchmarkRunner {
             let _ = self.client.llamacpp_completion(base_url, &request);
         }
 
-        // Measurement loop with CV-based stopping
-        for i in 0..self.config.max_samples {
+        // Measurement loop with CV-based stopping (per Hoefler & Belli SC'15)
+        for i in 0..self.config.max_samples() {
             let request = CompletionRequest {
                 model: "default".to_string(),
                 prompt: self.config.prompt.clone(),
@@ -534,30 +721,51 @@ impl HttpBenchmarkRunner {
                 cold_start_ms = timing.total_time_ms;
             }
 
-            // Check CV after minimum samples
-            if latencies.len() >= self.config.min_samples {
-                let cv = Self::calculate_cv(&latencies);
-                if cv < self.config.cv_threshold {
-                    break;
-                }
+            // Check CV-based stopping criterion
+            if let StopDecision::Stop(_) = self.config.cv_criterion.should_stop(&latencies) {
+                break;
             }
         }
 
-        Ok(Self::compute_results(
+        // Apply outlier detection if configured
+        let (filtered_latencies, outliers_detected, outliers_excluded) =
+            if self.config.filter_outliers {
+                let outliers = self.outlier_detector.detect(&latencies);
+                let outlier_count = outliers.iter().filter(|&&x| x).count();
+                let filtered = self.outlier_detector.filter(&latencies);
+                (filtered, outlier_count, outlier_count)
+            } else {
+                (latencies.clone(), 0, 0)
+            };
+
+        self.compute_results_with_quality(
             &latencies,
+            &filtered_latencies,
             &throughputs,
             cold_start_ms,
-            self.config.cv_threshold,
-        ))
+            outliers_detected,
+            outliers_excluded,
+        )
     }
 
     /// Run benchmark against Ollama server
     ///
+    /// Per spec v1.0.1:
+    /// 1. Runs optional preflight validation (Jidoka)
+    /// 2. Uses CV-based stopping criterion (Hoefler & Belli SC'15)
+    /// 3. Applies MAD-based outlier detection
+    /// 4. Returns quality metrics for reproducibility assessment
+    ///
     /// # Errors
-    /// Returns error if server is unreachable or all requests fail
-    pub fn benchmark_ollama(&self, base_url: &str, model: &str) -> Result<HttpBenchmarkResult> {
-        let mut latencies = Vec::with_capacity(self.config.max_samples);
-        let mut throughputs = Vec::with_capacity(self.config.max_samples);
+    /// Returns error if preflight fails or server is unreachable
+    pub fn benchmark_ollama(&mut self, base_url: &str, model: &str) -> Result<HttpBenchmarkResult> {
+        // Preflight validation (Jidoka: fail-fast)
+        if self.config.run_preflight {
+            self.run_preflight_ollama(base_url)?;
+        }
+
+        let mut latencies = Vec::with_capacity(self.config.max_samples());
+        let mut throughputs = Vec::with_capacity(self.config.max_samples());
         let mut cold_start_ms = 0.0;
 
         // Warmup
@@ -574,8 +782,8 @@ impl HttpBenchmarkRunner {
             let _ = self.client.ollama_generate(base_url, &request);
         }
 
-        // Measurement loop with CV-based stopping
-        for i in 0..self.config.max_samples {
+        // Measurement loop with CV-based stopping (per Hoefler & Belli SC'15)
+        for i in 0..self.config.max_samples() {
             let request = OllamaRequest {
                 model: model.to_string(),
                 prompt: self.config.prompt.clone(),
@@ -598,23 +806,35 @@ impl HttpBenchmarkRunner {
                 cold_start_ms = timing.total_time_ms;
             }
 
-            if latencies.len() >= self.config.min_samples {
-                let cv = Self::calculate_cv(&latencies);
-                if cv < self.config.cv_threshold {
-                    break;
-                }
+            // Check CV-based stopping criterion
+            if let StopDecision::Stop(_) = self.config.cv_criterion.should_stop(&latencies) {
+                break;
             }
         }
 
-        Ok(Self::compute_results(
+        // Apply outlier detection if configured
+        let (filtered_latencies, outliers_detected, outliers_excluded) =
+            if self.config.filter_outliers {
+                let outliers = self.outlier_detector.detect(&latencies);
+                let outlier_count = outliers.iter().filter(|&&x| x).count();
+                let filtered = self.outlier_detector.filter(&latencies);
+                (filtered, outlier_count, outlier_count)
+            } else {
+                (latencies.clone(), 0, 0)
+            };
+
+        self.compute_results_with_quality(
             &latencies,
+            &filtered_latencies,
             &throughputs,
             cold_start_ms,
-            self.config.cv_threshold,
-        ))
+            outliers_detected,
+            outliers_excluded,
+        )
     }
 
-    /// Calculate coefficient of variation
+    /// Calculate coefficient of variation (kept for backward compatibility in tests)
+    #[cfg(test)]
     fn calculate_cv(samples: &[f64]) -> f64 {
         if samples.len() < 2 {
             return f64::MAX;
@@ -633,13 +853,31 @@ impl HttpBenchmarkRunner {
         std_dev / mean
     }
 
-    /// Compute final benchmark results
-    fn compute_results(
-        latencies: &[f64],
+    /// Compute final benchmark results with quality metrics
+    ///
+    /// Per spec v1.0.1: Uses filtered samples for statistics but reports both raw and filtered
+    fn compute_results_with_quality(
+        &self,
+        raw_latencies: &[f64],
+        filtered_latencies: &[f64],
         throughputs: &[f64],
         cold_start_ms: f64,
-        cv_threshold: f64,
-    ) -> HttpBenchmarkResult {
+        outliers_detected: usize,
+        outliers_excluded: usize,
+    ) -> Result<HttpBenchmarkResult> {
+        // Use filtered samples for statistics
+        let latencies = if filtered_latencies.is_empty() {
+            raw_latencies
+        } else {
+            filtered_latencies
+        };
+
+        if latencies.is_empty() {
+            return Err(RealizarError::InferenceError(
+                "No valid samples collected".to_string(),
+            ));
+        }
+
         let n = latencies.len() as f64;
         let mean_latency_ms = latencies.iter().sum::<f64>() / n;
 
@@ -672,8 +910,87 @@ impl HttpBenchmarkRunner {
             throughputs.iter().sum::<f64>() / throughputs.len() as f64
         };
 
+        let cv_converged = cv < self.config.cv_threshold();
+
+        // Build quality metrics
+        let quality_metrics = QualityMetrics {
+            cv_at_stop: cv,
+            cv_converged,
+            outliers_detected,
+            outliers_excluded,
+            preflight_checks_passed: self.preflight_checks_passed(),
+        };
+
+        Ok(HttpBenchmarkResult {
+            latency_samples: raw_latencies.to_vec(),
+            latency_samples_filtered: filtered_latencies.to_vec(),
+            mean_latency_ms,
+            p50_latency_ms,
+            p99_latency_ms,
+            std_dev_ms,
+            cv_at_stop: cv,
+            throughput_tps,
+            cold_start_ms,
+            sample_count: raw_latencies.len(),
+            filtered_sample_count: filtered_latencies.len(),
+            cv_converged,
+            quality_metrics,
+        })
+    }
+
+    /// Backward-compatible compute_results (for tests)
+    #[cfg(test)]
+    fn compute_results(
+        latencies: &[f64],
+        throughputs: &[f64],
+        cold_start_ms: f64,
+        cv_threshold: f64,
+    ) -> HttpBenchmarkResult {
+        let n = latencies.len() as f64;
+        let mean_latency_ms = if n > 0.0 {
+            latencies.iter().sum::<f64>() / n
+        } else {
+            0.0
+        };
+
+        let variance = if n > 1.0 {
+            latencies
+                .iter()
+                .map(|x| (x - mean_latency_ms).powi(2))
+                .sum::<f64>()
+                / (n - 1.0)
+        } else {
+            0.0
+        };
+        let std_dev_ms = variance.sqrt();
+
+        let cv = if mean_latency_ms.abs() > f64::EPSILON {
+            std_dev_ms / mean_latency_ms
+        } else {
+            f64::MAX
+        };
+
+        // Sort for percentiles
+        let mut sorted_latencies = latencies.to_vec();
+        sorted_latencies.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+        let p50_idx = latencies.len() / 2;
+        let p99_idx = (latencies.len() * 99 / 100).min(latencies.len().saturating_sub(1));
+
+        let p50_latency_ms = sorted_latencies.get(p50_idx).copied().unwrap_or(0.0);
+        let p99_latency_ms = sorted_latencies.get(p99_idx).copied().unwrap_or(0.0);
+
+        let throughput_tps = if throughputs.is_empty() {
+            0.0
+        } else {
+            throughputs.iter().sum::<f64>() / throughputs.len() as f64
+        };
+
+        let cv_converged = cv < cv_threshold;
+
         HttpBenchmarkResult {
             latency_samples: latencies.to_vec(),
+            latency_samples_filtered: latencies.to_vec(), // Same as raw when no filtering
             mean_latency_ms,
             p50_latency_ms,
             p99_latency_ms,
@@ -682,7 +999,15 @@ impl HttpBenchmarkRunner {
             throughput_tps,
             cold_start_ms,
             sample_count: latencies.len(),
-            cv_converged: cv < cv_threshold,
+            filtered_sample_count: latencies.len(),
+            cv_converged,
+            quality_metrics: QualityMetrics {
+                cv_at_stop: cv,
+                cv_converged,
+                outliers_detected: 0,
+                outliers_excluded: 0,
+                preflight_checks_passed: Vec::new(),
+            },
         }
     }
 }
@@ -997,16 +1322,50 @@ mod tests {
     #[test]
     fn test_benchmark_config_default() {
         let config = HttpBenchmarkConfig::default();
-        assert_eq!(config.min_samples, 5);
-        assert_eq!(config.max_samples, 30);
-        assert!((config.cv_threshold - 0.10).abs() < 0.001);
+        assert_eq!(config.min_samples(), 5);
+        assert_eq!(config.max_samples(), 30);
+        assert!((config.cv_threshold() - 0.05).abs() < 0.001); // Default is now 5% per spec
         assert_eq!(config.warmup_iterations, 2);
+        assert!(config.run_preflight);
+        assert!(config.filter_outliers);
+    }
+
+    #[test]
+    fn test_benchmark_config_relaxed() {
+        let config = HttpBenchmarkConfig::relaxed();
+        assert_eq!(config.min_samples(), 3);
+        assert_eq!(config.max_samples(), 10);
+        assert!((config.cv_threshold() - 0.20).abs() < 0.001);
+        assert!(!config.run_preflight);
+        assert!(!config.filter_outliers);
+    }
+
+    #[test]
+    fn test_benchmark_config_reproducible() {
+        let config = HttpBenchmarkConfig::reproducible();
+        assert_eq!(config.min_samples(), 10);
+        assert_eq!(config.max_samples(), 50);
+        assert!((config.cv_threshold() - 0.03).abs() < 0.001);
+        assert!(config.run_preflight);
+        assert!(config.filter_outliers);
     }
 
     #[test]
     fn test_benchmark_runner_creation() {
         let runner = HttpBenchmarkRunner::with_defaults();
-        assert_eq!(runner.config.min_samples, 5);
+        assert_eq!(runner.config.min_samples(), 5);
+    }
+
+    #[test]
+    fn test_benchmark_runner_relaxed() {
+        let runner = HttpBenchmarkRunner::with_relaxed();
+        assert_eq!(runner.config.min_samples(), 3);
+    }
+
+    #[test]
+    fn test_benchmark_runner_reproducible() {
+        let runner = HttpBenchmarkRunner::with_reproducible();
+        assert_eq!(runner.config.min_samples(), 10);
     }
 
     #[test]
@@ -1094,17 +1453,19 @@ mod tests {
     #[test]
     #[ignore = "Requires llama.cpp server at localhost:8082"]
     fn test_benchmark_runner_llamacpp() {
+        // Use relaxed config for quick test (no preflight for speed)
         let config = HttpBenchmarkConfig {
-            min_samples: 3,
-            max_samples: 5,
-            cv_threshold: 0.50, // Relaxed for test
+            cv_criterion: CvStoppingCriterion::new(3, 5, 0.50), // Relaxed for test
             warmup_iterations: 1,
             prompt: "Hello".to_string(),
             max_tokens: 10,
             temperature: 0.1,
+            run_preflight: false, // Skip preflight for test speed
+            filter_outliers: false,
+            outlier_k_factor: 3.0,
         };
 
-        let runner = HttpBenchmarkRunner::new(config);
+        let mut runner = HttpBenchmarkRunner::new(config);
         let result = runner
             .benchmark_llamacpp("http://localhost:8082")
             .expect("Benchmark failed - is llama.cpp running?");
@@ -1115,11 +1476,59 @@ mod tests {
 
         println!("llama.cpp Benchmark Results:");
         println!("  Samples: {}", result.sample_count);
+        println!("  Filtered Samples: {}", result.filtered_sample_count);
         println!("  Mean: {:.2}ms", result.mean_latency_ms);
         println!("  P50: {:.2}ms", result.p50_latency_ms);
         println!("  P99: {:.2}ms", result.p99_latency_ms);
         println!("  TPS: {:.2}", result.throughput_tps);
         println!("  CV: {:.4}", result.cv_at_stop);
         println!("  Converged: {}", result.cv_converged);
+        println!("  Quality Metrics: {:?}", result.quality_metrics);
+    }
+
+    // =========================================================================
+    // Preflight Integration Tests
+    // =========================================================================
+
+    #[test]
+    fn test_preflight_checks_passed_empty_initially() {
+        let runner = HttpBenchmarkRunner::with_defaults();
+        assert!(runner.preflight_checks_passed().is_empty());
+    }
+
+    #[test]
+    fn test_quality_metrics_in_result() {
+        // Test that compute_results includes quality metrics
+        let latencies = vec![100.0, 105.0, 95.0, 100.0, 100.0];
+        let throughputs = vec![50.0, 48.0, 52.0, 50.0, 50.0];
+        let cold_start = 110.0;
+        let cv_threshold = 0.10;
+
+        let result = HttpBenchmarkRunner::compute_results(
+            &latencies,
+            &throughputs,
+            cold_start,
+            cv_threshold,
+        );
+
+        // Check quality metrics are populated
+        assert!(result.quality_metrics.cv_at_stop < 0.10);
+        assert!(result.quality_metrics.cv_converged);
+        assert_eq!(result.quality_metrics.outliers_detected, 0);
+        assert!(result.quality_metrics.preflight_checks_passed.is_empty());
+    }
+
+    #[test]
+    fn test_filtered_samples_in_result() {
+        // Test backward-compatible compute_results sets filtered = raw
+        let latencies = vec![100.0, 105.0, 95.0];
+        let throughputs = vec![];
+        let result = HttpBenchmarkRunner::compute_results(&latencies, &throughputs, 100.0, 0.10);
+
+        assert_eq!(
+            result.latency_samples.len(),
+            result.latency_samples_filtered.len()
+        );
+        assert_eq!(result.sample_count, result.filtered_sample_count);
     }
 }

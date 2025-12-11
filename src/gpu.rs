@@ -896,6 +896,7 @@ mod tests {
     // ============================================================================
 
     #[test]
+    #[ignore = "Performance acceptance test - run separately without coverage overhead"]
     fn test_phase4_acceptance_gpu_throughput() {
         use std::time::Instant;
 
