@@ -48,6 +48,47 @@ curl -X POST http://localhost:8080/generate -d '{"prompt": "Hello", "max_tokens"
 | Phi-2 Q4_K_M | 2.7B | RTX 4090 (CUDA) | **477 tok/s** |
 | Phi-2 Q4_K_M | 2.7B | CPU (AVX2) | ~15 tok/s |
 
+### The Complete Benchmark Matrix
+
+**Same model (Phi-2 2.7B Q4_K) across ALL runtimes and formats:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     GGUF Format (Same Model)                                │
+├──────────────┬─────────┬─────────────┬─────────────┬───────────────────────┤
+│ Runtime      │ Backend │ p50 Latency │ Throughput  │ Command               │
+├──────────────┼─────────┼─────────────┼─────────────┼───────────────────────┤
+│ llama.cpp    │ CUDA    │ 114ms       │ 477 tok/s   │ llama-server -ngl 99  │
+│ llama.cpp    │ CPU     │ ~3000ms     │ ~15 tok/s   │ llama-server -ngl 0   │
+│ Ollama       │ CUDA    │ ~123ms      │ ~260 tok/s  │ ollama serve          │
+│ realizar     │ WGPU    │ TBD         │ TBD         │ cargo bench gguf_real │
+│ realizar     │ CPU     │ TBD         │ TBD         │ cargo bench gguf_real │
+├──────────────┴─────────┴─────────────┴─────────────┴───────────────────────┤
+│                     APR Format (Same Model Converted)                       │
+├──────────────┬─────────┬─────────────┬─────────────┬───────────────────────┤
+│ realizar     │ CPU     │ TBD         │ TBD         │ cargo bench comparative│
+│ realizar     │ WGPU    │ TBD         │ TBD         │ cargo bench comparative│
+└──────────────┴─────────┴─────────────┴─────────────┴───────────────────────┘
+```
+
+**Run the full matrix yourself:**
+
+```bash
+# 1. Start external servers
+llama-server -m phi-2-q4_k_m.gguf --port 8082 -ngl 99  # GPU
+llama-server -m phi-2-q4_k_m.gguf --port 8083 -ngl 0   # CPU
+ollama serve && ollama pull phi2:2.7b
+
+# 2. Run full matrix benchmark
+./scripts/bench-matrix.sh --full
+
+# 3. Run internal APR vs GGUF comparison (same model)
+cargo bench --bench comparative
+
+# 4. Convert GGUF to APR and compare
+realizar convert model.gguf --output model.apr  # Coming soon
+```
+
 ### Benchmark Matrix (ELI5)
 
 ```
