@@ -2147,6 +2147,9 @@ unsafe fn dequantize_q4_k_avx2_parallel(data: &[u8]) -> Result<Vec<f32>> {
     use rayon::prelude::*;
 
     const SUPER_BLOCK_BYTES: usize = 144;
+    // Process 64 super-blocks per parallel task to reduce scheduling overhead
+    const CHUNK_SIZE: usize = 64;
+    const CHUNK_BYTES: usize = SUPER_BLOCK_BYTES * CHUNK_SIZE;
 
     if data.len() % SUPER_BLOCK_BYTES != 0 {
         return Err(RealizarError::InvalidShape {
@@ -2160,14 +2163,28 @@ unsafe fn dequantize_q4_k_avx2_parallel(data: &[u8]) -> Result<Vec<f32>> {
 
     let num_super_blocks = data.len() / SUPER_BLOCK_BYTES;
 
-    // Process super-blocks in parallel with SIMD
-    let result: Vec<f32> = (0..num_super_blocks)
-        .into_par_iter()
-        .flat_map(|sb_idx| {
+    // For small data, skip parallelism overhead
+    if num_super_blocks < CHUNK_SIZE * 2 {
+        let mut result = Vec::with_capacity(num_super_blocks * QK_K);
+        for sb_idx in 0..num_super_blocks {
             let sb_start = sb_idx * SUPER_BLOCK_BYTES;
             let sb_data = &data[sb_start..sb_start + SUPER_BLOCK_BYTES];
             // SAFETY: AVX2 availability verified by caller
-            unsafe { dequantize_q4_k_superblock_avx2(sb_data) }
+            result.extend(unsafe { dequantize_q4_k_superblock_avx2(sb_data) });
+        }
+        return Ok(result);
+    }
+
+    // Process chunks of super-blocks in parallel
+    let result: Vec<f32> = data
+        .par_chunks(CHUNK_BYTES)
+        .flat_map(|chunk| {
+            let mut chunk_result = Vec::with_capacity(chunk.len() / SUPER_BLOCK_BYTES * QK_K);
+            for sb_data in chunk.chunks_exact(SUPER_BLOCK_BYTES) {
+                // SAFETY: AVX2 availability verified by caller
+                chunk_result.extend(unsafe { dequantize_q4_k_superblock_avx2(sb_data) });
+            }
+            chunk_result
         })
         .collect();
 

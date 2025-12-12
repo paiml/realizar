@@ -814,25 +814,39 @@ mod tests {
 
     #[test]
     fn test_canonical_inputs_prompt_not_empty() {
+        // Verify prompt has reasonable length for benchmarking
+        let prompt_len = canonical_inputs::LATENCY_PROMPT.len();
         assert!(
-            !canonical_inputs::LATENCY_PROMPT.is_empty(),
-            "Latency prompt should not be empty"
+            prompt_len >= 10,
+            "Latency prompt should have at least 10 chars, got {}",
+            prompt_len
         );
     }
 
     #[test]
     fn test_canonical_inputs_tokens_not_empty() {
+        // Verify we have enough tokens for throughput testing
+        let token_count = canonical_inputs::THROUGHPUT_TOKENS.len();
         assert!(
-            !canonical_inputs::THROUGHPUT_TOKENS.is_empty(),
-            "Throughput tokens should not be empty"
+            token_count >= 4,
+            "Throughput tokens should have at least 4 tokens, got {}",
+            token_count
         );
     }
 
     #[test]
     fn test_canonical_inputs_max_tokens_reasonable() {
+        // Verify max tokens is in a sensible range
+        let max_tokens = canonical_inputs::MAX_TOKENS;
         assert!(
-            canonical_inputs::MAX_TOKENS > 0 && canonical_inputs::MAX_TOKENS <= 1000,
-            "Max tokens should be reasonable (1-1000)"
+            max_tokens > 0,
+            "Max tokens should be positive, got {}",
+            max_tokens
+        );
+        assert!(
+            max_tokens <= 1000,
+            "Max tokens should be <= 1000, got {}",
+            max_tokens
         );
     }
 
@@ -994,7 +1008,7 @@ mod tests {
         let detector = OutlierDetector::default();
         let samples = vec![100.0, 101.0, 99.0, 100.0, 1000.0]; // 1000 is extreme
         let outliers = detector.detect(&samples);
-        assert_eq!(outliers[4], true, "1000.0 should be detected as outlier");
+        assert!(outliers[4], "1000.0 should be detected as outlier");
     }
 
     #[test]

@@ -222,7 +222,7 @@ fn benchmark_llamacpp_http(c: &mut Criterion) {
         .expect("Failed to create client");
 
     let gpu_available = client
-        .get(&format!("{}/health", LLAMACPP_GPU_URL))
+        .get(format!("{}/health", LLAMACPP_GPU_URL))
         .send()
         .map(|r| r.status().is_success())
         .unwrap_or(false);
@@ -248,7 +248,7 @@ fn benchmark_llamacpp_http(c: &mut Criterion) {
 
     // Check if llama.cpp CPU server is available
     let cpu_available = client
-        .get(&format!("{}/health", LLAMACPP_CPU_URL))
+        .get(format!("{}/health", LLAMACPP_CPU_URL))
         .send()
         .map(|r| r.status().is_success())
         .unwrap_or(false);
@@ -297,7 +297,7 @@ fn benchmark_ollama_http(c: &mut Criterion) {
         .expect("Failed to create client");
 
     let ollama_available = client
-        .get(&format!("{}/api/tags", OLLAMA_URL))
+        .get(format!("{}/api/tags", OLLAMA_URL))
         .send()
         .map(|r| r.status().is_success())
         .unwrap_or(false);

@@ -73,7 +73,13 @@ load-test-no-server: ## Run load tests against existing server
 
 # === Standard Batuta Stack Targets ===
 
-lint: fmt-check clippy ## Run all linting (Batuta stack standard)
+lint: ## Run all linting with auto-format (Batuta stack standard)
+	@echo "$(GREEN)🔧 Auto-formatting code...$(NC)"
+	@cargo fmt
+	@echo "$(GREEN)🔍 Running clippy with auto-fix...$(NC)"
+	@cargo clippy --all-targets --all-features --fix --allow-dirty --allow-staged 2>/dev/null || true
+	@echo "$(GREEN)🔍 Running clippy (zero warnings policy)...$(NC)"
+	@cargo clippy --all-targets --all-features -- -D warnings
 	@echo "$(GREEN)✅ Lint passed!$(NC)"
 
 test-fast: ## Fast unit tests with nextest (<30s target, Batuta stack standard)

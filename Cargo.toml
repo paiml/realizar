@@ -199,6 +199,10 @@ harness = false
 name = "external_matrix"
 harness = false
 
+[[bench]]
+name = "performance_parity"
+harness = false
+
 [[example]]
 name = "build_mnist_model"
 required-features = ["aprender-serve"]
@@ -218,6 +222,9 @@ required-features = ["aprender-serve"]
 [[example]]
 name = "data_pipeline"
 required-features = ["alimentar-data"]
+
+[[example]]
+name = "performance_parity"
 
 [profile.release]
 opt-level = 3
