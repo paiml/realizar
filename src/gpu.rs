@@ -35,6 +35,8 @@
 
 use crate::error::{RealizarError, Result};
 use crate::tensor::Tensor;
+use std::collections::HashMap;
+use std::time::Duration;
 
 /// Matmul batch operation: (A matrix, B matrix, m rows, k cols, n cols)
 pub type MatmulOp = (Vec<f32>, Vec<f32>, usize, usize, usize);
@@ -5552,6 +5554,1957 @@ impl GpuModel {
                 |a, b| if a.1 > b.1 { a } else { b },
             )
             .0
+    }
+}
+
+// ============================================================================
+// M29: Error Recovery & Graceful Degradation (Phase 20)
+// ============================================================================
+
+/// Error classification for recovery decisions
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorClassification {
+    /// Transient error - may succeed on retry
+    Transient,
+    /// Fatal error - should not retry
+    Fatal,
+    /// GPU-specific error - may fallback to CPU
+    GpuFailure,
+}
+
+/// Recovery action to take
+#[derive(Debug, Clone)]
+pub enum RecoveryAction {
+    /// Retry the operation with a delay
+    Retry {
+        /// Delay before retry
+        delay: Duration,
+    },
+    /// Fallback to CPU inference
+    FallbackToCpu,
+    /// Give up and propagate error
+    Fail,
+}
+
+/// Error recovery strategy with exponential backoff
+pub struct ErrorRecoveryStrategy {
+    max_retries: u32,
+    base_delay: Duration,
+    max_delay: Duration,
+    jitter: f64,
+}
+
+impl ErrorRecoveryStrategy {
+    /// Create new error recovery strategy
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            max_retries: 3,
+            base_delay: Duration::from_millis(100),
+            max_delay: Duration::from_secs(10),
+            jitter: 0.1,
+        }
+    }
+
+    /// Set maximum retries
+    #[must_use]
+    pub fn with_max_retries(mut self, max_retries: u32) -> Self {
+        self.max_retries = max_retries;
+        self
+    }
+
+    /// Set base delay
+    #[must_use]
+    pub fn with_base_delay(mut self, base_delay: Duration) -> Self {
+        self.base_delay = base_delay;
+        self
+    }
+
+    /// Set maximum delay
+    #[must_use]
+    pub fn with_max_delay(mut self, max_delay: Duration) -> Self {
+        self.max_delay = max_delay;
+        self
+    }
+
+    /// Set jitter factor (0.0 - 1.0)
+    #[must_use]
+    pub fn with_jitter(mut self, jitter: f64) -> Self {
+        self.jitter = jitter.clamp(0.0, 1.0);
+        self
+    }
+
+    /// Get max retries
+    #[must_use]
+    pub fn max_retries(&self) -> u32 {
+        self.max_retries
+    }
+
+    /// Classify an error
+    #[must_use]
+    pub fn classify_error(&self, error: &std::io::Error) -> ErrorClassification {
+        match error.kind() {
+            std::io::ErrorKind::TimedOut
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::Interrupted
+            | std::io::ErrorKind::WouldBlock => ErrorClassification::Transient,
+
+            std::io::ErrorKind::Other => {
+                let msg = error.to_string().to_lowercase();
+                if msg.contains("gpu") || msg.contains("cuda") || msg.contains("wgpu") {
+                    ErrorClassification::GpuFailure
+                } else {
+                    ErrorClassification::Transient
+                }
+            },
+
+            _ => ErrorClassification::Fatal,
+        }
+    }
+
+    /// Determine recovery action
+    #[must_use]
+    pub fn determine_action(&self, error: &std::io::Error, attempt: u32) -> RecoveryAction {
+        if attempt >= self.max_retries {
+            return RecoveryAction::Fail;
+        }
+
+        match self.classify_error(error) {
+            ErrorClassification::Transient => RecoveryAction::Retry {
+                delay: self.calculate_delay(attempt),
+            },
+            ErrorClassification::GpuFailure => RecoveryAction::FallbackToCpu,
+            ErrorClassification::Fatal => RecoveryAction::Fail,
+        }
+    }
+
+    /// Determine action with explicit GPU fallback
+    #[must_use]
+    pub fn determine_action_with_fallback(
+        &self,
+        error: &std::io::Error,
+        attempt: u32,
+    ) -> RecoveryAction {
+        let msg = error.to_string().to_lowercase();
+        if msg.contains("gpu") || msg.contains("unavailable") {
+            RecoveryAction::FallbackToCpu
+        } else {
+            self.determine_action(error, attempt)
+        }
+    }
+
+    /// Calculate delay for retry attempt with exponential backoff
+    #[must_use]
+    pub fn calculate_delay(&self, attempt: u32) -> Duration {
+        let base_ms = self.base_delay.as_millis() as f64;
+        let exp_delay = base_ms * 2.0_f64.powi(attempt as i32);
+        let capped_delay = exp_delay.min(self.max_delay.as_millis() as f64);
+
+        // Add jitter
+        let jitter_range = capped_delay * self.jitter;
+        let jittered = capped_delay + (jitter_range * 0.5); // Simplified jitter
+
+        Duration::from_millis(jittered as u64)
+    }
+}
+
+impl Default for ErrorRecoveryStrategy {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Degradation mode for system state
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DegradationMode {
+    /// Normal operation
+    Normal,
+    /// Running on CPU fallback
+    CpuFallback,
+    /// Memory pressure - reduced capacity
+    MemoryPressure,
+    /// Low latency priority mode
+    LowLatency,
+    /// High throughput priority mode
+    HighThroughput,
+}
+
+/// System load metrics
+#[derive(Debug, Clone, Copy)]
+pub struct SystemLoad {
+    /// CPU utilization percentage
+    pub cpu_percent: f64,
+    /// Memory utilization percentage
+    pub memory_percent: f64,
+    /// Current queue depth
+    pub queue_depth: u32,
+}
+
+/// Graceful degradation manager
+pub struct DegradationManager {
+    gpu_available: bool,
+    memory_pressure: f64,
+    system_load: Option<SystemLoad>,
+    latency_priority: bool,
+    mode: DegradationMode,
+}
+
+impl DegradationManager {
+    /// Create new degradation manager
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            gpu_available: true,
+            memory_pressure: 0.0,
+            system_load: None,
+            latency_priority: false,
+            mode: DegradationMode::Normal,
+        }
+    }
+
+    /// Get current degradation mode
+    #[must_use]
+    pub fn current_mode(&self) -> DegradationMode {
+        self.mode
+    }
+
+    /// Set GPU availability
+    pub fn set_gpu_available(&mut self, available: bool) {
+        self.gpu_available = available;
+        self.update_mode();
+    }
+
+    /// Update memory pressure (0.0 - 1.0)
+    pub fn update_memory_pressure(&mut self, pressure: f64) {
+        self.memory_pressure = pressure.clamp(0.0, 1.0);
+        self.update_mode();
+    }
+
+    /// Update system load
+    pub fn update_system_load(&mut self, load: SystemLoad) {
+        self.system_load = Some(load);
+        self.update_mode();
+    }
+
+    /// Set latency priority mode
+    pub fn set_latency_priority(&mut self, priority: bool) {
+        self.latency_priority = priority;
+        self.update_mode();
+    }
+
+    /// Get recommended batch size based on system state
+    #[must_use]
+    pub fn recommended_batch_size(&self, requested: usize) -> usize {
+        if self.memory_pressure > 0.8 {
+            // Reduce batch size under memory pressure
+            (requested as f64 * (1.0 - self.memory_pressure)).max(1.0) as usize
+        } else {
+            requested
+        }
+    }
+
+    /// Get recommended max context length based on system state
+    #[must_use]
+    pub fn recommended_max_context(&self, requested: usize) -> usize {
+        if let Some(load) = &self.system_load {
+            if load.cpu_percent > 90.0 || load.memory_percent > 80.0 || load.queue_depth > 50 {
+                // Reduce context length under high load
+                (requested as f64 * 0.75).max(256.0) as usize
+            } else {
+                requested
+            }
+        } else {
+            requested
+        }
+    }
+
+    fn update_mode(&mut self) {
+        self.mode = if !self.gpu_available {
+            DegradationMode::CpuFallback
+        } else if self.latency_priority {
+            DegradationMode::LowLatency
+        } else if self.memory_pressure > 0.8 {
+            DegradationMode::MemoryPressure
+        } else if let Some(load) = &self.system_load {
+            if load.cpu_percent > 90.0 || load.memory_percent > 80.0 {
+                DegradationMode::MemoryPressure
+            } else {
+                DegradationMode::Normal
+            }
+        } else {
+            DegradationMode::Normal
+        };
+    }
+}
+
+impl Default for DegradationManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Request outcome for failure tracking
+#[derive(Debug, Clone)]
+pub enum RequestOutcome {
+    /// Request completed successfully
+    Success,
+    /// Request failed with error message
+    Failed(String),
+}
+
+/// Failure isolator with circuit breaker
+pub struct FailureIsolator {
+    active_requests: std::sync::atomic::AtomicU64,
+    success_count: std::sync::atomic::AtomicU64,
+    failure_count: std::sync::atomic::AtomicU64,
+    consecutive_failures: std::sync::atomic::AtomicU32,
+    circuit_open: std::sync::atomic::AtomicBool,
+    next_request_id: std::sync::atomic::AtomicU64,
+    failure_threshold: u32,
+    cleanups: std::sync::Mutex<HashMap<u64, Box<dyn FnOnce() + Send>>>,
+}
+
+impl FailureIsolator {
+    /// Create new failure isolator
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            active_requests: std::sync::atomic::AtomicU64::new(0),
+            success_count: std::sync::atomic::AtomicU64::new(0),
+            failure_count: std::sync::atomic::AtomicU64::new(0),
+            consecutive_failures: std::sync::atomic::AtomicU32::new(0),
+            circuit_open: std::sync::atomic::AtomicBool::new(false),
+            next_request_id: std::sync::atomic::AtomicU64::new(0),
+            failure_threshold: 5,
+            cleanups: std::sync::Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Get number of active requests
+    #[must_use]
+    pub fn active_requests(&self) -> u64 {
+        self.active_requests
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Get success count
+    #[must_use]
+    pub fn success_count(&self) -> u64 {
+        self.success_count.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Get failure count
+    #[must_use]
+    pub fn failure_count(&self) -> u64 {
+        self.failure_count.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Check if circuit is open
+    #[must_use]
+    pub fn is_circuit_open(&self) -> bool {
+        self.circuit_open.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Start a new isolated request
+    #[must_use]
+    pub fn start_request(&self) -> u64 {
+        self.active_requests
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.next_request_id
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Try to start a request (fails if circuit is open)
+    ///
+    /// # Errors
+    /// Returns error if circuit breaker is open.
+    pub fn try_start_request(&self) -> std::result::Result<u64, &'static str> {
+        if self.is_circuit_open() {
+            Err("Circuit breaker is open")
+        } else {
+            Ok(self.start_request())
+        }
+    }
+
+    /// Register cleanup handler for a request
+    pub fn register_cleanup<F: FnOnce() + Send + 'static>(&self, request_id: u64, cleanup: F) {
+        if let Ok(mut cleanups) = self.cleanups.lock() {
+            cleanups.insert(request_id, Box::new(cleanup));
+        }
+    }
+
+    /// Complete a request with outcome
+    pub fn complete_request(&self, request_id: u64, outcome: &RequestOutcome) {
+        self.active_requests
+            .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+
+        match outcome {
+            RequestOutcome::Success => {
+                self.success_count
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                self.consecutive_failures
+                    .store(0, std::sync::atomic::Ordering::SeqCst);
+            },
+            RequestOutcome::Failed(_) => {
+                self.failure_count
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let failures = self
+                    .consecutive_failures
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                    + 1;
+
+                // Open circuit if threshold exceeded
+                if failures >= self.failure_threshold {
+                    self.circuit_open
+                        .store(true, std::sync::atomic::Ordering::SeqCst);
+                }
+
+                // Run cleanup handler
+                if let Ok(mut cleanups) = self.cleanups.lock() {
+                    if let Some(cleanup) = cleanups.remove(&request_id) {
+                        cleanup();
+                    }
+                }
+            },
+        }
+    }
+
+    /// Reset circuit breaker
+    pub fn reset_circuit(&self) {
+        self.circuit_open
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        self.consecutive_failures
+            .store(0, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl Default for FailureIsolator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Isolated request handle (unused but kept for API completeness)
+#[allow(dead_code)]
+pub struct IsolatedRequest {
+    id: u64,
+}
+
+// ============================================================================
+// M30: Connection Pooling & Resource Limits (IMP-073, IMP-074, IMP-075)
+// ============================================================================
+
+/// Connection pool configuration (IMP-073)
+#[derive(Debug, Clone)]
+pub struct ConnectionConfig {
+    max_connections: usize,
+    min_connections: usize,
+    idle_timeout: Duration,
+}
+
+impl ConnectionConfig {
+    /// Create new connection config with defaults
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            max_connections: 10,
+            min_connections: 1,
+            idle_timeout: Duration::from_secs(300),
+        }
+    }
+
+    /// Set maximum connections
+    #[must_use]
+    pub fn with_max_connections(mut self, max: usize) -> Self {
+        self.max_connections = max;
+        self
+    }
+
+    /// Set minimum connections
+    #[must_use]
+    pub fn with_min_connections(mut self, min: usize) -> Self {
+        self.min_connections = min;
+        self
+    }
+
+    /// Set idle timeout
+    #[must_use]
+    pub fn with_idle_timeout(mut self, timeout: Duration) -> Self {
+        self.idle_timeout = timeout;
+        self
+    }
+}
+
+impl Default for ConnectionConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Connection state for health checking
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConnectionState {
+    /// Connection is healthy
+    Healthy,
+    /// Connection is stale and needs recycling
+    Stale,
+    /// Connection is broken
+    Broken,
+}
+
+/// Connection handle
+#[derive(Debug)]
+pub struct Connection {
+    #[allow(dead_code)]
+    id: u64,
+    created_at: std::time::Instant,
+}
+
+/// Connection pool with bounded capacity (IMP-073)
+pub struct ConnectionPool {
+    config: ConnectionConfig,
+    active: std::sync::atomic::AtomicUsize,
+    idle: std::sync::Mutex<Vec<Connection>>,
+    next_id: std::sync::atomic::AtomicU64,
+}
+
+impl ConnectionPool {
+    /// Create new connection pool
+    #[must_use]
+    pub fn new(config: ConnectionConfig) -> Self {
+        Self {
+            config,
+            active: std::sync::atomic::AtomicUsize::new(0),
+            idle: std::sync::Mutex::new(Vec::new()),
+            next_id: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+
+    /// Get max connections
+    #[must_use]
+    pub fn max_connections(&self) -> usize {
+        self.config.max_connections
+    }
+
+    /// Get min connections
+    #[must_use]
+    pub fn min_connections(&self) -> usize {
+        self.config.min_connections
+    }
+
+    /// Get active connection count
+    #[must_use]
+    pub fn active_connections(&self) -> usize {
+        self.active.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Get idle connection count
+    #[must_use]
+    pub fn idle_connections(&self) -> usize {
+        self.idle.lock().unwrap().len()
+    }
+
+    /// Acquire a connection (blocking)
+    ///
+    /// # Errors
+    /// Returns error if pool is exhausted.
+    pub fn acquire(&self) -> std::result::Result<Connection, &'static str> {
+        // Try to get from idle pool first
+        {
+            let mut idle = self.idle.lock().unwrap();
+            if let Some(conn) = idle.pop() {
+                self.active
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                return Ok(conn);
+            }
+        }
+
+        // Create new if under limit
+        let current = self.active.load(std::sync::atomic::Ordering::SeqCst);
+        if current < self.config.max_connections {
+            self.active
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let id = self
+                .next_id
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            return Ok(Connection {
+                id,
+                created_at: std::time::Instant::now(),
+            });
+        }
+
+        Err("Pool exhausted")
+    }
+
+    /// Try to acquire a connection (non-blocking)
+    ///
+    /// # Errors
+    /// Returns error if pool is exhausted.
+    pub fn try_acquire(&self) -> std::result::Result<Connection, &'static str> {
+        self.acquire()
+    }
+
+    /// Release a connection back to pool
+    pub fn release(&self, conn: Connection) {
+        self.active
+            .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        let mut idle = self.idle.lock().unwrap();
+        idle.push(conn);
+    }
+
+    /// Check connection health
+    #[must_use]
+    pub fn check_health(&self, conn: &Connection) -> ConnectionState {
+        let age = conn.created_at.elapsed();
+        if age > self.config.idle_timeout {
+            ConnectionState::Stale
+        } else {
+            ConnectionState::Healthy
+        }
+    }
+
+    /// Warm the pool to min_connections
+    pub fn warm(&self) {
+        let current_idle = self.idle_connections();
+        let need = self.config.min_connections.saturating_sub(current_idle);
+
+        let mut idle = self.idle.lock().unwrap();
+        for _ in 0..need {
+            let id = self
+                .next_id
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            idle.push(Connection {
+                id,
+                created_at: std::time::Instant::now(),
+            });
+        }
+    }
+}
+
+/// Resource configuration (IMP-074)
+#[derive(Debug, Clone)]
+#[allow(clippy::struct_field_names)]
+pub struct ResourceConfig {
+    max_memory_per_request: u64,
+    max_total_memory: u64,
+    max_compute_time: Duration,
+    max_queue_depth: usize,
+}
+
+impl ResourceConfig {
+    /// Create new resource config with defaults
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            max_memory_per_request: 512 * 1024 * 1024, // 512MB
+            max_total_memory: 4 * 1024 * 1024 * 1024,  // 4GB
+            max_compute_time: Duration::from_secs(30),
+            max_queue_depth: 100,
+        }
+    }
+
+    /// Set max memory per request
+    #[must_use]
+    pub fn with_max_memory_per_request(mut self, bytes: u64) -> Self {
+        self.max_memory_per_request = bytes;
+        self
+    }
+
+    /// Set max total memory
+    #[must_use]
+    pub fn with_max_total_memory(mut self, bytes: u64) -> Self {
+        self.max_total_memory = bytes;
+        self
+    }
+
+    /// Set max compute time
+    #[must_use]
+    pub fn with_max_compute_time(mut self, time: Duration) -> Self {
+        self.max_compute_time = time;
+        self
+    }
+
+    /// Set max queue depth
+    #[must_use]
+    pub fn with_max_queue_depth(mut self, depth: usize) -> Self {
+        self.max_queue_depth = depth;
+        self
+    }
+}
+
+impl Default for ResourceConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Result of limit check
+#[derive(Debug, Clone)]
+pub enum LimitResult {
+    /// Request is allowed
+    Allowed,
+    /// Request is denied with reason
+    Denied {
+        /// Reason for denial
+        reason: String,
+    },
+    /// Backpressure should be applied
+    Backpressure,
+}
+
+/// Resource limiter (IMP-074)
+pub struct ResourceLimiter {
+    config: ResourceConfig,
+    current_memory: std::sync::atomic::AtomicU64,
+    queue_depth: std::sync::atomic::AtomicUsize,
+}
+
+impl ResourceLimiter {
+    /// Create new resource limiter
+    #[must_use]
+    pub fn new(config: ResourceConfig) -> Self {
+        Self {
+            config,
+            current_memory: std::sync::atomic::AtomicU64::new(0),
+            queue_depth: std::sync::atomic::AtomicUsize::new(0),
+        }
+    }
+
+    /// Check if memory request is within limits
+    #[must_use]
+    pub fn check_memory(&self, bytes: u64) -> LimitResult {
+        if bytes > self.config.max_memory_per_request {
+            return LimitResult::Denied {
+                reason: format!(
+                    "Request {} bytes exceeds per-request limit {} bytes",
+                    bytes, self.config.max_memory_per_request
+                ),
+            };
+        }
+
+        let current = self
+            .current_memory
+            .load(std::sync::atomic::Ordering::SeqCst);
+        if current + bytes > self.config.max_total_memory {
+            return LimitResult::Denied {
+                reason: format!(
+                    "Total memory {} + {} would exceed limit {}",
+                    current, bytes, self.config.max_total_memory
+                ),
+            };
+        }
+
+        LimitResult::Allowed
+    }
+
+    /// Allocate memory
+    ///
+    /// # Errors
+    /// Returns error if memory limit exceeded.
+    pub fn allocate(&self, bytes: u64) -> std::result::Result<(), &'static str> {
+        if let LimitResult::Denied { .. } = self.check_memory(bytes) {
+            return Err("Memory limit exceeded");
+        }
+        self.current_memory
+            .fetch_add(bytes, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }
+
+    /// Deallocate memory
+    pub fn deallocate(&self, bytes: u64) {
+        self.current_memory
+            .fetch_sub(bytes, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Get current memory usage
+    #[must_use]
+    pub fn current_memory(&self) -> u64 {
+        self.current_memory
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Enqueue a request
+    pub fn enqueue(&self) -> LimitResult {
+        let current = self
+            .queue_depth
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if current >= self.config.max_queue_depth {
+            self.queue_depth
+                .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+            LimitResult::Backpressure
+        } else {
+            LimitResult::Allowed
+        }
+    }
+
+    /// Try to enqueue (returns backpressure if full)
+    #[must_use]
+    pub fn try_enqueue(&self) -> LimitResult {
+        let current = self.queue_depth.load(std::sync::atomic::Ordering::SeqCst);
+        if current >= self.config.max_queue_depth {
+            LimitResult::Backpressure
+        } else {
+            self.enqueue()
+        }
+    }
+
+    /// Dequeue a request
+    pub fn dequeue(&self) {
+        let current = self.queue_depth.load(std::sync::atomic::Ordering::SeqCst);
+        if current > 0 {
+            self.queue_depth
+                .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    /// Start compute timer
+    #[must_use]
+    pub fn start_compute(&self) -> std::time::Instant {
+        std::time::Instant::now()
+    }
+}
+
+/// Resource metrics snapshot (IMP-075)
+#[derive(Debug, Clone)]
+pub struct ResourceMetrics {
+    /// Current memory usage in bytes
+    pub memory_bytes: u64,
+    /// GPU utilization percentage (0-100)
+    pub gpu_utilization: f64,
+    /// Current queue depth
+    pub queue_depth: usize,
+    /// Last recorded latency in milliseconds
+    pub last_latency_ms: u64,
+}
+
+/// Latency statistics
+#[derive(Debug, Clone)]
+pub struct LatencyStats {
+    /// Minimum latency in ms
+    pub min_ms: u64,
+    /// Maximum latency in ms
+    pub max_ms: u64,
+    /// Average latency in ms
+    pub avg_ms: u64,
+}
+
+/// Resource monitor snapshot
+#[derive(Debug, Clone)]
+pub struct ResourceSnapshot {
+    /// Unix timestamp
+    pub timestamp: u64,
+    /// Memory in bytes
+    pub memory_bytes: u64,
+    /// GPU utilization
+    pub gpu_utilization: f64,
+    /// Queue depth
+    pub queue_depth: usize,
+}
+
+/// Resource monitor (IMP-075)
+pub struct ResourceMonitor {
+    memory_bytes: std::sync::atomic::AtomicU64,
+    gpu_utilization: std::sync::Mutex<f64>,
+    queue_depth: std::sync::atomic::AtomicUsize,
+    latencies: std::sync::Mutex<Vec<u64>>,
+    last_latency_ms: std::sync::atomic::AtomicU64,
+}
+
+impl ResourceMonitor {
+    /// Create new resource monitor
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            memory_bytes: std::sync::atomic::AtomicU64::new(0),
+            gpu_utilization: std::sync::Mutex::new(0.0),
+            queue_depth: std::sync::atomic::AtomicUsize::new(0),
+            latencies: std::sync::Mutex::new(Vec::new()),
+            last_latency_ms: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+
+    /// Record memory usage
+    pub fn record_memory_usage(&self, bytes: u64) {
+        self.memory_bytes
+            .store(bytes, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Record GPU utilization
+    pub fn record_gpu_utilization(&self, utilization: f64) {
+        *self.gpu_utilization.lock().unwrap() = utilization;
+    }
+
+    /// Record queue depth
+    pub fn record_queue_depth(&self, depth: usize) {
+        self.queue_depth
+            .store(depth, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Record latency
+    pub fn record_latency(&self, duration: Duration) {
+        let ms = duration.as_millis() as u64;
+        self.last_latency_ms
+            .store(ms, std::sync::atomic::Ordering::SeqCst);
+        self.latencies.lock().unwrap().push(ms);
+    }
+
+    /// Get current metrics
+    #[must_use]
+    pub fn current_metrics(&self) -> ResourceMetrics {
+        ResourceMetrics {
+            memory_bytes: self.memory_bytes.load(std::sync::atomic::Ordering::SeqCst),
+            gpu_utilization: *self.gpu_utilization.lock().unwrap(),
+            queue_depth: self.queue_depth.load(std::sync::atomic::Ordering::SeqCst),
+            last_latency_ms: self
+                .last_latency_ms
+                .load(std::sync::atomic::Ordering::SeqCst),
+        }
+    }
+
+    /// Get latency statistics
+    #[must_use]
+    pub fn latency_stats(&self) -> LatencyStats {
+        let latencies = self.latencies.lock().unwrap();
+        if latencies.is_empty() {
+            return LatencyStats {
+                min_ms: 0,
+                max_ms: 0,
+                avg_ms: 0,
+            };
+        }
+
+        let min_ms = *latencies.iter().min().unwrap_or(&0);
+        let max_ms = *latencies.iter().max().unwrap_or(&0);
+        let sum: u64 = latencies.iter().sum();
+        let avg_ms = sum / latencies.len() as u64;
+
+        LatencyStats {
+            min_ms,
+            max_ms,
+            avg_ms,
+        }
+    }
+
+    /// Get snapshot for reporting
+    #[must_use]
+    pub fn snapshot(&self) -> ResourceSnapshot {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        ResourceSnapshot {
+            timestamp,
+            memory_bytes: self.memory_bytes.load(std::sync::atomic::Ordering::SeqCst),
+            gpu_utilization: *self.gpu_utilization.lock().unwrap(),
+            queue_depth: self.queue_depth.load(std::sync::atomic::Ordering::SeqCst),
+        }
+    }
+}
+
+impl Default for ResourceMonitor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ============================================================================
+// M31: Retry Logic & Circuit Breakers (IMP-076, IMP-077, IMP-078)
+// ============================================================================
+
+/// Error category for retry decisions (IMP-076)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorCategory {
+    /// Transient error that may succeed on retry
+    Transient,
+    /// Permanent error that will not succeed on retry
+    Permanent,
+}
+
+/// Retry decision (IMP-076)
+#[derive(Debug, Clone)]
+pub enum RetryDecision {
+    /// Retry with specified delay
+    Retry {
+        /// Delay before retry
+        delay: Duration,
+    },
+    /// Abort with reason
+    Abort {
+        /// Reason for abort
+        reason: String,
+    },
+}
+
+/// Retry configuration (IMP-076)
+#[derive(Debug, Clone)]
+pub struct RetryConfig {
+    max_retries: u32,
+    base_delay: Duration,
+    max_delay: Duration,
+    jitter_factor: f64,
+}
+
+impl RetryConfig {
+    /// Create new retry config with defaults
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            max_retries: 3,
+            base_delay: Duration::from_millis(100),
+            max_delay: Duration::from_secs(30),
+            jitter_factor: 0.1,
+        }
+    }
+
+    /// Set max retries
+    #[must_use]
+    pub fn with_max_retries(mut self, max: u32) -> Self {
+        self.max_retries = max;
+        self
+    }
+
+    /// Set base delay
+    #[must_use]
+    pub fn with_base_delay(mut self, delay: Duration) -> Self {
+        self.base_delay = delay;
+        self
+    }
+
+    /// Set max delay
+    #[must_use]
+    pub fn with_max_delay(mut self, delay: Duration) -> Self {
+        self.max_delay = delay;
+        self
+    }
+
+    /// Set jitter factor (0.0 to 1.0)
+    #[must_use]
+    pub fn with_jitter_factor(mut self, factor: f64) -> Self {
+        self.jitter_factor = factor.clamp(0.0, 1.0);
+        self
+    }
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Retry policy (IMP-076)
+pub struct RetryPolicy {
+    config: RetryConfig,
+}
+
+impl RetryPolicy {
+    /// Create new retry policy
+    #[must_use]
+    pub fn new(config: RetryConfig) -> Self {
+        Self { config }
+    }
+
+    /// Get max retries
+    #[must_use]
+    pub fn max_retries(&self) -> u32 {
+        self.config.max_retries
+    }
+
+    /// Decide whether to retry
+    #[must_use]
+    pub fn should_retry(&self, attempt: u32, category: ErrorCategory) -> RetryDecision {
+        if category == ErrorCategory::Permanent {
+            return RetryDecision::Abort {
+                reason: "Permanent error".to_string(),
+            };
+        }
+
+        if attempt > self.config.max_retries {
+            return RetryDecision::Abort {
+                reason: format!("Max retries ({}) exceeded", self.config.max_retries),
+            };
+        }
+
+        RetryDecision::Retry {
+            delay: self.calculate_delay(attempt),
+        }
+    }
+
+    /// Calculate delay with exponential backoff
+    #[must_use]
+    pub fn calculate_delay(&self, attempt: u32) -> Duration {
+        // Exponential backoff: base * 2^attempt
+        let exp_delay_ms = self.config.base_delay.as_millis() as u64 * (1u64 << attempt.min(20));
+        let delay_ms = exp_delay_ms.min(self.config.max_delay.as_millis() as u64);
+        Duration::from_millis(delay_ms)
+    }
+}
+
+/// Circuit breaker state (IMP-077)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CircuitState {
+    /// Circuit is closed, requests allowed
+    Closed,
+    /// Circuit is open, requests rejected
+    Open,
+    /// Circuit is half-open, probe requests allowed
+    HalfOpen,
+}
+
+/// Circuit breaker configuration (IMP-077)
+#[derive(Debug, Clone)]
+pub struct CircuitConfig {
+    failure_threshold: u32,
+    success_threshold: u32,
+    timeout: Duration,
+}
+
+impl CircuitConfig {
+    /// Create new circuit config with defaults
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            failure_threshold: 5,
+            success_threshold: 2,
+            timeout: Duration::from_secs(30),
+        }
+    }
+
+    /// Set failure threshold to open circuit
+    #[must_use]
+    pub fn with_failure_threshold(mut self, threshold: u32) -> Self {
+        self.failure_threshold = threshold;
+        self
+    }
+
+    /// Set success threshold to close circuit from half-open
+    #[must_use]
+    pub fn with_success_threshold(mut self, threshold: u32) -> Self {
+        self.success_threshold = threshold;
+        self
+    }
+
+    /// Set timeout before transitioning to half-open
+    #[must_use]
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+}
+
+impl Default for CircuitConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Circuit breaker (IMP-077)
+pub struct CircuitBreaker {
+    config: CircuitConfig,
+    state: std::sync::Mutex<CircuitState>,
+    failure_count: std::sync::atomic::AtomicU32,
+    success_count: std::sync::atomic::AtomicU32,
+    last_failure: std::sync::Mutex<Option<std::time::Instant>>,
+}
+
+impl CircuitBreaker {
+    /// Create new circuit breaker
+    #[must_use]
+    pub fn new(config: CircuitConfig) -> Self {
+        Self {
+            config,
+            state: std::sync::Mutex::new(CircuitState::Closed),
+            failure_count: std::sync::atomic::AtomicU32::new(0),
+            success_count: std::sync::atomic::AtomicU32::new(0),
+            last_failure: std::sync::Mutex::new(None),
+        }
+    }
+
+    /// Get current state
+    #[must_use]
+    pub fn state(&self) -> CircuitState {
+        *self.state.lock().unwrap()
+    }
+
+    /// Check if request should be allowed
+    #[must_use]
+    pub fn allow_request(&self) -> bool {
+        let mut state = self.state.lock().unwrap();
+        match *state {
+            CircuitState::Closed | CircuitState::HalfOpen => true,
+            CircuitState::Open => {
+                // Check if timeout has elapsed
+                let last_failure = self.last_failure.lock().unwrap();
+                if let Some(last) = *last_failure {
+                    if last.elapsed() >= self.config.timeout {
+                        *state = CircuitState::HalfOpen;
+                        self.success_count
+                            .store(0, std::sync::atomic::Ordering::SeqCst);
+                        return true;
+                    }
+                }
+                false
+            },
+        }
+    }
+
+    /// Record a failure
+    pub fn record_failure(&self) {
+        let count = self
+            .failure_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            + 1;
+        *self.last_failure.lock().unwrap() = Some(std::time::Instant::now());
+
+        let mut state = self.state.lock().unwrap();
+        match *state {
+            CircuitState::Closed => {
+                if count >= self.config.failure_threshold {
+                    *state = CircuitState::Open;
+                }
+            },
+            CircuitState::HalfOpen => {
+                *state = CircuitState::Open;
+            },
+            CircuitState::Open => {},
+        }
+    }
+
+    /// Record a success
+    pub fn record_success(&self) {
+        self.failure_count
+            .store(0, std::sync::atomic::Ordering::SeqCst);
+        let count = self
+            .success_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            + 1;
+
+        let mut state = self.state.lock().unwrap();
+        if *state == CircuitState::HalfOpen && count >= self.config.success_threshold {
+            *state = CircuitState::Closed;
+        }
+    }
+}
+
+/// Request type for bulkhead (IMP-078)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RequestType {
+    /// Standard inference request
+    Inference,
+    /// Embedding generation request
+    Embedding,
+    /// Batch processing request
+    Batch,
+}
+
+/// Bulkhead permit
+#[derive(Debug)]
+pub struct BulkheadPermit {
+    request_type: RequestType,
+}
+
+/// Bulkhead configuration (IMP-078)
+pub struct BulkheadConfig {
+    pools: HashMap<String, usize>,
+}
+
+impl BulkheadConfig {
+    /// Create new bulkhead config
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            pools: HashMap::new(),
+        }
+    }
+
+    /// Add a pool with specified size
+    #[must_use]
+    pub fn with_pool(mut self, name: &str, size: usize) -> Self {
+        self.pools.insert(name.to_string(), size);
+        self
+    }
+}
+
+impl Default for BulkheadConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Bulkhead stats
+#[derive(Debug, Clone)]
+pub struct BulkheadStats {
+    /// Number of pools
+    pub pool_count: usize,
+    /// Total capacity across all pools
+    pub total_capacity: usize,
+}
+
+/// Bulkhead manager (IMP-078)
+pub struct BulkheadManager {
+    inference_available: std::sync::atomic::AtomicUsize,
+    inference_capacity: usize,
+    embedding_available: std::sync::atomic::AtomicUsize,
+    embedding_capacity: usize,
+    batch_available: std::sync::atomic::AtomicUsize,
+    batch_capacity: usize,
+}
+
+impl BulkheadManager {
+    /// Create new bulkhead manager
+    #[must_use]
+    pub fn new(config: &BulkheadConfig) -> Self {
+        let inference_cap = *config.pools.get("inference").unwrap_or(&10);
+        let embedding_cap = *config.pools.get("embedding").unwrap_or(&5);
+        let batch_cap = *config.pools.get("batch").unwrap_or(&2);
+
+        Self {
+            inference_available: std::sync::atomic::AtomicUsize::new(inference_cap),
+            inference_capacity: inference_cap,
+            embedding_available: std::sync::atomic::AtomicUsize::new(embedding_cap),
+            embedding_capacity: embedding_cap,
+            batch_available: std::sync::atomic::AtomicUsize::new(batch_cap),
+            batch_capacity: batch_cap,
+        }
+    }
+
+    /// Get available slots for request type
+    #[must_use]
+    pub fn available(&self, request_type: RequestType) -> usize {
+        match request_type {
+            RequestType::Inference => self
+                .inference_available
+                .load(std::sync::atomic::Ordering::SeqCst),
+            RequestType::Embedding => self
+                .embedding_available
+                .load(std::sync::atomic::Ordering::SeqCst),
+            RequestType::Batch => self
+                .batch_available
+                .load(std::sync::atomic::Ordering::SeqCst),
+        }
+    }
+
+    /// Acquire a permit
+    ///
+    /// # Errors
+    /// Returns error if pool is exhausted.
+    pub fn acquire(
+        &self,
+        request_type: RequestType,
+    ) -> std::result::Result<BulkheadPermit, &'static str> {
+        let available = match request_type {
+            RequestType::Inference => &self.inference_available,
+            RequestType::Embedding => &self.embedding_available,
+            RequestType::Batch => &self.batch_available,
+        };
+
+        let current = available.load(std::sync::atomic::Ordering::SeqCst);
+        if current == 0 {
+            return Err("Pool exhausted");
+        }
+        available.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(BulkheadPermit { request_type })
+    }
+
+    /// Try to acquire a permit (non-blocking)
+    ///
+    /// # Errors
+    /// Returns error if pool is exhausted.
+    pub fn try_acquire(
+        &self,
+        request_type: RequestType,
+    ) -> std::result::Result<BulkheadPermit, &'static str> {
+        self.acquire(request_type)
+    }
+
+    /// Release a permit
+    pub fn release(&self, permit: &BulkheadPermit) {
+        let available = match permit.request_type {
+            RequestType::Inference => &self.inference_available,
+            RequestType::Embedding => &self.embedding_available,
+            RequestType::Batch => &self.batch_available,
+        };
+        available.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Get bulkhead stats
+    #[must_use]
+    pub fn stats(&self) -> BulkheadStats {
+        BulkheadStats {
+            pool_count: 3,
+            total_capacity: self.inference_capacity + self.embedding_capacity + self.batch_capacity,
+        }
+    }
+}
+
+// ============================================================================
+// M32: Production Logging & Diagnostics (IMP-079, IMP-080, IMP-081)
+// ============================================================================
+
+/// Log level (IMP-079)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum LogLevel {
+    /// Trace level (most verbose)
+    Trace,
+    /// Debug level
+    Debug,
+    /// Info level
+    Info,
+    /// Warning level
+    Warn,
+    /// Error level
+    Error,
+}
+
+impl LogLevel {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Trace => "TRACE",
+            Self::Debug => "DEBUG",
+            Self::Info => "INFO",
+            Self::Warn => "WARN",
+            Self::Error => "ERROR",
+        }
+    }
+}
+
+/// Log entry (IMP-079)
+#[derive(Debug, Clone)]
+pub struct LogEntry {
+    level: LogLevel,
+    message: String,
+    timestamp: u64,
+    correlation_id: Option<String>,
+    fields: HashMap<String, String>,
+}
+
+impl LogEntry {
+    /// Create new log entry
+    #[must_use]
+    pub fn new(level: LogLevel, message: &str) -> Self {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        Self {
+            level,
+            message: message.to_string(),
+            timestamp,
+            correlation_id: None,
+            fields: HashMap::new(),
+        }
+    }
+
+    /// Set correlation ID
+    #[must_use]
+    pub fn with_correlation_id(mut self, id: &str) -> Self {
+        self.correlation_id = Some(id.to_string());
+        self
+    }
+
+    /// Add custom field
+    #[must_use]
+    pub fn with_field(mut self, key: &str, value: &str) -> Self {
+        self.fields.insert(key.to_string(), value.to_string());
+        self
+    }
+
+    /// Get correlation ID
+    #[must_use]
+    pub fn correlation_id(&self) -> Option<&str> {
+        self.correlation_id.as_deref()
+    }
+
+    /// Get log level
+    #[must_use]
+    pub fn level(&self) -> LogLevel {
+        self.level
+    }
+
+    /// Get timestamp
+    #[must_use]
+    pub fn timestamp(&self) -> u64 {
+        self.timestamp
+    }
+
+    /// Convert to JSON
+    #[must_use]
+    pub fn to_json(&self) -> String {
+        use std::fmt::Write;
+
+        let mut json = format!(
+            "{{\"level\":\"{}\",\"message\":\"{}\",\"timestamp\":{}",
+            self.level.as_str(),
+            self.message,
+            self.timestamp
+        );
+
+        if let Some(ref id) = self.correlation_id {
+            let _ = write!(json, ",\"correlation_id\":\"{}\"", id);
+        }
+
+        for (key, value) in &self.fields {
+            let _ = write!(json, ",\"{}\":\"{}\"", key, value);
+        }
+
+        json.push('}');
+        json
+    }
+}
+
+/// Log configuration (IMP-079)
+#[derive(Debug, Clone)]
+pub struct LogConfig {
+    default_level: LogLevel,
+    json_format: bool,
+    module_levels: HashMap<String, LogLevel>,
+}
+
+impl LogConfig {
+    /// Create new log config
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            default_level: LogLevel::Info,
+            json_format: false,
+            module_levels: HashMap::new(),
+        }
+    }
+
+    /// Set default log level
+    #[must_use]
+    pub fn with_level(mut self, level: LogLevel) -> Self {
+        self.default_level = level;
+        self
+    }
+
+    /// Enable JSON format
+    #[must_use]
+    pub fn with_json_format(mut self, enabled: bool) -> Self {
+        self.json_format = enabled;
+        self
+    }
+
+    /// Set module-specific log level
+    #[must_use]
+    pub fn with_module_level(mut self, module: &str, level: LogLevel) -> Self {
+        self.module_levels.insert(module.to_string(), level);
+        self
+    }
+}
+
+impl Default for LogConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Logger (IMP-079)
+pub struct Logger {
+    config: LogConfig,
+}
+
+impl Logger {
+    /// Create new logger
+    #[must_use]
+    pub fn new(config: LogConfig) -> Self {
+        Self { config }
+    }
+
+    /// Check if log level is enabled for module
+    #[must_use]
+    pub fn is_enabled(&self, level: LogLevel, module: &str) -> bool {
+        let min_level = self
+            .config
+            .module_levels
+            .get(module)
+            .copied()
+            .unwrap_or(self.config.default_level);
+        level >= min_level
+    }
+}
+
+/// Phase timer for latency breakdown (IMP-080)
+pub struct PhaseTimer {
+    phases: std::sync::Mutex<HashMap<String, (Option<std::time::Instant>, u64)>>,
+}
+
+impl PhaseTimer {
+    /// Create new phase timer
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            phases: std::sync::Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Start timing a phase
+    pub fn start_phase(&self, name: &str) {
+        let mut phases = self.phases.lock().unwrap();
+        phases.insert(name.to_string(), (Some(std::time::Instant::now()), 0));
+    }
+
+    /// End timing a phase
+    pub fn end_phase(&self, name: &str) {
+        let mut phases = self.phases.lock().unwrap();
+        if let Some((Some(start_time), _)) = phases.get(name) {
+            let elapsed = start_time.elapsed().as_micros() as u64;
+            phases.insert(name.to_string(), (None, elapsed));
+        }
+    }
+
+    /// Get timing breakdown
+    #[must_use]
+    pub fn breakdown(&self) -> HashMap<String, u64> {
+        let phases = self.phases.lock().unwrap();
+        phases.iter().map(|(k, (_, v))| (k.clone(), *v)).collect()
+    }
+}
+
+impl Default for PhaseTimer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Memory report (IMP-080)
+#[derive(Debug, Clone)]
+pub struct MemoryReport {
+    /// Peak memory usage in bytes
+    pub peak_bytes: u64,
+    /// Current memory usage in bytes
+    pub current_bytes: u64,
+    /// Total allocation count
+    pub allocation_count: u64,
+}
+
+/// Memory tracker (IMP-080)
+pub struct MemoryTracker {
+    current: std::sync::atomic::AtomicU64,
+    peak: std::sync::atomic::AtomicU64,
+    allocation_count: std::sync::atomic::AtomicU64,
+}
+
+impl MemoryTracker {
+    /// Create new memory tracker
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            current: std::sync::atomic::AtomicU64::new(0),
+            peak: std::sync::atomic::AtomicU64::new(0),
+            allocation_count: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+
+    /// Record memory allocation
+    pub fn record_allocation(&self, _name: &str, bytes: u64) {
+        let new_current = self
+            .current
+            .fetch_add(bytes, std::sync::atomic::Ordering::SeqCst)
+            + bytes;
+        self.allocation_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+        // Update peak if necessary
+        let mut peak = self.peak.load(std::sync::atomic::Ordering::SeqCst);
+        while new_current > peak {
+            match self.peak.compare_exchange_weak(
+                peak,
+                new_current,
+                std::sync::atomic::Ordering::SeqCst,
+                std::sync::atomic::Ordering::Relaxed,
+            ) {
+                Ok(_) => break,
+                Err(current_peak) => peak = current_peak,
+            }
+        }
+    }
+
+    /// Record memory deallocation
+    pub fn record_deallocation(&self, _name: &str, bytes: u64) {
+        self.current
+            .fetch_sub(bytes, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Get memory report
+    #[must_use]
+    pub fn report(&self) -> MemoryReport {
+        MemoryReport {
+            peak_bytes: self.peak.load(std::sync::atomic::Ordering::SeqCst),
+            current_bytes: self.current.load(std::sync::atomic::Ordering::SeqCst),
+            allocation_count: self
+                .allocation_count
+                .load(std::sync::atomic::Ordering::SeqCst),
+        }
+    }
+}
+
+impl Default for MemoryTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Diagnostics summary (IMP-080)
+#[derive(Debug, Clone)]
+pub struct DiagnosticsSummary {
+    /// Number of requests tracked
+    pub request_count: u64,
+}
+
+/// Diagnostics collector (IMP-080)
+pub struct DiagnosticsCollector {
+    request_count: std::sync::atomic::AtomicU64,
+    #[allow(dead_code)]
+    timings: std::sync::Mutex<Vec<HashMap<String, u64>>>,
+    #[allow(dead_code)]
+    memory_snapshots: std::sync::Mutex<Vec<MemoryReport>>,
+}
+
+impl DiagnosticsCollector {
+    /// Create new diagnostics collector
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            request_count: std::sync::atomic::AtomicU64::new(0),
+            timings: std::sync::Mutex::new(Vec::new()),
+            memory_snapshots: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Record request timing
+    pub fn record_request_timing(&self, _request_id: &str, timing: HashMap<String, u64>) {
+        self.request_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.timings.lock().unwrap().push(timing);
+    }
+
+    /// Record memory snapshot
+    pub fn record_memory_snapshot(&self, report: MemoryReport) {
+        self.memory_snapshots.lock().unwrap().push(report);
+    }
+
+    /// Get diagnostics summary
+    #[must_use]
+    pub fn summary(&self) -> DiagnosticsSummary {
+        DiagnosticsSummary {
+            request_count: self.request_count.load(std::sync::atomic::Ordering::SeqCst),
+        }
+    }
+}
+
+impl Default for DiagnosticsCollector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Debug mode controller (IMP-081)
+pub struct DebugMode {
+    enabled: std::sync::atomic::AtomicBool,
+}
+
+impl DebugMode {
+    /// Create new debug mode
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            enabled: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    /// Check if debug mode is enabled
+    #[must_use]
+    pub fn is_enabled(&self) -> bool {
+        self.enabled.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Enable debug mode
+    pub fn enable(&self) {
+        self.enabled
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Disable debug mode
+    #[allow(dead_code)]
+    pub fn disable(&self) {
+        self.enabled
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl Default for DebugMode {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Request capture for replay (IMP-081)
+#[derive(Debug, Clone)]
+pub struct RequestCapture {
+    input: String,
+    params: HashMap<String, String>,
+}
+
+impl RequestCapture {
+    /// Create new request capture
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            input: String::new(),
+            params: HashMap::new(),
+        }
+    }
+
+    /// Set input
+    #[must_use]
+    pub fn with_input(mut self, input: &str) -> Self {
+        self.input = input.to_string();
+        self
+    }
+
+    /// Add parameter
+    #[must_use]
+    pub fn with_params(mut self, key: &str, value: &str) -> Self {
+        self.params.insert(key.to_string(), value.to_string());
+        self
+    }
+
+    /// Get input
+    #[must_use]
+    pub fn input(&self) -> &str {
+        &self.input
+    }
+
+    /// Get params
+    #[must_use]
+    pub fn params(&self) -> &HashMap<String, String> {
+        &self.params
+    }
+
+    /// Serialize to JSON
+    #[must_use]
+    pub fn to_json(&self) -> String {
+        let params_json: Vec<String> = self
+            .params
+            .iter()
+            .map(|(k, v)| format!("\"{}\":\"{}\"", k, v))
+            .collect();
+        format!(
+            "{{\"input\":\"{}\",\"params\":{{{}}}}}",
+            self.input,
+            params_json.join(",")
+        )
+    }
+
+    /// Deserialize from JSON (simple implementation)
+    ///
+    /// # Errors
+    /// Returns error if JSON is malformed or missing input field.
+    pub fn from_json(json: &str) -> std::result::Result<Self, &'static str> {
+        // Simple extraction - production would use serde
+        let input_start = json.find("\"input\":\"").ok_or("Missing input")?;
+        let input_rest = &json[input_start + 9..];
+        let input_end = input_rest.find('"').ok_or("Invalid input")?;
+        let input = &input_rest[..input_end];
+
+        Ok(Self {
+            input: input.to_string(),
+            params: HashMap::new(),
+        })
+    }
+}
+
+impl Default for RequestCapture {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// State dump for debugging (IMP-081)
+#[derive(Debug, Clone)]
+pub struct StateDump {
+    error: String,
+    stack_trace: String,
+    state: HashMap<String, String>,
+}
+
+impl StateDump {
+    /// Create new state dump
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            error: String::new(),
+            stack_trace: String::new(),
+            state: HashMap::new(),
+        }
+    }
+
+    /// Set error
+    #[must_use]
+    pub fn with_error(mut self, error: &str) -> Self {
+        self.error = error.to_string();
+        self
+    }
+
+    /// Set stack trace
+    #[must_use]
+    pub fn with_stack_trace(mut self, trace: &str) -> Self {
+        self.stack_trace = trace.to_string();
+        self
+    }
+
+    /// Add state
+    #[must_use]
+    pub fn with_state(mut self, key: &str, value: &str) -> Self {
+        self.state.insert(key.to_string(), value.to_string());
+        self
+    }
+
+    /// Get error
+    #[must_use]
+    pub fn error(&self) -> &str {
+        &self.error
+    }
+
+    /// Get stack trace
+    #[must_use]
+    pub fn stack_trace(&self) -> &str {
+        &self.stack_trace
+    }
+
+    /// Get state
+    #[must_use]
+    pub fn state(&self) -> &HashMap<String, String> {
+        &self.state
+    }
+
+    /// Convert to JSON
+    #[must_use]
+    pub fn to_json(&self) -> String {
+        let state_json: Vec<String> = self
+            .state
+            .iter()
+            .map(|(k, v)| format!("\"{}\":\"{}\"", k, v))
+            .collect();
+        format!(
+            "{{\"error\":\"{}\",\"stack_trace\":\"{}\",\"state\":{{{}}}}}",
+            self.error,
+            self.stack_trace.replace('\n', "\\n"),
+            state_json.join(",")
+        )
+    }
+}
+
+impl Default for StateDump {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

@@ -1,7 +1,7 @@
 # Performance Parity: Ollama & llama.cpp GPU Inference for LLMs
 
-**Version:** 2.12.0
-**Status:** ✅ M1-M28 Complete
+**Version:** 2.13.0
+**Status:** 🔄 M29 In Progress (M1-M28 Complete)
 **Authors:** Pragmatic AI Labs
 **Date:** 2025-12-12
 **Work Item:** PERF-PARITY-001
@@ -986,6 +986,175 @@ Models pulled from Hugging Face for reproducibility:
 | Inference Metrics | None | InferenceMetrics | ✅ |
 | Health Checker | None | HealthChecker | ✅ |
 | Shutdown Coordinator | None | ShutdownCoordinator | ✅ |
+
+### Phase 20: Error Recovery & Graceful Degradation (Points 70-72) - M29
+
+**Toyota Production System Alignment:**
+- Jidoka (自働化): Automated error detection and recovery
+- Andon: Signal problems immediately, don't hide failures
+- Poka-yoke: Error-proof design to prevent cascading failures
+
+**Implementation Points:**
+
+70. **IMP-070**: Error Recovery Strategy
+    - Automatic retry with exponential backoff for transient failures
+    - Fallback to CPU inference when GPU fails
+    - Partial result recovery on timeout
+    - Error classification (recoverable vs fatal)
+
+71. **IMP-071**: Graceful Degradation Modes
+    - GPU → CPU fallback with automatic detection
+    - Memory pressure response (reduce batch size)
+    - Context length limiting under load
+    - Quality vs latency tradeoff modes
+
+72. **IMP-072**: Failure Isolation
+    - Request-level error boundaries
+    - No single request can crash the server
+    - Resource cleanup on failure
+    - Circuit breaker for repeated failures
+
+**Benchmark:** GPU-032 (Error Recovery)
+```rust
+// Measure recovery time and success rate
+let recovery_bench = bench_error_recovery();
+assert!(recovery_bench.recovery_rate >= 0.95); // 95% recovery
+assert!(recovery_bench.mean_recovery_ms < 100); // Fast recovery
+```
+
+### Phase 20 Success Criteria (M29 Complete)
+
+| Test | Before (M28) | After (M29) | Target |
+|------|--------------|-------------|--------|
+| Error Recovery | None | ErrorRecoveryStrategy | ✅ |
+| Graceful Degradation | None | DegradationManager | ✅ |
+| Failure Isolation | None | FailureIsolator | ✅ |
+
+### Phase 21: Connection Pooling & Resource Limits (Points 73-75) - M30
+
+**Toyota Production System Alignment:**
+- Heijunka (平準化): Level-loaded resource utilization
+- Just-in-time resource allocation
+- Pull system for request handling
+
+**Implementation Points:**
+
+73. **IMP-073**: Connection Pool Management
+    - Bounded connection pool with configurable limits
+    - Connection health checking and recycling
+    - Warm connection pool on startup
+    - Graceful pool draining on shutdown
+
+74. **IMP-074**: Resource Limits
+    - Memory limits per request and total
+    - Compute time limits with preemption
+    - Queue depth limits with backpressure
+    - Concurrent request limits
+
+75. **IMP-075**: Resource Monitoring
+    - Real-time memory usage tracking
+    - GPU utilization monitoring
+    - Queue depth metrics
+    - Resource exhaustion alerts
+
+**Benchmark:** GPU-033 (Resource Management)
+```rust
+let resource_bench = bench_resource_limits();
+assert!(resource_bench.memory_bounded);
+assert!(resource_bench.no_oom_kills);
+```
+
+### Phase 21 Success Criteria (M30 Complete)
+
+| Test | Before (M29) | After (M30) | Target |
+|------|--------------|-------------|--------|
+| Connection Pool | None | ConnectionPool | ✅ |
+| Resource Limits | None | ResourceLimiter | ✅ |
+| Resource Monitor | None | ResourceMonitor | ✅ |
+
+### Phase 22: Retry Logic & Circuit Breakers (Points 76-78) - M31
+
+**Toyota Production System Alignment:**
+- Muda elimination: Don't waste resources on doomed requests
+- Quick feedback loops for failure detection
+- Self-healing systems
+
+**Implementation Points:**
+
+76. **IMP-076**: Retry Strategy
+    - Configurable retry policies per error type
+    - Exponential backoff with jitter
+    - Max retry limits
+    - Retry budget per time window
+
+77. **IMP-077**: Circuit Breaker Pattern
+    - Three states: Closed, Open, Half-Open
+    - Failure threshold before opening
+    - Timeout before half-open probe
+    - Success threshold to close
+
+78. **IMP-078**: Bulkhead Pattern
+    - Separate resource pools for different request types
+    - Prevent one request type from starving others
+    - Configurable pool sizes per bulkhead
+    - Cross-bulkhead metrics
+
+**Benchmark:** GPU-034 (Resilience)
+```rust
+let resilience_bench = bench_circuit_breaker();
+assert!(resilience_bench.opens_on_failures);
+assert!(resilience_bench.recovers_after_timeout);
+```
+
+### Phase 22 Success Criteria (M31 Complete)
+
+| Test | Before (M30) | After (M31) | Target |
+|------|--------------|-------------|--------|
+| Retry Strategy | None | RetryPolicy | ✅ |
+| Circuit Breaker | None | CircuitBreaker | ✅ |
+| Bulkhead | None | BulkheadManager | ✅ |
+
+### Phase 23: Production Logging & Diagnostics (Points 79-81) - M32
+
+**Toyota Production System Alignment:**
+- Genchi Genbutsu (現地現物): Go see the actual problem
+- Visual management through structured logs
+- Root cause analysis support
+
+**Implementation Points:**
+
+79. **IMP-079**: Structured Logging
+    - JSON-formatted log entries
+    - Request tracing with correlation IDs
+    - Configurable log levels per module
+    - Log sampling for high-volume events
+
+80. **IMP-080**: Performance Diagnostics
+    - Request latency breakdown by phase
+    - Memory allocation tracking
+    - GPU kernel timing
+    - Cache hit/miss rates
+
+81. **IMP-081**: Debug Mode
+    - Verbose logging for troubleshooting
+    - Request replay capability
+    - State dump on error
+    - Profiling integration hooks
+
+**Benchmark:** GPU-035 (Diagnostics)
+```rust
+let diag_bench = bench_diagnostics();
+assert!(diag_bench.log_overhead_pct < 1.0); // <1% overhead
+assert!(diag_bench.tracing_complete);
+```
+
+### Phase 23 Success Criteria (M32 Complete)
+
+| Test | Before (M31) | After (M32) | Target |
+|------|--------------|-------------|--------|
+| Structured Logging | None | StructuredLogger | ✅ |
+| Performance Diagnostics | None | PerfDiagnostics | ✅ |
+| Debug Mode | None | DebugMode | ✅ |
 
 ### Phase 6 Success Criteria
 

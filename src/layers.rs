@@ -12666,4 +12666,846 @@ mod tests {
             "IMP-069: Should be complete when shutdown + no pending"
         );
     }
+
+    // ============================================================================
+    // Phase 20: Error Recovery & Graceful Degradation (M29) - EXTREME TDD
+    // ============================================================================
+
+    /// IMP-070: Error Recovery Strategy
+    /// Target: Automatic retry with exponential backoff, GPU fallback, error classification
+    #[test]
+    #[cfg(feature = "gpu")]
+    fn test_imp_070_error_recovery_strategy() {
+        use crate::gpu::{ErrorClassification, ErrorRecoveryStrategy, RecoveryAction};
+        use std::time::Duration;
+
+        // Test 1: Create recovery strategy with config
+        let strategy = ErrorRecoveryStrategy::new()
+            .with_max_retries(3)
+            .with_base_delay(Duration::from_millis(100))
+            .with_max_delay(Duration::from_secs(5))
+            .with_jitter(0.1);
+
+        assert_eq!(
+            strategy.max_retries(),
+            3,
+            "IMP-070: Max retries should be 3"
+        );
+
+        // Test 2: Error classification
+        let transient_err = std::io::Error::new(std::io::ErrorKind::TimedOut, "timeout");
+        let classification = strategy.classify_error(&transient_err);
+        assert_eq!(
+            classification,
+            ErrorClassification::Transient,
+            "IMP-070: Timeout should be transient"
+        );
+
+        let fatal_err = std::io::Error::new(std::io::ErrorKind::InvalidData, "bad data");
+        let classification = strategy.classify_error(&fatal_err);
+        assert_eq!(
+            classification,
+            ErrorClassification::Fatal,
+            "IMP-070: InvalidData should be fatal"
+        );
+
+        // Test 3: Recovery action for transient error
+        let action = strategy.determine_action(&transient_err, 0);
+        assert!(
+            matches!(action, RecoveryAction::Retry { .. }),
+            "IMP-070: Transient should retry"
+        );
+
+        // Test 4: Exponential backoff delay calculation
+        let delay_0 = strategy.calculate_delay(0);
+        let delay_1 = strategy.calculate_delay(1);
+        let delay_2 = strategy.calculate_delay(2);
+        assert!(delay_1 > delay_0, "IMP-070: Delay should increase");
+        assert!(
+            delay_2 > delay_1,
+            "IMP-070: Delay should increase exponentially"
+        );
+
+        // Test 5: Max retries exceeded
+        let action = strategy.determine_action(&transient_err, 4);
+        assert!(
+            matches!(action, RecoveryAction::Fail),
+            "IMP-070: Should fail after max retries"
+        );
+
+        // Test 6: GPU fallback action
+        let gpu_err = std::io::Error::other("GPU unavailable");
+        let action = strategy.determine_action_with_fallback(&gpu_err, 0);
+        assert!(
+            matches!(action, RecoveryAction::FallbackToCpu),
+            "IMP-070: GPU error should fallback to CPU"
+        );
+    }
+
+    /// IMP-071: Graceful Degradation Modes
+    /// Target: GPU→CPU fallback, memory pressure response, context limiting
+    #[test]
+    #[cfg(feature = "gpu")]
+    fn test_imp_071_graceful_degradation() {
+        use crate::gpu::{DegradationManager, DegradationMode, SystemLoad};
+
+        // Test 1: Create degradation manager
+        let mut manager = DegradationManager::new();
+        assert_eq!(
+            manager.current_mode(),
+            DegradationMode::Normal,
+            "IMP-071: Should start in Normal mode"
+        );
+
+        // Test 2: GPU unavailable triggers CPU fallback
+        manager.set_gpu_available(false);
+        assert_eq!(
+            manager.current_mode(),
+            DegradationMode::CpuFallback,
+            "IMP-071: GPU unavailable should trigger CPU fallback"
+        );
+
+        // Test 3: Memory pressure reduces batch size
+        manager.set_gpu_available(true);
+        manager.update_memory_pressure(0.9); // 90% memory used
+        let batch_size = manager.recommended_batch_size(8);
+        assert!(
+            batch_size < 8,
+            "IMP-071: High memory pressure should reduce batch size"
+        );
+
+        // Test 4: System load affects context length
+        let load = SystemLoad {
+            cpu_percent: 95.0,
+            memory_percent: 85.0,
+            queue_depth: 100,
+        };
+        manager.update_system_load(load);
+        let max_context = manager.recommended_max_context(4096);
+        assert!(
+            max_context < 4096,
+            "IMP-071: High load should limit context length"
+        );
+
+        // Test 5: Quality vs latency tradeoff
+        manager.set_latency_priority(true);
+        assert_eq!(
+            manager.current_mode(),
+            DegradationMode::LowLatency,
+            "IMP-071: Latency priority should set LowLatency mode"
+        );
+
+        // Test 6: Recovery to normal mode
+        manager.set_gpu_available(true);
+        manager.update_memory_pressure(0.3); // 30% memory used
+        manager.set_latency_priority(false);
+        let load = SystemLoad {
+            cpu_percent: 20.0,
+            memory_percent: 30.0,
+            queue_depth: 5,
+        };
+        manager.update_system_load(load);
+        assert_eq!(
+            manager.current_mode(),
+            DegradationMode::Normal,
+            "IMP-071: Low load should restore Normal mode"
+        );
+    }
+
+    /// IMP-072: Failure Isolation
+    /// Target: Request-level error boundaries, resource cleanup, circuit breaker
+    #[test]
+    #[cfg(feature = "gpu")]
+    fn test_imp_072_failure_isolation() {
+        use crate::gpu::{FailureIsolator, RequestOutcome};
+        use std::sync::Arc;
+
+        // Test 1: Create failure isolator
+        let isolator = FailureIsolator::new();
+        assert_eq!(
+            isolator.active_requests(),
+            0,
+            "IMP-072: Should start with 0 active"
+        );
+
+        // Test 2: Start isolated request
+        let request_id = isolator.start_request();
+        assert_eq!(
+            isolator.active_requests(),
+            1,
+            "IMP-072: Should have 1 active request"
+        );
+
+        // Test 3: Complete request successfully
+        isolator.complete_request(request_id, &RequestOutcome::Success);
+        assert_eq!(
+            isolator.active_requests(),
+            0,
+            "IMP-072: Should have 0 active after completion"
+        );
+        assert_eq!(
+            isolator.success_count(),
+            1,
+            "IMP-072: Should have 1 success"
+        );
+
+        // Test 4: Handle failed request with cleanup
+        let request_id = isolator.start_request();
+        let cleanup_called = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let cleanup_flag = cleanup_called.clone();
+        isolator.register_cleanup(request_id, move || {
+            cleanup_flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        });
+        isolator.complete_request(
+            request_id,
+            &RequestOutcome::Failed("test error".to_string()),
+        );
+        assert!(
+            cleanup_called.load(std::sync::atomic::Ordering::SeqCst),
+            "IMP-072: Cleanup should be called on failure"
+        );
+        assert_eq!(
+            isolator.failure_count(),
+            1,
+            "IMP-072: Should have 1 failure"
+        );
+
+        // Test 5: Circuit breaker opens after repeated failures
+        for _ in 0..5 {
+            let req_id = isolator.start_request();
+            isolator.complete_request(req_id, &RequestOutcome::Failed("error".to_string()));
+        }
+        assert!(
+            isolator.is_circuit_open(),
+            "IMP-072: Circuit should open after repeated failures"
+        );
+
+        // Test 6: Circuit breaker rejects new requests when open
+        let result = isolator.try_start_request();
+        assert!(
+            result.is_err(),
+            "IMP-072: Should reject requests when circuit open"
+        );
+
+        // Test 7: Circuit breaker recovers after timeout
+        isolator.reset_circuit();
+        assert!(
+            !isolator.is_circuit_open(),
+            "IMP-072: Circuit should close after reset"
+        );
+        let result = isolator.try_start_request();
+        assert!(
+            result.is_ok(),
+            "IMP-072: Should accept requests when circuit closed"
+        );
+    }
+
+    // ========================================================================
+    // M30: Connection Pooling & Resource Limits (IMP-073, IMP-074, IMP-075)
+    // ========================================================================
+
+    /// M30: Connection Pool Management (IMP-073)
+    /// Target: Bounded pool, health checking, warm startup
+    #[test]
+    #[cfg(feature = "gpu")]
+    fn test_imp_073_connection_pool() {
+        use crate::gpu::{ConnectionConfig, ConnectionPool, ConnectionState};
+
+        // Test 1: Create pool with configurable limits
+        let config = ConnectionConfig::new()
+            .with_max_connections(10)
+            .with_min_connections(2)
+            .with_idle_timeout(std::time::Duration::from_secs(300));
+        let pool = ConnectionPool::new(config);
+        assert_eq!(
+            pool.max_connections(),
+            10,
+            "IMP-073: Max connections should be configurable"
+        );
+        assert_eq!(
+            pool.min_connections(),
+            2,
+            "IMP-073: Min connections should be configurable"
+        );
+
+        // Test 2: Acquire and release connections
+        let conn = pool.acquire();
+        assert!(conn.is_ok(), "IMP-073: Should acquire connection from pool");
+        assert_eq!(
+            pool.active_connections(),
+            1,
+            "IMP-073: Should track active connections"
+        );
+
+        pool.release(conn.unwrap());
+        assert_eq!(
+            pool.active_connections(),
+            0,
+            "IMP-073: Should decrement on release"
+        );
+
+        // Test 3: Bounded pool rejects when full
+        let mut conns = Vec::new();
+        for i in 0..10 {
+            let c = pool.acquire();
+            assert!(c.is_ok(), "IMP-073: Should acquire connection {}", i);
+            conns.push(c.unwrap());
+        }
+        let overflow = pool.try_acquire();
+        assert!(
+            overflow.is_err(),
+            "IMP-073: Should reject when pool exhausted"
+        );
+
+        // Release all
+        for c in conns {
+            pool.release(c);
+        }
+
+        // Test 4: Connection health checking
+        let conn = pool.acquire().unwrap();
+        let state = pool.check_health(&conn);
+        assert!(
+            matches!(state, ConnectionState::Healthy),
+            "IMP-073: New connection should be healthy"
+        );
+        pool.release(conn);
+
+        // Test 5: Warm pool on startup
+        let pool2 = ConnectionPool::new(ConnectionConfig::new().with_min_connections(3));
+        pool2.warm();
+        assert!(
+            pool2.idle_connections() >= 3,
+            "IMP-073: Should warm pool to min connections"
+        );
+    }
+
+    /// M30: Resource Limits (IMP-074)
+    /// Target: Memory limits, compute time limits, queue depth limits
+    #[test]
+    #[cfg(feature = "gpu")]
+    fn test_imp_074_resource_limits() {
+        use crate::gpu::{LimitResult, ResourceConfig, ResourceLimiter};
+
+        // Test 1: Create limiter with configurable limits
+        let config = ResourceConfig::new()
+            .with_max_memory_per_request(512 * 1024 * 1024) // 512MB
+            .with_max_total_memory(4 * 1024 * 1024 * 1024) // 4GB
+            .with_max_compute_time(std::time::Duration::from_secs(30))
+            .with_max_queue_depth(100);
+        let limiter = ResourceLimiter::new(config);
+
+        // Test 2: Check memory limits per request
+        let result = limiter.check_memory(256 * 1024 * 1024);
+        assert!(
+            matches!(result, LimitResult::Allowed),
+            "IMP-074: Should allow within limits"
+        );
+
+        let result = limiter.check_memory(1024 * 1024 * 1024);
+        assert!(
+            matches!(result, LimitResult::Denied { .. }),
+            "IMP-074: Should deny over per-request limit"
+        );
+
+        // Test 3: Track total memory usage
+        let alloc1 = limiter.allocate(256 * 1024 * 1024);
+        assert!(alloc1.is_ok(), "IMP-074: Should allocate memory");
+        assert_eq!(
+            limiter.current_memory(),
+            256 * 1024 * 1024,
+            "IMP-074: Should track allocated"
+        );
+
+        limiter.deallocate(256 * 1024 * 1024);
+        assert_eq!(
+            limiter.current_memory(),
+            0,
+            "IMP-074: Should track deallocated"
+        );
+
+        // Test 4: Queue depth limits with backpressure
+        for _ in 0..100 {
+            let _ = limiter.enqueue();
+        }
+        let overflow = limiter.try_enqueue();
+        assert!(
+            matches!(overflow, LimitResult::Backpressure),
+            "IMP-074: Should apply backpressure"
+        );
+
+        // Drain queue
+        for _ in 0..100 {
+            limiter.dequeue();
+        }
+
+        // Test 5: Compute time tracking
+        let timer = limiter.start_compute();
+        assert!(
+            timer.elapsed() < std::time::Duration::from_secs(1),
+            "IMP-074: Timer should work"
+        );
+    }
+
+    /// M30: Resource Monitoring (IMP-075)
+    /// Target: Real-time memory, GPU utilization, queue metrics
+    #[test]
+    #[cfg(feature = "gpu")]
+    fn test_imp_075_resource_monitoring() {
+        use crate::gpu::ResourceMonitor;
+
+        // Test 1: Create monitor
+        let monitor = ResourceMonitor::new();
+
+        // Test 2: Track memory usage
+        monitor.record_memory_usage(512 * 1024 * 1024);
+        let metrics = monitor.current_metrics();
+        assert_eq!(
+            metrics.memory_bytes,
+            512 * 1024 * 1024,
+            "IMP-075: Should track memory"
+        );
+
+        // Test 3: Track GPU utilization
+        monitor.record_gpu_utilization(75.5);
+        let metrics = monitor.current_metrics();
+        assert!(
+            (metrics.gpu_utilization - 75.5).abs() < 0.01,
+            "IMP-075: Should track GPU util"
+        );
+
+        // Test 4: Track queue depth
+        monitor.record_queue_depth(42);
+        let metrics = monitor.current_metrics();
+        assert_eq!(metrics.queue_depth, 42, "IMP-075: Should track queue depth");
+
+        // Test 5: Track request latency
+        monitor.record_latency(std::time::Duration::from_millis(150));
+        let metrics = monitor.current_metrics();
+        assert_eq!(
+            metrics.last_latency_ms, 150,
+            "IMP-075: Should track latency"
+        );
+
+        // Test 6: Aggregate metrics (min/max/avg)
+        for i in 1..=5 {
+            monitor.record_latency(std::time::Duration::from_millis(i * 100));
+        }
+        let stats = monitor.latency_stats();
+        assert_eq!(stats.min_ms, 100, "IMP-075: Should track min latency");
+        assert_eq!(stats.max_ms, 500, "IMP-075: Should track max latency");
+        // 6 values: 150, 100, 200, 300, 400, 500 = 1650 / 6 = 275
+        assert_eq!(stats.avg_ms, 275, "IMP-075: Should track avg latency");
+
+        // Test 7: Snapshot for reporting
+        let snapshot = monitor.snapshot();
+        assert!(
+            snapshot.timestamp > 0,
+            "IMP-075: Snapshot should have timestamp"
+        );
+        assert!(
+            snapshot.memory_bytes > 0,
+            "IMP-075: Snapshot should include memory"
+        );
+    }
+
+    // ========================================================================
+    // M31: Retry Logic & Circuit Breakers (IMP-076, IMP-077, IMP-078)
+    // ========================================================================
+
+    /// M31: Retry Strategy (IMP-076)
+    /// Target: Configurable retry policies, exponential backoff, max limits
+    #[test]
+    #[cfg(feature = "gpu")]
+    fn test_imp_076_retry_strategy() {
+        use crate::gpu::{ErrorCategory, RetryConfig, RetryDecision, RetryPolicy};
+
+        // Test 1: Create retry config with defaults
+        let config = RetryConfig::new()
+            .with_max_retries(5)
+            .with_base_delay(std::time::Duration::from_millis(100))
+            .with_max_delay(std::time::Duration::from_secs(30))
+            .with_jitter_factor(0.2);
+        let policy = RetryPolicy::new(config);
+        assert_eq!(
+            policy.max_retries(),
+            5,
+            "IMP-076: Max retries should be configurable"
+        );
+
+        // Test 2: Decide retry for transient error
+        let decision = policy.should_retry(1, ErrorCategory::Transient);
+        assert!(
+            matches!(decision, RetryDecision::Retry { .. }),
+            "IMP-076: Should retry transient error"
+        );
+
+        // Test 3: Don't retry permanent errors
+        let decision = policy.should_retry(1, ErrorCategory::Permanent);
+        assert!(
+            matches!(decision, RetryDecision::Abort { .. }),
+            "IMP-076: Should not retry permanent error"
+        );
+
+        // Test 4: Exponential backoff calculation
+        let delay1 = policy.calculate_delay(1);
+        let delay2 = policy.calculate_delay(2);
+        let delay3 = policy.calculate_delay(3);
+        assert!(
+            delay2 > delay1,
+            "IMP-076: Delay should increase (exp backoff)"
+        );
+        assert!(delay3 > delay2, "IMP-076: Delay should continue increasing");
+
+        // Test 5: Max delay capping
+        let delay_capped = policy.calculate_delay(100);
+        assert!(
+            delay_capped <= std::time::Duration::from_secs(30),
+            "IMP-076: Should cap at max delay"
+        );
+
+        // Test 6: Max retries exceeded
+        let decision = policy.should_retry(6, ErrorCategory::Transient);
+        assert!(
+            matches!(decision, RetryDecision::Abort { .. }),
+            "IMP-076: Should abort after max retries"
+        );
+    }
+
+    /// M31: Circuit Breaker Pattern (IMP-077)
+    /// Target: Closed/Open/Half-Open states, failure threshold, timeout probe
+    #[test]
+    #[cfg(feature = "gpu")]
+    fn test_imp_077_circuit_breaker() {
+        use crate::gpu::{CircuitBreaker, CircuitConfig, CircuitState};
+
+        // Test 1: Create circuit breaker with config
+        let config = CircuitConfig::new()
+            .with_failure_threshold(3)
+            .with_success_threshold(2)
+            .with_timeout(std::time::Duration::from_millis(100));
+        let breaker = CircuitBreaker::new(config);
+        assert!(
+            matches!(breaker.state(), CircuitState::Closed),
+            "IMP-077: Should start closed"
+        );
+
+        // Test 2: Record failures up to threshold
+        breaker.record_failure();
+        breaker.record_failure();
+        assert!(
+            matches!(breaker.state(), CircuitState::Closed),
+            "IMP-077: Should stay closed below threshold"
+        );
+
+        // Test 3: Open after threshold
+        breaker.record_failure();
+        assert!(
+            matches!(breaker.state(), CircuitState::Open),
+            "IMP-077: Should open at threshold"
+        );
+
+        // Test 4: Reject requests when open
+        assert!(!breaker.allow_request(), "IMP-077: Should reject when open");
+
+        // Test 5: Transition to half-open after timeout
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        assert!(
+            breaker.allow_request(),
+            "IMP-077: Should allow probe after timeout"
+        );
+        assert!(
+            matches!(breaker.state(), CircuitState::HalfOpen),
+            "IMP-077: Should be half-open"
+        );
+
+        // Test 6: Close on success in half-open
+        breaker.record_success();
+        breaker.record_success();
+        assert!(
+            matches!(breaker.state(), CircuitState::Closed),
+            "IMP-077: Should close after successes"
+        );
+
+        // Test 7: Re-open on failure in half-open
+        // First get to half-open state
+        for _ in 0..3 {
+            breaker.record_failure();
+        }
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        let _ = breaker.allow_request(); // Transition to half-open
+        breaker.record_failure();
+        assert!(
+            matches!(breaker.state(), CircuitState::Open),
+            "IMP-077: Should re-open on half-open failure"
+        );
+    }
+
+    /// M31: Bulkhead Pattern (IMP-078)
+    /// Target: Separate pools, prevent starvation, configurable sizes
+    #[test]
+    #[cfg(feature = "gpu")]
+    fn test_imp_078_bulkhead_pattern() {
+        use crate::gpu::{BulkheadConfig, BulkheadManager, RequestType};
+
+        // Test 1: Create bulkhead manager with config
+        let config = BulkheadConfig::new()
+            .with_pool("inference", 10)
+            .with_pool("embedding", 5)
+            .with_pool("batch", 2);
+        let manager = BulkheadManager::new(&config);
+
+        // Test 2: Acquire from specific pool
+        let permit = manager.acquire(RequestType::Inference);
+        assert!(
+            permit.is_ok(),
+            "IMP-078: Should acquire from inference pool"
+        );
+        assert_eq!(
+            manager.available(RequestType::Inference),
+            9,
+            "IMP-078: Should decrement available"
+        );
+
+        // Test 3: Pools are isolated
+        let embed_permit = manager.acquire(RequestType::Embedding);
+        assert!(
+            embed_permit.is_ok(),
+            "IMP-078: Should acquire from embedding pool"
+        );
+        assert_eq!(
+            manager.available(RequestType::Inference),
+            9,
+            "IMP-078: Inference should be unchanged"
+        );
+        assert_eq!(
+            manager.available(RequestType::Embedding),
+            4,
+            "IMP-078: Embedding should decrement"
+        );
+
+        // Test 4: Pool exhaustion doesn't affect others
+        for _ in 0..2 {
+            let _ = manager.acquire(RequestType::Batch);
+        }
+        let batch_overflow = manager.try_acquire(RequestType::Batch);
+        assert!(
+            batch_overflow.is_err(),
+            "IMP-078: Batch pool should be exhausted"
+        );
+        assert_eq!(
+            manager.available(RequestType::Inference),
+            9,
+            "IMP-078: Inference still available"
+        );
+
+        // Test 5: Release returns to correct pool
+        manager.release(&permit.unwrap());
+        assert_eq!(
+            manager.available(RequestType::Inference),
+            10,
+            "IMP-078: Should release to correct pool"
+        );
+
+        // Test 6: Get pool stats
+        let stats = manager.stats();
+        assert_eq!(stats.pool_count, 3, "IMP-078: Should have 3 pools");
+        assert!(
+            stats.total_capacity >= 17,
+            "IMP-078: Total capacity should sum pools"
+        );
+    }
+
+    // ========================================================================
+    // M32: Production Logging & Diagnostics (IMP-079, IMP-080, IMP-081)
+    // ========================================================================
+
+    /// M32: Structured Logging (IMP-079)
+    /// Target: JSON-formatted logs, correlation IDs, configurable levels
+    #[test]
+    #[cfg(feature = "gpu")]
+    fn test_imp_079_structured_logging() {
+        use crate::gpu::{LogConfig, LogEntry, LogLevel, Logger};
+
+        // Test 1: Create logger with config
+        let config = LogConfig::new()
+            .with_level(LogLevel::Debug)
+            .with_json_format(true)
+            .with_module_level("gpu", LogLevel::Trace);
+        let logger = Logger::new(config);
+
+        // Test 2: Create log entry with structured data
+        let entry = LogEntry::new(LogLevel::Info, "Request started")
+            .with_correlation_id("req-12345")
+            .with_field("model", "llama-7b")
+            .with_field("tokens", "128");
+        assert_eq!(
+            entry.correlation_id(),
+            Some("req-12345"),
+            "IMP-079: Should have correlation ID"
+        );
+        assert_eq!(entry.level(), LogLevel::Info, "IMP-079: Should have level");
+
+        // Test 3: JSON formatting
+        let json = entry.to_json();
+        assert!(
+            json.contains("\"level\":\"INFO\""),
+            "IMP-079: JSON should have level"
+        );
+        assert!(
+            json.contains("\"correlation_id\":\"req-12345\""),
+            "IMP-079: JSON should have correlation ID"
+        );
+        assert!(
+            json.contains("\"model\":\"llama-7b\""),
+            "IMP-079: JSON should have custom fields"
+        );
+
+        // Test 4: Module-specific log levels
+        assert!(
+            logger.is_enabled(LogLevel::Trace, "gpu"),
+            "IMP-079: gpu should allow Trace"
+        );
+        assert!(
+            logger.is_enabled(LogLevel::Debug, "inference"),
+            "IMP-079: Other modules use default"
+        );
+        assert!(
+            !logger.is_enabled(LogLevel::Trace, "inference"),
+            "IMP-079: Trace should be filtered for non-gpu"
+        );
+
+        // Test 5: Log with automatic timestamp
+        let entry = LogEntry::new(LogLevel::Warn, "High memory usage");
+        assert!(entry.timestamp() > 0, "IMP-079: Should have timestamp");
+    }
+
+    /// M32: Performance Diagnostics (IMP-080)
+    /// Target: Latency breakdown, memory tracking, GPU timing
+    #[test]
+    #[cfg(feature = "gpu")]
+    fn test_imp_080_performance_diagnostics() {
+        use crate::gpu::{DiagnosticsCollector, MemoryTracker, PhaseTimer};
+
+        // Test 1: Create diagnostics collector
+        let collector = DiagnosticsCollector::new();
+
+        // Test 2: Track request phases
+        let timer = PhaseTimer::new();
+        timer.start_phase("tokenization");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        timer.end_phase("tokenization");
+        timer.start_phase("inference");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        timer.end_phase("inference");
+
+        let breakdown = timer.breakdown();
+        assert!(
+            breakdown.contains_key("tokenization"),
+            "IMP-080: Should track tokenization"
+        );
+        assert!(
+            breakdown.contains_key("inference"),
+            "IMP-080: Should track inference"
+        );
+        assert!(
+            *breakdown.get("inference").unwrap() > *breakdown.get("tokenization").unwrap(),
+            "IMP-080: Inference should take longer"
+        );
+
+        // Test 3: Memory allocation tracking
+        let tracker = MemoryTracker::new();
+        tracker.record_allocation("model_weights", 1024 * 1024 * 1024);
+        tracker.record_allocation("kv_cache", 256 * 1024 * 1024);
+        tracker.record_deallocation("kv_cache", 256 * 1024 * 1024);
+
+        let report = tracker.report();
+        assert_eq!(
+            report.peak_bytes,
+            1024 * 1024 * 1024 + 256 * 1024 * 1024,
+            "IMP-080: Should track peak"
+        );
+        assert_eq!(
+            report.current_bytes,
+            1024 * 1024 * 1024,
+            "IMP-080: Should track current"
+        );
+        assert_eq!(
+            report.allocation_count, 2,
+            "IMP-080: Should count allocations"
+        );
+
+        // Test 4: Report to collector
+        collector.record_request_timing("req-001", timer.breakdown());
+        collector.record_memory_snapshot(report);
+        let summary = collector.summary();
+        assert!(summary.request_count >= 1, "IMP-080: Should count requests");
+    }
+
+    /// M32: Debug Mode (IMP-081)
+    /// Target: Verbose logging, request replay, state dump
+    #[test]
+    #[cfg(feature = "gpu")]
+    fn test_imp_081_debug_mode() {
+        use crate::gpu::{DebugMode, RequestCapture, StateDump};
+
+        // Test 1: Enable debug mode
+        let debug = DebugMode::new();
+        assert!(
+            !debug.is_enabled(),
+            "IMP-081: Should be disabled by default"
+        );
+        debug.enable();
+        assert!(debug.is_enabled(), "IMP-081: Should enable");
+
+        // Test 2: Capture request for replay
+        let capture = RequestCapture::new()
+            .with_input("Hello, world!")
+            .with_params("temperature", "0.7")
+            .with_params("max_tokens", "100");
+        assert_eq!(
+            capture.input(),
+            "Hello, world!",
+            "IMP-081: Should capture input"
+        );
+        assert_eq!(capture.params().len(), 2, "IMP-081: Should capture params");
+
+        // Test 3: Serialize/deserialize for replay
+        let json = capture.to_json();
+        let restored = RequestCapture::from_json(&json);
+        assert!(restored.is_ok(), "IMP-081: Should deserialize");
+        assert_eq!(
+            restored.unwrap().input(),
+            "Hello, world!",
+            "IMP-081: Should restore input"
+        );
+
+        // Test 4: State dump on error
+        let dump = StateDump::new()
+            .with_error("Out of memory")
+            .with_stack_trace("at inference::generate\nat main")
+            .with_state("model_loaded", "true")
+            .with_state("tokens_processed", "42");
+        assert_eq!(
+            dump.error(),
+            "Out of memory",
+            "IMP-081: Should capture error"
+        );
+        assert!(
+            dump.stack_trace().contains("inference::generate"),
+            "IMP-081: Should have stack"
+        );
+        assert_eq!(dump.state().len(), 2, "IMP-081: Should capture state");
+
+        // Test 5: Dump to file (mock)
+        let dump_json = dump.to_json();
+        assert!(
+            dump_json.contains("Out of memory"),
+            "IMP-081: JSON should have error"
+        );
+        assert!(
+            dump_json.contains("tokens_processed"),
+            "IMP-081: JSON should have state"
+        );
+    }
 }
