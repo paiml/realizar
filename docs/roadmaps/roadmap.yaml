@@ -1,34 +1,16 @@
 roadmap_version: '1.0'
 github_enabled: true
 github_repo: paiml/realizar
-# =============================================================================
-# PERFORMANCE PARITY ROADMAP (PERF-PARITY-001)
-# =============================================================================
-# Ordered by MEASURED IMPACT from Popperian falsification tests
-# Current gap: 1,090x vs Ollama (verified IMP-700)
-# Target: <1.25x gap (PARITY)
-#
-# PRIORITY ORDER (by speedup factor):
-#   P0 (Critical): KV Cache Integration (128x)
-#   P1 (High):     FlashAttention CUDA (16x)
-#   P2 (Medium):   Q4_K Fused Operations (4x)
-#   P3 (Low):      Optimizations (<2x each)
-# =============================================================================
-
 roadmap:
-# -----------------------------------------------------------------------------
-# SPRINT: PERF-PARITY-S1 - Critical Path (P0)
-# Target: 1,090x → 8.5x gap
-# -----------------------------------------------------------------------------
 - id: PARITY-001
   github_issue: null
   item_type: task
   title: 'KV Cache Integration: trueno-db MemoryKvStore into GGUFTransformer'
-  status: planned
+  status: inprogress
   priority: critical
   assigned_to: null
   created: 2025-12-13T16:30:00+00:00
-  updated: 2025-12-13T16:30:00+00:00
+  updated: 2025-12-13T16:35:59.510588426+00:00
   spec: docs/specifications/performance-parity-ollama-llamacpp-gpu-inference-llms.md
   acceptance_criteria:
   - 'FALSIFIABLE: 1,090x gap reduces to <15x after KV cache integration'
@@ -40,12 +22,7 @@ roadmap:
   - Skip K/V recomputation for cached positions
   - Unit tests with 85% coverage on KV cache path
   phases: []
-  subtasks:
-  - 'PARITY-001a: Add trueno-db dependency and feature flag'
-  - 'PARITY-001b: Create KVCacheManager wrapper around MemoryKvStore'
-  - 'PARITY-001c: Wire KVCacheManager into GGUFTransformer.forward()'
-  - 'PARITY-001d: Benchmark integrated solution vs baseline'
-  - 'PARITY-001e: Measure actual gap reduction'
+  subtasks: []
   estimated_effort: 3 days
   labels:
   - perf-parity
@@ -53,8 +30,7 @@ roadmap:
   - trueno-db
   - p0-critical
   - IMP-800
-  notes: 'VERIFIED via IMP-800: 128x theoretical speedup. This is the highest-impact optimization.'
-
+  notes: 'VERIFIED via IMP-800: 128x theoretical speedup. Subtasks: 001a-Add trueno-db dependency, 001b-Create KVCacheManager, 001c-Wire into forward(), 001d-Benchmark, 001e-Measure gap'
 - id: PARITY-002
   github_issue: null
   item_type: task
@@ -73,14 +49,9 @@ roadmap:
   - Integrate trueno-gpu AttentionKernel (PTX generation)
   - Use tiled attention (B_r=64, B_c=64) for O(N) memory
   - Support causal masking for autoregressive models
-  - Online softmax (never materialize N×N matrix)
+  - Online softmax (never materialize NxN matrix)
   phases: []
-  subtasks:
-  - 'PARITY-002a: Add trueno-gpu cuda feature dependency'
-  - 'PARITY-002b: Create CudaAttention wrapper around AttentionKernel'
-  - 'PARITY-002c: Integrate CudaAttention into prompt processing path'
-  - 'PARITY-002d: Benchmark prompt latency vs baseline'
-  - 'PARITY-002e: Measure gap reduction for mixed workloads'
+  subtasks: []
   estimated_effort: 4 days
   labels:
   - perf-parity
@@ -89,8 +60,7 @@ roadmap:
   - cuda
   - p1-high
   - IMP-801
-  notes: 'VERIFIED via IMP-801: 16x conservative speedup. Depends on PARITY-001 completion.'
-
+  notes: 'VERIFIED via IMP-801: 16x conservative speedup. Depends on PARITY-001. Subtasks: 002a-Add cuda feature, 002b-Create CudaAttention, 002c-Integrate, 002d-Benchmark, 002e-Measure'
 - id: PARITY-003
   github_issue: null
   item_type: task
@@ -110,12 +80,7 @@ roadmap:
   - SIMD-optimized for AVX2/AVX-512/NEON
   - Block size 32 aligned with GGUF Q4_K format
   phases: []
-  subtasks:
-  - 'PARITY-003a: Profile current dequant+matvec memory traffic'
-  - 'PARITY-003b: Implement fused_q4k_matvec with inline dequant'
-  - 'PARITY-003c: Add SIMD specializations (AVX2, NEON)'
-  - 'PARITY-003d: Integrate into forward pass (replace separate dequant)'
-  - 'PARITY-003e: Benchmark memory bandwidth utilization'
+  subtasks: []
   estimated_effort: 4 days
   labels:
   - perf-parity
@@ -124,12 +89,7 @@ roadmap:
   - simd
   - p1-high
   - IMP-100
-  notes: 'VERIFIED via IMP-100c: 29-132x speedup for fused ops. Critical for memory-bound workloads.'
-
-# -----------------------------------------------------------------------------
-# SPRINT: PERF-PARITY-S2 - Optimization (P2)
-# Target: <2x → <1.25x gap (PARITY)
-# -----------------------------------------------------------------------------
+  notes: 'VERIFIED via IMP-100c: 29-132x speedup. Subtasks: 003a-Profile memory, 003b-Implement fused, 003c-SIMD specializations, 003d-Integrate, 003e-Benchmark'
 - id: PARITY-004
   github_issue: null
   item_type: task
@@ -149,11 +109,7 @@ roadmap:
   - Unroll loop by 4 for instruction-level parallelism
   - Apply to attention score computation and matvec
   phases: []
-  subtasks:
-  - 'PARITY-004a: Profile current dot product latency breakdown'
-  - 'PARITY-004b: Implement multi_accumulator_dot with 4-way unroll'
-  - 'PARITY-004c: Integrate into attention and matvec paths'
-  - 'PARITY-004d: Benchmark vs single-accumulator baseline'
+  subtasks: []
   estimated_effort: 2 days
   labels:
   - perf-parity
@@ -162,7 +118,6 @@ roadmap:
   - p2-medium
   - IMP-500
   notes: 'VERIFIED via IMP-500c: 2.3x speedup measured. Low effort, high impact.'
-
 - id: PARITY-005
   github_issue: null
   item_type: task
@@ -178,22 +133,16 @@ roadmap:
   - 'METRIC: Memory stalls reduced by >30%'
   - 'TEST: cargo test --lib test_contiguous_kv_layout passes'
   - Restructure KV cache layout for sequential access
-  - 'From: [layer][position][head][dim] To: [layer][head][position][dim]'
   - Align to 64-byte cache lines
   phases: []
-  subtasks:
-  - 'PARITY-005a: Profile current cache miss rate with perf stat'
-  - 'PARITY-005b: Implement contiguous KV layout structure'
-  - 'PARITY-005c: Update attention to use new layout'
-  - 'PARITY-005d: Measure cache hit rate improvement'
+  subtasks: []
   estimated_effort: 2 days
   labels:
   - perf-parity
   - memory
   - cache
   - p2-medium
-  notes: 'Targets memory-bound bottleneck. Critical for CPU inference.'
-
+  notes: Targets memory-bound bottleneck. Critical for CPU inference.
 - id: PARITY-006
   github_issue: null
   item_type: task
@@ -212,11 +161,7 @@ roadmap:
   - Share KV cache across batch where applicable
   - Use GPU GEMM for batch matmul (IMP-600c verified 57x)
   phases: []
-  subtasks:
-  - 'PARITY-006a: Add batch dimension to forward pass'
-  - 'PARITY-006b: Implement shared KV cache for batch'
-  - 'PARITY-006c: Route batch matmul to GPU GEMM'
-  - 'PARITY-006d: Benchmark batch vs sequential throughput'
+  subtasks: []
   estimated_effort: 3 days
   labels:
   - perf-parity
@@ -225,11 +170,6 @@ roadmap:
   - p2-medium
   - IMP-600
   notes: 'VERIFIED via IMP-600c: GPU 57x faster for GEMM. Use GPU for batch, SIMD for single.'
-
-# -----------------------------------------------------------------------------
-# SPRINT: PERF-PARITY-S3 - Verification & Polish (P3)
-# Target: Achieve and VERIFY <1.25x gap
-# -----------------------------------------------------------------------------
 - id: PARITY-007
   github_issue: null
   item_type: task
@@ -250,12 +190,7 @@ roadmap:
   - Report p50, p95, p99 latencies
   - Calculate and report CV for statistical validity
   phases: []
-  subtasks:
-  - 'PARITY-007a: Set up reproducible benchmark environment'
-  - 'PARITY-007b: Run E2E benchmark vs Ollama'
-  - 'PARITY-007c: Calculate gap and CV'
-  - 'PARITY-007d: Document results in spec'
-  - 'PARITY-007e: If gap >1.25x, identify next bottleneck'
+  subtasks: []
   estimated_effort: 1 day
   labels:
   - perf-parity
@@ -263,8 +198,7 @@ roadmap:
   - verification
   - p3-low
   - IMP-700
-  notes: 'Final verification step. Run after PARITY-001 through PARITY-006 complete.'
-
+  notes: Final verification step. Run after PARITY-001 through PARITY-006 complete.
 - id: PARITY-008
   github_issue: null
   item_type: task
@@ -278,16 +212,12 @@ roadmap:
   acceptance_criteria:
   - 'FALSIFIABLE: Popper score increases from 79 to >90'
   - 'METRIC: Category A (Falsifiability) increases from 72% to >90%'
-  - 'A1 (Measurable Thresholds) increases from 2/8 to >6/8'
+  - A1 (Measurable Thresholds) increases from 2/8 to >6/8
   - Add explicit falsifiable claims with numeric thresholds
   - Document all metrics with success/failure criteria
   - Add random seed management for reproducibility
   phases: []
-  subtasks:
-  - 'PARITY-008a: Review spec for implicit claims'
-  - 'PARITY-008b: Convert claims to falsifiable format'
-  - 'PARITY-008c: Add success/failure thresholds'
-  - 'PARITY-008d: Run pmat popper-score and verify >90'
+  subtasks: []
   estimated_effort: 1 day
   labels:
   - perf-parity
@@ -295,10 +225,6 @@ roadmap:
   - quality
   - p3-low
   notes: 'Current Popper score: 79/100 (B). Target: 90+ (A).'
-
-# -----------------------------------------------------------------------------
-# COMPLETED MILESTONES (for reference)
-# -----------------------------------------------------------------------------
 - id: IMP-700
   github_issue: null
   item_type: task
@@ -322,7 +248,6 @@ roadmap:
   - verification
   - completed
   notes: 'Established baseline gap: 1,090x. Foundation for all optimization work.'
-
 - id: IMP-800
   github_issue: null
   item_type: task
@@ -346,7 +271,6 @@ roadmap:
   - falsification
   - completed
   notes: 'VERIFIED: 128x speedup theoretical. Next step: integration (PARITY-001).'
-
 - id: IMP-801
   github_issue: null
   item_type: task
@@ -370,7 +294,6 @@ roadmap:
   - falsification
   - completed
   notes: 'VERIFIED: 16x speedup conservative. Next step: integration (PARITY-002).'
-
 - id: IMP-600
   github_issue: null
   item_type: task
@@ -394,100 +317,3 @@ roadmap:
   - falsification
   - completed
   notes: 'CRITICAL INSIGHT: GPU hurts single-token, helps batch. Informed PARITY-006 design.'
-
-# Legacy completed tasks (preserved from original roadmap)
-- id: SPEC-001
-  github_issue: null
-  item_type: task
-  title: 'New task: SPEC-001'
-  status: completed
-  priority: medium
-  assigned_to: null
-  created: 2025-11-26T11:36:31.705270112+00:00
-  updated: 2025-11-26T11:37:16.452613538+00:00
-  spec: null
-  acceptance_criteria: []
-  phases: []
-  subtasks: []
-  estimated_effort: null
-  labels: []
-  notes: null
-
-- id: SERVE-001
-  github_issue: null
-  item_type: task
-  title: 'Phase 1: Core Serving Infrastructure (HTTP API)'
-  status: completed
-  priority: high
-  assigned_to: null
-  created: 2025-11-26T11:45:43.851260641+00:00
-  updated: 2025-11-26T11:54:13.939323502+00:00
-  spec: docs/specifications/serve-deploy-apr.md
-  acceptance_criteria:
-  - HTTP handler implementation with axum
-  - Request/response schema validation (serde)
-  - Single model loading from .apr format
-  - Basic /predict and /health endpoints
-  - Unit tests with >=85% coverage
-  - All quality gates pass (clippy, fmt, tests)
-  phases: []
-  subtasks: []
-  estimated_effort: 2 weeks
-  labels:
-  - serve
-  - http
-  - phase-1
-  notes: Per docs/specifications/serve-deploy-apr.md Section 11.1
-
-- id: OBS-001
-  github_issue: null
-  item_type: task
-  title: W3C Trace Context and OpenTelemetry export for distributed tracing
-  status: completed
-  priority: high
-  assigned_to: null
-  created: 2025-12-06T00:00:00+00:00
-  updated: 2025-12-06T00:00:00+00:00
-  spec: docs/specifications/initial-release-spec.md
-  acceptance_criteria:
-  - W3C Trace Context (traceparent header parsing/generation)
-  - LatencyHistogram with p50/p95/p99 percentile calculations
-  - OpenTelemetry-compatible span export (OtelSpan, SpanKind, OtelStatus)
-  - Span.to_otel() for OTLP export compatibility
-  - Span.traceparent() for W3C header propagation
-  - Prometheus histogram format export
-  - 59 comprehensive tests
-  phases: []
-  subtasks: []
-  estimated_effort: 1 day
-  labels:
-  - observability
-  - tracing
-  - opentelemetry
-  notes: 'Per Initial Release Specification S5: Observability'
-
-- id: BENCH-003
-  github_issue: null
-  item_type: task
-  title: Server benchmark infrastructure with EXTREME TDD
-  status: completed
-  priority: high
-  assigned_to: null
-  created: 2025-12-12T14:00:00+00:00
-  updated: 2025-12-12T14:00:00+00:00
-  spec: null
-  acceptance_criteria:
-  - Scientifically reproducible benchmarks
-  - Makefile targets (bench-server-matrix)
-  - bashrs-compliant benchmark script
-  - Auto-update README with results
-  - CV-based stopping per Hoefler & Belli SC15
-  phases: []
-  subtasks: []
-  estimated_effort: 1 day
-  labels:
-  - benchmark
-  - ollama
-  - llama-cpp
-  - extreme-tdd
-  notes: 'Measured results: Ollama 97ms/265tok/s, llama.cpp 180ms/277tok/s'
