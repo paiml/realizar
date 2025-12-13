@@ -1,7 +1,401 @@
 roadmap_version: '1.0'
 github_enabled: true
 github_repo: paiml/realizar
+# =============================================================================
+# PERFORMANCE PARITY ROADMAP (PERF-PARITY-001)
+# =============================================================================
+# Ordered by MEASURED IMPACT from Popperian falsification tests
+# Current gap: 1,090x vs Ollama (verified IMP-700)
+# Target: <1.25x gap (PARITY)
+#
+# PRIORITY ORDER (by speedup factor):
+#   P0 (Critical): KV Cache Integration (128x)
+#   P1 (High):     FlashAttention CUDA (16x)
+#   P2 (Medium):   Q4_K Fused Operations (4x)
+#   P3 (Low):      Optimizations (<2x each)
+# =============================================================================
+
 roadmap:
+# -----------------------------------------------------------------------------
+# SPRINT: PERF-PARITY-S1 - Critical Path (P0)
+# Target: 1,090x → 8.5x gap
+# -----------------------------------------------------------------------------
+- id: PARITY-001
+  github_issue: null
+  item_type: task
+  title: 'KV Cache Integration: trueno-db MemoryKvStore into GGUFTransformer'
+  status: planned
+  priority: critical
+  assigned_to: null
+  created: 2025-12-13T16:30:00+00:00
+  updated: 2025-12-13T16:30:00+00:00
+  spec: docs/specifications/performance-parity-ollama-llamacpp-gpu-inference-llms.md
+  acceptance_criteria:
+  - 'FALSIFIABLE: 1,090x gap reduces to <15x after KV cache integration'
+  - 'METRIC: tok/s increases from 0.22 to >18 tok/s'
+  - 'TEST: cargo test --lib test_kv_cache_integration passes'
+  - 'VERIFY: cargo run --example imp_800_kv_cache_falsification confirms speedup'
+  - Integrate trueno-db v0.3 MemoryKvStore into attention mechanism
+  - Cache K/V tensors per layer per position
+  - Skip K/V recomputation for cached positions
+  - Unit tests with 85% coverage on KV cache path
+  phases: []
+  subtasks:
+  - 'PARITY-001a: Add trueno-db dependency and feature flag'
+  - 'PARITY-001b: Create KVCacheManager wrapper around MemoryKvStore'
+  - 'PARITY-001c: Wire KVCacheManager into GGUFTransformer.forward()'
+  - 'PARITY-001d: Benchmark integrated solution vs baseline'
+  - 'PARITY-001e: Measure actual gap reduction'
+  estimated_effort: 3 days
+  labels:
+  - perf-parity
+  - kv-cache
+  - trueno-db
+  - p0-critical
+  - IMP-800
+  notes: 'VERIFIED via IMP-800: 128x theoretical speedup. This is the highest-impact optimization.'
+
+- id: PARITY-002
+  github_issue: null
+  item_type: task
+  title: 'FlashAttention CUDA: trueno-gpu AttentionKernel for Prompts'
+  status: planned
+  priority: high
+  assigned_to: null
+  created: 2025-12-13T16:30:00+00:00
+  updated: 2025-12-13T16:30:00+00:00
+  spec: docs/specifications/performance-parity-ollama-llamacpp-gpu-inference-llms.md
+  acceptance_criteria:
+  - 'FALSIFIABLE: Gap reduces from ~8.5x to <6x after FlashAttention'
+  - 'METRIC: Prompt processing time reduces by >10x'
+  - 'TEST: cargo test --lib test_flash_attention_cuda --features cuda passes'
+  - 'VERIFY: cargo run --example imp_801_flash_attention_falsification --features cuda'
+  - Integrate trueno-gpu AttentionKernel (PTX generation)
+  - Use tiled attention (B_r=64, B_c=64) for O(N) memory
+  - Support causal masking for autoregressive models
+  - Online softmax (never materialize N×N matrix)
+  phases: []
+  subtasks:
+  - 'PARITY-002a: Add trueno-gpu cuda feature dependency'
+  - 'PARITY-002b: Create CudaAttention wrapper around AttentionKernel'
+  - 'PARITY-002c: Integrate CudaAttention into prompt processing path'
+  - 'PARITY-002d: Benchmark prompt latency vs baseline'
+  - 'PARITY-002e: Measure gap reduction for mixed workloads'
+  estimated_effort: 4 days
+  labels:
+  - perf-parity
+  - flash-attention
+  - trueno-gpu
+  - cuda
+  - p1-high
+  - IMP-801
+  notes: 'VERIFIED via IMP-801: 16x conservative speedup. Depends on PARITY-001 completion.'
+
+- id: PARITY-003
+  github_issue: null
+  item_type: task
+  title: 'Q4_K Fused Operations: Dequant+Matvec in Single Pass'
+  status: planned
+  priority: high
+  assigned_to: null
+  created: 2025-12-13T16:30:00+00:00
+  updated: 2025-12-13T16:30:00+00:00
+  spec: docs/specifications/performance-parity-ollama-llamacpp-gpu-inference-llms.md
+  acceptance_criteria:
+  - 'FALSIFIABLE: Gap reduces from ~5x to <2x after fused Q4_K'
+  - 'METRIC: Memory bandwidth utilization >80%'
+  - 'TEST: cargo test --lib test_fused_q4k_matvec passes'
+  - 'BENCHMARK: cargo bench --bench quantize -- fused_q4k shows >25x vs naive'
+  - Implement fused dequantize+matvec kernel (no intermediate F32 buffer)
+  - SIMD-optimized for AVX2/AVX-512/NEON
+  - Block size 32 aligned with GGUF Q4_K format
+  phases: []
+  subtasks:
+  - 'PARITY-003a: Profile current dequant+matvec memory traffic'
+  - 'PARITY-003b: Implement fused_q4k_matvec with inline dequant'
+  - 'PARITY-003c: Add SIMD specializations (AVX2, NEON)'
+  - 'PARITY-003d: Integrate into forward pass (replace separate dequant)'
+  - 'PARITY-003e: Benchmark memory bandwidth utilization'
+  estimated_effort: 4 days
+  labels:
+  - perf-parity
+  - quantization
+  - q4k
+  - simd
+  - p1-high
+  - IMP-100
+  notes: 'VERIFIED via IMP-100c: 29-132x speedup for fused ops. Critical for memory-bound workloads.'
+
+# -----------------------------------------------------------------------------
+# SPRINT: PERF-PARITY-S2 - Optimization (P2)
+# Target: <2x → <1.25x gap (PARITY)
+# -----------------------------------------------------------------------------
+- id: PARITY-004
+  github_issue: null
+  item_type: task
+  title: 'Multi-Accumulator SIMD: 4-way Parallel Dot Products'
+  status: planned
+  priority: medium
+  assigned_to: null
+  created: 2025-12-13T16:30:00+00:00
+  updated: 2025-12-13T16:30:00+00:00
+  spec: docs/specifications/performance-parity-ollama-llamacpp-gpu-inference-llms.md
+  acceptance_criteria:
+  - 'FALSIFIABLE: Dot product throughput increases by >2x'
+  - 'METRIC: GFLOPS for dot product >150 on AVX2'
+  - 'TEST: cargo test --lib test_multi_accumulator_dot passes'
+  - 'VERIFY: Match llama.cpp GGML_F32_ARR pattern (4 accumulators)'
+  - Implement 4-accumulator dot product (hide FMA latency)
+  - Unroll loop by 4 for instruction-level parallelism
+  - Apply to attention score computation and matvec
+  phases: []
+  subtasks:
+  - 'PARITY-004a: Profile current dot product latency breakdown'
+  - 'PARITY-004b: Implement multi_accumulator_dot with 4-way unroll'
+  - 'PARITY-004c: Integrate into attention and matvec paths'
+  - 'PARITY-004d: Benchmark vs single-accumulator baseline'
+  estimated_effort: 2 days
+  labels:
+  - perf-parity
+  - simd
+  - dot-product
+  - p2-medium
+  - IMP-500
+  notes: 'VERIFIED via IMP-500c: 2.3x speedup measured. Low effort, high impact.'
+
+- id: PARITY-005
+  github_issue: null
+  item_type: task
+  title: 'Memory Layout Optimization: Contiguous KV for Cache Efficiency'
+  status: planned
+  priority: medium
+  assigned_to: null
+  created: 2025-12-13T16:30:00+00:00
+  updated: 2025-12-13T16:30:00+00:00
+  spec: docs/specifications/performance-parity-ollama-llamacpp-gpu-inference-llms.md
+  acceptance_criteria:
+  - 'FALSIFIABLE: L2 cache hit rate increases from <70% to >90%'
+  - 'METRIC: Memory stalls reduced by >30%'
+  - 'TEST: cargo test --lib test_contiguous_kv_layout passes'
+  - Restructure KV cache layout for sequential access
+  - 'From: [layer][position][head][dim] To: [layer][head][position][dim]'
+  - Align to 64-byte cache lines
+  phases: []
+  subtasks:
+  - 'PARITY-005a: Profile current cache miss rate with perf stat'
+  - 'PARITY-005b: Implement contiguous KV layout structure'
+  - 'PARITY-005c: Update attention to use new layout'
+  - 'PARITY-005d: Measure cache hit rate improvement'
+  estimated_effort: 2 days
+  labels:
+  - perf-parity
+  - memory
+  - cache
+  - p2-medium
+  notes: 'Targets memory-bound bottleneck. Critical for CPU inference.'
+
+- id: PARITY-006
+  github_issue: null
+  item_type: task
+  title: 'Batch Processing: Parallel Token Generation'
+  status: planned
+  priority: medium
+  assigned_to: null
+  created: 2025-12-13T16:30:00+00:00
+  updated: 2025-12-13T16:30:00+00:00
+  spec: docs/specifications/performance-parity-ollama-llamacpp-gpu-inference-llms.md
+  acceptance_criteria:
+  - 'FALSIFIABLE: Batch throughput >2x single-request throughput'
+  - 'METRIC: GPU utilization >60% under batch load'
+  - 'TEST: cargo test --lib test_batch_generation passes'
+  - Implement batched forward pass for multiple requests
+  - Share KV cache across batch where applicable
+  - Use GPU GEMM for batch matmul (IMP-600c verified 57x)
+  phases: []
+  subtasks:
+  - 'PARITY-006a: Add batch dimension to forward pass'
+  - 'PARITY-006b: Implement shared KV cache for batch'
+  - 'PARITY-006c: Route batch matmul to GPU GEMM'
+  - 'PARITY-006d: Benchmark batch vs sequential throughput'
+  estimated_effort: 3 days
+  labels:
+  - perf-parity
+  - batch
+  - gpu
+  - p2-medium
+  - IMP-600
+  notes: 'VERIFIED via IMP-600c: GPU 57x faster for GEMM. Use GPU for batch, SIMD for single.'
+
+# -----------------------------------------------------------------------------
+# SPRINT: PERF-PARITY-S3 - Verification & Polish (P3)
+# Target: Achieve and VERIFY <1.25x gap
+# -----------------------------------------------------------------------------
+- id: PARITY-007
+  github_issue: null
+  item_type: task
+  title: 'Parity Verification: E2E Benchmark vs Ollama'
+  status: planned
+  priority: low
+  assigned_to: null
+  created: 2025-12-13T16:30:00+00:00
+  updated: 2025-12-13T16:30:00+00:00
+  spec: docs/specifications/performance-parity-ollama-llamacpp-gpu-inference-llms.md
+  acceptance_criteria:
+  - 'FALSIFIABLE: Gap to Ollama <1.25x on identical hardware'
+  - 'METRIC: Realizar tok/s within 80% of Ollama tok/s'
+  - 'REPRODUCIBLE: CV < 0.05 across 10 runs'
+  - 'TEST: make bench-server-matrix shows parity'
+  - Run standardized benchmark suite against Ollama
+  - Document hardware configuration (GPU, RAM, CPU)
+  - Report p50, p95, p99 latencies
+  - Calculate and report CV for statistical validity
+  phases: []
+  subtasks:
+  - 'PARITY-007a: Set up reproducible benchmark environment'
+  - 'PARITY-007b: Run E2E benchmark vs Ollama'
+  - 'PARITY-007c: Calculate gap and CV'
+  - 'PARITY-007d: Document results in spec'
+  - 'PARITY-007e: If gap >1.25x, identify next bottleneck'
+  estimated_effort: 1 day
+  labels:
+  - perf-parity
+  - benchmark
+  - verification
+  - p3-low
+  - IMP-700
+  notes: 'Final verification step. Run after PARITY-001 through PARITY-006 complete.'
+
+- id: PARITY-008
+  github_issue: null
+  item_type: task
+  title: 'Popper Score Improvement: Add Measurable Thresholds'
+  status: planned
+  priority: low
+  assigned_to: null
+  created: 2025-12-13T16:30:00+00:00
+  updated: 2025-12-13T16:30:00+00:00
+  spec: docs/specifications/performance-parity-ollama-llamacpp-gpu-inference-llms.md
+  acceptance_criteria:
+  - 'FALSIFIABLE: Popper score increases from 79 to >90'
+  - 'METRIC: Category A (Falsifiability) increases from 72% to >90%'
+  - 'A1 (Measurable Thresholds) increases from 2/8 to >6/8'
+  - Add explicit falsifiable claims with numeric thresholds
+  - Document all metrics with success/failure criteria
+  - Add random seed management for reproducibility
+  phases: []
+  subtasks:
+  - 'PARITY-008a: Review spec for implicit claims'
+  - 'PARITY-008b: Convert claims to falsifiable format'
+  - 'PARITY-008c: Add success/failure thresholds'
+  - 'PARITY-008d: Run pmat popper-score and verify >90'
+  estimated_effort: 1 day
+  labels:
+  - perf-parity
+  - popper
+  - quality
+  - p3-low
+  notes: 'Current Popper score: 79/100 (B). Target: 90+ (A).'
+
+# -----------------------------------------------------------------------------
+# COMPLETED MILESTONES (for reference)
+# -----------------------------------------------------------------------------
+- id: IMP-700
+  github_issue: null
+  item_type: task
+  title: 'COMPLETED: Real-World Verification vs Ollama'
+  status: completed
+  priority: critical
+  assigned_to: null
+  created: 2025-12-13T00:00:00+00:00
+  updated: 2025-12-13T16:00:00+00:00
+  spec: docs/specifications/performance-parity-ollama-llamacpp-gpu-inference-llms.md
+  acceptance_criteria:
+  - Measure Ollama throughput (verified 240.1 tok/s)
+  - Measure Realizar throughput (verified 0.22 tok/s)
+  - Calculate gap (verified 1,090x)
+  - Low CV indicates stable measurements (CV=0.0388)
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels:
+  - perf-parity
+  - verification
+  - completed
+  notes: 'Established baseline gap: 1,090x. Foundation for all optimization work.'
+
+- id: IMP-800
+  github_issue: null
+  item_type: task
+  title: 'COMPLETED: KV Cache Falsification'
+  status: completed
+  priority: critical
+  assigned_to: null
+  created: 2025-12-13T00:00:00+00:00
+  updated: 2025-12-13T16:00:00+00:00
+  spec: docs/specifications/performance-parity-ollama-llamacpp-gpu-inference-llms.md
+  acceptance_criteria:
+  - Verify KV cache provides 10-100x speedup (verified 128x average)
+  - Range 4.5x to 512x depending on sequence length
+  - trueno-db MemoryKvStore capabilities confirmed
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels:
+  - perf-parity
+  - kv-cache
+  - falsification
+  - completed
+  notes: 'VERIFIED: 128x speedup theoretical. Next step: integration (PARITY-001).'
+
+- id: IMP-801
+  github_issue: null
+  item_type: task
+  title: 'COMPLETED: FlashAttention CUDA Falsification'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2025-12-13T00:00:00+00:00
+  updated: 2025-12-13T16:00:00+00:00
+  spec: docs/specifications/performance-parity-ollama-llamacpp-gpu-inference-llms.md
+  acceptance_criteria:
+  - Verify FlashAttention provides 10-50x speedup (verified 16x conservative)
+  - Scales with sequence length (2x at 128, 32x at 2048)
+  - trueno-gpu AttentionKernel capabilities confirmed
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels:
+  - perf-parity
+  - flash-attention
+  - falsification
+  - completed
+  notes: 'VERIFIED: 16x speedup conservative. Next step: integration (PARITY-002).'
+
+- id: IMP-600
+  github_issue: null
+  item_type: task
+  title: 'COMPLETED: GPU Capability Falsification'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2025-12-13T00:00:00+00:00
+  updated: 2025-12-13T16:00:00+00:00
+  spec: docs/specifications/performance-parity-ollama-llamacpp-gpu-inference-llms.md
+  acceptance_criteria:
+  - GPU vs SIMD for MATVEC (FALSIFIED - GPU 2.7x SLOWER)
+  - GPU vs SIMD for GEMM (VERIFIED - GPU 57x FASTER)
+  - Conclusion - Use SIMD for token gen, GPU for batch/prompt
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels:
+  - perf-parity
+  - gpu
+  - falsification
+  - completed
+  notes: 'CRITICAL INSIGHT: GPU hurts single-token, helps batch. Informed PARITY-006 design.'
+
+# Legacy completed tasks (preserved from original roadmap)
 - id: SPEC-001
   github_issue: null
   item_type: task
@@ -18,6 +412,7 @@ roadmap:
   estimated_effort: null
   labels: []
   notes: null
+
 - id: SERVE-001
   github_issue: null
   item_type: task
@@ -33,7 +428,7 @@ roadmap:
   - Request/response schema validation (serde)
   - Single model loading from .apr format
   - Basic /predict and /health endpoints
-  - Unit tests with ≥85% coverage
+  - Unit tests with >=85% coverage
   - All quality gates pass (clippy, fmt, tests)
   phases: []
   subtasks: []
@@ -43,248 +438,7 @@ roadmap:
   - http
   - phase-1
   notes: Per docs/specifications/serve-deploy-apr.md Section 11.1
-- id: LAMBDA-001
-  github_issue: null
-  item_type: task
-  title: 'New task: LAMBDA-001'
-  status: completed
-  priority: medium
-  assigned_to: null
-  created: 2025-11-26T12:31:07.258473565+00:00
-  updated: 2025-11-26T12:36:15.983632782+00:00
-  spec: null
-  acceptance_criteria: []
-  phases: []
-  subtasks: []
-  estimated_effort: null
-  labels: []
-  notes: null
-- id: PROD-001
-  github_issue: null
-  item_type: task
-  title: 'New task: PROD-001'
-  status: completed
-  priority: medium
-  assigned_to: null
-  created: 2025-11-26T12:45:18.856640376+00:00
-  updated: 2025-11-26T12:48:19.380482986+00:00
-  spec: null
-  acceptance_criteria: []
-  phases: []
-  subtasks: []
-  estimated_effort: null
-  labels: []
-  notes: null
-- id: MULTI-001
-  github_issue: null
-  item_type: task
-  title: 'New task: MULTI-001'
-  status: completed
-  priority: medium
-  assigned_to: null
-  created: 2025-11-26T12:49:20.298910405+00:00
-  updated: 2025-11-26T12:53:07.516257933+00:00
-  spec: null
-  acceptance_criteria: []
-  phases: []
-  subtasks: []
-  estimated_effort: null
-  labels: []
-  notes: null
-- id: INTEG-001
-  github_issue: null
-  item_type: task
-  title: 'New task: INTEG-001'
-  status: completed
-  priority: medium
-  assigned_to: null
-  created: 2025-11-26T13:10:08.571178928+00:00
-  updated: 2025-11-26T13:12:34.958344521+00:00
-  spec: null
-  acceptance_criteria: []
-  phases: []
-  subtasks: []
-  estimated_effort: null
-  labels: []
-  notes: null
-- id: PROP-001
-  github_issue: null
-  item_type: task
-  title: 'New task: PROP-001'
-  status: completed
-  priority: medium
-  assigned_to: null
-  created: 2025-11-26T13:13:35.109352716+00:00
-  updated: 2025-11-26T13:15:15.103094450+00:00
-  spec: null
-  acceptance_criteria: []
-  phases: []
-  subtasks: []
-  estimated_effort: null
-  labels: []
-  notes: null
-- id: BENCH-001
-  github_issue: null
-  item_type: task
-  title: 'New task: BENCH-001'
-  status: completed
-  priority: medium
-  assigned_to: null
-  created: 2025-11-26T13:16:44.816973215+00:00
-  updated: 2025-11-26T13:24:42.305500802+00:00
-  spec: null
-  acceptance_criteria: []
-  phases: []
-  subtasks: []
-  estimated_effort: null
-  labels: []
-  notes: null
-- id: BOOK-001
-  github_issue: null
-  item_type: task
-  title: 'New task: BOOK-001'
-  status: completed
-  priority: medium
-  assigned_to: null
-  created: 2025-11-26T13:37:13.304535489+00:00
-  updated: 2025-11-26T13:37:19.162242906+00:00
-  spec: null
-  acceptance_criteria: []
-  phases: []
-  subtasks: []
-  estimated_effort: null
-  labels: []
-  notes: null
-- id: MOE-001
-  github_issue: null
-  item_type: task
-  title: Capacity Factor routing for inference-time MOE load balancing
-  status: inprogress
-  priority: high
-  assigned_to: null
-  created: 2025-11-27T00:00:00+00:00
-  updated: 2025-11-27T17:31:50.462643737+00:00
-  spec: docs/specifications/apr-hosting-moe-ab-testing-spec.md
-  acceptance_criteria:
-  - Implement CapacityFactorRouter with queue depth tracking
-  - Route to second-best expert when primary exceeds capacity threshold
-  - Support Power-of-Two-Choices algorithm (Mitzenmacher 2001)
-  - Replace auxiliary loss with runtime load balancing
-  - Unit tests with ≥85% coverage
-  - Property-based tests for load distribution fairness
-  phases: []
-  subtasks: []
-  estimated_effort: 3 days
-  labels:
-  - moe
-  - heijunka
-  - load-balancing
-  - review-action
-  notes: 'Per review: Fedus et al. (2022) on Switch Transformers for serving stability'
-- id: MOE-002
-  github_issue: null
-  item_type: task
-  title: Replace RwLock with lock-free reads (ArcSwap) in ModelRegistry
-  status: inprogress
-  priority: high
-  assigned_to: null
-  created: 2025-11-27T00:00:00+00:00
-  updated: 2025-11-27T17:40:23.563001950+00:00
-  spec: docs/specifications/apr-hosting-moe-ab-testing-spec.md
-  acceptance_criteria:
-  - Replace RwLock<HashMap> with ArcSwap for lock-free reads
-  - Maintain write safety via interior mutability pattern
-  - Benchmark read throughput improvement (target 10x under contention)
-  - Zero breaking changes to public API
-  - Unit tests for concurrent access patterns
-  - Stress test with 100+ concurrent readers
-  phases: []
-  subtasks: []
-  estimated_effort: 2 days
-  labels:
-  - registry
-  - concurrency
-  - just-in-time
-  - review-action
-  notes: 'Per review: McKenney (2011) on reader-writer lock starvation'
-- id: MOE-003
-  github_issue: null
-  item_type: task
-  title: Log-transform for latency A/B testing statistics
-  status: inprogress
-  priority: medium
-  assigned_to: null
-  created: 2025-11-27T00:00:00+00:00
-  updated: 2025-11-27T17:45:18.735044636+00:00
-  spec: docs/specifications/apr-hosting-moe-ab-testing-spec.md
-  acceptance_criteria:
-  - Add LogNormalAnalyzer for latency metrics
-  - Support Mann-Whitney U test as non-parametric alternative
-  - Auto-detect skewed distributions and recommend appropriate test
-  - Validate with simulated log-normal latency data
-  - Unit tests for statistical correctness
-  - Property-based tests with known distributions
-  phases: []
-  subtasks: []
-  estimated_effort: 2 days
-  labels:
-  - ab-testing
-  - statistics
-  - kaizen
-  - review-action
-  notes: 'Per review: Box et al. (2005) on statistical robustness for skewed data'
-- id: MOE-004
-  github_issue: null
-  item_type: task
-  title: Auto-rollback behavior for Andon triggers
-  status: inprogress
-  priority: medium
-  assigned_to: null
-  created: 2025-11-27T00:00:00+00:00
-  updated: 2025-11-27T17:47:26.075685915+00:00
-  spec: docs/specifications/apr-hosting-moe-ab-testing-spec.md
-  acceptance_criteria:
-  - Define AndonResponse enum (Rollback, Notify, Quarantine)
-  - Implement automatic rollback on ModelChecksumMismatch
-  - Add bulkhead isolation for failed experts
-  - Define "Fix" phase workflow with operator escalation
-  - Unit tests for each trigger type
-  - Integration test for rollback workflow
-  phases: []
-  subtasks: []
-  estimated_effort: 2 days
-  labels:
-  - jidoka
-  - andon
-  - reliability
-  - review-action
-  notes: 'Per review: Nygard (2018) on circuit breakers with bulkheads'
-- id: MOE-005
-  github_issue: null
-  item_type: task
-  title: Add mlock option for hot experts (prevent swap)
-  status: planned
-  priority: low
-  assigned_to: null
-  created: 2025-11-27T00:00:00+00:00
-  updated: 2025-11-27T00:00:00+00:00
-  spec: docs/specifications/apr-hosting-moe-ab-testing-spec.md
-  acceptance_criteria:
-  - Add MlockConfig for pinning hot experts in memory
-  - Implement mlock/munlock wrappers for model memory regions
-  - Add hot/cold tier classification for experts
-  - Graceful degradation if mlock fails (CAP_IPC_LOCK)
-  - Unit tests for mlock behavior
-  - Document memory requirements for hot tier
-  phases: []
-  subtasks: []
-  estimated_effort: 1 day
-  labels:
-  - memory
-  - performance
-  - genchi-genbutsu
-  - review-action
-  notes: 'Per review: Dean & Barroso (2013) on tail latency from page faults'
+
 - id: OBS-001
   github_issue: null
   item_type: task
@@ -310,52 +464,30 @@ roadmap:
   - observability
   - tracing
   - opentelemetry
-  notes: 'Per Initial Release Specification §5: Observability'
-- id: APR-BENCH-001
+  notes: 'Per Initial Release Specification S5: Observability'
+
+- id: BENCH-003
   github_issue: null
   item_type: task
-  title: 'New task: APR-BENCH-001'
-  status: inprogress
-  priority: medium
-  assigned_to: null
-  created: 2025-12-10T14:01:16.130182096+00:00
-  updated: 2025-12-10T14:01:16.130182096+00:00
-  spec: null
-  acceptance_criteria: []
-  phases: []
-  subtasks: []
-  estimated_effort: null
-  labels: []
-  notes: null
-- id: BENCH-SPRINT-001
-  github_issue: null
-  item_type: task
-  title: 'New task: BENCH-SPRINT-001'
+  title: Server benchmark infrastructure with EXTREME TDD
   status: completed
-  priority: medium
+  priority: high
   assigned_to: null
-  created: 2025-12-10T18:14:58.808075934+00:00
-  updated: 2025-12-10T18:18:54.032787123+00:00
+  created: 2025-12-12T14:00:00+00:00
+  updated: 2025-12-12T14:00:00+00:00
   spec: null
-  acceptance_criteria: []
+  acceptance_criteria:
+  - Scientifically reproducible benchmarks
+  - Makefile targets (bench-server-matrix)
+  - bashrs-compliant benchmark script
+  - Auto-update README with results
+  - CV-based stopping per Hoefler & Belli SC15
   phases: []
   subtasks: []
-  estimated_effort: null
-  labels: []
-  notes: null
-- id: BENCH-SPRINT-002
-  github_issue: null
-  item_type: task
-  title: 'New task: BENCH-SPRINT-002'
-  status: inprogress
-  priority: medium
-  assigned_to: null
-  created: 2025-12-10T18:19:43.608035501+00:00
-  updated: 2025-12-10T18:19:43.608035501+00:00
-  spec: null
-  acceptance_criteria: []
-  phases: []
-  subtasks: []
-  estimated_effort: null
-  labels: []
-  notes: null
+  estimated_effort: 1 day
+  labels:
+  - benchmark
+  - ollama
+  - llama-cpp
+  - extreme-tdd
+  notes: 'Measured results: Ollama 97ms/265tok/s, llama.cpp 180ms/277tok/s'
