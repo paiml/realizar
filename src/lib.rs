@@ -78,6 +78,12 @@
 #![allow(clippy::unnecessary_to_owned)] // Allow explicit .to_string()
 #![allow(clippy::single_char_pattern)] // Allow "x" instead of 'x' in contains()
 #![allow(clippy::missing_panics_doc)] // Allow missing Panics doc sections
+#![allow(clippy::missing_errors_doc)] // Allow missing Errors doc sections (common in math code)
+#![allow(clippy::items_after_statements)] // Allow const/type definitions after statements
+#![allow(clippy::unused_self)] // Allow unused self in methods for API consistency
+#![allow(clippy::cloned_instead_of_copied)] // Allow cloned() even for Copy types
+#![allow(clippy::needless_pass_by_value)] // Allow pass-by-value where it's clearer
+#![allow(clippy::unnecessary_wraps)] // Allow wrapping in Result/Option for API consistency
 #![allow(clippy::if_not_else)] // Allow if !condition { } else { }
 #![allow(clippy::manual_let_else)] // Allow manual let-else patterns
 #![allow(clippy::float_cmp)] // Allow float comparisons in tests
@@ -165,6 +171,7 @@ pub mod gguf;
 /// - Hybrid CPU/GPU scheduling based on workload size
 /// - Automatic fallback to SIMD when GPU unavailable
 #[cfg(feature = "gpu")]
+#[allow(clippy::similar_names)] // GPU code has intentionally similar kv_head/k_head names
 pub mod gpu;
 /// Grammar-constrained generation for structured output
 ///

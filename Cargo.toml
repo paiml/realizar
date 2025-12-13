@@ -24,9 +24,11 @@ redundant_clone = "warn"
 
 [dependencies]
 # OUR ecosystem - SIMD/GPU compute primitives (we control this)
-trueno = { version = "0.7.4", features = ["gpu"] }
+trueno = { version = "0.8.1", features = ["gpu"] }
 # CUDA PTX generation for NVIDIA GPUs (optional, pure Rust, no LLVM/nvcc)
 trueno-gpu = { version = "0.1", optional = true }
+# KV cache storage (for attention caching)
+trueno-db = { version = "0.3", optional = true }
 
 # ML algorithms and .apr model format (optional for aprender model serving)
 # v0.14: format module with .apr save/load, CRC32, signatures, encryption
@@ -89,6 +91,10 @@ memmap2 = "0.9"
 # Parallel processing for multi-core inference (per spec Phase 2/3)
 rayon = "1.10"
 
+# Small buffer optimization (per spec Section 4.1)
+# Stack allocation for small token buffers and attention scores
+smallvec = "1.13"
+
 # That's it. NO candle, NO llama-cpp-rs, NO hf-hub
 # We build everything from scratch: GGUF parser, safetensors, transformer, quantization, tokenizer
 
@@ -121,6 +127,7 @@ reqwest = { version = "0.11", features = ["json", "blocking"] }
 # For CLI integration tests
 assert_cmd = "2.0"
 predicates = "3.0"
+glob = "0.3"
 
 [features]
 default = ["server", "cli", "gpu"]
@@ -128,6 +135,7 @@ default = ["server", "cli", "gpu"]
 # Core features
 gpu = ["trueno/gpu"]  # Enable GPU acceleration via Trueno (wgpu)
 cuda = ["dep:trueno-gpu"]  # Enable CUDA PTX generation for NVIDIA GPUs
+kv-cache = ["dep:trueno-db"]  # KV cache for attention optimization
 
 # Optional components
 server = ["dep:axum", "dep:tokio", "dep:tokio-stream", "dep:tower", "dep:futures", "dep:async-stream", "dep:arc-swap"]  # HTTP server support
