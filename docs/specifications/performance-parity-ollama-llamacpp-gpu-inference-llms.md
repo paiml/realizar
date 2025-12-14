@@ -1,6 +1,6 @@
 ---
 title: "Performance Parity: Ollama & llama.cpp GPU Inference for LLMs"
-version: "5.2.0"
+version: "5.3.0"
 status: Active
 authors:
   - Pragmatic AI Labs
@@ -12,7 +12,7 @@ issue_refs:
 
 # Performance Parity: Ollama & llama.cpp GPU Inference for LLMs
 
-**Version:** 5.2.0
+**Version:** 5.3.0
 **Status:** Active
 **Authors:** Pragmatic AI Labs
 **Date:** 2025-12-14
@@ -3023,6 +3023,45 @@ cargo run -p trueno-gpu --example gpu_pixels_render --features cuda
 - 8 pixel validation tests (shared_mem, barrier, entry point)
 - Full kernel suite with TUI reporting
 - Regression detection framework
+
+---
+
+### PARITY-034: Simple Attention CUDA Execution (✅ COMPLETE 2025-12-14)
+
+**Goal:** Verify attention kernel execution on RTX 4090 via trueno-gpu
+
+**Achievements:**
+1. ✅ **Simple Attention CUDA VERIFIED** - Max diff 2.98e-8 (FP32 precision)
+2. ✅ **PTX Generation** - 3521 bytes, 142 lines via PtxKernel + PtxModule
+3. ✅ **JIT Compilation** - CudaModule::from_ptx() on sm_89
+4. ✅ **Kernel Execution** - 146µs for 16x16 attention
+
+**Verified Infrastructure:**
+```bash
+# Run simple attention example
+cargo run -p trueno-gpu --example simple_attention_cuda --features cuda
+
+# Output:
+# PTX: 3521 bytes (142 lines)
+# GPU execution: 146.492µs
+# Max difference: 2.98e-8
+# Status: ✓ PASS
+```
+
+**Components Proven Working:**
+- `trueno_gpu::ptx::PtxKernel` - PTX kernel builder
+- `trueno_gpu::ptx::PtxModule` - PTX module with headers
+- `trueno_gpu::driver::CudaContext` - GPU initialization
+- `trueno_gpu::driver::CudaModule` - PTX JIT compilation
+- `trueno_gpu::driver::CudaStream` - Kernel launch
+- `trueno_gpu::driver::GpuBuffer` - Memory H2D/D2H transfers
+
+**Files Created:**
+- `trueno-gpu/examples/simple_attention_cuda.rs` - ✅ VERIFIED working
+- `trueno-gpu/examples/flash_attention_cuda.rs` - Infrastructure test (needs kernel correctness fix)
+
+**Next Steps:**
+- PARITY-035: M4 Parity Verification with full inference
 
 ---
 
