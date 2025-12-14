@@ -1,7 +1,8 @@
-//! PARITY-036: GPU GEMM Performance Test
+//! PARITY-036/037: GPU GEMM Performance Test
 //!
-//! Tests CudaExecutor GEMM kernel performance vs CPU baseline.
-//! Focus: Measure kernel time vs H2D/D2H transfer overhead for FFN operations.
+//! Tests CudaExecutor GEMM kernel performance:
+//! - PARITY-036: GPU GEMM vs CPU baseline (with H2D transfer overhead)
+//! - PARITY-037: Cached weights on GPU (eliminates weight transfer)
 //!
 //! FFN is the actual bottleneck (>90% of inference time), not attention.
 //!
@@ -198,14 +199,93 @@ fn main() {
             cpu_time_per_token * 1000.0
         );
 
-        println!("\n═══ Analysis ═══");
+        println!("\n═══ Analysis (PARITY-036) ═══");
         println!("  - FFN is >90% of inference compute");
         println!("  - MATVEC is memory-bound (low arithmetic intensity)");
         println!("  - GPU transfer overhead = H2D(weight) + H2D(input) + D2H(output)");
-        println!("  - Solution: Keep weights on GPU permanently");
+        println!("  - Solution: Keep weights on GPU permanently (PARITY-037)");
+
+        // PARITY-037: Cached weights benchmark
+        println!("\n[5/6] PARITY-037: Benchmarking GEMM with cached weights...");
+
+        // Load weights to GPU once
+        let start = Instant::now();
+        let weight_bytes = executor
+            .load_weights("fc1", &weight_fc1)
+            .expect("Failed to load weights");
+        let load_time = start.elapsed();
+        println!(
+            "       Loaded {} MB to GPU in {:?}",
+            weight_bytes / 1024 / 1024,
+            load_time
+        );
+        println!(
+            "       Cached weights: {} tensors, {} MB",
+            executor.cached_weight_count(),
+            executor.cached_weight_bytes() / 1024 / 1024
+        );
+
+        // Benchmark cached GEMM
+        let start = Instant::now();
+        for _ in 0..iterations {
+            executor
+                .gemm_cached("fc1", &input_fc1, &mut output_fc1, m_fc1, n_fc1, k_fc1)
+                .expect("Cached GEMM failed");
+        }
+        let cached_total = start.elapsed();
+        let cached_per_iter = cached_total / iterations;
+
+        // Results comparison
+        println!("\n╔════════════════════════════════════════════════════════════════╗");
+        println!("║            PARITY-037: CACHED vs UNCACHED GEMM                 ║");
+        println!("╠════════════════════════════════════════════════════════════════╣");
+        println!(
+            "║ GPU (uncached): {:>10?}/iter (100MB H2D each time)        ║",
+            gpu_per_iter
+        );
+        println!(
+            "║ GPU (cached):   {:>10?}/iter (no weight transfer)         ║",
+            cached_per_iter
+        );
+        println!("╠════════════════════════════════════════════════════════════════╣");
+
+        let cached_speedup = gpu_per_iter.as_secs_f64() / cached_per_iter.as_secs_f64();
+        if cached_speedup > 1.0 {
+            println!(
+                "║ Cached is {:.2}x FASTER (transfer overhead eliminated)       ║",
+                cached_speedup
+            );
+        } else {
+            println!(
+                "║ Cached is {:.2}x slower (unexpected!)                        ║",
+                1.0 / cached_speedup
+            );
+        }
+        println!("╚════════════════════════════════════════════════════════════════╝");
+
+        // Updated token generation estimate with cached weights
+        let cached_gflops = flops_per_matvec / cached_per_iter.as_secs_f64() / 1e9;
+        let cached_time_per_token = total_ffn_ops / (cached_gflops * 1e9);
+        let tps_cached = 1.0 / cached_time_per_token;
+
+        println!("\n═══ Token Generation Estimate (PARITY-037, cached) ═══");
+        println!("  Cached GFLOPS: {:.2}", cached_gflops);
+        println!(
+            "  Estimated: {:.1} tok/s ({:.2}ms per token)",
+            tps_cached,
+            cached_time_per_token * 1000.0
+        );
+        println!(
+            "  vs uncached: {:.1} tok/s ({:.2}x faster)",
+            tps_gpu,
+            tps_cached / tps_gpu
+        );
+
+        // Cleanup
+        executor.clear_weights();
 
         // Softmax test (small operation)
-        println!("\n[5/5] Testing softmax (small operation)...");
+        println!("\n[6/6] Testing softmax (small operation)...");
         let mut softmax_data = vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
 
         let start = Instant::now();

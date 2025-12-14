@@ -716,6 +716,9 @@ pub struct CudaExecutor {
     memory_pool: GpuMemoryPool,
     // Modules must be dropped before context (cuModuleUnload needs valid context)
     modules: HashMap<String, CudaModule>,
+    // Persistent weight buffers on GPU (PARITY-037)
+    // These are loaded once at startup and reused for all forward passes
+    weight_cache: HashMap<String, GpuBuffer<f32>>,
     // Stream must be dropped before context (cuStreamDestroy needs valid context)
     stream: CudaStream,
     // Context MUST be dropped LAST (cuDevicePrimaryCtxRelease invalidates all handles)
@@ -741,6 +744,7 @@ impl CudaExecutor {
             kernels: CudaKernels::new(),
             memory_pool: GpuMemoryPool::new(),
             modules: HashMap::new(),
+            weight_cache: HashMap::new(),
             stream,
             context, // Last field - dropped last
         })
@@ -784,6 +788,175 @@ impl CudaExecutor {
     /// Clear memory pool buffers (releases GPU memory)
     pub fn clear_pool(&mut self) {
         self.memory_pool.clear();
+    }
+
+    // ========================================================================
+    // PARITY-037: Persistent GPU Weight Management
+    // ========================================================================
+
+    /// Load weights to GPU and cache them for reuse (PARITY-037)
+    ///
+    /// Weights are stored in GPU memory and persist until explicitly cleared
+    /// or the executor is dropped. This eliminates H2D transfer overhead
+    /// for repeated forward passes.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Unique identifier for the weight tensor (e.g., "layer0.ffn.fc1")
+    /// * `weights` - Weight data to upload (row-major)
+    ///
+    /// # Returns
+    ///
+    /// Size in bytes of the uploaded weights.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if GPU allocation or transfer fails.
+    pub fn load_weights(&mut self, name: &str, weights: &[f32]) -> Result<usize, GpuError> {
+        let buf = GpuBuffer::from_host(&self.context, weights)?;
+        let size_bytes = buf.size_bytes();
+        self.weight_cache.insert(name.to_string(), buf);
+        Ok(size_bytes)
+    }
+
+    /// Check if weights are cached on GPU
+    #[must_use]
+    pub fn has_weights(&self, name: &str) -> bool {
+        self.weight_cache.contains_key(name)
+    }
+
+    /// Get the number of cached weight tensors
+    #[must_use]
+    pub fn cached_weight_count(&self) -> usize {
+        self.weight_cache.len()
+    }
+
+    /// Get total size of cached weights in bytes
+    #[must_use]
+    pub fn cached_weight_bytes(&self) -> usize {
+        self.weight_cache.values().map(GpuBuffer::size_bytes).sum()
+    }
+
+    /// Clear all cached weights (releases GPU memory)
+    pub fn clear_weights(&mut self) {
+        self.weight_cache.clear();
+    }
+
+    /// Execute GEMM using cached weights: C = cached_A @ B (PARITY-037)
+    ///
+    /// This is the fast path for inference - weights stay on GPU.
+    /// Only input B and output C are transferred.
+    ///
+    /// # Arguments
+    ///
+    /// * `weight_name` - Name of cached weight tensor (must be pre-loaded)
+    /// * `b` - Input matrix B (k x n, row-major)
+    /// * `c` - Output matrix C (m x n, row-major)
+    /// * `m` - Number of rows in A and C
+    /// * `n` - Number of columns in B and C
+    /// * `k` - Number of columns in A / rows in B
+    ///
+    /// # Errors
+    ///
+    /// Returns error if weights not found or kernel fails.
+    pub fn gemm_cached(
+        &mut self,
+        weight_name: &str,
+        b: &[f32],
+        c: &mut [f32],
+        m: u32,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        // Get cached weights
+        let weight_ptr = self
+            .weight_cache
+            .get(weight_name)
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!("Weight '{}' not cached", weight_name))
+            })?
+            .as_ptr();
+
+        // Validate sizes
+        let expected_b = (k * n) as usize;
+        let expected_c = (m * n) as usize;
+
+        if b.len() != expected_b || c.len() != expected_c {
+            return Err(GpuError::InvalidLaunchConfig(format!(
+                "GEMM size mismatch: B[{}] expected {}, C[{}] expected {}",
+                b.len(),
+                expected_b,
+                c.len(),
+                expected_c
+            )));
+        }
+
+        // Generate PTX for this configuration
+        let kernel_type = KernelType::GemmTiled {
+            m,
+            n,
+            k,
+            tile_size: 32,
+        };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("gemm_{}_{}_{}_{}", m, n, k, 32);
+
+        // Load module if not cached
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // Allocate GPU buffers for input B and output C only
+        // Weight A is already on GPU (cached)
+        let buf_b = GpuBuffer::from_host(&self.context, b)?;
+        let buf_c = GpuBuffer::<f32>::new(&self.context, expected_c)?;
+
+        // Launch configuration
+        let config = LaunchConfig::grid_2d(
+            (m + 31) / 32, // Grid X
+            (n + 31) / 32, // Grid Y
+            32,            // Block X
+            32,            // Block Y
+        );
+
+        // Get raw pointers for kernel args
+        let mut ptr_a = weight_ptr; // From cache!
+        let mut ptr_b = buf_b.as_ptr();
+        let mut ptr_c = buf_c.as_ptr();
+        let mut m_val = m as i32;
+        let mut n_val = n as i32;
+        let mut k_val = k as i32;
+
+        // Launch kernel
+        // SAFETY: Buffers are valid, config matches kernel expectations
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    &mut ptr_a as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_b as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_c as *mut _ as *mut std::ffi::c_void,
+                    &mut m_val as *mut _ as *mut std::ffi::c_void,
+                    &mut n_val as *mut _ as *mut std::ffi::c_void,
+                    &mut k_val as *mut _ as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        // Synchronize and copy result back
+        self.stream.synchronize()?;
+        buf_c.copy_to_host(c)?;
+
+        Ok(())
     }
 
     /// Execute a tiled GEMM kernel: C = A @ B
