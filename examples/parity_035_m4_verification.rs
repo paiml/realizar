@@ -8,7 +8,7 @@
 //!
 //! Run with: cargo run --release --example parity_035_m4_verification
 
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 const OLLAMA_ENDPOINT: &str = "http://localhost:11434/api/generate";
 const PROMPT: &str = "Write a function that calculates the factorial of a number.";
@@ -17,6 +17,7 @@ const WARMUP_ITERATIONS: usize = 2;
 const MEASUREMENT_ITERATIONS: usize = 5;
 
 /// Ollama API response (streaming)
+#[allow(dead_code)]
 #[derive(serde::Deserialize)]
 struct OllamaResponse {
     response: String,
@@ -28,6 +29,7 @@ struct OllamaResponse {
 }
 
 /// Benchmark result with statistical analysis
+#[allow(dead_code)]
 #[derive(Debug)]
 struct BenchmarkResult {
     name: String,
