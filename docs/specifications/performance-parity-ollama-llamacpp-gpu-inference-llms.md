@@ -1,6 +1,6 @@
 ---
 title: "Performance Parity: Ollama & llama.cpp GPU Inference for LLMs"
-version: "5.5.0"
+version: "5.6.0"
 status: Active
 authors:
   - Pragmatic AI Labs
@@ -12,7 +12,7 @@ issue_refs:
 
 # Performance Parity: Ollama & llama.cpp GPU Inference for LLMs
 
-**Version:** 5.5.0
+**Version:** 5.6.0
 **Status:** Active
 **Authors:** Pragmatic AI Labs
 **Date:** 2025-12-14
@@ -3242,6 +3242,59 @@ Benchmark testing CudaExecutor GEMM kernel vs CPU for FFN-sized operations.
 **Files Modified:**
 - `src/cuda.rs` - Added multi-stream infrastructure
 - `examples/parity_038_async_streams.rs` - Async benchmark
+
+---
+
+### PARITY-039: FlashAttention Fused Kernel (✅ VERIFIED 2025-12-14)
+
+**Solution:** FlashAttention-style tiled attention with O(N) memory complexity.
+
+**Implementation:**
+- trueno-gpu AttentionKernel with online softmax
+- Causal masking support for autoregressive models
+- 35 tests pass (correctness verified)
+
+**Memory Savings (O(N) vs O(N²)):**
+
+| seq_len | Standard | Flash | Savings |
+|---------|----------|-------|---------|
+| 64 | 16 KB | 32 KB | 0.5x |
+| 128 | 64 KB | 32 KB | 2x |
+| 256 | 256 KB | 32 KB | 8x |
+| 512 | 1024 KB | 32 KB | 32x |
+
+**Performance Benchmark:**
+
+| Configuration | Time/iter | GFLOPS | Status |
+|---------------|-----------|--------|--------|
+| Small (64x64) | 145µs | 7.2 | ✓ <1ms |
+| Medium (128x64) | 176µs | 23.8 | ✓ <1ms |
+| phi-2 (256x64) | 230µs | 72.8 | ✓ <1ms |
+| Large (512x64) | 350µs | 191.8 | ✓ <1ms |
+
+**Token Generation Estimate (phi-2, 32 layers, 32 heads):**
+- Attention time: 72.65ms (avg 73.9 GFLOPS)
+- FFN time: 6.53ms (514 GFLOPS from PARITY-038)
+- Total: 79.18ms/token → 12.6 tok/s
+
+**Key Findings:**
+1. ✓ FlashAttention kernel works correctly (35 tests pass)
+2. ✓ O(N) memory enables longer context without OOM
+3. ⚠️ Attention now dominates (91% of total time)
+4. ⚠️ Attention GFLOPS (73.9) << FFN GFLOPS (514)
+
+**Bottleneck Analysis:**
+- FFN optimized with cached weights + async: 6.53ms (514 GFLOPS)
+- Attention unoptimized: 72.65ms (73.9 GFLOPS)
+- Attention is 7x slower per GFLOP due to memory-bound tiled computation
+
+**Path Forward (PARITY-040+):**
+1. FP16 Tensor Cores for attention (potential 4x)
+2. Fused Q@K and softmax@V kernels
+3. Multi-head parallelization
+
+**Files Created:**
+- `examples/parity_039_flash_attention.rs` - FlashAttention benchmark
 
 ---
 
