@@ -3111,6 +3111,49 @@ cargo run --release --example parity_035_m4_verification
 
 ---
 
+### PARITY-036: GPU GEMM Performance Analysis (✅ MEASURED 2025-12-14)
+
+Benchmark testing CudaExecutor GEMM kernel vs CPU for FFN-sized operations.
+
+**Configuration (phi-2 FFN fc1):**
+- Matrix: 10240×2560 (100 MB weight)
+- Operation: MATVEC (weight @ input)
+- Includes H2D transfer of 100MB weights each iteration
+
+**Results:**
+
+| Backend | Time/iter | GFLOPS | Speedup |
+|---------|-----------|--------|---------|
+| **GPU GEMM** | **7.1 ms** | 7.37 | **2.34x** |
+| CPU naive | 16.6 ms | 3.15 | 1.0x |
+
+**Token Generation Estimate (FFN only, 32 layers):**
+- Total FFN FLOPs: 3.36B per token
+- GPU: 2.2 tok/s (455ms/token)
+- CPU: 0.9 tok/s (1065ms/token)
+
+**Key Findings:**
+1. ✓ GPU GEMM kernel works correctly (2.34x faster even with transfers)
+2. ✗ Transfer overhead dominates (100MB H2D takes ~4-10ms on PCIe 4.0)
+3. ✗ RTX 4090 only achieving 7.37 GFLOPS vs 82.6 TFLOPS theoretical
+
+**Root Cause Analysis:**
+- Each GEMM call transfers 100MB weights H2D
+- PCIe 4.0 x16: ~25 GB/s → 4ms minimum for 100MB
+- Actual kernel execution: <1ms
+- **Solution: Keep weights on GPU permanently**
+
+**Path Forward (PARITY-037+):**
+1. Load model weights to GPU once at startup
+2. Keep KV cache on GPU
+3. Only transfer input/output vectors
+4. Use pinned memory for remaining transfers
+
+**Files Created:**
+- `examples/parity_036_gpu_attention.rs` - GPU GEMM benchmark
+
+---
+
 ### 1.2 Performance Gap Analysis (REAL MEASUREMENTS - UPDATED 2025-12-14)
 
 | Comparison | Gap (Before) | Gap (After trueno) | Improvement |

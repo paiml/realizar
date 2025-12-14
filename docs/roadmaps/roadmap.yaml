@@ -1226,11 +1226,11 @@ roadmap:
   github_issue: null
   item_type: task
   title: 'M4 Parity Verification: Measure GPU Performance vs Ollama'
-  status: inprogress
+  status: completed
   priority: high
   assigned_to: null
   created: 2025-12-14T19:55:00+00:00
-  updated: 2025-12-14T19:08:36.787098446+00:00
+  updated: 2025-12-14T19:13:43.890956496+00:00
   spec: docs/specifications/performance-parity-ollama-llamacpp-gpu-inference-llms.md
   acceptance_criteria:
   - Benchmark realizar GPU inference on RTX 4090 with phi-2 Q4_K_M
@@ -1254,3 +1254,270 @@ roadmap:
     TARGET M4: 192 tok/s (<1.25x gap)
 
     Requires PARITY-034 (FlashAttention) to be complete first.
+- id: PARITY-036
+  github_issue: null
+  item_type: task
+  title: 'M3-Step1: Integrate simple_attention_cuda into Full Inference Pipeline'
+  status: inprogress
+  priority: critical
+  assigned_to: null
+  created: 2025-12-14T20:30:00+00:00
+  updated: 2025-12-14T19:17:42.359545380+00:00
+  spec: docs/specifications/performance-parity-ollama-llamacpp-gpu-inference-llms.md
+  acceptance_criteria:
+  - Wire trueno-gpu simple_attention_cuda kernel to OwnedQuantizedModel
+  - Replace CPU attention with GPU kernel for Q@K^T and softmax(S)@V
+  - Benchmark shows >10 tok/s (up from 5.25 tok/s)
+  - All existing tests pass with GPU attention path
+  phases: []
+  subtasks: []
+  estimated_effort: 2 days
+  labels:
+  - m3-parity
+  - gpu-attention
+  - cuda
+  - p0-critical
+  notes: |
+    PARITY-034 verified simple_attention_cuda on RTX 4090 (max diff 2.98e-8).
+    Now integrate into the inference pipeline.
+
+    FILES TO MODIFY:
+    - src/gguf.rs: OwnedQuantizedModel::forward_single_with_cache()
+    - Add CudaContext initialization on first GPU forward
+    - Add GpuBuffer allocation for Q/K/V/O tensors
+    - Call simple_attention kernel instead of CPU attention
+
+    EXPECTED: 2x speedup from GPU attention alone.
+- id: PARITY-037
+  github_issue: null
+  item_type: task
+  title: 'M3-Step2: GPU GEMM for FFN Layers via cuBLAS or Custom CUDA'
+  status: planned
+  priority: critical
+  assigned_to: null
+  created: 2025-12-14T20:30:00+00:00
+  updated: 2025-12-14T20:30:00+00:00
+  spec: docs/specifications/performance-parity-ollama-llamacpp-gpu-inference-llms.md
+  acceptance_criteria:
+  - FFN layers use GPU GEMM instead of CPU matmul
+  - Either cuBLAS integration or custom CUDA GEMM kernel
+  - Benchmark shows >30 tok/s (FFN is >90% of compute)
+  - Memory efficient (no redundant copies)
+  phases: []
+  subtasks: []
+  estimated_effort: 3 days
+  labels:
+  - m3-parity
+  - gpu-gemm
+  - cuda
+  - p0-critical
+  notes: |
+    FFN dominates inference time. GPU GEMM is critical for M3 parity.
+
+    OPTIONS:
+    1. cuBLAS: Fastest, requires linking to CUDA libraries
+    2. Custom CUDA: More control, can fuse with dequantize
+    3. trueno-gpu: Already has GEMM kernel (needs verification)
+
+    FFN LAYERS (phi-2):
+    - fc1: [2560, 10240] @ [10240, 1] = 26.2M ops
+    - fc2: [10240, 2560] @ [2560, 1] = 26.2M ops
+    - Per layer: 52.4M ops, 32 layers = 1.68B ops per token
+
+    RTX 4090: 82.6 TFLOPS → theoretical 49,000 tok/s
+    With memory bottleneck: realistic 200-300 tok/s target.
+- id: PARITY-038
+  github_issue: null
+  item_type: task
+  title: 'M3-Step3: CUDA Streams for Async Kernel Execution'
+  status: planned
+  priority: high
+  assigned_to: null
+  created: 2025-12-14T20:30:00+00:00
+  updated: 2025-12-14T20:30:00+00:00
+  spec: docs/specifications/performance-parity-ollama-llamacpp-gpu-inference-llms.md
+  acceptance_criteria:
+  - Multiple CUDA streams for overlapping execution
+  - H2D transfer overlapped with kernel execution
+  - D2H transfer overlapped with next token preparation
+  - Benchmark shows >50 tok/s (M3 target)
+  phases: []
+  subtasks: []
+  estimated_effort: 2 days
+  labels:
+  - m3-parity
+  - cuda-streams
+  - async
+  - p1-high
+  notes: |
+    CUDA streams enable concurrent execution to hide latency.
+
+    STREAM ARCHITECTURE:
+    - Stream 0: H2D transfers (input embedding, KV updates)
+    - Stream 1: Attention kernels
+    - Stream 2: FFN kernels
+    - Stream 3: D2H transfers (logits)
+
+    Use cudaStreamSynchronize strategically, not after every kernel.
+    trueno-gpu CudaStream already supports async launch.
+
+    EXPECTED: 20-30% improvement from hiding transfer latency.
+- id: PARITY-039
+  github_issue: null
+  item_type: task
+  title: 'M4-Step1: FlashAttention Fused Kernel with O(N) Memory'
+  status: planned
+  priority: critical
+  assigned_to: null
+  created: 2025-12-14T20:30:00+00:00
+  updated: 2025-12-14T20:30:00+00:00
+  spec: docs/specifications/performance-parity-ollama-llamacpp-gpu-inference-llms.md
+  acceptance_criteria:
+  - FlashAttention kernel with O(N) memory (not O(N²))
+  - Online softmax with running max/sum
+  - Tiled computation for register efficiency
+  - Benchmark shows >100 tok/s (2x improvement)
+  - Correct output verified vs CPU reference
+  phases: []
+  subtasks: []
+  estimated_effort: 5 days
+  labels:
+  - m4-parity
+  - flash-attention
+  - cuda
+  - p0-critical
+  notes: |
+    FlashAttention (Dao et al. 2022) is key to M4 parity.
+
+    ALGORITHM:
+    1. Tile Q, K, V into blocks that fit in shared memory
+    2. For each Q block:
+       a. For each K/V block:
+          - Compute S = Q @ K^T (in registers)
+          - Track running max for numerical stability
+          - Compute partial softmax with online update
+          - Accumulate O = softmax(S) @ V
+    3. Final rescaling with global max
+
+    MEMORY: O(N) instead of O(N²) for attention matrix
+    COMPUTE: Fused kernel eliminates intermediate stores
+
+    trueno-gpu AttentionKernel has FlashAttention PTX but needs debugging.
+    PARITY-034 showed max diff 0.497 - need to fix kernel logic.
+- id: PARITY-040
+  github_issue: null
+  item_type: task
+  title: 'M4-Step2: FP16 Tensor Core Support for 2x FLOPS'
+  status: planned
+  priority: high
+  assigned_to: null
+  created: 2025-12-14T20:30:00+00:00
+  updated: 2025-12-14T20:30:00+00:00
+  spec: docs/specifications/performance-parity-ollama-llamacpp-gpu-inference-llms.md
+  acceptance_criteria:
+  - FP16 accumulation in attention and FFN
+  - Tensor Core wmma intrinsics for 16x16 tiles
+  - 'RTX 4090 Tensor Cores: 330 TFLOPS FP16'
+  - Benchmark shows >150 tok/s
+  - Accuracy within 1e-3 of FP32 reference
+  phases: []
+  subtasks: []
+  estimated_effort: 4 days
+  labels:
+  - m4-parity
+  - fp16
+  - tensor-cores
+  - p1-high
+  notes: |
+    Tensor Cores provide 4x FLOPS over FP32 CUDA cores.
+
+    RTX 4090 SPECS:
+    - FP32: 82.6 TFLOPS (CUDA cores)
+    - FP16: 165 TFLOPS (CUDA cores)
+    - FP16 Tensor: 330 TFLOPS (4th gen Tensor Cores)
+
+    PTX INTRINSICS:
+    - wmma.load.a.sync.aligned.m16n16k16.f16
+    - wmma.load.b.sync.aligned.m16n16k16.f16
+    - wmma.mma.sync.aligned.m16n16k16.f16.f16
+    - wmma.store.d.sync.aligned.m16n16k16.f16
+
+    Requires model weights in FP16 or on-the-fly conversion.
+- id: PARITY-041
+  github_issue: null
+  item_type: task
+  title: 'M4-Step3: Fused Q4_K Dequantize + GEMM Kernel'
+  status: planned
+  priority: high
+  assigned_to: null
+  created: 2025-12-14T20:30:00+00:00
+  updated: 2025-12-14T20:30:00+00:00
+  spec: docs/specifications/performance-parity-ollama-llamacpp-gpu-inference-llms.md
+  acceptance_criteria:
+  - Single kernel for dequantize + matmul (no intermediate buffer)
+  - Q4_K block structure respected (super-blocks of 256)
+  - Memory bandwidth optimized (load quantized, compute FP16)
+  - Benchmark shows >180 tok/s
+  phases: []
+  subtasks: []
+  estimated_effort: 4 days
+  labels:
+  - m4-parity
+  - quantization
+  - fused-kernel
+  - p1-high
+  notes: |
+    Fused dequantize+GEMM eliminates memory round-trip.
+
+    Q4_K FORMAT:
+    - Super-block: 256 values
+    - 8 blocks of 32 values each
+    - Per-block scale (FP16) and min (FP16)
+    - 4-bit quantized values
+
+    FUSED KERNEL:
+    1. Load Q4_K super-block (32 bytes data + 16 bytes scales)
+    2. Dequantize to FP16 in registers
+    3. Accumulate GEMM product
+    4. Write result
+
+    BANDWIDTH: 256 * 0.5 bytes + 16 bytes = 144 bytes vs 512 bytes FP16
+    3.5x memory bandwidth reduction.
+- id: PARITY-042
+  github_issue: null
+  item_type: task
+  title: 'M4-Step4: Pinned Memory for Zero-Copy Host-Device Transfers'
+  status: planned
+  priority: medium
+  assigned_to: null
+  created: 2025-12-14T20:30:00+00:00
+  updated: 2025-12-14T20:30:00+00:00
+  spec: docs/specifications/performance-parity-ollama-llamacpp-gpu-inference-llms.md
+  acceptance_criteria:
+  - Model weights in pinned (page-locked) host memory
+  - cudaHostAlloc with cudaHostAllocMapped for zero-copy
+  - KV cache in device memory (no transfers during generation)
+  - Benchmark shows >200 tok/s (M4 target)
+  phases: []
+  subtasks: []
+  estimated_effort: 2 days
+  labels:
+  - m4-parity
+  - pinned-memory
+  - zero-copy
+  - p2-medium
+  notes: |
+    Pinned memory enables DMA transfers without CPU involvement.
+
+    ALLOCATION STRATEGY:
+    - Model weights: cudaHostAlloc (pinned, mapped)
+    - KV cache: cudaMalloc (device only)
+    - Input/output buffers: cudaMallocManaged (unified)
+
+    For phi-2 Q4_K_M (1.7GB):
+    - Pageable: ~8 GB/s transfer
+    - Pinned: ~25 GB/s transfer
+    - Zero-copy: No transfer (GPU reads from host directly)
+
+    Trade-off: Pinned memory reduces available system RAM.
+    24GB VRAM on RTX 4090 can hold entire model in device memory.
