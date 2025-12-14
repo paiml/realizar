@@ -1226,11 +1226,11 @@ roadmap:
   github_issue: null
   item_type: task
   title: 'M4 Parity Verification: Measure GPU Performance vs Ollama'
-  status: planned
+  status: inprogress
   priority: high
   assigned_to: null
   created: 2025-12-14T19:55:00+00:00
-  updated: 2025-12-14T19:55:00+00:00
+  updated: 2025-12-14T19:08:36.787098446+00:00
   spec: docs/specifications/performance-parity-ollama-llamacpp-gpu-inference-llms.md
   acceptance_criteria:
   - Benchmark realizar GPU inference on RTX 4090 with phi-2 Q4_K_M

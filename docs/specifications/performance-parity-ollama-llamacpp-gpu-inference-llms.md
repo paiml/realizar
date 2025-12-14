@@ -3065,7 +3065,53 @@ cargo run -p trueno-gpu --example simple_attention_cuda --features cuda
 
 ---
 
-### 1.2 Performance Gap Analysis (REAL MEASUREMENTS - UPDATED 2025-12-13)
+### PARITY-035: M4 Parity Verification (✅ MEASURED 2025-12-14)
+
+**Goal:** Benchmark realizar vs Ollama on RTX 4090, verify M3/M4 targets
+
+**Benchmark Results (RTX 4090, phi2:2.7b Q4_K_M):**
+
+| Runtime | Throughput | Gap to Ollama | CV |
+|---------|------------|---------------|-----|
+| **Ollama** | **252.9 tok/s** | 1.0x (baseline) | 0.0247 |
+| Realizar CPU+KV | 5.25 tok/s | 48.2x | 0.0269 |
+| Realizar GPU (projected) | 10.0 tok/s | 25.3x | 0.0707 |
+
+**Milestone Status:**
+
+| Milestone | Target | Required tok/s | Status |
+|-----------|--------|----------------|--------|
+| **M3** | <5x gap | >50.6 tok/s | ❌ NOT YET |
+| **M4** | <1.25x gap | >202.3 tok/s | ❌ NOT YET |
+
+**Benchmark Configuration:**
+- Prompt: "Write a function that calculates the factorial of a number."
+- Max tokens: 50
+- Warmup: 2 iterations
+- Measurement: 5 iterations
+
+**Run Benchmark:**
+```bash
+cargo run --release --example parity_035_m4_verification
+```
+
+**Path to M3 (<5x gap, >50.6 tok/s):**
+1. Integrate `simple_attention_cuda` into full inference
+2. Add GPU GEMM for FFN layers
+3. Use CUDA streams for async execution
+
+**Path to M4 (<1.25x gap, >202.3 tok/s):**
+1. Implement FlashAttention fused kernel (O(N) memory)
+2. Add FP16 Tensor Core support
+3. Fuse Q4_K dequantize with GEMM
+4. Optimize memory transfers with pinned memory
+
+**Files Created:**
+- `examples/parity_035_m4_verification.rs` - Benchmark script
+
+---
+
+### 1.2 Performance Gap Analysis (REAL MEASUREMENTS - UPDATED 2025-12-14)
 
 | Comparison | Gap (Before) | Gap (After trueno) | Improvement |
 |------------|--------------|---------------------|-------------|
