@@ -7,6 +7,7 @@
 //!
 //! Run with: cargo run --release --example parity_036_gpu_attention --features cuda
 
+#[cfg(feature = "cuda")]
 use std::time::Instant;
 
 fn main() {
@@ -237,6 +238,7 @@ fn main() {
 
 /// CPU reference matvec: output = weight @ input
 /// weight: [m, k], input: [k], output: [m]
+#[cfg(feature = "cuda")]
 fn cpu_matvec(weight: &[f32], input: &[f32], output: &mut [f32], m: usize, k: usize) {
     for row in 0..m {
         let mut sum = 0.0f32;
