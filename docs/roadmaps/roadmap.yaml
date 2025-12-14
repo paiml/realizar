@@ -1368,11 +1368,11 @@ roadmap:
   github_issue: null
   item_type: task
   title: 'M4-Step1: FlashAttention Fused Kernel with O(N) Memory'
-  status: done
+  status: completed
   priority: critical
   assigned_to: null
   created: 2025-12-14T20:30:00+00:00
-  updated: 2025-12-14T22:15:00+00:00
+  updated: 2025-12-14T19:51:49.873810369+00:00
   spec: docs/specifications/performance-parity-ollama-llamacpp-gpu-inference-llms.md
   acceptance_criteria:
   - FlashAttention kernel with O(N) memory (not O(N²))
@@ -1404,11 +1404,11 @@ roadmap:
   github_issue: null
   item_type: task
   title: 'M4-Step2: FP16 Tensor Core Support for 2x FLOPS'
-  status: planned
+  status: in_progress
   priority: high
   assigned_to: null
   created: 2025-12-14T20:30:00+00:00
-  updated: 2025-12-14T20:30:00+00:00
+  updated: 2025-12-14T21:00:00+00:00
   spec: docs/specifications/performance-parity-ollama-llamacpp-gpu-inference-llms.md
   acceptance_criteria:
   - FP16 accumulation in attention and FFN
@@ -1425,20 +1425,38 @@ roadmap:
   - tensor-cores
   - p1-high
   notes: |
-    Tensor Cores provide 4x FLOPS over FP32 CUDA cores.
+    IN PROGRESS 2025-12-14: Baseline established, true Tensor Core needed
+
+    INITIAL BENCHMARK (parity_040_fp16_attention.rs):
+    Current FP16 path uses tiled GEMM (not true Tensor Cores):
+    - FP32 FlashAttention: 74.4 GFLOPS avg
+    - FP16 Tiled GEMM: 65.0 GFLOPS avg (1.1-1.5x SLOWER!)
+    - Root cause: gemm_fp16() uses KernelType::GemmTiled as placeholder
+
+    trueno-gpu ASSETS AVAILABLE:
+    - GemmKernel::tensor_core(m, n, k) - WMMA 16x16x16 tiles
+    - trueno-gpu/src/kernels/gemm.rs - Full Tensor Core implementation
+    - 8 WMMA tests passing
+    - CudaDeviceInfo/CudaMemoryInfo for monitoring
+
+    EXPECTED IMPROVEMENT (with true Tensor Cores):
+    - Attention GFLOPS: 74.4 → ~300 (4x)
+    - Attention time: 72.17ms → ~18ms
+    - Total: 78.70ms → 24.53ms
+    - Throughput: 12.7 tok/s → 40.8 tok/s (3.2x)
 
     RTX 4090 SPECS:
     - FP32: 82.6 TFLOPS (CUDA cores)
     - FP16: 165 TFLOPS (CUDA cores)
     - FP16 Tensor: 330 TFLOPS (4th gen Tensor Cores)
 
-    PTX INTRINSICS:
-    - wmma.load.a.sync.aligned.m16n16k16.f16
-    - wmma.load.b.sync.aligned.m16n16k16.f16
-    - wmma.mma.sync.aligned.m16n16k16.f16.f16
-    - wmma.store.d.sync.aligned.m16n16k16.f16
-
-    Requires model weights in FP16 or on-the-fly conversion.
+    IMPLEMENTATION STEPS:
+    1. [x] Create benchmark for FP16 vs FP32 comparison
+    2. [ ] Add half crate dependency for FP16 types
+    3. [ ] Wire trueno-gpu GemmKernel::tensor_core() to CudaExecutor
+    4. [ ] Implement FP16 buffer allocation in GpuBuffer
+    5. [ ] Convert Q/K/V to FP16 before attention
+    6. [ ] Benchmark true Tensor Core GEMM
 - id: PARITY-041
   github_issue: null
   item_type: task

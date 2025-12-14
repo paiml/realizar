@@ -1,6 +1,6 @@
 ---
 title: "Performance Parity: Ollama & llama.cpp GPU Inference for LLMs"
-version: "5.6.0"
+version: "5.7.0"
 status: Active
 authors:
   - Pragmatic AI Labs
@@ -12,7 +12,7 @@ issue_refs:
 
 # Performance Parity: Ollama & llama.cpp GPU Inference for LLMs
 
-**Version:** 5.6.0
+**Version:** 5.7.0
 **Status:** Active
 **Authors:** Pragmatic AI Labs
 **Date:** 2025-12-14
@@ -3295,6 +3295,114 @@ Benchmark testing CudaExecutor GEMM kernel vs CPU for FFN-sized operations.
 
 **Files Created:**
 - `examples/parity_039_flash_attention.rs` - FlashAttention benchmark
+
+---
+
+### trueno-gpu Monitoring Capabilities (Available for Performance Analysis)
+
+The `trueno-gpu` crate provides native CUDA monitoring infrastructure that can be integrated for real-time performance analysis:
+
+**Device Discovery (`trueno_gpu::monitor`):**
+```rust
+use trueno_gpu::monitor::{cuda_device_count, CudaDeviceInfo, CudaMemoryInfo};
+
+// Enumerate all CUDA devices
+let devices = CudaDeviceInfo::enumerate()?;
+for dev in &devices {
+    println!("[{}] {} - {} MB VRAM", dev.index, dev.name, dev.total_memory_mb());
+}
+```
+
+**Real-Time Memory Monitoring:**
+```rust
+use trueno_gpu::driver::CudaContext;
+use trueno_gpu::monitor::CudaMemoryInfo;
+
+let ctx = CudaContext::new(0)?;
+let mem = CudaMemoryInfo::query(&ctx)?;
+println!("Free: {} MB ({:.1}% used)", mem.free_mb(), mem.usage_percent());
+```
+
+**Available APIs:**
+| API | Purpose | Example |
+|-----|---------|---------|
+| `cuda_monitoring_available()` | Check CUDA driver | Returns `bool` |
+| `cuda_device_count()` | Count devices | Returns `Result<u32>` |
+| `CudaDeviceInfo::query(idx)` | Get device info | Name, VRAM, index |
+| `CudaDeviceInfo::enumerate()` | List all devices | Vec of device info |
+| `CudaMemoryInfo::query(&ctx)` | Real-time memory | Free/total/usage% |
+
+**Integration Points for Realizar:**
+1. Pre-flight GPU validation (before model load)
+2. VRAM monitoring during inference
+3. OOM prevention (check free memory before allocation)
+4. Multi-GPU device selection
+
+**Tensor Core GEMM (Available in trueno-gpu):**
+```rust
+use trueno_gpu::kernels::GemmKernel;
+
+// FP16 Tensor Core GEMM using WMMA 16x16x16 tiles
+let kernel = GemmKernel::tensor_core(m, n, k);
+```
+
+**Files Reference:**
+- `trueno-gpu/src/monitor.rs` - CUDA monitoring module
+- `trueno-gpu/src/driver.rs` - CudaContext management
+- `trueno-gpu/examples/cuda_monitor.rs` - Monitoring demo
+- `trueno-gpu/src/kernels/gemm.rs` - Tensor Core GEMM
+
+---
+
+### PARITY-040: FP16 Tensor Core Support (IN PROGRESS)
+
+**Problem:** Attention is now the bottleneck (91% of total time, 73.9 GFLOPS vs 514 GFLOPS for FFN).
+
+**Solution:** Leverage FP16 Tensor Cores for 2x theoretical FLOPS improvement.
+
+**trueno-gpu Assets:**
+- `GemmKernel::tensor_core(m, n, k)` - WMMA 16x16x16 tiles
+- FP16 accumulation for reduced memory bandwidth
+- Already implemented and tested (8 WMMA tests pass)
+
+**Initial Benchmark Results (2025-12-14):**
+
+Current FP16 path uses tiled GEMM (not true Tensor Cores):
+
+| Configuration | FP32 GFLOPS | FP16 GFLOPS | Speedup |
+|---------------|-------------|-------------|---------|
+| Small (64x64) | 8.2 | 5.5 | 0.67x slower |
+| Medium (128x64) | 25.7 | 20.0 | 0.78x slower |
+| phi-2 (256x64) | 70.6 | 63.8 | 0.90x slower |
+| Large (512x64) | 193.0 | 170.8 | 0.89x slower |
+
+**Analysis:**
+- Current FP16 path is 1.1-1.5x SLOWER (not using true Tensor Cores)
+- `gemm_fp16()` uses `KernelType::GemmTiled` as placeholder
+- Need to wire trueno-gpu `GemmKernel::tensor_core()` for real WMMA execution
+- True Tensor Cores require FP16 buffer support (half crate integration)
+
+**Expected Improvement (with true Tensor Cores):**
+| Component | Current | With FP16 TC | Improvement |
+|-----------|---------|--------------|-------------|
+| Attention GFLOPS | 74.4 | ~300 | 4x |
+| Attention time/tok | 72.17ms | ~18ms | 4x |
+| FFN time/tok | 6.53ms | 6.53ms | - |
+| Total time/tok | 78.70ms | 24.53ms | 3.2x |
+| Throughput | 12.7 tok/s | 40.8 tok/s | 3.2x |
+
+**Implementation Steps:**
+1. [x] Create benchmark for FP16 vs FP32 comparison
+2. [ ] Add half crate dependency for FP16 types
+3. [ ] Wire trueno-gpu `GemmKernel::tensor_core()` to CudaExecutor
+4. [ ] Implement FP16 buffer allocation in GpuBuffer
+5. [ ] Convert Q/K/V to FP16 before attention
+6. [ ] Benchmark true Tensor Core GEMM
+
+**Files Created:**
+- `examples/parity_040_fp16_attention.rs` - FP16 vs FP32 benchmark
+
+**Status:** In progress - baseline established, true Tensor Core integration needed
 
 ---
 
@@ -6990,6 +7098,11 @@ fi
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 5.7.0 | 2025-12-14 | **trueno-gpu Monitoring + PARITY-040 Baseline.** Added trueno-gpu monitoring capabilities section documenting device discovery and memory monitoring APIs (CudaDeviceInfo, CudaMemoryInfo). Created FP16 Tensor Core benchmark (parity_040_fp16_attention.rs). Key finding: Current FP16 path is 1.1-1.5x SLOWER because it uses tiled GEMM, not true Tensor Cores. FP32: 74.4 GFLOPS, FP16 Tiled: 65.0 GFLOPS. Need to wire trueno-gpu `GemmKernel::tensor_core()` with WMMA for real speedup. Expected 4x improvement once true Tensor Cores integrated. |
+| 5.6.0 | 2025-12-14 | **PARITY-039: FlashAttention Fused Kernel.** Verified FlashAttention implementation with O(N) memory complexity (35 tests pass). Benchmark results: 73.9 avg GFLOPS for attention. Key finding: Attention now bottleneck (91% of total time at 72.65ms vs FFN 6.53ms). Combined estimate: 12.6 tok/s. Memory savings verified: 32x reduction for seq_len=512. |
+| 5.5.0 | 2025-12-14 | **PARITY-038: CUDA Streams Async Execution.** Added multi-stream infrastructure to CudaExecutor (compute_stream, transfer_stream). 2x speedup (101.99µs vs 203.44µs per token). Estimated 153.2 tok/s for FFN-only path. M3 target achieved (>50.6 tok/s). Added async GEMM methods and GpuBuffer allocation. |
+| 5.4.0 | 2025-12-14 | **PARITY-037: Persistent GPU Weight Caching.** Weight caching eliminates 100MB H2D transfer per iteration. 36x speedup (203µs vs 7.3ms). Estimated 81.3 tok/s. Added load_weights(), gemm_cached(), clear_weights() to CudaExecutor. |
+| 5.3.0 | 2025-12-14 | **PARITY-036: GPU GEMM Performance Analysis.** Initial GPU GEMM benchmarking. Found GPU 10x SLOWER than CPU due to transfer overhead for m=1 MATVEC. GFLOPS: GPU 8.01, CPU 79.95. Identified solution: persistent weight caching. |
 | 5.2.0 | 2025-12-14 | **GPU Pixel Rendering + PTX Fixes (trueno-gpu).** Real GPU pixel computation on RTX 4090. Key changes: (1) **gpu_pixels_render example** - Pure TUI visualization of GPU-computed gradient (80x30 pixels in 87µs); (2) **PTX cvt fix** - Added rounding mode for float conversions (`cvt.rn.f32.u32`), critical for PTX JIT compilation; (3) **Attention kernel fix** - Changed shared memory addressing from u64 to u32 (bug found by probar pixel tests); (4) **GPU pixel tests** - 10 tests with TUI dashboard, probar integration. Pure Rust PTX generation → JIT → CUDA kernel execution → TUI rendering with Unicode block chars (░▒▓█) and ANSI 256-color. Zero Python/Node. |
 | 5.1.0 | 2025-12-14 | **QA Suite Complete + 95% Coverage.** All 50 QA tests (QA-001 to QA-050) passing. 2315 total tests, 95.00% function coverage, 92.02% region coverage. PARITY-030 and PARITY-031 marked complete. Fixed unused variable clippy warning in cuda.rs. Added registry.rs tests for replace/contains/len/is_empty. Performance test thresholds adjusted for coverage builds. |
 | 5.0.0 | 2025-12-14 | **IMP-800: TRUE GPU Parity Benchmark (M2 Milestone).** Added comprehensive GPU inference benchmark specification to prove TRUE parity by running realizar on GPU via trueno-gpu CUDA backend. Key components: (1) **IMP-800a** - Wire trueno-gpu CUDA into `forward_gpu()` method; (2) **IMP-800b** - GPU vs Ollama apples-to-apples benchmark with `GpuParityBenchmark` and `GpuParityResult` structs; (3) **IMP-800c** - Statistical gap analysis with falsifiable claims and Popper scoring; (4) **IMP-800d** - trueno-gpu stress testing integration. Target: <2x gap to Ollama (M2), <1.25x gap (M4). 16 tests required across 4 sub-milestones. Infrastructure: trueno-gpu Phase 8.1-8.2 (170 tests, 97.47% coverage). |
