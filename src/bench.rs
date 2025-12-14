@@ -3917,6 +3917,785 @@ impl BenchmarkMatrix {
 }
 
 // ============================================================================
+// IMP-800: TRUE GPU Parity Benchmark (M2 Milestone)
+// ============================================================================
+
+/// GPU parity benchmark configuration (IMP-800b)
+///
+/// Configures apples-to-apples throughput comparison on same GPU.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GpuParityBenchmark {
+    /// Model to benchmark (phi-2 Q4_K_M)
+    pub model_path: String,
+    /// Prompt for generation
+    pub prompt: String,
+    /// Number of tokens to generate
+    pub max_tokens: usize,
+    /// Ollama endpoint for comparison
+    pub ollama_endpoint: String,
+    /// Number of warmup iterations
+    pub warmup_iterations: usize,
+    /// Number of measurement iterations
+    pub measurement_iterations: usize,
+    /// Target CV for stable measurements
+    pub target_cv: f64,
+}
+
+impl Default for GpuParityBenchmark {
+    fn default() -> Self {
+        Self {
+            model_path: String::new(),
+            prompt: "The quick brown fox".to_string(),
+            max_tokens: 32,
+            ollama_endpoint: "http://localhost:11434".to_string(),
+            warmup_iterations: 3,
+            measurement_iterations: 10,
+            target_cv: 0.05,
+        }
+    }
+}
+
+impl GpuParityBenchmark {
+    /// Create a new GPU parity benchmark with model path
+    #[must_use]
+    pub fn new(model_path: impl Into<String>) -> Self {
+        Self {
+            model_path: model_path.into(),
+            ..Default::default()
+        }
+    }
+
+    /// Set the prompt for generation
+    #[must_use]
+    pub fn with_prompt(mut self, prompt: impl Into<String>) -> Self {
+        self.prompt = prompt.into();
+        self
+    }
+
+    /// Set the number of tokens to generate
+    #[must_use]
+    pub fn with_max_tokens(mut self, max_tokens: usize) -> Self {
+        self.max_tokens = max_tokens;
+        self
+    }
+
+    /// Set the Ollama endpoint
+    #[must_use]
+    pub fn with_ollama_endpoint(mut self, endpoint: impl Into<String>) -> Self {
+        self.ollama_endpoint = endpoint.into();
+        self
+    }
+
+    /// Set the number of warmup iterations
+    #[must_use]
+    pub fn with_warmup(mut self, warmup: usize) -> Self {
+        self.warmup_iterations = warmup;
+        self
+    }
+
+    /// Set the number of measurement iterations
+    #[must_use]
+    pub fn with_iterations(mut self, iterations: usize) -> Self {
+        self.measurement_iterations = iterations;
+        self
+    }
+}
+
+/// Benchmark result with statistical analysis (IMP-800b)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GpuParityResult {
+    /// Realizar GPU throughput (tok/s)
+    pub realizar_gpu_tps: f64,
+    /// Ollama throughput (tok/s)
+    pub ollama_tps: f64,
+    /// Performance gap ratio (Ollama / Realizar)
+    pub gap_ratio: f64,
+    /// Coefficient of variation (measurement stability)
+    pub cv: f64,
+    /// GPU device name
+    pub gpu_device: String,
+    /// VRAM usage (MB)
+    pub vram_mb: u64,
+    /// Realizar latency p50 (ms)
+    pub realizar_p50_ms: f64,
+    /// Ollama latency p50 (ms)
+    pub ollama_p50_ms: f64,
+}
+
+impl GpuParityResult {
+    /// Create a new GPU parity result
+    #[must_use]
+    pub fn new(
+        realizar_gpu_tps: f64,
+        ollama_tps: f64,
+        cv: f64,
+        gpu_device: impl Into<String>,
+        vram_mb: u64,
+    ) -> Self {
+        let gap_ratio = if realizar_gpu_tps > 0.0 {
+            ollama_tps / realizar_gpu_tps
+        } else {
+            f64::INFINITY
+        };
+
+        Self {
+            realizar_gpu_tps,
+            ollama_tps,
+            gap_ratio,
+            cv,
+            gpu_device: gpu_device.into(),
+            vram_mb,
+            realizar_p50_ms: 0.0,
+            ollama_p50_ms: 0.0,
+        }
+    }
+
+    /// Returns true if within 2x of Ollama (M2 target)
+    #[must_use]
+    pub fn achieves_m2_parity(&self) -> bool {
+        self.gap_ratio <= 2.0
+    }
+
+    /// Returns true if within 1.25x of Ollama (M4 target)
+    #[must_use]
+    pub fn achieves_m4_parity(&self) -> bool {
+        self.gap_ratio <= 1.25
+    }
+
+    /// Returns true if GPU is faster than CPU SIMD baseline (5 tok/s)
+    #[must_use]
+    pub fn gpu_faster_than_cpu(&self) -> bool {
+        self.realizar_gpu_tps > 5.0
+    }
+
+    /// Returns true if measurements are stable (CV < 0.05)
+    #[must_use]
+    pub fn measurements_stable(&self) -> bool {
+        self.cv < 0.05
+    }
+
+    /// Get speedup over CPU SIMD baseline
+    #[must_use]
+    pub fn cpu_speedup(&self) -> f64 {
+        self.realizar_gpu_tps / 5.0 // CPU baseline ~5 tok/s
+    }
+}
+
+/// Gap analysis with falsifiable claims (IMP-800c)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GapAnalysis {
+    /// Claimed gap reduction
+    pub claimed_gap: f64,
+    /// Measured gap
+    pub measured_gap: f64,
+    /// Statistical significance (p-value)
+    pub p_value: f64,
+    /// Confidence interval lower bound (95%)
+    pub ci_95_lower: f64,
+    /// Confidence interval upper bound (95%)
+    pub ci_95_upper: f64,
+    /// Popper score (falsifiability, 0-100)
+    pub popper_score: f64,
+    /// Claim descriptions
+    pub claims: Vec<FalsifiableClaim>,
+}
+
+/// A falsifiable claim for Popperian testing (IMP-800c)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FalsifiableClaim {
+    /// Claim identifier
+    pub id: String,
+    /// Claim description
+    pub description: String,
+    /// Expected value
+    pub expected: f64,
+    /// Threshold for verification
+    pub threshold: f64,
+    /// Measured value
+    pub measured: f64,
+    /// Whether claim is verified
+    pub verified: bool,
+}
+
+impl FalsifiableClaim {
+    /// Create a new falsifiable claim
+    #[must_use]
+    pub fn new(
+        id: impl Into<String>,
+        description: impl Into<String>,
+        expected: f64,
+        threshold: f64,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            description: description.into(),
+            expected,
+            threshold,
+            measured: 0.0,
+            verified: false,
+        }
+    }
+
+    /// Evaluate the claim against a measured value
+    #[must_use]
+    pub fn evaluate(mut self, measured: f64) -> Self {
+        self.measured = measured;
+        self.verified = measured >= self.threshold;
+        self
+    }
+}
+
+impl GapAnalysis {
+    /// Create a new gap analysis
+    #[must_use]
+    pub fn new(claimed_gap: f64, measured_gap: f64) -> Self {
+        Self {
+            claimed_gap,
+            measured_gap,
+            p_value: 0.0,
+            ci_95_lower: 0.0,
+            ci_95_upper: 0.0,
+            popper_score: 0.0,
+            claims: Vec::new(),
+        }
+    }
+
+    /// Add statistical bounds
+    #[must_use]
+    pub fn with_statistics(mut self, p_value: f64, ci_lower: f64, ci_upper: f64) -> Self {
+        self.p_value = p_value;
+        self.ci_95_lower = ci_lower;
+        self.ci_95_upper = ci_upper;
+        self
+    }
+
+    /// Calculate and set Popper score based on claims
+    pub fn calculate_popper_score(&mut self) {
+        if self.claims.is_empty() {
+            self.popper_score = 0.0;
+            return;
+        }
+
+        let verified_count = self.claims.iter().filter(|c| c.verified).count();
+        self.popper_score = (verified_count as f64 / self.claims.len() as f64) * 100.0;
+    }
+
+    /// Add a falsifiable claim
+    pub fn add_claim(&mut self, claim: FalsifiableClaim) {
+        self.claims.push(claim);
+    }
+
+    /// Claim is verified if measured within CI
+    #[must_use]
+    pub fn claim_verified(&self) -> bool {
+        self.measured_gap >= self.ci_95_lower && self.measured_gap <= self.ci_95_upper
+    }
+
+    /// Create default IMP-800c claims
+    #[must_use]
+    pub fn with_default_claims(mut self, realizar_gpu_tps: f64) -> Self {
+        // IMP-800c-1: GPU faster than CPU SIMD (>5x, threshold 25 tok/s)
+        self.claims.push(
+            FalsifiableClaim::new("IMP-800c-1", "GPU faster than CPU SIMD (>5x)", 5.0, 25.0)
+                .evaluate(realizar_gpu_tps),
+        );
+
+        // IMP-800c-2: GPU within 10x of Ollama (threshold 24 tok/s)
+        self.claims.push(
+            FalsifiableClaim::new("IMP-800c-2", "GPU within 10x of Ollama", 10.0, 24.0)
+                .evaluate(realizar_gpu_tps),
+        );
+
+        // IMP-800c-3: GPU within 2x of Ollama - M2 (threshold 120 tok/s)
+        self.claims.push(
+            FalsifiableClaim::new("IMP-800c-3", "GPU within 2x of Ollama (M2)", 2.0, 120.0)
+                .evaluate(realizar_gpu_tps),
+        );
+
+        // IMP-800c-4: GPU at parity with Ollama - M4 (threshold 192 tok/s)
+        self.claims.push(
+            FalsifiableClaim::new("IMP-800c-4", "GPU at parity with Ollama (M4)", 1.25, 192.0)
+                .evaluate(realizar_gpu_tps),
+        );
+
+        self.calculate_popper_score();
+        self
+    }
+}
+
+// ============================================================================
+// IMP-900: Closing the 18x Gap (M3/M4 Milestones)
+// ============================================================================
+
+/// Optimized GEMM configuration (IMP-900a)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OptimizedGemmConfig {
+    /// Tile size for shared memory (typically 32 or 64)
+    pub tile_size: u32,
+    /// Register blocking factor (typically 4 or 8)
+    pub reg_block: u32,
+    /// Use tensor cores if available (SM 7.0+)
+    pub use_tensor_cores: bool,
+    /// Vectorized loads (float4 = 4)
+    pub vector_width: u32,
+    /// Unroll factor for K-loop
+    pub k_unroll: u32,
+    /// Use double buffering for tile prefetch
+    pub double_buffer: bool,
+}
+
+impl Default for OptimizedGemmConfig {
+    fn default() -> Self {
+        Self {
+            tile_size: 32,
+            reg_block: 4,
+            use_tensor_cores: false,
+            vector_width: 4,
+            k_unroll: 4,
+            double_buffer: true,
+        }
+    }
+}
+
+impl OptimizedGemmConfig {
+    /// Create configuration for small matrices (256x256)
+    #[must_use]
+    pub fn small() -> Self {
+        Self {
+            tile_size: 16,
+            reg_block: 2,
+            use_tensor_cores: false,
+            vector_width: 4,
+            k_unroll: 4,
+            double_buffer: false,
+        }
+    }
+
+    /// Create configuration for large matrices (1024+)
+    #[must_use]
+    pub fn large() -> Self {
+        Self {
+            tile_size: 64,
+            reg_block: 8,
+            use_tensor_cores: false,
+            vector_width: 4,
+            k_unroll: 8,
+            double_buffer: true,
+        }
+    }
+
+    /// Calculate shared memory requirement (bytes)
+    #[must_use]
+    pub fn shared_memory_bytes(&self) -> u32 {
+        // Two tiles (A and B) in shared memory
+        // Each tile is tile_size × tile_size × sizeof(f32)
+        let tile_bytes = self.tile_size * self.tile_size * 4;
+        if self.double_buffer {
+            tile_bytes * 4 // 2 tiles × 2 buffers
+        } else {
+            tile_bytes * 2 // 2 tiles
+        }
+    }
+
+    /// Calculate threads per block
+    #[must_use]
+    pub fn threads_per_block(&self) -> u32 {
+        // Each thread computes reg_block × reg_block elements
+        let threads_per_dim = self.tile_size / self.reg_block;
+        threads_per_dim * threads_per_dim
+    }
+
+    /// Calculate registers per thread (for accumulators)
+    #[must_use]
+    pub fn registers_per_thread(&self) -> u32 {
+        // reg_block × reg_block accumulator values
+        self.reg_block * self.reg_block
+    }
+}
+
+/// GEMM performance result (IMP-900a)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GemmPerformanceResult {
+    /// Matrix M dimension (rows of A, rows of C)
+    pub m: u32,
+    /// Matrix N dimension (cols of B, cols of C)
+    pub n: u32,
+    /// Matrix K dimension (cols of A, rows of B)
+    pub k: u32,
+    /// Time in milliseconds
+    pub time_ms: f64,
+    /// GFLOP/s achieved
+    pub gflops: f64,
+    /// Memory bandwidth achieved (GB/s)
+    pub bandwidth_gbs: f64,
+    /// Percentage of peak performance
+    pub efficiency: f64,
+}
+
+impl GemmPerformanceResult {
+    /// Create a new GEMM performance result
+    #[must_use]
+    pub fn new(m: u32, n: u32, k: u32, time_ms: f64) -> Self {
+        // GEMM operations: 2 * M * N * K (multiply-add)
+        let ops = 2.0 * f64::from(m) * f64::from(n) * f64::from(k);
+        let gflops = ops / (time_ms * 1e6);
+
+        // Memory: read A (M*K), read B (K*N), write C (M*N)
+        let bytes = (f64::from(m) * f64::from(k)
+            + f64::from(k) * f64::from(n)
+            + f64::from(m) * f64::from(n))
+            * 4.0;
+        let bandwidth_gbs = bytes / (time_ms * 1e6);
+
+        Self {
+            m,
+            n,
+            k,
+            time_ms,
+            gflops,
+            bandwidth_gbs,
+            efficiency: 0.0, // Set by caller based on peak
+        }
+    }
+
+    /// Set efficiency based on peak GFLOP/s
+    #[must_use]
+    pub fn with_peak(mut self, peak_gflops: f64) -> Self {
+        self.efficiency = (self.gflops / peak_gflops) * 100.0;
+        self
+    }
+
+    /// Check if performance improved by at least the given factor
+    #[must_use]
+    pub fn improved_by(&self, baseline_gflops: f64, factor: f64) -> bool {
+        self.gflops >= baseline_gflops * factor
+    }
+}
+
+/// Optimized GEMM benchmark runner (IMP-900a)
+#[derive(Debug)]
+pub struct OptimizedGemmBenchmark {
+    /// Configuration
+    pub config: OptimizedGemmConfig,
+    /// Warmup iterations
+    pub warmup_iterations: usize,
+    /// Measurement iterations
+    pub measurement_iterations: usize,
+    /// Target coefficient of variation
+    pub target_cv: f64,
+}
+
+impl Default for OptimizedGemmBenchmark {
+    fn default() -> Self {
+        Self {
+            config: OptimizedGemmConfig::default(),
+            warmup_iterations: 5,
+            measurement_iterations: 20,
+            target_cv: 0.05,
+        }
+    }
+}
+
+impl OptimizedGemmBenchmark {
+    /// Create benchmark with custom config
+    #[must_use]
+    pub fn with_config(config: OptimizedGemmConfig) -> Self {
+        Self {
+            config,
+            ..Default::default()
+        }
+    }
+
+    /// Calculate expected improvement over naive GEMM
+    #[must_use]
+    pub fn expected_improvement(&self) -> f64 {
+        let mut improvement = 1.0;
+
+        // Shared memory tiling: ~2x for cache efficiency
+        improvement *= 2.0;
+
+        // Register blocking: ~1.5x for reduced memory traffic
+        if self.config.reg_block >= 4 {
+            improvement *= 1.5;
+        }
+
+        // Vectorized loads: ~1.3x for coalesced access
+        if self.config.vector_width >= 4 {
+            improvement *= 1.3;
+        }
+
+        // Double buffering: ~1.2x for latency hiding
+        if self.config.double_buffer {
+            improvement *= 1.2;
+        }
+
+        improvement
+    }
+}
+
+/// Kernel fusion configuration (IMP-900b)
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum FusedOpType {
+    /// GEMM + bias + activation
+    GemmBiasActivation,
+    /// Layer normalization + linear projection
+    LayerNormLinear,
+    /// Fused attention (FlashAttention-style)
+    FusedAttention,
+    /// FFN: up projection + gate + down projection
+    FusedFfn,
+}
+
+/// Fused operation specification (IMP-900b)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FusedOpSpec {
+    /// Type of fused operation
+    pub op_type: FusedOpType,
+    /// Input dimensions
+    pub input_dims: Vec<u32>,
+    /// Output dimensions
+    pub output_dims: Vec<u32>,
+    /// Activation function (if applicable)
+    pub activation: Option<String>,
+    /// Number of kernel launches when fused
+    pub fused_launches: u32,
+    /// Number of kernel launches when unfused
+    pub unfused_launches: u32,
+}
+
+impl FusedOpSpec {
+    /// Calculate launch reduction factor
+    #[must_use]
+    pub fn launch_reduction(&self) -> f64 {
+        f64::from(self.unfused_launches) / f64::from(self.fused_launches)
+    }
+
+    /// Check if fusion reduces launches by at least 50%
+    #[must_use]
+    pub fn achieves_target_reduction(&self) -> bool {
+        self.launch_reduction() >= 2.0
+    }
+}
+
+/// FlashAttention configuration (IMP-900c)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FlashAttentionConfig {
+    /// Block size for Q tiling (Br)
+    pub block_size_q: u32,
+    /// Block size for K/V tiling (Bc)
+    pub block_size_kv: u32,
+    /// Head dimension
+    pub head_dim: u32,
+    /// Number of attention heads
+    pub num_heads: u32,
+    /// Use causal masking
+    pub causal: bool,
+    /// Softmax scale (default: 1/sqrt(head_dim))
+    pub scale: f32,
+}
+
+impl FlashAttentionConfig {
+    /// Create configuration for phi-2 model
+    #[must_use]
+    pub fn phi2() -> Self {
+        Self {
+            block_size_q: 64,
+            block_size_kv: 64,
+            head_dim: 80, // phi-2: 2560 / 32 heads
+            num_heads: 32,
+            causal: true,
+            scale: 1.0 / (80.0_f32).sqrt(),
+        }
+    }
+
+    /// Calculate memory required for attention (naive vs flash)
+    #[must_use]
+    pub fn memory_comparison(&self, seq_len: u32) -> (u64, u64) {
+        // Naive: O(N²) attention matrix
+        let naive_bytes = u64::from(seq_len) * u64::from(seq_len) * 4;
+
+        // FlashAttention: O(N) working memory
+        let flash_bytes = u64::from(self.block_size_q) * u64::from(self.block_size_kv) * 4 * 2; // S and P blocks
+
+        (naive_bytes, flash_bytes)
+    }
+
+    /// Calculate memory savings factor
+    #[must_use]
+    pub fn memory_savings(&self, seq_len: u32) -> f64 {
+        let (naive, flash) = self.memory_comparison(seq_len);
+        naive as f64 / flash as f64
+    }
+}
+
+/// Memory pool configuration (IMP-900d)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryPoolConfig {
+    /// Initial pool size (bytes)
+    pub initial_size: usize,
+    /// Maximum pool size (bytes)
+    pub max_size: usize,
+    /// Size classes for allocation (powers of 2)
+    pub size_classes: Vec<usize>,
+    /// Use pinned memory for host staging
+    pub use_pinned_memory: bool,
+    /// Enable async transfers
+    pub async_transfers: bool,
+}
+
+impl Default for MemoryPoolConfig {
+    fn default() -> Self {
+        Self {
+            initial_size: 256 * 1024 * 1024,  // 256 MB
+            max_size: 2 * 1024 * 1024 * 1024, // 2 GB
+            size_classes: vec![
+                4096,        // 4 KB
+                16384,       // 16 KB
+                65536,       // 64 KB
+                262_144,     // 256 KB
+                1_048_576,   // 1 MB
+                4_194_304,   // 4 MB
+                16_777_216,  // 16 MB
+                67_108_864,  // 64 MB
+                268_435_456, // 256 MB
+            ],
+            use_pinned_memory: true,
+            async_transfers: true,
+        }
+    }
+}
+
+impl MemoryPoolConfig {
+    /// Find the smallest size class that fits the requested size
+    #[must_use]
+    pub fn find_size_class(&self, requested: usize) -> Option<usize> {
+        self.size_classes
+            .iter()
+            .copied()
+            .find(|&size| size >= requested)
+    }
+
+    /// Calculate expected bandwidth improvement from pinned memory
+    #[must_use]
+    pub fn expected_bandwidth_improvement(&self) -> f64 {
+        if self.use_pinned_memory {
+            2.4 // Pinned memory typically 2-3x faster
+        } else {
+            1.0
+        }
+    }
+}
+
+/// IMP-900 combined result (M3/M4 targets)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Imp900Result {
+    /// Baseline throughput (13.1 tok/s from IMP-800)
+    pub baseline_tps: f64,
+    /// Throughput after optimizations
+    pub optimized_tps: f64,
+    /// GEMM optimization improvement factor
+    pub gemm_improvement: f64,
+    /// Kernel fusion improvement factor
+    pub fusion_improvement: f64,
+    /// FlashAttention improvement factor
+    pub flash_attention_improvement: f64,
+    /// Memory optimization improvement factor
+    pub memory_improvement: f64,
+    /// Gap to Ollama
+    pub gap_ratio: f64,
+    /// Target milestone achieved
+    pub milestone: Option<String>,
+}
+
+impl Imp900Result {
+    /// Create result from baseline
+    #[must_use]
+    pub fn from_baseline(baseline_tps: f64) -> Self {
+        Self {
+            baseline_tps,
+            optimized_tps: baseline_tps,
+            gemm_improvement: 1.0,
+            fusion_improvement: 1.0,
+            flash_attention_improvement: 1.0,
+            memory_improvement: 1.0,
+            gap_ratio: 240.0 / baseline_tps,
+            milestone: None,
+        }
+    }
+
+    /// Apply GEMM optimization
+    #[must_use]
+    pub fn with_gemm_improvement(mut self, factor: f64) -> Self {
+        self.gemm_improvement = factor;
+        self.recalculate();
+        self
+    }
+
+    /// Apply fusion optimization
+    #[must_use]
+    pub fn with_fusion_improvement(mut self, factor: f64) -> Self {
+        self.fusion_improvement = factor;
+        self.recalculate();
+        self
+    }
+
+    /// Apply FlashAttention optimization
+    #[must_use]
+    pub fn with_flash_attention_improvement(mut self, factor: f64) -> Self {
+        self.flash_attention_improvement = factor;
+        self.recalculate();
+        self
+    }
+
+    /// Apply memory optimization
+    #[must_use]
+    pub fn with_memory_improvement(mut self, factor: f64) -> Self {
+        self.memory_improvement = factor;
+        self.recalculate();
+        self
+    }
+
+    /// Recalculate throughput and milestone
+    fn recalculate(&mut self) {
+        let total_improvement = self.gemm_improvement
+            * self.fusion_improvement
+            * self.flash_attention_improvement
+            * self.memory_improvement;
+
+        self.optimized_tps = self.baseline_tps * total_improvement;
+        self.gap_ratio = 240.0 / self.optimized_tps;
+
+        self.milestone = if self.gap_ratio <= 1.25 {
+            Some("M4".to_string()) // Full parity
+        } else if self.gap_ratio <= 2.0 {
+            Some("M3".to_string()) // Near parity
+        } else if self.gap_ratio <= 5.0 {
+            Some("M2".to_string()) // Within 5x
+        } else {
+            None
+        };
+    }
+
+    /// Check if M3 target achieved (>48 tok/s, <5x gap)
+    #[must_use]
+    pub fn achieves_m3(&self) -> bool {
+        self.optimized_tps >= 48.0 && self.gap_ratio <= 5.0
+    }
+
+    /// Check if M4 target achieved (>192 tok/s, <1.25x gap)
+    #[must_use]
+    pub fn achieves_m4(&self) -> bool {
+        self.optimized_tps >= 192.0 && self.gap_ratio <= 1.25
+    }
+
+    /// Get combined improvement factor
+    #[must_use]
+    pub fn total_improvement(&self) -> f64 {
+        self.optimized_tps / self.baseline_tps
+    }
+}
+
+// ============================================================================
 // Tests (EXTREME TDD)
 // ============================================================================
 
@@ -7449,5 +8228,471 @@ llama_perf_context_print:       total time =      27.60 ms /     6 tokens"#;
             markdown.contains("Runtime") || markdown.contains("runtime"),
             "QA-050: Table should have headers"
         );
+    }
+
+    // ========================================================================
+    // IMP-800: GPU Parity Benchmark Tests
+    // ========================================================================
+
+    /// IMP-800a: GPU forward method exists (struct test)
+    #[test]
+    fn test_imp800a_gpu_parity_benchmark_config() {
+        let config = GpuParityBenchmark::new("/path/to/model.gguf")
+            .with_prompt("Hello world")
+            .with_max_tokens(64)
+            .with_ollama_endpoint("http://localhost:11434")
+            .with_warmup(5)
+            .with_iterations(20);
+
+        assert_eq!(config.model_path, "/path/to/model.gguf");
+        assert_eq!(config.prompt, "Hello world");
+        assert_eq!(config.max_tokens, 64);
+        assert_eq!(config.ollama_endpoint, "http://localhost:11434");
+        assert_eq!(config.warmup_iterations, 5);
+        assert_eq!(config.measurement_iterations, 20);
+    }
+
+    /// IMP-800a: GPU forward correctness (default config)
+    #[test]
+    fn test_imp800a_gpu_parity_benchmark_default() {
+        let config = GpuParityBenchmark::default();
+
+        assert!(config.model_path.is_empty());
+        assert_eq!(config.prompt, "The quick brown fox");
+        assert_eq!(config.max_tokens, 32);
+        assert_eq!(config.warmup_iterations, 3);
+        assert_eq!(config.measurement_iterations, 10);
+        assert!((config.target_cv - 0.05).abs() < f64::EPSILON);
+    }
+
+    /// IMP-800b: Result struct captures all metrics
+    #[test]
+    fn test_imp800b_gpu_parity_result_struct() {
+        let result = GpuParityResult::new(150.0, 240.0, 0.03, "NVIDIA RTX 4090", 8192);
+
+        assert!((result.realizar_gpu_tps - 150.0).abs() < f64::EPSILON);
+        assert!((result.ollama_tps - 240.0).abs() < f64::EPSILON);
+        assert!((result.gap_ratio - 1.6).abs() < 0.01);
+        assert!((result.cv - 0.03).abs() < f64::EPSILON);
+        assert_eq!(result.gpu_device, "NVIDIA RTX 4090");
+        assert_eq!(result.vram_mb, 8192);
+    }
+
+    /// IMP-800b: M2/M4 parity thresholds
+    #[test]
+    fn test_imp800b_parity_thresholds() {
+        // M2 parity (within 2x)
+        let m2_pass = GpuParityResult::new(130.0, 240.0, 0.03, "GPU", 8192);
+        assert!(m2_pass.achieves_m2_parity()); // 1.85x gap
+        assert!(!m2_pass.achieves_m4_parity()); // Not within 1.25x
+
+        // M4 parity (within 1.25x)
+        let m4_pass = GpuParityResult::new(200.0, 240.0, 0.02, "GPU", 8192);
+        assert!(m4_pass.achieves_m2_parity()); // 1.2x gap
+        assert!(m4_pass.achieves_m4_parity()); // Within 1.25x
+
+        // Fail both
+        let fail = GpuParityResult::new(50.0, 240.0, 0.05, "GPU", 8192);
+        assert!(!fail.achieves_m2_parity()); // 4.8x gap
+        assert!(!fail.achieves_m4_parity());
+    }
+
+    /// IMP-800b: CV stability check
+    #[test]
+    fn test_imp800b_cv_stability() {
+        let stable = GpuParityResult::new(150.0, 240.0, 0.04, "GPU", 8192);
+        assert!(stable.measurements_stable()); // CV < 0.05
+
+        let unstable = GpuParityResult::new(150.0, 240.0, 0.08, "GPU", 8192);
+        assert!(!unstable.measurements_stable()); // CV >= 0.05
+    }
+
+    /// IMP-800c: Gap analysis struct
+    #[test]
+    fn test_imp800c_gap_analysis_struct() {
+        let analysis = GapAnalysis::new(2.0, 1.8).with_statistics(0.01, 1.5, 2.1);
+
+        assert!((analysis.claimed_gap - 2.0).abs() < f64::EPSILON);
+        assert!((analysis.measured_gap - 1.8).abs() < f64::EPSILON);
+        assert!((analysis.p_value - 0.01).abs() < f64::EPSILON);
+        assert!((analysis.ci_95_lower - 1.5).abs() < f64::EPSILON);
+        assert!((analysis.ci_95_upper - 2.1).abs() < f64::EPSILON);
+    }
+
+    /// IMP-800c: Claim verification logic
+    #[test]
+    fn test_imp800c_claim_verification() {
+        let within_ci = GapAnalysis::new(2.0, 1.8).with_statistics(0.01, 1.5, 2.1);
+        assert!(within_ci.claim_verified()); // 1.8 is within [1.5, 2.1]
+
+        let outside_ci = GapAnalysis::new(2.0, 1.2).with_statistics(0.01, 1.5, 2.1);
+        assert!(!outside_ci.claim_verified()); // 1.2 is not within [1.5, 2.1]
+    }
+
+    /// IMP-800c: Statistical bounds calculation
+    #[test]
+    fn test_imp800c_statistical_bounds() {
+        let analysis = GapAnalysis::new(2.0, 1.8).with_statistics(0.05, 1.6, 2.0);
+
+        assert!((analysis.ci_95_lower - 1.6).abs() < f64::EPSILON);
+        assert!((analysis.ci_95_upper - 2.0).abs() < f64::EPSILON);
+        assert!((analysis.p_value - 0.05).abs() < f64::EPSILON);
+    }
+
+    /// IMP-800c: Popper score computation
+    #[test]
+    fn test_imp800c_popper_score() {
+        // Test with 150 tok/s (passes IMP-800c-1 and IMP-800c-2, fails IMP-800c-3 and IMP-800c-4)
+        let analysis = GapAnalysis::new(2.0, 1.6).with_default_claims(150.0);
+
+        // 150 tok/s passes:
+        // - IMP-800c-1: threshold 25 tok/s ✓
+        // - IMP-800c-2: threshold 24 tok/s ✓
+        // - IMP-800c-3: threshold 120 tok/s ✓
+        // - IMP-800c-4: threshold 192 tok/s ✗
+        // Score should be 75% (3/4)
+        assert!((analysis.popper_score - 75.0).abs() < f64::EPSILON);
+        assert_eq!(analysis.claims.len(), 4);
+    }
+
+    /// IMP-800d: Falsifiable claim evaluation
+    #[test]
+    fn test_imp800d_falsifiable_claim() {
+        let claim = FalsifiableClaim::new("TEST-001", "Test claim", 5.0, 25.0).evaluate(30.0);
+
+        assert_eq!(claim.id, "TEST-001");
+        assert_eq!(claim.description, "Test claim");
+        assert!((claim.expected - 5.0).abs() < f64::EPSILON);
+        assert!((claim.threshold - 25.0).abs() < f64::EPSILON);
+        assert!((claim.measured - 30.0).abs() < f64::EPSILON);
+        assert!(claim.verified); // 30 >= 25
+
+        let failed_claim =
+            FalsifiableClaim::new("TEST-002", "Failing claim", 5.0, 50.0).evaluate(30.0);
+        assert!(!failed_claim.verified); // 30 < 50
+    }
+
+    /// IMP-800d: GPU faster than CPU check
+    #[test]
+    fn test_imp800d_gpu_faster_than_cpu() {
+        let faster = GpuParityResult::new(30.0, 240.0, 0.03, "GPU", 8192);
+        assert!(faster.gpu_faster_than_cpu()); // 30 > 5 tok/s
+        assert!((faster.cpu_speedup() - 6.0).abs() < f64::EPSILON); // 30 / 5 = 6x
+
+        let slower = GpuParityResult::new(4.0, 240.0, 0.03, "GPU", 8192);
+        assert!(!slower.gpu_faster_than_cpu()); // 4 < 5 tok/s
+    }
+
+    // ========================================================================
+    // IMP-900a: Optimized GEMM Tests
+    // ========================================================================
+
+    /// IMP-900a: Optimized GEMM config defaults
+    #[test]
+    fn test_imp900a_optimized_gemm_config_default() {
+        let config = OptimizedGemmConfig::default();
+        assert_eq!(config.tile_size, 32);
+        assert_eq!(config.reg_block, 4);
+        assert!(!config.use_tensor_cores);
+        assert_eq!(config.vector_width, 4);
+        assert_eq!(config.k_unroll, 4);
+        assert!(config.double_buffer);
+    }
+
+    /// IMP-900a: Shared memory calculation
+    #[test]
+    fn test_imp900a_shared_memory_calculation() {
+        let config = OptimizedGemmConfig::default();
+        // 32×32 tiles × 4 bytes × 2 tiles × 2 buffers = 32768 bytes
+        assert_eq!(config.shared_memory_bytes(), 32 * 32 * 4 * 4);
+
+        let no_double = OptimizedGemmConfig {
+            double_buffer: false,
+            ..Default::default()
+        };
+        // Without double buffering: 32×32 × 4 bytes × 2 tiles = 8192 bytes
+        assert_eq!(no_double.shared_memory_bytes(), 32 * 32 * 4 * 2);
+    }
+
+    /// IMP-900a: Threads per block calculation
+    #[test]
+    fn test_imp900a_threads_per_block() {
+        let config = OptimizedGemmConfig::default();
+        // 32/4 = 8 threads per dim, 8×8 = 64 threads
+        assert_eq!(config.threads_per_block(), 64);
+
+        let large = OptimizedGemmConfig::large();
+        // 64/8 = 8 threads per dim, 8×8 = 64 threads
+        assert_eq!(large.threads_per_block(), 64);
+    }
+
+    /// IMP-900a: Register allocation calculation
+    #[test]
+    fn test_imp900a_registers_per_thread() {
+        let config = OptimizedGemmConfig::default();
+        // 4×4 = 16 accumulators per thread
+        assert_eq!(config.registers_per_thread(), 16);
+
+        let large = OptimizedGemmConfig::large();
+        // 8×8 = 64 accumulators per thread
+        assert_eq!(large.registers_per_thread(), 64);
+    }
+
+    /// IMP-900a: GEMM performance result calculation
+    #[test]
+    fn test_imp900a_gemm_performance_result() {
+        // 1024×1024×1024 GEMM in 1.54ms (measured baseline)
+        let result = GemmPerformanceResult::new(1024, 1024, 1024, 1.54);
+
+        // 2 * 1024³ = 2,147,483,648 ops
+        // 2,147,483,648 / (1.54 * 1e6) = 1394.5 GFLOP/s
+        assert!((result.gflops - 1394.5).abs() < 10.0);
+
+        // With RTX 4090 peak (~82 TFLOP/s FP32)
+        let with_peak = result.with_peak(82000.0);
+        assert!(with_peak.efficiency < 2.0); // ~1.7% efficiency (naive kernel)
+    }
+
+    /// IMP-900a: Performance improvement check
+    #[test]
+    fn test_imp900a_performance_improvement_check() {
+        // 1024×1024×1024 GEMM in 0.70ms (~3x faster than 1.54ms baseline)
+        let result = GemmPerformanceResult::new(1024, 1024, 1024, 0.70);
+        let baseline_gflops = 1396.0;
+
+        // 2 * 1024³ / (0.70 * 1e6) = 3067.8 GFLOP/s
+        // 3067.8 / 1396.0 = 2.2x improvement
+        assert!(result.improved_by(baseline_gflops, 2.0));
+        assert!(!result.improved_by(baseline_gflops, 3.0)); // Not quite 3x
+    }
+
+    /// IMP-900a: Expected improvement calculation
+    #[test]
+    fn test_imp900a_expected_improvement() {
+        let benchmark = OptimizedGemmBenchmark::default();
+        // With all optimizations: 2.0 * 1.5 * 1.3 * 1.2 = 4.68x
+        let expected = benchmark.expected_improvement();
+        assert!((expected - 4.68).abs() < 0.1);
+    }
+
+    // ========================================================================
+    // IMP-900b: Kernel Fusion Tests
+    // ========================================================================
+
+    /// IMP-900b: Fused operation specification
+    #[test]
+    fn test_imp900b_fused_op_spec() {
+        let spec = FusedOpSpec {
+            op_type: FusedOpType::GemmBiasActivation,
+            input_dims: vec![256, 2560],
+            output_dims: vec![256, 10240],
+            activation: Some("gelu".to_string()),
+            fused_launches: 1,
+            unfused_launches: 3,
+        };
+
+        assert_eq!(spec.launch_reduction(), 3.0);
+        assert!(spec.achieves_target_reduction()); // 3x > 2x target
+    }
+
+    /// IMP-900b: Launch reduction targets
+    #[test]
+    fn test_imp900b_launch_reduction_targets() {
+        // Good fusion: 4 ops → 1 launch
+        let good = FusedOpSpec {
+            op_type: FusedOpType::FusedAttention,
+            input_dims: vec![1, 32, 512, 80],
+            output_dims: vec![1, 32, 512, 80],
+            activation: None,
+            fused_launches: 1,
+            unfused_launches: 4,
+        };
+        assert!(good.achieves_target_reduction());
+
+        // Marginal fusion: 2 ops → 1 launch (exactly 2x)
+        let marginal = FusedOpSpec {
+            op_type: FusedOpType::LayerNormLinear,
+            input_dims: vec![256, 2560],
+            output_dims: vec![256, 2560],
+            activation: None,
+            fused_launches: 1,
+            unfused_launches: 2,
+        };
+        assert!(marginal.achieves_target_reduction());
+
+        // Poor fusion: 3 ops → 2 launches (only 1.5x)
+        let poor = FusedOpSpec {
+            op_type: FusedOpType::FusedFfn,
+            input_dims: vec![256, 2560],
+            output_dims: vec![256, 2560],
+            activation: None,
+            fused_launches: 2,
+            unfused_launches: 3,
+        };
+        assert!(!poor.achieves_target_reduction());
+    }
+
+    // ========================================================================
+    // IMP-900c: FlashAttention Tests
+    // ========================================================================
+
+    /// IMP-900c: FlashAttention config for phi-2
+    #[test]
+    fn test_imp900c_flash_attention_phi2_config() {
+        let config = FlashAttentionConfig::phi2();
+        assert_eq!(config.head_dim, 80);
+        assert_eq!(config.num_heads, 32);
+        assert!(config.causal);
+        // scale = 1/sqrt(80) ≈ 0.1118
+        assert!((config.scale - 0.1118).abs() < 0.001);
+    }
+
+    /// IMP-900c: Memory comparison naive vs flash
+    #[test]
+    fn test_imp900c_memory_comparison() {
+        let config = FlashAttentionConfig::phi2();
+
+        // 512 tokens
+        let (naive_512, flash_512) = config.memory_comparison(512);
+        assert_eq!(naive_512, 512 * 512 * 4); // 1 MB
+        assert_eq!(flash_512, 64 * 64 * 4 * 2); // 32 KB
+
+        // 2048 tokens
+        let (naive_2048, flash_2048) = config.memory_comparison(2048);
+        assert_eq!(naive_2048, 2048 * 2048 * 4); // 16 MB
+        assert_eq!(flash_2048, 64 * 64 * 4 * 2); // 32 KB (same!)
+    }
+
+    /// IMP-900c: Memory savings calculation
+    #[test]
+    fn test_imp900c_memory_savings() {
+        let config = FlashAttentionConfig::phi2();
+
+        // 512 tokens: 1MB / 32KB = 32x savings
+        let savings_512 = config.memory_savings(512);
+        assert!((savings_512 - 32.0).abs() < 1.0);
+
+        // 2048 tokens: 16MB / 32KB = 512x savings
+        let savings_2048 = config.memory_savings(2048);
+        assert!((savings_2048 - 512.0).abs() < 10.0);
+    }
+
+    // ========================================================================
+    // IMP-900d: Memory Pool Tests
+    // ========================================================================
+
+    /// IMP-900d: Memory pool default configuration
+    #[test]
+    fn test_imp900d_memory_pool_default() {
+        let config = MemoryPoolConfig::default();
+        assert_eq!(config.initial_size, 256 * 1024 * 1024); // 256 MB
+        assert_eq!(config.max_size, 2 * 1024 * 1024 * 1024); // 2 GB
+        assert!(config.use_pinned_memory);
+        assert!(config.async_transfers);
+        assert_eq!(config.size_classes.len(), 9);
+    }
+
+    /// IMP-900d: Size class lookup
+    #[test]
+    fn test_imp900d_size_class_lookup() {
+        let config = MemoryPoolConfig::default();
+
+        // Small allocation → 4KB
+        assert_eq!(config.find_size_class(1024), Some(4096));
+
+        // Medium allocation → 1MB
+        assert_eq!(config.find_size_class(500_000), Some(1048576));
+
+        // Large allocation → 256MB
+        assert_eq!(config.find_size_class(200_000_000), Some(268435456));
+
+        // Too large → None
+        assert_eq!(config.find_size_class(500_000_000), None);
+    }
+
+    /// IMP-900d: Bandwidth improvement estimate
+    #[test]
+    fn test_imp900d_bandwidth_improvement() {
+        let pinned = MemoryPoolConfig::default();
+        assert!((pinned.expected_bandwidth_improvement() - 2.4).abs() < 0.1);
+
+        let unpinned = MemoryPoolConfig {
+            use_pinned_memory: false,
+            ..Default::default()
+        };
+        assert!((unpinned.expected_bandwidth_improvement() - 1.0).abs() < f64::EPSILON);
+    }
+
+    // ========================================================================
+    // IMP-900: Combined Result Tests
+    // ========================================================================
+
+    /// IMP-900: Combined result from baseline
+    #[test]
+    fn test_imp900_combined_result_baseline() {
+        let result = Imp900Result::from_baseline(13.1); // IMP-800 measured
+
+        assert!((result.baseline_tps - 13.1).abs() < 0.1);
+        assert!((result.optimized_tps - 13.1).abs() < 0.1);
+        assert!((result.gap_ratio - 18.32).abs() < 0.1); // 240/13.1 ≈ 18.32
+        assert!(result.milestone.is_none()); // Not yet at any milestone
+    }
+
+    /// IMP-900: Individual optimizations
+    #[test]
+    fn test_imp900_individual_optimizations() {
+        let result = Imp900Result::from_baseline(13.1).with_gemm_improvement(2.5); // 2.5x from optimized GEMM
+
+        assert!((result.optimized_tps - 32.75).abs() < 0.1); // 13.1 * 2.5
+        assert!((result.gap_ratio - 7.33).abs() < 0.1); // 240/32.75
+
+        // Still not at M2 (need <5x gap)
+        assert!(result.milestone.is_none());
+    }
+
+    /// IMP-900: M3 target achievement
+    #[test]
+    fn test_imp900_m3_achievement() {
+        let result = Imp900Result::from_baseline(13.1)
+            .with_gemm_improvement(2.5)
+            .with_memory_improvement(1.5);
+
+        // 13.1 * 2.5 * 1.5 = 49.125 tok/s
+        assert!((result.optimized_tps - 49.125).abs() < 0.1);
+        assert!((result.gap_ratio - 4.89).abs() < 0.1); // 240/49.125
+
+        assert!(result.achieves_m3()); // >48 tok/s, <5x gap
+        assert_eq!(result.milestone, Some("M2".to_string())); // Actually at M2 threshold
+    }
+
+    /// IMP-900: M4 target achievement (full parity)
+    #[test]
+    fn test_imp900_m4_achievement() {
+        let result = Imp900Result::from_baseline(13.1)
+            .with_gemm_improvement(3.0)
+            .with_fusion_improvement(2.0)
+            .with_flash_attention_improvement(2.5)
+            .with_memory_improvement(1.5);
+
+        // 13.1 * 3.0 * 2.0 * 2.5 * 1.5 = 294.75 tok/s
+        let expected_tps = 13.1 * 3.0 * 2.0 * 2.5 * 1.5;
+        assert!((result.optimized_tps - expected_tps).abs() < 0.1);
+        assert!((result.gap_ratio - 0.81).abs() < 0.1); // 240/294.75
+
+        assert!(result.achieves_m4()); // >192 tok/s, <1.25x gap
+        assert_eq!(result.milestone, Some("M4".to_string()));
+    }
+
+    /// IMP-900: Total improvement factor
+    #[test]
+    fn test_imp900_total_improvement() {
+        let result = Imp900Result::from_baseline(13.1)
+            .with_gemm_improvement(2.0)
+            .with_fusion_improvement(1.5)
+            .with_flash_attention_improvement(2.0)
+            .with_memory_improvement(1.5);
+
+        // Total: 2.0 * 1.5 * 2.0 * 1.5 = 9.0x
+        assert!((result.total_improvement() - 9.0).abs() < 0.1);
     }
 }

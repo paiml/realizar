@@ -142,6 +142,18 @@ realizar convert model.gguf --output model.apr  # Coming soon
 - **Large Models (LLMs)**: Use GGUF format → GPU acceleration essential
 - **Production**: Match your hardware to the right runtime/backend combo
 
+<!-- SERVER_BENCHMARK_START -->
+## Server Benchmark Results
+
+| Server | Mean Latency (ms) | Throughput (tok/s) |
+|--------|------------------|-------------------|
+| **realizar** | 0 | 0 |
+| Ollama | 98 | 263 |
+| llama.cpp | N/A | N/A |
+
+_Methodology: CV-based stopping per Hoefler & Belli SC15_
+<!-- SERVER_BENCHMARK_END -->
+
 ### Run Benchmarks
 
 #### Quick Start

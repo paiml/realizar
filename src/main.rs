@@ -371,22 +371,89 @@ async fn serve_demo(host: &str, port: u16) -> Result<()> {
     Ok(())
 }
 
-async fn serve_model(_host: &str, _port: u16, model_path: &str) -> Result<()> {
+async fn serve_model(host: &str, port: u16, model_path: &str) -> Result<()> {
+    use realizar::gguf::MappedGGUFModel;
+
     println!("Loading model from: {model_path}");
     println!();
 
-    let file_data = std::fs::read(model_path).map_err(|e| {
-        realizar::error::RealizarError::UnsupportedOperation {
-            operation: "read_model_file".to_string(),
-            reason: format!("Failed to read {model_path}: {e}"),
-        }
-    })?;
-
     if model_path.ends_with(".gguf") {
-        cli::load_gguf_model(&file_data)?;
+        // Load GGUF model
+        println!("Parsing GGUF file...");
+        let mapped = MappedGGUFModel::from_path(model_path).map_err(|e| {
+            realizar::error::RealizarError::UnsupportedOperation {
+                operation: "load_gguf".to_string(),
+                reason: format!("Failed to load GGUF: {e}"),
+            }
+        })?;
+
+        println!("Successfully loaded GGUF model");
+        println!("  Tensors: {}", mapped.model.tensors.len());
+        println!("  Metadata: {} entries", mapped.model.metadata.len());
+        println!();
+
+        // IMP-100: Use OwnedQuantizedModel with fused Q4_K ops (1.37x faster for single-token)
+        println!("Creating quantized model (fused Q4_K ops)...");
+        let quantized_model =
+            realizar::gguf::OwnedQuantizedModel::from_mapped(&mapped).map_err(|e| {
+                realizar::error::RealizarError::UnsupportedOperation {
+                    operation: "create_quantized".to_string(),
+                    reason: format!("Failed to create quantized model: {e}"),
+                }
+            })?;
+
+        println!("Quantized model created successfully!");
+        println!("  Vocab size: {}", quantized_model.config.vocab_size);
+        println!("  Hidden dim: {}", quantized_model.config.hidden_dim);
+        println!("  Layers: {}", quantized_model.layers.len());
+        println!();
+
+        // Use quantized model for serving (fused CPU ops are faster for m=1)
+        let state = realizar::api::AppState::with_quantized_model(quantized_model)?;
+        let app = realizar::api::create_router(state);
+
+        let addr: std::net::SocketAddr = format!("{host}:{port}").parse().map_err(|e| {
+            realizar::error::RealizarError::InvalidShape {
+                reason: format!("Invalid address: {e}"),
+            }
+        })?;
+
+        println!("Server listening on http://{addr}");
+        println!();
+        println!("Endpoints:");
+        println!("  GET  /health         - Health check");
+        println!("  POST /v1/completions - OpenAI-compatible completions (Q4_K fused)");
+        println!("  POST /generate       - Generate text (Q4_K fused)");
+        println!();
+
+        let listener = tokio::net::TcpListener::bind(addr).await.map_err(|e| {
+            realizar::error::RealizarError::UnsupportedOperation {
+                operation: "bind".to_string(),
+                reason: format!("Failed to bind: {e}"),
+            }
+        })?;
+
+        axum::serve(listener, app).await.map_err(|e| {
+            realizar::error::RealizarError::UnsupportedOperation {
+                operation: "serve".to_string(),
+                reason: format!("Server error: {e}"),
+            }
+        })?;
     } else if model_path.ends_with(".safetensors") {
+        let file_data = std::fs::read(model_path).map_err(|e| {
+            realizar::error::RealizarError::UnsupportedOperation {
+                operation: "read_model_file".to_string(),
+                reason: format!("Failed to read {model_path}: {e}"),
+            }
+        })?;
         cli::load_safetensors_model(&file_data)?;
     } else if model_path.ends_with(".apr") {
+        let file_data = std::fs::read(model_path).map_err(|e| {
+            realizar::error::RealizarError::UnsupportedOperation {
+                operation: "read_model_file".to_string(),
+                reason: format!("Failed to read {model_path}: {e}"),
+            }
+        })?;
         cli::load_apr_model(&file_data)?;
     } else {
         return Err(realizar::error::RealizarError::UnsupportedOperation {

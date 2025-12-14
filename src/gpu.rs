@@ -5439,7 +5439,7 @@ impl GpuModel {
             self.config.eps,
         );
 
-        // Copy weight refs for QKV (borrowck workaround)
+        // Reference QKV weight for matmul (indexed before mutable borrow in attention)
         let qkv_weight = &self.block_weights[block_idx].qkv_weight;
 
         // QKV projection (GPU accelerated, GQA: qkv_dim = hidden_dim + 2*kv_dim)
@@ -8286,6 +8286,7 @@ pub fn load_gguf_to_gpu(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     // ============================================================================
     // GpuCompute Tests (EXTREME TDD)
@@ -8476,7 +8477,7 @@ mod tests {
     // ============================================================================
 
     #[test]
-    #[ignore = "requires GPU"]
+    #[serial]
     fn test_gpu_backend_matmul() {
         let compute = GpuCompute::new(ComputeBackend::Gpu);
         if compute.is_err() {
@@ -8498,7 +8499,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires GPU"]
+    #[serial]
     fn test_gpu_backend_large_matmul_speedup() {
         use std::time::Instant;
 
@@ -8556,7 +8557,7 @@ mod tests {
     // ============================================================================
 
     #[test]
-    #[ignore = "Performance acceptance test - run separately without coverage overhead"]
+    #[serial]
     fn test_phase4_acceptance_gpu_throughput() {
         use std::time::Instant;
 

@@ -9,9 +9,6 @@
 //!
 //! Run: cargo run --release --example imp_800_kv_cache_falsification --features kv-cache
 
-use std::hint::black_box;
-use std::time::Instant;
-
 /// Simulate attention computation cost per token
 /// Real cost is O(n * d²) where n = seq_len, d = hidden_dim
 fn attention_cost_no_cache(seq_len: usize, hidden_dim: usize, num_heads: usize) -> f64 {
@@ -169,8 +166,6 @@ fn main() {
 
 #[cfg(feature = "kv-cache")]
 fn test_trueno_db_kv() {
-    use std::sync::Arc;
-
     // We can't use async in main easily, so simulate the KV store performance
     println!("Testing trueno-db MemoryKvStore...");
 

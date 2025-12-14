@@ -74,10 +74,7 @@ fn main() {
             // Simplified - real would be 4x hidden_dim intermediate
             hidden = hidden
                 .iter()
-                .map(|x| {
-                    let gelu = 0.5 * x * (1.0 + (0.7978846 * (x + 0.044715 * x.powi(3))).tanh());
-                    gelu
-                })
+                .map(|x| 0.5 * x * (1.0 + (0.7978846 * (x + 0.044715 * x.powi(3))).tanh()))
                 .collect();
         }
 

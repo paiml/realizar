@@ -499,4 +499,74 @@ mod tests {
         // Both should point to the same underlying model
         assert!(Arc::ptr_eq(&model1, &model2));
     }
+
+    #[test]
+    fn test_replace_model() {
+        let registry = ModelRegistry::new(5);
+        let (model1, tokenizer1) = create_test_model();
+        let (model2, tokenizer2) = create_test_model();
+
+        // Register initial model
+        registry.register("test-model", model1, tokenizer1).unwrap();
+        assert_eq!(registry.len(), 1);
+
+        // Replace with new model
+        registry.replace("test-model", model2, tokenizer2).unwrap();
+        assert_eq!(registry.len(), 1);
+
+        // Verify replacement worked
+        let (retrieved, _) = registry.get("test-model").unwrap();
+        assert!(Arc::strong_count(&retrieved) >= 2);
+    }
+
+    #[test]
+    fn test_replace_nonexistent_model() {
+        let registry = ModelRegistry::new(5);
+        let (model, tokenizer) = create_test_model();
+
+        // Try to replace a model that doesn't exist
+        let result = registry.replace("nonexistent", model, tokenizer);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_contains_method() {
+        let registry = ModelRegistry::new(5);
+        let (model, tokenizer) = create_test_model();
+
+        assert!(!registry.contains("test-model"));
+        registry.register("test-model", model, tokenizer).unwrap();
+        assert!(registry.contains("test-model"));
+    }
+
+    #[test]
+    fn test_is_empty_method() {
+        let registry = ModelRegistry::new(5);
+        assert!(registry.is_empty());
+
+        let (model, tokenizer) = create_test_model();
+        registry.register("test-model", model, tokenizer).unwrap();
+        assert!(!registry.is_empty());
+    }
+
+    #[test]
+    fn test_get_info_nonexistent() {
+        let registry = ModelRegistry::new(5);
+        let result = registry.get_info("nonexistent");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_len_method() {
+        let registry = ModelRegistry::new(5);
+        assert_eq!(registry.len(), 0);
+
+        let (model1, tokenizer1) = create_test_model();
+        registry.register("model-1", model1, tokenizer1).unwrap();
+        assert_eq!(registry.len(), 1);
+
+        let (model2, tokenizer2) = create_test_model();
+        registry.register("model-2", model2, tokenizer2).unwrap();
+        assert_eq!(registry.len(), 2);
+    }
 }
