@@ -719,7 +719,12 @@ pub struct CudaExecutor {
     // Persistent weight buffers on GPU (PARITY-037)
     // These are loaded once at startup and reused for all forward passes
     weight_cache: HashMap<String, GpuBuffer<f32>>,
-    // Stream must be dropped before context (cuStreamDestroy needs valid context)
+    // Compute stream for kernel execution (PARITY-038)
+    compute_stream: CudaStream,
+    // Transfer stream for async H2D/D2H copies (PARITY-038)
+    // Runs in parallel with compute_stream for overlapped execution
+    transfer_stream: CudaStream,
+    // Legacy alias for compute_stream (kept for backward compatibility)
     stream: CudaStream,
     // Context MUST be dropped LAST (cuDevicePrimaryCtxRelease invalidates all handles)
     context: CudaContext,
@@ -737,7 +742,10 @@ impl CudaExecutor {
     /// Returns error if CUDA is not available or device doesn't exist.
     pub fn new(device_ordinal: i32) -> Result<Self, GpuError> {
         let context = CudaContext::new(device_ordinal)?;
-        let stream = CudaStream::new(&context)?;
+        // PARITY-038: Create multiple streams for overlapped execution
+        let compute_stream = CudaStream::new(&context)?;
+        let transfer_stream = CudaStream::new(&context)?;
+        let stream = CudaStream::new(&context)?; // Legacy stream for backward compatibility
 
         Ok(Self {
             // Initialize in struct declaration order (for clarity)
@@ -745,6 +753,8 @@ impl CudaExecutor {
             memory_pool: GpuMemoryPool::new(),
             modules: HashMap::new(),
             weight_cache: HashMap::new(),
+            compute_stream,
+            transfer_stream,
             stream,
             context, // Last field - dropped last
         })
@@ -840,6 +850,160 @@ impl CudaExecutor {
     /// Clear all cached weights (releases GPU memory)
     pub fn clear_weights(&mut self) {
         self.weight_cache.clear();
+    }
+
+    // ========================================================================
+    // PARITY-038: Multi-Stream Async Execution
+    // ========================================================================
+
+    /// Synchronize compute stream only (wait for kernel execution)
+    pub fn synchronize_compute(&self) -> Result<(), GpuError> {
+        self.compute_stream.synchronize()
+    }
+
+    /// Synchronize transfer stream only (wait for H2D/D2H transfers)
+    pub fn synchronize_transfer(&self) -> Result<(), GpuError> {
+        self.transfer_stream.synchronize()
+    }
+
+    /// Synchronize all streams (compute + transfer)
+    pub fn synchronize_all(&self) -> Result<(), GpuError> {
+        self.compute_stream.synchronize()?;
+        self.transfer_stream.synchronize()?;
+        self.stream.synchronize()?;
+        Ok(())
+    }
+
+    /// Execute async GEMM using cached weights on compute stream (PARITY-038)
+    ///
+    /// This launches the kernel without waiting for completion.
+    /// Call `synchronize_compute()` to wait for the result.
+    ///
+    /// # Arguments
+    ///
+    /// * `weight_name` - Name of cached weight tensor
+    /// * `input_buf` - Pre-allocated GPU buffer for input B
+    /// * `output_buf` - Pre-allocated GPU buffer for output C
+    /// * `m`, `n`, `k` - Matrix dimensions
+    ///
+    /// # Safety
+    ///
+    /// Input and output buffers must remain valid until stream is synchronized.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if weights not found or kernel fails to launch.
+    pub fn gemm_cached_async(
+        &mut self,
+        weight_name: &str,
+        input_buf: &GpuBuffer<f32>,
+        output_buf: &GpuBuffer<f32>,
+        m: u32,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        // Get cached weights
+        let weight_ptr = self
+            .weight_cache
+            .get(weight_name)
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!("Weight '{}' not cached", weight_name))
+            })?
+            .as_ptr();
+
+        // Generate/load kernel
+        let kernel_type = KernelType::GemmTiled {
+            m,
+            n,
+            k,
+            tile_size: 32,
+        };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("gemm_{}_{}_{}_{}", m, n, k, 32);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // Launch config
+        let config = LaunchConfig::grid_2d((m + 31) / 32, (n + 31) / 32, 32, 32);
+
+        // Launch on compute stream (non-blocking)
+        let mut ptr_a = weight_ptr;
+        let mut ptr_b = input_buf.as_ptr();
+        let mut ptr_c = output_buf.as_ptr();
+        let mut m_val = m as i32;
+        let mut n_val = n as i32;
+        let mut k_val = k as i32;
+
+        // SAFETY: Buffers valid, caller ensures lifetime
+        unsafe {
+            self.compute_stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    &mut ptr_a as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_b as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_c as *mut _ as *mut std::ffi::c_void,
+                    &mut m_val as *mut _ as *mut std::ffi::c_void,
+                    &mut n_val as *mut _ as *mut std::ffi::c_void,
+                    &mut k_val as *mut _ as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// Allocate a GPU buffer for async operations (PARITY-038)
+    ///
+    /// Returns a buffer that can be used with async copy and GEMM operations.
+    pub fn allocate_buffer(&self, len: usize) -> Result<GpuBuffer<f32>, GpuError> {
+        GpuBuffer::new(&self.context, len)
+    }
+
+    /// Async copy from host to GPU buffer on transfer stream (PARITY-038)
+    ///
+    /// # Safety
+    ///
+    /// Host data must remain valid until transfer stream is synchronized.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if copy fails.
+    pub unsafe fn copy_to_gpu_async(
+        &self,
+        buf: &mut GpuBuffer<f32>,
+        data: &[f32],
+    ) -> Result<(), GpuError> {
+        // SAFETY: Caller guarantees data remains valid until stream sync
+        unsafe { buf.copy_from_host_async(data, &self.transfer_stream) }
+    }
+
+    /// Async copy from GPU buffer to host on transfer stream (PARITY-038)
+    ///
+    /// # Safety
+    ///
+    /// Host buffer must remain valid until transfer stream is synchronized.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if copy fails.
+    pub unsafe fn copy_from_gpu_async(
+        &self,
+        buf: &GpuBuffer<f32>,
+        data: &mut [f32],
+    ) -> Result<(), GpuError> {
+        // SAFETY: Caller guarantees data remains valid until stream sync
+        unsafe { buf.copy_to_host_async(data, &self.transfer_stream) }
     }
 
     /// Execute GEMM using cached weights: C = cached_A @ B (PARITY-037)
