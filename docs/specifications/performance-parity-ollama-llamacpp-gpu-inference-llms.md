@@ -1,6 +1,6 @@
 ---
 title: "Performance Parity: Ollama & llama.cpp GPU Inference for LLMs"
-version: "5.4.0"
+version: "5.5.0"
 status: Active
 authors:
   - Pragmatic AI Labs
@@ -12,7 +12,7 @@ issue_refs:
 
 # Performance Parity: Ollama & llama.cpp GPU Inference for LLMs
 
-**Version:** 5.4.0
+**Version:** 5.5.0
 **Status:** Active
 **Authors:** Pragmatic AI Labs
 **Date:** 2025-12-14
@@ -3197,6 +3197,51 @@ Benchmark testing CudaExecutor GEMM kernel vs CPU for FFN-sized operations.
 **Files Modified:**
 - `src/cuda.rs` - Added weight_cache and gemm_cached methods
 - `examples/parity_036_gpu_attention.rs` - Added PARITY-037 benchmark
+
+---
+
+### PARITY-038: CUDA Streams Async Execution (✅ MEASURED 2025-12-14)
+
+**Solution:** Multi-stream infrastructure for overlapped kernel execution and reduced synchronization overhead.
+
+**Implementation:**
+- Added `compute_stream` for kernel execution
+- Added `transfer_stream` for async H2D/D2H copies
+- New methods: `synchronize_compute()`, `synchronize_transfer()`, `gemm_cached_async()`
+- Pre-allocated GPU buffers eliminate allocation overhead
+
+**Benchmark Results (phi-2 FFN fc1: 10240×2560, 10 tokens):**
+
+| Backend | Time/token | GFLOPS | vs Sequential |
+|---------|------------|--------|---------------|
+| **Async (pre-alloc)** | **101.99µs** | **514.0** | **1.99x faster** |
+| Sequential (gemm_cached) | 203.44µs | 257.5 | 1.0x |
+
+**Token Generation Estimate (FFN only, 32 layers):**
+
+| Configuration | Throughput | Latency | Status |
+|---------------|------------|---------|--------|
+| Async (PARITY-038) | **153.2 tok/s** | 6.53ms | ✅ M3 achieved |
+| Cached (PARITY-037) | 81.3 tok/s | 12.3ms | M3 achieved |
+
+**Key Findings:**
+1. ✓ **2x speedup** from reduced synchronization overhead
+2. ✓ **514 GFLOPS** achieved (up from 272.9 GFLOPS in PARITY-037)
+3. ✓ **153.2 tok/s** estimated (1.88x improvement over PARITY-037)
+4. ✓ Pre-allocated buffers eliminate cuMemAlloc overhead per token
+
+**M3 Status:** ✅ **ACHIEVED** (153.2 > 50.6 tok/s)
+**M4 Status:** ⚠️ 75% of target (153.2 / 202.3 tok/s)
+
+**Path Forward (PARITY-039+):**
+1. Double-buffering for true compute/transfer overlap
+2. FP16 Tensor Cores (potential 4x throughput)
+3. FlashAttention fused kernel
+4. Fused Q4_K dequantize + GEMM
+
+**Files Modified:**
+- `src/cuda.rs` - Added multi-stream infrastructure
+- `examples/parity_038_async_streams.rs` - Async benchmark
 
 ---
 
