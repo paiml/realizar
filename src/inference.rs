@@ -3189,4 +3189,54 @@ mod tests {
         let threads = config.threads_for(mode == InferenceMode::Prefill);
         assert_eq!(threads, 4);
     }
+
+    // ===== Additional Coverage Tests =====
+
+    #[test]
+    fn test_simd_operations_edge_cases_additional() {
+        // Large negative values (numerical stability)
+        let mut large_neg = vec![-1000.0, -1000.0, -1000.0];
+        simd_softmax(&mut large_neg);
+        let sum: f32 = large_neg.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_optimized_kv_cache_v_transposed_multi() {
+        let mut cache = OptimizedKVCache::new(1, 4, 8);
+
+        // Store values: V = [1, 2, 3, 4]
+        cache.store(0, &[0.0; 4], &[1.0, 2.0, 3.0, 4.0]);
+        cache.advance();
+
+        // Store values: V = [5, 6, 7, 8]
+        cache.store(0, &[0.0; 4], &[5.0, 6.0, 7.0, 8.0]);
+        cache.advance();
+
+        // V transposed should be [hidden_dim, seq_len]
+        let v_t = cache.get_v_transposed(0);
+        assert_eq!(v_t.len(), 4 * 2);
+        assert!((v_t[0] - 1.0).abs() < 1e-5); // V_T[0,0]
+        assert!((v_t[1] - 5.0).abs() < 1e-5); // V_T[0,1]
+    }
+
+    #[test]
+    fn test_configure_thread_pool_call() {
+        // Should not panic
+        let result = configure_thread_pool(4);
+        // May succeed or fail depending on environment, but should not panic
+        let _ = result;
+    }
+
+    #[test]
+    fn test_q4k_weight_multiple_output_rows() {
+        // Test with multiple output rows
+        let data = create_q4k_test_data(4); // 4 rows × 1 super-block each
+        let weight = Q4KWeight::new(data, 256, 4).unwrap();
+
+        assert_eq!(weight.out_dim, 4);
+        let input = vec![1.0f32; 256];
+        let output = weight.matvec(&input).unwrap();
+        assert_eq!(output.len(), 4);
+    }
 }

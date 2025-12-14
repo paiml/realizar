@@ -25,8 +25,8 @@ redundant_clone = "warn"
 [dependencies]
 # OUR ecosystem - SIMD/GPU compute primitives (we control this)
 trueno = { version = "0.8.1", features = ["gpu"] }
-# CUDA PTX generation for NVIDIA GPUs (optional, pure Rust, no LLVM/nvcc)
-trueno-gpu = { version = "0.1", optional = true }
+# CUDA PTX generation and runtime for NVIDIA GPUs (optional, pure Rust, no LLVM/nvcc)
+trueno-gpu = { path = "../trueno/trueno-gpu", optional = true, features = ["cuda"] }
 # KV cache storage (for attention caching)
 trueno-db = { version = "0.3", optional = true }
 
@@ -101,6 +101,9 @@ smallvec = "1.13"
 [dev-dependencies]
 # Benchmarking
 criterion = { version = "0.5", features = ["html_reports"] }
+
+# Serial test execution for GPU tests (CUDA context conflicts)
+serial_test = "3"
 
 # Rich terminal output for examples (progress bars, colors, tables)
 indicatif = "0.17"
@@ -211,6 +214,11 @@ harness = false
 name = "performance_parity"
 harness = false
 
+[[bench]]
+name = "cuda_executor"
+harness = false
+required-features = ["cuda"]
+
 [[example]]
 name = "build_mnist_model"
 required-features = ["aprender-serve"]
@@ -233,6 +241,22 @@ required-features = ["alimentar-data"]
 
 [[example]]
 name = "performance_parity"
+
+[[example]]
+name = "cuda_debug"
+required-features = ["cuda"]
+
+[[example]]
+name = "imp800_gpu_parity"
+required-features = ["cuda"]
+
+[[example]]
+name = "imp900_optimized_gpu"
+required-features = ["cuda"]
+
+[[example]]
+name = "imp_801_flash_attention_falsification"
+required-features = ["cuda"]
 
 [profile.release]
 opt-level = 3

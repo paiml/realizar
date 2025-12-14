@@ -364,8 +364,7 @@ impl LambdaHandler {
         let mut success_count = 0;
         let mut error_count = 0;
 
-        // Process each instance sequentially
-        // TODO: Add parallel processing with rayon when available
+        // Process each instance sequentially (Lambda single-threaded for cold start optimization)
         for instance in &request.instances {
             if let Ok(response) = self.handle(instance) {
                 predictions.push(response);

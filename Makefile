@@ -10,7 +10,7 @@
 .PHONY: mutants-generate mutants-report mutants-clean mutation-file mutate mutate-fast
 .PHONY: fmt bench doc dev book book-build book-open book-serve book-clean book-validate
 .PHONY: bench-inference-all bench-pytorch-inference bench-cpu-inference bench-wgpu
-.PHONY: bench-gguf-gpu-inference bench-apr-gpu-inference
+.PHONY: bench-gguf-gpu-inference bench-apr-gpu-inference bench-server-matrix
 .DEFAULT_GOAL := help
 
 # Color output
@@ -324,6 +324,11 @@ bench-apr-gpu-inference: ## APR format GPU inference vs GGUF
 		cargo bench --bench comparative; \
 	fi
 	@echo "$(GREEN)✅ APR vs GGUF benchmark complete$(NC)"
+
+bench-server-matrix: ## Benchmark Ollama vs llama.cpp servers (updates README)
+	@echo "$(GREEN)Running server benchmark matrix...$(NC)"
+	@./scripts/bench-server-matrix.sh
+	@echo "$(GREEN)✅ Server benchmark complete$(NC)"
 
 # === Documentation ===
 

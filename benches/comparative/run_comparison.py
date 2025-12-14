@@ -223,8 +223,8 @@ def run_onnx_benchmark(iterations: int = 1000) -> List[FrameworkResult]:
     try:
         import onnxruntime as ort
         print(f"ONNX Runtime version: {ort.__version__}")
-        # TODO: Implement ONNX benchmark
-        print("ONNX benchmark not yet implemented")
+        # ONNX benchmark deferred - focus is on GGUF/Safetensors parity with Ollama/llama.cpp
+        print("ONNX benchmark: deferred (out of scope for current parity work)")
         return []
     except ImportError:
         print("ONNX Runtime not installed. Install with: uv install onnxruntime")

@@ -1400,4 +1400,118 @@ mod tests {
         let _ = runner.run();
         assert_eq!(runner.passed_checks().len(), 1);
     }
+
+    // =========================================================================
+    // IMP-143: Real-World Server Verification Tests (EXTREME TDD)
+    // =========================================================================
+    // These tests verify actual connectivity to external servers.
+    // Run with: cargo test test_imp_143 --lib -- --ignored
+
+    /// IMP-143a: Verify llama.cpp server preflight check works with real server
+    #[test]
+    #[ignore = "Requires running llama.cpp server on port 8082"]
+    fn test_imp_143a_llamacpp_real_server_check() {
+        // This test requires: llama-server -m model.gguf --host 127.0.0.1 --port 8082
+        let mut check = ServerAvailabilityCheck::llama_cpp(8082);
+
+        // Attempt real connection
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .expect("IMP-143a: Should create HTTP client");
+
+        let health_url = check.health_url();
+        match client.get(&health_url).send() {
+            Ok(response) => {
+                let status = response.status().as_u16();
+                check.set_health_status(status);
+
+                // IMP-143a: If server is running, check should pass
+                let result = check.validate();
+                assert!(
+                    result.is_ok(),
+                    "IMP-143a: llama.cpp server check should pass when server is running. Status: {}, Error: {:?}",
+                    status,
+                    result.err()
+                );
+            },
+            Err(e) => {
+                panic!(
+                    "IMP-143a: Could not connect to llama.cpp server at {}. \
+                    Start with: llama-server -m model.gguf --host 127.0.0.1 --port 8082. \
+                    Error: {}",
+                    health_url, e
+                );
+            },
+        }
+    }
+
+    /// IMP-143b: Verify Ollama server preflight check works with real server
+    #[test]
+    #[ignore = "Requires running Ollama server on port 11434"]
+    fn test_imp_143b_ollama_real_server_check() {
+        // This test requires: ollama serve
+        let mut check = ServerAvailabilityCheck::ollama(11434);
+
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .expect("IMP-143b: Should create HTTP client");
+
+        let health_url = check.health_url();
+        match client.get(&health_url).send() {
+            Ok(response) => {
+                let status = response.status().as_u16();
+                check.set_health_status(status);
+
+                // IMP-143b: If server is running, check should pass
+                let result = check.validate();
+                assert!(
+                    result.is_ok(),
+                    "IMP-143b: Ollama server check should pass when server is running. Status: {}, Error: {:?}",
+                    status,
+                    result.err()
+                );
+            },
+            Err(e) => {
+                panic!(
+                    "IMP-143b: Could not connect to Ollama server at {}. \
+                    Start with: ollama serve. \
+                    Error: {}",
+                    health_url, e
+                );
+            },
+        }
+    }
+
+    /// IMP-143c: Preflight runner should detect server availability
+    #[test]
+    fn test_imp_143c_preflight_detects_unavailable_server() {
+        // Use a port that's unlikely to have a server running
+        let mut check = ServerAvailabilityCheck::llama_cpp(59999);
+        check.set_health_status(0); // Connection refused simulated
+
+        // IMP-143c: Check should fail for unavailable server
+        let result = check.validate();
+        assert!(
+            result.is_err(),
+            "IMP-143c: Preflight should detect unavailable server"
+        );
+    }
+
+    /// IMP-143d: Preflight reports correct error for connection failures
+    #[test]
+    fn test_imp_143d_preflight_error_reporting() {
+        let mut check = ServerAvailabilityCheck::llama_cpp(59998);
+        check.set_health_status(503); // Service unavailable
+
+        let result = check.validate();
+        match result {
+            Err(PreflightError::HealthCheckFailed { status, url, .. }) => {
+                assert_eq!(status, 503, "IMP-143d: Should report correct status code");
+                assert!(url.contains("59998"), "IMP-143d: Should report correct URL");
+            },
+            _ => panic!("IMP-143d: Should return HealthCheckFailed error"),
+        }
+    }
 }

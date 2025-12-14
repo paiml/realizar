@@ -4,8 +4,6 @@
 //!
 //! Run: cargo run --release --example imp_801_flash_attention_falsification --features cuda
 
-use std::time::Instant;
-
 fn main() {
     println!("=== IMP-801: FlashAttention CUDA Falsification ===");
     println!("Claim: trueno-gpu FlashAttention provides 10-50x speedup\n");

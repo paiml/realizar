@@ -142,11 +142,18 @@ pub mod cli;
 pub mod convert;
 /// CUDA PTX generation for NVIDIA GPUs
 ///
-/// Provides native CUDA kernel generation via trueno-gpu.
+/// Provides native CUDA kernel generation and execution via trueno-gpu.
 /// - Pure Rust PTX generation (no LLVM, no nvcc)
 /// - Hand-optimized kernels: GEMM, Softmax, LayerNorm, Attention, Q4K
 /// - FlashAttention-style tiled attention
+/// - Full CUDA runtime via trueno-gpu driver (context, stream, memory)
 #[cfg(feature = "cuda")]
+#[allow(
+    clippy::borrow_as_ptr,
+    clippy::ptr_as_ptr,
+    clippy::many_single_char_names,
+    clippy::manual_div_ceil
+)]
 pub mod cuda;
 pub mod error;
 /// Model explainability (SHAP, Attention)

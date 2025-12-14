@@ -197,6 +197,9 @@ benchmark_server() {
 EOF
 }
 
+# Project root for realizar
+REALIZAR_ROOT="${REALIZAR_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+
 # Start llama.cpp GPU server if not running
 if ! curl -s http://localhost:8082/health > /dev/null 2>&1; then
     if [[ -x "$LLAMA_CPP_PATH" ]] && [[ -f "$MODEL_DIR/${MODELS[0]}" ]]; then
@@ -207,8 +210,35 @@ if ! curl -s http://localhost:8082/health > /dev/null 2>&1; then
     fi
 fi
 
+# Start realizar GPU server if not running (IMP-093)
+REALIZAR_PORT=9999
+REALIZAR_PID=""
+if ! curl -s http://localhost:$REALIZAR_PORT/health > /dev/null 2>&1; then
+    if [[ -f "$MODEL_DIR/${MODELS[1]}" ]]; then
+        echo "Starting realizar GPU server..."
+        cargo run --release --features gpu --bin realizar --manifest-path "$REALIZAR_ROOT/Cargo.toml" \
+            -- serve --model "$MODEL_DIR/${MODELS[1]}" --port $REALIZAR_PORT > /tmp/realizar_bench.log 2>&1 &
+        REALIZAR_PID=$!
+        echo "Waiting for realizar to load model (this may take 30-60 seconds)..."
+        for i in {1..60}; do
+            if curl -s http://localhost:$REALIZAR_PORT/health > /dev/null 2>&1; then
+                echo "Realizar ready after ${i}s"
+                break
+            fi
+            sleep 1
+        done
+    fi
+fi
+
 # Initialize results file
 echo "[" > "$RESULTS_DIR/benchmark_gpu_matrix_${TIMESTAMP}.json"
+
+# Benchmark realizar GPU (IMP-093)
+if curl -s http://localhost:$REALIZAR_PORT/health > /dev/null 2>&1; then
+    benchmark_server "realizar_gpu" "$REALIZAR_PORT" "/generate" \
+        '{"prompt": "Hello, world!", "max_tokens": 30}'
+    echo "," >> "$RESULTS_DIR/benchmark_gpu_matrix_${TIMESTAMP}.json"
+fi
 
 # Benchmark llama.cpp GPU
 benchmark_server "llama_cpp_gpu" "8082" "/completion" \
@@ -225,6 +255,9 @@ echo "]" >> "$RESULTS_DIR/benchmark_gpu_matrix_${TIMESTAMP}.json"
 # Cleanup
 if [[ -n "${LLAMA_PID:-}" ]]; then
     kill "$LLAMA_PID" 2>/dev/null || true
+fi
+if [[ -n "${REALIZAR_PID:-}" ]]; then
+    kill "$REALIZAR_PID" 2>/dev/null || true
 fi
 
 echo -e "${GREEN}╔════════════════════════════════════════════════════════════════╗${NC}"

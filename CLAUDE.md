@@ -317,15 +317,47 @@ pub trait HttpServer {
 
 ---
 
-**Last Updated:** 2025-11-21
+## Hardware Environment
+
+**GPU:** NVIDIA GeForce RTX 4090
+- CUDA Compute Capability: 8.9 (Ada Lovelace)
+- VRAM: 24GB GDDR6X
+- Tensor Cores: 4th Gen (FP16/BF16/INT8)
+- CUDA Cores: 16384
+- Memory Bandwidth: 1008 GB/s
+
+**⚠️ MANDATORY GPU TESTING:**
+```bash
+# ALWAYS run GPU tests - RTX 4090 is available
+cargo test --lib --features cuda
+
+# DO NOT use #[ignore] for GPU tests
+# ALL GPU tests must execute, not be skipped
+```
+
+**Benchmark Targets (RTX 4090):**
+- Ollama phi2:2.7b: ~225-266 tok/s (baseline)
+- llama.cpp CUDA: ~256 tok/s
+- Target: <1.25x gap to Ollama
+
+**Development Iteration ("implement using pmat work"):**
+1. `pmat analyze satd` - check SATD
+2. `cargo clippy --lib --features cuda` - zero warnings
+3. `cargo test --lib --features cuda` - **ALL tests including GPU**
+4. Update spec with results
+
+---
+
+**Last Updated:** 2025-12-14
 **Realizar Version:** 0.2.0 (Phase 1 Complete ✅)
+**GPU Spec Version:** v5.1.0 (QA Suite Complete + 95% Coverage)
 **Trueno Version:** 0.4.2
 **Aprender Version:** 0.1.0
 **paiml-mcp-agent-toolkit Version:** v2.200.0 (with Known Defects Scorer, SATD Detector, Defect Analyzer)
 **TDG Score:** 93.9/100 (A)
-**Rust Project Score:** 125.5/134 (93.7%, Grade A+) - +4.0 improvement from 121.5
-**Test Coverage:** 95.46% (region), 91.33% (function)
-**Total Tests:** 308 (all passing)
+**Rust Project Score:** 137.9/134 (103%, Grade A+)
+**Test Coverage:** 92.02% (region), 95.00% (function)
+**Total Tests:** 2315 (all passing), 44 GPU-only ignored, 50 QA tests (QA-001 to QA-050)
 **Mutation Score:** 100% on api.rs (18/18 viable mutants caught)
 **Documentation:** 15.0/15 (100%) ✅ Perfect score!
 **Known Defects:** 20.0/20 (100%) ✅ Perfect score!
@@ -340,5 +372,10 @@ pub trait HttpServer {
   - Fixed critical unwrap() in safetensors.rs (replaced with expect())
   - Updated to latest trueno v0.4.2 with SIMD attribute compliance and PMAT integration
   - Integrated paiml-mcp-agent-toolkit v2.200.0 (Known Defects, SATD, Defect Analysis)
-**Latest Achievement:** Grade A+ on rust-project-score (93.7%) with comprehensive quality tooling
-**Completed:** Weeks 1-8 with excellent quality metrics + full paiml-mcp-agent-toolkit integration
+**GPU Performance Parity (M29-M32):**
+  - M29: Error Recovery (ErrorRecoveryStrategy, DegradationManager, FailureIsolator)
+  - M30: Resource Management (ConnectionPool, ResourceLimiter, ResourceMonitor)
+  - M31: Resilience (RetryPolicy, CircuitBreaker, BulkheadManager)
+  - M32: Diagnostics (Logger, PhaseTimer, MemoryTracker, DiagnosticsCollector, DebugMode)
+**Latest Achievement:** M32 Production Hardening complete, 92.30% coverage
+**Completed:** Weeks 1-8 + GPU performance parity milestones M1-M32

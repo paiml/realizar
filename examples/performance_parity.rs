@@ -868,6 +868,7 @@ fn bench_gpu_token_generation() -> BenchResult {
         vocab_size: 1000,
         hidden_dim: 256,
         num_heads: 4,
+        num_kv_heads: 4,
         num_layers: 2,
         intermediate_dim: 512,
         eps: 1e-5,
@@ -917,11 +918,12 @@ fn bench_large_model_simulation() -> BenchResult {
     let intermediate_dim = 2752usize;
 
     let config = GpuModelConfig {
-        vocab_size,       // Full vocab size
-        hidden_dim,       // 1/4 of 7B hidden_dim (4096 -> 1024)
-        num_heads,        // 1/4 of 7B heads (32 -> 8)
-        num_layers,       // 1/8 of 7B layers (32 -> 4)
-        intermediate_dim, // 1/4 of 7B intermediate (11008 -> 2752)
+        vocab_size,              // Full vocab size
+        hidden_dim,              // 1/4 of 7B hidden_dim (4096 -> 1024)
+        num_heads,               // 1/4 of 7B heads (32 -> 8)
+        num_kv_heads: num_heads, // MHA: kv_heads = heads
+        num_layers,              // 1/8 of 7B layers (32 -> 4)
+        intermediate_dim,        // 1/4 of 7B intermediate (11008 -> 2752)
         eps: 1e-5,
     };
 
@@ -1096,6 +1098,7 @@ fn bench_production_parity() -> BenchResult {
         vocab_size,
         hidden_dim,
         num_heads,
+        num_kv_heads: num_heads,
         num_layers,
         intermediate_dim,
         eps: 1e-5,
@@ -1493,6 +1496,7 @@ fn bench_gguf_gpu_loading() -> BenchResult {
         vocab_size: 8192,       // Reduced vocab (fits in 128MB buffer limit)
         hidden_dim: 2048,       // 1B-scale hidden
         num_heads: 16,          // 1B-scale heads
+        num_kv_heads: 16,       // MHA: kv_heads = heads
         num_layers: 16,         // 1B-scale layers
         intermediate_dim: 5504, // 1B-scale FFN (~2.7x hidden)
         eps: 1e-5,
@@ -1541,6 +1545,7 @@ fn bench_e2e_text_generation() -> BenchResult {
         vocab_size: 1024,       // Small vocab for benchmark
         hidden_dim: 512,        // Reasonable hidden dim
         num_heads: 8,           // 8 heads
+        num_kv_heads: 8,        // MHA: kv_heads = heads
         num_layers: 4,          // 4 layers for benchmark
         intermediate_dim: 1024, // 2x hidden
         eps: 1e-5,
@@ -1601,6 +1606,7 @@ fn bench_apples_to_apples() -> BenchResult {
         vocab_size: 2048,       // Small vocab for speed
         hidden_dim: 512,        // Reasonable hidden dim
         num_heads: 8,           // 8 heads
+        num_kv_heads: 8,        // MHA: kv_heads = heads
         num_layers: 6,          // 6 layers
         intermediate_dim: 1024, // 2x hidden
         eps: 1e-5,
@@ -1691,6 +1697,7 @@ fn bench_kv_cached_generation() -> BenchResult {
         vocab_size: 2048,
         hidden_dim: 512,
         num_heads: 8,
+        num_kv_heads: 8,
         num_layers: 8, // More layers = more benefit from KV cache
         intermediate_dim: 1024,
         eps: 1e-5,
@@ -2681,6 +2688,7 @@ fn bench_memory_compute_optimization() -> BenchResult {
         vocab_size: 2048,
         hidden_dim: 256,
         num_heads: 8,
+        num_kv_heads: 8,
         num_layers: 4,
         intermediate_dim: 512,
         eps: 1e-5,
@@ -2772,6 +2780,7 @@ fn bench_fused_kernels() -> BenchResult {
         vocab_size: 2048,
         hidden_dim: 256,
         num_heads: 8,
+        num_kv_heads: 8,
         num_layers: 4,
         intermediate_dim: 512,
         eps: 1e-5,
@@ -2900,6 +2909,7 @@ fn bench_optimized_generation() -> BenchResult {
         vocab_size: 2048,
         hidden_dim: 256,
         num_heads: 8,
+        num_kv_heads: 8,
         num_layers: 4,
         intermediate_dim: 512,
         eps: 1e-5,
