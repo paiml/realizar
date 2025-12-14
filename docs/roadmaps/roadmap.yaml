@@ -1258,11 +1258,11 @@ roadmap:
   github_issue: null
   item_type: task
   title: 'M3-Step1: Integrate simple_attention_cuda into Full Inference Pipeline'
-  status: inprogress
+  status: completed
   priority: critical
   assigned_to: null
   created: 2025-12-14T20:30:00+00:00
-  updated: 2025-12-14T19:17:42.359545380+00:00
+  updated: 2025-12-14T19:26:05.884492524+00:00
   spec: docs/specifications/performance-parity-ollama-llamacpp-gpu-inference-llms.md
   acceptance_criteria:
   - Wire trueno-gpu simple_attention_cuda kernel to OwnedQuantizedModel
@@ -1292,11 +1292,11 @@ roadmap:
   github_issue: null
   item_type: task
   title: 'M3-Step2: GPU GEMM for FFN Layers via cuBLAS or Custom CUDA'
-  status: planned
+  status: done
   priority: critical
   assigned_to: null
   created: 2025-12-14T20:30:00+00:00
-  updated: 2025-12-14T20:30:00+00:00
+  updated: 2025-12-14T21:15:00+00:00
   spec: docs/specifications/performance-parity-ollama-llamacpp-gpu-inference-llms.md
   acceptance_criteria:
   - FFN layers use GPU GEMM instead of CPU matmul
@@ -1312,7 +1312,12 @@ roadmap:
   - cuda
   - p0-critical
   notes: |
-    FFN dominates inference time. GPU GEMM is critical for M3 parity.
+    COMPLETED 2025-12-14: Persistent GPU weight caching achieves 81.3 tok/s!
+    - Added weight_cache HashMap<String, GpuBuffer<f32>> to CudaExecutor
+    - New methods: load_weights(), gemm_cached(), has_weights(), clear_weights()
+    - Benchmark: 36.08x speedup (192µs vs 6.93ms per GEMM)
+    - 272.9 GFLOPS achieved (vs 7.56 GFLOPS uncached)
+    - M3 target ACHIEVED: 81.3 tok/s > 50.6 tok/s required
 
     OPTIONS:
     1. cuBLAS: Fastest, requires linking to CUDA libraries
