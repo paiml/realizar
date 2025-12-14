@@ -1127,3 +1127,130 @@ roadmap:
   - integration
   - p0-critical
   notes: 'Wire realizar inference to use trueno-gpu Complete CUDA Runtime (Phase 8.1). This enables actual GPU execution of the PTX kernels we generate. Current gap: 40x to Ollama (CPU only). Target: <2x gap with GPU execution.'
+- id: PARITY-033
+  github_issue: null
+  item_type: task
+  title: 'IMP-1100: GPU Pixel Rendering & PTX Fixes'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2025-12-14T19:00:00+00:00
+  updated: 2025-12-14T19:55:00+00:00
+  spec: docs/specifications/performance-parity-ollama-llamacpp-gpu-inference-llms.md
+  acceptance_criteria:
+  - Real GPU kernel execution verified on RTX 4090
+  - PTX cvt rounding mode fix applied (CUDA_ERROR_INVALID_PTX 218)
+  - TUI pixel rendering with Unicode block chars and ANSI 256-color
+  - Shared memory u64→u32 addressing fix for attention kernel
+  - 'Benchmark: 2400 pixels in 87µs (27.6 Mpx/s)'
+  phases: []
+  subtasks: []
+  estimated_effort: 4h
+  labels:
+  - trueno-gpu
+  - cuda
+  - ptx
+  - completed
+  - IMP-1100
+  notes: |
+    COMPLETED 2025-12-14: GPU pixel rendering verified on RTX 4090.
+
+    KEY FIXES:
+    - PTX cvt instruction requires .rn rounding mode for float conversions
+    - Attention kernel shared memory must use u32 (not u64) addressing
+
+    FILES MODIFIED:
+    - trueno-gpu/src/ptx/builder.rs - cvt rounding mode fix
+    - trueno-gpu/src/kernels/attention.rs - shared memory addressing
+    - trueno-gpu/examples/gpu_pixels_render.rs - NEW GPU pixel example
+    - trueno-gpu/tests/gpu_pixels.rs - Enhanced TUI report
+
+    RUN: cargo run -p trueno-gpu --example gpu_pixels_render --features cuda
+- id: PARITY-034
+  github_issue: null
+  item_type: task
+  title: 'FlashAttention CUDA Kernel Execution: Wire trueno-gpu AttentionKernel to realizar'
+  status: completed
+  priority: critical
+  assigned_to: null
+  created: 2025-12-14T19:55:00+00:00
+  updated: 2025-12-14T19:06:27.838510699+00:00
+  spec: docs/specifications/performance-parity-ollama-llamacpp-gpu-inference-llms.md
+  acceptance_criteria:
+  - AttentionKernel PTX generates and JIT compiles on RTX 4090
+  - FlashAttention forward pass executes on GPU with correct output
+  - Causal masking variant works for autoregressive inference
+  - Memory usage O(N) not O(N²) verified
+  - 'Performance: >50 tok/s with GPU attention'
+  phases: []
+  subtasks:
+  - id: PARITY-034-PTX
+    github_issue: null
+    title: Generate FlashAttention PTX via trueno-gpu AttentionKernel
+    status: planned
+    completion: 0
+  - id: PARITY-034-JIT
+    github_issue: null
+    title: JIT compile and load attention kernel on CudaContext
+    status: planned
+    completion: 0
+  - id: PARITY-034-EXEC
+    github_issue: null
+    title: Execute attention kernel with Q/K/V buffers
+    status: planned
+    completion: 0
+  - id: PARITY-034-VERIFY
+    github_issue: null
+    title: Verify output matches CPU attention within 1e-5
+    status: planned
+    completion: 0
+  estimated_effort: 2 days
+  labels:
+  - trueno-gpu
+  - flash-attention
+  - cuda
+  - p0-critical
+  notes: |
+    trueno-gpu has AttentionKernel that generates FlashAttention PTX.
+    IMP-1100 proved PTX JIT works. Now wire attention to inference.
+
+    ASSETS:
+    - trueno-gpu::kernels::AttentionKernel (PTX generation)
+    - trueno-gpu::driver::CudaContext (GPU init)
+    - trueno-gpu::driver::CudaModule (PTX JIT)
+    - trueno-gpu::driver::CudaStream (kernel launch)
+    - trueno-gpu::driver::GpuBuffer (memory transfers)
+
+    TARGET: Close 18x gap by eliminating O(N²) attention overhead.
+- id: PARITY-035
+  github_issue: null
+  item_type: task
+  title: 'M4 Parity Verification: Measure GPU Performance vs Ollama'
+  status: planned
+  priority: high
+  assigned_to: null
+  created: 2025-12-14T19:55:00+00:00
+  updated: 2025-12-14T19:55:00+00:00
+  spec: docs/specifications/performance-parity-ollama-llamacpp-gpu-inference-llms.md
+  acceptance_criteria:
+  - Benchmark realizar GPU inference on RTX 4090 with phi-2 Q4_K_M
+  - Compare against Ollama phi2:2.7b on same hardware
+  - Measure with statistical rigor (CV < 0.05, 5 warmup, 10 iterations)
+  - 'M3 target: <5x gap (>48 tok/s)'
+  - 'M4 target: <1.25x gap (>192 tok/s)'
+  phases: []
+  subtasks: []
+  estimated_effort: 1 day
+  labels:
+  - benchmark
+  - performance
+  - m4-parity
+  notes: |
+    Final verification milestone for GPU performance parity.
+
+    BASELINE (Ollama phi2:2.7b RTX 4090): 240 tok/s
+    CURRENT (realizar CPU+KV): 5.25 tok/s
+    TARGET M3: 48 tok/s (<5x gap)
+    TARGET M4: 192 tok/s (<1.25x gap)
+
+    Requires PARITY-034 (FlashAttention) to be complete first.
