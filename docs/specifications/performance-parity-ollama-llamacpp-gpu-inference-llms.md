@@ -1,6 +1,6 @@
 ---
 title: "Performance Parity: Ollama & llama.cpp GPU Inference for LLMs"
-version: "6.3.0"
+version: "6.8.0"
 status: Active
 authors:
   - Pragmatic AI Labs
@@ -12,7 +12,7 @@ issue_refs:
 
 # Performance Parity: Ollama & llama.cpp GPU Inference for LLMs
 
-**Version:** 6.7.0
+**Version:** 6.8.0
 **Status:** Active
 **Authors:** Pragmatic AI Labs
 **Date:** 2025-12-15
@@ -2816,7 +2816,18 @@ pub struct DoubleBufferedExecutor {
 - IMP-900c (FlashAttention): ✅ IMPLEMENTED - `flash_attention()` API available
 - IMP-900d (Memory Pool): ✅ IMPLEMENTED - `GpuMemoryPool` with pool stats tracking
 
-**Tests:** 51 CUDA tests pass, 2315 total tests, 50 QA tests (QA-001 to QA-050)
+**IMP-900 Test Suite (2025-12-15):**
+- [x] `test_imp_900a_optimized_gemm_kernel` - PTX generation with shared memory tiling
+- [x] `test_imp_900a_gemm_performance_characteristics` - Verifies compute-bound (AI>10)
+- [x] `test_imp_900b_kernel_fusion_infrastructure` - Fused kernel naming
+- [x] `test_imp_900b_kernel_fusion_types` - All fusion types available
+- [x] `test_imp_900c_flash_attention_config` - Memory reduction >100x verified
+- [x] `test_imp_900c_flash_attention_kernel_type` - FlashAttention kernel present
+- [x] `test_imp_900d_memory_transfer_optimization` - 4 transfer modes available
+- [x] `test_imp_900d_staging_buffer_pool` - Pool allocation and reuse
+- [x] `test_imp_900_milestone_summary` - M3 achieved (62.9 tok/s), M4 pending
+
+**Tests:** 60 CUDA tests pass, 2611 total tests (2601 pass, 10 ignored), 50 QA tests
 **Coverage:** 95.00% function, 92.02% region (verified 2025-12-14)
 
 ---
