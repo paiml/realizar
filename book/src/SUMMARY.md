@@ -139,6 +139,7 @@
 - [SIMD Optimization](./gpu/simd.md)
 - [GPU Dispatch Strategy](./gpu/dispatch-strategy.md)
 - [Memory Management](./gpu/memory-management.md)
+- [Simulation Research Findings](./gpu/simulation-research.md)
 
 # EXTREME TDD for ML Serving
 
@@ -212,6 +213,8 @@
 - [Data Pipeline (Alimentar)](./examples/data-pipeline.md)
 - [MNIST Examples](./examples/mnist.md)
 - [Custom Model Loading (Phase 2)](./examples/custom-model.md)
+- [GPU & Performance Parity](./examples/gpu-parity.md)
+- [Pipeline TUI](./examples/pipeline-tui.md)
 
 # Tools and Setup
 

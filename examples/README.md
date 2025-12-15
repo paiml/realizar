@@ -2,7 +2,7 @@
 
 This directory contains example programs demonstrating the capabilities of realizar, a pure Rust ML inference engine.
 
-## Available Examples (14 total)
+## Available Examples (32 total)
 
 ### Core Examples (No Extra Features Required)
 
@@ -115,9 +115,210 @@ Demonstrates the observability stack:
 cargo run --example observability_demo
 ```
 
+### GPU & Performance Parity Examples
+
+#### 9. `gpu_matvec_benchmark.rs` - GPU vs SIMD Matvec
+
+Benchmarks GPU vs SIMD for matrix-vector operations:
+- trueno SIMD backend performance
+- trueno WGPU GPU backend performance
+- Demonstrates GPU is 2.7x SLOWER for MATVEC (IMP-600 finding)
+
+**Run:**
+```bash
+cargo run --example gpu_matvec_benchmark --features gpu
+```
+
+#### 10. `gpu_gemm_benchmark.rs` - GPU GEMM Performance
+
+Benchmarks GPU GEMM (matrix-matrix) operations:
+- trueno scalar baseline
+- trueno WGPU GPU backend
+- Demonstrates GPU is 57x FASTER for large GEMM (1024³)
+
+**Run:**
+```bash
+cargo run --example gpu_gemm_benchmark --features gpu
+```
+
+#### 11. `parity_035_m4_verification.rs` - M4 Target Verification
+
+Verifies M4 milestone (90% llama.cpp parity):
+- Ollama baseline measurement
+- realizar GPU inference
+- Gap analysis and reporting
+
+**Run:**
+```bash
+cargo run --example parity_035_m4_verification --features gpu
+```
+
+#### 12. `parity_036_gpu_attention.rs` - GPU Attention Benchmark
+
+Benchmarks GPU attention implementation:
+- Standard attention vs FlashAttention
+- Memory usage comparison
+- Throughput measurement
+
+**Run:**
+```bash
+cargo run --example parity_036_gpu_attention --features gpu
+```
+
+#### 13. `parity_038_async_streams.rs` - CUDA Async Streams
+
+Demonstrates CUDA stream-based async execution:
+- Overlapped compute and transfer
+- 2x speedup verification
+- Multi-stream orchestration
+
+**Run:**
+```bash
+cargo run --example parity_038_async_streams --features cuda
+```
+
+#### 14. `parity_039_flash_attention.rs` - FlashAttention O(N) Memory
+
+Verifies FlashAttention memory complexity:
+- O(N) vs O(N²) memory comparison
+- 32x memory reduction at seq_len=512
+- Numerical correctness verification
+
+**Run:**
+```bash
+cargo run --example parity_039_flash_attention --features cuda
+```
+
+#### 15. `parity_040_fp16_attention.rs` - FP16 Tensor Core Baseline
+
+Benchmarks FP16 Tensor Core attention:
+- FP32 baseline
+- FP16 tiled GEMM
+- Tensor Core investigation results
+
+**Run:**
+```bash
+cargo run --example parity_040_fp16_attention --features cuda
+```
+
+### IMP (Improvement) Verification Examples
+
+#### 16. `imp_700_realworld_verification.rs` - Real-World Ollama Benchmark
+
+Direct HTTP benchmarking against live Ollama server:
+- Throughput measurement (240+ tok/s)
+- CV-based statistical stopping
+- Gap quantification
+
+**Run:**
+```bash
+cargo run --example imp_700_realworld_verification
+```
+
+#### 17. `imp_701_performance_gap.rs` - Performance Gap Analysis
+
+Analyzes the performance gap between realizar and Ollama:
+- Component-level breakdown
+- Bottleneck identification
+- Optimization recommendations
+
+**Run:**
+```bash
+cargo run --example imp_701_performance_gap
+```
+
+#### 18. `imp_800_kv_cache_falsification.rs` - KV Cache Verification
+
+Falsifies KV cache performance claims:
+- Cache hit/miss analysis
+- Memory layout verification
+- Speedup measurement (64-512x)
+
+**Run:**
+```bash
+cargo run --example imp_800_kv_cache_falsification
+```
+
+#### 19. `imp800_gpu_parity.rs` - GPU Parity Benchmark
+
+Full GPU parity benchmark suite:
+- realizar vs Ollama on GPU
+- Statistical analysis
+- Gap reporting
+
+**Run:**
+```bash
+cargo run --example imp800_gpu_parity --features cuda
+```
+
+#### 20. `imp_801_flash_attention_falsification.rs` - FlashAttention Falsification
+
+Popperian falsification of FlashAttention claims:
+- Memory complexity verification
+- Numerical accuracy checks
+- Performance comparison
+
+**Run:**
+```bash
+cargo run --example imp_801_flash_attention_falsification --features cuda
+```
+
+#### 21. `imp900_optimized_gpu.rs` - Optimized GPU Pipeline
+
+Demonstrates fully optimized GPU inference pipeline:
+- Weight caching
+- Async streams
+- FlashAttention integration
+
+**Run:**
+```bash
+cargo run --example imp900_optimized_gpu --features cuda
+```
+
+### Pipeline & TUI Examples
+
+#### 22. `pipeline_tui.rs` - Inference Pipeline TUI
+
+Terminal UI visualization of inference pipeline:
+- Real-time token generation
+- Latency sparklines
+- Memory usage tracking
+- ANSI 256-color rendering
+
+**Run:**
+```bash
+cargo run --example pipeline_tui
+```
+
+### trueno Integration Examples
+
+#### 23. `trueno_ab_test.rs` - trueno A/B Testing
+
+Demonstrates trueno backend A/B testing:
+- SIMD vs GPU backend comparison
+- Statistical significance testing
+- Performance regression detection
+
+**Run:**
+```bash
+cargo run --example trueno_ab_test --features gpu
+```
+
+#### 24. `trueno_dot_test.rs` - trueno Dot Product Test
+
+Tests trueno dot product implementations:
+- 4-accumulator AVX2 optimization
+- Scalar baseline comparison
+- Numerical accuracy verification
+
+**Run:**
+```bash
+cargo run --example trueno_dot_test
+```
+
 ### Examples Requiring Features
 
-#### 9. `wine_lambda.rs` - AWS Lambda Wine Quality Predictor
+#### 25. `wine_lambda.rs` - AWS Lambda Wine Quality Predictor
 
 Production-ready wine quality rating predictor for AWS Lambda deployment.
 Inspired by [paiml/wine-ratings](https://github.com/paiml/wine-ratings).
@@ -147,7 +348,7 @@ aws lambda create-function --function-name wine-predictor --runtime provided.al2
   --architecture arm64 --handler bootstrap --zip-file fileb://wine_lambda.zip
 ```
 
-#### 10. `data_pipeline.rs` - Alimentar Data Pipeline Integration
+#### 26. `data_pipeline.rs` - Alimentar Data Pipeline Integration
 
 End-to-end ML data pipeline demonstrating alimentar + realizar integration:
 - Load built-in Iris dataset (embedded, no download)
@@ -163,7 +364,7 @@ End-to-end ML data pipeline demonstrating alimentar + realizar integration:
 cargo run --example data_pipeline --features alimentar-data
 ```
 
-#### 11. `train_model.rs` - Train Real .apr Models
+#### 27. `train_model.rs` - Train Real .apr Models
 
 Train actual ML models with aprender and save as .apr format:
 - Wine quality linear regression (R² ~0.93)
@@ -179,7 +380,7 @@ cargo run --example train_model --features "aprender-serve"
 **Output:**
 - `wine_regressor.apr` (141 bytes, gitignored)
 
-#### 12. `build_mnist_model.rs` - Build MNIST Classifier
+#### 28. `build_mnist_model.rs` - Build MNIST Classifier
 
 Build and save an MNIST digit classifier:
 - Create neural network architecture
@@ -191,7 +392,7 @@ Build and save an MNIST digit classifier:
 cargo run --example build_mnist_model --features "aprender-serve"
 ```
 
-#### 13. `serve_mnist.rs` - Serve MNIST Model via HTTP
+#### 29. `serve_mnist.rs` - Serve MNIST Model via HTTP
 
 Serve an MNIST classifier via HTTP API:
 - Load pre-built MNIST model
@@ -203,7 +404,7 @@ Serve an MNIST classifier via HTTP API:
 cargo run --example serve_mnist --features "aprender-serve"
 ```
 
-#### 14. `mnist_apr_benchmark.rs` - MNIST APR vs PyTorch Benchmark
+#### 30. `mnist_apr_benchmark.rs` - MNIST APR vs PyTorch Benchmark
 
 Benchmark .apr format inference against PyTorch baseline:
 - Cold start latency comparison
@@ -214,6 +415,30 @@ Benchmark .apr format inference against PyTorch baseline:
 **Run:**
 ```bash
 cargo run --example mnist_apr_benchmark --features "aprender-serve"
+```
+
+#### 31. `performance_parity.rs` - Full Performance Parity Suite
+
+Comprehensive performance parity benchmark suite (109KB):
+- All PARITY-xxx test implementations
+- Ollama/llama.cpp comparison
+- Statistical analysis
+
+**Run:**
+```bash
+cargo run --example performance_parity --features "cuda"
+```
+
+#### 32. `cuda_debug.rs` - CUDA Debug Utilities
+
+Debug utilities for CUDA development:
+- PTX inspection
+- Kernel launch debugging
+- Memory transfer verification
+
+**Run:**
+```bash
+cargo run --example cuda_debug --features cuda
 ```
 
 ## Quick Reference
@@ -228,12 +453,30 @@ cargo run --example mnist_apr_benchmark --features "aprender-serve"
 | `gguf_loading` | None | Load llama.cpp models |
 | `apr_loading` | None | Load .apr models |
 | `observability_demo` | None | Tracing & metrics |
+| `gpu_matvec_benchmark` | `gpu` | GPU vs SIMD matvec |
+| `gpu_gemm_benchmark` | `gpu` | GPU GEMM benchmark |
+| `parity_035_m4_verification` | `gpu` | M4 milestone verification |
+| `parity_036_gpu_attention` | `gpu` | GPU attention benchmark |
+| `parity_038_async_streams` | `cuda` | CUDA async streams |
+| `parity_039_flash_attention` | `cuda` | FlashAttention O(N) memory |
+| `parity_040_fp16_attention` | `cuda` | FP16 Tensor Core |
+| `imp_700_realworld_verification` | None | Ollama HTTP benchmark |
+| `imp_701_performance_gap` | None | Performance gap analysis |
+| `imp_800_kv_cache_falsification` | None | KV cache verification |
+| `imp800_gpu_parity` | `cuda` | GPU parity benchmark |
+| `imp_801_flash_attention_falsification` | `cuda` | FlashAttention falsification |
+| `imp900_optimized_gpu` | `cuda` | Optimized GPU pipeline |
+| `pipeline_tui` | None | Inference pipeline TUI |
+| `trueno_ab_test` | `gpu` | trueno A/B testing |
+| `trueno_dot_test` | None | trueno dot product test |
 | `wine_lambda` | None | AWS Lambda predictor |
 | `data_pipeline` | `alimentar-data` | End-to-end ML pipeline |
 | `train_model` | `aprender-serve` | Train & save models |
 | `build_mnist_model` | `aprender-serve` | Build MNIST classifier |
 | `serve_mnist` | `aprender-serve` | Serve MNIST via HTTP |
 | `mnist_apr_benchmark` | `aprender-serve` | Benchmark .apr vs PyTorch |
+| `performance_parity` | `cuda` | Full parity suite |
+| `cuda_debug` | `cuda` | CUDA debug utilities |
 
 ## Quick Start
 
@@ -252,9 +495,32 @@ Run with features:
 cargo run --example <name> --features "<feature-list>"
 ```
 
+## Performance Parity Examples (PARITY-xxx)
+
+These examples verify performance parity with Ollama and llama.cpp:
+
+| Example | PARITY ID | What It Verifies |
+|---------|-----------|------------------|
+| `parity_035_m4_verification` | PARITY-035 | M4 milestone (90% parity) |
+| `parity_036_gpu_attention` | PARITY-036 | GPU attention performance |
+| `parity_038_async_streams` | PARITY-038 | CUDA async execution (2x) |
+| `parity_039_flash_attention` | PARITY-039 | FlashAttention O(N) memory |
+| `parity_040_fp16_attention` | PARITY-040 | FP16 Tensor Core baseline |
+
+## trueno Simulation Research Integration
+
+The GPU examples demonstrate findings from the trueno simulation research:
+
+- **GPU threshold 100K**: `gpu_matvec_benchmark` shows GPU slower for small ops
+- **PCG determinism**: All benchmarks use reproducible RNG seeds
+- **SIMD math properties**: `trueno_dot_test` verifies 4-accumulator pattern
+- **PTX barriers**: `parity_038_async_streams` uses correct synchronization
+- **1e-4 GPU tolerance**: All GPU examples verify numerical accuracy
+
 ## Notes
 
 - Examples use demo/synthetic models for demonstration
 - Real model loading requires proper GGUF or SafeTensors files
 - API server examples run indefinitely (Ctrl+C to stop)
 - All examples follow EXTREME TDD principles with comprehensive testing
+- GPU examples require NVIDIA RTX 4090 or compatible GPU
