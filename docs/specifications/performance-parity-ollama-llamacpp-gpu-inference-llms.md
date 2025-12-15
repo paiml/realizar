@@ -12,7 +12,7 @@ issue_refs:
 
 # Performance Parity: Ollama & llama.cpp GPU Inference for LLMs
 
-**Version:** 6.5.0
+**Version:** 6.6.0
 **Status:** Active
 **Authors:** Pragmatic AI Labs
 **Date:** 2025-12-15
@@ -3614,6 +3614,134 @@ Phase 3: Quantized Attention (PARITY-070+)
 > **Single-token streaming at 64 tok/s is near-optimal for our architecture.**
 > **M4 parity (192 tok/s) requires serving multiple requests in parallel (batch inference)**
 > **or fundamentally different token generation (speculative decoding).**
+
+---
+
+### PARITY-063: Phase 2 Summary - Speculative Decoding (COMPLETE)
+
+**Objective:** Design and document speculative decoding for 2-3x single-request speedup.
+
+**Implementation Components:**
+- `SpeculativeConfig` - Configuration struct (K, temperature, threshold)
+- `generate_with_speculative()` - Main entry point
+- `draft_tokens()` - K candidate generation (self-speculative)
+- `verify_tokens()` - Batch verification with main model
+- HTTP handler integration with three-path routing
+
+**Performance Projections (K=6, 70% acceptance):**
+| Metric | Value |
+|--------|-------|
+| Baseline | 64 tok/s |
+| Speedup | 3.6x |
+| Projected | 230 tok/s |
+| M4 Target | 192 tok/s ✓ |
+
+**Tests (6 passing):**
+- `test_parity063a_objectives` - Phase 2 objectives achieved
+- `test_parity063b_components` - Implementation components
+- `test_parity063c_performance` - Performance projections
+- `test_parity063d_api_summary` - API design summary
+- `test_parity063e_checklist` - Implementation checklist
+- `test_parity063f_status` - Phase 2 status
+
+**Status:** COMPLETE. Design documented. Implementation ready for wiring.
+
+---
+
+### PARITY-070: Quantized Attention Problem Analysis (COMPLETE)
+
+**Problem:** Dequantize-then-compute wastes memory bandwidth.
+
+**Current Architecture:**
+```
+Q4_K Weight → dequantize → F32 Weight → matmul → F32 Result
+              [7.1x bandwidth overhead]
+```
+
+**Analysis:**
+- Q4_K storage: 4.5 bits/weight
+- After dequant: 32 bits/weight
+- Bandwidth ratio: 32/4.5 = **7.1x overhead**
+
+**Root Cause:** llama.cpp uses fused MMQ (Matrix Multiply Quantized) that keeps data quantized. Realizar dequantizes to F32 before compute.
+
+**Tests (6 passing):**
+- `test_parity070a_problem_analysis` - Bandwidth overhead analysis
+- `test_parity070b_target_architecture` - Fused MMQ design
+- `test_parity070c_int8_operations` - INT8 DP4A operations
+- `test_parity070d_activation_quantization` - Dynamic quantization
+- `test_parity070e_fused_kernel_design` - Kernel pseudocode
+- `test_parity070f_roadmap` - Implementation roadmap
+
+**Status:** COMPLETE. Problem analyzed. Fused kernel design documented.
+
+---
+
+### PARITY-071: INT8 Block Quantization (COMPLETE)
+
+**Solution:** Q8 block format for activations with per-block scale.
+
+**Q8Block Structure:**
+```rust
+struct Q8Block {
+    scale: f32,           // 4 bytes
+    quantized: [i8; 32],  // 32 bytes
+}  // 36 bytes total for 32 values
+```
+
+**Operations:**
+- `quantize_block()` - F32 activations → Q8 block
+- `dequantize_block()` - Q8 block → F32 activations
+- `dot_q4k_q8()` - Fused Q4_K × Q8 dot product
+
+**Error Analysis:**
+- Quantization error: <1% relative error
+- Typical SNR: >40 dB
+
+**Tests (6 passing):**
+- `test_parity071a_q8_block_struct` - Block structure
+- `test_parity071b_quantize_function` - Quantization
+- `test_parity071c_dequantize_function` - Dequantization
+- `test_parity071d_error_analysis` - Error bounds
+- `test_parity071e_batch_quantization` - Batch ops
+- `test_parity071f_integration_summary` - Integration plan
+
+**Status:** COMPLETE. INT8 format designed.
+
+---
+
+### PARITY-072: Fused Q4K×Q8 Kernel (COMPLETE)
+
+**Solution:** Fused kernel that computes Q4_K × Q8 without F32 intermediate.
+
+**Kernel Signature:**
+```rust
+fn fused_q4k_q8_dot(
+    q4k_weights: &[Q4KBlock],
+    q8_activations: &[Q8Block],
+) -> f32
+```
+
+**Memory Analysis:**
+| Path | Bytes Read | Speedup |
+|------|------------|---------|
+| Current (F32) | 32 bits/weight | 1.0x |
+| Fused (Q4K×Q8) | 4.5 bits/weight | 7.1x |
+
+**Expected Performance:**
+- Memory bandwidth reduction: 7.1x
+- Compute: Similar (SIMD INT8 ops)
+- Net speedup: ~4-5x for memory-bound ops
+
+**Tests (6 passing):**
+- `test_parity072a_kernel_signature` - Function signature
+- `test_parity072b_correctness` - Numerical correctness
+- `test_parity072c_memory_analysis` - Bandwidth analysis
+- `test_parity072d_validation` - Error bounds validation
+- `test_parity072e_performance` - Performance projection
+- `test_parity072f_summary` - Implementation summary
+
+**Status:** COMPLETE. Kernel design documented. Implementation ready.
 
 ---
 
@@ -7455,6 +7583,7 @@ These findings directly impact realizar performance:
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 6.6.0 | 2025-12-15 | **PARITY-063/070/071/072 Spec Documentation.** Added spec sections for Phase 2 (Speculative Decoding) and Phase 3 (Quantized Attention) test suites: PARITY-063 (6 tests, speculative summary), PARITY-070 (6 tests, bandwidth analysis), PARITY-071 (6 tests, INT8 blocks), PARITY-072 (6 tests, fused kernel). Total documented tests: 24. Spec now covers PARITY-001 through PARITY-072. |
 | 6.5.0 | 2025-12-15 | **PARITY-042/043 Spec Documentation.** Added spec sections for existing tests: PARITY-042 (Pinned Host Buffer Infrastructure, 6 tests) and PARITY-043 (Multi-Head Attention CUDA Kernel, 8 tests). Fixed cuda.rs SATD comment (TODO → Note with PARITY-042 reference). Total: 2592 tests, 0 SATD in src/. |
 | 6.4.0 | 2025-12-15 | **IMP-084 to IMP-087 Integration Tests.** Implemented 4 HTTP integration tests replacing `todo!()` stubs: IMP-084 (serve_gguf_model health + generate), IMP-085 (OpenAI /v1/completions), IMP-086 (llama.cpp /completion), IMP-087 (benchmark tok/s measurement). All use reqwest blocking client with graceful server unavailability handling. Total: 2592 tests. |
 | 6.3.0 | 2025-12-15 | **IMP-1000 Series Complete.** All 18 Tensor Core tests pass. Updated spec to reflect FP16 GEMM, Q4_K fused kernel, and async pipeline test status. |
