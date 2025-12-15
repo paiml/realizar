@@ -1,6 +1,6 @@
 ---
 title: "Performance Parity: Ollama & llama.cpp GPU Inference for LLMs"
-version: "6.9.0"
+version: "7.0.0"
 status: Active
 authors:
   - Pragmatic AI Labs
@@ -12,7 +12,7 @@ issue_refs:
 
 # Performance Parity: Ollama & llama.cpp GPU Inference for LLMs
 
-**Version:** 6.9.0
+**Version:** 7.0.0
 **Status:** Active
 **Authors:** Pragmatic AI Labs
 **Date:** 2025-12-15
@@ -7098,6 +7098,91 @@ pub const DEFAULT_THRESHOLDS: PerformanceThresholds = PerformanceThresholds {
 
 ---
 
+### GpuModel Phase 1: Real-World Comparison (IMP-026 to IMP-030) - ✅ COMPLETE
+
+**Goal:** Establish apples-to-apples benchmarking against llama.cpp with real GGUF models.
+
+**Status:** ✅ ALL 6 TESTS PASSING (2025-12-15)
+
+Run: `cargo test --lib test_imp_026 test_imp_027 test_imp_028 test_imp_029 test_imp_030 --features gpu` → 6/6 pass
+
+- [x] **IMP-026**: GGUF GPU weight loading ✅
+  - Test: `test_imp_026_gguf_gpu_weight_loading` - Synthetic GGUF config to GpuModel
+  - Test: `test_imp_026_real_gguf_gpu_loading` - Real GGUF file via MappedGGUFModel
+  - Metric: GpuModel creation from GGUF config ✅ ACHIEVED
+
+- [x] **IMP-027**: GPU text generation ✅
+  - Test: `test_imp_027_gpu_text_generation`
+  - Target: End-to-end generation with GpuModel
+  - Metric: Greedy/sampling decoding, EOS handling ✅ ACHIEVED
+
+- [x] **IMP-028**: Real forward pass ✅
+  - Test: `test_imp_028_real_forward_pass`
+  - Target: Forward pass produces valid logits
+  - Metric: Logits shape matches vocab_size ✅ ACHIEVED
+
+- [x] **IMP-029**: Text generation ✅
+  - Test: `test_imp_029_text_generation`
+  - Target: Multi-token generation
+  - Metric: 20+ tokens generated, EOS respected ✅ ACHIEVED
+
+- [x] **IMP-030**: Benchmark harness ✅
+  - Test: `test_imp_030_benchmark_harness`
+  - Target: Warmup + timed runs per Mytkowicz et al.
+  - Metric: tok/s measurement with CV < 0.15 ✅ ACHIEVED
+
+---
+
+### GpuModel Phase 2: KV Cache Optimization (IMP-031 to IMP-033) - ✅ COMPLETE
+
+**Goal:** Integrate StreamingKVCache for efficient incremental decoding.
+
+**Status:** ✅ ALL 3 TESTS PASSING (2025-12-15)
+
+Run: `cargo test --lib test_imp_031 test_imp_032 test_imp_033 --features gpu` → 3/3 pass
+
+- [x] **IMP-031**: Forward with cache ✅
+  - Test: `test_imp_031_forward_with_cache`
+  - Target: StreamingKVCache integration with forward pass
+  - Metric: KV cache populated after forward ✅ ACHIEVED
+
+- [x] **IMP-032**: Incremental forward ✅
+  - Test: `test_imp_032_forward_incremental`
+  - Target: Single-token forward with cached KV
+  - Metric: Position tracking, cache reuse ✅ ACHIEVED
+
+- [x] **IMP-033**: Generate with cache ✅
+  - Test: `test_imp_033_generate_with_cache`
+  - Target: Full generation loop with KV cache
+  - Metric: >1.0x speedup vs non-cached ✅ ACHIEVED
+
+---
+
+### GpuModel Phase 3: Optimized Incremental Decoding (IMP-034 to IMP-036) - ✅ COMPLETE
+
+**Goal:** Pre-allocated buffers and batched attention for decode efficiency.
+
+**Status:** ✅ ALL 3 TESTS PASSING (2025-12-15)
+
+Run: `cargo test --lib test_imp_034 test_imp_035 test_imp_036 --features gpu` → 3/3 pass
+
+- [x] **IMP-034**: Pre-allocated attention buffers ✅
+  - Test: `test_imp_034_preallocated_attention`
+  - Target: AttentionBuffers with Q/K/V/output pre-allocation
+  - Metric: Zero allocation during decode ✅ ACHIEVED
+
+- [x] **IMP-035**: Batched multi-head attention ✅
+  - Test: `test_imp_035_batched_multihead`
+  - Target: Efficient multi-head attention with pre-allocated buffers
+  - Metric: >1.0x speedup vs non-batched ✅ ACHIEVED
+
+- [x] **IMP-036**: Optimized KV access ✅
+  - Test: `test_imp_036_optimized_kv_access`
+  - Target: StreamingKVCache with efficient append/read
+  - Metric: >1.0x speedup with cache ✅ ACHIEVED
+
+---
+
 ### Phase 10: CPU/SIMD Kernel Optimizations (IMP-037 to IMP-049) - ✅ COMPLETE
 
 **Goal:** Maximize CPU inference performance through fused kernels and SIMD optimizations.
@@ -7187,6 +7272,9 @@ Run: `cargo test --lib test_imp_03 test_imp_04 --features gpu` → 13/13 pass
 
 | Phase | IMP Range | Gap Closure | Effort | Priority | Status |
 |-------|-----------|-------------|--------|----------|--------|
+| GpuModel Phase 1 | IMP-026-030 | Real-world baseline | Medium | HIGH | ✅ COMPLETE |
+| GpuModel Phase 2 | IMP-031-033 | KV cache integration | Medium | HIGH | ✅ COMPLETE |
+| GpuModel Phase 3 | IMP-034-036 | Optimized decode | Medium | HIGH | ✅ COMPLETE |
 | Phase 6: SIMD | IMP-301-305 | 7x → ~1x (CPU) | Medium | HIGH | ✅ COMPLETE |
 | Phase 7: wgpu | IMP-306-310 | 128x → ~10x | High | CRITICAL | ✅ COMPLETE |
 | Phase 8: CUDA | IMP-311-315 | 10x → ~1x | High | MAXIMUM | ✅ COMPLETE |
@@ -7196,13 +7284,16 @@ Run: `cargo test --lib test_imp_03 test_imp_04 --features gpu` → 13/13 pass
 | Phase 10: Fused Kernels | IMP-037-049 | CPU optimization | Medium | HIGH | ✅ COMPLETE |
 
 **Implementation Status (2025-12-15):**
-1. **IMP-301-305**: SIMD matmul ✅ (trueno SIMD integration)
-2. **IMP-306-310**: wgpu GPU matmul ✅ (trueno GPU backend)
-3. **IMP-311-315**: CUDA kernel ✅ (trueno-gpu PTX generation, 13 tests)
-4. **IMP-316.1-316.5**: Complete CUDA Runtime ✅ (OWN THE STACK, 170 tests, 97.47% coverage)
-5. **E2E-VIS-001**: Visual Testing & Stress Framework ✅ (sovereign stack, 218 tests, TDG 95.7/100)
-6. **IMP-316-320**: KV cache + serving ✅ (PARITY-029-035)
-7. **IMP-037-049**: Fused CPU kernels ✅ (13 tests, SIMD optimizations)
+1. **IMP-026-030**: GpuModel real-world ✅ (6 tests, GGUF loading + benchmarks)
+2. **IMP-031-033**: GpuModel KV cache ✅ (3 tests, StreamingKVCache integration)
+3. **IMP-034-036**: GpuModel optimized decode ✅ (3 tests, pre-allocated buffers)
+4. **IMP-301-305**: SIMD matmul ✅ (trueno SIMD integration)
+5. **IMP-306-310**: wgpu GPU matmul ✅ (trueno GPU backend)
+6. **IMP-311-315**: CUDA kernel ✅ (trueno-gpu PTX generation, 13 tests)
+7. **IMP-316.1-316.5**: Complete CUDA Runtime ✅ (OWN THE STACK, 170 tests, 97.47% coverage)
+8. **E2E-VIS-001**: Visual Testing & Stress Framework ✅ (sovereign stack, 218 tests, TDG 95.7/100)
+9. **IMP-316-320**: KV cache + serving ✅ (PARITY-029-035)
+10. **IMP-037-049**: Fused CPU kernels ✅ (13 tests, SIMD optimizations)
 
 ---
 
@@ -7813,6 +7904,7 @@ These findings directly impact realizar performance:
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 7.0.0 | 2025-12-15 | **GpuModel Phases 1-3 Test Documentation (IMP-026 to IMP-036).** Added detailed spec sections for 12 GpuModel tests: Phase 1 (IMP-026-030, 6 tests: GGUF GPU loading, text generation, forward pass, benchmark harness), Phase 2 (IMP-031-033, 3 tests: KV cache integration, incremental forward, cached generation), Phase 3 (IMP-034-036, 3 tests: pre-allocated buffers, batched MHA, optimized KV access). Updated priority matrix with GpuModel phases. Renamed sections to avoid Phase 6-8 numbering conflict with trueno phases. |
 | 6.9.0 | 2025-12-15 | **Phase 10: CPU/SIMD Kernel Optimizations (IMP-037 to IMP-049).** Added spec documentation for 13 fused kernel tests: IMP-037-042 (fused attention: QKV, SIMD softmax, attn proj, contiguous buffers, vectorized RoPE, output residual), IMP-043-049 (memory optimizations: batch embedding, parallel FFN, optimized layernorm, cache-aligned storage, prefetch hints, blocked matmul, tensor pool). All tests in src/layers.rs. Updated priority matrix with Phase 10. Total: 2611 tests (2601 pass, 10 ignored). |
 | 6.8.0 | 2025-12-15 | **IMP-900 GPU Optimization Infrastructure Tests.** Added 9 IMP-900 tests verifying M3/M4 parity milestone infrastructure: IMP-900a (optimized GEMM kernel + performance characteristics), IMP-900b (kernel fusion infrastructure + types), IMP-900c (FlashAttention config + kernel verification), IMP-900d (memory transfer optimization + staging buffer pool), IMP-900 (milestone summary). 60 CUDA tests pass. |
 | 6.7.0 | 2025-12-15 | **PARITY-050 to PARITY-062 Spec Documentation.** Added Phase 1 (Batch Inference) and Phase 2 (Speculative Decoding) detailed sections: PARITY-050-058 batch infrastructure (55 tests), PARITY-059-062 speculative decoding (24 tests). Comprehensive documentation of batch scheduler, HTTP handler integration, configuration API, processor design, and benchmark frameworks. Spec now fully covers PARITY-001 through PARITY-072 with 79 additional documented tests. |
