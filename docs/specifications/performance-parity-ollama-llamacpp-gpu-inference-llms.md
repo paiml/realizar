@@ -12,7 +12,7 @@ issue_refs:
 
 # Performance Parity: Ollama & llama.cpp GPU Inference for LLMs
 
-**Version:** 6.6.0
+**Version:** 6.7.0
 **Status:** Active
 **Authors:** Pragmatic AI Labs
 **Date:** 2025-12-15
@@ -3608,6 +3608,138 @@ Phase 3: Quantized Attention (PARITY-070+)
 ├── Reduce memory bandwidth 2x
 ├── Target: 200+ tok/s
 ```
+
+---
+
+### Phase 1 Implementation: Batch Inference (PARITY-050 to PARITY-058)
+
+#### PARITY-050: Batch Infrastructure Analysis (6 tests)
+Documents existing batch infrastructure in realizar:
+- `ContinuousBatchScheduler` - Dynamic batch scheduling with token budgets
+- `BatchScheduler` - Static batch scheduling
+- `InferenceBatchScheduler` - GPU batch execution coordination
+- `forward_batch_with_gpu_ffn` - GPU-accelerated batch FFN
+- `GpuDispatcher` - Automatic CPU/GPU dispatch
+
+**Status:** COMPLETE. All batch infrastructure already implemented.
+
+#### PARITY-051: HTTP Serving Integration (7 tests)
+Documents wiring batch inference to HTTP handlers:
+- `AppState` batch configuration
+- Async channel architecture for request batching
+- Batch window mechanism (collect requests for N ms)
+- Batch processor task
+- Completions handler modification
+
+**Status:** COMPLETE. Integration design documented.
+
+#### PARITY-052: Configuration API (6 tests)
+Documents batch configuration structures:
+- `BatchConfig` defaults and presets
+- Decision thresholds (batch_size >= 32 for GPU)
+- `BatchResponse` creation
+- AppState batch config integration
+
+**Status:** COMPLETE. Configuration API designed.
+
+#### PARITY-053: Batch Processor (6 tests)
+Documents batch processor implementation:
+- Processor architecture (channel receiver → batch → execute)
+- Processing flow (collect → sort → execute → respond)
+- Concurrent processing patterns
+- `BatchProcessResult` structure
+
+**Status:** COMPLETE. Processor design documented.
+
+#### PARITY-054: Handler Integration (6 tests)
+Documents HTTP handler batch path:
+- Handler batch routing
+- Response format
+- Backward compatibility
+- Error handling
+
+**Status:** COMPLETE. Handler integration designed.
+
+#### PARITY-055: Throughput Benchmarking (6 tests)
+Documents benchmark methodology:
+- Throughput measurement methodology
+- Benchmark configuration
+- Latency tradeoffs
+- Concurrent estimation
+
+**Status:** COMPLETE. Benchmark methodology documented.
+
+#### PARITY-056: Benchmark Execution (6 tests)
+Documents benchmark execution steps:
+- Prerequisites
+- Expected results (150+ tok/s at batch=32)
+- Execution steps
+- Output interpretation
+
+**Status:** COMPLETE. Execution plan documented.
+
+#### PARITY-057: Live Benchmark (6 tests)
+Documents live benchmark against servers:
+- Benchmark setup
+- Payload configuration
+- Concurrency sweep
+- M4 parity validation
+
+**Status:** COMPLETE. Live benchmark design documented.
+
+#### PARITY-058: Implementation Summary (6 tests)
+Summarizes Phase 1 batch inference:
+- Implementation overview
+- Architecture summary
+- Performance characteristics
+- API compatibility
+- Configuration options
+
+**Status:** COMPLETE. Phase 1 design complete.
+
+---
+
+### Phase 2 Implementation: Speculative Decoding (PARITY-059 to PARITY-062)
+
+#### PARITY-059: Speculative Decoding API (6 tests)
+Documents speculative decoding interface:
+- Speculative overview (draft-then-verify)
+- Speedup calculation (1 + K*acceptance_rate)
+- API request format
+- AppState integration
+- `generate_speculative()` function
+
+**Status:** COMPLETE. API design documented.
+
+#### PARITY-060: Generation Algorithm (6 tests)
+Documents speculative generation:
+- `SpeculativeStats` tracking
+- Draft generation (K tokens)
+- Batch verification
+- Generation loop
+
+**Status:** COMPLETE. Algorithm documented.
+
+#### PARITY-061: HTTP Handler Integration (6 tests)
+Documents handler speculative path:
+- Handler path selection (single/batch/speculative)
+- Request speculative field
+- Response speculative stats
+- Combined modes support
+
+**Status:** COMPLETE. Handler design documented.
+
+#### PARITY-062: Benchmark Framework (6 tests)
+Documents speculative benchmark:
+- Benchmark setup
+- Expected acceptance rates
+- Execution methodology
+- Results analysis
+- Comparison with batch inference
+
+**Status:** COMPLETE. Benchmark framework documented.
+
+---
 
 #### Key Insight
 
@@ -7583,6 +7715,7 @@ These findings directly impact realizar performance:
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 6.7.0 | 2025-12-15 | **PARITY-050 to PARITY-062 Spec Documentation.** Added Phase 1 (Batch Inference) and Phase 2 (Speculative Decoding) detailed sections: PARITY-050-058 batch infrastructure (55 tests), PARITY-059-062 speculative decoding (24 tests). Comprehensive documentation of batch scheduler, HTTP handler integration, configuration API, processor design, and benchmark frameworks. Spec now fully covers PARITY-001 through PARITY-072 with 79 additional documented tests. |
 | 6.6.0 | 2025-12-15 | **PARITY-063/070/071/072 Spec Documentation.** Added spec sections for Phase 2 (Speculative Decoding) and Phase 3 (Quantized Attention) test suites: PARITY-063 (6 tests, speculative summary), PARITY-070 (6 tests, bandwidth analysis), PARITY-071 (6 tests, INT8 blocks), PARITY-072 (6 tests, fused kernel). Total documented tests: 24. Spec now covers PARITY-001 through PARITY-072. |
 | 6.5.0 | 2025-12-15 | **PARITY-042/043 Spec Documentation.** Added spec sections for existing tests: PARITY-042 (Pinned Host Buffer Infrastructure, 6 tests) and PARITY-043 (Multi-Head Attention CUDA Kernel, 8 tests). Fixed cuda.rs SATD comment (TODO → Note with PARITY-042 reference). Total: 2592 tests, 0 SATD in src/. |
 | 6.4.0 | 2025-12-15 | **IMP-084 to IMP-087 Integration Tests.** Implemented 4 HTTP integration tests replacing `todo!()` stubs: IMP-084 (serve_gguf_model health + generate), IMP-085 (OpenAI /v1/completions), IMP-086 (llama.cpp /completion), IMP-087 (benchmark tok/s measurement). All use reqwest blocking client with graceful server unavailability handling. Total: 2592 tests. |
