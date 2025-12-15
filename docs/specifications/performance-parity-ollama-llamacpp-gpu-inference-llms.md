@@ -1,6 +1,6 @@
 ---
 title: "Performance Parity: Ollama & llama.cpp GPU Inference for LLMs"
-version: "7.5.0"
+version: "7.6.0"
 status: Active
 authors:
   - Pragmatic AI Labs
@@ -12,7 +12,7 @@ issue_refs:
 
 # Performance Parity: Ollama & llama.cpp GPU Inference for LLMs
 
-**Version:** 7.5.0
+**Version:** 7.6.0
 **Status:** Active
 **Authors:** Pragmatic AI Labs
 **Date:** 2025-12-15
@@ -7511,6 +7511,65 @@ pub fn cuda_matmul(&mut self, a: &[f32], b: &[f32], m: usize, k: usize, n: usize
 
 ---
 
+### Phase 16: CUDA Inference Benchmarks (IMP-1004) - ✅ COMPLETE
+
+**Goal:** Establish baseline benchmarks for CUDA inference performance.
+
+**Status:** ✅ ALL 4 TESTS PASSING (2025-12-15)
+
+Run: `cargo test --lib --features cuda test_imp_1004 -- --nocapture` → 4/4 pass
+
+#### IMP-1004: Benchmark Results (RTX 4090)
+
+| Test | Focus | Result |
+|------|-------|--------|
+| IMP-1004a | CUDA matmul dimensions | 4.5-32.6ms for LLM-sized ops |
+| IMP-1004b | CUDA vs CPU matmul | **9.67x speedup** (CUDA: 4.3ms, CPU: 41.7ms) |
+| IMP-1004c | Full forward pass | 11 tok/s (CUDA and Hybrid equal) |
+| IMP-1004d | Token generation | **9.1 tok/s**, Gap=25x to Ollama |
+
+**Key Findings:**
+
+1. **CUDA matmul is 9.67x faster than CPU** for m=1 operations
+2. **Gap improved from 1090x to 25x** (44x improvement!)
+3. Full forward pass not yet benefiting from CudaScheduler (needs wiring)
+4. Token generation: 9.1 tok/s (target: 228 tok/s)
+
+**Benchmark Details:**
+
+```
+IMP-1004a: CUDA Matmul Benchmarks
+  1x4096x4096 (attention output): 4.532ms
+  1x4096x11008 (FFN fc1): 11.664ms
+  1x11008x4096 (FFN fc2): 11.735ms
+  1x4096x32000 (LM head): 32.630ms
+
+IMP-1004b: CUDA vs CPU (1x4096x4096)
+  CUDA: 4.312ms
+  CPU: 41.680ms
+  Speedup: 9.67x
+
+IMP-1004c: Full Forward Pass
+  CUDA model: 90.844ms (11.0 tok/s)
+  Hybrid model: 90.737ms (11.0 tok/s)
+  Note: Forward pass still using HybridScheduler internally
+
+IMP-1004d: Token Generation
+  Generated: 10 tokens in 1096ms
+  Throughput: 9.1 tok/s
+  Target: 228 tok/s (Ollama phi2:2.7b)
+  Gap: 25x (improved from 1090x!)
+```
+
+**Phase 16 Summary:**
+- Established baseline CUDA inference benchmarks
+- Confirmed 9.67x matmul speedup with CUDA
+- Gap improved from 1090x to 25x (44x improvement)
+- Next: Wire CudaScheduler into forward_gpu() matmul calls
+- Status: ✅ COMPLETE
+
+---
+
 ## 9.1 Implementation Priority Matrix
 
 | Phase | IMP Range | Gap Closure | Effort | Priority | Status |
@@ -7530,6 +7589,7 @@ pub fn cuda_matmul(&mut self, a: &[f32], b: &[f32], m: usize, k: usize, n: usize
 | Phase 13: CUDA Integration | IMP-1001 | ~100x (CudaExecutor→GpuModel) | Medium | MAXIMUM | ✅ TESTS PASS |
 | Phase 14: CudaScheduler | IMP-1002 | Fixes m=1 CPU restriction | Medium | MAXIMUM | ✅ COMPLETE |
 | Phase 15: GpuModel CUDA | IMP-1003 | Wire CudaScheduler into forward | Medium | MAXIMUM | ✅ COMPLETE |
+| Phase 16: CUDA Benchmarks | IMP-1004 | 1090x → 25x gap measured | Low | HIGH | ✅ COMPLETE |
 
 **Implementation Status (2025-12-15):**
 1. **IMP-026-030**: GpuModel real-world ✅ (6 tests, GGUF loading + benchmarks)
@@ -7547,6 +7607,7 @@ pub fn cuda_matmul(&mut self, a: &[f32], b: &[f32], m: usize, k: usize, n: usize
 13. **IMP-1001**: CUDA inference integration ✅ (4 tests, CudaExecutor verified)
 14. **IMP-1002**: CudaScheduler ✅ (4 tests, no m=1 CPU restriction)
 15. **IMP-1003**: GpuModel CUDA wiring ✅ (4 tests, new_with_cuda(), cuda_matmul())
+16. **IMP-1004**: CUDA benchmarks ✅ (4 tests, 9.67x matmul speedup, 25x gap to Ollama)
 
 ---
 

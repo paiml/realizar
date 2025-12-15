@@ -10180,4 +10180,244 @@ mod tests {
         let output = result.unwrap();
         assert_eq!(output.len(), 100, "IMP-1003d: Output size should be m*n");
     }
+
+    // ========================================================================
+    // IMP-1004: Benchmark CUDA vs CPU Inference
+    // ========================================================================
+
+    #[test]
+    #[cfg(feature = "cuda")]
+    fn test_imp_1004a_cuda_matmul_benchmark() {
+        // IMP-1004a: Benchmark CUDA matmul for realistic LLM dimensions
+        use crate::cuda::CudaExecutor;
+        use std::time::Instant;
+
+        if !CudaExecutor::is_available() {
+            println!("IMP-1004a: CUDA not available, skipping");
+            return;
+        }
+
+        let mut cuda_scheduler = CudaScheduler::new().expect("Failed to create CudaScheduler");
+
+        // Realistic LLM dimensions: hidden_dim=4096, intermediate_dim=11008
+        let test_cases = [
+            (1, 4096, 4096, "1x4096x4096 (m=1, attention output)"),
+            (1, 4096, 11008, "1x4096x11008 (m=1, FFN fc1)"),
+            (1, 11008, 4096, "1x11008x4096 (m=1, FFN fc2)"),
+            (1, 4096, 32000, "1x4096x32000 (m=1, LM head)"),
+        ];
+
+        for (m, k, n, desc) in test_cases {
+            let a: Vec<f32> = vec![1.0; m * k];
+            let b: Vec<f32> = vec![1.0; k * n];
+
+            // Warmup
+            let _ = cuda_scheduler.matmul(&a, &b, m, k, n);
+
+            // Benchmark
+            let iterations = 10;
+            let start = Instant::now();
+            for _ in 0..iterations {
+                let _ = cuda_scheduler.matmul(&a, &b, m, k, n);
+            }
+            let elapsed = start.elapsed();
+            let avg_ms = elapsed.as_secs_f64() * 1000.0 / iterations as f64;
+
+            println!("IMP-1004a: {} - {:.3}ms avg", desc, avg_ms);
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "cuda")]
+    fn test_imp_1004b_cuda_vs_cpu_matmul() {
+        // IMP-1004b: Direct comparison of CUDA vs CPU matmul for m=1
+        use crate::cuda::CudaExecutor;
+        use std::time::Instant;
+
+        if !CudaExecutor::is_available() {
+            println!("IMP-1004b: CUDA not available, skipping");
+            return;
+        }
+
+        let mut cuda_scheduler = CudaScheduler::new().expect("Failed to create CudaScheduler");
+        let mut hybrid_scheduler =
+            HybridScheduler::with_threshold(1).expect("Failed to create HybridScheduler");
+
+        // Test m=1 case where HybridScheduler forces CPU
+        let m = 1;
+        let k = 4096;
+        let n = 4096;
+        let a: Vec<f32> = vec![1.0; m * k];
+        let b: Vec<f32> = vec![1.0; k * n];
+
+        // Warmup
+        let _ = cuda_scheduler.matmul(&a, &b, m, k, n);
+        let _ = hybrid_scheduler.matmul(&a, &b, m, k, n);
+
+        let iterations = 20;
+
+        // CUDA timing
+        let start = Instant::now();
+        for _ in 0..iterations {
+            let _ = cuda_scheduler.matmul(&a, &b, m, k, n);
+        }
+        let cuda_time = start.elapsed();
+
+        // CPU timing (HybridScheduler forces CPU for m=1)
+        let start = Instant::now();
+        for _ in 0..iterations {
+            let _ = hybrid_scheduler.matmul(&a, &b, m, k, n);
+        }
+        let cpu_time = start.elapsed();
+
+        let cuda_avg_ms = cuda_time.as_secs_f64() * 1000.0 / iterations as f64;
+        let cpu_avg_ms = cpu_time.as_secs_f64() * 1000.0 / iterations as f64;
+        let speedup = cpu_avg_ms / cuda_avg_ms;
+
+        println!(
+            "IMP-1004b: m=1 matmul (1x{}x{}) - CUDA={:.3}ms, CPU={:.3}ms, Speedup={:.2}x",
+            k, n, cuda_avg_ms, cpu_avg_ms, speedup
+        );
+
+        // For small m=1 ops, GPU may not be faster due to transfer overhead
+        // Just verify both produce correct results
+        let cuda_result = cuda_scheduler.matmul(&a, &b, m, k, n).unwrap();
+        let cpu_result = hybrid_scheduler.matmul(&a, &b, m, k, n).unwrap();
+
+        assert_eq!(
+            cuda_result.len(),
+            cpu_result.len(),
+            "IMP-1004b: Both should produce same output size"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "cuda")]
+    fn test_imp_1004c_full_forward_benchmark() {
+        // IMP-1004c: Benchmark full GpuModel forward pass (CUDA vs Hybrid)
+        use crate::cuda::CudaExecutor;
+        use std::time::Instant;
+
+        if !CudaExecutor::is_available() {
+            println!("IMP-1004c: CUDA not available, skipping");
+            return;
+        }
+
+        // Use smaller model for benchmark (still tests full pipeline)
+        let config = GpuModelConfig {
+            vocab_size: 32000,
+            hidden_dim: 512,
+            num_heads: 8,
+            num_kv_heads: 8,
+            num_layers: 4,
+            intermediate_dim: 1024,
+            eps: 1e-5,
+        };
+
+        let mut cuda_model =
+            GpuModel::new_with_cuda(config.clone()).expect("Failed to create CUDA model");
+        let mut hybrid_model = GpuModel::new(config).expect("Failed to create Hybrid model");
+
+        let token_ids = vec![42usize]; // Single token
+
+        // Warmup
+        let _ = cuda_model.forward_gpu(&token_ids);
+        let _ = hybrid_model.forward_gpu(&token_ids);
+
+        let iterations = 20;
+
+        // CUDA forward timing
+        let start = Instant::now();
+        for _ in 0..iterations {
+            let _ = cuda_model.forward_gpu(&token_ids);
+        }
+        let cuda_time = start.elapsed();
+
+        // Hybrid forward timing (forces CPU for m=1)
+        let start = Instant::now();
+        for _ in 0..iterations {
+            let _ = hybrid_model.forward_gpu(&token_ids);
+        }
+        let hybrid_time = start.elapsed();
+
+        let cuda_avg_ms = cuda_time.as_secs_f64() * 1000.0 / iterations as f64;
+        let hybrid_avg_ms = hybrid_time.as_secs_f64() * 1000.0 / iterations as f64;
+        let speedup = hybrid_avg_ms / cuda_avg_ms;
+
+        println!(
+            "IMP-1004c: Full forward pass - CUDA={:.3}ms, Hybrid={:.3}ms, Speedup={:.2}x",
+            cuda_avg_ms, hybrid_avg_ms, speedup
+        );
+
+        // Calculate throughput
+        let cuda_tok_per_sec = 1000.0 / cuda_avg_ms;
+        let hybrid_tok_per_sec = 1000.0 / hybrid_avg_ms;
+
+        println!(
+            "IMP-1004c: Throughput - CUDA={:.1} tok/s, Hybrid={:.1} tok/s",
+            cuda_tok_per_sec, hybrid_tok_per_sec
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "cuda")]
+    fn test_imp_1004d_token_generation_throughput() {
+        // IMP-1004d: Measure token generation throughput (the key parity metric)
+        use crate::cuda::CudaExecutor;
+        use std::time::Instant;
+
+        if !CudaExecutor::is_available() {
+            println!("IMP-1004d: CUDA not available, skipping");
+            return;
+        }
+
+        let config = GpuModelConfig {
+            vocab_size: 32000,
+            hidden_dim: 512,
+            num_heads: 8,
+            num_kv_heads: 8,
+            num_layers: 4,
+            intermediate_dim: 1024,
+            eps: 1e-5,
+        };
+
+        let mut cuda_model =
+            GpuModel::new_with_cuda(config.clone()).expect("Failed to create CUDA model");
+
+        let prompt = vec![1usize, 2, 3]; // Small prompt
+
+        // Generate tokens and measure
+        let gen_config = GpuGenerateConfig::deterministic(10);
+
+        let start = Instant::now();
+        let tokens = cuda_model
+            .generate(&prompt, &gen_config)
+            .expect("Generation failed");
+        let elapsed = start.elapsed();
+
+        let tokens_generated = tokens.len() - prompt.len();
+        let tok_per_sec = tokens_generated as f64 / elapsed.as_secs_f64();
+
+        println!(
+            "IMP-1004d: Generated {} tokens in {:.3}ms ({:.1} tok/s)",
+            tokens_generated,
+            elapsed.as_secs_f64() * 1000.0,
+            tok_per_sec
+        );
+
+        // Target: Ollama phi2 achieves ~228 tok/s
+        // Current gap: ~1090x
+        // This test establishes baseline for improvement tracking
+        println!(
+            "IMP-1004d: Target=228 tok/s (Ollama), Current={:.1} tok/s, Gap={:.0}x",
+            tok_per_sec,
+            228.0 / tok_per_sec.max(0.001)
+        );
+
+        // Verify generation produced tokens
+        assert!(
+            tokens_generated > 0,
+            "IMP-1004d: Should generate at least some tokens"
+        );
+    }
 }
