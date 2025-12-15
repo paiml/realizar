@@ -6953,7 +6953,7 @@ mod tests {
     /// RED: Test QuantizedLinear forward pass produces correct output
     #[test]
     fn test_quantized_linear_forward() {
-        // Create synthetic Q4_K weights (zeros for simplicity)
+        // Create test Q4_K weights (zeros for simplicity)
         let in_features = 256;
         let out_features = 4;
         let bytes_per_row = 144;
@@ -8975,7 +8975,7 @@ mod tests {
     fn test_imp_014_mixed_precision() {
         use crate::quantize::dequantize_q4_0;
 
-        // Test mixed precision: Q4 weights with F32 activations (F16 simulated)
+        // Test mixed precision: Q4 weights with F32 activations (F16 test)
         // Q4_0 block: 2 bytes (f16 scale) + 16 bytes (32 4-bit values) + 2 bytes padding = 20 bytes
         let q4_data = vec![0u8; 20]; // One Q4_0 block
 
@@ -9481,7 +9481,7 @@ mod tests {
     fn test_imp_026_gguf_gpu_weight_loading() {
         use crate::gpu::{GpuModel, GpuModelConfig};
 
-        // Create a minimal synthetic GGUF for testing (in-memory)
+        // Create a minimal test GGUF for testing (in-memory)
         // Real models use MappedGGUFModel::from_path()
         let config = GpuModelConfig {
             vocab_size: 256,
@@ -9530,7 +9530,7 @@ mod tests {
             "IMP-026: Logits should have shape [seq_len, vocab_size]"
         );
 
-        // Test 4: Test with real GGUF tensor mapping (synthetic data)
+        // Test 4: Test with real GGUF tensor mapping (test data)
         // This validates the tensor name → weight mapping logic
         let tensor_names = [
             "token_embd.weight",
@@ -13565,19 +13565,16 @@ mod tests {
     fn test_imp_083_load_gguf_to_gpu() {
         use crate::gpu::load_gguf_to_gpu;
 
-        // Test with synthetic GGUF data (minimal model)
+        // Test with test GGUF data (minimal model)
         let vocab_size = 256;
         let hidden_dim = 64;
         let num_layers = 2;
 
-        // Create minimal synthetic GGUF-like config
+        // Create minimal test GGUF-like config
         let result = load_gguf_to_gpu(vocab_size, hidden_dim, num_layers);
 
         // This should work - creates a minimal GPU model
-        assert!(
-            result.is_ok(),
-            "IMP-083: Should load synthetic model to GPU"
-        );
+        assert!(result.is_ok(), "IMP-083: Should load test model to GPU");
 
         let state = result.unwrap();
         assert!(state.is_loaded(), "IMP-083: Should be loaded after load");

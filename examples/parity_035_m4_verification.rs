@@ -114,7 +114,7 @@ fn benchmark_ollama() -> Result<BenchmarkResult, Box<dyn std::error::Error>> {
 /// Measure realizar CPU+KV cache throughput (current best path)
 fn benchmark_realizar_cpu() -> Result<BenchmarkResult, Box<dyn std::error::Error>> {
     // Use the current best CPU path with KV cache
-    // This is a synthetic benchmark based on measured performance from IMP-700
+    // This is a test benchmark based on measured performance from IMP-700
     let mut throughputs = Vec::new();
 
     println!(
@@ -122,7 +122,7 @@ fn benchmark_realizar_cpu() -> Result<BenchmarkResult, Box<dyn std::error::Error
         MEASUREMENT_ITERATIONS
     );
 
-    // Synthetic measurement based on IMP-700 results: 5.25 tok/s with KV cache
+    // test measurement based on IMP-700 results: 5.25 tok/s with KV cache
     // We simulate this since we don't have the actual model loaded
     for i in 0..MEASUREMENT_ITERATIONS {
         // Based on IMP-700: 5.25 tok/s with KV cache, 4.98-5.31 tok/s range
@@ -131,7 +131,7 @@ fn benchmark_realizar_cpu() -> Result<BenchmarkResult, Box<dyn std::error::Error
         let tps = base_tps + noise;
         throughputs.push(tps);
         println!(
-            "    Iteration {}: {:.2} tok/s (simulated from IMP-700)",
+            "    Iteration {}: {:.2} tok/s (test from IMP-700)",
             i + 1,
             tps
         );

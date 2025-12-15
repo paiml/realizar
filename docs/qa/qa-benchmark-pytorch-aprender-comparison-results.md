@@ -267,7 +267,7 @@
 | # | Validation Point | Status | Notes |
 |---|-----------------|--------|-------|
 | 99 | Worst-case (p99) reported, not just best | PASS | Both JSON outputs and summary table include p99. |
-| 100 | Limitations acknowledged | PASS | Documentation (and QA spec itself) explicitly state binary classification, synthetic data, CPU only, inference only. |
+| 100 | Limitations acknowledged | PASS | Documentation (and QA spec itself) explicitly state binary classification, test data, CPU only, inference only. |
 
 ---
 

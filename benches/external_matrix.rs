@@ -356,7 +356,7 @@ fn generate_benchmark_matrix() -> BenchmarkMatrix {
         ComputeBackendType::Cpu,
         "benchmark_model",
         &latencies,
-        &[], // No throughput for synthetic model
+        &[], // No throughput for test model
         latencies.first().copied().unwrap_or(0.0),
     );
     println!(

@@ -65,13 +65,13 @@ curl -X POST http://localhost:8080/generate -d '{"prompt": "Hello", "max_tokens"
 │ Ollama       │ CUDA    │ ~120ms      │ ~260 tok/s  │ ollama serve          │
 │ realizar     │ CPU     │ ~500ms*     │ ~2 tok/s*   │ cargo bench gguf_real │
 ├──────────────┴─────────┴─────────────┴─────────────┴───────────────────────┤
-│                     APR Format (Synthetic Transformer)                      │
+│                     APR Format (test Transformer)                      │
 ├──────────────┬─────────┬─────────────┬─────────────┬───────────────────────┤
 │ realizar     │ CPU     │ 18.5ms      │ N/A**       │ cargo bench comparative│
 └──────────────┴─────────┴─────────────┴─────────────┴───────────────────────┘
 
 *  realizar CPU: Pure Rust, no SIMD optimization yet - educational/correctness focus
-** APR synthetic: Forward pass only, not full generation loop
+** APR test: Forward pass only, not full generation loop
 ```
 
 > **Note**: realizar is a pure Rust implementation focused on correctness and educational

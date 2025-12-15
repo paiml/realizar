@@ -81,7 +81,7 @@ Last measured: 2025-12-12 (Updated after M28 completion - Metrics & Health Monit
 
 ### Real-World Comparison (M13-M28) - ALL COMPLETE! 🎉
 
-**Note:** M1-M12 are synthetic benchmarks. M13-M28 are what users actually care about.
+**Note:** M1-M12 are test benchmarks. M13-M28 are what users actually care about.
 
 | Milestone | Target | Current | Status |
 |-----------|--------|---------|--------|

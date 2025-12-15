@@ -2956,7 +2956,8 @@ pub struct DistributedBenchConfig {
     /// Warm-up iterations (not counted in results)
     pub warmup: usize,
     /// Model size in parameters (for theoretical FLOPS calculation)
-    pub model_params: usize,
+    /// Uses u64 to support large models (7B+) on 32-bit platforms like WASM
+    pub model_params: u64,
     /// Sequence length for testing
     pub seq_len: usize,
     /// Batch size for testing
@@ -3202,7 +3203,7 @@ impl DistributedBenchSuite {
 
             // All-reduce latency (alpha + beta * size)
             // Typical: alpha = 5us, beta = 0.1us/KB
-            let tensor_size_kb = (self.config.model_params / tp_degree) as f64 / 256.0; // 4 bytes, 1024 per KB
+            let tensor_size_kb = (self.config.model_params / tp_degree as u64) as f64 / 256.0; // 4 bytes, 1024 per KB
             let all_reduce_ms = if tp_degree > 1 {
                 (5.0 + 0.1 * tensor_size_kb) / 1000.0
             } else {

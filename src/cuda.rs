@@ -2425,11 +2425,14 @@ impl CudaExecutor {
         let config = LaunchConfig::linear(m, 256);
 
         // Get raw pointers for kernel args
-        let mut ptr_weights = buf_weights.as_ptr();
-        let mut ptr_input = buf_input.as_ptr();
-        let mut ptr_output = buf_output.as_ptr();
-        let mut m_val = m as i32;
-        let mut k_val = k as i32;
+        // Kernel signature: q4k_gemm_fused(a_ptr, b_quant_ptr, c_ptr, m, n, k)
+        // Where: a_ptr = input activations, b_quant_ptr = weights, c_ptr = output
+        let mut ptr_input = buf_input.as_ptr(); // a_ptr: input activations
+        let mut ptr_weights = buf_weights.as_ptr(); // b_quant_ptr: quantized weights
+        let mut ptr_output = buf_output.as_ptr(); // c_ptr: output
+        let mut m_val = m; // u32 as expected by kernel
+        let mut n_val = 1u32; // n=1 for matvec (CRITICAL: was missing!)
+        let mut k_val = k; // u32 as expected by kernel
 
         // Launch kernel
         unsafe {
@@ -2438,11 +2441,12 @@ impl CudaExecutor {
                 kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_weights as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_input as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
-                    &mut m_val as *mut _ as *mut std::ffi::c_void,
-                    &mut k_val as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_input as *mut _ as *mut std::ffi::c_void, // a_ptr
+                    &mut ptr_weights as *mut _ as *mut std::ffi::c_void, // b_quant_ptr
+                    &mut ptr_output as *mut _ as *mut std::ffi::c_void, // c_ptr
+                    &mut m_val as *mut _ as *mut std::ffi::c_void,     // m
+                    &mut n_val as *mut _ as *mut std::ffi::c_void,     // n (was missing!)
+                    &mut k_val as *mut _ as *mut std::ffi::c_void,     // k
                 ],
             )?;
         }

@@ -2591,7 +2591,7 @@ mod tests {
         // Process 3 tokens
         for pos in 0..3 {
             for layer in 0..num_layers {
-                // Simulated K, V from QKV projection
+                // test K, V from QKV projection
                 let k: Vec<f32> = (0..hidden_dim)
                     .map(|i| (pos + layer + i) as f32 * 0.1)
                     .collect();

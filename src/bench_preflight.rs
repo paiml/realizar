@@ -1489,7 +1489,7 @@ mod tests {
     fn test_imp_143c_preflight_detects_unavailable_server() {
         // Use a port that's unlikely to have a server running
         let mut check = ServerAvailabilityCheck::llama_cpp(59999);
-        check.set_health_status(0); // Connection refused simulated
+        check.set_health_status(0); // Connection refused test
 
         // IMP-143c: Check should fail for unavailable server
         let result = check.validate();

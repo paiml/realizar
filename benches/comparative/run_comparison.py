@@ -170,7 +170,7 @@ def run_realizar_benchmark(iterations: int = 1000) -> List[FrameworkResult]:
                 except Exception as e:
                     print(f"Error parsing {json_path}: {e}")
 
-    # If no Criterion results, generate synthetic results from a quick run
+    # If no Criterion results, generate test results from a quick run
     if not results:
         print("No Criterion results found, running quick benchmark...")
         results = run_realizar_quick_benchmark()

@@ -1,0 +1,9 @@
+{
+  "commit_sha": null,
+  "work_item_id": "PARITY-034",
+  "prompt": "FlashAttention CUDA Kernel Execution: Wire trueno-gpu AttentionKernel to realizar",
+  "tdg_score": 0.0,
+  "repo_score": 0.0,
+  "rust_project_score": 0.0,
+  "timestamp": "2025-12-14T19:06:27.841507168Z"
+}

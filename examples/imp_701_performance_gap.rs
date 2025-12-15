@@ -9,7 +9,7 @@ use std::time::Instant;
 
 fn main() {
     println!("=== IMP-701: Performance Gap Analysis ===");
-    println!("Comparing realizar synthetic inference to Ollama baseline\n");
+    println!("Comparing realizar test inference to Ollama baseline\n");
 
     // Ollama baseline from IMP-144b/IMP-146d
     let ollama_tps = 240.1; // measured tok/s
@@ -20,15 +20,15 @@ fn main() {
     println!("  P50 Latency: {:.1} ms", ollama_p50_ms);
     println!();
 
-    // Test realizar synthetic model (simulates transformer operations)
-    println!("Realizar Synthetic Transformer:");
+    // Test realizar test model (simulates transformer operations)
+    println!("Realizar test Transformer:");
 
     // Simulate phi-2 dimensions
     let hidden_dim = 2560;
     let num_heads = 32;
     let head_dim = hidden_dim / num_heads;
-    let seq_len = 50;
-    let vocab_size = 51200;
+    let _seq_len = 50;
+    let _vocab_size = 51200;
     let num_layers = 32;
 
     // Simulate forward pass operations
@@ -38,10 +38,10 @@ fn main() {
     let embeddings: Vec<f32> = vec![0.1; hidden_dim];
 
     // 2. Layer operations (attention + FFN)
-    let weights_qkv: Vec<f32> = vec![0.01; hidden_dim * hidden_dim * 3];
-    let weights_out: Vec<f32> = vec![0.01; hidden_dim * hidden_dim];
-    let weights_ffn1: Vec<f32> = vec![0.01; hidden_dim * hidden_dim * 4];
-    let weights_ffn2: Vec<f32> = vec![0.01; hidden_dim * 4 * hidden_dim];
+    let _weights_qkv: Vec<f32> = vec![0.01; hidden_dim * hidden_dim * 3];
+    let _weights_out: Vec<f32> = vec![0.01; hidden_dim * hidden_dim];
+    let _weights_ffn1: Vec<f32> = vec![0.01; hidden_dim * hidden_dim * 4];
+    let _weights_ffn2: Vec<f32> = vec![0.01; hidden_dim * 4 * hidden_dim];
 
     // Warmup
     let mut hidden = embeddings.clone();
@@ -83,26 +83,26 @@ fn main() {
     }
     let elapsed = start.elapsed();
 
-    let synthetic_ms_per_token = elapsed.as_secs_f64() * 1000.0 / num_iterations as f64;
-    let synthetic_tps = 1000.0 / synthetic_ms_per_token;
+    let test_ms_per_token = elapsed.as_secs_f64() * 1000.0 / num_iterations as f64;
+    let test_tps = 1000.0 / test_ms_per_token;
 
     println!("  Iterations: {}", num_iterations);
-    println!("  Time per token: {:.2} ms", synthetic_ms_per_token);
-    println!("  Throughput: {:.2} tok/s", synthetic_tps);
+    println!("  Time per token: {:.2} ms", test_ms_per_token);
+    println!("  Throughput: {:.2} tok/s", test_tps);
     println!();
 
     // Calculate gap
-    let gap = ollama_tps / synthetic_tps;
+    let gap = ollama_tps / test_tps;
 
     println!("=== Performance Gap Analysis ===");
     println!("  Ollama: {:.1} tok/s", ollama_tps);
-    println!("  Realizar (synthetic): {:.2} tok/s", synthetic_tps);
+    println!("  Realizar (test): {:.2} tok/s", test_tps);
     println!("  Gap: {:.1}x", gap);
     println!();
 
     // Analysis
     println!("=== Gap Breakdown ===");
-    println!("1. Synthetic model underestimates real transformer cost");
+    println!("1. test model underestimates real transformer cost");
     println!("   - No actual matrix multiplications (O(d²) each)");
     println!("   - No KV cache management");
     println!("   - No real attention (O(n²) for seq_len)");

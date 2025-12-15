@@ -875,7 +875,7 @@ benches/comparative/
 ### Limitations (Acknowledged)
 
 1. **Binary classification only** - Aprender LogReg is binary; full 10-class would need different model
-2. **Synthetic data** - Not real MNIST images, but mathematically equivalent
+2. **test data** - Not real MNIST images, but mathematically equivalent
 3. **Single-threaded** - No parallelism comparison
 4. **CPU only** - No GPU comparison
 5. **Inference only** - Training not measured

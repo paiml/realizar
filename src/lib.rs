@@ -91,6 +91,27 @@
 #![allow(clippy::approx_constant)] // Allow approximate PI
 #![allow(clippy::manual_range_contains)] // Allow manual range checks
 #![allow(clippy::same_item_push)] // Allow pushing same items in tests
+#![allow(clippy::similar_names)] // Allow similar variable names in test code
+#![allow(clippy::unreadable_literal)] // Allow literals without separators in test code
+#![allow(clippy::useless_vec)] // Allow vec![] where slice would work in tests
+#![allow(clippy::ignore_without_reason)] // Allow #[ignore] without explicit reason
+#![allow(clippy::cast_ptr_alignment)] // Allow unaligned SIMD pointer casts (loadu/storeu are safe)
+#![allow(clippy::ptr_as_ptr)] // Allow pointer cast style in SIMD code
+#![allow(clippy::struct_excessive_bools)] // Allow structs with multiple bool fields
+#![allow(clippy::match_same_arms)] // Allow match arms with same bodies for clarity
+#![allow(clippy::assertions_on_constants)] // Allow assert!(true) in tests
+#![allow(clippy::format_push_string)] // Allow format! with push_str for clarity
+#![allow(clippy::upper_case_acronyms)] // Allow VLLM, APR, GGUF, ONNX etc.
+#![allow(clippy::struct_field_names)] // Allow field names with common suffix (_ms, _hash)
+#![allow(clippy::if_same_then_else)] // Allow if/else with same block for clarity
+#![allow(clippy::format_collect)] // Allow map().collect() with format! inside
+#![allow(clippy::no_effect_underscore_binding)] // Allow underscore-prefixed bindings
+#![allow(clippy::too_many_arguments)] // Allow functions with >7 args
+#![allow(clippy::needless_range_loop)] // Allow for i in 0..len style loops
+#![allow(clippy::trivially_copy_pass_by_ref)] // Allow &self on small Copy types
+#![allow(clippy::used_underscore_items)] // Allow using _prefixed items
+#![allow(clippy::field_reassign_with_default)] // Allow field reassign after default
+#![allow(dead_code)] // Allow unused fields/variants in test structs
 
 #[cfg(feature = "server")]
 pub mod api;
@@ -262,6 +283,8 @@ pub mod serve;
 pub mod speculative;
 pub mod stats;
 pub mod tensor;
+/// TUI monitoring for inference performance
+pub mod tui;
 pub mod viz;
 /// Model warm-up and pre-loading
 pub mod warmup;

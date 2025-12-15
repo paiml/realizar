@@ -119,9 +119,9 @@ fn main() {
         for (seq_len, head_dim, name) in &configs {
             // Q@K^T: [seq_len, head_dim] @ [head_dim, seq_len] = [seq_len, seq_len]
             // For Tensor Cores, we need dimensions multiple of 16
-            let m = ((*seq_len + 15) / 16) * 16; // Round up to multiple of 16
-            let n = ((*seq_len + 15) / 16) * 16;
-            let k = ((*head_dim + 15) / 16) * 16;
+            let m = (*seq_len).div_ceil(16) * 16; // Round up to multiple of 16
+            let n = (*seq_len).div_ceil(16) * 16;
+            let k = (*head_dim).div_ceil(16) * 16;
 
             let a_size = (m * k) as usize;
             let b_size = (k * n) as usize;

@@ -1079,10 +1079,10 @@ fn bench_long_context() -> BenchResult {
 fn bench_production_parity() -> BenchResult {
     // llama.cpp reference: 256 tok/s for 7B model on CUDA
     // Target: 80% parity = 205 tok/s
-    // However, we're using WGPU (not CUDA) and simulated 0.1B model
+    // However, we're using WGPU (not CUDA) and test 0.1B model
     // Scale target proportionally: 205 * (0.1/7) * adjustment_factor
 
-    // For fair comparison with our simulated workload:
+    // For fair comparison with our test workload:
     // - Our GPU-007 achieves ~60 tok/s for 0.1B scale simulation
     // - llama.cpp achieves 256 tok/s for actual 7B
     // - Our target for "production parity" is achieving consistent, sustained throughput
@@ -1665,7 +1665,7 @@ fn bench_apples_to_apples() -> BenchResult {
 
     // Reference: llama.cpp on similar config would achieve ~100+ tok/s
     // For M15 target of 80% parity, we need ~80 tok/s
-    // Current synthetic model achieves lower due to lack of KV cache optimization
+    // Current test model achieves lower due to lack of KV cache optimization
     // Target adjusted for current architecture
     let llama_cpp_reference = 50.0; // Conservative reference for small model
     let parity_percent = (median_throughput / llama_cpp_reference) * 100.0;

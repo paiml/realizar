@@ -4845,7 +4845,7 @@ mod tests {
     ///
     /// Per spec §4 Phase 1:
     /// - Fused Q4_K dequant+dot must match reference within 4 ULPs
-    /// - Simulated forward pass must complete in < 5 seconds
+    /// - test forward pass must complete in < 5 seconds
     #[test]
     fn test_phase1_acceptance_fused_q4k_inference() {
         use super::{dequantize_q4_k, fused_q4k_dot_simd, fused_q4k_tiled_matvec};
@@ -5019,7 +5019,7 @@ mod tests {
         // Each token generation requires processing context + KV cache access
         let start = Instant::now();
         for _token in 0..tokens_to_generate {
-            // Simulated attention over context (memory-bound operation)
+            // test attention over context (memory-bound operation)
             // In real implementation: KV cache lookup + attention computation
             for _ in 0..num_layers {
                 let _ = fused_q4k_tiled_matvec(

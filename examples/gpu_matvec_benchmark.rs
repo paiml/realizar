@@ -31,11 +31,11 @@ fn matvec_simd(matrix: &[f32], vector: &[f32], rows: usize, cols: usize) -> Vec<
     let v = TruenoVector::from_slice(vector);
     let mut result = vec![0.0f32; rows];
 
-    for i in 0..rows {
+    for (i, res) in result.iter_mut().enumerate().take(rows) {
         let row_start = i * cols;
         let row_end = row_start + cols;
         let row = TruenoVector::from_slice(&matrix[row_start..row_end]);
-        result[i] = row.dot(&v).unwrap_or(0.0);
+        *res = row.dot(&v).unwrap_or(0.0);
     }
     result
 }

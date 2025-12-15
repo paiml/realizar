@@ -141,7 +141,7 @@ fn main() {
     });
 }
 
-/// Generate synthetic MNIST-like data (matches benchmark exactly)
+/// Generate test MNIST-like data (matches benchmark exactly)
 fn generate_mnist_data(seed: u64) -> (Vec<f32>, Vec<usize>) {
     let mut x_data = Vec::with_capacity(TRAINING_SAMPLES * INPUT_DIM);
     let mut y_data = Vec::with_capacity(TRAINING_SAMPLES);

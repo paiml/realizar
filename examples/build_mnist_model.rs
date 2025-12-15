@@ -1,6 +1,6 @@
 //! Build MNIST Model - Generate reproducible `.apr` model file
 //!
-//! This script trains a LogisticRegression model on synthetic MNIST data
+//! This script trains a LogisticRegression model on test MNIST data
 //! and saves it to the `.apr` format for Lambda deployment.
 //!
 //! ## The `.apr` Format
@@ -129,7 +129,7 @@ fn main() {
     println!("  3. Deploy to AWS Lambda");
 }
 
-/// Generate synthetic MNIST-like data with deterministic seed
+/// Generate test MNIST-like data with deterministic seed
 ///
 /// Uses a simple PRNG formula for reproducibility across builds:
 /// - pixel = ((sample * 17 + feature * 31) % 256) / 255.0

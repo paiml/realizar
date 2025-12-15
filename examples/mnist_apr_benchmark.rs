@@ -155,7 +155,7 @@ impl BenchmarkResult {
     }
 }
 
-/// Generate synthetic MNIST data - MUST match Python exactly
+/// Generate test MNIST data - MUST match Python exactly
 ///
 /// Formula: pixel = ((i * 17 + j * 31) % 256) / 255.0
 /// Labels: Binary (0 or 1) for logistic regression
@@ -245,7 +245,7 @@ fn main() {
     println!();
 
     // Generate data
-    println!("## Generating synthetic MNIST data...");
+    println!("## Generating test MNIST data...");
     let (x, y) = generate_mnist_data();
     println!("  Data shape: {}x{}", TRAINING_SAMPLES, INPUT_DIM);
     println!();

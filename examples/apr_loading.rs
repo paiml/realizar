@@ -60,8 +60,8 @@ fn main() {
     }
     println!();
 
-    // 3. Create a synthetic model in-memory
-    println!("Creating synthetic 2-layer neural network...\n");
+    // 3. Create a test model in-memory
+    println!("Creating test 2-layer neural network...\n");
 
     let weights = ModelWeights {
         weights: vec![

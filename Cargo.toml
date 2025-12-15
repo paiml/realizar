@@ -15,16 +15,22 @@ categories = ["science", "web-programming::http-server"]
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "warn"
-unreachable_pub = "warn"
+# unreachable_pub disabled - too noisy for test code in #[cfg(test)] modules
+# unreachable_pub = "warn"
 
 [lints.clippy]
 checked_conversions = "warn"
 redundant_clone = "warn"
 # Note: unwrap_used is enforced via .clippy.toml disallowed-methods instead
+# Allow noisy lints in test code
+similar_names = "allow"
+unreadable_literal = "allow"
+useless_vec = "allow"
 
 [dependencies]
 # OUR ecosystem - SIMD/GPU compute primitives (we control this)
-trueno = { version = "0.8.1", features = ["gpu"] }
+# Using local path for WASM fix (block_on cfg gating)
+trueno = { path = "../trueno", features = ["gpu"] }
 # CUDA PTX generation and runtime for NVIDIA GPUs (optional, pure Rust, no LLVM/nvcc)
 trueno-gpu = { path = "../trueno/trueno-gpu", optional = true, features = ["cuda"] }
 # KV cache storage (for attention caching)
@@ -75,10 +81,6 @@ anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 
-# System interface for memory pinning (mlock)
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"
-
 # Numerical traits (for generic code)
 num-traits = "0.2"
 
@@ -98,7 +100,18 @@ smallvec = "1.13"
 # That's it. NO candle, NO llama-cpp-rs, NO hf-hub
 # We build everything from scratch: GGUF parser, safetensors, transformer, quantization, tokenizer
 
+# System interface for memory pinning (mlock)
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# WASM-specific: uuid needs js feature for browser RNG
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+uuid = { version = "1", features = ["v4", "serde", "js"] }
+
 [dev-dependencies]
+# Visual regression testing framework (playbooks, TUI testing, GPU pixel verification)
+jugar-probar = { version = "0.4", features = ["tui", "gpu"] }
+
 # Benchmarking
 criterion = { version = "0.5", features = ["html_reports"] }
 
@@ -256,6 +269,10 @@ required-features = ["cuda"]
 
 [[example]]
 name = "imp_801_flash_attention_falsification"
+required-features = ["cuda"]
+
+[[example]]
+name = "imp_1010_full_cuda_benchmark"
 required-features = ["cuda"]
 
 [profile.release]

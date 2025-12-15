@@ -93,7 +93,7 @@ for the sovereign AI stack:
 - APR format specification (magic, header, flags)
 - All supported model types (Linear, NN, MoE, etc.)
 - Header parsing and format detection
-- Inference with synthetic models
+- Inference with test models
 - Batch prediction
 
 **Run:**
@@ -519,7 +519,7 @@ The GPU examples demonstrate findings from the trueno simulation research:
 
 ## Notes
 
-- Examples use demo/synthetic models for demonstration
+- Examples use demo/test models for demonstration
 - Real model loading requires proper GGUF or SafeTensors files
 - API server examples run indefinitely (Ctrl+C to stop)
 - All examples follow EXTREME TDD principles with comprehensive testing

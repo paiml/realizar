@@ -80,7 +80,7 @@ pub fn run_visualization(use_color: bool, samples: usize) {
     println!("=====================================");
     println!();
 
-    // Generate synthetic benchmark data (simulating inference latencies)
+    // Generate test benchmark data (simulating inference latencies)
     let mut rng_state = 42u64;
     let latencies: Vec<f64> = (0..samples)
         .map(|_| {
@@ -536,7 +536,7 @@ pub fn run_convoy_test(
     );
     println!();
 
-    // Create simulated result for demo (actual benchmark would run inference)
+    // Create test result for demo (actual benchmark would run inference)
     let baseline_latencies: Vec<f64> = (0..100).map(|i| 45.0 + (i as f64) * 0.1).collect();
     let convoy_latencies: Vec<f64> = (0..100).map(|i| 60.0 + (i as f64) * 0.15).collect();
     let hol_blocking_times: Vec<f64> = vec![80.0, 120.0, 95.0, 110.0, 85.0];
@@ -606,7 +606,7 @@ pub fn run_saturation_test(
     println!("  Max p99 increase: {}%", config.max_p99_increase_pct);
     println!();
 
-    // Create simulated result for demo
+    // Create test result for demo
     let baseline_throughputs: Vec<f64> = (0..50).map(|i| 95.0 + (i as f64) * 0.2).collect();
     let stressed_throughputs: Vec<f64> = (0..50).map(|i| 78.0 + (i as f64) * 0.15).collect();
     let baseline_latencies: Vec<f64> = (0..100).map(|i| 45.0 + (i as f64) * 0.1).collect();

@@ -1,0 +1,9 @@
+{
+  "commit_sha": null,
+  "work_item_id": "PARITY-037",
+  "prompt": "M3-Step2: GPU GEMM for FFN Layers via cuBLAS or Custom CUDA",
+  "tdg_score": 0.0,
+  "repo_score": 0.0,
+  "rust_project_score": 0.0,
+  "timestamp": "2025-12-14T19:38:14.929146423Z"
+}

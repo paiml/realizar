@@ -339,7 +339,7 @@ cargo run --example mnist_apr_benchmark --release --features aprender-serve
 ## Known Limitations (Acknowledged)
 
 1. **Binary classification only** - Aprender's LogisticRegression is binary; full 10-class MNIST would require different model
-2. **Synthetic data** - Not real MNIST images, but mathematically equivalent workload
+2. **test data** - Not real MNIST images, but mathematically equivalent workload
 3. **Single-threaded** - No parallelism comparison
 4. **CPU only** - No GPU comparison
 5. **Inference only** - Training performance not measured

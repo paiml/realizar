@@ -1,0 +1,8 @@
+# Auto-generated mdBook output (contains third-party JS runtime)
+book/book/
+
+# Build artifacts
+target/
+
+# Other generated files
+*.lock

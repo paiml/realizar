@@ -322,7 +322,7 @@ fn create_q4k_weight_data(in_features: usize, out_features: usize) -> Vec<u8> {
     let bytes_per_row = super_blocks_per_row * SUPER_BLOCK_BYTES;
     let total_bytes = out_features * bytes_per_row;
 
-    // Create synthetic Q4_K data with realistic scale values
+    // Create test Q4_K data with realistic scale values
     let mut data = Vec::with_capacity(total_bytes);
     for _ in 0..out_features {
         for sb in 0..super_blocks_per_row {

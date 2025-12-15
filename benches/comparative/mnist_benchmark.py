@@ -163,10 +163,10 @@ class MLP(nn.Module):
 
 def generate_mnist_data(seed: int = SEED) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Generate synthetic MNIST-like data.
+    Generate test MNIST-like data.
 
     Uses deterministic generation matching the Rust benchmark.
-    Real MNIST could be loaded with torchvision, but synthetic
+    Real MNIST could be loaded with torchvision, but test
     data ensures exact reproducibility across Rust/Python.
     """
     torch.manual_seed(seed)
@@ -299,7 +299,7 @@ def run_benchmark() -> dict:
     print()
 
     # Generate data
-    print("## Generating synthetic MNIST data...")
+    print("## Generating test MNIST data...")
     torch.manual_seed(SEED)
     X, y = generate_mnist_data(SEED)
     print(f"  Data shape: {X.shape}")

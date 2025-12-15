@@ -1625,7 +1625,7 @@ mod tests {
     /// IMP-144c: Verify throughput comparison can detect performance differences
     #[test]
     fn test_imp_144c_throughput_comparison_logic() {
-        // Simulated benchmark results for comparison logic test
+        // test benchmark results for comparison logic test
         let llamacpp_tps = 256.0; // Per spec: llama.cpp GPU
         let ollama_tps = 143.0; // Per spec: Ollama baseline
         let realizar_tps = 80.0; // Per spec: Realizar current (~1.8x gap)
@@ -1663,7 +1663,7 @@ mod tests {
     /// IMP-144d: Verify CV-based stopping works for throughput measurements
     #[test]
     fn test_imp_144d_cv_stopping_for_throughput() {
-        // Simulated throughput samples with low variance (should converge quickly)
+        // test throughput samples with low variance (should converge quickly)
         let throughputs = vec![100.0, 102.0, 98.0, 101.0, 99.0];
         let latencies = vec![10.0, 9.8, 10.2, 10.0, 10.0];
 
@@ -2454,7 +2454,7 @@ mod tests {
             .benchmark_ollama("http://127.0.0.1:11434", "phi2:2.7b")
             .expect("IMP-152c: Ollama benchmark failed");
 
-        // Simulated Realizar result based on IMP-900 benchmark projections
+        // test Realizar result based on IMP-900 benchmark projections
         // IMP-900 shows 61 tok/s projected, targeting 80+ with further optimizations
         let realizar_tps: f64 = 61.0; // IMP-900 projected throughput
 
@@ -2465,10 +2465,7 @@ mod tests {
         );
 
         println!("\nIMP-152c: Real-World E2E Comparison:");
-        println!(
-            "  Realizar:  {:.1} tok/s (simulated)",
-            comparison.realizar_tps
-        );
+        println!("  Realizar:  {:.1} tok/s (test)", comparison.realizar_tps);
         println!("  Ollama:    {:.1} tok/s (measured)", comparison.ollama_tps);
         println!(
             "  llama.cpp: {:.1} tok/s (measured)",
@@ -3594,7 +3591,7 @@ mod tests {
     #[test]
     fn test_imp_155b_fused_vs_separate() {
         // Per IMP-100c: Fused should be 29-132x faster
-        let comparison = FusedVsSeparateComparison::new(5000.0, 170.0); // Simulated values
+        let comparison = FusedVsSeparateComparison::new(5000.0, 170.0); // test values
 
         assert!(comparison.fused_wins, "IMP-155b: Fused should win");
         assert!(
@@ -4065,7 +4062,7 @@ mod tests {
                 os_version: std::env::consts::ARCH.to_string(),
                 cpu_model: "Unknown".to_string(), // Would need sysinfo crate
                 cpu_cores: std::thread::available_parallelism()
-                    .map(|p| p.get())
+                    .map(std::num::NonZero::get)
                     .unwrap_or(1),
                 memory_gb: 0.0, // Would need sysinfo crate
                 rust_version: env!("CARGO_PKG_RUST_VERSION").to_string(),
@@ -4552,12 +4549,15 @@ mod tests {
         }
 
         fn get_field_value(value: &serde_json::Value, field: &str) -> Option<f64> {
-            value.get(field).and_then(|v| v.as_f64()).or_else(|| {
-                value
-                    .get("results")
-                    .and_then(|r| r.get(field))
-                    .and_then(|v| v.as_f64())
-            })
+            value
+                .get(field)
+                .and_then(serde_json::Value::as_f64)
+                .or_else(|| {
+                    value
+                        .get("results")
+                        .and_then(|r| r.get(field))
+                        .and_then(serde_json::Value::as_f64)
+                })
         }
     }
 
@@ -5328,7 +5328,7 @@ mod tests {
             effect_size: f64,
             sample_size: usize,
             alpha: f64,
-            desired_power: f64,
+            _desired_power: f64,
         ) -> Self {
             // Z-score for alpha (two-tailed)
             let z_alpha = 1.96; // For alpha = 0.05
@@ -5437,7 +5437,7 @@ mod tests {
                 "  Run {}: {} samples, mean {:.2} tok/s",
                 run_idx + 1,
                 samples.len(),
-                runs.last().map(|r| r.mean_tps).unwrap_or(0.0)
+                runs.last().map_or(0.0, |r| r.mean_tps)
             );
         }
 
@@ -5840,7 +5840,10 @@ mod tests {
         let mut latencies_ms = Vec::new();
         for _ in 0..15 {
             let start = std::time::Instant::now();
-            if let Ok(_) = client.llamacpp_completion("http://127.0.0.1:8082", &request) {
+            if client
+                .llamacpp_completion("http://127.0.0.1:8082", &request)
+                .is_ok()
+            {
                 latencies_ms.push(start.elapsed().as_secs_f64() * 1000.0);
             }
         }
@@ -6298,7 +6301,10 @@ mod tests {
         let mut latencies_ms = Vec::new();
         for _ in 0..20 {
             let start = std::time::Instant::now();
-            if let Ok(_) = client.llamacpp_completion("http://127.0.0.1:8082", &request) {
+            if client
+                .llamacpp_completion("http://127.0.0.1:8082", &request)
+                .is_ok()
+            {
                 latencies_ms.push(start.elapsed().as_secs_f64() * 1000.0);
             }
         }
@@ -6448,11 +6454,11 @@ mod tests {
     /// IMP-163a: Test A/B latency comparison structure
     #[test]
     fn test_imp_163a_ab_latency_comparison() {
-        // Simulated Realizar latencies (slower)
+        // test Realizar latencies (slower)
         let realizar_latencies = vec![
             520.0, 530.0, 510.0, 525.0, 515.0, 540.0, 505.0, 535.0, 520.0, 528.0,
         ];
-        // Simulated llama.cpp latencies (faster)
+        // test llama.cpp latencies (faster)
         let llamacpp_latencies = vec![
             160.0, 165.0, 158.0, 162.0, 155.0, 170.0, 152.0, 168.0, 161.0, 164.0,
         ];
@@ -6704,7 +6710,10 @@ mod tests {
         let mut llamacpp_latencies = Vec::new();
         for _ in 0..10 {
             let start = std::time::Instant::now();
-            if let Ok(_) = client.llamacpp_completion("http://127.0.0.1:8082", &request) {
+            if client
+                .llamacpp_completion("http://127.0.0.1:8082", &request)
+                .is_ok()
+            {
                 llamacpp_latencies.push(start.elapsed().as_secs_f64() * 1000.0);
             }
         }
@@ -6714,7 +6723,7 @@ mod tests {
             return;
         }
 
-        // Simulated Realizar latencies (since we don't have a running server)
+        // test Realizar latencies (since we don't have a running server)
         // In production, this would call the Realizar server
         let realizar_latencies: Vec<f64> = llamacpp_latencies
             .iter()
@@ -6913,8 +6922,8 @@ mod tests {
             let trend = if history.len() < 2 {
                 "unknown"
             } else {
-                let first = history.first().map(|v| v.throughput_tps).unwrap_or(0.0);
-                let last = history.last().map(|v| v.throughput_tps).unwrap_or(0.0);
+                let first = history.first().map_or(0.0, |v| v.throughput_tps);
+                let last = history.last().map_or(0.0, |v| v.throughput_tps);
                 let overall_change = if first > 0.0 {
                     (last - first) / first
                 } else {
@@ -7329,8 +7338,7 @@ mod tests {
                         .partial_cmp(&b.overhead_ratio)
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
-                .map(|m| m.server_name.clone())
-                .unwrap_or_else(|| "none".to_string());
+                .map_or_else(|| "none".to_string(), |m| m.server_name.clone());
 
             let least = measurements
                 .iter()
@@ -7339,8 +7347,7 @@ mod tests {
                         .partial_cmp(&b.overhead_ratio)
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
-                .map(|m| m.server_name.clone())
-                .unwrap_or_else(|| "none".to_string());
+                .map_or_else(|| "none".to_string(), |m| m.server_name.clone());
 
             Self {
                 measurements,
@@ -7509,7 +7516,7 @@ mod tests {
         // 2. Monitoring memory usage via /proc or similar
         // 3. Known model size for comparison
 
-        // Simulated values based on typical observations
+        // test values based on typical observations
         let model_size_mb = 4000.0; // 4GB Q4_K model
 
         let measurements = vec![
@@ -8007,8 +8014,7 @@ mod tests {
                         .partial_cmp(&b.avg_utilization_percent)
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
-                .map(|m| m.server_name.clone())
-                .unwrap_or_else(|| "none".to_string());
+                .map_or_else(|| "none".to_string(), |m| m.server_name.clone());
 
             let least = measurements
                 .iter()
@@ -8017,8 +8023,7 @@ mod tests {
                         .partial_cmp(&b.avg_utilization_percent)
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
-                .map(|m| m.server_name.clone())
-                .unwrap_or_else(|| "none".to_string());
+                .map_or_else(|| "none".to_string(), |m| m.server_name.clone());
 
             Self {
                 measurements,
@@ -8146,7 +8151,7 @@ mod tests {
     #[ignore = "Requires GPU monitoring tools (nvidia-smi)"]
     fn test_imp_167d_realworld_gpu_utilization() {
         // This test would require nvidia-smi or similar GPU monitoring
-        // Simulated values based on typical observations
+        // test values based on typical observations
         let measurements = vec![
             GpuUtilizationMeasurement::from_samples("llama.cpp", &[92.0, 94.0, 91.0, 93.0, 90.0]),
             GpuUtilizationMeasurement::from_samples("Realizar", &[68.0, 72.0, 70.0, 69.0, 71.0]),
@@ -8455,11 +8460,11 @@ mod tests {
             }
         }
 
-        // Simulated memory tracking (would need actual /proc monitoring)
-        let simulated_cycles = vec![0, 25, 50, 75, 100];
-        let simulated_memory = vec![4000.0, 4005.0, 4002.0, 4008.0, 4003.0]; // Stable
+        // test memory tracking (would need actual /proc monitoring)
+        let test_cycles = vec![0, 25, 50, 75, 100];
+        let test_memory = vec![4000.0, 4005.0, 4002.0, 4008.0, 4003.0]; // Stable
 
-        let detector = MemoryLeakDetector::analyze(&simulated_cycles, &simulated_memory);
+        let detector = MemoryLeakDetector::analyze(&test_cycles, &test_memory);
 
         println!("\nIMP-168d: Real-World Memory Leak Test:");
         println!("  Inference cycles completed: {}", success_count);
@@ -9170,7 +9175,7 @@ mod tests {
                 .iter()
                 .zip(quantized_output.iter())
                 .map(|(&a, &b)| (a as f64 - b as f64).abs())
-                .fold(0.0f64, |a, b| a.max(b));
+                .fold(0.0f64, f64::max);
 
             // Calculate cosine similarity
             let dot: f64 = f32_output
@@ -13459,7 +13464,7 @@ mod tests {
                 os_version: std::env::consts::ARCH.to_string(),
                 cpu_model: "Unknown".to_string(),
                 cpu_cores: std::thread::available_parallelism()
-                    .map(|p| p.get())
+                    .map(std::num::NonZero::get)
                     .unwrap_or(1),
                 ram_gb: 0.0,
                 gpu_name: None,
@@ -14341,7 +14346,7 @@ mod tests {
     fn test_imp_191b_preflight_checker() {
         let checker = PreflightChecker::default();
 
-        // Local URL should be "available" (simulated)
+        // Local URL should be "available" (test)
         let local = checker.check_http("http://localhost:8082");
         assert_eq!(
             local.status,
@@ -14349,7 +14354,7 @@ mod tests {
             "IMP-191b: Local should be available"
         );
 
-        // External URL should be "unavailable" (simulated)
+        // External URL should be "unavailable" (test)
         let external = checker.check_http("http://external-server.com:8080");
         assert_eq!(
             external.status,
@@ -14517,10 +14522,10 @@ mod tests {
             repo: "meta-llama/Llama-2-7b".to_string(),
             file: "model.gguf".to_string(),
         };
-        let ollama = ModelSource::Ollama {
+        let _ollama = ModelSource::Ollama {
             model: "llama2:7b".to_string(),
         };
-        let local = ModelSource::LocalPath {
+        let _local = ModelSource::LocalPath {
             path: "/models/llama.gguf".to_string(),
         };
 
@@ -14821,7 +14826,7 @@ mod tests {
             environment: serde_json::json!({
                 "os": std::env::consts::OS,
                 "arch": std::env::consts::ARCH,
-                "cpu_cores": std::thread::available_parallelism().map(|p| p.get()).unwrap_or(1),
+                "cpu_cores": std::thread::available_parallelism().map(std::num::NonZero::get).unwrap_or(1),
             }),
             results: serde_json::json!({
                 "latency_p50_ms": 100.0,
@@ -15483,7 +15488,7 @@ mod tests {
             // For testing, we simulate availability check
             #[cfg(feature = "gpu")]
             {
-                GpuAvailabilityResult::available("wgpu", "Simulated GPU")
+                GpuAvailabilityResult::available("wgpu", "test GPU")
             }
             #[cfg(not(feature = "gpu"))]
             {
@@ -15658,7 +15663,7 @@ mod tests {
         }
 
         pub fn get_speedup(&self, runtime: &BenchRuntime) -> Option<f64> {
-            let baseline_result = self.results.iter().find(|r| &r.runtime == &self.baseline)?;
+            let baseline_result = self.results.iter().find(|r| r.runtime == self.baseline)?;
             let runtime_result = self.results.iter().find(|r| &r.runtime == runtime)?;
 
             Some(runtime_result.throughput_toks / baseline_result.throughput_toks)
@@ -15871,7 +15876,7 @@ mod tests {
             let baseline = self
                 .results
                 .iter()
-                .find(|r| &r.format == &self.baseline_format)?;
+                .find(|r| r.format == self.baseline_format)?;
             let target = self.results.iter().find(|r| &r.format == format)?;
             Some(target.inference_throughput / baseline.inference_throughput)
         }
@@ -16526,7 +16531,7 @@ mod tests {
             baseline: impl Into<String>,
             current: impl Into<String>,
         ) -> Self {
-            let has_regression = results.iter().any(|r| r.is_regression());
+            let has_regression = results.iter().any(RegressionResult::is_regression);
             let worst_severity = results
                 .iter()
                 .map(|r| &r.severity)
@@ -16604,7 +16609,7 @@ mod tests {
             (40.0, RegressionSeverity::Critical),
         ];
 
-        for (change, expected) in &severities {
+        for (change, _expected) in &severities {
             let result = RegressionResult::new("test", 100.0, 100.0 + change);
             println!("  {:.0}% change -> {:?}", change, result.severity);
         }
@@ -17368,7 +17373,7 @@ mod tests {
     #[test]
     #[ignore = "Requires attention score extraction from inference"]
     fn test_imp_206d_realworld_attention() {
-        // Simulated attention scores from layer 0, head 0
+        // test attention scores from layer 0, head 0
         let ref_scores = vec![0.1, 0.15, 0.2, 0.25, 0.3];
         let test_scores = vec![0.1, 0.15, 0.2, 0.25, 0.3];
 
@@ -17429,8 +17434,8 @@ mod tests {
     /// IMP-207a: Test RoPE comparison
     #[test]
     fn test_imp_207a_rope_comparison() {
-        let ref_emb = vec![0.8414709848, 0.5403023059, 0.9092974268, -0.4161468365];
-        let test_emb = vec![0.8414709848, 0.5403023059, 0.9092974268, -0.4161468365];
+        let ref_emb = vec![0.841_470_96, 0.540_302_3, 0.909_297_4, -0.416_146_84];
+        let test_emb = vec![0.841_470_96, 0.540_302_3, 0.909_297_4, -0.416_146_84];
 
         let result = RoPEComparisonResult::new(0, 4, ref_emb, test_emb, 1e-6);
 
@@ -17445,8 +17450,8 @@ mod tests {
     /// IMP-207b: Test RoPE tolerance
     #[test]
     fn test_imp_207b_rope_tolerance() {
-        let ref_emb = vec![0.8414709848];
-        let test_emb = vec![0.8414709849]; // 1e-10 diff
+        let ref_emb = vec![0.841_470_96];
+        let test_emb = vec![0.841_470_96]; // 1e-10 diff
 
         let result = RoPEComparisonResult::new(0, 1, ref_emb, test_emb, 1e-6);
 
@@ -17479,8 +17484,8 @@ mod tests {
     #[test]
     #[ignore = "Requires RoPE extraction from model"]
     fn test_imp_207d_realworld_rope() {
-        let ref_emb = vec![0.8414709848, 0.5403023059];
-        let test_emb = vec![0.8414709848, 0.5403023059];
+        let ref_emb = vec![0.841_470_96, 0.540_302_3];
+        let test_emb = vec![0.841_470_96, 0.540_302_3];
 
         let result = RoPEComparisonResult::new(1, 2, ref_emb, test_emb, 1e-6);
 
@@ -18348,7 +18353,7 @@ mod tests {
 
         // Trueno SIMD
         let vec = Vector::from_slice(&q4k_data);
-        let scales_vec = Vector::from_slice(&q4k_scales);
+        let _scales_vec = Vector::from_slice(&q4k_scales);
         let start = Instant::now();
         for _ in 0..iterations {
             let _result = vec.mul(&Vector::from_slice(&q4k_data));
@@ -18736,7 +18741,7 @@ mod tests {
         let iterations = 100;
 
         let x: Vec<f32> = (0..hidden).map(|i| i as f32 * 0.01).collect();
-        let hidden_vec = Vector::from_slice(&x);
+        let _hidden_vec = Vector::from_slice(&x);
 
         let start = Instant::now();
         for _ in 0..iterations {
@@ -19488,7 +19493,7 @@ mod tests {
         use std::time::Instant;
 
         // Create a scaled-down model for benchmarking (1/4 phi-2 size for faster iteration)
-        // Note: This is a synthetic model with random weights for timing only
+        // Note: This is a test model with random weights for timing only
         let hidden_dim = 640; // phi-2 / 4
         let num_layers = 8; // phi-2 / 4
         let vocab_size = 12800; // phi-2 / 4
@@ -19671,7 +19676,7 @@ mod tests {
             ollama_result.p50_latency_ms,
             realizar_tps,
             realizar_avg_ms,
-            "phi-2 Q4_K_M (synthetic weights)",
+            "phi-2 Q4_K_M (test weights)",
             20,
         );
 

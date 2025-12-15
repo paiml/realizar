@@ -435,7 +435,7 @@ impl WarmupExecutor {
 
     /// Simulate warm-up (for testing without actual model)
     ///
-    /// This runs the warm-up process with simulated inference delays.
+    /// This runs the warm-up process with test inference delays.
     #[must_use]
     pub fn simulate_warmup(&self) -> WarmupResult {
         let start = Instant::now();

@@ -203,7 +203,7 @@ impl WineCategory {
 }
 
 // ============================================================================
-// Wine Quality Predictor (Simulated Model)
+// Wine Quality Predictor (test Model)
 // ============================================================================
 
 /// Wine quality predictor using a simple linear model

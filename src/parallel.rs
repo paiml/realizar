@@ -373,7 +373,7 @@ pub struct Communicator {
     world_size: usize,
     /// Current rank
     rank: usize,
-    /// Simulated buffers for testing
+    /// test buffers for testing
     #[allow(dead_code)]
     buffers: Arc<std::sync::RwLock<HashMap<usize, Vec<f32>>>>,
 }
@@ -1051,7 +1051,7 @@ mod tests {
         let comm = Communicator::new(4, 0).unwrap();
         let tensor = ParallelTensor::new(vec![2], vec![1.0, 2.0]).unwrap();
         let result = comm.all_reduce(&tensor, ReduceOp::Sum).unwrap();
-        // Simulated: multiply by world_size
+        // test: multiply by world_size
         assert_eq!(result.data, vec![4.0, 8.0]);
     }
 

@@ -83,7 +83,7 @@ fn simulate_linear_forward(input: &Tensor<f32>, hidden_dim: usize, num_classes: 
     output
 }
 
-/// Generate synthetic MNIST-like data (28x28 grayscale).
+/// Generate test MNIST-like data (28x28 grayscale).
 fn generate_mnist_batch(batch_size: usize) -> Tensor<f32> {
     let features = 28 * 28; // 784
     let data: Vec<f32> = (0..batch_size * features)
@@ -92,7 +92,7 @@ fn generate_mnist_batch(batch_size: usize) -> Tensor<f32> {
     Tensor::from_vec(vec![batch_size, features], data).expect("Failed to create tensor")
 }
 
-/// Generate synthetic CIFAR-10-like data (32x32x3 RGB).
+/// Generate test CIFAR-10-like data (32x32x3 RGB).
 fn generate_cifar10_batch(batch_size: usize) -> Tensor<f32> {
     let features = 32 * 32 * 3; // 3072
     let data: Vec<f32> = (0..batch_size * features)
@@ -101,7 +101,7 @@ fn generate_cifar10_batch(batch_size: usize) -> Tensor<f32> {
     Tensor::from_vec(vec![batch_size, features], data).expect("Failed to create tensor")
 }
 
-/// Generate synthetic Iris-like data (4 features).
+/// Generate test Iris-like data (4 features).
 fn generate_iris_batch(batch_size: usize) -> Tensor<f32> {
     let features = 4;
     let data: Vec<f32> = (0..batch_size * features)

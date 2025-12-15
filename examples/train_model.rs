@@ -45,7 +45,7 @@ fn train_wine_regressor() {
         traits::Estimator,
     };
 
-    // Generate synthetic wine data (11 features -> quality score)
+    // Generate test wine data (11 features -> quality score)
     // Features: fixed_acidity, volatile_acidity, citric_acid, residual_sugar,
     //           chlorides, free_so2, total_so2, density, pH, sulphates, alcohol
     let n_samples = 500;
@@ -98,7 +98,7 @@ fn train_wine_regressor() {
     let x = Matrix::from_vec(n_samples, n_features, features).expect("Matrix failed");
     let y = Vector::from_slice(&targets);
 
-    println!("  Generated {} synthetic samples", n_samples);
+    println!("  Generated {} test samples", n_samples);
 
     // Train linear regression
     let mut model = LinearRegression::new();

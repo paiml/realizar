@@ -20,7 +20,7 @@ fn attention_cost_no_cache(seq_len: usize, hidden_dim: usize, num_heads: usize) 
     let mut total = 0.0f64;
     for pos in 0..seq_len {
         // Attention scores for this position against all past
-        for past in 0..=pos {
+        for _past in 0..=pos {
             // Dot product Q[pos] × K[past]
             total += (head_dim as f64) * 2.0; // mul + add per element
         }
@@ -28,7 +28,7 @@ fn attention_cost_no_cache(seq_len: usize, hidden_dim: usize, num_heads: usize) 
         total += (pos + 1) as f64 * 3.0; // exp, sum, div
 
         // Weighted sum of V
-        for past in 0..=pos {
+        for _past in 0..=pos {
             total += (head_dim as f64) * 2.0;
         }
     }
@@ -45,13 +45,13 @@ fn attention_cost_with_cache(seq_len: usize, hidden_dim: usize, num_heads: usize
 
     let mut total = 0.0f64;
     // Attention scores for new token against all past (from cache)
-    for past in 0..=pos {
+    for _past in 0..=pos {
         total += (head_dim as f64) * 2.0;
     }
     // Softmax
     total += (pos + 1) as f64 * 3.0;
     // Weighted sum
-    for past in 0..=pos {
+    for _past in 0..=pos {
         total += (head_dim as f64) * 2.0;
     }
 

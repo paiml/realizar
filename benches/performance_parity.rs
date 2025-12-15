@@ -1,3 +1,8 @@
+#![allow(clippy::manual_div_ceil)]
+#![allow(clippy::needless_range_loop)]
+#![allow(clippy::redundant_clone)]
+#![allow(clippy::excessive_precision)]
+
 //! Performance Parity Benchmarks (Refs PERF-PARITY-001)
 //!
 //! Implements the benchmark specification v1.1 for comparing realizar with:
@@ -6,7 +11,7 @@
 //!
 //! ## Toyota Way Principles
 //!
-//! - **Genchi Genbutsu**: Go and see - measure actual inference, not synthetic ops
+//! - **Genchi Genbutsu**: Go and see - measure actual inference, not test ops
 //! - **Jidoka**: Stop on anomaly - fail-fast on thermal throttling or variance
 //! - **Kaizen**: Continuous improvement - track regressions over time
 //!

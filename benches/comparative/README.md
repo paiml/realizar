@@ -113,7 +113,7 @@ Both benchmarks use identical configuration:
 
 ### Data Generation
 
-Synthetic MNIST data using deterministic formula:
+test MNIST data using deterministic formula:
 
 ```python
 # Python

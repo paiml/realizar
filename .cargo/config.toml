@@ -1,0 +1,11 @@
+# Cargo configuration for realizar
+#
+# CUDA tests require single-threaded execution due to driver initialization
+# constraints. The CUDA driver maintains process-global state that isn't
+# thread-safe during context creation/destruction.
+#
+# This matches llama.cpp's approach of running GPU tests as separate processes.
+
+[env]
+# Force single-threaded test execution for CUDA compatibility
+RUST_TEST_THREADS = "1"
