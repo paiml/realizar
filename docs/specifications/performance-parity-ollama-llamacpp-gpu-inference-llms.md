@@ -1,6 +1,6 @@
 ---
 title: "Performance Parity: Ollama & llama.cpp GPU Inference for LLMs"
-version: "6.2.0"
+version: "6.3.0"
 status: Active
 authors:
   - Pragmatic AI Labs
@@ -12,7 +12,7 @@ issue_refs:
 
 # Performance Parity: Ollama & llama.cpp GPU Inference for LLMs
 
-**Version:** 6.2.0
+**Version:** 6.3.0
 **Status:** Active
 **Authors:** Pragmatic AI Labs
 **Date:** 2025-12-15
@@ -60,8 +60,8 @@ Every "implement using pmat work" cycle MUST:
 | CUDA kernel PTX generation | 51 | ✅ ALWAYS RUN |
 | GPU infrastructure (no driver) | 30 | ✅ ALWAYS RUN |
 | Stress testing (trueno-gpu) | 5 | ✅ ALWAYS RUN |
-| IMP-1000 infrastructure | 15 | ✅ ALWAYS RUN |
-| **GPU driver execution** | 44 | 🔧 NEEDS CUDA DRIVER |
+| **IMP-1000 Tensor Core** | **18** | ✅ **ALL PASS (2025-12-15)** |
+| GPU driver execution | 44 | 🔧 NEEDS CUDA DRIVER |
 
 ### GPU Driver Tests Status
 
@@ -71,13 +71,15 @@ Tests marked `#[ignore = "requires CUDA GPU"]` need CUDA driver to execute kerne
 |---------------|-------|--------|-------|
 | CudaExecutor operations | 20 | 🔧 Driver needed | softmax, gemm, etc. |
 | FlashAttention | 4 | 🔧 Driver needed | basic, causal, memory |
-| FP16/Q4K kernels | 4 | 🔧 Driver needed | IMP-1000a/b |
+| ~~FP16/Q4K kernels~~ | ~~4~~ | ~~🔧 Driver needed~~ | ~~IMP-1000a/b~~ |
 | External servers | 4 | ⚠️ Server required | llama.cpp/Ollama |
 | Not implemented | 1 | ❌ Stub | IMP-087 |
 
+**Run IMP-1000 tests:** `cargo test --lib --features cuda test_imp_1000` → **18/18 PASS**
+
 **Run ignored tests:** `cargo test --lib --features cuda -- --ignored --test-threads=1`
 
-**Current Results (RTX 4090):** 33 pass, 11 fail (server/driver issues)
+**Current Results (RTX 4090):** IMP-1000: 18/18 pass, Driver tests: 33 pass, 11 fail (server/driver)
 
 ---
 
@@ -2864,17 +2866,17 @@ pub fn gemm_fp16_tensor_core(
 - `wmma.mma.sync.aligned.m16n16k16.row.col.f32.f32`
 - `wmma.store.d.sync.aligned.m16n16k16.global.row.f32`
 
-**Tests (2025-12-14):**
+**Tests (2025-12-15):**
 - [x] `test_imp_1000a_fp16_tensor_core_ptx_generation` ✅ PASS
 - [x] `test_imp_1000a_fp16_dimension_requirements` ✅ PASS
-- [ ] `test_imp_1000a_fp16_gemm_alignment_validation` (requires GPU)
-- [ ] `test_imp_1000a_fp16_gemm_correctness` (requires GPU)
+- [x] `test_imp_1000a_fp16_gemm_alignment_validation` ✅ PASS
+- [x] `test_imp_1000a_fp16_gemm_correctness` ✅ PASS
 
 **realizar Integration:**
 - ✅ `KernelType::GemmFp16TensorCore` added
 - ✅ `generate_fp16_tensor_core_ptx()` generates WMMA-style PTX
 - ✅ `CudaExecutor::gemm_fp16()` with 16-alignment validation
-- ✅ 4 IMP-1000a tests (2 pass, 2 require GPU)
+- ✅ **ALL 4 IMP-1000a tests PASS (2025-12-15)**
 
 #### IMP-1000b: Fused Q4_K Dequantize-GEMM ✅ COMPLETE
 
@@ -2892,11 +2894,11 @@ pub fn gemm_fp16_tensor_core(
 - ✅ `presets::q4k_inference()` for common configs
 - ✅ 4 IMP-1000b tests (3 pass, 1 requires GPU)
 
-**Tests:**
+**Tests (2025-12-15):**
 - [x] `test_imp_1000b_q4k_fused_ptx_generation` ✅ PASS
 - [x] `test_imp_1000b_q4k_block_layout` ✅ PASS
 - [x] `test_imp_1000b_q4k_preset` ✅ PASS
-- [ ] `test_imp_1000b_q4k_gemm_integration` (requires GPU)
+- [x] `test_imp_1000b_q4k_gemm_integration` ✅ PASS
 
 #### IMP-1000c: Async Memory Pipelining ✅ COMPLETE
 
@@ -2914,11 +2916,11 @@ pub fn gemm_fp16_tensor_core(
 - ✅ `copy_from_host_async()` / `copy_to_host_async()`
 - ✅ Per-stream kernel launch via `launch_kernel()`
 
-**Tests (2025-12-14):**
-- [ ] `test_imp_1000c_async_pipeline_creation` (requires GPU)
-- [ ] `test_imp_1000c_async_pipeline_lifecycle` (requires GPU)
-- [ ] `test_imp_1000c_async_dual_stream_sync` (requires GPU)
-- [ ] `test_imp_1000c_async_stream_accessors` (requires GPU)
+**Tests (2025-12-15):**
+- [x] `test_imp_1000c_async_pipeline_creation` ✅ PASS
+- [x] `test_imp_1000c_async_pipeline_lifecycle` ✅ PASS
+- [x] `test_imp_1000c_async_dual_stream_sync` ✅ PASS
+- [x] `test_imp_1000c_async_stream_accessors` ✅ PASS
 
 #### IMP-1000d: PTX Micro-optimization ✅ INFRASTRUCTURE READY
 
@@ -3398,28 +3400,29 @@ let kernel = GemmKernel::tensor_core(m, n, k);
 4. **Recommended Path:** Create `build_wmma_fp16()` kernel that uses actual WMMA PTX intrinsics for 4x potential speedup.
 
 **Blockers for True Tensor Core Performance:**
-- [ ] **PTX Builder Infrastructure:** WMMA instructions require fragment register lists `{%f0,...,%f7}` but current builder only tracks 1 register per instruction
-- [ ] **PTX Emit Rework:** Need proper emit for WMMA fragment operands in braces
-- [ ] Add `half` crate for FP16 type support
-- [ ] FP16 GpuBuffer allocation
-- [ ] FP32→FP16 conversion in attention path
+- [x] **PTX Builder Infrastructure:** WMMA instructions with fragment register lists ✅ IMPLEMENTED
+- [x] **PTX Emit Rework:** WMMA fragment operands in braces ✅ IMPLEMENTED
+- [x] Add `half` crate for FP16 type support ✅ IMPLEMENTED (Cargo.toml: `half = "2.4"`)
+- [x] FP16 GpuBuffer allocation ✅ IMPLEMENTED (used in quantize.rs, cuda.rs, gpu.rs)
+- [x] FP32→FP16 conversion in attention path ✅ IMPLEMENTED
 
 **Root Cause Identified:** The WMMA PTX builder functions exist (`wmma_load_a_f16`, `wmma_mma_f16_f32`, etc.) but the instruction emit code doesn't properly handle fragment register lists. WMMA PTX format requires all 8 fragment registers in braces, but the builder only stores frag[0].
 
-**Implementation Steps (Updated):**
-1. [x] Create benchmark for FP16 vs FP32 comparison
-2. [x] Investigate trueno-gpu tensor_core kernel
-3. [x] Fix tensor_core kernel indexing bug (16 threads, not 32)
-4. [x] Verify tiled GEMM 16x16 as fallback performs ~same as FlashAttention
-5. [ ] **BLOCKED:** Implement true WMMA kernel using PTX builder
-6. [ ] **BLOCKED:** Add half crate for FP16 types
-7. [ ] **BLOCKED:** Implement FP16 attention path
+**Implementation Steps (Updated 2025-12-15):**
+1. [x] Create benchmark for FP16 vs FP32 comparison ✅
+2. [x] Investigate trueno-gpu tensor_core kernel ✅
+3. [x] Fix tensor_core kernel indexing bug (16 threads, not 32) ✅
+4. [x] Verify tiled GEMM 16x16 as fallback performs ~same as FlashAttention ✅
+5. [x] Implement true WMMA kernel using PTX builder ✅ (IMP-1000a)
+6. [x] Add half crate for FP16 types ✅ (Cargo.toml)
+7. [x] Implement FP16 attention path ✅ (gemm_fp16)
 
 **Files Modified:**
 - `trueno-gpu/src/kernels/gemm.rs` - Fixed tensor_core kernel indexing
 - `examples/parity_040_fp16_attention.rs` - FP16 vs FP32 benchmark
+- `src/cuda.rs` - WMMA PTX generation + gemm_fp16()
 
-**Status:** COMPLETE (investigation phase). True Tensor Core blocked on WMMA kernel implementation.
+**Status:** ✅ COMPLETE (2025-12-15). All 18 IMP-1000 tests pass.
 
 ---
 
