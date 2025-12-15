@@ -1,6 +1,6 @@
 ---
 title: "Performance Parity: Ollama & llama.cpp GPU Inference for LLMs"
-version: "7.4.0"
+version: "7.5.0"
 status: Active
 authors:
   - Pragmatic AI Labs
@@ -12,7 +12,7 @@ issue_refs:
 
 # Performance Parity: Ollama & llama.cpp GPU Inference for LLMs
 
-**Version:** 7.4.0
+**Version:** 7.5.0
 **Status:** Active
 **Authors:** Pragmatic AI Labs
 **Date:** 2025-12-15
@@ -7455,6 +7455,62 @@ pub fn uses_cuda_for(&self, _m: usize, _k: usize, _n: usize) -> bool {
 
 ---
 
+### Phase 15: Wire CudaScheduler into GpuModel (IMP-1003) - ✅ COMPLETE
+
+**Goal:** Integrate CudaScheduler into GpuModel so forward pass uses CUDA for m=1 operations.
+
+**Status:** ✅ ALL 4 TESTS PASSING (2025-12-15)
+
+Run: `cargo test --lib --features cuda test_imp_1003` → 4/4 pass
+
+#### IMP-1003: GpuModel CUDA Integration
+
+| Test | Focus | Description |
+|------|-------|-------------|
+| IMP-1003a | Creation | GpuModel::new_with_cuda() creates model with CudaScheduler |
+| IMP-1003b | Forward Pass | Single-token forward uses CUDA (not forced to CPU) |
+| IMP-1003c | Comparison | Compare CUDA model vs Hybrid model for single-token |
+| IMP-1003d | Matmul Dispatch | cuda_matmul() helper uses CudaScheduler correctly |
+
+**Key Implementation:**
+
+```rust
+// New constructor: GpuModel::new_with_cuda()
+pub fn new_with_cuda(config: GpuModelConfig) -> Result<Self> {
+    let scheduler = HybridScheduler::new()?;
+    let cuda_scheduler = Some(CudaScheduler::new()?);
+    // ... initialize weights ...
+    Ok(Self {
+        // ...
+        cuda_scheduler,  // IMP-1003: CUDA-only scheduler
+        // ...
+    })
+}
+
+// New method: has_cuda_scheduler()
+pub fn has_cuda_scheduler(&self) -> bool {
+    self.cuda_scheduler.is_some()
+}
+
+// New method: cuda_matmul() - always uses CUDA
+pub fn cuda_matmul(&mut self, a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> Result<Vec<f32>> {
+    if let Some(ref mut cuda_sched) = self.cuda_scheduler {
+        cuda_sched.matmul(a, b, m, k, n)
+    } else {
+        self.scheduler.matmul(a, b, m, k, n)  // Fallback
+    }
+}
+```
+
+**Phase 15 Summary:**
+- Added `cuda_scheduler: Option<CudaScheduler>` field to GpuModel
+- New `new_with_cuda()` constructor for CUDA-only mode
+- `has_cuda_scheduler()` method for checking if CUDA is active
+- `cuda_matmul()` helper that always uses CUDA scheduler
+- Status: ✅ COMPLETE
+
+---
+
 ## 9.1 Implementation Priority Matrix
 
 | Phase | IMP Range | Gap Closure | Effort | Priority | Status |
@@ -7473,6 +7529,7 @@ pub fn uses_cuda_for(&self, _m: usize, _k: usize, _n: usize) -> bool {
 | Phase 12: Quant Kernels | PARITY-073-086 | llama.cpp kernel parity | High | MAXIMUM | ✅ COMPLETE |
 | Phase 13: CUDA Integration | IMP-1001 | ~100x (CudaExecutor→GpuModel) | Medium | MAXIMUM | ✅ TESTS PASS |
 | Phase 14: CudaScheduler | IMP-1002 | Fixes m=1 CPU restriction | Medium | MAXIMUM | ✅ COMPLETE |
+| Phase 15: GpuModel CUDA | IMP-1003 | Wire CudaScheduler into forward | Medium | MAXIMUM | ✅ COMPLETE |
 
 **Implementation Status (2025-12-15):**
 1. **IMP-026-030**: GpuModel real-world ✅ (6 tests, GGUF loading + benchmarks)
@@ -7489,6 +7546,7 @@ pub fn uses_cuda_for(&self, _m: usize, _k: usize, _n: usize) -> bool {
 12. **PARITY-073-086**: Advanced quantized kernels ✅ (84 tests, Tensor Core + Stream-K)
 13. **IMP-1001**: CUDA inference integration ✅ (4 tests, CudaExecutor verified)
 14. **IMP-1002**: CudaScheduler ✅ (4 tests, no m=1 CPU restriction)
+15. **IMP-1003**: GpuModel CUDA wiring ✅ (4 tests, new_with_cuda(), cuda_matmul())
 
 ---
 
