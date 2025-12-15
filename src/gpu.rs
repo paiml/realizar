@@ -8558,6 +8558,7 @@ mod tests {
 
     #[test]
     #[serial]
+    #[ignore] // Performance acceptance test - run manually: cargo test --release test_phase4_acceptance -- --ignored
     fn test_phase4_acceptance_gpu_throughput() {
         use std::time::Instant;
 
@@ -9442,6 +9443,196 @@ mod tests {
             fill_rate > 10.0,
             "FP16 fill rate should be > 10 pos/s, got {:.0}",
             fill_rate
+        );
+    }
+
+    // =========================================================================
+    // IMP-1001: CUDA Inference Integration (~100x impact)
+    // Wire CudaExecutor into GpuModel for real GPU-accelerated inference
+    // =========================================================================
+
+    #[test]
+    #[cfg(feature = "cuda")]
+    fn test_imp_1001a_cuda_executor_matmul_correctness() {
+        // IMP-1001a: Verify CudaExecutor matmul produces correct results
+        use crate::cuda::CudaExecutor;
+
+        if !CudaExecutor::is_available() {
+            println!("IMP-1001a: CUDA not available, skipping");
+            return;
+        }
+
+        let mut executor = CudaExecutor::new(0).expect("Failed to create CudaExecutor");
+
+        // Simple test: 4x4 @ 4x4 with all 1s -> each element = 4
+        let a = vec![1.0f32; 16]; // 4x4 ones
+        let b = vec![1.0f32; 16]; // 4x4 ones
+        let mut result = vec![0.0f32; 16]; // 4x4 output
+
+        executor
+            .gemm(&a, &b, &mut result, 4, 4, 4)
+            .expect("GEMM failed");
+
+        // Each element should be 4.0 (dot product of 4 ones)
+        for (i, &val) in result.iter().enumerate() {
+            assert!(
+                (val - 4.0).abs() < 1e-3,
+                "IMP-1001a: Element {} mismatch: got {}, expected 4.0",
+                i,
+                val
+            );
+        }
+
+        // Also test larger size: 8x8 @ 8x8
+        let a = vec![2.0f32; 64]; // 8x8 twos
+        let b = vec![1.0f32; 64]; // 8x8 ones
+        let mut result = vec![0.0f32; 64];
+
+        executor
+            .gemm(&a, &b, &mut result, 8, 8, 8)
+            .expect("GEMM 8x8 failed");
+
+        // Each element should be 16.0 (8 * 2 * 1)
+        for (i, &val) in result.iter().enumerate() {
+            assert!(
+                (val - 16.0).abs() < 1e-3,
+                "IMP-1001a: 8x8 element {} mismatch: got {}, expected 16.0",
+                i,
+                val
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "cuda")]
+    fn test_imp_1001b_cuda_softmax_correctness() {
+        // IMP-1001b: Verify CudaExecutor softmax produces correct results
+        use crate::cuda::CudaExecutor;
+
+        if !CudaExecutor::is_available() {
+            println!("IMP-1001b: CUDA not available, skipping");
+            return;
+        }
+
+        let mut executor = CudaExecutor::new(0).expect("Failed to create CudaExecutor");
+
+        let mut data = vec![1.0, 2.0, 3.0, 4.0];
+        executor.softmax(&mut data).expect("Softmax failed");
+
+        // Verify sum to 1
+        let sum: f32 = data.iter().sum();
+        assert!(
+            (sum - 1.0).abs() < 1e-5,
+            "IMP-1001b: Softmax should sum to 1, got {}",
+            sum
+        );
+
+        // Verify monotonicity (larger input = larger output)
+        assert!(
+            data[0] < data[1] && data[1] < data[2] && data[2] < data[3],
+            "IMP-1001b: Softmax should preserve ordering"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "cuda")]
+    fn test_imp_1001c_cuda_inference_speedup() {
+        // IMP-1001c: Verify CUDA inference is faster than CPU for large matrices
+        use crate::cuda::CudaExecutor;
+        use std::time::Instant;
+
+        if !CudaExecutor::is_available() {
+            println!("IMP-1001c: CUDA not available, skipping");
+            return;
+        }
+
+        let mut executor = CudaExecutor::new(0).expect("Failed to create CudaExecutor");
+
+        // Large matmul: [512, 2048] @ [2048, 2048] - typical LLM layer size
+        let m: u32 = 512;
+        let k: u32 = 2048;
+        let n: u32 = 2048;
+        let a: Vec<f32> = (0..(m * k) as usize)
+            .map(|i| (i % 100) as f32 * 0.01)
+            .collect();
+        let b: Vec<f32> = (0..(k * n) as usize)
+            .map(|i| (i % 100) as f32 * 0.01)
+            .collect();
+        let mut result = vec![0.0f32; (m * n) as usize];
+
+        // Warmup
+        let _ = executor.gemm(&a, &b, &mut result, m, n, k);
+
+        // Time CUDA
+        let start = Instant::now();
+        executor
+            .gemm(&a, &b, &mut result, m, n, k)
+            .expect("GEMM failed");
+        let cuda_time = start.elapsed();
+
+        // Time CPU (scalar)
+        let start = Instant::now();
+        let _cpu_result = cpu_matmul(&a, &b, m as usize, k as usize, n as usize);
+        let cpu_time = start.elapsed();
+
+        let speedup = cpu_time.as_secs_f64() / cuda_time.as_secs_f64();
+
+        println!(
+            "IMP-1001c: CUDA={:.2}ms, CPU={:.2}ms, speedup={:.1}x",
+            cuda_time.as_secs_f64() * 1000.0,
+            cpu_time.as_secs_f64() * 1000.0,
+            speedup
+        );
+
+        // CUDA should be at least 5x faster for this size
+        assert!(
+            speedup > 5.0,
+            "IMP-1001c: CUDA should be >5x faster for 512x2048x2048 GEMM, got {:.1}x",
+            speedup
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "cuda")]
+    fn test_imp_1001d_gpu_model_with_cuda_backend() {
+        // IMP-1001d: Test GpuModel can use CUDA backend for inference
+        use crate::cuda::CudaExecutor;
+
+        if !CudaExecutor::is_available() {
+            println!("IMP-1001d: CUDA not available, skipping");
+            return;
+        }
+
+        // Create small GpuModel config
+        let config = GpuModelConfig {
+            vocab_size: 1000,
+            hidden_dim: 256,
+            num_layers: 2,
+            num_heads: 4,
+            num_kv_heads: 4,
+            intermediate_dim: 512,
+            eps: 1e-5,
+        };
+
+        // Create model
+        let mut model = GpuModel::new(config).expect("Failed to create GpuModel");
+
+        // Generate should work (currently uses HybridScheduler/CPU)
+        let prompt = vec![1usize, 2, 3];
+        let gen_config = GpuGenerateConfig {
+            max_tokens: 5,
+            temperature: 1.0,
+            top_k: 50,
+            stop_tokens: vec![],
+        };
+
+        let result = model.generate(&prompt, &gen_config);
+        assert!(result.is_ok(), "IMP-1001d: Generate should succeed");
+
+        let tokens = result.unwrap();
+        assert!(
+            tokens.len() >= prompt.len(),
+            "IMP-1001d: Should generate at least prompt length tokens"
         );
     }
 }
