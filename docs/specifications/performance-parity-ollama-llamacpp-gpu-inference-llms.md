@@ -1,6 +1,6 @@
 ---
 title: "Performance Parity: Ollama & llama.cpp GPU Inference for LLMs"
-version: "7.0.0"
+version: "7.1.0"
 status: Active
 authors:
   - Pragmatic AI Labs
@@ -12,7 +12,7 @@ issue_refs:
 
 # Performance Parity: Ollama & llama.cpp GPU Inference for LLMs
 
-**Version:** 7.0.0
+**Version:** 7.1.0
 **Status:** Active
 **Authors:** Pragmatic AI Labs
 **Date:** 2025-12-15
@@ -7268,6 +7268,66 @@ Run: `cargo test --lib test_imp_03 test_imp_04 --features gpu` → 13/13 pass
 
 ---
 
+### Phase 11: Benchmark Infrastructure (IMP-190 to IMP-213) - ✅ COMPLETE
+
+**Goal:** Production benchmark infrastructure for reproducible performance testing.
+
+**Status:** ✅ ALL 96 TESTS PASSING (2025-12-15)
+
+Run: `cargo test --lib test_imp_19 test_imp_20 test_imp_21` → 96/96 pass
+
+#### IMP-190 to IMP-195: Benchmark Setup
+
+| IMP | Focus | Tests | Description |
+|-----|-------|-------|-------------|
+| IMP-190 | Versioning | 4 | Benchmark version, commit hash, versioned results |
+| IMP-191 | Preflight | 4 | Preflight checks, timeout config, real-world validation |
+| IMP-192 | Model Cache | 4 | Model sources, download, cache management |
+| IMP-193 | Schema | 4 | JSON schema validation, field types, benchmark JSON |
+| IMP-194 | Bench Suite | 4 | Suite config, results, skipped optional, bench-all |
+| IMP-195 | Framework | 4 | PyTorch comparison, report generation |
+
+#### IMP-196 to IMP-201: Backend & CI
+
+| IMP | Focus | Tests | Description |
+|-----|-------|-------|-------------|
+| IMP-196 | CPU Backend | 4 | CPU results, backend detection, enumeration |
+| IMP-197 | GPU (WGPU) | 4 | GPU availability, WGPU runner |
+| IMP-198 | Runtime | 4 | Runtime comparison, GGUF GPU benchmark |
+| IMP-199 | Formats | 4 | APR GPU benchmark, format comparison |
+| IMP-200 | CI Pipeline | 4 | CI job, pipeline config, triggers |
+| IMP-201 | Dashboard | 4 | Data points, publisher, metric types |
+
+#### IMP-202 to IMP-207: Quality & Correctness
+
+| IMP | Focus | Tests | Description |
+|-----|-------|-------|-------------|
+| IMP-202 | Regression | 4 | Trend analysis, severity levels, detection |
+| IMP-203 | Doc Sync | 4 | Doc updates, sync reports, sections |
+| IMP-204 | Output Cmp | 4 | llama.cpp comparison, deterministic verifier |
+| IMP-205 | Tokenization | 4 | Token comparison, differences, special tokens |
+| IMP-206 | Attention | 4 | Attention comparison, tolerance verification |
+| IMP-207 | RoPE | 4 | RoPE comparison, position verification |
+
+#### IMP-208 to IMP-213: Component Verification
+
+| IMP | Focus | Tests | Description |
+|-----|-------|-------|-------------|
+| IMP-208 | Softmax | 4 | Softmax verification, large/negative logits |
+| IMP-209 | LayerNorm | 4 | Zero mean, uniform input verification |
+| IMP-210 | GELU | 4 | GELU at zero, approximation accuracy |
+| IMP-211 | SwiGLU | 4 | Swish activation, different inputs |
+| IMP-212 | KV Cache | 4 | Cache verification, mismatch detection |
+| IMP-213 | Quantization | 4 | Q4/Q8 verification, tolerance boundaries |
+
+**Phase 11 Summary:**
+- 96 tests (24 groups × 4 tests each) in `src/http_client.rs`
+- Covers: Versioning, preflight, CI, dashboard, component verification
+- Enables: Reproducible benchmarks, regression detection, llama.cpp parity
+- Status: ✅ COMPLETE
+
+---
+
 ## 9.1 Implementation Priority Matrix
 
 | Phase | IMP Range | Gap Closure | Effort | Priority | Status |
@@ -7282,6 +7342,7 @@ Run: `cargo test --lib test_imp_03 test_imp_04 --features gpu` → 13/13 pass
 | Phase 8.2: Visual Testing | E2E-VIS-001 | QA automation | Medium | HIGH | ✅ COMPLETE |
 | Phase 9: Serving | IMP-316-320 | Throughput | Medium | HIGH | ✅ COMPLETE |
 | Phase 10: Fused Kernels | IMP-037-049 | CPU optimization | Medium | HIGH | ✅ COMPLETE |
+| Phase 11: Bench Infra | IMP-190-213 | Reproducible benchmarks | Medium | HIGH | ✅ COMPLETE |
 
 **Implementation Status (2025-12-15):**
 1. **IMP-026-030**: GpuModel real-world ✅ (6 tests, GGUF loading + benchmarks)
@@ -7294,6 +7355,7 @@ Run: `cargo test --lib test_imp_03 test_imp_04 --features gpu` → 13/13 pass
 8. **E2E-VIS-001**: Visual Testing & Stress Framework ✅ (sovereign stack, 218 tests, TDG 95.7/100)
 9. **IMP-316-320**: KV cache + serving ✅ (PARITY-029-035)
 10. **IMP-037-049**: Fused CPU kernels ✅ (13 tests, SIMD optimizations)
+11. **IMP-190-213**: Benchmark infrastructure ✅ (96 tests, reproducible benchmarks)
 
 ---
 
