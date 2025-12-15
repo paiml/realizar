@@ -12,7 +12,7 @@ issue_refs:
 
 # Performance Parity: Ollama & llama.cpp GPU Inference for LLMs
 
-**Version:** 6.3.0
+**Version:** 6.4.0
 **Status:** Active
 **Authors:** Pragmatic AI Labs
 **Date:** 2025-12-15
@@ -73,7 +73,7 @@ Tests marked `#[ignore = "requires CUDA GPU"]` need CUDA driver to execute kerne
 | FlashAttention | 4 | 🔧 Driver needed | basic, causal, memory |
 | ~~FP16/Q4K kernels~~ | ~~4~~ | ~~🔧 Driver needed~~ | ~~IMP-1000a/b~~ |
 | External servers | 4 | ⚠️ Server required | llama.cpp/Ollama |
-| Not implemented | 1 | ❌ Stub | IMP-087 |
+| Integration tests | 4 | ✅ **IMPL** | IMP-084/085/086/087 |
 
 **Run IMP-1000 tests:** `cargo test --lib --features cuda test_imp_1000` → **18/18 PASS**
 
@@ -7403,6 +7403,8 @@ These findings directly impact realizar performance:
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 6.4.0 | 2025-12-15 | **IMP-084 to IMP-087 Integration Tests.** Implemented 4 HTTP integration tests replacing `todo!()` stubs: IMP-084 (serve_gguf_model health + generate), IMP-085 (OpenAI /v1/completions), IMP-086 (llama.cpp /completion), IMP-087 (benchmark tok/s measurement). All use reqwest blocking client with graceful server unavailability handling. Total: 2592 tests. |
+| 6.3.0 | 2025-12-15 | **IMP-1000 Series Complete.** All 18 Tensor Core tests pass. Updated spec to reflect FP16 GEMM, Q4_K fused kernel, and async pipeline test status. |
 | 6.1.0 | 2025-12-15 | **trueno Simulation Research Findings.** Added Appendix C documenting 102 falsifiable claims from trueno simulation testing across 7 sections: (A) Backend Selection - 100K GPU threshold validated, O(1) selection; (B) Determinism - PCG RNG verified 100x reproducible; (C) SIMD - Mathematical properties preserved (commutativity, associativity), denormal flush-to-zero prevents 100x slowdown; (D) PTX Kernels - bar.sync barriers correct, <255 registers, <48KB shared; (E) WGPU Shaders - CPU/GPU match within 1e-4 to 1e-6; (F) Visual Regression - BufferRenderer deterministic, F-084 auto-normalization bug found/fixed; (G) Stress Testing - Jidoka catches NaN on first occurrence. Key insight: GPU threshold 100K explains IMP-600 MATVEC findings. |
 | 5.9.0 | 2025-12-14 | **PARITY-041 COMPLETE: Fused Q4_K Dequantize + GEMM Kernel.** Implemented real GGML Q4_K super-block format (256 values, 144 bytes) with fused dequantization during GEMM. Key features: (1) Proper super-block layout (2+2+12+128 bytes); (2) 3.55x memory bandwidth reduction vs FP16 dequant; (3) Nested loop for 8 sub-blocks with 6-bit scale/min extraction; (4) F16 loads with F32 accumulation; (5) Warp shuffle reduction. trueno-gpu: Added `QuantizeKernel::ggml(m,n,k)` constructor, `Q4KFormat::GgmlSuperBlock` variant, 25 tests passing. realizar: Added `KernelType::QuantizedGemmGgml`, `presets::q4k_ggml_inference()`, 6 PARITY-041 tests. Total: 2253 tests, 240 trueno-gpu tests. |
 | 5.8.0 | 2025-12-14 | **PARITY-040 COMPLETE: Tensor Core Investigation.** Fixed trueno-gpu `build_tensor_core()` kernel indexing bug (was using 32-thread warp on 16x16 tiles, fixed to 16 threads). Key finding: Without actual WMMA PTX intrinsics, FMA-based kernel is slower due to reduced parallelization (16 vs 256 threads). Tiled GEMM 16x16 performs ~same as FlashAttention at large sizes (140.4 vs 144.2 GFLOPS). WMMA PTX builder exists in trueno-gpu but no kernel uses it. True Tensor Core performance blocked on: (1) WMMA kernel implementation, (2) half crate for FP16, (3) FP16 GpuBuffer. Status: Investigation complete, implementation blocked. |
