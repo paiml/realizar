@@ -1,6 +1,6 @@
 ---
 title: "Performance Parity: Ollama & llama.cpp GPU Inference for LLMs"
-version: "7.1.0"
+version: "7.2.0"
 status: Active
 authors:
   - Pragmatic AI Labs
@@ -12,7 +12,7 @@ issue_refs:
 
 # Performance Parity: Ollama & llama.cpp GPU Inference for LLMs
 
-**Version:** 7.1.0
+**Version:** 7.2.0
 **Status:** Active
 **Authors:** Pragmatic AI Labs
 **Date:** 2025-12-15
@@ -7328,6 +7328,56 @@ Run: `cargo test --lib test_imp_19 test_imp_20 test_imp_21` → 96/96 pass
 
 ---
 
+### Phase 12: Advanced Quantized Kernels (PARITY-073 to PARITY-086) - ✅ COMPLETE
+
+**Goal:** Production-grade quantized attention kernels matching llama.cpp performance.
+
+**Status:** ✅ ALL 84 TESTS PASSING (2025-12-15)
+
+Run: `cargo test --lib --features cuda test_parity_07 test_parity_08` → 84/84 pass
+
+#### PARITY-073 to PARITY-076: Fused Q4/Q8 Kernels & INT8 Attention
+
+| PARITY | Focus | Tests | Description |
+|--------|-------|-------|-------------|
+| PARITY-073 | Fused Q4/Q8 Kernel | 6 | PTX generation, DP4A instructions, superblock loop |
+| PARITY-074 | Execution Interface | 6 | Buffer layout, launch config, memory transfers |
+| PARITY-075 | INT8 Attention | 6 | Score quantization, Q·K computation, INT8 softmax |
+| PARITY-076 | Phase 3 Summary | 6 | Component inventory, performance projections |
+
+#### PARITY-077 to PARITY-080: Memory Tiling & Tensor Cores
+
+| PARITY | Focus | Tests | Description |
+|--------|-------|-------|-------------|
+| PARITY-077 | Shared Memory Tiling | 6 | Tile sizing, iteration order, bank conflict avoidance |
+| PARITY-078 | Work Partitioning | 6 | Sequence/batch/head parallelism, work stealing |
+| PARITY-079 | Non-Matmul Ops | 6 | Online softmax, fused rescaling, causal mask |
+| PARITY-080 | Tensor Core | 6 | WMMA PTX, FP16/BF16 accumulation, mixed precision |
+
+#### PARITY-081 to PARITY-084: Advanced Scheduling & Serving
+
+| PARITY | Focus | Tests | Description |
+|--------|-------|-------|-------------|
+| PARITY-081 | Phase 4 Summary | 6 | Implementation roadmap, risk assessment, success criteria |
+| PARITY-082 | Stream-K | 6 | Wave quantization, work stealing, partial accumulation |
+| PARITY-083 | Irregular Shapes | 6 | LLM matrix shapes, padding overhead, tall-skinny matrices |
+| PARITY-084 | Serving Infrastructure | 6 | Request batching, memory pool, streaming response |
+
+#### PARITY-085 to PARITY-086: Validation & Summary
+
+| PARITY | Focus | Tests | Description |
+|--------|-------|-------|-------------|
+| PARITY-085 | Validation | 6 | Benchmark methodology, comparison targets, regression testing |
+| PARITY-086 | Phase 5 Summary | 6 | Cumulative performance, test coverage, next steps |
+
+**Phase 12 Summary:**
+- 84 tests (14 PARITY IDs × 6 tests each) in `src/gguf.rs`
+- Covers: Quantized kernels, Tensor Cores, Stream-K, serving infrastructure
+- Targets: llama.cpp CUDA kernel parity
+- Status: ✅ COMPLETE
+
+---
+
 ## 9.1 Implementation Priority Matrix
 
 | Phase | IMP Range | Gap Closure | Effort | Priority | Status |
@@ -7343,6 +7393,7 @@ Run: `cargo test --lib test_imp_19 test_imp_20 test_imp_21` → 96/96 pass
 | Phase 9: Serving | IMP-316-320 | Throughput | Medium | HIGH | ✅ COMPLETE |
 | Phase 10: Fused Kernels | IMP-037-049 | CPU optimization | Medium | HIGH | ✅ COMPLETE |
 | Phase 11: Bench Infra | IMP-190-213 | Reproducible benchmarks | Medium | HIGH | ✅ COMPLETE |
+| Phase 12: Quant Kernels | PARITY-073-086 | llama.cpp kernel parity | High | MAXIMUM | ✅ COMPLETE |
 
 **Implementation Status (2025-12-15):**
 1. **IMP-026-030**: GpuModel real-world ✅ (6 tests, GGUF loading + benchmarks)
@@ -7356,6 +7407,7 @@ Run: `cargo test --lib test_imp_19 test_imp_20 test_imp_21` → 96/96 pass
 9. **IMP-316-320**: KV cache + serving ✅ (PARITY-029-035)
 10. **IMP-037-049**: Fused CPU kernels ✅ (13 tests, SIMD optimizations)
 11. **IMP-190-213**: Benchmark infrastructure ✅ (96 tests, reproducible benchmarks)
+12. **PARITY-073-086**: Advanced quantized kernels ✅ (84 tests, Tensor Core + Stream-K)
 
 ---
 
