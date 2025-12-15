@@ -13811,12 +13811,11 @@ mod tests {
                     );
                 },
                 Err(e) => {
-                    if i == 0 {
-                        panic!(
-                            "IMP-087: Server not running. Start with: cargo run --example api_server. Error: {}",
-                            e
-                        );
-                    }
+                    assert!(
+                        i != 0,
+                        "IMP-087: Server not running. Start with: cargo run --example api_server. Error: {}",
+                        e
+                    );
                 },
             }
         }
