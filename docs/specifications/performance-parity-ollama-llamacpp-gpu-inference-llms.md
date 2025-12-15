@@ -1,6 +1,6 @@
 ---
 title: "Performance Parity: Ollama & llama.cpp GPU Inference for LLMs"
-version: "6.8.0"
+version: "6.9.0"
 status: Active
 authors:
   - Pragmatic AI Labs
@@ -12,7 +12,7 @@ issue_refs:
 
 # Performance Parity: Ollama & llama.cpp GPU Inference for LLMs
 
-**Version:** 6.8.0
+**Version:** 6.9.0
 **Status:** Active
 **Authors:** Pragmatic AI Labs
 **Date:** 2025-12-15
@@ -7098,6 +7098,91 @@ pub const DEFAULT_THRESHOLDS: PerformanceThresholds = PerformanceThresholds {
 
 ---
 
+### Phase 10: CPU/SIMD Kernel Optimizations (IMP-037 to IMP-049) - ✅ COMPLETE
+
+**Goal:** Maximize CPU inference performance through fused kernels and SIMD optimizations.
+
+**Status:** ✅ ALL 13 TESTS PASSING (2025-12-15)
+
+Run: `cargo test --lib test_imp_03 test_imp_04 --features gpu` → 13/13 pass
+
+#### IMP-037 to IMP-042: Fused Attention Kernels
+
+- [x] **IMP-037**: Fused QKV projection ✅
+  - Target: Single kernel for Q, K, V projections
+  - Test: `cargo test --lib test_imp_037_fused_qkv --features gpu`
+  - Metric: >1.0x speedup vs separate projections ✅ ACHIEVED
+
+- [x] **IMP-038**: SIMD softmax ✅
+  - Target: SIMD-accelerated softmax with numerical stability
+  - Test: `cargo test --lib test_imp_038_simd_softmax --features gpu`
+  - Metric: Results match scalar within 1e-6 ✅ ACHIEVED
+
+- [x] **IMP-039**: Fused attention output projection ✅
+  - Target: Combine attention output projection with residual
+  - Test: `cargo test --lib test_imp_039_fused_attn_proj --features gpu`
+  - Metric: >1.0x speedup vs separate operations ✅ ACHIEVED
+
+- [x] **IMP-040**: Contiguous attention buffers ✅
+  - Target: Reduce memory fragmentation during attention
+  - Test: `cargo test --lib test_imp_040_contiguous_attention`
+  - Metric: Single allocation for Q, K, V, output ✅ ACHIEVED
+
+- [x] **IMP-041**: Vectorized RoPE ✅
+  - Target: SIMD-accelerated rotary position encoding
+  - Test: `cargo test --lib test_imp_041_vectorized_rope --features gpu`
+  - Metric: >1.0x speedup, results match scalar within 1e-5 ✅ ACHIEVED
+
+- [x] **IMP-042**: Fused output + residual ✅
+  - Target: Combine output projection with residual addition
+  - Test: `cargo test --lib test_imp_042_fused_output_residual --features gpu`
+  - Metric: >1.0x speedup vs separate operations ✅ ACHIEVED
+
+#### IMP-043 to IMP-049: Memory and Compute Optimizations
+
+- [x] **IMP-043**: Batch embedding ✅
+  - Target: Process multiple tokens in single embedding lookup
+  - Test: `cargo test --lib test_imp_043_batch_embedding --features gpu`
+  - Metric: >1.0x throughput vs sequential lookups ✅ ACHIEVED
+
+- [x] **IMP-044**: Parallel FFN ✅
+  - Target: Parallelize feed-forward network up/down projections
+  - Test: `cargo test --lib test_imp_044_parallel_ffn --features gpu`
+  - Metric: >1.0x speedup vs sequential FFN ✅ ACHIEVED
+
+- [x] **IMP-045**: Optimized LayerNorm ✅
+  - Target: Fused mean/variance computation (Welford's algorithm)
+  - Test: `cargo test --lib test_imp_045_optimized_layernorm --features gpu`
+  - Metric: Single-pass computation, results match standard within 1e-5 ✅ ACHIEVED
+
+- [x] **IMP-046**: Cache-aligned storage ✅
+  - Target: 64-byte alignment for cache efficiency
+  - Test: `cargo test --lib test_imp_046_cache_aligned_storage`
+  - Metric: CacheAlignedBuffer with 64-byte alignment ✅ ACHIEVED
+
+- [x] **IMP-047**: Prefetch hints ✅
+  - Target: Software prefetch for predictable memory patterns
+  - Test: `cargo test --lib test_imp_047_prefetch_hints`
+  - Metric: Prefetch-aware sum matches sequential within tolerance ✅ ACHIEVED
+
+- [x] **IMP-048**: Blocked matmul ✅
+  - Target: Cache-efficient blocked matrix multiplication
+  - Test: `cargo test --lib test_imp_048_blocked_matmul`
+  - Metric: Results match naive within 1e-4, >1.0x speedup ✅ ACHIEVED
+
+- [x] **IMP-049**: Tensor pool ✅
+  - Target: Reusable tensor buffer pooling to reduce allocations
+  - Test: `cargo test --lib test_imp_049_tensor_pool --features gpu`
+  - Metric: Zero-allocation inference after warmup ✅ ACHIEVED
+
+**Phase 10 Summary:**
+- 13 tests covering fused kernels and memory optimizations
+- All tests in `src/layers.rs` under `#[cfg(feature = "gpu")]`
+- Targets: Fused operations, SIMD acceleration, cache efficiency
+- Status: ✅ COMPLETE
+
+---
+
 ## 9.1 Implementation Priority Matrix
 
 | Phase | IMP Range | Gap Closure | Effort | Priority | Status |
@@ -7108,14 +7193,16 @@ pub const DEFAULT_THRESHOLDS: PerformanceThresholds = PerformanceThresholds {
 | Phase 8.1: Runtime | IMP-316.1-316.5 | Execution ready | Medium | MAXIMUM | ✅ COMPLETE |
 | Phase 8.2: Visual Testing | E2E-VIS-001 | QA automation | Medium | HIGH | ✅ COMPLETE |
 | Phase 9: Serving | IMP-316-320 | Throughput | Medium | HIGH | ✅ COMPLETE |
+| Phase 10: Fused Kernels | IMP-037-049 | CPU optimization | Medium | HIGH | ✅ COMPLETE |
 
-**Implementation Status (2025-12-14):**
+**Implementation Status (2025-12-15):**
 1. **IMP-301-305**: SIMD matmul ✅ (trueno SIMD integration)
 2. **IMP-306-310**: wgpu GPU matmul ✅ (trueno GPU backend)
 3. **IMP-311-315**: CUDA kernel ✅ (trueno-gpu PTX generation, 13 tests)
 4. **IMP-316.1-316.5**: Complete CUDA Runtime ✅ (OWN THE STACK, 170 tests, 97.47% coverage)
 5. **E2E-VIS-001**: Visual Testing & Stress Framework ✅ (sovereign stack, 218 tests, TDG 95.7/100)
 6. **IMP-316-320**: KV cache + serving ✅ (PARITY-029-035)
+7. **IMP-037-049**: Fused CPU kernels ✅ (13 tests, SIMD optimizations)
 
 ---
 
@@ -7726,6 +7813,8 @@ These findings directly impact realizar performance:
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 6.9.0 | 2025-12-15 | **Phase 10: CPU/SIMD Kernel Optimizations (IMP-037 to IMP-049).** Added spec documentation for 13 fused kernel tests: IMP-037-042 (fused attention: QKV, SIMD softmax, attn proj, contiguous buffers, vectorized RoPE, output residual), IMP-043-049 (memory optimizations: batch embedding, parallel FFN, optimized layernorm, cache-aligned storage, prefetch hints, blocked matmul, tensor pool). All tests in src/layers.rs. Updated priority matrix with Phase 10. Total: 2611 tests (2601 pass, 10 ignored). |
+| 6.8.0 | 2025-12-15 | **IMP-900 GPU Optimization Infrastructure Tests.** Added 9 IMP-900 tests verifying M3/M4 parity milestone infrastructure: IMP-900a (optimized GEMM kernel + performance characteristics), IMP-900b (kernel fusion infrastructure + types), IMP-900c (FlashAttention config + kernel verification), IMP-900d (memory transfer optimization + staging buffer pool), IMP-900 (milestone summary). 60 CUDA tests pass. |
 | 6.7.0 | 2025-12-15 | **PARITY-050 to PARITY-062 Spec Documentation.** Added Phase 1 (Batch Inference) and Phase 2 (Speculative Decoding) detailed sections: PARITY-050-058 batch infrastructure (55 tests), PARITY-059-062 speculative decoding (24 tests). Comprehensive documentation of batch scheduler, HTTP handler integration, configuration API, processor design, and benchmark frameworks. Spec now fully covers PARITY-001 through PARITY-072 with 79 additional documented tests. |
 | 6.6.0 | 2025-12-15 | **PARITY-063/070/071/072 Spec Documentation.** Added spec sections for Phase 2 (Speculative Decoding) and Phase 3 (Quantized Attention) test suites: PARITY-063 (6 tests, speculative summary), PARITY-070 (6 tests, bandwidth analysis), PARITY-071 (6 tests, INT8 blocks), PARITY-072 (6 tests, fused kernel). Total documented tests: 24. Spec now covers PARITY-001 through PARITY-072. |
 | 6.5.0 | 2025-12-15 | **PARITY-042/043 Spec Documentation.** Added spec sections for existing tests: PARITY-042 (Pinned Host Buffer Infrastructure, 6 tests) and PARITY-043 (Multi-Head Attention CUDA Kernel, 8 tests). Fixed cuda.rs SATD comment (TODO → Note with PARITY-042 reference). Total: 2592 tests, 0 SATD in src/. |
