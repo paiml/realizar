@@ -1,6 +1,6 @@
 ---
 title: "Performance Parity: Ollama & llama.cpp GPU Inference for LLMs"
-version: "7.3.0"
+version: "7.4.0"
 status: Active
 authors:
   - Pragmatic AI Labs
@@ -12,7 +12,7 @@ issue_refs:
 
 # Performance Parity: Ollama & llama.cpp GPU Inference for LLMs
 
-**Version:** 7.3.0
+**Version:** 7.4.0
 **Status:** Active
 **Authors:** Pragmatic AI Labs
 **Date:** 2025-12-15
@@ -7406,13 +7406,52 @@ Run: `cargo test --lib --features cuda test_imp_1001` → 4/4 pass
 2. **GpuCompute uses trueno wgpu**, not CudaExecutor
 3. **CudaExecutor not wired into inference path**
 
-**Next Step:** Wire CudaExecutor::gemm() into GpuModel forward pass.
+**Next Step:** Wire CudaScheduler into GpuModel forward pass.
 
 **Phase 13 Summary:**
 - 4 tests in `src/gpu.rs` under `#[cfg(feature = "cuda")]`
 - Verified: CudaExecutor matmul, softmax, speedup work
 - Identified: Integration gap between CudaExecutor and GpuModel
 - Status: ✅ COMPLETE (tests pass, integration pending)
+
+---
+
+### Phase 14: CudaScheduler (IMP-1002) - ✅ COMPLETE
+
+**Goal:** Create CudaScheduler that ALWAYS uses CUDA (unlike HybridScheduler which forces CPU for m=1).
+
+**Status:** ✅ ALL 4 TESTS PASSING (2025-12-15)
+
+Run: `cargo test --lib --features cuda test_imp_1002` → 4/4 pass
+
+#### IMP-1002: CudaScheduler Implementation
+
+| Test | Focus | Description |
+|------|-------|-------------|
+| IMP-1002a | Creation | CudaScheduler can be created when CUDA available |
+| IMP-1002b | Matmul | CudaScheduler matmul matches HybridScheduler interface |
+| IMP-1002c | Large Matmul | Handles 64x64 and 128x128 matrices correctly |
+| IMP-1002d | No m=1 Restriction | CudaScheduler uses CUDA even for m=1 (key fix!) |
+
+**Key Difference from HybridScheduler:**
+
+```rust
+// HybridScheduler (line 3199):
+if m <= 1 {
+    return false;  // Forces CPU for single-token!
+}
+
+// CudaScheduler (line 3395):
+pub fn uses_cuda_for(&self, _m: usize, _k: usize, _n: usize) -> bool {
+    true  // ALWAYS uses CUDA - this is the fix
+}
+```
+
+**Phase 14 Summary:**
+- CudaScheduler struct implemented in `src/gpu.rs`
+- Same interface as HybridScheduler for drop-in replacement
+- Always uses CudaExecutor (no m=1 CPU restriction)
+- Status: ✅ COMPLETE
 
 ---
 
@@ -7433,6 +7472,7 @@ Run: `cargo test --lib --features cuda test_imp_1001` → 4/4 pass
 | Phase 11: Bench Infra | IMP-190-213 | Reproducible benchmarks | Medium | HIGH | ✅ COMPLETE |
 | Phase 12: Quant Kernels | PARITY-073-086 | llama.cpp kernel parity | High | MAXIMUM | ✅ COMPLETE |
 | Phase 13: CUDA Integration | IMP-1001 | ~100x (CudaExecutor→GpuModel) | Medium | MAXIMUM | ✅ TESTS PASS |
+| Phase 14: CudaScheduler | IMP-1002 | Fixes m=1 CPU restriction | Medium | MAXIMUM | ✅ COMPLETE |
 
 **Implementation Status (2025-12-15):**
 1. **IMP-026-030**: GpuModel real-world ✅ (6 tests, GGUF loading + benchmarks)
@@ -7448,6 +7488,7 @@ Run: `cargo test --lib --features cuda test_imp_1001` → 4/4 pass
 11. **IMP-190-213**: Benchmark infrastructure ✅ (96 tests, reproducible benchmarks)
 12. **PARITY-073-086**: Advanced quantized kernels ✅ (84 tests, Tensor Core + Stream-K)
 13. **IMP-1001**: CUDA inference integration ✅ (4 tests, CudaExecutor verified)
+14. **IMP-1002**: CudaScheduler ✅ (4 tests, no m=1 CPU restriction)
 
 ---
 
