@@ -1,10 +1,10 @@
 ---
 title: "Performance Parity: Ollama & llama.cpp GPU Inference for LLMs"
-version: "5.7.0"
+version: "6.0.0"
 status: Active
 authors:
   - Pragmatic AI Labs
-date: 2025-12-14
+date: 2025-12-15
 work_item: PERF-PARITY-001
 issue_refs:
   - "#1"
@@ -12,10 +12,10 @@ issue_refs:
 
 # Performance Parity: Ollama & llama.cpp GPU Inference for LLMs
 
-**Version:** 5.7.0
+**Version:** 6.0.0
 **Status:** Active
 **Authors:** Pragmatic AI Labs
-**Date:** 2025-12-14
+**Date:** 2025-12-15
 **Work Item:** PERF-PARITY-001
 
 ## Abstract
@@ -3354,71 +3354,234 @@ let kernel = GemmKernel::tensor_core(m, n, k);
 
 ---
 
-### PARITY-040: FP16 Tensor Core Support (IN PROGRESS)
+### PARITY-040: FP16 Tensor Core Support (COMPLETE - BLOCKED)
 
 **Problem:** Attention is now the bottleneck (91% of total time, 73.9 GFLOPS vs 514 GFLOPS for FFN).
 
 **Solution:** Leverage FP16 Tensor Cores for 2x theoretical FLOPS improvement.
 
 **trueno-gpu Assets:**
-- `GemmKernel::tensor_core(m, n, k)` - WMMA 16x16x16 tiles
-- FP16 accumulation for reduced memory bandwidth
-- Already implemented and tested (8 WMMA tests pass)
+- `GemmKernel::tensor_core(m, n, k)` - WMMA 16x16x16 tiles (FMA-based, not true WMMA)
+- WMMA PTX builder support exists (`wmma_load_a_f16`, `wmma_mma_f16_f32`, etc.)
+- FP16 accumulation would require native FP16 data paths
 
-**Initial Benchmark Results (2025-12-14):**
+**Investigation Results (2025-12-14):**
 
-Current FP16 path uses tiled GEMM (not true Tensor Cores):
+1. **Bug Found & Fixed:** trueno-gpu `build_tensor_core()` kernel had broken indexing for 32-thread warp on 16x16 tiles. Fixed to use 16 threads (one per output row).
 
-| Configuration | FP32 GFLOPS | FP16 GFLOPS | Speedup |
-|---------------|-------------|-------------|---------|
-| Small (64x64) | 8.2 | 5.5 | 0.67x slower |
-| Medium (128x64) | 25.7 | 20.0 | 0.78x slower |
-| phi-2 (256x64) | 70.6 | 63.8 | 0.90x slower |
-| Large (512x64) | 193.0 | 170.8 | 0.89x slower |
+2. **Performance Reality:** Without actual WMMA PTX intrinsics, the FMA-based tensor_core kernel is slower than tiled GEMM because of reduced parallelization (16 threads vs 256 threads).
 
-**Analysis:**
-- Current FP16 path is 1.1-1.5x SLOWER (not using true Tensor Cores)
-- `gemm_fp16()` uses `KernelType::GemmTiled` as placeholder
-- Need to wire trueno-gpu `GemmKernel::tensor_core()` for real WMMA execution
-- True Tensor Cores require FP16 buffer support (half crate integration)
+3. **Tiled GEMM 16x16 Results (FP32):**
 
-**Expected Improvement (with true Tensor Cores):**
-| Component | Current | With FP16 TC | Improvement |
-|-----------|---------|--------------|-------------|
-| Attention GFLOPS | 74.4 | ~300 | 4x |
-| Attention time/tok | 72.17ms | ~18ms | 4x |
-| FFN time/tok | 6.53ms | 6.53ms | - |
-| Total time/tok | 78.70ms | 24.53ms | 3.2x |
-| Throughput | 12.7 tok/s | 40.8 tok/s | 3.2x |
+| Configuration | FlashAttention | Tiled GEMM 16x16 | Ratio |
+|---------------|----------------|------------------|-------|
+| Small (64x64) | 6.9 GFLOPS | 3.7 GFLOPS | 0.54x |
+| Medium (128x64) | 26.0 GFLOPS | 20.5 GFLOPS | 0.79x |
+| phi-2 (256x64) | 73.7 GFLOPS | 61.0 GFLOPS | 0.83x |
+| Large (512x64) | 144.2 GFLOPS | 140.4 GFLOPS | 0.97x |
 
-**Implementation Steps:**
+4. **Token Generation Estimate:**
+   - FP32 FlashAttention: 62.7 GFLOPS avg → 85.6ms attention → 10.9 tok/s
+   - Tiled GEMM 16x16: 56.4 GFLOPS avg → 95.2ms attention → 9.8 tok/s
+
+**Key Findings:**
+
+1. **WMMA Infrastructure Exists:** trueno-gpu has `wmma_load_a_f16`, `wmma_load_b_f16`, `wmma_mma_f16_f32`, `wmma_store_d_f32` in PTX builder - these generate true WMMA PTX.
+
+2. **Missing WMMA Kernel:** No GEMM kernel actually uses the WMMA builder methods. `build_tensor_core()` uses FMA, not WMMA.
+
+3. **FP16 Data Path Missing:** True Tensor Core performance requires:
+   - Native FP16 input data (not FP32 converted on-the-fly)
+   - `half` crate for Rust FP16 types
+   - FP16 GpuBuffer support
+
+4. **Recommended Path:** Create `build_wmma_fp16()` kernel that uses actual WMMA PTX intrinsics for 4x potential speedup.
+
+**Blockers for True Tensor Core Performance:**
+- [ ] **PTX Builder Infrastructure:** WMMA instructions require fragment register lists `{%f0,...,%f7}` but current builder only tracks 1 register per instruction
+- [ ] **PTX Emit Rework:** Need proper emit for WMMA fragment operands in braces
+- [ ] Add `half` crate for FP16 type support
+- [ ] FP16 GpuBuffer allocation
+- [ ] FP32→FP16 conversion in attention path
+
+**Root Cause Identified:** The WMMA PTX builder functions exist (`wmma_load_a_f16`, `wmma_mma_f16_f32`, etc.) but the instruction emit code doesn't properly handle fragment register lists. WMMA PTX format requires all 8 fragment registers in braces, but the builder only stores frag[0].
+
+**Implementation Steps (Updated):**
 1. [x] Create benchmark for FP16 vs FP32 comparison
-2. [ ] Add half crate dependency for FP16 types
-3. [ ] Wire trueno-gpu `GemmKernel::tensor_core()` to CudaExecutor
-4. [ ] Implement FP16 buffer allocation in GpuBuffer
-5. [ ] Convert Q/K/V to FP16 before attention
-6. [ ] Benchmark true Tensor Core GEMM
+2. [x] Investigate trueno-gpu tensor_core kernel
+3. [x] Fix tensor_core kernel indexing bug (16 threads, not 32)
+4. [x] Verify tiled GEMM 16x16 as fallback performs ~same as FlashAttention
+5. [ ] **BLOCKED:** Implement true WMMA kernel using PTX builder
+6. [ ] **BLOCKED:** Add half crate for FP16 types
+7. [ ] **BLOCKED:** Implement FP16 attention path
 
-**Files Created:**
+**Files Modified:**
+- `trueno-gpu/src/kernels/gemm.rs` - Fixed tensor_core kernel indexing
 - `examples/parity_040_fp16_attention.rs` - FP16 vs FP32 benchmark
 
-**Status:** In progress - baseline established, true Tensor Core integration needed
+**Status:** COMPLETE (investigation phase). True Tensor Core blocked on WMMA kernel implementation.
 
 ---
 
-### 1.2 Performance Gap Analysis (REAL MEASUREMENTS - UPDATED 2025-12-14)
+### PARITY-041: Fused Q4_K Dequantize + GEMM Kernel (COMPLETE)
 
-| Comparison | Gap (Before) | Gap (After trueno) | Improvement |
-|------------|--------------|---------------------|-------------|
-| Realizar vs Ollama (GPU) | **4,614x** | **1,181x** | 3.9x better |
-| Realizar vs llama.cpp (GPU) | **6,400x** | **1,506x** | 4.2x better |
-| Realizar vs llama.cpp (CPU) | **375x** | **88x** | 4.3x better |
+**Problem:** Memory bandwidth is the bottleneck for quantized inference. Dequantizing Q4_K weights to FP32/FP16 before GEMM wastes bandwidth.
 
-**Current State (with trueno SIMD):** 0.17 tok/s on phi2 Q4_K_M
-**Target for Parity:** 225+ tok/s (Ollama baseline)
-**Remaining Work:** GPU backend (IMP-306+) to close 1,181x gap
+**Solution:** Fused kernel that reads quantized Q4_K data directly and dequantizes on-the-fly during GEMM computation.
 
-**Note:** Previous estimates (~128x) were based on theoretical calculations. IMP-400d measured actual E2E performance.
+**Implementation Details:**
+
+1. **Real GGML Q4_K Format Support:**
+   - Super-blocks: 256 values per super-block (144 bytes)
+   - Layout: 2 bytes d (f16) + 2 bytes dmin (f16) + 12 bytes scales + 128 bytes qs
+   - 8 sub-blocks of 32 values each with 6-bit scale/min per sub-block
+   - Dequantization: `val = d × scale_b × quant - dmin × min_b`
+
+2. **Memory Bandwidth Reduction:**
+   - Q4_K: 144 bytes → 256 values (0.5625 bytes/value)
+   - FP16 dequantized: 512 bytes → 256 values (2 bytes/value)
+   - **3.55x bandwidth reduction**
+
+3. **trueno-gpu Kernel:**
+   - Added `QuantizeKernel::ggml(m, n, k)` constructor
+   - Added `Q4KFormat::GgmlSuperBlock` variant
+   - Nested loop structure: super-block loop + sub-block loop
+   - F16 loads for d/dmin with F32 accumulation
+   - Warp shuffle reduction for efficient dot products
+
+4. **realizar Integration:**
+   - Added `KernelType::QuantizedGemmGgml` variant
+   - Added `presets::q4k_ggml_inference()` helper
+   - 6 new tests verifying PTX generation
+
+**Test Results:**
+```
+trueno-gpu: 25/25 quantize tests passing (including 13 new GGML tests)
+realizar: 2253/2253 tests passing (including 6 PARITY-041 tests)
+```
+
+**Files Modified:**
+- `trueno-gpu/src/kernels/quantize.rs` - Added GGML kernel variant
+- `realizar/src/cuda.rs` - Added QuantizedGemmGgml kernel type
+
+**Key Design Decisions:**
+1. Keep simplified format for backward compatibility
+2. GGML format matches GGUF model file layout exactly
+3. F16 loads use PTX `ld.global.f16` with `cvt.f32.f16` conversion
+4. Scale extraction uses bit manipulation (no branching)
+
+**Status:** COMPLETE. Kernel PTX generation working. GPU execution testing requires CUDA driver.
+
+---
+
+### PARITY-044 to PARITY-048: Single-Token Optimization Ceiling (2025-12-15)
+
+**CRITICAL FINDING: Single-token inference has reached optimization ceiling.**
+
+#### Performance Summary
+
+| Metric | Value | Status |
+|--------|-------|--------|
+| **Current Performance** | 64.0 tok/s | With GPU attention |
+| **M3 Target** | 50.6 tok/s | ✅ **ACHIEVED** |
+| **M4 Target** | 192.0 tok/s | 3x gap remains |
+| **Ollama Baseline** | 240 tok/s | Reference |
+
+#### Single-Token Breakdown (PARITY-046d)
+
+| Component | Time | % of Total | GPU Beneficial? |
+|-----------|------|------------|-----------------|
+| Attention | 800µs → 400µs (GPU) | 84.8% → 42% | ✅ Yes (seq >= 32) |
+| LM Head | 100µs | 10.6% | ❌ No (vocab projection) |
+| FFN | 36µs | 3.8% | ❌ No (CPU 2.7x faster) |
+| LayerNorm | 5µs | 0.5% | ❌ No (tiny) |
+| Embedding | 2µs | 0.2% | ❌ No (lookup) |
+
+#### Why Single-Token Optimizations Have Diminishing Returns
+
+1. **FFN on GPU is SLOWER** (PARITY-046, PARITY-047)
+   - CPU fused kernel: 18µs (2912 GFLOPS with SIMD)
+   - GPU GEMM (m=1): 49µs (overhead dominates)
+   - **GPU is 2.7x slower for single-token FFN**
+
+2. **Memory coalescing already optimized** (PARITY-048)
+   - All kernels use coalesced access patterns
+   - ~95% of potential already achieved
+   - Remaining gains: 5-10%
+
+3. **Fused kernels already optimal** (PARITY-047)
+   - CPU `fused_q4k_parallel_matvec` achieves 2912 GFLOPS
+   - 15.2x bandwidth reduction vs separate dequant+matmul
+   - No additional speedup available
+
+#### Fastest Path to M4 Parity: Batch Inference
+
+**The 3x gap to M4 requires architectural change, not micro-optimizations.**
+
+| Approach | Speedup Potential | Why |
+|----------|-------------------|-----|
+| **Batch Inference (m>=32)** | **10x FFN** | GPU GEMM wins for batch |
+| Speculative Decoding | 2-3x | Parallel token evaluation |
+| Quantized Attention | 1.5x | Reduce memory traffic |
+| Continuous Batching | 5-10x | Amortize overhead |
+
+#### Batch Inference Crossover Analysis (PARITY-046b)
+
+| Batch Size | CPU FFN | GPU FFN | GPU Speedup |
+|------------|---------|---------|-------------|
+| 1 | 36µs | 98µs | 0.37x (slower) |
+| 30 | 1080µs | 1069µs | 1.0x (crossover) |
+| 32 | 1152µs | 1069µs | 1.1x |
+| 64 | 2304µs | 1069µs | 2.2x |
+| 128 | 4608µs | 1069µs | 4.3x |
+
+#### Recommended M4 Strategy
+
+```
+Phase 1: Batch Inference (PARITY-050+)
+├── Implement continuous batching scheduler
+├── Wire GPU FFN for batch >= 32
+├── Target: 150+ tok/s throughput (multi-request)
+
+Phase 2: Speculative Decoding (PARITY-060+)
+├── Draft model for parallel evaluation
+├── Verification with main model
+├── Target: 2-3x single-request speedup
+
+Phase 3: Quantized Attention (PARITY-070+)
+├── INT8 attention scores
+├── Reduce memory bandwidth 2x
+├── Target: 200+ tok/s
+```
+
+#### Key Insight
+
+> **Single-token streaming at 64 tok/s is near-optimal for our architecture.**
+> **M4 parity (192 tok/s) requires serving multiple requests in parallel (batch inference)**
+> **or fundamentally different token generation (speculative decoding).**
+
+---
+
+### 1.2 Performance Gap Analysis (REAL MEASUREMENTS - UPDATED 2025-12-15)
+
+| Comparison | Gap (Historical) | Gap (Current) | Improvement |
+|------------|------------------|---------------|-------------|
+| Realizar vs Ollama (GPU) | 1,181x | **3.75x** | 315x better |
+| Realizar vs llama.cpp (GPU) | 1,506x | **4.0x** | 376x better |
+
+**Current State (PARITY-044 to PARITY-048):**
+- Single-token: **64.0 tok/s** with GPU attention (M3 ACHIEVED)
+- M4 Target: 192 tok/s (3x gap)
+- Ollama Baseline: 240 tok/s
+
+**Milestone Status:**
+| Milestone | Target | Current | Status |
+|-----------|--------|---------|--------|
+| M2 | 120 tok/s (2x gap) | 64 tok/s | In Progress |
+| M3 | 50.6 tok/s (1.9x gap) | 64 tok/s | ✅ **ACHIEVED** |
+| M4 | 192 tok/s (1.25x gap) | 64 tok/s | Requires batch inference |
+
+**Key Finding:** Single-token optimizations have reached ceiling. M4 requires batch inference (see PARITY-044 to PARITY-048 analysis above).
 
 ### 1.3 Path to Parity: Trueno Integration
 
@@ -7094,10 +7257,148 @@ fi
 
 ---
 
+## 16. Appendix C: trueno Simulation Research Findings (2025-12-15)
+
+### Overview
+
+Comprehensive falsification testing of 102 claims across 7 sections using Popperian methodology. Each test is designed to **disprove** claims about trueno's behavior - surviving tests represent verified guarantees.
+
+### Section A: Backend Selection (Claims 1-15)
+
+**Insight:** Backend selection logic is sound but conservative.
+
+| Finding | Evidence | Recommendation |
+|---------|----------|----------------|
+| GPU threshold (100K elements) is appropriate | A-005, A-011 confirm transfer overhead amortized at scale | May lower to 50K on PCIe 4.0/5.0 |
+| Parallel threshold (1K) balances overhead | A-006 shows Rayon adds value only above threshold | Keep threshold |
+| Graceful degradation works | A-007 confirms GPU unavailability doesn't crash | Production-ready |
+| Backend selection is O(1) | A-010 verified <1μs selection time | No bottleneck |
+
+**Actionable:** The 100K GPU threshold could potentially be lowered to 50K on systems with fast PCIe 4.0/5.0.
+
+### Section B: Determinism (Claims 16-30)
+
+**Insight:** SimRng (PCG algorithm) provides excellent cross-platform reproducibility.
+
+| Test ID | Claim | Result |
+|---------|-------|--------|
+| B-017 | Same seed → identical output | ✅ Verified 100x |
+| B-019 | Parallel partitions deterministic | ✅ Confirmed |
+| B-022 | System load doesn't affect numerical results | ✅ Confirmed |
+| B-023 | Memory pressure doesn't affect results | ✅ Confirmed |
+
+**Key Learning:** PCG over Mersenne Twister validated - PCG's smaller state (128 bits vs 2.5KB) is cache-friendly for parallel workloads.
+
+### Section C: SIMD Operations (Claims 31-50)
+
+**Insight:** SIMD implementations correctly preserve mathematical properties.
+
+| Property | Status | Tolerance |
+|----------|--------|-----------|
+| Add commutativity | ✅ Exact | 0 ULP |
+| Add associativity | ✅ | 1e-5 (FP rounding) |
+| Mul commutativity | ✅ Exact | 0 ULP |
+| Dot product symmetry | ✅ | 1e-5 |
+| Softmax sums to 1.0 | ✅ | 1e-5 |
+
+**Critical Finding (C-050):** Denormal inputs don't cause stalls. SIMD backends correctly use flush-to-zero mode, preventing the 100x slowdown that denormals can cause.
+
+**GELU Validation (C-040):** Approximation matches exact formula within 1e-4, confirming production-ready for ML workloads.
+
+### Section D: PTX Kernels (Claims 51-65)
+
+**Insight:** PTX generation produces correct, efficient CUDA code.
+
+| Pattern | Test ID | Status |
+|---------|---------|--------|
+| bar.sync barriers after shared memory | D-053, D-054 | ✅ Verified |
+| Softmax max-subtraction for stability | D-056 | ✅ Verified |
+| Register allocation < 255 (sm_70+) | D-058 | ✅ Verified |
+| Shared memory < 48KB | D-059 | ✅ Verified |
+
+**Key Learning:** PTX builder correctly emits synchronization barriers - missing barriers cause race conditions that are extremely hard to debug.
+
+### Section E: WGPU Shaders (Claims 66-80)
+
+**Insight:** WGSL shaders match CPU reference implementations within tolerance.
+
+| Operation | Max Diff from CPU |
+|-----------|-------------------|
+| add/mul/dot | < 1e-6 |
+| relu/sigmoid/tanh | < 1e-5 |
+| gelu/swish | < 1e-4 |
+| softmax | < 1e-5 |
+| matmul | < 1e-5 |
+
+**Cross-Backend Consistency:** GELU's 1e-4 tolerance matches PTX, confirming consistent behavior across GPU backends.
+
+### Section F: Visual Regression (Claims 81-90)
+
+**Insight:** BufferRenderer produces deterministic, correct visualizations.
+
+| Test ID | Validation | Status |
+|---------|------------|--------|
+| F-083 | Identical inputs → identical RGBA (byte-level) | ✅ |
+| F-084 | Different inputs → different RGBA | ✅ (after fix) |
+| F-086 | Constant inputs handled correctly | ✅ |
+| F-090 | 100 renders with same seed identical | ✅ |
+
+**Bug Found (F-084):** Auto-normalization caused constant values (all 0s vs all 1s) to map to same color. Fixed by using `.with_range(0.0, 1.0)` for explicit normalization.
+
+### Section G: Stress Testing (Claims 91-100)
+
+**Insight:** Jidoka (Toyota-style stop-on-defect) catches errors immediately.
+
+```rust
+// G-100: Jidoka triggers on FIRST failure
+let guard = JidokaGuard::nan_guard("test");
+let data_with_nan = vec![1.0, 2.0, f32::NAN, 4.0, 5.0];
+guard.check_output(&data_with_nan); // Fails immediately at index 2
+```
+
+**G-092 Finding:** 2x slowdown detection threshold appropriate for CI, may need adjustment for cloud runners with variable performance.
+
+### Summary: Simulation Testing Value
+
+| Category | What We Validated | Risk Mitigated |
+|----------|-------------------|----------------|
+| Correctness | All backends produce equivalent results | Silent precision drift |
+| Determinism | Same inputs always produce same outputs | Non-reproducible ML training |
+| Safety | Empty/single-element inputs handled | Segfaults in production |
+| Performance | Thresholds correctly balance overhead | Suboptimal backend selection |
+| Numerical Stability | Softmax, LayerNorm handle edge cases | NaN/Inf in ML pipelines |
+
+### Falsifiable Claims Methodology
+
+The Popper-style approach (attempting to disprove each claim) revealed:
+
+1. **F-084 bug:** Auto-normalization masked differences in constant inputs
+2. **Coverage gaps:** 14 claims were initially missing tests (now fixed)
+3. **Tolerance precision:** GPU tolerance is 1e-4, not 1e-5 as originally claimed in A-004
+
+**Bottom line:** 102 tests that could have failed but didn't - each one represents a specific guarantee about trueno's behavior that users can rely on.
+
+### Integration with Performance Parity
+
+These findings directly impact realizar performance:
+
+| Finding | Impact on Parity |
+|---------|------------------|
+| GPU threshold 100K | Explains IMP-600 (GPU slower for MATVEC) |
+| PCG determinism | Enables reproducible benchmarks |
+| SIMD math properties | Validates trueno as llama.cpp-equivalent |
+| PTX barriers correct | Enables safe FlashAttention |
+| 1e-4 GPU tolerance | Expected precision for fused kernels |
+
+---
+
 ## Revision History
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 6.1.0 | 2025-12-15 | **trueno Simulation Research Findings.** Added Appendix C documenting 102 falsifiable claims from trueno simulation testing across 7 sections: (A) Backend Selection - 100K GPU threshold validated, O(1) selection; (B) Determinism - PCG RNG verified 100x reproducible; (C) SIMD - Mathematical properties preserved (commutativity, associativity), denormal flush-to-zero prevents 100x slowdown; (D) PTX Kernels - bar.sync barriers correct, <255 registers, <48KB shared; (E) WGPU Shaders - CPU/GPU match within 1e-4 to 1e-6; (F) Visual Regression - BufferRenderer deterministic, F-084 auto-normalization bug found/fixed; (G) Stress Testing - Jidoka catches NaN on first occurrence. Key insight: GPU threshold 100K explains IMP-600 MATVEC findings. |
+| 5.9.0 | 2025-12-14 | **PARITY-041 COMPLETE: Fused Q4_K Dequantize + GEMM Kernel.** Implemented real GGML Q4_K super-block format (256 values, 144 bytes) with fused dequantization during GEMM. Key features: (1) Proper super-block layout (2+2+12+128 bytes); (2) 3.55x memory bandwidth reduction vs FP16 dequant; (3) Nested loop for 8 sub-blocks with 6-bit scale/min extraction; (4) F16 loads with F32 accumulation; (5) Warp shuffle reduction. trueno-gpu: Added `QuantizeKernel::ggml(m,n,k)` constructor, `Q4KFormat::GgmlSuperBlock` variant, 25 tests passing. realizar: Added `KernelType::QuantizedGemmGgml`, `presets::q4k_ggml_inference()`, 6 PARITY-041 tests. Total: 2253 tests, 240 trueno-gpu tests. |
+| 5.8.0 | 2025-12-14 | **PARITY-040 COMPLETE: Tensor Core Investigation.** Fixed trueno-gpu `build_tensor_core()` kernel indexing bug (was using 32-thread warp on 16x16 tiles, fixed to 16 threads). Key finding: Without actual WMMA PTX intrinsics, FMA-based kernel is slower due to reduced parallelization (16 vs 256 threads). Tiled GEMM 16x16 performs ~same as FlashAttention at large sizes (140.4 vs 144.2 GFLOPS). WMMA PTX builder exists in trueno-gpu but no kernel uses it. True Tensor Core performance blocked on: (1) WMMA kernel implementation, (2) half crate for FP16, (3) FP16 GpuBuffer. Status: Investigation complete, implementation blocked. |
 | 5.7.0 | 2025-12-14 | **trueno-gpu Monitoring + PARITY-040 Baseline.** Added trueno-gpu monitoring capabilities section documenting device discovery and memory monitoring APIs (CudaDeviceInfo, CudaMemoryInfo). Created FP16 Tensor Core benchmark (parity_040_fp16_attention.rs). Key finding: Current FP16 path is 1.1-1.5x SLOWER because it uses tiled GEMM, not true Tensor Cores. FP32: 74.4 GFLOPS, FP16 Tiled: 65.0 GFLOPS. Need to wire trueno-gpu `GemmKernel::tensor_core()` with WMMA for real speedup. Expected 4x improvement once true Tensor Cores integrated. |
 | 5.6.0 | 2025-12-14 | **PARITY-039: FlashAttention Fused Kernel.** Verified FlashAttention implementation with O(N) memory complexity (35 tests pass). Benchmark results: 73.9 avg GFLOPS for attention. Key finding: Attention now bottleneck (91% of total time at 72.65ms vs FFN 6.53ms). Combined estimate: 12.6 tok/s. Memory savings verified: 32x reduction for seq_len=512. |
 | 5.5.0 | 2025-12-14 | **PARITY-038: CUDA Streams Async Execution.** Added multi-stream infrastructure to CudaExecutor (compute_stream, transfer_stream). 2x speedup (101.99µs vs 203.44µs per token). Estimated 153.2 tok/s for FFN-only path. M3 target achieved (>50.6 tok/s). Added async GEMM methods and GpuBuffer allocation. |
