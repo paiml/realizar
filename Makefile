@@ -5,6 +5,7 @@
 .SUFFIXES:
 .DELETE_ON_ERROR:
 .PHONY: help build test test-fast lint quality-gates deploy clean
+.PHONY: tier1 tier2 test-cuda-fast test-probar
 .PHONY: coverage coverage-open coverage-clean clean-coverage coverage-summary
 .PHONY: mutants mutants-quick mutants-quantize mutants-layers mutants-tokenizer
 .PHONY: mutants-generate mutants-report mutants-clean mutation-file mutate mutate-fast
@@ -39,6 +40,31 @@ build-dev: ## Build the project in development mode
 build-all-features: ## Build with all features enabled
 	@echo "$(GREEN)Building Realizar (all features)...$(NC)"
 	cargo build --all-features --release
+
+# === Tiered Testing (trueno-style) ===
+
+tier1: ## Tier 1: Sub-second feedback for rapid iteration (ON-SAVE)
+	@echo "🚀 TIER 1: Sub-second feedback"
+	@cargo check --lib --quiet
+	@cargo clippy --lib --quiet -- -D warnings
+	@echo "✅ Tier 1 complete"
+
+tier2: ## Tier 2: Fast tests before commit (30s target)
+	@echo "🔍 TIER 2: Fast tests"
+	@cargo fmt -- --check
+	@cargo clippy --lib --quiet -- -D warnings
+	@cargo test --lib --quiet
+	@echo "✅ Tier 2 complete"
+
+test-cuda-fast: ## Fast CUDA tests only (probar TUI simulation, debug mode)
+	@echo "⚡ Running fast CUDA tests..."
+	@cargo test --test probar_tui_simulation --features cuda -- --nocapture
+	@echo "✅ CUDA tests passed"
+
+test-probar: ## Run all probar visual tests
+	@echo "🎯 Running probar visual tests..."
+	@cargo test --test 'probar_*' --features cuda -- --nocapture
+	@echo "✅ Probar tests passed"
 
 # === Test Targets ===
 
@@ -126,15 +152,16 @@ coverage: ## Generate HTML coverage report (target: >95%, Batuta stack standard)
 	@cargo llvm-cov clean --workspace
 	@mkdir -p target/coverage
 	@# Phase 1: Run tests with coverage instrumentation (no report)
-	@env PROPTEST_CASES=100 cargo llvm-cov --no-report nextest --no-tests=warn --workspace --no-fail-fast --features "server,cli,gpu"
-	@# Phase 2: Generate reports (exclude entry points, binary parsers, hardware-dependent and server code)
+	@# Note: --lib --tests excludes examples (which may require cuda feature not enabled here)
+	@env PROPTEST_CASES=100 cargo llvm-cov --no-report nextest --lib --tests --no-tests=warn --workspace --no-fail-fast --features "server,cli,gpu"
+	@# Phase 2: Generate reports (exclude entry points, binary parsers, hardware-dependent, server code, and trueno dep)
 	@# Exclusions: main.rs (entry), cli.rs (CLI), api.rs (HTTP handlers), apr.rs (binary format),
-	@#            gguf.rs (binary GGUF parser), serve.rs (HTTP server), gpu.rs (hardware-dependent GPU)
-	@cargo llvm-cov report --html --output-dir target/coverage/html --ignore-filename-regex '(main|cli|api|apr|gguf|serve|gpu)\.rs'
-	@cargo llvm-cov report --lcov --output-path target/coverage/lcov.info --ignore-filename-regex '(main|cli|api|apr|gguf|serve|gpu)\.rs'
+	@#            gguf.rs (binary GGUF parser), serve.rs (HTTP server), gpu.rs (hardware-dependent GPU), trueno/ (dependency)
+	@cargo llvm-cov report --html --output-dir target/coverage/html --ignore-filename-regex '(main|cli|api|apr|gguf|serve|gpu)\.rs|trueno/'
+	@cargo llvm-cov report --lcov --output-path target/coverage/lcov.info --ignore-filename-regex '(main|cli|api|apr|gguf|serve|gpu)\.rs|trueno/'
 	@# Restore mold linker
 	@test -f ~/.cargo/config.toml.cov-backup && mv ~/.cargo/config.toml.cov-backup ~/.cargo/config.toml || true
-	@cargo llvm-cov report --summary-only --ignore-filename-regex '(main|cli|api|apr|gguf|serve|gpu)\.rs'
+	@cargo llvm-cov report --summary-only --ignore-filename-regex '(main|cli|api|apr|gguf|serve|gpu)\.rs|trueno/'
 	@echo "$(GREEN)✅ Coverage report: target/coverage/html/index.html$(NC)"
 
 coverage-summary: ## Show coverage summary

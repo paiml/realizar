@@ -8067,6 +8067,7 @@ mod tests {
     /// QA-011: Throughput regression < 5% between commits (CI gate)
     /// Per spec: Performance must not regress significantly
     #[test]
+    #[cfg_attr(coverage, ignore)] // Timing test unreliable under coverage instrumentation
     fn test_qa_011_throughput_regression_detection() {
         use std::time::Instant;
 
@@ -8274,6 +8275,7 @@ mod tests {
     /// QA-020: No performance degradation with context growth
     /// Per spec: Attention should scale reasonably with context
     #[test]
+    #[cfg_attr(coverage, ignore)] // Timing test unreliable under coverage instrumentation
     fn test_qa_020_context_scaling() {
         use std::time::Instant;
 
@@ -10323,6 +10325,7 @@ mod tests {
     /// Target: Direct indexing without copy, ≥2x speedup in incremental attention
     #[test]
     #[cfg(feature = "gpu")]
+    #[cfg_attr(coverage, ignore)] // Timing test unreliable under coverage instrumentation
     fn test_imp_036_optimized_kv_access() {
         use crate::gpu::{GpuModel, GpuModelConfig, StreamingKVCache};
         use std::time::Instant;

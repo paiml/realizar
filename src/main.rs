@@ -131,6 +131,11 @@ enum Commands {
         /// Enable OpenAI-compatible API at /v1/*
         #[arg(long, default_value = "true")]
         openai_api: bool,
+
+        /// Enable batch inference for M4 parity (PARITY-093)
+        /// Uses continuous batching scheduler for 3-4x throughput at high concurrency
+        #[arg(long)]
+        batch: bool,
     },
     /// Run performance benchmarks (wraps cargo bench)
     Bench {
@@ -268,17 +273,21 @@ async fn main() -> Result<()> {
             model,
             demo,
             openai_api: _,
+            batch,
         } => {
             if demo {
                 serve_demo(&host, port).await?;
             } else if let Some(model_path) = model {
-                serve_model(&host, port, &model_path).await?;
+                serve_model(&host, port, &model_path, batch).await?;
             } else {
                 eprintln!("Error: Either --model or --demo must be specified");
                 eprintln!();
                 eprintln!("Usage:");
                 eprintln!("  realizar serve --demo              # Use demo model");
                 eprintln!("  realizar serve --model path.gguf   # Load GGUF model");
+                eprintln!(
+                    "  realizar serve --model path.gguf --batch  # Enable M4 parity batch mode"
+                );
                 std::process::exit(1);
             }
         },
@@ -371,10 +380,15 @@ async fn serve_demo(host: &str, port: u16) -> Result<()> {
     Ok(())
 }
 
-async fn serve_model(host: &str, port: u16, model_path: &str) -> Result<()> {
+async fn serve_model(host: &str, port: u16, model_path: &str, batch_mode: bool) -> Result<()> {
     use realizar::gguf::MappedGGUFModel;
 
     println!("Loading model from: {model_path}");
+    if batch_mode {
+        println!("Mode: BATCH (PARITY-093 M4 parity)");
+    } else {
+        println!("Mode: SINGLE-REQUEST");
+    }
     println!();
 
     if model_path.ends_with(".gguf") {
@@ -408,8 +422,106 @@ async fn serve_model(host: &str, port: u16, model_path: &str) -> Result<()> {
         println!("  Layers: {}", quantized_model.layers.len());
         println!();
 
-        // Use quantized model for serving (fused CPU ops are faster for m=1)
-        let state = realizar::api::AppState::with_quantized_model(quantized_model)?;
+        // PARITY-113: Enable CUDA backend via REALIZAR_BACKEND environment variable
+        #[cfg(feature = "cuda")]
+        let mut quantized_model = quantized_model;
+        #[cfg(feature = "cuda")]
+        if std::env::var("REALIZAR_BACKEND")
+            .map(|v| v.eq_ignore_ascii_case("cuda"))
+            .unwrap_or(false)
+        {
+            println!("Enabling CUDA backend (REALIZAR_BACKEND=cuda)...");
+            match quantized_model.enable_cuda(0) {
+                Ok(()) => {
+                    println!("  CUDA enabled on GPU 0");
+                    println!("  cuda_enabled: {}", quantized_model.cuda_enabled());
+                },
+                Err(e) => {
+                    eprintln!("  Warning: CUDA enable failed: {}. Falling back to CPU.", e);
+                },
+            }
+            println!();
+        }
+
+        // PARITY-093: Use cached model with batch support for M4 parity
+        let state = {
+            #[cfg(feature = "gpu")]
+            {
+                if batch_mode {
+                    use realizar::gguf::OwnedQuantizedModelCachedSync;
+
+                    println!("Initializing batch inference mode (PARITY-093/094)...");
+
+                    // Create cached model for scheduler reuse (10.6x speedup - IMP-112)
+                    let cached_model = OwnedQuantizedModelCachedSync::new(quantized_model);
+
+                    // PARITY-094: Warmup GPU cache for batch_generate_gpu
+                    // This dequantizes FFN weights to GPU memory (~6GB for phi-2)
+                    println!("  Warming up GPU cache (dequantizing FFN weights)...");
+                    match cached_model.warmup_gpu_cache() {
+                        Ok((memory_bytes, num_layers)) => {
+                            println!(
+                                "  GPU cache ready: {:.2} GB ({} layers)",
+                                memory_bytes as f64 / 1e9,
+                                num_layers
+                            );
+                        },
+                        Err(e) => {
+                            eprintln!(
+                                "  Warning: GPU cache warmup failed: {}. Falling back to CPU batch.",
+                                e
+                            );
+                        },
+                    }
+
+                    // Create state first (this wraps model in Arc internally)
+                    let state = realizar::api::AppState::with_cached_model(cached_model)?;
+
+                    // Get Arc'd model back for batch processor
+                    let cached_model_arc = state
+                        .cached_model()
+                        .expect("cached_model should exist")
+                        .clone();
+
+                    // Configure batch processing (PARITY-095: aligned thresholds)
+                    let batch_config = realizar::api::BatchConfig::default();
+                    println!("  Batch window: {}ms", batch_config.window_ms);
+                    println!("  Min batch size: {}", batch_config.min_batch);
+                    println!("  Optimal batch: {}", batch_config.optimal_batch);
+                    println!("  Max batch size: {}", batch_config.max_batch);
+                    println!(
+                        "  GPU threshold: {} (GPU GEMM for batch >= this)",
+                        batch_config.gpu_threshold
+                    );
+
+                    // Spawn batch processor task
+                    let batch_tx = realizar::api::spawn_batch_processor(
+                        cached_model_arc,
+                        batch_config.clone(),
+                    );
+
+                    println!("  Batch processor: RUNNING");
+                    println!();
+
+                    // Add batch support to state
+                    state.with_batch_config(batch_tx, batch_config)
+                } else {
+                    // Use quantized model for serving (fused CPU ops are faster for m=1)
+                    realizar::api::AppState::with_quantized_model(quantized_model)?
+                }
+            }
+
+            #[cfg(not(feature = "gpu"))]
+            {
+                if batch_mode {
+                    eprintln!(
+                        "Warning: --batch requires 'gpu' feature. Falling back to single-request mode."
+                    );
+                }
+                realizar::api::AppState::with_quantized_model(quantized_model)?
+            }
+        };
+
         let app = realizar::api::create_router(state);
 
         let addr: std::net::SocketAddr = format!("{host}:{port}").parse().map_err(|e| {
@@ -422,9 +534,20 @@ async fn serve_model(host: &str, port: u16, model_path: &str) -> Result<()> {
         println!();
         println!("Endpoints:");
         println!("  GET  /health         - Health check");
-        println!("  POST /v1/completions - OpenAI-compatible completions (Q4_K fused)");
+        println!("  POST /v1/completions - OpenAI-compatible completions");
+        if batch_mode {
+            println!("  POST /v1/batch/completions - GPU batch completions (PARITY-022)");
+            println!("  POST /v1/gpu/warmup  - Warmup GPU cache");
+            println!("  GET  /v1/gpu/status  - GPU status");
+        }
         println!("  POST /generate       - Generate text (Q4_K fused)");
         println!();
+
+        if batch_mode {
+            println!("M4 Parity Target: 192 tok/s at concurrency >= 4");
+            println!("Benchmark with: wrk -t4 -c4 -d30s http://{addr}/v1/completions");
+            println!();
+        }
 
         let listener = tokio::net::TcpListener::bind(addr).await.map_err(|e| {
             realizar::error::RealizarError::UnsupportedOperation {

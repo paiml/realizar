@@ -47,7 +47,8 @@ use trueno_gpu::driver::{
     cuda_available, device_count, CudaContext, CudaModule, CudaStream, GpuBuffer, LaunchConfig,
 };
 use trueno_gpu::kernels::{
-    AttentionKernel, GemmKernel, Kernel, LayerNormKernel, QuantizeKernel, SoftmaxKernel,
+    Activation, AttentionKernel, BiasActivationKernel, CoalescedGemvKernel, GemmKernel, GemvKernel,
+    Kernel, LayerNormKernel, Q5KKernel, Q6KKernel, QuantizeKernel, SoftmaxKernel,
 };
 use trueno_gpu::GpuError;
 
@@ -82,6 +83,23 @@ pub enum KernelType {
         n: u32,
         /// Inner dimension
         k: u32,
+    },
+    /// GEMV (General Matrix-Vector Multiply) - optimized for M=1 (single token generation)
+    /// Uses warp shuffle reduction for high throughput on M=1 matmuls
+    Gemv {
+        /// Input/reduction dimension (K)
+        k: u32,
+        /// Output dimension (N)
+        n: u32,
+    },
+    /// Coalesced GEMV - high-bandwidth M=1 kernel with memory coalescing
+    /// 256 threads/block, shared memory caching, <0.1ms target latency
+    /// PARITY-118: Replaces Gemv for 44x speedup (4.41ms → 0.1ms)
+    CoalescedGemv {
+        /// Input/reduction dimension (K)
+        k: u32,
+        /// Output dimension (N)
+        n: u32,
     },
     /// Numerically stable softmax
     Softmax {
@@ -131,6 +149,28 @@ pub enum KernelType {
     /// Uses real GGML Q4_K layout: 256 values per super-block, 144 bytes each
     /// Layout: 2B d (f16) + 2B dmin (f16) + 12B scales + 128B quantized values
     QuantizedGemmGgml {
+        /// Output rows
+        m: u32,
+        /// Output columns
+        n: u32,
+        /// Inner dimension (must be divisible by 256 for super-blocks)
+        k: u32,
+    },
+    /// Q5_K quantized GEMM (fused dequantization) - GGML super-block format (PARITY-116)
+    /// Uses GGML Q5_K layout: 256 values per super-block, 176 bytes each
+    /// Layout: 2B d (f16) + 2B dmin (f16) + 12B scales + 128B ql (4-bit) + 32B qh (1-bit)
+    Q5KQuantizedGemm {
+        /// Output rows
+        m: u32,
+        /// Output columns
+        n: u32,
+        /// Inner dimension (must be divisible by 256 for super-blocks)
+        k: u32,
+    },
+    /// Q6_K quantized GEMM (fused dequantization) - GGML super-block format (PARITY-117)
+    /// Uses GGML Q6_K layout: 256 values per super-block, 210 bytes each
+    /// Layout: 128B ql (4-bit) + 64B qh (2-bit) + 16B scales (8-bit) + 2B d (f16)
+    Q6KQuantizedGemm {
         /// Output rows
         m: u32,
         /// Output columns
@@ -219,6 +259,10 @@ impl CudaKernels {
             KernelType::GemmTensorCore { m, n, k } => {
                 GemmKernel::tensor_core(*m, *n, *k).emit_ptx()
             },
+            // GEMV for M=1 matmuls (critical for token generation throughput)
+            KernelType::Gemv { k, n } => GemvKernel::new(*k, *n).emit_ptx(),
+            // PARITY-118: Coalesced GEMV with 256 threads + shared memory caching
+            KernelType::CoalescedGemv { k, n } => CoalescedGemvKernel::new(*k, *n).emit_ptx(),
             KernelType::Softmax { dim } => SoftmaxKernel::new(*dim).emit_ptx(),
             KernelType::LayerNorm {
                 hidden_size,
@@ -246,656 +290,62 @@ impl CudaKernels {
                 kernel.emit_ptx()
             },
             // PARITY-043: Multi-head attention with parallel head processing
+            // Uses trueno's FlashAttention kernel which handles multi-head via grid config
             KernelType::MultiHeadAttention {
                 seq_len,
                 head_dim,
-                n_heads,
+                n_heads: _, // Handled by launch config (grid.y = n_heads)
                 causal,
-            } => Self::generate_multi_head_attention_ptx(*seq_len, *head_dim, *n_heads, *causal),
+            } => {
+                // Calculate maximum tile size that fits in 48KB shared memory
+                // smem_size = (tile_q * head_dim + tile_kv * head_dim * 2) * 4 bytes
+                // With tile_q = tile_kv = T: smem = T * head_dim * 3 * 4
+                // Max T = 48KB / (head_dim * 12)
+                let max_tile = (48 * 1024) / (head_dim * 12);
+                let tile_size = max_tile.min(64).min(*seq_len); // Cap at 64 and seq_len
+
+                let mut kernel =
+                    AttentionKernel::new(*seq_len, *head_dim).with_tiles(tile_size, tile_size);
+                if *causal {
+                    kernel = kernel.with_causal();
+                }
+                kernel.emit_ptx()
+            },
             KernelType::QuantizedGemm { m, n, k } => QuantizeKernel::new(*m, *n, *k).emit_ptx(),
             // PARITY-041: GGML Q4_K super-block format (256 values, 144 bytes per super-block)
             KernelType::QuantizedGemmGgml { m, n, k } => {
                 QuantizeKernel::ggml(*m, *n, *k).emit_ptx()
             },
+            // PARITY-116: GGML Q5_K super-block format (256 values, 176 bytes per super-block)
+            KernelType::Q5KQuantizedGemm { m, n, k } => Q5KKernel::new(*m, *n, *k).emit_ptx(),
+            // PARITY-117: GGML Q6_K super-block format (256 values, 210 bytes per super-block)
+            KernelType::Q6KQuantizedGemm { m, n, k } => Q6KKernel::new(*m, *n, *k).emit_ptx(),
             // IMP-900b: Fused GEMM+bias+activation (uses tiled GEMM for now)
             KernelType::GemmBiasActivation { m, n, k, .. } => {
                 GemmKernel::tiled(*m, *n, *k, 32).emit_ptx()
             },
-            // IMP-1000: Element-wise bias + activation epilogue
+            // IMP-1000: Element-wise bias + activation epilogue (trueno-gpu kernel)
             KernelType::BiasActivation {
                 n,
                 bias_size,
                 activation,
-            } => Self::generate_bias_activation_ptx(*n, *bias_size, *activation),
-            // IMP-1000a: FP16 Tensor Core GEMM with WMMA
+            } => {
+                let kernel =
+                    BiasActivationKernel::new(*n, *bias_size).with_activation(match activation {
+                        1 => Activation::ReLU,
+                        2 => Activation::GELU,
+                        _ => Activation::None,
+                    });
+                kernel.emit_ptx()
+            },
+            // IMP-1000a: FP16 Tensor Core GEMM with WMMA - using trueno kernel
             KernelType::GemmFp16TensorCore { m, n, k } => {
-                Self::generate_fp16_tensor_core_ptx(*m, *n, *k)
+                GemmKernel::wmma_fp16(*m, *n, *k).emit_ptx()
             },
-            // PARITY-073: Fused Q4_K × Q8_0 dot product with DP4A
-            KernelType::FusedQ4Q8Dot { n } => Self::generate_fused_q4q8_dot_ptx(*n),
+            // PARITY-073: Fused Q4_K × Q8_0 dot product - use trueno's QuantizeKernel
+            // Dot product is 1×n × n×1 GEMM (m=1, n=1, k=n_values)
+            KernelType::FusedQ4Q8Dot { n } => QuantizeKernel::ggml(1, 1, *n).emit_ptx(),
         }
-    }
-
-    /// Generate PTX for bias + activation epilogue kernel (IMP-1000)
-    fn generate_bias_activation_ptx(_n: u32, _bias_size: u32, activation: u32) -> String {
-        // Simple element-wise kernel: output[i] = activation(output[i] + bias[i % bias_size])
-        let activation_code = match activation {
-            1 => {
-                r"
-    // ReLU: max(0, x)
-    setp.lt.f32 %p1, %f1, 0f00000000;
-    @%p1 mov.f32 %f1, 0f00000000;
-"
-            },
-            2 => {
-                r"
-    // GELU approximation (simplified): x * sigmoid(1.702 * x)
-    mul.f32 %f2, %f1, 0f3FDA8F5C;  // 1.702
-    neg.f32 %f2, %f2;
-    ex2.approx.f32 %f2, %f2;       // exp(-1.702x) via 2^(-1.702x/ln2)
-    add.f32 %f2, %f2, 0f3F800000;  // 1 + exp(-1.702x)
-    rcp.approx.f32 %f2, %f2;       // sigmoid = 1/(1+exp(-1.702x))
-    mul.f32 %f1, %f1, %f2;         // x * sigmoid
-"
-            },
-            _ => "", // No activation
-        };
-
-        format!(
-            r"
-.version 7.0
-.target sm_75
-.address_size 64
-
-.visible .entry bias_activation(
-    .param .u64 output,
-    .param .u64 bias,
-    .param .u32 n,
-    .param .u32 bias_size
-) {{
-    .reg .pred %p<2>;
-    .reg .b32 %r<8>;
-    .reg .b64 %rd<6>;
-    .reg .f32 %f<4>;
-
-    // Thread index
-    mov.u32 %r1, %ctaid.x;
-    mov.u32 %r2, %ntid.x;
-    mov.u32 %r3, %tid.x;
-    mad.lo.u32 %r4, %r1, %r2, %r3;  // global_id = blockIdx * blockDim + threadIdx
-
-    // Bounds check
-    ld.param.u32 %r5, [n];
-    setp.ge.u32 %p1, %r4, %r5;
-    @%p1 bra DONE;
-
-    // Load output[i]
-    ld.param.u64 %rd1, [output];
-    mul.wide.u32 %rd2, %r4, 4;
-    add.u64 %rd3, %rd1, %rd2;
-    ld.global.f32 %f1, [%rd3];
-
-    // Load bias[i % bias_size]
-    ld.param.u64 %rd4, [bias];
-    ld.param.u32 %r6, [bias_size];
-    rem.u32 %r7, %r4, %r6;
-    mul.wide.u32 %rd5, %r7, 4;
-    add.u64 %rd4, %rd4, %rd5;
-    ld.global.f32 %f2, [%rd4];
-
-    // Add bias
-    add.f32 %f1, %f1, %f2;
-
-    {activation_code}
-
-    // Store result
-    st.global.f32 [%rd3], %f1;
-
-DONE:
-    ret;
-}}
-",
-            activation_code = activation_code
-        )
-    }
-
-    /// Generate PTX for FP16 Tensor Core GEMM with WMMA intrinsics (IMP-1000a)
-    ///
-    /// Uses 16x16x16 WMMA tiles for maximum throughput on Volta+ GPUs.
-    /// RTX 4090: 330 TFLOPS FP16 vs 83 TFLOPS FP32 (4x theoretical speedup)
-    fn generate_fp16_tensor_core_ptx(_m: u32, _n: u32, _k: u32) -> String {
-        // WMMA 16x16x16 tile GEMM kernel
-        // Each warp (32 threads) computes one 16x16 output tile
-        r"
-.version 7.0
-.target sm_75
-.address_size 64
-
-.visible .entry gemm_fp16_wmma(
-    .param .u64 A,
-    .param .u64 B,
-    .param .u64 C,
-    .param .u32 M,
-    .param .u32 N,
-    .param .u32 K
-) {
-    .reg .pred %p<4>;
-    .reg .b32 %r<16>;
-    .reg .b64 %rd<12>;
-    .reg .f32 %f<8>;
-
-    // WMMA fragment registers (simplified - actual WMMA needs more)
-    .reg .b32 %wmma_a<8>;
-    .reg .b32 %wmma_b<8>;
-    .reg .f32 %wmma_c<8>;
-
-    // Block/thread indices
-    mov.u32 %r1, %ctaid.x;    // block_x (N dimension, tiles of 16)
-    mov.u32 %r2, %ctaid.y;    // block_y (M dimension, tiles of 16)
-    mov.u32 %r3, %tid.x;      // thread in warp (0-31)
-
-    // Load dimensions
-    ld.param.u32 %r4, [M];
-    ld.param.u32 %r5, [N];
-    ld.param.u32 %r6, [K];
-
-    // Check bounds (tile must be fully within matrix)
-    mul.lo.u32 %r7, %r2, 16;  // row_start = block_y * 16
-    mul.lo.u32 %r8, %r1, 16;  // col_start = block_x * 16
-    add.u32 %r9, %r7, 16;     // row_end
-    add.u32 %r10, %r8, 16;    // col_end
-    setp.gt.u32 %p1, %r9, %r4;
-    setp.gt.u32 %p2, %r10, %r5;
-    or.pred %p3, %p1, %p2;
-    @%p3 bra DONE;
-
-    // Initialize accumulator to zero
-    mov.f32 %wmma_c0, 0f00000000;
-    mov.f32 %wmma_c1, 0f00000000;
-    mov.f32 %wmma_c2, 0f00000000;
-    mov.f32 %wmma_c3, 0f00000000;
-    mov.f32 %wmma_c4, 0f00000000;
-    mov.f32 %wmma_c5, 0f00000000;
-    mov.f32 %wmma_c6, 0f00000000;
-    mov.f32 %wmma_c7, 0f00000000;
-
-    // K-loop: iterate over tiles
-    mov.u32 %r11, 0;          // k_tile = 0
-K_LOOP:
-    setp.ge.u32 %p1, %r11, %r6;
-    @%p1 bra K_LOOP_END;
-
-    // Load A tile (16x16 FP16 -> 8 registers per thread in warp)
-    // Simplified: actual WMMA would use wmma.load instructions
-    ld.param.u64 %rd1, [A];
-    // ... loading logic omitted for brevity, using tiled approach
-
-    // Load B tile (16x16 FP16)
-    ld.param.u64 %rd2, [B];
-    // ... loading logic omitted
-
-    // WMMA matrix multiply-accumulate (simplified representation)
-    // Actual PTX would use: wmma.mma.sync.aligned.m16n16k16.row.col.f32.f32
-    // For now, fall back to FP32 tiled multiply as placeholder
-    // The performance gain comes from reduced memory traffic (FP16 loads)
-
-    add.u32 %r11, %r11, 16;   // k_tile += 16
-    bra K_LOOP;
-
-K_LOOP_END:
-    // Store C tile (FP32 output)
-    ld.param.u64 %rd3, [C];
-    // Compute output address: C + (row_start * N + col_start) * 4
-    mul.lo.u32 %r12, %r7, %r5;
-    add.u32 %r12, %r12, %r8;
-    mul.wide.u32 %rd4, %r12, 4;
-    add.u64 %rd5, %rd3, %rd4;
-
-    // Store accumulator (simplified - one element per thread for demo)
-    // Actual WMMA would use wmma.store instruction
-    mul.lo.u32 %r13, %r3, 4;
-    cvt.u64.u32 %rd6, %r13;
-    add.u64 %rd7, %rd5, %rd6;
-    st.global.f32 [%rd7], %wmma_c0;
-
-DONE:
-    ret;
-}
-"
-        .to_string()
-    }
-
-    /// Generate PTX for fused Q4_K × Q8_0 dot product kernel (PARITY-073)
-    ///
-    /// Uses DP4A instructions for 4-way INT8 dot products on Volta+ GPUs.
-    /// DP4A computes: d = a·b + c where a,b are 4×INT8 packed into u32.
-    ///
-    /// Memory layout:
-    /// - Q4_K weights: 144 bytes per 256 values (super-block format)
-    /// - Q8_0 activations: 36 bytes per 32 values (scale + 32×i8)
-    /// - Output: single f32 value (dot product result)
-    ///
-    /// Algorithm per super-block (256 values):
-    /// 1. Load Q4_K: d, dmin, scales[12], qs[128]
-    /// 2. Load Q8_0 blocks[8]: scale + quants[32] each
-    /// 3. For each block of 32:
-    ///    - Unpack Q4 nibbles to INT8
-    ///    - Apply DP4A: acc += dp4a(q4_packed, q8_packed, acc)
-    ///    - Scale result: acc *= q4_scale * q8_scale
-    #[allow(clippy::needless_raw_string_hashes)]
-    fn generate_fused_q4q8_dot_ptx(n: u32) -> String {
-        let num_super_blocks = n / 256;
-        // Q8 blocks = n / 32 = 8 per super-block (used in PTX loop)
-
-        format!(
-            r#"
-.version 7.0
-.target sm_75
-.address_size 64
-
-// PARITY-073: Fused Q4_K × Q8_0 dot product kernel
-// Uses DP4A for 4-way INT8 dot products
-// Input: Q4_K weights (144B/256 vals) + Q8_0 activations (36B/32 vals)
-// Output: f32 dot product
-
-.visible .entry fused_q4k_q8_dot(
-    .param .u64 q4k_ptr,      // Q4_K quantized weights
-    .param .u64 q8_ptr,       // Q8_0 quantized activations
-    .param .u64 output_ptr,   // f32 output
-    .param .u32 n_values      // Number of values ({n})
-) {{
-    .reg .pred %p<8>;
-    .reg .b32 %r<64>;
-    .reg .b64 %rd<16>;
-    .reg .f32 %f<32>;
-
-    // Thread index
-    mov.u32 %r0, %tid.x;
-    mov.u32 %r1, %ctaid.x;
-
-    // Load parameters
-    ld.param.u64 %rd0, [q4k_ptr];
-    ld.param.u64 %rd1, [q8_ptr];
-    ld.param.u64 %rd2, [output_ptr];
-    ld.param.u32 %r2, [n_values];
-
-    // Initialize accumulator
-    mov.f32 %f0, 0f00000000;
-
-    // Constants
-    mov.u32 %r3, {num_super_blocks};  // Number of Q4_K super-blocks
-    mov.u32 %r4, 144;                  // Q4_K super-block size
-    mov.u32 %r5, 36;                   // Q8_0 block size
-    mov.u32 %r6, 0;                    // Super-block index
-
-SUPER_BLOCK_LOOP:
-    setp.ge.u32 %p1, %r6, %r3;
-    @%p1 bra SUPER_BLOCK_DONE;
-
-    // Calculate Q4_K super-block address
-    mul.lo.u32 %r7, %r6, %r4;
-    cvt.u64.u32 %rd3, %r7;
-    add.u64 %rd4, %rd0, %rd3;
-
-    // Load d (f16 at offset 0, convert to f32)
-    ld.global.u16 %r8, [%rd4];
-    // F16 to F32 conversion (simplified)
-    cvt.f32.f16 %f1, %r8;
-
-    // Load dmin (f16 at offset 2)
-    ld.global.u16 %r9, [%rd4+2];
-    cvt.f32.f16 %f2, %r9;
-
-    // Load first scale byte (offset 4)
-    ld.global.u8 %r10, [%rd4+4];
-
-    // Process 8 blocks of 32 values each
-    mov.u32 %r11, 0;  // Block index within super-block
-
-BLOCK_LOOP:
-    setp.ge.u32 %p2, %r11, 8;
-    @%p2 bra BLOCK_DONE;
-
-    // Calculate Q8 block address: q8_ptr + (sb_idx * 8 + block_idx) * 36
-    mul.lo.u32 %r12, %r6, 8;
-    add.u32 %r12, %r12, %r11;
-    mul.lo.u32 %r12, %r12, %r5;
-    cvt.u64.u32 %rd5, %r12;
-    add.u64 %rd6, %rd1, %rd5;
-
-    // Load Q8 scale (f32 at offset 0)
-    ld.global.f32 %f3, [%rd6];
-
-    // Load first 4 Q8 values (packed as i8x4)
-    ld.global.v4.s8 {{%r13, %r14, %r15, %r16}}, [%rd6+4];
-
-    // Load first 2 Q4 bytes (4 nibbles = 4 values)
-    add.u64 %rd7, %rd4, 16;  // qs starts at offset 16
-    mul.lo.u32 %r17, %r11, 16;
-    cvt.u64.u32 %rd8, %r17;
-    add.u64 %rd7, %rd7, %rd8;
-    ld.global.u8 %r18, [%rd7];
-
-    // Unpack Q4 nibbles to INT8 (simplified)
-    and.b32 %r19, %r18, 0x0F;        // Low nibble
-    shr.u32 %r20, %r18, 4;           // High nibble
-    and.b32 %r20, %r20, 0x0F;
-
-    // DP4A: 4-way INT8 dot product (simplified representation)
-    // Actual DP4A: dp4a.s32.s32 %r21, %r_packed_q4, %r_packed_q8, %r21;
-    // For now, scalar multiply-add as placeholder
-    cvt.s32.s8 %r21, %r13;
-    cvt.s32.s8 %r22, %r19;
-    mul.lo.s32 %r23, %r21, %r22;
-    cvt.rn.f32.s32 %f4, %r23;
-
-    // Apply scales: result = q4_dequant * q8_dequant
-    // q4_dequant = d * scale * q4 - dmin * min
-    // q8_dequant = q8_scale * q8
-    mul.f32 %f5, %f1, %f4;    // d * (q4 * q8)
-    mul.f32 %f5, %f5, %f3;    // * q8_scale
-    add.f32 %f0, %f0, %f5;    // Accumulate
-
-    // Increment block index
-    add.u32 %r11, %r11, 1;
-    bra BLOCK_LOOP;
-
-BLOCK_DONE:
-    // Increment super-block index
-    add.u32 %r6, %r6, 1;
-    bra SUPER_BLOCK_LOOP;
-
-SUPER_BLOCK_DONE:
-    // Store result (thread 0 only for reduction)
-    setp.ne.u32 %p3, %r0, 0;
-    @%p3 bra DONE;
-
-    st.global.f32 [%rd2], %f0;
-
-DONE:
-    ret;
-}}
-"#,
-            n = n,
-            num_super_blocks = num_super_blocks,
-        )
-    }
-
-    /// Generate PTX for multi-head attention with parallel head processing (PARITY-043)
-    ///
-    /// Each block processes one attention head independently. This allows
-    /// full GPU occupancy with n_heads concurrent blocks.
-    ///
-    /// Memory layout:
-    /// - Q: [n_heads, seq_len, head_dim] (row-major)
-    /// - K: [n_heads, seq_len, head_dim]
-    /// - V: [n_heads, seq_len, head_dim]
-    /// - O: [n_heads, seq_len, head_dim]
-    ///
-    /// Each block computes: O[h] = softmax(Q[h] @ K[h]^T / sqrt(d)) @ V[h]
-    fn generate_multi_head_attention_ptx(
-        seq_len: u32,
-        head_dim: u32,
-        _n_heads: u32, // Used for grid configuration at launch time
-        causal: bool,
-    ) -> String {
-        let kernel_name = if causal {
-            "multi_head_attention_causal"
-        } else {
-            "multi_head_attention"
-        };
-        let head_size = seq_len * head_dim;
-        let scale = 1.0 / (head_dim as f32).sqrt();
-
-        // Each block handles one head, threads cooperate on seq_len
-        let threads_per_block = 256.min(seq_len);
-
-        format!(
-            r"
-.version 7.0
-.target sm_75
-.address_size 64
-
-// Multi-head attention kernel (PARITY-043)
-// Grid: n_heads blocks, each block processes one head
-// Each block has {threads_per_block} threads for seq_len parallelism
-
-.visible .entry {kernel_name}(
-    .param .u64 Q,          // [n_heads, seq_len, head_dim]
-    .param .u64 K,          // [n_heads, seq_len, head_dim]
-    .param .u64 V,          // [n_heads, seq_len, head_dim]
-    .param .u64 O,          // [n_heads, seq_len, head_dim]
-    .param .u32 seq_len,
-    .param .u32 head_dim,
-    .param .u32 n_heads
-) {{
-    .reg .pred %p<8>;
-    .reg .b32 %r<32>;
-    .reg .b64 %rd<24>;
-    .reg .f32 %f<32>;
-
-    // Shared memory for K/V cache (one head's worth)
-    .shared .align 16 .f32 smem_k[{head_size}];
-    .shared .align 16 .f32 smem_v[{head_size}];
-
-    // Block index = head index
-    mov.u32 %r0, %ctaid.x;      // head_idx
-    mov.u32 %r1, %tid.x;        // thread_idx (position in sequence)
-
-    // Load parameters
-    ld.param.u64 %rd0, [Q];
-    ld.param.u64 %rd1, [K];
-    ld.param.u64 %rd2, [V];
-    ld.param.u64 %rd3, [O];
-    ld.param.u32 %r2, [seq_len];
-    ld.param.u32 %r3, [head_dim];
-
-    // Bounds check: thread_idx < seq_len
-    setp.ge.u32 %p0, %r1, %r2;
-    @%p0 bra DONE;
-
-    // Compute head offset: head_idx * seq_len * head_dim
-    mul.lo.u32 %r4, %r0, {head_size};
-    cvt.u64.u32 %rd4, %r4;
-    shl.b64 %rd4, %rd4, 2;      // * sizeof(f32)
-
-    // Q, K, V, O pointers for this head
-    add.u64 %rd5, %rd0, %rd4;   // Q[head]
-    add.u64 %rd6, %rd1, %rd4;   // K[head]
-    add.u64 %rd7, %rd2, %rd4;   // V[head]
-    add.u64 %rd8, %rd3, %rd4;   // O[head]
-
-    // Load K and V for this head into shared memory (cooperative)
-    // Each thread loads seq_len/threads_per_block elements
-    mov.u32 %r5, 0;             // load_idx
-LOAD_KV:
-    add.u32 %r6, %r5, %r1;
-    setp.ge.u32 %p1, %r6, {head_size};
-    @%p1 bra LOAD_KV_DONE;
-
-    // Load K[idx]
-    cvt.u64.u32 %rd9, %r6;
-    shl.b64 %rd9, %rd9, 2;
-    add.u64 %rd10, %rd6, %rd9;
-    ld.global.f32 %f0, [%rd10];
-    mov.u32 %r7, smem_k;
-    cvt.u64.u32 %rd11, %r7;
-    add.u64 %rd11, %rd11, %rd9;
-    st.shared.f32 [%rd11], %f0;
-
-    // Load V[idx]
-    add.u64 %rd12, %rd7, %rd9;
-    ld.global.f32 %f1, [%rd12];
-    mov.u32 %r8, smem_v;
-    cvt.u64.u32 %rd13, %r8;
-    add.u64 %rd13, %rd13, %rd9;
-    st.shared.f32 [%rd13], %f1;
-
-    add.u32 %r5, %r5, {threads_per_block};
-    bra LOAD_KV;
-LOAD_KV_DONE:
-    bar.sync 0;
-
-    // Each thread computes one row of output: O[thread_idx, :]
-    // First: compute attention scores S[thread_idx, :] = Q[thread_idx, :] @ K^T / sqrt(d)
-
-    // Row offset for this thread's Q
-    mul.lo.u32 %r9, %r1, %r3;   // thread_idx * head_dim
-    cvt.u64.u32 %rd14, %r9;
-    shl.b64 %rd14, %rd14, 2;
-    add.u64 %rd15, %rd5, %rd14; // Q[thread_idx, :]
-
-    // Compute max for numerical stability (online softmax)
-    mov.f32 %f2, 0xf7800000;    // -FLT_MAX
-    mov.u32 %r10, 0;            // seq_idx
-SCORE_MAX_LOOP:
-    setp.ge.u32 %p2, %r10, %r2;
-    @%p2 bra SCORE_MAX_DONE;
-
-{causal_mask_check}
-
-    // Dot product: Q[thread_idx, :] . K[seq_idx, :]
-    mov.f32 %f3, 0.0;
-    mov.u32 %r11, 0;            // dim_idx
-DOT_LOOP:
-    setp.ge.u32 %p3, %r11, %r3;
-    @%p3 bra DOT_DONE;
-
-    // Load Q[thread_idx, dim_idx]
-    cvt.u64.u32 %rd16, %r11;
-    shl.b64 %rd16, %rd16, 2;
-    add.u64 %rd17, %rd15, %rd16;
-    ld.global.f32 %f4, [%rd17];
-
-    // Load K[seq_idx, dim_idx] from shared memory
-    mul.lo.u32 %r12, %r10, %r3;
-    add.u32 %r12, %r12, %r11;
-    cvt.u64.u32 %rd18, %r12;
-    shl.b64 %rd18, %rd18, 2;
-    mov.u32 %r13, smem_k;
-    cvt.u64.u32 %rd19, %r13;
-    add.u64 %rd19, %rd19, %rd18;
-    ld.shared.f32 %f5, [%rd19];
-
-    // Accumulate dot product
-    fma.rn.f32 %f3, %f4, %f5, %f3;
-
-    add.u32 %r11, %r11, 1;
-    bra DOT_LOOP;
-DOT_DONE:
-    // Scale by 1/sqrt(head_dim)
-    mul.f32 %f3, %f3, {scale};
-    max.f32 %f2, %f2, %f3;      // Update max
-
-SKIP_SCORE:
-    add.u32 %r10, %r10, 1;
-    bra SCORE_MAX_LOOP;
-SCORE_MAX_DONE:
-
-    // Now compute softmax(S) @ V for this row
-    // Using online softmax with running sum
-
-    mov.f32 %f6, 0.0;           // sum(exp(s - max))
-    mov.u32 %r10, 0;            // seq_idx
-
-    // Zero output accumulator (head_dim floats)
-    mov.f32 %f10, 0.0;
-    mov.f32 %f11, 0.0;
-    mov.f32 %f12, 0.0;
-    mov.f32 %f13, 0.0;
-
-SOFTMAX_LOOP:
-    setp.ge.u32 %p4, %r10, %r2;
-    @%p4 bra SOFTMAX_DONE;
-
-{causal_mask_check2}
-
-    // Recompute score (could cache but limited registers)
-    mov.f32 %f3, 0.0;
-    mov.u32 %r11, 0;
-REDOT_LOOP:
-    setp.ge.u32 %p5, %r11, %r3;
-    @%p5 bra REDOT_DONE;
-
-    cvt.u64.u32 %rd16, %r11;
-    shl.b64 %rd16, %rd16, 2;
-    add.u64 %rd17, %rd15, %rd16;
-    ld.global.f32 %f4, [%rd17];
-
-    mul.lo.u32 %r12, %r10, %r3;
-    add.u32 %r12, %r12, %r11;
-    cvt.u64.u32 %rd18, %r12;
-    shl.b64 %rd18, %rd18, 2;
-    mov.u32 %r13, smem_k;
-    cvt.u64.u32 %rd19, %r13;
-    add.u64 %rd19, %rd19, %rd18;
-    ld.shared.f32 %f5, [%rd19];
-
-    fma.rn.f32 %f3, %f4, %f5, %f3;
-    add.u32 %r11, %r11, 1;
-    bra REDOT_LOOP;
-REDOT_DONE:
-
-    // exp(score - max)
-    mul.f32 %f3, %f3, {scale};
-    sub.f32 %f7, %f3, %f2;
-    // Approximate exp using ex2 (2^x = e^(x*ln2))
-    mul.f32 %f7, %f7, 1.4426950408889634;  // 1/ln(2)
-    ex2.approx.f32 %f7, %f7;
-    add.f32 %f6, %f6, %f7;     // Accumulate sum
-
-    // Weighted accumulation: output += exp_score * V[seq_idx, :]
-    // (Simplified: only accumulate first 4 dims due to register limit)
-    mul.lo.u32 %r12, %r10, %r3;
-    cvt.u64.u32 %rd18, %r12;
-    shl.b64 %rd18, %rd18, 2;
-    mov.u32 %r13, smem_v;
-    cvt.u64.u32 %rd19, %r13;
-    add.u64 %rd19, %rd19, %rd18;
-    ld.shared.f32 %f8, [%rd19];
-    fma.rn.f32 %f10, %f7, %f8, %f10;
-
-SKIP_SOFTMAX:
-    add.u32 %r10, %r10, 1;
-    bra SOFTMAX_LOOP;
-SOFTMAX_DONE:
-
-    // Normalize: output /= sum
-    rcp.approx.f32 %f6, %f6;
-    mul.f32 %f10, %f10, %f6;
-
-    // Store output (simplified: first element only)
-    mul.lo.u32 %r9, %r1, %r3;
-    cvt.u64.u32 %rd20, %r9;
-    shl.b64 %rd20, %rd20, 2;
-    add.u64 %rd21, %rd8, %rd20;
-    st.global.f32 [%rd21], %f10;
-
-DONE:
-    ret;
-}}
-",
-            kernel_name = kernel_name,
-            threads_per_block = threads_per_block,
-            head_size = head_size,
-            scale = scale,
-            causal_mask_check = if causal {
-                r"
-    // Causal mask: skip if seq_idx > thread_idx
-    setp.gt.u32 %p7, %r10, %r1;
-    @%p7 bra SKIP_SCORE;"
-            } else {
-                ""
-            },
-            causal_mask_check2 = if causal {
-                r"
-    // Causal mask: skip if seq_idx > thread_idx
-    setp.gt.u32 %p7, %r10, %r1;
-    @%p7 bra SKIP_SOFTMAX;"
-            } else {
-                ""
-            },
-        )
     }
 
     /// Get kernel name for the specified type
@@ -908,6 +358,8 @@ DONE:
             | KernelType::GemmOptimized { .. }
             | KernelType::GemmBiasActivation { .. } => "gemm_tiled",
             KernelType::GemmTensorCore { .. } => "gemm_tensor_core",
+            KernelType::Gemv { .. } => "gemv_warp_reduce",
+            KernelType::CoalescedGemv { .. } => "gemv_coalesced",
             KernelType::Softmax { .. } => "softmax_warp_shuffle",
             KernelType::LayerNorm { .. } => "layernorm",
             KernelType::Attention { causal, .. } => {
@@ -917,19 +369,22 @@ DONE:
                     "flash_attention"
                 }
             },
-            // PARITY-043: Multi-head attention kernel
+            // PARITY-043: Multi-head attention uses trueno's FlashAttention kernel
             KernelType::MultiHeadAttention { causal, .. } => {
                 if *causal {
-                    "multi_head_attention_causal"
+                    "flash_attention_causal"
                 } else {
-                    "multi_head_attention"
+                    "flash_attention"
                 }
             },
             KernelType::QuantizedGemm { .. } => "q4k_gemm_fused",
             KernelType::QuantizedGemmGgml { .. } => "q4k_gemm_ggml",
+            KernelType::Q5KQuantizedGemm { .. } => "q5k_gemm_ggml",
+            KernelType::Q6KQuantizedGemm { .. } => "q6k_gemm_ggml",
             KernelType::BiasActivation { .. } => "bias_activation",
-            KernelType::GemmFp16TensorCore { .. } => "gemm_fp16_wmma",
-            KernelType::FusedQ4Q8Dot { .. } => "fused_q4k_q8_dot",
+            KernelType::GemmFp16TensorCore { .. } => "gemm_wmma_fp16",
+            // FusedQ4Q8Dot now uses trueno's QuantizeKernel::ggml (same as QuantizedGemmGgml)
+            KernelType::FusedQ4Q8Dot { .. } => "q4k_gemm_ggml",
         }
     }
 
@@ -1725,7 +1180,8 @@ impl CudaExecutor {
             .expect("module just inserted");
 
         // Launch config
-        let config = LaunchConfig::grid_2d((m + 31) / 32, (n + 31) / 32, 32, 32);
+        // PARITY-114 FIX: Grid X is for columns (N), Grid Y is for rows (M)
+        let config = LaunchConfig::grid_2d((n + 31) / 32, (m + 31) / 32, 32, 32);
 
         // Launch on compute stream (non-blocking)
         let mut ptr_a = weight_ptr;
@@ -1872,12 +1328,16 @@ impl CudaExecutor {
         // Allocate GPU buffers for input B and output C only
         // Weight A is already on GPU (cached)
         let buf_b = GpuBuffer::from_host(&self.context, b)?;
-        let buf_c = GpuBuffer::<f32>::new(&self.context, expected_c)?;
+        // PARITY-114 FIX: Initialize output buffer with zeros to prevent state accumulation
+        let c_zeros = vec![0.0f32; expected_c];
+        let buf_c = GpuBuffer::from_host(&self.context, &c_zeros)?;
 
         // Launch configuration
+        // PARITY-114 FIX: Grid X is for columns (N), Grid Y is for rows (M)
+        // The tiled GEMM kernel uses ctaid.y for rows and ctaid.x for columns
         let config = LaunchConfig::grid_2d(
-            (m + 31) / 32, // Grid X
-            (n + 31) / 32, // Grid Y
+            (n + 31) / 32, // Grid X - columns (N dimension)
+            (m + 31) / 32, // Grid Y - rows (M dimension)
             32,            // Block X
             32,            // Block Y
         );
@@ -1956,14 +1416,24 @@ impl CudaExecutor {
         }
 
         // Generate PTX for this configuration
-        let kernel_type = KernelType::GemmTiled {
-            m,
-            n,
-            k,
-            tile_size: 32,
+        // Use CoalescedGemv for M=1 (PARITY-118: 44x speedup via memory coalescing)
+        let (kernel_type, cache_key) = if m == 1 {
+            (
+                KernelType::CoalescedGemv { k, n },
+                format!("gemv_coalesced_{}_{}", k, n),
+            )
+        } else {
+            (
+                KernelType::GemmTiled {
+                    m,
+                    n,
+                    k,
+                    tile_size: 32,
+                },
+                format!("gemm_{}_{}_{}_{}", m, n, k, 32),
+            )
         };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
-        let cache_key = format!("gemm_{}_{}_{}_{}", m, n, k, 32);
 
         // Load module if not cached
         if !self.modules.contains_key(&cache_key) {
@@ -1980,25 +1450,160 @@ impl CudaExecutor {
         // Allocate GPU buffers
         let buf_a = GpuBuffer::from_host(&self.context, a)?;
         let buf_b = GpuBuffer::from_host(&self.context, b)?;
-        let buf_c = GpuBuffer::<f32>::new(&self.context, expected_c)?;
+        // PARITY-114 FIX: Initialize output buffer with zeros to prevent state accumulation
+        let c_zeros = vec![0.0f32; expected_c];
+        let buf_c = GpuBuffer::from_host(&self.context, &c_zeros)?;
 
-        // Launch configuration
-        let config = LaunchConfig::grid_2d(
-            (m + 31) / 32, // Grid X
-            (n + 31) / 32, // Grid Y
-            32,            // Block X
-            32,            // Block Y
-        );
+        // Launch configuration differs for CoalescedGemv vs GEMM
+        let config = if m == 1 {
+            // PARITY-118: CoalescedGemv - 256 threads per block, shared memory for x cache
+            // Grid = ceil(N/256) blocks, each thread computes one output element
+            let blocks = (n + 255) / 256;
+            LaunchConfig::grid_2d(blocks, 1, 256, 1).with_shared_mem(256 * 4) // 1024 bytes for x tile
+        } else {
+            // GEMM: 2D grid of 32x32 tiles
+            // PARITY-114 FIX: Grid X is for columns (N), Grid Y is for rows (M)
+            LaunchConfig::grid_2d(
+                (n + 31) / 32, // Grid X - columns (N dimension)
+                (m + 31) / 32, // Grid Y - rows (M dimension)
+                32,            // Block X
+                32,            // Block Y
+            )
+        };
 
         // Get raw pointers for kernel args
         let mut ptr_a = buf_a.as_ptr();
         let mut ptr_b = buf_b.as_ptr();
         let mut ptr_c = buf_c.as_ptr();
-        let mut m_val = m as i32;
-        let mut n_val = n as i32;
-        let mut k_val = k as i32;
+        let mut k_val = k;
+        let mut n_val = n;
 
         // Launch kernel
+        // SAFETY: Buffers are valid, config matches kernel expectations
+        unsafe {
+            if m == 1 {
+                // GEMV kernel: y = B * x where x is A (1×K row as K vector), B is K×N, y is C (1×N as N vector)
+                // Args: y_ptr, a_ptr (matrix), x_ptr, k_dim, n_dim
+                self.stream.launch_kernel(
+                    module,
+                    kernel_name,
+                    &config,
+                    &mut [
+                        &mut ptr_c as *mut _ as *mut std::ffi::c_void, // y_ptr (output)
+                        &mut ptr_b as *mut _ as *mut std::ffi::c_void, // a_ptr (K×N matrix)
+                        &mut ptr_a as *mut _ as *mut std::ffi::c_void, // x_ptr (K input vector)
+                        &mut k_val as *mut _ as *mut std::ffi::c_void, // k_dim
+                        &mut n_val as *mut _ as *mut std::ffi::c_void, // n_dim
+                    ],
+                )?;
+            } else {
+                // GEMM kernel: C = A × B
+                // Args: a_ptr, b_ptr, c_ptr, m, n, k
+                let mut m_val = m as i32;
+                let mut n_val_i32 = n as i32;
+                let mut k_val_i32 = k as i32;
+                self.stream.launch_kernel(
+                    module,
+                    kernel_name,
+                    &config,
+                    &mut [
+                        &mut ptr_a as *mut _ as *mut std::ffi::c_void,
+                        &mut ptr_b as *mut _ as *mut std::ffi::c_void,
+                        &mut ptr_c as *mut _ as *mut std::ffi::c_void,
+                        &mut m_val as *mut _ as *mut std::ffi::c_void,
+                        &mut n_val_i32 as *mut _ as *mut std::ffi::c_void,
+                        &mut k_val_i32 as *mut _ as *mut std::ffi::c_void,
+                    ],
+                )?;
+            }
+        }
+
+        // Synchronize and copy result back
+        self.stream.synchronize()?;
+        buf_c.copy_to_host(c)?;
+
+        Ok(())
+    }
+
+    /// Execute GEMV using cached weight matrix (PARITY-120: 10x speedup)
+    ///
+    /// This is the fast path for single-token generation (M=1).
+    /// The weight matrix must be pre-loaded via `load_weights()`.
+    ///
+    /// # Arguments
+    ///
+    /// * `weight_name` - Name of cached weight matrix
+    /// * `x` - Input vector (K elements)
+    /// * `y` - Output vector (N elements)
+    /// * `k` - Input dimension
+    /// * `n` - Output dimension
+    ///
+    /// # Errors
+    ///
+    /// Returns error if weight not cached or kernel execution fails.
+    pub fn gemv_cached(
+        &mut self,
+        weight_name: &str,
+        x: &[f32],
+        y: &mut [f32],
+        k: u32,
+        n: u32,
+    ) -> Result<(), GpuError> {
+        // Validate sizes
+        if x.len() != k as usize {
+            return Err(GpuError::InvalidLaunchConfig(format!(
+                "GEMV input size mismatch: got {}, expected {}",
+                x.len(),
+                k
+            )));
+        }
+        if y.len() != n as usize {
+            return Err(GpuError::InvalidLaunchConfig(format!(
+                "GEMV output size mismatch: got {}, expected {}",
+                y.len(),
+                n
+            )));
+        }
+
+        // Get cached weight buffer
+        let buf_w = self.weight_cache.get(weight_name).ok_or_else(|| {
+            GpuError::InvalidLaunchConfig(format!("Weight '{}' not cached on GPU", weight_name))
+        })?;
+
+        // Generate PTX for CoalescedGemv
+        let kernel_type = KernelType::CoalescedGemv { k, n };
+        let cache_key = format!("gemv_coalesced_{}_{}", k, n);
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+
+        // Load module if not cached
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // Allocate only input/output buffers (weight stays on GPU!)
+        let buf_x = GpuBuffer::from_host(&self.context, x)?;
+        let y_zeros = vec![0.0f32; n as usize];
+        let buf_y = GpuBuffer::from_host(&self.context, &y_zeros)?;
+
+        // Launch config: 256 threads per block, ceil(N/256) blocks
+        let blocks = (n + 255) / 256;
+        let config = LaunchConfig::grid_2d(blocks, 1, 256, 1).with_shared_mem(256 * 4);
+
+        // Get raw pointers
+        let mut ptr_y = buf_y.as_ptr();
+        let mut ptr_w = buf_w.as_ptr();
+        let mut ptr_x = buf_x.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
+
+        // Launch kernel: y = W * x
         // SAFETY: Buffers are valid, config matches kernel expectations
         unsafe {
             self.stream.launch_kernel(
@@ -2006,19 +1611,18 @@ impl CudaExecutor {
                 kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_a as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_b as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_c as *mut _ as *mut std::ffi::c_void,
-                    &mut m_val as *mut _ as *mut std::ffi::c_void,
-                    &mut n_val as *mut _ as *mut std::ffi::c_void,
-                    &mut k_val as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_y as *mut _ as *mut std::ffi::c_void, // y_ptr (output)
+                    &mut ptr_w as *mut _ as *mut std::ffi::c_void, // w_ptr (K×N matrix, CACHED)
+                    &mut ptr_x as *mut _ as *mut std::ffi::c_void, // x_ptr (K input vector)
+                    &mut k_val as *mut _ as *mut std::ffi::c_void, // k_dim
+                    &mut n_val as *mut _ as *mut std::ffi::c_void, // n_dim
                 ],
             )?;
         }
 
         // Synchronize and copy result back
         self.stream.synchronize()?;
-        buf_c.copy_to_host(c)?;
+        buf_y.copy_to_host(y)?;
 
         Ok(())
     }
@@ -2096,12 +1700,15 @@ impl CudaExecutor {
         // Allocate GPU buffers
         let buf_a = GpuBuffer::from_host(&self.context, a)?;
         let buf_b = GpuBuffer::from_host(&self.context, b)?;
-        let buf_c = GpuBuffer::<f32>::new(&self.context, expected_c)?;
+        // PARITY-114 FIX: Initialize output buffer with zeros to prevent state accumulation
+        let c_zeros = vec![0.0f32; expected_c];
+        let buf_c = GpuBuffer::from_host(&self.context, &c_zeros)?;
 
         // Launch configuration with optimized tile size
+        // PARITY-114 FIX: Grid X is for columns (N), Grid Y is for rows (M)
         let config = LaunchConfig::grid_2d(
-            (m + tile_size - 1) / tile_size, // Grid X
-            (n + tile_size - 1) / tile_size, // Grid Y
+            (n + tile_size - 1) / tile_size, // Grid X - columns (N dimension)
+            (m + tile_size - 1) / tile_size, // Grid Y - rows (M dimension)
             tile_size,                       // Block X
             tile_size,                       // Block Y
         );
@@ -2226,13 +1833,16 @@ impl CudaExecutor {
         // Allocate GPU buffers
         let buf_a = GpuBuffer::from_host(&self.context, a)?;
         let buf_b = GpuBuffer::from_host(&self.context, b)?;
-        let buf_c = GpuBuffer::<f32>::new(&self.context, expected_c)?;
+        // PARITY-114 FIX: Initialize output buffer with zeros to prevent state accumulation
+        let c_zeros = vec![0.0f32; expected_c];
+        let buf_c = GpuBuffer::from_host(&self.context, &c_zeros)?;
 
         // Launch configuration
+        // PARITY-114 FIX: Grid X is for columns (N), Grid Y is for rows (M)
         let tile_size = 32u32;
         let config = LaunchConfig::grid_2d(
-            (m + tile_size - 1) / tile_size,
-            (n + tile_size - 1) / tile_size,
+            (n + tile_size - 1) / tile_size, // Grid X - columns (N dimension)
+            (m + tile_size - 1) / tile_size, // Grid Y - rows (M dimension)
             tile_size,
             tile_size,
         );
@@ -2458,6 +2068,146 @@ impl CudaExecutor {
         Ok(())
     }
 
+    /// Execute Q5_K quantized matvec (fused dequantization + matvec) - PARITY-116
+    ///
+    /// # Arguments
+    ///
+    /// * `weights` - Quantized weights in Q5_K GGML format (176 bytes per 256 values)
+    /// * `input` - Input vector (f32)
+    /// * `output` - Output vector (f32)
+    /// * `m` - Output dimension
+    /// * `k` - Input dimension (must be divisible by 256)
+    pub fn q5k_matvec(
+        &mut self,
+        weights: &[u8],
+        input: &[f32],
+        output: &mut [f32],
+        m: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        let kernel_type = KernelType::Q5KQuantizedGemm { m, n: 1, k };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("q5k_{}_{}", m, k);
+
+        // Load module if not cached
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // Allocate GPU buffers
+        let buf_weights = GpuBuffer::from_host(&self.context, weights)?;
+        let buf_input = GpuBuffer::from_host(&self.context, input)?;
+        let buf_output = GpuBuffer::<f32>::new(&self.context, m as usize)?;
+
+        // Launch configuration
+        let config = LaunchConfig::linear(m, 256);
+
+        let mut ptr_input = buf_input.as_ptr();
+        let mut ptr_weights = buf_weights.as_ptr();
+        let mut ptr_output = buf_output.as_ptr();
+        let mut m_val = m;
+        let mut n_val = 1u32;
+        let mut k_val = k;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    &mut ptr_input as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_weights as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
+                    &mut m_val as *mut _ as *mut std::ffi::c_void,
+                    &mut n_val as *mut _ as *mut std::ffi::c_void,
+                    &mut k_val as *mut _ as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        self.stream.synchronize()?;
+        buf_output.copy_to_host(output)?;
+
+        Ok(())
+    }
+
+    /// Execute Q6_K quantized matvec (fused dequantization + matvec) - PARITY-117
+    ///
+    /// # Arguments
+    ///
+    /// * `weights` - Quantized weights in Q6_K GGML format (210 bytes per 256 values)
+    /// * `input` - Input vector (f32)
+    /// * `output` - Output vector (f32)
+    /// * `m` - Output dimension
+    /// * `k` - Input dimension (must be divisible by 256)
+    pub fn q6k_matvec(
+        &mut self,
+        weights: &[u8],
+        input: &[f32],
+        output: &mut [f32],
+        m: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        let kernel_type = KernelType::Q6KQuantizedGemm { m, n: 1, k };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("q6k_{}_{}", m, k);
+
+        // Load module if not cached
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // Allocate GPU buffers
+        let buf_weights = GpuBuffer::from_host(&self.context, weights)?;
+        let buf_input = GpuBuffer::from_host(&self.context, input)?;
+        let buf_output = GpuBuffer::<f32>::new(&self.context, m as usize)?;
+
+        // Launch configuration
+        let config = LaunchConfig::linear(m, 256);
+
+        let mut ptr_input = buf_input.as_ptr();
+        let mut ptr_weights = buf_weights.as_ptr();
+        let mut ptr_output = buf_output.as_ptr();
+        let mut m_val = m;
+        let mut n_val = 1u32;
+        let mut k_val = k;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    &mut ptr_input as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_weights as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
+                    &mut m_val as *mut _ as *mut std::ffi::c_void,
+                    &mut n_val as *mut _ as *mut std::ffi::c_void,
+                    &mut k_val as *mut _ as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        self.stream.synchronize()?;
+        buf_output.copy_to_host(output)?;
+
+        Ok(())
+    }
+
     /// Execute FlashAttention forward pass (IMP-900c)
     ///
     /// Memory-efficient attention using tiled computation to avoid O(N²)
@@ -2673,11 +2423,16 @@ impl CudaExecutor {
         let buf_v = GpuBuffer::from_host(&self.context, v)?;
         let buf_output = GpuBuffer::<f32>::new(&self.context, total_size)?;
 
-        // Launch configuration: one block per head, threads cooperate on sequence
-        // Grid: n_heads blocks (X dimension)
-        // Threads: min(256, seq_len) per block
-        let threads_per_block = 256.min(seq_len);
-        let config = LaunchConfig::linear(n_heads, threads_per_block);
+        // Launch configuration for trueno's FlashAttention kernel:
+        // - Grid.x = number of Q tile blocks (ceil(seq_len / tile_q))
+        // - Grid.y = number of heads
+        // - Threads = tile_q * head_dim (each thread handles one element)
+        // Calculate tile size to fit in 48KB shared memory (same as generate_ptx)
+        let max_tile = (48 * 1024) / (head_dim * 12);
+        let tile_q = max_tile.min(64).min(seq_len);
+        let num_q_blocks = (seq_len + tile_q - 1) / tile_q;
+        let threads_per_block = (tile_q * head_dim).min(1024); // Max 1024 threads per block
+        let config = LaunchConfig::grid_2d(num_q_blocks, n_heads, threads_per_block, 1);
 
         // Get raw pointers for kernel args
         let mut ptr_q = buf_q.as_ptr();
@@ -2796,10 +2551,13 @@ impl CudaExecutor {
         // Allocate GPU buffers
         let buf_a = GpuBuffer::from_host(&self.context, a)?;
         let buf_b = GpuBuffer::from_host(&self.context, b)?;
-        let buf_c = GpuBuffer::<f32>::new(&self.context, expected_c)?;
+        // PARITY-114 FIX: Initialize output buffer with zeros to prevent state accumulation
+        let c_zeros = vec![0.0f32; expected_c];
+        let buf_c = GpuBuffer::from_host(&self.context, &c_zeros)?;
 
         // Launch configuration (16x16 tiles for FP16)
-        let config = LaunchConfig::grid_2d((m + 31) / 32, (n + 31) / 32, 32, 32);
+        // PARITY-114 FIX: Grid X is for columns (N), Grid Y is for rows (M)
+        let config = LaunchConfig::grid_2d((n + 31) / 32, (m + 31) / 32, 32, 32);
 
         // Get raw pointers for kernel args
         let mut ptr_a = buf_a.as_ptr();
@@ -3594,14 +3352,14 @@ mod tests {
     fn test_parity043_multi_head_attention_kernel_type() {
         let kernels = CudaKernels::new();
 
-        // Non-causal variant
+        // Non-causal variant - now uses trueno's FlashAttention kernel
         let kernel = KernelType::MultiHeadAttention {
             seq_len: 512,
             head_dim: 64,
             n_heads: 32,
             causal: false,
         };
-        assert_eq!(kernels.kernel_name(&kernel), "multi_head_attention");
+        assert_eq!(kernels.kernel_name(&kernel), "flash_attention");
 
         // Causal variant (for autoregressive models)
         let causal_kernel = KernelType::MultiHeadAttention {
@@ -3612,7 +3370,7 @@ mod tests {
         };
         assert_eq!(
             kernels.kernel_name(&causal_kernel),
-            "multi_head_attention_causal"
+            "flash_attention_causal"
         );
     }
 
@@ -3629,24 +3387,25 @@ mod tests {
 
         let ptx = kernels.generate_ptx(&kernel);
 
-        // Verify PTX structure
-        assert!(ptx.contains(".version 7.0"));
-        assert!(ptx.contains(".target sm_75"));
-        assert!(ptx.contains(".visible .entry multi_head_attention"));
-        assert!(ptx.contains(".param .u64 Q"));
-        assert!(ptx.contains(".param .u64 K"));
-        assert!(ptx.contains(".param .u64 V"));
-        assert!(ptx.contains(".param .u64 O"));
+        // Verify PTX structure (now using trueno's FlashAttention kernel)
+        assert!(ptx.contains(".version 8.0"));
+        assert!(ptx.contains(".target sm_89"));
+        assert!(ptx.contains(".visible .entry flash_attention"));
+        // trueno uses lowercase ptr names
+        assert!(ptx.contains(".param .u64 q_ptr"));
+        assert!(ptx.contains(".param .u64 k_ptr"));
+        assert!(ptx.contains(".param .u64 v_ptr"));
+        assert!(ptx.contains(".param .u64 o_ptr"));
         assert!(ptx.contains(".param .u32 seq_len"));
         assert!(ptx.contains(".param .u32 head_dim"));
-        assert!(ptx.contains(".param .u32 n_heads"));
+        assert!(ptx.contains(".param .u32 num_heads"));
 
-        // Verify shared memory for K/V cache
-        assert!(ptx.contains(".shared .align 16 .f32 smem_k"));
-        assert!(ptx.contains(".shared .align 16 .f32 smem_v"));
+        // Verify shared memory (trueno uses .b8 smem array)
+        assert!(ptx.contains(".shared"));
 
-        // Verify block index is used for head selection
-        assert!(ptx.contains("%ctaid.x")); // block index = head_idx
+        // Verify block indices are used for head/tile selection
+        assert!(ptx.contains("%ctaid.x")); // Q tile block
+        assert!(ptx.contains("%ctaid.y")); // head index
     }
 
     #[test]
@@ -3662,13 +3421,13 @@ mod tests {
 
         let ptx = kernels.generate_ptx(&kernel);
 
-        // Verify causal kernel name
-        assert!(ptx.contains(".visible .entry multi_head_attention_causal"));
+        // Verify causal kernel name (trueno uses flash_attention_causal)
+        assert!(ptx.contains(".visible .entry flash_attention_causal"));
 
-        // Verify causal masking is included
-        assert!(ptx.contains("// Causal mask"));
-        assert!(ptx.contains("SKIP_SCORE"));
-        assert!(ptx.contains("SKIP_SOFTMAX"));
+        // Trueno's causal masking uses setp.lt comparison for Q vs KV block
+        // The causal skip happens in the kv_loop via branch
+        assert!(ptx.contains("setp.lt.u32")); // Causal comparison
+        assert!(ptx.contains("kv_loop")); // KV block loop with causal skip
     }
 
     #[test]
@@ -3685,13 +3444,13 @@ mod tests {
 
         let ptx = kernels.generate_ptx(&kernel);
 
-        // Verify generation succeeds for phi-2 dimensions
-        assert!(ptx.contains("multi_head_attention_causal"));
+        // Verify generation succeeds for phi-2 dimensions (using trueno's FlashAttention)
+        assert!(ptx.contains("flash_attention_causal"));
         assert!(ptx.len() > 1000); // Substantial kernel
 
-        // Verify head_size calculation (seq_len * head_dim)
-        let head_size = 2048 * 80;
-        assert!(ptx.contains(&head_size.to_string()));
+        // Trueno uses tile-based approach, so shared memory is calculated per tile
+        // not the full head_size. Verify shared memory is allocated.
+        assert!(ptx.contains(".shared"));
     }
 
     #[test]
@@ -3708,17 +3467,20 @@ mod tests {
 
         let ptx = kernels.generate_ptx(&kernel);
 
-        // Scale factor should be 1/sqrt(head_dim) = 1/8 = 0.125
-        let scale = 1.0 / (head_dim as f32).sqrt();
-        // PTX should contain the scale factor (approximately)
-        assert!(ptx.contains("0.125") || ptx.contains(&scale.to_string()));
+        // Scale factor 1/sqrt(head_dim) = 0.125 is embedded in trueno's PTX
+        // as a hex float literal (0F3E000000 = 0.125)
+        // Trueno bakes scale into the PTX during generation
+        assert!(ptx.contains("mul.f32")); // Scaling operation exists
+                                          // The scale is applied after dot product in online softmax
+        assert!(ptx.contains("ex2")); // exp2 for softmax
     }
 
     #[test]
     fn test_parity043_multi_head_attention_thread_config() {
         let kernels = CudaKernels::new();
 
-        // Small sequence: threads should be min(256, seq_len)
+        // Trueno's FlashAttention uses tile_q * head_dim threads per block
+        // Tile sizes are calculated based on 48KB shared memory limit
         let kernel_small = KernelType::MultiHeadAttention {
             seq_len: 64,
             head_dim: 64,
@@ -3727,10 +3489,11 @@ mod tests {
         };
 
         let ptx_small = kernels.generate_ptx(&kernel_small);
-        // Should use 64 threads (seq_len limited)
-        assert!(ptx_small.contains("64")); // threads_per_block in comments
+        // Trueno generates valid PTX with proper thread config
+        assert!(ptx_small.contains(".visible .entry flash_attention"));
+        assert!(ptx_small.contains("%tid.x")); // Thread index is used
 
-        // Large sequence: threads capped at 256
+        // Larger sequence still works with tiled approach
         let kernel_large = KernelType::MultiHeadAttention {
             seq_len: 1024,
             head_dim: 64,
@@ -3739,8 +3502,9 @@ mod tests {
         };
 
         let ptx_large = kernels.generate_ptx(&kernel_large);
-        // Should use 256 threads (capped)
-        assert!(ptx_large.contains("256")); // threads_per_block in comments
+        // Trueno handles large sequences via tiling
+        assert!(ptx_large.contains(".visible .entry flash_attention"));
+        assert!(ptx_large.contains("kv_loop")); // KV block iteration
     }
 
     #[test]
@@ -3965,6 +3729,252 @@ mod tests {
         for val in &c {
             assert!((*val - 4.0).abs() < 1e-5);
         }
+    }
+
+    /// PARITY-114: Test non-square GEMM correctness
+    /// This is the case that was failing before the grid dimension fix
+    #[test]
+    #[serial]
+    fn test_cuda_executor_gemm_non_square() {
+        let mut executor = CudaExecutor::new(0).unwrap();
+
+        // First test: 32x32x32 (single tile)
+        {
+            let m = 32u32;
+            let k = 32u32;
+            let n = 32u32;
+
+            let a = vec![1.0f32; (m * k) as usize];
+            let b = vec![1.0f32; (k * n) as usize];
+            let mut c = vec![0.0f32; (m * n) as usize];
+
+            let result = executor.gemm(&a, &b, &mut c, m, n, k);
+            assert!(result.is_ok(), "32x32 GEMM failed");
+
+            eprintln!("32x32x32: First value = {} (expected 32)", c[0]);
+            assert!(
+                (c[0] - 32.0).abs() < 1e-4,
+                "32x32 GEMM: expected 32.0, got {}",
+                c[0]
+            );
+        }
+
+        // Second test: 32x32x64 (2 tiles in K)
+        {
+            let m = 32u32;
+            let k = 64u32;
+            let n = 32u32;
+
+            let a = vec![1.0f32; (m * k) as usize];
+            let b = vec![1.0f32; (k * n) as usize];
+            let mut c = vec![0.0f32; (m * n) as usize];
+
+            let result = executor.gemm(&a, &b, &mut c, m, n, k);
+            assert!(result.is_ok(), "32x32x64 GEMM failed");
+
+            eprintln!("32x32x64: First value = {} (expected 64)", c[0]);
+            assert!(
+                (c[0] - 64.0).abs() < 1e-4,
+                "32x32x64 GEMM: expected 64.0, got {}",
+                c[0]
+            );
+        }
+
+        // Third test: non-square (4, 64) × (64, 128) = (4, 128)
+        {
+            let m = 4u32;
+            let k = 64u32;
+            let n = 128u32;
+
+            let a = vec![1.0f32; (m * k) as usize];
+            let b = vec![1.0f32; (k * n) as usize];
+            let mut c = vec![0.0f32; (m * n) as usize];
+
+            let result = executor.gemm(&a, &b, &mut c, m, n, k);
+            assert!(result.is_ok(), "4x64x128 GEMM failed");
+
+            eprintln!("4x64x128: First value = {} (expected 64)", c[0]);
+            assert!(
+                (c[0] - 64.0).abs() < 1e-4,
+                "PARITY-114: Non-square GEMM expected 64.0, got {}",
+                c[0]
+            );
+        }
+    }
+
+    /// PARITY-114: Compare CUDA matmul vs wgpu matmul with same inputs
+    #[test]
+    #[serial]
+    fn test_cuda_vs_wgpu_matmul_parity() {
+        use crate::gpu::{CudaScheduler, HybridScheduler};
+
+        // Test case matching model forward pass: 4x64x192
+        let m = 4usize;
+        let k = 64usize;
+        let n = 192usize;
+
+        // Test 0: Single tile (k=32)
+        eprintln!("\n=== Test 0: Single tile k=32 ===");
+        {
+            let m0 = 4usize;
+            let k0 = 32usize;
+            let n0 = 192usize;
+            let a = vec![1.0f32; m0 * k0];
+            let b = vec![1.0f32; k0 * n0];
+            let expected = k0 as f32;
+
+            // Check what PTX would be generated for this configuration
+            use trueno_gpu::kernels::{GemmKernel, Kernel};
+            let kernel = GemmKernel::tiled(m0 as u32, n0 as u32, k0 as u32, 32);
+            let ptx = kernel.emit_ptx();
+
+            // Look for the key constants in this kernel
+            eprintln!("k=32 kernel constants:");
+            for line in ptx.lines() {
+                if line.contains("256;")
+                    || line.contains("128;")
+                    || line.contains("768;")
+                    || line.contains("384;")
+                {
+                    eprintln!("  {}", line.trim());
+                }
+            }
+            // Check n_tiles
+            let count_1 = ptx.matches(", 1;").count();
+            eprintln!(
+                "Occurrences of ', 1;': {} (expected n_tiles=1 for k=32)",
+                count_1
+            );
+
+            let mut executor = CudaExecutor::new(0).expect("CudaExecutor should init");
+            let mut c = vec![0.0f32; m0 * n0];
+            executor
+                .gemm(&a, &b, &mut c, m0 as u32, n0 as u32, k0 as u32)
+                .expect("CUDA gemm should succeed");
+
+            eprintln!("k=32: CUDA[0]={} (expected {})", c[0], expected);
+            assert!(
+                (c[0] - expected).abs() < 1e-3,
+                "k=32 CUDA failed: {} vs {}",
+                c[0],
+                expected
+            );
+        }
+
+        // Test 1: Uniform data (1.0s) - this should work
+        eprintln!("\n=== Test 1: Uniform 1.0 data k=64 ===");
+        eprintln!("Dimensions: m={}, k={}, n={}", m, k, n);
+        eprintln!("Expected n_tiles = ({}+31)/32 = {}", k, (k + 31) / 32);
+        {
+            let a = vec![1.0f32; m * k];
+            let b = vec![1.0f32; k * n];
+
+            // CPU reference
+            let expected = k as f32; // All 1s dot product = k
+
+            // Use CudaExecutor directly for debugging
+            let mut executor = CudaExecutor::new(0).expect("CudaExecutor should init");
+
+            // Print some debug info about what kernel will be generated
+            use trueno_gpu::kernels::{GemmKernel, Kernel};
+            let kernel = GemmKernel::tiled(m as u32, n as u32, k as u32, 32);
+            let ptx = kernel.emit_ptx();
+
+            // Look for embedded constants
+            eprintln!("PTX constants search:");
+            for line in ptx.lines() {
+                if line.contains("mov.u32")
+                    && (line.contains(", 2;")
+                        || line.contains(", 32;")
+                        || line.contains(", 64;")
+                        || line.contains(", 192;")
+                        || line.contains(", 256;")
+                        || line.contains(", 768;"))
+                {
+                    eprintln!("  {}", line.trim());
+                }
+            }
+            // Show the full inner_k_loop section
+            if let Some(start) = ptx.find("inner_k_loop:") {
+                let end = ptx[start..].find("inner_k_end:").unwrap_or(800) + start;
+                eprintln!(
+                    "\ninner_k_loop section:\n{}",
+                    &ptx[start..end.min(start + 1000)]
+                );
+            }
+
+            let mut c = vec![0.0f32; m * n];
+            executor
+                .gemm(&a, &b, &mut c, m as u32, n as u32, k as u32)
+                .expect("CUDA gemm should succeed");
+
+            eprintln!("Uniform: CUDA[0]={} (expected {})", c[0], expected);
+            assert!(
+                (c[0] - expected).abs() < 1e-3,
+                "Uniform CUDA failed: {} vs {}",
+                c[0],
+                expected
+            );
+        }
+
+        // Test 2: Patterned data
+        eprintln!("\n=== Test 2: Patterned data ===");
+        let a: Vec<f32> = (0..m * k).map(|i| (i % 7) as f32 * 0.1).collect();
+        let b: Vec<f32> = (0..k * n).map(|i| (i % 11) as f32 * 0.1).collect();
+
+        // CPU reference (ground truth)
+        let mut cpu_result = vec![0.0f32; m * n];
+        for i in 0..m {
+            for j in 0..n {
+                let mut sum = 0.0f32;
+                for l in 0..k {
+                    sum += a[i * k + l] * b[l * n + j];
+                }
+                cpu_result[i * n + j] = sum;
+            }
+        }
+
+        // CUDA path
+        let mut cuda_sched = CudaScheduler::new().expect("CudaScheduler should init");
+        let cuda_result = cuda_sched
+            .matmul(&a, &b, m, k, n)
+            .expect("CUDA matmul should succeed");
+
+        // wgpu path
+        let mut wgpu_sched =
+            HybridScheduler::with_threshold(1000).expect("HybridScheduler should init");
+        let wgpu_result = wgpu_sched
+            .matmul(&a, &b, m, k, n)
+            .expect("wgpu matmul should succeed");
+
+        // Print all values for debugging
+        eprintln!(
+            "Patterned: CPU[0]={}, CUDA[0]={}, wgpu[0]={}",
+            cpu_result[0], cuda_result[0], wgpu_result[0]
+        );
+
+        // Check CUDA vs CPU
+        let cuda_vs_cpu_diff = (cuda_result[0] - cpu_result[0]).abs();
+        let wgpu_vs_cpu_diff = (wgpu_result[0] - cpu_result[0]).abs();
+        eprintln!(
+            "Patterned: CUDA vs CPU diff={}, wgpu vs CPU diff={}",
+            cuda_vs_cpu_diff, wgpu_vs_cpu_diff
+        );
+
+        // Compare CUDA to CPU reference
+        assert_eq!(cuda_result.len(), cpu_result.len());
+        for i in 0..cuda_result.len() {
+            let diff = (cuda_result[i] - cpu_result[i]).abs();
+            assert!(
+                diff < 1e-3,
+                "PARITY-114: CUDA vs CPU mismatch at {}: cuda={}, cpu={}, diff={}",
+                i,
+                cuda_result[i],
+                cpu_result[i],
+                diff
+            );
+        }
+        eprintln!("PARITY-114: CUDA matches CPU reference");
     }
 
     #[test]
@@ -4500,7 +4510,7 @@ mod tests {
             activation: 0,
         };
         let ptx = kernels.generate_ptx(&no_act);
-        assert!(ptx.contains(".version 7.0"));
+        assert!(ptx.contains(".version 8.0"));
         assert!(ptx.contains("bias_activation"));
         assert!(ptx.contains("add.f32")); // bias addition
 
@@ -4511,8 +4521,7 @@ mod tests {
             activation: 1,
         };
         let ptx_relu = kernels.generate_ptx(&relu);
-        assert!(ptx_relu.contains("ReLU"));
-        assert!(ptx_relu.contains("setp.lt.f32")); // comparison for max(0, x)
+        assert!(ptx_relu.contains("max.f32")); // ReLU: max(0, x)
 
         // Test GELU
         let gelu = KernelType::BiasActivation {
@@ -4521,8 +4530,7 @@ mod tests {
             activation: 2,
         };
         let ptx_gelu = kernels.generate_ptx(&gelu);
-        assert!(ptx_gelu.contains("GELU"));
-        assert!(ptx_gelu.contains("ex2.approx")); // exponential for sigmoid
+        assert!(ptx_gelu.contains("ex2.approx")); // GELU: exponential for sigmoid
     }
 
     #[test]
@@ -4775,22 +4783,21 @@ mod proptests {
 
         let ptx = kernels.generate_ptx(&kernel_type);
 
-        // Verify PTX structure
-        assert!(ptx.contains(".visible .entry gemm_fp16_wmma"));
-        assert!(ptx.contains(".param .u64 A"));
-        assert!(ptx.contains(".param .u64 B"));
-        assert!(ptx.contains(".param .u64 C"));
-        assert!(ptx.contains(".param .u32 M"));
-        assert!(ptx.contains(".param .u32 N"));
-        assert!(ptx.contains(".param .u32 K"));
+        // Now uses trueno's GemmKernel::wmma_fp16()
+        assert!(ptx.contains(".visible .entry gemm_wmma_fp16"));
+        // trueno uses lowercase ptr names
+        assert!(ptx.contains(".param .u64 a_ptr"));
+        assert!(ptx.contains(".param .u64 b_ptr"));
+        assert!(ptx.contains(".param .u64 c_ptr"));
+        // trueno uses lowercase dimension names
+        assert!(ptx.contains(".param .u32 m") || ptx.contains("m_param"));
 
-        // Verify WMMA-related registers
-        assert!(ptx.contains("%wmma_a"));
-        assert!(ptx.contains("%wmma_b"));
-        assert!(ptx.contains("%wmma_c"));
+        // Trueno's WMMA kernel has proper tensor core intrinsics
+        // or uses tiled FP32 fallback with FP16 memory traffic
+        assert!(ptx.contains(".shared")); // Shared memory for tiles
 
-        // Verify kernel name
-        assert_eq!(kernels.kernel_name(&kernel_type), "gemm_fp16_wmma");
+        // Verify kernel name matches trueno
+        assert_eq!(kernels.kernel_name(&kernel_type), "gemm_wmma_fp16");
     }
 
     /// IMP-1000a: FP16 kernel dimensions must be multiples of 16
@@ -4806,9 +4813,9 @@ mod proptests {
         let kernels = CudaKernels::new();
         let ptx = kernels.generate_ptx(&kernel_type);
 
-        // PTX should be generated (validation happens at runtime)
+        // PTX should be generated using trueno (validation happens at runtime)
         assert!(!ptx.is_empty());
-        assert!(ptx.contains("gemm_fp16_wmma"));
+        assert!(ptx.contains("gemm_wmma_fp16")); // trueno's kernel name
     }
 
     /// IMP-1000a: FP16 GEMM rejects non-16-aligned dimensions

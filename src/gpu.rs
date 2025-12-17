@@ -3431,6 +3431,67 @@ impl CudaScheduler {
                 reason: format!("Failed to get device name: {}", e),
             })
     }
+
+    /// Cache a weight matrix on GPU (PARITY-120: 10x speedup)
+    ///
+    /// Weights stay on GPU and are reused for all forward passes.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if GPU memory allocation fails.
+    pub fn cache_weight(&mut self, name: &str, weight: &[f32]) -> Result<()> {
+        self.executor
+            .load_weights(name, weight)
+            .map(|_| ())
+            .map_err(|e| RealizarError::GpuError {
+                reason: format!("Failed to cache weight '{}': {}", name, e),
+            })
+    }
+
+    /// Check if a weight is cached
+    #[must_use]
+    pub fn has_cached_weight(&self, name: &str) -> bool {
+        self.executor.has_weights(name)
+    }
+
+    /// Get number of cached weights
+    #[must_use]
+    pub fn cached_weight_count(&self) -> usize {
+        self.executor.cached_weight_count()
+    }
+
+    /// Execute matmul using cached weight (PARITY-120: 10x speedup)
+    ///
+    /// Uses pre-loaded weight on GPU, only transfers input/output.
+    /// This is the fast path for single-token generation.
+    ///
+    /// # Arguments
+    ///
+    /// * `weight_name` - Name of cached weight (from `cache_weight`)
+    /// * `x` - Input vector (k elements)
+    /// * `k` - Input dimension
+    /// * `n` - Output dimension
+    ///
+    /// # Errors
+    ///
+    /// Returns error if weight not cached or CUDA fails.
+    pub fn matmul_cached(
+        &mut self,
+        weight_name: &str,
+        x: &[f32],
+        k: usize,
+        n: usize,
+    ) -> Result<Vec<f32>> {
+        let mut output = vec![0.0f32; n];
+
+        self.executor
+            .gemv_cached(weight_name, x, &mut output, k as u32, n as u32)
+            .map_err(|e| RealizarError::GpuError {
+                reason: format!("CUDA cached GEMV failed: {}", e),
+            })?;
+
+        Ok(output)
+    }
 }
 
 /// GPU-accelerated model for M3 parity (128 tok/s target)
@@ -10204,6 +10265,7 @@ mod tests {
 
     #[test]
     #[cfg(feature = "cuda")]
+    #[allow(clippy::many_single_char_names)]
     fn test_imp_1001c_cuda_inference_speedup() {
         // IMP-1001c: Verify CUDA inference is faster than CPU for large matrices
         use crate::cuda::CudaExecutor;
@@ -10373,6 +10435,7 @@ mod tests {
 
     #[test]
     #[cfg(feature = "cuda")]
+    #[allow(clippy::many_single_char_names)]
     fn test_imp_1002c_cuda_scheduler_large_matmul() {
         // IMP-1002c: CudaScheduler handles LLM-sized matrices
         use crate::cuda::CudaExecutor;
@@ -10446,6 +10509,7 @@ mod tests {
 
     #[test]
     #[cfg(feature = "cuda")]
+    #[allow(clippy::many_single_char_names)]
     fn test_imp_1002d_cuda_scheduler_no_m1_restriction() {
         // IMP-1002d: CudaScheduler does NOT force CPU for m=1 (unlike HybridScheduler)
         use crate::cuda::CudaExecutor;
@@ -10481,11 +10545,11 @@ mod tests {
 
         // Time both
         let start = Instant::now();
-        let _hybrid_result = hybrid_scheduler.matmul(&a, &b, m, k, n).unwrap();
+        let hybrid_result = hybrid_scheduler.matmul(&a, &b, m, k, n).unwrap();
         let hybrid_time = start.elapsed();
 
         let start = Instant::now();
-        let _cuda_result = cuda_scheduler.matmul(&a, &b, m, k, n).unwrap();
+        let cuda_result = cuda_scheduler.matmul(&a, &b, m, k, n).unwrap();
         let cuda_time = start.elapsed();
 
         println!(
@@ -10496,7 +10560,7 @@ mod tests {
 
         // Both should produce valid results
         assert!(
-            _hybrid_result.len() == m * n && _cuda_result.len() == m * n,
+            hybrid_result.len() == m * n && cuda_result.len() == m * n,
             "IMP-1002d: Both schedulers should produce correct output size"
         );
     }
@@ -10714,6 +10778,7 @@ mod tests {
 
     #[test]
     #[cfg(feature = "cuda")]
+    #[allow(clippy::many_single_char_names)]
     fn test_imp_1004b_cuda_vs_cpu_matmul() {
         // IMP-1004b: Direct comparison of CUDA vs CPU matmul for m=1
         use crate::cuda::CudaExecutor;
@@ -10903,6 +10968,162 @@ mod tests {
         assert!(
             tokens_generated > 0,
             "IMP-1004d: Should generate at least some tokens"
+        );
+    }
+
+    // ========================================================================
+    // PARITY-120: Weight caching for 10x+ speedup
+    // ========================================================================
+
+    #[test]
+    #[cfg(feature = "cuda")]
+    fn test_parity_120a_cached_vs_uncached_matmul() {
+        // PARITY-120a: Compare cached vs uncached matmul performance
+        use crate::cuda::CudaExecutor;
+        use std::time::Instant;
+
+        if !CudaExecutor::is_available() {
+            println!("PARITY-120a: CUDA not available, skipping");
+            return;
+        }
+
+        let mut scheduler = CudaScheduler::new().expect("Failed to create CudaScheduler");
+
+        // Realistic LLM dimensions: hidden=4096, qkv=12288 (3*4096)
+        let k = 4096usize;
+        let n = 4096usize;
+        let weight: Vec<f32> = vec![1.0; k * n];
+        let x: Vec<f32> = vec![1.0; k];
+
+        // Cache the weight
+        scheduler
+            .cache_weight("test_weight", &weight)
+            .expect("Failed to cache weight");
+
+        // Warmup both paths
+        let _ = scheduler.matmul(&x, &weight, 1, k, n);
+        let _ = scheduler.matmul_cached("test_weight", &x, k, n);
+
+        let iterations = 20;
+
+        // Benchmark UNCACHED (current slow path)
+        let start = Instant::now();
+        for _ in 0..iterations {
+            let _ = scheduler.matmul(&x, &weight, 1, k, n);
+        }
+        let uncached_time = start.elapsed();
+
+        // Benchmark CACHED (new fast path)
+        let start = Instant::now();
+        for _ in 0..iterations {
+            let _ = scheduler.matmul_cached("test_weight", &x, k, n);
+        }
+        let cached_time = start.elapsed();
+
+        let uncached_avg_ms = uncached_time.as_secs_f64() * 1000.0 / iterations as f64;
+        let cached_avg_ms = cached_time.as_secs_f64() * 1000.0 / iterations as f64;
+        let speedup = uncached_avg_ms / cached_avg_ms;
+
+        println!(
+            "PARITY-120a: 1x{}x{} - Uncached={:.3}ms, Cached={:.3}ms, Speedup={:.1}x",
+            k, n, uncached_avg_ms, cached_avg_ms, speedup
+        );
+
+        // Verify correctness
+        let uncached_result = scheduler.matmul(&x, &weight, 1, k, n).unwrap();
+        let cached_result = scheduler.matmul_cached("test_weight", &x, k, n).unwrap();
+
+        assert_eq!(
+            uncached_result.len(),
+            cached_result.len(),
+            "PARITY-120a: Output sizes should match"
+        );
+
+        // Results should be identical
+        for (i, (u, c)) in uncached_result.iter().zip(cached_result.iter()).enumerate() {
+            assert!(
+                (u - c).abs() < 0.01,
+                "PARITY-120a: Results differ at {}: uncached={}, cached={}",
+                i,
+                u,
+                c
+            );
+        }
+
+        // Target: >2x speedup (eliminating weight transfer)
+        assert!(
+            speedup > 1.5,
+            "PARITY-120a: Expected >1.5x speedup, got {:.1}x",
+            speedup
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "cuda")]
+    fn test_parity_120b_full_layer_cached() {
+        // PARITY-120b: Simulate full layer with all weights cached
+        use crate::cuda::CudaExecutor;
+        use std::time::Instant;
+
+        if !CudaExecutor::is_available() {
+            println!("PARITY-120b: CUDA not available, skipping");
+            return;
+        }
+
+        let mut scheduler = CudaScheduler::new().expect("Failed to create CudaScheduler");
+
+        // Realistic dimensions
+        let hidden = 4096usize;
+        let qkv = 3 * hidden;
+        let intermediate = 11008usize;
+
+        // Create and cache all layer weights
+        let qkv_weight: Vec<f32> = vec![1.0; hidden * qkv];
+        let out_weight: Vec<f32> = vec![1.0; hidden * hidden];
+        let fc1_weight: Vec<f32> = vec![1.0; hidden * intermediate];
+        let fc2_weight: Vec<f32> = vec![1.0; intermediate * hidden];
+
+        scheduler.cache_weight("qkv", &qkv_weight).unwrap();
+        scheduler.cache_weight("out", &out_weight).unwrap();
+        scheduler.cache_weight("fc1", &fc1_weight).unwrap();
+        scheduler.cache_weight("fc2", &fc2_weight).unwrap();
+
+        assert_eq!(
+            scheduler.cached_weight_count(),
+            4,
+            "PARITY-120b: Should have 4 cached weights"
+        );
+
+        let x: Vec<f32> = vec![1.0; hidden];
+        let iterations = 10;
+
+        // Benchmark cached full layer
+        let start = Instant::now();
+        for _ in 0..iterations {
+            let qkv_out = scheduler.matmul_cached("qkv", &x, hidden, qkv).unwrap();
+            let attn_out = scheduler
+                .matmul_cached("out", &qkv_out[..hidden], hidden, hidden)
+                .unwrap();
+            let fc1_out = scheduler
+                .matmul_cached("fc1", &attn_out, hidden, intermediate)
+                .unwrap();
+            let _fc2_out = scheduler
+                .matmul_cached("fc2", &fc1_out, intermediate, hidden)
+                .unwrap();
+        }
+        let elapsed = start.elapsed();
+        let avg_ms = elapsed.as_secs_f64() * 1000.0 / iterations as f64;
+        let tok_per_sec = 1000.0 / avg_ms;
+
+        println!(
+            "PARITY-120b: Full layer (4 matmuls) - {:.2}ms/token = {:.1} tok/s",
+            avg_ms, tok_per_sec
+        );
+
+        // Target: >50 tok/s for single layer
+        println!(
+            "PARITY-120b: Target=228 tok/s (Ollama), Current={:.1} tok/s (single layer)",
+            tok_per_sec
         );
     }
 

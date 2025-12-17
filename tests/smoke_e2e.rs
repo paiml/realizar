@@ -40,9 +40,7 @@ fn smoke_q4_0_dequant() {
     let scale_bytes = scale.to_le_bytes();
     block[0..4].copy_from_slice(&scale_bytes);
     // Data bytes (all zeros for simplicity)
-    for i in 4..20 {
-        block[i] = 0x88; // Both nibbles = 8
-    }
+    block[4..20].fill(0x88); // Both nibbles = 8
 
     let result = dequantize_q4_0(&block);
     assert!(result.is_ok(), "Q4_0 dequantization should succeed");
@@ -63,9 +61,7 @@ fn smoke_q8_0_dequant() {
     let scale_bytes = scale.to_le_bytes();
     block[0..4].copy_from_slice(&scale_bytes);
     // Data bytes (32 i8 values)
-    for i in 4..36 {
-        block[i] = 42; // All same value
-    }
+    block[4..36].fill(42); // All same value
 
     let result = dequantize_q8_0(&block);
     assert!(result.is_ok(), "Q8_0 dequantization should succeed");

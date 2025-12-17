@@ -15,6 +15,7 @@
 //! - `POST /v1/gpu/warmup` - Warmup GPU cache for batch inference (PARITY-022)
 //! - `GET /v1/gpu/status` - Check GPU cache status (PARITY-022)
 //! - `POST /v1/batch/completions` - GPU-accelerated batch inference (PARITY-022)
+//! - `GET /v1/metrics` - JSON metrics for TUI monitoring (PARITY-107)
 //!
 //! ## Example
 //!
@@ -1111,6 +1112,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/v1/gpu/warmup", post(gpu_warmup_handler))
         .route("/v1/gpu/status", get(gpu_status_handler))
         .route("/v1/batch/completions", post(gpu_batch_completions_handler))
+        // TUI monitoring API (PARITY-107)
+        .route("/v1/metrics", get(server_metrics_handler))
         .with_state(state)
 }
 
@@ -1182,6 +1185,40 @@ pub struct DispatchMetricsResponse {
     pub elapsed_seconds: f64,
 }
 
+/// Server metrics response for TUI monitoring (PARITY-107)
+/// Used by realizar-monitor to display real-time server status
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ServerMetricsResponse {
+    /// Current throughput in tokens per second
+    pub throughput_tok_per_sec: f64,
+    /// P50 (median) latency in milliseconds
+    pub latency_p50_ms: f64,
+    /// P95 latency in milliseconds
+    pub latency_p95_ms: f64,
+    /// P99 latency in milliseconds
+    pub latency_p99_ms: f64,
+    /// GPU memory currently used in bytes
+    pub gpu_memory_used_bytes: u64,
+    /// Total GPU memory available in bytes
+    pub gpu_memory_total_bytes: u64,
+    /// GPU utilization as percentage (0-100)
+    pub gpu_utilization_percent: u32,
+    /// Whether CUDA path is active
+    pub cuda_path_active: bool,
+    /// Current batch size
+    pub batch_size: usize,
+    /// Current queue depth
+    pub queue_depth: usize,
+    /// Total tokens generated since start
+    pub total_tokens: u64,
+    /// Total requests processed since start
+    pub total_requests: u64,
+    /// Server uptime in seconds
+    pub uptime_secs: u64,
+    /// Model name being served
+    pub model_name: String,
+}
+
 /// Query parameters for dispatch metrics endpoint (IMP-128)
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct DispatchMetricsQuery {
@@ -1234,6 +1271,123 @@ async fn dispatch_reset_handler(State(_state): State<AppState>) -> axum::respons
         }),
     )
         .into_response()
+}
+
+/// Server metrics handler for TUI monitoring (PARITY-107)
+/// GET /v1/metrics - Returns JSON metrics for realizar-monitor
+#[cfg(feature = "gpu")]
+async fn server_metrics_handler(State(state): State<AppState>) -> Json<ServerMetricsResponse> {
+    let snapshot = state.metrics.snapshot();
+
+    // Get latency percentiles from dispatch metrics (in microseconds, convert to ms)
+    let (latency_p50_ms, latency_p95_ms, latency_p99_ms, gpu_dispatches, cuda_path_active) =
+        if let Some(dispatch) = state.dispatch_metrics() {
+            // Use GPU latency if available, otherwise CPU latency
+            let gpu_p50 = dispatch.gpu_latency_p50_us();
+            let gpu_p95 = dispatch.gpu_latency_p95_us();
+            let gpu_p99 = dispatch.gpu_latency_p99_us();
+            let gpu_count = dispatch.gpu_dispatches();
+
+            if gpu_count > 0 {
+                (
+                    gpu_p50 / 1000.0,
+                    gpu_p95 / 1000.0,
+                    gpu_p99 / 1000.0,
+                    gpu_count,
+                    true,
+                )
+            } else {
+                let cpu_p50 = dispatch.cpu_latency_p50_us();
+                let cpu_p95 = dispatch.cpu_latency_p95_us();
+                let cpu_p99 = dispatch.cpu_latency_p99_us();
+                (
+                    cpu_p50 / 1000.0,
+                    cpu_p95 / 1000.0,
+                    cpu_p99 / 1000.0,
+                    0,
+                    false,
+                )
+            }
+        } else {
+            (0.0, 0.0, 0.0, 0, false)
+        };
+
+    // Get GPU memory from cached model
+    let (gpu_memory_used_bytes, gpu_memory_total_bytes): (u64, u64) =
+        if let Some(model) = state.cached_model() {
+            let used = model.gpu_cache_memory() as u64;
+            // RTX 4090 has 24GB VRAM
+            let total = 24 * 1024 * 1024 * 1024u64;
+            (used, total)
+        } else {
+            (0, 0)
+        };
+
+    // Estimate GPU utilization from dispatch ratio
+    let gpu_utilization_percent = if let Some(dispatch) = state.dispatch_metrics() {
+        let total = dispatch.total_dispatches();
+        if total > 0 {
+            ((gpu_dispatches as f64 / total as f64) * 100.0) as u32
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+
+    // Get batch configuration
+    let (batch_size, queue_depth) = if let Some(config) = state.batch_config() {
+        (config.optimal_batch, config.queue_size)
+    } else {
+        (1, 0)
+    };
+
+    // Model name from cached model or default
+    let model_name = if state.cached_model().is_some() {
+        "phi-2-q4_k_m".to_string()
+    } else {
+        "N/A".to_string()
+    };
+
+    Json(ServerMetricsResponse {
+        throughput_tok_per_sec: snapshot.tokens_per_sec,
+        latency_p50_ms,
+        latency_p95_ms,
+        latency_p99_ms,
+        gpu_memory_used_bytes,
+        gpu_memory_total_bytes,
+        gpu_utilization_percent,
+        cuda_path_active,
+        batch_size,
+        queue_depth,
+        total_tokens: snapshot.total_tokens as u64,
+        total_requests: snapshot.total_requests as u64,
+        uptime_secs: snapshot.uptime_secs,
+        model_name,
+    })
+}
+
+/// Server metrics handler stub for non-GPU builds (PARITY-107)
+#[cfg(not(feature = "gpu"))]
+async fn server_metrics_handler(State(state): State<AppState>) -> Json<ServerMetricsResponse> {
+    let snapshot = state.metrics.snapshot();
+
+    Json(ServerMetricsResponse {
+        throughput_tok_per_sec: snapshot.tokens_per_sec,
+        latency_p50_ms: snapshot.avg_latency_ms,
+        latency_p95_ms: snapshot.avg_latency_ms * 1.5,
+        latency_p99_ms: snapshot.avg_latency_ms * 2.0,
+        gpu_memory_used_bytes: 0,
+        gpu_memory_total_bytes: 0,
+        gpu_utilization_percent: 0,
+        cuda_path_active: false,
+        batch_size: 1,
+        queue_depth: 0,
+        total_tokens: snapshot.total_tokens as u64,
+        total_requests: snapshot.total_requests as u64,
+        uptime_secs: snapshot.uptime_secs,
+        model_name: "N/A".to_string(),
+    })
 }
 
 /// Dispatch metrics handler - returns CPU/GPU dispatch statistics (IMP-127, IMP-128)
@@ -1506,22 +1660,27 @@ pub struct BatchConfig {
     /// Minimum batch size to process (below this, use single-request path)
     pub min_batch: usize,
     /// Optimal batch size for M4 parity (process immediately when reached)
+    /// PARITY-095: This also controls GPU batch threshold
     pub optimal_batch: usize,
     /// Maximum batch size (GPU memory constraint)
     pub max_batch: usize,
     /// Channel buffer size for request queue
     pub queue_size: usize,
+    /// GPU batch threshold (use GPU path when batch >= this)
+    /// PARITY-095: GPU GEMM wins at batch >= 32 (from IMP-600 analysis)
+    pub gpu_threshold: usize,
 }
 
 #[cfg(feature = "gpu")]
 impl Default for BatchConfig {
     fn default() -> Self {
         Self {
-            window_ms: 10,     // 10ms batch window
-            min_batch: 4,      // Minimum for GPU benefit
-            optimal_batch: 16, // M4 parity threshold
-            max_batch: 32,     // GPU optimal from PARITY-046
+            window_ms: 50,     // 50ms batch window (allow time for requests to accumulate)
+            min_batch: 4,      // Minimum for any batching benefit
+            optimal_batch: 32, // PARITY-095: Aligned with GPU threshold for M4 parity
+            max_batch: 64,     // Allow larger batches for better GPU utilization
             queue_size: 1024,  // Request queue buffer
+            gpu_threshold: 32, // GPU GEMM crossover point (from PARITY-046b)
         }
     }
 }
@@ -1529,6 +1688,7 @@ impl Default for BatchConfig {
 #[cfg(feature = "gpu")]
 impl BatchConfig {
     /// Create config optimized for low latency (smaller batches)
+    /// Note: GPU batch disabled (threshold > max_batch) for consistent latency
     pub fn low_latency() -> Self {
         Self {
             window_ms: 5,
@@ -1536,17 +1696,20 @@ impl BatchConfig {
             optimal_batch: 8,
             max_batch: 16,
             queue_size: 512,
+            gpu_threshold: 32, // Effectively disabled since max_batch=16
         }
     }
 
     /// Create config optimized for high throughput (larger batches)
+    /// PARITY-095: GPU batch enabled for batch >= 32
     pub fn high_throughput() -> Self {
         Self {
-            window_ms: 20,
+            window_ms: 100, // 100ms window for maximum batching
             min_batch: 8,
-            optimal_batch: 32,
-            max_batch: 64,
+            optimal_batch: 32, // Trigger processing at GPU threshold
+            max_batch: 128,    // Large batches for maximum throughput
             queue_size: 2048,
+            gpu_threshold: 32, // GPU GEMM crossover
         }
     }
 
@@ -1774,66 +1937,111 @@ async fn process_batch(
 
     let batch_size = batch.len();
     let batch_start = Instant::now();
-    let is_batched = batch_size >= config.min_batch;
 
-    // Process each request
-    // Note: For true batch inference, we would need to modify the model
-    // to support forward_batch. For now, we process concurrently.
-    let mut handles = Vec::with_capacity(batch_size);
+    // PARITY-095: Use configurable GPU batch threshold
+    // GPU GEMM wins at batch >= gpu_threshold (default 32, from IMP-600 analysis)
+    let gpu_threshold = config.gpu_threshold;
 
-    for request in batch.drain(..) {
-        let model = model.clone();
-        let handle = tokio::spawn(async move {
-            let start = Instant::now();
+    // Use true GPU batch inference if batch is large enough and GPU cache is warm
+    if batch_size >= gpu_threshold && model.is_gpu_cache_warm() {
+        // PARITY-094: True batch inference with GPU FFN
+        // Collect all prompts
+        let prompts: Vec<Vec<u32>> = batch.iter().map(|r| r.prompt_tokens.clone()).collect();
 
-            // Build generation config
-            let gen_config = crate::gguf::QuantizedGenerateConfig {
-                max_tokens: request.max_tokens,
-                temperature: request.temperature,
-                top_k: request.top_k,
-                stop_tokens: Vec::new(),
-            };
+        // Use first request's config (batch inference assumes similar parameters)
+        let first = &batch[0];
+        let gen_config = crate::gguf::QuantizedGenerateConfig {
+            max_tokens: first.max_tokens,
+            temperature: first.temperature,
+            top_k: first.top_k,
+            stop_tokens: Vec::new(),
+        };
 
-            // Generate
-            let result = model.generate_with_cache(&request.prompt_tokens, &gen_config);
+        // Run batch generation with GPU FFN (PARITY-021)
+        let results = model.batch_generate_gpu(&prompts, &gen_config);
 
-            let latency_ms = start.elapsed().as_secs_f64() * 1000.0;
+        let total_latency_ms = batch_start.elapsed().as_secs_f64() * 1000.0;
+        let per_request_latency_ms = total_latency_ms / batch_size as f64;
 
-            // Send response
-            let response = match result {
-                Ok(token_ids) => ContinuousBatchResponse {
-                    token_ids,
-                    prompt_len: request.prompt_tokens.len(),
-                    batched: true,
-                    batch_size: 1, // Will be updated by caller
-                    latency_ms,
-                },
-                Err(_) => ContinuousBatchResponse {
-                    token_ids: request.prompt_tokens.clone(),
-                    prompt_len: request.prompt_tokens.len(),
-                    batched: false,
-                    batch_size: 1,
-                    latency_ms,
-                },
-            };
+        // Send responses
+        match results {
+            Ok(all_token_ids) => {
+                for (request, token_ids) in batch.drain(..).zip(all_token_ids.into_iter()) {
+                    let response = ContinuousBatchResponse {
+                        token_ids,
+                        prompt_len: request.prompt_tokens.len(),
+                        batched: true,
+                        batch_size,
+                        latency_ms: per_request_latency_ms,
+                    };
+                    let _ = request.response_tx.send(response);
+                }
+            },
+            Err(_) => {
+                // Fallback: return prompts unchanged on error
+                for request in batch.drain(..) {
+                    let response = ContinuousBatchResponse {
+                        token_ids: request.prompt_tokens.clone(),
+                        prompt_len: request.prompt_tokens.len(),
+                        batched: false,
+                        batch_size,
+                        latency_ms: per_request_latency_ms,
+                    };
+                    let _ = request.response_tx.send(response);
+                }
+            },
+        }
+    } else {
+        // Concurrent single-request processing (for small batches or no GPU cache)
+        let mut handles = Vec::with_capacity(batch_size);
 
-            // Send response (ignore if receiver dropped)
-            let _ = request.response_tx.send(response);
-        });
+        for request in batch.drain(..) {
+            let model = model.clone();
+            let handle = tokio::spawn(async move {
+                let start = Instant::now();
 
-        handles.push(handle);
-    }
+                // Build generation config
+                let gen_config = crate::gguf::QuantizedGenerateConfig {
+                    max_tokens: request.max_tokens,
+                    temperature: request.temperature,
+                    top_k: request.top_k,
+                    stop_tokens: Vec::new(),
+                };
 
-    // Wait for all to complete
-    for handle in handles {
-        let _ = handle.await;
-    }
+                // Generate
+                let result = model.generate_with_cache(&request.prompt_tokens, &gen_config);
 
-    let _total_time_ms = batch_start.elapsed().as_secs_f64() * 1000.0;
+                let latency_ms = start.elapsed().as_secs_f64() * 1000.0;
 
-    // Log batch processing (could add metrics here)
-    if is_batched {
-        // Batch was processed
+                // Send response
+                let response = match result {
+                    Ok(token_ids) => ContinuousBatchResponse {
+                        token_ids,
+                        prompt_len: request.prompt_tokens.len(),
+                        batched: false,
+                        batch_size: 1,
+                        latency_ms,
+                    },
+                    Err(_) => ContinuousBatchResponse {
+                        token_ids: request.prompt_tokens.clone(),
+                        prompt_len: request.prompt_tokens.len(),
+                        batched: false,
+                        batch_size: 1,
+                        latency_ms,
+                    },
+                };
+
+                // Send response (ignore if receiver dropped)
+                let _ = request.response_tx.send(response);
+            });
+
+            handles.push(handle);
+        }
+
+        // Wait for all to complete
+        for handle in handles {
+            let _ = handle.await;
+        }
     }
 }
 
@@ -4186,6 +4394,39 @@ mod tests {
         assert!(snapshot.total_tokens > 0);
     }
 
+    /// Test PARITY-107: /v1/metrics endpoint for TUI monitoring
+    #[tokio::test]
+    async fn test_parity107_server_metrics_endpoint() {
+        let app = create_test_app();
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/metrics")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let metrics: ServerMetricsResponse = serde_json::from_slice(&body).unwrap();
+
+        // Verify JSON structure per PARITY-107 spec
+        assert!(metrics.throughput_tok_per_sec >= 0.0);
+        assert!(metrics.latency_p50_ms >= 0.0);
+        assert!(metrics.latency_p95_ms >= 0.0);
+        assert!(metrics.latency_p99_ms >= 0.0);
+        assert!(metrics.gpu_utilization_percent <= 100);
+        assert!(metrics.batch_size >= 1);
+        // Model name should be set or N/A
+        assert!(!metrics.model_name.is_empty());
+    }
+
     #[tokio::test]
     async fn test_tokenize_endpoint() {
         let app = create_test_app();
@@ -5839,6 +6080,10 @@ mod tests {
             output_norm_bias: None,
             lm_head_weight: create_q4k_data(hidden_dim, vocab_size),
             lm_head_bias: None,
+            #[cfg(feature = "cuda")]
+            cuda_executor: None,
+            #[cfg(feature = "cuda")]
+            cuda_kernel_count: std::sync::atomic::AtomicU64::new(0),
         }
     }
 

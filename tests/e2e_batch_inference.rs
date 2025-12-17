@@ -447,9 +447,351 @@ fn test_parity_055_summary() {
     println!("  - BatchConfig defaults and presets");
     println!("  - GPU threshold decision logic");
     println!("  - Integration tests (requires server)");
-    println!("");
+    println!();
     println!("M4 Parity Targets:");
     println!("  - Baseline: 64 tok/s (single request)");
     println!("  - Batch target: 150+ tok/s (concurrent)");
     println!("  - M4 target: 192 tok/s (1.25x Ollama gap)");
+}
+
+// ============================================================================
+// PARITY-101: OLLAMA VS REALIZAR REAL-TIME COMPARISON
+// ============================================================================
+
+/// Check if Ollama server is available
+fn ollama_available() -> bool {
+    std::process::Command::new("curl")
+        .args([
+            "-s",
+            "-o",
+            "/dev/null",
+            "-w",
+            "%{http_code}",
+            "http://127.0.0.1:11434/api/tags",
+        ])
+        .output()
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim() == "200")
+        .unwrap_or(false)
+}
+
+/// Measure Ollama throughput for a single request
+fn measure_ollama_throughput(prompt: &str, max_tokens: usize) -> Option<(usize, Duration, f64)> {
+    let payload = format!(
+        r#"{{"model":"phi","prompt":"{}","stream":false,"options":{{"num_predict":{}}}}}"#,
+        prompt, max_tokens
+    );
+
+    let start = Instant::now();
+    let output = std::process::Command::new("curl")
+        .args([
+            "-s",
+            "-X",
+            "POST",
+            "http://127.0.0.1:11434/api/generate",
+            "-H",
+            "Content-Type: application/json",
+            "-d",
+            &payload,
+        ])
+        .output()
+        .ok()?;
+
+    let elapsed = start.elapsed();
+    let response = String::from_utf8_lossy(&output.stdout);
+
+    // Parse eval_count from Ollama response
+    let tokens = response
+        .split("\"eval_count\":")
+        .nth(1)
+        .and_then(|s| s.split([',', '}']).next())
+        .and_then(|s| s.trim().parse::<usize>().ok())
+        .unwrap_or(max_tokens);
+
+    let tok_per_sec = tokens as f64 / elapsed.as_secs_f64();
+    Some((tokens, elapsed, tok_per_sec))
+}
+
+/// Measure Realizar throughput for a single request
+fn measure_realizar_throughput(prompt: &str, max_tokens: usize) -> Option<(usize, Duration, f64)> {
+    let payload = format!(
+        r#"{{"model":"default","prompt":"{}","max_tokens":{},"temperature":0.1}}"#,
+        prompt, max_tokens
+    );
+
+    let start = Instant::now();
+    let output = std::process::Command::new("curl")
+        .args([
+            "-s",
+            "-X",
+            "POST",
+            "http://127.0.0.1:8085/v1/completions",
+            "-H",
+            "Content-Type: application/json",
+            "-d",
+            &payload,
+        ])
+        .output()
+        .ok()?;
+
+    let elapsed = start.elapsed();
+    let response = String::from_utf8_lossy(&output.stdout);
+
+    // Parse completion_tokens from Realizar response
+    let tokens = response
+        .split("\"completion_tokens\":")
+        .nth(1)
+        .and_then(|s| s.split([',', '}']).next())
+        .and_then(|s| s.trim().parse::<usize>().ok())
+        .unwrap_or(max_tokens);
+
+    let tok_per_sec = tokens as f64 / elapsed.as_secs_f64();
+    Some((tokens, elapsed, tok_per_sec))
+}
+
+/// PARITY-101a: Single request Ollama vs Realizar comparison
+#[test]
+#[ignore = "requires Ollama (port 11434) and Realizar (port 8085) servers"]
+fn test_parity_101a_single_request_comparison() {
+    println!("PARITY-101a: Single Request Ollama vs Realizar");
+    println!("================================================");
+
+    if !ollama_available() {
+        println!("  ⚠️  Ollama not available at http://127.0.0.1:11434");
+        println!("  Start with: ollama serve");
+        return;
+    }
+
+    if !server_available("http://127.0.0.1:8085") {
+        println!("  ⚠️  Realizar not available at http://127.0.0.1:8085");
+        println!("  Start with: cargo run --bin realizar --features cuda -- serve --model phi-2.Q4_K_M.gguf --batch");
+        return;
+    }
+
+    let prompt = "What is 2+2?";
+    let max_tokens = 20;
+
+    println!("\n  Prompt: \"{}\"", prompt);
+    println!("  Max tokens: {}", max_tokens);
+
+    // Warmup both servers
+    println!("\n  Warming up...");
+    let _ = measure_ollama_throughput(prompt, 5);
+    let _ = measure_realizar_throughput(prompt, 5);
+
+    // Measure Ollama
+    println!("\n  Measuring Ollama...");
+    let ollama_results: Vec<_> = (0..5)
+        .filter_map(|_| measure_ollama_throughput(prompt, max_tokens))
+        .collect();
+
+    let ollama_avg_tps = if !ollama_results.is_empty() {
+        ollama_results.iter().map(|r| r.2).sum::<f64>() / ollama_results.len() as f64
+    } else {
+        0.0
+    };
+
+    // Measure Realizar
+    println!("  Measuring Realizar...");
+    let realizar_results: Vec<_> = (0..5)
+        .filter_map(|_| measure_realizar_throughput(prompt, max_tokens))
+        .collect();
+
+    let realizar_avg_tps = if !realizar_results.is_empty() {
+        realizar_results.iter().map(|r| r.2).sum::<f64>() / realizar_results.len() as f64
+    } else {
+        0.0
+    };
+
+    // Report results
+    println!("\n  Results:");
+    println!("  ┌─────────────┬────────────┬────────────┐");
+    println!("  │   Server    │  tok/s     │  Gap       │");
+    println!("  ├─────────────┼────────────┼────────────┤");
+    println!("  │ Ollama      │ {:>8.1}  │ baseline   │", ollama_avg_tps);
+
+    let gap = if ollama_avg_tps > 0.0 {
+        ollama_avg_tps / realizar_avg_tps
+    } else {
+        0.0
+    };
+
+    println!(
+        "  │ Realizar    │ {:>8.1}  │ {:>6.1}x    │",
+        realizar_avg_tps, gap
+    );
+    println!("  └─────────────┴────────────┴────────────┘");
+
+    // M4 parity check
+    let m4_target = 192.0;
+    let achieves_m4 = realizar_avg_tps >= m4_target;
+    println!(
+        "\n  M4 Parity (192 tok/s): {}",
+        if achieves_m4 {
+            "✅ ACHIEVED"
+        } else {
+            "❌ NOT YET"
+        }
+    );
+
+    if !achieves_m4 && realizar_avg_tps > 0.0 {
+        let needed = m4_target / realizar_avg_tps;
+        println!("  Speedup needed: {:.1}x", needed);
+    }
+}
+
+/// PARITY-101b: Concurrent batch Ollama vs Realizar comparison
+#[test]
+#[ignore = "requires Ollama (port 11434) and Realizar (port 8085) servers"]
+fn test_parity_101b_concurrent_batch_comparison() {
+    println!("PARITY-101b: Concurrent Batch Ollama vs Realizar");
+    println!("=================================================");
+
+    if !ollama_available() {
+        println!("  ⚠️  Ollama not available");
+        return;
+    }
+
+    if !server_available("http://127.0.0.1:8085") {
+        println!("  ⚠️  Realizar not available");
+        return;
+    }
+
+    let prompt = "Hello";
+    let max_tokens = 10;
+    let concurrency_levels = [1, 4, 8, 16, 32];
+
+    println!("\n  Prompt: \"{}\"", prompt);
+    println!("  Max tokens: {}", max_tokens);
+    println!("\n  ┌─────────────┬────────────┬────────────┬────────────┐");
+    println!("  │ Concurrency │ Ollama     │ Realizar   │ Gap        │");
+    println!("  ├─────────────┼────────────┼────────────┼────────────┤");
+
+    for concurrency in concurrency_levels {
+        // Measure Ollama concurrent throughput
+        let ollama_start = Instant::now();
+        let ollama_handles: Vec<_> = (0..concurrency)
+            .map(|_| {
+                let p = prompt.to_string();
+                std::thread::spawn(move || measure_ollama_throughput(&p, max_tokens))
+            })
+            .collect();
+
+        let ollama_tokens: usize = ollama_handles
+            .into_iter()
+            .filter_map(|h| h.join().ok().flatten())
+            .map(|(t, _, _)| t)
+            .sum();
+        let ollama_elapsed = ollama_start.elapsed();
+        let ollama_tps = ollama_tokens as f64 / ollama_elapsed.as_secs_f64();
+
+        // Measure Realizar concurrent throughput
+        let realizar_start = Instant::now();
+        let realizar_handles: Vec<_> = (0..concurrency)
+            .map(|_| {
+                let p = prompt.to_string();
+                std::thread::spawn(move || measure_realizar_throughput(&p, max_tokens))
+            })
+            .collect();
+
+        let realizar_tokens: usize = realizar_handles
+            .into_iter()
+            .filter_map(|h| h.join().ok().flatten())
+            .map(|(t, _, _)| t)
+            .sum();
+        let realizar_elapsed = realizar_start.elapsed();
+        let realizar_tps = realizar_tokens as f64 / realizar_elapsed.as_secs_f64();
+
+        let gap = if realizar_tps > 0.0 {
+            ollama_tps / realizar_tps
+        } else {
+            f64::INFINITY
+        };
+
+        println!(
+            "  │ {:>11} │ {:>8.1}  │ {:>8.1}  │ {:>8.1}x │",
+            concurrency, ollama_tps, realizar_tps, gap
+        );
+    }
+
+    println!("  └─────────────┴────────────┴────────────┴────────────┘");
+}
+
+/// PARITY-101c: GPU batch mode throughput measurement
+#[test]
+#[ignore = "requires Realizar server with --batch mode"]
+fn test_parity_101c_gpu_batch_throughput() {
+    println!("PARITY-101c: GPU Batch Mode Throughput");
+    println!("======================================");
+
+    if !server_available("http://127.0.0.1:8085") {
+        println!("  ⚠️  Realizar not available");
+        println!("  Start with: cargo run --bin realizar --features cuda -- serve --model phi-2.Q4_K_M.gguf --batch");
+        return;
+    }
+
+    let prompt = "The quick brown fox";
+    let max_tokens = 10;
+    let batch_sizes = [1, 8, 16, 32, 64];
+
+    println!("\n  Testing batch accumulation throughput...");
+    println!("\n  ┌────────────┬────────────┬────────────┬────────────┐");
+    println!("  │ Batch Size │ Tokens     │ Time (ms)  │ tok/s      │");
+    println!("  ├────────────┼────────────┼────────────┼────────────┤");
+
+    for batch_size in batch_sizes {
+        let start = Instant::now();
+
+        // Send concurrent requests to trigger batching
+        let handles: Vec<_> = (0..batch_size)
+            .map(|_| {
+                let p = prompt.to_string();
+                std::thread::spawn(move || measure_realizar_throughput(&p, max_tokens))
+            })
+            .collect();
+
+        let total_tokens: usize = handles
+            .into_iter()
+            .filter_map(|h| h.join().ok().flatten())
+            .map(|(t, _, _)| t)
+            .sum();
+
+        let elapsed = start.elapsed();
+        let tps = total_tokens as f64 / elapsed.as_secs_f64();
+
+        println!(
+            "  │ {:>10} │ {:>10} │ {:>10.1} │ {:>10.1} │",
+            batch_size,
+            total_tokens,
+            elapsed.as_millis(),
+            tps
+        );
+
+        // Check M4 parity at batch >= 32
+        if batch_size >= 32 && tps >= 192.0 {
+            println!("  │            │            │            │ ✅ M4      │");
+        }
+    }
+
+    println!("  └────────────┴────────────┴────────────┴────────────┘");
+}
+
+/// PARITY-101: Summary
+#[test]
+fn test_parity_101_summary() {
+    println!("=== PARITY-101: Ollama vs Realizar Comparison ===");
+    println!();
+    println!("Tests (run with --ignored):");
+    println!("  - 101a: Single request comparison");
+    println!("  - 101b: Concurrent batch comparison");
+    println!("  - 101c: GPU batch mode throughput");
+    println!();
+    println!("Prerequisites:");
+    println!("  1. Ollama: ollama serve (port 11434)");
+    println!("     Model: ollama pull phi");
+    println!();
+    println!("  2. Realizar: cargo run --bin realizar --features cuda -- \\");
+    println!("       serve --model phi-2.Q4_K_M.gguf --batch");
+    println!();
+    println!("Run:");
+    println!("  cargo test --test e2e_batch_inference parity_101 -- --ignored --nocapture");
 }

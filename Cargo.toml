@@ -1,6 +1,6 @@
 [package]
 name = "realizar"
-version = "0.2.3"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.75"
 authors = ["Pragmatic AI Labs <contact@paiml.com>"]
@@ -17,6 +17,8 @@ categories = ["science", "web-programming::http-server"]
 unsafe_op_in_unsafe_fn = "warn"
 # unreachable_pub disabled - too noisy for test code in #[cfg(test)] modules
 # unreachable_pub = "warn"
+# Allow coverage cfg for cargo-llvm-cov
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage)'] }
 
 [lints.clippy]
 checked_conversions = "warn"
@@ -29,10 +31,10 @@ useless_vec = "allow"
 
 [dependencies]
 # OUR ecosystem - SIMD/GPU compute primitives (we control this)
-# Using local path for WASM fix (block_on cfg gating)
-trueno = { path = "../trueno", features = ["gpu"] }
+# High-performance SIMD compute library with GPU support
+trueno = { version = "0.8.8", features = ["gpu"] }
 # CUDA PTX generation and runtime for NVIDIA GPUs (optional, pure Rust, no LLVM/nvcc)
-trueno-gpu = { path = "../trueno/trueno-gpu", optional = true, features = ["cuda"] }
+trueno-gpu = { version = "0.3.0", optional = true, features = ["cuda"] }
 # KV cache storage (for attention caching)
 trueno-db = { version = "0.3", optional = true }
 
@@ -61,7 +63,11 @@ async-stream = { version = "0.3", optional = true }
 clap = { version = "4", features = ["derive"], optional = true }
 
 # Lambda runtime (lightweight HTTP client)
-ureq = { version = "2", optional = true }
+ureq = { version = "2", features = ["json"], optional = true }
+
+# TUI monitoring (PARITY-107)
+ratatui = { version = "0.29", optional = true }
+crossterm = { version = "0.28", optional = true }
 
 # HTTP client for real model server benchmarking (blocking for bench harness)
 reqwest = { version = "0.11", features = ["json", "blocking"], optional = true }
@@ -76,6 +82,9 @@ arc-swap = { version = "1.7", optional = true }
 # Error handling
 thiserror = "1.0"
 anyhow = "1.0"
+
+# Structured logging / tracing (optional, for CUDA kernel spans)
+tracing = { version = "0.1", optional = true }
 
 # Audit logging (timestamps and UUIDs)
 chrono = { version = "0.4", features = ["serde"] }
@@ -150,7 +159,7 @@ default = ["server", "cli", "gpu"]
 
 # Core features
 gpu = ["trueno/gpu"]  # Enable GPU acceleration via Trueno (wgpu)
-cuda = ["dep:trueno-gpu"]  # Enable CUDA PTX generation for NVIDIA GPUs
+cuda = ["dep:trueno-gpu", "dep:tracing"]  # Enable CUDA PTX generation for NVIDIA GPUs
 kv-cache = ["dep:trueno-db"]  # KV cache for attention optimization
 
 # Optional components
@@ -161,6 +170,7 @@ lambda = ["dep:ureq"]  # AWS Lambda handler (lightweight HTTP runtime)
 alimentar-data = ["dep:alimentar"]  # Data loading with alimentar
 visualization = ["dep:trueno-viz"]  # Terminal/PNG benchmark visualization
 registry = ["dep:pacha"]  # Model registry with Pacha (pull/push/cache)
+tui = ["dep:ratatui", "dep:crossterm", "dep:ureq", "dep:clap"]  # PARITY-107: Real-time monitoring TUI
 bench-http = ["dep:reqwest"]  # Real HTTP benchmarking of external model servers
 
 # Testing features
@@ -181,6 +191,11 @@ required-features = ["lambda"]
 [[bin]]
 name = "mnist_lambda"
 required-features = ["aprender-serve", "lambda"]
+
+[[bin]]
+name = "realizar-monitor"
+path = "src/bin/realizar_monitor.rs"
+required-features = ["tui"]
 
 [[bench]]
 name = "tensor_ops"
@@ -273,6 +288,38 @@ required-features = ["cuda"]
 
 [[example]]
 name = "imp_1010_full_cuda_benchmark"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_ptx"
+required-features = ["cuda"]
+
+[[example]]
+name = "bench_gemv"
+required-features = ["cuda"]
+
+[[example]]
+name = "test_gemv_correctness"
+required-features = ["cuda"]
+
+[[example]]
+name = "parity_036_gpu_attention"
+required-features = ["cuda"]
+
+[[example]]
+name = "parity_038_async_streams"
+required-features = ["cuda"]
+
+[[example]]
+name = "parity_039_flash_attention"
+required-features = ["cuda"]
+
+[[example]]
+name = "parity_040_fp16_attention"
+required-features = ["cuda"]
+
+[[example]]
+name = "test_q4k_cuda"
 required-features = ["cuda"]
 
 [profile.release]

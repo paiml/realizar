@@ -2679,6 +2679,440 @@ impl Sampler for InfillSampler {
     }
 }
 
+// =============================================================================
+// LogitProcessor Trait (RLZR-GEN-001)
+// =============================================================================
+//
+// Composable logit processing for text generation pipelines.
+// Based on HuggingFace Transformers LogitsProcessor pattern.
+//
+// References:
+// - Holtzman et al. (2020) "The Curious Case of Neural Text Degeneration"
+// - Wolf et al. (2020) "Transformers: State-of-the-Art NLP"
+// =============================================================================
+
+/// Context available during logit processing
+///
+/// Provides information about the current generation state to processors.
+#[derive(Debug, Clone)]
+pub struct LogitProcessorContext<'a> {
+    /// Previously generated tokens (including initial prompt)
+    pub tokens: &'a [u32],
+    /// Current generation step (0-indexed, after initial tokens)
+    pub step: usize,
+    /// Vocabulary size
+    pub n_vocab: usize,
+}
+
+impl<'a> LogitProcessorContext<'a> {
+    /// Create a new context
+    #[must_use]
+    pub fn new(tokens: &'a [u32], step: usize, n_vocab: usize) -> Self {
+        Self {
+            tokens,
+            step,
+            n_vocab,
+        }
+    }
+}
+
+/// Logit processor trait for composable pre-sampling transforms
+///
+/// Processors are applied in order before sampling. They can:
+/// - Set logits to -inf to suppress tokens
+/// - Add penalties (repetition, length)
+/// - Scale logits (temperature)
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use realizar::generate::{LogitProcessor, LogitProcessorContext};
+///
+/// struct MyProcessor;
+///
+/// impl LogitProcessor for MyProcessor {
+///     fn process(&self, logits: &mut [f32], ctx: &LogitProcessorContext) {
+///         // Suppress token 0
+///         logits[0] = f32::NEG_INFINITY;
+///     }
+/// }
+/// ```
+pub trait LogitProcessor: Send + Sync {
+    /// Process logits in-place before sampling
+    ///
+    /// # Arguments
+    ///
+    /// * `logits` - Mutable slice of logits to modify
+    /// * `ctx` - Context with token history and generation state
+    fn process(&self, logits: &mut [f32], ctx: &LogitProcessorContext);
+
+    /// Human-readable name for debugging and tracing
+    fn name(&self) -> &'static str {
+        "unnamed"
+    }
+}
+
+/// Suppress specific tokens by setting their logits to -inf
+///
+/// Use this to prevent certain tokens from being generated, such as:
+/// - Special tokens (SOT, PREV, SOLM in Whisper)
+/// - Profanity or sensitive content
+/// - Invalid tokens for the current context
+#[derive(Debug, Clone)]
+pub struct TokenSuppressor {
+    /// Token IDs to suppress
+    suppress_ids: Vec<u32>,
+}
+
+impl TokenSuppressor {
+    /// Create a new token suppressor
+    ///
+    /// # Arguments
+    ///
+    /// * `suppress_ids` - Token IDs to suppress (set to -inf)
+    #[must_use]
+    pub fn new(suppress_ids: Vec<u32>) -> Self {
+        Self { suppress_ids }
+    }
+
+    /// Create from a slice of token IDs
+    #[must_use]
+    pub fn from_slice(suppress_ids: &[u32]) -> Self {
+        Self {
+            suppress_ids: suppress_ids.to_vec(),
+        }
+    }
+}
+
+impl LogitProcessor for TokenSuppressor {
+    fn process(&self, logits: &mut [f32], _ctx: &LogitProcessorContext) {
+        for &token_id in &self.suppress_ids {
+            if (token_id as usize) < logits.len() {
+                logits[token_id as usize] = f32::NEG_INFINITY;
+            }
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "token_suppressor"
+    }
+}
+
+/// Penalize repeated tokens to reduce repetitive generation
+///
+/// Applies a penalty to tokens that have appeared in the recent context.
+/// Penalty > 1.0 reduces probability, < 1.0 increases it.
+///
+/// Based on: Keskar et al. (2019) "CTRL: A Conditional Transformer Language Model"
+#[derive(Debug, Clone)]
+pub struct RepetitionPenalty {
+    /// Penalty multiplier (> 1.0 to penalize, < 1.0 to encourage)
+    penalty: f32,
+    /// Look-back window size (0 = entire history)
+    window: usize,
+}
+
+impl RepetitionPenalty {
+    /// Create a new repetition penalty processor
+    ///
+    /// # Arguments
+    ///
+    /// * `penalty` - Penalty multiplier (typical: 1.0-2.0)
+    /// * `window` - Look-back window (0 = use all tokens)
+    #[must_use]
+    pub fn new(penalty: f32, window: usize) -> Self {
+        Self { penalty, window }
+    }
+
+    /// Create with default window (entire history)
+    #[must_use]
+    pub fn with_penalty(penalty: f32) -> Self {
+        Self { penalty, window: 0 }
+    }
+}
+
+impl LogitProcessor for RepetitionPenalty {
+    fn process(&self, logits: &mut [f32], ctx: &LogitProcessorContext) {
+        // Determine which tokens to consider
+        let tokens = if self.window > 0 && ctx.tokens.len() > self.window {
+            &ctx.tokens[ctx.tokens.len() - self.window..]
+        } else {
+            ctx.tokens
+        };
+
+        // Apply penalty to tokens that have appeared
+        for &token_id in tokens {
+            if (token_id as usize) < logits.len() {
+                let logit = logits[token_id as usize];
+                // Apply penalty: divide positive logits, multiply negative logits
+                logits[token_id as usize] = if logit > 0.0 {
+                    logit / self.penalty
+                } else {
+                    logit * self.penalty
+                };
+            }
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "repetition_penalty"
+    }
+}
+
+/// Scale logits by temperature
+///
+/// Temperature > 1.0 increases randomness (flatter distribution)
+/// Temperature < 1.0 decreases randomness (sharper distribution)
+/// Temperature = 1.0 has no effect
+#[derive(Debug, Clone)]
+pub struct TemperatureScaler {
+    /// Temperature value (must be > 0)
+    temperature: f32,
+}
+
+impl TemperatureScaler {
+    /// Create a new temperature scaler
+    ///
+    /// # Arguments
+    ///
+    /// * `temperature` - Temperature value (> 0)
+    ///
+    /// # Panics
+    ///
+    /// Panics if temperature <= 0
+    #[must_use]
+    pub fn new(temperature: f32) -> Self {
+        assert!(temperature > 0.0, "Temperature must be positive");
+        Self { temperature }
+    }
+}
+
+impl LogitProcessor for TemperatureScaler {
+    fn process(&self, logits: &mut [f32], _ctx: &LogitProcessorContext) {
+        if (self.temperature - 1.0).abs() > 1e-6 {
+            for logit in logits.iter_mut() {
+                *logit /= self.temperature;
+            }
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "temperature_scaler"
+    }
+}
+
+/// Chain of logit processors applied in order
+///
+/// Allows composing multiple processors into a single processing step.
+#[derive(Default)]
+pub struct LogitProcessorChain {
+    processors: Vec<Box<dyn LogitProcessor>>,
+}
+
+impl LogitProcessorChain {
+    /// Create an empty processor chain
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            processors: Vec::new(),
+        }
+    }
+
+    /// Add a processor to the chain (builder pattern)
+    #[must_use]
+    pub fn with_processor<P: LogitProcessor + 'static>(mut self, processor: P) -> Self {
+        self.processors.push(Box::new(processor));
+        self
+    }
+
+    /// Add a boxed processor to the chain (builder pattern)
+    #[must_use]
+    pub fn with_boxed_processor(mut self, processor: Box<dyn LogitProcessor>) -> Self {
+        self.processors.push(processor);
+        self
+    }
+
+    /// Process logits through all processors in order
+    pub fn process(&self, logits: &mut [f32], ctx: &LogitProcessorContext) {
+        for processor in &self.processors {
+            processor.process(logits, ctx);
+        }
+    }
+
+    /// Get the number of processors in the chain
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.processors.len()
+    }
+
+    /// Check if the chain is empty
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.processors.is_empty()
+    }
+
+    /// Get processor names for debugging
+    #[must_use]
+    pub fn processor_names(&self) -> Vec<&str> {
+        self.processors.iter().map(|p| p.name()).collect()
+    }
+}
+
+impl LogitProcessor for LogitProcessorChain {
+    fn process(&self, logits: &mut [f32], ctx: &LogitProcessorContext) {
+        LogitProcessorChain::process(self, logits, ctx);
+    }
+
+    fn name(&self) -> &'static str {
+        "processor_chain"
+    }
+}
+
+/// Model trait for generation pipeline
+///
+/// Implement this trait to use your model with GenerationPipeline.
+pub trait GenerativeModel {
+    /// Forward pass producing logits for next token
+    ///
+    /// # Arguments
+    ///
+    /// * `tokens` - Current token sequence
+    ///
+    /// # Returns
+    ///
+    /// Logits for vocabulary (shape: [vocab_size])
+    fn forward(&mut self, tokens: &[u32]) -> Result<Vec<f32>>;
+
+    /// Get vocabulary size
+    fn vocab_size(&self) -> usize;
+
+    /// Reset any cached state (e.g., KV cache)
+    fn reset(&mut self) {}
+}
+
+/// Generation pipeline with processor chain
+///
+/// Orchestrates the generation loop with:
+/// 1. Model forward pass
+/// 2. Logit processing
+/// 3. Token sampling
+/// 4. EOS detection
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use realizar::generate::{GenerationPipeline, TokenSuppressor, GenerationConfig};
+///
+/// let pipeline = GenerationPipeline::new(model)
+///     .add_processor(TokenSuppressor::new(vec![0, 1, 2]))
+///     .with_config(GenerationConfig::greedy().with_eos_token_id(50256));
+///
+/// let tokens = pipeline.generate(&[1, 2, 3])?;
+/// ```
+pub struct GenerationPipeline<M: GenerativeModel> {
+    model: M,
+    processors: LogitProcessorChain,
+    config: GenerationConfig,
+}
+
+impl<M: GenerativeModel> GenerationPipeline<M> {
+    /// Create a new generation pipeline
+    #[must_use]
+    pub fn new(model: M) -> Self {
+        Self {
+            model,
+            processors: LogitProcessorChain::new(),
+            config: GenerationConfig::default(),
+        }
+    }
+
+    /// Add a logit processor to the pipeline
+    #[must_use]
+    pub fn add_processor<P: LogitProcessor + 'static>(mut self, processor: P) -> Self {
+        self.processors = self.processors.with_processor(processor);
+        self
+    }
+
+    /// Set generation configuration
+    #[must_use]
+    pub fn with_config(mut self, config: GenerationConfig) -> Self {
+        self.config = config;
+        self
+    }
+
+    /// Generate tokens starting from initial sequence
+    ///
+    /// # Arguments
+    ///
+    /// * `initial_tokens` - Starting token sequence (prompt)
+    ///
+    /// # Returns
+    ///
+    /// Generated token sequence (including initial tokens)
+    pub fn generate(&mut self, initial_tokens: &[u32]) -> Result<Vec<u32>> {
+        let mut tokens = initial_tokens.to_vec();
+        let n_vocab = self.model.vocab_size();
+        let eos_token = self.config.eos_token_id;
+
+        // Simple PRNG for sampling (deterministic with seed)
+        let mut rng_state = self.config.seed.unwrap_or(42);
+
+        for step in 0..self.config.max_tokens {
+            // Forward pass
+            let mut logits = self.model.forward(&tokens)?;
+
+            // Apply logit processors
+            let ctx = LogitProcessorContext::new(&tokens, step, n_vocab);
+            self.processors.process(&mut logits, &ctx);
+
+            // Sample next token
+            let logits_tensor = Tensor::from_vec(vec![logits.len()], logits)?;
+
+            // Simple LCG for RNG
+            rng_state = rng_state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1);
+            let rng_value = (rng_state >> 33) as f32 / (1u64 << 31) as f32;
+
+            let next_token = sample_token(&logits_tensor, &self.config, rng_value)? as u32;
+
+            tokens.push(next_token);
+
+            // Check for EOS
+            if let Some(eos) = eos_token {
+                if next_token == eos as u32 {
+                    break;
+                }
+            }
+        }
+
+        Ok(tokens)
+    }
+
+    /// Get reference to the model
+    #[must_use]
+    pub fn model(&self) -> &M {
+        &self.model
+    }
+
+    /// Get mutable reference to the model
+    pub fn model_mut(&mut self) -> &mut M {
+        &mut self.model
+    }
+
+    /// Get reference to the processor chain
+    #[must_use]
+    pub fn processors(&self) -> &LogitProcessorChain {
+        &self.processors
+    }
+
+    /// Get reference to the config
+    #[must_use]
+    pub fn config(&self) -> &GenerationConfig {
+        &self.config
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4437,5 +4871,372 @@ mod tests {
 
         let result = chain.sample(&logits, &context).unwrap();
         assert_eq!(result, 9); // Should still pick max after pipeline
+    }
+
+    // =========================================================================
+    // LogitProcessor Tests (RLZR-GEN-001)
+    // =========================================================================
+
+    #[test]
+    fn test_logit_processor_context() {
+        let tokens = vec![1u32, 2, 3, 4, 5];
+        let ctx = LogitProcessorContext::new(&tokens, 3, 1000);
+
+        assert_eq!(ctx.tokens, &[1, 2, 3, 4, 5]);
+        assert_eq!(ctx.step, 3);
+        assert_eq!(ctx.n_vocab, 1000);
+    }
+
+    #[test]
+    fn test_token_suppressor_basic() {
+        let suppressor = TokenSuppressor::new(vec![0, 5, 9]);
+        let mut logits = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
+        let ctx = LogitProcessorContext::new(&[], 0, 10);
+
+        suppressor.process(&mut logits, &ctx);
+
+        assert!(logits[0].is_infinite() && logits[0] < 0.0);
+        assert!((logits[1] - 2.0).abs() < 1e-6);
+        assert!(logits[5].is_infinite() && logits[5] < 0.0);
+        assert!(logits[9].is_infinite() && logits[9] < 0.0);
+    }
+
+    #[test]
+    fn test_token_suppressor_out_of_bounds() {
+        let suppressor = TokenSuppressor::new(vec![100, 200]); // Out of bounds
+        let mut logits = vec![1.0, 2.0, 3.0];
+        let ctx = LogitProcessorContext::new(&[], 0, 3);
+
+        // Should not panic
+        suppressor.process(&mut logits, &ctx);
+
+        // Logits unchanged
+        assert!((logits[0] - 1.0).abs() < 1e-6);
+        assert!((logits[1] - 2.0).abs() < 1e-6);
+        assert!((logits[2] - 3.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_token_suppressor_name() {
+        let suppressor = TokenSuppressor::new(vec![]);
+        assert_eq!(suppressor.name(), "token_suppressor");
+    }
+
+    #[test]
+    fn test_repetition_penalty_basic() {
+        let penalty = RepetitionPenalty::with_penalty(2.0);
+        let tokens = vec![1u32, 3, 5];
+        let mut logits = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let ctx = LogitProcessorContext::new(&tokens, 0, 6);
+
+        penalty.process(&mut logits, &ctx);
+
+        // Token 1 (logit 2.0) should be halved: 2.0 / 2.0 = 1.0
+        assert!((logits[1] - 1.0).abs() < 1e-6);
+        // Token 3 (logit 4.0) should be halved: 4.0 / 2.0 = 2.0
+        assert!((logits[3] - 2.0).abs() < 1e-6);
+        // Token 5 (logit 6.0) should be halved: 6.0 / 2.0 = 3.0
+        assert!((logits[5] - 3.0).abs() < 1e-6);
+        // Token 0 unchanged
+        assert!((logits[0] - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_repetition_penalty_negative_logits() {
+        let penalty = RepetitionPenalty::with_penalty(2.0);
+        let tokens = vec![0u32];
+        let mut logits = vec![-2.0, 1.0];
+        let ctx = LogitProcessorContext::new(&tokens, 0, 2);
+
+        penalty.process(&mut logits, &ctx);
+
+        // Negative logit should be multiplied: -2.0 * 2.0 = -4.0
+        assert!((logits[0] - (-4.0)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_repetition_penalty_with_window() {
+        let penalty = RepetitionPenalty::new(2.0, 2); // Window of 2
+        let tokens = vec![1u32, 2, 3, 4]; // Only last 2 (3, 4) should be penalized
+        let mut logits = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let ctx = LogitProcessorContext::new(&tokens, 0, 5);
+
+        penalty.process(&mut logits, &ctx);
+
+        // Token 1, 2 NOT penalized (outside window)
+        assert!((logits[1] - 2.0).abs() < 1e-6);
+        assert!((logits[2] - 3.0).abs() < 1e-6);
+        // Token 3, 4 penalized (inside window)
+        assert!((logits[3] - 2.0).abs() < 1e-6); // 4.0 / 2.0
+        assert!((logits[4] - 2.5).abs() < 1e-6); // 5.0 / 2.0
+    }
+
+    #[test]
+    fn test_temperature_scaler_basic() {
+        let scaler = TemperatureScaler::new(2.0);
+        let mut logits = vec![2.0, 4.0, 6.0];
+        let ctx = LogitProcessorContext::new(&[], 0, 3);
+
+        scaler.process(&mut logits, &ctx);
+
+        assert!((logits[0] - 1.0).abs() < 1e-6);
+        assert!((logits[1] - 2.0).abs() < 1e-6);
+        assert!((logits[2] - 3.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_temperature_scaler_no_effect_at_1() {
+        let scaler = TemperatureScaler::new(1.0);
+        let mut logits = vec![1.0, 2.0, 3.0];
+        let ctx = LogitProcessorContext::new(&[], 0, 3);
+
+        scaler.process(&mut logits, &ctx);
+
+        assert!((logits[0] - 1.0).abs() < 1e-6);
+        assert!((logits[1] - 2.0).abs() < 1e-6);
+        assert!((logits[2] - 3.0).abs() < 1e-6);
+    }
+
+    #[test]
+    #[should_panic(expected = "Temperature must be positive")]
+    fn test_temperature_scaler_panics_on_zero() {
+        let _ = TemperatureScaler::new(0.0);
+    }
+
+    #[test]
+    fn test_processor_chain_empty() {
+        let chain = LogitProcessorChain::new();
+        assert!(chain.is_empty());
+        assert_eq!(chain.len(), 0);
+    }
+
+    #[test]
+    fn test_processor_chain_add() {
+        let chain = LogitProcessorChain::new()
+            .with_processor(TokenSuppressor::new(vec![0]))
+            .with_processor(RepetitionPenalty::with_penalty(1.5));
+
+        assert_eq!(chain.len(), 2);
+        assert!(!chain.is_empty());
+    }
+
+    #[test]
+    fn test_processor_chain_names() {
+        let chain = LogitProcessorChain::new()
+            .with_processor(TokenSuppressor::new(vec![0]))
+            .with_processor(RepetitionPenalty::with_penalty(1.5))
+            .with_processor(TemperatureScaler::new(0.8));
+
+        let names = chain.processor_names();
+        assert_eq!(
+            names,
+            vec![
+                "token_suppressor",
+                "repetition_penalty",
+                "temperature_scaler"
+            ]
+        );
+    }
+
+    #[test]
+    fn test_processor_chain_applies_in_order() {
+        // Suppress token 0, then apply temp scaling
+        let chain = LogitProcessorChain::new()
+            .with_processor(TokenSuppressor::new(vec![0]))
+            .with_processor(TemperatureScaler::new(2.0));
+
+        let mut logits = vec![10.0, 4.0, 2.0];
+        let ctx = LogitProcessorContext::new(&[], 0, 3);
+
+        chain.process(&mut logits, &ctx);
+
+        // Token 0 suppressed (still -inf after scaling)
+        assert!(logits[0].is_infinite() && logits[0] < 0.0);
+        // Other logits scaled
+        assert!((logits[1] - 2.0).abs() < 1e-6);
+        assert!((logits[2] - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_processor_chain_as_logit_processor() {
+        let chain = LogitProcessorChain::new().with_processor(TokenSuppressor::new(vec![0]));
+
+        // Use as dyn LogitProcessor
+        let processor: &dyn LogitProcessor = &chain;
+        assert_eq!(processor.name(), "processor_chain");
+
+        let mut logits = vec![1.0, 2.0];
+        let ctx = LogitProcessorContext::new(&[], 0, 2);
+        processor.process(&mut logits, &ctx);
+
+        assert!(logits[0].is_infinite());
+    }
+
+    // =========================================================================
+    // GenerationPipeline Tests
+    // =========================================================================
+
+    /// Mock model for testing GenerationPipeline
+    struct MockModel {
+        vocab_size: usize,
+        /// Returns logits with this token as highest
+        highest_token: usize,
+        call_count: usize,
+    }
+
+    impl MockModel {
+        fn new(vocab_size: usize, highest_token: usize) -> Self {
+            Self {
+                vocab_size,
+                highest_token,
+                call_count: 0,
+            }
+        }
+    }
+
+    impl GenerativeModel for MockModel {
+        fn forward(&mut self, _tokens: &[u32]) -> Result<Vec<f32>> {
+            self.call_count += 1;
+            let mut logits = vec![0.0f32; self.vocab_size];
+            logits[self.highest_token] = 10.0;
+            Ok(logits)
+        }
+
+        fn vocab_size(&self) -> usize {
+            self.vocab_size
+        }
+    }
+
+    #[test]
+    fn test_generation_pipeline_basic() {
+        let model = MockModel::new(100, 42);
+        let mut pipeline = GenerationPipeline::new(model)
+            .with_config(GenerationConfig::greedy().with_max_tokens(3));
+
+        let result = pipeline.generate(&[1, 2]).unwrap();
+
+        // Initial tokens + 3 generated
+        assert_eq!(result.len(), 5);
+        // All generated tokens should be 42 (highest)
+        assert_eq!(result[2], 42);
+        assert_eq!(result[3], 42);
+        assert_eq!(result[4], 42);
+    }
+
+    #[test]
+    fn test_generation_pipeline_with_eos() {
+        // Model that returns EOS token (99) on third call
+        struct EosModel {
+            call_count: usize,
+        }
+        impl GenerativeModel for EosModel {
+            fn forward(&mut self, _tokens: &[u32]) -> Result<Vec<f32>> {
+                self.call_count += 1;
+                let mut logits = vec![0.0f32; 100];
+                if self.call_count >= 3 {
+                    logits[99] = 10.0; // EOS
+                } else {
+                    logits[50] = 10.0; // Regular token
+                }
+                Ok(logits)
+            }
+            fn vocab_size(&self) -> usize {
+                100
+            }
+        }
+
+        let model = EosModel { call_count: 0 };
+        let mut pipeline = GenerationPipeline::new(model).with_config(
+            GenerationConfig::greedy()
+                .with_max_tokens(10)
+                .with_eos_token_id(99),
+        );
+
+        let result = pipeline.generate(&[1]).unwrap();
+
+        // Should stop at EOS: [1, 50, 50, 99]
+        assert_eq!(result.len(), 4);
+        assert_eq!(result[result.len() - 1], 99);
+    }
+
+    #[test]
+    fn test_generation_pipeline_with_token_suppression() {
+        // Model that would return token 0 if not suppressed
+        struct ZeroModel;
+        impl GenerativeModel for ZeroModel {
+            fn forward(&mut self, _tokens: &[u32]) -> Result<Vec<f32>> {
+                let mut logits = vec![0.0f32; 10];
+                logits[0] = 10.0; // Token 0 is highest
+                logits[5] = 5.0; // Token 5 is second highest
+                Ok(logits)
+            }
+            fn vocab_size(&self) -> usize {
+                10
+            }
+        }
+
+        let model = ZeroModel;
+        let mut pipeline = GenerationPipeline::new(model)
+            .add_processor(TokenSuppressor::new(vec![0])) // Suppress token 0
+            .with_config(GenerationConfig::greedy().with_max_tokens(1));
+
+        let result = pipeline.generate(&[1]).unwrap();
+
+        // Should pick token 5 (second highest) since 0 is suppressed
+        assert_eq!(result, vec![1, 5]);
+    }
+
+    #[test]
+    fn test_generation_pipeline_whisper_use_case() {
+        // Simulate Whisper: suppress SOT (50257) to prevent hallucination
+        const SOT: u32 = 50257;
+        const EOT: u32 = 50256;
+
+        struct WhisperMockModel {
+            call_count: usize,
+        }
+        impl GenerativeModel for WhisperMockModel {
+            fn forward(&mut self, _tokens: &[u32]) -> Result<Vec<f32>> {
+                self.call_count += 1;
+                let mut logits = vec![0.0f32; 51865];
+
+                // Simulate bug: SOT has highest logit
+                logits[SOT as usize] = 11.0;
+
+                // Text token has second highest
+                logits[440] = 10.0; // "The" token
+
+                // EOT after 3 calls
+                if self.call_count >= 4 {
+                    logits[EOT as usize] = 20.0;
+                }
+
+                Ok(logits)
+            }
+            fn vocab_size(&self) -> usize {
+                51865
+            }
+        }
+
+        let model = WhisperMockModel { call_count: 0 };
+        let mut pipeline = GenerationPipeline::new(model)
+            .add_processor(TokenSuppressor::new(vec![SOT])) // Suppress SOT
+            .with_config(
+                GenerationConfig::greedy()
+                    .with_max_tokens(10)
+                    .with_eos_token_id(EOT as usize),
+            );
+
+        let result = pipeline.generate(&[50257, 50258]).unwrap();
+
+        // Should NOT contain SOT (50257) in generated tokens
+        for &token in &result[2..] {
+            // Skip initial tokens
+            assert_ne!(token, SOT, "SOT should be suppressed");
+        }
+
+        // Should contain the text token and EOT
+        assert!(result.contains(&440), "Should contain text token");
+        assert!(result.contains(&EOT), "Should end with EOT");
     }
 }

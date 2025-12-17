@@ -881,9 +881,9 @@ checksum = "f4ad8f11f288f48ca24471bbd51ac257aaeaaa07adae295591266b792902ae64"
 
 [[package]]
 name = "bumpalo"
-version = "3.19.0"
+version = "3.19.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46c5e41b57b8bba42a04676d81cb89e9ee8e859a1a66f80a5a72e1cb76b34d43"
+checksum = "5dd9dc738b7a8311c7ade152424974d8115f2cdad61e8dab8dac9f2362298510"
 
 [[package]]
 name = "bytemuck"
@@ -1058,7 +1058,7 @@ checksum = "fe6d2e5af09e8c8ad56c969f2157a3d4238cebc7c55f0a517728c38f7b200f81"
 dependencies = [
  "serde",
  "termcolor",
- "unicode-width 0.1.14",
+ "unicode-width 0.2.0",
 ]
 
 [[package]]
@@ -2632,7 +2632,7 @@ dependencies = [
  "thiserror 2.0.17",
  "tracing",
  "tracing-subscriber",
- "trueno 0.8.5",
+ "trueno 0.8.8",
  "uuid",
  "wasm-bindgen",
  "web-sys",
@@ -2778,13 +2778,13 @@ checksum = "f9fbbcab51052fe104eb5e5d351cf728d30a5be1fe14d9be8a3b097481fb97de"
 
 [[package]]
 name = "libredox"
-version = "0.1.10"
+version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "416f7e718bdb06000964960ffa43b4335ad4012ae8b99060261aa4a8088d5ccb"
+checksum = "df15f6eac291ed1cf25865b1ee60399f57e7c227e7f51bdbd4c5270396a9ed50"
 dependencies = [
  "bitflags 2.10.0",
  "libc",
- "redox_syscall",
+ "redox_syscall 0.6.0",
 ]
 
 [[package]]
@@ -3366,7 +3366,7 @@ checksum = "2621685985a2ebf1c516881c026032ac7deafcda1a2c9b7850dc81e3dfcb64c1"
 dependencies = [
  "cfg-if",
  "libc",
- "redox_syscall",
+ "redox_syscall 0.5.18",
  "smallvec",
  "windows-link",
 ]
@@ -3865,7 +3865,7 @@ dependencies = [
 
 [[package]]
 name = "realizar"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "alimentar",
  "anyhow",
@@ -3881,6 +3881,7 @@ dependencies = [
  "comfy-table 6.2.0",
  "console",
  "criterion",
+ "crossterm 0.28.1",
  "futures",
  "glob",
  "half",
@@ -3895,6 +3896,7 @@ dependencies = [
  "pacha",
  "predicates",
  "proptest",
+ "ratatui",
  "rayon",
  "reqwest",
  "serde",
@@ -3905,7 +3907,8 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tower 0.4.13",
- "trueno 0.8.6",
+ "tracing",
+ "trueno 0.8.8",
  "trueno-db",
  "trueno-gpu",
  "trueno-viz",
@@ -3918,6 +3921,15 @@ name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed2bf2547551a7053d6fdfafda3f938979645c44812fbfcda098faae3f1a362d"
+dependencies = [
+ "bitflags 2.10.0",
+]
+
+[[package]]
+name = "redox_syscall"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ec96166dafa0886eb81fe1c0a388bece180fbef2135f97c1e2cf8302e74b43b5"
 dependencies = [
  "bitflags 2.10.0",
 ]
@@ -5038,20 +5050,9 @@ dependencies = [
 
 [[package]]
 name = "trueno"
-version = "0.8.5"
+version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c6d1b3e3de4ca2e06d881a0653728a10a9102316eb5771ad6ec43d9659457e0"
-dependencies = [
- "bytemuck",
- "futures-intrusive",
- "pollster",
- "thiserror 2.0.17",
- "wgpu",
-]
-
-[[package]]
-name = "trueno"
-version = "0.8.6"
+checksum = "1ef49d0b4d4cae8ce5c562956af56c88009130dc695af51421587b5949ecefe7"
 dependencies = [
  "bytemuck",
  "futures-intrusive",
@@ -5062,9 +5063,9 @@ dependencies = [
 
 [[package]]
 name = "trueno-db"
-version = "0.3.6"
+version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04046d789d36d77551361001cd409ac64785f50539290f0a4c42e6104a3368d8"
+checksum = "f3a192da6795cb846f8a78691b7ed8debedfb0a1341b9e456aa5bf7282999b2c"
 dependencies = [
  "anyhow",
  "arrow 54.2.1",
@@ -5083,7 +5084,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "trueno 0.8.5",
+ "trueno 0.8.8",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -5091,7 +5092,9 @@ dependencies = [
 
 [[package]]
 name = "trueno-gpu"
-version = "0.2.1"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "678cd030f111db2e2b25cdd075c36fcf9eeda940740b34698d6ba2aa19bdaa54"
 dependencies = [
  "libloading",
  "thiserror 2.0.17",
@@ -5099,14 +5102,14 @@ dependencies = [
 
 [[package]]
 name = "trueno-viz"
-version = "0.1.4"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76ea63dd422edc8b5206484502e424f02ad82948a75a81b1768d9aace5809b3e"
+checksum = "b606c159bf34300e4cc7bc0f3d5ee4f9bee6ad7c5576ae9d711641e1cc089d4f"
 dependencies = [
  "base64 0.22.1",
  "png 0.17.16",
- "thiserror 1.0.69",
- "trueno 0.7.4",
+ "thiserror 2.0.17",
+ "trueno 0.8.8",
 ]
 
 [[package]]
@@ -5202,6 +5205,8 @@ dependencies = [
  "once_cell",
  "rustls",
  "rustls-pki-types",
+ "serde",
+ "serde_json",
  "url",
  "webpki-roots 0.26.11",
 ]

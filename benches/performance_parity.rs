@@ -837,15 +837,15 @@ fn benchmark_e2e_generation(c: &mut Criterion) {
         })
         .collect();
 
-    let model = OwnedQuantizedModel {
-        config: config.clone(),
+    let model = OwnedQuantizedModel::new_for_benchmark(
+        config.clone(),
         token_embedding,
         layers,
-        output_norm_weight: vec![1.0; hidden_dim],
-        output_norm_bias: None,
-        lm_head_weight: create_q4k_tensor(hidden_dim, vocab_size),
-        lm_head_bias: None,
-    };
+        vec![1.0; hidden_dim],
+        None,
+        create_q4k_tensor(hidden_dim, vocab_size),
+        None,
+    );
 
     // Test different generation lengths
     let gen_configs = [
@@ -1496,15 +1496,15 @@ fn create_benchmark_model(
         layers.push(layer);
     }
 
-    OwnedQuantizedModel {
-        config: config.clone(),
-        token_embedding: vec![0.1f32; vocab_size * hidden_dim],
+    OwnedQuantizedModel::new_for_benchmark(
+        config.clone(),
+        vec![0.1f32; vocab_size * hidden_dim],
         layers,
-        output_norm_weight: vec![1.0f32; hidden_dim],
-        output_norm_bias: None,
-        lm_head_weight: create_bench_q4k_data(hidden_dim, vocab_size),
-        lm_head_bias: None,
-    }
+        vec![1.0f32; hidden_dim],
+        None,
+        create_bench_q4k_data(hidden_dim, vocab_size),
+        None,
+    )
 }
 
 /// Create Q4_K benchmark data
@@ -2627,15 +2627,15 @@ fn create_bench_model_with_config(
         })
         .collect();
 
-    OwnedQuantizedModel {
-        config: config.clone(),
-        token_embedding: vec![0.1f32; vocab_size * hidden_dim],
+    OwnedQuantizedModel::new_for_benchmark(
+        config.clone(),
+        vec![0.1f32; vocab_size * hidden_dim],
         layers,
-        output_norm_weight: vec![1.0f32; hidden_dim],
-        output_norm_bias: None,
-        lm_head_weight: create_bench_q4k_data(hidden_dim, vocab_size),
-        lm_head_bias: None,
-    }
+        vec![1.0f32; hidden_dim],
+        None,
+        create_bench_q4k_data(hidden_dim, vocab_size),
+        None,
+    )
 }
 
 // ============================================================================

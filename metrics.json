@@ -1,0 +1,16 @@
+{
+    "throughput_tok_per_sec": 0.07166128220025883,
+    "latency_p50_ms": 0.0,
+    "latency_p95_ms": 0.0,
+    "latency_p99_ms": 0.0,
+    "gpu_memory_used_bytes": 6710886400,
+    "gpu_memory_total_bytes": 25769803776,
+    "gpu_utilization_percent": 0,
+    "cuda_path_active": false,
+    "batch_size": 32,
+    "queue_depth": 1024,
+    "total_tokens": 50,
+    "total_requests": 10,
+    "uptime_secs": 697,
+    "model_name": "phi-2-q4_k_m"
+}

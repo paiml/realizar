@@ -39,6 +39,62 @@ cd ../trueno && git pull && grep "^version" Cargo.toml
 - Activation functions: ReLU, sigmoid, GELU, swish, mish, selu, hardswish
 - Performance: 2-11x SIMD speedups on compute-bound operations
 
+**Trueno GPU Kernels (trueno-gpu crate):**
+- `GemmKernel` - Matrix multiplication (naive, tiled, tensor core)
+- `AttentionKernel` - FlashAttention-style tiled attention with online softmax
+- `SoftmaxKernel` - Numerically stable softmax with warp shuffle
+- `LayerNormKernel` - Fused layer normalization
+- `QuantizeKernel` - Q4_K dequantization fused with matmul
+- `Q5KKernel` - Q5_K dequantization
+- `Q6KKernel` - Q6_K dequantization
+
+## ⚠️ CRITICAL ANTI-PATTERN: NO HAND-ROLLED PTX
+
+**NEVER write PTX strings directly in realizar code.**
+
+### Why This Is Forbidden
+
+1. **Trueno exists** - The `trueno-gpu` crate has tested, optimized kernels
+2. **PTX is fragile** - Syntax errors, wrong compute capabilities, shared memory limits
+3. **Trueno has trueno-explain** - Static analysis tool to find PTX bugs
+4. **Maintenance burden** - Hand-rolled PTX must be updated for each GPU generation
+5. **Testing** - Trueno kernels have property tests; hand-rolled PTX does not
+
+### The Anti-Pattern (DO NOT DO THIS)
+
+```rust
+// ❌ WRONG - Hand-rolled PTX string in realizar
+fn generate_attention_ptx(seq_len: u32, head_dim: u32) -> String {
+    format!(r"
+.version 8.0
+.target sm_89
+.address_size 64
+.visible .entry attention(...) {{
+    // 200 lines of hand-written PTX
+}}
+")
+}
+```
+
+### The Correct Pattern (DO THIS)
+
+```rust
+// ✅ CORRECT - Use trueno-gpu kernels
+use trueno_gpu::kernels::{AttentionKernel, Kernel};
+
+let kernel = AttentionKernel::new(seq_len, head_dim)
+    .with_causal()
+    .with_tiles(64, 64);
+let ptx = kernel.emit_ptx();
+```
+
+### If Trueno Is Missing a Kernel
+
+1. **Add it to trueno-gpu** - Push to `../trueno`, not realizar
+2. **Use the PTX builder API** - `PtxKernel::new().param().build(|ctx| {...})`
+3. **Add property tests** - Ensure kernel works for all valid dimensions
+4. **Use trueno-explain** - Run `trueno-explain bugs --kernel <name>` to find issues
+
 ### Aprender (ML Library)
 
 **IMPORTANT:** Aprender is actively developed and frequently released. **ALWAYS check for the latest version.**
@@ -345,6 +401,105 @@ cargo test --lib --features cuda
 2. `cargo clippy --lib --features cuda` - zero warnings
 3. `cargo test --lib --features cuda` - **ALL tests including GPU**
 4. Update spec with results
+
+---
+
+## CRITICAL: TUI Simulation Debugging (Probar-Style)
+
+**⚠️ MANDATORY FOR ALL GPU/CUDA DEBUGGING**
+
+When debugging GPU scheduler issues (CUDA vs wgpu parity, buffer management, kernel execution),
+you MUST use TUI simulation workflow tests. This pattern was proven critical in PARITY-114 where
+it detected a **state accumulation bug** that simple unit tests missed.
+
+### Why TUI Simulation is Required
+
+1. **Watches the Flow**: Step-by-step visualization of data through schedulers
+2. **Catches State Bugs**: Sequential operations reveal accumulation/leakage issues
+3. **Provides Diagnosis**: Automatic analysis of failure ratios (8x = accumulator bug, 4x = tile bug)
+4. **Probar Alignment**: Matches probar's proven TUI testing methodology
+
+### TUI Simulation Test Pattern
+
+```rust
+/// Example: TUI simulation for scheduler parity testing
+#[test]
+#[cfg(feature = "cuda")]
+fn test_scheduler_parity_tui_simulation() {
+    use realizar::gpu::{CudaScheduler, HybridScheduler};
+
+    println!("╔══════════════════════════════════════════════════════════════════════╗");
+    println!("║  TUI SIMULATION: Watch Data Flow Through Schedulers                  ║");
+    println!("╚══════════════════════════════════════════════════════════════════════╝");
+
+    let mut sim = MatmulSimulator::new();
+
+    // Define steps
+    let step_init = sim.add_step("INIT", "Initialize test matrices");
+    let step_cpu = sim.add_step("CPU", "Compute reference");
+    let step_cuda = sim.add_step("CUDA", "Execute via CudaScheduler");
+    let step_check = sim.add_step("CHECK", "Verify parity");
+
+    // Execute with visual feedback
+    sim.start_step(step_init);
+    println!("  ◐ Initializing...");
+    // ... setup code ...
+    sim.complete_step(step_init, values, None);
+    println!("  ● Complete");
+
+    // Render final TUI frame
+    println!("{}", sim.render_final());
+}
+```
+
+### State Isolation Test Pattern
+
+**CRITICAL**: Always test sequential operations to catch state bugs:
+
+```rust
+/// Test for state accumulation bugs
+#[test]
+fn test_scheduler_state_isolation() {
+    let mut scheduler = CudaScheduler::new().unwrap();
+
+    // Same operation twice - results MUST be identical
+    let r1 = scheduler.matmul(&a, &b, m, k, n).unwrap();
+    let r2 = scheduler.matmul(&a, &b, m, k, n).unwrap();
+
+    assert_eq!(r1[0], r2[0], "State leak detected: first={}, second={}", r1[0], r2[0]);
+}
+```
+
+### Running TUI Workflow Tests
+
+```bash
+# Run all GPU parity workflow tests with visual output
+cargo test --test gpu_parity_workflow --features cuda -- --nocapture
+
+# Specific TUI simulation test
+cargo test --test gpu_parity_workflow test_parity_114_tui_simulation --features cuda -- --nocapture
+```
+
+### Failure Analysis Guide
+
+| Ratio | Diagnosis | Check |
+|-------|-----------|-------|
+| 8x | Accumulator/tile loop bug | Inner loop iterations, FMA instruction |
+| 4x | Partial tile accumulation | n_tiles calculation, tile bounds |
+| 2x | Half iterations | Loop termination condition |
+| Varies | State accumulation | Output buffer not cleared between calls |
+
+### Bug Discovery: PARITY-114 Case Study
+
+The TUI simulation discovered that **the same operation produced different results**:
+
+```
+Op 1: 4×64×8, expected 64, got 8
+Op 3: 4×64×8, expected 64, got 16  ← DIFFERENT from Op 1!
+```
+
+This proved the output buffer was accumulating between calls rather than being cleared.
+Simple unit tests would NOT have caught this - only sequential TUI simulation revealed it.
 
 ---
 

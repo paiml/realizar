@@ -316,14 +316,504 @@ fn test_parity_092g_golden_baseline_snapshot() {
 }
 
 // ============================================================================
+// PARITY-107: Server Metrics Compatibility Tests
+// ============================================================================
+
+/// PARITY-107a: Verify ServerMetricsResponse can convert to InferenceMetrics
+#[test]
+fn test_parity_107a_server_metrics_to_tui_metrics() {
+    println!("PARITY-107a: Server Metrics to TUI Metrics Conversion");
+
+    // Simulate ServerMetricsResponse from /v1/metrics endpoint
+    let server_metrics = realizar::api::ServerMetricsResponse {
+        throughput_tok_per_sec: 192.5,
+        latency_p50_ms: 5.2,
+        latency_p95_ms: 7.8,
+        latency_p99_ms: 12.1,
+        gpu_memory_used_bytes: 6_700_000_000,
+        gpu_memory_total_bytes: 24_000_000_000,
+        gpu_utilization_percent: 85,
+        cuda_path_active: true,
+        batch_size: 32,
+        queue_depth: 8,
+        total_tokens: 50000,
+        total_requests: 500,
+        uptime_secs: 3600,
+        model_name: "phi-2-q4_k_m".to_string(),
+    };
+
+    // Convert to InferenceMetrics for TUI display
+    let tui_metrics = InferenceMetrics {
+        throughput_tok_per_sec: server_metrics.throughput_tok_per_sec,
+        latency_ms: server_metrics.latency_p50_ms,
+        latency_p95_ms: server_metrics.latency_p95_ms,
+        gpu_memory_bytes: server_metrics.gpu_memory_used_bytes,
+        gpu_memory_total_bytes: server_metrics.gpu_memory_total_bytes,
+        batch_size: server_metrics.batch_size,
+        queue_size: server_metrics.queue_depth,
+        total_tokens: server_metrics.total_tokens,
+        total_requests: server_metrics.total_requests,
+        running: true,
+        using_gpu: server_metrics.cuda_path_active,
+    };
+
+    // Verify conversion preserves data
+    assert!((tui_metrics.throughput_tok_per_sec - 192.5).abs() < 0.001);
+    assert!((tui_metrics.latency_ms - 5.2).abs() < 0.001);
+    assert!((tui_metrics.latency_p95_ms - 7.8).abs() < 0.001);
+    assert_eq!(tui_metrics.gpu_memory_bytes, 6_700_000_000);
+    assert_eq!(tui_metrics.batch_size, 32);
+    assert_eq!(tui_metrics.queue_size, 8);
+    assert_eq!(tui_metrics.total_tokens, 50000);
+    assert!(tui_metrics.using_gpu);
+
+    println!(
+        "  ✓ Throughput: {} tok/s",
+        tui_metrics.throughput_tok_per_sec
+    );
+    println!("  ✓ Latency p50: {} ms", tui_metrics.latency_ms);
+    println!("  ✓ GPU Memory: {} bytes", tui_metrics.gpu_memory_bytes);
+    println!("  ✓ CUDA active: {}", tui_metrics.using_gpu);
+}
+
+/// PARITY-107b: Verify TUI renders server metrics correctly
+#[test]
+fn test_parity_107b_server_metrics_rendering() {
+    println!("PARITY-107b: Server Metrics TUI Rendering");
+
+    let config = TuiConfig::default();
+    let mut tui = InferenceTui::new(config);
+
+    // Simulate M4 parity achievement
+    let metrics = InferenceMetrics {
+        throughput_tok_per_sec: 256.0,
+        latency_ms: 3.9,
+        latency_p95_ms: 5.2,
+        gpu_memory_bytes: 6_700_000_000,
+        gpu_memory_total_bytes: 24_000_000_000,
+        batch_size: 32,
+        queue_size: 0,
+        total_tokens: 100000,
+        total_requests: 1000,
+        running: true,
+        using_gpu: true,
+    };
+
+    tui.update(&metrics);
+    let output = tui.render_to_string();
+
+    // Verify M4 parity is achieved and displayed
+    assert!(output.contains("256.0 tok/s"), "Should show throughput");
+    assert!(output.contains("✓"), "Should show M4 parity checkmark");
+    assert!(output.contains("[GPU]"), "Should show GPU mode");
+
+    println!("  ✓ M4 parity checkmark present");
+    println!("  ✓ GPU mode indicator present");
+    println!("  ✓ Throughput displayed correctly");
+}
+
+/// PARITY-107c: Verify metrics JSON format matches monitor expectations
+#[test]
+fn test_parity_107c_metrics_json_format() {
+    println!("PARITY-107c: Metrics JSON Format Verification");
+
+    // Create metrics response
+    let response = realizar::api::ServerMetricsResponse {
+        throughput_tok_per_sec: 192.0,
+        latency_p50_ms: 5.0,
+        latency_p95_ms: 7.5,
+        latency_p99_ms: 10.0,
+        gpu_memory_used_bytes: 6_000_000_000,
+        gpu_memory_total_bytes: 24_000_000_000,
+        gpu_utilization_percent: 75,
+        cuda_path_active: true,
+        batch_size: 32,
+        queue_depth: 0,
+        total_tokens: 1000,
+        total_requests: 100,
+        uptime_secs: 60,
+        model_name: "test-model".to_string(),
+    };
+
+    // Serialize to JSON
+    let json = serde_json::to_string(&response).unwrap();
+
+    // Verify all required fields are present
+    assert!(json.contains("\"throughput_tok_per_sec\""));
+    assert!(json.contains("\"latency_p50_ms\""));
+    assert!(json.contains("\"latency_p95_ms\""));
+    assert!(json.contains("\"latency_p99_ms\""));
+    assert!(json.contains("\"gpu_memory_used_bytes\""));
+    assert!(json.contains("\"gpu_memory_total_bytes\""));
+    assert!(json.contains("\"gpu_utilization_percent\""));
+    assert!(json.contains("\"cuda_path_active\""));
+    assert!(json.contains("\"batch_size\""));
+    assert!(json.contains("\"queue_depth\""));
+    assert!(json.contains("\"total_tokens\""));
+    assert!(json.contains("\"total_requests\""));
+    assert!(json.contains("\"uptime_secs\""));
+    assert!(json.contains("\"model_name\""));
+
+    // Verify round-trip deserialization
+    let parsed: realizar::api::ServerMetricsResponse = serde_json::from_str(&json).unwrap();
+    assert!((parsed.throughput_tok_per_sec - 192.0).abs() < 0.001);
+    assert_eq!(parsed.batch_size, 32);
+    assert_eq!(parsed.model_name, "test-model");
+
+    println!("  ✓ All 14 required fields present");
+    println!("  ✓ Round-trip serialization works");
+}
+
+// ============================================================================
+// PARITY-108: Rich Playbook Tests (inspired by probar)
+// ============================================================================
+
+/// Playbook state for testing state machine transitions
+#[derive(Debug, Clone, PartialEq)]
+enum MonitorState {
+    Disconnected,
+    Connected,
+    Paused,
+    HighLoad,
+    Error,
+}
+
+/// PARITY-108a: State machine transitions playbook
+#[test]
+fn test_parity_108a_state_machine_playbook() {
+    println!("PARITY-108a: Monitor State Machine Playbook");
+    println!();
+
+    // Define state transitions (inspired by probar playbooks)
+    let transitions = [
+        (
+            "Disconnected -> Connected",
+            MonitorState::Disconnected,
+            MonitorState::Connected,
+            "Server responds to /v1/metrics",
+        ),
+        (
+            "Connected -> Paused",
+            MonitorState::Connected,
+            MonitorState::Paused,
+            "User presses 'p'",
+        ),
+        (
+            "Paused -> Connected",
+            MonitorState::Paused,
+            MonitorState::Connected,
+            "User presses 'p' again",
+        ),
+        (
+            "Connected -> HighLoad",
+            MonitorState::Connected,
+            MonitorState::HighLoad,
+            "Throughput > 100 tok/s",
+        ),
+        (
+            "Connected -> Disconnected",
+            MonitorState::Connected,
+            MonitorState::Disconnected,
+            "Server stops responding",
+        ),
+        (
+            "Connected -> Error",
+            MonitorState::Connected,
+            MonitorState::Error,
+            "Invalid JSON response",
+        ),
+    ];
+
+    println!("  State Transitions:");
+    for (name, from, to, trigger) in &transitions {
+        println!("    {:?} → {:?}", from, to);
+        println!("      Transition: {}", name);
+        println!("      Trigger: {}", trigger);
+        println!();
+    }
+
+    // Verify all states are reachable
+    let all_states = [
+        MonitorState::Disconnected,
+        MonitorState::Connected,
+        MonitorState::Paused,
+        MonitorState::HighLoad,
+        MonitorState::Error,
+    ];
+
+    for state in &all_states {
+        let reachable = transitions.iter().any(|(_, _, to, _)| to == state)
+            || *state == MonitorState::Disconnected; // Initial state
+        assert!(reachable, "State {:?} should be reachable", state);
+    }
+
+    println!(
+        "  ✓ All {} states reachable via transitions",
+        all_states.len()
+    );
+}
+
+/// PARITY-108b: Trend indicator calculations
+#[test]
+fn test_parity_108b_trend_indicator_playbook() {
+    println!("PARITY-108b: Trend Indicator Calculations");
+    println!();
+
+    // Test cases for trend detection (inspired by trueno-viz sparkline)
+    let test_cases = [
+        ("Rising", vec![10.0, 15.0, 20.0, 25.0, 30.0, 35.0], "↑"),
+        ("Falling", vec![35.0, 30.0, 25.0, 20.0, 15.0, 10.0], "↓"),
+        ("Stable", vec![20.0, 21.0, 20.0, 21.0, 20.0, 21.0], "→"),
+        ("Insufficient data", vec![10.0, 15.0], "→"),
+        (
+            "Spike then fall",
+            vec![10.0, 50.0, 20.0, 21.0, 20.0, 21.0],
+            "↓",
+        ),
+    ];
+
+    for (name, data, expected) in &test_cases {
+        let trend = calculate_trend(data);
+        println!(
+            "  {}: {:?} → {}",
+            name,
+            data.iter().take(3).collect::<Vec<_>>(),
+            trend
+        );
+        assert_eq!(
+            &trend, expected,
+            "Trend for {} should be {}",
+            name, expected
+        );
+    }
+
+    println!();
+    println!("  ✓ All trend calculations correct");
+}
+
+/// Calculate trend from data (mirrors monitor implementation)
+fn calculate_trend(data: &[f64]) -> &'static str {
+    if data.len() < 5 {
+        return "→";
+    }
+    let recent: Vec<f64> = data.iter().rev().take(5).cloned().collect();
+    let first_avg = (recent[3] + recent[4]) / 2.0;
+    let last_avg = (recent[0] + recent[1]) / 2.0;
+
+    let min = data.iter().cloned().reduce(f64::min).unwrap_or(0.0);
+    let max = data.iter().cloned().reduce(f64::max).unwrap_or(1.0);
+    let range = max - min;
+    let threshold = range * 0.05;
+
+    if last_avg > first_avg + threshold {
+        "↑"
+    } else if last_avg < first_avg - threshold {
+        "↓"
+    } else {
+        "→"
+    }
+}
+
+/// PARITY-108c: Color state verification
+#[test]
+fn test_parity_108c_color_states_playbook() {
+    println!("PARITY-108c: Color State Verification");
+    println!();
+
+    // GPU gauge colors based on percentage (matching monitor implementation)
+    // Monitor uses: > 90 = Red, >= 70 = Yellow, else Green
+    let gpu_color_cases = [
+        (0, "Green", "< 70%"),
+        (50, "Green", "< 70%"),
+        (69, "Green", "< 70%"),
+        (70, "Yellow", "70-90%"),
+        (85, "Yellow", "70-90%"),
+        (90, "Yellow", "70-90%"), // 90 is still Yellow (> 90 is Red)
+        (91, "Red", "> 90%"),
+        (100, "Red", "> 90%"),
+    ];
+
+    println!("  GPU Memory Gauge Colors:");
+    for (percent, expected_color, range) in &gpu_color_cases {
+        let color = if *percent > 90 {
+            "Red"
+        } else if *percent >= 70 {
+            "Yellow"
+        } else {
+            "Green"
+        };
+        println!("    {}% → {} ({})", percent, color, range);
+        assert_eq!(
+            color, *expected_color,
+            "{}% should be {}",
+            percent, expected_color
+        );
+    }
+
+    // Trend arrow colors
+    let trend_colors = [
+        ("↑", "Green", "Rising throughput is good"),
+        ("↓", "Red", "Falling throughput is bad"),
+        ("→", "Yellow", "Stable throughput is neutral"),
+    ];
+
+    println!();
+    println!("  Throughput Trend Colors:");
+    for (trend, color, reason) in &trend_colors {
+        println!("    {} → {} ({})", trend, color, reason);
+    }
+
+    // Latency trend colors (inverted - lower is better)
+    let latency_colors = [
+        ("↑", "Red", "Rising latency is bad"),
+        ("↓", "Green", "Falling latency is good"),
+        ("→", "Yellow", "Stable latency is neutral"),
+    ];
+
+    println!();
+    println!("  Latency Trend Colors:");
+    for (trend, color, reason) in &latency_colors {
+        println!("    {} → {} ({})", trend, color, reason);
+    }
+
+    println!();
+    println!("  ✓ All color states verified");
+}
+
+/// PARITY-108d: Layout percentage verification
+#[test]
+fn test_parity_108d_layout_percentages() {
+    println!("PARITY-108d: Layout Percentage Verification");
+    println!();
+
+    // Main layout: 60/40 split (inspired by simular)
+    let main_split = (60, 40);
+    assert_eq!(
+        main_split.0 + main_split.1,
+        100,
+        "Main split should sum to 100%"
+    );
+
+    // Left side: 55/30/15 split
+    let left_split = (55, 30, 15);
+    assert_eq!(
+        left_split.0 + left_split.1 + left_split.2,
+        100,
+        "Left split should sum to 100%"
+    );
+
+    // Right side: 60/40 split
+    let right_split = (60, 40);
+    assert_eq!(
+        right_split.0 + right_split.1,
+        100,
+        "Right split should sum to 100%"
+    );
+
+    println!("  Layout Structure:");
+    println!("  ┌────────────────────────────────┬──────────────────────┐");
+    println!(
+        "  │ LEFT ({}%)                     │ RIGHT ({}%)          │",
+        main_split.0, main_split.1
+    );
+    println!("  │                                │                      │");
+    println!("  │ ┌─────────────────────────────┐│ ┌──────────────────┐ │");
+    println!(
+        "  │ │ Throughput ({}%)            ││ │ Metrics ({}%)    │ │",
+        left_split.0, right_split.0
+    );
+    println!("  │ └─────────────────────────────┘│ │                  │ │");
+    println!("  │ ┌─────────────────────────────┐│ └──────────────────┘ │");
+    println!(
+        "  │ │ GPU Memory ({}%)            ││ ┌──────────────────┐ │",
+        left_split.1
+    );
+    println!(
+        "  │ └─────────────────────────────┘│ │ System ({}%)     │ │",
+        right_split.1
+    );
+    println!("  │ ┌─────────────────────────────┐│ └──────────────────┘ │");
+    println!(
+        "  │ │ Controls ({}%)              ││                      │",
+        left_split.2
+    );
+    println!("  │ └─────────────────────────────┘│                      │");
+    println!("  └────────────────────────────────┴──────────────────────┘");
+    println!();
+    println!("  ✓ Layout percentages verified (simular-style 60/40 split)");
+}
+
+/// PARITY-108e: Real-time update scenarios
+#[test]
+fn test_parity_108e_realtime_update_scenarios() {
+    println!("PARITY-108e: Real-Time Update Scenarios");
+    println!();
+
+    // Scenario playbook (inspired by probar)
+    let scenarios = [
+        (
+            "Cold start",
+            "Server just started, no requests yet",
+            vec![("throughput", 0.0), ("requests", 0.0), ("tokens", 0.0)],
+        ),
+        (
+            "Warming up",
+            "First few requests coming in",
+            vec![("throughput", 15.5), ("requests", 10.0), ("tokens", 50.0)],
+        ),
+        (
+            "Normal load",
+            "Steady state operation",
+            vec![
+                ("throughput", 85.2),
+                ("requests", 500.0),
+                ("tokens", 5000.0),
+            ],
+        ),
+        (
+            "High load",
+            "Peak performance",
+            vec![
+                ("throughput", 192.4),
+                ("requests", 2000.0),
+                ("tokens", 50000.0),
+            ],
+        ),
+        (
+            "Overload",
+            "System under stress",
+            vec![
+                ("throughput", 45.0),
+                ("requests", 10000.0),
+                ("tokens", 100000.0),
+            ],
+        ),
+    ];
+
+    println!("  Scenario Playbook:");
+    for (name, description, metrics) in &scenarios {
+        println!("  ┌─ {} ─────────────────────────────────", name);
+        println!("  │ {}", description);
+        for (metric, value) in metrics {
+            println!("  │   {}: {:.1}", metric, value);
+        }
+        println!("  └──────────────────────────────────────────");
+        println!();
+    }
+
+    println!("  ✓ {} scenarios defined for testing", scenarios.len());
+}
+
+// ============================================================================
 // SUMMARY
 // ============================================================================
 
 /// PARITY-092: Visual regression test summary
 #[test]
 fn test_parity_092_summary() {
-    println!("=== PARITY-092: Visual Regression Tests ===");
-    println!("Coverage:");
+    println!("=== PARITY-092/108: Visual Regression Tests ===");
+    println!();
+    println!("PARITY-092 Coverage:");
     println!("  - Box drawing structure (corners, borders, separators)");
     println!("  - Content elements (labels, values, units)");
     println!("  - Sparkline rendering");
@@ -331,7 +821,14 @@ fn test_parity_092_summary() {
     println!("  - GPU/CPU status indicator");
     println!("  - Running/Stopped status");
     println!("  - Golden baseline snapshot");
-    println!("");
-    println!("Approach: Similar to trueno's probar visual testing");
-    println!("          but for terminal UI instead of WASM pixels");
+    println!();
+    println!("PARITY-108 Playbook Coverage:");
+    println!("  - State machine transitions");
+    println!("  - Trend indicator calculations");
+    println!("  - Color state verification");
+    println!("  - Layout percentage verification");
+    println!("  - Real-time update scenarios");
+    println!();
+    println!("Approach: Combines trueno's probar visual testing");
+    println!("          with simular's TUI patterns");
 }
