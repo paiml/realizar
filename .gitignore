@@ -31,3 +31,14 @@ coverage.json
 # But keep model files in models/ for reproducibility
 !models/*.apr
 benches/comparative/data/
+
+# Runtime artifacts
+metrics.json
+server.log
+*.log
+
+# PMAT metrics (local only)
+.pmat-metrics/
+
+# Benchmark results (regenerated)
+benches/comparative/results/

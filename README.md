@@ -1,13 +1,8 @@
 <div align="center">
 
-# realizar
+<img src="assets/hero.svg" alt="realizar - Pure Rust ML Inference Engine" width="800"/>
 
-**Pure Rust ML Inference Engine**
-
-[![CI](https://github.com/paiml/realizar/workflows/CI/badge.svg)](https://github.com/paiml/realizar/actions)
-[![Crates.io](https://img.shields.io/crates/v/realizar.svg)](https://crates.io/crates/realizar)
-[![Docs](https://docs.rs/realizar/badge.svg)](https://docs.rs/realizar)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![CI](https://github.com/paiml/realizar/actions/workflows/ci.yml/badge.svg)](https://github.com/paiml/realizar/actions/workflows/ci.yml)
 
 </div>
 
