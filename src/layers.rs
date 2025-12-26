@@ -8978,8 +8978,8 @@ mod tests {
         use crate::quantize::dequantize_q4_0;
 
         // Test mixed precision: Q4 weights with F32 activations (F16 test)
-        // Q4_0 block: 2 bytes (f16 scale) + 16 bytes (32 4-bit values) + 2 bytes padding = 20 bytes
-        let q4_data = vec![0u8; 20]; // One Q4_0 block
+        // Q4_0 block: 2 bytes (f16 scale) + 16 bytes (32 4-bit values) = 18 bytes
+        let q4_data = vec![0u8; 18]; // One Q4_0 block
 
         // Dequantize Q4 weights to F32 (simulating F16->F32 promotion)
         let weights_f32 = dequantize_q4_0(&q4_data).unwrap();

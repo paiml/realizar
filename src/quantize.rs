@@ -307,8 +307,9 @@ pub struct Q6_KBlock {
 /// let weights = dequantize_q4_0(&quantized)?;
 /// ```
 pub fn dequantize_q4_0(data: &[u8]) -> Result<Vec<f32>> {
-    // Q4_0 block: 4 bytes (f32 scale) + 16 bytes (quants) = 20 bytes
-    const BLOCK_BYTES: usize = 4 + 16;
+    // Q4_0 block: 2 bytes (f16 scale) + 16 bytes (quants) = 18 bytes
+    // GGML spec: typedef struct { ggml_half d; uint8_t qs[QK4_0/2]; } block_q4_0;
+    const BLOCK_BYTES: usize = 2 + 16;
 
     if data.len() % BLOCK_BYTES != 0 {
         return Err(RealizarError::InvalidShape {
@@ -326,17 +327,12 @@ pub fn dequantize_q4_0(data: &[u8]) -> Result<Vec<f32>> {
     for block_idx in 0..num_blocks {
         let block_start = block_idx * BLOCK_BYTES;
 
-        // Read scale (f32)
-        let scale_bytes = &data[block_start..block_start + 4];
-        let scale = f32::from_le_bytes([
-            scale_bytes[0],
-            scale_bytes[1],
-            scale_bytes[2],
-            scale_bytes[3],
-        ]);
+        // Read scale (f16, per GGML spec)
+        let scale_bytes = &data[block_start..block_start + 2];
+        let scale = half::f16::from_le_bytes([scale_bytes[0], scale_bytes[1]]).to_f32();
 
         // Read quantized values (16 bytes)
-        let quants_start = block_start + 4;
+        let quants_start = block_start + 2;
         let quants = &data[quants_start..quants_start + 16];
 
         // Dequantize: 2 4-bit values per byte
@@ -2787,11 +2783,11 @@ unsafe fn dequantize_q8_0_block_avx2(block_data: &[u8]) -> Vec<f32> {
 /// SIMD-accelerated Q4_0 dequantization
 ///
 /// Uses AVX2 when available, with parallel block processing.
-/// Q4_0: 20 bytes per block (4 scale + 16 quants for 32 values)
+/// Q4_0: 18 bytes per block (2 f16 scale + 16 quants for 32 values)
 ///
 /// # Errors
 ///
-/// Returns error if data length is not a multiple of block size (20 bytes)
+/// Returns error if data length is not a multiple of block size (18 bytes)
 pub fn dequantize_q4_0_simd(data: &[u8]) -> Result<Vec<f32>> {
     #[cfg(target_arch = "x86_64")]
     {
@@ -2819,11 +2815,12 @@ pub fn dequantize_q4_0_simd(data: &[u8]) -> Result<Vec<f32>> {
 ///
 /// # Errors
 ///
-/// Returns error if data length is not a multiple of block size (20 bytes)
+/// Returns error if data length is not a multiple of block size (18 bytes)
 pub fn dequantize_q4_0_parallel(data: &[u8]) -> Result<Vec<f32>> {
     use rayon::prelude::*;
 
-    const BLOCK_BYTES: usize = 20;
+    // Q4_0 block: 2 bytes (f16 scale) + 16 bytes (quants) = 18 bytes
+    const BLOCK_BYTES: usize = 18;
 
     if data.len() % BLOCK_BYTES != 0 {
         return Err(RealizarError::InvalidShape {
@@ -2849,14 +2846,16 @@ pub fn dequantize_q4_0_parallel(data: &[u8]) -> Result<Vec<f32>> {
     Ok(result)
 }
 
-/// Scalar Q4_0 block dequantization
+/// Scalar Q4_0 block dequantization (18-byte block: 2 f16 scale + 16 quants)
 #[inline]
 fn dequantize_q4_0_block_scalar(block_data: &[u8]) -> Vec<f32> {
     let mut result = Vec::with_capacity(32);
 
-    let scale = f32::from_le_bytes([block_data[0], block_data[1], block_data[2], block_data[3]]);
+    // Read f16 scale (2 bytes) per GGML spec
+    let scale = half::f16::from_le_bytes([block_data[0], block_data[1]]).to_f32();
 
-    for &byte in &block_data[4..20] {
+    // Quants start at byte 2, 16 bytes total
+    for &byte in &block_data[2..18] {
         #[allow(clippy::cast_possible_wrap)]
         let low = (byte & 0x0F) as i8 - 8;
         result.push(scale * f32::from(low));
@@ -2875,7 +2874,8 @@ fn dequantize_q4_0_block_scalar(block_data: &[u8]) -> Vec<f32> {
 unsafe fn dequantize_q4_0_avx2_parallel(data: &[u8]) -> Result<Vec<f32>> {
     use rayon::prelude::*;
 
-    const BLOCK_BYTES: usize = 20;
+    // Q4_0 block: 2 bytes (f16 scale) + 16 bytes (quants) = 18 bytes
+    const BLOCK_BYTES: usize = 18;
 
     if data.len() % BLOCK_BYTES != 0 {
         return Err(RealizarError::InvalidShape {
@@ -2902,7 +2902,7 @@ unsafe fn dequantize_q4_0_avx2_parallel(data: &[u8]) -> Result<Vec<f32>> {
     Ok(result)
 }
 
-/// AVX2 SIMD dequantization for a single Q4_0 block (32 values)
+/// AVX2 SIMD dequantization for a single Q4_0 block (32 values, 18 bytes)
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 unsafe fn dequantize_q4_0_block_avx2(block_data: &[u8]) -> Vec<f32> {
@@ -2911,7 +2911,8 @@ unsafe fn dequantize_q4_0_block_avx2(block_data: &[u8]) -> Vec<f32> {
 
     let mut result = vec![0.0f32; 32];
 
-    let scale = f32::from_le_bytes([block_data[0], block_data[1], block_data[2], block_data[3]]);
+    // Read f16 scale (2 bytes) per GGML spec
+    let scale = half::f16::from_le_bytes([block_data[0], block_data[1]]).to_f32();
 
     // SAFETY: AVX2 availability verified by caller's target_feature
     unsafe {
@@ -2919,8 +2920,9 @@ unsafe fn dequantize_q4_0_block_avx2(block_data: &[u8]) -> Vec<f32> {
         let offset_vec = _mm256_set1_ps(-8.0); // Q4_0 offset
 
         // Process 32 values in 4 iterations of 8
+        // Quants start at byte 2 (after 2-byte f16 scale)
         for chunk in 0..4 {
-            let byte_start = 4 + chunk * 4;
+            let byte_start = 2 + chunk * 4;
 
             // Extract 8 4-bit values from 4 bytes
             let b0 = block_data[byte_start];
@@ -2958,7 +2960,8 @@ unsafe fn dequantize_q4_0_block_avx2(block_data: &[u8]) -> Vec<f32> {
 unsafe fn dequantize_q4_0_sse2_parallel(data: &[u8]) -> Result<Vec<f32>> {
     use rayon::prelude::*;
 
-    const BLOCK_BYTES: usize = 20;
+    // Q4_0 block: 2 bytes (f16 scale) + 16 bytes (quants) = 18 bytes
+    const BLOCK_BYTES: usize = 18;
 
     if data.len() % BLOCK_BYTES != 0 {
         return Err(RealizarError::InvalidShape {
@@ -2985,7 +2988,7 @@ unsafe fn dequantize_q4_0_sse2_parallel(data: &[u8]) -> Result<Vec<f32>> {
     Ok(result)
 }
 
-/// SSE2 SIMD dequantization for a single Q4_0 block (32 values)
+/// SSE2 SIMD dequantization for a single Q4_0 block (32 values, 18 bytes)
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "sse2")]
 unsafe fn dequantize_q4_0_block_sse2(block_data: &[u8]) -> Vec<f32> {
@@ -2994,7 +2997,8 @@ unsafe fn dequantize_q4_0_block_sse2(block_data: &[u8]) -> Vec<f32> {
 
     let mut result = vec![0.0f32; 32];
 
-    let scale = f32::from_le_bytes([block_data[0], block_data[1], block_data[2], block_data[3]]);
+    // Read f16 scale (2 bytes) per GGML spec
+    let scale = half::f16::from_le_bytes([block_data[0], block_data[1]]).to_f32();
 
     // SAFETY: SSE2 availability verified by caller's target_feature
     unsafe {
@@ -3002,8 +3006,9 @@ unsafe fn dequantize_q4_0_block_sse2(block_data: &[u8]) -> Vec<f32> {
         let offset_vec = _mm_set1_ps(-8.0);
 
         // Process 32 values in 8 iterations of 4 (SSE2 = 128-bit = 4 floats)
+        // Quants start at byte 2 (after 2-byte f16 scale)
         for chunk in 0..8 {
-            let byte_start = 4 + chunk * 2;
+            let byte_start = 2 + chunk * 2;
 
             // Extract 4 4-bit values from 2 bytes
             let b0 = block_data[byte_start];
@@ -3032,7 +3037,8 @@ unsafe fn dequantize_q4_0_block_sse2(block_data: &[u8]) -> Vec<f32> {
 unsafe fn dequantize_q4_0_neon_parallel(data: &[u8]) -> Result<Vec<f32>> {
     use rayon::prelude::*;
 
-    const BLOCK_BYTES: usize = 20;
+    // Q4_0 block: 2 bytes (f16 scale) + 16 bytes (quants) = 18 bytes
+    const BLOCK_BYTES: usize = 18;
 
     if data.len() % BLOCK_BYTES != 0 {
         return Err(RealizarError::InvalidShape {
@@ -3059,14 +3065,15 @@ unsafe fn dequantize_q4_0_neon_parallel(data: &[u8]) -> Result<Vec<f32>> {
     Ok(result)
 }
 
-/// NEON SIMD dequantization for a single Q4_0 block (32 values)
+/// NEON SIMD dequantization for a single Q4_0 block (32 values, 18 bytes)
 #[cfg(target_arch = "aarch64")]
 unsafe fn dequantize_q4_0_block_neon(block_data: &[u8]) -> Vec<f32> {
     use std::arch::aarch64::*;
 
     let mut result = vec![0.0f32; 32];
 
-    let scale = f32::from_le_bytes([block_data[0], block_data[1], block_data[2], block_data[3]]);
+    // Read f16 scale (2 bytes) per GGML spec
+    let scale = half::f16::from_le_bytes([block_data[0], block_data[1]]).to_f32();
 
     // SAFETY: NEON always available on aarch64
     unsafe {
@@ -3074,8 +3081,9 @@ unsafe fn dequantize_q4_0_block_neon(block_data: &[u8]) -> Vec<f32> {
         let offset_vec = vdupq_n_f32(-8.0);
 
         // Process 32 values in 8 iterations of 4 (NEON = 128-bit = 4 floats)
+        // Quants start at byte 2 (after 2-byte f16 scale)
         for chunk in 0..8 {
-            let byte_start = 4 + chunk * 2;
+            let byte_start = 2 + chunk * 2;
 
             let b0 = block_data[byte_start];
             let b1 = block_data[byte_start + 1];
@@ -5572,18 +5580,18 @@ mod tests {
 
     #[test]
     fn test_dequantize_q4_0_simd_single_block() {
-        // Create a Q4_0 block: 4 bytes scale + 16 bytes quants = 20 bytes
-        let mut data = vec![0u8; 20];
+        // Create a Q4_0 block: 2 bytes f16 scale + 16 bytes quants = 18 bytes
+        let mut data = vec![0u8; 18];
 
-        // Scale = 2.0
-        let scale_bytes = 2.0f32.to_le_bytes();
-        data[0..4].copy_from_slice(&scale_bytes);
+        // Scale = 2.0 as f16
+        let scale_bytes = half::f16::from_f32(2.0).to_le_bytes();
+        data[0..2].copy_from_slice(&scale_bytes);
 
-        // Quants: 16 bytes = 32 nibbles
+        // Quants: 16 bytes = 32 nibbles (starts at byte 2)
         // Each nibble value 0..15 is interpreted as (nibble - 8) * scale
         for i in 0..16 {
             // Low nibble = i % 16, high nibble = (i+1) % 16
-            data[4 + i] = (i as u8 & 0x0F) | ((((i + 1) % 16) as u8) << 4);
+            data[2 + i] = (i as u8 & 0x0F) | ((((i + 1) % 16) as u8) << 4);
         }
 
         let result = dequantize_q4_0_simd(&data).unwrap();
@@ -5603,18 +5611,18 @@ mod tests {
 
     #[test]
     fn test_dequantize_q4_0_simd_multiple_blocks() {
-        // Create 10 Q4_0 blocks = 200 bytes
+        // Create 10 Q4_0 blocks = 180 bytes (18 bytes per block)
         let num_blocks = 10;
-        let mut data = vec![0u8; num_blocks * 20];
+        let mut data = vec![0u8; num_blocks * 18];
 
         for block in 0..num_blocks {
-            let offset = block * 20;
+            let offset = block * 18;
             let scale = (block + 1) as f32 * 0.5;
-            let scale_bytes = scale.to_le_bytes();
-            data[offset..offset + 4].copy_from_slice(&scale_bytes);
+            let scale_bytes = half::f16::from_f32(scale).to_le_bytes();
+            data[offset..offset + 2].copy_from_slice(&scale_bytes);
 
             for i in 0..16 {
-                data[offset + 4 + i] = ((i % 16) as u8) | ((((i * 2) % 16) as u8) << 4);
+                data[offset + 2 + i] = ((i % 16) as u8) | ((((i * 2) % 16) as u8) << 4);
             }
         }
 
@@ -5633,18 +5641,17 @@ mod tests {
 
     #[test]
     fn test_dequantize_q4_0_simd_parallel() {
-        // Create 100 Q4_0 blocks = 2000 bytes (enough to trigger parallelism)
+        // Create 100 Q4_0 blocks = 1800 bytes (18 bytes per block, enough to trigger parallelism)
         let num_blocks = 100;
-        let mut data = vec![0u8; num_blocks * 20];
+        let mut data = vec![0u8; num_blocks * 18];
 
         for block in 0..num_blocks {
-            let offset = block * 20;
-            let scale = 1.0f32;
-            let scale_bytes = scale.to_le_bytes();
-            data[offset..offset + 4].copy_from_slice(&scale_bytes);
+            let offset = block * 18;
+            let scale_bytes = half::f16::from_f32(1.0).to_le_bytes();
+            data[offset..offset + 2].copy_from_slice(&scale_bytes);
 
             for i in 0..16 {
-                data[offset + 4 + i] = 0x88; // All values = 8 - 8 = 0
+                data[offset + 2 + i] = 0x88; // All values = 8 - 8 = 0
             }
         }
 
@@ -5659,7 +5666,7 @@ mod tests {
 
     #[test]
     fn test_dequantize_q4_0_simd_invalid_length() {
-        // Not a multiple of block size (20)
+        // Not a multiple of block size (18)
         let data = vec![0u8; 25];
         let result = dequantize_q4_0_simd(&data);
         assert!(result.is_err());
