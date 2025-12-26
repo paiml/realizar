@@ -153,7 +153,8 @@ coverage: ## Generate HTML coverage report (target: >95%, Batuta stack standard)
 	@mkdir -p target/coverage
 	@# Phase 1: Run tests with coverage instrumentation (no report)
 	@# Note: --lib --tests excludes examples (which may require cuda feature not enabled here)
-	@env PROPTEST_CASES=100 cargo llvm-cov --no-report nextest --lib --tests --no-tests=warn --workspace --no-fail-fast --features "server,cli,gpu"
+	@# Memory-safe: limit parallelism to 4 threads to avoid OOM with transformer tests
+	@env PROPTEST_CASES=100 cargo llvm-cov --no-report nextest -j4 --lib --tests --no-tests=warn --workspace --no-fail-fast --features "server,cli,gpu"
 	@# Phase 2: Generate reports (exclude entry points, binary parsers, hardware-dependent, server code, and trueno dep)
 	@# Exclusions: main.rs (entry), cli.rs (CLI), api.rs (HTTP handlers), apr.rs (binary format),
 	@#            gguf.rs (binary GGUF parser), serve.rs (HTTP server), gpu.rs (hardware-dependent GPU), trueno/ (dependency)
