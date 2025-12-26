@@ -92,8 +92,11 @@ impl std::fmt::Display for FormatError {
 
 impl std::error::Error for FormatError {}
 
-/// APR format magic bytes
+/// APR v1 format magic bytes
 pub const APR_MAGIC: &[u8; 4] = b"APRN";
+
+/// APR v2 format magic bytes
+pub const APR_V2_MAGIC: &[u8; 4] = b"APR2";
 
 /// GGUF format magic bytes
 pub const GGUF_MAGIC: &[u8; 4] = b"GGUF";
@@ -138,8 +141,8 @@ pub fn detect_format(data: &[u8]) -> Result<ModelFormat, FormatError> {
         return Err(FormatError::TooShort { len: data.len() });
     }
 
-    // Check APR magic (APRN)
-    if &data[0..4] == APR_MAGIC {
+    // Check APR magic (APRN for v1, APR2 for v2)
+    if &data[0..4] == APR_MAGIC || &data[0..4] == APR_V2_MAGIC {
         return Ok(ModelFormat::Apr);
     }
 
