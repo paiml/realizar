@@ -1882,6 +1882,10 @@ pub struct QuantizedGGUFTransformerLayer {
     pub ffn_gate_weight: Option<QuantizedTensorRef>,
     /// FFN gate bias (optional, f32)
     pub ffn_gate_bias: Option<Vec<f32>>,
+    /// FFN norm weight (pre-FFN layer norm, LLaMA-style)
+    pub ffn_norm_weight: Option<Vec<f32>>,
+    /// FFN norm bias (optional, f32)
+    pub ffn_norm_bias: Option<Vec<f32>>,
 }
 
 /// Quantized GGUF Transformer for fused inference
@@ -2126,6 +2130,14 @@ impl<'a> QuantizedGGUFTransformer<'a> {
             .get_tensor_f32(&format!("{}.ffn_gate.bias", prefix), data)
             .ok();
 
+        // FFN norm - LLaMA-style pre-FFN layer norm
+        let ffn_norm_weight = model
+            .get_tensor_f32(&format!("{}.ffn_norm.weight", prefix), data)
+            .ok();
+        let ffn_norm_bias = model
+            .get_tensor_f32(&format!("{}.ffn_norm.bias", prefix), data)
+            .ok();
+
         Ok(QuantizedGGUFTransformerLayer {
             attn_norm_weight,
             attn_norm_bias,
@@ -2139,6 +2151,8 @@ impl<'a> QuantizedGGUFTransformer<'a> {
             ffn_down_bias,
             ffn_gate_weight,
             ffn_gate_bias,
+            ffn_norm_weight,
+            ffn_norm_bias,
         })
     }
 
@@ -2179,7 +2193,7 @@ impl<'a> QuantizedGGUFTransformer<'a> {
             };
 
             // Standard matmul: output[s, o] = sum_i(input[s, i] * weights[o, i])
-            // Weight layout: [out_dim, in_dim] row-major
+            // Weight layout: [out_dim, in_dim] row-major (same physical layout as PyTorch)
             let mut output = vec![0.0f32; seq_len * out_dim];
             for s in 0..seq_len {
                 for o in 0..out_dim {
@@ -2725,6 +2739,10 @@ pub struct OwnedQuantizedLayer {
     pub ffn_gate_weight: Option<OwnedQuantizedTensor>,
     /// FFN gate bias (optional)
     pub ffn_gate_bias: Option<Vec<f32>>,
+    /// FFN norm weight (pre-FFN layer norm, LLaMA-style)
+    pub ffn_norm_weight: Option<Vec<f32>>,
+    /// FFN norm bias (optional)
+    pub ffn_norm_bias: Option<Vec<f32>>,
 }
 
 impl OwnedQuantizedLayer {
@@ -2739,7 +2757,9 @@ impl OwnedQuantizedLayer {
         let intermediate_dim = config.intermediate_dim;
 
         Self {
-            attn_norm_weight: layer.attn_norm_weight.clone(),
+            // GGUF stores layer norm weights as delta from 1.0 (gamma = 1 + stored_weight)
+            // Without this transformation, attention scores are ~0 giving 50/50 uniform attention
+            attn_norm_weight: layer.attn_norm_weight.iter().map(|w| 1.0 + w).collect(),
             attn_norm_bias: layer.attn_norm_bias.clone(),
             // QKV: supports both fused and separate formats
             qkv_weight: OwnedQKVWeights::from_borrowed(&layer.qkv_weight, data, hidden_dim),
@@ -2778,6 +2798,10 @@ impl OwnedQuantizedLayer {
                 )
             }),
             ffn_gate_bias: layer.ffn_gate_bias.clone(),
+            // FFN norm: pre-FFN layer norm (LLaMA-style)
+            // Also uses delta parameterization (gamma = 1 + stored_weight)
+            ffn_norm_weight: layer.ffn_norm_weight.as_ref().map(|w| w.iter().map(|v| 1.0 + v).collect()),
+            ffn_norm_bias: layer.ffn_norm_bias.clone(),
         }
     }
 }
@@ -8101,7 +8125,7 @@ impl OwnedQuantizedModel {
             };
 
             // Standard matmul: output[s, o] = sum_i(input[s, i] * weights[o, i])
-            // Weight layout: [out_dim, in_dim] row-major
+            // Weight layout: [out_dim, in_dim] row-major (same physical layout as PyTorch)
             let mut output = vec![0.0f32; seq_len * out_dim];
             for s in 0..seq_len {
                 for o in 0..out_dim {
@@ -8390,6 +8414,32 @@ impl OwnedQuantizedModel {
         }
     }
 
+    /// Apply RMSNorm (Root Mean Square Layer Normalization)
+    /// LLaMA, TinyLlama, Mistral, etc. use RMSNorm instead of LayerNorm
+    /// Formula: x / sqrt(mean(x^2) + eps) * weight
+    fn rms_norm(&self, input: &[f32], weight: &[f32], eps: f32) -> Vec<f32> {
+        let hidden_dim = weight.len();
+        let seq_len = input.len() / hidden_dim;
+        let mut output = Vec::with_capacity(input.len());
+
+        for i in 0..seq_len {
+            let start = i * hidden_dim;
+            let end = start + hidden_dim;
+            let x = &input[start..end];
+
+            // RMSNorm: x * weight / sqrt(mean(x^2) + eps)
+            // eps is added INSIDE the sqrt (crucial for numerical stability)
+            let mean_sq: f32 = x.iter().map(|v| v * v).sum::<f32>() / hidden_dim as f32;
+            let inv_rms = 1.0 / (mean_sq + eps).sqrt();
+
+            for j in 0..hidden_dim {
+                output.push(x[j] * inv_rms * weight[j]);
+            }
+        }
+
+        output
+    }
+
     /// Apply RoPE (Rotary Position Embeddings) to Q or K vectors (IMP-101a)
     ///
     /// RoPE encodes position by rotating pairs of dimensions.
@@ -8534,15 +8584,25 @@ impl OwnedQuantizedModel {
         // 1. Token embedding lookup (f32, fast)
         let mut hidden = self.embed(token_ids);
 
+        // Detect if model uses RMSNorm (LLaMA-style) or LayerNorm (phi-2 style)
+        // LLaMA models have ffn_gate_weight (SwiGLU) and no bias in norms
+        let use_rmsnorm = self.layers.first().map_or(false, |l| {
+            l.ffn_gate_weight.is_some() && l.attn_norm_bias.is_none()
+        });
+
         // 2. Process through transformer layers with FUSED Q4_K ops
         for layer in &self.layers {
-            // 2a. Attention layer norm
-            let normed = self.layer_norm(
-                &hidden,
-                &layer.attn_norm_weight,
-                layer.attn_norm_bias.as_deref(),
-                self.config.eps,
-            );
+            // 2a. Attention layer norm (RMSNorm for LLaMA, LayerNorm for others)
+            let normed = if use_rmsnorm {
+                self.rms_norm(&hidden, &layer.attn_norm_weight, self.config.eps)
+            } else {
+                self.layer_norm(
+                    &hidden,
+                    &layer.attn_norm_weight,
+                    layer.attn_norm_bias.as_deref(),
+                    self.config.eps,
+                )
+            };
 
             // 2b. QKV projection with FUSED dequant+dot (1.37x faster)
             // Note: qkv_dim may differ from 3*hidden_dim for GQA models
@@ -8603,32 +8663,47 @@ impl OwnedQuantizedModel {
                 hidden[i] += attn_output[i];
             }
 
-            // 2f. FFN with SwiGLU or GELU activation
+            // 2f. Pre-FFN layer norm (LLaMA uses separate ffn_norm with RMSNorm)
+            let ffn_input = if let Some(ref ffn_norm) = layer.ffn_norm_weight {
+                // LLaMA-style: separate FFN layer norm (use RMSNorm for LLaMA)
+                if use_rmsnorm {
+                    self.rms_norm(&hidden, ffn_norm, self.config.eps)
+                } else {
+                    self.layer_norm(&hidden, ffn_norm, layer.ffn_norm_bias.as_deref(), self.config.eps)
+                }
+            } else {
+                // phi-2 style: no separate FFN norm, use hidden directly
+                // (some models apply attn_norm again, but we've already done residual)
+                hidden.clone()
+            };
+
+            // 2g. FFN with SwiGLU or GELU activation
             let ffn_activated = if let Some(ref gate_weight) = layer.ffn_gate_weight {
                 // SwiGLU path (LLaMA, TinyLlama, Mistral, etc.)
                 // output = down(gate(x) * silu(up(x)))
-                let mut ffn_up = self.fused_matmul(&hidden, &layer.ffn_up_weight)?;
+                let mut ffn_up = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
                 if let Some(ref bias) = layer.ffn_up_bias {
                     self.add_bias(&mut ffn_up, bias);
                 }
 
-                let mut ffn_gate = self.fused_matmul(&hidden, gate_weight)?;
+                let mut ffn_gate = self.fused_matmul(&ffn_input, gate_weight)?;
                 if let Some(ref bias) = layer.ffn_gate_bias {
                     self.add_bias(&mut ffn_gate, bias);
                 }
 
-                // SiLU activation on up projection
-                self.silu(&mut ffn_up);
+                // SwiGLU: down(silu(gate(x)) * up(x))
+                // Apply SiLU to GATE projection, not up
+                self.silu(&mut ffn_gate);
 
-                // Element-wise multiply: gate * silu(up)
-                for i in 0..ffn_up.len() {
-                    ffn_up[i] *= ffn_gate[i];
+                // Element-wise multiply: silu(gate) * up
+                for i in 0..ffn_gate.len() {
+                    ffn_gate[i] *= ffn_up[i];
                 }
 
-                ffn_up
+                ffn_gate
             } else {
                 // GELU path (phi-2, GPT-2, etc.)
-                let mut ffn_hidden = self.fused_matmul(&hidden, &layer.ffn_up_weight)?;
+                let mut ffn_hidden = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
                 if let Some(ref bias) = layer.ffn_up_bias {
                     self.add_bias(&mut ffn_hidden, bias);
                 }
@@ -8648,13 +8723,17 @@ impl OwnedQuantizedModel {
             }
         }
 
-        // 3. Final layer norm
-        let normed = self.layer_norm(
-            &hidden,
-            &self.output_norm_weight,
-            self.output_norm_bias.as_deref(),
-            self.config.eps,
-        );
+        // 3. Final layer norm (RMSNorm for LLaMA, LayerNorm for others)
+        let normed = if use_rmsnorm {
+            self.rms_norm(&hidden, &self.output_norm_weight, self.config.eps)
+        } else {
+            self.layer_norm(
+                &hidden,
+                &self.output_norm_weight,
+                self.output_norm_bias.as_deref(),
+                self.config.eps,
+            )
+        };
 
         // 4. LM head projection with FUSED ops (only last token)
         let seq_len = token_ids.len();
