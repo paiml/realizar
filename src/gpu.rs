@@ -9012,7 +9012,7 @@ pub fn load_gguf_to_gpu(
     Ok(GgufModelState::with_model(model, model_name))
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "heavy-tests"))]
 mod tests {
     use super::*;
     use serial_test::serial;

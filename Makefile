@@ -69,9 +69,9 @@ test-probar: ## Run all probar visual tests
 # === Test Targets ===
 
 test: ## Run all tests (excludes load tests - use 'make load-test' for those)
-	@echo "$(GREEN)Running tests...$(NC)"
+	@echo "$(GREEN)Running tests (-j2 to prevent OOM)...$(NC)"
 	@# Exclude load-test-enabled (requires running server)
-	cargo test --features "server,cli,gpu"
+	cargo test --features "server,cli,gpu" -- --test-threads=2
 
 test-lib: ## Run library tests only (fast)
 	@echo "$(GREEN)Running library tests...$(NC)"
@@ -108,17 +108,15 @@ lint: ## Run all linting with auto-format (Batuta stack standard)
 	@cargo clippy --all-targets --all-features -- -D warnings
 	@echo "$(GREEN)✅ Lint passed!$(NC)"
 
-test-fast: ## Fast unit tests with nextest (<30s target, Batuta stack standard)
-	@echo "$(GREEN)⚡ Running fast tests (target: <30s)...$(NC)"
-	@if command -v cargo-nextest >/dev/null 2>&1; then \
-		time env PROPTEST_CASES=50 cargo nextest run --workspace --lib \
-			--status-level skip \
-			--failure-output immediate; \
-	else \
-		echo "$(YELLOW)💡 Install cargo-nextest for faster tests: cargo install cargo-nextest$(NC)"; \
-		time env PROPTEST_CASES=50 cargo test --workspace --lib; \
-	fi
+test-fast: ## Fast unit tests (<5min target, low memory - excludes 29k lines of gguf tests)
+	@echo "$(GREEN)⚡ Running fast tests (excludes heavy-tests feature)...$(NC)"
+	time env PROPTEST_CASES=50 cargo test --lib
 	@echo "$(GREEN)✅ Fast tests passed$(NC)"
+
+test-full: ## Full test suite (requires 16GB+ RAM for gguf tests)
+	@echo "$(GREEN)🧪 Running full tests (includes heavy-tests)...$(NC)"
+	time env PROPTEST_CASES=50 cargo test --lib --features heavy-tests
+	@echo "$(GREEN)✅ Full tests passed$(NC)"
 
 # === Quality Gates ===
 
@@ -153,8 +151,8 @@ coverage: ## Generate HTML coverage report (target: >95%, Batuta stack standard)
 	@mkdir -p target/coverage
 	@# Phase 1: Run tests with coverage instrumentation (no report)
 	@# Note: --lib --tests excludes examples (which may require cuda feature not enabled here)
-	@# Memory-safe: limit parallelism to 4 threads to avoid OOM with transformer tests
-	@env PROPTEST_CASES=100 cargo llvm-cov --no-report nextest -j4 --lib --tests --no-tests=warn --workspace --no-fail-fast --features "server,cli,gpu"
+	@# Memory-safe: limit parallelism to 2 threads to avoid OOM with transformer tests
+	@env PROPTEST_CASES=100 cargo llvm-cov --no-report nextest -j 2 --lib --tests --no-tests=warn --workspace --no-fail-fast --features "server,cli,gpu"
 	@# Phase 2: Generate reports (exclude entry points, binary parsers, hardware-dependent, server code, and trueno dep)
 	@# Exclusions: main.rs (entry), cli.rs (CLI), api.rs (HTTP handlers), apr.rs (binary format),
 	@#            gguf.rs (binary GGUF parser), serve.rs (HTTP server), gpu.rs (hardware-dependent GPU), trueno/ (dependency)

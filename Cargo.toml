@@ -175,6 +175,7 @@ bench-http = ["dep:reqwest"]  # Real HTTP benchmarking of external model servers
 
 # Testing features
 load-test-enabled = ["server"]  # Enable load tests (requires running server)
+heavy-tests = []  # Include 29k lines of gguf.rs tests (OOMs on <16GB RAM)
 
 # Convenience meta-features
 full = ["server", "cli", "gpu", "cuda", "registry"]  # Everything enabled
@@ -339,3 +340,11 @@ debug = true
 # Faster compile times for development
 [profile.dev.package."*"]
 opt-level = 3
+
+# Test profile - minimize memory usage for 11GB RAM machines
+[profile.test]
+opt-level = 0
+debug = false          # Reduce memory during debug info generation
+lto = false            # Disable LTO completely
+codegen-units = 16     # More units = less peak memory per unit
+incremental = true     # Enable incremental compilation

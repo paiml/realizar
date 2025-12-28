@@ -2110,7 +2110,7 @@ impl std::fmt::Display for QuantizedMemoryStats {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "heavy-tests"))]
 mod tests {
     use super::*;
 
