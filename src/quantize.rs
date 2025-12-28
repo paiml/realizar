@@ -322,10 +322,11 @@ pub fn dequantize_q4_0(data: &[u8]) -> Result<Vec<f32>> {
     }
 
     let num_blocks = data.len() / BLOCK_BYTES;
-    let mut result = Vec::with_capacity(num_blocks * BLOCK_SIZE);
+    let mut result = vec![0.0f32; num_blocks * BLOCK_SIZE];
 
     for block_idx in 0..num_blocks {
         let block_start = block_idx * BLOCK_BYTES;
+        let out_start = block_idx * BLOCK_SIZE;
 
         // Read scale (f16, per GGML spec)
         let scale_bytes = &data[block_start..block_start + 2];
@@ -335,18 +336,19 @@ pub fn dequantize_q4_0(data: &[u8]) -> Result<Vec<f32>> {
         let quants_start = block_start + 2;
         let quants = &data[quants_start..quants_start + 16];
 
-        // Dequantize: 2 4-bit values per byte
-        for &byte in quants {
-            // Low 4 bits
-            // SAFETY: Intentional wrap for 4-bit quantization: u8 [0-15] → i8 [-8,7]
+        // Dequantize following candle's layout:
+        // - Positions 0-15: low nibbles of bytes 0-15
+        // - Positions 16-31: high nibbles of bytes 0-15
+        for (j, &byte) in quants.iter().enumerate() {
+            // Low 4 bits go to position j
             #[allow(clippy::cast_possible_wrap)]
-            let low = (byte & 0x0F) as i8 - 8; // Convert to signed [-8, 7]
-            result.push(scale * f32::from(low));
+            let low = (byte & 0x0F) as i16 - 8;
+            result[out_start + j] = scale * (low as f32);
 
-            // High 4 bits
+            // High 4 bits go to position j + 16
             #[allow(clippy::cast_possible_wrap)]
-            let high = ((byte >> 4) & 0x0F) as i8 - 8;
-            result.push(scale * f32::from(high));
+            let high = (byte >> 4) as i16 - 8;
+            result[out_start + j + 16] = scale * (high as f32);
         }
     }
 
@@ -751,10 +753,11 @@ pub fn dequantize_q4_k(data: &[u8]) -> Result<Vec<f32>> {
     }
 
     let num_super_blocks = data.len() / SUPER_BLOCK_BYTES;
-    let mut result = Vec::with_capacity(num_super_blocks * QK_K);
+    let mut result = vec![0.0f32; num_super_blocks * QK_K];
 
     for sb_idx in 0..num_super_blocks {
         let sb_start = sb_idx * SUPER_BLOCK_BYTES;
+        let out_start = sb_idx * QK_K;
 
         // Read d (f16 -> f32)
         let d = read_f16(&data[sb_start..sb_start + 2]);
@@ -770,28 +773,33 @@ pub fn dequantize_q4_k(data: &[u8]) -> Result<Vec<f32>> {
         let qs_start = sb_start + 16;
         let qs = &data[qs_start..qs_start + 128];
 
-        // Dequantize 8 blocks of 32 values each
-        for block_idx in 0..8 {
-            // Extract 6-bit scale and min for this block
-            let (scale, min) = extract_scale_min(&scales, block_idx);
+        // Dequantize following candle's layout:
+        // For each 64-value chunk, output 32 low nibbles then 32 high nibbles
+        let mut ys_index = out_start;
 
-            // Process 32 values (16 bytes, 2 4-bit values per byte)
-            let block_start = block_idx * 16;
-            for byte_idx in 0..16 {
-                let byte = qs[block_start + byte_idx];
+        for j in (0..QK_K).step_by(64) {
+            let q = &qs[j / 2..j / 2 + 32];
 
-                // Low 4 bits
-                // SAFETY: Intentional for 4-bit quantization: u8 [0-15] → i8 [0,15]
-                #[allow(clippy::cast_possible_wrap)]
-                let q_low = (byte & 0x0F) as i8;
-                let value_low = d * scale * f32::from(q_low) - dmin * min;
-                result.push(value_low);
+            // Get scales for the two 32-value halves
+            let is = j / 32;
+            let (sc1, m1) = extract_scale_min(&scales, is);
+            let d1 = d * sc1;
+            let dm1 = dmin * m1;
 
-                // High 4 bits
-                #[allow(clippy::cast_possible_wrap)]
-                let q_high = ((byte >> 4) & 0x0F) as i8;
-                let value_high = d * scale * f32::from(q_high) - dmin * min;
-                result.push(value_high);
+            let (sc2, m2) = extract_scale_min(&scales, is + 1);
+            let d2 = d * sc2;
+            let dm2 = dmin * m2;
+
+            // First pass: 32 low nibbles
+            for &byte in q {
+                result[ys_index] = d1 * (byte & 0xF) as f32 - dm1;
+                ys_index += 1;
+            }
+
+            // Second pass: 32 high nibbles
+            for &byte in q {
+                result[ys_index] = d2 * (byte >> 4) as f32 - dm2;
+                ys_index += 1;
             }
         }
     }
@@ -917,7 +925,7 @@ pub fn dequantize_q5_k(data: &[u8]) -> Result<Vec<f32>> {
 /// let weights = dequantize_q6_k(&quantized)?;
 /// ```
 pub fn dequantize_q6_k(data: &[u8]) -> Result<Vec<f32>> {
-    // Q6_K super-block layout (per llama.cpp block_q6_K):
+    // Q6_K super-block layout (per llama.cpp block_q6_K and candle):
     // - ql: 128 bytes (low 4 bits, 256 values, 2 per byte)
     // - qh: 64 bytes (high 2 bits, 256 values, 4 per byte)
     // - scales: 16 bytes (i8 signed scales for 16 blocks)
@@ -936,10 +944,11 @@ pub fn dequantize_q6_k(data: &[u8]) -> Result<Vec<f32>> {
     }
 
     let num_super_blocks = data.len() / SUPER_BLOCK_BYTES;
-    let mut result = Vec::with_capacity(num_super_blocks * QK_K);
+    let mut result = vec![0.0f32; num_super_blocks * QK_K];
 
     for sb_idx in 0..num_super_blocks {
         let sb_start = sb_idx * SUPER_BLOCK_BYTES;
+        let out_start = sb_idx * QK_K;
 
         // Read ql - low 4 bits (128 bytes) at offset 0
         let ql = &data[sb_start..sb_start + 128];
@@ -950,7 +959,6 @@ pub fn dequantize_q6_k(data: &[u8]) -> Result<Vec<f32>> {
         // Read scales (16 bytes, i8) at offset 192
         let mut scales = [0i8; 16];
         for (i, scale) in scales.iter_mut().enumerate() {
-            // SAFETY: Intentional conversion from u8 to i8 for signed scales
             #[allow(clippy::cast_possible_wrap)]
             {
                 *scale = data[sb_start + 192 + i] as i8;
@@ -960,40 +968,34 @@ pub fn dequantize_q6_k(data: &[u8]) -> Result<Vec<f32>> {
         // Read d (f16 -> f32) at offset 208 (last 2 bytes)
         let d = read_f16(&data[sb_start + 208..sb_start + 210]);
 
-        // Dequantize 256 values (16 blocks of 16 values each)
-        // Following llama.cpp dequantize_row_q6_K layout exactly
-        for (block_idx, &scale_i8) in scales.iter().enumerate() {
-            let scale = f32::from(scale_i8);
+        // Dequantize 256 values following candle's exact layout
+        // Process 128 values at a time (n=0, n=128)
+        for n in (0..QK_K).step_by(128) {
+            let idx = n / 128;
+            let sc = &scales[8 * idx..];
+            let ql_slice = &ql[64 * idx..];
+            let qh_slice = &qh[32 * idx..];
 
-            // Each block has 16 values spread across ql and qh
-            // ql stores pairs of values (low 4 bits)
-            // qh stores pairs of high 2-bit values
-            let ql_offset = block_idx * 8;
-            let qh_offset = block_idx * 4;
+            for l in 0..32 {
+                let is = l / 16; // Scale index selector (0 or 1 within this 128-block)
 
-            for j in 0..8 {
-                let low_byte = ql[ql_offset + j];
-                let high_byte = qh[qh_offset + j / 2];
+                // Extract 4 values per iteration (at positions l, l+32, l+64, l+96)
+                // q1: low 4 bits of ql[l] + bits 0-1 of qh[l]
+                let q1 = ((ql_slice[l] & 0xF) | ((qh_slice[l] & 3) << 4)) as i32 - 32;
+                // q2: low 4 bits of ql[l+32] + bits 2-3 of qh[l]
+                let q2 =
+                    ((ql_slice[l + 32] & 0xF) | (((qh_slice[l] >> 2) & 3) << 4)) as i32 - 32;
+                // q3: high 4 bits of ql[l] + bits 4-5 of qh[l]
+                let q3 = ((ql_slice[l] >> 4) | (((qh_slice[l] >> 4) & 3) << 4)) as i32 - 32;
+                // q4: high 4 bits of ql[l+32] + bits 6-7 of qh[l]
+                let q4 =
+                    ((ql_slice[l + 32] >> 4) | (((qh_slice[l] >> 6) & 3) << 4)) as i32 - 32;
 
-                // Extract 2-bit shifts for qh
-                let high_shift = (j % 2) * 4;
-
-                // Low nibble value
-                let q_low_4bit = low_byte & 0x0F;
-                let q_low_high_2bits = (high_byte >> high_shift) & 0x03;
-                // SAFETY: Intentional for 6-bit quantization: u8 [0-63] → i8 [-32,31]
-                #[allow(clippy::cast_possible_wrap)]
-                let q_low = (((q_low_high_2bits << 4) | q_low_4bit) as i8) - 32;
-                let value_low = d * scale * f32::from(q_low);
-                result.push(value_low);
-
-                // High nibble value
-                let q_high_4bit = (low_byte >> 4) & 0x0F;
-                let q_high_high_2bits = (high_byte >> (high_shift + 2)) & 0x03;
-                #[allow(clippy::cast_possible_wrap)]
-                let q_high = (((q_high_high_2bits << 4) | q_high_4bit) as i8) - 32;
-                let value_high = d * scale * f32::from(q_high);
-                result.push(value_high);
+                // Write to output with correct scale indexing
+                result[out_start + n + l] = d * (sc[is] as f32) * (q1 as f32);
+                result[out_start + n + l + 32] = d * (sc[is + 2] as f32) * (q2 as f32);
+                result[out_start + n + l + 64] = d * (sc[is + 4] as f32) * (q3 as f32);
+                result[out_start + n + l + 96] = d * (sc[is + 6] as f32) * (q4 as f32);
             }
         }
     }
@@ -1579,10 +1581,10 @@ pub fn fused_q6k_dot(q6k_data: &[u8], activations: &[f32]) -> Result<f32> {
 
     // Accumulator for dot product result
     let mut acc = 0.0f32;
-    let mut activation_idx = 0;
 
     for sb_idx in 0..num_super_blocks {
         let sb_start = sb_idx * SUPER_BLOCK_BYTES;
+        let act_start = sb_idx * QK_K;
 
         // Q6_K layout: ql (128) + qh (64) + scales (16) + d (2)
         let ql = &q6k_data[sb_start..sb_start + 128];
@@ -1600,35 +1602,35 @@ pub fn fused_q6k_dot(q6k_data: &[u8], activations: &[f32]) -> Result<f32> {
         // Read d (f16 -> f32) at offset 208
         let d = read_f16(&q6k_data[sb_start + 208..sb_start + 210]);
 
-        // Fused dequant+dot for 16 blocks of 16 values each
-        for (block_idx, &scale_i8) in scales.iter().enumerate() {
-            let scale = f32::from(scale_i8);
+        // Fused dequant+dot following candle's exact layout
+        // Process 128 values at a time (n=0, n=128)
+        for n in (0..QK_K).step_by(128) {
+            let idx = n / 128;
+            let sc = &scales[8 * idx..];
+            let ql_slice = &ql[64 * idx..];
+            let qh_slice = &qh[32 * idx..];
 
-            let ql_offset = block_idx * 8;
-            let qh_offset = block_idx * 4;
+            for l in 0..32 {
+                let is = l / 16; // Scale index selector
 
-            for j in 0..8 {
-                let low_byte = ql[ql_offset + j];
-                let high_byte = qh[qh_offset + j / 2];
-                let high_shift = (j % 2) * 4;
+                // Extract 4 values per iteration (at positions l, l+32, l+64, l+96)
+                let q1 = ((ql_slice[l] & 0xF) | ((qh_slice[l] & 3) << 4)) as i32 - 32;
+                let q2 =
+                    ((ql_slice[l + 32] & 0xF) | (((qh_slice[l] >> 2) & 3) << 4)) as i32 - 32;
+                let q3 = ((ql_slice[l] >> 4) | (((qh_slice[l] >> 4) & 3) << 4)) as i32 - 32;
+                let q4 =
+                    ((ql_slice[l + 32] >> 4) | (((qh_slice[l] >> 6) & 3) << 4)) as i32 - 32;
 
-                // Low nibble: dequantize and accumulate
-                let q_low_4bit = low_byte & 0x0F;
-                let q_low_high_2bits = (high_byte >> high_shift) & 0x03;
-                #[allow(clippy::cast_possible_wrap)]
-                let q_low = (((q_low_high_2bits << 4) | q_low_4bit) as i8) - 32;
-                let value_low = d * scale * f32::from(q_low);
-                acc += value_low * activations[activation_idx];
-                activation_idx += 1;
+                // Dequantize and accumulate dot product
+                let v1 = d * (sc[is] as f32) * (q1 as f32);
+                let v2 = d * (sc[is + 2] as f32) * (q2 as f32);
+                let v3 = d * (sc[is + 4] as f32) * (q3 as f32);
+                let v4 = d * (sc[is + 6] as f32) * (q4 as f32);
 
-                // High nibble: dequantize and accumulate
-                let q_high_4bit = (low_byte >> 4) & 0x0F;
-                let q_high_high_2bits = (high_byte >> (high_shift + 2)) & 0x03;
-                #[allow(clippy::cast_possible_wrap)]
-                let q_high = (((q_high_high_2bits << 4) | q_high_4bit) as i8) - 32;
-                let value_high = d * scale * f32::from(q_high);
-                acc += value_high * activations[activation_idx];
-                activation_idx += 1;
+                acc += v1 * activations[act_start + n + l];
+                acc += v2 * activations[act_start + n + l + 32];
+                acc += v3 * activations[act_start + n + l + 64];
+                acc += v4 * activations[act_start + n + l + 96];
             }
         }
     }
@@ -2413,7 +2415,7 @@ pub fn dequantize_q4_k_parallel(data: &[u8]) -> Result<Vec<f32>> {
 /// Internal helper for parallel processing.
 #[inline]
 fn dequantize_q4_k_superblock(sb_data: &[u8]) -> Vec<f32> {
-    let mut result = Vec::with_capacity(QK_K);
+    let mut result = vec![0.0f32; QK_K];
 
     // Read d (f16 -> f32)
     let d = read_f16(&sb_data[0..2]);
@@ -2428,25 +2430,33 @@ fn dequantize_q4_k_superblock(sb_data: &[u8]) -> Vec<f32> {
     // Read qs (128 bytes)
     let qs = &sb_data[16..144];
 
-    // Dequantize 8 blocks of 32 values each
-    for block_idx in 0..8 {
-        let (scale, min) = extract_scale_min(&scales, block_idx);
+    // Dequantize following candle's layout:
+    // For each 64-value chunk, output 32 low nibbles then 32 high nibbles
+    let mut ys_index = 0;
 
-        let block_start = block_idx * 16;
-        for byte_idx in 0..16 {
-            let byte = qs[block_start + byte_idx];
+    for j in (0..QK_K).step_by(64) {
+        let q = &qs[j / 2..j / 2 + 32];
 
-            // Low 4 bits
-            #[allow(clippy::cast_possible_wrap)]
-            let q_low = (byte & 0x0F) as i8;
-            let value_low = d * scale * f32::from(q_low) - dmin * min;
-            result.push(value_low);
+        // Get scales for the two 32-value halves
+        let is = j / 32;
+        let (sc1, m1) = extract_scale_min(&scales, is);
+        let d1 = d * sc1;
+        let dm1 = dmin * m1;
 
-            // High 4 bits
-            #[allow(clippy::cast_possible_wrap)]
-            let q_high = ((byte >> 4) & 0x0F) as i8;
-            let value_high = d * scale * f32::from(q_high) - dmin * min;
-            result.push(value_high);
+        let (sc2, m2) = extract_scale_min(&scales, is + 1);
+        let d2 = d * sc2;
+        let dm2 = dmin * m2;
+
+        // First pass: 32 low nibbles
+        for &byte in q {
+            result[ys_index] = d1 * (byte & 0xF) as f32 - dm1;
+            ys_index += 1;
+        }
+
+        // Second pass: 32 high nibbles
+        for &byte in q {
+            result[ys_index] = d2 * (byte >> 4) as f32 - dm2;
+            ys_index += 1;
         }
     }
 
@@ -2558,58 +2568,75 @@ unsafe fn dequantize_q4_k_superblock_avx2(sb_data: &[u8]) -> Vec<f32> {
 
     // SAFETY: AVX2 availability verified by caller's target_feature
     unsafe {
-        // Broadcast to SIMD registers
-        let d_vec = _mm256_set1_ps(d);
-        let dmin_vec = _mm256_set1_ps(dmin);
-
         // Read scales
         let mut scales = [0u8; 12];
         scales.copy_from_slice(&sb_data[4..16]);
 
         let qs = &sb_data[16..144];
 
-        // Process 8 blocks
-        for block_idx in 0..8 {
-            let (scale, min) = extract_scale_min(&scales, block_idx);
-            let scale_vec = _mm256_set1_ps(scale);
-            let min_vec = _mm256_set1_ps(min);
+        // Dequantize following candle's layout:
+        // For each 64-value chunk, output 32 low nibbles then 32 high nibbles
+        let mut ys_index = 0;
 
-            // Precompute: d * scale and dmin * min
-            let d_scale = _mm256_mul_ps(d_vec, scale_vec);
-            let dmin_min = _mm256_mul_ps(dmin_vec, min_vec);
+        for j in (0..QK_K).step_by(64) {
+            let q = &qs[j / 2..j / 2 + 32];
 
-            let block_start = block_idx * 16;
-            let result_start = block_idx * 32;
+            // Get scales for the two 32-value halves
+            let is = j / 32;
+            let (sc1, m1) = extract_scale_min(&scales, is);
+            let d1 = d * sc1;
+            let dm1 = dmin * m1;
+            let d1_vec = _mm256_set1_ps(d1);
+            let dm1_vec = _mm256_set1_ps(dm1);
 
-            // Process 32 values in 4 iterations of 8
+            let (sc2, m2) = extract_scale_min(&scales, is + 1);
+            let d2 = d * sc2;
+            let dm2 = dmin * m2;
+            let d2_vec = _mm256_set1_ps(d2);
+            let dm2_vec = _mm256_set1_ps(dm2);
+
+            // First pass: 32 low nibbles in 4 iterations of 8
             for chunk in 0..4 {
-                let byte_start = block_start + chunk * 4;
-                let result_offset = result_start + chunk * 8;
+                let byte_start = chunk * 8;
 
-                // Extract 8 4-bit values from 4 bytes
-                let b0 = qs[byte_start];
-                let b1 = qs[byte_start + 1];
-                let b2 = qs[byte_start + 2];
-                let b3 = qs[byte_start + 3];
+                // Extract 8 low nibbles from 8 bytes
+                let q0 = (q[byte_start] & 0x0F) as i32;
+                let q1 = (q[byte_start + 1] & 0x0F) as i32;
+                let q2 = (q[byte_start + 2] & 0x0F) as i32;
+                let q3 = (q[byte_start + 3] & 0x0F) as i32;
+                let q4 = (q[byte_start + 4] & 0x0F) as i32;
+                let q5 = (q[byte_start + 5] & 0x0F) as i32;
+                let q6 = (q[byte_start + 6] & 0x0F) as i32;
+                let q7 = (q[byte_start + 7] & 0x0F) as i32;
 
-                let q0 = (b0 & 0x0F) as i32;
-                let q1 = ((b0 >> 4) & 0x0F) as i32;
-                let q2 = (b1 & 0x0F) as i32;
-                let q3 = ((b1 >> 4) & 0x0F) as i32;
-                let q4 = (b2 & 0x0F) as i32;
-                let q5 = ((b2 >> 4) & 0x0F) as i32;
-                let q6 = (b3 & 0x0F) as i32;
-                let q7 = ((b3 >> 4) & 0x0F) as i32;
-
-                // Load into SIMD register
                 let q_vec = _mm256_setr_epi32(q0, q1, q2, q3, q4, q5, q6, q7);
                 let q_f32 = _mm256_cvtepi32_ps(q_vec);
+                let dequant = _mm256_fmsub_ps(d1_vec, q_f32, dm1_vec);
 
-                // Dequantize: value = d * scale * q - dmin * min
-                let dequant = _mm256_fmsub_ps(d_scale, q_f32, dmin_min);
+                _mm256_storeu_ps(result.as_mut_ptr().add(ys_index), dequant);
+                ys_index += 8;
+            }
 
-                // Store 8 results
-                _mm256_storeu_ps(result.as_mut_ptr().add(result_offset), dequant);
+            // Second pass: 32 high nibbles in 4 iterations of 8
+            for chunk in 0..4 {
+                let byte_start = chunk * 8;
+
+                // Extract 8 high nibbles from 8 bytes
+                let q0 = (q[byte_start] >> 4) as i32;
+                let q1 = (q[byte_start + 1] >> 4) as i32;
+                let q2 = (q[byte_start + 2] >> 4) as i32;
+                let q3 = (q[byte_start + 3] >> 4) as i32;
+                let q4 = (q[byte_start + 4] >> 4) as i32;
+                let q5 = (q[byte_start + 5] >> 4) as i32;
+                let q6 = (q[byte_start + 6] >> 4) as i32;
+                let q7 = (q[byte_start + 7] >> 4) as i32;
+
+                let q_vec = _mm256_setr_epi32(q0, q1, q2, q3, q4, q5, q6, q7);
+                let q_f32 = _mm256_cvtepi32_ps(q_vec);
+                let dequant = _mm256_fmsub_ps(d2_vec, q_f32, dm2_vec);
+
+                _mm256_storeu_ps(result.as_mut_ptr().add(ys_index), dequant);
+                ys_index += 8;
             }
         }
     }
@@ -2849,20 +2876,21 @@ pub fn dequantize_q4_0_parallel(data: &[u8]) -> Result<Vec<f32>> {
 /// Scalar Q4_0 block dequantization (18-byte block: 2 f16 scale + 16 quants)
 #[inline]
 fn dequantize_q4_0_block_scalar(block_data: &[u8]) -> Vec<f32> {
-    let mut result = Vec::with_capacity(32);
+    let mut result = vec![0.0f32; 32];
 
     // Read f16 scale (2 bytes) per GGML spec
     let scale = half::f16::from_le_bytes([block_data[0], block_data[1]]).to_f32();
 
     // Quants start at byte 2, 16 bytes total
-    for &byte in &block_data[2..18] {
+    // Candle layout: positions 0-15 = low nibbles, 16-31 = high nibbles
+    for (j, &byte) in block_data[2..18].iter().enumerate() {
         #[allow(clippy::cast_possible_wrap)]
-        let low = (byte & 0x0F) as i8 - 8;
-        result.push(scale * f32::from(low));
+        let low = (byte & 0x0F) as i16 - 8;
+        result[j] = scale * (low as f32);
 
         #[allow(clippy::cast_possible_wrap)]
-        let high = ((byte >> 4) & 0x0F) as i8 - 8;
-        result.push(scale * f32::from(high));
+        let high = (byte >> 4) as i16 - 8;
+        result[j + 16] = scale * (high as f32);
     }
 
     result
@@ -2919,35 +2947,49 @@ unsafe fn dequantize_q4_0_block_avx2(block_data: &[u8]) -> Vec<f32> {
         let scale_vec = _mm256_set1_ps(scale);
         let offset_vec = _mm256_set1_ps(-8.0); // Q4_0 offset
 
-        // Process 32 values in 4 iterations of 8
-        // Quants start at byte 2 (after 2-byte f16 scale)
-        for chunk in 0..4 {
-            let byte_start = 2 + chunk * 4;
+        // Candle layout: low nibbles in positions 0-15, high nibbles in 16-31
+        // Process low nibbles (16 values) in 2 iterations of 8
+        for chunk in 0..2 {
+            let byte_start = 2 + chunk * 8;
 
-            // Extract 8 4-bit values from 4 bytes
-            let b0 = block_data[byte_start];
-            let b1 = block_data[byte_start + 1];
-            let b2 = block_data[byte_start + 2];
-            let b3 = block_data[byte_start + 3];
-
-            // Low nibbles first, then high nibbles (interleaved)
-            let q0 = (b0 & 0x0F) as i32;
-            let q1 = ((b0 >> 4) & 0x0F) as i32;
-            let q2 = (b1 & 0x0F) as i32;
-            let q3 = ((b1 >> 4) & 0x0F) as i32;
-            let q4 = (b2 & 0x0F) as i32;
-            let q5 = ((b2 >> 4) & 0x0F) as i32;
-            let q6 = (b3 & 0x0F) as i32;
-            let q7 = ((b3 >> 4) & 0x0F) as i32;
+            // Extract 8 low nibbles from 8 bytes
+            let q0 = (block_data[byte_start] & 0x0F) as i32;
+            let q1 = (block_data[byte_start + 1] & 0x0F) as i32;
+            let q2 = (block_data[byte_start + 2] & 0x0F) as i32;
+            let q3 = (block_data[byte_start + 3] & 0x0F) as i32;
+            let q4 = (block_data[byte_start + 4] & 0x0F) as i32;
+            let q5 = (block_data[byte_start + 5] & 0x0F) as i32;
+            let q6 = (block_data[byte_start + 6] & 0x0F) as i32;
+            let q7 = (block_data[byte_start + 7] & 0x0F) as i32;
 
             let q_vec = _mm256_setr_epi32(q0, q1, q2, q3, q4, q5, q6, q7);
             let q_f32 = _mm256_cvtepi32_ps(q_vec);
-
-            // Apply offset and scale: (q - 8) * scale
             let centered = _mm256_add_ps(q_f32, offset_vec);
             let dequant = _mm256_mul_ps(centered, scale_vec);
 
             _mm256_storeu_ps(result.as_mut_ptr().add(chunk * 8), dequant);
+        }
+
+        // Process high nibbles (16 values) in 2 iterations of 8
+        for chunk in 0..2 {
+            let byte_start = 2 + chunk * 8;
+
+            // Extract 8 high nibbles from 8 bytes
+            let q0 = (block_data[byte_start] >> 4) as i32;
+            let q1 = (block_data[byte_start + 1] >> 4) as i32;
+            let q2 = (block_data[byte_start + 2] >> 4) as i32;
+            let q3 = (block_data[byte_start + 3] >> 4) as i32;
+            let q4 = (block_data[byte_start + 4] >> 4) as i32;
+            let q5 = (block_data[byte_start + 5] >> 4) as i32;
+            let q6 = (block_data[byte_start + 6] >> 4) as i32;
+            let q7 = (block_data[byte_start + 7] >> 4) as i32;
+
+            let q_vec = _mm256_setr_epi32(q0, q1, q2, q3, q4, q5, q6, q7);
+            let q_f32 = _mm256_cvtepi32_ps(q_vec);
+            let centered = _mm256_add_ps(q_f32, offset_vec);
+            let dequant = _mm256_mul_ps(centered, scale_vec);
+
+            _mm256_storeu_ps(result.as_mut_ptr().add(16 + chunk * 8), dequant);
         }
     }
 
@@ -3005,27 +3047,41 @@ unsafe fn dequantize_q4_0_block_sse2(block_data: &[u8]) -> Vec<f32> {
         let scale_vec = _mm_set1_ps(scale);
         let offset_vec = _mm_set1_ps(-8.0);
 
-        // Process 32 values in 8 iterations of 4 (SSE2 = 128-bit = 4 floats)
-        // Quants start at byte 2 (after 2-byte f16 scale)
-        for chunk in 0..8 {
-            let byte_start = 2 + chunk * 2;
+        // Candle layout: low nibbles in positions 0-15, high nibbles in 16-31
+        // Process low nibbles (16 values) in 4 iterations of 4 (SSE2 = 128-bit = 4 floats)
+        for chunk in 0..4 {
+            let byte_start = 2 + chunk * 4;
 
-            // Extract 4 4-bit values from 2 bytes
-            let b0 = block_data[byte_start];
-            let b1 = block_data[byte_start + 1];
-
-            let q0 = (b0 & 0x0F) as i32;
-            let q1 = ((b0 >> 4) & 0x0F) as i32;
-            let q2 = (b1 & 0x0F) as i32;
-            let q3 = ((b1 >> 4) & 0x0F) as i32;
+            // Extract 4 low nibbles from 4 bytes
+            let q0 = (block_data[byte_start] & 0x0F) as i32;
+            let q1 = (block_data[byte_start + 1] & 0x0F) as i32;
+            let q2 = (block_data[byte_start + 2] & 0x0F) as i32;
+            let q3 = (block_data[byte_start + 3] & 0x0F) as i32;
 
             let q_vec = _mm_setr_epi32(q0, q1, q2, q3);
             let q_f32 = _mm_cvtepi32_ps(q_vec);
-
             let centered = _mm_add_ps(q_f32, offset_vec);
             let dequant = _mm_mul_ps(centered, scale_vec);
 
             _mm_storeu_ps(result.as_mut_ptr().add(chunk * 4), dequant);
+        }
+
+        // Process high nibbles (16 values) in 4 iterations of 4
+        for chunk in 0..4 {
+            let byte_start = 2 + chunk * 4;
+
+            // Extract 4 high nibbles from 4 bytes
+            let q0 = (block_data[byte_start] >> 4) as i32;
+            let q1 = (block_data[byte_start + 1] >> 4) as i32;
+            let q2 = (block_data[byte_start + 2] >> 4) as i32;
+            let q3 = (block_data[byte_start + 3] >> 4) as i32;
+
+            let q_vec = _mm_setr_epi32(q0, q1, q2, q3);
+            let q_f32 = _mm_cvtepi32_ps(q_vec);
+            let centered = _mm_add_ps(q_f32, offset_vec);
+            let dequant = _mm_mul_ps(centered, scale_vec);
+
+            _mm_storeu_ps(result.as_mut_ptr().add(16 + chunk * 4), dequant);
         }
     }
 
@@ -3080,28 +3136,43 @@ unsafe fn dequantize_q4_0_block_neon(block_data: &[u8]) -> Vec<f32> {
         let scale_vec = vdupq_n_f32(scale);
         let offset_vec = vdupq_n_f32(-8.0);
 
-        // Process 32 values in 8 iterations of 4 (NEON = 128-bit = 4 floats)
-        // Quants start at byte 2 (after 2-byte f16 scale)
-        for chunk in 0..8 {
-            let byte_start = 2 + chunk * 2;
+        // Candle layout: low nibbles in positions 0-15, high nibbles in 16-31
+        // Process low nibbles (16 values) in 4 iterations of 4 (NEON = 128-bit = 4 floats)
+        for chunk in 0..4 {
+            let byte_start = 2 + chunk * 4;
 
-            let b0 = block_data[byte_start];
-            let b1 = block_data[byte_start + 1];
+            // Extract 4 low nibbles from 4 bytes
+            let q0 = (block_data[byte_start] & 0x0F) as i32;
+            let q1 = (block_data[byte_start + 1] & 0x0F) as i32;
+            let q2 = (block_data[byte_start + 2] & 0x0F) as i32;
+            let q3 = (block_data[byte_start + 3] & 0x0F) as i32;
 
-            let q0 = (b0 & 0x0F) as i32;
-            let q1 = ((b0 >> 4) & 0x0F) as i32;
-            let q2 = (b1 & 0x0F) as i32;
-            let q3 = ((b1 >> 4) & 0x0F) as i32;
-
-            // Create int32x4 and convert to float32x4
             let q_arr: [i32; 4] = [q0, q1, q2, q3];
             let q_vec = vld1q_s32(q_arr.as_ptr());
             let q_f32 = vcvtq_f32_s32(q_vec);
-
             let centered = vaddq_f32(q_f32, offset_vec);
             let dequant = vmulq_f32(centered, scale_vec);
 
             vst1q_f32(result.as_mut_ptr().add(chunk * 4), dequant);
+        }
+
+        // Process high nibbles (16 values) in 4 iterations of 4
+        for chunk in 0..4 {
+            let byte_start = 2 + chunk * 4;
+
+            // Extract 4 high nibbles from 4 bytes
+            let q0 = (block_data[byte_start] >> 4) as i32;
+            let q1 = (block_data[byte_start + 1] >> 4) as i32;
+            let q2 = (block_data[byte_start + 2] >> 4) as i32;
+            let q3 = (block_data[byte_start + 3] >> 4) as i32;
+
+            let q_arr: [i32; 4] = [q0, q1, q2, q3];
+            let q_vec = vld1q_s32(q_arr.as_ptr());
+            let q_f32 = vcvtq_f32_s32(q_vec);
+            let centered = vaddq_f32(q_f32, offset_vec);
+            let dequant = vmulq_f32(centered, scale_vec);
+
+            vst1q_f32(result.as_mut_ptr().add(16 + chunk * 4), dequant);
         }
     }
 
