@@ -4062,7 +4062,7 @@ mod tests {
                 os_version: std::env::consts::ARCH.to_string(),
                 cpu_model: "Unknown".to_string(), // Would need sysinfo crate
                 cpu_cores: std::thread::available_parallelism()
-                    .map(std::num::NonZero::get)
+                    .map(std::num::NonZeroUsize::get)
                     .unwrap_or(1),
                 memory_gb: 0.0, // Would need sysinfo crate
                 rust_version: env!("CARGO_PKG_RUST_VERSION").to_string(),
@@ -13464,7 +13464,7 @@ mod tests {
                 os_version: std::env::consts::ARCH.to_string(),
                 cpu_model: "Unknown".to_string(),
                 cpu_cores: std::thread::available_parallelism()
-                    .map(std::num::NonZero::get)
+                    .map(std::num::NonZeroUsize::get)
                     .unwrap_or(1),
                 ram_gb: 0.0,
                 gpu_name: None,
@@ -14826,7 +14826,7 @@ mod tests {
             environment: serde_json::json!({
                 "os": std::env::consts::OS,
                 "arch": std::env::consts::ARCH,
-                "cpu_cores": std::thread::available_parallelism().map(std::num::NonZero::get).unwrap_or(1),
+                "cpu_cores": std::thread::available_parallelism().map(std::num::NonZeroUsize::get).unwrap_or(1),
             }),
             results: serde_json::json!({
                 "latency_p50_ms": 100.0,

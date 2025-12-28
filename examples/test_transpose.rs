@@ -1,4 +1,4 @@
-use realizar::gguf::{GGUFModel, MappedGGUFModel};
+use realizar::gguf::GGUFModel;
 use realizar::quantize::dequantize_q4_0;
 use std::fs;
 
@@ -18,7 +18,7 @@ fn main() {
     println!("  qtype: {}", q_tensor.qtype);
 
     // Get embedding for token 1 (BOS)
-    let embed_tensor = model
+    let _embed_tensor = model
         .tensors
         .iter()
         .find(|t| t.name == "token_embd.weight")

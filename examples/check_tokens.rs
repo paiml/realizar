@@ -1,5 +1,4 @@
-use realizar::gguf::{GGUFModel, MappedGGUFModel, OwnedQuantizedModel};
-use std::fs;
+use realizar::gguf::MappedGGUFModel;
 
 fn main() {
     let mapped =

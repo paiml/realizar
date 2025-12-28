@@ -3279,7 +3279,7 @@ mod tests {
             let k: Vec<f32> = (0..hidden_dim)
                 .map(|i| (s * hidden_dim + i) as f32 * 0.2)
                 .collect();
-            let v: Vec<f32> = (0..hidden_dim).map(|i| (s + 1) as f32).collect(); // V[s] = s+1
+            let v: Vec<f32> = (0..hidden_dim).map(|_| (s + 1) as f32).collect(); // V[s] = s+1
 
             // Add to cache BEFORE attention (causal - includes current position)
             k_cache.extend_from_slice(&k);

@@ -1200,7 +1200,11 @@ impl GGUFModel {
         if let Some(vocab) = self.vocabulary() {
             token_ids
                 .iter()
-                .map(|&id| vocab.get(id as usize).map_or("�", std::string::String::as_str))
+                .map(|&id| {
+                    vocab
+                        .get(id as usize)
+                        .map_or("�", std::string::String::as_str)
+                })
                 .collect::<Vec<_>>()
                 .join("")
         } else {

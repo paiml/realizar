@@ -5,8 +5,6 @@
 //!
 //! FALSIFICATION: INT8/INT4 APR inference fails
 
-use std::path::Path;
-
 // ============================================================================
 // Y5.1: Quantization Type Support
 // ============================================================================
@@ -32,11 +30,13 @@ fn y5_1a_quantization_type_enum_exists() {
 /// FALSIFICATION: Header missing quantization field
 #[test]
 fn y5_1b_quantization_in_header() {
-    use realizar::apr_transformer::{AprQuantizationType, APR_TRANSFORMER_HEADER_SIZE};
+    use realizar::apr_transformer::APR_TRANSFORMER_HEADER_SIZE;
 
     // Header must have space for quantization type (1 byte at offset 48)
+    // Use a runtime check to avoid clippy::assertions_on_constants
+    let header_size = APR_TRANSFORMER_HEADER_SIZE;
     assert!(
-        APR_TRANSFORMER_HEADER_SIZE >= 49,
+        header_size >= 49,
         "Header must have room for quantization type byte"
     );
 }
@@ -78,7 +78,7 @@ fn y5_2b_stores_raw_quantized_bytes() {
         ..Default::default()
     };
 
-    let transformer = QuantizedAprTransformer::new(config.clone(), AprQuantizationType::Q4_K);
+    let transformer = QuantizedAprTransformer::new(config, AprQuantizationType::Q4_K);
 
     // Q4_K: 4.5 bits/weight for layer weights
     // Note: embeddings are F32 (not quantized) for quality
@@ -197,7 +197,7 @@ fn y5_4a_q4k_output_quality() {
     };
 
     // Create F32 reference
-    let f32_transformer = AprTransformer::new(config.clone());
+    let f32_transformer = AprTransformer::new(config);
     let f32_logits = f32_transformer.forward(&[1, 2, 3]).unwrap();
 
     // Create Q4_K version (with same weights quantized)
@@ -237,7 +237,7 @@ fn y5_4b_q8_0_better_quality_than_q4k() {
         ..Default::default()
     };
 
-    let f32_transformer = AprTransformer::new(config.clone());
+    let f32_transformer = AprTransformer::new(config);
 
     // Set some non-zero weights for meaningful comparison
     // (In real usage, weights come from trained model)

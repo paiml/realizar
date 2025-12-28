@@ -1,5 +1,5 @@
 //! Check tokenizer behavior
-use realizar::gguf::{GGUFModel, MappedGGUFModel};
+use realizar::gguf::GGUFModel;
 use std::fs;
 
 fn main() {

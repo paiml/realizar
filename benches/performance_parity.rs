@@ -763,8 +763,8 @@ fn benchmark_kv_cache_attention(c: &mut Criterion) {
 /// - Token sampling
 fn benchmark_e2e_generation(c: &mut Criterion) {
     use realizar::gguf::{
-        GGUFConfig, OwnedQuantizedLayer, OwnedQuantizedModel, OwnedQuantizedTensor,
-        QuantizedGenerateConfig,
+        GGUFConfig, OwnedQKVWeights, OwnedQuantizedLayer, OwnedQuantizedModel,
+        OwnedQuantizedTensor, QuantizedGenerateConfig,
     };
 
     let mut group = c.benchmark_group("imp_102a_e2e_generation");
@@ -826,7 +826,7 @@ fn benchmark_e2e_generation(c: &mut Criterion) {
         .map(|_| OwnedQuantizedLayer {
             attn_norm_weight: vec![1.0; hidden_dim],
             attn_norm_bias: None,
-            qkv_weight: create_q4k_tensor(hidden_dim, hidden_dim * 3),
+            qkv_weight: OwnedQKVWeights::Fused(create_q4k_tensor(hidden_dim, hidden_dim * 3)),
             qkv_bias: None,
             attn_output_weight: create_q4k_tensor(hidden_dim, hidden_dim),
             attn_output_bias: None,
@@ -834,6 +834,10 @@ fn benchmark_e2e_generation(c: &mut Criterion) {
             ffn_up_bias: None,
             ffn_down_weight: create_q4k_tensor(intermediate_dim, hidden_dim),
             ffn_down_bias: None,
+            ffn_gate_weight: None,
+            ffn_gate_bias: None,
+            ffn_norm_weight: None,
+            ffn_norm_bias: None,
         })
         .collect();
 
@@ -1470,7 +1474,7 @@ fn benchmark_batch_prefill(c: &mut Criterion) {
 fn create_benchmark_model(
     config: &realizar::gguf::GGUFConfig,
 ) -> realizar::gguf::OwnedQuantizedModel {
-    use realizar::gguf::{OwnedQuantizedLayer, OwnedQuantizedModel};
+    use realizar::gguf::{OwnedQKVWeights, OwnedQuantizedLayer, OwnedQuantizedModel};
 
     let hidden_dim = config.hidden_dim;
     let intermediate_dim = config.intermediate_dim;
@@ -1484,7 +1488,7 @@ fn create_benchmark_model(
         let layer = OwnedQuantizedLayer {
             attn_norm_weight: vec![1.0f32; hidden_dim],
             attn_norm_bias: None,
-            qkv_weight: create_bench_q4k_data(hidden_dim, qkv_out_dim),
+            qkv_weight: OwnedQKVWeights::Fused(create_bench_q4k_data(hidden_dim, qkv_out_dim)),
             qkv_bias: None,
             attn_output_weight: create_bench_q4k_data(hidden_dim, hidden_dim),
             attn_output_bias: None,
@@ -1492,6 +1496,10 @@ fn create_benchmark_model(
             ffn_up_bias: None,
             ffn_down_weight: create_bench_q4k_data(intermediate_dim, hidden_dim),
             ffn_down_bias: None,
+            ffn_gate_weight: None,
+            ffn_gate_bias: None,
+            ffn_norm_weight: None,
+            ffn_norm_bias: None,
         };
         layers.push(layer);
     }
@@ -2605,7 +2613,7 @@ fn benchmark_gpu_cpu_crossover(c: &mut Criterion) {
 fn create_bench_model_with_config(
     config: &realizar::gguf::GGUFConfig,
 ) -> realizar::gguf::OwnedQuantizedModel {
-    use realizar::gguf::{OwnedQuantizedLayer, OwnedQuantizedModel};
+    use realizar::gguf::{OwnedQKVWeights, OwnedQuantizedLayer, OwnedQuantizedModel};
 
     let hidden_dim = config.hidden_dim;
     let intermediate_dim = config.intermediate_dim;
@@ -2616,7 +2624,7 @@ fn create_bench_model_with_config(
         .map(|_| OwnedQuantizedLayer {
             attn_norm_weight: vec![1.0f32; hidden_dim],
             attn_norm_bias: None,
-            qkv_weight: create_bench_q4k_data(hidden_dim, hidden_dim * 3),
+            qkv_weight: OwnedQKVWeights::Fused(create_bench_q4k_data(hidden_dim, hidden_dim * 3)),
             qkv_bias: None,
             attn_output_weight: create_bench_q4k_data(hidden_dim, hidden_dim),
             attn_output_bias: None,
@@ -2624,6 +2632,10 @@ fn create_bench_model_with_config(
             ffn_up_bias: None,
             ffn_down_weight: create_bench_q4k_data(intermediate_dim, hidden_dim),
             ffn_down_bias: None,
+            ffn_gate_weight: None,
+            ffn_gate_bias: None,
+            ffn_norm_weight: None,
+            ffn_norm_bias: None,
         })
         .collect();
 

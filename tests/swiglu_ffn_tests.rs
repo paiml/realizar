@@ -20,16 +20,14 @@ fn test_ffn01_owned_layer_has_gate_weight() {
 
     // This test verifies the struct has the ffn_gate_weight field
     // If the field doesn't exist, this won't compile
-    fn assert_has_gate_field(layer: &OwnedQuantizedLayer) -> bool {
+    fn check_has_gate_field(layer: &OwnedQuantizedLayer) -> bool {
         // Access the field - compiler error if missing
         layer.ffn_gate_weight.is_some() || layer.ffn_gate_weight.is_none()
     }
 
-    // Just verify the function compiles
-    assert!(
-        true,
-        "FFN-01: OwnedQuantizedLayer must have ffn_gate_weight field"
-    );
+    // Verify the function compiles and can be referenced
+    // The actual check is compile-time: if the field doesn't exist, this file won't compile
+    let _: fn(&OwnedQuantizedLayer) -> bool = check_has_gate_field;
 }
 
 /// FFN-02: OwnedQuantizedLayer must have ffn_gate_bias field
@@ -38,14 +36,12 @@ fn test_ffn01_owned_layer_has_gate_weight() {
 fn test_ffn02_owned_layer_has_gate_bias() {
     use realizar::gguf::OwnedQuantizedLayer;
 
-    fn assert_has_gate_bias(layer: &OwnedQuantizedLayer) -> bool {
+    fn check_has_gate_bias(layer: &OwnedQuantizedLayer) -> bool {
         layer.ffn_gate_bias.is_some() || layer.ffn_gate_bias.is_none()
     }
 
-    assert!(
-        true,
-        "FFN-02: OwnedQuantizedLayer must have ffn_gate_bias field"
-    );
+    // Verify the function compiles and can be referenced
+    let _: fn(&OwnedQuantizedLayer) -> bool = check_has_gate_bias;
 }
 
 /// FFN-03: QuantizedGGUFTransformerLayer must have ffn_gate_weight field
@@ -54,14 +50,12 @@ fn test_ffn02_owned_layer_has_gate_bias() {
 fn test_ffn03_quantized_layer_has_gate_weight() {
     use realizar::gguf::QuantizedGGUFTransformerLayer;
 
-    fn assert_has_gate_field(layer: &QuantizedGGUFTransformerLayer) -> bool {
+    fn check_has_gate_field(layer: &QuantizedGGUFTransformerLayer) -> bool {
         layer.ffn_gate_weight.is_some() || layer.ffn_gate_weight.is_none()
     }
 
-    assert!(
-        true,
-        "FFN-03: QuantizedGGUFTransformerLayer must have ffn_gate_weight"
-    );
+    // Verify the function compiles and can be referenced
+    let _: fn(&QuantizedGGUFTransformerLayer) -> bool = check_has_gate_field;
 }
 
 /// FFN-04: SiLU activation function exists and is correct
