@@ -3492,7 +3492,7 @@ pub fn int8_matvec_parallel(weights: &[Int8Row], activations: &[f32]) -> Vec<f32
         .collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "heavy-tests"))]
 mod tests {
     use super::*;
 

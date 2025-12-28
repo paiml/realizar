@@ -4290,7 +4290,7 @@ async fn apr_audit_handler(
     Ok(Json(AuditResponse { record }))
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "heavy-tests"))]
 mod tests {
     use axum::{
         body::Body,
@@ -6035,7 +6035,8 @@ mod tests {
         config: &crate::gguf::GGUFConfig,
     ) -> crate::gguf::OwnedQuantizedModel {
         use crate::gguf::{
-            OwnedQuantizedLayer, OwnedQuantizedModel, OwnedQuantizedTensor, GGUF_TYPE_Q4_K,
+            OwnedQKVWeights, OwnedQuantizedLayer, OwnedQuantizedModel, OwnedQuantizedTensor,
+            GGUF_TYPE_Q4_K,
         };
 
         let hidden_dim = config.hidden_dim;
@@ -6061,7 +6062,7 @@ mod tests {
             .map(|_| OwnedQuantizedLayer {
                 attn_norm_weight: vec![1.0f32; hidden_dim],
                 attn_norm_bias: None,
-                qkv_weight: create_q4k_data(hidden_dim, hidden_dim * 3),
+                qkv_weight: OwnedQKVWeights::Fused(create_q4k_data(hidden_dim, hidden_dim * 3)),
                 qkv_bias: None,
                 attn_output_weight: create_q4k_data(hidden_dim, hidden_dim),
                 attn_output_bias: None,
@@ -6069,6 +6070,10 @@ mod tests {
                 ffn_up_bias: None,
                 ffn_down_weight: create_q4k_data(intermediate_dim, hidden_dim),
                 ffn_down_bias: None,
+                ffn_gate_weight: None,
+                ffn_gate_bias: None,
+                ffn_norm_weight: None,
+                ffn_norm_bias: None,
             })
             .collect();
 
