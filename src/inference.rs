@@ -945,11 +945,20 @@ impl TruenoInferenceEngine {
             );
 
             // 2b. QKV projection (SIMD matmul)
-            let qkv_dim = 3 * hidden_dim;
+            // Compute qkv_dim from actual weight size to support GQA models
+            // For MHA: qkv_dim = 3 * hidden_dim
+            // For GQA: qkv_dim = hidden_dim + 2 * kv_dim (where kv_dim = num_kv_heads * head_dim)
+            let qkv_dim = layer.qkv_weight.len() / hidden_dim;
             let mut qkv = simd_matmul(&normed, &layer.qkv_weight, hidden_dim, qkv_dim);
             if let Some(ref bias) = layer.qkv_bias {
                 simd_add(&mut qkv, bias);
             }
+
+            // Calculate K/V dimension for GQA support
+            // Q always has hidden_dim, K and V share the remaining dimensions
+            let kv_dim = (qkv_dim - hidden_dim) / 2;
+            let num_kv_heads = self.config.num_kv_heads;
+            let head_dim = hidden_dim / num_heads;
 
             // 2c. Scaled dot-product attention with RoPE
             let mut attn_out = Vec::with_capacity(seq_len * hidden_dim);
@@ -958,19 +967,36 @@ impl TruenoInferenceEngine {
                 let qkv_start = s * qkv_dim;
 
                 // Extract Q, K, V for this position
+                // Q: [hidden_dim], K: [kv_dim], V: [kv_dim]
                 let mut q = qkv[qkv_start..qkv_start + hidden_dim].to_vec();
-                let mut k = qkv[qkv_start + hidden_dim..qkv_start + 2 * hidden_dim].to_vec();
-                let v = &qkv[qkv_start + 2 * hidden_dim..qkv_start + 3 * hidden_dim];
+                let k_raw = &qkv[qkv_start + hidden_dim..qkv_start + hidden_dim + kv_dim];
+                let v_raw = &qkv[qkv_start + hidden_dim + kv_dim..qkv_start + qkv_dim];
 
                 // Apply RoPE to Q and K
                 apply_rope(&mut q, hidden_dim, num_heads, s, self.config.rope_theta);
-                apply_rope(&mut k, hidden_dim, num_heads, s, self.config.rope_theta);
+                let mut k = k_raw.to_vec();
+                apply_rope(&mut k, kv_dim, num_kv_heads, s, self.config.rope_theta);
+
+                // For GQA: expand K/V by repeating each KV head to match Q heads
+                // group_size = num_heads / num_kv_heads (e.g., 32/4 = 8 for TinyLlama)
+                let v: Vec<f32> = if num_kv_heads < num_heads {
+                    let group_size = num_heads / num_kv_heads;
+                    (0..num_heads)
+                        .flat_map(|h| {
+                            let kv_head = h / group_size;
+                            let start = kv_head * head_dim;
+                            v_raw[start..start + head_dim].iter().copied()
+                        })
+                        .collect()
+                } else {
+                    v_raw.to_vec()
+                };
 
                 // For single-position, simplified attention (full KV cache would be here)
                 // Compute attention score: softmax(Q·K^T / sqrt(d_k))
                 // Note: In full implementation, this would use KV cache for all positions
                 // and proper scaled dot-product attention. Here we use V directly.
-                attn_out.extend_from_slice(v);
+                attn_out.extend_from_slice(&v);
             }
 
             // 2d. Attention output projection (SIMD matmul)
@@ -1192,16 +1218,21 @@ impl TruenoInferenceEngine {
             );
 
             // 2b. QKV projection for single position
-            let qkv_dim = 3 * hidden_dim;
+            // Compute qkv_dim from actual weight size to support GQA models
+            let qkv_dim = layer.qkv_weight.len() / hidden_dim;
             let mut qkv = simd_matmul(&normed, &layer.qkv_weight, hidden_dim, qkv_dim);
             if let Some(ref bias) = layer.qkv_bias {
                 simd_add(&mut qkv, bias);
             }
 
-            // Extract Q, K, V
+            // Calculate K/V dimension for GQA support
+            let kv_dim = (qkv_dim - hidden_dim) / 2;
+            let num_kv_heads = self.config.num_kv_heads;
+
+            // Extract Q, K, V with GQA-aware dimensions
             let mut q = qkv[0..hidden_dim].to_vec();
-            let mut k = qkv[hidden_dim..2 * hidden_dim].to_vec();
-            let v = qkv[2 * hidden_dim..3 * hidden_dim].to_vec();
+            let k_raw = &qkv[hidden_dim..hidden_dim + kv_dim];
+            let v_raw = &qkv[hidden_dim + kv_dim..qkv_dim];
 
             // Apply RoPE to Q and K
             apply_rope(
@@ -1211,13 +1242,33 @@ impl TruenoInferenceEngine {
                 position,
                 self.config.rope_theta,
             );
+            let mut k = k_raw.to_vec();
             apply_rope(
                 &mut k,
-                hidden_dim,
-                num_heads,
+                kv_dim,
+                num_kv_heads,
                 position,
                 self.config.rope_theta,
             );
+
+            // For GQA: expand K/V for cache storage (full size for compatibility)
+            let (k_expanded, v_expanded): (Vec<f32>, Vec<f32>) = if num_kv_heads < num_heads {
+                let group_size = num_heads / num_kv_heads;
+                let expand = |raw: &[f32]| -> Vec<f32> {
+                    (0..num_heads)
+                        .flat_map(|h| {
+                            let kv_head = h / group_size;
+                            let start = kv_head * head_dim;
+                            raw[start..start + head_dim].iter().copied()
+                        })
+                        .collect()
+                };
+                (expand(&k), expand(v_raw))
+            } else {
+                (k, v_raw.to_vec())
+            };
+            let k = k_expanded;
+            let v = v_expanded;
 
             // Store K, V in cache for this layer
             kv_cache.store(layer_idx, &k, &v);
@@ -1657,7 +1708,8 @@ impl QuantizedInferenceEngine {
 
             // 2b. QKV projection (QUANTIZED - fused dequant+dot)
             // For single token, use matvec. For batch, would need batched version.
-            let qkv_dim = 3 * hidden_dim;
+            // Use actual weight dimensions to support GQA models
+            let qkv_dim = layer.qkv_weight.out_dim;
             let mut qkv = if seq_len == 1 {
                 // Single token: use fused quantized matvec
                 layer.qkv_weight.matvec(&normed)?
@@ -1681,23 +1733,43 @@ impl QuantizedInferenceEngine {
                 }
             }
 
+            // Calculate K/V dimension for GQA support
+            let kv_dim = (qkv_dim - hidden_dim) / 2;
+            let num_kv_heads = self.config.num_kv_heads;
+            let head_dim = hidden_dim / num_heads;
+
             // 2c. Scaled dot-product attention with RoPE
             let mut attn_out = Vec::with_capacity(seq_len * hidden_dim);
 
             for s in 0..seq_len {
                 let qkv_start = s * qkv_dim;
 
-                // Extract Q, K, V for this position
+                // Extract Q, K, V with GQA-aware dimensions
                 let mut q = qkv[qkv_start..qkv_start + hidden_dim].to_vec();
-                let mut k = qkv[qkv_start + hidden_dim..qkv_start + 2 * hidden_dim].to_vec();
-                let v = &qkv[qkv_start + 2 * hidden_dim..qkv_start + 3 * hidden_dim];
+                let k_raw = &qkv[qkv_start + hidden_dim..qkv_start + hidden_dim + kv_dim];
+                let v_raw = &qkv[qkv_start + hidden_dim + kv_dim..qkv_start + qkv_dim];
 
                 // Apply RoPE to Q and K
                 apply_rope(&mut q, hidden_dim, num_heads, s, self.config.rope_theta);
-                apply_rope(&mut k, hidden_dim, num_heads, s, self.config.rope_theta);
+                let mut k = k_raw.to_vec();
+                apply_rope(&mut k, kv_dim, num_kv_heads, s, self.config.rope_theta);
+
+                // For GQA: expand V by repeating each KV head to match Q heads
+                let v: Vec<f32> = if num_kv_heads < num_heads {
+                    let group_size = num_heads / num_kv_heads;
+                    (0..num_heads)
+                        .flat_map(|h| {
+                            let kv_head = h / group_size;
+                            let start = kv_head * head_dim;
+                            v_raw[start..start + head_dim].iter().copied()
+                        })
+                        .collect()
+                } else {
+                    v_raw.to_vec()
+                };
 
                 // Simplified attention (would use KV cache in full implementation)
-                attn_out.extend_from_slice(v);
+                attn_out.extend_from_slice(&v);
             }
 
             // 2d. Attention output projection (QUANTIZED)
@@ -1919,10 +1991,15 @@ impl QuantizedInferenceEngine {
                 simd_add(&mut qkv, bias);
             }
 
-            // Extract Q, K, V
+            // Calculate dimensions for GQA support
+            let qkv_dim = layer.qkv_weight.out_dim;
+            let kv_dim = (qkv_dim - hidden_dim) / 2;
+            let num_kv_heads = self.config.num_kv_heads;
+
+            // Extract Q, K, V with GQA-aware dimensions
             let mut q = qkv[0..hidden_dim].to_vec();
-            let mut k = qkv[hidden_dim..2 * hidden_dim].to_vec();
-            let v = qkv[2 * hidden_dim..3 * hidden_dim].to_vec();
+            let k_raw = &qkv[hidden_dim..hidden_dim + kv_dim];
+            let v_raw = &qkv[hidden_dim + kv_dim..qkv_dim];
 
             // Apply RoPE
             apply_rope(
@@ -1932,16 +2009,34 @@ impl QuantizedInferenceEngine {
                 position,
                 self.config.rope_theta,
             );
+            let mut k = k_raw.to_vec();
             apply_rope(
                 &mut k,
-                hidden_dim,
-                num_heads,
+                kv_dim,
+                num_kv_heads,
                 position,
                 self.config.rope_theta,
             );
 
+            // For GQA: expand K/V for cache storage
+            let (k_expanded, v_expanded): (Vec<f32>, Vec<f32>) = if num_kv_heads < num_heads {
+                let group_size = num_heads / num_kv_heads;
+                let expand = |raw: &[f32]| -> Vec<f32> {
+                    (0..num_heads)
+                        .flat_map(|h| {
+                            let kv_head = h / group_size;
+                            let start = kv_head * head_dim;
+                            raw[start..start + head_dim].iter().copied()
+                        })
+                        .collect()
+                };
+                (expand(&k), expand(v_raw))
+            } else {
+                (k, v_raw.to_vec())
+            };
+
             // Store K, V in cache
-            kv_cache.store(layer_idx, &k, &v);
+            kv_cache.store(layer_idx, &k_expanded, &v_expanded);
 
             // 2c. Attention using cached K/V
             let cached_keys = kv_cache.get_k(layer_idx);
