@@ -983,13 +983,11 @@ pub fn dequantize_q6_k(data: &[u8]) -> Result<Vec<f32>> {
                 // q1: low 4 bits of ql[l] + bits 0-1 of qh[l]
                 let q1 = ((ql_slice[l] & 0xF) | ((qh_slice[l] & 3) << 4)) as i32 - 32;
                 // q2: low 4 bits of ql[l+32] + bits 2-3 of qh[l]
-                let q2 =
-                    ((ql_slice[l + 32] & 0xF) | (((qh_slice[l] >> 2) & 3) << 4)) as i32 - 32;
+                let q2 = ((ql_slice[l + 32] & 0xF) | (((qh_slice[l] >> 2) & 3) << 4)) as i32 - 32;
                 // q3: high 4 bits of ql[l] + bits 4-5 of qh[l]
                 let q3 = ((ql_slice[l] >> 4) | (((qh_slice[l] >> 4) & 3) << 4)) as i32 - 32;
                 // q4: high 4 bits of ql[l+32] + bits 6-7 of qh[l]
-                let q4 =
-                    ((ql_slice[l + 32] >> 4) | (((qh_slice[l] >> 6) & 3) << 4)) as i32 - 32;
+                let q4 = ((ql_slice[l + 32] >> 4) | (((qh_slice[l] >> 6) & 3) << 4)) as i32 - 32;
 
                 // Write to output with correct scale indexing
                 result[out_start + n + l] = d * (sc[is] as f32) * (q1 as f32);
@@ -1615,11 +1613,9 @@ pub fn fused_q6k_dot(q6k_data: &[u8], activations: &[f32]) -> Result<f32> {
 
                 // Extract 4 values per iteration (at positions l, l+32, l+64, l+96)
                 let q1 = ((ql_slice[l] & 0xF) | ((qh_slice[l] & 3) << 4)) as i32 - 32;
-                let q2 =
-                    ((ql_slice[l + 32] & 0xF) | (((qh_slice[l] >> 2) & 3) << 4)) as i32 - 32;
+                let q2 = ((ql_slice[l + 32] & 0xF) | (((qh_slice[l] >> 2) & 3) << 4)) as i32 - 32;
                 let q3 = ((ql_slice[l] >> 4) | (((qh_slice[l] >> 4) & 3) << 4)) as i32 - 32;
-                let q4 =
-                    ((ql_slice[l + 32] >> 4) | (((qh_slice[l] >> 6) & 3) << 4)) as i32 - 32;
+                let q4 = ((ql_slice[l + 32] >> 4) | (((qh_slice[l] >> 6) & 3) << 4)) as i32 - 32;
 
                 // Dequantize and accumulate dot product
                 let v1 = d * (sc[is] as f32) * (q1 as f32);

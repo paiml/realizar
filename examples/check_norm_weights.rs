@@ -7,7 +7,9 @@ fn main() {
     let model = GGUFModel::from_bytes(&data).unwrap();
 
     // Find norm weight tensors
-    let norm_tensors: Vec<_> = model.tensors.iter()
+    let norm_tensors: Vec<_> = model
+        .tensors
+        .iter()
         .filter(|t| t.name.contains("norm"))
         .collect();
 
@@ -17,7 +19,11 @@ fn main() {
     }
 
     // Check blk.0.attn_norm.weight specifically
-    if let Some(t) = model.tensors.iter().find(|t| t.name == "blk.0.attn_norm.weight") {
+    if let Some(t) = model
+        .tensors
+        .iter()
+        .find(|t| t.name == "blk.0.attn_norm.weight")
+    {
         println!("\nblk.0.attn_norm.weight details:");
         println!("  dims: {:?}", t.dims);
         println!("  qtype: {} (0=F32, 1=F16, ...)", t.qtype);
@@ -70,7 +76,11 @@ fn main() {
     }
 
     // Also check output_norm.weight
-    if let Some(t) = model.tensors.iter().find(|t| t.name == "output_norm.weight") {
+    if let Some(t) = model
+        .tensors
+        .iter()
+        .find(|t| t.name == "output_norm.weight")
+    {
         println!("\noutput_norm.weight details:");
         println!("  dims: {:?}", t.dims);
         println!("  qtype: {}", t.qtype);

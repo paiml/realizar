@@ -4,7 +4,9 @@ use std::time::Instant;
 
 fn main() {
     println!("Loading model...");
-    let mapped = MappedGGUFModel::from_path("/home/noah/src/aprender/tinyllama-1.1b-chat-v1.0.Q4_0.gguf").unwrap();
+    let mapped =
+        MappedGGUFModel::from_path("/home/noah/src/aprender/tinyllama-1.1b-chat-v1.0.Q4_0.gguf")
+            .unwrap();
     let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
     let vocab = mapped.model.vocabulary().unwrap();
 
@@ -17,7 +19,11 @@ fn main() {
     // Show what tokens decode to
     print!("Decoded: ");
     for &t in &tokens {
-        let tok = if (t as usize) < vocab.len() { &vocab[t as usize] } else { "?" };
+        let tok = if (t as usize) < vocab.len() {
+            &vocab[t as usize]
+        } else {
+            "?"
+        };
         print!("{}", tok.replace("▁", " "));
     }
     println!();
@@ -34,14 +40,32 @@ fn main() {
 
     println!("\nTop 10 predictions for next token:");
     for (rank, (idx, logit)) in indexed.iter().take(10).enumerate() {
-        let tok = if *idx < vocab.len() { &vocab[*idx] } else { "?" };
-        println!("  {}: {} '{}' = {:.4}", rank + 1, idx, tok.replace("▁", " "), logit);
+        let tok = if *idx < vocab.len() {
+            &vocab[*idx]
+        } else {
+            "?"
+        };
+        println!(
+            "  {}: {} '{}' = {:.4}",
+            rank + 1,
+            idx,
+            tok.replace("▁", " "),
+            logit
+        );
     }
 
     // Check where "Paris" ranks
     if let Some(paris_idx) = vocab.iter().position(|t| t == "▁Paris" || t == "Paris") {
-        let paris_rank = indexed.iter().position(|(idx, _)| *idx == paris_idx).unwrap_or(vocab.len());
-        println!("\n'Paris' (token {}) rank: {}/{}", paris_idx, paris_rank + 1, vocab.len());
+        let paris_rank = indexed
+            .iter()
+            .position(|(idx, _)| *idx == paris_idx)
+            .unwrap_or(vocab.len());
+        println!(
+            "\n'Paris' (token {}) rank: {}/{}",
+            paris_idx,
+            paris_rank + 1,
+            vocab.len()
+        );
         println!("'Paris' logit: {:.4}", logits[paris_idx]);
     }
 
@@ -51,20 +75,35 @@ fn main() {
     for i in 0..3 {
         let start = Instant::now();
         let logits = model.forward(&all_tokens).unwrap();
-        let (best_idx, _) = logits.iter()
+        let (best_idx, _) = logits
+            .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .unwrap();
 
-        let tok = if best_idx < vocab.len() { &vocab[best_idx] } else { "?" };
-        println!("  Token {}: {} '{}' ({:.2}s)", i + 1, best_idx, tok.replace("▁", " "), start.elapsed().as_secs_f32());
+        let tok = if best_idx < vocab.len() {
+            &vocab[best_idx]
+        } else {
+            "?"
+        };
+        println!(
+            "  Token {}: {} '{}' ({:.2}s)",
+            i + 1,
+            best_idx,
+            tok.replace("▁", " "),
+            start.elapsed().as_secs_f32()
+        );
         all_tokens.push(best_idx as u32);
     }
 
     // Show full generated text
     print!("\nFull output: ");
     for &t in &all_tokens {
-        let tok = if (t as usize) < vocab.len() { &vocab[t as usize] } else { "?" };
+        let tok = if (t as usize) < vocab.len() {
+            &vocab[t as usize]
+        } else {
+            "?"
+        };
         print!("{}", tok.replace("▁", " "));
     }
     println!();

@@ -731,7 +731,8 @@ fn run_gguf_inference(
     println!("Model loaded in {:.2}ms", load_time.as_secs_f64() * 1000.0);
 
     // Tokenize prompt using GGUF vocabulary
-    let mut prompt_tokens: Vec<u32> = mapped.model
+    let mut prompt_tokens: Vec<u32> = mapped
+        .model
         .encode(prompt)
         .unwrap_or_else(|| prompt.chars().map(|c| c as u32).collect());
 
@@ -762,12 +763,30 @@ fn run_gguf_inference(
     println!("Temperature: {:.1}", temperature);
     println!();
 
-    // Run inference using greedy or temperature sampling
+    // Run inference with KV cache for O(n) per-token cost
+    use realizar::gguf::OwnedQuantizedKVCache;
+
     let gen_start = Instant::now();
+    let max_seq_len = prompt_tokens.len() + max_tokens;
+    let mut cache = OwnedQuantizedKVCache::from_config(&model.config, max_seq_len);
     let mut all_tokens = prompt_tokens.clone();
 
-    for _ in 0..max_tokens {
-        let logits = model.forward(&all_tokens)?;
+    // Prefill: process prompt tokens to populate KV cache
+    // We process all tokens but keep the logits from the last one
+    let mut logits = vec![];
+    for (pos, &token_id) in prompt_tokens.iter().enumerate() {
+        logits = model.forward_cached(token_id, &mut cache, pos)?;
+    }
+
+    // Decode: generate new tokens one at a time
+    // First iteration uses logits from prefill, subsequent use new logits
+    for i in 0..max_tokens {
+        // For first iteration, use logits from prefill; otherwise compute new ones
+        if i > 0 {
+            let position = prompt_tokens.len() + i - 1;
+            let last_token = *all_tokens.last().unwrap();
+            logits = model.forward_cached(last_token, &mut cache, position)?;
+        }
 
         // Sample next token
         let next_token = if temperature <= 0.01 {
@@ -803,7 +822,10 @@ fn run_gguf_inference(
     };
 
     // Decode output using GGUF vocabulary, replacing SentencePiece markers with spaces
-    let output_text = mapped.model.decode(&generated[prompt_len..]).replace('▁', " ");
+    let output_text = mapped
+        .model
+        .decode(&generated[prompt_len..])
+        .replace('▁', " ");
 
     match format {
         "json" => {

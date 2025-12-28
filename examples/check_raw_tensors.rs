@@ -21,23 +21,35 @@ fn main() {
         let values = model.get_tensor_f32("token_embd.weight", &data).unwrap();
         let (min, max, mean, std) = stats(&values);
         println!("  total elements: {}", values.len());
-        println!("  stats: min={:.4}, max={:.4}, mean={:.4}, std={:.4}", min, max, mean, std);
+        println!(
+            "  stats: min={:.4}, max={:.4}, mean={:.4}, std={:.4}",
+            min, max, mean, std
+        );
 
         // First token embedding (token 0)
         let hidden_dim = 2048;
         let tok0 = &values[0..hidden_dim];
         let (min, max, mean, std) = stats(tok0);
-        println!("  token 0 (UNK): min={:.4}, max={:.4}, mean={:.4}, std={:.4}", min, max, mean, std);
+        println!(
+            "  token 0 (UNK): min={:.4}, max={:.4}, mean={:.4}, std={:.4}",
+            min, max, mean, std
+        );
 
         // BOS token embedding (token 1)
-        let tok1 = &values[hidden_dim..2*hidden_dim];
+        let tok1 = &values[hidden_dim..2 * hidden_dim];
         let (min, max, mean, std) = stats(tok1);
-        println!("  token 1 (BOS): min={:.4}, max={:.4}, mean={:.4}, std={:.4}", min, max, mean, std);
+        println!(
+            "  token 1 (BOS): min={:.4}, max={:.4}, mean={:.4}, std={:.4}",
+            min, max, mean, std
+        );
 
         // A common word token - let's try a few
-        let tok100 = &values[100*hidden_dim..101*hidden_dim];
+        let tok100 = &values[100 * hidden_dim..101 * hidden_dim];
         let (min, max, mean, std) = stats(tok100);
-        println!("  token 100: min={:.4}, max={:.4}, mean={:.4}, std={:.4}", min, max, mean, std);
+        println!(
+            "  token 100: min={:.4}, max={:.4}, mean={:.4}, std={:.4}",
+            min, max, mean, std
+        );
     }
 
     // Check output.weight (lm_head)
@@ -47,26 +59,45 @@ fn main() {
         let values = model.get_tensor_f32("output.weight", &data).unwrap();
         let (min, max, mean, std) = stats(&values);
         println!("  total elements: {}", values.len());
-        println!("  stats: min={:.4}, max={:.4}, mean={:.4}, std={:.4}", min, max, mean, std);
+        println!(
+            "  stats: min={:.4}, max={:.4}, mean={:.4}, std={:.4}",
+            min, max, mean, std
+        );
     }
 
     // Check blk.0.attn_q.weight
     println!("\nChecking blk.0.attn_q.weight...");
-    if let Some(t) = model.tensors.iter().find(|t| t.name == "blk.0.attn_q.weight") {
+    if let Some(t) = model
+        .tensors
+        .iter()
+        .find(|t| t.name == "blk.0.attn_q.weight")
+    {
         println!("  dims: {:?}, qtype: {}", t.dims, t.qtype);
         let values = model.get_tensor_f32("blk.0.attn_q.weight", &data).unwrap();
         let (min, max, mean, std) = stats(&values);
         println!("  total elements: {}", values.len());
-        println!("  stats: min={:.4}, max={:.4}, mean={:.4}, std={:.4}", min, max, mean, std);
+        println!(
+            "  stats: min={:.4}, max={:.4}, mean={:.4}, std={:.4}",
+            min, max, mean, std
+        );
     }
 
     // Check blk.0.ffn_gate.weight (SwiGLU)
     println!("\nChecking blk.0.ffn_gate.weight...");
-    if let Some(t) = model.tensors.iter().find(|t| t.name == "blk.0.ffn_gate.weight") {
+    if let Some(t) = model
+        .tensors
+        .iter()
+        .find(|t| t.name == "blk.0.ffn_gate.weight")
+    {
         println!("  dims: {:?}, qtype: {}", t.dims, t.qtype);
-        let values = model.get_tensor_f32("blk.0.ffn_gate.weight", &data).unwrap();
+        let values = model
+            .get_tensor_f32("blk.0.ffn_gate.weight", &data)
+            .unwrap();
         let (min, max, mean, std) = stats(&values);
         println!("  total elements: {}", values.len());
-        println!("  stats: min={:.4}, max={:.4}, mean={:.4}, std={:.4}", min, max, mean, std);
+        println!(
+            "  stats: min={:.4}, max={:.4}, mean={:.4}, std={:.4}",
+            min, max, mean, std
+        );
     }
 }

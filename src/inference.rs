@@ -1664,11 +1664,15 @@ impl TruenoInferenceEngine {
                 // Softmax
                 let max_logit = scaled.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
                 let exp_sum: f32 = scaled.iter().map(|&x| (x - max_logit).exp()).sum();
-                let probs: Vec<f32> = scaled.iter().map(|&x| (x - max_logit).exp() / exp_sum).collect();
+                let probs: Vec<f32> = scaled
+                    .iter()
+                    .map(|&x| (x - max_logit).exp() / exp_sum)
+                    .collect();
 
                 // Top-p (nucleus) sampling with p=0.9
                 let top_p = 0.9;
-                let mut indexed: Vec<(usize, f32)> = probs.iter().enumerate().map(|(i, &p)| (i, p)).collect();
+                let mut indexed: Vec<(usize, f32)> =
+                    probs.iter().enumerate().map(|(i, &p)| (i, p)).collect();
                 indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
                 let mut cumsum = 0.0;
@@ -2453,8 +2457,12 @@ mod attention_tests {
         let mut outputs = Vec::new();
 
         for s in 0..seq_len {
-            let q: Vec<f32> = (0..hidden_dim).map(|i| (s * hidden_dim + i) as f32 * 0.1).collect();
-            let k: Vec<f32> = (0..hidden_dim).map(|i| (s * hidden_dim + i) as f32 * 0.2).collect();
+            let q: Vec<f32> = (0..hidden_dim)
+                .map(|i| (s * hidden_dim + i) as f32 * 0.1)
+                .collect();
+            let k: Vec<f32> = (0..hidden_dim)
+                .map(|i| (s * hidden_dim + i) as f32 * 0.2)
+                .collect();
             let v: Vec<f32> = (0..hidden_dim).map(|_| (s + 1) as f32).collect();
 
             k_cache.extend_from_slice(&k);
@@ -3263,10 +3271,14 @@ mod tests {
 
         for s in 0..seq_len {
             // Q for position s (distinct values per position)
-            let q: Vec<f32> = (0..hidden_dim).map(|i| (s * hidden_dim + i) as f32 * 0.1).collect();
+            let q: Vec<f32> = (0..hidden_dim)
+                .map(|i| (s * hidden_dim + i) as f32 * 0.1)
+                .collect();
 
             // K/V for position s
-            let k: Vec<f32> = (0..hidden_dim).map(|i| (s * hidden_dim + i) as f32 * 0.2).collect();
+            let k: Vec<f32> = (0..hidden_dim)
+                .map(|i| (s * hidden_dim + i) as f32 * 0.2)
+                .collect();
             let v: Vec<f32> = (0..hidden_dim).map(|i| (s + 1) as f32).collect(); // V[s] = s+1
 
             // Add to cache BEFORE attention (causal - includes current position)
@@ -3281,7 +3293,11 @@ mod tests {
         // Position 0: only sees itself
         assert_eq!(outputs[0].len(), hidden_dim);
         for val in &outputs[0] {
-            assert!((val - 1.0).abs() < 1e-4, "Pos 0 should output V[0]=1.0, got {}", val);
+            assert!(
+                (val - 1.0).abs() < 1e-4,
+                "Pos 0 should output V[0]=1.0, got {}",
+                val
+            );
         }
 
         // Position 1: sees pos 0 and 1 (weighted average of V[0]=1.0 and V[1]=2.0)

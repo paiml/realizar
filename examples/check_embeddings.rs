@@ -15,7 +15,11 @@ fn main() {
     let data = fs::read("/home/noah/src/aprender/tinyllama-1.1b-chat-v1.0.Q4_0.gguf").unwrap();
     let model = GGUFModel::from_bytes(&data).unwrap();
 
-    let t = model.tensors.iter().find(|t| t.name == "token_embd.weight").unwrap();
+    let t = model
+        .tensors
+        .iter()
+        .find(|t| t.name == "token_embd.weight")
+        .unwrap();
     println!("token_embd.weight:");
     println!("  dims (after reverse): {:?}", t.dims);
     println!("  qtype: {} (2=Q4_0)", t.qtype);
@@ -28,8 +32,8 @@ fn main() {
 
     // Read the raw quantized data
     let abs_offset = model.tensor_data_start + t.offset as usize;
-    let num_blocks = num_elements / 32;  // Q4_0: 32 elements per block
-    let byte_size = num_blocks * 18;  // Q4_0: 18 bytes per block
+    let num_blocks = num_elements / 32; // Q4_0: 32 elements per block
+    let byte_size = num_blocks * 18; // Q4_0: 18 bytes per block
     println!("  num_blocks: {}, byte_size: {}", num_blocks, byte_size);
 
     // Dequantize the full tensor
@@ -44,8 +48,10 @@ fn main() {
         if end <= values.len() {
             let tok_embed = &values[start..end];
             let (min, max, mean, std) = stats(tok_embed);
-            println!("  token {}: min={:.6}, max={:.6}, mean={:.6}, std={:.6}", 
-                     tok_id, min, max, mean, std);
+            println!(
+                "  token {}: min={:.6}, max={:.6}, mean={:.6}, std={:.6}",
+                tok_id, min, max, mean, std
+            );
             if std < 0.0001 {
                 println!("           SUSPICIOUSLY LOW STD!");
             }
@@ -57,16 +63,21 @@ fn main() {
     println!("\nChecking raw Q4_0 blocks for token 1:");
     let block_idx = hidden_dim / 32;
     let num_blocks_per_tok = hidden_dim / 32;
-    println!("  starts at block {}, {} blocks per token", block_idx, num_blocks_per_tok);
-    
+    println!(
+        "  starts at block {}, {} blocks per token",
+        block_idx, num_blocks_per_tok
+    );
+
     for i in 0..3 {
         let b = block_idx + i;
         let block_start = b * 18;
         let scale_bytes = &quant_data[block_start..block_start + 2];
         let scale = half::f16::from_le_bytes([scale_bytes[0], scale_bytes[1]]).to_f32();
         let quants = &quant_data[block_start + 2..block_start + 18];
-        println!("    block {}: scale={:.6}, first 4 quant bytes: {:02x} {:02x} {:02x} {:02x}",
-                 b, scale, quants[0], quants[1], quants[2], quants[3]);
+        println!(
+            "    block {}: scale={:.6}, first 4 quant bytes: {:02x} {:02x} {:02x} {:02x}",
+            b, scale, quants[0], quants[1], quants[2], quants[3]
+        );
     }
 
     // Check raw blocks for token 100
@@ -78,7 +89,9 @@ fn main() {
         let scale_bytes = &quant_data[block_start..block_start + 2];
         let scale = half::f16::from_le_bytes([scale_bytes[0], scale_bytes[1]]).to_f32();
         let quants = &quant_data[block_start + 2..block_start + 18];
-        println!("    block {}: scale={:.6}, first 4 quant bytes: {:02x} {:02x} {:02x} {:02x}",
-                 b, scale, quants[0], quants[1], quants[2], quants[3]);
+        println!(
+            "    block {}: scale={:.6}, first 4 quant bytes: {:02x} {:02x} {:02x} {:02x}",
+            b, scale, quants[0], quants[1], quants[2], quants[3]
+        );
     }
 }

@@ -5,7 +5,6 @@
 //!
 //! FALSIFICATION: APR < 50 tok/s when GGUF >= 50 tok/s
 
-
 // ============================================================================
 // Y6.1: AprBenchmarkRunner Exists
 // ============================================================================
@@ -47,9 +46,7 @@ fn y6_1a_apr_benchmark_runner_exists() {
 /// FALSIFICATION: benchmark_decode() fails or returns invalid results
 #[test]
 fn y6_1b_benchmark_decode_works() {
-    use realizar::apr_transformer::{
-        AprBenchmarkRunner, AprTransformer, AprTransformerConfig,
-    };
+    use realizar::apr_transformer::{AprBenchmarkRunner, AprTransformer, AprTransformerConfig};
 
     let config = AprTransformerConfig {
         hidden_dim: 64,

@@ -1,5 +1,5 @@
 //! Check tokenizer behavior
-use realizar::gguf::{MappedGGUFModel, GGUFModel};
+use realizar::gguf::{GGUFModel, MappedGGUFModel};
 use std::fs;
 
 fn main() {
@@ -11,7 +11,9 @@ fn main() {
 
     // Check what some tokens look like
     println!("\nSample tokens:");
-    for i in [0, 1, 2, 35, 100, 500, 1000, 1576, 2400, 2410, 3681, 5030, 5299, 16066, 29958] {
+    for i in [
+        0, 1, 2, 35, 100, 500, 1000, 1576, 2400, 2410, 3681, 5030, 5299, 16066, 29958,
+    ] {
         if i < vocab.len() {
             println!("  {}: {:?}", i, vocab[i]);
         }
@@ -36,9 +38,12 @@ fn main() {
     println!();
 
     // Try simpler prompts
-    for prompt in ["Hello", " Hello", "hello", " hello", "Paris", " Paris", "France", " France"] {
+    for prompt in [
+        "Hello", " Hello", "hello", " hello", "Paris", " Paris", "France", " France",
+    ] {
         let tokens = model.encode(prompt).unwrap();
-        let decoded: String = tokens.iter()
+        let decoded: String = tokens
+            .iter()
             .filter_map(|&t| vocab.get(t as usize).map(|s| s.replace("▁", " ")))
             .collect();
         println!("'{}' -> {:?} -> '{}'", prompt, tokens, decoded);

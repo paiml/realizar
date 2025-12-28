@@ -3,7 +3,9 @@ use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
 
 fn main() {
     println!("Loading model...");
-    let mapped = MappedGGUFModel::from_path("/home/noah/src/aprender/tinyllama-1.1b-chat-v1.0.Q4_0.gguf").unwrap();
+    let mapped =
+        MappedGGUFModel::from_path("/home/noah/src/aprender/tinyllama-1.1b-chat-v1.0.Q4_0.gguf")
+            .unwrap();
     let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
 
     let config = model.config();
@@ -21,11 +23,23 @@ fn main() {
     // Check layer structure
     println!("\nLayer structure (first layer):");
     if let Some(layer) = model.layers.first() {
-        println!("  attn_norm_weight: {} elements", layer.attn_norm_weight.len());
-        println!("  attn_norm_bias: {:?}", layer.attn_norm_bias.as_ref().map(|b| b.len()));
-        println!("  ffn_gate_weight: {:?}", layer.ffn_gate_weight.as_ref().map(|_| "present"));
+        println!(
+            "  attn_norm_weight: {} elements",
+            layer.attn_norm_weight.len()
+        );
+        println!(
+            "  attn_norm_bias: {:?}",
+            layer.attn_norm_bias.as_ref().map(|b| b.len())
+        );
+        println!(
+            "  ffn_gate_weight: {:?}",
+            layer.ffn_gate_weight.as_ref().map(|_| "present")
+        );
         println!("  ffn_up_weight out_dim: {}", layer.ffn_up_weight.out_dim);
-        println!("  ffn_down_weight out_dim: {}", layer.ffn_down_weight.out_dim);
+        println!(
+            "  ffn_down_weight out_dim: {}",
+            layer.ffn_down_weight.out_dim
+        );
 
         // Check for SwiGLU (LLaMA-style FFN)
         let has_gate = layer.ffn_gate_weight.is_some();
@@ -38,20 +52,42 @@ fn main() {
 
     // Check embedding layer
     println!("\nEmbedding:");
-    println!("  vocab_size x hidden_dim: {} x {}", model.token_embedding.len() / config.hidden_dim, config.hidden_dim);
+    println!(
+        "  vocab_size x hidden_dim: {} x {}",
+        model.token_embedding.len() / config.hidden_dim,
+        config.hidden_dim
+    );
 
     // Sample some embedding values
-    println!("\n  Token 1 (BOS) embedding[0..5]: {:?}", &model.token_embedding[config.hidden_dim..config.hidden_dim + 5]);
+    println!(
+        "\n  Token 1 (BOS) embedding[0..5]: {:?}",
+        &model.token_embedding[config.hidden_dim..config.hidden_dim + 5]
+    );
 
     // Look at attention norm weights
     if let Some(layer) = model.layers.first() {
-        println!("\n  attn_norm_weight[0..5]: {:?}", &layer.attn_norm_weight[0..5]);
+        println!(
+            "\n  attn_norm_weight[0..5]: {:?}",
+            &layer.attn_norm_weight[0..5]
+        );
 
         // Check weight statistics
-        let min = layer.attn_norm_weight.iter().cloned().fold(f32::INFINITY, f32::min);
-        let max = layer.attn_norm_weight.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-        let mean: f32 = layer.attn_norm_weight.iter().sum::<f32>() / layer.attn_norm_weight.len() as f32;
-        println!("  attn_norm_weight stats: min={:.4}, max={:.4}, mean={:.4}", min, max, mean);
+        let min = layer
+            .attn_norm_weight
+            .iter()
+            .cloned()
+            .fold(f32::INFINITY, f32::min);
+        let max = layer
+            .attn_norm_weight
+            .iter()
+            .cloned()
+            .fold(f32::NEG_INFINITY, f32::max);
+        let mean: f32 =
+            layer.attn_norm_weight.iter().sum::<f32>() / layer.attn_norm_weight.len() as f32;
+        println!(
+            "  attn_norm_weight stats: min={:.4}, max={:.4}, mean={:.4}",
+            min, max, mean
+        );
     }
 
     // Run a simple forward on BOS
@@ -65,8 +101,12 @@ fn main() {
     let min = logits.iter().cloned().fold(f32::INFINITY, f32::min);
     let max = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
     let mean: f32 = logits.iter().sum::<f32>() / logits.len() as f32;
-    let std: f32 = (logits.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / logits.len() as f32).sqrt();
-    println!("Logit stats: min={:.4}, max={:.4}, mean={:.4}, std={:.4}", min, max, mean, std);
+    let std: f32 =
+        (logits.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / logits.len() as f32).sqrt();
+    println!(
+        "Logit stats: min={:.4}, max={:.4}, mean={:.4}, std={:.4}",
+        min, max, mean, std
+    );
 
     // Top 5 predictions
     let vocab = mapped.model.vocabulary().unwrap();
@@ -75,7 +115,17 @@ fn main() {
 
     println!("\nTop 5 predictions after BOS:");
     for (rank, (idx, logit)) in indexed.iter().take(5).enumerate() {
-        let tok = if *idx < vocab.len() { &vocab[*idx] } else { "?" };
-        println!("  {}: {} '{}' = {:.4}", rank + 1, idx, tok.replace("▁", " "), logit);
+        let tok = if *idx < vocab.len() {
+            &vocab[*idx]
+        } else {
+            "?"
+        };
+        println!(
+            "  {}: {} '{}' = {:.4}",
+            rank + 1,
+            idx,
+            tok.replace("▁", " "),
+            logit
+        );
     }
 }

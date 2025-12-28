@@ -2,7 +2,9 @@
 use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
 
 fn main() {
-    let mapped = MappedGGUFModel::from_path("/home/noah/src/aprender/tinyllama-1.1b-chat-v1.0.Q4_0.gguf").unwrap();
+    let mapped =
+        MappedGGUFModel::from_path("/home/noah/src/aprender/tinyllama-1.1b-chat-v1.0.Q4_0.gguf")
+            .unwrap();
     let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
     let vocab = mapped.model.vocabulary().unwrap();
 
@@ -17,12 +19,17 @@ fn main() {
         let logits = model.forward(&all_tokens).unwrap();
 
         // Greedy: pick highest logit
-        let (best_idx, best_logit) = logits.iter()
+        let (best_idx, best_logit) = logits
+            .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .unwrap();
 
-        let tok_str = if best_idx < vocab.len() { &vocab[best_idx] } else { "?" };
+        let tok_str = if best_idx < vocab.len() {
+            &vocab[best_idx]
+        } else {
+            "?"
+        };
         print!("{}", tok_str.replace("▁", " "));
         all_tokens.push(best_idx as u32);
     }
