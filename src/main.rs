@@ -858,6 +858,7 @@ fn run_gguf_inference(
 }
 
 /// Run APR inference with performance timing
+#[allow(dead_code)] // APR format support - called when detect_format returns Apr
 fn run_apr_inference(
     model_ref: &str,
     file_data: &[u8],

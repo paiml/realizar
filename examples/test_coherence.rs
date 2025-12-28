@@ -71,7 +71,7 @@ fn main() {
 
     // Generate 3 tokens
     println!("\nGenerating 3 tokens (greedy):");
-    let mut all_tokens = tokens.clone();
+    let mut all_tokens = tokens;
     for i in 0..3 {
         let start = Instant::now();
         let logits = model.forward(&all_tokens).unwrap();

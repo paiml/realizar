@@ -14,12 +14,12 @@ fn main() {
     println!("Prompt: '{}'", prompt);
     println!("Tokens: {:?}", tokens);
 
-    let mut all_tokens = tokens.clone();
+    let mut all_tokens = tokens;
     for _ in 0..20 {
         let logits = model.forward(&all_tokens).unwrap();
 
         // Greedy: pick highest logit
-        let (best_idx, best_logit) = logits
+        let (best_idx, _best_logit) = logits
             .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))

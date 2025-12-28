@@ -1,4 +1,4 @@
-use realizar::gguf::{GGUFModel, MappedGGUFModel};
+use realizar::gguf::GGUFModel;
 use std::fs;
 
 fn main() {
@@ -26,7 +26,7 @@ fn main() {
     println!("  loaded len: {}", embed.len());
 
     let hidden_dim = 2048;
-    let vocab_size = 32000;
+    let _vocab_size = 32000;
 
     // Check token 0 embedding (UNK)
     println!("\nToken 0 (UNK) embedding (first 10 values):");
@@ -35,7 +35,7 @@ fn main() {
     }
 
     // Check token 1 embedding (BOS)
-    let bos_start = 1 * hidden_dim;
+    let bos_start = hidden_dim;
     println!("\nToken 1 (BOS) embedding (first 10 values):");
     for (i, &v) in embed[bos_start..bos_start + 10].iter().enumerate() {
         println!("  [{}] = {:.6}", i, v);

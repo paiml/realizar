@@ -209,7 +209,7 @@ fn y4_3b_no_reallocation_during_append() {
     let initial_capacity = cache.capacity();
 
     // Append up to capacity
-    for i in 0..initial_capacity.min(16) {
+    for _ in 0..initial_capacity.min(16) {
         cache.append(0, &k, &v);
     }
 
