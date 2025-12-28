@@ -8667,10 +8667,15 @@ impl OwnedQuantizedModel {
         output
     }
 
-    /// Apply RoPE (Rotary Position Embeddings) to Q or K vectors (IMP-101a)
+    /// Apply RoPE (Rotary Position Embeddings) to Q or K vectors using trueno SIMD (IMP-101a)
     ///
     /// RoPE encodes position by rotating pairs of dimensions.
     /// Reference: Su et al., "RoFormer: Enhanced Transformer with Rotary Position Embedding"
+    ///
+    /// Uses trueno SIMD operations for performance:
+    /// - Pre-computes cos/sin vectors once per position (reused across heads)
+    /// - mul(): SIMD element-wise multiplication
+    /// - sub()/add(): SIMD element-wise arithmetic
     ///
     /// # Arguments
     /// * `x` - Vector to apply RoPE to [num_heads_in_x * head_dim]
@@ -8684,24 +8689,71 @@ impl OwnedQuantizedModel {
         let half_dim = head_dim / 2;
         let theta = self.config.rope_theta;
 
+        // Pre-compute cos/sin values for all dimensions (reused across heads)
+        // This is the expensive part - compute once, apply to all heads
+        let mut cos_vals = Vec::with_capacity(half_dim);
+        let mut sin_vals = Vec::with_capacity(half_dim);
+
+        for i in 0..half_dim {
+            let freq = 1.0 / theta.powf(2.0 * i as f32 / head_dim as f32);
+            let angle = position as f32 * freq;
+            cos_vals.push(angle.cos());
+            sin_vals.push(angle.sin());
+        }
+
+        // Create SIMD vectors for cos/sin (reused across all heads)
+        let cos_vec = TruenoVector::from_slice(&cos_vals);
+        let sin_vec = TruenoVector::from_slice(&sin_vals);
+
+        // Apply rotation to each head using SIMD
         for h in 0..num_heads_in_x {
             let head_start = h * head_dim;
+            let idx2_start = head_start + half_dim;
 
-            for i in 0..half_dim {
-                let freq = 1.0 / theta.powf(2.0 * i as f32 / head_dim as f32);
-                let angle = position as f32 * freq;
-                let cos_val = angle.cos();
-                let sin_val = angle.sin();
+            // Bounds check
+            if idx2_start + half_dim > x.len() {
+                continue;
+            }
 
-                let idx1 = head_start + i;
-                let idx2 = head_start + i + half_dim;
+            // Extract first half (x1) and second half (x2) of this head
+            let x1_slice = &x[head_start..head_start + half_dim];
+            let x2_slice = &x[idx2_start..idx2_start + half_dim];
 
-                if idx2 < x.len() {
-                    let x1 = x[idx1];
-                    let x2 = x[idx2];
-                    x[idx1] = x1 * cos_val - x2 * sin_val;
-                    x[idx2] = x1 * sin_val + x2 * cos_val;
-                }
+            let x1_vec = TruenoVector::from_slice(x1_slice);
+            let x2_vec = TruenoVector::from_slice(x2_slice);
+
+            // SIMD rotation: [cos -sin; sin cos] * [x1; x2]
+            // new_x1 = x1 * cos - x2 * sin
+            // new_x2 = x1 * sin + x2 * cos
+            let simd_result = x1_vec
+                .mul(&cos_vec)
+                .and_then(|x1_cos| x2_vec.mul(&sin_vec).and_then(|x2_sin| x1_cos.sub(&x2_sin)))
+                .and_then(|new_x1| {
+                    x1_vec.mul(&sin_vec).and_then(|x1_sin| {
+                        x2_vec
+                            .mul(&cos_vec)
+                            .and_then(|x2_cos| x1_sin.add(&x2_cos))
+                            .map(|new_x2| (new_x1, new_x2))
+                    })
+                });
+
+            match simd_result {
+                Ok((new_x1, new_x2)) => {
+                    // Write back results
+                    x[head_start..head_start + half_dim].copy_from_slice(new_x1.as_slice());
+                    x[idx2_start..idx2_start + half_dim].copy_from_slice(new_x2.as_slice());
+                },
+                Err(_) => {
+                    // Fallback to scalar if SIMD fails
+                    for i in 0..half_dim {
+                        let idx1 = head_start + i;
+                        let idx2 = idx2_start + i;
+                        let x1 = x[idx1];
+                        let x2 = x[idx2];
+                        x[idx1] = x1 * cos_vals[i] - x2 * sin_vals[i];
+                        x[idx2] = x1 * sin_vals[i] + x2 * cos_vals[i];
+                    }
+                },
             }
         }
     }
