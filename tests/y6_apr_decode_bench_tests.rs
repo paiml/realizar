@@ -5,7 +5,6 @@
 //!
 //! FALSIFICATION: APR < 50 tok/s when GGUF >= 50 tok/s
 
-use std::time::{Duration, Instant};
 
 // ============================================================================
 // Y6.1: AprBenchmarkRunner Exists
@@ -34,8 +33,14 @@ fn y6_1a_apr_benchmark_runner_exists() {
     let runner = AprBenchmarkRunner::new(transformer);
 
     // Must have benchmark methods
-    assert!(runner.warmup_iterations() >= 1, "Should have warmup iterations");
-    assert!(runner.measure_iterations() >= 1, "Should have measure iterations");
+    assert!(
+        runner.warmup_iterations() >= 1,
+        "Should have warmup iterations"
+    );
+    assert!(
+        runner.measure_iterations() >= 1,
+        "Should have measure iterations"
+    );
 }
 
 /// Y6.1b: AprBenchmarkRunner can run decode benchmark
@@ -43,7 +48,7 @@ fn y6_1a_apr_benchmark_runner_exists() {
 #[test]
 fn y6_1b_benchmark_decode_works() {
     use realizar::apr_transformer::{
-        AprBenchmarkRunner, AprBenchmarkResult, AprTransformer, AprTransformerConfig,
+        AprBenchmarkRunner, AprTransformer, AprTransformerConfig,
     };
 
     let config = AprTransformerConfig {
@@ -75,7 +80,10 @@ fn y6_1b_benchmark_decode_works() {
     let bench = result.unwrap();
     assert!(bench.tokens_generated > 0, "Should generate some tokens");
     assert!(bench.total_time_ms > 0.0, "Should take some time");
-    assert!(bench.tokens_per_second > 0.0, "Should have positive throughput");
+    assert!(
+        bench.tokens_per_second > 0.0,
+        "Should have positive throughput"
+    );
 }
 
 // ============================================================================
@@ -86,9 +94,7 @@ fn y6_1b_benchmark_decode_works() {
 /// FALSIFICATION: Measured throughput differs >10% from manual calculation
 #[test]
 fn y6_2a_throughput_accurate() {
-    use realizar::apr_transformer::{
-        AprBenchmarkRunner, AprTransformer, AprTransformerConfig,
-    };
+    use realizar::apr_transformer::{AprBenchmarkRunner, AprTransformer, AprTransformerConfig};
 
     let config = AprTransformerConfig {
         hidden_dim: 64,
@@ -113,12 +119,15 @@ fn y6_2a_throughput_accurate() {
 
     // Manual calculation
     let expected_throughput = (result.tokens_generated as f64) / (result.total_time_ms / 1000.0);
-    let diff_pct = ((result.tokens_per_second - expected_throughput) / expected_throughput).abs() * 100.0;
+    let diff_pct =
+        ((result.tokens_per_second - expected_throughput) / expected_throughput).abs() * 100.0;
 
     assert!(
         diff_pct < 10.0,
         "Throughput accuracy: measured={:.2}, expected={:.2}, diff={:.2}%",
-        result.tokens_per_second, expected_throughput, diff_pct
+        result.tokens_per_second,
+        expected_throughput,
+        diff_pct
     );
 }
 
@@ -126,9 +135,7 @@ fn y6_2a_throughput_accurate() {
 /// FALSIFICATION: Missing statistical metrics
 #[test]
 fn y6_2b_statistics_included() {
-    use realizar::apr_transformer::{
-        AprBenchmarkRunner, AprTransformer, AprTransformerConfig,
-    };
+    use realizar::apr_transformer::{AprBenchmarkRunner, AprTransformer, AprTransformerConfig};
 
     let config = AprTransformerConfig {
         hidden_dim: 64,
@@ -159,7 +166,8 @@ fn y6_2b_statistics_included() {
     assert!(
         result.throughput_p50 >= result.throughput_p99,
         "p50 ({:.2}) should be >= p99 ({:.2})",
-        result.throughput_p50, result.throughput_p99
+        result.throughput_p50,
+        result.throughput_p99
     );
 }
 
@@ -171,9 +179,7 @@ fn y6_2b_statistics_included() {
 /// FALSIFICATION: meets_threshold() missing or incorrect
 #[test]
 fn y6_3a_threshold_check() {
-    use realizar::apr_transformer::{
-        AprBenchmarkRunner, AprTransformer, AprTransformerConfig,
-    };
+    use realizar::apr_transformer::{AprBenchmarkRunner, AprTransformer, AprTransformerConfig};
 
     let config = AprTransformerConfig {
         hidden_dim: 64,
@@ -228,9 +234,7 @@ fn y6_3b_cpu_threshold_constant() {
 /// FALSIFICATION: benchmark_prefill() missing
 #[test]
 fn y6_4a_prefill_benchmark_exists() {
-    use realizar::apr_transformer::{
-        AprBenchmarkRunner, AprTransformer, AprTransformerConfig,
-    };
+    use realizar::apr_transformer::{AprBenchmarkRunner, AprTransformer, AprTransformerConfig};
 
     let config = AprTransformerConfig {
         hidden_dim: 64,
@@ -258,7 +262,10 @@ fn y6_4a_prefill_benchmark_exists() {
     let bench = result.unwrap();
     assert!(bench.prompt_tokens > 0, "Should process prompt tokens");
     assert!(bench.prefill_time_ms > 0.0, "Should take some time");
-    assert!(bench.prefill_tok_s > 0.0, "Should have positive prefill throughput");
+    assert!(
+        bench.prefill_tok_s > 0.0,
+        "Should have positive prefill throughput"
+    );
 }
 
 /// Y6.4b: Prefill threshold is 100 tok/s (Y8)
@@ -348,9 +355,7 @@ fn y6_5b_parity_threshold() {
 /// FALSIFICATION: memory_mb missing from result
 #[test]
 fn y6_6a_memory_measurement() {
-    use realizar::apr_transformer::{
-        AprBenchmarkRunner, AprTransformer, AprTransformerConfig,
-    };
+    use realizar::apr_transformer::{AprBenchmarkRunner, AprTransformer, AprTransformerConfig};
 
     let config = AprTransformerConfig {
         hidden_dim: 256,
@@ -384,9 +389,7 @@ fn y6_6a_memory_measurement() {
 /// FALSIFICATION: benchmark_load() missing
 #[test]
 fn y6_7a_load_time_benchmark() {
-    use realizar::apr_transformer::{
-        AprBenchmarkRunner, AprTransformer, AprTransformerConfig,
-    };
+    use realizar::apr_transformer::{AprBenchmarkRunner, AprTransformer, AprTransformerConfig};
 
     let config = AprTransformerConfig {
         hidden_dim: 256,
@@ -400,9 +403,7 @@ fn y6_7a_load_time_benchmark() {
     };
 
     // Measure creation time (simulates load time)
-    let load_result = AprBenchmarkRunner::benchmark_load(|| {
-        AprTransformer::new(config.clone())
-    });
+    let load_result = AprBenchmarkRunner::benchmark_load(|| AprTransformer::new(config.clone()));
 
     assert!(load_result.is_ok(), "benchmark_load should succeed");
 

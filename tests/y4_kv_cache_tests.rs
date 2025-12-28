@@ -31,7 +31,10 @@ fn y4_1a_apr_kv_cache_struct_exists() {
     assert_eq!(cache.len(), 0, "New cache should be empty");
 
     // Must have capacity() method
-    assert!(cache.capacity() >= 128, "Cache should have context_length capacity");
+    assert!(
+        cache.capacity() >= 128,
+        "Cache should have context_length capacity"
+    );
 }
 
 /// Y4.1b: AprKVCache stores K and V separately per layer
@@ -62,8 +65,14 @@ fn y4_1b_kv_cache_separate_storage() {
     let (k_cache, v_cache) = cache.get(0);
 
     // K should contain 1.0s, V should contain 2.0s
-    assert!(k_cache.iter().all(|&x| (x - 1.0).abs() < 1e-6), "K cache should contain K values");
-    assert!(v_cache.iter().all(|&x| (x - 2.0).abs() < 1e-6), "V cache should contain V values");
+    assert!(
+        k_cache.iter().all(|&x| (x - 1.0).abs() < 1e-6),
+        "K cache should contain K values"
+    );
+    assert!(
+        v_cache.iter().all(|&x| (x - 2.0).abs() < 1e-6),
+        "V cache should contain V values"
+    );
 }
 
 // ============================================================================
@@ -98,7 +107,11 @@ fn y4_2a_forward_with_cache_exists() {
     assert!(result.is_ok(), "forward_with_cache should succeed");
 
     let logits = result.unwrap();
-    assert_eq!(logits.len(), config.vocab_size, "Should return vocab_size logits");
+    assert_eq!(
+        logits.len(),
+        config.vocab_size,
+        "Should return vocab_size logits"
+    );
 }
 
 /// Y4.2b: Cache grows after forward_with_cache
@@ -125,11 +138,19 @@ fn y4_2b_cache_grows_after_forward() {
 
     // First token
     let _ = transformer.forward_with_cache(1, &mut cache, 0);
-    assert_eq!(cache.len(), 1, "Cache should have 1 position after first token");
+    assert_eq!(
+        cache.len(),
+        1,
+        "Cache should have 1 position after first token"
+    );
 
     // Second token
     let _ = transformer.forward_with_cache(2, &mut cache, 1);
-    assert_eq!(cache.len(), 2, "Cache should have 2 positions after second token");
+    assert_eq!(
+        cache.len(),
+        2,
+        "Cache should have 2 positions after second token"
+    );
 }
 
 // ============================================================================
@@ -232,7 +253,11 @@ fn y4_4a_attention_with_cache_valid() {
         let logits = result.unwrap();
         // Check no NaN/Inf
         for &logit in &logits {
-            assert!(logit.is_finite(), "Logit should be finite at position {}", i);
+            assert!(
+                logit.is_finite(),
+                "Logit should be finite at position {}",
+                i
+            );
         }
     }
 }
@@ -261,17 +286,26 @@ fn y4_4b_cached_matches_non_cached_first_token() {
 
     // Cached forward (single token)
     let mut cache = AprKVCache::new(&config);
-    let cached = transformer.forward_with_cache(1, &mut cache, 0).expect("Cached should work");
+    let cached = transformer
+        .forward_with_cache(1, &mut cache, 0)
+        .expect("Cached should work");
 
     // Results should match
-    assert_eq!(non_cached.len(), cached.len(), "Output lengths should match");
+    assert_eq!(
+        non_cached.len(),
+        cached.len(),
+        "Output lengths should match"
+    );
 
     for (i, (&nc, &c)) in non_cached.iter().zip(cached.iter()).enumerate() {
         let diff = (nc - c).abs();
         assert!(
             diff < 1e-5,
             "Logit {} differs: non_cached={}, cached={}, diff={}",
-            i, nc, c, diff
+            i,
+            nc,
+            c,
+            diff
         );
     }
 }
@@ -357,8 +391,12 @@ fn y4_5b_generate_deterministic() {
 
     let prompt = vec![1u32, 2, 3];
 
-    let run1 = transformer.generate_with_cache(&prompt, &gen_config).unwrap();
-    let run2 = transformer.generate_with_cache(&prompt, &gen_config).unwrap();
+    let run1 = transformer
+        .generate_with_cache(&prompt, &gen_config)
+        .unwrap();
+    let run2 = transformer
+        .generate_with_cache(&prompt, &gen_config)
+        .unwrap();
 
     assert_eq!(run1, run2, "Greedy generation should be deterministic");
 }
@@ -390,7 +428,10 @@ fn y4_6a_quantized_forward_with_cache() {
     let mut cache = AprKVCache::new(&config);
 
     let result = transformer.forward_with_cache(1, &mut cache, 0);
-    assert!(result.is_ok(), "Quantized forward_with_cache should succeed");
+    assert!(
+        result.is_ok(),
+        "Quantized forward_with_cache should succeed"
+    );
 }
 
 // ============================================================================

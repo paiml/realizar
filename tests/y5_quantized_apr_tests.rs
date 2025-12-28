@@ -49,7 +49,9 @@ fn y5_1b_quantization_in_header() {
 /// FALSIFICATION: Struct missing or wrong fields
 #[test]
 fn y5_2a_quantized_transformer_struct_exists() {
-    use realizar::apr_transformer::{AprQuantizationType, AprTransformerConfig, QuantizedAprTransformer};
+    use realizar::apr_transformer::{
+        AprQuantizationType, AprTransformerConfig, QuantizedAprTransformer,
+    };
 
     let config = AprTransformerConfig::default();
 
@@ -64,7 +66,9 @@ fn y5_2a_quantized_transformer_struct_exists() {
 /// FALSIFICATION: Layer weights stored as F32 instead of quantized
 #[test]
 fn y5_2b_stores_raw_quantized_bytes() {
-    use realizar::apr_transformer::{AprQuantizationType, AprTransformerConfig, QuantizedAprTransformer};
+    use realizar::apr_transformer::{
+        AprQuantizationType, AprTransformerConfig, QuantizedAprTransformer,
+    };
 
     let config = AprTransformerConfig {
         hidden_dim: 256,
@@ -102,7 +106,9 @@ fn y5_2b_stores_raw_quantized_bytes() {
 /// FALSIFICATION: forward() returns error or NaN/Inf
 #[test]
 fn y5_3a_q4k_forward_pass_valid() {
-    use realizar::apr_transformer::{AprQuantizationType, AprTransformerConfig, QuantizedAprTransformer};
+    use realizar::apr_transformer::{
+        AprQuantizationType, AprTransformerConfig, QuantizedAprTransformer,
+    };
 
     let config = AprTransformerConfig {
         hidden_dim: 256,
@@ -119,10 +125,16 @@ fn y5_3a_q4k_forward_pass_valid() {
 
     // Forward pass with sample tokens
     let token_ids = vec![1u32, 2, 3];
-    let logits = transformer.forward(&token_ids).expect("Forward pass should succeed");
+    let logits = transformer
+        .forward(&token_ids)
+        .expect("Forward pass should succeed");
 
     // Verify output shape
-    assert_eq!(logits.len(), config.vocab_size, "Logits should match vocab_size");
+    assert_eq!(
+        logits.len(),
+        config.vocab_size,
+        "Logits should match vocab_size"
+    );
 
     // Verify no NaN/Inf
     for (i, &logit) in logits.iter().enumerate() {
@@ -134,7 +146,9 @@ fn y5_3a_q4k_forward_pass_valid() {
 /// FALSIFICATION: forward() returns error or NaN/Inf
 #[test]
 fn y5_3b_q8_0_forward_pass_valid() {
-    use realizar::apr_transformer::{AprQuantizationType, AprTransformerConfig, QuantizedAprTransformer};
+    use realizar::apr_transformer::{
+        AprQuantizationType, AprTransformerConfig, QuantizedAprTransformer,
+    };
 
     let config = AprTransformerConfig {
         hidden_dim: 256,
@@ -150,7 +164,9 @@ fn y5_3b_q8_0_forward_pass_valid() {
     let transformer = QuantizedAprTransformer::new(config.clone(), AprQuantizationType::Q8_0);
 
     let token_ids = vec![1u32, 2, 3];
-    let logits = transformer.forward(&token_ids).expect("Forward pass should succeed");
+    let logits = transformer
+        .forward(&token_ids)
+        .expect("Forward pass should succeed");
 
     assert_eq!(logits.len(), config.vocab_size);
     for &logit in &logits {
@@ -226,8 +242,10 @@ fn y5_4b_q8_0_better_quality_than_q4k() {
     // Set some non-zero weights for meaningful comparison
     // (In real usage, weights come from trained model)
 
-    let q4k = QuantizedAprTransformer::from_f32_transformer(&f32_transformer, AprQuantizationType::Q4_K);
-    let q8_0 = QuantizedAprTransformer::from_f32_transformer(&f32_transformer, AprQuantizationType::Q8_0);
+    let q4k =
+        QuantizedAprTransformer::from_f32_transformer(&f32_transformer, AprQuantizationType::Q4_K);
+    let q8_0 =
+        QuantizedAprTransformer::from_f32_transformer(&f32_transformer, AprQuantizationType::Q8_0);
 
     // Q8_0 uses more bits, should have equal or better precision
     assert!(
@@ -244,18 +262,20 @@ fn y5_4b_q8_0_better_quality_than_q4k() {
 /// FALSIFICATION: Memory reduction < 4x (accounting for F32 embeddings)
 #[test]
 fn y5_5a_q4k_memory_efficiency() {
-    use realizar::apr_transformer::{AprQuantizationType, AprTransformerConfig, QuantizedAprTransformer};
+    use realizar::apr_transformer::{
+        AprQuantizationType, AprTransformerConfig, QuantizedAprTransformer,
+    };
 
     // Layer-heavy model: more layers = layer weights dominate over embeddings
     // Embeddings stay F32 for quality, so we need layers to dominate for good compression
     let config = AprTransformerConfig {
         hidden_dim: 512,
-        vocab_size: 2000,       // Smaller vocab to reduce F32 embedding overhead
-        num_layers: 16,         // More layers = more quantized weights
+        vocab_size: 2000, // Smaller vocab to reduce F32 embedding overhead
+        num_layers: 16,   // More layers = more quantized weights
         num_heads: 8,
         num_kv_heads: 8,
         intermediate_dim: 2048,
-        context_length: 32,     // Minimal context (doesn't affect weight size)
+        context_length: 32, // Minimal context (doesn't affect weight size)
         ..Default::default()
     };
 
@@ -279,17 +299,19 @@ fn y5_5a_q4k_memory_efficiency() {
 /// FALSIFICATION: Memory reduction < 2.5x (accounting for F32 embeddings)
 #[test]
 fn y5_5b_q8_0_memory_efficiency() {
-    use realizar::apr_transformer::{AprQuantizationType, AprTransformerConfig, QuantizedAprTransformer};
+    use realizar::apr_transformer::{
+        AprQuantizationType, AprTransformerConfig, QuantizedAprTransformer,
+    };
 
     // Layer-heavy model: more layers = layer weights dominate over embeddings
     let config = AprTransformerConfig {
         hidden_dim: 512,
-        vocab_size: 2000,       // Smaller vocab to reduce F32 embedding overhead
-        num_layers: 16,         // More layers = more quantized weights
+        vocab_size: 2000, // Smaller vocab to reduce F32 embedding overhead
+        num_layers: 16,   // More layers = more quantized weights
         num_heads: 8,
         num_kv_heads: 8,
         intermediate_dim: 2048,
-        context_length: 32,     // Minimal context (doesn't affect weight size)
+        context_length: 32, // Minimal context (doesn't affect weight size)
         ..Default::default()
     };
 
@@ -317,7 +339,9 @@ fn y5_5b_q8_0_memory_efficiency() {
 /// FALSIFICATION: to_bytes() fails or returns empty
 #[test]
 fn y5_6a_quantized_to_bytes() {
-    use realizar::apr_transformer::{AprQuantizationType, AprTransformerConfig, QuantizedAprTransformer};
+    use realizar::apr_transformer::{
+        AprQuantizationType, AprTransformerConfig, QuantizedAprTransformer,
+    };
 
     let config = AprTransformerConfig {
         hidden_dim: 256,
@@ -328,7 +352,9 @@ fn y5_6a_quantized_to_bytes() {
     };
 
     let transformer = QuantizedAprTransformer::new(config, AprQuantizationType::Q4_K);
-    let bytes = transformer.to_bytes().expect("Serialization should succeed");
+    let bytes = transformer
+        .to_bytes()
+        .expect("Serialization should succeed");
 
     assert!(!bytes.is_empty(), "Serialized bytes should not be empty");
     assert!(bytes.len() > 64, "Should be larger than header");
@@ -338,7 +364,9 @@ fn y5_6a_quantized_to_bytes() {
 /// FALSIFICATION: Deserialized config differs from original
 #[test]
 fn y5_6b_quantized_roundtrip() {
-    use realizar::apr_transformer::{AprQuantizationType, AprTransformerConfig, QuantizedAprTransformer};
+    use realizar::apr_transformer::{
+        AprQuantizationType, AprTransformerConfig, QuantizedAprTransformer,
+    };
 
     let config = AprTransformerConfig {
         architecture: "qwen2".to_string(),

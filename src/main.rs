@@ -735,18 +735,51 @@ fn run_gguf_inference(
     // Create inference engine
     let engine = TruenoInferenceEngine::from_gguf_transformer(transformer);
 
-    // Simple tokenization (split by chars for now - real tokenizer would be better)
-    let prompt_tokens: Vec<u32> = prompt.chars().map(|c| c as u32).collect();
+    // Tokenize prompt using GGUF vocabulary
+    let mut prompt_tokens: Vec<u32> = gguf_model
+        .encode(prompt)
+        .unwrap_or_else(|| prompt.chars().map(|c| c as u32).collect());
+
+    // Prepend BOS token if available
+    if let Some(bos) = gguf_model.bos_token_id() {
+        prompt_tokens.insert(0, bos);
+    }
     let prompt_len = prompt_tokens.len();
 
-    println!("Prompt tokens: {}", prompt_len);
-    println!("Temperature: {:.1} (using greedy decoding)", temperature);
+    // Get EOS token for stopping
+    let eos_token_id = gguf_model.eos_token_id();
+
+    // Debug: show model info and encoded tokens
+    println!(
+        "Architecture: {:?}, Hidden: {}, Layers: {}, Heads: {}/{} (KV)",
+        gguf_model.architecture(),
+        engine.config.hidden_dim,
+        engine.config.num_layers,
+        engine.config.num_heads,
+        engine.config.num_kv_heads
+    );
+    println!(
+        "Prompt tokens: {} (BOS={:?}, EOS={:?})",
+        prompt_len,
+        gguf_model.bos_token_id(),
+        eos_token_id
+    );
+    let repetition_penalty = 1.5; // Strong penalty to prevent loops
+    println!(
+        "Temperature: {:.1}, Repetition penalty: {:.1}",
+        temperature, repetition_penalty
+    );
     println!();
 
-    // Run inference with timing using KV cache for O(n) complexity
-    // Note: temperature is for display only - generate_with_cache uses greedy decoding
+    // Run inference with temperature sampling and repetition penalty
     let gen_start = Instant::now();
-    let generated = engine.generate_with_cache(&prompt_tokens, max_tokens, None)?;
+    let generated = engine.generate_with_sampling(
+        &prompt_tokens,
+        max_tokens,
+        temperature,
+        repetition_penalty,
+        eos_token_id,
+    )?;
     let gen_time = gen_start.elapsed();
 
     let tokens_generated = generated.len() - prompt_len;
@@ -756,11 +789,8 @@ fn run_gguf_inference(
         0.0
     };
 
-    // Decode output (simple ASCII for now)
-    let output_text: String = generated[prompt_len..]
-        .iter()
-        .map(|&t| char::from_u32(t.min(127)).unwrap_or('?'))
-        .collect();
+    // Decode output using GGUF vocabulary
+    let output_text = gguf_model.decode(&generated[prompt_len..]);
 
     match format {
         "json" => {
@@ -938,7 +968,7 @@ async fn run_model(
                     temperature,
                     format,
                 )?;
-            }
+            },
             ModelFormat::Gguf | ModelFormat::SafeTensors => {
                 run_gguf_inference(
                     model_ref,
@@ -948,7 +978,7 @@ async fn run_model(
                     temperature,
                     format,
                 )?;
-            }
+            },
         }
     } else {
         println!("Interactive mode (Ctrl+D to exit)");

@@ -3896,6 +3896,7 @@ dependencies = [
  "pacha",
  "predicates",
  "proptest",
+ "rand 0.8.5",
  "ratatui",
  "rayon",
  "reqwest",

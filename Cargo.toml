@@ -102,6 +102,9 @@ memmap2 = "0.9"
 # Parallel processing for multi-core inference (per spec Phase 2/3)
 rayon = "1.10"
 
+# Random number generation for sampling
+rand = "0.8"
+
 # Small buffer optimization (per spec Section 4.1)
 # Stack allocation for small token buffers and attention scores
 smallvec = "1.13"

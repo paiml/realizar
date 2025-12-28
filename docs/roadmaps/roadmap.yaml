@@ -2932,7 +2932,6 @@ roadmap:
     NEXT STEPS:
     - PARITY-063: Phase 2 summary
     - Phase 3: Quantized attention (PARITY-070+)
-
 - id: PARITY-063
   github_issue: null
   item_type: task
@@ -2999,7 +2998,6 @@ roadmap:
     - Q4/Q8 matrix multiplication
     - Tensor core utilization
     - Memory bandwidth optimization
-
 - id: PARITY-070
   github_issue: null
   item_type: task
@@ -3062,7 +3060,6 @@ roadmap:
     - test_parity070f_roadmap
 
     NEXT: PARITY-071 - Q8Block struct implementation
-
 - id: PARITY-071
   github_issue: null
   item_type: task
@@ -3117,7 +3114,6 @@ roadmap:
     - test_parity071f_integration_summary
 
     NEXT: PARITY-072 - Fused Q4xQ8 CPU kernel
-
 - id: PARITY-072
   github_issue: null
   item_type: task
@@ -3179,7 +3175,6 @@ roadmap:
     - test_parity072f_summary
 
     NEXT: PARITY-073 - CUDA PTX generation for fused kernel
-
 - id: PARITY-073
   github_issue: null
   item_type: task
@@ -3245,7 +3240,6 @@ roadmap:
     - test_parity073f_integration_summary
 
     NEXT: PARITY-074 - CUDA kernel execution
-
 - id: PARITY-074
   github_issue: null
   item_type: task
@@ -3316,7 +3310,6 @@ roadmap:
     - test_parity074f_integration_summary
 
     NEXT: PARITY-075 - INT8 attention mechanism
-
 - id: PARITY-075
   github_issue: null
   item_type: task
@@ -3384,7 +3377,6 @@ roadmap:
     - test_parity075f_integration_summary
 
     NEXT: PARITY-076 - Full integration and benchmarking
-
 - id: PARITY-076
   github_issue: null
   item_type: task
@@ -3454,13 +3446,6 @@ roadmap:
     - test_parity076f_phase3_summary
 
     PHASE 3 TOTAL: 42 tests (7 tasks × 6 tests)
-
-# =============================================================================
-# PHASE 4: FlashAttention-2 (PARITY-077 to PARITY-081)
-# Per spec §13.1: FlashAttention-2 improvements for 1.5x attention speedup
-# Reference: [22] Dao et al., "FlashAttention-2: Faster Attention with Better Parallelism"
-# =============================================================================
-
 - id: PARITY-077
   github_issue: null
   item_type: task
@@ -3488,14 +3473,14 @@ roadmap:
   - completed
   notes: |
     COMPLETED 2025-12-16: Shared memory tiling documentation.
-    
+
     KEY OPTIMIZATIONS:
     1. Tile sizing: Br=64, Bc=64, d=64 fits 40KB in 48KB shared
     2. Loop order: K/V outer loop reduces HBM reads 8x
     3. GQA sharing: 4:1 Q:KV ratio saves 4x bandwidth
     4. Warp specialization: 3 compute + 1 memory warps
     5. Bank padding: +8 columns eliminates conflicts
-    
+
     MEMORY LAYOUT (FP16/FP32 hybrid):
     - Q tile: 64×64×2 = 8 KB (FP16)
     - K tile: 64×64×2 = 8 KB (FP16)
@@ -3503,7 +3488,6 @@ roadmap:
     - O tile: 64×64×4 = 16 KB (FP32 accumulator)
     - Softmax state: 512 B
     - Total: ~40.5 KB (84% utilization)
-
 - id: PARITY-078
   github_issue: null
   item_type: task
@@ -3531,23 +3515,22 @@ roadmap:
   - completed
   notes: |
     COMPLETED 2025-12-16: Work partitioning improvements.
-    
+
     PARALLELISM DIMENSIONS:
     1. Sequence: grid.x = seq_len / Br
     2. Heads: grid.y = n_heads
     3. Batch: grid.z = batch_size
     4. Split-K: Additional blocks for long sequences
-    
+
     LOAD BALANCING:
     - Work stealing for causal attention (triangular workload)
     - Dynamic tile assignment
     - 1.3x speedup on triangular workloads
-    
+
     RTX 4090 UTILIZATION:
     - 128 SMs available
     - 32 heads × 32 seq blocks = 1024 blocks
     - ~8 blocks per SM (full occupancy)
-
 - id: PARITY-079
   github_issue: null
   item_type: task
@@ -3575,18 +3558,17 @@ roadmap:
   - completed
   notes: |
     COMPLETED 2025-12-16: Non-matmul FLOP reduction.
-    
+
     OPTIMIZATIONS APPLIED:
     1. Online softmax: 3 passes → 1 pass (2x reduction)
     2. Fused rescaling: Folded into FMA instructions
     3. Causal skip: 50% fewer blocks computed
     4. Memory coalescing: 32x fewer transactions
-    
+
     COMBINED EFFECT:
     - Non-matmul overhead reduced from ~20% to ~5%
     - Memory bandwidth improved ~40%
     - Overall attention speedup: ~1.5x
-
 - id: PARITY-080
   github_issue: null
   item_type: task
@@ -3614,19 +3596,18 @@ roadmap:
   - completed
   notes: |
     COMPLETED 2025-12-16: Tensor Core integration documentation.
-    
+
     RTX 4090 TENSOR CORE CAPABILITIES:
     - 512 Tensor Cores (4th Gen)
     - 165.2 TFLOPS FP16/BF16
     - 82.6 TFLOPS TF32/FP32
     - 2x throughput vs FP32 CUDA Cores
-    
+
     FLASHATTENTION INTEGRATION:
     - WMMA 16×16×16 tiles for QK^T and Attn@V
     - BF16 storage for numerical stability
     - FP32 accumulation to prevent overflow
     - 2x memory bandwidth improvement
-
 - id: PARITY-081
   github_issue: null
   item_type: task
@@ -3654,46 +3635,40 @@ roadmap:
   - completed
   notes: |
     COMPLETED 2025-12-16: Phase 4 integration and summary.
-    
+
     PHASE 4 COMPLETE - FLASHATTENTION-2
-    
+
     TASKS COMPLETED:
     - PARITY-077: Shared memory tiling (6 tests)
     - PARITY-078: Work partitioning (6 tests)
     - PARITY-079: Non-matmul FLOP reduction (6 tests)
     - PARITY-080: Tensor Core integration (6 tests)
     - PARITY-081: Phase 4 summary (6 tests)
-    
+
     TOTAL TESTS: 30 (5 tasks × 6 tests each)
-    
+
     PERFORMANCE PROJECTION:
     | Phase     | Throughput | Improvement |
     |-----------|------------|-------------|
     | Phase 3   | 264 tok/s  | baseline    |
     | Phase 4   | 350+ tok/s | ~1.3x       |
-    
+
     KEY OPTIMIZATIONS:
     - 2x bandwidth via shared mem tiling
     - 2x throughput via FP16 Tensor Cores
     - 1.3x via work partitioning
     - 1.5x via non-matmul reduction
-    
+
     PARITY STATUS:
     - Phase 4 target: 350+ tok/s
     - Ollama reference: 225-266 tok/s
     - Status: EXCEEDS PARITY ✅
-    
+
     CUMULATIVE PROGRESS:
     - Phase 1: KV Cache + Memory ✅
     - Phase 2: Speculative Decoding ✅
     - Phase 3: Quantized Attention ✅
     - Phase 4: FlashAttention-2 ✅
-
-# PHASE 5: Stream-K & Polish (PARITY-082 to PARITY-086)
-# Reference [25]: "Stream-K: Work-centric Parallel Decomposition for Dense Matrix-Matrix Multiplication"
-# Target: 420+ tok/s (1.6x beyond Ollama 266 tok/s)
-# RTX 4090: 128 SMs, 165.2 TFLOPS FP16, 1008 GB/s HBM
-
 - id: PARITY-082
   github_issue: null
   item_type: task
@@ -3730,7 +3705,6 @@ roadmap:
     - Atomic work counter: Global counter for work-stealing
     - Partial accumulation: CTAs may process partial tiles, atomic reduce
     - Tile rasterization: Row-major, Morton, swizzled for L2 locality
-
 - id: PARITY-083
   github_issue: null
   item_type: task
@@ -3766,7 +3740,6 @@ roadmap:
     - Predicated execution: Bounds checking, no padding waste
     - Split-K: For M=1 decode, split K and reduce
     - Batch consolidation: Combine small batches for better SM utilization
-
 - id: PARITY-084
   github_issue: null
   item_type: task
@@ -3802,7 +3775,6 @@ roadmap:
     - SSE format: Token-by-token streaming
     - TTFT optimization: First token latency critical
     - ITL consistency: Uniform inter-token latency
-
 - id: PARITY-085
   github_issue: null
   item_type: task
@@ -3838,7 +3810,6 @@ roadmap:
     - Ollama phi2:2.7b: 225-266 tok/s
     - llama.cpp CUDA: ~256 tok/s
     - Target: 420+ tok/s (1.6x improvement)
-
 - id: PARITY-086
   github_issue: null
   item_type: task
@@ -3903,3 +3874,35 @@ roadmap:
 
     🎉 PERFORMANCE PARITY ROADMAP COMPLETE!
     🚀 EXCEEDS OLLAMA AND LLAMA.CPP PERFORMANCE!
+- id: OOM-001
+  github_issue: null
+  item_type: task
+  title: 'New task: OOM-001'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2025-12-27T16:06:24.100385140+00:00
+  updated: 2025-12-27T16:25:53.327655278+00:00
+  spec: null
+  acceptance_criteria: []
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels: []
+  notes: null
+- id: OOM-002
+  github_issue: null
+  item_type: task
+  title: 'New task: OOM-002'
+  status: inprogress
+  priority: medium
+  assigned_to: null
+  created: 2025-12-27T20:38:58.321961793+00:00
+  updated: 2025-12-27T20:38:58.321961793+00:00
+  spec: null
+  acceptance_criteria: []
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels: []
+  notes: null

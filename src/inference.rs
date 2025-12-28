@@ -777,6 +777,37 @@ pub fn simd_layer_norm(input: &[f32], weight: &[f32], bias: Option<&[f32]>, eps:
     output
 }
 
+/// SIMD-accelerated RMS layer normalization (for LLaMA-style models)
+///
+/// RMSNorm: x * weight / sqrt(mean(x^2) + eps)
+/// Unlike LayerNorm, RMSNorm does not center the input (no mean subtraction).
+/// This is used by LLaMA, TinyLlama, Mistral, etc.
+pub fn simd_rms_norm(input: &[f32], weight: &[f32], eps: f32) -> Vec<f32> {
+    let hidden_dim = weight.len();
+    let seq_len = input.len() / hidden_dim;
+    let mut output = Vec::with_capacity(input.len());
+
+    for i in 0..seq_len {
+        let start = i * hidden_dim;
+        let end = start + hidden_dim;
+        let x = &input[start..end];
+
+        // Compute RMS (root mean square)
+        let x_vec = Vector::from_slice(x);
+        let sum_sq = x_vec.dot(&x_vec).unwrap_or(0.0);
+        let rms = (sum_sq / hidden_dim as f32 + eps).sqrt();
+        let inv_rms = rms.recip();
+
+        // Normalize and apply affine transform (no bias in RMSNorm)
+        for j in 0..hidden_dim {
+            let normalized = x[j] * inv_rms;
+            output.push(normalized * weight[j]);
+        }
+    }
+
+    output
+}
+
 /// RoPE (Rotary Position Embedding) application
 ///
 /// Applies rotary position embeddings to query and key vectors.
@@ -825,6 +856,8 @@ pub struct TruenoInferenceEngine {
     lm_head_weight: Vec<f32>,
     /// LM head bias
     lm_head_bias: Option<Vec<f32>>,
+    /// Use RMSNorm (LLaMA/Mistral) vs LayerNorm (phi-2)
+    use_rms_norm: bool,
 }
 
 /// Weights for a single transformer layer (optimized for trueno)
@@ -862,6 +895,23 @@ struct TruenoTransformerLayer {
 impl TruenoInferenceEngine {
     /// Create inference engine from GGUF transformer
     pub fn from_gguf_transformer(transformer: GGUFTransformer) -> Self {
+        // Detect if model uses RMSNorm (LLaMA/Mistral) vs LayerNorm (phi-2)
+        let use_rms_norm = transformer
+            .config
+            .architecture
+            .to_lowercase()
+            .contains("llama")
+            || transformer
+                .config
+                .architecture
+                .to_lowercase()
+                .contains("mistral")
+            || transformer
+                .config
+                .architecture
+                .to_lowercase()
+                .contains("qwen");
+
         let layers = transformer
             .layers
             .into_iter()
@@ -891,6 +941,7 @@ impl TruenoInferenceEngine {
             output_norm_bias: transformer.output_norm_bias,
             lm_head_weight: transformer.lm_head_weight,
             lm_head_bias: transformer.lm_head_bias,
+            use_rms_norm,
         }
     }
 
@@ -936,13 +987,17 @@ impl TruenoInferenceEngine {
 
         // 2. Process through transformer layers
         for layer in &self.layers {
-            // 2a. Attention layer norm (SIMD-accelerated)
-            let normed = simd_layer_norm(
-                &hidden,
-                &layer.attn_norm_weight,
-                layer.attn_norm_bias.as_deref(),
-                self.config.eps,
-            );
+            // 2a. Attention layer norm (RMSNorm for LLaMA, LayerNorm for phi-2)
+            let normed = if self.use_rms_norm {
+                simd_rms_norm(&hidden, &layer.attn_norm_weight, self.config.eps)
+            } else {
+                simd_layer_norm(
+                    &hidden,
+                    &layer.attn_norm_weight,
+                    layer.attn_norm_bias.as_deref(),
+                    self.config.eps,
+                )
+            };
 
             // 2b. QKV projection (SIMD matmul)
             // Compute qkv_dim from actual weight size to support GQA models
@@ -960,7 +1015,10 @@ impl TruenoInferenceEngine {
             let num_kv_heads = self.config.num_kv_heads;
             let head_dim = hidden_dim / num_heads;
 
-            // 2c. Scaled dot-product attention with RoPE
+            // 2c. Scaled dot-product attention with RoPE and causal masking
+            // Build K/V cache for self-attention within this forward pass
+            let mut k_cache = Vec::with_capacity(seq_len * hidden_dim);
+            let mut v_cache = Vec::with_capacity(seq_len * hidden_dim);
             let mut attn_out = Vec::with_capacity(seq_len * hidden_dim);
 
             for s in 0..seq_len {
@@ -979,24 +1037,30 @@ impl TruenoInferenceEngine {
 
                 // For GQA: expand K/V by repeating each KV head to match Q heads
                 // group_size = num_heads / num_kv_heads (e.g., 32/4 = 8 for TinyLlama)
-                let v: Vec<f32> = if num_kv_heads < num_heads {
+                let (k_expanded, v_expanded): (Vec<f32>, Vec<f32>) = if num_kv_heads < num_heads {
                     let group_size = num_heads / num_kv_heads;
-                    (0..num_heads)
-                        .flat_map(|h| {
-                            let kv_head = h / group_size;
-                            let start = kv_head * head_dim;
-                            v_raw[start..start + head_dim].iter().copied()
-                        })
-                        .collect()
+                    let expand = |raw: &[f32]| -> Vec<f32> {
+                        (0..num_heads)
+                            .flat_map(|h| {
+                                let kv_head = h / group_size;
+                                let start = kv_head * head_dim;
+                                raw[start..start + head_dim].iter().copied()
+                            })
+                            .collect()
+                    };
+                    (expand(&k), expand(v_raw))
                 } else {
-                    v_raw.to_vec()
+                    (k, v_raw.to_vec())
                 };
 
-                // For single-position, simplified attention (full KV cache would be here)
-                // Compute attention score: softmax(Q·K^T / sqrt(d_k))
-                // Note: In full implementation, this would use KV cache for all positions
-                // and proper scaled dot-product attention. Here we use V directly.
-                attn_out.extend_from_slice(&v);
+                // Add to K/V cache for causal self-attention
+                k_cache.extend_from_slice(&k_expanded);
+                v_cache.extend_from_slice(&v_expanded);
+
+                // Compute attention: softmax(Q·K^T / sqrt(d_k)) · V
+                // Uses causal masking - only attend to positions 0..=s
+                let attn_output = attention_with_cache(&q, &k_cache, &v_cache, num_heads, head_dim);
+                attn_out.extend_from_slice(&attn_output);
             }
 
             // 2d. Attention output projection (SIMD matmul)
@@ -1009,14 +1073,18 @@ impl TruenoInferenceEngine {
             // 2e. Residual connection (SIMD add)
             simd_add(&mut hidden, &attn_output);
 
-            // 2f. FFN (with optional FFN norm for llama-style models)
+            // 2f. FFN (with optional FFN norm - RMSNorm for LLaMA)
             let ffn_input = if let Some(ref norm_weight) = layer.ffn_norm_weight {
-                simd_layer_norm(
-                    &hidden,
-                    norm_weight,
-                    layer.ffn_norm_bias.as_deref(),
-                    self.config.eps,
-                )
+                if self.use_rms_norm {
+                    simd_rms_norm(&hidden, norm_weight, self.config.eps)
+                } else {
+                    simd_layer_norm(
+                        &hidden,
+                        norm_weight,
+                        layer.ffn_norm_bias.as_deref(),
+                        self.config.eps,
+                    )
+                }
             } else {
                 hidden.clone()
             };
@@ -1082,13 +1150,17 @@ impl TruenoInferenceEngine {
             simd_add(&mut hidden, &ffn_output);
         }
 
-        // 3. Final layer norm (SIMD)
-        let normed = simd_layer_norm(
-            &hidden,
-            &self.output_norm_weight,
-            self.output_norm_bias.as_deref(),
-            self.config.eps,
-        );
+        // 3. Final layer norm (RMSNorm for LLaMA, LayerNorm for phi-2)
+        let normed = if self.use_rms_norm {
+            simd_rms_norm(&hidden, &self.output_norm_weight, self.config.eps)
+        } else {
+            simd_layer_norm(
+                &hidden,
+                &self.output_norm_weight,
+                self.output_norm_bias.as_deref(),
+                self.config.eps,
+            )
+        };
 
         // 4. LM head projection for last token only (SIMD)
         let last_hidden_start = (seq_len - 1) * hidden_dim;
@@ -1209,13 +1281,17 @@ impl TruenoInferenceEngine {
 
         // 2. Process through transformer layers with KV cache
         for (layer_idx, layer) in self.layers.iter().enumerate() {
-            // 2a. Attention layer norm
-            let normed = simd_layer_norm(
-                &hidden,
-                &layer.attn_norm_weight,
-                layer.attn_norm_bias.as_deref(),
-                self.config.eps,
-            );
+            // 2a. Attention layer norm (RMSNorm for LLaMA, LayerNorm for phi-2)
+            let normed = if self.use_rms_norm {
+                simd_rms_norm(&hidden, &layer.attn_norm_weight, self.config.eps)
+            } else {
+                simd_layer_norm(
+                    &hidden,
+                    &layer.attn_norm_weight,
+                    layer.attn_norm_bias.as_deref(),
+                    self.config.eps,
+                )
+            };
 
             // 2b. QKV projection for single position
             // Compute qkv_dim from actual weight size to support GQA models
@@ -1291,14 +1367,18 @@ impl TruenoInferenceEngine {
             // 2e. Residual connection
             simd_add(&mut hidden, &attn_output);
 
-            // 2f. FFN (with optional FFN norm)
+            // 2f. FFN (with optional FFN norm - RMSNorm for LLaMA)
             let ffn_input = if let Some(ref norm_weight) = layer.ffn_norm_weight {
-                simd_layer_norm(
-                    &hidden,
-                    norm_weight,
-                    layer.ffn_norm_bias.as_deref(),
-                    self.config.eps,
-                )
+                if self.use_rms_norm {
+                    simd_rms_norm(&hidden, norm_weight, self.config.eps)
+                } else {
+                    simd_layer_norm(
+                        &hidden,
+                        norm_weight,
+                        layer.ffn_norm_bias.as_deref(),
+                        self.config.eps,
+                    )
+                }
             } else {
                 hidden.clone()
             };
@@ -1361,13 +1441,17 @@ impl TruenoInferenceEngine {
         // Advance cache position after processing all layers
         kv_cache.advance();
 
-        // 3. Final layer norm
-        let normed = simd_layer_norm(
-            &hidden,
-            &self.output_norm_weight,
-            self.output_norm_bias.as_deref(),
-            self.config.eps,
-        );
+        // 3. Final layer norm (RMSNorm for LLaMA, LayerNorm for phi-2)
+        let normed = if self.use_rms_norm {
+            simd_rms_norm(&hidden, &self.output_norm_weight, self.config.eps)
+        } else {
+            simd_layer_norm(
+                &hidden,
+                &self.output_norm_weight,
+                self.output_norm_bias.as_deref(),
+                self.config.eps,
+            )
+        };
 
         // 4. LM head projection
         let mut logits = simd_matmul(
@@ -1488,6 +1572,140 @@ impl TruenoInferenceEngine {
 
                 tokens.push(next_token);
             }
+        }
+
+        Ok(tokens)
+    }
+
+    /// Generate tokens with temperature and repetition penalty
+    ///
+    /// Uses proper sampling instead of greedy decoding to avoid repetitive output.
+    ///
+    /// # Arguments
+    /// * `prompt` - Input token IDs
+    /// * `max_tokens` - Maximum tokens to generate
+    /// * `temperature` - Sampling temperature (0.0 = greedy, higher = more random)
+    /// * `repetition_penalty` - Penalty for repeated tokens (1.0 = no penalty, >1.0 = penalize)
+    /// * `eos_token_id` - Stop generation when this token is produced
+    ///
+    /// # Errors
+    /// Returns error if prompt is empty or inference fails
+    pub fn generate_with_sampling(
+        &self,
+        prompt: &[u32],
+        max_tokens: usize,
+        temperature: f32,
+        repetition_penalty: f32,
+        eos_token_id: Option<u32>,
+    ) -> Result<Vec<u32>> {
+        if prompt.is_empty() {
+            return Err(RealizarError::InvalidShape {
+                reason: "Prompt cannot be empty".to_string(),
+            });
+        }
+
+        let hidden_dim = self.config.hidden_dim;
+        let num_layers = self.layers.len();
+        let max_seq_len = prompt.len() + max_tokens;
+
+        // Initialize KV cache
+        let mut kv_cache = KVCache::new(num_layers, hidden_dim, max_seq_len);
+
+        // Prefill: process all prompt tokens to fill the cache
+        for (pos, &token_id) in prompt.iter().enumerate() {
+            let _logits = self.forward_one_token(token_id, pos, &mut kv_cache)?;
+        }
+
+        let mut tokens = prompt.to_vec();
+
+        // Simple RNG based on position (deterministic but varied)
+        let mut rng_state: u64 = 12345;
+        let next_rng = |state: &mut u64| -> f32 {
+            *state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            (*state as f32) / (u64::MAX as f32)
+        };
+
+        // Decode: generate tokens one at a time
+        for i in 0..max_tokens {
+            let position = prompt.len() + i;
+            let current_token = *tokens.last().unwrap();
+
+            let mut logits = self.forward_one_token(current_token, position, &mut kv_cache)?;
+
+            // Apply repetition penalty
+            if repetition_penalty > 1.0 {
+                let window_size = 64.min(tokens.len());
+                let recent_tokens = &tokens[tokens.len() - window_size..];
+                for &token_id in recent_tokens {
+                    let idx = token_id as usize;
+                    if idx < logits.len() {
+                        let logit = logits[idx];
+                        logits[idx] = if logit > 0.0 {
+                            logit / repetition_penalty
+                        } else {
+                            logit * repetition_penalty
+                        };
+                    }
+                }
+            }
+
+            // Sample next token
+            let next_token = if temperature <= 0.0 || temperature < 0.01 {
+                // Greedy decoding
+                logits
+                    .iter()
+                    .enumerate()
+                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                    .map_or(0, |(idx, _)| idx as u32)
+            } else {
+                // Temperature-scaled sampling with top-p
+                let scaled: Vec<f32> = logits.iter().map(|&x| x / temperature).collect();
+
+                // Softmax
+                let max_logit = scaled.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                let exp_sum: f32 = scaled.iter().map(|&x| (x - max_logit).exp()).sum();
+                let probs: Vec<f32> = scaled.iter().map(|&x| (x - max_logit).exp() / exp_sum).collect();
+
+                // Top-p (nucleus) sampling with p=0.9
+                let top_p = 0.9;
+                let mut indexed: Vec<(usize, f32)> = probs.iter().enumerate().map(|(i, &p)| (i, p)).collect();
+                indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+                let mut cumsum = 0.0;
+                let mut cutoff_idx = indexed.len();
+                for (i, (_, p)) in indexed.iter().enumerate() {
+                    cumsum += p;
+                    if cumsum >= top_p {
+                        cutoff_idx = i + 1;
+                        break;
+                    }
+                }
+
+                // Renormalize
+                let truncated = &indexed[..cutoff_idx];
+                let norm: f32 = truncated.iter().map(|(_, p)| p).sum();
+
+                // Sample
+                let r = next_rng(&mut rng_state) * norm;
+                let mut acc = 0.0;
+                let mut chosen = truncated[0].0;
+                for &(idx, p) in truncated {
+                    acc += p;
+                    if acc >= r {
+                        chosen = idx;
+                        break;
+                    }
+                }
+                chosen as u32
+            };
+
+            if let Some(eos) = eos_token_id {
+                if next_token == eos {
+                    break;
+                }
+            }
+
+            tokens.push(next_token);
         }
 
         Ok(tokens)
@@ -1738,7 +1956,10 @@ impl QuantizedInferenceEngine {
             let num_kv_heads = self.config.num_kv_heads;
             let head_dim = hidden_dim / num_heads;
 
-            // 2c. Scaled dot-product attention with RoPE
+            // 2c. Scaled dot-product attention with RoPE and causal masking
+            // Build K/V cache for self-attention within this forward pass
+            let mut k_cache = Vec::with_capacity(seq_len * hidden_dim);
+            let mut v_cache = Vec::with_capacity(seq_len * hidden_dim);
             let mut attn_out = Vec::with_capacity(seq_len * hidden_dim);
 
             for s in 0..seq_len {
@@ -1754,22 +1975,31 @@ impl QuantizedInferenceEngine {
                 let mut k = k_raw.to_vec();
                 apply_rope(&mut k, kv_dim, num_kv_heads, s, self.config.rope_theta);
 
-                // For GQA: expand V by repeating each KV head to match Q heads
-                let v: Vec<f32> = if num_kv_heads < num_heads {
+                // For GQA: expand K/V by repeating each KV head to match Q heads
+                let (k_expanded, v_expanded): (Vec<f32>, Vec<f32>) = if num_kv_heads < num_heads {
                     let group_size = num_heads / num_kv_heads;
-                    (0..num_heads)
-                        .flat_map(|h| {
-                            let kv_head = h / group_size;
-                            let start = kv_head * head_dim;
-                            v_raw[start..start + head_dim].iter().copied()
-                        })
-                        .collect()
+                    let expand = |raw: &[f32]| -> Vec<f32> {
+                        (0..num_heads)
+                            .flat_map(|h| {
+                                let kv_head = h / group_size;
+                                let start = kv_head * head_dim;
+                                raw[start..start + head_dim].iter().copied()
+                            })
+                            .collect()
+                    };
+                    (expand(&k), expand(v_raw))
                 } else {
-                    v_raw.to_vec()
+                    (k, v_raw.to_vec())
                 };
 
-                // Simplified attention (would use KV cache in full implementation)
-                attn_out.extend_from_slice(&v);
+                // Add to K/V cache for causal self-attention
+                k_cache.extend_from_slice(&k_expanded);
+                v_cache.extend_from_slice(&v_expanded);
+
+                // Compute attention: softmax(Q·K^T / sqrt(d_k)) · V
+                // Uses causal masking - only attend to positions 0..=s
+                let attn_output = attention_with_cache(&q, &k_cache, &v_cache, num_heads, head_dim);
+                attn_out.extend_from_slice(&attn_output);
             }
 
             // 2d. Attention output projection (QUANTIZED)
@@ -2202,6 +2432,240 @@ impl std::fmt::Display for QuantizedMemoryStats {
             "Quantized weights: {:.1} MB (vs {:.1} MB f32, {:.1}x compression)\nEmbeddings: {:.1} MB",
             quantized_mb, f32_mb, self.compression_ratio, embed_mb
         )
+    }
+}
+
+/// Small, always-compiled attention tests (no OOM risk)
+#[cfg(test)]
+mod attention_tests {
+    use super::*;
+
+    #[test]
+    fn test_attention_causal_flow() {
+        // Test causal self-attention: each position only sees 0..=s
+        let num_heads = 2;
+        let head_dim = 2;
+        let hidden_dim = num_heads * head_dim;
+        let seq_len = 3;
+
+        let mut k_cache = Vec::new();
+        let mut v_cache = Vec::new();
+        let mut outputs = Vec::new();
+
+        for s in 0..seq_len {
+            let q: Vec<f32> = (0..hidden_dim).map(|i| (s * hidden_dim + i) as f32 * 0.1).collect();
+            let k: Vec<f32> = (0..hidden_dim).map(|i| (s * hidden_dim + i) as f32 * 0.2).collect();
+            let v: Vec<f32> = (0..hidden_dim).map(|_| (s + 1) as f32).collect();
+
+            k_cache.extend_from_slice(&k);
+            v_cache.extend_from_slice(&v);
+
+            let attn_output = attention_with_cache(&q, &k_cache, &v_cache, num_heads, head_dim);
+            outputs.push(attn_output);
+        }
+
+        // Position 0: only sees V[0]=1.0
+        assert_eq!(outputs[0].len(), hidden_dim);
+        for val in &outputs[0] {
+            assert!((val - 1.0).abs() < 1e-4, "Pos 0 should be 1.0, got {}", val);
+        }
+
+        // Positions 1,2: weighted averages, values should be bounded
+        for s in 1..seq_len {
+            for val in &outputs[s] {
+                assert!(val.is_finite() && *val >= 0.9 && *val <= (seq_len + 1) as f32);
+            }
+        }
+    }
+
+    #[test]
+    fn test_gqa_expansion() {
+        // GQA: 4 Q heads, 2 KV heads, group_size=2
+        let num_heads = 4;
+        let num_kv_heads = 2;
+        let head_dim = 2;
+        let group_size = num_heads / num_kv_heads;
+
+        let k_raw: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
+
+        let k_expanded: Vec<f32> = (0..num_heads)
+            .flat_map(|h| {
+                let kv_head = h / group_size;
+                let start = kv_head * head_dim;
+                k_raw[start..start + head_dim].iter().copied()
+            })
+            .collect();
+
+        // Q heads 0,1 → KV head 0; Q heads 2,3 → KV head 1
+        assert_eq!(k_expanded, vec![1.0, 2.0, 1.0, 2.0, 3.0, 4.0, 3.0, 4.0]);
+    }
+
+    #[test]
+    fn test_attention_single_position() {
+        let output = attention_with_cache(
+            &[1.0, 2.0, 3.0, 4.0], // Q
+            &[1.0, 2.0, 3.0, 4.0], // K (1 position)
+            &[5.0, 6.0, 7.0, 8.0], // V (1 position)
+            2,                     // num_heads
+            2,                     // head_dim
+        );
+
+        // Single position → softmax([1]) = [1] → output = V
+        assert_eq!(output.len(), 4);
+        for (i, &expected) in [5.0, 6.0, 7.0, 8.0].iter().enumerate() {
+            assert!((output[i] - expected).abs() < 1e-4);
+        }
+    }
+
+    #[test]
+    fn test_embedding_lookup_basic() {
+        // Test that embedding lookup produces reasonable values
+        let embedding = vec![
+            1.0, 2.0, 3.0, 4.0, // Token 0
+            5.0, 6.0, 7.0, 8.0, // Token 1
+        ];
+        let hidden_dim = 4;
+
+        // Look up token 1
+        let token_id = 1u32;
+        let start = (token_id as usize) * hidden_dim;
+        let end = start + hidden_dim;
+        let result = &embedding[start..end];
+
+        assert_eq!(result, &[5.0, 6.0, 7.0, 8.0]);
+    }
+
+    #[test]
+    fn test_lm_head_projection() {
+        // Test that lm_head produces varied logits
+        let hidden_dim = 4;
+        let vocab_size = 3;
+
+        // Simple hidden state
+        let hidden = vec![1.0, 0.0, 0.0, 0.0];
+
+        // LM head weight [vocab_size * hidden_dim] in row-major
+        // Each row is a vocab token's projection
+        let lm_head = vec![
+            1.0, 0.0, 0.0, 0.0, // Token 0: dot with hidden = 1.0
+            0.0, 1.0, 0.0, 0.0, // Token 1: dot with hidden = 0.0
+            0.0, 0.0, 1.0, 0.0, // Token 2: dot with hidden = 0.0
+        ];
+
+        // Compute logits: lm_head @ hidden
+        let logits: Vec<f32> = (0..vocab_size)
+            .map(|v| {
+                let row_start = v * hidden_dim;
+                (0..hidden_dim)
+                    .map(|i| lm_head[row_start + i] * hidden[i])
+                    .sum()
+            })
+            .collect();
+
+        assert_eq!(logits, vec![1.0, 0.0, 0.0]);
+        // Token 0 should have highest logit
+        let max_idx = logits
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .map(|(i, _)| i)
+            .unwrap();
+        assert_eq!(max_idx, 0);
+    }
+
+    #[test]
+    fn test_repetition_penalty_reduces_repeats() {
+        // Test that repetition penalty modifies logits correctly
+        let logits = vec![1.0, 2.0, 3.0, 4.0]; // Token 3 has highest logit
+        let recent_tokens = vec![3u32]; // Token 3 was recently used
+        let penalty = 1.5;
+
+        // Apply penalty manually (same logic as generate_with_sampling)
+        let mut penalized = logits.clone();
+        for &token_id in &recent_tokens {
+            let idx = token_id as usize;
+            let logit = penalized[idx];
+            penalized[idx] = if logit > 0.0 {
+                logit / penalty
+            } else {
+                logit * penalty
+            };
+        }
+
+        // Token 3 should be penalized: 4.0 / 1.5 = 2.67
+        assert!((penalized[3] - 2.667_f32).abs() < 0.01);
+        // Other tokens unchanged
+        assert_eq!(penalized[0], 1.0);
+        assert_eq!(penalized[1], 2.0);
+        assert_eq!(penalized[2], 3.0);
+
+        // Token 2 should now have highest logit (3.0 > 2.67)
+        let max_idx = penalized
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .map(|(i, _)| i)
+            .unwrap();
+        assert_eq!(max_idx, 2, "After penalty, token 2 should be chosen");
+    }
+
+    #[test]
+    fn test_simd_rms_norm_correctness() {
+        // Test RMSNorm: output = input * weight / sqrt(mean(input^2) + eps)
+        let input = vec![1.0, 2.0, 3.0, 4.0];
+        let weight = vec![1.0, 1.0, 1.0, 1.0]; // Identity scaling
+        let eps = 1e-5;
+
+        let result = simd_rms_norm(&input, &weight, eps);
+
+        // Compute expected:
+        // sum_sq = 1 + 4 + 9 + 16 = 30
+        // rms = sqrt(30/4 + eps) = sqrt(7.5 + eps) ≈ 2.739
+        // normalized = input / rms
+        let sum_sq: f32 = input.iter().map(|x| x * x).sum();
+        let rms = (sum_sq / 4.0 + eps).sqrt();
+        let expected: Vec<f32> = input.iter().map(|&x| x / rms).collect();
+
+        for (i, (&r, &e)) in result.iter().zip(expected.iter()).enumerate() {
+            assert!(
+                (r - e).abs() < 1e-5,
+                "RMSNorm mismatch at {}: got {} expected {}",
+                i,
+                r,
+                e
+            );
+        }
+    }
+
+    #[test]
+    fn test_simd_rms_norm_with_gamma() {
+        // Test RMSNorm with non-identity gamma weights
+        let input = vec![2.0, 2.0, 2.0, 2.0];
+        let weight = vec![0.5, 1.0, 1.5, 2.0]; // Different gamma per dimension
+        let eps = 1e-5;
+
+        let result = simd_rms_norm(&input, &weight, eps);
+
+        // All inputs same → after normalization, all become 1/sqrt(1) = 1
+        // (because mean(2^2) = 4, rms = 2, so 2/2 = 1)
+        // Then multiply by weight
+        let sum_sq: f32 = input.iter().map(|x| x * x).sum();
+        let rms = (sum_sq / 4.0 + eps).sqrt(); // = 2.0
+        let expected: Vec<f32> = input
+            .iter()
+            .zip(weight.iter())
+            .map(|(&x, &w)| x / rms * w)
+            .collect();
+
+        for (i, (&r, &e)) in result.iter().zip(expected.iter()).enumerate() {
+            assert!(
+                (r - e).abs() < 1e-5,
+                "RMSNorm with gamma mismatch at {}: got {} expected {}",
+                i,
+                r,
+                e
+            );
+        }
     }
 }
 
@@ -2781,6 +3245,91 @@ mod tests {
 
         // Position 0 has much higher attention score, so output should be close to V0
         assert!(output[0] < 2.0, "Should be close to V0 (1.0)");
+    }
+
+    #[test]
+    fn test_causal_self_attention_flow() {
+        // Test the causal self-attention pattern used in forward:
+        // For each position s, only attend to positions 0..=s
+        let num_heads = 2;
+        let head_dim = 2;
+        let hidden_dim = num_heads * head_dim;
+        let seq_len = 3;
+
+        // Simulate building K/V cache incrementally (causal)
+        let mut k_cache = Vec::new();
+        let mut v_cache = Vec::new();
+        let mut outputs = Vec::new();
+
+        for s in 0..seq_len {
+            // Q for position s (distinct values per position)
+            let q: Vec<f32> = (0..hidden_dim).map(|i| (s * hidden_dim + i) as f32 * 0.1).collect();
+
+            // K/V for position s
+            let k: Vec<f32> = (0..hidden_dim).map(|i| (s * hidden_dim + i) as f32 * 0.2).collect();
+            let v: Vec<f32> = (0..hidden_dim).map(|i| (s + 1) as f32).collect(); // V[s] = s+1
+
+            // Add to cache BEFORE attention (causal - includes current position)
+            k_cache.extend_from_slice(&k);
+            v_cache.extend_from_slice(&v);
+
+            // Compute attention over cache (only positions 0..=s visible)
+            let attn_output = attention_with_cache(&q, &k_cache, &v_cache, num_heads, head_dim);
+            outputs.push(attn_output);
+        }
+
+        // Position 0: only sees itself
+        assert_eq!(outputs[0].len(), hidden_dim);
+        for val in &outputs[0] {
+            assert!((val - 1.0).abs() < 1e-4, "Pos 0 should output V[0]=1.0, got {}", val);
+        }
+
+        // Position 1: sees pos 0 and 1 (weighted average of V[0]=1.0 and V[1]=2.0)
+        for val in &outputs[1] {
+            assert!(
+                *val >= 0.9 && *val <= 2.1,
+                "Pos 1 should be between V[0] and V[1], got {}",
+                val
+            );
+        }
+
+        // Position 2: sees pos 0, 1, 2 (weighted average)
+        for val in &outputs[2] {
+            assert!(
+                *val >= 0.9 && *val <= 3.1,
+                "Pos 2 should be in range of V values, got {}",
+                val
+            );
+        }
+    }
+
+    #[test]
+    fn test_gqa_kv_expansion() {
+        // Test GQA K/V expansion: 4 Q heads with 2 KV heads
+        let num_heads = 4;
+        let num_kv_heads = 2;
+        let head_dim = 2;
+        let hidden_dim = num_heads * head_dim;
+        let kv_dim = num_kv_heads * head_dim;
+        let group_size = num_heads / num_kv_heads; // 2
+
+        // Raw K with 2 KV heads: [kv0_h0, kv0_h1, kv1_h0, kv1_h1]
+        let k_raw: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
+        assert_eq!(k_raw.len(), kv_dim);
+
+        // Expand K to match Q heads: each KV head serves 2 Q heads
+        let k_expanded: Vec<f32> = (0..num_heads)
+            .flat_map(|h| {
+                let kv_head = h / group_size;
+                let start = kv_head * head_dim;
+                k_raw[start..start + head_dim].iter().copied()
+            })
+            .collect();
+
+        assert_eq!(k_expanded.len(), hidden_dim);
+        // Q heads 0,1 use KV head 0: [1.0, 2.0]
+        // Q heads 2,3 use KV head 1: [3.0, 4.0]
+        assert_eq!(k_expanded, vec![1.0, 2.0, 1.0, 2.0, 3.0, 4.0, 3.0, 4.0]);
     }
 
     #[test]

@@ -26,7 +26,10 @@ fn test_ffn01_owned_layer_has_gate_weight() {
     }
 
     // Just verify the function compiles
-    assert!(true, "FFN-01: OwnedQuantizedLayer must have ffn_gate_weight field");
+    assert!(
+        true,
+        "FFN-01: OwnedQuantizedLayer must have ffn_gate_weight field"
+    );
 }
 
 /// FFN-02: OwnedQuantizedLayer must have ffn_gate_bias field
@@ -39,7 +42,10 @@ fn test_ffn02_owned_layer_has_gate_bias() {
         layer.ffn_gate_bias.is_some() || layer.ffn_gate_bias.is_none()
     }
 
-    assert!(true, "FFN-02: OwnedQuantizedLayer must have ffn_gate_bias field");
+    assert!(
+        true,
+        "FFN-02: OwnedQuantizedLayer must have ffn_gate_bias field"
+    );
 }
 
 /// FFN-03: QuantizedGGUFTransformerLayer must have ffn_gate_weight field
@@ -52,7 +58,10 @@ fn test_ffn03_quantized_layer_has_gate_weight() {
         layer.ffn_gate_weight.is_some() || layer.ffn_gate_weight.is_none()
     }
 
-    assert!(true, "FFN-03: QuantizedGGUFTransformerLayer must have ffn_gate_weight");
+    assert!(
+        true,
+        "FFN-03: QuantizedGGUFTransformerLayer must have ffn_gate_weight"
+    );
 }
 
 /// FFN-04: SiLU activation function exists and is correct
@@ -114,12 +123,13 @@ fn test_ffn05_swiglu_differs_from_simple_ffn() {
 
     fn gelu(x: f32) -> f32 {
         // Approximate GELU
-        0.5 * x * (1.0 + ((2.0_f32 / std::f32::consts::PI).sqrt() * (x + 0.044715 * x.powi(3))).tanh())
+        0.5 * x
+            * (1.0 + ((2.0_f32 / std::f32::consts::PI).sqrt() * (x + 0.044715 * x.powi(3))).tanh())
     }
 
     // Simple test: same up projection, different activation path
     let x = 2.0_f32;
-    let up = x * 1.5;  // Simulated up projection
+    let up = x * 1.5; // Simulated up projection
     let gate = x * 0.8; // Simulated gate projection (only in SwiGLU)
 
     // SwiGLU path
@@ -151,10 +161,8 @@ fn test_ffn06_gguf_loads_gate_weight() {
         return;
     }
 
-    let mapped = MappedGGUFModel::from_path(gguf_path)
-        .expect("Failed to load GGUF");
-    let model = OwnedQuantizedModel::from_mapped(&mapped)
-        .expect("Failed to create model");
+    let mapped = MappedGGUFModel::from_path(gguf_path).expect("Failed to load GGUF");
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("Failed to create model");
 
     // TinyLlama uses SwiGLU, so gate weight must be present
     assert!(
@@ -177,13 +185,13 @@ fn test_ffn07_gate_dimensions_match_up() {
         return;
     }
 
-    let mapped = MappedGGUFModel::from_path(gguf_path)
-        .expect("Failed to load GGUF");
-    let model = OwnedQuantizedModel::from_mapped(&mapped)
-        .expect("Failed to create model");
+    let mapped = MappedGGUFModel::from_path(gguf_path).expect("Failed to load GGUF");
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("Failed to create model");
 
     let layer = &model.layers[0];
-    let gate = layer.ffn_gate_weight.as_ref()
+    let gate = layer
+        .ffn_gate_weight
+        .as_ref()
         .expect("Gate weight must be present");
 
     // Gate and Up must have same output dimension (intermediate_dim)
@@ -215,10 +223,8 @@ fn test_ffn08_swiglu_forward_coherent() {
         return;
     }
 
-    let mapped = MappedGGUFModel::from_path(gguf_path)
-        .expect("Failed to load GGUF");
-    let model = OwnedQuantizedModel::from_mapped(&mapped)
-        .expect("Failed to create model");
+    let mapped = MappedGGUFModel::from_path(gguf_path).expect("Failed to load GGUF");
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("Failed to create model");
 
     // Generate a few tokens from a simple prompt
     // BOS token for TinyLlama is 1
@@ -230,7 +236,8 @@ fn test_ffn08_swiglu_forward_coherent() {
         stop_tokens: vec![2], // EOS
     };
 
-    let output = model.generate(&prompt, &config)
+    let output = model
+        .generate(&prompt, &config)
         .expect("Generation should succeed");
 
     // Output should not be all zeros or all same token
@@ -247,7 +254,8 @@ fn test_ffn08_swiglu_forward_coherent() {
         assert!(
             (tok as usize) < vocab_size,
             "FFN-08: Token {} exceeds vocab size {}",
-            tok, vocab_size
+            tok,
+            vocab_size
         );
     }
 }
@@ -275,23 +283,45 @@ fn test_ffn09_verify_model_weights() {
     println!("  num_heads: {}", model.config.num_heads);
     println!("  num_kv_heads: {}", model.config.num_kv_heads);
     println!("  vocab_size: {}", model.config.vocab_size);
-    
+
     let layer = &model.layers[0];
     println!("\nLayer 0:");
     println!("  attn_norm_weight len: {}", layer.attn_norm_weight.len());
-    println!("  ffn_gate_weight: {:?}", layer.ffn_gate_weight.as_ref().map(|t| (t.in_dim, t.out_dim)));
-    println!("  ffn_up_weight: ({}, {})", layer.ffn_up_weight.in_dim, layer.ffn_up_weight.out_dim);
-    println!("  ffn_down_weight: ({}, {})", layer.ffn_down_weight.in_dim, layer.ffn_down_weight.out_dim);
-    println!("  ffn_norm_weight: {:?}", layer.ffn_norm_weight.as_ref().map(|v| v.len()));
-    
+    println!(
+        "  ffn_gate_weight: {:?}",
+        layer
+            .ffn_gate_weight
+            .as_ref()
+            .map(|t| (t.in_dim, t.out_dim))
+    );
+    println!(
+        "  ffn_up_weight: ({}, {})",
+        layer.ffn_up_weight.in_dim, layer.ffn_up_weight.out_dim
+    );
+    println!(
+        "  ffn_down_weight: ({}, {})",
+        layer.ffn_down_weight.in_dim, layer.ffn_down_weight.out_dim
+    );
+    println!(
+        "  ffn_norm_weight: {:?}",
+        layer.ffn_norm_weight.as_ref().map(|v| v.len())
+    );
+
     println!("\nToken embedding len: {}", model.token_embedding.len());
-    println!("  Expected: {} * {} = {}", model.config.vocab_size, model.config.hidden_dim, 
-             model.config.vocab_size * model.config.hidden_dim);
-    
+    println!(
+        "  Expected: {} * {} = {}",
+        model.config.vocab_size,
+        model.config.hidden_dim,
+        model.config.vocab_size * model.config.hidden_dim
+    );
+
     // Check dimensions
     assert_eq!(layer.attn_norm_weight.len(), model.config.hidden_dim);
-    assert!(layer.ffn_gate_weight.is_some(), "TinyLlama should have ffn_gate (SwiGLU)");
-    
+    assert!(
+        layer.ffn_gate_weight.is_some(),
+        "TinyLlama should have ffn_gate (SwiGLU)"
+    );
+
     // ffn_norm is optional - some models don't have it
     if layer.ffn_norm_weight.is_some() {
         println!("  ffn_norm IS present");
@@ -317,18 +347,27 @@ fn test_ffn10_verify_output_layers() {
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("Failed to create model");
 
     println!("Output layers:");
-    println!("  output_norm_weight len: {}", model.output_norm_weight.len());
-    println!("  lm_head_weight: ({}, {})", model.lm_head_weight.in_dim, model.lm_head_weight.out_dim);
-    
+    println!(
+        "  output_norm_weight len: {}",
+        model.output_norm_weight.len()
+    );
+    println!(
+        "  lm_head_weight: ({}, {})",
+        model.lm_head_weight.in_dim, model.lm_head_weight.out_dim
+    );
+
     // First few values of output_norm
     if model.output_norm_weight.len() > 5 {
-        println!("  output_norm first 5: {:?}", &model.output_norm_weight[..5]);
+        println!(
+            "  output_norm first 5: {:?}",
+            &model.output_norm_weight[..5]
+        );
     }
-    
+
     // Verify dimensions
     assert_eq!(model.output_norm_weight.len(), model.config.hidden_dim);
     assert_eq!(model.lm_head_weight.in_dim, model.config.hidden_dim);
     assert_eq!(model.lm_head_weight.out_dim, model.config.vocab_size);
-    
+
     println!("Output layers verified ✓");
 }

@@ -37,8 +37,7 @@ fn y6_apr_decode_meets_cpu_threshold() {
 
     use realizar::apr_transformer::AprTransformer;
 
-    let transformer = AprTransformer::from_apr_file(APR_MODEL)
-        .expect("Failed to load APR model");
+    let transformer = AprTransformer::from_apr_file(APR_MODEL).expect("Failed to load APR model");
 
     let prompt = vec![1u32, 2, 3, 4, 5];
     let max_tokens = 20;
@@ -53,7 +52,9 @@ fn y6_apr_decode_meets_cpu_threshold() {
     let mut total_tokens = 0;
     for _ in 0..10 {
         let start = Instant::now();
-        let output = transformer.generate(&prompt, max_tokens).expect("Generate failed");
+        let output = transformer
+            .generate(&prompt, max_tokens)
+            .expect("Generate failed");
         total_time += start.elapsed().as_secs_f64();
         total_tokens += output.len().saturating_sub(prompt.len());
     }
@@ -90,19 +91,22 @@ fn y6_apr_decode_parity_with_gguf() {
     use std::io::Read;
 
     // Benchmark APR
-    let apr_transformer = AprTransformer::from_apr_file(APR_MODEL)
-        .expect("Failed to load APR");
+    let apr_transformer = AprTransformer::from_apr_file(APR_MODEL).expect("Failed to load APR");
     let mut apr_runner = AprBenchmarkRunner::new(apr_transformer);
     apr_runner.set_warmup_iterations(3);
     apr_runner.set_measure_iterations(10);
 
     let prompt = vec![1u32, 2, 3, 4, 5];
-    let apr_result = apr_runner.benchmark_decode(&prompt, 20).expect("APR benchmark failed");
+    let apr_result = apr_runner
+        .benchmark_decode(&prompt, 20)
+        .expect("APR benchmark failed");
 
     // Benchmark GGUF
     let mut gguf_file = File::open(GGUF_MODEL).expect("Failed to open GGUF");
     let mut gguf_bytes = Vec::new();
-    gguf_file.read_to_end(&mut gguf_bytes).expect("Failed to read GGUF");
+    gguf_file
+        .read_to_end(&mut gguf_bytes)
+        .expect("Failed to read GGUF");
 
     let gguf_model = GGUFModel::from_bytes(&gguf_bytes).expect("Failed to parse GGUF");
     let gguf_transformer = QuantizedGGUFTransformer::from_gguf(&gguf_model, &gguf_bytes)
@@ -120,7 +124,9 @@ fn y6_apr_decode_parity_with_gguf() {
     let mut total_tokens = 0;
     for _ in 0..10 {
         let start = Instant::now();
-        let output = gguf_transformer.generate(&prompt, &gen_config).expect("GGUF generate failed");
+        let output = gguf_transformer
+            .generate(&prompt, &gen_config)
+            .expect("GGUF generate failed");
         total_time += start.elapsed().as_secs_f64();
         total_tokens += output.len() - prompt.len();
     }
@@ -161,8 +167,7 @@ fn y8_apr_prefill_meets_threshold() {
 
     use realizar::apr_transformer::{AprBenchmarkRunner, AprTransformer};
 
-    let transformer = AprTransformer::from_apr_file(APR_MODEL)
-        .expect("Failed to load APR model");
+    let transformer = AprTransformer::from_apr_file(APR_MODEL).expect("Failed to load APR model");
 
     let mut runner = AprBenchmarkRunner::new(transformer);
     runner.set_warmup_iterations(3);
@@ -170,7 +175,9 @@ fn y8_apr_prefill_meets_threshold() {
 
     // Long prompt for prefill test
     let prompt: Vec<u32> = (1..100).collect();
-    let result = runner.benchmark_prefill(&prompt).expect("Prefill benchmark failed");
+    let result = runner
+        .benchmark_prefill(&prompt)
+        .expect("Prefill benchmark failed");
 
     const PREFILL_THRESHOLD: f64 = 100.0;
     assert!(
@@ -259,15 +266,16 @@ fn y10_apr_memory_efficiency() {
 
     use realizar::apr_transformer::{AprBenchmarkRunner, AprTransformer};
 
-    let transformer = AprTransformer::from_apr_file(APR_MODEL)
-        .expect("Failed to load APR model");
+    let transformer = AprTransformer::from_apr_file(APR_MODEL).expect("Failed to load APR model");
 
     let mut runner = AprBenchmarkRunner::new(transformer);
     runner.set_warmup_iterations(1);
     runner.set_measure_iterations(3);
 
     let prompt = vec![1u32, 2, 3, 4, 5];
-    let result = runner.benchmark_decode(&prompt, 10).expect("Benchmark failed");
+    let result = runner
+        .benchmark_decode(&prompt, 10)
+        .expect("Benchmark failed");
 
     // Check memory is reasonable (model + overhead)
     // TinyLlama is ~10MB, allow up to 100MB for reasonable overhead
@@ -302,8 +310,7 @@ fn y6_y10_full_parity_report() {
 
     use realizar::apr_transformer::{AprBenchmarkRunner, AprTransformer};
 
-    let transformer = AprTransformer::from_apr_file(APR_MODEL)
-        .expect("Failed to load APR model");
+    let transformer = AprTransformer::from_apr_file(APR_MODEL).expect("Failed to load APR model");
 
     let mut runner = AprBenchmarkRunner::new(transformer);
     runner.set_warmup_iterations(5);
@@ -313,27 +320,43 @@ fn y6_y10_full_parity_report() {
     let decode_result = runner.benchmark_decode(&prompt, 50).expect("Decode failed");
 
     let prefill_prompt: Vec<u32> = (1..100).collect();
-    let prefill_result = runner.benchmark_prefill(&prefill_prompt).expect("Prefill failed");
+    let prefill_result = runner
+        .benchmark_prefill(&prefill_prompt)
+        .expect("Prefill failed");
 
     println!("\n╔════════════════════════════════════════════════════════════╗");
     println!("║           Y6-Y10 APR Performance Parity Report            ║");
     println!("╠════════════════════════════════════════════════════════════╣");
-    println!("║  Y6  Decode Speed:      {:>8.1} tok/s  (threshold: 50)  ║",
-             decode_result.tokens_per_second);
-    println!("║  Y8  Prefill Speed:     {:>8.1} tok/s  (threshold: 100) ║",
-             prefill_result.prefill_tok_s);
-    println!("║  Y10 Peak Memory:       {:>8.1} MB                      ║",
-             decode_result.peak_memory_mb);
-    println!("║  Y10 Model Memory:      {:>8.1} MB                      ║",
-             decode_result.model_memory_mb);
+    println!(
+        "║  Y6  Decode Speed:      {:>8.1} tok/s  (threshold: 50)  ║",
+        decode_result.tokens_per_second
+    );
+    println!(
+        "║  Y8  Prefill Speed:     {:>8.1} tok/s  (threshold: 100) ║",
+        prefill_result.prefill_tok_s
+    );
+    println!(
+        "║  Y10 Peak Memory:       {:>8.1} MB                      ║",
+        decode_result.peak_memory_mb
+    );
+    println!(
+        "║  Y10 Model Memory:      {:>8.1} MB                      ║",
+        decode_result.model_memory_mb
+    );
     println!("╠════════════════════════════════════════════════════════════╣");
     println!("║  Statistics:                                              ║");
-    println!("║    p50 throughput:      {:>8.1} tok/s                   ║",
-             decode_result.throughput_p50);
-    println!("║    p99 throughput:      {:>8.1} tok/s                   ║",
-             decode_result.throughput_p99);
-    println!("║    std_dev:             {:>8.2} tok/s                   ║",
-             decode_result.throughput_std_dev);
+    println!(
+        "║    p50 throughput:      {:>8.1} tok/s                   ║",
+        decode_result.throughput_p50
+    );
+    println!(
+        "║    p99 throughput:      {:>8.1} tok/s                   ║",
+        decode_result.throughput_p99
+    );
+    println!(
+        "║    std_dev:             {:>8.2} tok/s                   ║",
+        decode_result.throughput_std_dev
+    );
     println!("╚════════════════════════════════════════════════════════════╝\n");
 
     // Assertions

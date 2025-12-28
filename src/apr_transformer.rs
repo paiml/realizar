@@ -131,7 +131,12 @@ impl MmapAprTransformer {
         }
 
         // Parse config from header (after 4-byte magic + 4-byte version)
-        let version = u32::from_le_bytes([header_bytes[4], header_bytes[5], header_bytes[6], header_bytes[7]]);
+        let version = u32::from_le_bytes([
+            header_bytes[4],
+            header_bytes[5],
+            header_bytes[6],
+            header_bytes[7],
+        ]);
         if version > APR_TRANSFORMER_VERSION {
             return Err(RealizarError::FormatError {
                 reason: format!("Unsupported APR version: {version}"),
@@ -139,16 +144,66 @@ impl MmapAprTransformer {
         }
 
         // Parse config fields (offset 8)
-        let hidden_dim = u32::from_le_bytes([header_bytes[8], header_bytes[9], header_bytes[10], header_bytes[11]]) as usize;
-        let num_layers = u32::from_le_bytes([header_bytes[12], header_bytes[13], header_bytes[14], header_bytes[15]]) as usize;
-        let num_heads = u32::from_le_bytes([header_bytes[16], header_bytes[17], header_bytes[18], header_bytes[19]]) as usize;
-        let num_kv_heads = u32::from_le_bytes([header_bytes[20], header_bytes[21], header_bytes[22], header_bytes[23]]) as usize;
-        let vocab_size = u32::from_le_bytes([header_bytes[24], header_bytes[25], header_bytes[26], header_bytes[27]]) as usize;
-        let intermediate_dim = u32::from_le_bytes([header_bytes[28], header_bytes[29], header_bytes[30], header_bytes[31]]) as usize;
-        let context_length = u32::from_le_bytes([header_bytes[32], header_bytes[33], header_bytes[34], header_bytes[35]]) as usize;
-        let rope_theta = f32::from_le_bytes([header_bytes[36], header_bytes[37], header_bytes[38], header_bytes[39]]);
-        let eps = f32::from_le_bytes([header_bytes[40], header_bytes[41], header_bytes[42], header_bytes[43]]);
-        let tensor_data_offset = u32::from_le_bytes([header_bytes[44], header_bytes[45], header_bytes[46], header_bytes[47]]) as usize;
+        let hidden_dim = u32::from_le_bytes([
+            header_bytes[8],
+            header_bytes[9],
+            header_bytes[10],
+            header_bytes[11],
+        ]) as usize;
+        let num_layers = u32::from_le_bytes([
+            header_bytes[12],
+            header_bytes[13],
+            header_bytes[14],
+            header_bytes[15],
+        ]) as usize;
+        let num_heads = u32::from_le_bytes([
+            header_bytes[16],
+            header_bytes[17],
+            header_bytes[18],
+            header_bytes[19],
+        ]) as usize;
+        let num_kv_heads = u32::from_le_bytes([
+            header_bytes[20],
+            header_bytes[21],
+            header_bytes[22],
+            header_bytes[23],
+        ]) as usize;
+        let vocab_size = u32::from_le_bytes([
+            header_bytes[24],
+            header_bytes[25],
+            header_bytes[26],
+            header_bytes[27],
+        ]) as usize;
+        let intermediate_dim = u32::from_le_bytes([
+            header_bytes[28],
+            header_bytes[29],
+            header_bytes[30],
+            header_bytes[31],
+        ]) as usize;
+        let context_length = u32::from_le_bytes([
+            header_bytes[32],
+            header_bytes[33],
+            header_bytes[34],
+            header_bytes[35],
+        ]) as usize;
+        let rope_theta = f32::from_le_bytes([
+            header_bytes[36],
+            header_bytes[37],
+            header_bytes[38],
+            header_bytes[39],
+        ]);
+        let eps = f32::from_le_bytes([
+            header_bytes[40],
+            header_bytes[41],
+            header_bytes[42],
+            header_bytes[43],
+        ]);
+        let tensor_data_offset = u32::from_le_bytes([
+            header_bytes[44],
+            header_bytes[45],
+            header_bytes[46],
+            header_bytes[47],
+        ]) as usize;
 
         let config = AprTransformerConfig {
             architecture: "apr".to_string(),
@@ -239,7 +294,11 @@ impl MmapAprTransformer {
         let embed_params = vocab * hidden * 2;
 
         // Per layer: attn_norm + qkv + attn_out + ffn_up + ffn_down
-        let layer_params = hidden + (hidden * 3 * hidden) + (hidden * hidden) + (hidden * intermediate) + (intermediate * hidden);
+        let layer_params = hidden
+            + (hidden * 3 * hidden)
+            + (hidden * hidden)
+            + (hidden * intermediate)
+            + (intermediate * hidden);
 
         // Output norm
         let norm_params = hidden;
@@ -255,9 +314,11 @@ impl MmapAprTransformer {
 /// Quantization type for APR Transformer weights (Y5)
 ///
 /// Supports the same quantization formats as GGUF for format parity.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[allow(non_camel_case_types)] // Match GGML naming convention (Q4_K, Q8_0)
 pub enum AprQuantizationType {
     /// Full precision 32-bit floats (no quantization)
+    #[default]
     F32,
     /// 4-bit K-quantization (4.5 bits/weight, super-block size 256)
     Q4_K,
@@ -271,8 +332,8 @@ impl AprQuantizationType {
     pub fn bits_per_weight(&self) -> f64 {
         match self {
             Self::F32 => 32.0,
-            Self::Q4_K => 4.5,  // 144 bytes per 256 values
-            Self::Q8_0 => 8.0,  // 36 bytes per 32 values (scale + 32 int8)
+            Self::Q4_K => 4.5, // 144 bytes per 256 values
+            Self::Q8_0 => 8.0, // 36 bytes per 32 values (scale + 32 int8)
         }
     }
 
@@ -318,12 +379,6 @@ impl AprQuantizationType {
     }
 }
 
-impl Default for AprQuantizationType {
-    fn default() -> Self {
-        Self::F32
-    }
-}
-
 /// Quantized APR Transformer with Q4_K or Q8_0 weights (Y5)
 ///
 /// Stores weights in quantized form for memory efficiency while
@@ -364,7 +419,7 @@ impl QuantizedAprTransformer {
     pub fn new(config: AprTransformerConfig, quant_type: AprQuantizationType) -> Self {
         let hidden_dim = config.hidden_dim;
         let vocab_size = config.vocab_size;
-        let intermediate_dim = config.intermediate_dim;
+        let _intermediate_dim = config.intermediate_dim;
 
         // Calculate quantized sizes
         let embed_size = vocab_size * hidden_dim; // F32 for embeddings
@@ -388,7 +443,10 @@ impl QuantizedAprTransformer {
 
     /// Create from an F32 transformer by quantizing weights
     #[must_use]
-    pub fn from_f32_transformer(f32_model: &AprTransformer, quant_type: AprQuantizationType) -> Self {
+    pub fn from_f32_transformer(
+        f32_model: &AprTransformer,
+        quant_type: AprQuantizationType,
+    ) -> Self {
         let config = f32_model.config.clone();
 
         // For now, just create zero-initialized quantized model
@@ -418,7 +476,7 @@ impl QuantizedAprTransformer {
     #[must_use]
     pub fn weight_bytes(&self) -> usize {
         let embed_bytes = self.token_embedding.len() * 4; // F32
-        let layer_bytes: usize = self.layer_weights.iter().map(|w| w.len()).sum();
+        let layer_bytes: usize = self.layer_weights.iter().map(std::vec::Vec::len).sum();
         let norm_bytes = self.output_norm_weight.len() * 4; // F32
         let lm_head_bytes = self.lm_head_weight.len();
 
@@ -444,8 +502,11 @@ impl QuantizedAprTransformer {
         let embed_params = vocab * hidden * 2;
 
         // Per layer: attn_norm + qkv + attn_out + ffn_up + ffn_down
-        let layer_params = hidden + (hidden * 3 * hidden) + (hidden * hidden)
-            + (hidden * intermediate) + (intermediate * hidden);
+        let layer_params = hidden
+            + (hidden * 3 * hidden)
+            + (hidden * hidden)
+            + (hidden * intermediate)
+            + (intermediate * hidden);
 
         // Output norm
         let norm_params = hidden;
@@ -454,13 +515,18 @@ impl QuantizedAprTransformer {
     }
 
     /// Calculate bytes needed for layer weights
-    fn calculate_layer_bytes(config: &AprTransformerConfig, quant_type: AprQuantizationType) -> usize {
+    fn calculate_layer_bytes(
+        config: &AprTransformerConfig,
+        quant_type: AprQuantizationType,
+    ) -> usize {
         let hidden = config.hidden_dim;
         let intermediate = config.intermediate_dim;
 
         // Layer weights: qkv + attn_out + ffn_up + ffn_down + norms
-        let weight_elements = (hidden * 3 * hidden) + (hidden * hidden)
-            + (hidden * intermediate) + (intermediate * hidden);
+        let weight_elements = (hidden * 3 * hidden)
+            + (hidden * hidden)
+            + (hidden * intermediate)
+            + (intermediate * hidden);
 
         Self::calculate_quantized_bytes(weight_elements, quant_type)
     }
@@ -471,7 +537,7 @@ impl QuantizedAprTransformer {
         let bytes_per_block = quant_type.bytes_per_block();
 
         // Round up to nearest block
-        let num_blocks = (num_elements + values_per_block - 1) / values_per_block;
+        let num_blocks = num_elements.div_ceil(values_per_block);
         num_blocks * bytes_per_block
     }
 
@@ -486,7 +552,7 @@ impl QuantizedAprTransformer {
         }
 
         let hidden_dim = self.config.hidden_dim;
-        let vocab_size = self.config.vocab_size;
+        let _vocab_size = self.config.vocab_size;
 
         // 1. Token embedding lookup (F32)
         let mut hidden = Vec::with_capacity(token_ids.len() * hidden_dim);
@@ -516,7 +582,8 @@ impl QuantizedAprTransformer {
             let slice = &hidden[start..start + hidden_dim];
 
             let mean: f32 = slice.iter().sum::<f32>() / hidden_dim as f32;
-            let variance: f32 = slice.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / hidden_dim as f32;
+            let variance: f32 =
+                slice.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / hidden_dim as f32;
             let std_dev = (variance + eps).sqrt();
 
             for (i, &x) in slice.iter().enumerate() {
@@ -536,26 +603,26 @@ impl QuantizedAprTransformer {
     }
 
     /// Compute LM head logits (dequantize weight and matmul)
-    fn compute_lm_head_logits(&self, hidden: &[f32]) -> Result<Vec<f32>> {
+    fn compute_lm_head_logits(&self, _hidden: &[f32]) -> Result<Vec<f32>> {
         let vocab_size = self.config.vocab_size;
-        let hidden_dim = self.config.hidden_dim;
+        let _hidden_dim = self.config.hidden_dim;
 
         // For zero-initialized weights, output is zeros
         // In production: dequantize self.lm_head_weight and compute
-        let mut logits = vec![0.0f32; vocab_size];
+        let logits = vec![0.0f32; vocab_size];
 
         // Simple matmul with dequantized weights (placeholder)
         // Real implementation would use fused_q4k_dot or dequantize_q8_0
         match self.quant_type {
             AprQuantizationType::F32 => {
                 // No dequantization needed (but we store as bytes anyway)
-            }
+            },
             AprQuantizationType::Q4_K => {
                 // Would call: fused_q4k_dot for each output
-            }
+            },
             AprQuantizationType::Q8_0 => {
                 // Would call: dequantize_q8_0 then dot product
-            }
+            },
         }
 
         Ok(logits)
@@ -620,7 +687,7 @@ impl QuantizedAprTransformer {
         }
 
         // Verify magic
-        if &data[0..4] != APR_TRANSFORMER_MAGIC {
+        if data[0..4] != APR_TRANSFORMER_MAGIC {
             return Err(RealizarError::FormatError {
                 reason: "Invalid APR magic".to_string(),
             });
@@ -632,14 +699,15 @@ impl QuantizedAprTransformer {
         let num_heads = u32::from_le_bytes([data[16], data[17], data[18], data[19]]) as usize;
         let num_kv_heads = u32::from_le_bytes([data[20], data[21], data[22], data[23]]) as usize;
         let vocab_size = u32::from_le_bytes([data[24], data[25], data[26], data[27]]) as usize;
-        let intermediate_dim = u32::from_le_bytes([data[28], data[29], data[30], data[31]]) as usize;
+        let intermediate_dim =
+            u32::from_le_bytes([data[28], data[29], data[30], data[31]]) as usize;
         let context_length = u32::from_le_bytes([data[32], data[33], data[34], data[35]]) as usize;
         let rope_theta = f32::from_le_bytes([data[36], data[37], data[38], data[39]]);
         let eps = f32::from_le_bytes([data[40], data[41], data[42], data[43]]);
 
         // Quantization type at offset 48
-        let quant_type = AprQuantizationType::from_byte(data[48])
-            .ok_or_else(|| RealizarError::FormatError {
+        let quant_type =
+            AprQuantizationType::from_byte(data[48]).ok_or_else(|| RealizarError::FormatError {
                 reason: format!("Invalid quantization type: {}", data[48]),
             })?;
 
@@ -679,7 +747,7 @@ impl QuantizedAprTransformer {
         &self,
         token_id: u32,
         cache: &mut AprKVCache,
-        position: usize,
+        _position: usize,
     ) -> Result<Vec<f32>> {
         let hidden_dim = self.config.hidden_dim;
         let num_heads = self.config.num_heads;
@@ -710,7 +778,8 @@ impl QuantizedAprTransformer {
         // 3. Final layer norm
         let eps = self.config.eps;
         let mean: f32 = hidden.iter().sum::<f32>() / hidden_dim as f32;
-        let variance: f32 = hidden.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / hidden_dim as f32;
+        let variance: f32 =
+            hidden.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / hidden_dim as f32;
         let std_dev = (variance + eps).sqrt();
 
         let mut normed = Vec::with_capacity(hidden_dim);
@@ -850,7 +919,10 @@ impl AprKVCache {
         let kv_size = self.num_kv_heads * self.head_dim;
         let used_size = self.len * kv_size;
 
-        (&self.k_cache[layer][..used_size], &self.v_cache[layer][..used_size])
+        (
+            &self.k_cache[layer][..used_size],
+            &self.v_cache[layer][..used_size],
+        )
     }
 
     /// Clear the cache (reset to empty without deallocating)
@@ -1060,9 +1132,10 @@ impl AprTransformer {
         })?;
 
         let mut data = Vec::new();
-        file.read_to_end(&mut data).map_err(|e| RealizarError::IoError {
-            message: format!("Failed to read APR file: {e}"),
-        })?;
+        file.read_to_end(&mut data)
+            .map_err(|e| RealizarError::IoError {
+                message: format!("Failed to read APR file: {e}"),
+            })?;
 
         Self::from_apr_bytes(&data)
     }
@@ -1129,30 +1202,30 @@ impl AprTransformer {
         let hidden_dim = metadata
             .get("hidden_size")
             .or_else(|| metadata.get("hidden_dim"))
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .unwrap_or(64) as usize;
 
         let num_layers = metadata
             .get("num_hidden_layers")
             .or_else(|| metadata.get("num_layers"))
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .unwrap_or(1) as usize;
 
         let num_heads = metadata
             .get("num_attention_heads")
             .or_else(|| metadata.get("num_heads"))
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .unwrap_or(4) as usize;
 
         let vocab_size = metadata
             .get("vocab_size")
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .unwrap_or(32000) as usize;
 
         let intermediate_dim = metadata
             .get("intermediate_size")
             .or_else(|| metadata.get("intermediate_dim"))
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .unwrap_or((hidden_dim * 4) as u64) as usize;
 
         let config = AprTransformerConfig {
@@ -1290,27 +1363,28 @@ impl AprTransformer {
 
             // Try separate Q/K/V or combined QKV
             let qkv_dim = 3 * hidden_dim;
-            let qkv_weight = if let Some(qkv) = get_f32_tensor(&format!("{prefix}.self_attn.qkv_proj.weight")) {
-                qkv
-            } else {
-                // Combine separate Q, K, V into QKV
-                let q = get_f32_tensor(&format!("{prefix}.self_attn.q_proj.weight"))
-                    .unwrap_or_else(|| vec![0.0; hidden_dim * hidden_dim]);
-                let k = get_f32_tensor(&format!("{prefix}.self_attn.k_proj.weight"))
-                    .unwrap_or_else(|| vec![0.0; hidden_dim * hidden_dim]);
-                let v = get_f32_tensor(&format!("{prefix}.self_attn.v_proj.weight"))
-                    .unwrap_or_else(|| vec![0.0; hidden_dim * hidden_dim]);
+            let qkv_weight =
+                if let Some(qkv) = get_f32_tensor(&format!("{prefix}.self_attn.qkv_proj.weight")) {
+                    qkv
+                } else {
+                    // Combine separate Q, K, V into QKV
+                    let q = get_f32_tensor(&format!("{prefix}.self_attn.q_proj.weight"))
+                        .unwrap_or_else(|| vec![0.0; hidden_dim * hidden_dim]);
+                    let k = get_f32_tensor(&format!("{prefix}.self_attn.k_proj.weight"))
+                        .unwrap_or_else(|| vec![0.0; hidden_dim * hidden_dim]);
+                    let v = get_f32_tensor(&format!("{prefix}.self_attn.v_proj.weight"))
+                        .unwrap_or_else(|| vec![0.0; hidden_dim * hidden_dim]);
 
-                // Interleave Q, K, V for each row
-                let mut qkv = Vec::with_capacity(hidden_dim * qkv_dim);
-                for row in 0..hidden_dim {
-                    let row_start = row * hidden_dim;
-                    qkv.extend_from_slice(&q[row_start..row_start + hidden_dim]);
-                    qkv.extend_from_slice(&k[row_start..row_start + hidden_dim]);
-                    qkv.extend_from_slice(&v[row_start..row_start + hidden_dim]);
-                }
-                qkv
-            };
+                    // Interleave Q, K, V for each row
+                    let mut qkv = Vec::with_capacity(hidden_dim * qkv_dim);
+                    for row in 0..hidden_dim {
+                        let row_start = row * hidden_dim;
+                        qkv.extend_from_slice(&q[row_start..row_start + hidden_dim]);
+                        qkv.extend_from_slice(&k[row_start..row_start + hidden_dim]);
+                        qkv.extend_from_slice(&v[row_start..row_start + hidden_dim]);
+                    }
+                    qkv
+                };
 
             let attn_output = get_f32_tensor(&format!("{prefix}.self_attn.o_proj.weight"))
                 .unwrap_or_else(|| vec![0.0; hidden_dim * hidden_dim]);
@@ -1403,8 +1477,7 @@ impl AprTransformer {
                 .iter()
                 .enumerate()
                 .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .map(|(idx, _)| idx as u32)
-                .unwrap_or(0);
+                .map_or(0, |(idx, _)| idx as u32);
 
             tokens.push(next_token);
 
@@ -1776,7 +1849,8 @@ impl AprTransformer {
 
                 // Softmax
                 let max_score = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-                let mut exp_scores: Vec<f32> = scores.iter().map(|s| (s - max_score).exp()).collect();
+                let mut exp_scores: Vec<f32> =
+                    scores.iter().map(|s| (s - max_score).exp()).collect();
                 let sum: f32 = exp_scores.iter().sum();
                 if sum > 0.0 {
                     for s in &mut exp_scores {
@@ -1807,8 +1881,12 @@ impl AprTransformer {
             }
 
             // 2g. FFN
-            let mut ffn_hidden =
-                self.matmul(&hidden, &layer.ffn_up_weight, hidden_dim, self.config.intermediate_dim);
+            let mut ffn_hidden = self.matmul(
+                &hidden,
+                &layer.ffn_up_weight,
+                hidden_dim,
+                self.config.intermediate_dim,
+            );
             if let Some(ref bias) = layer.ffn_up_bias {
                 self.add_bias(&mut ffn_hidden, bias);
             }
@@ -1861,11 +1939,7 @@ impl AprTransformer {
     /// # Returns
     ///
     /// Generated token sequence (including prompt)
-    pub fn generate_with_cache(
-        &self,
-        prompt: &[u32],
-        config: &GenerateConfig,
-    ) -> Result<Vec<u32>> {
+    pub fn generate_with_cache(&self, prompt: &[u32], config: &GenerateConfig) -> Result<Vec<u32>> {
         if prompt.is_empty() {
             return Err(RealizarError::InvalidShape {
                 reason: "Prompt cannot be empty".to_string(),
@@ -1895,8 +1969,7 @@ impl AprTransformer {
                     .iter()
                     .enumerate()
                     .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                    .map(|(i, _)| i as u32)
-                    .unwrap_or(0)
+                    .map_or(0, |(i, _)| i as u32)
             } else {
                 // Temperature sampling (simplified)
                 let scaled: Vec<f32> = logits.iter().map(|l| l / config.temperature).collect();
@@ -1910,8 +1983,7 @@ impl AprTransformer {
                     .iter()
                     .enumerate()
                     .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                    .map(|(i, _)| i as u32)
-                    .unwrap_or(0)
+                    .map_or(0, |(i, _)| i as u32)
             };
 
             output.push(next_token);
@@ -2138,7 +2210,11 @@ impl AprBenchmarkRunner {
     /// # Returns
     ///
     /// Benchmark result with throughput metrics
-    pub fn benchmark_decode(&mut self, prompt: &[u32], num_tokens: usize) -> Result<AprBenchmarkResult> {
+    pub fn benchmark_decode(
+        &mut self,
+        prompt: &[u32],
+        num_tokens: usize,
+    ) -> Result<AprBenchmarkResult> {
         use std::time::Instant;
 
         // Warmup
@@ -2196,7 +2272,8 @@ impl AprBenchmarkRunner {
             0.0
         };
 
-        let p99_idx = ((sorted.len() as f64 * 0.01).floor() as usize).min(sorted.len().saturating_sub(1));
+        let p99_idx =
+            ((sorted.len() as f64 * 0.01).floor() as usize).min(sorted.len().saturating_sub(1));
         let p99 = if !sorted.is_empty() {
             sorted[p99_idx]
         } else {
@@ -2204,9 +2281,11 @@ impl AprBenchmarkRunner {
         };
 
         let std_dev = if throughputs.len() > 1 {
-            let variance = throughputs.iter()
+            let variance = throughputs
+                .iter()
                 .map(|t| (t - mean_throughput).powi(2))
-                .sum::<f64>() / (throughputs.len() - 1) as f64;
+                .sum::<f64>()
+                / (throughputs.len() - 1) as f64;
             variance.sqrt()
         } else {
             0.0
