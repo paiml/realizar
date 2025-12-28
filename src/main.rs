@@ -701,85 +701,98 @@ async fn run_model(
 /// Run GGUF inference with performance timing
 fn run_gguf_inference(
     model_ref: &str,
-    file_data: &[u8],
+    _file_data: &[u8],
     prompt: &str,
     max_tokens: usize,
     temperature: f32,
     format: &str,
 ) -> Result<()> {
-    use realizar::gguf::{GGUFModel, GGUFTransformer};
-    use realizar::inference::TruenoInferenceEngine;
+    use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
     use std::time::Instant;
 
     let load_start = Instant::now();
 
-    // Parse GGUF model first
-    let gguf_model = GGUFModel::from_bytes(file_data).map_err(|e| {
+    // Load model using memory-mapped file (same path as working examples)
+    let mapped = MappedGGUFModel::from_path(model_ref).map_err(|e| {
         realizar::error::RealizarError::UnsupportedOperation {
-            operation: "parse_gguf".to_string(),
-            reason: format!("Failed to parse GGUF: {e}"),
+            operation: "mmap_gguf".to_string(),
+            reason: format!("Failed to mmap GGUF: {e}"),
         }
     })?;
 
-    // Create transformer from model
-    let transformer = GGUFTransformer::from_gguf(&gguf_model, file_data).map_err(|e| {
+    let model = OwnedQuantizedModel::from_mapped(&mapped).map_err(|e| {
         realizar::error::RealizarError::UnsupportedOperation {
-            operation: "create_transformer".to_string(),
-            reason: format!("Failed to create transformer: {e}"),
+            operation: "load_model".to_string(),
+            reason: format!("Failed to load model: {e}"),
         }
     })?;
 
     let load_time = load_start.elapsed();
     println!("Model loaded in {:.2}ms", load_time.as_secs_f64() * 1000.0);
 
-    // Create inference engine
-    let engine = TruenoInferenceEngine::from_gguf_transformer(transformer);
-
     // Tokenize prompt using GGUF vocabulary
-    let mut prompt_tokens: Vec<u32> = gguf_model
+    let mut prompt_tokens: Vec<u32> = mapped.model
         .encode(prompt)
         .unwrap_or_else(|| prompt.chars().map(|c| c as u32).collect());
 
     // Prepend BOS token if available
-    if let Some(bos) = gguf_model.bos_token_id() {
+    if let Some(bos) = mapped.model.bos_token_id() {
         prompt_tokens.insert(0, bos);
     }
     let prompt_len = prompt_tokens.len();
 
     // Get EOS token for stopping
-    let eos_token_id = gguf_model.eos_token_id();
+    let eos_token_id = mapped.model.eos_token_id();
 
     // Debug: show model info and encoded tokens
     println!(
         "Architecture: {:?}, Hidden: {}, Layers: {}, Heads: {}/{} (KV)",
-        gguf_model.architecture(),
-        engine.config.hidden_dim,
-        engine.config.num_layers,
-        engine.config.num_heads,
-        engine.config.num_kv_heads
+        mapped.model.architecture(),
+        model.config.hidden_dim,
+        model.config.num_layers,
+        model.config.num_heads,
+        model.config.num_kv_heads
     );
     println!(
         "Prompt tokens: {} (BOS={:?}, EOS={:?})",
         prompt_len,
-        gguf_model.bos_token_id(),
+        mapped.model.bos_token_id(),
         eos_token_id
     );
-    let repetition_penalty = 1.5; // Strong penalty to prevent loops
-    println!(
-        "Temperature: {:.1}, Repetition penalty: {:.1}",
-        temperature, repetition_penalty
-    );
+    println!("Temperature: {:.1}", temperature);
     println!();
 
-    // Run inference with temperature sampling and repetition penalty
+    // Run inference using greedy or temperature sampling
     let gen_start = Instant::now();
-    let generated = engine.generate_with_sampling(
-        &prompt_tokens,
-        max_tokens,
-        temperature,
-        repetition_penalty,
-        eos_token_id,
-    )?;
+    let mut all_tokens = prompt_tokens.clone();
+
+    for _ in 0..max_tokens {
+        let logits = model.forward(&all_tokens)?;
+
+        // Sample next token
+        let next_token = if temperature <= 0.01 {
+            // Greedy decoding
+            logits
+                .iter()
+                .enumerate()
+                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                .map_or(0, |(idx, _)| idx as u32)
+        } else {
+            // Temperature sampling
+            OwnedQuantizedModel::sample_topk(&logits, temperature, 40)
+        };
+
+        // Stop on EOS
+        if let Some(eos) = eos_token_id {
+            if next_token == eos {
+                break;
+            }
+        }
+
+        all_tokens.push(next_token);
+    }
+
+    let generated = all_tokens;
     let gen_time = gen_start.elapsed();
 
     let tokens_generated = generated.len() - prompt_len;
@@ -789,8 +802,8 @@ fn run_gguf_inference(
         0.0
     };
 
-    // Decode output using GGUF vocabulary
-    let output_text = gguf_model.decode(&generated[prompt_len..]);
+    // Decode output using GGUF vocabulary, replacing SentencePiece markers with spaces
+    let output_text = mapped.model.decode(&generated[prompt_len..]).replace('▁', " ");
 
     match format {
         "json" => {
