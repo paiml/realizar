@@ -504,10 +504,10 @@ Simple unit tests would NOT have caught this - only sequential TUI simulation re
 ---
 
 **Last Updated:** 2025-12-29
-**Realizar Version:** 0.3.1 (7x Inference Speedup)
+**Realizar Version:** 0.3.2 (2x Q8_0 SIMD Speedup, Aprender 0.20)
 **GPU Spec Version:** v5.1.0 (QA Suite Complete + 95% Coverage)
 **Trueno Version:** 0.4.2
-**Aprender Version:** 0.1.0
+**Aprender Version:** 0.20.1
 **paiml-mcp-agent-toolkit Version:** v2.200.0 (with Known Defects Scorer, SATD Detector, Defect Analyzer)
 **TDG Score:** 93.9/100 (A)
 **Rust Project Score:** 137.9/134 (103%, Grade A+)

@@ -1,6 +1,6 @@
 [package]
 name = "realizar"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 rust-version = "1.75"
 authors = ["Pragmatic AI Labs <contact@paiml.com>"]
@@ -39,8 +39,8 @@ trueno-gpu = { version = "0.3.0", optional = true, features = ["cuda"] }
 trueno-db = { version = "0.3", optional = true }
 
 # ML algorithms and .apr model format (optional for aprender model serving)
-# v0.14: format module with .apr save/load, CRC32, signatures, encryption
-aprender = { version = "0.14", optional = true }
+# v0.20.1: latest with TransformerLM, MoE, improved format
+aprender = { version = "0.20", optional = true }
 
 # Data loading library (optional for data pipeline examples)
 alimentar = { version = "0.2", optional = true, default-features = false, features = ["local", "shuffle"] }
