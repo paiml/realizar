@@ -57,6 +57,31 @@
 //! - Achieves 6.5625 bits per weight (highest quality K-quant format)
 
 use crate::error::{RealizarError, Result};
+use once_cell::sync::Lazy;
+
+/// Pre-computed f16 to f32 lookup table (65536 entries = 256KB)
+///
+/// Eliminates per-block f16 conversion overhead in hot paths.
+/// Per spec §4.1: f16 scale LUT should provide ~1.1x throughput improvement.
+///
+/// # Safety
+/// The table is initialized once on first access and is immutable thereafter.
+static F16_TO_F32_LUT: Lazy<Box<[f32; 65536]>> = Lazy::new(|| {
+    let mut lut = Box::new([0.0f32; 65536]);
+    for i in 0..65536u32 {
+        lut[i as usize] = half::f16::from_bits(i as u16).to_f32();
+    }
+    lut
+});
+
+/// Fast f16 to f32 conversion using pre-computed LUT
+///
+/// Takes raw u16 bits (little-endian) and returns f32 value.
+/// ~3x faster than half::f16::from_bits().to_f32() for hot paths.
+#[inline]
+fn f16_to_f32_lut(bits: u16) -> f32 {
+    F16_TO_F32_LUT[bits as usize]
+}
 
 /// Block size for `Q4_0` and `Q8_0` quantization
 pub const BLOCK_SIZE: usize = 32;
@@ -2414,10 +2439,11 @@ fn fused_q4_0_dot_simd(q4_data: &[u8], activations: &[f32], in_dim: usize) -> f3
 unsafe fn fused_q4_0_dot_avx2(q4_data: &[u8], activations: &[f32], in_dim: usize) -> f32 {
     unsafe {
         use std::arch::x86_64::{
-            _mm256_add_ps, _mm256_castps256_ps128, _mm256_cvtepi32_ps, _mm256_extractf128_ps,
-            _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_loadu_si256, _mm256_mul_ps,
-            _mm256_set1_ps, _mm256_setzero_ps, _mm_add_ps, _mm_add_ss, _mm_cvtss_f32,
-            _mm_movehl_ps, _mm_shuffle_ps,
+            _mm256_add_ps, _mm256_castps256_ps128, _mm256_cvtepi32_ps, _mm256_cvtepu8_epi32,
+            _mm256_extractf128_ps, _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_mul_ps,
+            _mm256_set1_ps, _mm256_setzero_ps, _mm_add_ps, _mm_add_ss, _mm_and_si128,
+            _mm_cvtss_f32, _mm_loadl_epi64, _mm_movehl_ps, _mm_set1_epi8, _mm_shuffle_ps,
+            _mm_srli_epi16,
         };
 
         const Q4_0_BLOCK_BYTES: usize = 18;
@@ -2429,6 +2455,8 @@ unsafe fn fused_q4_0_dot_avx2(q4_data: &[u8], activations: &[f32], in_dim: usize
         let mut acc = _mm256_setzero_ps();
         // Offset: Q4_0 values are 0-15, we subtract 8 to get -8 to 7
         let offset = _mm256_set1_ps(-8.0);
+        // Mask for extracting low nibbles (0x0F per byte)
+        let nibble_mask = _mm_set1_epi8(0x0F);
 
         for block_idx in 0..num_blocks {
             let block_start = block_idx * Q4_0_BLOCK_BYTES;
@@ -2441,7 +2469,9 @@ unsafe fn fused_q4_0_dot_avx2(q4_data: &[u8], activations: &[f32], in_dim: usize
             // Bounds check for partial block
             if act_start + Q4_0_BLOCK_SIZE > in_dim {
                 // Scalar fallback for partial block
-                let scale = half::f16::from_le_bytes([*block_ptr, *block_ptr.add(1)]).to_f32();
+                // Use LUT for fast f16->f32 conversion (spec §4.1)
+                let scale_bits = u16::from_le_bytes([*block_ptr, *block_ptr.add(1)]);
+                let scale = f16_to_f32_lut(scale_bits);
                 let act_end = in_dim;
                 let mut block_sum = 0.0f32;
                 for j in 0..16 {
@@ -2463,46 +2493,48 @@ unsafe fn fused_q4_0_dot_avx2(q4_data: &[u8], activations: &[f32], in_dim: usize
                 continue;
             }
 
-            // Read f16 scale
-            let scale = half::f16::from_le_bytes([*block_ptr, *block_ptr.add(1)]).to_f32();
+            // Read f16 scale using LUT (spec §4.1: 1.1x speedup target)
+            let scale_bits = u16::from_le_bytes([*block_ptr, *block_ptr.add(1)]);
+            let scale = f16_to_f32_lut(scale_bits);
             let scale_vec = _mm256_set1_ps(scale);
 
-            // Extract nibbles manually for correct SIMD processing
-            // Each byte contains: low nibble (bits 0-3) and high nibble (bits 4-7)
+            // SIMD nibble extraction (per spec §4.1: P1 fix for 1.3x speedup)
+            // Load 8 bytes at a time, extract low/high nibbles via SIMD ops
             let quants = block_ptr.add(2);
 
-            // Process 8 bytes at a time, extracting low and high nibbles separately
-            // Bytes 0-7 contain: low nibbles for positions 0-7, high nibbles for positions 16-23
-            let mut low_vals_0 = [0i32; 8];
-            let mut high_vals_0 = [0i32; 8];
-            for i in 0..8 {
-                let b = *quants.add(i);
-                low_vals_0[i] = (b & 0x0F) as i32;
-                high_vals_0[i] = (b >> 4) as i32;
-            }
+            // === Process bytes 0-7 ===
+            // Load 8 bytes into lower 64 bits of 128-bit register
+            let bytes_0 = _mm_loadl_epi64(quants.cast());
 
-            let q_low_0 = _mm256_add_ps(_mm256_cvtepi32_ps(_mm256_loadu_si256(low_vals_0.as_ptr().cast())), offset);
+            // Extract low nibbles: bytes & 0x0F (1 SIMD instruction)
+            let low_nibbles_0 = _mm_and_si128(bytes_0, nibble_mask);
+            // Extract high nibbles: (bytes >> 4) & 0x0F (2 SIMD instructions)
+            // Note: _mm_srli_epi16 shifts 16-bit lanes, mask removes cross-byte bleed
+            let high_nibbles_0 = _mm_and_si128(_mm_srli_epi16(bytes_0, 4), nibble_mask);
+
+            // Convert 8 u8 to 8 f32: u8 -> i32 -> f32, then add offset
+            let q_low_0 = _mm256_add_ps(_mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(low_nibbles_0)), offset);
+            let q_high_0 = _mm256_add_ps(_mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(high_nibbles_0)), offset);
+
+            // FMA with activations
             let act_low_0 = _mm256_loadu_ps(activations.as_ptr().add(act_start));
             acc = _mm256_fmadd_ps(_mm256_mul_ps(scale_vec, q_low_0), act_low_0, acc);
 
-            let q_high_0 = _mm256_add_ps(_mm256_cvtepi32_ps(_mm256_loadu_si256(high_vals_0.as_ptr().cast())), offset);
             let act_high_0 = _mm256_loadu_ps(activations.as_ptr().add(act_start + 16));
             acc = _mm256_fmadd_ps(_mm256_mul_ps(scale_vec, q_high_0), act_high_0, acc);
 
-            // Bytes 8-15 contain: low nibbles for positions 8-15, high nibbles for positions 24-31
-            let mut low_vals_1 = [0i32; 8];
-            let mut high_vals_1 = [0i32; 8];
-            for i in 0..8 {
-                let b = *quants.add(8 + i);
-                low_vals_1[i] = (b & 0x0F) as i32;
-                high_vals_1[i] = (b >> 4) as i32;
-            }
+            // === Process bytes 8-15 ===
+            let bytes_1 = _mm_loadl_epi64(quants.add(8).cast());
 
-            let q_low_1 = _mm256_add_ps(_mm256_cvtepi32_ps(_mm256_loadu_si256(low_vals_1.as_ptr().cast())), offset);
+            let low_nibbles_1 = _mm_and_si128(bytes_1, nibble_mask);
+            let high_nibbles_1 = _mm_and_si128(_mm_srli_epi16(bytes_1, 4), nibble_mask);
+
+            let q_low_1 = _mm256_add_ps(_mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(low_nibbles_1)), offset);
+            let q_high_1 = _mm256_add_ps(_mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(high_nibbles_1)), offset);
+
             let act_low_1 = _mm256_loadu_ps(activations.as_ptr().add(act_start + 8));
             acc = _mm256_fmadd_ps(_mm256_mul_ps(scale_vec, q_low_1), act_low_1, acc);
 
-            let q_high_1 = _mm256_add_ps(_mm256_cvtepi32_ps(_mm256_loadu_si256(high_vals_1.as_ptr().cast())), offset);
             let act_high_1 = _mm256_loadu_ps(activations.as_ptr().add(act_start + 24));
             acc = _mm256_fmadd_ps(_mm256_mul_ps(scale_vec, q_high_1), act_high_1, acc);
         }
