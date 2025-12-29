@@ -1,7 +1,7 @@
 # SIMD Optimization Specification with Popperian Falsification
 
 **Document ID:** REALIZAR-SIMD-SPEC-001
-**Version:** 1.2.0
+**Version:** 1.3.0
 **Status:** ACTIVE
 **Date:** 2025-12-29
 **Authors:** Claude Code, Noah Gift
@@ -13,30 +13,33 @@
 
 ### 1.1 Measured Results (2025-12-29)
 
-| Model | Quantization | Throughput | Hardware |
-|-------|--------------|------------|----------|
-| TinyLlama-1.1B | Q4_0 | **3.5 tok/s** | Intel Core Ultra 7 155H (22 cores) |
-| TinyLlama-1.1B | Q4_0 | **3.1-3.7 tok/s** | Stable range across runs |
+| Model | Quantization | Throughput | Startup | Hardware |
+|-------|--------------|------------|---------|----------|
+| TinyLlama-1.1B | Q4_0 | **3.6-4.7 tok/s** | **~180ms** | Intel Core Ultra 7 155H (22 cores) |
 
-**Previous baseline:** 0.8-1.4 tok/s → **4.4x improvement achieved**
+**Previous baseline:** 0.8-1.4 tok/s, 1.2s startup
+**Improvement:** **4-5x inference speedup**, **6.7x faster startup**
 
 ### 1.2 Optimizations Implemented
 
 | Optimization | Location | Speedup | Peer-Reviewed Basis |
 |--------------|----------|---------|---------------------|
 | Fused Q4_0 SIMD matmul | `src/quantize.rs:2321` | 7x | Goto & Van Geijn [1] |
-| AVX2+FMA attention dot | `src/gguf.rs:9831` | ~2x | Intel Optimization Manual [2] |
-| AVX2+FMA attention axpy | `src/gguf.rs:9896` | ~2x | BLAS Level 1 specification [3] |
+| AVX2+FMA attention dot | `src/gguf.rs:2800` | ~2x | Intel Optimization Manual [2] |
+| AVX2+FMA attention axpy | `src/gguf.rs:2865` | ~2x | BLAS Level 1 specification [3] |
 | Parallel output rows | `src/quantize.rs:2337` | ~4x (22 cores) | Blumofe & Leiserson [4] |
 | **SIMD nibble extraction** | `src/quantize.rs:2479` | ~4x | Intel AVX2 Manual [2] |
 | **f16-to-f32 LUT** | `src/quantize.rs:69` | ~1.1x | Memory access optimization |
+| **Zero-copy model loading** | `src/gguf.rs:3136` | 6.7x startup | mmap zero-copy [8] |
+| **Arena scratch buffers** | `src/gguf.rs:3708` | ~1.1x | Pre-allocation pattern |
 
 ### 1.3 Performance Gap Analysis
 
 | Metric | Realizar | llama.cpp (est.) | Gap |
 |--------|----------|------------------|-----|
-| TinyLlama-1.1B Q4_0 | 3.5 tok/s | ~15-20 tok/s | **4-6x** |
-| Memory bandwidth utilization | ~25% | >80% | 3x |
+| TinyLlama-1.1B Q4_0 | 3.6-4.7 tok/s | ~15-20 tok/s | **3-5x** |
+| Startup time | ~180ms | ~100ms | 1.8x |
+| Memory bandwidth utilization | ~30% | >80% | 2.7x |
 | SIMD utilization | ~85% | >95% | 1.1x |
 
 ---
@@ -270,8 +273,8 @@ jobs:
 |-----|--------|------------|--------|
 | ~~Scalar nibble extraction~~ | ~~-30% throughput~~ | ~~1.3x speedup~~ | **✅ ACHIEVED 4x** |
 | ~~f16 scale conversion~~ | ~~-10% throughput~~ | ~~1.1x speedup~~ | **✅ DONE** (LUT implemented) |
-| Model weight copying | +1.2s startup | Zero-copy borrowed refs | **DEFERRED** (requires lifetime refactor) |
-| Per-token allocations | -20% throughput | Arena allocator 1.2x | **DEFERRED** (requires API changes) |
+| ~~Model weight copying~~ | ~~+1.2s startup~~ | ~~Zero-copy borrowed refs~~ | **✅ DONE** (~180ms startup via `QuantizedGGUFTransformer`) |
+| ~~Per-token allocations~~ | ~~-20% throughput~~ | ~~Arena allocator 1.2x~~ | **✅ DONE** (`InferenceScratchBuffer` implemented) |
 
 ### 4.2 What Would Prove Our Approach Wrong
 
@@ -291,6 +294,7 @@ The following observations would **falsify** our optimization strategy:
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.3.0 | 2025-12-29 | **All optimizations complete**: Zero-copy loading (6.7x startup), arena allocator; 3.6-4.7 tok/s |
 | 1.2.0 | 2025-12-29 | **4.4x speedup achieved**: SIMD nibble extraction (4x), f16 LUT; Updated baseline from 1.4 to 3.5 tok/s |
 | 1.1.0 | 2025-12-29 | Updated for v0.3.1; Verified line numbers; Linked to `tests/falsification_tests.rs` |
 | 1.0.0 | 2024-12-29 | Initial spec with falsification framework |

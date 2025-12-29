@@ -2761,7 +2761,7 @@ impl<'a> QuantizedGGUFTransformer<'a> {
     }
 
     /// Top-k sampling with temperature
-    fn sample_topk(logits: &[f32], temperature: f32, top_k: usize) -> u32 {
+    pub fn sample_topk(logits: &[f32], temperature: f32, top_k: usize) -> u32 {
         // Apply temperature
         let scaled: Vec<f32> = logits.iter().map(|&x| x / temperature).collect();
 
@@ -2789,6 +2789,952 @@ impl<'a> QuantizedGGUFTransformer<'a> {
             }
         }
         probs.last().map_or(0, |(idx, _)| *idx as u32)
+    }
+
+    // =========================================================================
+    // Zero-copy cached inference support (IMP-130: <500ms startup optimization)
+    // =========================================================================
+
+    /// SIMD-optimized dot product for f32 slices
+    #[inline]
+    fn simd_dot_f32(a: &[f32], b: &[f32]) -> f32 {
+        #[cfg(target_arch = "x86_64")]
+        {
+            if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
+                // SAFETY: We've verified AVX2+FMA support
+                unsafe { Self::simd_dot_f32_avx2(a, b) }
+            } else {
+                Self::simd_dot_f32_scalar(a, b)
+            }
+        }
+        #[cfg(not(target_arch = "x86_64"))]
+        {
+            Self::simd_dot_f32_scalar(a, b)
+        }
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx2", enable = "fma")]
+    #[inline]
+    unsafe fn simd_dot_f32_avx2(a: &[f32], b: &[f32]) -> f32 {
+        use std::arch::x86_64::{
+            _mm256_castps256_ps128, _mm256_extractf128_ps, _mm256_fmadd_ps, _mm256_loadu_ps,
+            _mm256_setzero_ps, _mm_add_ps, _mm_add_ss, _mm_cvtss_f32, _mm_movehl_ps,
+            _mm_movehdup_ps,
+        };
+
+        let len = a.len().min(b.len());
+        let mut acc = _mm256_setzero_ps();
+        let mut i = 0;
+
+        // Process 8 floats at a time
+        while i + 8 <= len {
+            // SAFETY: bounds checked above, pointers valid
+            let va = unsafe { _mm256_loadu_ps(a.as_ptr().add(i)) };
+            let vb = unsafe { _mm256_loadu_ps(b.as_ptr().add(i)) };
+            acc = _mm256_fmadd_ps(va, vb, acc);
+            i += 8;
+        }
+
+        // Horizontal sum
+        let hi = _mm256_extractf128_ps(acc, 1);
+        let lo = _mm256_castps256_ps128(acc);
+        let sum128 = _mm_add_ps(lo, hi);
+        let shuf = _mm_movehdup_ps(sum128);
+        let sums = _mm_add_ps(sum128, shuf);
+        let shuf2 = _mm_movehl_ps(sums, sums);
+        let result = _mm_add_ss(sums, shuf2);
+        let mut sum = _mm_cvtss_f32(result);
+
+        // Handle remaining elements
+        while i < len {
+            sum += a[i] * b[i];
+            i += 1;
+        }
+
+        sum
+    }
+
+    #[inline]
+    fn simd_dot_f32_scalar(a: &[f32], b: &[f32]) -> f32 {
+        a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
+    }
+
+    /// SIMD-optimized scaled accumulation: out[i] += weight * val[i]
+    #[inline]
+    fn simd_axpy_f32(out: &mut [f32], weight: f32, val: &[f32]) {
+        #[cfg(target_arch = "x86_64")]
+        {
+            if is_x86_feature_detected!("avx2") {
+                // SAFETY: We've verified AVX2 support
+                unsafe { Self::simd_axpy_f32_avx2(out, weight, val) }
+            } else {
+                Self::simd_axpy_f32_scalar(out, weight, val);
+            }
+        }
+        #[cfg(not(target_arch = "x86_64"))]
+        {
+            Self::simd_axpy_f32_scalar(out, weight, val);
+        }
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx2", enable = "fma")]
+    #[inline]
+    unsafe fn simd_axpy_f32_avx2(out: &mut [f32], weight: f32, val: &[f32]) {
+        use std::arch::x86_64::{
+            _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_set1_ps, _mm256_storeu_ps,
+        };
+
+        let len = out.len().min(val.len());
+        let w = _mm256_set1_ps(weight);
+        let mut i = 0;
+
+        // Process 8 floats at a time
+        while i + 8 <= len {
+            // SAFETY: bounds checked above, pointers valid
+            let v_out = unsafe { _mm256_loadu_ps(out.as_ptr().add(i)) };
+            let v_val = unsafe { _mm256_loadu_ps(val.as_ptr().add(i)) };
+            let result = _mm256_fmadd_ps(w, v_val, v_out);
+            unsafe { _mm256_storeu_ps(out.as_mut_ptr().add(i), result) };
+            i += 8;
+        }
+
+        // Handle remaining elements
+        while i < len {
+            out[i] += weight * val[i];
+            i += 1;
+        }
+    }
+
+    #[inline]
+    fn simd_axpy_f32_scalar(out: &mut [f32], weight: f32, val: &[f32]) {
+        for (o, v) in out.iter_mut().zip(val.iter()) {
+            *o += weight * *v;
+        }
+    }
+
+    /// Apply SiLU (Sigmoid Linear Unit) activation for SwiGLU FFN
+    /// SiLU(x) = x * sigmoid(x)
+    fn silu(&self, input: &mut [f32]) {
+        for x in input.iter_mut() {
+            *x = *x * (1.0 / (1.0 + (-*x).exp()));
+        }
+    }
+
+    /// Apply RMSNorm (Root Mean Square Layer Normalization) using trueno SIMD
+    /// LLaMA, TinyLlama, Mistral, etc. use RMSNorm instead of LayerNorm
+    /// Formula: x / sqrt(mean(x^2) + eps) * weight
+    fn rms_norm(&self, input: &[f32], weight: &[f32], eps: f32) -> Vec<f32> {
+        let hidden_dim = weight.len();
+        let seq_len = input.len() / hidden_dim;
+        let mut output = Vec::with_capacity(input.len());
+
+        // Pre-create weight vector for SIMD multiply (reused across sequence)
+        let weight_vec = TruenoVector::from_slice(weight);
+
+        for i in 0..seq_len {
+            let start = i * hidden_dim;
+            let end = start + hidden_dim;
+            let x = &input[start..end];
+
+            // Create SIMD vector from input slice
+            let x_vec = TruenoVector::from_slice(x);
+
+            // SIMD: sum of squares
+            let sum_sq = x_vec.sum_of_squares().unwrap_or_else(|_| {
+                x.iter().map(|v| v * v).sum::<f32>()
+            });
+
+            // RMSNorm: x * weight / sqrt(mean(x^2) + eps)
+            let mean_sq = sum_sq / hidden_dim as f32;
+            let inv_rms = 1.0 / (mean_sq + eps).sqrt();
+
+            // SIMD: scale by inv_rms, then multiply by weight
+            match x_vec
+                .scale(inv_rms)
+                .and_then(|scaled| scaled.mul(&weight_vec))
+            {
+                Ok(result) => {
+                    output.extend_from_slice(result.as_slice());
+                },
+                Err(_) => {
+                    for j in 0..hidden_dim {
+                        output.push(x[j] * inv_rms * weight[j]);
+                    }
+                },
+            }
+        }
+
+        output
+    }
+
+    /// Apply RoPE (Rotary Position Embeddings) to Q or K vectors using trueno SIMD
+    ///
+    /// # Arguments
+    /// * `x` - Vector to apply RoPE to [num_heads_in_x * head_dim]
+    /// * `position` - Position index for frequency calculation
+    /// * `num_heads_in_x` - Number of heads in x (num_heads for Q, num_kv_heads for K)
+    fn apply_rope(&self, x: &mut [f32], position: usize, num_heads_in_x: usize) {
+        let head_dim = self.config.hidden_dim / self.config.num_heads;
+        let half_dim = head_dim / 2;
+        let theta = self.config.rope_theta;
+
+        // Pre-compute cos/sin values for all dimensions
+        let mut cos_vals = Vec::with_capacity(half_dim);
+        let mut sin_vals = Vec::with_capacity(half_dim);
+
+        for i in 0..half_dim {
+            let freq = 1.0 / theta.powf(2.0 * i as f32 / head_dim as f32);
+            let angle = position as f32 * freq;
+            cos_vals.push(angle.cos());
+            sin_vals.push(angle.sin());
+        }
+
+        // Create SIMD vectors for cos/sin
+        let cos_vec = TruenoVector::from_slice(&cos_vals);
+        let sin_vec = TruenoVector::from_slice(&sin_vals);
+
+        // Apply rotation to each head
+        for h in 0..num_heads_in_x {
+            let head_start = h * head_dim;
+            let idx2_start = head_start + half_dim;
+
+            if idx2_start + half_dim > x.len() {
+                continue;
+            }
+
+            let x1_slice = &x[head_start..head_start + half_dim];
+            let x2_slice = &x[idx2_start..idx2_start + half_dim];
+
+            let x1_vec = TruenoVector::from_slice(x1_slice);
+            let x2_vec = TruenoVector::from_slice(x2_slice);
+
+            // SIMD rotation
+            let simd_result = x1_vec
+                .mul(&cos_vec)
+                .and_then(|x1_cos| x2_vec.mul(&sin_vec).and_then(|x2_sin| x1_cos.sub(&x2_sin)))
+                .and_then(|new_x1| {
+                    x1_vec.mul(&sin_vec).and_then(|x1_sin| {
+                        x2_vec
+                            .mul(&cos_vec)
+                            .and_then(|x2_cos| x1_sin.add(&x2_cos))
+                            .map(|new_x2| (new_x1, new_x2))
+                    })
+                });
+
+            match simd_result {
+                Ok((new_x1, new_x2)) => {
+                    x[head_start..head_start + half_dim].copy_from_slice(new_x1.as_slice());
+                    x[idx2_start..idx2_start + half_dim].copy_from_slice(new_x2.as_slice());
+                },
+                Err(_) => {
+                    for i in 0..half_dim {
+                        let idx1 = head_start + i;
+                        let idx2 = idx2_start + i;
+                        let x1 = x[idx1];
+                        let x2 = x[idx2];
+                        x[idx1] = x1 * cos_vals[i] - x2 * sin_vals[i];
+                        x[idx2] = x1 * sin_vals[i] + x2 * cos_vals[i];
+                    }
+                },
+            }
+        }
+    }
+
+    /// Compute attention with Grouped Query Attention (GQA) support using KV cache
+    ///
+    /// # Arguments
+    /// * `q` - Query vector for current position [hidden_dim]
+    /// * `k_cache` - Cached keys [cache_len, kv_dim]
+    /// * `v_cache` - Cached values [cache_len, kv_dim]
+    /// * `current_k` - Key for current position [kv_dim]
+    /// * `current_v` - Value for current position [kv_dim]
+    pub fn attention_with_cache_gqa(
+        &self,
+        q: &[f32],
+        k_cache: &[f32],
+        v_cache: &[f32],
+        current_k: &[f32],
+        current_v: &[f32],
+    ) -> Vec<f32> {
+        let hidden_dim = self.config.hidden_dim;
+        let num_heads = self.config.num_heads;
+        let num_kv_heads = self.config.num_kv_heads;
+        let head_dim = hidden_dim / num_heads;
+        let kv_dim = num_kv_heads * head_dim;
+        let scale = 1.0 / (head_dim as f32).sqrt();
+
+        let q_per_kv = num_heads / num_kv_heads;
+        let cache_len = if kv_dim > 0 { k_cache.len() / kv_dim } else { 0 };
+        let total_len = cache_len + 1;
+
+        let mut output = vec![0.0f32; hidden_dim];
+
+        for q_head in 0..num_heads {
+            let q_head_offset = q_head * head_dim;
+            let q_head_data = &q[q_head_offset..q_head_offset + head_dim];
+
+            let kv_head = q_head / q_per_kv;
+            let kv_head_offset = kv_head * head_dim;
+
+            let mut scores = Vec::with_capacity(total_len);
+
+            // Scores against cached positions
+            for pos in 0..cache_len {
+                let k_start = pos * kv_dim + kv_head_offset;
+                let cached_key = &k_cache[k_start..k_start + head_dim];
+                let score = Self::simd_dot_f32(q_head_data, cached_key);
+                scores.push(score * scale);
+            }
+
+            // Score against current position
+            let curr_key = &current_k[kv_head_offset..kv_head_offset + head_dim];
+            let current_score = Self::simd_dot_f32(q_head_data, curr_key);
+            scores.push(current_score * scale);
+
+            // Softmax
+            let max_score = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+            let mut exp_sum = 0.0f32;
+            for s in &mut scores {
+                *s = (*s - max_score).exp();
+                exp_sum += *s;
+            }
+            for s in &mut scores {
+                *s /= exp_sum;
+            }
+
+            // Weighted sum of values
+            let out_head = &mut output[q_head_offset..q_head_offset + head_dim];
+
+            for (pos, &weight) in scores.iter().enumerate().take(cache_len) {
+                let v_start = pos * kv_dim + kv_head_offset;
+                let cached_val = &v_cache[v_start..v_start + head_dim];
+                Self::simd_axpy_f32(out_head, weight, cached_val);
+            }
+
+            let curr_val = &current_v[kv_head_offset..kv_head_offset + head_dim];
+            let current_weight = scores[cache_len];
+            Self::simd_axpy_f32(out_head, current_weight, curr_val);
+        }
+
+        output
+    }
+
+    /// Single-token forward pass with KV cache for O(n) per-token inference
+    ///
+    /// This is the zero-copy version that works directly with memory-mapped data.
+    /// Eliminates the 1.2s startup time from copying 637MB of model weights.
+    ///
+    /// # Arguments
+    /// * `token_id` - Token to process
+    /// * `cache` - Mutable KV cache for attention
+    /// * `position` - Position in sequence for RoPE
+    ///
+    /// # Returns
+    /// Logits for next token prediction [vocab_size]
+    pub fn forward_cached(
+        &self,
+        token_id: u32,
+        cache: &mut OwnedQuantizedKVCache,
+        position: usize,
+    ) -> Result<Vec<f32>> {
+        let hidden_dim = self.config.hidden_dim;
+
+        // Detect architecture: LLaMA uses RMSNorm and SwiGLU
+        let use_rmsnorm = self
+            .layers
+            .first()
+            .is_some_and(|l| l.ffn_gate_weight.is_some() && l.attn_norm_bias.is_none());
+
+        // 1. Token embedding lookup
+        let mut hidden = self.embed(&[token_id]);
+
+        // 2. Process through transformer layers
+        for (layer_idx, layer) in self.layers.iter().enumerate() {
+            // 2a. Attention layer norm
+            let normed = if use_rmsnorm {
+                self.rms_norm(&hidden, &layer.attn_norm_weight, self.config.eps)
+            } else {
+                self.layer_norm(
+                    &hidden,
+                    &layer.attn_norm_weight,
+                    layer.attn_norm_bias.as_deref(),
+                    self.config.eps,
+                )
+            };
+
+            // 2b. QKV projection
+            let q_dim = layer.qkv_weight.q_dim(hidden_dim);
+            let k_dim = match &layer.qkv_weight {
+                QKVWeights::Fused(_) => q_dim,
+                QKVWeights::Separate { k, .. } => k.num_elements / hidden_dim,
+            };
+            let v_dim = match &layer.qkv_weight {
+                QKVWeights::Fused(_) => q_dim,
+                QKVWeights::Separate { v, .. } => v.num_elements / hidden_dim,
+            };
+
+            let mut qkv = self.qkv_matmul(&normed, &layer.qkv_weight, hidden_dim)?;
+            if let Some(ref bias) = layer.qkv_bias {
+                self.add_bias(&mut qkv, bias);
+            }
+
+            // 2c. Extract Q, K, V and apply RoPE
+            let mut q = qkv[0..q_dim].to_vec();
+            let mut k = qkv[q_dim..q_dim + k_dim].to_vec();
+            let v = qkv[q_dim + k_dim..q_dim + k_dim + v_dim].to_vec();
+
+            self.apply_rope(&mut q, position, self.config.num_heads);
+            self.apply_rope(&mut k, position, self.config.num_kv_heads);
+
+            // 2d. Compute attention using cached K/V
+            let k_cache = cache.get_k(layer_idx);
+            let v_cache = cache.get_v(layer_idx);
+
+            let attn_out = if k_cache.is_empty() {
+                // First token - expand V if GQA
+                if self.config.num_kv_heads < self.config.num_heads {
+                    let head_dim = hidden_dim / self.config.num_heads;
+                    let group_size = self.config.num_heads / self.config.num_kv_heads;
+                    (0..self.config.num_heads)
+                        .flat_map(|h| {
+                            let kv_head = h / group_size;
+                            let start = kv_head * head_dim;
+                            v[start..start + head_dim].iter().copied()
+                        })
+                        .collect()
+                } else {
+                    v.clone()
+                }
+            } else {
+                self.attention_with_cache_gqa(&q, k_cache, v_cache, &k, &v)
+            };
+
+            // 2e. Store K and V in cache
+            cache.append(layer_idx, &k, &v);
+
+            // 2f. Attention output projection
+            let mut attn_output =
+                self.fused_matmul(&attn_out, &layer.attn_output_weight, hidden_dim, hidden_dim)?;
+            if let Some(ref bias) = layer.attn_output_bias {
+                self.add_bias(&mut attn_output, bias);
+            }
+
+            // 2g. Residual connection
+            for i in 0..hidden_dim {
+                hidden[i] += attn_output[i];
+            }
+
+            // 2h. Pre-FFN layer norm
+            let ffn_input = if let Some(ref ffn_norm) = layer.ffn_norm_weight {
+                if use_rmsnorm {
+                    self.rms_norm(&hidden, ffn_norm, self.config.eps)
+                } else {
+                    self.layer_norm(
+                        &hidden,
+                        ffn_norm,
+                        layer.ffn_norm_bias.as_deref(),
+                        self.config.eps,
+                    )
+                }
+            } else {
+                hidden.clone()
+            };
+
+            // 2i. FFN with SwiGLU or GELU
+            let ffn_output = if let Some(ref gate_weight) = layer.ffn_gate_weight {
+                // SwiGLU path (LLaMA)
+                let mut ffn_up = self.fused_matmul(
+                    &ffn_input,
+                    &layer.ffn_up_weight,
+                    hidden_dim,
+                    self.config.intermediate_dim,
+                )?;
+                if let Some(ref bias) = layer.ffn_up_bias {
+                    self.add_bias(&mut ffn_up, bias);
+                }
+
+                let mut ffn_gate = self.fused_matmul(
+                    &ffn_input,
+                    gate_weight,
+                    hidden_dim,
+                    self.config.intermediate_dim,
+                )?;
+                if let Some(ref bias) = layer.ffn_gate_bias {
+                    self.add_bias(&mut ffn_gate, bias);
+                }
+
+                // SiLU on gate, then multiply with up
+                self.silu(&mut ffn_gate);
+                for i in 0..ffn_gate.len() {
+                    ffn_gate[i] *= ffn_up[i];
+                }
+
+                let mut output = self.fused_matmul(
+                    &ffn_gate,
+                    &layer.ffn_down_weight,
+                    self.config.intermediate_dim,
+                    hidden_dim,
+                )?;
+                if let Some(ref bias) = layer.ffn_down_bias {
+                    self.add_bias(&mut output, bias);
+                }
+                output
+            } else {
+                // GELU path (phi-2)
+                let mut ffn_hidden = self.fused_matmul(
+                    &ffn_input,
+                    &layer.ffn_up_weight,
+                    hidden_dim,
+                    self.config.intermediate_dim,
+                )?;
+                if let Some(ref bias) = layer.ffn_up_bias {
+                    self.add_bias(&mut ffn_hidden, bias);
+                }
+                self.gelu(&mut ffn_hidden);
+
+                let mut output = self.fused_matmul(
+                    &ffn_hidden,
+                    &layer.ffn_down_weight,
+                    self.config.intermediate_dim,
+                    hidden_dim,
+                )?;
+                if let Some(ref bias) = layer.ffn_down_bias {
+                    self.add_bias(&mut output, bias);
+                }
+                output
+            };
+
+            // 2j. Residual connection
+            for i in 0..hidden_dim {
+                hidden[i] += ffn_output[i];
+            }
+        }
+
+        // Advance cache position
+        cache.advance();
+
+        // 3. Final layer norm
+        let normed = if use_rmsnorm {
+            self.rms_norm(&hidden, &self.output_norm_weight, self.config.eps)
+        } else {
+            self.layer_norm(
+                &hidden,
+                &self.output_norm_weight,
+                self.output_norm_bias.as_deref(),
+                self.config.eps,
+            )
+        };
+
+        // 4. LM head projection
+        let mut logits = self.fused_matmul(
+            &normed,
+            &self.lm_head_weight,
+            hidden_dim,
+            self.config.vocab_size,
+        )?;
+        if let Some(ref bias) = self.lm_head_bias {
+            self.add_bias(&mut logits, bias);
+        }
+
+        Ok(logits)
+    }
+
+    /// Get model configuration
+    #[must_use]
+    pub fn config(&self) -> &GGUFConfig {
+        &self.config
+    }
+
+    /// Single-token forward pass with pre-allocated scratch buffers
+    ///
+    /// IMP-131: Arena allocator for inference buffers.
+    /// Uses InferenceScratchBuffer to eliminate per-token allocations.
+    pub fn forward_cached_with_scratch(
+        &self,
+        token_id: u32,
+        cache: &mut OwnedQuantizedKVCache,
+        position: usize,
+        scratch: &mut InferenceScratchBuffer,
+    ) -> Result<Vec<f32>> {
+        let hidden_dim = self.config.hidden_dim;
+
+        // Detect architecture: LLaMA uses RMSNorm and SwiGLU
+        let use_rmsnorm = self
+            .layers
+            .first()
+            .is_some_and(|l| l.ffn_gate_weight.is_some() && l.attn_norm_bias.is_none());
+
+        // 1. Token embedding lookup (reuse hidden buffer)
+        self.embed_into(token_id, &mut scratch.hidden);
+
+        // 2. Process through transformer layers
+        for (layer_idx, layer) in self.layers.iter().enumerate() {
+            // 2a. Attention layer norm (reuse normed buffer)
+            if use_rmsnorm {
+                self.rms_norm_into(&scratch.hidden, &layer.attn_norm_weight, self.config.eps, &mut scratch.normed);
+            } else {
+                self.layer_norm_into(
+                    &scratch.hidden,
+                    &layer.attn_norm_weight,
+                    layer.attn_norm_bias.as_deref(),
+                    self.config.eps,
+                    &mut scratch.normed,
+                );
+            }
+
+            // 2b. QKV projection
+            let q_dim = layer.qkv_weight.q_dim(hidden_dim);
+            let k_dim = match &layer.qkv_weight {
+                QKVWeights::Fused(_) => q_dim,
+                QKVWeights::Separate { k, .. } => k.num_elements / hidden_dim,
+            };
+            let v_dim = match &layer.qkv_weight {
+                QKVWeights::Fused(_) => q_dim,
+                QKVWeights::Separate { v, .. } => v.num_elements / hidden_dim,
+            };
+
+            let qkv = self.qkv_matmul(&scratch.normed, &layer.qkv_weight, hidden_dim)?;
+            let mut qkv = qkv;
+            if let Some(ref bias) = layer.qkv_bias {
+                self.add_bias(&mut qkv, bias);
+            }
+
+            // 2c. Extract Q, K, V and apply RoPE (reuse q, k, v scratch)
+            scratch.q.clear();
+            scratch.q.extend_from_slice(&qkv[0..q_dim]);
+            scratch.k.clear();
+            scratch.k.extend_from_slice(&qkv[q_dim..q_dim + k_dim]);
+            scratch.v.clear();
+            scratch.v.extend_from_slice(&qkv[q_dim + k_dim..q_dim + k_dim + v_dim]);
+
+            self.apply_rope(&mut scratch.q, position, self.config.num_heads);
+            self.apply_rope(&mut scratch.k, position, self.config.num_kv_heads);
+
+            // 2d. Compute attention using cached K/V (reuse attn_out buffer)
+            let k_cache = cache.get_k(layer_idx);
+            let v_cache = cache.get_v(layer_idx);
+
+            if k_cache.is_empty() {
+                // First token - expand V if GQA
+                scratch.attn_out.clear();
+                if self.config.num_kv_heads < self.config.num_heads {
+                    let head_dim = hidden_dim / self.config.num_heads;
+                    let group_size = self.config.num_heads / self.config.num_kv_heads;
+                    for h in 0..self.config.num_heads {
+                        let kv_head = h / group_size;
+                        let start = kv_head * head_dim;
+                        scratch.attn_out.extend_from_slice(&scratch.v[start..start + head_dim]);
+                    }
+                } else {
+                    scratch.attn_out.extend_from_slice(&scratch.v);
+                }
+            } else {
+                self.attention_with_cache_gqa_into(&scratch.q, k_cache, v_cache, &scratch.k, &scratch.v, &mut scratch.attn_out);
+            }
+
+            // 2e. Store K and V in cache
+            cache.append(layer_idx, &scratch.k, &scratch.v);
+
+            // 2f. Attention output projection (reuse ffn_input as temp)
+            let attn_output = self.fused_matmul(&scratch.attn_out, &layer.attn_output_weight, hidden_dim, hidden_dim)?;
+            let mut attn_output = attn_output;
+            if let Some(ref bias) = layer.attn_output_bias {
+                self.add_bias(&mut attn_output, bias);
+            }
+
+            // 2g. Residual connection
+            for i in 0..hidden_dim {
+                scratch.hidden[i] += attn_output[i];
+            }
+
+            // 2h. Pre-FFN layer norm
+            if let Some(ref ffn_norm) = layer.ffn_norm_weight {
+                if use_rmsnorm {
+                    self.rms_norm_into(&scratch.hidden, ffn_norm, self.config.eps, &mut scratch.normed);
+                } else {
+                    self.layer_norm_into(
+                        &scratch.hidden,
+                        ffn_norm,
+                        layer.ffn_norm_bias.as_deref(),
+                        self.config.eps,
+                        &mut scratch.normed,
+                    );
+                }
+            } else {
+                scratch.normed.clear();
+                scratch.normed.extend_from_slice(&scratch.hidden);
+            }
+
+            // 2i. FFN with SwiGLU or GELU
+            let ffn_output = if let Some(ref gate_weight) = layer.ffn_gate_weight {
+                // SwiGLU path (LLaMA)
+                let mut ffn_up = self.fused_matmul(
+                    &scratch.normed,
+                    &layer.ffn_up_weight,
+                    hidden_dim,
+                    self.config.intermediate_dim,
+                )?;
+                if let Some(ref bias) = layer.ffn_up_bias {
+                    self.add_bias(&mut ffn_up, bias);
+                }
+
+                let mut ffn_gate = self.fused_matmul(
+                    &scratch.normed,
+                    gate_weight,
+                    hidden_dim,
+                    self.config.intermediate_dim,
+                )?;
+                if let Some(ref bias) = layer.ffn_gate_bias {
+                    self.add_bias(&mut ffn_gate, bias);
+                }
+
+                self.silu(&mut ffn_gate);
+                for i in 0..ffn_gate.len() {
+                    ffn_gate[i] *= ffn_up[i];
+                }
+
+                let mut output = self.fused_matmul(
+                    &ffn_gate,
+                    &layer.ffn_down_weight,
+                    self.config.intermediate_dim,
+                    hidden_dim,
+                )?;
+                if let Some(ref bias) = layer.ffn_down_bias {
+                    self.add_bias(&mut output, bias);
+                }
+                output
+            } else {
+                // GELU path (phi-2)
+                let mut ffn_hidden = self.fused_matmul(
+                    &scratch.normed,
+                    &layer.ffn_up_weight,
+                    hidden_dim,
+                    self.config.intermediate_dim,
+                )?;
+                if let Some(ref bias) = layer.ffn_up_bias {
+                    self.add_bias(&mut ffn_hidden, bias);
+                }
+                self.gelu(&mut ffn_hidden);
+
+                let mut output = self.fused_matmul(
+                    &ffn_hidden,
+                    &layer.ffn_down_weight,
+                    self.config.intermediate_dim,
+                    hidden_dim,
+                )?;
+                if let Some(ref bias) = layer.ffn_down_bias {
+                    self.add_bias(&mut output, bias);
+                }
+                output
+            };
+
+            // 2j. Residual connection
+            for i in 0..hidden_dim {
+                scratch.hidden[i] += ffn_output[i];
+            }
+        }
+
+        // Advance cache position
+        cache.advance();
+
+        // 3. Final layer norm
+        if use_rmsnorm {
+            self.rms_norm_into(&scratch.hidden, &self.output_norm_weight, self.config.eps, &mut scratch.normed);
+        } else {
+            self.layer_norm_into(
+                &scratch.hidden,
+                &self.output_norm_weight,
+                self.output_norm_bias.as_deref(),
+                self.config.eps,
+                &mut scratch.normed,
+            );
+        }
+
+        // 4. LM head projection
+        let mut logits = self.fused_matmul(
+            &scratch.normed,
+            &self.lm_head_weight,
+            hidden_dim,
+            self.config.vocab_size,
+        )?;
+        if let Some(ref bias) = self.lm_head_bias {
+            self.add_bias(&mut logits, bias);
+        }
+
+        Ok(logits)
+    }
+
+    /// Embed token into pre-allocated buffer
+    fn embed_into(&self, token_id: u32, output: &mut Vec<f32>) {
+        let hidden_dim = self.config.hidden_dim;
+        output.clear();
+        if (token_id as usize) < self.config.vocab_size {
+            let start = token_id as usize * hidden_dim;
+            let end = start + hidden_dim;
+            if end <= self.token_embedding.len() {
+                output.extend_from_slice(&self.token_embedding[start..end]);
+                return;
+            }
+        }
+        output.resize(hidden_dim, 0.0);
+    }
+
+    /// RMSNorm into pre-allocated buffer
+    fn rms_norm_into(&self, input: &[f32], weight: &[f32], eps: f32, output: &mut Vec<f32>) {
+        let hidden_dim = weight.len();
+        output.clear();
+
+        let x_vec = TruenoVector::from_slice(input);
+        let weight_vec = TruenoVector::from_slice(weight);
+
+        let sum_sq = x_vec.sum_of_squares().unwrap_or_else(|_| {
+            input.iter().map(|v| v * v).sum::<f32>()
+        });
+
+        let mean_sq = sum_sq / hidden_dim as f32;
+        let inv_rms = 1.0 / (mean_sq + eps).sqrt();
+
+        match x_vec.scale(inv_rms).and_then(|scaled| scaled.mul(&weight_vec)) {
+            Ok(result) => output.extend_from_slice(result.as_slice()),
+            Err(_) => {
+                for j in 0..hidden_dim {
+                    output.push(input[j] * inv_rms * weight[j]);
+                }
+            },
+        }
+    }
+
+    /// LayerNorm into pre-allocated buffer
+    fn layer_norm_into(
+        &self,
+        input: &[f32],
+        weight: &[f32],
+        bias: Option<&[f32]>,
+        eps: f32,
+        output: &mut Vec<f32>,
+    ) {
+        let hidden_dim = weight.len();
+        output.clear();
+
+        // Mean and variance
+        let mean: f32 = input.iter().sum::<f32>() / hidden_dim as f32;
+        let var: f32 = input.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / hidden_dim as f32;
+        let std_inv = 1.0 / (var + eps).sqrt();
+
+        // Normalize and scale
+        for i in 0..hidden_dim {
+            let normalized = (input[i] - mean) * std_inv;
+            let scaled = normalized * weight[i] + bias.map_or(0.0, |b| b[i]);
+            output.push(scaled);
+        }
+    }
+
+    /// Attention with cache into pre-allocated buffer
+    fn attention_with_cache_gqa_into(
+        &self,
+        q: &[f32],
+        k_cache: &[f32],
+        v_cache: &[f32],
+        current_k: &[f32],
+        current_v: &[f32],
+        output: &mut Vec<f32>,
+    ) {
+        let hidden_dim = self.config.hidden_dim;
+        let num_heads = self.config.num_heads;
+        let num_kv_heads = self.config.num_kv_heads;
+        let head_dim = hidden_dim / num_heads;
+        let kv_dim = num_kv_heads * head_dim;
+        let scale = 1.0 / (head_dim as f32).sqrt();
+
+        let q_per_kv = num_heads / num_kv_heads;
+        let cache_len = if kv_dim > 0 { k_cache.len() / kv_dim } else { 0 };
+        let total_len = cache_len + 1;
+
+        output.clear();
+        output.resize(hidden_dim, 0.0);
+
+        for q_head in 0..num_heads {
+            let q_head_offset = q_head * head_dim;
+            let q_head_data = &q[q_head_offset..q_head_offset + head_dim];
+
+            let kv_head = q_head / q_per_kv;
+            let kv_head_offset = kv_head * head_dim;
+
+            let mut scores = Vec::with_capacity(total_len);
+
+            for pos in 0..cache_len {
+                let k_start = pos * kv_dim + kv_head_offset;
+                let cached_key = &k_cache[k_start..k_start + head_dim];
+                let score = Self::simd_dot_f32(q_head_data, cached_key);
+                scores.push(score * scale);
+            }
+
+            let curr_key = &current_k[kv_head_offset..kv_head_offset + head_dim];
+            let current_score = Self::simd_dot_f32(q_head_data, curr_key);
+            scores.push(current_score * scale);
+
+            let max_score = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+            let mut exp_sum = 0.0f32;
+            for s in &mut scores {
+                *s = (*s - max_score).exp();
+                exp_sum += *s;
+            }
+            for s in &mut scores {
+                *s /= exp_sum;
+            }
+
+            let out_head = &mut output[q_head_offset..q_head_offset + head_dim];
+
+            for (pos, &weight) in scores.iter().enumerate().take(cache_len) {
+                let v_start = pos * kv_dim + kv_head_offset;
+                let cached_val = &v_cache[v_start..v_start + head_dim];
+                Self::simd_axpy_f32(out_head, weight, cached_val);
+            }
+
+            let curr_val = &current_v[kv_head_offset..kv_head_offset + head_dim];
+            let current_weight = scores[cache_len];
+            Self::simd_axpy_f32(out_head, current_weight, curr_val);
+        }
+    }
+}
+
+/// Pre-allocated scratch buffers for inference (IMP-131)
+///
+/// Eliminates per-token allocations by reusing buffers across forward passes.
+/// For TinyLlama-1.1B, this is ~100KB per inference call saved.
+#[derive(Debug)]
+pub struct InferenceScratchBuffer {
+    /// Hidden state buffer [hidden_dim]
+    pub hidden: Vec<f32>,
+    /// Normalized hidden state [hidden_dim]
+    pub normed: Vec<f32>,
+    /// Query projection [q_dim]
+    pub q: Vec<f32>,
+    /// Key projection [k_dim]
+    pub k: Vec<f32>,
+    /// Value projection [v_dim]
+    pub v: Vec<f32>,
+    /// Attention output [hidden_dim]
+    pub attn_out: Vec<f32>,
+}
+
+impl InferenceScratchBuffer {
+    /// Create scratch buffer from model config
+    #[must_use]
+    pub fn from_config(config: &GGUFConfig) -> Self {
+        let hidden_dim = config.hidden_dim;
+        let qkv_dim = hidden_dim * 3; // Max for fused QKV
+
+        Self {
+            hidden: Vec::with_capacity(hidden_dim),
+            normed: Vec::with_capacity(hidden_dim),
+            q: Vec::with_capacity(qkv_dim),
+            k: Vec::with_capacity(qkv_dim),
+            v: Vec::with_capacity(qkv_dim),
+            attn_out: Vec::with_capacity(hidden_dim),
+        }
     }
 }
 

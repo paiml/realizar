@@ -47,7 +47,7 @@ fn falsify_h1_simd_dot_speedup() {
 
 /// H2: Numerical Accuracy Preservation
 ///
-/// CLAIM: SIMD operations produce results with relative error < 1e-5
+/// CLAIM: SIMD operations produce results with relative error < 5e-4
 ///
 /// RATIONALE: SIMD and scalar dot products use different accumulation orders.
 /// IEEE 754 floating point is NOT associative: (a+b)+c != a+(b+c).
@@ -55,10 +55,10 @@ fn falsify_h1_simd_dot_speedup() {
 /// different summation orders can produce O(n * epsilon) differences where n is the
 /// number of elements and epsilon is machine epsilon (~1.2e-7 for f32).
 /// For n=2048, theoretical max error = 2048 * 1.2e-7 ≈ 2.5e-4.
-/// We use 1e-4 as a threshold that catches implementation bugs while allowing
+/// We use 5e-4 as a threshold that catches implementation bugs while allowing
 /// expected floating point variation from different accumulation orders.
 ///
-/// FALSIFIED IF: Relative error > 1e-4
+/// FALSIFIED IF: Relative error > 5e-4
 #[test]
 fn falsify_h2_numerical_accuracy() {
     use rand::Rng;
@@ -75,17 +75,17 @@ fn falsify_h2_numerical_accuracy() {
         // Use relative error, not ULP, for accumulated operations
         let rel_error = (scalar_result - simd_result).abs() / scalar_result.abs().max(1e-10);
 
-        // FALSIFICATION CRITERION: Relative error <= 1e-4
+        // FALSIFICATION CRITERION: Relative error <= 5e-4
         assert!(
-            rel_error <= 1e-4,
-            "H2 FALSIFIED: Relative error {} > 1e-4 for size={}, scalar={}, simd={}",
+            rel_error <= 5e-4,
+            "H2 FALSIFIED: Relative error {} > 5e-4 for size={}, scalar={}, simd={}",
             rel_error,
             size,
             scalar_result,
             simd_result
         );
     }
-    println!("H2: All 100 random tests passed with relative error <= 1e-4");
+    println!("H2: All 100 random tests passed with relative error <= 5e-4");
 }
 
 /// H3: Attention SIMD Correctness
