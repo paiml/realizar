@@ -2356,16 +2356,32 @@ pub fn fused_q4_0_parallel_matvec(
         });
     }
 
-    // Use parallel iteration for output rows
-    let output: Vec<f32> = (0..out_dim)
-        .into_par_iter()
-        .map(|o| {
-            let row_start = o * bytes_per_row;
-            let row_end = row_start + bytes_per_row;
-            let row_data = &weight_data[row_start..row_end];
-            fused_q4_0_dot_simd(row_data, activations, in_dim)
-        })
-        .collect();
+    // Parallelization threshold: rayon overhead ~100µs, single row ~100ns
+    // For small matrices, sequential is faster
+    const PARALLEL_THRESHOLD: usize = 4096;
+
+    let output: Vec<f32> = if out_dim < PARALLEL_THRESHOLD {
+        // Sequential path: avoids rayon overhead for small matrices
+        (0..out_dim)
+            .map(|o| {
+                let row_start = o * bytes_per_row;
+                let row_end = row_start + bytes_per_row;
+                let row_data = &weight_data[row_start..row_end];
+                fused_q4_0_dot_simd(row_data, activations, in_dim)
+            })
+            .collect()
+    } else {
+        // Parallel path: benefits larger matrices
+        (0..out_dim)
+            .into_par_iter()
+            .map(|o| {
+                let row_start = o * bytes_per_row;
+                let row_end = row_start + bytes_per_row;
+                let row_data = &weight_data[row_start..row_end];
+                fused_q4_0_dot_simd(row_data, activations, in_dim)
+            })
+            .collect()
+    };
 
     Ok(output)
 }
@@ -2373,9 +2389,135 @@ pub fn fused_q4_0_parallel_matvec(
 /// SIMD-accelerated fused Q4_0 dot product
 ///
 /// Computes dot product directly on Q4_0 quantized weights without full dequantization.
-/// Uses trueno SIMD for accumulation where possible.
+/// Uses AVX2 SIMD for 8x vectorization within each block.
 #[inline]
 fn fused_q4_0_dot_simd(q4_data: &[u8], activations: &[f32], in_dim: usize) -> f32 {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
+            // SAFETY: AVX2+FMA verified at runtime
+            return unsafe { fused_q4_0_dot_avx2(q4_data, activations, in_dim) };
+        }
+    }
+
+    // Scalar fallback
+    fused_q4_0_dot_scalar(q4_data, activations, in_dim)
+}
+
+/// AVX2+FMA accelerated Q4_0 dot product
+///
+/// Processes 8 floats at a time using 256-bit SIMD registers.
+/// Uses SIMD bit operations for efficient nibble extraction.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+unsafe fn fused_q4_0_dot_avx2(q4_data: &[u8], activations: &[f32], in_dim: usize) -> f32 {
+    unsafe {
+        use std::arch::x86_64::{
+            _mm256_add_ps, _mm256_castps256_ps128, _mm256_cvtepi32_ps, _mm256_extractf128_ps,
+            _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_loadu_si256, _mm256_mul_ps,
+            _mm256_set1_ps, _mm256_setzero_ps, _mm_add_ps, _mm_add_ss, _mm_cvtss_f32,
+            _mm_movehl_ps, _mm_shuffle_ps,
+        };
+
+        const Q4_0_BLOCK_BYTES: usize = 18;
+        const Q4_0_BLOCK_SIZE: usize = 32;
+
+        let num_blocks = in_dim.div_ceil(Q4_0_BLOCK_SIZE);
+
+        // Accumulator for total sum (8 parallel sums)
+        let mut acc = _mm256_setzero_ps();
+        // Offset: Q4_0 values are 0-15, we subtract 8 to get -8 to 7
+        let offset = _mm256_set1_ps(-8.0);
+
+        for block_idx in 0..num_blocks {
+            let block_start = block_idx * Q4_0_BLOCK_BYTES;
+            if block_start + Q4_0_BLOCK_BYTES > q4_data.len() {
+                break;
+            }
+            let block_ptr = q4_data.as_ptr().add(block_start);
+            let act_start = block_idx * Q4_0_BLOCK_SIZE;
+
+            // Bounds check for partial block
+            if act_start + Q4_0_BLOCK_SIZE > in_dim {
+                // Scalar fallback for partial block
+                let scale = half::f16::from_le_bytes([*block_ptr, *block_ptr.add(1)]).to_f32();
+                let act_end = in_dim;
+                let mut block_sum = 0.0f32;
+                for j in 0..16 {
+                    let byte = *block_ptr.add(2 + j);
+                    let low_idx = act_start + j;
+                    let high_idx = act_start + j + 16;
+                    #[allow(clippy::cast_possible_wrap)]
+                    let low_quant = (byte & 0x0F) as i8 - 8;
+                    if low_idx < act_end {
+                        block_sum += (low_quant as f32) * activations[low_idx];
+                    }
+                    #[allow(clippy::cast_possible_wrap)]
+                    let high_quant = (byte >> 4) as i8 - 8;
+                    if high_idx < act_end {
+                        block_sum += (high_quant as f32) * activations[high_idx];
+                    }
+                }
+                acc = _mm256_add_ps(acc, _mm256_set1_ps(scale * block_sum));
+                continue;
+            }
+
+            // Read f16 scale
+            let scale = half::f16::from_le_bytes([*block_ptr, *block_ptr.add(1)]).to_f32();
+            let scale_vec = _mm256_set1_ps(scale);
+
+            // Extract nibbles manually for correct SIMD processing
+            // Each byte contains: low nibble (bits 0-3) and high nibble (bits 4-7)
+            let quants = block_ptr.add(2);
+
+            // Process 8 bytes at a time, extracting low and high nibbles separately
+            // Bytes 0-7 contain: low nibbles for positions 0-7, high nibbles for positions 16-23
+            let mut low_vals_0 = [0i32; 8];
+            let mut high_vals_0 = [0i32; 8];
+            for i in 0..8 {
+                let b = *quants.add(i);
+                low_vals_0[i] = (b & 0x0F) as i32;
+                high_vals_0[i] = (b >> 4) as i32;
+            }
+
+            let q_low_0 = _mm256_add_ps(_mm256_cvtepi32_ps(_mm256_loadu_si256(low_vals_0.as_ptr().cast())), offset);
+            let act_low_0 = _mm256_loadu_ps(activations.as_ptr().add(act_start));
+            acc = _mm256_fmadd_ps(_mm256_mul_ps(scale_vec, q_low_0), act_low_0, acc);
+
+            let q_high_0 = _mm256_add_ps(_mm256_cvtepi32_ps(_mm256_loadu_si256(high_vals_0.as_ptr().cast())), offset);
+            let act_high_0 = _mm256_loadu_ps(activations.as_ptr().add(act_start + 16));
+            acc = _mm256_fmadd_ps(_mm256_mul_ps(scale_vec, q_high_0), act_high_0, acc);
+
+            // Bytes 8-15 contain: low nibbles for positions 8-15, high nibbles for positions 24-31
+            let mut low_vals_1 = [0i32; 8];
+            let mut high_vals_1 = [0i32; 8];
+            for i in 0..8 {
+                let b = *quants.add(8 + i);
+                low_vals_1[i] = (b & 0x0F) as i32;
+                high_vals_1[i] = (b >> 4) as i32;
+            }
+
+            let q_low_1 = _mm256_add_ps(_mm256_cvtepi32_ps(_mm256_loadu_si256(low_vals_1.as_ptr().cast())), offset);
+            let act_low_1 = _mm256_loadu_ps(activations.as_ptr().add(act_start + 8));
+            acc = _mm256_fmadd_ps(_mm256_mul_ps(scale_vec, q_low_1), act_low_1, acc);
+
+            let q_high_1 = _mm256_add_ps(_mm256_cvtepi32_ps(_mm256_loadu_si256(high_vals_1.as_ptr().cast())), offset);
+            let act_high_1 = _mm256_loadu_ps(activations.as_ptr().add(act_start + 24));
+            acc = _mm256_fmadd_ps(_mm256_mul_ps(scale_vec, q_high_1), act_high_1, acc);
+        }
+
+        // Horizontal sum of 8 floats
+        let sum128 = _mm_add_ps(_mm256_castps256_ps128(acc), _mm256_extractf128_ps(acc, 1));
+        let sum64 = _mm_add_ps(sum128, _mm_movehl_ps(sum128, sum128));
+        let sum32 = _mm_add_ss(sum64, _mm_shuffle_ps(sum64, sum64, 1));
+        _mm_cvtss_f32(sum32)
+    }
+}
+
+/// Scalar fallback for Q4_0 dot product
+#[inline]
+fn fused_q4_0_dot_scalar(q4_data: &[u8], activations: &[f32], in_dim: usize) -> f32 {
     const Q4_0_BLOCK_BYTES: usize = 18;
     const Q4_0_BLOCK_SIZE: usize = 32;
 
@@ -2389,27 +2531,21 @@ fn fused_q4_0_dot_simd(q4_data: &[u8], activations: &[f32], in_dim: usize) -> f3
         }
         let block = &q4_data[block_start..block_start + Q4_0_BLOCK_BYTES];
 
-        // Read f16 scale (2 bytes)
         let scale = half::f16::from_le_bytes([block[0], block[1]]).to_f32();
-
-        // Activation slice for this block
         let act_start = block_idx * Q4_0_BLOCK_SIZE;
         let act_end = (act_start + Q4_0_BLOCK_SIZE).min(in_dim);
 
-        // Compute partial dot product for this block
         let mut block_sum = 0.0f32;
         for (j, &byte) in block[2..18].iter().enumerate() {
             let low_idx = act_start + j;
             let high_idx = act_start + j + 16;
 
-            // Low nibble: value = (byte & 0x0F) - 8
             #[allow(clippy::cast_possible_wrap)]
             let low_quant = (byte & 0x0F) as i8 - 8;
             if low_idx < act_end {
                 block_sum += (low_quant as f32) * activations[low_idx];
             }
 
-            // High nibble: value = (byte >> 4) - 8
             #[allow(clippy::cast_possible_wrap)]
             let high_quant = (byte >> 4) as i8 - 8;
             if high_idx < act_end {
