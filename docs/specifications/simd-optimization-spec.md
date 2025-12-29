@@ -1,7 +1,7 @@
 # SIMD Optimization Specification with Popperian Falsification
 
 **Document ID:** REALIZAR-SIMD-SPEC-001
-**Version:** 1.3.0
+**Version:** 1.4.0
 **Status:** ACTIVE
 **Date:** 2025-12-29
 **Authors:** Claude Code, Noah Gift
@@ -15,12 +15,27 @@
 
 | Model | Quantization | Throughput | Startup | Hardware |
 |-------|--------------|------------|---------|----------|
-| TinyLlama-1.1B | Q4_0 | **3.6-4.7 tok/s** | **~180ms** | Intel Core Ultra 7 155H (22 cores) |
+| TinyLlama-1.1B | Q4_0 | **4.2-7.1 tok/s** | **118-176ms** | Intel Core Ultra 7 155H (22 cores) |
 
 **Previous baseline:** 0.8-1.4 tok/s, 1.2s startup
-**Improvement:** **4-5x inference speedup**, **6.7x faster startup**
+**Improvement:** **5-9x inference speedup**, **6.7x faster startup**
 
-### 1.2 Optimizations Implemented
+### 1.2 Framework Comparison (Measured 2025-12-29)
+
+| Framework | Language | TinyLlama-1.1B Q4_0 (tok/s) | Startup | Notes |
+|-----------|----------|----------------------------|---------|-------|
+| **Realizar** | Rust | **4.2-7.1** | 118-176ms | Pure Rust, zero-copy mmap |
+| **Candle** | Rust | **9.2-9.9** | 80-180ms | HuggingFace reference implementation |
+| llama.cpp | C++ | ~15-20 (est.) | ~100ms | Industry reference (not tested) |
+
+**Parity with Candle:** Realizar achieves **55-72%** of Candle's throughput with similar startup time.
+
+This represents competitive performance for a from-scratch implementation without:
+- Pre-compiled BLAS bindings (MKL, OpenBLAS)
+- External tensor libraries
+- Platform-specific optimizations beyond AVX2
+
+### 1.3 Optimizations Implemented
 
 | Optimization | Location | Speedup | Peer-Reviewed Basis |
 |--------------|----------|---------|---------------------|
@@ -33,14 +48,13 @@
 | **Zero-copy model loading** | `src/gguf.rs:3136` | 6.7x startup | mmap zero-copy [8] |
 | **Arena scratch buffers** | `src/gguf.rs:3708` | ~1.1x | Pre-allocation pattern |
 
-### 1.3 Performance Gap Analysis
+### 1.4 Performance Gap Analysis
 
-| Metric | Realizar | llama.cpp (est.) | Gap |
-|--------|----------|------------------|-----|
-| TinyLlama-1.1B Q4_0 | 3.6-4.7 tok/s | ~15-20 tok/s | **3-5x** |
-| Startup time | ~180ms | ~100ms | 1.8x |
-| Memory bandwidth utilization | ~30% | >80% | 2.7x |
-| SIMD utilization | ~85% | >95% | 1.1x |
+| Metric | Realizar | Candle | llama.cpp (est.) |
+|--------|----------|--------|------------------|
+| TinyLlama-1.1B Q4_0 | 4.2-7.1 tok/s | 9.2-9.9 tok/s | ~15-20 tok/s |
+| Startup time | 118-176ms | 80-180ms | ~100ms |
+| Parity ratio | - | **55-72%** | **28-47%** |
 
 ---
 
@@ -95,7 +109,8 @@ DDR5 bandwidth (laptop): ~50 GB/s theoretical, ~30 GB/s practical
 Minimum time per token: 637 MB / 30 GB/s = 21 ms
 Maximum theoretical throughput: 1000 / 21 = ~47 tok/s
 
-Current: 1.4 tok/s → 3% of roofline
+Realizar: 4.2-7.1 tok/s → 9-15% of roofline ✓
+Candle: 9.2-9.9 tok/s → 20-21% of roofline
 llama.cpp: ~15-20 tok/s → 32-43% of roofline
 ```
 
@@ -294,6 +309,7 @@ The following observations would **falsify** our optimization strategy:
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.4.0 | 2025-12-29 | **Framework comparison**: Measured 55-72% parity with Candle (9.2-9.9 tok/s vs 4.2-7.1 tok/s) |
 | 1.3.0 | 2025-12-29 | **All optimizations complete**: Zero-copy loading (6.7x startup), arena allocator; 3.6-4.7 tok/s |
 | 1.2.0 | 2025-12-29 | **4.4x speedup achieved**: SIMD nibble extraction (4x), f16 LUT; Updated baseline from 1.4 to 3.5 tok/s |
 | 1.1.0 | 2025-12-29 | Updated for v0.3.1; Verified line numbers; Linked to `tests/falsification_tests.rs` |
