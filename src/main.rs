@@ -699,6 +699,9 @@ async fn run_model(
 }
 
 /// Run GGUF inference with performance timing
+///
+/// IMP-130: Zero-copy model loading for <500ms startup time.
+/// Uses QuantizedGGUFTransformer with borrowed refs to mmap data.
 fn run_gguf_inference(
     model_ref: &str,
     _file_data: &[u8],
@@ -707,7 +710,7 @@ fn run_gguf_inference(
     temperature: f32,
     format: &str,
 ) -> Result<()> {
-    use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
+    use realizar::gguf::{MappedGGUFModel, OwnedQuantizedKVCache, QuantizedGGUFTransformer};
     use std::time::Instant;
 
     let load_start = Instant::now();
@@ -720,7 +723,9 @@ fn run_gguf_inference(
         }
     })?;
 
-    let model = OwnedQuantizedModel::from_mapped(&mapped).map_err(|e| {
+    // IMP-130: Zero-copy model loading - use borrowed refs to mmap data
+    // This eliminates the 1.2s startup time from copying 637MB of model weights
+    let model = QuantizedGGUFTransformer::from_gguf(&mapped.model, mapped.data()).map_err(|e| {
         realizar::error::RealizarError::UnsupportedOperation {
             operation: "load_model".to_string(),
             reason: format!("Failed to load model: {e}"),
@@ -746,13 +751,14 @@ fn run_gguf_inference(
     let eos_token_id = mapped.model.eos_token_id();
 
     // Debug: show model info and encoded tokens
+    let config = model.config();
     println!(
         "Architecture: {:?}, Hidden: {}, Layers: {}, Heads: {}/{} (KV)",
         mapped.model.architecture(),
-        model.config.hidden_dim,
-        model.config.num_layers,
-        model.config.num_heads,
-        model.config.num_kv_heads
+        config.hidden_dim,
+        config.num_layers,
+        config.num_heads,
+        config.num_kv_heads
     );
     println!(
         "Prompt tokens: {} (BOS={:?}, EOS={:?})",
@@ -764,11 +770,9 @@ fn run_gguf_inference(
     println!();
 
     // Run inference with KV cache for O(n) per-token cost
-    use realizar::gguf::OwnedQuantizedKVCache;
-
     let gen_start = Instant::now();
     let max_seq_len = prompt_tokens.len() + max_tokens;
-    let mut cache = OwnedQuantizedKVCache::from_config(&model.config, max_seq_len);
+    let mut cache = OwnedQuantizedKVCache::from_config(config, max_seq_len);
     let mut all_tokens = prompt_tokens.clone();
 
     // Prefill: process prompt tokens to populate KV cache
@@ -798,7 +802,7 @@ fn run_gguf_inference(
                 .map_or(0, |(idx, _)| idx as u32)
         } else {
             // Temperature sampling
-            OwnedQuantizedModel::sample_topk(&logits, temperature, 40)
+            QuantizedGGUFTransformer::sample_topk(&logits, temperature, 40)
         };
 
         // Stop on EOS
