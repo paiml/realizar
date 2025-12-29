@@ -2591,6 +2591,437 @@ fn fused_q4_0_dot_scalar(q4_data: &[u8], activations: &[f32], in_dim: usize) -> 
     total_sum
 }
 
+// ============================================================================
+// Q4_0 × Q8_0 Integer SIMD Matmul (llama.cpp parity)
+// ============================================================================
+// Key insight: llama.cpp quantizes activations to Q8_0 and uses integer
+// multiply-accumulate (maddubs_epi16), which is 4-5x faster than f32 FMA.
+
+/// Quantize f32 activations to Q8_0 format for fast integer matmul
+///
+/// Returns (scales, quantized_values) where each block of 32 values
+/// has one f32 scale and 32 int8 quantized values.
+#[inline]
+pub fn quantize_activations_q8_0(activations: &[f32]) -> (Vec<f32>, Vec<i8>) {
+    let num_blocks = activations.len().div_ceil(32);
+    let mut scales = Vec::with_capacity(num_blocks);
+    let mut quants = Vec::with_capacity(num_blocks * 32);
+
+    for block_idx in 0..num_blocks {
+        let start = block_idx * 32;
+        let end = (start + 32).min(activations.len());
+
+        // Find max absolute value for symmetric quantization
+        let mut max_abs = 0.0f32;
+        for i in start..end {
+            let abs = activations[i].abs();
+            if abs > max_abs {
+                max_abs = abs;
+            }
+        }
+
+        // Compute scale (avoid division by zero)
+        let scale = if max_abs > 1e-10 {
+            max_abs / 127.0
+        } else {
+            1.0 / 127.0
+        };
+        let inv_scale = 1.0 / scale;
+        scales.push(scale);
+
+        // Quantize values
+        for i in start..end {
+            let q = (activations[i] * inv_scale).round();
+            quants.push(q.clamp(-128.0, 127.0) as i8);
+        }
+        // Pad to 32 if partial block
+        for _ in end..(start + 32) {
+            quants.push(0i8);
+        }
+    }
+
+    (scales, quants)
+}
+
+/// SIMD-accelerated Q4_0 × Q8_0 integer dot product
+///
+/// Uses _mm256_maddubs_epi16 for efficient integer multiply-accumulate.
+/// This is the key optimization that brings us to llama.cpp parity.
+#[inline]
+fn fused_q4_0_q8_0_dot_simd(
+    q4_data: &[u8],
+    q8_scales: &[f32],
+    q8_quants: &[i8],
+    in_dim: usize,
+) -> f32 {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("avx2") {
+            // SAFETY: AVX2 verified at runtime
+            return unsafe { fused_q4_0_q8_0_dot_avx2(q4_data, q8_scales, q8_quants, in_dim) };
+        }
+    }
+    // Scalar fallback
+    fused_q4_0_q8_0_dot_scalar(q4_data, q8_scales, q8_quants, in_dim)
+}
+
+/// AVX2 accelerated Q4_0 × Q8_0 dot product using integer SIMD
+///
+/// Uses _mm256_maddubs_epi16 which multiplies pairs of u8×i8 and accumulates
+/// to i16, then we sum to i32 and convert to f32. This is ~4x faster than
+/// the f32 FMA approach because:
+/// 1. Integer ops have lower latency
+/// 2. maddubs does multiply AND horizontal add in one instruction
+/// 3. Less data movement (1 byte vs 4 bytes per value)
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[inline]
+unsafe fn fused_q4_0_q8_0_dot_avx2(
+    q4_data: &[u8],
+    q8_scales: &[f32],
+    q8_quants: &[i8],
+    in_dim: usize,
+) -> f32 {
+    unsafe {
+        use std::arch::x86_64::{
+            _mm256_and_si256, _mm256_cvtepi32_ps, _mm256_fmadd_ps, _mm256_loadu_si256,
+            _mm256_madd_epi16, _mm256_maddubs_epi16, _mm256_set1_epi16, _mm256_set1_epi8,
+            _mm256_set1_ps, _mm256_setzero_ps, _mm256_sign_epi8, _mm256_sub_epi8,
+            _mm_cvtss_f32, _mm_hadd_ps, _mm_prefetch, _MM_HINT_T0,
+        };
+
+        const Q4_0_BLOCK_BYTES: usize = 18;
+        const Q4_0_BLOCK_SIZE: usize = 32;
+
+        let num_blocks = in_dim.div_ceil(Q4_0_BLOCK_SIZE);
+
+        // Float accumulator for final sum
+        let mut acc = _mm256_setzero_ps();
+
+        // Offset: Q4_0 values are 0-15, we subtract 8 to get -8 to +7
+        let offset = _mm256_set1_epi8(8);
+        let low_mask = _mm256_set1_epi8(0x0F);
+        let ones = _mm256_set1_epi16(1);
+
+        let mut block_idx = 0;
+
+        // Process 2 blocks at a time for better instruction-level parallelism
+        while block_idx + 2 <= num_blocks {
+            // Prefetch next blocks
+            if block_idx + 4 <= num_blocks {
+                let prefetch_q4 = q4_data.as_ptr().add((block_idx + 2) * Q4_0_BLOCK_BYTES);
+                let prefetch_q8 = q8_quants.as_ptr().add((block_idx + 2) * Q4_0_BLOCK_SIZE);
+                _mm_prefetch(prefetch_q4.cast(), _MM_HINT_T0);
+                _mm_prefetch(prefetch_q8.cast(), _MM_HINT_T0);
+            }
+
+            // === Block 0 ===
+            let q4_ptr_0 = q4_data.as_ptr().add(block_idx * Q4_0_BLOCK_BYTES);
+            let q8_ptr_0 = q8_quants.as_ptr().add(block_idx * Q4_0_BLOCK_SIZE);
+
+            // Read Q4_0 scale (f16 -> f32 via LUT)
+            let q4_scale_bits_0 = u16::from_le_bytes([*q4_ptr_0, *q4_ptr_0.add(1)]);
+            let q4_scale_0 = f16_to_f32_lut(q4_scale_bits_0);
+            let q8_scale_0 = q8_scales[block_idx];
+            let combined_scale_0 = _mm256_set1_ps(q4_scale_0 * q8_scale_0);
+
+            // Load Q4_0 quants (16 bytes = 32 nibbles)
+            let q4_bytes = std::slice::from_raw_parts(q4_ptr_0.add(2), 16);
+
+            // bytes_from_nibbles_32: expand 16 bytes to 32 bytes
+            // Low nibbles in first 16 positions, high nibbles in next 16
+            let q4_lo_128 = std::arch::x86_64::_mm_loadu_si128(q4_bytes.as_ptr().cast());
+            let q4_hi_128 = std::arch::x86_64::_mm_srli_epi16(q4_lo_128, 4);
+            // Combine into 256-bit: high nibbles in upper 128, low nibbles in lower 128
+            let q4_combined = std::arch::x86_64::_mm256_set_m128i(q4_hi_128, q4_lo_128);
+            // Mask to get just nibbles
+            let q4_nibbles = _mm256_and_si256(q4_combined, low_mask);
+            // Convert from unsigned 0-15 to signed -8 to +7
+            let q4_signed = _mm256_sub_epi8(q4_nibbles, offset);
+
+            // Load Q8_0 quants (32 bytes)
+            let q8_vec = _mm256_loadu_si256(q8_ptr_0.cast());
+
+            // Integer multiply-accumulate using signed multiply trick:
+            // maddubs requires unsigned × signed, so we use sign trick
+            // ax = |x|, sy = sign(y, x), then maddubs(ax, sy) = x * y
+            let q4_abs = _mm256_sign_epi8(q4_signed, q4_signed);
+            let q8_signed = _mm256_sign_epi8(q8_vec, q4_signed);
+
+            // maddubs: multiply pairs and add horizontally to i16
+            let prod_i16 = _mm256_maddubs_epi16(q4_abs, q8_signed);
+            // madd: pairwise add i16 to i32
+            let prod_i32 = _mm256_madd_epi16(prod_i16, ones);
+            // Convert to float
+            let prod_f32 = _mm256_cvtepi32_ps(prod_i32);
+
+            // Scale and accumulate
+            acc = _mm256_fmadd_ps(combined_scale_0, prod_f32, acc);
+
+            // === Block 1 ===
+            let q4_ptr_1 = q4_data.as_ptr().add((block_idx + 1) * Q4_0_BLOCK_BYTES);
+            let q8_ptr_1 = q8_quants.as_ptr().add((block_idx + 1) * Q4_0_BLOCK_SIZE);
+
+            let q4_scale_bits_1 = u16::from_le_bytes([*q4_ptr_1, *q4_ptr_1.add(1)]);
+            let q4_scale_1 = f16_to_f32_lut(q4_scale_bits_1);
+            let q8_scale_1 = q8_scales[block_idx + 1];
+            let combined_scale_1 = _mm256_set1_ps(q4_scale_1 * q8_scale_1);
+
+            let q4_bytes_1 = std::slice::from_raw_parts(q4_ptr_1.add(2), 16);
+            let q4_lo_128_1 = std::arch::x86_64::_mm_loadu_si128(q4_bytes_1.as_ptr().cast());
+            let q4_hi_128_1 = std::arch::x86_64::_mm_srli_epi16(q4_lo_128_1, 4);
+            let q4_combined_1 = std::arch::x86_64::_mm256_set_m128i(q4_hi_128_1, q4_lo_128_1);
+            let q4_nibbles_1 = _mm256_and_si256(q4_combined_1, low_mask);
+            let q4_signed_1 = _mm256_sub_epi8(q4_nibbles_1, offset);
+
+            let q8_vec_1 = _mm256_loadu_si256(q8_ptr_1.cast());
+
+            let q4_abs_1 = _mm256_sign_epi8(q4_signed_1, q4_signed_1);
+            let q8_signed_1 = _mm256_sign_epi8(q8_vec_1, q4_signed_1);
+
+            let prod_i16_1 = _mm256_maddubs_epi16(q4_abs_1, q8_signed_1);
+            let prod_i32_1 = _mm256_madd_epi16(prod_i16_1, ones);
+            let prod_f32_1 = _mm256_cvtepi32_ps(prod_i32_1);
+
+            acc = _mm256_fmadd_ps(combined_scale_1, prod_f32_1, acc);
+
+            block_idx += 2;
+        }
+
+        // Handle remaining single block
+        while block_idx < num_blocks {
+            let q4_ptr = q4_data.as_ptr().add(block_idx * Q4_0_BLOCK_BYTES);
+            let q8_ptr = q8_quants.as_ptr().add(block_idx * Q4_0_BLOCK_SIZE);
+
+            let q4_scale_bits = u16::from_le_bytes([*q4_ptr, *q4_ptr.add(1)]);
+            let q4_scale = f16_to_f32_lut(q4_scale_bits);
+            let q8_scale = q8_scales[block_idx];
+            let combined_scale = _mm256_set1_ps(q4_scale * q8_scale);
+
+            let q4_bytes = std::slice::from_raw_parts(q4_ptr.add(2), 16);
+            let q4_lo_128 = std::arch::x86_64::_mm_loadu_si128(q4_bytes.as_ptr().cast());
+            let q4_hi_128 = std::arch::x86_64::_mm_srli_epi16(q4_lo_128, 4);
+            let q4_combined = std::arch::x86_64::_mm256_set_m128i(q4_hi_128, q4_lo_128);
+            let q4_nibbles = _mm256_and_si256(q4_combined, low_mask);
+            let q4_signed = _mm256_sub_epi8(q4_nibbles, offset);
+
+            let q8_vec = _mm256_loadu_si256(q8_ptr.cast());
+
+            let q4_abs = _mm256_sign_epi8(q4_signed, q4_signed);
+            let q8_signed = _mm256_sign_epi8(q8_vec, q4_signed);
+
+            let prod_i16 = _mm256_maddubs_epi16(q4_abs, q8_signed);
+            let prod_i32 = _mm256_madd_epi16(prod_i16, ones);
+            let prod_f32 = _mm256_cvtepi32_ps(prod_i32);
+
+            acc = _mm256_fmadd_ps(combined_scale, prod_f32, acc);
+
+            block_idx += 1;
+        }
+
+        // Horizontal sum of 8 floats
+        let hi = std::arch::x86_64::_mm256_extractf128_ps(acc, 1);
+        let lo = std::arch::x86_64::_mm256_castps256_ps128(acc);
+        let sum128 = std::arch::x86_64::_mm_add_ps(lo, hi);
+        // Use hadd for final reduction
+        let sum64 = _mm_hadd_ps(sum128, sum128);
+        let sum32 = _mm_hadd_ps(sum64, sum64);
+        _mm_cvtss_f32(sum32)
+    }
+}
+
+/// Scalar fallback for Q4_0 × Q8_0 dot product
+#[inline]
+fn fused_q4_0_q8_0_dot_scalar(
+    q4_data: &[u8],
+    q8_scales: &[f32],
+    q8_quants: &[i8],
+    in_dim: usize,
+) -> f32 {
+    const Q4_0_BLOCK_BYTES: usize = 18;
+    const Q4_0_BLOCK_SIZE: usize = 32;
+
+    let num_blocks = in_dim.div_ceil(Q4_0_BLOCK_SIZE);
+    let mut total_sum = 0.0f32;
+
+    for block_idx in 0..num_blocks {
+        let block_start = block_idx * Q4_0_BLOCK_BYTES;
+        if block_start + Q4_0_BLOCK_BYTES > q4_data.len() {
+            break;
+        }
+        let block = &q4_data[block_start..block_start + Q4_0_BLOCK_BYTES];
+
+        let q4_scale = half::f16::from_le_bytes([block[0], block[1]]).to_f32();
+        let q8_scale = q8_scales[block_idx];
+        let combined_scale = q4_scale * q8_scale;
+
+        let act_start = block_idx * Q4_0_BLOCK_SIZE;
+
+        let mut block_sum = 0i32;
+        for (j, &byte) in block[2..18].iter().enumerate() {
+            let low_idx = act_start + j;
+            let high_idx = act_start + j + 16;
+
+            #[allow(clippy::cast_possible_wrap)]
+            let low_quant = (byte & 0x0F) as i8 - 8;
+            block_sum += (low_quant as i32) * (q8_quants[low_idx] as i32);
+
+            #[allow(clippy::cast_possible_wrap)]
+            let high_quant = (byte >> 4) as i8 - 8;
+            if high_idx < in_dim {
+                block_sum += (high_quant as i32) * (q8_quants[high_idx] as i32);
+            }
+        }
+
+        total_sum += combined_scale * (block_sum as f32);
+    }
+
+    total_sum
+}
+
+/// Parallel Q4_0 × Q8_0 matrix-vector multiply
+///
+/// This is the key function for llama.cpp parity. It:
+/// 1. Quantizes activations to Q8_0 format once
+/// 2. Uses integer SIMD for all row dot products
+/// 3. Parallelizes across output rows with rayon
+///
+/// Expected speedup: 4-6x over the f32 FMA version
+#[allow(clippy::similar_names)]
+pub fn fused_q4_0_q8_0_parallel_matvec(
+    weight_data: &[u8],
+    activations: &[f32],
+    in_dim: usize,
+    out_dim: usize,
+) -> Result<Vec<f32>> {
+    use rayon::prelude::*;
+
+    const Q4_0_BLOCK_BYTES: usize = 18;
+    const Q4_0_BLOCK_SIZE: usize = 32;
+
+    let blocks_per_row = in_dim.div_ceil(Q4_0_BLOCK_SIZE);
+    let bytes_per_row = blocks_per_row * Q4_0_BLOCK_BYTES;
+
+    let expected_weight_bytes = out_dim * bytes_per_row;
+    if weight_data.len() < expected_weight_bytes {
+        return Err(RealizarError::InvalidShape {
+            reason: format!(
+                "Q4_0 weight data too small: need {} bytes for {}x{}, have {}",
+                expected_weight_bytes, out_dim, in_dim, weight_data.len()
+            ),
+        });
+    }
+
+    if activations.len() != in_dim {
+        return Err(RealizarError::InvalidShape {
+            reason: format!(
+                "Activation length {} doesn't match in_dim {}",
+                activations.len(), in_dim
+            ),
+        });
+    }
+
+    // Quantize activations to Q8_0 ONCE (amortized over all rows)
+    let (q8_scales, q8_quants) = quantize_activations_q8_0(activations);
+
+    // Parallelization threshold - tuned for Intel Core Ultra 7 155H (22 cores)
+    // With 22 cores, parallel wins for medium-large matrices
+    const PARALLEL_THRESHOLD: usize = 256;
+
+    let output: Vec<f32> = if out_dim < PARALLEL_THRESHOLD {
+        // Sequential path for small matrices
+        (0..out_dim)
+            .map(|o| {
+                let row_start = o * bytes_per_row;
+                let row_end = row_start + bytes_per_row;
+                let row_data = &weight_data[row_start..row_end];
+                fused_q4_0_q8_0_dot_simd(row_data, &q8_scales, &q8_quants, in_dim)
+            })
+            .collect()
+    } else {
+        // Parallel path
+        (0..out_dim)
+            .into_par_iter()
+            .map(|o| {
+                let row_start = o * bytes_per_row;
+                let row_end = row_start + bytes_per_row;
+                let row_data = &weight_data[row_start..row_end];
+                fused_q4_0_q8_0_dot_simd(row_data, &q8_scales, &q8_quants, in_dim)
+            })
+            .collect()
+    };
+
+    Ok(output)
+}
+
+/// Pre-quantized Q4_0 × Q8_0 matrix-vector multiply.
+///
+/// Use this variant when the same activations will be used for multiple matmuls
+/// (e.g., Q, K, V projections in attention). Call `quantize_activations_q8_0` once
+/// and pass the result to this function for each weight matrix.
+///
+/// # Arguments
+/// * `weight_data` - Q4_0 quantized weight matrix (row-major)
+/// * `q8_scales` - Pre-computed Q8_0 scales (one per 32-element block)
+/// * `q8_quants` - Pre-computed Q8_0 quantized values (i8)
+/// * `in_dim` - Input dimension (columns)
+/// * `out_dim` - Output dimension (rows)
+#[allow(clippy::similar_names)]
+pub fn fused_q4_0_q8_0_parallel_matvec_prequant(
+    weight_data: &[u8],
+    q8_scales: &[f32],
+    q8_quants: &[i8],
+    in_dim: usize,
+    out_dim: usize,
+) -> Result<Vec<f32>> {
+    use rayon::prelude::*;
+
+    const Q4_0_BLOCK_BYTES: usize = 18;
+    const Q4_0_BLOCK_SIZE: usize = 32;
+
+    let blocks_per_row = in_dim.div_ceil(Q4_0_BLOCK_SIZE);
+    let bytes_per_row = blocks_per_row * Q4_0_BLOCK_BYTES;
+
+    let expected_weight_bytes = out_dim * bytes_per_row;
+    if weight_data.len() < expected_weight_bytes {
+        return Err(RealizarError::InvalidShape {
+            reason: format!(
+                "Q4_0 weight data too small: need {} bytes for {}x{}, have {}",
+                expected_weight_bytes, out_dim, in_dim, weight_data.len()
+            ),
+        });
+    }
+
+    // Parallelization threshold - tuned for Intel Core Ultra 7 155H (22 cores)
+    // With 22 cores, parallel wins for medium-large matrices
+    const PARALLEL_THRESHOLD: usize = 256;
+
+    let output: Vec<f32> = if out_dim < PARALLEL_THRESHOLD {
+        // Sequential path for small matrices
+        (0..out_dim)
+            .map(|o| {
+                let row_start = o * bytes_per_row;
+                let row_end = row_start + bytes_per_row;
+                let row_data = &weight_data[row_start..row_end];
+                fused_q4_0_q8_0_dot_simd(row_data, q8_scales, q8_quants, in_dim)
+            })
+            .collect()
+    } else {
+        // Parallel path
+        (0..out_dim)
+            .into_par_iter()
+            .map(|o| {
+                let row_start = o * bytes_per_row;
+                let row_end = row_start + bytes_per_row;
+                let row_data = &weight_data[row_start..row_end];
+                fused_q4_0_q8_0_dot_simd(row_data, q8_scales, q8_quants, in_dim)
+            })
+            .collect()
+    };
+
+    Ok(output)
+}
+
 /// Helper: Extract 6-bit scale and min for a block from the packed scales array
 #[inline]
 fn extract_scale_min(scales: &[u8; 12], block_idx: usize) -> (f32, f32) {

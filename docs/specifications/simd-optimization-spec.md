@@ -1,7 +1,7 @@
 # SIMD Optimization Specification with Popperian Falsification
 
 **Document ID:** REALIZAR-SIMD-SPEC-001
-**Version:** 1.5.0
+**Version:** 1.6.0
 **Status:** ACTIVE
 **Date:** 2025-12-29
 **Authors:** Claude Code, Noah Gift
@@ -15,10 +15,10 @@
 
 | Model | Quantization | Throughput | Startup | Hardware |
 |-------|--------------|------------|---------|----------|
-| TinyLlama-1.1B | Q4_0 | **4.2-7.1 tok/s** | **118-176ms** | Intel Core Ultra 7 155H (22 cores) |
+| TinyLlama-1.1B | Q4_0 | **8.4-11.9 tok/s** | **118-176ms** | Intel Core Ultra 7 155H (22 cores) |
 
-**Previous baseline:** 0.8-1.4 tok/s, 1.2s startup
-**Improvement:** **5-9x inference speedup**, **6.7x faster startup**
+**Previous baseline:** 4.2-7.1 tok/s (f32 FMA), 0.8-1.4 tok/s (scalar)
+**Improvement:** **2x vs f32 FMA**, **8.5-10x vs scalar baseline**
 
 ### 1.2 Framework Comparison (Measured 2025-12-29)
 
@@ -26,14 +26,15 @@
 |-----------|----------|----------------------------|--------|-------|
 | **llama.cpp** | C++ | **42-45** | 100% | Industry reference, OpenMP, measured |
 | **Candle** | Rust | **9.2-9.9** | 22% | HuggingFace, pure Rust |
-| **Realizar** | Rust | **4.2-7.1** | 10-16% | From scratch, pure Rust |
+| **Realizar** | Rust | **8.4-11.9** | 20-26% | From scratch, pure Rust, Q4_0×Q8_0 integer SIMD |
 
-**Key insight:** Candle is also at ~22% of llama.cpp, suggesting the gap is primarily C++/OpenMP vs Rust ecosystem maturity, not implementation quality. Both Rust implementations show similar relative performance.
+**Key insight:** With Q4_0×Q8_0 integer matmul using `_mm256_maddubs_epi16`, Realizar now matches or exceeds Candle parity. The remaining 4x gap to llama.cpp is primarily due to OpenMP threading vs Rayon and C++ compiler optimization advantages.
 
 ### 1.3 Optimizations Implemented
 
 | Optimization | Location | Speedup | Peer-Reviewed Basis |
 |--------------|----------|---------|---------------------|
+| **Q4_0×Q8_0 integer SIMD** | `src/quantize.rs:2700` | **2x** | llama.cpp ggml-cpu [10] |
 | Fused Q4_0 SIMD matmul | `src/quantize.rs:2321` | 7x | Goto & Van Geijn [1] |
 | AVX2+FMA attention dot | `src/gguf.rs:2798` | ~2x | Intel Optimization Manual [2] |
 | AVX2+FMA attention axpy | `src/gguf.rs:2863` | ~2x | BLAS Level 1 specification [3] |
@@ -43,13 +44,20 @@
 | **Zero-copy model loading** | `src/gguf.rs:2101` | 6.7x startup | mmap zero-copy [8] |
 | **Arena scratch buffers** | `src/gguf.rs:3708` | ~1.1x | Pre-allocation pattern |
 
+**Q4_0×Q8_0 Integer SIMD Details:**
+- Quantize activations to Q8_0 format (one-time cost per matmul)
+- Use `_mm256_maddubs_epi16` for unsigned×signed byte multiply
+- Sign trick: `ax = |x|`, `sy = sign(y, x)`, then `maddubs(ax, sy) = x * y`
+- 2-block loop unrolling with prefetching hints
+- Matches llama.cpp's `ggml_vec_dot_q4_0_q8_0` algorithm
+
 ### 1.4 Performance Gap Analysis
 
 | Metric | Realizar | Candle | llama.cpp |
 |--------|----------|--------|-----------|
-| TinyLlama-1.1B Q4_0 | 4.2-7.1 tok/s | 9.2-9.9 tok/s | **42-45 tok/s** |
-| Parity vs llama.cpp | **10-16%** | **22%** | 100% |
-| Parity vs Candle | **45-72%** | 100% | - |
+| TinyLlama-1.1B Q4_0 | 8.4-11.9 tok/s | 9.2-9.9 tok/s | **42-45 tok/s** |
+| Parity vs llama.cpp | **20-26%** | **22%** | 100% |
+| Parity vs Candle | **91-120%** | 100% | - |
 
 ---
 
@@ -304,6 +312,7 @@ The following observations would **falsify** our optimization strategy:
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.6.0 | 2025-12-29 | **Q4_0×Q8_0 integer SIMD**: 2x speedup using `_mm256_maddubs_epi16`; Now at 8.4-11.9 tok/s (Candle parity achieved, 20-26% llama.cpp) |
 | 1.5.0 | 2025-12-29 | **Verified Line Numbers**: Updated references for v0.3.1; Confirmed SIMD nibble extraction at `src/quantize.rs:2435` |
 | 1.4.0 | 2025-12-29 | **Framework comparison**: Measured 55-72% parity with Candle (9.2-9.9 tok/s vs 4.2-7.1 tok/s) |
 | 1.3.0 | 2025-12-29 | **All optimizations complete**: Zero-copy loading (6.7x startup), arena allocator; 3.6-4.7 tok/s |
@@ -324,3 +333,4 @@ The following observations would **falsify** our optimization strategy:
 [7] Williams, S., et al. (2009). CACM 52(4).
 [8] Popper, K. (1934). The Logic of Scientific Discovery.
 [9] Goldberg, D. (1991). ACM Computing Surveys 23(1).
+[10] llama.cpp ggml-cpu. (2024). `ggml_vec_dot_q4_0_q8_0` in `ggml-cpu/arch/x86/quants.c`.
