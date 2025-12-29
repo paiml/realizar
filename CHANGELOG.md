@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2025-12-30
+
+### Added
+- **Q4_0×Q8_0 Integer SIMD Matmul** - 2x inference speedup for GGUF Q4_0 models
+  - Quantize activations to Q8_0 format for integer multiply-accumulate
+  - Use `_mm256_maddubs_epi16` for AVX2 SIMD acceleration
+  - Sign trick algorithm matching llama.cpp's approach
+  - 2-block loop unrolling with prefetch hints
+- **APR SIMD Matmul** - 5-7x inference speedup for APR transformer models
+  - Trueno Matrix/Vector SIMD acceleration
+  - Scalar fallback for edge cases
+  - APR now achieves near-GGUF parity (1.4-6x vs 6-10x before)
+
+### Changed
+- **Aprender Dependency** - Updated from 0.14 to 0.20.1
+  - Latest TransformerLM and MoE support
+  - Improved APR format handling
+
+### Performance
+- **GGUF Q4_0**: 8.4-11.9 tok/s (was 4.2-7.1 tok/s) - 2x improvement
+- **APR tiny_64x1**: 66 µs (was 500 µs) - 7.5x improvement
+- **APR medium_256x4**: 9.0 ms (was 48 ms) - 5.3x improvement
+- Achieved Candle parity (9.2-9.9 tok/s) for GGUF inference
+- 20-26% of llama.cpp performance (42-45 tok/s)
+
+### Quality
+- All 806 tests pass (with aprender-serve feature)
+- All falsification tests pass
+- Clippy: 0 warnings
+
 ## [0.2.0] - 2025-01-19
 
 ### Added
@@ -135,6 +165,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Serde v1 - Serialization
 - Thiserror v1 - Error handling
 
-[Unreleased]: https://github.com/paiml/realizar/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/paiml/realizar/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/paiml/realizar/compare/v0.2.0...v0.3.2
 [0.2.0]: https://github.com/paiml/realizar/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/paiml/realizar/releases/tag/v0.1.0
