@@ -96,6 +96,9 @@ num-traits = "0.2"
 # Half-precision floats (for Q4_K and other K-quantization formats)
 half = { version = "2.4", features = ["std"] }
 
+# Lazy initialization (for f16-to-f32 LUT, per spec §4.1)
+once_cell = "1.21"
+
 # Memory-mapped file I/O for zero-copy model loading (per spec Phase 1)
 memmap2 = "0.9"
 
