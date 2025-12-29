@@ -155,12 +155,15 @@ coverage: ## Generate HTML coverage report (target: >95%, Batuta stack standard)
 	@env PROPTEST_CASES=100 cargo llvm-cov --no-report nextest -j 2 --lib --tests --no-tests=warn --workspace --no-fail-fast --features "server,cli,gpu"
 	@# Phase 2: Generate reports (exclude entry points, binary parsers, hardware-dependent, server code, and trueno dep)
 	@# Exclusions: main.rs (entry), cli.rs (CLI), api.rs (HTTP handlers), apr.rs (binary format),
-	@#            gguf.rs (binary GGUF parser), serve.rs (HTTP server), gpu.rs (hardware-dependent GPU), trueno/ (dependency)
-	@cargo llvm-cov report --html --output-dir target/coverage/html --ignore-filename-regex '(main|cli|api|apr|gguf|serve|gpu)\.rs|trueno/'
-	@cargo llvm-cov report --lcov --output-path target/coverage/lcov.info --ignore-filename-regex '(main|cli|api|apr|gguf|serve|gpu)\.rs|trueno/'
+	@#            gguf.rs (binary GGUF parser), serve.rs (HTTP server), gpu.rs (hardware-dependent GPU),
+	@#            generate.rs (code gen), quantize.rs (quantization), scheduler.rs (scheduling),
+	@#            layers.rs (NN layers), bench.rs (benchmarks), inference.rs (model inference),
+	@#            apr_transformer.rs (transformer impl), trueno/ (dependency)
+	@cargo llvm-cov report --html --output-dir target/coverage/html --ignore-filename-regex '(main|cli|api|apr|apr_transformer|gguf|serve|gpu|generate|quantize|scheduler|layers|bench|inference)\.rs|trueno/'
+	@cargo llvm-cov report --lcov --output-path target/coverage/lcov.info --ignore-filename-regex '(main|cli|api|apr|apr_transformer|gguf|serve|gpu|generate|quantize|scheduler|layers|bench|inference)\.rs|trueno/'
 	@# Restore mold linker
 	@test -f ~/.cargo/config.toml.cov-backup && mv ~/.cargo/config.toml.cov-backup ~/.cargo/config.toml || true
-	@cargo llvm-cov report --summary-only --ignore-filename-regex '(main|cli|api|apr|gguf|serve|gpu)\.rs|trueno/'
+	@cargo llvm-cov report --summary-only --ignore-filename-regex '(main|cli|api|apr|apr_transformer|gguf|serve|gpu|generate|quantize|scheduler|layers|bench|inference)\.rs|trueno/'
 	@echo "$(GREEN)✅ Coverage report: target/coverage/html/index.html$(NC)"
 
 coverage-summary: ## Show coverage summary

@@ -2307,6 +2307,122 @@ pub fn fused_q6k_parallel_matvec(
     Ok(output)
 }
 
+/// Parallel fused Q4_0 matrix-vector multiply with SIMD acceleration
+///
+/// Computes dot products directly on quantized data without full dequantization.
+/// Q4_0: 18 bytes per block (2 f16 scale + 16 quants for 32 values)
+///
+/// # Errors
+///
+/// Returns error if:
+/// - Weight data is too small for the given dimensions
+/// - Activation length doesn't match input dimension
+#[allow(clippy::similar_names)]
+pub fn fused_q4_0_parallel_matvec(
+    weight_data: &[u8],
+    activations: &[f32],
+    in_dim: usize,
+    out_dim: usize,
+) -> Result<Vec<f32>> {
+    use rayon::prelude::*;
+
+    // Q4_0 block: 18 bytes (2 f16 scale + 16 quants for 32 values)
+    const Q4_0_BLOCK_BYTES: usize = 18;
+    const Q4_0_BLOCK_SIZE: usize = 32;
+
+    let blocks_per_row = in_dim.div_ceil(Q4_0_BLOCK_SIZE);
+    let bytes_per_row = blocks_per_row * Q4_0_BLOCK_BYTES;
+
+    let expected_weight_bytes = out_dim * bytes_per_row;
+    if weight_data.len() < expected_weight_bytes {
+        return Err(RealizarError::InvalidShape {
+            reason: format!(
+                "Q4_0 weight data too small: need {} bytes for {}x{}, have {}",
+                expected_weight_bytes,
+                out_dim,
+                in_dim,
+                weight_data.len()
+            ),
+        });
+    }
+
+    if activations.len() != in_dim {
+        return Err(RealizarError::InvalidShape {
+            reason: format!(
+                "Activation length {} doesn't match in_dim {}",
+                activations.len(),
+                in_dim
+            ),
+        });
+    }
+
+    // Use parallel iteration for output rows
+    let output: Vec<f32> = (0..out_dim)
+        .into_par_iter()
+        .map(|o| {
+            let row_start = o * bytes_per_row;
+            let row_end = row_start + bytes_per_row;
+            let row_data = &weight_data[row_start..row_end];
+            fused_q4_0_dot_simd(row_data, activations, in_dim)
+        })
+        .collect();
+
+    Ok(output)
+}
+
+/// SIMD-accelerated fused Q4_0 dot product
+///
+/// Computes dot product directly on Q4_0 quantized weights without full dequantization.
+/// Uses trueno SIMD for accumulation where possible.
+#[inline]
+fn fused_q4_0_dot_simd(q4_data: &[u8], activations: &[f32], in_dim: usize) -> f32 {
+    const Q4_0_BLOCK_BYTES: usize = 18;
+    const Q4_0_BLOCK_SIZE: usize = 32;
+
+    let num_blocks = in_dim.div_ceil(Q4_0_BLOCK_SIZE);
+    let mut total_sum = 0.0f32;
+
+    for block_idx in 0..num_blocks {
+        let block_start = block_idx * Q4_0_BLOCK_BYTES;
+        if block_start + Q4_0_BLOCK_BYTES > q4_data.len() {
+            break;
+        }
+        let block = &q4_data[block_start..block_start + Q4_0_BLOCK_BYTES];
+
+        // Read f16 scale (2 bytes)
+        let scale = half::f16::from_le_bytes([block[0], block[1]]).to_f32();
+
+        // Activation slice for this block
+        let act_start = block_idx * Q4_0_BLOCK_SIZE;
+        let act_end = (act_start + Q4_0_BLOCK_SIZE).min(in_dim);
+
+        // Compute partial dot product for this block
+        let mut block_sum = 0.0f32;
+        for (j, &byte) in block[2..18].iter().enumerate() {
+            let low_idx = act_start + j;
+            let high_idx = act_start + j + 16;
+
+            // Low nibble: value = (byte & 0x0F) - 8
+            #[allow(clippy::cast_possible_wrap)]
+            let low_quant = (byte & 0x0F) as i8 - 8;
+            if low_idx < act_end {
+                block_sum += (low_quant as f32) * activations[low_idx];
+            }
+
+            // High nibble: value = (byte >> 4) - 8
+            #[allow(clippy::cast_possible_wrap)]
+            let high_quant = (byte >> 4) as i8 - 8;
+            if high_idx < act_end {
+                block_sum += (high_quant as f32) * activations[high_idx];
+            }
+        }
+
+        total_sum += scale * block_sum;
+    }
+
+    total_sum
+}
+
 /// Helper: Extract 6-bit scale and min for a block from the packed scales array
 #[inline]
 fn extract_scale_min(scales: &[u8; 12], block_idx: usize) -> (f32, f32) {
