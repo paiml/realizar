@@ -24,13 +24,55 @@ use realizar::lambda::{
 /// Valid .apr magic bytes (APRN = 0x4150524E)
 const APR_MAGIC: &[u8; 4] = b"APRN";
 
-/// Create a minimal valid .apr model for testing
-fn create_test_apr_model(name: &str) -> Vec<u8> {
-    let mut bytes = Vec::new();
-    bytes.extend_from_slice(APR_MAGIC);
-    bytes.extend_from_slice(&1u32.to_le_bytes()); // version
-    bytes.extend_from_slice(name.as_bytes());
+/// APR header size (must be 32 bytes)
+const APR_HEADER_SIZE: usize = 32;
+
+/// Create a minimal valid .apr model for testing with proper 32-byte header
+/// Header layout:
+///   [0..4]   - Magic: APRN
+///   [4]      - Version major
+///   [5]      - Version minor
+///   [6]      - Flags
+///   [7]      - Reserved
+///   [8..10]  - Model type (u16 LE)
+///   [10..32] - Reserved/padding
+fn create_test_apr_model(_name: &str) -> Vec<u8> {
+    let mut bytes = vec![0u8; APR_HEADER_SIZE];
+    bytes[0..4].copy_from_slice(APR_MAGIC);
+    bytes[4] = 1; // version major
+    bytes[5] = 0; // version minor
+    bytes[6] = 0; // flags (none)
+    bytes[7] = 0; // reserved
+    bytes[8..10].copy_from_slice(&0x0001u16.to_le_bytes()); // LinearRegression
     bytes
+}
+
+/// Create a static test model bytes (for tests requiring &'static [u8])
+/// Returns a valid APR model with LinearRegression weights
+fn create_static_test_model() -> &'static [u8] {
+    // Pre-computed valid APR model with LinearRegression weights
+    // Header (32 bytes) + JSON payload for a simple 4-input, 1-output linear model
+    // ModelWeights struct requires Vec<Vec<f32>> for weights and biases (nested arrays)
+    // JSON = {"weights":[[0.1,0.2,0.3,0.4]],"biases":[[0.5]],"dimensions":[4,1]} = 67 bytes
+    static MODEL: &[u8] = &[
+        // Header (32 bytes)
+        0x41, 0x50, 0x52, 0x4E, // APRN magic
+        0x01, 0x00,             // version 1.0
+        0x00, 0x00,             // flags, reserved
+        0x01, 0x00,             // model type: LinearRegression (0x0001)
+        0x00, 0x00, 0x00, 0x00, // metadata_len = 0
+        0x43, 0x00, 0x00, 0x00, // payload_len = 67 bytes
+        0x43, 0x00, 0x00, 0x00, // original_size = 67 bytes
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // reserved2
+        // JSON payload (67 bytes): {"weights":[[0.1,0.2,0.3,0.4]],"biases":[[0.5]],"dimensions":[4,1]}
+        0x7b, 0x22, 0x77, 0x65, 0x69, 0x67, 0x68, 0x74, 0x73, 0x22, 0x3a, 0x5b,
+        0x5b, 0x30, 0x2e, 0x31, 0x2c, 0x30, 0x2e, 0x32, 0x2c, 0x30, 0x2e, 0x33,
+        0x2c, 0x30, 0x2e, 0x34, 0x5d, 0x5d, 0x2c, 0x22, 0x62, 0x69, 0x61, 0x73,
+        0x65, 0x73, 0x22, 0x3a, 0x5b, 0x5b, 0x30, 0x2e, 0x35, 0x5d, 0x5d, 0x2c,
+        0x22, 0x64, 0x69, 0x6d, 0x65, 0x6e, 0x73, 0x69, 0x6f, 0x6e, 0x73, 0x22,
+        0x3a, 0x5b, 0x34, 0x2c, 0x31, 0x5d, 0x7d,
+    ];
+    MODEL
 }
 
 #[test]
@@ -97,7 +139,7 @@ fn test_apr_short_model_accepted() {
 
 #[test]
 fn test_lambda_handler_inference() {
-    let model_bytes: &'static [u8] = b"APRN\x01\x00\x00\x00inference_test";
+    let model_bytes = create_static_test_model();
     let handler = LambdaHandler::from_bytes(model_bytes).expect("handler creation failed");
 
     let request = LambdaRequest {
@@ -114,11 +156,12 @@ fn test_lambda_handler_inference() {
 
 #[test]
 fn test_lambda_handler_cold_start_detection() {
-    let model_bytes: &'static [u8] = b"APRN\x01\x00\x00\x00cold_start_test";
+    let model_bytes = create_static_test_model();
     let handler = LambdaHandler::from_bytes(model_bytes).expect("handler creation failed");
 
+    // Model expects 4 input features (dimensions: [4, 1])
     let request = LambdaRequest {
-        features: vec![1.0],
+        features: vec![1.0, 2.0, 3.0, 4.0],
         model_id: None,
     };
 
@@ -139,7 +182,7 @@ fn test_lambda_handler_cold_start_detection() {
 
 #[test]
 fn test_lambda_batch_inference() {
-    let model_bytes: &'static [u8] = b"APRN\x01\x00\x00\x00batch_inference_test";
+    let model_bytes = create_static_test_model();
     let handler = LambdaHandler::from_bytes(model_bytes).expect("handler creation failed");
 
     let batch = BatchLambdaRequest {
@@ -168,14 +211,14 @@ fn test_lambda_batch_inference() {
 
 #[test]
 fn test_lambda_metrics_collection() {
-    let model_bytes: &'static [u8] = b"APRN\x01\x00\x00\x00metrics_test";
+    let model_bytes = create_static_test_model();
     let handler = LambdaHandler::from_bytes(model_bytes).expect("handler creation failed");
     let mut metrics = LambdaMetrics::new();
 
-    // Run multiple inferences
+    // Run multiple inferences (model expects 4 features)
     for i in 0..100 {
         let request = LambdaRequest {
-            features: vec![i as f32],
+            features: vec![i as f32, (i + 1) as f32, (i + 2) as f32, (i + 3) as f32],
             model_id: None,
         };
 
@@ -234,39 +277,47 @@ fn test_lambda_batch_metrics() {
 
 #[test]
 fn test_various_feature_sizes() {
-    let model_bytes: &'static [u8] = b"APRN\x01\x00\x00\x00feature_size_test";
+    let model_bytes = create_static_test_model();
     let handler = LambdaHandler::from_bytes(model_bytes).expect("handler creation failed");
 
-    // Test different feature vector sizes
-    let sizes = [1, 4, 10, 50, 100, 500];
+    // Test model expects exactly 4 features (dimensions: [4, 1])
+    // Size 4 should work, other sizes should fail gracefully
+    let request = LambdaRequest {
+        features: vec![1.0; 4],
+        model_id: None,
+    };
 
-    for size in sizes {
+    let response = handler.handle(&request);
+    assert!(response.is_ok(), "Should handle feature vector of size 4");
+
+    // Test wrong sizes are rejected with proper error
+    for wrong_size in [1, 10, 50] {
         let request = LambdaRequest {
-            features: vec![1.0; size],
+            features: vec![1.0; wrong_size],
             model_id: None,
         };
 
         let response = handler.handle(&request);
         assert!(
-            response.is_ok(),
-            "Should handle feature vector of size {}",
-            size
+            response.is_err(),
+            "Should reject feature vector of size {} (model expects 4)",
+            wrong_size
         );
     }
 }
 
 #[test]
 fn test_special_float_values() {
-    let model_bytes: &'static [u8] = b"APRN\x01\x00\x00\x00special_float_test";
+    let model_bytes = create_static_test_model();
     let handler = LambdaHandler::from_bytes(model_bytes).expect("handler creation failed");
 
-    // Test with special float values
+    // Test with special float values (model expects 4 features)
     let special_features = vec![
-        vec![0.0, 0.0, 0.0],       // All zeros
-        vec![-1.0, -2.0, -3.0],    // Negative values
-        vec![1e-10, 1e-20, 1e-30], // Very small
-        vec![1e10, 1e20, 1e30],    // Very large (but not inf)
-        vec![0.1, 0.2, 0.3],       // Fractional
+        vec![0.0, 0.0, 0.0, 0.0],             // All zeros
+        vec![-1.0, -2.0, -3.0, -4.0],         // Negative values
+        vec![1e-10, 1e-20, 1e-30, 1e-10],     // Very small
+        vec![1e10, 1e15, 1e10, 1e5],          // Large (but not overflow)
+        vec![0.1, 0.2, 0.3, 0.4],             // Fractional
     ];
 
     for features in special_features {
@@ -297,12 +348,12 @@ fn test_special_float_values() {
 
 #[test]
 fn test_model_id_in_request() {
-    let model_bytes: &'static [u8] = b"APRN\x01\x00\x00\x00model_id_test";
+    let model_bytes = create_static_test_model();
     let handler = LambdaHandler::from_bytes(model_bytes).expect("handler creation failed");
 
-    // Request with model_id
+    // Request with model_id (model expects 4 features)
     let request = LambdaRequest {
-        features: vec![1.0, 2.0],
+        features: vec![1.0, 2.0, 3.0, 4.0],
         model_id: Some("classifier_v2".to_string()),
     };
 
@@ -312,21 +363,22 @@ fn test_model_id_in_request() {
 
 #[test]
 fn test_batch_with_mixed_model_ids() {
-    let model_bytes: &'static [u8] = b"APRN\x01\x00\x00\x00mixed_model_id_test";
+    let model_bytes = create_static_test_model();
     let handler = LambdaHandler::from_bytes(model_bytes).expect("handler creation failed");
 
+    // Model expects 4 features per instance
     let batch = BatchLambdaRequest {
         instances: vec![
             LambdaRequest {
-                features: vec![1.0],
+                features: vec![1.0, 1.0, 1.0, 1.0],
                 model_id: Some("model_a".to_string()),
             },
             LambdaRequest {
-                features: vec![2.0],
+                features: vec![2.0, 2.0, 2.0, 2.0],
                 model_id: None,
             },
             LambdaRequest {
-                features: vec![3.0],
+                features: vec![3.0, 3.0, 3.0, 3.0],
                 model_id: Some("model_b".to_string()),
             },
         ],
@@ -343,7 +395,7 @@ fn test_batch_with_mixed_model_ids() {
 
 #[test]
 fn test_empty_batch_error() {
-    let model_bytes: &'static [u8] = b"APRN\x01\x00\x00\x00empty_batch_test";
+    let model_bytes = create_static_test_model();
     let handler = LambdaHandler::from_bytes(model_bytes).expect("handler creation failed");
 
     let batch = BatchLambdaRequest {
@@ -421,11 +473,12 @@ fn test_batch_request_json_serialization() {
 
 #[test]
 fn test_inference_latency_reasonable() {
-    let model_bytes: &'static [u8] = b"APRN\x01\x00\x00\x00latency_test";
+    let model_bytes = create_static_test_model();
     let handler = LambdaHandler::from_bytes(model_bytes).expect("handler creation failed");
 
+    // Model expects 4 features
     let request = LambdaRequest {
-        features: vec![1.0; 100],
+        features: vec![1.0; 4],
         model_id: None,
     };
 
@@ -445,22 +498,23 @@ fn test_inference_latency_reasonable() {
 
 #[test]
 fn test_batch_throughput() {
-    let model_bytes: &'static [u8] = b"APRN\x01\x00\x00\x00throughput_test";
+    let model_bytes = create_static_test_model();
     let handler = LambdaHandler::from_bytes(model_bytes).expect("handler creation failed");
 
+    // Model expects 4 features per instance
     let batch = BatchLambdaRequest {
         instances: (0..100)
             .map(|i| LambdaRequest {
-                features: vec![i as f32; 10],
+                features: vec![i as f32, (i + 1) as f32, (i + 2) as f32, (i + 3) as f32],
                 model_id: None,
             })
             .collect(),
         max_parallelism: None,
     };
 
-    // Warm up
+    // Warm up (model expects 4 features)
     let _ = handler.handle(&LambdaRequest {
-        features: vec![1.0],
+        features: vec![1.0, 2.0, 3.0, 4.0],
         model_id: None,
     });
 
