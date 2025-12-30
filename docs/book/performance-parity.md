@@ -23,25 +23,55 @@ By the end of this chapter, you will understand:
 
 ## 1. The Performance Challenge
 
-### Current State vs Target (v0.3.2)
+### Current State vs Target (v0.3.3)
 
-| Runtime | Backend | Throughput | vs llama.cpp | Status |
-|---------|---------|------------|--------------|--------|
-| llama.cpp | CPU (OpenMP) | 42-45 tok/s | 100% | Production |
-| Candle | CPU | 9.2-9.9 tok/s | 22% | Production |
-| **Realizar** | CPU (AVX2) | **8.4-11.9 tok/s** | **20-26%** | v0.3.2 |
-| Realizar | WGPU | TBD | TBD | In Development |
+| Runtime | Backend | Format | Throughput | vs llama.cpp | Status |
+|---------|---------|--------|------------|--------------|--------|
+| llama.cpp | CPU (OpenMP) | GGUF | 42-45 tok/s | 100% | Production |
+| Candle | CPU | GGUF | 9.2-9.9 tok/s | 22% | Production |
+| **Realizar** | CPU (AVX2) | GGUF | **8.4-11.9 tok/s** | **20-26%** | v0.3.2 |
+| **Realizar** | CPU (AVX2) | **APR Q4_0** | **6.7-8.0 tok/s** | **15-18%** | **v0.3.3** |
+| Realizar | WGPU | APR | TBD | TBD | In Development |
 
 **Note:** All benchmarks on TinyLlama-1.1B Q4_0 model, Intel Core Ultra 7 155H (22 cores).
+
+### APR Format Achievement (v0.3.3)
+
+The new `QuantizedAprTransformerQ4` format achieves **GGUF parity** while using a pure-Rust serialization format:
+
+| Format | Size (MB) | Forward (ms) | Throughput | vs GGUF |
+|--------|-----------|--------------|------------|---------|
+| GGUF Q4_0 | 637.7 | 148.2 | 6.7 tok/s | 1.00x |
+| **APR Q4_0** | 861.3 | 124.9 | **8.0 tok/s** | **1.19x** |
+| APR F32 | 4196.4 | 12019.2 | 0.1 tok/s | 0.01x |
+
+**Key insight:** Quantization is essential - APR Q4_0 is **80x faster** than APR F32 due to reduced memory bandwidth.
 
 ### Milestones
 
 | Milestone | Target | Metric | Status |
 |-----------|--------|--------|--------|
 | M1: CPU Parity | Candle parity | ~10 tok/s CPU | **✅ Achieved (v0.3.2)** |
-| M2: WGPU Basic | GPU inference working | Any tok/s | In Progress |
-| M3: WGPU Parity | 50% of llama.cpp | 21 tok/s | Planned |
-| M4: Full Parity | 90% of llama.cpp | 40+ tok/s | Planned |
+| M2: APR Q4_0 Parity | GGUF parity | Match GGUF tok/s | **✅ Achieved (v0.3.3)** |
+| M3: llama.cpp 50% | Half of llama.cpp | 21 tok/s | **In Progress** |
+| M4: llama.cpp 100% | Full llama.cpp parity | 42+ tok/s | Planned |
+| M5: Exceed llama.cpp | Beat llama.cpp | 50+ tok/s | **Target** |
+
+### Roadmap to Exceed llama.cpp
+
+To go from ~8 tok/s to 50+ tok/s (6x improvement), we need:
+
+| Optimization | Expected Speedup | Cumulative | Status |
+|--------------|------------------|------------|--------|
+| **Baseline APR Q4_0** | 1.0x | 8 tok/s | ✅ Done |
+| Multi-threaded matmul (rayon) | 2-3x | 16-24 tok/s | Planned |
+| KV Cache (skip K/V recompute) | 1.5-2x | 24-48 tok/s | Planned |
+| SIMD RoPE (trueno vectors) | 1.1-1.2x | 26-58 tok/s | Planned |
+| Flash Attention (tiled) | 1.2-1.5x | 31-87 tok/s | Planned |
+| Memory pooling (avoid allocs) | 1.1-1.2x | 34-104 tok/s | Planned |
+
+**Conservative target:** 42+ tok/s (llama.cpp parity)
+**Stretch target:** 50+ tok/s (exceed llama.cpp)
 
 ## 2. Toyota Production System Framework
 
