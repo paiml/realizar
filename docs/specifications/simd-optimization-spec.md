@@ -1,7 +1,7 @@
 # SIMD Optimization Specification with Popperian Falsification
 
 **Document ID:** REALIZAR-SIMD-SPEC-001
-**Version:** 1.14.0
+**Version:** 1.15.0
 **Status:** ACTIVE
 **Date:** 2025-12-30
 **Authors:** Claude Code, Noah Gift
@@ -269,11 +269,13 @@ Focus areas that can be developed and tested on current hardware (Intel Core Ult
 |--------|---------|------|----------|
 | Roofline efficiency | 29% | 50%+ | Memory prefetch, cache blocking |
 | FFN layer optimization | 72% of time | 60% | Fused operations, better tiling |
-| AVX-512 evaluation | Not tested | Benchmark | Check ISA support, compare vs AVX2 |
+| ~~AVX-512 evaluation~~ | **Not available** | N/A | Intel removed from Meteor Lake (hybrid cores) |
+| AVX-VNNI vs AVX2 | **1.06x** | N/A | Measured: 286 vs 305 ns/dot - not worth switching |
 | Memory bandwidth | ~30 GB/s | ~40 GB/s | Prefetch hints, NUMA awareness |
 
 **Hardware Constraints:**
-- CPU: Intel Core Ultra 7 155H (22 cores, AVX2, AVX-512, AVX-VNNI)
+- CPU: Intel Core Ultra 7 155H (22 cores, 6P+8E+2LPE)
+- SIMD: AVX2, FMA, AVX-VNNI (**no AVX-512** - disabled on hybrid architectures)
 - RAM: DDR5 (~50 GB/s theoretical, ~30 GB/s practical)
 - No discrete GPU currently available
 
@@ -383,6 +385,7 @@ cargo run --release --example serve_mnist
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.15.0 | 2025-12-30 | **AVX-512/VNNI evaluation**: No AVX-512 on Meteor Lake; AVX-VNNI benchmarked at 1.06x vs AVX2 (not worth enabling); Added bench_simd_dot example |
 | 1.14.0 | 2025-12-30 | **Blocked GPU issues**: Added Section 4.3 tracking trueno issues #72-76 blocked on GPU hardware; Added Section 4.4 CPU-only optimization targets |
 | 1.13.0 | 2025-12-30 | **Added examples section**: Documented `cargo run --example` commands for benchmarking, inference, model loading, debugging, GPU, and server examples |
 | 1.12.0 | 2025-12-30 | **Phi-2 performance mode**: 5.5 tok/s (2.5x vs powersave); CPU governor impact documented; 29% roofline efficiency |
