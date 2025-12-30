@@ -1,7 +1,7 @@
 # SIMD Optimization Specification with Popperian Falsification
 
 **Document ID:** REALIZAR-SIMD-SPEC-001
-**Version:** 1.8.0
+**Version:** 1.10.0
 **Status:** ACTIVE
 **Date:** 2025-12-30
 **Authors:** Claude Code, Noah Gift
@@ -15,13 +15,13 @@
 
 | Model | Params | Quantization | Throughput | Startup | Hardware |
 |-------|--------|--------------|------------|---------|----------|
+| Qwen2.5-Coder-0.5B | 0.5B | Q4_0 | **16-21 tok/s** | **~50ms** | Intel Core Ultra 7 155H (22 cores) |
 | TinyLlama-1.1B | 1.1B | Q4_0 | **7-11 tok/s** | **118-176ms** | Intel Core Ultra 7 155H (22 cores) |
-| Qwen2.5-Coder-0.5B | 0.5B | Q4_0 | *pending* | *pending* | Intel Core Ultra 7 155H (22 cores) |
 | Phi-2 | 2.7B | Q4_0 | *pending* | *pending* | Intel Core Ultra 7 155H (22 cores) |
 
 **Target Models (Priority Order):**
-1. **Qwen2.5-Coder-0.5B** - Smallest coding model, ~300MB Q4_0, expected ~20+ tok/s
-2. **TinyLlama-1.1B** - Current benchmark, ~637MB Q4_0, 7-11 tok/s achieved
+1. **Qwen2.5-Coder-0.5B** - Smallest coding model, 409MB Q4_0, **21.3 tok/s achieved** (51% of llama.cpp)
+2. **TinyLlama-1.1B** - Primary benchmark, 637MB Q4_0, 7-11 tok/s achieved
 3. **Phi-2** - Microsoft's efficient model, ~1.5GB Q4_0, expected ~5-8 tok/s
 
 **Previous baseline:** 0.8-1.4 tok/s, 1.2s startup
@@ -51,10 +51,10 @@
 | **f16-to-f32 LUT** | `src/quantize.rs:69` | ~1.1x | Memory access optimization |
 | **Zero-copy model loading** | `src/gguf.rs:2101` | 6.7x startup | mmap zero-copy [8] |
 | **Arena scratch buffers** | `src/gguf.rs:3708` | ~1.1x | Pre-allocation pattern |
-| **APR Sequential FFN** | `src/apr_transformer.rs:2756` | ~1.5x | Remove rayon::join overhead |
-| **APR RoPE unrolling** | `src/apr_transformer.rs:3267` | ~1.1x | ILP + sin_cos() fusion |
-| **APR attention fast path** | `src/apr_transformer.rs:3372` | ~1.2x | seq_len=1 optimization |
-| **Zero-alloc matvec_into** | `src/quantize.rs:2995` | ~1.1x | Direct buffer writes |
+| **APR Sequential FFN** | `src/apr_transformer.rs:3317` | ~1.5x | Remove rayon::join overhead |
+| **APR RoPE unrolling** | `src/apr_transformer.rs:3530` | ~1.1x | ILP + sin_cos() fusion |
+| **APR attention fast path** | `src/apr_transformer.rs:3638` | ~1.2x | seq_len=1 optimization |
+| **Zero-alloc matvec_into** | `src/quantize.rs:3118` | ~1.1x | Direct buffer writes |
 | **AVX-VNNI vpdpbusd** | `src/quantize.rs:2697` | ~1.0x | VEX-encoded INT8 matmul [2] |
 
 ### 1.4 Performance Gap Analysis
@@ -115,15 +115,15 @@ DOI: [10.1145/1498765.1498785](https://doi.org/10.1145/1498765.1498785)
 
 | Model | Q4_0 Size | Min Time/Token | Max Theoretical | Current | Efficiency |
 |-------|-----------|----------------|-----------------|---------|------------|
-| Qwen2.5-Coder-0.5B | ~300 MB | 10 ms | ~100 tok/s | *pending* | - |
+| Qwen2.5-Coder-0.5B | 409 MB | 14 ms | ~73 tok/s | **16-21 tok/s** | 22-29% |
 | TinyLlama-1.1B | 637 MB | 21 ms | ~47 tok/s | 7-11 tok/s | 15-23% |
 | Phi-2 | ~1.5 GB | 50 ms | ~20 tok/s | *pending* | - |
 
 ```
 DDR5 bandwidth (laptop): ~50 GB/s theoretical, ~30 GB/s practical
 
-Qwen2.5-Coder-0.5B: 300 MB / 30 GB/s = 10 ms → ~100 tok/s theoretical
-TinyLlama-1.1B:     637 MB / 30 GB/s = 21 ms → ~47 tok/s theoretical
+Qwen2.5-Coder-0.5B: 409 MB / 30 GB/s = 14 ms → ~73 tok/s theoretical (achieved 21 = 29%)
+TinyLlama-1.1B:     637 MB / 30 GB/s = 21 ms → ~47 tok/s theoretical (achieved 11 = 23%)
 Phi-2:              1.5 GB / 30 GB/s = 50 ms → ~20 tok/s theoretical
 ```
 
@@ -248,6 +248,8 @@ The following observations would **falsify** our optimization strategy:
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.10.0 | 2025-12-30 | **Qwen2.5-Coder-0.5B benchmarked**: 21.3 tok/s (51% of llama.cpp), 29% roofline efficiency |
+| 1.9.0 | 2025-12-30 | **Verified Line Numbers**: Updated references for APR/SIMD optimizations to match current codebase structure. |
 | 1.8.0 | 2025-12-30 | **Multi-model targets**: Added Qwen2.5-Coder-0.5B and Phi-2 as benchmark targets; Updated roofline analysis for all models |
 | 1.7.0 | 2025-12-30 | **AVX-VNNI + Zero-alloc**: Added `fused_q4_0_q8_0_parallel_matvec_into` for zero-allocation; AVX-VNNI vpdpbusd implementation (disabled - similar throughput to AVX2) |
 | 1.6.0 | 2025-12-29 | **Aligned Hypotheses with Code**: Updated H1-H5 to match `tests/falsification_tests.rs`; Updated `quantize.rs` line numbers. |
