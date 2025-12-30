@@ -47,6 +47,8 @@
 | **APR Sequential FFN** | `src/apr_transformer.rs:2756` | ~1.5x | Remove rayon::join overhead |
 | **APR RoPE unrolling** | `src/apr_transformer.rs:3267` | ~1.1x | ILP + sin_cos() fusion |
 | **APR attention fast path** | `src/apr_transformer.rs:3372` | ~1.2x | seq_len=1 optimization |
+| **Zero-alloc matvec_into** | `src/quantize.rs:2995` | ~1.1x | Direct buffer writes |
+| **AVX-VNNI vpdpbusd** | `src/quantize.rs:2697` | ~1.0x | VEX-encoded INT8 matmul [2] |
 
 ### 1.4 Performance Gap Analysis
 
@@ -235,6 +237,7 @@ The following observations would **falsify** our optimization strategy:
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.7.0 | 2025-12-30 | **AVX-VNNI + Zero-alloc**: Added `fused_q4_0_q8_0_parallel_matvec_into` for zero-allocation; AVX-VNNI vpdpbusd implementation (disabled - similar throughput to AVX2) |
 | 1.6.0 | 2025-12-29 | **Aligned Hypotheses with Code**: Updated H1-H5 to match `tests/falsification_tests.rs`; Updated `quantize.rs` line numbers. |
 | 1.5.0 | 2025-12-29 | **Verified Line Numbers**: Updated references for v0.3.1; Confirmed SIMD nibble extraction at `src/quantize.rs:2435` |
 | 1.4.0 | 2025-12-29 | **Framework comparison**: Measured 55-72% parity with Candle (9.2-9.9 tok/s vs 4.2-7.1 tok/s) |

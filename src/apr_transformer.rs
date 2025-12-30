@@ -2531,6 +2531,75 @@ pub struct QuantizedAprTransformerQ4 {
     pub lm_head_weight: QuantizedAprTensorQ4,
 }
 
+/// Scratch buffer for zero-allocation inference
+///
+/// Pre-allocates all intermediate buffers needed for a forward pass.
+/// Reuse across multiple forward calls to eliminate per-token allocations.
+#[derive(Debug)]
+pub struct AprInferenceScratch {
+    /// Hidden state [hidden_dim]
+    pub hidden: Vec<f32>,
+    /// Normalized hidden state [hidden_dim]
+    pub normed: Vec<f32>,
+    /// QKV projection output [qkv_dim]
+    pub qkv_out: Vec<f32>,
+    /// Query vectors [q_dim]
+    pub q: Vec<f32>,
+    /// Key vectors [k_dim]
+    pub k: Vec<f32>,
+    /// Value vectors [v_dim]
+    pub v: Vec<f32>,
+    /// Attention output [hidden_dim]
+    pub attn_out: Vec<f32>,
+    /// FFN input [hidden_dim]
+    pub ffn_input: Vec<f32>,
+    /// FFN up projection [intermediate_dim]
+    pub ffn_up: Vec<f32>,
+    /// FFN gate projection [intermediate_dim]
+    pub ffn_gate: Vec<f32>,
+    /// FFN output [hidden_dim]
+    pub ffn_out: Vec<f32>,
+}
+
+impl AprInferenceScratch {
+    /// Create scratch buffer sized for a model config
+    #[must_use]
+    pub fn from_config(config: &AprTransformerConfig) -> Self {
+        let hidden_dim = config.hidden_dim;
+        let qkv_dim = hidden_dim * 3; // Conservative estimate
+        let intermediate_dim = config.intermediate_dim;
+
+        Self {
+            hidden: vec![0.0; hidden_dim],
+            normed: vec![0.0; hidden_dim],
+            qkv_out: vec![0.0; qkv_dim],
+            q: vec![0.0; hidden_dim],
+            k: vec![0.0; hidden_dim],
+            v: vec![0.0; hidden_dim],
+            attn_out: vec![0.0; hidden_dim],
+            ffn_input: vec![0.0; hidden_dim],
+            ffn_up: vec![0.0; intermediate_dim],
+            ffn_gate: vec![0.0; intermediate_dim],
+            ffn_out: vec![0.0; hidden_dim],
+        }
+    }
+
+    /// Clear all buffers (set to zero)
+    pub fn clear(&mut self) {
+        self.hidden.fill(0.0);
+        self.normed.fill(0.0);
+        self.qkv_out.fill(0.0);
+        self.q.fill(0.0);
+        self.k.fill(0.0);
+        self.v.fill(0.0);
+        self.attn_out.fill(0.0);
+        self.ffn_input.fill(0.0);
+        self.ffn_up.fill(0.0);
+        self.ffn_gate.fill(0.0);
+        self.ffn_out.fill(0.0);
+    }
+}
+
 impl QuantizedAprTransformerQ4 {
     /// Create from GGUF OwnedQuantizedModel (extracts Q4_0 bytes)
     ///
@@ -2623,6 +2692,24 @@ impl QuantizedAprTransformerQ4 {
     #[must_use]
     pub fn config(&self) -> &AprTransformerConfig {
         &self.config
+    }
+
+    /// Create a scratch buffer for zero-allocation inference
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let model = QuantizedAprTransformerQ4::from_gguf(&gguf);
+    /// let mut scratch = model.create_scratch();
+    ///
+    /// // Reuse scratch across multiple forward passes
+    /// for token_id in token_ids {
+    ///     let logits = model.forward_single_with_scratch(token_id, &mut scratch)?;
+    /// }
+    /// ```
+    #[must_use]
+    pub fn create_scratch(&self) -> AprInferenceScratch {
+        AprInferenceScratch::from_config(&self.config)
     }
 
     /// Forward pass using SIMD-accelerated Q4_0×Q8_0 matmul
@@ -2856,6 +2943,182 @@ impl QuantizedAprTransformerQ4 {
     #[must_use]
     pub fn create_kv_cache(&self) -> AprKVCache {
         AprKVCache::new(&self.config)
+    }
+
+    /// Forward pass for a single token using scratch buffer (zero allocation)
+    ///
+    /// This is the fastest path for autoregressive generation when combined
+    /// with `forward_with_cache_and_scratch`. It reuses pre-allocated buffers
+    /// to eliminate per-token allocations.
+    ///
+    /// # Arguments
+    ///
+    /// * `token_id` - Single token to process
+    /// * `scratch` - Pre-allocated scratch buffer (from `create_scratch()`)
+    ///
+    /// # Returns
+    ///
+    /// Logits over vocabulary
+    pub fn forward_single_with_scratch(
+        &self,
+        token_id: u32,
+        scratch: &mut AprInferenceScratch,
+    ) -> Result<Vec<f32>> {
+        use crate::quantize::fused_q4_0_q8_0_parallel_matvec_into;
+
+        let hidden_dim = self.config.hidden_dim;
+        let num_heads = self.config.num_heads;
+        let num_kv_heads = self.config.num_kv_heads;
+        let head_dim = hidden_dim / num_heads;
+        let eps = self.config.eps;
+
+        // 1. Token embedding lookup (write directly to scratch.hidden)
+        let offset = (token_id as usize) * hidden_dim;
+        if offset + hidden_dim <= self.token_embedding.len() {
+            scratch.hidden[..hidden_dim]
+                .copy_from_slice(&self.token_embedding[offset..offset + hidden_dim]);
+        } else {
+            scratch.hidden[..hidden_dim].fill(0.0);
+        }
+
+        // 2. Process through transformer layers
+        for layer in &self.layers {
+            // Pre-attention RMS norm (reuse scratch.normed)
+            let sq_sum: f32 = scratch.hidden.iter().map(|x| x * x).sum();
+            let rms = (sq_sum / hidden_dim as f32 + eps).sqrt();
+            for i in 0..hidden_dim {
+                scratch.normed[i] = scratch.hidden[i] / rms * layer.attn_norm_weight[i];
+            }
+
+            // QKV projection (zero-allocation - write directly to scratch.qkv_out)
+            let qkv_dim = layer.qkv_weight.out_dim;
+            fused_q4_0_q8_0_parallel_matvec_into(
+                &layer.qkv_weight.data,
+                &scratch.normed[..hidden_dim],
+                hidden_dim,
+                &mut scratch.qkv_out[..qkv_dim],
+            )?;
+
+            // Extract Q, K, V and apply RoPE (position=0 for single token)
+            let q_dim = num_heads * head_dim;
+            let kv_dim = num_kv_heads * head_dim;
+
+            scratch.q[..q_dim].copy_from_slice(&scratch.qkv_out[..q_dim]);
+            scratch.k[..kv_dim].copy_from_slice(&scratch.qkv_out[q_dim..q_dim + kv_dim]);
+            scratch.v[..kv_dim].copy_from_slice(&scratch.qkv_out[q_dim + kv_dim..q_dim + 2 * kv_dim]);
+
+            // Apply RoPE at position 0
+            self.apply_rope(&mut scratch.q[..q_dim], 0, num_heads);
+            self.apply_rope(&mut scratch.k[..kv_dim], 0, num_kv_heads);
+
+            // For single token, attention is trivial: output = V (softmax of 1 element = 1.0)
+            let group_size = num_heads / num_kv_heads;
+            for head in 0..num_heads {
+                let kv_head = head / group_size;
+                let v_offset = kv_head * head_dim;
+                let out_offset = head * head_dim;
+                scratch.attn_out[out_offset..out_offset + head_dim]
+                    .copy_from_slice(&scratch.v[v_offset..v_offset + head_dim]);
+            }
+
+            // Output projection (write to scratch.ffn_out as temporary)
+            fused_q4_0_q8_0_parallel_matvec_into(
+                &layer.attn_output_weight.data,
+                &scratch.attn_out[..hidden_dim],
+                layer.attn_output_weight.in_dim,
+                &mut scratch.ffn_out[..layer.attn_output_weight.out_dim],
+            )?;
+
+            // Residual connection (attn)
+            for i in 0..hidden_dim {
+                scratch.hidden[i] += scratch.ffn_out[i];
+            }
+
+            // Pre-FFN norm
+            if let Some(ffn_norm) = &layer.ffn_norm_weight {
+                let sq_sum: f32 = scratch.hidden.iter().map(|x| x * x).sum();
+                let rms = (sq_sum / hidden_dim as f32 + eps).sqrt();
+                for i in 0..hidden_dim {
+                    scratch.ffn_input[i] = scratch.hidden[i] / rms * ffn_norm[i];
+                }
+            } else {
+                scratch.ffn_input[..hidden_dim].copy_from_slice(&scratch.normed[..hidden_dim]);
+            }
+
+            // FFN with SwiGLU
+            let intermediate_dim = layer.ffn_up_weight.out_dim;
+            if let Some(gate) = &layer.ffn_gate_weight {
+                // Up projection (zero-allocation)
+                fused_q4_0_q8_0_parallel_matvec_into(
+                    &layer.ffn_up_weight.data,
+                    &scratch.ffn_input[..hidden_dim],
+                    hidden_dim,
+                    &mut scratch.ffn_up[..intermediate_dim],
+                )?;
+
+                // Gate projection (zero-allocation)
+                fused_q4_0_q8_0_parallel_matvec_into(
+                    &gate.data,
+                    &scratch.ffn_input[..hidden_dim],
+                    hidden_dim,
+                    &mut scratch.ffn_gate[..intermediate_dim],
+                )?;
+
+                // SwiGLU: silu(gate) * up
+                for i in 0..intermediate_dim {
+                    let silu = scratch.ffn_gate[i] / (1.0 + (-scratch.ffn_gate[i]).exp());
+                    scratch.ffn_up[i] *= silu;
+                }
+            } else {
+                // GELU path (zero-allocation)
+                fused_q4_0_q8_0_parallel_matvec_into(
+                    &layer.ffn_up_weight.data,
+                    &scratch.ffn_input[..hidden_dim],
+                    hidden_dim,
+                    &mut scratch.ffn_up[..intermediate_dim],
+                )?;
+
+                const SQRT_2_OVER_PI: f32 = 0.797_884_6;
+                const GELU_COEFF: f32 = 0.044_715;
+                for i in 0..intermediate_dim {
+                    let x = scratch.ffn_up[i];
+                    let t = (SQRT_2_OVER_PI * (x + GELU_COEFF * x * x * x)).tanh();
+                    scratch.ffn_up[i] = 0.5 * x * (1.0 + t);
+                }
+            }
+
+            // Down projection (write to scratch.ffn_out)
+            fused_q4_0_q8_0_parallel_matvec_into(
+                &layer.ffn_down_weight.data,
+                &scratch.ffn_up[..intermediate_dim],
+                intermediate_dim,
+                &mut scratch.ffn_out[..hidden_dim],
+            )?;
+
+            // Residual connection (FFN)
+            for i in 0..hidden_dim {
+                scratch.hidden[i] += scratch.ffn_out[i];
+            }
+        }
+
+        // 3. Final RMS norm
+        let sq_sum: f32 = scratch.hidden.iter().map(|x| x * x).sum();
+        let rms = (sq_sum / hidden_dim as f32 + eps).sqrt();
+        for i in 0..hidden_dim {
+            scratch.normed[i] = scratch.hidden[i] / rms * self.output_norm_weight[i];
+        }
+
+        // 4. LM head projection (still allocates - logits must be returned)
+        let vocab_size = self.config.vocab_size;
+        let mut logits = vec![0.0f32; vocab_size];
+        fused_q4_0_q8_0_parallel_matvec_into(
+            &self.lm_head_weight.data,
+            &scratch.normed[..hidden_dim],
+            hidden_dim,
+            &mut logits,
+        )?;
+
+        Ok(logits)
     }
 
     /// Forward pass with KV cache for efficient autoregressive generation
