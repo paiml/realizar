@@ -503,8 +503,8 @@ Simple unit tests would NOT have caught this - only sequential TUI simulation re
 
 ---
 
-**Last Updated:** 2025-12-29
-**Realizar Version:** 0.3.2 (2x Q8_0 SIMD Speedup, Aprender 0.20)
+**Last Updated:** 2025-12-30
+**Realizar Version:** 0.3.2 (Q4_0×Q8_0 SIMD 2x, APR SIMD 5-7x, Candle Parity)
 **GPU Spec Version:** v5.1.0 (QA Suite Complete + 95% Coverage)
 **Trueno Version:** 0.4.2
 **Aprender Version:** 0.20.1
@@ -512,14 +512,14 @@ Simple unit tests would NOT have caught this - only sequential TUI simulation re
 **TDG Score:** 93.9/100 (A)
 **Rust Project Score:** 137.9/134 (103%, Grade A+)
 **Test Coverage:** 92.02% (region), 95.00% (function)
-**Total Tests:** 2315 (all passing), 44 GPU-only ignored, 50 QA tests (QA-001 to QA-050)
+**Total Tests:** 806 (all passing with aprender-serve), 50 QA tests (QA-001 to QA-050)
 **Mutation Score:** 100% on api.rs (18/18 viable mutants caught)
 **Documentation:** 15.0/15 (100%) ✅ Perfect score!
 **Known Defects:** 20.0/20 (100%) ✅ Perfect score!
 **Dependency Health:** 10.5/12 (87.5%) - Modular feature flags
 **Benchmarks:** 4 suites (tensor_ops, inference, cache, tokenizer)
 **Examples:** 6 (inference, api_server, tokenization, safetensors_loading, model_cache, gguf_loading) - all verified working
-**Performance:** <1ms p50 for 5-token generation (504µs measured)
+**Performance:** 8.4-11.9 tok/s GGUF Q4_0 (Candle parity), <1ms p50 for 5-token generation
 **CLI Binary:** ✅ `realizar serve --demo` (65% coverage)
 **Quality Improvements:**
   - Added workspace-level lints (unsafe_op_in_unsafe_fn, unreachable_pub, checked_conversions)
