@@ -206,6 +206,7 @@
 # Real-World Examples
 
 - [Inference Demo](./examples/inference.md)
+- [TinyLlama Benchmark](./examples/tinyllama-benchmark.md)
 - [Tokenization Comparison](./examples/tokenization.md)
 - [API Server Demo](./examples/api-server.md)
 - [Observability Demo](./examples/observability.md)
