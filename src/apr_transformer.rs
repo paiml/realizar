@@ -1576,18 +1576,28 @@ impl AprTransformer {
     #[allow(clippy::unused_self)]
     fn matmul(&self, input: &[f32], weight: &[f32], in_dim: usize, out_dim: usize) -> Vec<f32> {
         let seq_len = input.len() / in_dim;
+        let expected_size = in_dim * out_dim;
 
-        // Transpose weight from [in_dim, out_dim] to [out_dim, in_dim] for matvec
-        // This is done once per matmul call (amortized across seq_len)
-        let mut weight_transposed = vec![0.0f32; out_dim * in_dim];
-        for i in 0..in_dim {
-            for o in 0..out_dim {
-                weight_transposed[o * in_dim + i] = weight[i * out_dim + o];
+        // Determine weight layout and create matrix for SIMD matvec
+        // Weight could be [in_dim, out_dim] or [out_dim, in_dim]
+        let weight_matrix = if weight.len() == expected_size {
+            // Weight is [in_dim, out_dim] - need to transpose for matvec
+            let mut weight_transposed = vec![0.0f32; expected_size];
+            for i in 0..in_dim {
+                for o in 0..out_dim {
+                    weight_transposed[o * in_dim + i] = weight[i * out_dim + o];
+                }
             }
-        }
+            TruenoMatrix::from_vec(out_dim, in_dim, weight_transposed)
+        } else if weight.len() == out_dim * in_dim {
+            // Weight is already [out_dim, in_dim] - use directly
+            TruenoMatrix::from_vec(out_dim, in_dim, weight.to_vec())
+        } else {
+            // Dimension mismatch - fall back to scalar
+            return self.matmul_scalar(input, weight, in_dim, out_dim);
+        };
 
-        // Create trueno matrix for SIMD matvec
-        let weight_matrix = match TruenoMatrix::from_vec(out_dim, in_dim, weight_transposed) {
+        let weight_matrix = match weight_matrix {
             Ok(m) => m,
             Err(_) => {
                 // Fallback to scalar if trueno fails
@@ -1706,7 +1716,8 @@ impl AprTransformer {
             );
 
             // 2b. QKV projection
-            let qkv_dim = 3 * hidden_dim;
+            // Calculate qkv_dim from actual weight size (handles GQA models)
+            let qkv_dim = layer.qkv_weight.len() / hidden_dim;
             let mut qkv = self.matmul(&normed, &layer.qkv_weight, hidden_dim, qkv_dim);
             if let Some(ref bias) = layer.qkv_bias {
                 self.add_bias(&mut qkv, bias);
@@ -1853,7 +1864,8 @@ impl AprTransformer {
             );
 
             // 2b. QKV projection (single token)
-            let qkv_dim = 3 * hidden_dim;
+            // Calculate qkv_dim from actual weight size (handles GQA models)
+            let qkv_dim = layer.qkv_weight.len() / hidden_dim;
             let mut qkv = self.matmul(&normed, &layer.qkv_weight, hidden_dim, qkv_dim);
             if let Some(ref bias) = layer.qkv_bias {
                 self.add_bias(&mut qkv, bias);
