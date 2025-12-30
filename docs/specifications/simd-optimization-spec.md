@@ -1,7 +1,7 @@
 # SIMD Optimization Specification with Popperian Falsification
 
 **Document ID:** REALIZAR-SIMD-SPEC-001
-**Version:** 1.13.0
+**Version:** 1.14.0
 **Status:** ACTIVE
 **Date:** 2025-12-30
 **Authors:** Claude Code, Noah Gift
@@ -247,6 +247,36 @@ The following observations would **falsify** our optimization strategy:
 
 4. **Parallel scaling is negative:** If adding cores makes inference slower, synchronization overhead dominates and architecture needs rethinking.
 
+### 4.3 Blocked Upstream Issues (Trueno GPU)
+
+The following trueno-gpu issues require NVIDIA GPU hardware for validation and are **blocked**:
+
+| Issue | Title | Blocker | Resume When |
+|-------|-------|---------|-------------|
+| [#72](https://github.com/paiml/trueno/issues/72) | Integrate FMA fusion pass into PTX builder | RTX 4090 required | GPU available |
+| [#73](https://github.com/paiml/trueno/issues/73) | PTX tile validation integration | RTX 4090 required | GPU available |
+| [#74](https://github.com/paiml/trueno/issues/74) | Benchmark FMA fusion on CUDA hardware | RTX 4090 required | GPU available |
+| [#75](https://github.com/paiml/trueno/issues/75) | WMMA/Tensor Core tile shape validation | RTX 4090 required | GPU available |
+| [#76](https://github.com/paiml/trueno/issues/76) | wgpu tiled reduction shader validation | Vulkan GPU required | GPU available |
+
+**Impact on Realizar:** GPU inference path blocked until hardware available. CPU/SIMD path is primary focus.
+
+### 4.4 CPU-Only Optimization Targets (Active)
+
+Focus areas that can be developed and tested on current hardware (Intel Core Ultra 7 155H):
+
+| Target | Current | Goal | Approach |
+|--------|---------|------|----------|
+| Roofline efficiency | 29% | 50%+ | Memory prefetch, cache blocking |
+| FFN layer optimization | 72% of time | 60% | Fused operations, better tiling |
+| AVX-512 evaluation | Not tested | Benchmark | Check ISA support, compare vs AVX2 |
+| Memory bandwidth | ~30 GB/s | ~40 GB/s | Prefetch hints, NUMA awareness |
+
+**Hardware Constraints:**
+- CPU: Intel Core Ultra 7 155H (22 cores, AVX2, AVX-512, AVX-VNNI)
+- RAM: DDR5 (~50 GB/s theoretical, ~30 GB/s practical)
+- No discrete GPU currently available
+
 ---
 
 ## 5. Running Examples
@@ -353,6 +383,7 @@ cargo run --release --example serve_mnist
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.14.0 | 2025-12-30 | **Blocked GPU issues**: Added Section 4.3 tracking trueno issues #72-76 blocked on GPU hardware; Added Section 4.4 CPU-only optimization targets |
 | 1.13.0 | 2025-12-30 | **Added examples section**: Documented `cargo run --example` commands for benchmarking, inference, model loading, debugging, GPU, and server examples |
 | 1.12.0 | 2025-12-30 | **Phi-2 performance mode**: 5.5 tok/s (2.5x vs powersave); CPU governor impact documented; 29% roofline efficiency |
 | 1.11.0 | 2025-12-30 | **Phi-2 benchmarked**: 2.1 tok/s (5% of llama.cpp), 11% roofline efficiency; All 3 target models complete |
