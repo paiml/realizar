@@ -1,9 +1,9 @@
 # SIMD Optimization Specification with Popperian Falsification
 
 **Document ID:** REALIZAR-SIMD-SPEC-001
-**Version:** 1.6.0
+**Version:** 1.8.0
 **Status:** ACTIVE
-**Date:** 2025-12-29
+**Date:** 2025-12-30
 **Authors:** Claude Code, Noah Gift
 **Classification:** Engineering Specification with QA Falsification Framework
 
@@ -11,11 +11,18 @@
 
 ## 1. Current Performance Baseline
 
-### 1.1 Measured Results (2025-12-29)
+### 1.1 Measured Results (2025-12-30)
 
-| Model | Quantization | Throughput | Startup | Hardware |
-|-------|--------------|------------|---------|----------|
-| TinyLlama-1.1B | Q4_0 | **7-11 tok/s** | **118-176ms** | Intel Core Ultra 7 155H (22 cores) |
+| Model | Params | Quantization | Throughput | Startup | Hardware |
+|-------|--------|--------------|------------|---------|----------|
+| TinyLlama-1.1B | 1.1B | Q4_0 | **7-11 tok/s** | **118-176ms** | Intel Core Ultra 7 155H (22 cores) |
+| Qwen2.5-Coder-0.5B | 0.5B | Q4_0 | *pending* | *pending* | Intel Core Ultra 7 155H (22 cores) |
+| Phi-2 | 2.7B | Q4_0 | *pending* | *pending* | Intel Core Ultra 7 155H (22 cores) |
+
+**Target Models (Priority Order):**
+1. **Qwen2.5-Coder-0.5B** - Smallest coding model, ~300MB Q4_0, expected ~20+ tok/s
+2. **TinyLlama-1.1B** - Current benchmark, ~637MB Q4_0, 7-11 tok/s achieved
+3. **Phi-2** - Microsoft's efficient model, ~1.5GB Q4_0, expected ~5-8 tok/s
 
 **Previous baseline:** 0.8-1.4 tok/s, 1.2s startup
 **Improvement:** **8-14x inference speedup**, **6.7x faster startup**
@@ -104,16 +111,20 @@ arXiv: [2210.17323](https://arxiv.org/abs/2210.17323)
 **[7] Williams, S., Waterman, A., & Patterson, D. (2009).** "Roofline: An Insightful Visual Performance Model for Multicore Architectures." *Communications of the ACM*, 52(4), 65-76.
 DOI: [10.1145/1498765.1498785](https://doi.org/10.1145/1498765.1498785)
 
-**Roofline Analysis for TinyLlama-1.1B Q4_0:**
-```
-Model size: 637 MB (Q4_0)
-DDR5 bandwidth (laptop): ~50 GB/s theoretical, ~30 GB/s practical
-Minimum time per token: 637 MB / 30 GB/s = 21 ms
-Maximum theoretical throughput: 1000 / 21 = ~47 tok/s
+**Roofline Analysis (DDR5 ~30 GB/s practical bandwidth):**
 
-Realizar: 4.2-7.1 tok/s → 9-15% of roofline ✓
-Candle: 9.2-9.9 tok/s → 20-21% of roofline
-llama.cpp: ~15-20 tok/s → 32-43% of roofline
+| Model | Q4_0 Size | Min Time/Token | Max Theoretical | Current | Efficiency |
+|-------|-----------|----------------|-----------------|---------|------------|
+| Qwen2.5-Coder-0.5B | ~300 MB | 10 ms | ~100 tok/s | *pending* | - |
+| TinyLlama-1.1B | 637 MB | 21 ms | ~47 tok/s | 7-11 tok/s | 15-23% |
+| Phi-2 | ~1.5 GB | 50 ms | ~20 tok/s | *pending* | - |
+
+```
+DDR5 bandwidth (laptop): ~50 GB/s theoretical, ~30 GB/s practical
+
+Qwen2.5-Coder-0.5B: 300 MB / 30 GB/s = 10 ms → ~100 tok/s theoretical
+TinyLlama-1.1B:     637 MB / 30 GB/s = 21 ms → ~47 tok/s theoretical
+Phi-2:              1.5 GB / 30 GB/s = 50 ms → ~20 tok/s theoretical
 ```
 
 ---
@@ -237,6 +248,7 @@ The following observations would **falsify** our optimization strategy:
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.8.0 | 2025-12-30 | **Multi-model targets**: Added Qwen2.5-Coder-0.5B and Phi-2 as benchmark targets; Updated roofline analysis for all models |
 | 1.7.0 | 2025-12-30 | **AVX-VNNI + Zero-alloc**: Added `fused_q4_0_q8_0_parallel_matvec_into` for zero-allocation; AVX-VNNI vpdpbusd implementation (disabled - similar throughput to AVX2) |
 | 1.6.0 | 2025-12-29 | **Aligned Hypotheses with Code**: Updated H1-H5 to match `tests/falsification_tests.rs`; Updated `quantize.rs` line numbers. |
 | 1.5.0 | 2025-12-29 | **Verified Line Numbers**: Updated references for v0.3.1; Confirmed SIMD nibble extraction at `src/quantize.rs:2435` |
