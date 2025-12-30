@@ -2924,32 +2924,18 @@ pub fn fused_q4_0_q8_0_parallel_matvec(
     // Quantize activations to Q8_0 ONCE (amortized over all rows)
     let (q8_scales, q8_quants) = quantize_activations_q8_0(activations);
 
-    // Parallelization threshold - tuned for Intel Core Ultra 7 155H (22 cores)
-    // With 22 cores, parallel wins for medium-large matrices
-    const PARALLEL_THRESHOLD: usize = 256;
+    // Note: rayon::prelude imported at function scope above
 
-    let output: Vec<f32> = if out_dim < PARALLEL_THRESHOLD {
-        // Sequential path for small matrices
-        (0..out_dim)
-            .map(|o| {
-                let row_start = o * bytes_per_row;
-                let row_end = row_start + bytes_per_row;
-                let row_data = &weight_data[row_start..row_end];
-                fused_q4_0_q8_0_dot_simd(row_data, &q8_scales, &q8_quants, in_dim)
-            })
-            .collect()
-    } else {
-        // Parallel path
-        (0..out_dim)
-            .into_par_iter()
-            .map(|o| {
-                let row_start = o * bytes_per_row;
-                let row_end = row_start + bytes_per_row;
-                let row_data = &weight_data[row_start..row_end];
-                fused_q4_0_q8_0_dot_simd(row_data, &q8_scales, &q8_quants, in_dim)
-            })
-            .collect()
-    };
+    // Use per-row parallelism for best load balancing
+    let output: Vec<f32> = (0..out_dim)
+        .into_par_iter()
+        .map(|o| {
+            let row_start = o * bytes_per_row;
+            let row_end = row_start + bytes_per_row;
+            let row_data = &weight_data[row_start..row_end];
+            fused_q4_0_q8_0_dot_simd(row_data, &q8_scales, &q8_quants, in_dim)
+        })
+        .collect();
 
     Ok(output)
 }
@@ -2992,32 +2978,16 @@ pub fn fused_q4_0_q8_0_parallel_matvec_prequant(
         });
     }
 
-    // Parallelization threshold - tuned for Intel Core Ultra 7 155H (22 cores)
-    // With 22 cores, parallel wins for medium-large matrices
-    const PARALLEL_THRESHOLD: usize = 256;
-
-    let output: Vec<f32> = if out_dim < PARALLEL_THRESHOLD {
-        // Sequential path for small matrices
-        (0..out_dim)
-            .map(|o| {
-                let row_start = o * bytes_per_row;
-                let row_end = row_start + bytes_per_row;
-                let row_data = &weight_data[row_start..row_end];
-                fused_q4_0_q8_0_dot_simd(row_data, q8_scales, q8_quants, in_dim)
-            })
-            .collect()
-    } else {
-        // Parallel path
-        (0..out_dim)
-            .into_par_iter()
-            .map(|o| {
-                let row_start = o * bytes_per_row;
-                let row_end = row_start + bytes_per_row;
-                let row_data = &weight_data[row_start..row_end];
-                fused_q4_0_q8_0_dot_simd(row_data, q8_scales, q8_quants, in_dim)
-            })
-            .collect()
-    };
+    // Use parallel for better throughput (rayon imported at function scope)
+    let output: Vec<f32> = (0..out_dim)
+        .into_par_iter()
+        .map(|o| {
+            let row_start = o * bytes_per_row;
+            let row_end = row_start + bytes_per_row;
+            let row_data = &weight_data[row_start..row_end];
+            fused_q4_0_q8_0_dot_simd(row_data, q8_scales, q8_quants, in_dim)
+        })
+        .collect();
 
     Ok(output)
 }

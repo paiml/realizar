@@ -2753,51 +2753,41 @@ impl QuantizedAprTransformerQ4 {
                 normed.clone()
             };
 
-            // FFN with parallel up/gate for SwiGLU models
+            // FFN with SwiGLU (sequential to avoid nested parallelism overhead)
             let intermediate_dim = layer.ffn_up_weight.out_dim;
             let ffn_up = if let Some(gate) = &layer.ffn_gate_weight {
-                // SwiGLU: Parallel FFN up + gate computation using rayon::join
-                // Both use the same input, so we can compute them in parallel
-                let (ffn_up_result, ffn_gate_result) = rayon::join(
-                    || {
-                        let mut up = Vec::with_capacity(seq_len * intermediate_dim);
-                        for s in 0..seq_len {
-                            let input = &ffn_input[s * hidden_dim..(s + 1) * hidden_dim];
-                            if let Ok(u) = fused_q4_0_q8_0_parallel_matvec(
-                                &layer.ffn_up_weight.data,
-                                input,
-                                hidden_dim,
-                                intermediate_dim,
-                            ) {
-                                up.extend(u);
-                            }
-                        }
-                        up
-                    },
-                    || {
-                        let mut g = Vec::with_capacity(seq_len * intermediate_dim);
-                        for s in 0..seq_len {
-                            let input = &ffn_input[s * hidden_dim..(s + 1) * hidden_dim];
-                            if let Ok(gv) = fused_q4_0_q8_0_parallel_matvec(
-                                &gate.data,
-                                input,
-                                hidden_dim,
-                                intermediate_dim,
-                            ) {
-                                g.extend(gv);
-                            }
-                        }
-                        g
-                    },
-                );
+                // SwiGLU: Sequential up + gate (both matmuls use internal parallelism)
+                let mut ffn_up_out = Vec::with_capacity(seq_len * intermediate_dim);
+                let mut ffn_gate_out = Vec::with_capacity(seq_len * intermediate_dim);
+
+                for s in 0..seq_len {
+                    let input = &ffn_input[s * hidden_dim..(s + 1) * hidden_dim];
+
+                    // Up projection
+                    let u = fused_q4_0_q8_0_parallel_matvec(
+                        &layer.ffn_up_weight.data,
+                        input,
+                        hidden_dim,
+                        intermediate_dim,
+                    )?;
+                    ffn_up_out.extend(u);
+
+                    // Gate projection
+                    let g = fused_q4_0_q8_0_parallel_matvec(
+                        &gate.data,
+                        input,
+                        hidden_dim,
+                        intermediate_dim,
+                    )?;
+                    ffn_gate_out.extend(g);
+                }
 
                 // Apply SiLU to gate and multiply with up
-                let mut up = ffn_up_result;
-                for i in 0..up.len() {
-                    let silu = ffn_gate_result[i] / (1.0 + (-ffn_gate_result[i]).exp());
-                    up[i] *= silu;
+                for i in 0..ffn_up_out.len() {
+                    let silu = ffn_gate_out[i] / (1.0 + (-ffn_gate_out[i]).exp());
+                    ffn_up_out[i] *= silu;
                 }
-                up
+                ffn_up_out
             } else {
                 // Non-SwiGLU: Sequential up projection + GELU
                 let mut up = Vec::with_capacity(seq_len * intermediate_dim);
@@ -3278,19 +3268,11 @@ impl QuantizedAprTransformerQ4 {
         let head_dim = self.config.hidden_dim / self.config.num_heads;
         let half_dim = head_dim / 2;
         let theta = self.config.rope_theta;
+        let pos_f32 = position as f32;
+        let head_dim_f32 = head_dim as f32;
 
-        // Pre-compute cos/sin values for all dimensions
-        let mut cos_vals = Vec::with_capacity(half_dim);
-        let mut sin_vals = Vec::with_capacity(half_dim);
-
-        for i in 0..half_dim {
-            let freq = 1.0 / theta.powf(2.0 * i as f32 / head_dim as f32);
-            let angle = position as f32 * freq;
-            cos_vals.push(angle.cos());
-            sin_vals.push(angle.sin());
-        }
-
-        // Apply rotation to each head
+        // Apply rotation to each head with inline cos/sin computation
+        // Avoids allocation by computing cos/sin on the fly
         for h in 0..num_heads_in_x {
             let head_start = h * head_dim;
             let idx2_start = head_start + half_dim;
@@ -3299,15 +3281,65 @@ impl QuantizedAprTransformerQ4 {
                 continue;
             }
 
-            // Apply rotation: [cos -sin; sin cos] * [x1; x2]
-            for i in 0..half_dim {
+            // Process 4 elements at a time for better ILP
+            let mut i = 0;
+            while i + 4 <= half_dim {
+                // Compute 4 frequencies
+                let freq0 = 1.0 / theta.powf(2.0 * i as f32 / head_dim_f32);
+                let freq1 = 1.0 / theta.powf(2.0 * (i + 1) as f32 / head_dim_f32);
+                let freq2 = 1.0 / theta.powf(2.0 * (i + 2) as f32 / head_dim_f32);
+                let freq3 = 1.0 / theta.powf(2.0 * (i + 3) as f32 / head_dim_f32);
+
+                // Compute 4 angles
+                let angle0 = pos_f32 * freq0;
+                let angle1 = pos_f32 * freq1;
+                let angle2 = pos_f32 * freq2;
+                let angle3 = pos_f32 * freq3;
+
+                // Compute cos/sin (use sincos if available for better performance)
+                let (sin0, cos0) = angle0.sin_cos();
+                let (sin1, cos1) = angle1.sin_cos();
+                let (sin2, cos2) = angle2.sin_cos();
+                let (sin3, cos3) = angle3.sin_cos();
+
+                // Load x1 and x2 values
+                let x1_0 = x[head_start + i];
+                let x1_1 = x[head_start + i + 1];
+                let x1_2 = x[head_start + i + 2];
+                let x1_3 = x[head_start + i + 3];
+
+                let x2_0 = x[idx2_start + i];
+                let x2_1 = x[idx2_start + i + 1];
+                let x2_2 = x[idx2_start + i + 2];
+                let x2_3 = x[idx2_start + i + 3];
+
+                // Apply rotation: [cos -sin; sin cos] * [x1; x2]
+                x[head_start + i] = x1_0 * cos0 - x2_0 * sin0;
+                x[head_start + i + 1] = x1_1 * cos1 - x2_1 * sin1;
+                x[head_start + i + 2] = x1_2 * cos2 - x2_2 * sin2;
+                x[head_start + i + 3] = x1_3 * cos3 - x2_3 * sin3;
+
+                x[idx2_start + i] = x1_0 * sin0 + x2_0 * cos0;
+                x[idx2_start + i + 1] = x1_1 * sin1 + x2_1 * cos1;
+                x[idx2_start + i + 2] = x1_2 * sin2 + x2_2 * cos2;
+                x[idx2_start + i + 3] = x1_3 * sin3 + x2_3 * cos3;
+
+                i += 4;
+            }
+
+            // Handle remaining elements
+            while i < half_dim {
+                let freq = 1.0 / theta.powf(2.0 * i as f32 / head_dim_f32);
+                let angle = pos_f32 * freq;
+                let (sin_val, cos_val) = angle.sin_cos();
+
                 let x1 = x[head_start + i];
                 let x2 = x[idx2_start + i];
-                let cos_val = cos_vals[i];
-                let sin_val = sin_vals[i];
 
                 x[head_start + i] = x1 * cos_val - x2 * sin_val;
                 x[idx2_start + i] = x1 * sin_val + x2 * cos_val;
+
+                i += 1;
             }
         }
     }
@@ -3317,7 +3349,7 @@ impl QuantizedAprTransformerQ4 {
     /// Implements multi-head attention with Grouped Query Attention (GQA),
     /// where multiple Q heads share the same K/V heads.
     ///
-    /// Uses rayon to parallelize across attention heads for 2-3x speedup.
+    /// Optimized for single-token inference (seq_len=1).
     fn causal_attention(
         &self,
         q: &[f32],
@@ -3325,8 +3357,6 @@ impl QuantizedAprTransformerQ4 {
         v: &[f32],
         seq_len: usize,
     ) -> Vec<f32> {
-        use rayon::prelude::*;
-
         let num_heads = self.config.num_heads;
         let num_kv_heads = self.config.num_kv_heads;
         let head_dim = self.config.hidden_dim / num_heads;
@@ -3338,6 +3368,24 @@ impl QuantizedAprTransformerQ4 {
         // Q has num_heads heads, K/V have num_kv_heads heads
         let q_dim = num_heads * head_dim;
         let kv_dim = num_kv_heads * head_dim;
+
+        // Fast path for single token (common case in autoregressive generation)
+        // With seq_len=1 and causal mask, each head just copies its V vector
+        // (softmax of single element is 1.0)
+        if seq_len == 1 {
+            let mut output = vec![0.0f32; q_dim];
+            for head in 0..num_heads {
+                let kv_head = head / group_size;
+                let v_offset = kv_head * head_dim;
+                let out_offset = head * head_dim;
+                output[out_offset..out_offset + head_dim]
+                    .copy_from_slice(&v[v_offset..v_offset + head_dim]);
+            }
+            return output;
+        }
+
+        // General case for seq_len > 1
+        use rayon::prelude::*;
 
         // Parallel threshold - use parallel for 4+ heads
         const PARALLEL_HEAD_THRESHOLD: usize = 4;
