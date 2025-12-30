@@ -504,7 +504,7 @@ Simple unit tests would NOT have caught this - only sequential TUI simulation re
 ---
 
 **Last Updated:** 2025-12-30
-**Realizar Version:** 0.3.3 (APR Q4_0 GGUF Parity, 1.19x faster than GGUF)
+**Realizar Version:** 0.3.4 (Rayon Parallelization, 2.1x speedup, 1.36x faster than GGUF)
 **GPU Spec Version:** v5.1.0 (QA Suite Complete + 95% Coverage)
 **Trueno Version:** 0.4.2
 **Aprender Version:** 0.1.0
@@ -520,10 +520,11 @@ Simple unit tests would NOT have caught this - only sequential TUI simulation re
 **Benchmarks:** 4 suites (tensor_ops, inference, cache, tokenizer)
 **Examples:** 7 (inference, api_server, tokenization, safetensors_loading, model_cache, gguf_loading, convert_and_bench_apr)
 **Performance:**
-  - GGUF Q4_0: 6.7-11.9 tok/s (Candle parity)
-  - **APR Q4_0: 8.0 tok/s (1.19x faster than GGUF)** ✅ NEW
+  - **APR Q4_0: 17.0-17.3 tok/s (1.36x faster than GGUF)** ✅ v0.3.4
+  - GGUF Q4_0: 12.5-13.0 tok/s (Candle parity exceeded)
   - APR F32: 0.1 tok/s (memory bandwidth limited)
   - <1ms p50 for 5-token generation
+  - **38-41% of llama.cpp** (target: 100%+)
 **CLI Binary:** ✅ `realizar serve --demo` (65% coverage)
 **Quality Improvements:**
   - Added workspace-level lints (unsafe_op_in_unsafe_fn, unreachable_pub, checked_conversions)
@@ -536,12 +537,14 @@ Simple unit tests would NOT have caught this - only sequential TUI simulation re
   - M30: Resource Management (ConnectionPool, ResourceLimiter, ResourceMonitor)
   - M31: Resilience (RetryPolicy, CircuitBreaker, BulkheadManager)
   - M32: Diagnostics (Logger, PhaseTimer, MemoryTracker, DiagnosticsCollector, DebugMode)
-**APR Q4_0 Format (v0.3.3):**
+**APR Q4_0 Format (v0.3.4):**
   - `QuantizedAprTransformerQ4` - Pure Rust quantized inference
   - RoPE (Rotary Position Embeddings) with configurable theta
   - Grouped Query Attention (GQA) for TinyLlama compatibility
   - SIMD matmul via `fused_q4_0_q8_0_parallel_matvec`
-  - **80x faster than F32 APR** (quantization essential)
-  - **1.19x faster than GGUF** (target: 50+ tok/s to exceed llama.cpp)
-**Latest Achievement:** APR Q4_0 achieves GGUF parity with pure Rust format
-**Completed:** Weeks 1-8 + GPU performance parity milestones M1-M32 + APR Q4_0 (M2)
+  - **Parallel attention heads** via rayon (32 heads parallelized)
+  - **Parallel FFN up/gate** via rayon::join
+  - **2.1x speedup** from parallelization (8.0 → 17.0 tok/s)
+  - **1.36x faster than GGUF** (target: 50+ tok/s to exceed llama.cpp)
+**Latest Achievement:** Rayon parallelization achieves 2.1x speedup, 41% of llama.cpp
+**Completed:** Weeks 1-8 + GPU performance parity milestones M1-M32 + APR Q4_0 (M2) + Rayon (M3)

@@ -23,29 +23,32 @@ By the end of this chapter, you will understand:
 
 ## 1. The Performance Challenge
 
-### Current State vs Target (v0.3.3)
+### Current State vs Target (v0.3.4)
 
 | Runtime | Backend | Format | Throughput | vs llama.cpp | Status |
 |---------|---------|--------|------------|--------------|--------|
 | llama.cpp | CPU (OpenMP) | GGUF | 42-45 tok/s | 100% | Production |
+| **Realizar** | CPU (AVX2) | **APR Q4_0** | **17.0-17.3 tok/s** | **38-41%** | **v0.3.4** |
+| **Realizar** | CPU (AVX2) | GGUF | **12.5-13.0 tok/s** | **28-31%** | v0.3.4 |
 | Candle | CPU | GGUF | 9.2-9.9 tok/s | 22% | Production |
-| **Realizar** | CPU (AVX2) | GGUF | **8.4-11.9 tok/s** | **20-26%** | v0.3.2 |
-| **Realizar** | CPU (AVX2) | **APR Q4_0** | **6.7-8.0 tok/s** | **15-18%** | **v0.3.3** |
 | Realizar | WGPU | APR | TBD | TBD | In Development |
 
 **Note:** All benchmarks on TinyLlama-1.1B Q4_0 model, Intel Core Ultra 7 155H (22 cores).
 
-### APR Format Achievement (v0.3.3)
+### APR Format Achievement (v0.3.4)
 
-The new `QuantizedAprTransformerQ4` format achieves **GGUF parity** while using a pure-Rust serialization format:
+The `QuantizedAprTransformerQ4` format with **rayon parallelization** achieves **1.36x faster than GGUF**:
 
 | Format | Size (MB) | Forward (ms) | Throughput | vs GGUF |
 |--------|-----------|--------------|------------|---------|
-| GGUF Q4_0 | 637.7 | 148.2 | 6.7 tok/s | 1.00x |
-| **APR Q4_0** | 861.3 | 124.9 | **8.0 tok/s** | **1.19x** |
+| GGUF Q4_0 | 637.7 | 79.9 | 12.5 tok/s | 1.00x |
+| **APR Q4_0** | 861.3 | 58.9 | **17.0 tok/s** | **1.36x** |
 | APR F32 | 4196.4 | 12019.2 | 0.1 tok/s | 0.01x |
 
-**Key insight:** Quantization is essential - APR Q4_0 is **80x faster** than APR F32 due to reduced memory bandwidth.
+**Key optimizations in v0.3.4:**
+- Parallel attention heads via rayon (32 heads parallelized)
+- Parallel FFN up/gate computation via rayon::join
+- 2.1x speedup from parallel optimizations (8.0 → 17.0 tok/s)
 
 ### Milestones
 
@@ -53,23 +56,27 @@ The new `QuantizedAprTransformerQ4` format achieves **GGUF parity** while using 
 |-----------|--------|--------|--------|
 | M1: CPU Parity | Candle parity | ~10 tok/s CPU | **✅ Achieved (v0.3.2)** |
 | M2: APR Q4_0 Parity | GGUF parity | Match GGUF tok/s | **✅ Achieved (v0.3.3)** |
-| M3: llama.cpp 50% | Half of llama.cpp | 21 tok/s | **In Progress** |
-| M4: llama.cpp 100% | Full llama.cpp parity | 42+ tok/s | Planned |
-| M5: Exceed llama.cpp | Beat llama.cpp | 50+ tok/s | **Target** |
+| M3: Rayon Parallelization | 2x speedup | 16+ tok/s | **✅ Achieved (v0.3.4)** |
+| M4: llama.cpp 50% | Half of llama.cpp | 21 tok/s | **In Progress (41%)** |
+| M5: llama.cpp 100% | Full llama.cpp parity | 42+ tok/s | Planned |
+| M6: Exceed llama.cpp | Beat llama.cpp | 50+ tok/s | **Target** |
 
 ### Roadmap to Exceed llama.cpp
 
-To go from ~8 tok/s to 50+ tok/s (6x improvement), we need:
+Progress from ~8 tok/s to 50+ tok/s:
 
 | Optimization | Expected Speedup | Cumulative | Status |
 |--------------|------------------|------------|--------|
-| **Baseline APR Q4_0** | 1.0x | 8 tok/s | ✅ Done |
-| Multi-threaded matmul (rayon) | 2-3x | 16-24 tok/s | Planned |
-| KV Cache (skip K/V recompute) | 1.5-2x | 24-48 tok/s | Planned |
-| SIMD RoPE (trueno vectors) | 1.1-1.2x | 26-58 tok/s | Planned |
-| Flash Attention (tiled) | 1.2-1.5x | 31-87 tok/s | Planned |
-| Memory pooling (avoid allocs) | 1.1-1.2x | 34-104 tok/s | Planned |
+| **Baseline APR Q4_0** | 1.0x | 8 tok/s | ✅ Done (v0.3.3) |
+| **Parallel attention heads (rayon)** | 1.5x | 12 tok/s | **✅ Done (v0.3.4)** |
+| **Parallel FFN up/gate (rayon::join)** | 1.4x | **17 tok/s** | **✅ Done (v0.3.4)** |
+| KV Cache (skip K/V recompute) | 1.5-2x | 25-34 tok/s | Next |
+| SIMD RoPE (trueno vectors) | 1.1-1.2x | 28-41 tok/s | Planned |
+| Flash Attention (tiled) | 1.2-1.5x | 33-61 tok/s | Planned |
+| Memory pooling (avoid allocs) | 1.1-1.2x | 37-73 tok/s | Planned |
 
+**Progress:** 38-41% of llama.cpp achieved (17 tok/s vs 42-45 tok/s)
+**Next target:** KV Cache for 1.5-2x additional speedup
 **Conservative target:** 42+ tok/s (llama.cpp parity)
 **Stretch target:** 50+ tok/s (exceed llama.cpp)
 
