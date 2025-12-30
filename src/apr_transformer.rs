@@ -2689,20 +2689,34 @@ impl QuantizedAprTransformerQ4 {
                 qkv_out.extend(qkv);
             }
 
-            // Simplified attention (no KV cache for benchmark)
-            // For proper attention, would split Q/K/V and compute scaled dot-product
+            // Proper attention with RoPE and causal mask
             let q_dim = num_heads * head_dim;
-            let _kv_dim = num_kv_heads * head_dim;
+            let kv_dim = num_kv_heads * head_dim;
 
-            // Extract Q from QKV output (first q_dim elements)
-            let mut attn_output = Vec::with_capacity(seq_len * hidden_dim);
+            // Extract Q, K, V and apply RoPE to Q and K
+            let mut q_all = Vec::with_capacity(seq_len * q_dim);
+            let mut k_all = Vec::with_capacity(seq_len * kv_dim);
+            let mut v_all = Vec::with_capacity(seq_len * kv_dim);
+
             for s in 0..seq_len {
-                // For single-token benchmark, just use identity attention
-                let q_start = s * qkv_dim;
-                let q = &qkv_out[q_start..q_start + q_dim];
-                // Use Q as attention output (simplified)
-                attn_output.extend_from_slice(q);
+                let qkv_start = s * qkv_dim;
+
+                // Extract Q, K, V for this position (QKV layout: [Q..., K..., V...])
+                let mut q = qkv_out[qkv_start..qkv_start + q_dim].to_vec();
+                let mut k = qkv_out[qkv_start + q_dim..qkv_start + q_dim + kv_dim].to_vec();
+                let v = &qkv_out[qkv_start + q_dim + kv_dim..qkv_start + q_dim + 2 * kv_dim];
+
+                // Apply RoPE to Q and K (position-dependent rotation)
+                self.apply_rope(&mut q, s, num_heads);
+                self.apply_rope(&mut k, s, num_kv_heads);
+
+                q_all.extend_from_slice(&q);
+                k_all.extend_from_slice(&k);
+                v_all.extend_from_slice(v);
             }
+
+            // Compute scaled dot-product attention with causal mask
+            let attn_output = self.causal_attention(&q_all, &k_all, &v_all, seq_len);
 
             // Output projection using SIMD matmul
             let mut proj_out = Vec::with_capacity(seq_len * hidden_dim);
@@ -2840,6 +2854,124 @@ impl QuantizedAprTransformerQ4 {
         }).sum();
 
         embed_size + norm_size + lm_head_size + layer_size
+    }
+
+    /// Apply Rotary Position Embeddings (RoPE) to a tensor
+    ///
+    /// RoPE applies position-dependent rotation to pairs of dimensions,
+    /// enabling the model to learn relative positional information.
+    fn apply_rope(&self, x: &mut [f32], position: usize, num_heads_in_x: usize) {
+        let head_dim = self.config.hidden_dim / self.config.num_heads;
+        let half_dim = head_dim / 2;
+        let theta = self.config.rope_theta;
+
+        // Pre-compute cos/sin values for all dimensions
+        let mut cos_vals = Vec::with_capacity(half_dim);
+        let mut sin_vals = Vec::with_capacity(half_dim);
+
+        for i in 0..half_dim {
+            let freq = 1.0 / theta.powf(2.0 * i as f32 / head_dim as f32);
+            let angle = position as f32 * freq;
+            cos_vals.push(angle.cos());
+            sin_vals.push(angle.sin());
+        }
+
+        // Apply rotation to each head
+        for h in 0..num_heads_in_x {
+            let head_start = h * head_dim;
+            let idx2_start = head_start + half_dim;
+
+            if idx2_start + half_dim > x.len() {
+                continue;
+            }
+
+            // Apply rotation: [cos -sin; sin cos] * [x1; x2]
+            for i in 0..half_dim {
+                let x1 = x[head_start + i];
+                let x2 = x[idx2_start + i];
+                let cos_val = cos_vals[i];
+                let sin_val = sin_vals[i];
+
+                x[head_start + i] = x1 * cos_val - x2 * sin_val;
+                x[idx2_start + i] = x1 * sin_val + x2 * cos_val;
+            }
+        }
+    }
+
+    /// Compute scaled dot-product attention with causal mask and GQA support
+    ///
+    /// Implements multi-head attention with Grouped Query Attention (GQA),
+    /// where multiple Q heads share the same K/V heads.
+    fn causal_attention(
+        &self,
+        q: &[f32],
+        k: &[f32],
+        v: &[f32],
+        seq_len: usize,
+    ) -> Vec<f32> {
+        let num_heads = self.config.num_heads;
+        let num_kv_heads = self.config.num_kv_heads;
+        let head_dim = self.config.hidden_dim / num_heads;
+        let scale = 1.0 / (head_dim as f32).sqrt();
+
+        // GQA: multiple Q heads share each KV head
+        let group_size = num_heads / num_kv_heads;
+
+        // Q has num_heads heads, K/V have num_kv_heads heads
+        let q_dim = num_heads * head_dim;
+        let kv_dim = num_kv_heads * head_dim;
+
+        let mut output = vec![0.0f32; seq_len * q_dim];
+
+        // Process each Q head independently
+        for head in 0..num_heads {
+            // Map Q head to corresponding KV head (GQA grouping)
+            let kv_head = head / group_size;
+
+            let q_head_offset = head * head_dim;
+            let kv_head_offset = kv_head * head_dim;
+
+            // Process each query position
+            for i in 0..seq_len {
+                // Compute attention scores for this query against all keys up to position i (causal)
+                let mut scores = Vec::with_capacity(i + 1);
+                let q_start = i * q_dim + q_head_offset;
+
+                for j in 0..=i {
+                    // Only attend to positions 0..=i (causal mask)
+                    let k_start = j * kv_dim + kv_head_offset;
+
+                    // Dot product Q[i] · K[j]
+                    let mut score = 0.0f32;
+                    for d in 0..head_dim {
+                        score += q[q_start + d] * k[k_start + d];
+                    }
+                    scores.push(score * scale);
+                }
+
+                // Softmax over causal positions
+                let max_score = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                let mut exp_sum = 0.0f32;
+                for s in &mut scores {
+                    *s = (*s - max_score).exp();
+                    exp_sum += *s;
+                }
+                for s in &mut scores {
+                    *s /= exp_sum;
+                }
+
+                // Weighted sum of values
+                let out_start = i * q_dim + q_head_offset;
+                for (j, &weight) in scores.iter().enumerate() {
+                    let v_start = j * kv_dim + kv_head_offset;
+                    for d in 0..head_dim {
+                        output[out_start + d] += weight * v[v_start + d];
+                    }
+                }
+            }
+        }
+
+        output
     }
 }
 
