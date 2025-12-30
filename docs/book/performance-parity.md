@@ -134,6 +134,31 @@ unsafe {
 | vs Candle | 55-72% | **91-120%** |
 | vs llama.cpp | 10-16% | **20-26%** |
 
+### Running the Benchmark
+
+```bash
+# Download TinyLlama Q4_0 model
+wget -O /path/to/tinyllama.gguf \
+  "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_0.gguf"
+
+# Run benchmark (with warmup and 10 iterations)
+GGUF_MODEL=/path/to/tinyllama.gguf cargo run --example bench_forward --release
+```
+
+**Sample Output (verified 2025-12-30):**
+```
+Loading model: /mnt/ssd/models/tinyllama-1.1b-chat-v1.0.Q4_0.gguf
+Model loaded in 0.84s
+Config: hidden_dim=2048, vocab_size=32000, num_layers=22
+
+Warming up (3 iterations)...
+
+Benchmarking single-token forward (10 iterations)...
+Total time for 10 iterations: 1.072s
+Average forward pass: 107.2ms
+Throughput: 9.3 tok/s
+```
+
 ### Test
 
 ```rust
