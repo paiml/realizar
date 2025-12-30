@@ -21,8 +21,8 @@ use realizar::lambda::{
 // Test: .apr Format Validation
 // =============================================================================
 
-/// Valid .apr magic bytes
-const APR_MAGIC: &[u8; 4] = b"APR\0";
+/// Valid .apr magic bytes (APRN = 0x4150524E)
+const APR_MAGIC: &[u8; 4] = b"APRN";
 
 /// Create a minimal valid .apr model for testing
 fn create_test_apr_model(name: &str) -> Vec<u8> {
@@ -97,7 +97,7 @@ fn test_apr_short_model_accepted() {
 
 #[test]
 fn test_lambda_handler_inference() {
-    let model_bytes: &'static [u8] = b"APR\0\x01\x00\x00\x00inference_test";
+    let model_bytes: &'static [u8] = b"APRN\x01\x00\x00\x00inference_test";
     let handler = LambdaHandler::from_bytes(model_bytes).expect("handler creation failed");
 
     let request = LambdaRequest {
@@ -114,7 +114,7 @@ fn test_lambda_handler_inference() {
 
 #[test]
 fn test_lambda_handler_cold_start_detection() {
-    let model_bytes: &'static [u8] = b"APR\0\x01\x00\x00\x00cold_start_test";
+    let model_bytes: &'static [u8] = b"APRN\x01\x00\x00\x00cold_start_test";
     let handler = LambdaHandler::from_bytes(model_bytes).expect("handler creation failed");
 
     let request = LambdaRequest {
@@ -139,7 +139,7 @@ fn test_lambda_handler_cold_start_detection() {
 
 #[test]
 fn test_lambda_batch_inference() {
-    let model_bytes: &'static [u8] = b"APR\0\x01\x00\x00\x00batch_inference_test";
+    let model_bytes: &'static [u8] = b"APRN\x01\x00\x00\x00batch_inference_test";
     let handler = LambdaHandler::from_bytes(model_bytes).expect("handler creation failed");
 
     let batch = BatchLambdaRequest {
@@ -168,7 +168,7 @@ fn test_lambda_batch_inference() {
 
 #[test]
 fn test_lambda_metrics_collection() {
-    let model_bytes: &'static [u8] = b"APR\0\x01\x00\x00\x00metrics_test";
+    let model_bytes: &'static [u8] = b"APRN\x01\x00\x00\x00metrics_test";
     let handler = LambdaHandler::from_bytes(model_bytes).expect("handler creation failed");
     let mut metrics = LambdaMetrics::new();
 
@@ -234,7 +234,7 @@ fn test_lambda_batch_metrics() {
 
 #[test]
 fn test_various_feature_sizes() {
-    let model_bytes: &'static [u8] = b"APR\0\x01\x00\x00\x00feature_size_test";
+    let model_bytes: &'static [u8] = b"APRN\x01\x00\x00\x00feature_size_test";
     let handler = LambdaHandler::from_bytes(model_bytes).expect("handler creation failed");
 
     // Test different feature vector sizes
@@ -257,7 +257,7 @@ fn test_various_feature_sizes() {
 
 #[test]
 fn test_special_float_values() {
-    let model_bytes: &'static [u8] = b"APR\0\x01\x00\x00\x00special_float_test";
+    let model_bytes: &'static [u8] = b"APRN\x01\x00\x00\x00special_float_test";
     let handler = LambdaHandler::from_bytes(model_bytes).expect("handler creation failed");
 
     // Test with special float values
@@ -297,7 +297,7 @@ fn test_special_float_values() {
 
 #[test]
 fn test_model_id_in_request() {
-    let model_bytes: &'static [u8] = b"APR\0\x01\x00\x00\x00model_id_test";
+    let model_bytes: &'static [u8] = b"APRN\x01\x00\x00\x00model_id_test";
     let handler = LambdaHandler::from_bytes(model_bytes).expect("handler creation failed");
 
     // Request with model_id
@@ -312,7 +312,7 @@ fn test_model_id_in_request() {
 
 #[test]
 fn test_batch_with_mixed_model_ids() {
-    let model_bytes: &'static [u8] = b"APR\0\x01\x00\x00\x00mixed_model_id_test";
+    let model_bytes: &'static [u8] = b"APRN\x01\x00\x00\x00mixed_model_id_test";
     let handler = LambdaHandler::from_bytes(model_bytes).expect("handler creation failed");
 
     let batch = BatchLambdaRequest {
@@ -343,7 +343,7 @@ fn test_batch_with_mixed_model_ids() {
 
 #[test]
 fn test_empty_batch_error() {
-    let model_bytes: &'static [u8] = b"APR\0\x01\x00\x00\x00empty_batch_test";
+    let model_bytes: &'static [u8] = b"APRN\x01\x00\x00\x00empty_batch_test";
     let handler = LambdaHandler::from_bytes(model_bytes).expect("handler creation failed");
 
     let batch = BatchLambdaRequest {
@@ -421,7 +421,7 @@ fn test_batch_request_json_serialization() {
 
 #[test]
 fn test_inference_latency_reasonable() {
-    let model_bytes: &'static [u8] = b"APR\0\x01\x00\x00\x00latency_test";
+    let model_bytes: &'static [u8] = b"APRN\x01\x00\x00\x00latency_test";
     let handler = LambdaHandler::from_bytes(model_bytes).expect("handler creation failed");
 
     let request = LambdaRequest {
@@ -445,7 +445,7 @@ fn test_inference_latency_reasonable() {
 
 #[test]
 fn test_batch_throughput() {
-    let model_bytes: &'static [u8] = b"APR\0\x01\x00\x00\x00throughput_test";
+    let model_bytes: &'static [u8] = b"APRN\x01\x00\x00\x00throughput_test";
     let handler = LambdaHandler::from_bytes(model_bytes).expect("handler creation failed");
 
     let batch = BatchLambdaRequest {
