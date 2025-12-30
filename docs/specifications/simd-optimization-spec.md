@@ -1,7 +1,7 @@
 # SIMD Optimization Specification with Popperian Falsification
 
 **Document ID:** REALIZAR-SIMD-SPEC-001
-**Version:** 1.15.0
+**Version:** 1.16.0
 **Status:** ACTIVE
 **Date:** 2025-12-30
 **Authors:** Claude Code, Noah Gift
@@ -267,8 +267,8 @@ Focus areas that can be developed and tested on current hardware (Intel Core Ult
 
 | Target | Current | Goal | Approach |
 |--------|---------|------|----------|
-| Roofline efficiency | 29% | 50%+ | Memory prefetch, cache blocking |
-| FFN layer optimization | 72% of time | 60% | Fused operations, better tiling |
+| Roofline efficiency | 17-19% (FFN) | 50%+ | **ROOT CAUSE**: Rayon per-row overhead; fix with chunking |
+| FFN layer optimization | 72% of time | 60% | **FIX FOUND**: Add `with_min_len(64)` to Q4_0_Q8_0 matvec |
 | ~~AVX-512 evaluation~~ | **Not available** | N/A | Intel removed from Meteor Lake (hybrid cores) |
 | AVX-VNNI vs AVX2 | **1.06x** | N/A | Measured: 286 vs 305 ns/dot - not worth switching |
 | Memory bandwidth | ~30 GB/s | ~40 GB/s | Prefetch hints, NUMA awareness |
@@ -278,6 +278,35 @@ Focus areas that can be developed and tested on current hardware (Intel Core Ult
 - SIMD: AVX2, FMA, AVX-VNNI (**no AVX-512** - disabled on hybrid architectures)
 - RAM: DDR5 (~50 GB/s theoretical, ~30 GB/s practical)
 - No discrete GPU currently available
+
+### 4.5 FFN Profiling Results (2025-12-30)
+
+**Qwen2.5-Coder-0.5B FFN Breakdown:**
+
+| Operation | Theoretical | Actual | Efficiency |
+|-----------|-------------|--------|------------|
+| Up projection | 0.08 ms | 0.46 ms | 17.8% |
+| Gate projection | 0.08 ms | 0.42 ms | 19.4% |
+| Down projection | 0.08 ms | 0.47 ms | 17.2% |
+| SiLU activation | - | 0.02 ms | N/A |
+| **Total FFN** | **0.25 ms** | **1.35 ms** | **18.1%** |
+
+**Root Cause Analysis:**
+- Gap: 81.9% of time is overhead (not memory bandwidth)
+- FFN weights (7.4 MB) fit in L3 cache (24 MB) - NOT memory bound
+- Per-row parallelism creates 4864 Rayon tasks for 22 threads
+- Each thread processes only 20-111 KB - too small to amortize sync overhead
+
+**Fix (not yet applied):**
+```rust
+// Current (line 3039 in quantize.rs):
+(0..out_dim).into_par_iter()
+
+// Should be:
+(0..out_dim).into_par_iter().with_min_len(64)
+```
+
+This matches the Q4K implementation (line 2210) which already has chunking.
 
 ---
 
@@ -385,6 +414,7 @@ cargo run --release --example serve_mnist
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.16.0 | 2025-12-30 | **FFN profiling**: Found 81.9% overhead from Rayon per-row tasks; Root cause is missing `with_min_len(64)`; 17-19% roofline efficiency |
 | 1.15.0 | 2025-12-30 | **AVX-512/VNNI evaluation**: No AVX-512 on Meteor Lake; AVX-VNNI benchmarked at 1.06x vs AVX2 (not worth enabling); Added bench_simd_dot example |
 | 1.14.0 | 2025-12-30 | **Blocked GPU issues**: Added Section 4.3 tracking trueno issues #72-76 blocked on GPU hardware; Added Section 4.4 CPU-only optimization targets |
 | 1.13.0 | 2025-12-30 | **Added examples section**: Documented `cargo run --example` commands for benchmarking, inference, model loading, debugging, GPU, and server examples |
