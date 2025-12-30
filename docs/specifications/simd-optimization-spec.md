@@ -1,7 +1,7 @@
 # SIMD Optimization Specification with Popperian Falsification
 
 **Document ID:** REALIZAR-SIMD-SPEC-001
-**Version:** 1.11.0
+**Version:** 1.12.0
 **Status:** ACTIVE
 **Date:** 2025-12-30
 **Authors:** Claude Code, Noah Gift
@@ -17,12 +17,17 @@
 |-------|--------|--------------|------------|---------|----------|
 | Qwen2.5-Coder-0.5B | 0.5B | Q4_0 | **16-21 tok/s** | **~50ms** | Intel Core Ultra 7 155H (22 cores) |
 | TinyLlama-1.1B | 1.1B | Q4_0 | **7-11 tok/s** | **118-176ms** | Intel Core Ultra 7 155H (22 cores) |
-| Phi-2 | 2.7B | Q4_0 | **1.8-2.1 tok/s** | **~470ms** | Intel Core Ultra 7 155H (22 cores) |
+| Phi-2 | 2.7B | Q4_0 | **5-6 tok/s** | **~180ms** | Intel Core Ultra 7 155H (22 cores) |
 
 **Target Models (All Benchmarked):**
 1. **Qwen2.5-Coder-0.5B** - Smallest coding model, 409MB Q4_0, **21.3 tok/s** (51% of llama.cpp)
 2. **TinyLlama-1.1B** - Primary benchmark, 637MB Q4_0, **7-11 tok/s** (17-26% of llama.cpp)
-3. **Phi-2** - Microsoft's 2.7B model, 1.6GB Q4_0, **2.1 tok/s** (5% of llama.cpp)
+3. **Phi-2** - Microsoft's 2.7B model, 1.6GB Q4_0, **5.5 tok/s** (13% of llama.cpp)
+
+**CPU Governor Impact:**
+- `powersave` mode: Phi-2 throttles to ~2 tok/s under sustained load
+- `performance` mode: Phi-2 achieves ~5.5 tok/s (2.5x improvement)
+- Set with: `sudo cpupower frequency-set -g performance`
 
 **Previous baseline:** 0.8-1.4 tok/s, 1.2s startup
 **Improvement:** **8-14x inference speedup**, **6.7x faster startup**
@@ -117,14 +122,14 @@ DOI: [10.1145/1498765.1498785](https://doi.org/10.1145/1498765.1498785)
 |-------|-----------|----------------|-----------------|---------|------------|
 | Qwen2.5-Coder-0.5B | 409 MB | 14 ms | ~73 tok/s | **16-21 tok/s** | 22-29% |
 | TinyLlama-1.1B | 637 MB | 21 ms | ~47 tok/s | 7-11 tok/s | 15-23% |
-| Phi-2 | 1.6 GB | 53 ms | ~19 tok/s | **1.8-2.1 tok/s** | 9-11% |
+| Phi-2 | 1.6 GB | 53 ms | ~19 tok/s | **5-6 tok/s** | 26-32% |
 
 ```
 DDR5 bandwidth (laptop): ~50 GB/s theoretical, ~30 GB/s practical
 
 Qwen2.5-Coder-0.5B: 409 MB / 30 GB/s = 14 ms → ~73 tok/s theoretical (achieved 21 = 29%)
 TinyLlama-1.1B:     637 MB / 30 GB/s = 21 ms → ~47 tok/s theoretical (achieved 11 = 23%)
-Phi-2:              1.6 GB / 30 GB/s = 53 ms → ~19 tok/s theoretical (achieved 2.1 = 11%)
+Phi-2:              1.6 GB / 30 GB/s = 53 ms → ~19 tok/s theoretical (achieved 5.5 = 29%)
 ```
 
 ---
@@ -248,6 +253,7 @@ The following observations would **falsify** our optimization strategy:
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.12.0 | 2025-12-30 | **Phi-2 performance mode**: 5.5 tok/s (2.5x vs powersave); CPU governor impact documented; 29% roofline efficiency |
 | 1.11.0 | 2025-12-30 | **Phi-2 benchmarked**: 2.1 tok/s (5% of llama.cpp), 11% roofline efficiency; All 3 target models complete |
 | 1.10.0 | 2025-12-30 | **Qwen2.5-Coder-0.5B benchmarked**: 21.3 tok/s (51% of llama.cpp), 29% roofline efficiency |
 | 1.9.0 | 2025-12-30 | **Verified Line Numbers**: Updated references for APR/SIMD optimizations to match current codebase structure. |
