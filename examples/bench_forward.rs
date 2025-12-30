@@ -4,8 +4,9 @@ use std::time::Instant;
 
 fn main() {
     // Support custom model path via env var
-    let model_path = std::env::var("GGUF_MODEL")
-        .unwrap_or_else(|_| "/home/noah/src/aprender/tinyllama-1.1b-chat-v1.0.Q4_0.gguf".to_string());
+    let model_path = std::env::var("GGUF_MODEL").unwrap_or_else(|_| {
+        "/home/noah/src/aprender/tinyllama-1.1b-chat-v1.0.Q4_0.gguf".to_string()
+    });
 
     println!("Loading model: {}", model_path);
     let start = Instant::now();
@@ -36,13 +37,24 @@ fn main() {
     let avg_time = total_time / iterations;
     let tok_per_sec = 1.0 / avg_time.as_secs_f64();
 
-    println!("Total time for {} iterations: {:.3}s", iterations, total_time.as_secs_f32());
-    println!("Average forward pass: {:.1}ms", avg_time.as_secs_f64() * 1000.0);
+    println!(
+        "Total time for {} iterations: {:.3}s",
+        iterations,
+        total_time.as_secs_f32()
+    );
+    println!(
+        "Average forward pass: {:.1}ms",
+        avg_time.as_secs_f64() * 1000.0
+    );
     println!("Throughput: {:.1} tok/s", tok_per_sec);
 
     // Test with single token (for validation)
     let logits = model.forward(&[1]).unwrap();
-    println!("\nLogits len: {}, first 5: {:?}", logits.len(), &logits[..5]);
+    println!(
+        "\nLogits len: {}, first 5: {:?}",
+        logits.len(),
+        &logits[..5]
+    );
 
     // Find top prediction
     let (best_idx, best_logit) = logits

@@ -788,7 +788,9 @@ fn run_gguf_inference(
         // For first iteration, use logits from prefill; otherwise compute new ones
         if i > 0 {
             let position = prompt_tokens.len() + i - 1;
-            let last_token = *all_tokens.last().expect("all_tokens should not be empty during generation");
+            let last_token = *all_tokens
+                .last()
+                .expect("all_tokens should not be empty during generation");
             logits = model.forward_cached(last_token, &mut cache, position)?;
         }
 

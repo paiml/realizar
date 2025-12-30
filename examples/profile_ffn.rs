@@ -42,7 +42,10 @@ fn main() {
     println!("  Up projection:   {:.2} MB", up_size as f64 / 1e6);
     println!("  Gate projection: {:.2} MB", up_size as f64 / 1e6);
     println!("  Down projection: {:.2} MB", down_size as f64 / 1e6);
-    println!("  Total per layer: {:.2} MB", (2 * up_size + down_size) as f64 / 1e6);
+    println!(
+        "  Total per layer: {:.2} MB",
+        (2 * up_size + down_size) as f64 / 1e6
+    );
 
     // Create fake Q4_0 weights (properly formatted)
     let mut up_weights = vec![0u8; up_blocks * q4_block_bytes];
@@ -97,7 +100,8 @@ fn main() {
     let mut gate_times = Vec::with_capacity(ITERATIONS);
     for _ in 0..ITERATIONS {
         let start = Instant::now();
-        let _ = fused_q4_0_q8_0_parallel_matvec(&gate_weights, &input, hidden_dim, intermediate_dim);
+        let _ =
+            fused_q4_0_q8_0_parallel_matvec(&gate_weights, &input, hidden_dim, intermediate_dim);
         gate_times.push(start.elapsed().as_micros());
     }
 
@@ -105,8 +109,12 @@ fn main() {
     let mut down_times = Vec::with_capacity(ITERATIONS);
     for _ in 0..ITERATIONS {
         let start = Instant::now();
-        let _ =
-            fused_q4_0_q8_0_parallel_matvec(&down_weights, &intermediate_input, intermediate_dim, hidden_dim);
+        let _ = fused_q4_0_q8_0_parallel_matvec(
+            &down_weights,
+            &intermediate_input,
+            intermediate_dim,
+            hidden_dim,
+        );
         down_times.push(start.elapsed().as_micros());
     }
 
@@ -139,22 +147,54 @@ fn main() {
 
     println!("Operation Timing (µs):");
     println!("                        min      median      avg");
-    println!("  Up projection:    {:>7}     {:>7}    {:>7}", up_min, up_med, up_avg);
-    println!("  Gate projection:  {:>7}     {:>7}    {:>7}", gate_min, gate_med, gate_avg);
-    println!("  Down projection:  {:>7}     {:>7}    {:>7}", down_min, down_med, down_avg);
-    println!("  SiLU activation:  {:>7}     {:>7}    {:>7}", silu_min, silu_med, silu_avg);
+    println!(
+        "  Up projection:    {:>7}     {:>7}    {:>7}",
+        up_min, up_med, up_avg
+    );
+    println!(
+        "  Gate projection:  {:>7}     {:>7}    {:>7}",
+        gate_min, gate_med, gate_avg
+    );
+    println!(
+        "  Down projection:  {:>7}     {:>7}    {:>7}",
+        down_min, down_med, down_avg
+    );
+    println!(
+        "  SiLU activation:  {:>7}     {:>7}    {:>7}",
+        silu_min, silu_med, silu_avg
+    );
 
     let total_ffn = up_med + gate_med + down_med + silu_med;
-    println!("\n  Total FFN (median): {} µs ({:.2} ms)", total_ffn, total_ffn as f64 / 1000.0);
-    println!("  Per {} layers:      {} µs ({:.2} ms)", num_layers, total_ffn * num_layers as u128,
-             total_ffn as f64 * num_layers as f64 / 1000.0);
+    println!(
+        "\n  Total FFN (median): {} µs ({:.2} ms)",
+        total_ffn,
+        total_ffn as f64 / 1000.0
+    );
+    println!(
+        "  Per {} layers:      {} µs ({:.2} ms)",
+        num_layers,
+        total_ffn * num_layers as u128,
+        total_ffn as f64 * num_layers as f64 / 1000.0
+    );
 
     // Breakdown percentages
     println!("\nFFN Time Breakdown:");
-    println!("  Up projection:   {:>5.1}%", up_med as f64 / total_ffn as f64 * 100.0);
-    println!("  Gate projection: {:>5.1}%", gate_med as f64 / total_ffn as f64 * 100.0);
-    println!("  Down projection: {:>5.1}%", down_med as f64 / total_ffn as f64 * 100.0);
-    println!("  SiLU activation: {:>5.1}%", silu_med as f64 / total_ffn as f64 * 100.0);
+    println!(
+        "  Up projection:   {:>5.1}%",
+        up_med as f64 / total_ffn as f64 * 100.0
+    );
+    println!(
+        "  Gate projection: {:>5.1}%",
+        gate_med as f64 / total_ffn as f64 * 100.0
+    );
+    println!(
+        "  Down projection: {:>5.1}%",
+        down_med as f64 / total_ffn as f64 * 100.0
+    );
+    println!(
+        "  SiLU activation: {:>5.1}%",
+        silu_med as f64 / total_ffn as f64 * 100.0
+    );
 
     // Roofline analysis per operation
     println!("\n=== Roofline Analysis (@ 30 GB/s) ===");
@@ -170,12 +210,24 @@ fn main() {
 
     println!("\nPer-operation efficiency:");
     println!("                     Theoretical    Actual    Efficiency");
-    println!("  Up projection:     {:>6.2} ms    {:>6.2} ms    {:>5.1}%",
-             up_theoretical_ms, up_actual_ms, up_theoretical_ms / up_actual_ms * 100.0);
-    println!("  Gate projection:   {:>6.2} ms    {:>6.2} ms    {:>5.1}%",
-             gate_theoretical_ms, gate_actual_ms, gate_theoretical_ms / gate_actual_ms * 100.0);
-    println!("  Down projection:   {:>6.2} ms    {:>6.2} ms    {:>5.1}%",
-             down_theoretical_ms, down_actual_ms, down_theoretical_ms / down_actual_ms * 100.0);
+    println!(
+        "  Up projection:     {:>6.2} ms    {:>6.2} ms    {:>5.1}%",
+        up_theoretical_ms,
+        up_actual_ms,
+        up_theoretical_ms / up_actual_ms * 100.0
+    );
+    println!(
+        "  Gate projection:   {:>6.2} ms    {:>6.2} ms    {:>5.1}%",
+        gate_theoretical_ms,
+        gate_actual_ms,
+        gate_theoretical_ms / gate_actual_ms * 100.0
+    );
+    println!(
+        "  Down projection:   {:>6.2} ms    {:>6.2} ms    {:>5.1}%",
+        down_theoretical_ms,
+        down_actual_ms,
+        down_theoretical_ms / down_actual_ms * 100.0
+    );
 
     // Gap analysis
     let total_theoretical = up_theoretical_ms + gate_theoretical_ms + down_theoretical_ms;
@@ -186,17 +238,25 @@ fn main() {
     println!("\n=== Gap Analysis ===");
     println!("  Theoretical (memory-bound): {:.2} ms", total_theoretical);
     println!("  Actual (measured):          {:.2} ms", total_actual);
-    println!("  Gap:                        {:.2} ms ({:.1}%)", gap_ms, gap_pct);
+    println!(
+        "  Gap:                        {:.2} ms ({:.1}%)",
+        gap_ms, gap_pct
+    );
 
     // Estimate overhead sources
     println!("\nPotential overhead sources:");
 
     // Q8 quantization overhead (input prep)
     let q8_quant_overhead = hidden_dim as f64 * 4.0 / 1e9 / bandwidth_gbps * 1000.0 * 3.0; // 3 projections
-    println!("  - Q8 input quantization: ~{:.2} ms (estimated)", q8_quant_overhead);
+    println!(
+        "  - Q8 input quantization: ~{:.2} ms (estimated)",
+        q8_quant_overhead
+    );
 
     // Thread sync overhead (rayon)
-    let num_threads = std::thread::available_parallelism().map(|p| p.get()).unwrap_or(1);
+    let num_threads = std::thread::available_parallelism()
+        .map(|p| p.get())
+        .unwrap_or(1);
     println!("  - Rayon thread pool: {} threads", num_threads);
     println!("  - Per-call sync overhead: ~10-50 µs (typical)");
 
@@ -204,11 +264,15 @@ fn main() {
     let l3_cache_mb = 24.0; // Typical for Intel Core Ultra 7
     let weights_mb = (2.0 * up_size as f64 + down_size as f64) / 1e6;
     if weights_mb > l3_cache_mb {
-        println!("  - Weights ({:.1} MB) exceed L3 cache ({:.0} MB) - main memory bound",
-                 weights_mb, l3_cache_mb);
+        println!(
+            "  - Weights ({:.1} MB) exceed L3 cache ({:.0} MB) - main memory bound",
+            weights_mb, l3_cache_mb
+        );
     } else {
-        println!("  - Weights ({:.1} MB) fit in L3 cache ({:.0} MB) - should be cache-resident",
-                 weights_mb, l3_cache_mb);
+        println!(
+            "  - Weights ({:.1} MB) fit in L3 cache ({:.0} MB) - should be cache-resident",
+            weights_mb, l3_cache_mb
+        );
     }
 
     // Phi-2 analysis
@@ -221,13 +285,21 @@ fn main() {
     let phi2_total_ffn_size = phi2_layer_size * phi2_layers as f64;
 
     println!("  FFN weights per layer: {:.1} MB", phi2_layer_size / 1e6);
-    println!("  FFN weights total:     {:.1} MB", phi2_total_ffn_size / 1e6);
+    println!(
+        "  FFN weights total:     {:.1} MB",
+        phi2_total_ffn_size / 1e6
+    );
 
     let phi2_theoretical = phi2_total_ffn_size / 1e9 / bandwidth_gbps * 1000.0;
     println!("  Theoretical FFN time:  {:.1} ms", phi2_theoretical);
 
     // If we scale Qwen results to Phi-2
-    let scale_factor = phi2_total_ffn_size / (total_theoretical * 1e6 / 1000.0 * bandwidth_gbps * 1e9 / 1e6);
-    let estimated_phi2_actual = total_actual * scale_factor * (phi2_layers as f64 / num_layers as f64);
-    println!("  Estimated actual time: {:.1} ms (scaled from Qwen)", estimated_phi2_actual);
+    let scale_factor =
+        phi2_total_ffn_size / (total_theoretical * 1e6 / 1000.0 * bandwidth_gbps * 1e9 / 1e6);
+    let estimated_phi2_actual =
+        total_actual * scale_factor * (phi2_layers as f64 / num_layers as f64);
+    println!(
+        "  Estimated actual time: {:.1} ms (scaled from Qwen)",
+        estimated_phi2_actual
+    );
 }

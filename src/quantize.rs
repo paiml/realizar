@@ -2440,10 +2440,9 @@ unsafe fn fused_q4_0_dot_avx2(q4_data: &[u8], activations: &[f32], in_dim: usize
     unsafe {
         use std::arch::x86_64::{
             _mm256_add_ps, _mm256_castps256_ps128, _mm256_cvtepi32_ps, _mm256_cvtepu8_epi32,
-            _mm256_extractf128_ps, _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_mul_ps,
-            _mm256_set1_ps, _mm256_setzero_ps, _mm_add_ps, _mm_add_ss, _mm_and_si128,
-            _mm_cvtss_f32, _mm_loadl_epi64, _mm_movehl_ps, _mm_set1_epi8, _mm_shuffle_ps,
-            _mm_srli_epi16,
+            _mm256_extractf128_ps, _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_mul_ps, _mm256_set1_ps,
+            _mm256_setzero_ps, _mm_add_ps, _mm_add_ss, _mm_and_si128, _mm_cvtss_f32,
+            _mm_loadl_epi64, _mm_movehl_ps, _mm_set1_epi8, _mm_shuffle_ps, _mm_srli_epi16,
         };
 
         const Q4_0_BLOCK_BYTES: usize = 18;
@@ -2513,8 +2512,14 @@ unsafe fn fused_q4_0_dot_avx2(q4_data: &[u8], activations: &[f32], in_dim: usize
             let high_nibbles_0 = _mm_and_si128(_mm_srli_epi16(bytes_0, 4), nibble_mask);
 
             // Convert 8 u8 to 8 f32: u8 -> i32 -> f32, then add offset
-            let q_low_0 = _mm256_add_ps(_mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(low_nibbles_0)), offset);
-            let q_high_0 = _mm256_add_ps(_mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(high_nibbles_0)), offset);
+            let q_low_0 = _mm256_add_ps(
+                _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(low_nibbles_0)),
+                offset,
+            );
+            let q_high_0 = _mm256_add_ps(
+                _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(high_nibbles_0)),
+                offset,
+            );
 
             // FMA with activations
             let act_low_0 = _mm256_loadu_ps(activations.as_ptr().add(act_start));
@@ -2529,8 +2534,14 @@ unsafe fn fused_q4_0_dot_avx2(q4_data: &[u8], activations: &[f32], in_dim: usize
             let low_nibbles_1 = _mm_and_si128(bytes_1, nibble_mask);
             let high_nibbles_1 = _mm_and_si128(_mm_srli_epi16(bytes_1, 4), nibble_mask);
 
-            let q_low_1 = _mm256_add_ps(_mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(low_nibbles_1)), offset);
-            let q_high_1 = _mm256_add_ps(_mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(high_nibbles_1)), offset);
+            let q_low_1 = _mm256_add_ps(
+                _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(low_nibbles_1)),
+                offset,
+            );
+            let q_high_1 = _mm256_add_ps(
+                _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(high_nibbles_1)),
+                offset,
+            );
 
             let act_low_1 = _mm256_loadu_ps(activations.as_ptr().add(act_start + 8));
             acc = _mm256_fmadd_ps(_mm256_mul_ps(scale_vec, q_low_1), act_low_1, acc);
@@ -2795,8 +2806,8 @@ unsafe fn fused_q4_0_q8_0_dot_avx2(
         use std::arch::x86_64::{
             _mm256_and_si256, _mm256_cvtepi32_ps, _mm256_fmadd_ps, _mm256_loadu_si256,
             _mm256_madd_epi16, _mm256_maddubs_epi16, _mm256_set1_epi16, _mm256_set1_epi8,
-            _mm256_set1_ps, _mm256_setzero_ps, _mm256_sign_epi8, _mm256_sub_epi8,
-            _mm_cvtss_f32, _mm_hadd_ps, _mm_prefetch, _MM_HINT_T0,
+            _mm256_set1_ps, _mm256_setzero_ps, _mm256_sign_epi8, _mm256_sub_epi8, _mm_cvtss_f32,
+            _mm_hadd_ps, _mm_prefetch, _MM_HINT_T0,
         };
 
         const Q4_0_BLOCK_BYTES: usize = 18;
@@ -3016,7 +3027,10 @@ pub fn fused_q4_0_q8_0_parallel_matvec(
         return Err(RealizarError::InvalidShape {
             reason: format!(
                 "Q4_0 weight data too small: need {} bytes for {}x{}, have {}",
-                expected_weight_bytes, out_dim, in_dim, weight_data.len()
+                expected_weight_bytes,
+                out_dim,
+                in_dim,
+                weight_data.len()
             ),
         });
     }
@@ -3025,7 +3039,8 @@ pub fn fused_q4_0_q8_0_parallel_matvec(
         return Err(RealizarError::InvalidShape {
             reason: format!(
                 "Activation length {} doesn't match in_dim {}",
-                activations.len(), in_dim
+                activations.len(),
+                in_dim
             ),
         });
     }
@@ -3085,7 +3100,10 @@ pub fn fused_q4_0_q8_0_parallel_matvec_prequant(
         return Err(RealizarError::InvalidShape {
             reason: format!(
                 "Q4_0 weight data too small: need {} bytes for {}x{}, have {}",
-                expected_weight_bytes, out_dim, in_dim, weight_data.len()
+                expected_weight_bytes,
+                out_dim,
+                in_dim,
+                weight_data.len()
             ),
         });
     }
@@ -3140,7 +3158,10 @@ pub fn fused_q4_0_q8_0_parallel_matvec_into(
         return Err(RealizarError::InvalidShape {
             reason: format!(
                 "Q4_0 weight data too small: need {} bytes for {}x{}, have {}",
-                expected_weight_bytes, out_dim, in_dim, weight_data.len()
+                expected_weight_bytes,
+                out_dim,
+                in_dim,
+                weight_data.len()
             ),
         });
     }

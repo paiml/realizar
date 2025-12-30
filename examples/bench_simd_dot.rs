@@ -32,10 +32,7 @@ unsafe fn dot_avx2(q4_data: &[u8], q8_scales: &[f32], q8_quants: &[i8]) -> f32 {
         // Load Q4 nibbles and unpack
         let q4_packed = _mm_loadu_si128(q4_ptr.add(2) as *const __m128i);
         let q4_lo = _mm256_and_si256(_mm256_cvtepu8_epi16(q4_packed), low_mask);
-        let q4_hi = _mm256_and_si256(
-            _mm256_cvtepu8_epi16(_mm_srli_epi16(q4_packed, 4)),
-            low_mask,
-        );
+        let q4_hi = _mm256_and_si256(_mm256_cvtepu8_epi16(_mm_srli_epi16(q4_packed, 4)), low_mask);
 
         // Interleave lo/hi to get full 32 values, then subtract offset
         let q4_vals = _mm256_sub_epi8(_mm256_packus_epi16(q4_lo, q4_hi), offset);
@@ -84,10 +81,7 @@ unsafe fn dot_avx_vnni(q4_data: &[u8], q8_scales: &[f32], q8_quants: &[i8]) -> f
 
         let q4_packed = _mm_loadu_si128(q4_ptr.add(2) as *const __m128i);
         let q4_lo = _mm256_and_si256(_mm256_cvtepu8_epi16(q4_packed), low_mask);
-        let q4_hi = _mm256_and_si256(
-            _mm256_cvtepu8_epi16(_mm_srli_epi16(q4_packed, 4)),
-            low_mask,
-        );
+        let q4_hi = _mm256_and_si256(_mm256_cvtepu8_epi16(_mm_srli_epi16(q4_packed, 4)), low_mask);
         let q4_vals = _mm256_sub_epi8(_mm256_packus_epi16(q4_lo, q4_hi), offset);
 
         // Make unsigned by adding 8 back

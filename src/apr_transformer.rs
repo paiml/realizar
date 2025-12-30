@@ -1602,7 +1602,7 @@ impl AprTransformer {
             Err(_) => {
                 // Fallback to scalar if trueno fails
                 return self.matmul_scalar(input, weight, in_dim, out_dim);
-            }
+            },
         };
 
         let mut output = Vec::with_capacity(seq_len * out_dim);
@@ -1625,7 +1625,7 @@ impl AprTransformer {
                         }
                         output.push(sum);
                     }
-                }
+                },
             }
         }
 
@@ -1634,7 +1634,13 @@ impl AprTransformer {
 
     /// Scalar fallback for matmul (used when trueno fails)
     #[allow(clippy::unused_self)]
-    fn matmul_scalar(&self, input: &[f32], weight: &[f32], in_dim: usize, out_dim: usize) -> Vec<f32> {
+    fn matmul_scalar(
+        &self,
+        input: &[f32],
+        weight: &[f32],
+        in_dim: usize,
+        out_dim: usize,
+    ) -> Vec<f32> {
         let seq_len = input.len() / in_dim;
         let mut output = Vec::with_capacity(seq_len * out_dim);
 
@@ -2462,7 +2468,11 @@ impl QuantizedAprTensorQ4 {
     /// Create a new Q4_0 tensor from raw data
     #[must_use]
     pub fn new(data: Vec<u8>, in_dim: usize, out_dim: usize) -> Self {
-        Self { data, in_dim, out_dim }
+        Self {
+            data,
+            in_dim,
+            out_dim,
+        }
     }
 
     /// Create empty tensor with proper Q4_0 allocation
@@ -2473,7 +2483,11 @@ impl QuantizedAprTensorQ4 {
         let num_elements = in_dim * out_dim;
         let num_blocks = num_elements.div_ceil(Q4_0_BLOCK_SIZE);
         let data = vec![0u8; num_blocks * Q4_0_BLOCK_BYTES];
-        Self { data, in_dim, out_dim }
+        Self {
+            data,
+            in_dim,
+            out_dim,
+        }
     }
 
     /// Get expected data size in bytes
@@ -2626,52 +2640,55 @@ impl QuantizedAprTransformerQ4 {
             eps: gguf.config.eps,
         };
 
-        let layers = gguf.layers.iter().map(|l| {
-            // Extract QKV weight data
-            let qkv_weight = match &l.qkv_weight {
-                OwnedQKVWeights::Fused(t) => QuantizedAprTensorQ4::new(
-                    t.data.clone(),
-                    t.in_dim,
-                    t.out_dim,
-                ),
-                OwnedQKVWeights::Separate { q, k, v } => {
-                    // Concatenate Q, K, V for fused format
-                    let mut data = Vec::with_capacity(q.data.len() + k.data.len() + v.data.len());
-                    data.extend_from_slice(&q.data);
-                    data.extend_from_slice(&k.data);
-                    data.extend_from_slice(&v.data);
-                    QuantizedAprTensorQ4::new(
-                        data,
-                        q.in_dim, // hidden_dim
-                        q.out_dim + k.out_dim + v.out_dim, // qkv_dim
-                    )
-                }
-            };
+        let layers =
+            gguf.layers
+                .iter()
+                .map(|l| {
+                    // Extract QKV weight data
+                    let qkv_weight = match &l.qkv_weight {
+                        OwnedQKVWeights::Fused(t) => {
+                            QuantizedAprTensorQ4::new(t.data.clone(), t.in_dim, t.out_dim)
+                        },
+                        OwnedQKVWeights::Separate { q, k, v } => {
+                            // Concatenate Q, K, V for fused format
+                            let mut data =
+                                Vec::with_capacity(q.data.len() + k.data.len() + v.data.len());
+                            data.extend_from_slice(&q.data);
+                            data.extend_from_slice(&k.data);
+                            data.extend_from_slice(&v.data);
+                            QuantizedAprTensorQ4::new(
+                                data,
+                                q.in_dim,                          // hidden_dim
+                                q.out_dim + k.out_dim + v.out_dim, // qkv_dim
+                            )
+                        },
+                    };
 
-            QuantizedAprLayerQ4 {
-                attn_norm_weight: l.attn_norm_weight.clone(),
-                qkv_weight,
-                attn_output_weight: QuantizedAprTensorQ4::new(
-                    l.attn_output_weight.data.clone(),
-                    l.attn_output_weight.in_dim,
-                    l.attn_output_weight.out_dim,
-                ),
-                ffn_up_weight: QuantizedAprTensorQ4::new(
-                    l.ffn_up_weight.data.clone(),
-                    l.ffn_up_weight.in_dim,
-                    l.ffn_up_weight.out_dim,
-                ),
-                ffn_down_weight: QuantizedAprTensorQ4::new(
-                    l.ffn_down_weight.data.clone(),
-                    l.ffn_down_weight.in_dim,
-                    l.ffn_down_weight.out_dim,
-                ),
-                ffn_gate_weight: l.ffn_gate_weight.as_ref().map(|g| {
-                    QuantizedAprTensorQ4::new(g.data.clone(), g.in_dim, g.out_dim)
-                }),
-                ffn_norm_weight: l.ffn_norm_weight.clone(),
-            }
-        }).collect();
+                    QuantizedAprLayerQ4 {
+                        attn_norm_weight: l.attn_norm_weight.clone(),
+                        qkv_weight,
+                        attn_output_weight: QuantizedAprTensorQ4::new(
+                            l.attn_output_weight.data.clone(),
+                            l.attn_output_weight.in_dim,
+                            l.attn_output_weight.out_dim,
+                        ),
+                        ffn_up_weight: QuantizedAprTensorQ4::new(
+                            l.ffn_up_weight.data.clone(),
+                            l.ffn_up_weight.in_dim,
+                            l.ffn_up_weight.out_dim,
+                        ),
+                        ffn_down_weight: QuantizedAprTensorQ4::new(
+                            l.ffn_down_weight.data.clone(),
+                            l.ffn_down_weight.in_dim,
+                            l.ffn_down_weight.out_dim,
+                        ),
+                        ffn_gate_weight: l.ffn_gate_weight.as_ref().map(|g| {
+                            QuantizedAprTensorQ4::new(g.data.clone(), g.in_dim, g.out_dim)
+                        }),
+                        ffn_norm_weight: l.ffn_norm_weight.clone(),
+                    }
+                })
+                .collect();
 
         let lm_head_weight = QuantizedAprTensorQ4::new(
             gguf.lm_head_weight.data.clone(),
@@ -2922,7 +2939,8 @@ impl QuantizedAprTransformerQ4 {
         let last_hidden = &hidden[last_start..last_start + hidden_dim];
         let sq_sum: f32 = last_hidden.iter().map(|x| x * x).sum();
         let rms = (sq_sum / hidden_dim as f32 + eps).sqrt();
-        let normed_final: Vec<f32> = last_hidden.iter()
+        let normed_final: Vec<f32> = last_hidden
+            .iter()
             .enumerate()
             .map(|(i, &x)| x / rms * self.output_norm_weight[i])
             .collect();
@@ -3005,7 +3023,8 @@ impl QuantizedAprTransformerQ4 {
 
             scratch.q[..q_dim].copy_from_slice(&scratch.qkv_out[..q_dim]);
             scratch.k[..kv_dim].copy_from_slice(&scratch.qkv_out[q_dim..q_dim + kv_dim]);
-            scratch.v[..kv_dim].copy_from_slice(&scratch.qkv_out[q_dim + kv_dim..q_dim + 2 * kv_dim]);
+            scratch.v[..kv_dim]
+                .copy_from_slice(&scratch.qkv_out[q_dim + kv_dim..q_dim + 2 * kv_dim]);
 
             // Apply RoPE at position 0
             self.apply_rope(&mut scratch.q[..q_dim], 0, num_heads);
@@ -3208,7 +3227,8 @@ impl QuantizedAprTransformerQ4 {
                 // Extract Q, K, V for this position
                 let mut q = qkv_out[qkv_start..qkv_start + q_dim].to_vec();
                 let mut k = qkv_out[qkv_start + q_dim..qkv_start + q_dim + kv_dim].to_vec();
-                let v = qkv_out[qkv_start + q_dim + kv_dim..qkv_start + q_dim + 2 * kv_dim].to_vec();
+                let v =
+                    qkv_out[qkv_start + q_dim + kv_dim..qkv_start + q_dim + 2 * kv_dim].to_vec();
 
                 // Apply RoPE with correct position
                 self.apply_rope(&mut q, position, num_heads);
@@ -3226,8 +3246,12 @@ impl QuantizedAprTransformerQ4 {
 
             // Compute attention: new Q attends to all cached K/V
             let attn_output = self.causal_attention_cached(
-                &new_q, full_k, full_v,
-                new_seq_len, total_seq_len, cache_len,
+                &new_q,
+                full_k,
+                full_v,
+                new_seq_len,
+                total_seq_len,
+                cache_len,
             );
 
             // Output projection using SIMD matmul
@@ -3510,15 +3534,19 @@ impl QuantizedAprTransformerQ4 {
         let norm_size = self.output_norm_weight.len() * 4;
         let lm_head_size = self.lm_head_weight.data.len();
 
-        let layer_size: usize = self.layers.iter().map(|l| {
-            l.attn_norm_weight.len() * 4
-                + l.qkv_weight.data.len()
-                + l.attn_output_weight.data.len()
-                + l.ffn_up_weight.data.len()
-                + l.ffn_down_weight.data.len()
-                + l.ffn_gate_weight.as_ref().map_or(0, |g| g.data.len())
-                + l.ffn_norm_weight.as_ref().map_or(0, |n| n.len() * 4)
-        }).sum();
+        let layer_size: usize = self
+            .layers
+            .iter()
+            .map(|l| {
+                l.attn_norm_weight.len() * 4
+                    + l.qkv_weight.data.len()
+                    + l.attn_output_weight.data.len()
+                    + l.ffn_up_weight.data.len()
+                    + l.ffn_down_weight.data.len()
+                    + l.ffn_gate_weight.as_ref().map_or(0, |g| g.data.len())
+                    + l.ffn_norm_weight.as_ref().map_or(0, |n| n.len() * 4)
+            })
+            .sum();
 
         embed_size + norm_size + lm_head_size + layer_size
     }
@@ -3613,13 +3641,7 @@ impl QuantizedAprTransformerQ4 {
     /// where multiple Q heads share the same K/V heads.
     ///
     /// Optimized for single-token inference (seq_len=1).
-    fn causal_attention(
-        &self,
-        q: &[f32],
-        k: &[f32],
-        v: &[f32],
-        seq_len: usize,
-    ) -> Vec<f32> {
+    fn causal_attention(&self, q: &[f32], k: &[f32], v: &[f32], seq_len: usize) -> Vec<f32> {
         let num_heads = self.config.num_heads;
         let num_kv_heads = self.config.num_kv_heads;
         let head_dim = self.config.hidden_dim / num_heads;
@@ -3658,8 +3680,16 @@ impl QuantizedAprTransformerQ4 {
             let mut output = vec![0.0f32; seq_len * q_dim];
             for head in 0..num_heads {
                 self.compute_head_attention(
-                    head, group_size, head_dim, scale,
-                    q, k, v, seq_len, q_dim, kv_dim,
+                    head,
+                    group_size,
+                    head_dim,
+                    scale,
+                    q,
+                    k,
+                    v,
+                    seq_len,
+                    q_dim,
+                    kv_dim,
                     &mut output,
                 );
             }

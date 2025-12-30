@@ -189,7 +189,10 @@ fn falsify_h5_minimum_throughput() {
         "H5 FALSIFIED: Throughput {} tok/s < 0.5 tok/s minimum",
         measured_toks
     );
-    println!("H5: Throughput {} tok/s meets minimum 0.5 tok/s", measured_toks);
+    println!(
+        "H5: Throughput {} tok/s meets minimum 0.5 tok/s",
+        measured_toks
+    );
 }
 
 // === Helper Functions ===
@@ -212,9 +215,8 @@ fn simd_dot(a: &[f32], b: &[f32]) -> f32 {
 #[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn simd_dot_avx2(a: &[f32], b: &[f32]) -> f32 {
     use std::arch::x86_64::{
-        _mm256_castps256_ps128, _mm256_extractf128_ps, _mm256_fmadd_ps,
-        _mm256_loadu_ps, _mm256_setzero_ps, _mm_add_ps, _mm_add_ss, _mm_cvtss_f32, _mm_movehl_ps,
-        _mm_shuffle_ps,
+        _mm256_castps256_ps128, _mm256_extractf128_ps, _mm256_fmadd_ps, _mm256_loadu_ps,
+        _mm256_setzero_ps, _mm_add_ps, _mm_add_ss, _mm_cvtss_f32, _mm_movehl_ps, _mm_shuffle_ps,
     };
 
     let len = a.len().min(b.len());

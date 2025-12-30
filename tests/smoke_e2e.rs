@@ -33,14 +33,13 @@ const FP_TOLERANCE_RELAXED: f32 = 1e-2; // For accumulated operations
 fn smoke_q4_0_dequant() {
     use realizar::quantize::dequantize_q4_0;
 
-    // Create a valid Q4_0 block (20 bytes: 4-byte f32 scale + 16 packed nibbles)
-    let mut block = vec![0u8; 20];
-    // Scale = 0.5 as f32
-    let scale: f32 = 0.5;
-    let scale_bytes = scale.to_le_bytes();
-    block[0..4].copy_from_slice(&scale_bytes);
+    // Create a valid Q4_0 block (18 bytes: 2-byte f16 scale + 16 packed nibbles)
+    let mut block = vec![0u8; 18];
+    // Scale = 0.5 as f16 = 0x3800
+    let scale_f16: u16 = 0x3800;
+    block[0..2].copy_from_slice(&scale_f16.to_le_bytes());
     // Data bytes (all zeros for simplicity)
-    block[4..20].fill(0x88); // Both nibbles = 8
+    block[2..18].fill(0x88); // Both nibbles = 8
 
     let result = dequantize_q4_0(&block);
     assert!(result.is_ok(), "Q4_0 dequantization should succeed");
