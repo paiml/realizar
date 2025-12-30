@@ -3035,9 +3035,12 @@ pub fn fused_q4_0_q8_0_parallel_matvec(
 
     // Note: rayon::prelude imported at function scope above
 
-    // Use per-row parallelism for best load balancing
+    // Use chunked parallel iteration to reduce Rayon scheduling overhead
+    // CHUNK_SIZE=64 matches Q4K implementation for optimal L2 cache usage
+    const CHUNK_SIZE: usize = 64;
     let output: Vec<f32> = (0..out_dim)
         .into_par_iter()
+        .with_min_len(CHUNK_SIZE)
         .map(|o| {
             let row_start = o * bytes_per_row;
             let row_end = row_start + bytes_per_row;
@@ -3087,9 +3090,11 @@ pub fn fused_q4_0_q8_0_parallel_matvec_prequant(
         });
     }
 
-    // Use parallel for better throughput (rayon imported at function scope)
+    // Use chunked parallel iteration to reduce Rayon scheduling overhead
+    const CHUNK_SIZE: usize = 64;
     let output: Vec<f32> = (0..out_dim)
         .into_par_iter()
+        .with_min_len(CHUNK_SIZE)
         .map(|o| {
             let row_start = o * bytes_per_row;
             let row_end = row_start + bytes_per_row;
@@ -3153,9 +3158,11 @@ pub fn fused_q4_0_q8_0_parallel_matvec_into(
     // Quantize activations to Q8_0 ONCE
     let (q8_scales, q8_quants) = quantize_activations_q8_0(activations);
 
-    // Write directly to output slice with parallel iteration
+    // Use chunked parallel iteration to reduce Rayon scheduling overhead
+    const CHUNK_SIZE: usize = 64;
     output
         .par_iter_mut()
+        .with_min_len(CHUNK_SIZE)
         .enumerate()
         .for_each(|(o, out_val)| {
             let row_start = o * bytes_per_row;
