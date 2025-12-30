@@ -504,7 +504,7 @@ Simple unit tests would NOT have caught this - only sequential TUI simulation re
 ---
 
 **Last Updated:** 2025-12-30
-**Realizar Version:** 0.3.4 (Rayon Parallelization, 2.1x speedup, 1.36x faster than GGUF)
+**Realizar Version:** 0.3.5 (KV Cache for context-aware generation)
 **GPU Spec Version:** v5.1.0 (QA Suite Complete + 95% Coverage)
 **Trueno Version:** 0.4.2
 **Aprender Version:** 0.1.0
@@ -537,14 +537,17 @@ Simple unit tests would NOT have caught this - only sequential TUI simulation re
   - M30: Resource Management (ConnectionPool, ResourceLimiter, ResourceMonitor)
   - M31: Resilience (RetryPolicy, CircuitBreaker, BulkheadManager)
   - M32: Diagnostics (Logger, PhaseTimer, MemoryTracker, DiagnosticsCollector, DebugMode)
-**APR Q4_0 Format (v0.3.4):**
+**APR Q4_0 Format (v0.3.5):**
   - `QuantizedAprTransformerQ4` - Pure Rust quantized inference
   - RoPE (Rotary Position Embeddings) with configurable theta
   - Grouped Query Attention (GQA) for TinyLlama compatibility
   - SIMD matmul via `fused_q4_0_q8_0_parallel_matvec`
   - **Parallel attention heads** via rayon (32 heads parallelized)
   - **Parallel FFN up/gate** via rayon::join
-  - **2.1x speedup** from parallelization (8.0 → 17.0 tok/s)
-  - **1.36x faster than GGUF** (target: 50+ tok/s to exceed llama.cpp)
-**Latest Achievement:** Rayon parallelization achieves 2.1x speedup, 41% of llama.cpp
-**Completed:** Weeks 1-8 + GPU performance parity milestones M1-M32 + APR Q4_0 (M2) + Rayon (M3)
+  - **KV Cache** for efficient autoregressive generation
+    - `AprKVCache` stores K/V per layer, avoids recomputation
+    - `forward_with_cache()` for context-aware generation
+    - `causal_attention_cached()` with parallel head processing
+  - **13-19 tok/s** context-aware generation (32-45% of llama.cpp)
+**Latest Achievement:** KV Cache enables efficient context-aware generation
+**Completed:** Weeks 1-8 + GPU parity M1-M32 + APR Q4_0 (M2) + Rayon (M3) + KV Cache (M4)

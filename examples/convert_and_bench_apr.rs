@@ -1,9 +1,9 @@
 //! Convert GGUF to APR and benchmark all formats
 //!
-//! Compares three formats:
+//! Compares:
 //! 1. GGUF (Q4_0 quantized) - baseline
-//! 2. APR F32 (dequantized) - memory bandwidth limited
-//! 3. APR Q4_0 (quantized) - should match GGUF performance
+//! 2. APR Q4_0 (quantized) - parallel matmul
+//! 3. APR Q4_0 + KV Cache - context-aware generation
 //!
 //! Usage:
 //!   GGUF_MODEL=/path/to/model.gguf cargo run --example convert_and_bench_apr --release
@@ -35,40 +35,16 @@ fn main() {
         gguf_model.config().vocab_size,
         gguf_model.config().num_layers
     );
-    println!(
-        "   GQA: num_heads={}, num_kv_heads={}",
-        gguf_model.config().num_heads,
-        gguf_model.config().num_kv_heads
-    );
 
     // === Convert to APR Q4_0 ===
-    println!("\n2. Creating APR Q4_0 (keeps quantization)...");
+    println!("\n2. Creating APR Q4_0...");
     let start = Instant::now();
     let apr_q4 = QuantizedAprTransformerQ4::from_gguf(&gguf_model);
     println!("   Conversion completed in {:.2}s", start.elapsed().as_secs_f32());
-    println!("   Q4_0 memory: {:.1} MB", apr_q4.memory_size() as f64 / 1e6);
 
-    // Print layer 0 weight dimensions for debugging
-    if let Some(layer) = apr_q4.layers.first() {
-        println!("\n   Layer 0 weight dimensions:");
-        println!("     qkv_weight: in={}, out={}, bytes={}",
-            layer.qkv_weight.in_dim, layer.qkv_weight.out_dim, layer.qkv_weight.data.len());
-        println!("     attn_output_weight: in={}, out={}, bytes={}",
-            layer.attn_output_weight.in_dim, layer.attn_output_weight.out_dim, layer.attn_output_weight.data.len());
-        println!("     ffn_up_weight: in={}, out={}, bytes={}",
-            layer.ffn_up_weight.in_dim, layer.ffn_up_weight.out_dim, layer.ffn_up_weight.data.len());
-        println!("     ffn_down_weight: in={}, out={}, bytes={}",
-            layer.ffn_down_weight.in_dim, layer.ffn_down_weight.out_dim, layer.ffn_down_weight.data.len());
-        if let Some(gate) = &layer.ffn_gate_weight {
-            println!("     ffn_gate_weight: in={}, out={}, bytes={}",
-                gate.in_dim, gate.out_dim, gate.data.len());
-        }
-    }
-
-    // === Benchmark GGUF ===
-    println!("\n3. Benchmarking GGUF (Q4_0 quantized)...");
-    // More warmup for stable results
-    println!("   Warming up (10 iterations)...");
+    // === Benchmark GGUF (single token, no context) ===
+    println!("\n3. Benchmarking GGUF (single token)...");
+    println!("   Warming up...");
     for _ in 0..10 {
         let _ = gguf_model.forward(&[1]);
     }
@@ -79,12 +55,11 @@ fn main() {
     }
     let gguf_avg = start.elapsed() / iterations;
     let gguf_tps = 1.0 / gguf_avg.as_secs_f64();
-    println!("   Average forward: {:.1}ms", gguf_avg.as_secs_f64() * 1000.0);
-    println!("   Throughput: {:.1} tok/s", gguf_tps);
+    println!("   Throughput: {:.1} tok/s ({:.1}ms/tok)", gguf_tps, gguf_avg.as_secs_f64() * 1000.0);
 
-    // === Benchmark APR Q4_0 ===
-    println!("\n4. Benchmarking APR Q4_0 (SIMD quantized)...");
-    println!("   Warming up (10 iterations)...");
+    // === Benchmark APR Q4_0 (single token, no context) ===
+    println!("\n4. Benchmarking APR Q4_0 (single token, parallel)...");
+    println!("   Warming up...");
     for _ in 0..10 {
         let _ = apr_q4.forward(&[1]);
     }
@@ -94,34 +69,60 @@ fn main() {
     }
     let apr_q4_avg = start.elapsed() / iterations;
     let apr_q4_tps = 1.0 / apr_q4_avg.as_secs_f64();
-    println!("   Average forward: {:.1}ms", apr_q4_avg.as_secs_f64() * 1000.0);
-    println!("   Throughput: {:.1} tok/s", apr_q4_tps);
+    println!("   Throughput: {:.1} tok/s ({:.1}ms/tok)", apr_q4_tps, apr_q4_avg.as_secs_f64() * 1000.0);
+
+    // === Benchmark APR Q4_0 with KV Cache (context-aware generation) ===
+    println!("\n5. Benchmarking APR Q4_0 + KV Cache (context-aware)...");
+
+    // First: Measure per-token cost with growing context
+    let mut cache = apr_q4.create_kv_cache();
+
+    // Warmup
+    for i in 0..5 {
+        let _ = apr_q4.forward_with_cache(&[(i % 100) as u32], &mut cache);
+    }
+    cache.clear();
+
+    // Measure generation with context building up
+    let gen_tokens = 20u32;
+    let start = Instant::now();
+    for i in 0..gen_tokens {
+        let _ = apr_q4.forward_with_cache(&[(i % 100) as u32], &mut cache);
+    }
+    let cache_total = start.elapsed();
+    let cache_avg = cache_total / gen_tokens;
+    let cache_tps = gen_tokens as f64 / cache_total.as_secs_f64();
+    println!("   Generated {} tokens in {:.0}ms", gen_tokens, cache_total.as_secs_f64() * 1000.0);
+    println!("   Throughput: {:.1} tok/s ({:.1}ms/tok avg)", cache_tps, cache_avg.as_secs_f64() * 1000.0);
 
     // === Summary ===
-    println!("\n╔══════════════════════════════════════════════════════════════════╗");
-    println!("║                         Summary                                   ║");
-    println!("╠══════════════════════════════════════════════════════════════════╣");
-    println!("║ Format    │ Size (MB) │ Forward (ms) │ Throughput │ vs GGUF      ║");
-    println!("╠══════════════════════════════════════════════════════════════════╣");
+    println!("\n╔══════════════════════════════════════════════════════════════════════╗");
+    println!("║                           Summary                                     ║");
+    println!("╠══════════════════════════════════════════════════════════════════════╣");
+    println!("║ Format           │ Throughput  │ Latency   │ vs GGUF │ Context      ║");
+    println!("╠══════════════════════════════════════════════════════════════════════╣");
     println!(
-        "║ GGUF Q4_0 │ {:>9.1} │ {:>12.1} │ {:>7.1} tok/s │ 1.00x        ║",
-        gguf_data.len() as f64 / 1e6,
-        gguf_avg.as_secs_f64() * 1000.0,
-        gguf_tps
+        "║ GGUF Q4_0        │ {:>7.1} tok/s │ {:>6.1}ms │ 1.00x   │ None         ║",
+        gguf_tps, gguf_avg.as_secs_f64() * 1000.0
     );
     println!(
-        "║ APR Q4_0  │ {:>9.1} │ {:>12.1} │ {:>7.1} tok/s │ {:.2}x        ║",
-        apr_q4.memory_size() as f64 / 1e6,
-        apr_q4_avg.as_secs_f64() * 1000.0,
-        apr_q4_tps,
-        apr_q4_tps / gguf_tps
+        "║ APR Q4_0         │ {:>7.1} tok/s │ {:>6.1}ms │ {:.2}x   │ None         ║",
+        apr_q4_tps, apr_q4_avg.as_secs_f64() * 1000.0, apr_q4_tps / gguf_tps
     );
-    println!("╚══════════════════════════════════════════════════════════════════╝");
+    println!(
+        "║ APR + KV Cache   │ {:>7.1} tok/s │ {:>6.1}ms │ {:.2}x   │ {} tokens   ║",
+        cache_tps, cache_avg.as_secs_f64() * 1000.0, cache_tps / gguf_tps, gen_tokens
+    );
+    println!("╚══════════════════════════════════════════════════════════════════════╝");
 
     // Analysis
-    let overhead_ms = apr_q4_avg.as_secs_f64() * 1000.0 - gguf_avg.as_secs_f64() * 1000.0;
-    let overhead_per_layer = overhead_ms / gguf_model.config().num_layers as f64;
-    println!("\nPerformance Analysis:");
-    println!("  • Total overhead: {:.1}ms ({:.1}ms per layer)", overhead_ms, overhead_per_layer);
-    println!("  • Speedup needed: {:.1}x to match GGUF", apr_q4_avg.as_secs_f64() / gguf_avg.as_secs_f64());
+    println!("\nKey Insights:");
+    println!("  • Single-token (no context): APR is {:.1}x faster than GGUF", apr_q4_tps / gguf_tps);
+    println!("  • Context-aware generation: {:.1} tok/s with KV cache", cache_tps);
+    println!("  • KV cache enables attending to past tokens efficiently");
+
+    let llama_cpp_tps = 42.0;
+    println!("\n  vs llama.cpp (42 tok/s):");
+    println!("    • Single-token APR: {:.0}%", apr_q4_tps / llama_cpp_tps * 100.0);
+    println!("    • Context-aware APR: {:.0}%", cache_tps / llama_cpp_tps * 100.0);
 }
