@@ -1,7 +1,7 @@
 # SIMD Optimization Specification with Popperian Falsification
 
 **Document ID:** REALIZAR-SIMD-SPEC-001
-**Version:** 1.12.0
+**Version:** 1.13.0
 **Status:** ACTIVE
 **Date:** 2025-12-30
 **Authors:** Claude Code, Noah Gift
@@ -249,10 +249,111 @@ The following observations would **falsify** our optimization strategy:
 
 ---
 
-## 5. Revision History
+## 5. Running Examples
+
+### 5.1 Benchmarking Examples
+
+```bash
+# Benchmark forward pass (TinyLlama default, or set GGUF_MODEL env)
+cargo run --release --example bench_forward
+
+# Benchmark with specific model
+GGUF_MODEL=/mnt/ssd/models/phi-2.Q4_0.gguf cargo run --release --example bench_forward
+
+# Profile Phi-2 with bottleneck analysis
+cargo run --release --example profile_phi2_simple
+
+# APR transformer benchmark
+cargo run --release --example apr_benchmark
+
+# GEMV micro-benchmark
+cargo run --release --example bench_gemv
+```
+
+### 5.2 Inference Examples
+
+```bash
+# Quick text generation (greedy decoding)
+cargo run --release --example quick_generate
+
+# Full inference demo with sampling strategies
+cargo run --release --example inference
+
+# Test multiple prompts
+cargo run --release --example test_multiple_prompts
+
+# Test output coherence
+cargo run --release --example test_coherence
+```
+
+### 5.3 Model Loading Examples
+
+```bash
+# Load and inspect GGUF model
+cargo run --release --example gguf_loading
+
+# Load safetensors model
+cargo run --release --example safetensors_loading
+
+# APR (Accelerated Packed Representation) loading
+cargo run --release --example apr_loading
+
+# Check GGUF metadata
+cargo run --release --example check_gguf_metadata
+```
+
+### 5.4 Debugging & Validation Examples
+
+```bash
+# Trace forward pass internals
+cargo run --release --example trace_forward
+
+# Debug forward pass step-by-step
+cargo run --release --example debug_forward
+
+# Check tensor shapes and values
+cargo run --release --example check_tensors
+
+# Verify tokenizer behavior
+cargo run --release --example check_tokenizer
+
+# Check embedding layer
+cargo run --release --example check_embeddings
+```
+
+### 5.5 GPU Examples (requires --features cuda)
+
+```bash
+# GPU matmul benchmark
+cargo run --release --features cuda --example gpu_gemm_benchmark
+
+# GPU matvec benchmark
+cargo run --release --features cuda --example gpu_matvec_benchmark
+
+# CUDA debug utilities
+cargo run --release --features cuda --example cuda_debug
+
+# GPU parity verification
+cargo run --release --features cuda --example performance_parity
+```
+
+### 5.6 Server Examples
+
+```bash
+# Start API server
+cargo run --release --example api_server
+
+# Serve MNIST demo model
+cargo run --release --example serve_mnist
+```
+
+---
+
+## 6. Revision History
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.13.0 | 2025-12-30 | **Added examples section**: Documented `cargo run --example` commands for benchmarking, inference, model loading, debugging, GPU, and server examples |
 | 1.12.0 | 2025-12-30 | **Phi-2 performance mode**: 5.5 tok/s (2.5x vs powersave); CPU governor impact documented; 29% roofline efficiency |
 | 1.11.0 | 2025-12-30 | **Phi-2 benchmarked**: 2.1 tok/s (5% of llama.cpp), 11% roofline efficiency; All 3 target models complete |
 | 1.10.0 | 2025-12-30 | **Qwen2.5-Coder-0.5B benchmarked**: 21.3 tok/s (51% of llama.cpp), 29% roofline efficiency |
@@ -269,7 +370,7 @@ The following observations would **falsify** our optimization strategy:
 
 ---
 
-## 6. References
+## 7. References
 
 [1] Goto, K., & Van Geijn, R. A. (2008). ACM TOMS 34(3).
 [2] Intel Optimization Manual (2024). Document 248966-046.
