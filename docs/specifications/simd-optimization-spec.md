@@ -1,7 +1,7 @@
 # SIMD Optimization Specification with Popperian Falsification
 
 **Document ID:** REALIZAR-SIMD-SPEC-001
-**Version:** 1.16.0
+**Version:** 1.17.0
 **Status:** ACTIVE
 **Date:** 2025-12-30
 **Authors:** Claude Code, Noah Gift
@@ -16,13 +16,13 @@
 | Model | Params | Quantization | Throughput | Startup | Hardware |
 |-------|--------|--------------|------------|---------|----------|
 | Qwen2.5-Coder-0.5B | 0.5B | Q4_0 | **16-21 tok/s** | **~50ms** | Intel Core Ultra 7 155H (22 cores) |
-| TinyLlama-1.1B | 1.1B | Q4_0 | **7-11 tok/s** | **118-176ms** | Intel Core Ultra 7 155H (22 cores) |
-| Phi-2 | 2.7B | Q4_0 | **5-6 tok/s** | **~180ms** | Intel Core Ultra 7 155H (22 cores) |
+| TinyLlama-1.1B | 1.1B | Q4_0 | **14.9 tok/s** | **67ms** | Intel Core Ultra 7 155H (22 cores) |
+| Phi-2 | 2.7B | Q4_0 | **7.0 tok/s** | **142ms** | Intel Core Ultra 7 155H (22 cores) |
 
 **Target Models (All Benchmarked):**
 1. **Qwen2.5-Coder-0.5B** - Smallest coding model, 409MB Q4_0, **21.3 tok/s** (51% of llama.cpp)
-2. **TinyLlama-1.1B** - Primary benchmark, 637MB Q4_0, **7-11 tok/s** (17-26% of llama.cpp)
-3. **Phi-2** - Microsoft's 2.7B model, 1.6GB Q4_0, **5.5 tok/s** (13% of llama.cpp)
+2. **TinyLlama-1.1B** - Primary benchmark, 637MB Q4_0, **14.9 tok/s** (35% of llama.cpp)
+3. **Phi-2** - Microsoft's 2.7B model, 1.6GB Q4_0, **7.0 tok/s** (17% of llama.cpp)
 
 **CPU Governor Impact:**
 - `powersave` mode: Phi-2 throttles to ~2 tok/s under sustained load
@@ -267,8 +267,8 @@ Focus areas that can be developed and tested on current hardware (Intel Core Ult
 
 | Target | Current | Goal | Approach |
 |--------|---------|------|----------|
-| Roofline efficiency | 17-19% (FFN) | 50%+ | **ROOT CAUSE**: Rayon per-row overhead; fix with chunking |
-| FFN layer optimization | 72% of time | 60% | **FIX FOUND**: Add `with_min_len(64)` to Q4_0_Q8_0 matvec |
+| ~~Roofline efficiency~~ | **42%** (was 17%) | 50%+ | ✅ **FIXED**: `with_min_len(64)` added |
+| ~~FFN layer optimization~~ | **2.1x faster** | - | ✅ **FIXED**: TinyLlama 7→14.9 tok/s |
 | ~~AVX-512 evaluation~~ | **Not available** | N/A | Intel removed from Meteor Lake (hybrid cores) |
 | AVX-VNNI vs AVX2 | **1.06x** | N/A | Measured: 286 vs 305 ns/dot - not worth switching |
 | Memory bandwidth | ~30 GB/s | ~40 GB/s | Prefetch hints, NUMA awareness |
@@ -297,16 +297,21 @@ Focus areas that can be developed and tested on current hardware (Intel Core Ult
 - Per-row parallelism creates 4864 Rayon tasks for 22 threads
 - Each thread processes only 20-111 KB - too small to amortize sync overhead
 
-**Fix (not yet applied):**
+**Fix APPLIED (v1.17.0):**
 ```rust
-// Current (line 3039 in quantize.rs):
+// Before:
 (0..out_dim).into_par_iter()
 
-// Should be:
+// After:
 (0..out_dim).into_par_iter().with_min_len(64)
 ```
 
-This matches the Q4K implementation (line 2210) which already has chunking.
+**Results after fix:**
+| Model | Before | After | Speedup |
+|-------|--------|-------|---------|
+| TinyLlama-1.1B | 7-11 tok/s | **14.9 tok/s** | 1.4-2.1x |
+| Phi-2 2.7B | 5.5 tok/s | **7.0 tok/s** | 1.27x |
+| FFN efficiency | 17-19% | **42%** | 2.3x |
 
 ---
 
@@ -414,6 +419,7 @@ cargo run --release --example serve_mnist
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.17.0 | 2025-12-30 | **PERF FIX**: Added `with_min_len(64)` to Q4_0_Q8_0 matvec; TinyLlama 7→14.9 tok/s (2.1x), Phi-2 5.5→7.0 tok/s (1.27x), FFN efficiency 17→42% |
 | 1.16.0 | 2025-12-30 | **FFN profiling**: Found 81.9% overhead from Rayon per-row tasks; Root cause is missing `with_min_len(64)`; 17-19% roofline efficiency |
 | 1.15.0 | 2025-12-30 | **AVX-512/VNNI evaluation**: No AVX-512 on Meteor Lake; AVX-VNNI benchmarked at 1.06x vs AVX2 (not worth enabling); Added bench_simd_dot example |
 | 1.14.0 | 2025-12-30 | **Blocked GPU issues**: Added Section 4.3 tracking trueno issues #72-76 blocked on GPU hardware; Added Section 4.4 CPU-only optimization targets |
