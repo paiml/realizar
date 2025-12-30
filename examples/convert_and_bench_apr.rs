@@ -9,7 +9,6 @@
 //!   GGUF_MODEL=/path/to/model.gguf cargo run --example convert_and_bench_apr --release
 
 use realizar::apr_transformer::QuantizedAprTransformerQ4;
-use realizar::convert::GgufToAprConverter;
 use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
 use std::time::Instant;
 
@@ -36,31 +35,44 @@ fn main() {
         gguf_model.config().vocab_size,
         gguf_model.config().num_layers
     );
-
-    // === Convert to APR F32 ===
-    println!("\n2. Converting GGUF to APR F32 (dequantize)...");
-    let start = Instant::now();
-    let apr_f32 = GgufToAprConverter::convert(&gguf_data).expect("Failed to convert");
-    println!("   Conversion completed in {:.2}s", start.elapsed().as_secs_f32());
-
-    let stats = GgufToAprConverter::stats(&apr_f32);
-    println!("   F32 memory: {:.1} MB ({:.1}x vs Q4_0)",
-        stats.memory_mb(),
-        stats.memory_mb() / (gguf_data.len() as f64 / 1e6));
+    println!(
+        "   GQA: num_heads={}, num_kv_heads={}",
+        gguf_model.config().num_heads,
+        gguf_model.config().num_kv_heads
+    );
 
     // === Convert to APR Q4_0 ===
-    println!("\n3. Creating APR Q4_0 (keeps quantization)...");
+    println!("\n2. Creating APR Q4_0 (keeps quantization)...");
     let start = Instant::now();
     let apr_q4 = QuantizedAprTransformerQ4::from_gguf(&gguf_model);
     println!("   Conversion completed in {:.2}s", start.elapsed().as_secs_f32());
     println!("   Q4_0 memory: {:.1} MB", apr_q4.memory_size() as f64 / 1e6);
 
+    // Print layer 0 weight dimensions for debugging
+    if let Some(layer) = apr_q4.layers.first() {
+        println!("\n   Layer 0 weight dimensions:");
+        println!("     qkv_weight: in={}, out={}, bytes={}",
+            layer.qkv_weight.in_dim, layer.qkv_weight.out_dim, layer.qkv_weight.data.len());
+        println!("     attn_output_weight: in={}, out={}, bytes={}",
+            layer.attn_output_weight.in_dim, layer.attn_output_weight.out_dim, layer.attn_output_weight.data.len());
+        println!("     ffn_up_weight: in={}, out={}, bytes={}",
+            layer.ffn_up_weight.in_dim, layer.ffn_up_weight.out_dim, layer.ffn_up_weight.data.len());
+        println!("     ffn_down_weight: in={}, out={}, bytes={}",
+            layer.ffn_down_weight.in_dim, layer.ffn_down_weight.out_dim, layer.ffn_down_weight.data.len());
+        if let Some(gate) = &layer.ffn_gate_weight {
+            println!("     ffn_gate_weight: in={}, out={}, bytes={}",
+                gate.in_dim, gate.out_dim, gate.data.len());
+        }
+    }
+
     // === Benchmark GGUF ===
-    println!("\n4. Benchmarking GGUF (Q4_0 quantized)...");
-    for _ in 0..3 {
+    println!("\n3. Benchmarking GGUF (Q4_0 quantized)...");
+    // More warmup for stable results
+    println!("   Warming up (10 iterations)...");
+    for _ in 0..10 {
         let _ = gguf_model.forward(&[1]);
     }
-    let iterations = 10;
+    let iterations = 20;
     let start = Instant::now();
     for _ in 0..iterations {
         let _ = gguf_model.forward(&[1]);
@@ -70,23 +82,10 @@ fn main() {
     println!("   Average forward: {:.1}ms", gguf_avg.as_secs_f64() * 1000.0);
     println!("   Throughput: {:.1} tok/s", gguf_tps);
 
-    // === Benchmark APR F32 ===
-    println!("\n5. Benchmarking APR F32 (dequantized)...");
-    for _ in 0..3 {
-        let _ = apr_f32.forward(&[1]);
-    }
-    let start = Instant::now();
-    for _ in 0..iterations {
-        let _ = apr_f32.forward(&[1]);
-    }
-    let apr_f32_avg = start.elapsed() / iterations;
-    let apr_f32_tps = 1.0 / apr_f32_avg.as_secs_f64();
-    println!("   Average forward: {:.1}ms", apr_f32_avg.as_secs_f64() * 1000.0);
-    println!("   Throughput: {:.1} tok/s", apr_f32_tps);
-
     // === Benchmark APR Q4_0 ===
-    println!("\n6. Benchmarking APR Q4_0 (SIMD quantized)...");
-    for _ in 0..3 {
+    println!("\n4. Benchmarking APR Q4_0 (SIMD quantized)...");
+    println!("   Warming up (10 iterations)...");
+    for _ in 0..10 {
         let _ = apr_q4.forward(&[1]);
     }
     let start = Instant::now();
@@ -111,13 +110,6 @@ fn main() {
         gguf_tps
     );
     println!(
-        "║ APR F32   │ {:>9.1} │ {:>12.1} │ {:>7.1} tok/s │ {:.2}x        ║",
-        stats.memory_mb(),
-        apr_f32_avg.as_secs_f64() * 1000.0,
-        apr_f32_tps,
-        apr_f32_tps / gguf_tps
-    );
-    println!(
         "║ APR Q4_0  │ {:>9.1} │ {:>12.1} │ {:>7.1} tok/s │ {:.2}x        ║",
         apr_q4.memory_size() as f64 / 1e6,
         apr_q4_avg.as_secs_f64() * 1000.0,
@@ -126,13 +118,10 @@ fn main() {
     );
     println!("╚══════════════════════════════════════════════════════════════════╝");
 
-    println!("\nKey findings:");
-    println!("  • APR F32 is {:.0}x slower than GGUF (memory bandwidth limited)",
-        gguf_tps / apr_f32_tps);
-    println!("  • APR Q4_0 achieves {:.0}% of GGUF performance (same SIMD matmul)",
-        (apr_q4_tps / gguf_tps) * 100.0);
-    println!("  • Quantization reduces memory by {:.1}x ({:.1} MB vs {:.1} MB)",
-        stats.memory_mb() / (gguf_data.len() as f64 / 1e6),
-        stats.memory_mb(),
-        gguf_data.len() as f64 / 1e6);
+    // Analysis
+    let overhead_ms = apr_q4_avg.as_secs_f64() * 1000.0 - gguf_avg.as_secs_f64() * 1000.0;
+    let overhead_per_layer = overhead_ms / gguf_model.config().num_layers as f64;
+    println!("\nPerformance Analysis:");
+    println!("  • Total overhead: {:.1}ms ({:.1}ms per layer)", overhead_ms, overhead_per_layer);
+    println!("  • Speedup needed: {:.1}x to match GGUF", apr_q4_avg.as_secs_f64() / gguf_avg.as_secs_f64());
 }
