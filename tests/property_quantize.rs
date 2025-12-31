@@ -180,3 +180,63 @@ proptest! {
         prop_assert!(result_q8.is_empty());
     }
 }
+
+/// Unit tests for fused RMSNorm + Q8_0 quantization
+#[cfg(test)]
+mod fused_rmsnorm_tests {
+    use realizar::quantize::quantize_rmsnorm_q8_0;
+
+    #[test]
+    fn test_fused_rmsnorm_q8_0_basic() {
+        // Input: [1.0, 2.0, 3.0, ...] (32 elements to fill one Q8_0 block)
+        let input: Vec<f32> = (0..32).map(|i| (i + 1) as f32).collect();
+        let norm_weight: Vec<f32> = vec![1.0; 32];
+        let eps = 1e-6;
+
+        let (scales, quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, eps);
+
+        // Should produce 1 block (32 elements)
+        assert_eq!(scales.len(), 1);
+        assert_eq!(quants.len(), 32);
+
+        // Verify output makes sense
+        // RMSNorm should produce normalized values with unit-ish scale
+        assert!(scales[0] > 0.0, "Scale should be positive");
+        assert!(scales[0] < 10.0, "Scale should be reasonable");
+    }
+
+    #[test]
+    fn test_fused_rmsnorm_q8_0_zeros() {
+        let input: Vec<f32> = vec![0.0; 32];
+        let norm_weight: Vec<f32> = vec![1.0; 32];
+        let eps = 1e-6;
+
+        let (scales, quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, eps);
+
+        // All zeros should produce zero quants
+        for &q in &quants {
+            assert_eq!(q, 0, "Zero input should produce zero quants");
+        }
+    }
+
+    #[test]
+    fn test_fused_rmsnorm_q8_0_constant() {
+        // Constant input: all same value
+        let input: Vec<f32> = vec![5.0; 32];
+        let norm_weight: Vec<f32> = vec![1.0; 32];
+        let eps = 1e-6;
+
+        let (scales, quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, eps);
+
+        // Constant input after RMSNorm should be all 1.0 (or close)
+        // Then quantized to Q8_0
+        assert_eq!(scales.len(), 1);
+        assert_eq!(quants.len(), 32);
+
+        // All quants should be the same for constant input
+        let first = quants[0];
+        for &q in &quants[1..] {
+            assert_eq!(q, first, "Constant input should produce constant quants");
+        }
+    }
+}

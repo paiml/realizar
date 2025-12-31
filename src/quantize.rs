@@ -2604,6 +2604,135 @@ fn fused_q4_0_dot_scalar(q4_data: &[u8], activations: &[f32], in_dim: usize) -> 
 // Key insight: llama.cpp quantizes activations to Q8_0 and uses integer
 // multiply-accumulate (maddubs_epi16), which is 4-5x faster than f32 FMA.
 
+/// Fused RMSNorm + Q8_0 quantization
+///
+/// Computes RMSNorm and quantizes in a single pass:
+/// normalized[i] = x[i] / sqrt(mean(x^2) + eps) * weight[i]
+/// Then quantizes to Q8_0 format.
+///
+/// This avoids allocating an intermediate normalized vector.
+#[inline]
+pub fn quantize_rmsnorm_q8_0(
+    input: &[f32],
+    norm_weight: &[f32],
+    eps: f32,
+) -> (Vec<f32>, Vec<i8>) {
+    let hidden_dim = input.len();
+    debug_assert_eq!(hidden_dim, norm_weight.len());
+
+    // Compute sum of squares for RMSNorm
+    let sum_sq: f32 = input.iter().map(|x| x * x).sum();
+    let mean_sq = sum_sq / hidden_dim as f32;
+    let inv_rms = 1.0 / (mean_sq + eps).sqrt();
+
+    // Now quantize the normalized values directly
+    let num_blocks = hidden_dim.div_ceil(32);
+    let mut scales = Vec::with_capacity(num_blocks);
+    let mut quants = Vec::with_capacity(num_blocks * 32);
+
+    for block_idx in 0..num_blocks {
+        let start = block_idx * 32;
+        let end = (start + 32).min(hidden_dim);
+
+        // Find max absolute value of normalized values for this block
+        let mut max_abs = 0.0f32;
+        for i in start..end {
+            // Fused: x[i] * inv_rms * weight[i]
+            let normalized = input[i] * inv_rms * norm_weight[i];
+            let abs = normalized.abs();
+            if abs > max_abs {
+                max_abs = abs;
+            }
+        }
+
+        // Compute scale
+        let scale = if max_abs > 1e-10 {
+            max_abs / 127.0
+        } else {
+            1.0 / 127.0
+        };
+        let inv_scale = 1.0 / scale;
+        scales.push(scale);
+
+        // Quantize normalized values
+        for i in start..end {
+            let normalized = input[i] * inv_rms * norm_weight[i];
+            let q = (normalized * inv_scale).round();
+            quants.push(q.clamp(-128.0, 127.0) as i8);
+        }
+        // Pad to 32 if partial block
+        for _ in end..(start + 32) {
+            quants.push(0i8);
+        }
+    }
+
+    (scales, quants)
+}
+
+/// Fused RMSNorm + Q4_0 matmul
+///
+/// Combines RMSNorm normalization with quantized matmul in one operation:
+/// 1. Computes inv_rms = 1 / sqrt(mean(x^2) + eps)
+/// 2. Quantizes (x * inv_rms * norm_weight) to Q8_0
+/// 3. Performs Q4_0 × Q8_0 integer matmul
+///
+/// This eliminates the intermediate normalized vector allocation.
+#[allow(clippy::similar_names)]
+pub fn fused_rmsnorm_q4_0_matmul(
+    input: &[f32],
+    norm_weight: &[f32],
+    eps: f32,
+    weight_data: &[u8],
+    in_dim: usize,
+    out_dim: usize,
+) -> Result<Vec<f32>> {
+    use rayon::prelude::*;
+
+    const Q4_0_BLOCK_BYTES: usize = 18;
+    const Q4_0_BLOCK_SIZE: usize = 32;
+
+    if input.len() != in_dim {
+        return Err(RealizarError::InvalidShape {
+            reason: format!(
+                "Input length {} doesn't match in_dim {}",
+                input.len(),
+                in_dim
+            ),
+        });
+    }
+
+    let blocks_per_row = in_dim.div_ceil(Q4_0_BLOCK_SIZE);
+    let bytes_per_row = blocks_per_row * Q4_0_BLOCK_BYTES;
+
+    let expected_weight_bytes = out_dim * bytes_per_row;
+    if weight_data.len() < expected_weight_bytes {
+        return Err(RealizarError::InvalidShape {
+            reason: format!(
+                "Q4_0 weight data too small: need {} bytes for {}x{}, have {}",
+                expected_weight_bytes, out_dim, in_dim, weight_data.len()
+            ),
+        });
+    }
+
+    // Fused RMSNorm + Q8_0 quantization (single pass, no intermediate allocation)
+    let (q8_scales, q8_quants) = quantize_rmsnorm_q8_0(input, norm_weight, eps);
+
+    // Parallel matmul with chunking
+    const CHUNK_SIZE: usize = 64;
+    let output: Vec<f32> = (0..out_dim)
+        .into_par_iter()
+        .with_min_len(CHUNK_SIZE)
+        .map(|o| {
+            let row_start = o * bytes_per_row;
+            let row_end = row_start + bytes_per_row;
+            let row_data = &weight_data[row_start..row_end];
+            fused_q4_0_q8_0_dot_simd(row_data, &q8_scales, &q8_quants, in_dim)
+        })
+        .collect();
+
+    Ok(output)
+}
+
 /// Quantize f32 activations to Q8_0 format for fast integer matmul
 ///
 /// Returns (scales, quantized_values) where each block of 32 values
