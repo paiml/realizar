@@ -1252,8 +1252,7 @@ impl GGUFModel {
         let is_gpt2_style = self
             .metadata
             .get("tokenizer.ggml.model")
-            .map(|v| matches!(v, GGUFValue::String(s) if s == "gpt2"))
-            .unwrap_or(false);
+            .is_some_and(|v| matches!(v, GGUFValue::String(s) if s == "gpt2"));
 
         let space_char = if is_gpt2_style { '\u{0120}' } else { '▁' };
 
@@ -11373,15 +11372,26 @@ impl OwnedQuantizedModel {
         // 1. Token embedding lookup
         let mut hidden = self.embed(&[token_id]);
 
+        // Detect if model uses RMSNorm (LLaMA-style) or LayerNorm (phi-2 style)
+        // LLaMA models have ffn_gate_weight (SwiGLU) and no bias in norms
+        let use_rmsnorm = self
+            .layers
+            .first()
+            .is_some_and(|l| l.ffn_gate_weight.is_some() && l.attn_norm_bias.is_none());
+
         // 2. Process through transformer layers
         for (layer_idx, layer) in self.layers.iter().enumerate() {
-            // 2a. Attention layer norm
-            let normed = self.layer_norm(
-                &hidden,
-                &layer.attn_norm_weight,
-                layer.attn_norm_bias.as_deref(),
-                self.config.eps,
-            );
+            // 2a. Attention layer norm (RMSNorm for LLaMA, LayerNorm for others)
+            let normed = if use_rmsnorm {
+                self.rms_norm(&hidden, &layer.attn_norm_weight, self.config.eps)
+            } else {
+                self.layer_norm(
+                    &hidden,
+                    &layer.attn_norm_weight,
+                    layer.attn_norm_bias.as_deref(),
+                    self.config.eps,
+                )
+            };
 
             // 2b. QKV projection
             let mut qkv = self.qkv_matmul(&normed, &layer.qkv_weight)?;
@@ -11440,14 +11450,57 @@ impl OwnedQuantizedModel {
                 hidden[i] += attn_output[i];
             }
 
-            // 2h. FFN
-            let mut ffn_hidden = self.fused_matmul(&hidden, &layer.ffn_up_weight)?;
-            if let Some(ref bias) = layer.ffn_up_bias {
-                self.add_bias(&mut ffn_hidden, bias);
-            }
-            self.gelu(&mut ffn_hidden);
+            // 2h. Pre-FFN layer norm (LLaMA uses separate ffn_norm with RMSNorm)
+            let ffn_input = if let Some(ref ffn_norm) = layer.ffn_norm_weight {
+                // LLaMA-style: separate FFN layer norm (use RMSNorm for LLaMA)
+                if use_rmsnorm {
+                    self.rms_norm(&hidden, ffn_norm, self.config.eps)
+                } else {
+                    self.layer_norm(
+                        &hidden,
+                        ffn_norm,
+                        layer.ffn_norm_bias.as_deref(),
+                        self.config.eps,
+                    )
+                }
+            } else {
+                // phi-2 style: no separate FFN norm, use hidden directly
+                hidden.clone()
+            };
 
-            let mut ffn_output = self.fused_matmul(&ffn_hidden, &layer.ffn_down_weight)?;
+            // 2i. FFN with SwiGLU or GELU activation
+            let ffn_activated = if let Some(ref gate_weight) = layer.ffn_gate_weight {
+                // SwiGLU path (LLaMA, TinyLlama, Mistral, etc.)
+                // output = down(silu(gate(x)) * up(x))
+                let mut ffn_up = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
+                if let Some(ref bias) = layer.ffn_up_bias {
+                    self.add_bias(&mut ffn_up, bias);
+                }
+
+                let mut ffn_gate = self.fused_matmul(&ffn_input, gate_weight)?;
+                if let Some(ref bias) = layer.ffn_gate_bias {
+                    self.add_bias(&mut ffn_gate, bias);
+                }
+
+                // SwiGLU: silu(gate) * up
+                self.silu(&mut ffn_gate);
+                for i in 0..ffn_gate.len() {
+                    ffn_gate[i] *= ffn_up[i];
+                }
+
+                ffn_gate
+            } else {
+                // GELU path (phi-2, GPT-2, etc.)
+                let mut ffn_hidden = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
+                if let Some(ref bias) = layer.ffn_up_bias {
+                    self.add_bias(&mut ffn_hidden, bias);
+                }
+                self.gelu(&mut ffn_hidden);
+                ffn_hidden
+            };
+
+            // 2j. FFN down projection
+            let mut ffn_output = self.fused_matmul(&ffn_activated, &layer.ffn_down_weight)?;
             if let Some(ref bias) = layer.ffn_down_bias {
                 self.add_bias(&mut ffn_output, bias);
             }
@@ -11461,13 +11514,17 @@ impl OwnedQuantizedModel {
         // Advance cache position after processing all layers
         cache.advance();
 
-        // 3. Final layer norm
-        let normed = self.layer_norm(
-            &hidden,
-            &self.output_norm_weight,
-            self.output_norm_bias.as_deref(),
-            self.config.eps,
-        );
+        // 3. Final layer norm (RMSNorm for LLaMA, LayerNorm for others)
+        let normed = if use_rmsnorm {
+            self.rms_norm(&hidden, &self.output_norm_weight, self.config.eps)
+        } else {
+            self.layer_norm(
+                &hidden,
+                &self.output_norm_weight,
+                self.output_norm_bias.as_deref(),
+                self.config.eps,
+            )
+        };
 
         // 4. LM head projection
         let mut logits = self.fused_matmul(&normed, &self.lm_head_weight)?;
