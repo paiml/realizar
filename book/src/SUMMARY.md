@@ -205,6 +205,8 @@
 
 # Real-World Examples
 
+- [Examples Reference](./examples/examples-reference.md)
+- [Quick Generate (Real Models)](./examples/quick-generate.md)
 - [Inference Demo](./examples/inference.md)
 - [TinyLlama Benchmark](./examples/tinyllama-benchmark.md)
 - [Tokenization Comparison](./examples/tokenization.md)
