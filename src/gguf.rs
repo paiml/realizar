@@ -11521,16 +11521,23 @@ impl OwnedQuantizedModel {
             // Q: [hidden_dim] = [num_heads * head_dim]
             // K: [kv_dim] = [num_kv_heads * head_dim]
             // V: [kv_dim] = [num_kv_heads * head_dim]
+            // Optimization: apply RoPE in-place to avoid Q/K copies
             let num_kv_heads = self.config.num_kv_heads;
             let head_dim = hidden_dim / self.config.num_heads;
             let kv_dim = num_kv_heads * head_dim;
 
-            let mut q = qkv[0..hidden_dim].to_vec();
-            let mut k = qkv[hidden_dim..hidden_dim + kv_dim].to_vec();
-            let v = qkv[hidden_dim + kv_dim..hidden_dim + 2 * kv_dim].to_vec();
+            // Apply RoPE in-place to Q and K within QKV buffer
+            self.apply_rope(&mut qkv[0..hidden_dim], position, self.config.num_heads);
+            self.apply_rope(
+                &mut qkv[hidden_dim..hidden_dim + kv_dim],
+                position,
+                num_kv_heads,
+            );
 
-            self.apply_rope(&mut q, position, self.config.num_heads);
-            self.apply_rope(&mut k, position, num_kv_heads);
+            // Use slices to avoid copies (only copy K for cache storage)
+            let q = &qkv[0..hidden_dim];
+            let k = &qkv[hidden_dim..hidden_dim + kv_dim];
+            let v = &qkv[hidden_dim + kv_dim..hidden_dim + 2 * kv_dim];
 
             // 2d. Get cached K/V and compute attention with GQA support
             let k_cache = cache.get_k(layer_idx);
