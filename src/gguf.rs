@@ -9685,6 +9685,32 @@ impl OwnedQuantizedModel {
         Ok((up_out, gate_out))
     }
 
+    /// Fused RMSNorm + LM head projection
+    ///
+    /// Combines final layer norm with output projection in one operation.
+    /// Eliminates intermediate normalized vector allocation.
+    pub fn fused_rmsnorm_lm_head(&self, input: &[f32]) -> Result<Vec<f32>> {
+        use crate::quantize::fused_rmsnorm_q4_0_matmul;
+
+        // Only use fused path for Q4_0 weights
+        if self.lm_head_weight.qtype == GGUF_TYPE_Q4_0
+            && input.len() == self.lm_head_weight.in_dim
+        {
+            return fused_rmsnorm_q4_0_matmul(
+                input,
+                &self.output_norm_weight,
+                self.config.eps,
+                &self.lm_head_weight.data,
+                self.lm_head_weight.in_dim,
+                self.lm_head_weight.out_dim,
+            );
+        }
+
+        // Fallback to separate RMSNorm + matmul for other types
+        let normed = self.rms_norm(input, &self.output_norm_weight, self.config.eps);
+        self.fused_matmul(&normed, &self.lm_head_weight)
+    }
+
     /// PARITY-113: Dequantize weight tensor to FP32 for CUDA GEMM
     ///
     /// This is a fallback path for non-matvec operations (seq_len > 1).
@@ -11642,20 +11668,20 @@ impl OwnedQuantizedModel {
         // Advance cache position after processing all layers
         cache.advance();
 
-        // 3. Final layer norm (RMSNorm for LLaMA, LayerNorm for others)
-        let normed = if use_rmsnorm {
-            self.rms_norm(&hidden, &self.output_norm_weight, self.config.eps)
+        // 3+4. Fused final layer norm + LM head projection
+        // For RMSNorm models: fuse norm + matmul to eliminate intermediate allocation
+        let mut logits = if use_rmsnorm {
+            self.fused_rmsnorm_lm_head(&hidden)?
         } else {
-            self.layer_norm(
+            let normed = self.layer_norm(
                 &hidden,
                 &self.output_norm_weight,
                 self.output_norm_bias.as_deref(),
                 self.config.eps,
-            )
+            );
+            self.fused_matmul(&normed, &self.lm_head_weight)?
         };
 
-        // 4. LM head projection
-        let mut logits = self.fused_matmul(&normed, &self.lm_head_weight)?;
         if let Some(ref bias) = self.lm_head_bias {
             self.add_bias(&mut logits, bias);
         }
