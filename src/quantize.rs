@@ -394,8 +394,9 @@ pub fn dequantize_q4_0(data: &[u8]) -> Result<Vec<f32>> {
 ///
 /// Returns error if data length is not a multiple of block size
 pub fn dequantize_q8_0(data: &[u8]) -> Result<Vec<f32>> {
-    // Q8_0 block: 4 bytes (f32 scale) + 32 bytes (int8 quants) = 36 bytes
-    const BLOCK_BYTES: usize = 4 + 32;
+    // Q8_0 block: 2 bytes (f16 scale) + 32 bytes (int8 quants) = 34 bytes
+    // Note: GGML spec uses f16 for scale, not f32!
+    const BLOCK_BYTES: usize = 2 + 32;
 
     if data.len() % BLOCK_BYTES != 0 {
         return Err(RealizarError::InvalidShape {
@@ -413,17 +414,12 @@ pub fn dequantize_q8_0(data: &[u8]) -> Result<Vec<f32>> {
     for block_idx in 0..num_blocks {
         let block_start = block_idx * BLOCK_BYTES;
 
-        // Read scale (f32)
-        let scale_bytes = &data[block_start..block_start + 4];
-        let scale = f32::from_le_bytes([
-            scale_bytes[0],
-            scale_bytes[1],
-            scale_bytes[2],
-            scale_bytes[3],
-        ]);
+        // Read scale (f16 -> f32)
+        let scale_bits = u16::from_le_bytes([data[block_start], data[block_start + 1]]);
+        let scale = f16_to_f32(scale_bits);
 
         // Read quantized values (32 int8 values)
-        let quants_start = block_start + 4;
+        let quants_start = block_start + 2;
         let quants = &data[quants_start..quants_start + 32];
 
         // Dequantize
@@ -3546,7 +3542,7 @@ unsafe fn dequantize_q4_k_superblock_avx2(sb_data: &[u8]) -> Vec<f32> {
 pub fn dequantize_q8_0_parallel(data: &[u8]) -> Result<Vec<f32>> {
     use rayon::prelude::*;
 
-    const BLOCK_BYTES: usize = 36; // 4 (f32 scale) + 32 (i8 quants)
+    const BLOCK_BYTES: usize = 34; // 2 (f16 scale) + 32 (i8 quants)
 
     if data.len() % BLOCK_BYTES != 0 {
         return Err(RealizarError::InvalidShape {
@@ -3578,11 +3574,12 @@ pub fn dequantize_q8_0_parallel(data: &[u8]) -> Result<Vec<f32>> {
 fn dequantize_q8_0_block(block_data: &[u8]) -> Vec<f32> {
     let mut result = Vec::with_capacity(32);
 
-    // Read scale (f32)
-    let scale = f32::from_le_bytes([block_data[0], block_data[1], block_data[2], block_data[3]]);
+    // Read scale (f16 -> f32)
+    let scale_bits = u16::from_le_bytes([block_data[0], block_data[1]]);
+    let scale = f16_to_f32(scale_bits);
 
     // Dequantize 32 int8 values
-    for &byte in &block_data[4..36] {
+    for &byte in &block_data[2..34] {
         let value = i8::from_le_bytes([byte]);
         result.push(scale * f32::from(value));
     }
@@ -3616,7 +3613,7 @@ pub fn dequantize_q8_0_simd(data: &[u8]) -> Result<Vec<f32>> {
 unsafe fn dequantize_q8_0_avx2_parallel(data: &[u8]) -> Result<Vec<f32>> {
     use rayon::prelude::*;
 
-    const BLOCK_BYTES: usize = 36;
+    const BLOCK_BYTES: usize = 34; // 2 (f16 scale) + 32 (i8 quants)
 
     if data.len() % BLOCK_BYTES != 0 {
         return Err(RealizarError::InvalidShape {
@@ -3652,8 +3649,9 @@ unsafe fn dequantize_q8_0_block_avx2(block_data: &[u8]) -> Vec<f32> {
 
     let mut result = vec![0.0f32; 32];
 
-    // Read scale
-    let scale = f32::from_le_bytes([block_data[0], block_data[1], block_data[2], block_data[3]]);
+    // Read scale (f16 -> f32)
+    let scale_bits = u16::from_le_bytes([block_data[0], block_data[1]]);
+    let scale = f16_to_f32(scale_bits);
 
     // SAFETY: AVX2 availability verified by caller's target_feature
     unsafe {
@@ -3661,7 +3659,7 @@ unsafe fn dequantize_q8_0_block_avx2(block_data: &[u8]) -> Vec<f32> {
 
         // Process 32 i8 values in 4 iterations of 8
         for chunk in 0..4 {
-            let byte_start = 4 + chunk * 8;
+            let byte_start = 2 + chunk * 8; // Start at offset 2 (after f16 scale)
 
             // Load 8 i8 values and sign-extend to i32
             let q0 = block_data[byte_start] as i8 as i32;
@@ -4095,7 +4093,7 @@ pub fn dequantize_q8_0_simd_optimized(data: &[u8]) -> Result<Vec<f32>> {
 unsafe fn dequantize_q8_0_avx2_optimized(data: &[u8]) -> Result<Vec<f32>> {
     use rayon::prelude::*;
 
-    const BLOCK_BYTES: usize = 36;
+    const BLOCK_BYTES: usize = 34; // 2 (f16 scale) + 32 (i8 quants)
 
     if data.len() % BLOCK_BYTES != 0 {
         return Err(RealizarError::InvalidShape {
@@ -4132,7 +4130,9 @@ unsafe fn dequantize_q8_0_block_avx2_optimized(block_data: &[u8]) -> Vec<f32> {
 
     let mut result = vec![0.0f32; 32];
 
-    let scale = f32::from_le_bytes([block_data[0], block_data[1], block_data[2], block_data[3]]);
+    // Read scale (f16 -> f32)
+    let scale_bits = u16::from_le_bytes([block_data[0], block_data[1]]);
+    let scale = f16_to_f32(scale_bits);
 
     // SAFETY: AVX2 availability verified by caller's target_feature
     unsafe {
@@ -4140,7 +4140,7 @@ unsafe fn dequantize_q8_0_block_avx2_optimized(block_data: &[u8]) -> Vec<f32> {
 
         // Process 32 i8 values in 4 iterations of 8
         // Use direct pointer casting for better vectorization
-        let quants_ptr = block_data.as_ptr().add(4);
+        let quants_ptr = block_data.as_ptr().add(2); // Start after f16 scale
 
         for chunk in 0..4 {
             let byte_offset = chunk * 8;
@@ -4176,7 +4176,7 @@ unsafe fn dequantize_q8_0_block_avx2_optimized(block_data: &[u8]) -> Vec<f32> {
 unsafe fn dequantize_q8_0_neon_parallel(data: &[u8]) -> Result<Vec<f32>> {
     use rayon::prelude::*;
 
-    const BLOCK_BYTES: usize = 36;
+    const BLOCK_BYTES: usize = 34; // 2 (f16 scale) + 32 (i8 quants)
 
     if data.len() % BLOCK_BYTES != 0 {
         return Err(RealizarError::InvalidShape {
@@ -4210,7 +4210,9 @@ unsafe fn dequantize_q8_0_block_neon(block_data: &[u8]) -> Vec<f32> {
 
     let mut result = vec![0.0f32; 32];
 
-    let scale = f32::from_le_bytes([block_data[0], block_data[1], block_data[2], block_data[3]]);
+    // Read scale (f16 -> f32)
+    let scale_bits = u16::from_le_bytes([block_data[0], block_data[1]]);
+    let scale = f16_to_f32(scale_bits);
 
     // SAFETY: NEON always available on aarch64
     unsafe {
@@ -4218,7 +4220,7 @@ unsafe fn dequantize_q8_0_block_neon(block_data: &[u8]) -> Vec<f32> {
 
         // Process 32 i8 values in 8 iterations of 4
         for chunk in 0..8 {
-            let byte_start = 4 + chunk * 4;
+            let byte_start = 2 + chunk * 4; // Start at offset 2 (after f16 scale)
 
             // Load 4 i8 values
             let q0 = block_data[byte_start] as i8 as i32;

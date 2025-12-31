@@ -850,8 +850,8 @@ impl GGUFModel {
                 // Q8_0 quantized data - use SIMD-parallel for faster loading
                 use crate::quantize::dequantize_q8_0_simd;
 
-                // Q8_0 block size: 36 bytes (4 for scale + 32 for quants)
-                const BLOCK_BYTES: usize = 36;
+                // Q8_0 block size: 34 bytes (2 for f16 scale + 32 for quants)
+                const BLOCK_BYTES: usize = 34;
                 const BLOCK_SIZE: usize = 32;
 
                 let num_blocks = size.div_ceil(BLOCK_SIZE);
@@ -1232,6 +1232,10 @@ impl GGUFModel {
     ///
     /// Uses greedy longest-match tokenization.
     /// Returns None if no vocabulary is available.
+    ///
+    /// Supports both tokenizer types:
+    /// - SentencePiece (llama): Uses `▁` (U+2581) for word boundaries
+    /// - GPT-2 (qwen2, gpt2): Uses `Ġ` (U+0120) for space prefixes
     #[must_use]
     pub fn encode(&self, text: &str) -> Option<Vec<u32>> {
         let vocab = self.vocabulary()?;
@@ -1243,20 +1247,30 @@ impl GGUFModel {
             .map(|(id, token)| (token.as_str(), id as u32))
             .collect();
 
-        // SentencePiece preprocessing: replace spaces with ▁ (U+2581)
-        // The first character doesn't get ▁ if the text doesn't start with space
+        // Detect tokenizer type from metadata
+        // GPT-2 style uses Ġ (U+0120), SentencePiece uses ▁ (U+2581)
+        let is_gpt2_style = self
+            .metadata
+            .get("tokenizer.ggml.model")
+            .map(|v| matches!(v, GGUFValue::String(s) if s == "gpt2"))
+            .unwrap_or(false);
+
+        let space_char = if is_gpt2_style { '\u{0120}' } else { '▁' };
+
+        // Preprocessing: replace spaces with the appropriate space character
+        // The first character doesn't get space_char if the text doesn't start with space
         // Otherwise, leading space gets converted too
         let processed = if text.starts_with(' ') {
-            text.replace(' ', "▁")
+            text.replace(' ', &space_char.to_string())
         } else {
-            // Add ▁ before spaces but keep first char as-is
+            // Add space_char before spaces but keep first char as-is
             let mut result = String::new();
             let mut first = true;
             for ch in text.chars() {
                 if ch == ' ' {
-                    result.push('▁');
+                    result.push(space_char);
                 } else {
-                    if !first && !result.ends_with('▁') {
+                    if !first && !result.ends_with(space_char) {
                         // This handles non-space chars normally
                     }
                     result.push(ch);
@@ -2185,7 +2199,7 @@ impl<'a> QuantizedGGUFTransformer<'a> {
             },
             GGUF_TYPE_Q8_0 => {
                 const BLOCK_SIZE: usize = 32;
-                const BLOCK_BYTES: usize = 36;
+                const BLOCK_BYTES: usize = 34; // 2 (f16 scale) + 32 (i8 quants)
                 let num_blocks = num_elements.div_ceil(BLOCK_SIZE);
                 num_blocks * BLOCK_BYTES
             },
