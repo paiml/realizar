@@ -1038,12 +1038,48 @@ pub struct AprTransformerLayer {
 }
 
 impl AprTransformerLayer {
-    /// Create an empty layer with given dimensions
+    /// Create an empty layer with given dimensions (non-GQA: num_kv_heads == num_heads)
     pub fn empty(hidden_dim: usize, intermediate_dim: usize) -> Self {
         Self {
             attn_norm_weight: vec![1.0; hidden_dim],
             attn_norm_bias: None,
             qkv_weight: vec![0.0; hidden_dim * 3 * hidden_dim],
+            qkv_bias: None,
+            attn_output_weight: vec![0.0; hidden_dim * hidden_dim],
+            attn_output_bias: None,
+            ffn_gate_weight: None,
+            ffn_gate_bias: None,
+            ffn_up_weight: vec![0.0; hidden_dim * intermediate_dim],
+            ffn_up_bias: None,
+            ffn_down_weight: vec![0.0; intermediate_dim * hidden_dim],
+            ffn_down_bias: None,
+            ffn_norm_weight: None,
+            ffn_norm_bias: None,
+        }
+    }
+
+    /// Create an empty layer with GQA dimensions (num_kv_heads < num_heads)
+    ///
+    /// # Arguments
+    /// * `hidden_dim` - Hidden dimension (num_heads * head_dim)
+    /// * `num_heads` - Number of query heads
+    /// * `num_kv_heads` - Number of key/value heads (< num_heads for GQA)
+    /// * `intermediate_dim` - FFN intermediate dimension
+    pub fn empty_gqa(
+        hidden_dim: usize,
+        num_heads: usize,
+        num_kv_heads: usize,
+        intermediate_dim: usize,
+    ) -> Self {
+        let head_dim = hidden_dim / num_heads;
+        let kv_dim = num_kv_heads * head_dim;
+        // QKV weight: [hidden_dim, Q_dim + K_dim + V_dim] = [hidden_dim, hidden_dim + 2*kv_dim]
+        let qkv_out_dim = hidden_dim + 2 * kv_dim;
+
+        Self {
+            attn_norm_weight: vec![1.0; hidden_dim],
+            attn_norm_bias: None,
+            qkv_weight: vec![0.0; hidden_dim * qkv_out_dim],
             qkv_bias: None,
             attn_output_weight: vec![0.0; hidden_dim * hidden_dim],
             attn_output_bias: None,
@@ -1871,20 +1907,23 @@ impl AprTransformer {
 
             // 2b. QKV projection (single token)
             // Calculate qkv_dim from actual weight size (handles GQA models)
-            let qkv_dim = layer.qkv_weight.len() / hidden_dim;
-            let mut qkv = self.matmul(&normed, &layer.qkv_weight, hidden_dim, qkv_dim);
+            let qkv_out_dim = layer.qkv_weight.len() / hidden_dim;
+            let mut qkv = self.matmul(&normed, &layer.qkv_weight, hidden_dim, qkv_out_dim);
             if let Some(ref bias) = layer.qkv_bias {
                 self.add_bias(&mut qkv, bias);
             }
 
-            // Split into Q, K, V
-            let q = &qkv[0..hidden_dim];
-            let k = &qkv[hidden_dim..2 * hidden_dim];
-            let v = &qkv[2 * hidden_dim..3 * hidden_dim];
-
-            // 2c. Append K, V to cache (only KV heads worth)
+            // Split into Q, K, V with GQA-aware sizes
+            // Q: [hidden_dim] = [num_heads * head_dim]
+            // K: [kv_size] = [num_kv_heads * head_dim]
+            // V: [kv_size] = [num_kv_heads * head_dim]
             let kv_size = num_kv_heads * head_dim;
-            cache.append(layer_idx, &k[0..kv_size], &v[0..kv_size]);
+            let q = &qkv[0..hidden_dim];
+            let k = &qkv[hidden_dim..hidden_dim + kv_size];
+            let v = &qkv[hidden_dim + kv_size..hidden_dim + 2 * kv_size];
+
+            // 2c. Append K, V to cache
+            cache.append(layer_idx, k, v);
 
             // 2d. Compute attention with full cache
             let (k_cache, v_cache) = cache.get(layer_idx);
@@ -4235,5 +4274,95 @@ mod tests {
         assert_eq!(transformer.config, decoded.config);
         assert_eq!(transformer.token_embedding, decoded.token_embedding);
         assert_eq!(transformer.layers.len(), decoded.layers.len());
+    }
+
+    // ==========================================================================
+    // GQA (Grouped Query Attention) KV Cache Tests - IMP-GQA-001
+    // ==========================================================================
+
+    /// Test that forward_with_cache works with GQA models (num_kv_heads < num_heads)
+    /// This is a regression test for the QKV extraction bug where K/V were assumed
+    /// to have the same size as Q (hidden_dim), but GQA models have smaller K/V.
+    ///
+    /// GQA model example: Qwen2.5-0.5B (14 heads, 2 KV heads)
+    /// - Q size: 14 * 64 = 896
+    /// - K size: 2 * 64 = 128
+    /// - V size: 2 * 64 = 128
+    /// - Total QKV: 896 + 128 + 128 = 1152 (not 896 * 3 = 2688)
+    #[test]
+    fn test_forward_with_cache_gqa_does_not_panic() {
+        // Create GQA config similar to Qwen2.5-0.5B
+        let config = AprTransformerConfig {
+            architecture: "qwen2".to_string(),
+            hidden_dim: 64, // 8 heads * 8 head_dim
+            num_layers: 2,
+            num_heads: 8,
+            num_kv_heads: 2, // GQA: 4:1 ratio
+            vocab_size: 100,
+            intermediate_dim: 128,
+            context_length: 64,
+            rope_theta: 10000.0,
+            eps: 1e-5,
+        };
+
+        // Create transformer with GQA-sized layers
+        let layers: Vec<AprTransformerLayer> = (0..config.num_layers)
+            .map(|_| {
+                AprTransformerLayer::empty_gqa(
+                    config.hidden_dim,
+                    config.num_heads,
+                    config.num_kv_heads,
+                    config.intermediate_dim,
+                )
+            })
+            .collect();
+
+        let transformer = AprTransformer {
+            config: config.clone(),
+            token_embedding: vec![0.1; config.vocab_size * config.hidden_dim],
+            layers,
+            output_norm_weight: vec![1.0; config.hidden_dim],
+            output_norm_bias: None,
+            lm_head_weight: vec![0.0; config.hidden_dim * config.vocab_size],
+            lm_head_bias: None,
+        };
+
+        let mut cache = AprKVCache::new(&config);
+
+        // This should NOT panic with proper GQA support
+        // Before fix: panics with "range end index X out of range for slice of length Y"
+        let result = transformer.forward_with_cache(1, &mut cache, 0);
+        assert!(result.is_ok(), "forward_with_cache should not panic on GQA models: {:?}", result);
+
+        // Generate a few more tokens to test cache accumulation
+        let result = transformer.forward_with_cache(2, &mut cache, 1);
+        assert!(result.is_ok());
+
+        let result = transformer.forward_with_cache(3, &mut cache, 2);
+        assert!(result.is_ok());
+
+        // Verify cache has correct length
+        assert_eq!(cache.len(), 3);
+    }
+
+    /// Test GQA KV cache dimensions are correct
+    #[test]
+    fn test_gqa_kv_cache_dimensions() {
+        let config = AprTransformerConfig {
+            hidden_dim: 64, // 8 heads * 8 head_dim
+            num_layers: 2,
+            num_heads: 8,
+            num_kv_heads: 2, // GQA: 4:1 ratio
+            context_length: 32,
+            ..Default::default()
+        };
+
+        let cache = AprKVCache::new(&config);
+
+        // KV cache should store num_kv_heads * head_dim per position
+        // head_dim = 64 / 8 = 8
+        // kv_size = 2 * 8 = 16 per position per layer
+        assert_eq!(cache.num_kv_heads, 2);
+        assert_eq!(cache.head_dim, 8);
     }
 }

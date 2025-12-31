@@ -11389,26 +11389,41 @@ impl OwnedQuantizedModel {
                 self.add_bias(&mut qkv, bias);
             }
 
-            // 2c. Extract Q, K, V and apply RoPE
-            // Note: This uses hidden_dim for all (assumes non-GQA or fused QKV)
+            // 2c. Extract Q, K, V with GQA-aware sizes and apply RoPE
+            // Q: [hidden_dim] = [num_heads * head_dim]
+            // K: [kv_dim] = [num_kv_heads * head_dim]
+            // V: [kv_dim] = [num_kv_heads * head_dim]
+            let num_kv_heads = self.config.num_kv_heads;
+            let head_dim = hidden_dim / self.config.num_heads;
+            let kv_dim = num_kv_heads * head_dim;
+
             let mut q = qkv[0..hidden_dim].to_vec();
-            let mut k = qkv[hidden_dim..2 * hidden_dim].to_vec();
-            let v = qkv[2 * hidden_dim..3 * hidden_dim].to_vec();
+            let mut k = qkv[hidden_dim..hidden_dim + kv_dim].to_vec();
+            let v = qkv[hidden_dim + kv_dim..hidden_dim + 2 * kv_dim].to_vec();
 
             self.apply_rope(&mut q, position, self.config.num_heads);
-            self.apply_rope(&mut k, position, self.config.num_heads); // Same as Q for non-GQA
+            self.apply_rope(&mut k, position, num_kv_heads);
 
-            // 2d. Get cached K/V and compute attention
+            // 2d. Get cached K/V and compute attention with GQA support
             let k_cache = cache.get_k(layer_idx);
             let v_cache = cache.get_v(layer_idx);
 
             let attn_out = if k_cache.is_empty() {
                 // First token - no cache yet, output is just weighted V
-                // With single query and single K/V, attention is just V
-                v.clone()
+                // With single query and single K/V, need to expand V for all Q heads
+                let mut expanded_v = vec![0.0f32; hidden_dim];
+                let q_per_kv = self.config.num_heads / num_kv_heads;
+                for q_head in 0..self.config.num_heads {
+                    let kv_head = q_head / q_per_kv;
+                    let v_start = kv_head * head_dim;
+                    let out_start = q_head * head_dim;
+                    expanded_v[out_start..out_start + head_dim]
+                        .copy_from_slice(&v[v_start..v_start + head_dim]);
+                }
+                expanded_v
             } else {
-                // Use cached K/V for attention
-                self.attention_with_cache(&q, k_cache, v_cache, &k, &v)
+                // Use cached K/V for attention with GQA
+                self.attention_with_cache_gqa(&q, k_cache, v_cache, &k, &v)
             };
 
             // 2e. Store K and V in cache for future tokens
