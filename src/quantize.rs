@@ -2733,6 +2733,100 @@ pub fn fused_rmsnorm_q4_0_matmul(
     Ok(output)
 }
 
+/// Fused RMSNorm + parallel FFN up/gate projections
+///
+/// For SwiGLU models, FFN has two parallel matmuls (up and gate) that share
+/// the same normalized input. This function:
+/// 1. Computes inv_rms once
+/// 2. Quantizes normalized input to Q8_0 once
+/// 3. Runs both up and gate matmuls in parallel
+///
+/// Eliminates: 1 RMSNorm pass, 1 intermediate allocation, 1 Q8_0 quantization
+#[allow(clippy::similar_names)]
+#[allow(clippy::too_many_arguments)]
+pub fn fused_rmsnorm_ffn_up_gate(
+    input: &[f32],
+    norm_weight: &[f32],
+    eps: f32,
+    up_weight_data: &[u8],
+    gate_weight_data: &[u8],
+    in_dim: usize,
+    out_dim: usize,
+) -> Result<(Vec<f32>, Vec<f32>)> {
+    use rayon::prelude::*;
+
+    const Q4_0_BLOCK_BYTES: usize = 18;
+    const Q4_0_BLOCK_SIZE: usize = 32;
+
+    if input.len() != in_dim {
+        return Err(RealizarError::InvalidShape {
+            reason: format!(
+                "Input length {} doesn't match in_dim {}",
+                input.len(),
+                in_dim
+            ),
+        });
+    }
+
+    let blocks_per_row = in_dim.div_ceil(Q4_0_BLOCK_SIZE);
+    let bytes_per_row = blocks_per_row * Q4_0_BLOCK_BYTES;
+    let expected_weight_bytes = out_dim * bytes_per_row;
+
+    if up_weight_data.len() < expected_weight_bytes {
+        return Err(RealizarError::InvalidShape {
+            reason: format!(
+                "FFN up weight data too small: need {} bytes, have {}",
+                expected_weight_bytes,
+                up_weight_data.len()
+            ),
+        });
+    }
+    if gate_weight_data.len() < expected_weight_bytes {
+        return Err(RealizarError::InvalidShape {
+            reason: format!(
+                "FFN gate weight data too small: need {} bytes, have {}",
+                expected_weight_bytes,
+                gate_weight_data.len()
+            ),
+        });
+    }
+
+    // Fused RMSNorm + Q8_0 quantization - computed ONCE for both matmuls
+    let (q8_scales, q8_quants) = quantize_rmsnorm_q8_0(input, norm_weight, eps);
+
+    // Run both matmuls in parallel using rayon::join
+    let (up_output, gate_output) = rayon::join(
+        || {
+            const CHUNK_SIZE: usize = 64;
+            (0..out_dim)
+                .into_par_iter()
+                .with_min_len(CHUNK_SIZE)
+                .map(|o| {
+                    let row_start = o * bytes_per_row;
+                    let row_end = row_start + bytes_per_row;
+                    let row_data = &up_weight_data[row_start..row_end];
+                    fused_q4_0_q8_0_dot_simd(row_data, &q8_scales, &q8_quants, in_dim)
+                })
+                .collect::<Vec<f32>>()
+        },
+        || {
+            const CHUNK_SIZE: usize = 64;
+            (0..out_dim)
+                .into_par_iter()
+                .with_min_len(CHUNK_SIZE)
+                .map(|o| {
+                    let row_start = o * bytes_per_row;
+                    let row_end = row_start + bytes_per_row;
+                    let row_data = &gate_weight_data[row_start..row_end];
+                    fused_q4_0_q8_0_dot_simd(row_data, &q8_scales, &q8_quants, in_dim)
+                })
+                .collect::<Vec<f32>>()
+        },
+    );
+
+    Ok((up_output, gate_output))
+}
+
 /// Quantize f32 activations to Q8_0 format for fast integer matmul
 ///
 /// Returns (scales, quantized_values) where each block of 32 values

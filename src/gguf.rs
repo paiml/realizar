@@ -9642,6 +9642,49 @@ impl OwnedQuantizedModel {
         }
     }
 
+    /// Fused RMSNorm + FFN up/gate projections for SwiGLU
+    ///
+    /// For SwiGLU models, computes:
+    /// - ffn_up = matmul(rmsnorm(hidden, norm_weight), up_weight)
+    /// - ffn_gate = matmul(rmsnorm(hidden, norm_weight), gate_weight)
+    ///
+    /// RMSNorm and Q8_0 quantization are computed once and shared between both matmuls.
+    /// Both matmuls run in parallel via rayon::join.
+    pub fn fused_rmsnorm_ffn_up_gate(
+        &self,
+        input: &[f32],
+        norm_weight: &[f32],
+        eps: f32,
+        up_weight: &OwnedQuantizedTensor,
+        gate_weight: &OwnedQuantizedTensor,
+    ) -> Result<(Vec<f32>, Vec<f32>)> {
+        use crate::quantize::fused_rmsnorm_ffn_up_gate;
+
+        // Only use fused path for Q4_0 weights
+        if up_weight.qtype == GGUF_TYPE_Q4_0
+            && gate_weight.qtype == GGUF_TYPE_Q4_0
+            && input.len() == up_weight.in_dim
+            && up_weight.in_dim == gate_weight.in_dim
+            && up_weight.out_dim == gate_weight.out_dim
+        {
+            return fused_rmsnorm_ffn_up_gate(
+                input,
+                norm_weight,
+                eps,
+                &up_weight.data,
+                &gate_weight.data,
+                up_weight.in_dim,
+                up_weight.out_dim,
+            );
+        }
+
+        // Fallback to separate RMSNorm + matmuls for other types
+        let normed = self.rms_norm(input, norm_weight, eps);
+        let up_out = self.fused_matmul(&normed, up_weight)?;
+        let gate_out = self.fused_matmul(&normed, gate_weight)?;
+        Ok((up_out, gate_out))
+    }
+
     /// PARITY-113: Dequantize weight tensor to FP32 for CUDA GEMM
     ///
     /// This is a fallback path for non-matvec operations (seq_len > 1).
@@ -11499,53 +11542,89 @@ impl OwnedQuantizedModel {
                 hidden[i] += attn_output[i];
             }
 
-            // 2h. Pre-FFN layer norm (LLaMA uses separate ffn_norm with RMSNorm)
-            let ffn_input = if let Some(ref ffn_norm) = layer.ffn_norm_weight {
-                // LLaMA-style: separate FFN layer norm (use RMSNorm for LLaMA)
-                if use_rmsnorm {
-                    self.rms_norm(&hidden, ffn_norm, self.config.eps)
-                } else {
-                    self.layer_norm(
+            // 2h+2i. FFN with optional layer norm and SwiGLU/GELU activation
+            // For RMSNorm + SwiGLU: fuse norm + up/gate matmuls to eliminate intermediate
+            let ffn_activated = match (&layer.ffn_norm_weight, &layer.ffn_gate_weight) {
+                // Fused path: RMSNorm + SwiGLU (LLaMA, TinyLlama, Mistral, etc.)
+                (Some(ref ffn_norm), Some(ref gate_weight)) if use_rmsnorm => {
+                    let (mut ffn_up, mut ffn_gate) = self.fused_rmsnorm_ffn_up_gate(
                         &hidden,
                         ffn_norm,
-                        layer.ffn_norm_bias.as_deref(),
                         self.config.eps,
-                    )
-                }
-            } else {
-                // phi-2 style: no separate FFN norm, use hidden directly
-                hidden.clone()
-            };
+                        &layer.ffn_up_weight,
+                        gate_weight,
+                    )?;
 
-            // 2i. FFN with SwiGLU or GELU activation
-            let ffn_activated = if let Some(ref gate_weight) = layer.ffn_gate_weight {
-                // SwiGLU path (LLaMA, TinyLlama, Mistral, etc.)
-                // output = down(silu(gate(x)) * up(x))
-                let mut ffn_up = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
-                if let Some(ref bias) = layer.ffn_up_bias {
-                    self.add_bias(&mut ffn_up, bias);
-                }
+                    if let Some(ref bias) = layer.ffn_up_bias {
+                        self.add_bias(&mut ffn_up, bias);
+                    }
+                    if let Some(ref bias) = layer.ffn_gate_bias {
+                        self.add_bias(&mut ffn_gate, bias);
+                    }
 
-                let mut ffn_gate = self.fused_matmul(&ffn_input, gate_weight)?;
-                if let Some(ref bias) = layer.ffn_gate_bias {
-                    self.add_bias(&mut ffn_gate, bias);
+                    // SwiGLU: silu(gate) * up
+                    self.silu(&mut ffn_gate);
+                    for i in 0..ffn_gate.len() {
+                        ffn_gate[i] *= ffn_up[i];
+                    }
+                    ffn_gate
                 }
 
-                // SwiGLU: silu(gate) * up
-                self.silu(&mut ffn_gate);
-                for i in 0..ffn_gate.len() {
-                    ffn_gate[i] *= ffn_up[i];
+                // Non-fused SwiGLU (LayerNorm models with gate)
+                (ffn_norm_opt, Some(ref gate_weight)) => {
+                    let ffn_input = if let Some(ref ffn_norm) = ffn_norm_opt {
+                        self.layer_norm(
+                            &hidden,
+                            ffn_norm,
+                            layer.ffn_norm_bias.as_deref(),
+                            self.config.eps,
+                        )
+                    } else {
+                        hidden.clone()
+                    };
+
+                    let mut ffn_up = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
+                    if let Some(ref bias) = layer.ffn_up_bias {
+                        self.add_bias(&mut ffn_up, bias);
+                    }
+
+                    let mut ffn_gate = self.fused_matmul(&ffn_input, gate_weight)?;
+                    if let Some(ref bias) = layer.ffn_gate_bias {
+                        self.add_bias(&mut ffn_gate, bias);
+                    }
+
+                    // SwiGLU: silu(gate) * up
+                    self.silu(&mut ffn_gate);
+                    for i in 0..ffn_gate.len() {
+                        ffn_gate[i] *= ffn_up[i];
+                    }
+                    ffn_gate
                 }
 
-                ffn_gate
-            } else {
-                // GELU path (phi-2, GPT-2, etc.)
-                let mut ffn_hidden = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
-                if let Some(ref bias) = layer.ffn_up_bias {
-                    self.add_bias(&mut ffn_hidden, bias);
+                // GELU path (phi-2, GPT-2, etc.) - no gate weight
+                (ffn_norm_opt, None) => {
+                    let ffn_input = if let Some(ref ffn_norm) = ffn_norm_opt {
+                        if use_rmsnorm {
+                            self.rms_norm(&hidden, ffn_norm, self.config.eps)
+                        } else {
+                            self.layer_norm(
+                                &hidden,
+                                ffn_norm,
+                                layer.ffn_norm_bias.as_deref(),
+                                self.config.eps,
+                            )
+                        }
+                    } else {
+                        hidden.clone()
+                    };
+
+                    let mut ffn_hidden = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
+                    if let Some(ref bias) = layer.ffn_up_bias {
+                        self.add_bias(&mut ffn_hidden, bias);
+                    }
+                    self.gelu(&mut ffn_hidden);
+                    ffn_hidden
                 }
-                self.gelu(&mut ffn_hidden);
-                ffn_hidden
             };
 
             // 2j. FFN down projection
