@@ -1,10 +1,11 @@
 //! Quick generation test
 use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
+use std::env;
 
 fn main() {
-    let mapped =
-        MappedGGUFModel::from_path("/home/noah/src/aprender/tinyllama-1.1b-chat-v1.0.Q4_0.gguf")
-            .unwrap();
+    let args: Vec<String> = env::args().collect();
+    let path = args.get(1).map(|s| s.as_str()).unwrap_or("/home/noah/src/aprender/tinyllama-1.1b-chat-v1.0.Q4_0.gguf");
+    let mapped = MappedGGUFModel::from_path(path).expect("Failed to load model");
     let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
     let vocab = mapped.model.vocabulary().unwrap();
 
@@ -30,7 +31,8 @@ fn main() {
         } else {
             "?"
         };
-        print!("{}", tok_str.replace("▁", " "));
+        // Handle both GPT-2 style (Ġ) and SentencePiece style (▁) space tokens
+        print!("{}", tok_str.replace("▁", " ").replace('\u{0120}', " "));
         all_tokens.push(best_idx as u32);
     }
     println!("\n");
