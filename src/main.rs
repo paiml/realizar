@@ -61,6 +61,10 @@ enum Commands {
         /// Output format: text, json, or stream
         #[arg(short, long, default_value = "text")]
         format: String,
+
+        /// Force GPU acceleration (requires CUDA feature)
+        #[arg(long)]
+        gpu: bool,
     },
     /// Interactive chat mode (like `ollama chat`)
     Chat {
@@ -136,6 +140,10 @@ enum Commands {
         /// Uses continuous batching scheduler for 3-4x throughput at high concurrency
         #[arg(long)]
         batch: bool,
+
+        /// Force GPU acceleration (requires CUDA feature)
+        #[arg(long)]
+        gpu: bool,
     },
     /// Run performance benchmarks (wraps cargo bench)
     Bench {
@@ -244,8 +252,17 @@ async fn main() -> Result<()> {
             max_tokens,
             temperature,
             format,
+            gpu,
         } => {
-            run_model(&model, prompt.as_deref(), max_tokens, temperature, &format).await?;
+            run_model(
+                &model,
+                prompt.as_deref(),
+                max_tokens,
+                temperature,
+                &format,
+                gpu,
+            )
+            .await?;
         },
         Commands::Chat {
             model,
@@ -274,11 +291,12 @@ async fn main() -> Result<()> {
             demo,
             openai_api: _,
             batch,
+            gpu,
         } => {
             if demo {
                 serve_demo(&host, port).await?;
             } else if let Some(model_path) = model {
-                serve_model(&host, port, &model_path, batch).await?;
+                serve_model(&host, port, &model_path, batch, gpu).await?;
             } else {
                 eprintln!("Error: Either --model or --demo must be specified");
                 eprintln!();
@@ -380,7 +398,13 @@ async fn serve_demo(host: &str, port: u16) -> Result<()> {
     Ok(())
 }
 
-async fn serve_model(host: &str, port: u16, model_path: &str, batch_mode: bool) -> Result<()> {
+async fn serve_model(
+    host: &str,
+    port: u16,
+    model_path: &str,
+    batch_mode: bool,
+    force_gpu: bool,
+) -> Result<()> {
     use realizar::gguf::MappedGGUFModel;
 
     println!("Loading model from: {model_path}");
@@ -388,6 +412,9 @@ async fn serve_model(host: &str, port: u16, model_path: &str, batch_mode: bool) 
         println!("Mode: BATCH (PARITY-093 M4 parity)");
     } else {
         println!("Mode: SINGLE-REQUEST");
+    }
+    if force_gpu {
+        println!("GPU: FORCED (--gpu flag)");
     }
     println!();
 
@@ -422,15 +449,22 @@ async fn serve_model(host: &str, port: u16, model_path: &str, batch_mode: bool) 
         println!("  Layers: {}", quantized_model.layers.len());
         println!();
 
-        // PARITY-113: Enable CUDA backend via REALIZAR_BACKEND environment variable
+        // PARITY-113: Enable CUDA backend via --gpu flag or REALIZAR_BACKEND environment variable
         #[cfg(feature = "cuda")]
         let mut quantized_model = quantized_model;
         #[cfg(feature = "cuda")]
-        if std::env::var("REALIZAR_BACKEND")
-            .map(|v| v.eq_ignore_ascii_case("cuda"))
-            .unwrap_or(false)
-        {
-            println!("Enabling CUDA backend (REALIZAR_BACKEND=cuda)...");
+        let use_cuda = force_gpu
+            || std::env::var("REALIZAR_BACKEND")
+                .map(|v| v.eq_ignore_ascii_case("cuda"))
+                .unwrap_or(false);
+        #[cfg(feature = "cuda")]
+        if use_cuda {
+            let source = if force_gpu {
+                "--gpu flag"
+            } else {
+                "REALIZAR_BACKEND=cuda"
+            };
+            println!("Enabling CUDA backend ({source})...");
             match quantized_model.enable_cuda(0) {
                 Ok(()) => {
                     println!("  CUDA enabled on GPU 0");
@@ -441,6 +475,12 @@ async fn serve_model(host: &str, port: u16, model_path: &str, batch_mode: bool) 
                 },
             }
             println!();
+        }
+        #[cfg(not(feature = "cuda"))]
+        if force_gpu {
+            eprintln!("Warning: --gpu flag requires 'cuda' feature. Falling back to CPU.");
+            eprintln!("Build with: cargo build --features cuda");
+            eprintln!();
         }
 
         // PARITY-093: Use cached model with batch support for M4 parity
@@ -599,8 +639,12 @@ async fn run_model(
     max_tokens: usize,
     temperature: f32,
     format: &str,
+    force_gpu: bool,
 ) -> Result<()> {
     println!("Loading model: {model_ref}");
+    if force_gpu {
+        println!("GPU: FORCED (--gpu flag)");
+    }
 
     let file_data = match ModelUri::parse(model_ref) {
         Ok(uri) => {
@@ -686,6 +730,7 @@ async fn run_model(
             max_tokens,
             temperature,
             format,
+            force_gpu,
         )?;
     } else {
         println!("Interactive mode (Ctrl+D to exit)");
@@ -702,6 +747,7 @@ async fn run_model(
 ///
 /// IMP-130: Zero-copy model loading for <500ms startup time.
 /// Uses QuantizedGGUFTransformer with borrowed refs to mmap data.
+/// When `force_gpu` is true, uses OwnedQuantizedModel with CUDA acceleration.
 fn run_gguf_inference(
     model_ref: &str,
     _file_data: &[u8],
@@ -709,9 +755,21 @@ fn run_gguf_inference(
     max_tokens: usize,
     temperature: f32,
     format: &str,
+    force_gpu: bool,
 ) -> Result<()> {
     use realizar::gguf::{MappedGGUFModel, OwnedQuantizedKVCache, QuantizedGGUFTransformer};
     use std::time::Instant;
+
+    // Handle --gpu flag warning when CUDA not available
+    #[cfg(not(feature = "cuda"))]
+    if force_gpu {
+        eprintln!("Warning: --gpu flag requires 'cuda' feature. Falling back to CPU.");
+        eprintln!("Build with: cargo build --features cuda");
+        eprintln!();
+    }
+    // Suppress unused warning when cuda feature not enabled
+    #[cfg(not(feature = "cuda"))]
+    let _ = force_gpu;
 
     let load_start = Instant::now();
 
@@ -723,7 +781,20 @@ fn run_gguf_inference(
         }
     })?;
 
-    // IMP-130: Zero-copy model loading - use borrowed refs to mmap data
+    // GPU path: Use OwnedQuantizedModel with CUDA acceleration
+    #[cfg(feature = "cuda")]
+    if force_gpu {
+        return run_gguf_inference_gpu(
+            &mapped,
+            prompt,
+            max_tokens,
+            temperature,
+            format,
+            load_start,
+        );
+    }
+
+    // CPU path: IMP-130 Zero-copy model loading - use borrowed refs to mmap data
     // This eliminates the 1.2s startup time from copying 637MB of model weights
     let model = QuantizedGGUFTransformer::from_gguf(&mapped.model, mapped.data()).map_err(|e| {
         realizar::error::RealizarError::UnsupportedOperation {
@@ -733,6 +804,7 @@ fn run_gguf_inference(
     })?;
 
     let load_time = load_start.elapsed();
+    println!("Backend: CPU (AVX2)");
     println!("Model loaded in {:.2}ms", load_time.as_secs_f64() * 1000.0);
 
     // Tokenize prompt using GGUF vocabulary
@@ -863,6 +935,134 @@ fn run_gguf_inference(
     Ok(())
 }
 
+/// Run GGUF inference with CUDA GPU acceleration
+///
+/// Uses OwnedQuantizedModel with CUDA backend for high-performance inference.
+/// Called when --gpu flag is specified and CUDA feature is enabled.
+#[cfg(feature = "cuda")]
+fn run_gguf_inference_gpu(
+    mapped: &realizar::gguf::MappedGGUFModel,
+    prompt: &str,
+    max_tokens: usize,
+    temperature: f32,
+    format: &str,
+    load_start: std::time::Instant,
+) -> Result<()> {
+    use realizar::gguf::OwnedQuantizedModel;
+    use std::time::Instant;
+
+    println!("Backend: CUDA (GPU)");
+    println!("Creating quantized model with CUDA acceleration...");
+
+    // Create owned quantized model (required for CUDA - can't use borrowed mmap data)
+    let mut quantized_model = OwnedQuantizedModel::from_mapped(mapped).map_err(|e| {
+        realizar::error::RealizarError::UnsupportedOperation {
+            operation: "create_quantized".to_string(),
+            reason: format!("Failed to create quantized model: {e}"),
+        }
+    })?;
+
+    // Enable CUDA on GPU 0
+    match quantized_model.enable_cuda(0) {
+        Ok(()) => {
+            println!("  CUDA enabled on GPU 0");
+        },
+        Err(e) => {
+            eprintln!("Warning: CUDA enable failed: {}. Falling back to CPU.", e);
+        },
+    }
+
+    let load_time = load_start.elapsed();
+    println!("Model loaded in {:.2}ms", load_time.as_secs_f64() * 1000.0);
+
+    // Tokenize prompt using GGUF vocabulary
+    let mut prompt_tokens: Vec<u32> = mapped
+        .model
+        .encode(prompt)
+        .unwrap_or_else(|| prompt.chars().map(|c| c as u32).collect());
+
+    // Prepend BOS token if available
+    if let Some(bos) = mapped.model.bos_token_id() {
+        prompt_tokens.insert(0, bos);
+    }
+    let prompt_len = prompt_tokens.len();
+
+    // Get EOS token for stopping
+    let eos_token_id = mapped.model.eos_token_id();
+
+    println!(
+        "Vocab size: {}, Hidden dim: {}, Layers: {}",
+        quantized_model.config.vocab_size,
+        quantized_model.config.hidden_dim,
+        quantized_model.layers.len()
+    );
+    println!(
+        "Prompt tokens: {} (BOS={:?}, EOS={:?})",
+        prompt_len,
+        mapped.model.bos_token_id(),
+        eos_token_id
+    );
+    println!("Temperature: {:.1}", temperature);
+    println!();
+
+    // Run inference using OwnedQuantizedModel generate method
+    let gen_start = Instant::now();
+
+    // Use the model's generate function with CUDA acceleration
+    let generated = quantized_model
+        .generate(&prompt_tokens, max_tokens, temperature, eos_token_id)
+        .map_err(|e| realizar::error::RealizarError::UnsupportedOperation {
+            operation: "generate".to_string(),
+            reason: format!("Generation failed: {e}"),
+        })?;
+
+    let gen_time = gen_start.elapsed();
+
+    let tokens_generated = generated.len().saturating_sub(prompt_len);
+    let tokens_per_sec = if gen_time.as_secs_f64() > 0.0 {
+        tokens_generated as f64 / gen_time.as_secs_f64()
+    } else {
+        0.0
+    };
+
+    // Decode output using GGUF vocabulary, replacing SentencePiece markers with spaces
+    let output_text = mapped
+        .model
+        .decode(&generated[prompt_len..])
+        .replace('▁', " ");
+
+    match format {
+        "json" => {
+            let json = serde_json::json!({
+                "model": "GGUF (CUDA)",
+                "backend": "GPU",
+                "prompt": prompt,
+                "generated_text": output_text,
+                "tokens_generated": tokens_generated,
+                "generation_time_ms": gen_time.as_secs_f64() * 1000.0,
+                "tokens_per_second": tokens_per_sec,
+                "temperature": temperature,
+                "cuda_enabled": quantized_model.cuda_enabled(),
+            });
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json).unwrap_or_default()
+            );
+        },
+        _ => {
+            println!(
+                "Generated ({tokens_generated} tokens in {:.2}ms):",
+                gen_time.as_secs_f64() * 1000.0
+            );
+            println!("{prompt}{output_text}");
+            println!();
+            println!("Performance: {:.1} tok/s (GPU)", tokens_per_sec);
+        },
+    }
+
+    Ok(())
+}
+
 /// Run APR inference with performance timing
 #[allow(dead_code)] // APR format support - called when detect_format returns Apr
 fn run_apr_inference(
@@ -953,8 +1153,12 @@ async fn run_model(
     max_tokens: usize,
     temperature: f32,
     format: &str,
+    force_gpu: bool,
 ) -> Result<()> {
     println!("Loading model: {model_ref}");
+    if force_gpu {
+        println!("GPU: FORCED (--gpu flag)");
+    }
 
     if cli::is_local_file_path(model_ref) {
         if !std::path::Path::new(model_ref).exists() {
@@ -1019,6 +1223,7 @@ async fn run_model(
                     max_tokens,
                     temperature,
                     format,
+                    force_gpu,
                 )?;
             },
         }
