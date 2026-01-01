@@ -14,6 +14,12 @@ This page provides a complete reference for all `cargo run --example` commands a
 | `api_server` | HTTP API server | `server` |
 | `model_cache` | LRU model caching | - |
 | `observability_demo` | Metrics and A/B testing | `server` |
+| `check_token_scores_v2` | PAR-001 parity verification | - |
+| `par_001_trace_token` | Layer-by-layer tracing | - |
+| `test_q4k_cuda` | Q4_K CUDA kernel test | `cuda` |
+| `test_tc_attention` | Tensor Core attention | `cuda` |
+| `bench_forward` | Forward pass benchmark | - |
+| `bench_simd_dot` | SIMD dot product benchmark | - |
 
 ## Core Examples
 
@@ -326,6 +332,76 @@ Convert GGUF to APR and benchmark:
 cargo run --example convert_and_bench_apr --release -- /path/to/model.gguf
 ```
 
+## PAR-001 Parity Testing Examples
+
+These examples were created for verifying parity with llama.cpp inference. They trace through the forward pass layer-by-layer to identify numerical discrepancies.
+
+### check_token_scores_v2 - Complete Inference with RoPE
+
+The canonical parity test that correctly predicts "W" (token 399) matching llama.cpp:
+
+```bash
+cargo run --example check_token_scores_v2 --release
+```
+
+**Features demonstrated:**
+- BOS token handling (token 1)
+- RoPE positional encoding
+- Causal attention with KV cache
+- Multi-token inference
+
+### par_001_trace_token - Layer-by-Layer Tracing
+
+Traces hidden states through all transformer layers:
+
+```bash
+cargo run --example par_001_trace_token --release
+```
+
+### par_001_qkv_parity - Q/K/V Projection Verification
+
+Verifies Q, K, V projections match HuggingFace reference:
+
+```bash
+cargo run --example par_001_qkv_parity --release
+```
+
+### par_001_verify_q4k_matvec - Q4_K Matrix-Vector Verification
+
+Verifies quantized matrix-vector multiplication:
+
+```bash
+cargo run --example par_001_verify_q4k_matvec --release
+```
+
+## CUDA/GPU Examples
+
+These examples require `--features cuda` and NVIDIA GPU hardware.
+
+### test_q4k_cuda - Q4_K CUDA Kernel
+
+```bash
+cargo run --example test_q4k_cuda --release --features cuda
+```
+
+### test_tc_attention - Tensor Core Attention
+
+```bash
+cargo run --example test_tc_attention --release --features cuda
+```
+
+### cuda_debug - CUDA Debugging
+
+```bash
+cargo run --example cuda_debug --release --features cuda
+```
+
+### debug_ptx - PTX Generation Debug
+
+```bash
+cargo run --example debug_ptx --release --features cuda
+```
+
 ## Debugging Examples
 
 ### check_tensors - Inspect Tensor Dimensions
@@ -344,6 +420,24 @@ cargo run --example check_gguf_metadata -- /path/to/model.gguf
 
 ```bash
 cargo run --example check_tokenizer -- /path/to/model.gguf
+```
+
+### debug_forward - Forward Pass Debugging
+
+```bash
+cargo run --example debug_forward --release -- /path/to/model.gguf
+```
+
+### debug_layer0_trace - Layer 0 Detailed Trace
+
+```bash
+cargo run --example debug_layer0_trace --release
+```
+
+### debug_v_weight_layout - V Weight Layout Analysis
+
+```bash
+cargo run --example debug_v_weight_layout --release
 ```
 
 ## Running Examples
