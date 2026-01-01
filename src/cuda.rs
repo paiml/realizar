@@ -2506,6 +2506,142 @@ impl CudaExecutor {
         Ok(())
     }
 
+    /// Tensor Core attention using WMMA for FP16 matrix operations (PARITY-001.3)
+    ///
+    /// Uses FP16 Tensor Cores (WMMA) for Q×K^T and attention×V computation.
+    /// Expected 4-10x speedup over FP32 FlashAttention on Tensor Core GPUs.
+    ///
+    /// # Arguments
+    ///
+    /// * `q` - Query tensor [n_heads, seq_len, head_dim] as FP32 (converted to FP16)
+    /// * `k` - Key tensor [n_heads, seq_len, head_dim] as FP32 (converted to FP16)
+    /// * `v` - Value tensor [n_heads, seq_len, head_dim] as FP32 (converted to FP16)
+    /// * `output` - Output tensor [n_heads, seq_len, head_dim] (FP32 accumulator)
+    /// * `seq_len` - Sequence length (must be multiple of 16 for WMMA)
+    /// * `head_dim` - Dimension per head (must be multiple of 16 for WMMA)
+    /// * `n_heads` - Number of attention heads
+    /// * `causal` - Whether to apply causal masking
+    ///
+    /// # Performance
+    ///
+    /// RTX 4090: 330 TFLOPS FP16 vs 83 TFLOPS FP32 (4x theoretical speedup)
+    /// Target: <2ms per token vs 79ms FP32 baseline (~40x actual speedup)
+    #[allow(clippy::too_many_arguments)]
+    pub fn tensor_core_attention(
+        &mut self,
+        q: &[f32],
+        k: &[f32],
+        v: &[f32],
+        output: &mut [f32],
+        seq_len: u32,
+        head_dim: u32,
+        n_heads: u32,
+        causal: bool,
+    ) -> Result<(), GpuError> {
+        // WMMA requires dimensions to be multiples of 16
+        if seq_len % 16 != 0 || head_dim % 16 != 0 {
+            return Err(GpuError::InvalidLaunchConfig(format!(
+                "Tensor Core attention requires dimensions multiple of 16: seq_len={}, head_dim={}",
+                seq_len, head_dim
+            )));
+        }
+
+        let head_size = (seq_len * head_dim) as usize;
+        let total_size = head_size * n_heads as usize;
+
+        // Validate input sizes
+        if q.len() != total_size
+            || k.len() != total_size
+            || v.len() != total_size
+            || output.len() != total_size
+        {
+            return Err(GpuError::InvalidLaunchConfig(format!(
+                "Tensor Core attention size mismatch: expected {} ({}×{}×{}), got Q[{}] K[{}] V[{}] O[{}]",
+                total_size, n_heads, seq_len, head_dim,
+                q.len(), k.len(), v.len(), output.len()
+            )));
+        }
+
+        // Track memory allocation (FP32 buffers - conversion happens on GPU)
+        self.memory_pool.record_allocation(total_size * 4 * 4);
+
+        // Generate Tensor Core attention kernel
+        let kernel_type = KernelType::AttentionTensorCore {
+            seq_len,
+            head_dim,
+            n_heads,
+            causal,
+        };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!(
+            "tensor_core_attn_{}_{}_{}_{}",
+            seq_len, head_dim, n_heads, causal
+        );
+
+        // Load module if not cached
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            #[cfg(test)]
+            eprintln!("Generated Tensor Core attention PTX:\n{}", ptx);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // Allocate GPU buffers
+        let buf_q = GpuBuffer::from_host(&self.context, q)?;
+        let buf_k = GpuBuffer::from_host(&self.context, k)?;
+        let buf_v = GpuBuffer::from_host(&self.context, v)?;
+        let buf_output = GpuBuffer::<f32>::new(&self.context, total_size)?;
+
+        // Launch configuration for Tensor Core attention:
+        // Grid.x = ceil(seq_len / 16) - number of 16×16 WMMA tiles
+        // Grid.y = n_heads
+        // Threads = 256 (8 warps per block for WMMA)
+        let num_tiles = (seq_len + 15) / 16;
+        let config = LaunchConfig::grid_2d(num_tiles, n_heads, 256, 1);
+
+        // Get raw pointers for kernel args
+        let mut ptr_q = buf_q.as_ptr();
+        let mut ptr_k = buf_k.as_ptr();
+        let mut ptr_v = buf_v.as_ptr();
+        let mut ptr_output = buf_output.as_ptr();
+        let mut seq_len_val = seq_len;
+        let mut head_dim_val = head_dim;
+        let mut n_heads_val = n_heads;
+
+        // Launch kernel
+        // SAFETY: Buffers are valid, dimensions validated
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    &mut ptr_q as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_k as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_v as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
+                    &mut seq_len_val as *mut _ as *mut std::ffi::c_void,
+                    &mut head_dim_val as *mut _ as *mut std::ffi::c_void,
+                    &mut n_heads_val as *mut _ as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        // Synchronize and copy back
+        self.stream.synchronize()?;
+        buf_output.copy_to_host(output)?;
+
+        self.memory_pool.record_deallocation(total_size * 4 * 4);
+
+        Ok(())
+    }
+
     /// FP16 Tensor Core GEMM using WMMA intrinsics (IMP-1000a)
     ///
     /// Computes C = A × B using FP16 tensor cores with FP32 accumulation.

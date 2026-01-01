@@ -81,8 +81,16 @@ fn profile_matmul_detailed(name: &str, in_dim: usize, out_dim: usize) {
     println!("{} ({}×{}):", name, in_dim, out_dim);
     println!("  Weights:     {:>8.2} MB", weight_mb);
     println!("  Total:       {:>8} µs", total_median);
-    println!("    Quantize:  {:>8} µs ({:.1}%)", quant_median, 100.0 * quant_median as f64 / total_median as f64);
-    println!("    Compute:   {:>8} µs ({:.1}%)", compute_median, 100.0 * compute_median as f64 / total_median as f64);
+    println!(
+        "    Quantize:  {:>8} µs ({:.1}%)",
+        quant_median,
+        100.0 * quant_median as f64 / total_median as f64
+    );
+    println!(
+        "    Compute:   {:>8} µs ({:.1}%)",
+        compute_median,
+        100.0 * compute_median as f64 / total_median as f64
+    );
     println!("  Bandwidth:   {:>8.1} GB/s", bandwidth_gbps);
     println!("  GFLOP/s:     {:>8.1}", gflops);
     println!();
@@ -116,7 +124,10 @@ fn test_threading_overhead() {
 
         let med = median(&times);
         let throughput = out_dim as f64 / (med as f64 / 1e6); // rows/sec
-        println!("  out_dim={:>6}: {:>6} µs ({:.0} rows/s)", out_dim, med, throughput);
+        println!(
+            "  out_dim={:>6}: {:>6} µs ({:.0} rows/s)",
+            out_dim, med, throughput
+        );
     }
 }
 
@@ -153,7 +164,10 @@ fn test_cache_effects() {
         let med = median(&times);
         let weight_mb = weight_bytes as f64 / 1e6;
         let bandwidth_gbps = weight_mb / 1e3 / (med as f64 / 1e6);
-        println!("  {:>5} KB weights: {:>6} µs, {:.1} GB/s", weight_kb, med, bandwidth_gbps);
+        println!(
+            "  {:>5} KB weights: {:>6} µs, {:.1} GB/s",
+            weight_kb, med, bandwidth_gbps
+        );
     }
 }
 

@@ -1,97 +1,56 @@
-use realizar::gguf::GGUFModel;
-use realizar::quantize::dequantize_q4_0;
-use std::fs;
+//! Test if transposing weights helps - check a simple matmul
+use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
+use realizar::quantize::{dequantize_q4_k, fused_q4k_parallel_matvec};
+
+fn l2_norm(v: &[f32]) -> f32 {
+    (v.iter().map(|x| x * x).sum::<f32>()).sqrt()
+}
 
 fn main() {
-    // Load raw model
-    let data = fs::read("/home/noah/src/aprender/tinyllama-1.1b-chat-v1.0.Q4_0.gguf").unwrap();
-    let model = GGUFModel::from_bytes(&data).unwrap();
-
-    // Get Q weight tensor from layer 0
-    let q_tensor = model
-        .tensors
-        .iter()
-        .find(|t| t.name == "blk.0.attn_q.weight")
-        .unwrap();
-    println!("blk.0.attn_q.weight:");
-    println!("  dims (after reverse): {:?}", q_tensor.dims);
-    println!("  qtype: {}", q_tensor.qtype);
-
-    // Get embedding for token 1 (BOS)
-    let _embed_tensor = model
-        .tensors
-        .iter()
-        .find(|t| t.name == "token_embd.weight")
-        .unwrap();
-    let embed_data = model.get_tensor_f32("token_embd.weight", &data).unwrap();
+    let path = "/tmp/parity-bench/tinyllama-1.1b-q4_k_m.gguf";
+    let mapped = MappedGGUFModel::from_path(path).expect("Failed");
+    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
 
     let hidden_dim = 2048;
-    let bos_embed = &embed_data[hidden_dim..2 * hidden_dim]; // Token 1
+    let token_id = 450u32;
 
-    println!("\nBOS embedding (first 5 values): {:?}", &bos_embed[..5]);
+    // Get embedding
+    let start = token_id as usize * hidden_dim;
+    let embedding = &model.token_embedding[start..start + hidden_dim];
 
-    // Dequantize Q weight
-    let q_offset = model.tensor_data_start + q_tensor.offset as usize;
-    let num_elements: usize = q_tensor.dims.iter().map(|&d| d as usize).product();
-    let num_blocks = num_elements.div_ceil(32);
-    let byte_size = num_blocks * 18;
-    let q_data = &data[q_offset..q_offset + byte_size];
-    let q_weights = dequantize_q4_0(q_data).unwrap();
-
-    println!("\nQ weights dequantized: {} elements", q_weights.len());
-    println!("Expected: {}", num_elements);
-
-    let out_dim = q_tensor.dims[0] as usize; // 2048
-    let in_dim = q_tensor.dims[1] as usize; // 2048
-    println!("out_dim={}, in_dim={}", out_dim, in_dim);
-
-    // Test NORMAL matmul: output[o] = dot(input, weight[o, :])
-    // Weight layout: [out_dim, in_dim] row-major
-    let mut out_normal = vec![0.0f32; out_dim];
-    for o in 0..out_dim {
-        let w_row = &q_weights[o * in_dim..(o + 1) * in_dim];
-        for i in 0..in_dim {
-            out_normal[o] += bos_embed[i] * w_row[i];
-        }
-    }
-
-    // Test TRANSPOSED matmul: output[o] = dot(input, weight[:, o])
-    // Weight layout: [in_dim, out_dim] row-major (we index column-wise)
-    let mut out_transposed = vec![0.0f32; out_dim];
-    for o in 0..out_dim {
-        for i in 0..in_dim {
-            // Weight element [i, o] in [in_dim, out_dim] = weights[i * out_dim + o]
-            out_transposed[o] += bos_embed[i] * q_weights[i * out_dim + o];
-        }
-    }
-
-    println!("\nNormal matmul output (first 10):");
-    for (i, &v) in out_normal.iter().take(10).enumerate() {
-        println!("  [{}] = {:.6}", i, v);
-    }
-
-    println!("\nTransposed matmul output (first 10):");
-    for (i, &v) in out_transposed.iter().take(10).enumerate() {
-        println!("  [{}] = {:.6}", i, v);
-    }
-
-    // Statistics
-    fn stats(v: &[f32]) -> (f32, f32, f32) {
-        let min = v.iter().cloned().fold(f32::INFINITY, f32::min);
-        let max = v.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-        let mean = v.iter().sum::<f32>() / v.len() as f32;
-        (min, max, mean)
-    }
-
-    let (n_min, n_max, n_mean) = stats(&out_normal);
-    let (t_min, t_max, t_mean) = stats(&out_transposed);
+    // Try layer 0 attention Q projection
+    let layer = &model.layers[0];
+    let q_weight = match &layer.qkv_weight {
+        realizar::gguf::OwnedQKVWeights::Separate { q, .. } => q,
+        _ => panic!(""),
+    };
 
     println!(
-        "\nNormal stats: min={:.4}, max={:.4}, mean={:.4}",
-        n_min, n_max, n_mean
+        "Q weight: in_dim={}, out_dim={}, qtype={}, data_len={}",
+        q_weight.in_dim,
+        q_weight.out_dim,
+        q_weight.qtype,
+        q_weight.data.len()
     );
+
+    // Our current computation (row-major assumption)
+    let q_out =
+        fused_q4k_parallel_matvec(&q_weight.data, embedding, q_weight.in_dim, q_weight.out_dim)
+            .unwrap();
     println!(
-        "Transposed stats: min={:.4}, max={:.4}, mean={:.4}",
-        t_min, t_max, t_mean
+        "\nRow-major result: L2={:.4}, first 5: {:?}",
+        l2_norm(&q_out),
+        &q_out[..5]
     );
+
+    // For GGML, the data might be column-major
+    // If stored column-major with shape [out_dim, in_dim], we need to transpose
+    // Actually, let's just check what dimensions GGUF reports vs what we use
+
+    // Check tensor info from model
+    for tensor in &mapped.model.tensors {
+        if tensor.name.contains("blk.0") && tensor.name.contains(".attn_q.") {
+            println!("\nTensor '{}': dims={:?}", tensor.name, tensor.dims);
+        }
+    }
 }

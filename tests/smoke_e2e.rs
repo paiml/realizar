@@ -53,14 +53,14 @@ fn smoke_q4_0_dequant() {
 fn smoke_q8_0_dequant() {
     use realizar::quantize::dequantize_q8_0;
 
-    // Create a valid Q8_0 block (36 bytes: 4-byte f32 scale + 32 i8 values)
-    let mut block = vec![0u8; 36];
-    // Scale = 0.1 as f32
-    let scale: f32 = 0.1;
-    let scale_bytes = scale.to_le_bytes();
-    block[0..4].copy_from_slice(&scale_bytes);
+    // Create a valid Q8_0 block (34 bytes: 2-byte f16 scale + 32 i8 values)
+    let mut block = vec![0u8; 34];
+    // Scale = 0.1 as f16 (approx 0x2E66)
+    let scale_f16 = half::f16::from_f32(0.1);
+    let scale_bytes = scale_f16.to_le_bytes();
+    block[0..2].copy_from_slice(&scale_bytes);
     // Data bytes (32 i8 values)
-    block[4..36].fill(42); // All same value
+    block[2..34].fill(42); // All same value
 
     let result = dequantize_q8_0(&block);
     assert!(result.is_ok(), "Q8_0 dequantization should succeed");

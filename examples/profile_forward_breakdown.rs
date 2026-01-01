@@ -4,7 +4,10 @@
 
 use realizar::gguf::{MappedGGUFModel, OwnedQuantizedKVCache, OwnedQuantizedModel};
 use std::time::Instant;
-use std::{env, sync::atomic::{AtomicU64, Ordering}};
+use std::{
+    env,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 // Global timing accumulators
 static EMBED_TIME: AtomicU64 = AtomicU64::new(0);
@@ -37,8 +40,10 @@ fn main() {
 
     println!("Model: {}", model_name);
     println!("Load time: {:.2?}", load_time);
-    println!("Config: {} layers, {} hidden, {} heads, {} kv_heads",
-        config.num_layers, config.hidden_dim, config.num_heads, config.num_kv_heads);
+    println!(
+        "Config: {} layers, {} hidden, {} heads, {} kv_heads",
+        config.num_layers, config.hidden_dim, config.num_heads, config.num_kv_heads
+    );
     println!();
 
     // Create KV cache
@@ -112,10 +117,26 @@ fn main() {
     let total_matmul_ms = qkv_ms + out_ms + ffn_ms + lm_head_ms;
 
     println!("Matmul times @ {} GB/s:", bandwidth);
-    println!("  QKV projection:   {:>6.2} ms ({:>5.1}%)", qkv_ms, 100.0 * qkv_ms / total_matmul_ms);
-    println!("  Output projection: {:>6.2} ms ({:>5.1}%)", out_ms, 100.0 * out_ms / total_matmul_ms);
-    println!("  FFN (up+gate+down): {:>6.2} ms ({:>5.1}%)", ffn_ms, 100.0 * ffn_ms / total_matmul_ms);
-    println!("  LM head:           {:>6.2} ms ({:>5.1}%)", lm_head_ms, 100.0 * lm_head_ms / total_matmul_ms);
+    println!(
+        "  QKV projection:   {:>6.2} ms ({:>5.1}%)",
+        qkv_ms,
+        100.0 * qkv_ms / total_matmul_ms
+    );
+    println!(
+        "  Output projection: {:>6.2} ms ({:>5.1}%)",
+        out_ms,
+        100.0 * out_ms / total_matmul_ms
+    );
+    println!(
+        "  FFN (up+gate+down): {:>6.2} ms ({:>5.1}%)",
+        ffn_ms,
+        100.0 * ffn_ms / total_matmul_ms
+    );
+    println!(
+        "  LM head:           {:>6.2} ms ({:>5.1}%)",
+        lm_head_ms,
+        100.0 * lm_head_ms / total_matmul_ms
+    );
     println!("  Total matmul:      {:>6.2} ms", total_matmul_ms);
     println!();
 
@@ -138,8 +159,11 @@ fn main() {
     println!("=== Actual vs Estimated ===");
     println!("  Estimated (matmul + attn): {:>6.2} ms", estimated_ms);
     println!("  Actual (median):           {:>6.2} ms", actual_ms);
-    println!("  Overhead:                  {:>6.2} ms ({:.1}%)",
-             overhead_ms, 100.0 * overhead_ms / actual_ms);
+    println!(
+        "  Overhead:                  {:>6.2} ms ({:.1}%)",
+        overhead_ms,
+        100.0 * overhead_ms / actual_ms
+    );
     println!();
 
     if overhead_ms > 5.0 {
@@ -153,8 +177,16 @@ fn main() {
 
     // Scaling analysis
     println!("\n=== Attention Scaling Analysis ===");
-    let first_10_avg: f64 = total_times[0..10].iter().map(|t| t.as_secs_f64()).sum::<f64>() / 10.0;
-    let last_10_avg: f64 = total_times[20..30].iter().map(|t| t.as_secs_f64()).sum::<f64>() / 10.0;
+    let first_10_avg: f64 = total_times[0..10]
+        .iter()
+        .map(|t| t.as_secs_f64())
+        .sum::<f64>()
+        / 10.0;
+    let last_10_avg: f64 = total_times[20..30]
+        .iter()
+        .map(|t| t.as_secs_f64())
+        .sum::<f64>()
+        / 10.0;
     let scaling = last_10_avg / first_10_avg;
 
     println!("  First 10 tokens avg: {:.2} ms", first_10_avg * 1000.0);

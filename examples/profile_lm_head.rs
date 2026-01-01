@@ -69,7 +69,11 @@ fn profile_matmul(name: &str, in_dim: usize, out_dim: usize) {
 
     println!("{} ({}x{}):", name, in_dim, out_dim);
     println!("  Weights:   {:.1} MB", weight_mb);
-    println!("  Median:    {} µs ({:.2} ms)", median, median as f64 / 1000.0);
+    println!(
+        "  Median:    {} µs ({:.2} ms)",
+        median,
+        median as f64 / 1000.0
+    );
     println!("  Min/Max:   {}/{} µs", min, max);
     println!("  GFLOP/s:   {:.1}", gflops_per_sec);
     println!("  Bandwidth: {:.1} GB/s", bandwidth_gbps);

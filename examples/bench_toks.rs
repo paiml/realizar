@@ -53,7 +53,11 @@ fn main() {
 
     // Get initial logits for first generated token
     let mut logits = model
-        .forward_single_with_cache(prompt_tokens[prompt_tokens.len() - 1], &mut cache, prompt_tokens.len() - 1)
+        .forward_single_with_cache(
+            prompt_tokens[prompt_tokens.len() - 1],
+            &mut cache,
+            prompt_tokens.len() - 1,
+        )
         .unwrap();
 
     // Reset cache and re-prefill for clean benchmark
@@ -63,7 +67,9 @@ fn main() {
         max_seq_len,
     );
     for (pos, &tok) in prompt_tokens.iter().enumerate() {
-        logits = model.forward_single_with_cache(tok, &mut cache, pos).unwrap();
+        logits = model
+            .forward_single_with_cache(tok, &mut cache, pos)
+            .unwrap();
     }
 
     // Benchmark decode

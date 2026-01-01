@@ -25,9 +25,14 @@ fn main() {
 
     println!("Model: {}", model_name);
     println!("Load time: {:.2?}", load_time);
-    println!("Config: {} layers, {} hidden, {} heads, {} kv_heads",
-        config.num_layers, config.hidden_dim, config.num_heads, config.num_kv_heads);
-    println!("Intermediate: {}, Vocab: {}", config.intermediate_dim, config.vocab_size);
+    println!(
+        "Config: {} layers, {} hidden, {} heads, {} kv_heads",
+        config.num_layers, config.hidden_dim, config.num_heads, config.num_kv_heads
+    );
+    println!(
+        "Intermediate: {}, Vocab: {}",
+        config.intermediate_dim, config.vocab_size
+    );
     println!();
 
     // Create KV cache
@@ -65,8 +70,12 @@ fn main() {
     for (i, &time) in token_times.iter().enumerate() {
         cumulative += time;
         if i < 10 || i == num_profile_tokens - 1 || i % 10 == 9 {
-            println!("{:>8} | {:>9.2} | {:>9.2}",
-                i, time.as_secs_f64() * 1000.0, cumulative.as_secs_f64() * 1000.0);
+            println!(
+                "{:>8} | {:>9.2} | {:>9.2}",
+                i,
+                time.as_secs_f64() * 1000.0,
+                cumulative.as_secs_f64() * 1000.0
+            );
         }
     }
 
@@ -84,7 +93,11 @@ fn main() {
 
     println!("\n=== Latency Statistics ===");
     println!("Min:    {:>8} µs ({:.2} ms)", min, min as f64 / 1000.0);
-    println!("Median: {:>8} µs ({:.2} ms)", median, median as f64 / 1000.0);
+    println!(
+        "Median: {:>8} µs ({:.2} ms)",
+        median,
+        median as f64 / 1000.0
+    );
     println!("Avg:    {:>8} µs ({:.2} ms)", avg, avg as f64 / 1000.0);
     println!("P95:    {:>8} µs ({:.2} ms)", p95, p95 as f64 / 1000.0);
     println!("Max:    {:>8} µs ({:.2} ms)", max, max as f64 / 1000.0);
@@ -126,7 +139,11 @@ fn main() {
     println!("    Out:    {:.2} MB", out_weights / 1e6);
     println!("    FFN:    {:.2} MB", ffn_weights / 1e6);
     println!("    Total:  {:.2} MB", layer_weights / 1e6);
-    println!("  All {} layers: {:.2} MB", layers as i32, total_layer_weights / 1e6);
+    println!(
+        "  All {} layers: {:.2} MB",
+        layers as i32,
+        total_layer_weights / 1e6
+    );
     println!("  LM head:      {:.2} MB", lm_head_weights / 1e6);
     println!("  Total:        {:.2} MB", total_weights / 1e6);
 
@@ -143,12 +160,19 @@ fn main() {
     // Compare to theoretical
     let ddr4_bandwidth = 50.0; // ~50 GB/s for DDR4-3200
     let ddr5_bandwidth = 80.0; // ~80 GB/s for DDR5
-    println!("\n  vs DDR4 (50 GB/s):    {:.1}%", 100.0 * bandwidth_gbps / ddr4_bandwidth);
-    println!("  vs DDR5 (80 GB/s):    {:.1}%", 100.0 * bandwidth_gbps / ddr5_bandwidth);
+    println!(
+        "\n  vs DDR4 (50 GB/s):    {:.1}%",
+        100.0 * bandwidth_gbps / ddr4_bandwidth
+    );
+    println!(
+        "  vs DDR5 (80 GB/s):    {:.1}%",
+        100.0 * bandwidth_gbps / ddr5_bandwidth
+    );
 
     // Theoretical minimum latency
     let theoretical_min_ms = (bytes_read / 1e9) / ddr4_bandwidth * 1000.0;
-    let overhead_pct = (actual_time_s * 1000.0 - theoretical_min_ms) / (actual_time_s * 1000.0) * 100.0;
+    let overhead_pct =
+        (actual_time_s * 1000.0 - theoretical_min_ms) / (actual_time_s * 1000.0) * 100.0;
 
     println!("\nRoofline (@ 50 GB/s DDR4):");
     println!("  Theoretical min:  {:.2} ms", theoretical_min_ms);
@@ -168,8 +192,16 @@ fn main() {
     println!("\n=== Scaling with Cache Length ===");
     println!("Attention cost scales O(seq_len) per token");
 
-    let first_10_avg: f64 = token_times[0..10].iter().map(|t| t.as_secs_f64()).sum::<f64>() / 10.0;
-    let last_10_avg: f64 = token_times[40..50].iter().map(|t| t.as_secs_f64()).sum::<f64>() / 10.0;
+    let first_10_avg: f64 = token_times[0..10]
+        .iter()
+        .map(|t| t.as_secs_f64())
+        .sum::<f64>()
+        / 10.0;
+    let last_10_avg: f64 = token_times[40..50]
+        .iter()
+        .map(|t| t.as_secs_f64())
+        .sum::<f64>()
+        / 10.0;
     let scaling = last_10_avg / first_10_avg;
 
     println!("  First 10 tokens avg: {:.2} ms", first_10_avg * 1000.0);

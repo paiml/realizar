@@ -5033,7 +5033,7 @@ dependencies = [
 
 [[package]]
 name = "trueno-gpu"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "libloading",
  "thiserror 2.0.17",

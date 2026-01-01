@@ -4332,7 +4332,11 @@ mod tests {
         // This should NOT panic with proper GQA support
         // Before fix: panics with "range end index X out of range for slice of length Y"
         let result = transformer.forward_with_cache(1, &mut cache, 0);
-        assert!(result.is_ok(), "forward_with_cache should not panic on GQA models: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "forward_with_cache should not panic on GQA models: {:?}",
+            result
+        );
 
         // Generate a few more tokens to test cache accumulation
         let result = transformer.forward_with_cache(2, &mut cache, 1);

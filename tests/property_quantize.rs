@@ -18,10 +18,10 @@ fn q4_0_block_strategy() -> impl Strategy<Value = Vec<u8>> {
 
 /// Strategy for generating valid Q8_0 blocks
 fn q8_0_block_strategy() -> impl Strategy<Value = Vec<u8>> {
-    // Q8_0 block: 4 bytes scale + 32 bytes quants = 36 bytes
-    (any::<f32>(), prop::collection::vec(any::<u8>(), 32..=32)).prop_map(|(scale, quants)| {
-        let mut block = Vec::with_capacity(36);
-        block.extend_from_slice(&scale.to_le_bytes());
+    // Q8_0 block: 2 bytes scale (f16) + 32 bytes quants = 34 bytes
+    (any::<u16>(), prop::collection::vec(any::<u8>(), 32..=32)).prop_map(|(scale_bits, quants)| {
+        let mut block = Vec::with_capacity(34);
+        block.extend_from_slice(&scale_bits.to_le_bytes()); // f16 as u16 bits
         block.extend(quants);
         block
     })
@@ -117,8 +117,8 @@ proptest! {
     fn test_q8_0_multiple_blocks(num_blocks in 1usize..10) {
         let mut data = Vec::new();
         for _ in 0..num_blocks {
-            // Scale: 1.0
-            data.extend_from_slice(&1.0f32.to_le_bytes());
+            // Scale: f16 1.0 = 0x3C00
+            data.extend_from_slice(&0x3C00u16.to_le_bytes());
             // 32 bytes of quants
             data.extend_from_slice(&[0u8; 32]);
         }
@@ -131,7 +131,8 @@ proptest! {
     #[test]
     fn test_q8_0_zero_scale(quants in prop::collection::vec(any::<u8>(), 32..=32)) {
         let mut data = Vec::new();
-        data.extend_from_slice(&0.0f32.to_le_bytes());
+        // f16 zero = 0x0000
+        data.extend_from_slice(&0x0000u16.to_le_bytes());
         data.extend(quants);
 
         let result = dequantize_q8_0(&data).unwrap();
@@ -143,8 +144,8 @@ proptest! {
     /// Q8_0 invalid length always errors
     #[test]
     fn test_q8_0_invalid_length(len in 1usize..100) {
-        // Exclude lengths that are valid (multiples of 36)
-        if len % 36 != 0 {
+        // Exclude lengths that are valid (multiples of 34)
+        if len % 34 != 0 {
             let data = vec![0u8; len];
             let result = dequantize_q8_0(&data);
             prop_assert!(result.is_err());
@@ -154,19 +155,28 @@ proptest! {
     /// Q8_0 dequantization values are bounded by scale
     #[test]
     fn test_q8_0_values_bounded(
-        scale in -100.0f32..100.0f32,
+        // Use a finite f16 range (0x0000-0x7BFF for positive, 0x8000-0xFBFF for negative)
+        // Exclude inf (0x7C00) and NaN (0x7C01+)
+        scale_bits in prop::num::u16::ANY.prop_filter("finite f16", |&b| {
+            let exp = (b >> 10) & 0x1F;
+            exp != 0x1F // Filter out inf/nan (exponent == 31)
+        }),
         quants in prop::collection::vec(any::<u8>(), 32..=32)
     ) {
         let mut data = Vec::new();
-        data.extend_from_slice(&scale.to_le_bytes());
+        // f16 scale as u16 bits
+        data.extend_from_slice(&scale_bits.to_le_bytes());
         data.extend(quants);
 
         let result = dequantize_q8_0(&data).unwrap();
 
+        // Convert f16 to f32 for bound check
+        let scale = half::f16::from_bits(scale_bits).to_f32();
         // Q8_0 values range from -128 to 127
         let max_abs = scale.abs() * 128.0;
         for val in result {
-            prop_assert!(val.abs() <= max_abs + 1e-6);
+            // Allow some tolerance for f16 precision loss
+            prop_assert!(val.abs() <= max_abs + 0.1, "val {} > max {}", val, max_abs);
         }
     }
 

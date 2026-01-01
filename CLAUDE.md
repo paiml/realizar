@@ -127,6 +127,126 @@ cd ../aprender && git pull && grep "^version" Cargo.toml
 3. Consider integration if trueno unavailable
 4. Document in commit message
 
+## Python Usage Policy
+
+**IMPORTANT: Avoid Python unless absolutely necessary. This is a pure Rust project.**
+
+### When Python IS Acceptable
+- Generating reference values from HuggingFace transformers for verification
+- Quick one-off debugging comparisons (not permanent scripts)
+- No Rust equivalent exists for the task
+
+### When Python is NOT Acceptable
+- Production code (use Rust)
+- Build scripts (use Rust/Makefile)
+- Tests (use Rust tests)
+- Benchmarks (use Criterion)
+
+### If Python Is Required, Use `uv`
+
+**NEVER use pip, virtualenv, conda, or poetry. ONLY use `uv`.**
+
+```bash
+# Run Python script with dependencies
+uv run --with torch --with transformers python script.py
+
+# Or use inline script dependencies (PEP 723)
+uv run script.py  # If script has # /// script metadata
+
+# Interactive REPL with deps
+uv run --with torch python
+```
+
+**Why uv:**
+- Fast dependency resolution (10-100x faster than pip)
+- Deterministic environments
+- No need to manage venvs manually
+- Works with pyproject.toml or inline deps
+
+## Ground Truth Verification
+
+**CRITICAL: Always verify inference outputs against multiple reference implementations.**
+
+All reference implementations live in `~/src/`:
+
+### Reference Implementations (Priority Order)
+
+1. **llama.cpp** (`~/src/llama.cpp`) - Primary reference for GGUF inference
+   ```bash
+   cd ~/src/llama.cpp
+   ./llama-cli -m /path/to/model.gguf -p "prompt" -n 1 --verbose
+   # Or for embeddings/hidden states:
+   ./llama-embedding -m /path/to/model.gguf -p "prompt"
+   ```
+
+2. **Ollama** (`~/src/ollama`) - Production GGUF serving reference
+   ```bash
+   ollama run tinyllama "prompt" --verbose
+   # Check logs for token probabilities
+   ```
+
+3. **HuggingFace Transformers** - FP32 ground truth (via uv)
+   ```bash
+   uv run --with torch --with transformers python3 << 'EOF'
+   from transformers import AutoModelForCausalLM, AutoTokenizer
+   model = AutoModelForCausalLM.from_pretrained("model-name")
+   # Get logits, hidden states, etc.
+   EOF
+   ```
+
+4. **Candle** (`~/src/candle`) - Rust reference implementation
+   ```bash
+   cd ~/src/candle
+   cargo run --release --example llama -- --model /path/to/model --prompt "test"
+   ```
+
+### Verification Checklist
+
+When debugging inference issues, verify in order:
+
+1. **Embedding lookup** - Token → embedding vector
+   - Compare L2 norm and first 10 elements with HF
+   - Note: GGUF may use Q4_K quantized embeddings
+
+2. **RMSNorm** - Layer normalization
+   - Compare L2 norm before/after norm
+   - Verify weight values match
+
+3. **Attention projections** (Q/K/V) - Per-layer
+   - Compare Q output L2 with HF for same input
+   - Check per-head L2 norms
+
+4. **FFN projections** (gate/up/down) - Per-layer
+   - Check FFN hidden (gate * up) L2
+   - Verify FFN output doesn't cause catastrophic cancellation
+
+5. **Layer-by-layer hidden state L2** - Track through all layers
+   - Should closely match HF layer-by-layer
+   - Watch for divergence accumulation
+
+6. **Final logits** - Top-k comparison
+   - Compare L2 norm (should be within 10%)
+   - Verify top-5 tokens match HF top-5
+   - Check cosine similarity > 0.99
+
+### Quantization Tolerance
+
+Expected differences due to quantization:
+- **Q4_K**: ±5% element-wise, <1% L2 norm
+- **Q6_K**: ±2% element-wise, <0.5% L2 norm
+- **FP16**: ±0.1% element-wise
+
+### Creating Verification Scripts
+
+Store verification scripts in `examples/par_*` (parity tests):
+```
+examples/
+  par_001_*.rs     # Token embedding verification
+  par_002_*.rs     # Layer-by-layer hidden states
+  par_003_*.rs     # Logit comparison
+  debug_*.rs       # One-off debugging scripts
+```
+
 ## Development Workflow
 
 ### Before Starting Any Work

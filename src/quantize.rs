@@ -1126,28 +1126,35 @@ pub fn fused_q4k_dot(q4k_data: &[u8], activations: &[f32]) -> Result<f32> {
         let qs_start = sb_start + 16;
         let qs = &q4k_data[qs_start..qs_start + 128];
 
-        // Fused dequant+dot for 8 blocks of 32 values each
-        for block_idx in 0..8 {
-            // Extract 6-bit scale and min for this block
-            let (scale, min) = extract_scale_min(&scales, block_idx);
+        // PAR-001: Match dequantize_q4_k layout (llama.cpp/candle compatible)
+        // Process 4 chunks of 64 values each (0, 64, 128, 192)
+        // Each chunk: 32 low nibbles, then 32 high nibbles from 32 consecutive bytes
+        for j in (0..QK_K).step_by(64) {
+            let q = &qs[j / 2..j / 2 + 32];
 
-            // Process 32 values (16 bytes, 2 4-bit values per byte)
-            let block_start = block_idx * 16;
-            for byte_idx in 0..16 {
-                let byte = qs[block_start + byte_idx];
+            // Get scales for the two 32-value halves
+            let is = j / 32;
+            let (sc1, m1) = extract_scale_min(&scales, is);
+            let d1 = d * sc1;
+            let dm1 = dmin * m1;
 
-                // Low 4 bits: dequantize and accumulate
-                #[allow(clippy::cast_possible_wrap)]
-                let q_low = (byte & 0x0F) as i8;
-                let value_low = d * scale * f32::from(q_low) - dmin * min;
-                acc += value_low * activations[activation_idx];
+            let (sc2, m2) = extract_scale_min(&scales, is + 1);
+            let d2 = d * sc2;
+            let dm2 = dmin * m2;
+
+            // First pass: 32 low nibbles (use sc1, m1)
+            for &byte in q {
+                let q_val = (byte & 0x0F) as f32;
+                let value = d1 * q_val - dm1;
+                acc += value * activations[activation_idx];
                 activation_idx += 1;
+            }
 
-                // High 4 bits: dequantize and accumulate
-                #[allow(clippy::cast_possible_wrap)]
-                let q_high = ((byte >> 4) & 0x0F) as i8;
-                let value_high = d * scale * f32::from(q_high) - dmin * min;
-                acc += value_high * activations[activation_idx];
+            // Second pass: 32 high nibbles (use sc2, m2)
+            for &byte in q {
+                let q_val = (byte >> 4) as f32;
+                let value = d2 * q_val - dm2;
+                acc += value * activations[activation_idx];
                 activation_idx += 1;
             }
         }
@@ -1214,6 +1221,7 @@ pub fn fused_q4k_dot_simd(q4k_data: &[u8], activations: &[f32]) -> Result<f32> {
 /// - Matches llama.cpp GGML_F32_VEC sum[4] pattern
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2", enable = "fma")]
+#[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn fused_q4k_dot_avx2(q4k_data: &[u8], activations: &[f32]) -> Result<f32> {
     // Allow wildcard import for SIMD intrinsics (standard pattern for arch-specific code)
     #[allow(clippy::wildcard_imports)]
@@ -1270,9 +1278,9 @@ unsafe fn fused_q4k_dot_avx2(q4k_data: &[u8], activations: &[f32]) -> Result<f32
         let d = read_f16(&q4k_data[sb_start..sb_start + 2]);
         let dmin = read_f16(&q4k_data[sb_start + 2..sb_start + 4]);
 
-        // Broadcast d and dmin to SIMD registers
-        let d_vec = _mm256_set1_ps(d);
-        let dmin_vec = _mm256_set1_ps(dmin);
+        // Broadcast d and dmin to SIMD registers (used in scale computation below)
+        let _d_vec = _mm256_set1_ps(d);
+        let _dmin_vec = _mm256_set1_ps(dmin);
 
         // Read scales (12 bytes)
         let mut scales = [0u8; 12];
@@ -1282,120 +1290,74 @@ unsafe fn fused_q4k_dot_avx2(q4k_data: &[u8], activations: &[f32]) -> Result<f32
         let qs_start = sb_start + 16;
         let qs = &q4k_data[qs_start..qs_start + 128];
 
-        // Process 8 blocks of 32 values each
-        // Each block has 4 chunks of 8 values → use 4 accumulators round-robin
-        for block_idx in 0..8 {
-            // Extract 6-bit scale and min for this block
-            let (scale, min) = extract_scale_min(&scales, block_idx);
+        // PAR-001: Match dequantize_q4_k layout (llama.cpp/candle compatible)
+        // Process 4 chunks of 64 values each (j=0, 64, 128, 192)
+        // Each chunk: 32 low nibbles (sc1), then 32 high nibbles (sc2)
+        for j in (0..QK_K).step_by(64) {
+            let q_start = j / 2; // 32 bytes per 64-value chunk
 
-            // Broadcast scale and min
-            let scale_vec = _mm256_set1_ps(scale);
-            let min_vec = _mm256_set1_ps(min);
+            // Get scales for the two 32-value halves
+            let is = j / 32;
+            let (sc1, m1) = extract_scale_min(&scales, is);
+            let (sc2, m2) = extract_scale_min(&scales, is + 1);
 
-            // Precompute: d * scale and dmin * min
-            let d_scale = _mm256_mul_ps(d_vec, scale_vec);
-            let dmin_min = _mm256_mul_ps(dmin_vec, min_vec);
+            // Precompute d*scale and dmin*min for both halves
+            let d_scale1 = _mm256_set1_ps(d * sc1);
+            let dm1 = _mm256_set1_ps(dmin * m1);
+            let d_scale2 = _mm256_set1_ps(d * sc2);
+            let dm2 = _mm256_set1_ps(dmin * m2);
 
-            // Process 32 values in groups of 8 (4 iterations with 4 accumulators)
-            let block_start = block_idx * 16;
-
-            // Chunk 0 → acc0
-            // SAFETY: All operations use validated indices
-            unsafe {
-                let byte_start = block_start;
-                let b0 = qs[byte_start];
-                let b1 = qs[byte_start + 1];
-                let b2 = qs[byte_start + 2];
-                let b3 = qs[byte_start + 3];
+            // First 32 values: LOW nibbles of bytes [q_start..q_start+32]
+            // Process in 4 chunks of 8 values
+            for chunk in 0..4 {
+                let byte_start = q_start + chunk * 8;
+                // SAFETY: All operations use validated indices
                 let q_vec = _mm256_setr_epi32(
-                    i32::from(b0 & 0x0F),
-                    i32::from((b0 >> 4) & 0x0F),
-                    i32::from(b1 & 0x0F),
-                    i32::from((b1 >> 4) & 0x0F),
-                    i32::from(b2 & 0x0F),
-                    i32::from((b2 >> 4) & 0x0F),
-                    i32::from(b3 & 0x0F),
-                    i32::from((b3 >> 4) & 0x0F),
+                    i32::from(qs[byte_start] & 0x0F),
+                    i32::from(qs[byte_start + 1] & 0x0F),
+                    i32::from(qs[byte_start + 2] & 0x0F),
+                    i32::from(qs[byte_start + 3] & 0x0F),
+                    i32::from(qs[byte_start + 4] & 0x0F),
+                    i32::from(qs[byte_start + 5] & 0x0F),
+                    i32::from(qs[byte_start + 6] & 0x0F),
+                    i32::from(qs[byte_start + 7] & 0x0F),
                 );
                 let q_f32 = _mm256_cvtepi32_ps(q_vec);
-                let dequant = _mm256_fmsub_ps(d_scale, q_f32, dmin_min);
+                let dequant = _mm256_fmsub_ps(d_scale1, q_f32, dm1);
                 let act_vec = _mm256_loadu_ps(activations.as_ptr().add(activation_idx));
-                acc0 = _mm256_fmadd_ps(dequant, act_vec, acc0);
+                match chunk {
+                    0 => acc0 = _mm256_fmadd_ps(dequant, act_vec, acc0),
+                    1 => acc1 = _mm256_fmadd_ps(dequant, act_vec, acc1),
+                    2 => acc2 = _mm256_fmadd_ps(dequant, act_vec, acc2),
+                    _ => acc3 = _mm256_fmadd_ps(dequant, act_vec, acc3),
+                }
                 activation_idx += 8;
             }
 
-            // Chunk 1 → acc1
-            // SAFETY: All operations use validated indices
-            unsafe {
-                let byte_start = block_start + 4;
-                let b0 = qs[byte_start];
-                let b1 = qs[byte_start + 1];
-                let b2 = qs[byte_start + 2];
-                let b3 = qs[byte_start + 3];
+            // Second 32 values: HIGH nibbles of bytes [q_start..q_start+32]
+            // Process in 4 chunks of 8 values
+            for chunk in 0..4 {
+                let byte_start = q_start + chunk * 8;
+                // SAFETY: All operations use validated indices
                 let q_vec = _mm256_setr_epi32(
-                    i32::from(b0 & 0x0F),
-                    i32::from((b0 >> 4) & 0x0F),
-                    i32::from(b1 & 0x0F),
-                    i32::from((b1 >> 4) & 0x0F),
-                    i32::from(b2 & 0x0F),
-                    i32::from((b2 >> 4) & 0x0F),
-                    i32::from(b3 & 0x0F),
-                    i32::from((b3 >> 4) & 0x0F),
+                    i32::from(qs[byte_start] >> 4),
+                    i32::from(qs[byte_start + 1] >> 4),
+                    i32::from(qs[byte_start + 2] >> 4),
+                    i32::from(qs[byte_start + 3] >> 4),
+                    i32::from(qs[byte_start + 4] >> 4),
+                    i32::from(qs[byte_start + 5] >> 4),
+                    i32::from(qs[byte_start + 6] >> 4),
+                    i32::from(qs[byte_start + 7] >> 4),
                 );
                 let q_f32 = _mm256_cvtepi32_ps(q_vec);
-                let dequant = _mm256_fmsub_ps(d_scale, q_f32, dmin_min);
+                let dequant = _mm256_fmsub_ps(d_scale2, q_f32, dm2);
                 let act_vec = _mm256_loadu_ps(activations.as_ptr().add(activation_idx));
-                acc1 = _mm256_fmadd_ps(dequant, act_vec, acc1);
-                activation_idx += 8;
-            }
-
-            // Chunk 2 → acc2
-            // SAFETY: All operations use validated indices
-            unsafe {
-                let byte_start = block_start + 8;
-                let b0 = qs[byte_start];
-                let b1 = qs[byte_start + 1];
-                let b2 = qs[byte_start + 2];
-                let b3 = qs[byte_start + 3];
-                let q_vec = _mm256_setr_epi32(
-                    i32::from(b0 & 0x0F),
-                    i32::from((b0 >> 4) & 0x0F),
-                    i32::from(b1 & 0x0F),
-                    i32::from((b1 >> 4) & 0x0F),
-                    i32::from(b2 & 0x0F),
-                    i32::from((b2 >> 4) & 0x0F),
-                    i32::from(b3 & 0x0F),
-                    i32::from((b3 >> 4) & 0x0F),
-                );
-                let q_f32 = _mm256_cvtepi32_ps(q_vec);
-                let dequant = _mm256_fmsub_ps(d_scale, q_f32, dmin_min);
-                let act_vec = _mm256_loadu_ps(activations.as_ptr().add(activation_idx));
-                acc2 = _mm256_fmadd_ps(dequant, act_vec, acc2);
-                activation_idx += 8;
-            }
-
-            // Chunk 3 → acc3
-            // SAFETY: All operations use validated indices
-            unsafe {
-                let byte_start = block_start + 12;
-                let b0 = qs[byte_start];
-                let b1 = qs[byte_start + 1];
-                let b2 = qs[byte_start + 2];
-                let b3 = qs[byte_start + 3];
-                let q_vec = _mm256_setr_epi32(
-                    i32::from(b0 & 0x0F),
-                    i32::from((b0 >> 4) & 0x0F),
-                    i32::from(b1 & 0x0F),
-                    i32::from((b1 >> 4) & 0x0F),
-                    i32::from(b2 & 0x0F),
-                    i32::from((b2 >> 4) & 0x0F),
-                    i32::from(b3 & 0x0F),
-                    i32::from((b3 >> 4) & 0x0F),
-                );
-                let q_f32 = _mm256_cvtepi32_ps(q_vec);
-                let dequant = _mm256_fmsub_ps(d_scale, q_f32, dmin_min);
-                let act_vec = _mm256_loadu_ps(activations.as_ptr().add(activation_idx));
-                acc3 = _mm256_fmadd_ps(dequant, act_vec, acc3);
+                match chunk {
+                    0 => acc0 = _mm256_fmadd_ps(dequant, act_vec, acc0),
+                    1 => acc1 = _mm256_fmadd_ps(dequant, act_vec, acc1),
+                    2 => acc2 = _mm256_fmadd_ps(dequant, act_vec, acc2),
+                    _ => acc3 = _mm256_fmadd_ps(dequant, act_vec, acc3),
+                }
                 activation_idx += 8;
             }
         }
@@ -2328,6 +2290,80 @@ pub fn fused_q6k_parallel_matvec(
     Ok(output)
 }
 
+/// Column-major fused Q6_K matrix-vector multiply
+///
+/// GGML stores Q6_K tensors in column-major order: each superblock contains
+/// 256 values for one COLUMN (i.e., one value per output row).
+///
+/// Storage layout:
+/// - Superblock k contains column k's values for all 256 output rows
+/// - V[row, col] = dequantized[col * 256 + row]
+///
+/// This is more memory-efficient than transposing first since we only
+/// dequantize each superblock once.
+///
+/// # Errors
+///
+/// Returns error if:
+/// - Weight data is too small for the given dimensions
+/// - Activation length doesn't match input dimension
+#[allow(clippy::similar_names)]
+pub fn fused_q6k_colmajor_matvec(
+    weight_data: &[u8],
+    activations: &[f32],
+    in_dim: usize,
+    out_dim: usize,
+) -> Result<Vec<f32>> {
+    const SUPER_BLOCK_BYTES: usize = 210; // Q6_K: 210 bytes per super-block (256 values)
+
+    // Column-major: each of in_dim columns has one superblock
+    // (assuming out_dim == 256, which is the Q6_K super-block size)
+    let expected_weight_bytes = in_dim * SUPER_BLOCK_BYTES;
+    if weight_data.len() < expected_weight_bytes {
+        return Err(RealizarError::InvalidShape {
+            reason: format!(
+                "Q6_K colmajor weight data too small: need {} bytes for {}x{}, have {}",
+                expected_weight_bytes,
+                out_dim,
+                in_dim,
+                weight_data.len()
+            ),
+        });
+    }
+
+    if activations.len() != in_dim {
+        return Err(RealizarError::InvalidShape {
+            reason: format!(
+                "Activation length {} doesn't match in_dim {}",
+                activations.len(),
+                in_dim
+            ),
+        });
+    }
+
+    // Initialize output accumulator
+    let mut output = vec![0.0f32; out_dim];
+
+    // Iterate over columns (superblocks)
+    // Each superblock contains 256 values for one column
+    for col in 0..in_dim {
+        let sb_start = col * SUPER_BLOCK_BYTES;
+        let sb_end = sb_start + SUPER_BLOCK_BYTES;
+        let sb_data = &weight_data[sb_start..sb_end];
+
+        // Dequantize this column's superblock (256 values)
+        let column_vals = dequantize_q6_k(sb_data)?;
+
+        // Multiply by activation and accumulate into output
+        let act = activations[col];
+        for (row, &w) in column_vals.iter().enumerate().take(out_dim) {
+            output[row] += w * act;
+        }
+    }
+
+    Ok(output)
+}
+
 /// Parallel fused Q4_0 matrix-vector multiply with SIMD acceleration
 ///
 /// Computes dot products directly on quantized data without full dequantization.
@@ -2612,11 +2648,7 @@ fn fused_q4_0_dot_scalar(q4_data: &[u8], activations: &[f32], in_dim: usize) -> 
 ///
 /// This avoids allocating an intermediate normalized vector.
 #[inline]
-pub fn quantize_rmsnorm_q8_0(
-    input: &[f32],
-    norm_weight: &[f32],
-    eps: f32,
-) -> (Vec<f32>, Vec<i8>) {
+pub fn quantize_rmsnorm_q8_0(input: &[f32], norm_weight: &[f32], eps: f32) -> (Vec<f32>, Vec<i8>) {
     let hidden_dim = input.len();
     debug_assert_eq!(hidden_dim, norm_weight.len());
 
@@ -2709,7 +2741,10 @@ pub fn fused_rmsnorm_q4_0_matmul(
         return Err(RealizarError::InvalidShape {
             reason: format!(
                 "Q4_0 weight data too small: need {} bytes for {}x{}, have {}",
-                expected_weight_bytes, out_dim, in_dim, weight_data.len()
+                expected_weight_bytes,
+                out_dim,
+                in_dim,
+                weight_data.len()
             ),
         });
     }
@@ -3458,8 +3493,12 @@ unsafe fn fused_q8_0_q8_0_dot_avx2(
         while block_idx + 2 <= num_blocks {
             // Prefetch next iteration's blocks
             if block_idx + 4 <= num_blocks {
-                let prefetch_w = q8_weight_data.as_ptr().add((block_idx + 2) * Q8_0_BLOCK_BYTES);
-                let prefetch_a = q8_act_quants.as_ptr().add((block_idx + 2) * Q8_0_BLOCK_SIZE);
+                let prefetch_w = q8_weight_data
+                    .as_ptr()
+                    .add((block_idx + 2) * Q8_0_BLOCK_BYTES);
+                let prefetch_a = q8_act_quants
+                    .as_ptr()
+                    .add((block_idx + 2) * Q8_0_BLOCK_SIZE);
                 _mm_prefetch(prefetch_w.cast(), _MM_HINT_T0);
                 _mm_prefetch(prefetch_a.cast(), _MM_HINT_T0);
             }
@@ -3496,8 +3535,12 @@ unsafe fn fused_q8_0_q8_0_dot_avx2(
             acc = _mm256_fmadd_ps(combined_scale_0, prod_f32_0, acc);
 
             // === Block 1 ===
-            let w_ptr_1 = q8_weight_data.as_ptr().add((block_idx + 1) * Q8_0_BLOCK_BYTES);
-            let a_ptr_1 = q8_act_quants.as_ptr().add((block_idx + 1) * Q8_0_BLOCK_SIZE);
+            let w_ptr_1 = q8_weight_data
+                .as_ptr()
+                .add((block_idx + 1) * Q8_0_BLOCK_BYTES);
+            let a_ptr_1 = q8_act_quants
+                .as_ptr()
+                .add((block_idx + 1) * Q8_0_BLOCK_SIZE);
 
             let w_scale_bits_1 = u16::from_le_bytes([*w_ptr_1, *w_ptr_1.add(1)]);
             let w_scale_1 = f16_to_f32_lut(w_scale_bits_1);
@@ -3655,7 +3698,10 @@ pub fn fused_q8_0_q8_0_parallel_matvec(
         return Err(RealizarError::InvalidShape {
             reason: format!(
                 "Q8_0 weight data too small: need {} bytes for {}x{}, have {}",
-                expected_weight_bytes, out_dim, in_dim, weight_data.len()
+                expected_weight_bytes,
+                out_dim,
+                in_dim,
+                weight_data.len()
             ),
         });
     }
@@ -3690,39 +3736,30 @@ pub fn fused_q8_0_q8_0_parallel_matvec(
 }
 
 /// Helper: Extract 6-bit scale and min for a block from the packed scales array
+///
+/// PAR-001 FIX: Matches llama.cpp's get_scale_min_k4 packing scheme:
+/// - Blocks 0-3: scale = q[j] & 63, min = q[j+4] & 63
+/// - Blocks 4-7: scale = (q[j+4] & 0xF) | ((q[j-4] >> 6) << 4)
+///   min = (q[j+4] >> 4) | ((q[j] >> 6) << 4)
 #[inline]
 fn extract_scale_min(scales: &[u8; 12], block_idx: usize) -> (f32, f32) {
-    // Each block has 6-bit scale and 6-bit min (12 bits total)
-    // 8 blocks * 12 bits = 96 bits = 12 bytes
-    let bit_offset = block_idx * 12;
-    let byte_offset = bit_offset / 8;
-    let bit_in_byte = bit_offset % 8;
-
-    // Extract 12 bits across potentially 2-3 bytes
-    let bits = if bit_in_byte <= 4 {
-        // Fits in 2 bytes
-        let b0 = u16::from(scales[byte_offset]);
-        let b1 = u16::from(scales[byte_offset + 1]);
-        ((b1 << 8) | b0) >> bit_in_byte
+    let j = block_idx;
+    let (scale_bits, min_bits) = if j < 4 {
+        // First 4 blocks: simple layout
+        let d = scales[j] & 63;
+        let m = scales[j + 4] & 63;
+        (d, m)
     } else {
-        // Spans 3 bytes
-        let b0 = u32::from(scales[byte_offset]);
-        let b1 = u32::from(scales[byte_offset + 1]);
-        let b2 = u32::from(scales[byte_offset + 2]);
-        // SAFETY: We only extract 12 bits, which fits in u16
-        #[allow(clippy::cast_possible_truncation)]
-        {
-            (((b2 << 16) | (b1 << 8) | b0) >> bit_in_byte) as u16
-        }
+        // Last 4 blocks: packed layout using high bits from first 4 bytes
+        let d = (scales[j + 4] & 0x0F) | ((scales[j - 4] >> 6) << 4);
+        let m = (scales[j + 4] >> 4) | ((scales[j] >> 6) << 4);
+        (d, m)
     };
 
-    // Extract 6-bit scale and 6-bit min
-    let scale_bits = (bits & 0x3F) as u8; // Lower 6 bits
-    let min_bits = ((bits >> 6) & 0x3F) as u8; // Upper 6 bits
-
-    // Convert 6-bit values to floats (normalize to [0, 1] range)
-    let scale = f32::from(scale_bits) / 63.0;
-    let min = f32::from(min_bits) / 63.0;
+    // Return raw 6-bit values as floats
+    // The GGUF header's d/dmin values already include the /63 normalization
+    let scale = f32::from(scale_bits);
+    let min = f32::from(min_bits);
 
     (scale, min)
 }
@@ -5089,16 +5126,29 @@ mod tests {
 
     #[test]
     fn test_extract_scale_min() {
-        // Test scale/min extraction
+        // Test scale/min extraction using llama.cpp packing scheme
         let mut scales = [0u8; 12];
 
-        // Block 0: scale=31 (0x1F), min=0 (first 12 bits = 0x01F)
-        scales[0] = 0x1F; // Lower 8 bits of scale
-        scales[1] = 0x00; // Upper 4 bits of scale + lower 2 bits of min
+        // Block 0: scale in scales[0] & 63, min in scales[4] & 63
+        scales[0] = 31; // scale = 31
+        scales[4] = 15; // min = 15
 
         let (scale, min) = extract_scale_min(&scales, 0);
-        assert!((scale - 31.0 / 63.0).abs() < 1e-6);
-        assert!((min - 0.0).abs() < 1e-6);
+        assert!((scale - 31.0).abs() < 1e-6);
+        assert!((min - 15.0).abs() < 1e-6);
+
+        // Block 5: uses packed format
+        // scale = (scales[9] & 0x0F) | ((scales[1] >> 6) << 4)
+        // min = (scales[9] >> 4) | ((scales[5] >> 6) << 4)
+        scales[1] = 0b11_000000; // high 2 bits contribute to scale[5]
+        scales[5] = 0b10_000000; // high 2 bits contribute to min[5]
+        scales[9] = 0b0101_0011; // low 4 bits = scale, high 4 bits = min
+
+        let (scale5, min5) = extract_scale_min(&scales, 5);
+        // scale = (0x3) | (0x3 << 4) = 0x33 = 51
+        assert!((scale5 - 51.0).abs() < 1e-6);
+        // min = (0x5) | (0x2 << 4) = 0x25 = 37
+        assert!((min5 - 37.0).abs() < 1e-6);
     }
 
     #[test]

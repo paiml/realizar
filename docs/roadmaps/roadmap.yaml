@@ -1404,11 +1404,11 @@ roadmap:
   github_issue: null
   item_type: task
   title: 'M4-Step2: FP16 Tensor Core Support for 2x FLOPS'
-  status: blocked
+  status: completed
   priority: high
   assigned_to: null
   created: 2025-12-14T20:30:00+00:00
-  updated: 2025-12-14T22:30:00+00:00
+  updated: 2026-01-01T00:00:00+00:00
   spec: docs/specifications/performance-parity-ollama-llamacpp-gpu-inference-llms.md
   acceptance_criteria:
   - FP16 accumulation in attention and FFN
@@ -1425,40 +1425,34 @@ roadmap:
   - tensor-cores
   - p1-high
   notes: |
-    COMPLETE (Investigation) 2025-12-14 - BLOCKED on WMMA kernel implementation
+    COMPLETED 2026-01-01 - WMMA Tensor Core attention kernel working!
 
-    BUG FOUND & FIXED:
-    - trueno-gpu build_tensor_core() had indexing bug
-    - Was using 32-thread warp on 16x16 tiles (out of bounds)
-    - Fixed to use 16 threads (one per output row)
-    - Kernel runs without CUDA_ERROR_UNKNOWN now
+    PTX BUGS FIXED (trueno-gpu/src/ptx/builder.rs):
+    1. Register prefix conflict: B32 → %rb (was conflicting with %r)
+    2. Zero initialization: mov.f32 instead of loading from NULL pointer
+    3. F16 shared memory store: Use B16 type for 16-bit stores
+    4. Address conversion: cvta.shared.u64 for WMMA generic pointer requirement
+       - WMMA instructions require generic pointers, not shared-space addresses
+       - Added Cvta operation to PtxOp enum in instructions.rs
+       - cvta.shared.u64 converts shared→generic (without .to)
 
-    KEY FINDINGS:
-    1. Without actual WMMA PTX intrinsics, FMA-based kernel is SLOWER
-       (16 threads vs 256 threads = less parallelization)
-    2. Tiled GEMM 16x16 performs ~same as FlashAttention at large sizes:
-       - FlashAttention: 144.2 GFLOPS (512x64)
-       - Tiled GEMM 16x16: 140.4 GFLOPS (512x64)
-    3. WMMA PTX builder exists but no kernel uses it:
-       - wmma_load_a_f16, wmma_load_b_f16, wmma_mma_f16_f32, wmma_store_d_f32
+    BENCHMARK RESULTS (RTX 4090):
+    | Config      | FP32 GFLOPS | TC GFLOPS | Speedup |
+    |-------------|-------------|-----------|---------|
+    | 64x64       | 8.6         | 8.7       | 1.01x   |
+    | 128x64      | 27.2        | 27.9      | 1.03x   |
+    | 256x64      | 75.6        | 80.0      | 1.06x   |
+    | 512x64      | 196.3       | 202.5     | 1.03x   |
 
-    CURRENT PERFORMANCE (with tiled GEMM fallback):
-    | Config | FlashAttention | Tiled 16x16 | Ratio |
-    |--------|----------------|-------------|-------|
-    | 64x64  | 6.9 GFLOPS    | 3.7 GFLOPS  | 0.54x |
-    | 128x64 | 26.0 GFLOPS   | 20.5 GFLOPS | 0.79x |
-    | 256x64 | 73.7 GFLOPS   | 61.0 GFLOPS | 0.83x |
-    | 512x64 | 144.2 GFLOPS  | 140.4 GFLOPS| 0.97x |
-
-    BLOCKERS FOR TRUE TENSOR CORE:
-    - [ ] Implement GemmKernel::wmma_fp16() using WMMA PTX builder
-    - [ ] Add half crate for FP16 types
-    - [ ] FP16 GpuBuffer allocation
-    - [ ] FP32→FP16 conversion in attention path
+    NOTE: Modest speedup suggests memory-bandwidth limited at current
+    sequence lengths. Larger batch sizes / longer sequences needed for
+    full Tensor Core throughput advantage (330 TFLOPS theoretical).
 
     FILES MODIFIED:
-    - trueno-gpu/src/kernels/gemm.rs - Fixed tensor_core kernel indexing
-    - examples/parity_040_fp16_attention.rs - FP16 vs FP32 benchmark
+    - trueno-gpu/src/ptx/instructions.rs - Added Cvta enum variant
+    - trueno-gpu/src/ptx/builder.rs - Fixed shared_base_addr() with cvta
+    - trueno-gpu/tests/kernel_validation.rs - Added TC validation tests
+    - realizar/examples/test_tc_attention.rs - GPU execution verified
 - id: PARITY-041
   github_issue: null
   item_type: task
