@@ -241,12 +241,12 @@ impl LambdaHandler {
             return Err(LambdaError::EmptyModel);
         }
 
-        // Validate .apr magic bytes (per apr.rs: MAGIC = "APRN" = 0x4150524E)
+        // Validate .apr magic bytes (APR v2: "APR2" = 0x41505232)
         if model_bytes.len() >= 4 {
             let magic = &model_bytes[0..4];
             if magic != APR_MAGIC {
                 return Err(LambdaError::InvalidMagic {
-                    expected: "APRN".to_string(),
+                    expected: "APR2".to_string(),
                     found: format!("{:?}", &model_bytes[0..4.min(model_bytes.len())]),
                 });
             }

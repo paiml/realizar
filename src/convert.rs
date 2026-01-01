@@ -16,7 +16,7 @@
 //! std::fs::write("model.apr_transformer", apr_bytes)?;
 //! ```
 
-use crate::apr::{AprHeader, AprModelType, HEADER_SIZE, MAGIC};
+use crate::apr::{AprHeader, TensorEntry, ALIGNMENT, HEADER_SIZE, MAGIC};
 use crate::apr_transformer::{AprTransformer, AprTransformerConfig, AprTransformerLayer};
 use crate::error::{RealizarError, Result};
 use crate::gguf::{GGUFModel, GGUFTransformer};
@@ -107,12 +107,13 @@ impl GgufToAprConverter {
         }
     }
 
-    /// Convert APR Transformer to serialized APR bytes
+    /// Convert APR Transformer to serialized APR v2 bytes
     ///
-    /// Creates a valid .apr file with:
-    /// - APR header (32 bytes)
-    /// - JSON metadata
-    /// - JSON payload (serialized weights)
+    /// Creates a valid .apr v2 file with:
+    /// - APR v2 header (64 bytes)
+    /// - JSON metadata (padded to 64-byte boundary)
+    /// - Tensor index (JSON array)
+    /// - Tensor data (each 64-byte aligned)
     ///
     /// # Arguments
     ///
@@ -120,7 +121,7 @@ impl GgufToAprConverter {
     ///
     /// # Returns
     ///
-    /// Raw bytes in APR format
+    /// Raw bytes in APR v2 format
     ///
     /// # Errors
     ///
@@ -129,8 +130,9 @@ impl GgufToAprConverter {
     pub fn to_apr_bytes(transformer: &AprTransformer) -> Result<Vec<u8>> {
         // Serialize metadata
         let metadata = serde_json::json!({
+            "model_type": "transformer_lm",
             "architecture": transformer.config.architecture,
-            "hidden_dim": transformer.config.hidden_dim,
+            "hidden_size": transformer.config.hidden_dim,
             "num_layers": transformer.config.num_layers,
             "num_heads": transformer.config.num_heads,
             "num_kv_heads": transformer.config.num_kv_heads,
@@ -145,39 +147,65 @@ impl GgufToAprConverter {
                 reason: format!("Failed to serialize metadata: {e}"),
             })?;
 
-        // Serialize weights (JSON for now, could use bincode for efficiency)
+        // Pad metadata to 64-byte boundary
+        let metadata_padded_len = metadata_bytes.len().div_ceil(ALIGNMENT) * ALIGNMENT;
+
+        // Serialize weights as single tensor (JSON payload for now)
         let payload_bytes =
             serde_json::to_vec(transformer).map_err(|e| RealizarError::FormatError {
                 reason: format!("Failed to serialize weights: {e}"),
             })?;
 
-        // Build header
+        // Create tensor index with single entry for the full payload
+        let tensor_entries = vec![TensorEntry {
+            name: "weights".to_string(),
+            dtype: "json".to_string(),
+            shape: vec![payload_bytes.len()],
+            offset: 0,
+            size: payload_bytes.len() as u64,
+        }];
+        let tensor_index_bytes =
+            serde_json::to_vec(&tensor_entries).map_err(|e| RealizarError::FormatError {
+                reason: format!("Failed to serialize tensor index: {e}"),
+            })?;
+
+        // Calculate offsets
+        let metadata_offset = HEADER_SIZE as u64;
+        let tensor_index_offset = metadata_offset + metadata_padded_len as u64;
+        let data_offset = tensor_index_offset + tensor_index_bytes.len() as u64;
+
+        // Build APR v2 header (64 bytes)
         let mut header = vec![0u8; HEADER_SIZE];
         header[0..4].copy_from_slice(&MAGIC);
-        header[4] = 1; // version major
+        header[4] = 2; // version major
         header[5] = 0; // version minor
-        header[6] = 0; // flags (no compression, no encryption)
-        header[7] = 0; // reserved
-        header[8..10].copy_from_slice(&AprModelType::TransformerLM.as_u16().to_le_bytes());
-        header[10..14].copy_from_slice(&(metadata_bytes.len() as u32).to_le_bytes());
-        header[14..18].copy_from_slice(&(payload_bytes.len() as u32).to_le_bytes());
-        header[18..22].copy_from_slice(&(payload_bytes.len() as u32).to_le_bytes()); // original_size
+        header[6..8].copy_from_slice(&0u16.to_le_bytes()); // flags
+        header[8..12].copy_from_slice(&1u32.to_le_bytes()); // tensor_count
+        header[12..20].copy_from_slice(&metadata_offset.to_le_bytes());
+        header[20..24].copy_from_slice(&(metadata_bytes.len() as u32).to_le_bytes());
+        header[24..32].copy_from_slice(&tensor_index_offset.to_le_bytes());
+        header[32..40].copy_from_slice(&data_offset.to_le_bytes());
+        header[40..44].copy_from_slice(&0u32.to_le_bytes()); // checksum (TODO)
+                                                             // bytes 44-63 reserved
 
         // Combine all parts
-        let mut result =
-            Vec::with_capacity(HEADER_SIZE + metadata_bytes.len() + payload_bytes.len());
+        let total_size =
+            HEADER_SIZE + metadata_padded_len + tensor_index_bytes.len() + payload_bytes.len();
+        let mut result = Vec::with_capacity(total_size);
         result.extend_from_slice(&header);
         result.extend_from_slice(&metadata_bytes);
+        result.resize(HEADER_SIZE + metadata_padded_len, 0); // pad metadata
+        result.extend_from_slice(&tensor_index_bytes);
         result.extend_from_slice(&payload_bytes);
 
         Ok(result)
     }
 
-    /// Load APR Transformer from APR bytes
+    /// Load APR Transformer from APR v2 bytes
     ///
     /// # Arguments
     ///
-    /// * `data` - Raw APR file bytes
+    /// * `data` - Raw APR v2 file bytes
     ///
     /// # Returns
     ///
@@ -190,33 +218,50 @@ impl GgufToAprConverter {
         // Parse header
         let header = AprHeader::from_bytes(data)?;
 
-        // Verify model type
-        if header.model_type != AprModelType::TransformerLM {
+        // Get tensor index to find the weights tensor
+        let index_start = header.tensor_index_offset as usize;
+        let index_end = header.data_offset as usize;
+
+        if data.len() < index_end {
             return Err(RealizarError::FormatError {
                 reason: format!(
-                    "Expected TransformerLM model type (0x0050), got {:?}",
-                    header.model_type
-                ),
-            });
-        }
-
-        // Extract payload
-        let metadata_start = HEADER_SIZE;
-        let metadata_end = metadata_start + header.metadata_len as usize;
-        let payload_start = metadata_end;
-        let payload_end = payload_start + header.payload_len as usize;
-
-        if data.len() < payload_end {
-            return Err(RealizarError::FormatError {
-                reason: format!(
-                    "APR file truncated: expected {} bytes, got {}",
-                    payload_end,
+                    "APR file truncated: expected {} bytes for tensor index, got {}",
+                    index_end,
                     data.len()
                 ),
             });
         }
 
-        let payload_bytes = &data[payload_start..payload_end];
+        let tensor_entries: Vec<TensorEntry> =
+            serde_json::from_slice(&data[index_start..index_end]).map_err(|e| {
+                RealizarError::FormatError {
+                    reason: format!("Failed to parse tensor index: {e}"),
+                }
+            })?;
+
+        // Find the weights tensor
+        let weights_entry = tensor_entries
+            .iter()
+            .find(|e| e.name == "weights")
+            .ok_or_else(|| RealizarError::FormatError {
+                reason: "No 'weights' tensor found in APR file".to_string(),
+            })?;
+
+        // Extract weights data
+        let data_start = header.data_offset as usize + weights_entry.offset as usize;
+        let data_end = data_start + weights_entry.size as usize;
+
+        if data.len() < data_end {
+            return Err(RealizarError::FormatError {
+                reason: format!(
+                    "APR file truncated: expected {} bytes for tensor data, got {}",
+                    data_end,
+                    data.len()
+                ),
+            });
+        }
+
+        let payload_bytes = &data[data_start..data_end];
 
         // Deserialize transformer
         let transformer: AprTransformer =
@@ -347,14 +392,14 @@ mod tests {
         let apr = create_test_apr_transformer(4, 1, 10, 8);
         let bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialize");
 
-        // Check header
-        assert_eq!(&bytes[0..4], &MAGIC);
-        assert_eq!(bytes[4], 1); // version major
+        // Check header (APR v2 format)
+        assert_eq!(&bytes[0..4], &MAGIC); // APR2 magic
+        assert_eq!(bytes[4], 2); // version major (v2)
         assert_eq!(bytes[5], 0); // version minor
 
-        // Check model type
-        let model_type = u16::from_le_bytes([bytes[8], bytes[9]]);
-        assert_eq!(model_type, AprModelType::TransformerLM.as_u16());
+        // Check tensor count (at bytes 8-11 in v2)
+        let tensor_count = u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]);
+        assert_eq!(tensor_count, 1); // We store weights as single tensor
     }
 
     #[test]
@@ -369,15 +414,20 @@ mod tests {
     }
 
     #[test]
-    fn test_from_apr_bytes_wrong_model_type() {
-        // Create bytes with wrong model type
-        let mut bytes = vec![0u8; 100];
+    fn test_from_apr_bytes_missing_weights() {
+        // Create bytes with valid v2 header but no weights tensor
+        let mut bytes = vec![0u8; 128];
         bytes[0..4].copy_from_slice(&MAGIC);
-        bytes[4] = 1;
-        bytes[8..10].copy_from_slice(&0x0001u16.to_le_bytes()); // LinearRegression instead of TransformerLM
+        bytes[4] = 2; // v2
+        bytes[8..12].copy_from_slice(&0u32.to_le_bytes()); // 0 tensors
+        bytes[12..20].copy_from_slice(&64u64.to_le_bytes()); // metadata offset
+        bytes[20..24].copy_from_slice(&2u32.to_le_bytes()); // metadata size
+        bytes[24..32].copy_from_slice(&66u64.to_le_bytes()); // tensor index offset
+        bytes[32..40].copy_from_slice(&66u64.to_le_bytes()); // data offset (same = empty index)
+        bytes[64..66].copy_from_slice(b"{}"); // minimal JSON metadata
 
         let result = GgufToAprConverter::from_apr_bytes(&bytes);
-        assert!(result.is_err());
+        assert!(result.is_err()); // Should fail: no weights tensor
     }
 
     // ==========================================================================

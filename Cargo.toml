@@ -32,12 +32,12 @@ useless_vec = "allow"
 [dependencies]
 # OUR ecosystem - SIMD/GPU compute primitives (we control this)
 # High-performance SIMD compute library with GPU support
-trueno = { version = "0.9.0", features = ["gpu"] }
+trueno = { version = "0.10.1", features = ["gpu"] }
 # CUDA PTX generation and runtime for NVIDIA GPUs (optional, pure Rust, no LLVM/nvcc)
 # Using local path for REALIZAR-PARITY-001.3 Tensor Core support until 0.4.0 release
 trueno-gpu = { path = "../trueno/trueno-gpu", optional = true, features = ["cuda"] }
 # KV cache storage (for attention caching)
-trueno-db = { version = "0.3.7", optional = true }
+trueno-db = { version = "0.3.8", optional = true }
 
 # ML algorithms and .apr model format (optional for aprender model serving)
 # v0.20.1: latest with TransformerLM, MoE, improved format
@@ -50,7 +50,7 @@ alimentar = { version = "0.2", optional = true, default-features = false, featur
 pacha = { version = "0.1.2", optional = true }
 
 # Terminal/PNG visualization for benchmarks and metrics
-trueno-viz = { version = "0.1.5", optional = true, features = ["terminal"] }
+trueno-viz = { version = "0.1.6", optional = true, features = ["terminal"] }
 
 # HTTP server ONLY (swappable via HttpServer trait)
 axum = { version = "0.7", optional = true }
