@@ -34,7 +34,8 @@ useless_vec = "allow"
 # High-performance SIMD compute library with GPU support
 trueno = { version = "0.9.0", features = ["gpu"] }
 # CUDA PTX generation and runtime for NVIDIA GPUs (optional, pure Rust, no LLVM/nvcc)
-trueno-gpu = { version = "0.3.0", optional = true, features = ["cuda"] }
+# Using local path for REALIZAR-PARITY-001.3 Tensor Core support until 0.4.0 release
+trueno-gpu = { path = "../trueno/trueno-gpu", optional = true, features = ["cuda"] }
 # KV cache storage (for attention caching)
 trueno-db = { version = "0.3.7", optional = true }
 

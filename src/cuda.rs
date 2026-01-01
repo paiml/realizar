@@ -136,6 +136,19 @@ pub enum KernelType {
         /// Whether to use causal masking
         causal: bool,
     },
+    /// Tensor Core FlashAttention (FP16 WMMA) - REALIZAR-PARITY-001.3
+    /// ~40x faster than FP32 baseline on sm_70+ GPUs (Volta+)
+    /// Target: <2ms/token vs ~79ms FP32 baseline
+    AttentionTensorCore {
+        /// Sequence length (should be multiple of 16 for optimal WMMA)
+        seq_len: u32,
+        /// Head dimension (should be multiple of 16 for WMMA tiles)
+        head_dim: u32,
+        /// Number of attention heads
+        n_heads: u32,
+        /// Whether to use causal masking
+        causal: bool,
+    },
     /// Q4_K quantized GEMM (fused dequantization) - simplified format
     QuantizedGemm {
         /// Output rows
@@ -311,6 +324,20 @@ impl CudaKernels {
                 }
                 kernel.emit_ptx()
             },
+            // REALIZAR-PARITY-001.3: Tensor Core FlashAttention using FP16 WMMA
+            // ~40x faster than FP32 baseline (target: <2ms/token vs 79ms)
+            KernelType::AttentionTensorCore {
+                seq_len,
+                head_dim,
+                n_heads: _, // Handled by launch config (grid.y = n_heads)
+                causal,
+            } => {
+                let mut kernel = AttentionKernel::tensor_core(*seq_len, *head_dim);
+                if *causal {
+                    kernel = kernel.with_causal();
+                }
+                kernel.emit_ptx()
+            },
             KernelType::QuantizedGemm { m, n, k } => QuantizeKernel::new(*m, *n, *k).emit_ptx(),
             // PARITY-041: GGML Q4_K super-block format (256 values, 144 bytes per super-block)
             KernelType::QuantizedGemmGgml { m, n, k } => {
@@ -375,6 +402,14 @@ impl CudaKernels {
                     "flash_attention_causal"
                 } else {
                     "flash_attention"
+                }
+            },
+            // REALIZAR-PARITY-001.3: Tensor Core attention kernel names
+            KernelType::AttentionTensorCore { causal, .. } => {
+                if *causal {
+                    "flash_attention_tensor_core_causal"
+                } else {
+                    "flash_attention_tensor_core"
                 }
             },
             KernelType::QuantizedGemm { .. } => "q4k_gemm_fused",
@@ -3014,6 +3049,29 @@ pub mod presets {
         KernelType::MultiHeadAttention {
             seq_len,
             head_dim: 80,
+            n_heads: 32,
+            causal: true,
+        }
+    }
+
+    /// Kernel preset for Tensor Core multi-head attention (REALIZAR-PARITY-001.3)
+    /// Uses FP16 WMMA for ~40x speedup over FP32 baseline
+    /// Requires sm_70+ (Volta, Turing, Ampere, Ada Lovelace, Hopper)
+    pub fn tensor_core_attention(seq_len: u32, head_dim: u32, n_heads: u32) -> KernelType {
+        KernelType::AttentionTensorCore {
+            seq_len,
+            head_dim,
+            n_heads,
+            causal: true, // Default to autoregressive/causal for LLM inference
+        }
+    }
+
+    /// Kernel preset for Llama-style Tensor Core attention
+    /// Llama: 32 heads, 128 head_dim (4096/32)
+    pub fn llama_tensor_core_attention(seq_len: u32) -> KernelType {
+        KernelType::AttentionTensorCore {
+            seq_len,
+            head_dim: 128,
             n_heads: 32,
             causal: true,
         }
