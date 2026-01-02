@@ -507,8 +507,8 @@ mod tests {
             target_time_ms: 100.0,
         };
 
-        let json = serde_json::to_string(&stats).unwrap();
-        let parsed: SpeculativeStats = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&stats).expect("test");
+        let parsed: SpeculativeStats = serde_json::from_str(&json).expect("test");
 
         assert_eq!(parsed.iterations, stats.iterations);
         assert_eq!(parsed.acceptance_rate, stats.acceptance_rate);
@@ -597,7 +597,7 @@ mod tests {
         let draft = MockModel::new(100, 1);
         let target = MockModel::new(100, 1);
 
-        let decoder = SpeculativeDecoder::new(draft, target, 4).unwrap();
+        let decoder = SpeculativeDecoder::new(draft, target, 4).expect("test");
         assert_eq!(decoder.spec_length(), 4);
     }
 
@@ -618,8 +618,8 @@ mod tests {
         let draft = MockModel::new(100, 1);
         let target = MockModel::new(100, 1);
 
-        let mut decoder = SpeculativeDecoder::new(draft, target, 4).unwrap();
-        let result = decoder.decode_iteration(&[10, 20, 30]).unwrap();
+        let mut decoder = SpeculativeDecoder::new(draft, target, 4).expect("test");
+        let result = decoder.decode_iteration(&[10, 20, 30]).expect("test");
 
         assert!(!result.accepted_tokens.is_empty());
         assert!(result.num_speculated > 0);
@@ -630,8 +630,8 @@ mod tests {
         let draft = MockModel::new(100, 1);
         let target = MockModel::new(100, 1);
 
-        let mut decoder = SpeculativeDecoder::new(draft, target, 4).unwrap();
-        decoder.set_spec_length(8).unwrap();
+        let mut decoder = SpeculativeDecoder::new(draft, target, 4).expect("test");
+        decoder.set_spec_length(8).expect("test");
         assert_eq!(decoder.spec_length(), 8);
 
         let err = decoder.set_spec_length(0);
@@ -643,8 +643,8 @@ mod tests {
         let draft = MockModel::new(100, 1);
         let target = MockModel::new(100, 1);
 
-        let mut decoder = SpeculativeDecoder::new(draft, target, 4).unwrap();
-        let _ = decoder.decode_iteration(&[10]).unwrap();
+        let mut decoder = SpeculativeDecoder::new(draft, target, 4).expect("test");
+        let _ = decoder.decode_iteration(&[10]).expect("test");
 
         let stats = decoder.stats();
         assert_eq!(stats.iterations, 1);
@@ -655,8 +655,8 @@ mod tests {
         let draft = MockModel::new(100, 1);
         let target = MockModel::new(100, 1);
 
-        let mut decoder = SpeculativeDecoder::new(draft, target, 4).unwrap();
-        let _ = decoder.decode_iteration(&[10]).unwrap();
+        let mut decoder = SpeculativeDecoder::new(draft, target, 4).expect("test");
+        let _ = decoder.decode_iteration(&[10]).expect("test");
 
         decoder.reset_stats();
         assert_eq!(decoder.stats().iterations, 0);

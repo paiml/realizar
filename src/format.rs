@@ -130,11 +130,11 @@ pub const MAX_SAFETENSORS_HEADER: u64 = 100_000_000;
 ///
 /// // APR format
 /// let apr_data = b"APRNxxxxxxxxxxxx";
-/// assert_eq!(detect_format(apr_data).unwrap(), ModelFormat::Apr);
+/// assert_eq!(detect_format(apr_data).expect("test"), ModelFormat::Apr);
 ///
 /// // GGUF format
 /// let gguf_data = b"GGUFxxxxxxxxxxxx";
-/// assert_eq!(detect_format(gguf_data).unwrap(), ModelFormat::Gguf);
+/// assert_eq!(detect_format(gguf_data).expect("test"), ModelFormat::Gguf);
 /// ```
 pub fn detect_format(data: &[u8]) -> Result<ModelFormat, FormatError> {
     if data.len() < 8 {
@@ -190,7 +190,7 @@ pub fn detect_format(data: &[u8]) -> Result<ModelFormat, FormatError> {
 /// use std::path::Path;
 ///
 /// assert_eq!(
-///     detect_format_from_path(Path::new("model.apr")).unwrap(),
+///     detect_format_from_path(Path::new("model.apr")).expect("test"),
 ///     ModelFormat::Apr
 /// );
 /// ```
@@ -254,13 +254,13 @@ mod tests {
     #[test]
     fn test_detect_apr_format() {
         let data = b"APRNxxxxxxxxxxxxxxxx";
-        assert_eq!(detect_format(data).unwrap(), ModelFormat::Apr);
+        assert_eq!(detect_format(data).expect("test"), ModelFormat::Apr);
     }
 
     #[test]
     fn test_detect_gguf_format() {
         let data = b"GGUFxxxxxxxxxxxxxxxx";
-        assert_eq!(detect_format(data).unwrap(), ModelFormat::Gguf);
+        assert_eq!(detect_format(data).expect("test"), ModelFormat::Gguf);
     }
 
     #[test]
@@ -270,7 +270,10 @@ mod tests {
         let mut data = vec![0u8; 16];
         let header_size: u64 = 1000;
         data[0..8].copy_from_slice(&header_size.to_le_bytes());
-        assert_eq!(detect_format(&data).unwrap(), ModelFormat::SafeTensors);
+        assert_eq!(
+            detect_format(&data).expect("test"),
+            ModelFormat::SafeTensors
+        );
     }
 
     #[test]
@@ -312,20 +315,26 @@ mod tests {
     #[test]
     fn test_detect_format_from_path_apr() {
         let path = Path::new("model.apr");
-        assert_eq!(detect_format_from_path(path).unwrap(), ModelFormat::Apr);
+        assert_eq!(
+            detect_format_from_path(path).expect("test"),
+            ModelFormat::Apr
+        );
     }
 
     #[test]
     fn test_detect_format_from_path_gguf() {
         let path = Path::new("llama-7b-q4.gguf");
-        assert_eq!(detect_format_from_path(path).unwrap(), ModelFormat::Gguf);
+        assert_eq!(
+            detect_format_from_path(path).expect("test"),
+            ModelFormat::Gguf
+        );
     }
 
     #[test]
     fn test_detect_format_from_path_safetensors() {
         let path = Path::new("model.safetensors");
         assert_eq!(
-            detect_format_from_path(path).unwrap(),
+            detect_format_from_path(path).expect("test"),
             ModelFormat::SafeTensors
         );
     }
@@ -341,7 +350,10 @@ mod tests {
     fn test_detect_format_from_path_uppercase() {
         // Extension comparison should be case-insensitive
         let path = Path::new("MODEL.APR");
-        assert_eq!(detect_format_from_path(path).unwrap(), ModelFormat::Apr);
+        assert_eq!(
+            detect_format_from_path(path).expect("test"),
+            ModelFormat::Apr
+        );
     }
 
     #[test]
@@ -349,7 +361,7 @@ mod tests {
         let path = Path::new("model.apr");
         let data = b"APRNxxxxxxxxxxxxxxxx";
         assert_eq!(
-            detect_and_verify_format(path, data).unwrap(),
+            detect_and_verify_format(path, data).expect("test"),
             ModelFormat::Apr
         );
     }
@@ -374,7 +386,7 @@ mod tests {
         let path = Path::new("model.bin");
         let data = b"APRNxxxxxxxxxxxxxxxx";
         assert_eq!(
-            detect_and_verify_format(path, data).unwrap(),
+            detect_and_verify_format(path, data).expect("test"),
             ModelFormat::Apr
         );
     }
@@ -419,7 +431,10 @@ mod tests {
         // Exactly 8 bytes with valid header size
         let header_size: u64 = 500;
         let data = header_size.to_le_bytes();
-        assert_eq!(detect_format(&data).unwrap(), ModelFormat::SafeTensors);
+        assert_eq!(
+            detect_format(&data).expect("test"),
+            ModelFormat::SafeTensors
+        );
     }
 
     #[test]
@@ -427,7 +442,7 @@ mod tests {
         // APR magic followed by lots of other data
         let mut data = b"APRN".to_vec();
         data.extend_from_slice(&[0u8; 1000]);
-        assert_eq!(detect_format(&data).unwrap(), ModelFormat::Apr);
+        assert_eq!(detect_format(&data).expect("test"), ModelFormat::Apr);
     }
 
     #[test]
@@ -435,7 +450,7 @@ mod tests {
         // GGUF magic followed by lots of other data
         let mut data = b"GGUF".to_vec();
         data.extend_from_slice(&[0u8; 1000]);
-        assert_eq!(detect_format(&data).unwrap(), ModelFormat::Gguf);
+        assert_eq!(detect_format(&data).expect("test"), ModelFormat::Gguf);
     }
 
     #[test]
@@ -444,7 +459,10 @@ mod tests {
         let mut data = vec![0u8; 16];
         let header_size: u64 = MAX_SAFETENSORS_HEADER - 1;
         data[0..8].copy_from_slice(&header_size.to_le_bytes());
-        assert_eq!(detect_format(&data).unwrap(), ModelFormat::SafeTensors);
+        assert_eq!(
+            detect_format(&data).expect("test"),
+            ModelFormat::SafeTensors
+        );
     }
 
     #[test]

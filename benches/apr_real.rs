@@ -397,12 +397,12 @@ fn verify_reproducibility() {
     assert_eq!(apr_bytes1, apr_bytes2, "APR bytes should be reproducible");
 
     // Models should produce identical outputs
-    let model1 = AprModel::from_bytes(&apr_bytes1).unwrap();
-    let model2 = AprModel::from_bytes(&apr_bytes2).unwrap();
+    let model1 = AprModel::from_bytes(&apr_bytes1).expect("test");
+    let model2 = AprModel::from_bytes(&apr_bytes2).expect("test");
 
     let input = generate_input(4, REPRODUCIBLE_SEED + 100);
-    let output1 = model1.predict(&input).unwrap();
-    let output2 = model2.predict(&input).unwrap();
+    let output1 = model1.predict(&input).expect("test");
+    let output2 = model2.predict(&input).expect("test");
 
     assert_eq!(output1, output2, "Model outputs should be reproducible");
 

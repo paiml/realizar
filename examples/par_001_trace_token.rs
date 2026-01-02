@@ -63,7 +63,7 @@ fn main() {
     println!("=== PAR-001: Trace Single Token through Layer 0 ===\n");
 
     let mapped = MappedGGUFModel::from_path(path).expect("Failed to load model");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     println!("Config:");
     println!("  hidden_dim: {}", model.config.hidden_dim);
@@ -74,7 +74,7 @@ fn main() {
     println!("  eps: {}", model.config.eps);
 
     let token_id: u32 = 26222; // "Once"
-    let vocab = mapped.model.vocabulary().unwrap();
+    let vocab = mapped.model.vocabulary().expect("test");
     let token_str = vocab
         .get(token_id as usize)
         .map(|s| s.as_str())

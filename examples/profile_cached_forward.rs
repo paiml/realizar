@@ -17,7 +17,7 @@ fn main() {
     // Load model
     let start = Instant::now();
     let mapped = MappedGGUFModel::from_path(path).expect("Failed to load model");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
     let load_time = start.elapsed();
 
     let config = model.config();
@@ -81,8 +81,8 @@ fn main() {
 
     // Statistics
     let times_us: Vec<u128> = token_times.iter().map(|t| t.as_micros()).collect();
-    let min = *times_us.iter().min().unwrap();
-    let max = *times_us.iter().max().unwrap();
+    let min = *times_us.iter().min().expect("test");
+    let max = *times_us.iter().max().expect("test");
     let sum: u128 = times_us.iter().sum();
     let avg = sum / times_us.len() as u128;
 

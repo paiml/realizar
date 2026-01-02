@@ -38,7 +38,7 @@ fn main() {
     use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
     let path = "/tmp/parity-bench/tinyllama-1.1b-q4_k_m.gguf";
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     let hidden_dim = 2048;
     let token_id = 450u32;

@@ -334,7 +334,7 @@ pub fn batch_embed(embedding_table: &[f32], tokens: &[usize], hidden_dim: usize)
             result.extend_from_slice(&embedding_table[start_idx..end_idx]);
         } else {
             // Pad with zeros for out-of-bounds tokens
-            result.extend(std::iter::repeat(0.0).take(hidden_dim));
+            result.extend(std::iter::repeat_n(0.0, hidden_dim));
         }
     }
 
@@ -536,7 +536,7 @@ impl CacheAlignedBuffer {
     #[must_use]
     pub fn is_aligned(&self, alignment: usize) -> bool {
         let ptr = self.as_slice().as_ptr() as usize;
-        ptr % alignment == 0
+        ptr.is_multiple_of(alignment)
     }
 
     /// Get the logical length of the buffer
@@ -576,7 +576,7 @@ pub fn prefetch_read(data: &[f32], position: usize, distance: usize) {
         // Use a volatile read to hint the prefetch without actual side effects
         // This is a simplified portable approach; real prefetch uses intrinsics
         // SAFETY: We've verified prefetch_pos is in bounds
-        let _ = unsafe { std::ptr::read_volatile(&data[prefetch_pos]) };
+        let _ = unsafe { std::ptr::read_volatile(&raw const data[prefetch_pos]) };
     }
 }
 
@@ -4341,7 +4341,7 @@ impl GpuModel {
                 logits
                     .iter()
                     .enumerate()
-                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                     .map_or(0, |(idx, _)| idx)
             } else {
                 // Top-k sampling with temperature
@@ -6826,7 +6826,7 @@ impl GpuModel {
             return logits
                 .iter()
                 .enumerate()
-                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                 .map_or(0, |(i, _)| i);
         }
 
@@ -6841,8 +6841,8 @@ impl GpuModel {
                 let (local_idx, &max_val) = chunk
                     .iter()
                     .enumerate()
-                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-                    .unwrap();
+                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                    .expect("chunk is non-empty by construction");
                 (chunk_idx * CHUNK_SIZE + local_idx, max_val)
             })
             .collect();
@@ -6850,7 +6850,7 @@ impl GpuModel {
         // Find global max
         chunk_maxes
             .into_iter()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .map_or(0, |(idx, _)| idx)
     }
 
@@ -7449,7 +7449,7 @@ impl ConnectionPool {
     /// Get idle connection count
     #[must_use]
     pub fn idle_connections(&self) -> usize {
-        self.idle.lock().unwrap().len()
+        self.idle.lock().expect("mutex poisoned").len()
     }
 
     /// Acquire a connection (blocking)
@@ -7459,7 +7459,7 @@ impl ConnectionPool {
     pub fn acquire(&self) -> std::result::Result<Connection, &'static str> {
         // Try to get from idle pool first
         {
-            let mut idle = self.idle.lock().unwrap();
+            let mut idle = self.idle.lock().expect("mutex poisoned");
             if let Some(conn) = idle.pop() {
                 self.active
                     .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -7496,7 +7496,7 @@ impl ConnectionPool {
     pub fn release(&self, conn: Connection) {
         self.active
             .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-        let mut idle = self.idle.lock().unwrap();
+        let mut idle = self.idle.lock().expect("mutex poisoned");
         idle.push(conn);
     }
 
@@ -7516,7 +7516,7 @@ impl ConnectionPool {
         let current_idle = self.idle_connections();
         let need = self.config.min_connections.saturating_sub(current_idle);
 
-        let mut idle = self.idle.lock().unwrap();
+        let mut idle = self.idle.lock().expect("mutex poisoned");
         for _ in 0..need {
             let id = self
                 .next_id
@@ -7779,7 +7779,7 @@ impl ResourceMonitor {
 
     /// Record GPU utilization
     pub fn record_gpu_utilization(&self, utilization: f64) {
-        *self.gpu_utilization.lock().unwrap() = utilization;
+        *self.gpu_utilization.lock().expect("mutex poisoned") = utilization;
     }
 
     /// Record queue depth
@@ -7793,7 +7793,7 @@ impl ResourceMonitor {
         let ms = duration.as_millis() as u64;
         self.last_latency_ms
             .store(ms, std::sync::atomic::Ordering::SeqCst);
-        self.latencies.lock().unwrap().push(ms);
+        self.latencies.lock().expect("mutex poisoned").push(ms);
     }
 
     /// Get current metrics
@@ -7801,7 +7801,7 @@ impl ResourceMonitor {
     pub fn current_metrics(&self) -> ResourceMetrics {
         ResourceMetrics {
             memory_bytes: self.memory_bytes.load(std::sync::atomic::Ordering::SeqCst),
-            gpu_utilization: *self.gpu_utilization.lock().unwrap(),
+            gpu_utilization: *self.gpu_utilization.lock().expect("mutex poisoned"),
             queue_depth: self.queue_depth.load(std::sync::atomic::Ordering::SeqCst),
             last_latency_ms: self
                 .last_latency_ms
@@ -7812,7 +7812,7 @@ impl ResourceMonitor {
     /// Get latency statistics
     #[must_use]
     pub fn latency_stats(&self) -> LatencyStats {
-        let latencies = self.latencies.lock().unwrap();
+        let latencies = self.latencies.lock().expect("mutex poisoned");
         if latencies.is_empty() {
             return LatencyStats {
                 min_ms: 0,
@@ -7846,7 +7846,7 @@ impl ResourceMonitor {
         ResourceSnapshot {
             timestamp,
             memory_bytes: self.memory_bytes.load(std::sync::atomic::Ordering::SeqCst),
-            gpu_utilization: *self.gpu_utilization.lock().unwrap(),
+            gpu_utilization: *self.gpu_utilization.lock().expect("mutex poisoned"),
             queue_depth: self.queue_depth.load(std::sync::atomic::Ordering::SeqCst),
         }
     }
@@ -8073,18 +8073,18 @@ impl CircuitBreaker {
     /// Get current state
     #[must_use]
     pub fn state(&self) -> CircuitState {
-        *self.state.lock().unwrap()
+        *self.state.lock().expect("mutex poisoned")
     }
 
     /// Check if request should be allowed
     #[must_use]
     pub fn allow_request(&self) -> bool {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().expect("mutex poisoned");
         match *state {
             CircuitState::Closed | CircuitState::HalfOpen => true,
             CircuitState::Open => {
                 // Check if timeout has elapsed
-                let last_failure = self.last_failure.lock().unwrap();
+                let last_failure = self.last_failure.lock().expect("mutex poisoned");
                 if let Some(last) = *last_failure {
                     if last.elapsed() >= self.config.timeout {
                         *state = CircuitState::HalfOpen;
@@ -8104,9 +8104,9 @@ impl CircuitBreaker {
             .failure_count
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
             + 1;
-        *self.last_failure.lock().unwrap() = Some(std::time::Instant::now());
+        *self.last_failure.lock().expect("mutex poisoned") = Some(std::time::Instant::now());
 
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().expect("mutex poisoned");
         match *state {
             CircuitState::Closed => {
                 if count >= self.config.failure_threshold {
@@ -8129,7 +8129,7 @@ impl CircuitBreaker {
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
             + 1;
 
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().expect("mutex poisoned");
         if *state == CircuitState::HalfOpen && count >= self.config.success_threshold {
             *state = CircuitState::Closed;
         }
@@ -8493,13 +8493,13 @@ impl PhaseTimer {
 
     /// Start timing a phase
     pub fn start_phase(&self, name: &str) {
-        let mut phases = self.phases.lock().unwrap();
+        let mut phases = self.phases.lock().expect("mutex poisoned");
         phases.insert(name.to_string(), (Some(std::time::Instant::now()), 0));
     }
 
     /// End timing a phase
     pub fn end_phase(&self, name: &str) {
-        let mut phases = self.phases.lock().unwrap();
+        let mut phases = self.phases.lock().expect("mutex poisoned");
         if let Some((Some(start_time), _)) = phases.get(name) {
             let elapsed = start_time.elapsed().as_micros() as u64;
             phases.insert(name.to_string(), (None, elapsed));
@@ -8509,7 +8509,7 @@ impl PhaseTimer {
     /// Get timing breakdown
     #[must_use]
     pub fn breakdown(&self) -> HashMap<String, u64> {
-        let phases = self.phases.lock().unwrap();
+        let phases = self.phases.lock().expect("mutex poisoned");
         phases.iter().map(|(k, (_, v))| (k.clone(), *v)).collect()
     }
 }
@@ -8629,12 +8629,15 @@ impl DiagnosticsCollector {
     pub fn record_request_timing(&self, _request_id: &str, timing: HashMap<String, u64>) {
         self.request_count
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        self.timings.lock().unwrap().push(timing);
+        self.timings.lock().expect("mutex poisoned").push(timing);
     }
 
     /// Record memory snapshot
     pub fn record_memory_snapshot(&self, report: MemoryReport) {
-        self.memory_snapshots.lock().unwrap().push(report);
+        self.memory_snapshots
+            .lock()
+            .expect("mutex poisoned")
+            .push(report);
     }
 
     /// Get diagnostics summary
@@ -9025,7 +9028,7 @@ mod tests {
     fn test_gpu_compute_auto_creation() {
         let compute = GpuCompute::auto();
         assert!(compute.is_ok(), "Auto creation should succeed");
-        let compute = compute.unwrap();
+        let compute = compute.expect("test");
         // Either GPU or CPU should be active
         assert!(
             compute.backend() == ComputeBackend::Gpu || compute.backend() == ComputeBackend::Cpu
@@ -9034,7 +9037,7 @@ mod tests {
 
     #[test]
     fn test_gpu_compute_cpu_backend() {
-        let compute = GpuCompute::new(ComputeBackend::Cpu).unwrap();
+        let compute = GpuCompute::new(ComputeBackend::Cpu).expect("test");
         assert!(!compute.is_gpu());
         assert_eq!(compute.backend(), ComputeBackend::Cpu);
     }
@@ -9042,13 +9045,13 @@ mod tests {
     #[test]
     fn test_gpu_compute_matmul_cpu_fallback() {
         // Force CPU backend
-        let mut compute = GpuCompute::new(ComputeBackend::Cpu).unwrap();
+        let mut compute = GpuCompute::new(ComputeBackend::Cpu).expect("test");
 
         // 2x2 @ 2x2 matmul
         let a = vec![1.0, 2.0, 3.0, 4.0]; // [[1,2],[3,4]]
         let b = vec![5.0, 6.0, 7.0, 8.0]; // [[5,6],[7,8]]
 
-        let c = compute.matmul(&a, &b, 2, 2, 2).unwrap();
+        let c = compute.matmul(&a, &b, 2, 2, 2).expect("test");
 
         // Expected: [[1*5+2*7, 1*6+2*8], [3*5+4*7, 3*6+4*8]]
         //         = [[19, 22], [43, 50]]
@@ -9061,13 +9064,13 @@ mod tests {
 
     #[test]
     fn test_gpu_compute_matmul_non_square() {
-        let mut compute = GpuCompute::new(ComputeBackend::Cpu).unwrap();
+        let mut compute = GpuCompute::new(ComputeBackend::Cpu).expect("test");
 
         // 2x3 @ 3x2 matmul
         let a = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]; // [[1,2,3],[4,5,6]]
         let b = vec![7.0, 8.0, 9.0, 10.0, 11.0, 12.0]; // [[7,8],[9,10],[11,12]]
 
-        let c = compute.matmul(&a, &b, 2, 3, 2).unwrap();
+        let c = compute.matmul(&a, &b, 2, 3, 2).expect("test");
 
         // Expected: [[1*7+2*9+3*11, 1*8+2*10+3*12], [4*7+5*9+6*11, 4*8+5*10+6*12]]
         //         = [[58, 64], [139, 154]]
@@ -9080,7 +9083,7 @@ mod tests {
 
     #[test]
     fn test_gpu_compute_matmul_dimension_error() {
-        let mut compute = GpuCompute::new(ComputeBackend::Cpu).unwrap();
+        let mut compute = GpuCompute::new(ComputeBackend::Cpu).expect("test");
 
         // Wrong dimensions
         let a = vec![1.0, 2.0, 3.0]; // 3 elements
@@ -9092,12 +9095,12 @@ mod tests {
 
     #[test]
     fn test_gpu_compute_matmul_tensor() {
-        let mut compute = GpuCompute::new(ComputeBackend::Cpu).unwrap();
+        let mut compute = GpuCompute::new(ComputeBackend::Cpu).expect("test");
 
-        let a = Tensor::from_vec(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
-        let b = Tensor::from_vec(vec![3, 2], vec![7.0, 8.0, 9.0, 10.0, 11.0, 12.0]).unwrap();
+        let a = Tensor::from_vec(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).expect("test");
+        let b = Tensor::from_vec(vec![3, 2], vec![7.0, 8.0, 9.0, 10.0, 11.0, 12.0]).expect("test");
 
-        let c = compute.matmul_tensor(&a, &b).unwrap();
+        let c = compute.matmul_tensor(&a, &b).expect("test");
 
         assert_eq!(c.shape(), &[2, 2]);
         assert!((c.data()[0] - 58.0).abs() < 1e-5);
@@ -9106,10 +9109,10 @@ mod tests {
 
     #[test]
     fn test_gpu_compute_matmul_tensor_dimension_mismatch() {
-        let mut compute = GpuCompute::new(ComputeBackend::Cpu).unwrap();
+        let mut compute = GpuCompute::new(ComputeBackend::Cpu).expect("test");
 
-        let a = Tensor::from_vec(vec![2, 3], vec![1.0; 6]).unwrap();
-        let b = Tensor::from_vec(vec![2, 2], vec![1.0; 4]).unwrap(); // k mismatch
+        let a = Tensor::from_vec(vec![2, 3], vec![1.0; 6]).expect("test");
+        let b = Tensor::from_vec(vec![2, 2], vec![1.0; 4]).expect("test"); // k mismatch
 
         let result = compute.matmul_tensor(&a, &b);
         assert!(result.is_err());
@@ -9117,18 +9120,18 @@ mod tests {
 
     #[test]
     fn test_gpu_compute_dot_cpu_fallback() {
-        let mut compute = GpuCompute::new(ComputeBackend::Cpu).unwrap();
+        let mut compute = GpuCompute::new(ComputeBackend::Cpu).expect("test");
 
         let a = vec![1.0, 2.0, 3.0];
         let b = vec![4.0, 5.0, 6.0];
 
-        let result = compute.dot(&a, &b).unwrap();
+        let result = compute.dot(&a, &b).expect("test");
         assert!((result - 32.0).abs() < 1e-5); // 1*4 + 2*5 + 3*6 = 32
     }
 
     #[test]
     fn test_gpu_compute_dot_length_mismatch() {
-        let mut compute = GpuCompute::new(ComputeBackend::Cpu).unwrap();
+        let mut compute = GpuCompute::new(ComputeBackend::Cpu).expect("test");
 
         let a = vec![1.0, 2.0, 3.0];
         let b = vec![4.0, 5.0];
@@ -9139,20 +9142,20 @@ mod tests {
 
     #[test]
     fn test_gpu_compute_relu_cpu_fallback() {
-        let mut compute = GpuCompute::new(ComputeBackend::Cpu).unwrap();
+        let mut compute = GpuCompute::new(ComputeBackend::Cpu).expect("test");
 
         let input = vec![-1.0, 0.0, 1.0, -0.5, 2.0];
-        let output = compute.relu(&input).unwrap();
+        let output = compute.relu(&input).expect("test");
 
         assert_eq!(output, vec![0.0, 0.0, 1.0, 0.0, 2.0]);
     }
 
     #[test]
     fn test_gpu_compute_sigmoid_cpu_fallback() {
-        let mut compute = GpuCompute::new(ComputeBackend::Cpu).unwrap();
+        let mut compute = GpuCompute::new(ComputeBackend::Cpu).expect("test");
 
         let input = vec![0.0];
-        let output = compute.sigmoid(&input).unwrap();
+        let output = compute.sigmoid(&input).expect("test");
 
         assert!((output[0] - 0.5).abs() < 1e-5); // sigmoid(0) = 0.5
     }
@@ -9169,13 +9172,13 @@ mod tests {
 
     #[test]
     fn test_hybrid_scheduler_threshold() {
-        let scheduler = HybridScheduler::with_threshold(1000).unwrap();
+        let scheduler = HybridScheduler::with_threshold(1000).expect("test");
         assert_eq!(scheduler.gpu_threshold(), 1000);
     }
 
     #[test]
     fn test_hybrid_scheduler_should_use_gpu() {
-        let scheduler = HybridScheduler::with_threshold(1000).unwrap();
+        let scheduler = HybridScheduler::with_threshold(1000).expect("test");
 
         // Small workload: use CPU (9*9*9=729 < 1000)
         assert!(!scheduler.should_use_gpu(9, 9, 9) || !scheduler.has_gpu());
@@ -9189,13 +9192,13 @@ mod tests {
 
     #[test]
     fn test_hybrid_scheduler_matmul() {
-        let mut scheduler = HybridScheduler::with_threshold(1000).unwrap();
+        let mut scheduler = HybridScheduler::with_threshold(1000).expect("test");
 
         // Small matmul
         let a = vec![1.0, 2.0, 3.0, 4.0];
         let b = vec![5.0, 6.0, 7.0, 8.0];
 
-        let c = scheduler.matmul(&a, &b, 2, 2, 2).unwrap();
+        let c = scheduler.matmul(&a, &b, 2, 2, 2).expect("test");
 
         assert_eq!(c.len(), 4);
         assert!((c[0] - 19.0).abs() < 1e-5);
@@ -9213,13 +9216,13 @@ mod tests {
             eprintln!("GPU not available, skipping test");
             return;
         }
-        let mut compute = compute.unwrap();
+        let mut compute = compute.expect("test");
         assert!(compute.is_gpu());
 
         let a = vec![1.0, 2.0, 3.0, 4.0];
         let b = vec![5.0, 6.0, 7.0, 8.0];
 
-        let c = compute.matmul(&a, &b, 2, 2, 2).unwrap();
+        let c = compute.matmul(&a, &b, 2, 2, 2).expect("test");
 
         assert!((c[0] - 19.0).abs() < 1e-4);
         assert!((c[1] - 22.0).abs() < 1e-4);
@@ -9237,8 +9240,8 @@ mod tests {
             eprintln!("GPU not available, skipping test");
             return;
         }
-        let mut gpu = compute.unwrap();
-        let mut cpu = GpuCompute::new(ComputeBackend::Cpu).unwrap();
+        let mut gpu = compute.expect("test");
+        let mut cpu = GpuCompute::new(ComputeBackend::Cpu).expect("test");
 
         // Large matrix for meaningful speedup
         let (rows, inner_dim, cols) = (256usize, 256usize, 256usize);
@@ -9292,7 +9295,7 @@ mod tests {
         use std::time::Instant;
 
         // Auto-detect best backend (GPU with CPU fallback)
-        let mut compute = GpuCompute::auto().unwrap();
+        let mut compute = GpuCompute::auto().expect("test");
         let has_gpu = compute.is_gpu();
 
         // Simulate transformer forward pass workload
@@ -9320,8 +9323,10 @@ mod tests {
                 // Simplified forward: input @ W1, then @ W2
                 let h1 = compute
                     .matmul(&input, &w1, 1, hidden, intermediate)
-                    .unwrap();
-                let _ = compute.matmul(&h1, &w2, 1, intermediate, hidden).unwrap();
+                    .expect("test");
+                let _ = compute
+                    .matmul(&h1, &w2, 1, intermediate, hidden)
+                    .expect("test");
             }
         }
         let elapsed = start.elapsed();
@@ -9456,12 +9461,12 @@ mod tests {
 
     #[test]
     fn test_hybrid_scheduler_pooled_matmul() {
-        let mut scheduler = HybridScheduler::with_threshold(1000).unwrap();
+        let mut scheduler = HybridScheduler::with_threshold(1000).expect("test");
 
         let a = vec![1.0, 2.0, 3.0, 4.0];
         let b = vec![5.0, 6.0, 7.0, 8.0];
 
-        let c = scheduler.matmul_pooled(&a, &b, 2, 2, 2).unwrap();
+        let c = scheduler.matmul_pooled(&a, &b, 2, 2, 2).expect("test");
 
         assert_eq!(c.len(), 4);
         assert!((c[0] - 19.0).abs() < 1e-5);
@@ -9476,12 +9481,12 @@ mod tests {
 
     #[test]
     fn test_hybrid_scheduler_async_matmul() {
-        let mut scheduler = HybridScheduler::with_threshold(1000).unwrap();
+        let mut scheduler = HybridScheduler::with_threshold(1000).expect("test");
 
         let a = vec![1.0, 2.0, 3.0, 4.0];
         let b = vec![5.0, 6.0, 7.0, 8.0];
 
-        let result = scheduler.matmul_async(&a, &b, 2, 2, 2).unwrap();
+        let result = scheduler.matmul_async(&a, &b, 2, 2, 2).expect("test");
         assert!(result.is_ready());
 
         let c = result.wait();
@@ -9490,14 +9495,14 @@ mod tests {
 
     #[test]
     fn test_hybrid_scheduler_batch_matmul() {
-        let mut scheduler = HybridScheduler::with_threshold(1000).unwrap();
+        let mut scheduler = HybridScheduler::with_threshold(1000).expect("test");
 
         let ops = vec![
             (vec![1.0, 2.0, 3.0, 4.0], vec![5.0, 6.0, 7.0, 8.0], 2, 2, 2),
             (vec![1.0, 0.0, 0.0, 1.0], vec![2.0, 3.0, 4.0, 5.0], 2, 2, 2),
         ];
 
-        let results = scheduler.matmul_batch(&ops).unwrap();
+        let results = scheduler.matmul_batch(&ops).expect("test");
 
         assert_eq!(results.len(), 2);
         assert!((results[0][0] - 19.0).abs() < 1e-5); // First matmul
@@ -9506,7 +9511,7 @@ mod tests {
 
     #[test]
     fn test_hybrid_scheduler_pool_stats() {
-        let mut scheduler = HybridScheduler::with_threshold(1000).unwrap();
+        let mut scheduler = HybridScheduler::with_threshold(1000).expect("test");
 
         // Initially empty
         let stats = scheduler.pool_stats();
@@ -9516,7 +9521,7 @@ mod tests {
         for _ in 0..3 {
             let c = scheduler
                 .matmul_pooled(&[1.0; 4], &[1.0; 4], 2, 2, 2)
-                .unwrap();
+                .expect("test");
             scheduler.release_buffer(c);
         }
 
@@ -10359,7 +10364,7 @@ mod tests {
         let result = model.generate(&prompt, &gen_config);
         assert!(result.is_ok(), "IMP-1001d: Generate should succeed");
 
-        let tokens = result.unwrap();
+        let tokens = result.expect("test");
         assert!(
             tokens.len() >= prompt.len(),
             "IMP-1001d: Should generate at least prompt length tokens"
@@ -10388,7 +10393,7 @@ mod tests {
             "IMP-1002a: CudaScheduler creation should succeed"
         );
 
-        let scheduler = scheduler.unwrap();
+        let scheduler = scheduler.expect("test");
         assert!(
             scheduler.has_cuda(),
             "IMP-1002a: CudaScheduler should report CUDA available"
@@ -10415,7 +10420,7 @@ mod tests {
         let result = scheduler.matmul(&a, &b, 4, 4, 4);
         assert!(result.is_ok(), "IMP-1002b: matmul should succeed");
 
-        let output = result.unwrap();
+        let output = result.expect("test");
         assert_eq!(
             output.len(),
             16,
@@ -10461,7 +10466,7 @@ mod tests {
             result.err()
         );
 
-        let output = result.unwrap();
+        let output = result.expect("test");
         assert_eq!(
             output.len(),
             m * n,
@@ -10493,7 +10498,7 @@ mod tests {
         let result = scheduler.matmul(&a, &b, m, k, n);
         assert!(result.is_ok(), "IMP-1002c: 128x128 matmul should succeed");
 
-        let output = result.unwrap();
+        let output = result.expect("test");
         assert_eq!(output.len(), m * n);
 
         // Each element should be 128
@@ -10545,11 +10550,11 @@ mod tests {
 
         // Time both
         let start = Instant::now();
-        let hybrid_result = hybrid_scheduler.matmul(&a, &b, m, k, n).unwrap();
+        let hybrid_result = hybrid_scheduler.matmul(&a, &b, m, k, n).expect("test");
         let hybrid_time = start.elapsed();
 
         let start = Instant::now();
-        let cuda_result = cuda_scheduler.matmul(&a, &b, m, k, n).unwrap();
+        let cuda_result = cuda_scheduler.matmul(&a, &b, m, k, n).expect("test");
         let cuda_time = start.elapsed();
 
         println!(
@@ -10597,7 +10602,7 @@ mod tests {
             "IMP-1003a: GpuModel::new_with_cuda() should succeed"
         );
 
-        let model = model.unwrap();
+        let model = model.expect("test");
         assert!(
             model.has_cuda_scheduler(),
             "IMP-1003a: Model should have CUDA scheduler"
@@ -10632,7 +10637,7 @@ mod tests {
         let result = model.forward_gpu(&token_ids);
 
         assert!(result.is_ok(), "IMP-1003b: Forward pass should succeed");
-        let logits = result.unwrap();
+        let logits = result.expect("test");
         assert_eq!(logits.len(), 100, "IMP-1003b: Output should be vocab_size");
     }
 
@@ -10726,7 +10731,7 @@ mod tests {
         let result = model.cuda_matmul(&a, &b, 1, 64, 100);
 
         assert!(result.is_ok(), "IMP-1003d: cuda_matmul should succeed");
-        let output = result.unwrap();
+        let output = result.expect("test");
         assert_eq!(output.len(), 100, "IMP-1003d: Output size should be m*n");
     }
 
@@ -10831,8 +10836,8 @@ mod tests {
 
         // For small m=1 ops, GPU may not be faster due to transfer overhead
         // Just verify both produce correct results
-        let cuda_result = cuda_scheduler.matmul(&a, &b, m, k, n).unwrap();
-        let cpu_result = hybrid_scheduler.matmul(&a, &b, m, k, n).unwrap();
+        let cuda_result = cuda_scheduler.matmul(&a, &b, m, k, n).expect("test");
+        let cpu_result = hybrid_scheduler.matmul(&a, &b, m, k, n).expect("test");
 
         assert_eq!(
             cuda_result.len(),
@@ -11030,8 +11035,10 @@ mod tests {
         );
 
         // Verify correctness
-        let uncached_result = scheduler.matmul(&x, &weight, 1, k, n).unwrap();
-        let cached_result = scheduler.matmul_cached("test_weight", &x, k, n).unwrap();
+        let uncached_result = scheduler.matmul(&x, &weight, 1, k, n).expect("test");
+        let cached_result = scheduler
+            .matmul_cached("test_weight", &x, k, n)
+            .expect("test");
 
         assert_eq!(
             uncached_result.len(),
@@ -11083,10 +11090,10 @@ mod tests {
         let fc1_weight: Vec<f32> = vec![1.0; hidden * intermediate];
         let fc2_weight: Vec<f32> = vec![1.0; intermediate * hidden];
 
-        scheduler.cache_weight("qkv", &qkv_weight).unwrap();
-        scheduler.cache_weight("out", &out_weight).unwrap();
-        scheduler.cache_weight("fc1", &fc1_weight).unwrap();
-        scheduler.cache_weight("fc2", &fc2_weight).unwrap();
+        scheduler.cache_weight("qkv", &qkv_weight).expect("test");
+        scheduler.cache_weight("out", &out_weight).expect("test");
+        scheduler.cache_weight("fc1", &fc1_weight).expect("test");
+        scheduler.cache_weight("fc2", &fc2_weight).expect("test");
 
         assert_eq!(
             scheduler.cached_weight_count(),
@@ -11100,16 +11107,18 @@ mod tests {
         // Benchmark cached full layer
         let start = Instant::now();
         for _ in 0..iterations {
-            let qkv_out = scheduler.matmul_cached("qkv", &x, hidden, qkv).unwrap();
+            let qkv_out = scheduler
+                .matmul_cached("qkv", &x, hidden, qkv)
+                .expect("test");
             let attn_out = scheduler
                 .matmul_cached("out", &qkv_out[..hidden], hidden, hidden)
-                .unwrap();
+                .expect("test");
             let fc1_out = scheduler
                 .matmul_cached("fc1", &attn_out, hidden, intermediate)
-                .unwrap();
+                .expect("test");
             let _fc2_out = scheduler
                 .matmul_cached("fc2", &fc1_out, intermediate, hidden)
-                .unwrap();
+                .expect("test");
         }
         let elapsed = start.elapsed();
         let avg_ms = elapsed.as_secs_f64() * 1000.0 / iterations as f64;
@@ -11174,8 +11183,8 @@ mod tests {
 
         // Both should produce same-sized output
         assert_eq!(
-            cuda_result.unwrap().len(),
-            hybrid_result.unwrap().len(),
+            cuda_result.expect("test").len(),
+            hybrid_result.expect("test").len(),
             "IMP-1005a: Both should produce same output size"
         );
     }
@@ -11673,7 +11682,7 @@ mod tests {
             "IMP-1006d: do_matmul should complete via CUDA"
         );
 
-        let output = result.unwrap();
+        let output = result.expect("test");
         assert_eq!(
             output.len(),
             256 * 64,

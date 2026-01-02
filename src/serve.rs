@@ -38,7 +38,7 @@
 //! use aprender::classification::LogisticRegression;
 //!
 //! // Load trained model from .apr format (with CRC32 verification)
-//! let model: LogisticRegression = load("model.apr", ModelType::LogisticRegression).unwrap();
+//! let model: LogisticRegression = load("model.apr", ModelType::LogisticRegression).expect("test");
 //! let state = ServeState::with_logistic_regression(model, "mnist-v1".to_string(), 784);
 //! let app = create_serve_router(state);
 //! axum::serve(listener, app).await?;
@@ -55,7 +55,7 @@
 //! const MODEL_BYTES: &[u8] = include_bytes!("../models/sentiment.apr");
 //!
 //! // Load from embedded bytes (zero-copy where possible)
-//! let model: LogisticRegression = load_from_bytes(MODEL_BYTES, ModelType::LogisticRegression).unwrap();
+//! let model: LogisticRegression = load_from_bytes(MODEL_BYTES, ModelType::LogisticRegression).expect("test");
 //! let state = ServeState::with_logistic_regression(model, "sentiment-v1".to_string(), 768);
 //! ```
 

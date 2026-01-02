@@ -696,7 +696,7 @@ mod moe_load_tests {
             handles.push(handle);
         }
 
-        let total_success: u64 = handles.into_iter().map(|h| h.join().unwrap()).sum();
+        let total_success: u64 = handles.into_iter().map(|h| h.join().expect("test")).sum();
         let duration = start.elapsed();
 
         let total_requests = (num_threads * requests_per_thread) as u64;
@@ -738,12 +738,15 @@ mod moe_load_tests {
             let scores = scores.clone();
             let handle = thread::spawn(move || {
                 // Should fallback to expert 1 since expert 0 is full
-                router.route(&scores).unwrap()
+                router.route(&scores).expect("test")
             });
             handles.push(handle);
         }
 
-        let results: Vec<usize> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        let results: Vec<usize> = handles
+            .into_iter()
+            .map(|h| h.join().expect("test"))
+            .collect();
 
         // All should route to expert 1 (second best) due to overflow
         let expert_1_count = results.iter().filter(|&&x| x == 1).count();
@@ -773,10 +776,12 @@ mod moe_load_tests {
             intermediate_dim: 64,
             eps: 1e-5,
         };
-        let model = Model::new(config).unwrap();
+        let model = Model::new(config).expect("test");
         let vocab: Vec<String> = (0..100).map(|i| format!("t{i}")).collect();
-        let tokenizer = BPETokenizer::new(vocab, vec![], "t0").unwrap();
-        registry.register("test-model", model, tokenizer).unwrap();
+        let tokenizer = BPETokenizer::new(vocab, vec![], "t0").expect("test");
+        registry
+            .register("test-model", model, tokenizer)
+            .expect("test");
 
         let num_readers = 50;
         let reads_per_thread = 10_000;
@@ -798,7 +803,7 @@ mod moe_load_tests {
             handles.push(handle);
         }
 
-        let total_success: u64 = handles.into_iter().map(|h| h.join().unwrap()).sum();
+        let total_success: u64 = handles.into_iter().map(|h| h.join().expect("test")).sum();
         let duration = start.elapsed();
 
         let total_reads = (num_readers * reads_per_thread) as u64;
@@ -886,7 +891,7 @@ mod moe_load_tests {
         }
 
         for handle in handles {
-            handle.join().unwrap();
+            handle.join().expect("test");
         }
 
         let final_count = registry.len();

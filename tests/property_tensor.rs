@@ -24,7 +24,7 @@ proptest! {
     fn test_tensor_creation_preserves_size(shape in shape_strategy()) {
         let size: usize = shape.iter().product();
         let data: Vec<f32> = (0..size).map(|i| i as f32).collect();
-        let tensor = Tensor::from_vec(shape, data).unwrap();
+        let tensor = Tensor::from_vec(shape, data).expect("test");
         prop_assert_eq!(tensor.size(), size);
     }
 
@@ -32,7 +32,7 @@ proptest! {
     fn test_tensor_shape_matches(shape in shape_strategy()) {
         let size: usize = shape.iter().product();
         let data: Vec<f32> = vec![0.0; size];
-        let tensor = Tensor::from_vec(shape.clone(), data).unwrap();
+        let tensor = Tensor::from_vec(shape.clone(), data).expect("test");
         prop_assert_eq!(tensor.shape(), &shape[..]);
     }
 

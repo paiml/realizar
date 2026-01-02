@@ -14,8 +14,8 @@ fn main() {
     println!("=== PAR-001: Check LM Head ===\n");
 
     let mapped = MappedGGUFModel::from_path(path).expect("Failed to load model");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
-    let vocab = mapped.model.vocabulary().unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
+    let vocab = mapped.model.vocabulary().expect("test");
 
     println!("Model config:");
     println!("  hidden_dim: {}", model.config.hidden_dim);

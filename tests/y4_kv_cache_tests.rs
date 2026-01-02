@@ -106,7 +106,7 @@ fn y4_2a_forward_with_cache_exists() {
 
     assert!(result.is_ok(), "forward_with_cache should succeed");
 
-    let logits = result.unwrap();
+    let logits = result.expect("test");
     assert_eq!(
         logits.len(),
         config.vocab_size,
@@ -250,7 +250,7 @@ fn y4_4a_attention_with_cache_valid() {
         let result = transformer.forward_with_cache(i as u32, &mut cache, i);
         assert!(result.is_ok(), "Token {} should succeed", i);
 
-        let logits = result.unwrap();
+        let logits = result.expect("test");
         // Check no NaN/Inf
         for &logit in &logits {
             assert!(
@@ -343,7 +343,7 @@ fn y4_5a_generate_with_cache_works() {
 
     assert!(result.is_ok(), "generate_with_cache should succeed");
 
-    let tokens = result.unwrap();
+    let tokens = result.expect("test");
     // Should have prompt + generated tokens
     assert!(
         tokens.len() >= prompt.len(),
@@ -393,10 +393,10 @@ fn y4_5b_generate_deterministic() {
 
     let run1 = transformer
         .generate_with_cache(&prompt, &gen_config)
-        .unwrap();
+        .expect("test");
     let run2 = transformer
         .generate_with_cache(&prompt, &gen_config)
-        .unwrap();
+        .expect("test");
 
     assert_eq!(run1, run2, "Greedy generation should be deterministic");
 }

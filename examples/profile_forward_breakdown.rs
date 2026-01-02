@@ -32,7 +32,7 @@ fn main() {
     // Load model
     let start = Instant::now();
     let mapped = MappedGGUFModel::from_path(path).expect("Failed to load model");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
     let load_time = start.elapsed();
 
     let config = model.config();

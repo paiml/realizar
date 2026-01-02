@@ -198,12 +198,12 @@ fn y5_4a_q4k_output_quality() {
 
     // Create F32 reference
     let f32_transformer = AprTransformer::new(config);
-    let f32_logits = f32_transformer.forward(&[1, 2, 3]).unwrap();
+    let f32_logits = f32_transformer.forward(&[1, 2, 3]).expect("test");
 
     // Create Q4_K version (with same weights quantized)
     let q4k_transformer =
         QuantizedAprTransformer::from_f32_transformer(&f32_transformer, AprQuantizationType::Q4_K);
-    let q4k_logits = q4k_transformer.forward(&[1, 2, 3]).unwrap();
+    let q4k_logits = q4k_transformer.forward(&[1, 2, 3]).expect("test");
 
     // Compare outputs - quantization introduces some error
     let max_diff: f32 = f32_logits
@@ -382,9 +382,9 @@ fn y5_6b_quantized_roundtrip() {
     };
 
     let original = QuantizedAprTransformer::new(config.clone(), AprQuantizationType::Q4_K);
-    let bytes = original.to_bytes().unwrap();
+    let bytes = original.to_bytes().expect("test");
 
-    let restored = QuantizedAprTransformer::from_bytes(&bytes).unwrap();
+    let restored = QuantizedAprTransformer::from_bytes(&bytes).expect("test");
 
     assert_eq!(restored.config().hidden_dim, config.hidden_dim);
     assert_eq!(restored.config().vocab_size, config.vocab_size);

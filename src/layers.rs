@@ -1939,7 +1939,7 @@ impl SlidingWindowAttention {
 
             if window_len == 0 {
                 // No keys to attend to, output zeros
-                output.extend(std::iter::repeat(0.0).take(self.head_dim));
+                output.extend(std::iter::repeat_n(0.0, self.head_dim));
                 continue;
             }
 
@@ -2058,7 +2058,7 @@ impl SlidingWindowAttention {
             let window_len = window_end - window_start;
 
             if window_len == 0 {
-                output.extend(std::iter::repeat(0.0).take(self.head_dim));
+                output.extend(std::iter::repeat_n(0.0, self.head_dim));
                 continue;
             }
 
@@ -2217,7 +2217,7 @@ impl FusedQKVAttention {
                 reason: "hidden_dim must be > 0".to_string(),
             });
         }
-        if hidden_dim % head_dim != 0 {
+        if !hidden_dim.is_multiple_of(head_dim) {
             return Err(RealizarError::InvalidShape {
                 reason: format!(
                     "hidden_dim ({}) must be divisible by head_dim ({})",
@@ -2533,14 +2533,14 @@ impl MultiHeadAttention {
                 ),
             });
         }
-        if hidden_dim % num_heads != 0 {
+        if !hidden_dim.is_multiple_of(num_heads) {
             return Err(RealizarError::InvalidShape {
                 reason: format!(
                     "hidden_dim {hidden_dim} must be divisible by num_heads {num_heads}"
                 ),
             });
         }
-        if num_heads % num_kv_heads != 0 {
+        if !num_heads.is_multiple_of(num_kv_heads) {
             return Err(RealizarError::InvalidShape {
                 reason: format!(
                     "num_heads {num_heads} must be divisible by num_kv_heads {num_kv_heads}"
@@ -2808,7 +2808,7 @@ impl RoPE {
                 reason: "dim must be > 0".to_string(),
             });
         }
-        if dim % 2 != 0 {
+        if !dim.is_multiple_of(2) {
             return Err(RealizarError::InvalidShape {
                 reason: "dim must be even for RoPE".to_string(),
             });
@@ -3038,7 +3038,7 @@ impl ScaledRoPE {
                 reason: "dim must be > 0".to_string(),
             });
         }
-        if dim % 2 != 0 {
+        if !dim.is_multiple_of(2) {
             return Err(RealizarError::InvalidShape {
                 reason: "dim must be even for RoPE".to_string(),
             });
@@ -3807,7 +3807,7 @@ impl TransformerBlock {
                 reason: "num_heads must be > 0".to_string(),
             });
         }
-        if hidden_dim % num_heads != 0 {
+        if !hidden_dim.is_multiple_of(num_heads) {
             return Err(RealizarError::InvalidShape {
                 reason: format!(
                     "hidden_dim {hidden_dim} must be divisible by num_heads {num_heads}"
@@ -4255,7 +4255,7 @@ mod tests {
 
     #[test]
     fn test_layer_norm_creation() {
-        let layer_norm = LayerNorm::new(512, 1e-5).unwrap();
+        let layer_norm = LayerNorm::new(512, 1e-5).expect("test");
         assert_eq!(layer_norm.normalized_shape(), 512);
         assert!((layer_norm.eps() - 1e-5).abs() < 1e-10);
     }
@@ -4269,7 +4269,7 @@ mod tests {
     #[test]
     fn test_layer_norm_forward_simple() {
         // Simple test with known values
-        let layer_norm = LayerNorm::new(3, 1e-5).unwrap();
+        let layer_norm = LayerNorm::new(3, 1e-5).expect("test");
 
         // Input: [1.0, 2.0, 3.0]
         // Mean: 2.0
@@ -4277,8 +4277,8 @@ mod tests {
         // Std: sqrt(2/3 + 1e-5) ≈ 0.8165
         // Normalized: [(1-2)/0.8165, (2-2)/0.8165, (3-2)/0.8165]
         //           ≈ [-1.2247, 0.0, 1.2247]
-        let input = Tensor::from_vec(vec![3], vec![1.0, 2.0, 3.0]).unwrap();
-        let output = layer_norm.forward(&input).unwrap();
+        let input = Tensor::from_vec(vec![3], vec![1.0, 2.0, 3.0]).expect("test");
+        let output = layer_norm.forward(&input).expect("test");
 
         let output_data = output.data();
         assert_eq!(output_data.len(), 3);
@@ -4302,11 +4302,11 @@ mod tests {
     #[test]
     fn test_layer_norm_forward_batched() {
         // Test with batch dimension
-        let layer_norm = LayerNorm::new(2, 1e-5).unwrap();
+        let layer_norm = LayerNorm::new(2, 1e-5).expect("test");
 
         // Input: [[1.0, 3.0], [2.0, 4.0]]
-        let input = Tensor::from_vec(vec![2, 2], vec![1.0, 3.0, 2.0, 4.0]).unwrap();
-        let output = layer_norm.forward(&input).unwrap();
+        let input = Tensor::from_vec(vec![2, 2], vec![1.0, 3.0, 2.0, 4.0]).expect("test");
+        let output = layer_norm.forward(&input).expect("test");
 
         assert_eq!(output.shape(), &[2, 2]);
 
@@ -4333,8 +4333,8 @@ mod tests {
 
     #[test]
     fn test_layer_norm_shape_mismatch_error() {
-        let layer_norm = LayerNorm::new(3, 1e-5).unwrap();
-        let input = Tensor::from_vec(vec![2], vec![1.0, 2.0]).unwrap(); // Wrong size
+        let layer_norm = LayerNorm::new(3, 1e-5).expect("test");
+        let input = Tensor::from_vec(vec![2], vec![1.0, 2.0]).expect("test"); // Wrong size
         let result = layer_norm.forward(&input);
         assert!(result.is_err());
     }
@@ -4342,9 +4342,9 @@ mod tests {
     #[test]
     fn test_layer_norm_zero_variance() {
         // Test with constant input (zero variance)
-        let layer_norm = LayerNorm::new(3, 1e-5).unwrap();
-        let input = Tensor::from_vec(vec![3], vec![2.0, 2.0, 2.0]).unwrap();
-        let output = layer_norm.forward(&input).unwrap();
+        let layer_norm = LayerNorm::new(3, 1e-5).expect("test");
+        let input = Tensor::from_vec(vec![3], vec![2.0, 2.0, 2.0]).expect("test");
+        let output = layer_norm.forward(&input).expect("test");
 
         // With zero variance, normalized values should be close to 0
         // (since eps prevents division by zero)
@@ -4358,7 +4358,7 @@ mod tests {
 
     #[test]
     fn test_linear_creation() {
-        let linear = Linear::new(128, 256).unwrap();
+        let linear = Linear::new(128, 256).expect("test");
         assert_eq!(linear.in_features(), 128);
         assert_eq!(linear.out_features(), 256);
     }
@@ -4375,7 +4375,7 @@ mod tests {
     #[test]
     fn test_linear_forward_simple() {
         // Simple test: 2 in_features, 3 out_features
-        let mut linear = Linear::new(2, 3).unwrap();
+        let mut linear = Linear::new(2, 3).expect("test");
 
         // Set identity-like weights for testing
         // weight[i][j] = 1.0 if i==j, 0.0 otherwise (extended for different dimensions)
@@ -4392,8 +4392,8 @@ mod tests {
         linear.bias_mut()[2] = 0.5;
 
         // Input: [2.0, 3.0]
-        let input = Tensor::from_vec(vec![2], vec![2.0, 3.0]).unwrap();
-        let output = linear.forward(&input).unwrap();
+        let input = Tensor::from_vec(vec![2], vec![2.0, 3.0]).expect("test");
+        let output = linear.forward(&input).expect("test");
 
         assert_eq!(output.shape(), &[3]);
         let output_data = output.data();
@@ -4408,7 +4408,7 @@ mod tests {
     #[test]
     fn test_linear_forward_batched() {
         // Test with batch dimension: [2, 2] -> [2, 3]
-        let mut linear = Linear::new(2, 3).unwrap();
+        let mut linear = Linear::new(2, 3).expect("test");
 
         // Simple weights: all 1.0
         for i in 0..6 {
@@ -4420,8 +4420,8 @@ mod tests {
         }
 
         // Input: [[1.0, 2.0], [3.0, 4.0]]
-        let input = Tensor::from_vec(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
-        let output = linear.forward(&input).unwrap();
+        let input = Tensor::from_vec(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]).expect("test");
+        let output = linear.forward(&input).expect("test");
 
         assert_eq!(output.shape(), &[2, 3]);
         let output_data = output.data();
@@ -4439,15 +4439,15 @@ mod tests {
 
     #[test]
     fn test_linear_shape_mismatch_error() {
-        let linear = Linear::new(3, 2).unwrap();
-        let input = Tensor::from_vec(vec![2], vec![1.0, 2.0]).unwrap(); // Wrong size (2 vs 3)
+        let linear = Linear::new(3, 2).expect("test");
+        let input = Tensor::from_vec(vec![2], vec![1.0, 2.0]).expect("test"); // Wrong size (2 vs 3)
         let result = linear.forward(&input);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_linear_weight_bias_mut() {
-        let mut linear = Linear::new(2, 3).unwrap();
+        let mut linear = Linear::new(2, 3).expect("test");
 
         // Modify weights
         linear.weight_mut()[0] = 42.0;
@@ -4462,7 +4462,7 @@ mod tests {
 
     #[test]
     fn test_fused_layer_norm_linear_creation() {
-        let fused = FusedLayerNormLinear::new(4, 8, 1e-5).unwrap();
+        let fused = FusedLayerNormLinear::new(4, 8, 1e-5).expect("test");
         assert_eq!(fused.feature_dim(), 4);
         assert_eq!(fused.out_features(), 8);
     }
@@ -4483,7 +4483,7 @@ mod tests {
         let out_features = 3;
 
         // Create fused layer
-        let mut fused = FusedLayerNormLinear::new(feature_dim, out_features, 1e-5).unwrap();
+        let mut fused = FusedLayerNormLinear::new(feature_dim, out_features, 1e-5).expect("test");
 
         // Set weights
         for (i, weight) in fused.linear_weight_mut().iter_mut().enumerate() {
@@ -4500,8 +4500,8 @@ mod tests {
         }
 
         // Create separate layers with same weights
-        let layer_norm = LayerNorm::new(feature_dim, 1e-5).unwrap();
-        let mut linear = Linear::new(feature_dim, out_features).unwrap();
+        let layer_norm = LayerNorm::new(feature_dim, 1e-5).expect("test");
+        let mut linear = Linear::new(feature_dim, out_features).expect("test");
         for (i, weight) in linear.weight_mut().iter_mut().enumerate() {
             #[allow(clippy::cast_precision_loss)]
             {
@@ -4516,14 +4516,14 @@ mod tests {
         }
 
         // Test input
-        let input = Tensor::from_vec(vec![feature_dim], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+        let input = Tensor::from_vec(vec![feature_dim], vec![1.0, 2.0, 3.0, 4.0]).expect("test");
 
         // Fused forward
-        let fused_output = fused.forward(&input).unwrap();
+        let fused_output = fused.forward(&input).expect("test");
 
         // Separate forward
-        let norm_output = layer_norm.forward(&input).unwrap();
-        let separate_output = linear.forward(&norm_output).unwrap();
+        let norm_output = layer_norm.forward(&input).expect("test");
+        let separate_output = linear.forward(&norm_output).expect("test");
 
         // Results should match
         assert_eq!(fused_output.shape(), separate_output.shape());
@@ -4543,7 +4543,7 @@ mod tests {
         let feature_dim = 4;
         let out_features = 2;
 
-        let mut fused = FusedLayerNormLinear::new(feature_dim, out_features, 1e-5).unwrap();
+        let mut fused = FusedLayerNormLinear::new(feature_dim, out_features, 1e-5).expect("test");
 
         // Set simple weights
         for weight in fused.linear_weight_mut().iter_mut() {
@@ -4555,9 +4555,9 @@ mod tests {
             vec![2, feature_dim],
             vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
         )
-        .unwrap();
+        .expect("test");
 
-        let output = fused.forward(&input).unwrap();
+        let output = fused.forward(&input).expect("test");
         assert_eq!(output.shape(), &[2, out_features]);
     }
 
@@ -4566,7 +4566,7 @@ mod tests {
         let feature_dim = 8;
         let out_features = 4;
 
-        let mut fused = FusedLayerNormLinear::new(feature_dim, out_features, 1e-5).unwrap();
+        let mut fused = FusedLayerNormLinear::new(feature_dim, out_features, 1e-5).expect("test");
 
         // Set random-ish weights
         for (i, weight) in fused.linear_weight_mut().iter_mut().enumerate() {
@@ -4592,13 +4592,13 @@ mod tests {
                 }
             }
         }
-        let input = Tensor::from_vec(vec![32, feature_dim], input_data).unwrap();
+        let input = Tensor::from_vec(vec![32, feature_dim], input_data).expect("test");
 
         // Serial
-        let serial_output = fused.forward(&input).unwrap();
+        let serial_output = fused.forward(&input).expect("test");
 
         // Parallel
-        let parallel_output = fused.forward_parallel(&input).unwrap();
+        let parallel_output = fused.forward_parallel(&input).expect("test");
 
         assert_eq!(serial_output.shape(), parallel_output.shape());
         for i in 0..serial_output.data().len() {
@@ -4614,10 +4614,10 @@ mod tests {
 
     #[test]
     fn test_fused_layer_norm_linear_dimension_mismatch_error() {
-        let fused = FusedLayerNormLinear::new(4, 8, 1e-5).unwrap();
+        let fused = FusedLayerNormLinear::new(4, 8, 1e-5).expect("test");
 
         // Wrong input dimension
-        let input = Tensor::from_vec(vec![3], vec![1.0, 2.0, 3.0]).unwrap();
+        let input = Tensor::from_vec(vec![3], vec![1.0, 2.0, 3.0]).expect("test");
         let result = fused.forward(&input);
         assert!(result.is_err());
     }
@@ -4627,8 +4627,8 @@ mod tests {
     #[test]
     fn test_softmax_simple() {
         // Simple softmax: [0, 0, 0] -> [1/3, 1/3, 1/3]
-        let input = Tensor::from_vec(vec![3], vec![0.0, 0.0, 0.0]).unwrap();
-        let output = softmax(&input).unwrap();
+        let input = Tensor::from_vec(vec![3], vec![0.0, 0.0, 0.0]).expect("test");
+        let output = softmax(&input).expect("test");
 
         assert_eq!(output.shape(), &[3]);
         // All equal inputs -> equal probabilities
@@ -4643,8 +4643,8 @@ mod tests {
 
     #[test]
     fn test_softmax_probabilities_sum_to_one() {
-        let input = Tensor::from_vec(vec![4], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
-        let output = softmax(&input).unwrap();
+        let input = Tensor::from_vec(vec![4], vec![1.0, 2.0, 3.0, 4.0]).expect("test");
+        let output = softmax(&input).expect("test");
 
         // Sum should be exactly 1.0
         let sum: f32 = output.data().iter().sum();
@@ -4660,8 +4660,8 @@ mod tests {
     #[test]
     fn test_softmax_max_dominates() {
         // When one value is much larger, it should dominate
-        let input = Tensor::from_vec(vec![3], vec![0.0, 0.0, 10.0]).unwrap();
-        let output = softmax(&input).unwrap();
+        let input = Tensor::from_vec(vec![3], vec![0.0, 0.0, 10.0]).expect("test");
+        let output = softmax(&input).expect("test");
 
         // Last element should be close to 1.0
         assert!(output.data()[2] > 0.999);
@@ -4673,8 +4673,8 @@ mod tests {
     #[test]
     fn test_softmax_batched() {
         // Batched: [[1, 2], [3, 4]]
-        let input = Tensor::from_vec(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
-        let output = softmax(&input).unwrap();
+        let input = Tensor::from_vec(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]).expect("test");
+        let output = softmax(&input).expect("test");
 
         assert_eq!(output.shape(), &[2, 2]);
 
@@ -4688,8 +4688,8 @@ mod tests {
     #[test]
     fn test_softmax_numerical_stability() {
         // Large values should not overflow
-        let input = Tensor::from_vec(vec![3], vec![1000.0, 1001.0, 1002.0]).unwrap();
-        let output = softmax(&input).unwrap();
+        let input = Tensor::from_vec(vec![3], vec![1000.0, 1001.0, 1002.0]).expect("test");
+        let output = softmax(&input).expect("test");
 
         // Should not be NaN or Inf
         for &val in output.data() {
@@ -4703,8 +4703,8 @@ mod tests {
 
     #[test]
     fn test_softmax_preserves_shape() {
-        let input = Tensor::from_vec(vec![2, 3, 4], vec![1.0; 24]).unwrap();
-        let output = softmax(&input).unwrap();
+        let input = Tensor::from_vec(vec![2, 3, 4], vec![1.0; 24]).expect("test");
+        let output = softmax(&input).expect("test");
 
         assert_eq!(output.shape(), &[2, 3, 4]);
     }
@@ -4713,16 +4713,16 @@ mod tests {
 
     #[test]
     fn test_gelu_zero() {
-        let input = Tensor::from_vec(vec![1], vec![0.0]).unwrap();
-        let output = gelu(&input).unwrap();
+        let input = Tensor::from_vec(vec![1], vec![0.0]).expect("test");
+        let output = gelu(&input).expect("test");
         // GELU(0) = 0
         assert!((output.data()[0] - 0.0).abs() < 1e-6);
     }
 
     #[test]
     fn test_gelu_positive() {
-        let input = Tensor::from_vec(vec![1], vec![1.0]).unwrap();
-        let output = gelu(&input).unwrap();
+        let input = Tensor::from_vec(vec![1], vec![1.0]).expect("test");
+        let output = gelu(&input).expect("test");
         // GELU(1) ≈ 0.841 (approximately x for large positive x)
         assert!(output.data()[0] > 0.8);
         assert!(output.data()[0] < 0.9);
@@ -4730,8 +4730,8 @@ mod tests {
 
     #[test]
     fn test_gelu_negative() {
-        let input = Tensor::from_vec(vec![1], vec![-1.0]).unwrap();
-        let output = gelu(&input).unwrap();
+        let input = Tensor::from_vec(vec![1], vec![-1.0]).expect("test");
+        let output = gelu(&input).expect("test");
         // GELU(-1) is small negative (smooth near zero)
         assert!(output.data()[0] < 0.0);
         assert!(output.data()[0] > -0.2);
@@ -4739,8 +4739,9 @@ mod tests {
 
     #[test]
     fn test_gelu_batched() {
-        let input = Tensor::from_vec(vec![2, 3], vec![-2.0, -1.0, 0.0, 1.0, 2.0, 3.0]).unwrap();
-        let output = gelu(&input).unwrap();
+        let input =
+            Tensor::from_vec(vec![2, 3], vec![-2.0, -1.0, 0.0, 1.0, 2.0, 3.0]).expect("test");
+        let output = gelu(&input).expect("test");
 
         assert_eq!(output.shape(), &[2, 3]);
         assert_eq!(output.data().len(), 6);
@@ -4756,8 +4757,8 @@ mod tests {
     #[test]
     fn test_gelu_preserves_shape() {
         // Test that GELU preserves tensor shape
-        let input = Tensor::from_vec(vec![2, 3, 4], vec![0.5; 24]).unwrap();
-        let output = gelu(&input).unwrap();
+        let input = Tensor::from_vec(vec![2, 3, 4], vec![0.5; 24]).expect("test");
+        let output = gelu(&input).expect("test");
         assert_eq!(output.shape(), &[2, 3, 4]);
         assert_eq!(output.data().len(), 24);
     }
@@ -4766,7 +4767,7 @@ mod tests {
 
     #[test]
     fn test_ffn_creation() {
-        let ffn = FeedForward::new(512, 2048).unwrap();
+        let ffn = FeedForward::new(512, 2048).expect("test");
         assert_eq!(ffn.hidden_dim(), 512);
         assert_eq!(ffn.intermediate_dim(), 2048);
     }
@@ -4783,9 +4784,9 @@ mod tests {
     #[test]
     fn test_ffn_forward_shape() {
         // Test that FFN preserves hidden_dim
-        let ffn = FeedForward::new(4, 16).unwrap(); // Small sizes for testing
-        let input = Tensor::from_vec(vec![2, 4], vec![1.0; 8]).unwrap();
-        let output = ffn.forward(&input).unwrap();
+        let ffn = FeedForward::new(4, 16).expect("test"); // Small sizes for testing
+        let input = Tensor::from_vec(vec![2, 4], vec![1.0; 8]).expect("test");
+        let output = ffn.forward(&input).expect("test");
 
         // Output should have same shape as input
         assert_eq!(output.shape(), &[2, 4]);
@@ -4794,7 +4795,7 @@ mod tests {
     #[test]
     fn test_ffn_forward_computation() {
         // Test FFN with known weights
-        let mut ffn = FeedForward::new(2, 4).unwrap();
+        let mut ffn = FeedForward::new(2, 4).expect("test");
 
         // Set fc1 weights to identity-like (for simplicity)
         for i in 0..8 {
@@ -4813,8 +4814,8 @@ mod tests {
         }
 
         // Input: [1.0, 2.0]
-        let input = Tensor::from_vec(vec![2], vec![1.0, 2.0]).unwrap();
-        let output = ffn.forward(&input).unwrap();
+        let input = Tensor::from_vec(vec![2], vec![1.0, 2.0]).expect("test");
+        let output = ffn.forward(&input).expect("test");
 
         // Output should be valid (not NaN, not Inf)
         assert_eq!(output.shape(), &[2]);
@@ -4824,11 +4825,11 @@ mod tests {
 
     #[test]
     fn test_ffn_batched() {
-        let ffn = FeedForward::new(3, 12).unwrap();
+        let ffn = FeedForward::new(3, 12).expect("test");
 
         // Batched input: [2, 3]
-        let input = Tensor::from_vec(vec![2, 3], vec![0.5; 6]).unwrap();
-        let output = ffn.forward(&input).unwrap();
+        let input = Tensor::from_vec(vec![2, 3], vec![0.5; 6]).expect("test");
+        let output = ffn.forward(&input).expect("test");
 
         // Output shape should match input
         assert_eq!(output.shape(), &[2, 3]);
@@ -4837,7 +4838,7 @@ mod tests {
 
     #[test]
     fn test_ffn_weight_access() {
-        let mut ffn = FeedForward::new(2, 4).unwrap();
+        let mut ffn = FeedForward::new(2, 4).expect("test");
 
         // Modify fc1 weights
         ffn.fc1_mut().weight_mut()[0] = 42.0;
@@ -4852,7 +4853,7 @@ mod tests {
 
     #[test]
     fn test_attention_creation() {
-        let attn = Attention::new(64).unwrap();
+        let attn = Attention::new(64).expect("test");
         assert_eq!(attn.head_dim(), 64);
         // scale = 1 / sqrt(64) = 1/8 = 0.125
         assert!((attn.scale() - 0.125).abs() < 1e-6);
@@ -4866,14 +4867,14 @@ mod tests {
 
     #[test]
     fn test_attention_forward_shape() {
-        let attn = Attention::new(4).unwrap();
+        let attn = Attention::new(4).expect("test");
 
         // Q, K, V all have shape [3, 4] (seq_len=3, head_dim=4)
-        let q = Tensor::from_vec(vec![3, 4], vec![0.1; 12]).unwrap();
-        let k = Tensor::from_vec(vec![3, 4], vec![0.2; 12]).unwrap();
-        let v = Tensor::from_vec(vec![3, 4], vec![0.3; 12]).unwrap();
+        let q = Tensor::from_vec(vec![3, 4], vec![0.1; 12]).expect("test");
+        let k = Tensor::from_vec(vec![3, 4], vec![0.2; 12]).expect("test");
+        let v = Tensor::from_vec(vec![3, 4], vec![0.3; 12]).expect("test");
 
-        let output = attn.forward(&q, &k, &v).unwrap();
+        let output = attn.forward(&q, &k, &v).expect("test");
 
         // Output should have shape [3, 4]
         assert_eq!(output.shape(), &[3, 4]);
@@ -4882,17 +4883,17 @@ mod tests {
 
     #[test]
     fn test_attention_forward_computation() {
-        let attn = Attention::new(2).unwrap();
+        let attn = Attention::new(2).expect("test");
 
         // Simple 2x2 case for manual verification
         // Q = [[1, 0], [0, 1]]
         // K = [[1, 0], [0, 1]]
         // V = [[1, 2], [3, 4]]
-        let q = Tensor::from_vec(vec![2, 2], vec![1.0, 0.0, 0.0, 1.0]).unwrap();
-        let k = Tensor::from_vec(vec![2, 2], vec![1.0, 0.0, 0.0, 1.0]).unwrap();
-        let v = Tensor::from_vec(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+        let q = Tensor::from_vec(vec![2, 2], vec![1.0, 0.0, 0.0, 1.0]).expect("test");
+        let k = Tensor::from_vec(vec![2, 2], vec![1.0, 0.0, 0.0, 1.0]).expect("test");
+        let v = Tensor::from_vec(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]).expect("test");
 
-        let output = attn.forward(&q, &k, &v).unwrap();
+        let output = attn.forward(&q, &k, &v).expect("test");
 
         // Output should be valid (not NaN, not Inf)
         assert_eq!(output.shape(), &[2, 2]);
@@ -4909,12 +4910,12 @@ mod tests {
 
     #[test]
     fn test_attention_shape_mismatch_error() {
-        let attn = Attention::new(4).unwrap();
+        let attn = Attention::new(4).expect("test");
 
         // Q has head_dim=4, K has head_dim=3
-        let q = Tensor::from_vec(vec![2, 4], vec![0.1; 8]).unwrap();
-        let k = Tensor::from_vec(vec![2, 3], vec![0.2; 6]).unwrap();
-        let v = Tensor::from_vec(vec![2, 4], vec![0.3; 8]).unwrap();
+        let q = Tensor::from_vec(vec![2, 4], vec![0.1; 8]).expect("test");
+        let k = Tensor::from_vec(vec![2, 3], vec![0.2; 6]).expect("test");
+        let v = Tensor::from_vec(vec![2, 4], vec![0.3; 8]).expect("test");
 
         let result = attn.forward(&q, &k, &v);
         assert!(result.is_err());
@@ -4922,12 +4923,12 @@ mod tests {
 
     #[test]
     fn test_attention_kv_seq_len_mismatch_error() {
-        let attn = Attention::new(4).unwrap();
+        let attn = Attention::new(4).expect("test");
 
         // K has seq_len=3, V has seq_len=2
-        let q = Tensor::from_vec(vec![2, 4], vec![0.1; 8]).unwrap();
-        let k = Tensor::from_vec(vec![3, 4], vec![0.2; 12]).unwrap();
-        let v = Tensor::from_vec(vec![2, 4], vec![0.3; 8]).unwrap();
+        let q = Tensor::from_vec(vec![2, 4], vec![0.1; 8]).expect("test");
+        let k = Tensor::from_vec(vec![3, 4], vec![0.2; 12]).expect("test");
+        let v = Tensor::from_vec(vec![2, 4], vec![0.3; 8]).expect("test");
 
         let result = attn.forward(&q, &k, &v);
         assert!(result.is_err());
@@ -4937,15 +4938,15 @@ mod tests {
     fn test_attention_softmax_weights_sum() {
         // Verify that attention is using softmax correctly
         // by checking output is weighted combination of values
-        let attn = Attention::new(3).unwrap();
+        let attn = Attention::new(3).expect("test");
 
         // All equal Q and K means uniform attention
-        let q = Tensor::from_vec(vec![2, 3], vec![1.0; 6]).unwrap();
-        let k = Tensor::from_vec(vec![2, 3], vec![1.0; 6]).unwrap();
+        let q = Tensor::from_vec(vec![2, 3], vec![1.0; 6]).expect("test");
+        let k = Tensor::from_vec(vec![2, 3], vec![1.0; 6]).expect("test");
         // V = [[1, 2, 3], [4, 5, 6]]
-        let v = Tensor::from_vec(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+        let v = Tensor::from_vec(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).expect("test");
 
-        let output = attn.forward(&q, &k, &v).unwrap();
+        let output = attn.forward(&q, &k, &v).expect("test");
 
         // With uniform attention, output should be average of V rows
         // Each output row should be close to [2.5, 3.5, 4.5]
@@ -4964,13 +4965,13 @@ mod tests {
     #[test]
     fn test_attention_single_position() {
         // Test with single position (seq_len=1)
-        let attn = Attention::new(4).unwrap();
+        let attn = Attention::new(4).expect("test");
 
-        let q = Tensor::from_vec(vec![4], vec![1.0, 0.0, 0.0, 0.0]).unwrap();
-        let k = Tensor::from_vec(vec![4], vec![1.0, 0.0, 0.0, 0.0]).unwrap();
-        let v = Tensor::from_vec(vec![4], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+        let q = Tensor::from_vec(vec![4], vec![1.0, 0.0, 0.0, 0.0]).expect("test");
+        let k = Tensor::from_vec(vec![4], vec![1.0, 0.0, 0.0, 0.0]).expect("test");
+        let v = Tensor::from_vec(vec![4], vec![1.0, 2.0, 3.0, 4.0]).expect("test");
 
-        let output = attn.forward(&q, &k, &v).unwrap();
+        let output = attn.forward(&q, &k, &v).expect("test");
 
         // With single position, output should equal V
         assert_eq!(output.shape(), &[1, 4]);
@@ -4984,22 +4985,22 @@ mod tests {
     #[test]
     fn test_flash_attention_matches_standard() {
         // Flash Attention should produce same output as standard attention
-        let attn = Attention::new(8).unwrap();
+        let attn = Attention::new(8).expect("test");
 
         // Create test data
         let q_data = vec![1.0, 2.0, 0.5, 1.5, 2.5, 0.3, 1.2, 0.8];
         let k_data = vec![0.5, 1.0, 1.5, 0.8, 0.3, 2.0, 0.9, 1.1];
         let v_data = vec![2.0, 1.0, 0.5, 3.0, 1.5, 0.7, 2.5, 0.9];
 
-        let q = Tensor::from_vec(vec![1, 8], q_data.clone()).unwrap();
-        let k = Tensor::from_vec(vec![1, 8], k_data.clone()).unwrap();
-        let v = Tensor::from_vec(vec![1, 8], v_data.clone()).unwrap();
+        let q = Tensor::from_vec(vec![1, 8], q_data.clone()).expect("test");
+        let k = Tensor::from_vec(vec![1, 8], k_data.clone()).expect("test");
+        let v = Tensor::from_vec(vec![1, 8], v_data.clone()).expect("test");
 
         // Standard attention
-        let standard_output = attn.forward(&q, &k, &v).unwrap();
+        let standard_output = attn.forward(&q, &k, &v).expect("test");
 
         // Flash attention with block_size=1 (should be identical)
-        let flash_output = attn.flash_forward(&q, &k, &v, 1).unwrap();
+        let flash_output = attn.flash_forward(&q, &k, &v, 1).expect("test");
 
         // Results should match
         assert_eq!(standard_output.shape(), flash_output.shape());
@@ -5017,7 +5018,7 @@ mod tests {
     #[test]
     fn test_flash_attention_multi_position() {
         // Test Flash Attention with multiple positions
-        let attn = Attention::new(4).unwrap();
+        let attn = Attention::new(4).expect("test");
 
         #[rustfmt::skip]
         let q_data = vec![
@@ -5038,16 +5039,16 @@ mod tests {
             9.0, 10.0, 11.0, 12.0,  // pos 2
         ];
 
-        let q = Tensor::from_vec(vec![3, 4], q_data).unwrap();
-        let k = Tensor::from_vec(vec![3, 4], k_data).unwrap();
-        let v = Tensor::from_vec(vec![3, 4], v_data).unwrap();
+        let q = Tensor::from_vec(vec![3, 4], q_data).expect("test");
+        let k = Tensor::from_vec(vec![3, 4], k_data).expect("test");
+        let v = Tensor::from_vec(vec![3, 4], v_data).expect("test");
 
         // Standard attention
-        let standard_output = attn.forward(&q, &k, &v).unwrap();
+        let standard_output = attn.forward(&q, &k, &v).expect("test");
 
         // Flash attention with different block sizes
         for block_size in [1, 2, 3, 4] {
-            let flash_output = attn.flash_forward(&q, &k, &v, block_size).unwrap();
+            let flash_output = attn.flash_forward(&q, &k, &v, block_size).expect("test");
 
             assert_eq!(standard_output.shape(), flash_output.shape());
             for i in 0..standard_output.data().len() {
@@ -5065,11 +5066,11 @@ mod tests {
 
     #[test]
     fn test_flash_attention_zero_block_size_error() {
-        let attn = Attention::new(4).unwrap();
+        let attn = Attention::new(4).expect("test");
 
-        let q = Tensor::from_vec(vec![1, 4], vec![1.0, 0.0, 0.0, 0.0]).unwrap();
-        let k = Tensor::from_vec(vec![1, 4], vec![1.0, 0.0, 0.0, 0.0]).unwrap();
-        let v = Tensor::from_vec(vec![1, 4], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+        let q = Tensor::from_vec(vec![1, 4], vec![1.0, 0.0, 0.0, 0.0]).expect("test");
+        let k = Tensor::from_vec(vec![1, 4], vec![1.0, 0.0, 0.0, 0.0]).expect("test");
+        let v = Tensor::from_vec(vec![1, 4], vec![1.0, 2.0, 3.0, 4.0]).expect("test");
 
         let result = attn.flash_forward(&q, &k, &v, 0);
         assert!(result.is_err());
@@ -5078,7 +5079,7 @@ mod tests {
     #[test]
     fn test_flash_attention_large_sequence() {
         // Test with larger sequence to verify block-wise computation
-        let attn = Attention::new(8).unwrap();
+        let attn = Attention::new(8).expect("test");
 
         // Create larger test data (seq_len=16)
         let mut q_data = Vec::new();
@@ -5096,15 +5097,15 @@ mod tests {
             }
         }
 
-        let q = Tensor::from_vec(vec![16, 8], q_data).unwrap();
-        let k = Tensor::from_vec(vec![16, 8], k_data).unwrap();
-        let v = Tensor::from_vec(vec![16, 8], v_data).unwrap();
+        let q = Tensor::from_vec(vec![16, 8], q_data).expect("test");
+        let k = Tensor::from_vec(vec![16, 8], k_data).expect("test");
+        let v = Tensor::from_vec(vec![16, 8], v_data).expect("test");
 
         // Standard attention
-        let standard_output = attn.forward(&q, &k, &v).unwrap();
+        let standard_output = attn.forward(&q, &k, &v).expect("test");
 
         // Flash attention with block_size=4
-        let flash_output = attn.flash_forward(&q, &k, &v, 4).unwrap();
+        let flash_output = attn.flash_forward(&q, &k, &v, 4).expect("test");
 
         assert_eq!(standard_output.shape(), flash_output.shape());
         for i in 0..standard_output.data().len() {
@@ -5120,15 +5121,17 @@ mod tests {
 
     #[test]
     fn test_flash_attention_shape_errors() {
-        let attn = Attention::new(4).unwrap();
+        let attn = Attention::new(4).expect("test");
 
-        let q = Tensor::from_vec(vec![2, 4], vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]).unwrap();
-        let k = Tensor::from_vec(vec![2, 4], vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]).unwrap();
+        let q = Tensor::from_vec(vec![2, 4], vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0])
+            .expect("test");
+        let k = Tensor::from_vec(vec![2, 4], vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0])
+            .expect("test");
         let v_wrong = Tensor::from_vec(
             vec![3, 4],
             vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0],
         )
-        .unwrap();
+        .expect("test");
 
         // K/V sequence length mismatch
         let result = attn.flash_forward(&q, &k, &v_wrong, 2);
@@ -5140,18 +5143,18 @@ mod tests {
     #[test]
     fn test_flash_attention_v2_matches_standard() {
         // Flash Attention v2 with SIMD should match standard attention
-        let attn = Attention::new(8).unwrap();
+        let attn = Attention::new(8).expect("test");
 
         let q_data = vec![1.0, 2.0, 0.5, 1.5, 2.5, 0.3, 1.2, 0.8];
         let k_data = vec![0.5, 1.0, 1.5, 0.8, 0.3, 2.0, 0.9, 1.1];
         let v_data = vec![2.0, 1.0, 0.5, 3.0, 1.5, 0.7, 2.5, 0.9];
 
-        let q = Tensor::from_vec(vec![1, 8], q_data).unwrap();
-        let k = Tensor::from_vec(vec![1, 8], k_data).unwrap();
-        let v = Tensor::from_vec(vec![1, 8], v_data).unwrap();
+        let q = Tensor::from_vec(vec![1, 8], q_data).expect("test");
+        let k = Tensor::from_vec(vec![1, 8], k_data).expect("test");
+        let v = Tensor::from_vec(vec![1, 8], v_data).expect("test");
 
-        let standard = attn.forward(&q, &k, &v).unwrap();
-        let v2 = attn.flash_forward_v2(&q, &k, &v, 1).unwrap();
+        let standard = attn.forward(&q, &k, &v).expect("test");
+        let v2 = attn.flash_forward_v2(&q, &k, &v, 1).expect("test");
 
         assert_eq!(standard.shape(), v2.shape());
         for i in 0..standard.data().len() {
@@ -5167,7 +5170,7 @@ mod tests {
 
     #[test]
     fn test_flash_attention_v2_multi_position() {
-        let attn = Attention::new(4).unwrap();
+        let attn = Attention::new(4).expect("test");
 
         #[rustfmt::skip]
         let q_data = vec![
@@ -5188,14 +5191,14 @@ mod tests {
             9.0, 10.0, 11.0, 12.0,
         ];
 
-        let q = Tensor::from_vec(vec![3, 4], q_data).unwrap();
-        let k = Tensor::from_vec(vec![3, 4], k_data).unwrap();
-        let v = Tensor::from_vec(vec![3, 4], v_data).unwrap();
+        let q = Tensor::from_vec(vec![3, 4], q_data).expect("test");
+        let k = Tensor::from_vec(vec![3, 4], k_data).expect("test");
+        let v = Tensor::from_vec(vec![3, 4], v_data).expect("test");
 
-        let standard = attn.forward(&q, &k, &v).unwrap();
+        let standard = attn.forward(&q, &k, &v).expect("test");
 
         for block_size in [1, 2, 3, 4] {
-            let v2 = attn.flash_forward_v2(&q, &k, &v, block_size).unwrap();
+            let v2 = attn.flash_forward_v2(&q, &k, &v, block_size).expect("test");
             assert_eq!(standard.shape(), v2.shape());
             for i in 0..standard.data().len() {
                 assert!(
@@ -5212,10 +5215,10 @@ mod tests {
 
     #[test]
     fn test_flash_attention_v2_zero_block_size_error() {
-        let attn = Attention::new(4).unwrap();
-        let q = Tensor::from_vec(vec![1, 4], vec![1.0; 4]).unwrap();
-        let k = Tensor::from_vec(vec![1, 4], vec![1.0; 4]).unwrap();
-        let v = Tensor::from_vec(vec![1, 4], vec![1.0; 4]).unwrap();
+        let attn = Attention::new(4).expect("test");
+        let q = Tensor::from_vec(vec![1, 4], vec![1.0; 4]).expect("test");
+        let k = Tensor::from_vec(vec![1, 4], vec![1.0; 4]).expect("test");
+        let v = Tensor::from_vec(vec![1, 4], vec![1.0; 4]).expect("test");
 
         let result = attn.flash_forward_v2(&q, &k, &v, 0);
         assert!(result.is_err());
@@ -5223,7 +5226,7 @@ mod tests {
 
     #[test]
     fn test_flash_attention_v2_large_sequence() {
-        let attn = Attention::new(8).unwrap();
+        let attn = Attention::new(8).expect("test");
 
         let mut q_data = Vec::new();
         let mut k_data = Vec::new();
@@ -5240,12 +5243,12 @@ mod tests {
             }
         }
 
-        let q = Tensor::from_vec(vec![32, 8], q_data).unwrap();
-        let k = Tensor::from_vec(vec![32, 8], k_data).unwrap();
-        let v = Tensor::from_vec(vec![32, 8], v_data).unwrap();
+        let q = Tensor::from_vec(vec![32, 8], q_data).expect("test");
+        let k = Tensor::from_vec(vec![32, 8], k_data).expect("test");
+        let v = Tensor::from_vec(vec![32, 8], v_data).expect("test");
 
-        let standard = attn.forward(&q, &k, &v).unwrap();
-        let v2 = attn.flash_forward_v2(&q, &k, &v, 8).unwrap();
+        let standard = attn.forward(&q, &k, &v).expect("test");
+        let v2 = attn.flash_forward_v2(&q, &k, &v, 8).expect("test");
 
         assert_eq!(standard.shape(), v2.shape());
         for i in 0..standard.data().len() {
@@ -5263,18 +5266,18 @@ mod tests {
 
     #[test]
     fn test_flash_attention_parallel_matches_standard() {
-        let attn = Attention::new(8).unwrap();
+        let attn = Attention::new(8).expect("test");
 
         let q_data = vec![1.0, 2.0, 0.5, 1.5, 2.5, 0.3, 1.2, 0.8];
         let k_data = vec![0.5, 1.0, 1.5, 0.8, 0.3, 2.0, 0.9, 1.1];
         let v_data = vec![2.0, 1.0, 0.5, 3.0, 1.5, 0.7, 2.5, 0.9];
 
-        let q = Tensor::from_vec(vec![1, 8], q_data).unwrap();
-        let k = Tensor::from_vec(vec![1, 8], k_data).unwrap();
-        let v = Tensor::from_vec(vec![1, 8], v_data).unwrap();
+        let q = Tensor::from_vec(vec![1, 8], q_data).expect("test");
+        let k = Tensor::from_vec(vec![1, 8], k_data).expect("test");
+        let v = Tensor::from_vec(vec![1, 8], v_data).expect("test");
 
-        let standard = attn.forward(&q, &k, &v).unwrap();
-        let parallel = attn.flash_forward_parallel(&q, &k, &v, 1).unwrap();
+        let standard = attn.forward(&q, &k, &v).expect("test");
+        let parallel = attn.flash_forward_parallel(&q, &k, &v, 1).expect("test");
 
         assert_eq!(standard.shape(), parallel.shape());
         for i in 0..standard.data().len() {
@@ -5290,7 +5293,7 @@ mod tests {
 
     #[test]
     fn test_flash_attention_parallel_multi_position() {
-        let attn = Attention::new(4).unwrap();
+        let attn = Attention::new(4).expect("test");
 
         #[rustfmt::skip]
         let q_data = vec![
@@ -5308,14 +5311,16 @@ mod tests {
             13.0, 14.0, 15.0, 16.0,
         ];
 
-        let q = Tensor::from_vec(vec![4, 4], q_data).unwrap();
-        let k = Tensor::from_vec(vec![4, 4], k_data).unwrap();
-        let v = Tensor::from_vec(vec![4, 4], v_data).unwrap();
+        let q = Tensor::from_vec(vec![4, 4], q_data).expect("test");
+        let k = Tensor::from_vec(vec![4, 4], k_data).expect("test");
+        let v = Tensor::from_vec(vec![4, 4], v_data).expect("test");
 
-        let standard = attn.forward(&q, &k, &v).unwrap();
+        let standard = attn.forward(&q, &k, &v).expect("test");
 
         for block_size in [1, 2, 4] {
-            let parallel = attn.flash_forward_parallel(&q, &k, &v, block_size).unwrap();
+            let parallel = attn
+                .flash_forward_parallel(&q, &k, &v, block_size)
+                .expect("test");
             assert_eq!(standard.shape(), parallel.shape());
             for i in 0..standard.data().len() {
                 assert!(
@@ -5332,10 +5337,10 @@ mod tests {
 
     #[test]
     fn test_flash_attention_parallel_zero_block_size_error() {
-        let attn = Attention::new(4).unwrap();
-        let q = Tensor::from_vec(vec![1, 4], vec![1.0; 4]).unwrap();
-        let k = Tensor::from_vec(vec![1, 4], vec![1.0; 4]).unwrap();
-        let v = Tensor::from_vec(vec![1, 4], vec![1.0; 4]).unwrap();
+        let attn = Attention::new(4).expect("test");
+        let q = Tensor::from_vec(vec![1, 4], vec![1.0; 4]).expect("test");
+        let k = Tensor::from_vec(vec![1, 4], vec![1.0; 4]).expect("test");
+        let v = Tensor::from_vec(vec![1, 4], vec![1.0; 4]).expect("test");
 
         let result = attn.flash_forward_parallel(&q, &k, &v, 0);
         assert!(result.is_err());
@@ -5343,7 +5348,7 @@ mod tests {
 
     #[test]
     fn test_flash_attention_parallel_large_sequence() {
-        let attn = Attention::new(16).unwrap();
+        let attn = Attention::new(16).expect("test");
 
         let mut q_data = Vec::new();
         let mut k_data = Vec::new();
@@ -5360,12 +5365,12 @@ mod tests {
             }
         }
 
-        let q = Tensor::from_vec(vec![64, 16], q_data).unwrap();
-        let k = Tensor::from_vec(vec![64, 16], k_data).unwrap();
-        let v = Tensor::from_vec(vec![64, 16], v_data).unwrap();
+        let q = Tensor::from_vec(vec![64, 16], q_data).expect("test");
+        let k = Tensor::from_vec(vec![64, 16], k_data).expect("test");
+        let v = Tensor::from_vec(vec![64, 16], v_data).expect("test");
 
-        let standard = attn.forward(&q, &k, &v).unwrap();
-        let parallel = attn.flash_forward_parallel(&q, &k, &v, 16).unwrap();
+        let standard = attn.forward(&q, &k, &v).expect("test");
+        let parallel = attn.flash_forward_parallel(&q, &k, &v, 16).expect("test");
 
         assert_eq!(standard.shape(), parallel.shape());
         for i in 0..standard.data().len() {
@@ -5382,7 +5387,7 @@ mod tests {
     #[test]
     fn test_flash_attention_v2_vs_parallel_consistency() {
         // Both v2 and parallel should produce same results
-        let attn = Attention::new(8).unwrap();
+        let attn = Attention::new(8).expect("test");
 
         let mut q_data = Vec::new();
         let mut k_data = Vec::new();
@@ -5399,12 +5404,12 @@ mod tests {
             }
         }
 
-        let q = Tensor::from_vec(vec![16, 8], q_data).unwrap();
-        let k = Tensor::from_vec(vec![16, 8], k_data).unwrap();
-        let v = Tensor::from_vec(vec![16, 8], v_data).unwrap();
+        let q = Tensor::from_vec(vec![16, 8], q_data).expect("test");
+        let k = Tensor::from_vec(vec![16, 8], k_data).expect("test");
+        let v = Tensor::from_vec(vec![16, 8], v_data).expect("test");
 
-        let v2 = attn.flash_forward_v2(&q, &k, &v, 4).unwrap();
-        let parallel = attn.flash_forward_parallel(&q, &k, &v, 4).unwrap();
+        let v2 = attn.flash_forward_v2(&q, &k, &v, 4).expect("test");
+        let parallel = attn.flash_forward_parallel(&q, &k, &v, 4).expect("test");
 
         assert_eq!(v2.shape(), parallel.shape());
         for i in 0..v2.data().len() {
@@ -5422,7 +5427,7 @@ mod tests {
 
     #[test]
     fn test_rope_creation() {
-        let rope = RoPE::new(64, 10000.0).unwrap();
+        let rope = RoPE::new(64, 10000.0).expect("test");
         assert_eq!(rope.dim(), 64);
         assert!((rope.base() - 10000.0).abs() < 1e-6);
         assert_eq!(rope.inv_freq().len(), 32); // dim/2
@@ -5430,7 +5435,7 @@ mod tests {
 
     #[test]
     fn test_rope_with_default_base() {
-        let rope = RoPE::with_default_base(128).unwrap();
+        let rope = RoPE::with_default_base(128).expect("test");
         assert_eq!(rope.dim(), 128);
         assert!((rope.base() - 10000.0).abs() < 1e-6);
     }
@@ -5449,10 +5454,10 @@ mod tests {
 
     #[test]
     fn test_rope_forward_shape() {
-        let rope = RoPE::with_default_base(4).unwrap();
-        let input = Tensor::from_vec(vec![2, 4], vec![1.0; 8]).unwrap();
+        let rope = RoPE::with_default_base(4).expect("test");
+        let input = Tensor::from_vec(vec![2, 4], vec![1.0; 8]).expect("test");
 
-        let output = rope.forward(&input, 0).unwrap();
+        let output = rope.forward(&input, 0).expect("test");
         assert_eq!(output.shape(), &[2, 4]);
         assert_eq!(output.data().len(), 8);
     }
@@ -5461,10 +5466,10 @@ mod tests {
     fn test_rope_position_zero_identity() {
         // At position 0, rotation angles are 0, so cos=1, sin=0
         // This should return input unchanged
-        let rope = RoPE::with_default_base(4).unwrap();
-        let input = Tensor::from_vec(vec![4], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+        let rope = RoPE::with_default_base(4).expect("test");
+        let input = Tensor::from_vec(vec![4], vec![1.0, 2.0, 3.0, 4.0]).expect("test");
 
-        let output = rope.forward(&input, 0).unwrap();
+        let output = rope.forward(&input, 0).expect("test");
 
         // At position 0, angles are 0, so cos(0)=1, sin(0)=0
         // y0 = x0 * 1 - x1 * 0 = x0
@@ -5482,10 +5487,10 @@ mod tests {
     #[test]
     fn test_rope_preserves_norm() {
         // Rotation should preserve vector norm
-        let rope = RoPE::with_default_base(4).unwrap();
-        let input = Tensor::from_vec(vec![4], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+        let rope = RoPE::with_default_base(4).expect("test");
+        let input = Tensor::from_vec(vec![4], vec![1.0, 2.0, 3.0, 4.0]).expect("test");
 
-        let output = rope.forward(&input, 100).unwrap();
+        let output = rope.forward(&input, 100).expect("test");
 
         // Compute L2 norm of input pairs and output pairs
         // Each pair should have the same norm after rotation
@@ -5506,12 +5511,12 @@ mod tests {
 
     #[test]
     fn test_rope_different_positions() {
-        let rope = RoPE::with_default_base(4).unwrap();
-        let input = Tensor::from_vec(vec![4], vec![1.0, 0.0, 1.0, 0.0]).unwrap();
+        let rope = RoPE::with_default_base(4).expect("test");
+        let input = Tensor::from_vec(vec![4], vec![1.0, 0.0, 1.0, 0.0]).expect("test");
 
-        let out_pos_zero = rope.forward(&input, 0).unwrap();
-        let out_pos_ten = rope.forward(&input, 10).unwrap();
-        let out_pos_hundred = rope.forward(&input, 100).unwrap();
+        let out_pos_zero = rope.forward(&input, 0).expect("test");
+        let out_pos_ten = rope.forward(&input, 10).expect("test");
+        let out_pos_hundred = rope.forward(&input, 100).expect("test");
 
         // Different positions should give different outputs
         assert!(
@@ -5526,8 +5531,8 @@ mod tests {
 
     #[test]
     fn test_rope_dimension_mismatch_error() {
-        let rope = RoPE::with_default_base(4).unwrap();
-        let input = Tensor::from_vec(vec![6], vec![1.0; 6]).unwrap();
+        let rope = RoPE::with_default_base(4).expect("test");
+        let input = Tensor::from_vec(vec![6], vec![1.0; 6]).expect("test");
 
         let result = rope.forward(&input, 0);
         assert!(result.is_err());
@@ -5536,10 +5541,10 @@ mod tests {
     #[test]
     fn test_rope_batched() {
         // Test with batched input [batch, dim]
-        let rope = RoPE::with_default_base(4).unwrap();
-        let input = Tensor::from_vec(vec![3, 4], vec![1.0; 12]).unwrap();
+        let rope = RoPE::with_default_base(4).expect("test");
+        let input = Tensor::from_vec(vec![3, 4], vec![1.0; 12]).expect("test");
 
-        let output = rope.forward(&input, 5).unwrap();
+        let output = rope.forward(&input, 5).expect("test");
         assert_eq!(output.shape(), &[3, 4]);
 
         // All vectors in batch should have same rotation applied
@@ -5559,7 +5564,7 @@ mod tests {
     #[test]
     fn test_rope_inv_freq_computation() {
         // Test that inverse frequencies are computed correctly
-        let rope = RoPE::new(4, 10000.0).unwrap();
+        let rope = RoPE::new(4, 10000.0).expect("test");
         let inv_freq = rope.inv_freq();
 
         // For dim=4, we have 2 pairs
@@ -5574,7 +5579,7 @@ mod tests {
     #[test]
     fn test_scaled_rope_no_scaling() {
         // ScaledRoPE with None scaling should behave like regular RoPE
-        let scaled = ScaledRoPE::new(64, 10000.0, RopeScalingType::None).unwrap();
+        let scaled = ScaledRoPE::new(64, 10000.0, RopeScalingType::None).expect("test");
         assert_eq!(scaled.dim(), 64);
         assert!((scaled.original_base() - 10000.0).abs() < 1e-6);
         assert!((scaled.scaled_base() - 10000.0).abs() < 1e-6);
@@ -5586,7 +5591,7 @@ mod tests {
     fn test_scaled_rope_linear_scaling() {
         // Linear scaling (Code Llama style)
         let scaling = RopeScalingType::Linear { scale: 4.0 };
-        let scaled = ScaledRoPE::new(64, 10000.0, scaling).unwrap();
+        let scaled = ScaledRoPE::new(64, 10000.0, scaling).expect("test");
 
         assert!((scaled.context_length_multiplier() - 4.0).abs() < 1e-6);
         // Linear scaling doesn't change base frequency
@@ -5598,7 +5603,7 @@ mod tests {
     fn test_scaled_rope_ntk_scaling() {
         // NTK-aware scaling
         let scaling = RopeScalingType::Ntk { scale: 4.0 };
-        let scaled = ScaledRoPE::new(64, 10000.0, scaling).unwrap();
+        let scaled = ScaledRoPE::new(64, 10000.0, scaling).expect("test");
 
         assert!((scaled.context_length_multiplier() - 4.0).abs() < 1e-6);
         // NTK should increase base: base' = base * scale^(dim/(dim-2))
@@ -5616,7 +5621,7 @@ mod tests {
             original_max_len: 2048,
             target_max_len: 8192,
         };
-        let scaled = ScaledRoPE::new(64, 10000.0, scaling).unwrap();
+        let scaled = ScaledRoPE::new(64, 10000.0, scaling).expect("test");
 
         assert!((scaled.context_length_multiplier() - 4.0).abs() < 1e-6);
         // Should behave like NTK with scale = 4.0
@@ -5633,7 +5638,7 @@ mod tests {
             beta_fast: 32.0,
             beta_slow: 1.0,
         };
-        let scaled = ScaledRoPE::new(64, 10000.0, scaling).unwrap();
+        let scaled = ScaledRoPE::new(64, 10000.0, scaling).expect("test");
 
         // Context multiplier = 32768 / 2048 = 16
         assert!((scaled.context_length_multiplier() - 16.0).abs() < 1e-6);
@@ -5653,7 +5658,7 @@ mod tests {
             beta_fast: 32.0,
             beta_slow: 1.0,
         };
-        let scaled = ScaledRoPE::new(64, 10000.0, scaling).unwrap();
+        let scaled = ScaledRoPE::new(64, 10000.0, scaling).expect("test");
 
         // Should use custom attn_factor
         assert!((scaled.mscale() - 1.5).abs() < 1e-6);
@@ -5661,9 +5666,9 @@ mod tests {
 
     #[test]
     fn test_scaled_rope_forward_no_scaling() {
-        let scaled = ScaledRoPE::new(4, 10000.0, RopeScalingType::None).unwrap();
-        let input = Tensor::from_vec(vec![4], vec![1.0, 0.0, 0.0, 1.0]).unwrap();
-        let output = scaled.forward(&input, 0).unwrap();
+        let scaled = ScaledRoPE::new(4, 10000.0, RopeScalingType::None).expect("test");
+        let input = Tensor::from_vec(vec![4], vec![1.0, 0.0, 0.0, 1.0]).expect("test");
+        let output = scaled.forward(&input, 0).expect("test");
 
         // At position 0, rotation should be identity-like
         assert_eq!(output.shape(), &[4]);
@@ -5672,21 +5677,21 @@ mod tests {
     #[test]
     fn test_scaled_rope_forward_linear() {
         let scaling = RopeScalingType::Linear { scale: 2.0 };
-        let scaled = ScaledRoPE::new(4, 10000.0, scaling).unwrap();
-        let input = Tensor::from_vec(vec![4], vec![1.0, 0.0, 0.0, 1.0]).unwrap();
+        let scaled = ScaledRoPE::new(4, 10000.0, scaling).expect("test");
+        let input = Tensor::from_vec(vec![4], vec![1.0, 0.0, 0.0, 1.0]).expect("test");
 
         // Position 10 with scale 2 should behave like position 5
-        let output = scaled.forward(&input, 10).unwrap();
+        let output = scaled.forward(&input, 10).expect("test");
         assert_eq!(output.shape(), &[4]);
     }
 
     #[test]
     fn test_scaled_rope_forward_ntk() {
         let scaling = RopeScalingType::Ntk { scale: 4.0 };
-        let scaled = ScaledRoPE::new(4, 10000.0, scaling).unwrap();
-        let input = Tensor::from_vec(vec![4], vec![1.0, 0.0, 0.0, 1.0]).unwrap();
+        let scaled = ScaledRoPE::new(4, 10000.0, scaling).expect("test");
+        let input = Tensor::from_vec(vec![4], vec![1.0, 0.0, 0.0, 1.0]).expect("test");
 
-        let output = scaled.forward(&input, 100).unwrap();
+        let output = scaled.forward(&input, 100).expect("test");
         assert_eq!(output.shape(), &[4]);
         // Output should preserve norm (rotation is norm-preserving)
         let norm: f32 = output.data().iter().map(|x| x * x).sum::<f32>().sqrt();
@@ -5702,10 +5707,10 @@ mod tests {
             beta_fast: 32.0,
             beta_slow: 1.0,
         };
-        let scaled = ScaledRoPE::new(4, 10000.0, scaling).unwrap();
-        let input = Tensor::from_vec(vec![4], vec![1.0, 0.0, 0.0, 1.0]).unwrap();
+        let scaled = ScaledRoPE::new(4, 10000.0, scaling).expect("test");
+        let input = Tensor::from_vec(vec![4], vec![1.0, 0.0, 0.0, 1.0]).expect("test");
 
-        let output = scaled.forward(&input, 5000).unwrap();
+        let output = scaled.forward(&input, 5000).expect("test");
         assert_eq!(output.shape(), &[4]);
     }
 
@@ -5723,8 +5728,8 @@ mod tests {
 
     #[test]
     fn test_scaled_rope_dimension_mismatch() {
-        let scaled = ScaledRoPE::new(4, 10000.0, RopeScalingType::None).unwrap();
-        let input = Tensor::from_vec(vec![8], vec![0.0; 8]).unwrap();
+        let scaled = ScaledRoPE::new(4, 10000.0, RopeScalingType::None).expect("test");
+        let input = Tensor::from_vec(vec![8], vec![0.0; 8]).expect("test");
 
         let result = scaled.forward(&input, 0);
         assert!(result.is_err());
@@ -5738,13 +5743,13 @@ mod tests {
 
     #[test]
     fn test_scaled_rope_with_default_base() {
-        let scaled = ScaledRoPE::with_default_base(64, RopeScalingType::None).unwrap();
+        let scaled = ScaledRoPE::with_default_base(64, RopeScalingType::None).expect("test");
         assert!((scaled.original_base() - 10000.0).abs() < 1e-6);
     }
 
     #[test]
     fn test_scaled_rope_inv_freq_length() {
-        let scaled = ScaledRoPE::new(128, 10000.0, RopeScalingType::None).unwrap();
+        let scaled = ScaledRoPE::new(128, 10000.0, RopeScalingType::None).expect("test");
         assert_eq!(scaled.inv_freq().len(), 64); // dim / 2
     }
 
@@ -5752,7 +5757,7 @@ mod tests {
 
     #[test]
     fn test_alibi_creation() {
-        let alibi = ALiBi::new(8).unwrap();
+        let alibi = ALiBi::new(8).expect("test");
         assert_eq!(alibi.num_heads(), 8);
         assert_eq!(alibi.slopes().len(), 8);
     }
@@ -5766,7 +5771,7 @@ mod tests {
     #[test]
     fn test_alibi_slopes_power_of_2() {
         // For 8 heads (power of 2), slopes should follow: 2^(-8h/8) = 2^(-h)
-        let alibi = ALiBi::new(8).unwrap();
+        let alibi = ALiBi::new(8).expect("test");
         let slopes = alibi.slopes();
 
         // Expected slopes: 2^0, 2^-1, 2^-2, 2^-3, 2^-4, 2^-5, 2^-6, 2^-7
@@ -5779,7 +5784,7 @@ mod tests {
     #[test]
     fn test_alibi_slopes_non_power_of_2() {
         // For 6 heads (not power of 2)
-        let alibi = ALiBi::new(6).unwrap();
+        let alibi = ALiBi::new(6).expect("test");
         let slopes = alibi.slopes();
 
         assert_eq!(slopes.len(), 6);
@@ -5799,8 +5804,8 @@ mod tests {
 
     #[test]
     fn test_alibi_bias_shape() {
-        let alibi = ALiBi::new(4).unwrap();
-        let bias = alibi.get_bias(10).unwrap();
+        let alibi = ALiBi::new(4).expect("test");
+        let bias = alibi.get_bias(10).expect("test");
 
         // Shape should be [seq_len, seq_len, num_heads]
         assert_eq!(bias.shape(), &[10, 10, 4]);
@@ -5808,7 +5813,7 @@ mod tests {
 
     #[test]
     fn test_alibi_bias_zero_seq_len_error() {
-        let alibi = ALiBi::new(4).unwrap();
+        let alibi = ALiBi::new(4).expect("test");
         let result = alibi.get_bias(0);
         assert!(result.is_err());
     }
@@ -5816,8 +5821,8 @@ mod tests {
     #[test]
     fn test_alibi_bias_diagonal_zero() {
         // Diagonal elements (same position) should be zero
-        let alibi = ALiBi::new(4).unwrap();
-        let bias = alibi.get_bias(5).unwrap();
+        let alibi = ALiBi::new(4).expect("test");
+        let bias = alibi.get_bias(5).expect("test");
 
         for i in 0..5 {
             for h in 0..4 {
@@ -5834,8 +5839,8 @@ mod tests {
     #[test]
     fn test_alibi_bias_symmetry() {
         // |i - j| = |j - i|, so bias[i,j,h] should equal bias[j,i,h]
-        let alibi = ALiBi::new(2).unwrap();
-        let bias = alibi.get_bias(4).unwrap();
+        let alibi = ALiBi::new(2).expect("test");
+        let bias = alibi.get_bias(4).expect("test");
 
         for i in 0..4 {
             for j in 0..4 {
@@ -5856,9 +5861,9 @@ mod tests {
     #[test]
     fn test_alibi_bias_computation() {
         // Test exact bias values
-        let alibi = ALiBi::new(2).unwrap();
+        let alibi = ALiBi::new(2).expect("test");
         let slopes = alibi.slopes();
-        let bias = alibi.get_bias(3).unwrap();
+        let bias = alibi.get_bias(3).expect("test");
 
         // For 2 heads: slopes = [1.0, 0.0625]
         // bias[0, 2, 0] = -slopes[0] * |0 - 2| = -1.0 * 2 = -2.0
@@ -5882,8 +5887,8 @@ mod tests {
     #[test]
     fn test_alibi_bias_negative() {
         // All bias values should be <= 0 (except diagonal which is 0)
-        let alibi = ALiBi::new(4).unwrap();
-        let bias = alibi.get_bias(10).unwrap();
+        let alibi = ALiBi::new(4).expect("test");
+        let bias = alibi.get_bias(10).expect("test");
 
         for &value in bias.data() {
             assert!(value <= 1e-6, "Bias should be non-positive, got {value}");
@@ -5893,8 +5898,8 @@ mod tests {
     #[test]
     fn test_alibi_bias_distance_proportional() {
         // Bias should be proportional to distance
-        let alibi = ALiBi::new(1).unwrap();
-        let bias = alibi.get_bias(5).unwrap();
+        let alibi = ALiBi::new(1).expect("test");
+        let bias = alibi.get_bias(5).expect("test");
 
         // For head 0, slope is 1.0
         // bias[0, 1] = -1.0 * 1 = -1.0
@@ -5912,7 +5917,7 @@ mod tests {
 
     #[test]
     fn test_alibi_single_head() {
-        let alibi = ALiBi::new(1).unwrap();
+        let alibi = ALiBi::new(1).expect("test");
         assert_eq!(alibi.num_heads(), 1);
         assert_eq!(alibi.slopes().len(), 1);
         assert!((alibi.slopes()[0] - 1.0).abs() < 1e-6); // First slope is 2^0 = 1.0
@@ -5921,7 +5926,7 @@ mod tests {
     #[test]
     fn test_alibi_large_num_heads() {
         // Test with large number of heads (non-power of 2)
-        let alibi = ALiBi::new(12).unwrap();
+        let alibi = ALiBi::new(12).expect("test");
         assert_eq!(alibi.num_heads(), 12);
         assert_eq!(alibi.slopes().len(), 12);
 
@@ -5937,8 +5942,8 @@ mod tests {
     #[test]
     fn test_alibi_bias_long_sequence() {
         // Test with longer sequence
-        let alibi = ALiBi::new(8).unwrap();
-        let bias = alibi.get_bias(128).unwrap();
+        let alibi = ALiBi::new(8).expect("test");
+        let bias = alibi.get_bias(128).expect("test");
 
         assert_eq!(bias.shape(), &[128, 128, 8]);
 
@@ -5953,7 +5958,7 @@ mod tests {
 
     #[test]
     fn test_kvcache_creation() {
-        let cache = KVCache::new(4, 512, 64).unwrap();
+        let cache = KVCache::new(4, 512, 64).expect("test");
         assert_eq!(cache.num_layers(), 4);
         assert_eq!(cache.max_seq_len(), 512);
         assert_eq!(cache.head_dim(), 64);
@@ -5970,18 +5975,18 @@ mod tests {
 
     #[test]
     fn test_kvcache_update_and_retrieve() {
-        let mut cache = KVCache::new(2, 10, 4).unwrap();
+        let mut cache = KVCache::new(2, 10, 4).expect("test");
 
         // Add first position
-        let key = Tensor::from_vec(vec![4], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
-        let value = Tensor::from_vec(vec![4], vec![5.0, 6.0, 7.0, 8.0]).unwrap();
+        let key = Tensor::from_vec(vec![4], vec![1.0, 2.0, 3.0, 4.0]).expect("test");
+        let value = Tensor::from_vec(vec![4], vec![5.0, 6.0, 7.0, 8.0]).expect("test");
 
-        cache.update(0, &key, &value).unwrap();
+        cache.update(0, &key, &value).expect("test");
         cache.advance();
 
         // Retrieve and verify
-        let cached_key = cache.get_key(0).unwrap();
-        let cached_value = cache.get_value(0).unwrap();
+        let cached_key = cache.get_key(0).expect("test");
+        let cached_value = cache.get_value(0).expect("test");
 
         assert_eq!(cached_key.shape(), &[1, 4]);
         assert_eq!(cached_value.shape(), &[1, 4]);
@@ -5994,24 +5999,24 @@ mod tests {
 
     #[test]
     fn test_kvcache_multiple_positions() {
-        let mut cache = KVCache::new(1, 10, 2).unwrap();
+        let mut cache = KVCache::new(1, 10, 2).expect("test");
 
         // Add multiple positions
         for pos in 0..3 {
             #[allow(clippy::cast_precision_loss)]
             let base = pos as f32;
-            let key = Tensor::from_vec(vec![2], vec![base, base + 0.5]).unwrap();
-            let value = Tensor::from_vec(vec![2], vec![base + 1.0, base + 1.5]).unwrap();
+            let key = Tensor::from_vec(vec![2], vec![base, base + 0.5]).expect("test");
+            let value = Tensor::from_vec(vec![2], vec![base + 1.0, base + 1.5]).expect("test");
 
-            cache.update(0, &key, &value).unwrap();
+            cache.update(0, &key, &value).expect("test");
             cache.advance();
         }
 
         assert_eq!(cache.current_pos(), 3);
 
         // Retrieve all positions
-        let cached_key = cache.get_key(0).unwrap();
-        let cached_value = cache.get_value(0).unwrap();
+        let cached_key = cache.get_key(0).expect("test");
+        let cached_value = cache.get_value(0).expect("test");
 
         assert_eq!(cached_key.shape(), &[3, 2]);
         assert_eq!(cached_value.shape(), &[3, 2]);
@@ -6026,31 +6031,31 @@ mod tests {
 
     #[test]
     fn test_kvcache_multiple_layers() {
-        let mut cache = KVCache::new(2, 10, 4).unwrap();
+        let mut cache = KVCache::new(2, 10, 4).expect("test");
 
-        let key0 = Tensor::from_vec(vec![4], vec![1.0; 4]).unwrap();
-        let value0 = Tensor::from_vec(vec![4], vec![2.0; 4]).unwrap();
-        let key1 = Tensor::from_vec(vec![4], vec![3.0; 4]).unwrap();
-        let value1 = Tensor::from_vec(vec![4], vec![4.0; 4]).unwrap();
+        let key0 = Tensor::from_vec(vec![4], vec![1.0; 4]).expect("test");
+        let value0 = Tensor::from_vec(vec![4], vec![2.0; 4]).expect("test");
+        let key1 = Tensor::from_vec(vec![4], vec![3.0; 4]).expect("test");
+        let value1 = Tensor::from_vec(vec![4], vec![4.0; 4]).expect("test");
 
-        cache.update(0, &key0, &value0).unwrap();
-        cache.update(1, &key1, &value1).unwrap();
+        cache.update(0, &key0, &value0).expect("test");
+        cache.update(1, &key1, &value1).expect("test");
         cache.advance();
 
         // Verify layer 0
-        let layer0_key = cache.get_key(0).unwrap();
+        let layer0_key = cache.get_key(0).expect("test");
         assert!((layer0_key.data()[0] - 1.0).abs() < 1e-6);
 
         // Verify layer 1
-        let layer1_key = cache.get_key(1).unwrap();
+        let layer1_key = cache.get_key(1).expect("test");
         assert!((layer1_key.data()[0] - 3.0).abs() < 1e-6);
     }
 
     #[test]
     fn test_kvcache_layer_out_of_bounds_error() {
-        let mut cache = KVCache::new(2, 10, 4).unwrap();
-        let key = Tensor::from_vec(vec![4], vec![1.0; 4]).unwrap();
-        let value = Tensor::from_vec(vec![4], vec![2.0; 4]).unwrap();
+        let mut cache = KVCache::new(2, 10, 4).expect("test");
+        let key = Tensor::from_vec(vec![4], vec![1.0; 4]).expect("test");
+        let value = Tensor::from_vec(vec![4], vec![2.0; 4]).expect("test");
 
         // Update layer 2 (out of bounds)
         assert!(cache.update(2, &key, &value).is_err());
@@ -6062,29 +6067,29 @@ mod tests {
 
     #[test]
     fn test_kvcache_size_mismatch_error() {
-        let mut cache = KVCache::new(1, 10, 4).unwrap();
+        let mut cache = KVCache::new(1, 10, 4).expect("test");
 
         // Wrong key size
-        let key = Tensor::from_vec(vec![3], vec![1.0; 3]).unwrap();
-        let value = Tensor::from_vec(vec![4], vec![2.0; 4]).unwrap();
+        let key = Tensor::from_vec(vec![3], vec![1.0; 3]).expect("test");
+        let value = Tensor::from_vec(vec![4], vec![2.0; 4]).expect("test");
         assert!(cache.update(0, &key, &value).is_err());
 
         // Wrong value size
-        let key = Tensor::from_vec(vec![4], vec![1.0; 4]).unwrap();
-        let value = Tensor::from_vec(vec![3], vec![2.0; 3]).unwrap();
+        let key = Tensor::from_vec(vec![4], vec![1.0; 4]).expect("test");
+        let value = Tensor::from_vec(vec![3], vec![2.0; 3]).expect("test");
         assert!(cache.update(0, &key, &value).is_err());
     }
 
     #[test]
     fn test_kvcache_full_error() {
-        let mut cache = KVCache::new(1, 2, 4).unwrap();
-        let key = Tensor::from_vec(vec![4], vec![1.0; 4]).unwrap();
-        let value = Tensor::from_vec(vec![4], vec![2.0; 4]).unwrap();
+        let mut cache = KVCache::new(1, 2, 4).expect("test");
+        let key = Tensor::from_vec(vec![4], vec![1.0; 4]).expect("test");
+        let value = Tensor::from_vec(vec![4], vec![2.0; 4]).expect("test");
 
         // Fill cache
-        cache.update(0, &key, &value).unwrap();
+        cache.update(0, &key, &value).expect("test");
         cache.advance();
-        cache.update(0, &key, &value).unwrap();
+        cache.update(0, &key, &value).expect("test");
         cache.advance();
 
         assert!(cache.is_full());
@@ -6095,11 +6100,11 @@ mod tests {
 
     #[test]
     fn test_kvcache_clear() {
-        let mut cache = KVCache::new(1, 10, 4).unwrap();
-        let key = Tensor::from_vec(vec![4], vec![1.0; 4]).unwrap();
-        let value = Tensor::from_vec(vec![4], vec![2.0; 4]).unwrap();
+        let mut cache = KVCache::new(1, 10, 4).expect("test");
+        let key = Tensor::from_vec(vec![4], vec![1.0; 4]).expect("test");
+        let value = Tensor::from_vec(vec![4], vec![2.0; 4]).expect("test");
 
-        cache.update(0, &key, &value).unwrap();
+        cache.update(0, &key, &value).expect("test");
         cache.advance();
         assert_eq!(cache.current_pos(), 1);
 
@@ -6110,11 +6115,11 @@ mod tests {
 
     #[test]
     fn test_kvcache_empty_retrieval() {
-        let cache = KVCache::new(1, 10, 4).unwrap();
+        let cache = KVCache::new(1, 10, 4).expect("test");
 
         // Retrieve from empty cache
-        let cached_key = cache.get_key(0).unwrap();
-        let cached_value = cache.get_value(0).unwrap();
+        let cached_key = cache.get_key(0).expect("test");
+        let cached_value = cache.get_value(0).expect("test");
 
         // Should return [1, 4] tensor with zeros
         assert_eq!(cached_key.shape(), &[1, 4]);
@@ -6128,7 +6133,7 @@ mod tests {
 
     #[test]
     fn test_transformer_block_creation() {
-        let block = TransformerBlock::new(64, 4, 256, 1e-5).unwrap();
+        let block = TransformerBlock::new(64, 4, 256, 1e-5).expect("test");
         assert_eq!(block.hidden_dim(), 64);
     }
 
@@ -6151,11 +6156,11 @@ mod tests {
     #[test]
     fn test_transformer_block_forward_shape() {
         // Use num_heads=1 so head_dim=hidden_dim (simplified single-head attention)
-        let block = TransformerBlock::new(8, 1, 32, 1e-5).unwrap();
+        let block = TransformerBlock::new(8, 1, 32, 1e-5).expect("test");
 
         // Input: [2, 8] (seq_len=2, hidden_dim=8)
-        let input = Tensor::from_vec(vec![2, 8], vec![0.1; 16]).unwrap();
-        let output = block.forward(&input).unwrap();
+        let input = Tensor::from_vec(vec![2, 8], vec![0.1; 16]).expect("test");
+        let output = block.forward(&input).expect("test");
 
         // Output should have same shape
         assert_eq!(output.shape(), &[2, 8]);
@@ -6164,11 +6169,11 @@ mod tests {
 
     #[test]
     fn test_transformer_block_forward_valid_output() {
-        let block = TransformerBlock::new(4, 1, 16, 1e-5).unwrap();
+        let block = TransformerBlock::new(4, 1, 16, 1e-5).expect("test");
 
         // Input must be 2D [seq_len, hidden_dim]
-        let input = Tensor::from_vec(vec![1, 4], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
-        let output = block.forward(&input).unwrap();
+        let input = Tensor::from_vec(vec![1, 4], vec![1.0, 2.0, 3.0, 4.0]).expect("test");
+        let output = block.forward(&input).expect("test");
 
         // Output should be finite
         for &val in output.data() {
@@ -6178,12 +6183,12 @@ mod tests {
 
     #[test]
     fn test_transformer_block_residual_connection() {
-        let block = TransformerBlock::new(4, 1, 16, 1e-5).unwrap();
+        let block = TransformerBlock::new(4, 1, 16, 1e-5).expect("test");
 
         // Input must be 2D [seq_len, hidden_dim]
         // With zero input, output should be non-zero due to residual + processing
-        let input = Tensor::from_vec(vec![1, 4], vec![0.0, 0.0, 0.0, 0.0]).unwrap();
-        let output = block.forward(&input).unwrap();
+        let input = Tensor::from_vec(vec![1, 4], vec![0.0, 0.0, 0.0, 0.0]).expect("test");
+        let output = block.forward(&input).expect("test");
 
         // Even with zero input, layer norm and attention should produce non-zero output
         // (though it might be small due to normalization)
@@ -6192,17 +6197,17 @@ mod tests {
 
     #[test]
     fn test_transformer_block_shape_mismatch_error() {
-        let block = TransformerBlock::new(8, 1, 32, 1e-5).unwrap();
+        let block = TransformerBlock::new(8, 1, 32, 1e-5).expect("test");
 
         // Wrong hidden_dim (input has 4, block expects 8)
-        let input = Tensor::from_vec(vec![4], vec![1.0; 4]).unwrap();
+        let input = Tensor::from_vec(vec![4], vec![1.0; 4]).expect("test");
         let result = block.forward(&input);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_transformer_block_mutable_access() {
-        let mut block = TransformerBlock::new(4, 1, 16, 1e-5).unwrap();
+        let mut block = TransformerBlock::new(4, 1, 16, 1e-5).expect("test");
 
         // Verify we can access mutable references
         let _attn_norm = block.attn_norm_mut();
@@ -6215,7 +6220,7 @@ mod tests {
 
     #[test]
     fn test_embedding_creation() {
-        let embed = Embedding::new(1000, 64).unwrap();
+        let embed = Embedding::new(1000, 64).expect("test");
         assert_eq!(embed.vocab_size(), 1000);
         assert_eq!(embed.embed_dim(), 64);
     }
@@ -6228,10 +6233,10 @@ mod tests {
 
     #[test]
     fn test_embedding_forward_shape() {
-        let embed = Embedding::new(100, 8).unwrap();
+        let embed = Embedding::new(100, 8).expect("test");
 
         let token_ids = vec![0, 1, 2];
-        let output = embed.forward(&token_ids).unwrap();
+        let output = embed.forward(&token_ids).expect("test");
 
         assert_eq!(output.shape(), &[3, 8]);
         assert_eq!(output.data().len(), 24);
@@ -6239,7 +6244,7 @@ mod tests {
 
     #[test]
     fn test_embedding_forward_lookup() {
-        let mut embed = Embedding::new(10, 4).unwrap();
+        let mut embed = Embedding::new(10, 4).expect("test");
 
         // Set specific embedding for token 5
         let offset = 5 * 4;
@@ -6248,7 +6253,7 @@ mod tests {
         embed.weights_mut()[offset + 2] = 3.0;
         embed.weights_mut()[offset + 3] = 4.0;
 
-        let output = embed.forward(&[5]).unwrap();
+        let output = embed.forward(&[5]).expect("test");
         assert_eq!(output.shape(), &[1, 4]);
         assert!((output.data()[0] - 1.0).abs() < 1e-6);
         assert!((output.data()[1] - 2.0).abs() < 1e-6);
@@ -6258,14 +6263,14 @@ mod tests {
 
     #[test]
     fn test_embedding_out_of_bounds_error() {
-        let embed = Embedding::new(10, 4).unwrap();
+        let embed = Embedding::new(10, 4).expect("test");
         assert!(embed.forward(&[10]).is_err()); // ID 10 is out of bounds
         assert!(embed.forward(&[100]).is_err());
     }
 
     #[test]
     fn test_embedding_empty_input_error() {
-        let embed = Embedding::new(10, 4).unwrap();
+        let embed = Embedding::new(10, 4).expect("test");
         assert!(embed.forward(&[]).is_err());
     }
 
@@ -6281,7 +6286,7 @@ mod tests {
             intermediate_dim: 32,
             eps: 1e-5,
         };
-        let model = Model::new(config).unwrap();
+        let model = Model::new(config).expect("test");
         assert_eq!(model.config().vocab_size, 100);
         assert_eq!(model.config().num_layers, 2);
     }
@@ -6296,10 +6301,10 @@ mod tests {
             intermediate_dim: 16,
             eps: 1e-5,
         };
-        let model = Model::new(config).unwrap();
+        let model = Model::new(config).expect("test");
 
         let token_ids = vec![0, 1, 2];
-        let output = model.forward(&token_ids).unwrap();
+        let output = model.forward(&token_ids).expect("test");
 
         // Output should be [seq_len, vocab_size]
         assert_eq!(output.shape(), &[3, 50]);
@@ -6315,9 +6320,9 @@ mod tests {
             intermediate_dim: 16,
             eps: 1e-5,
         };
-        let model = Model::new(config).unwrap();
+        let model = Model::new(config).expect("test");
 
-        let output = model.forward(&[0, 1]).unwrap();
+        let output = model.forward(&[0, 1]).expect("test");
 
         // Output should be finite
         for &val in output.data() {
@@ -6335,7 +6340,7 @@ mod tests {
             intermediate_dim: 32,
             eps: 1e-5,
         };
-        let model = Model::new(config).unwrap();
+        let model = Model::new(config).expect("test");
 
         let params = model.num_parameters();
         assert!(params > 0);
@@ -6353,7 +6358,7 @@ mod tests {
             intermediate_dim: 16,
             eps: 1e-5,
         };
-        let mut model = Model::new(config).unwrap();
+        let mut model = Model::new(config).expect("test");
 
         // Verify we can access mutable references
         let _embed = model.embedding_mut();
@@ -6372,10 +6377,10 @@ mod tests {
             intermediate_dim: 16,
             eps: 1e-5,
         };
-        let model = Model::new(config).unwrap();
+        let model = Model::new(config).expect("test");
 
         let gen_config = GenerationConfig::greedy().with_max_tokens(5);
-        let tokens = model.generate(&[0], &gen_config).unwrap();
+        let tokens = model.generate(&[0], &gen_config).expect("test");
 
         // Should have prompt + up to 5 generated tokens
         assert!(tokens.len() <= 6);
@@ -6394,10 +6399,10 @@ mod tests {
             intermediate_dim: 16,
             eps: 1e-5,
         };
-        let model = Model::new(config).unwrap();
+        let model = Model::new(config).expect("test");
 
         let gen_config = GenerationConfig::greedy().with_max_tokens(3);
-        let tokens = model.generate(&[0, 1], &gen_config).unwrap();
+        let tokens = model.generate(&[0, 1], &gen_config).expect("test");
 
         // Should have 2 prompt + 3 generated = 5 max
         assert!(tokens.len() <= 5);
@@ -6413,14 +6418,14 @@ mod tests {
             intermediate_dim: 16,
             eps: 1e-5,
         };
-        let model = Model::new(config).unwrap();
+        let model = Model::new(config).expect("test");
 
         // Set EOS token
         let gen_config = GenerationConfig::greedy()
             .with_max_tokens(100)
             .with_eos_token_id(5);
 
-        let tokens = model.generate(&[0], &gen_config).unwrap();
+        let tokens = model.generate(&[0], &gen_config).expect("test");
 
         // Should stop before max_tokens if EOS is generated
         // (may or may not hit EOS depending on model weights)
@@ -6437,7 +6442,7 @@ mod tests {
             intermediate_dim: 16,
             eps: 1e-5,
         };
-        let model = Model::new(config).unwrap();
+        let model = Model::new(config).expect("test");
 
         let gen_config = GenerationConfig::greedy();
         let result = model.generate(&[], &gen_config);
@@ -6454,15 +6459,15 @@ mod tests {
             intermediate_dim: 16,
             eps: 1e-5,
         };
-        let model = Model::new(config).unwrap();
+        let model = Model::new(config).expect("test");
 
         // Same seed should give same results
         let gen_config = GenerationConfig::greedy()
             .with_max_tokens(5)
             .with_seed(12345);
 
-        let tokens1 = model.generate(&[0], &gen_config).unwrap();
-        let tokens2 = model.generate(&[0], &gen_config).unwrap();
+        let tokens1 = model.generate(&[0], &gen_config).expect("test");
+        let tokens2 = model.generate(&[0], &gen_config).expect("test");
 
         assert_eq!(tokens1, tokens2);
     }
@@ -6477,11 +6482,11 @@ mod tests {
             intermediate_dim: 16,
             eps: 1e-5,
         };
-        let model = Model::new(config).unwrap();
+        let model = Model::new(config).expect("test");
 
         let gen_config = GenerationConfig::top_k(5).with_max_tokens(3).with_seed(42);
 
-        let tokens = model.generate(&[0], &gen_config).unwrap();
+        let tokens = model.generate(&[0], &gen_config).expect("test");
 
         // Should generate valid tokens
         assert!(tokens.len() <= 4);
@@ -6495,7 +6500,7 @@ mod tests {
     #[test]
     fn test_multi_head_attention_creation_mha() {
         // Standard Multi-Head Attention (num_kv_heads = num_heads)
-        let mha = MultiHeadAttention::mha(64, 8).unwrap();
+        let mha = MultiHeadAttention::mha(64, 8).expect("test");
         assert_eq!(mha.num_heads(), 8);
         assert_eq!(mha.num_kv_heads(), 8);
         assert_eq!(mha.head_dim(), 8); // 64 / 8
@@ -6508,7 +6513,7 @@ mod tests {
     #[test]
     fn test_multi_head_attention_creation_mqa() {
         // Multi-Query Attention (num_kv_heads = 1)
-        let mqa = MultiHeadAttention::mqa(64, 8).unwrap();
+        let mqa = MultiHeadAttention::mqa(64, 8).expect("test");
         assert_eq!(mqa.num_heads(), 8);
         assert_eq!(mqa.num_kv_heads(), 1);
         assert_eq!(mqa.head_dim(), 8);
@@ -6521,7 +6526,7 @@ mod tests {
     #[test]
     fn test_multi_head_attention_creation_gqa() {
         // Grouped-Query Attention (1 < num_kv_heads < num_heads)
-        let gqa = MultiHeadAttention::gqa(64, 8, 2).unwrap();
+        let gqa = MultiHeadAttention::gqa(64, 8, 2).expect("test");
         assert_eq!(gqa.num_heads(), 8);
         assert_eq!(gqa.num_kv_heads(), 2);
         assert_eq!(gqa.head_dim(), 8);
@@ -6573,7 +6578,7 @@ mod tests {
     #[test]
     fn test_multi_head_attention_mha_forward() {
         // Standard MHA with 2 heads
-        let mha = MultiHeadAttention::mha(8, 2).unwrap();
+        let mha = MultiHeadAttention::mha(8, 2).expect("test");
 
         // Input: [seq_len=2, hidden_dim=8]
         let input = Tensor::from_vec(
@@ -6583,9 +6588,9 @@ mod tests {
                 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, // token 2
             ],
         )
-        .unwrap();
+        .expect("test");
 
-        let output = mha.forward(&input).unwrap();
+        let output = mha.forward(&input).expect("test");
 
         // Output should have same shape as input
         assert_eq!(output.shape(), &[2, 8]);
@@ -6594,7 +6599,7 @@ mod tests {
     #[test]
     fn test_multi_head_attention_mqa_forward() {
         // Multi-Query Attention with 2 heads (shared K/V)
-        let mqa = MultiHeadAttention::mqa(8, 2).unwrap();
+        let mqa = MultiHeadAttention::mqa(8, 2).expect("test");
 
         // Input: [seq_len=2, hidden_dim=8]
         let input = Tensor::from_vec(
@@ -6604,9 +6609,9 @@ mod tests {
                 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, // token 2
             ],
         )
-        .unwrap();
+        .expect("test");
 
-        let output = mqa.forward(&input).unwrap();
+        let output = mqa.forward(&input).expect("test");
 
         // Output should have same shape as input
         assert_eq!(output.shape(), &[2, 8]);
@@ -6614,15 +6619,15 @@ mod tests {
 
     #[test]
     fn test_multi_head_attention_shape_validation() {
-        let mha = MultiHeadAttention::mha(8, 2).unwrap();
+        let mha = MultiHeadAttention::mha(8, 2).expect("test");
 
         // Wrong number of dimensions (1D instead of 2D)
-        let input_1d = Tensor::from_vec(vec![8], vec![1.0; 8]).unwrap();
+        let input_1d = Tensor::from_vec(vec![8], vec![1.0; 8]).expect("test");
         let result = mha.forward(&input_1d);
         assert!(result.is_err());
 
         // Wrong hidden dimension
-        let input_wrong_dim = Tensor::from_vec(vec![2, 16], vec![1.0; 32]).unwrap();
+        let input_wrong_dim = Tensor::from_vec(vec![2, 16], vec![1.0; 32]).expect("test");
         let result = mha.forward(&input_wrong_dim);
         assert!(result.is_err());
     }
@@ -6630,13 +6635,13 @@ mod tests {
     #[test]
     fn test_multi_head_attention_mha_vs_mqa_shape_consistency() {
         // Both MHA and MQA should produce same output shape
-        let mha = MultiHeadAttention::mha(16, 4).unwrap();
-        let mqa = MultiHeadAttention::mqa(16, 4).unwrap();
+        let mha = MultiHeadAttention::mha(16, 4).expect("test");
+        let mqa = MultiHeadAttention::mqa(16, 4).expect("test");
 
-        let input = Tensor::from_vec(vec![3, 16], vec![0.5; 48]).unwrap();
+        let input = Tensor::from_vec(vec![3, 16], vec![0.5; 48]).expect("test");
 
-        let multi_head_output = mha.forward(&input).unwrap();
-        let multi_query_output = mqa.forward(&input).unwrap();
+        let multi_head_output = mha.forward(&input).expect("test");
+        let multi_query_output = mqa.forward(&input).expect("test");
 
         // Both should have same output shape
         assert_eq!(multi_head_output.shape(), &[3, 16]);
@@ -6647,10 +6652,10 @@ mod tests {
     #[test]
     fn test_multi_head_attention_single_head() {
         // Edge case: single head (equivalent to single attention)
-        let mha = MultiHeadAttention::mha(8, 1).unwrap();
+        let mha = MultiHeadAttention::mha(8, 1).expect("test");
 
-        let input = Tensor::from_vec(vec![2, 8], vec![0.5; 16]).unwrap();
-        let output = mha.forward(&input).unwrap();
+        let input = Tensor::from_vec(vec![2, 8], vec![0.5; 16]).expect("test");
+        let output = mha.forward(&input).expect("test");
 
         assert_eq!(output.shape(), &[2, 8]);
     }
@@ -6658,10 +6663,10 @@ mod tests {
     #[test]
     fn test_multi_head_attention_mqa_kv_sharing() {
         // MQA should work with larger number of heads
-        let mqa = MultiHeadAttention::mqa(32, 8).unwrap();
+        let mqa = MultiHeadAttention::mqa(32, 8).expect("test");
 
-        let input = Tensor::from_vec(vec![4, 32], vec![0.1; 128]).unwrap();
-        let output = mqa.forward(&input).unwrap();
+        let input = Tensor::from_vec(vec![4, 32], vec![0.1; 128]).expect("test");
+        let output = mqa.forward(&input).expect("test");
 
         assert_eq!(output.shape(), &[4, 32]);
     }
@@ -6669,11 +6674,11 @@ mod tests {
     #[test]
     fn test_multi_head_attention_long_sequence() {
         // Test with longer sequence
-        let mha = MultiHeadAttention::mha(16, 4).unwrap();
+        let mha = MultiHeadAttention::mha(16, 4).expect("test");
 
         // Sequence length = 10
-        let input = Tensor::from_vec(vec![10, 16], vec![0.3; 160]).unwrap();
-        let output = mha.forward(&input).unwrap();
+        let input = Tensor::from_vec(vec![10, 16], vec![0.3; 160]).expect("test");
+        let output = mha.forward(&input).expect("test");
 
         assert_eq!(output.shape(), &[10, 16]);
     }
@@ -6682,11 +6687,11 @@ mod tests {
     fn test_multi_head_attention_mqa_memory_efficiency() {
         // MQA should still work correctly with shared K/V
         // This tests that the shared K/V logic is correct
-        let mqa = MultiHeadAttention::mqa(64, 16).unwrap();
+        let mqa = MultiHeadAttention::mqa(64, 16).expect("test");
 
         // Small batch
-        let input = Tensor::from_vec(vec![2, 64], vec![0.2; 128]).unwrap();
-        let output = mqa.forward(&input).unwrap();
+        let input = Tensor::from_vec(vec![2, 64], vec![0.2; 128]).expect("test");
+        let output = mqa.forward(&input).expect("test");
 
         assert_eq!(output.shape(), &[2, 64]);
         assert_eq!(output.data().len(), 128); // 2 * 64
@@ -6695,12 +6700,12 @@ mod tests {
     #[test]
     fn test_multi_head_attention_gqa_forward() {
         // Grouped-Query Attention with 8 heads, 2 KV heads (4 heads per group)
-        let gqa = MultiHeadAttention::gqa(32, 8, 2).unwrap();
+        let gqa = MultiHeadAttention::gqa(32, 8, 2).expect("test");
 
         // Input: [seq_len=3, hidden_dim=32]
-        let input = Tensor::from_vec(vec![3, 32], vec![0.1; 96]).unwrap();
+        let input = Tensor::from_vec(vec![3, 32], vec![0.1; 96]).expect("test");
 
-        let output = gqa.forward(&input).unwrap();
+        let output = gqa.forward(&input).expect("test");
 
         // Output should have same shape as input
         assert_eq!(output.shape(), &[3, 32]);
@@ -6709,15 +6714,15 @@ mod tests {
     #[test]
     fn test_multi_head_attention_gqa_shape_consistency() {
         // MHA, MQA, and GQA should all produce same output shape
-        let mha = MultiHeadAttention::mha(64, 8).unwrap();
-        let mqa = MultiHeadAttention::mqa(64, 8).unwrap();
-        let gqa = MultiHeadAttention::gqa(64, 8, 2).unwrap();
+        let mha = MultiHeadAttention::mha(64, 8).expect("test");
+        let mqa = MultiHeadAttention::mqa(64, 8).expect("test");
+        let gqa = MultiHeadAttention::gqa(64, 8, 2).expect("test");
 
-        let input = Tensor::from_vec(vec![4, 64], vec![0.5; 256]).unwrap();
+        let input = Tensor::from_vec(vec![4, 64], vec![0.5; 256]).expect("test");
 
-        let multi_head_out = mha.forward(&input).unwrap();
-        let multi_query_out = mqa.forward(&input).unwrap();
-        let grouped_query_out = gqa.forward(&input).unwrap();
+        let multi_head_out = mha.forward(&input).expect("test");
+        let multi_query_out = mqa.forward(&input).expect("test");
+        let grouped_query_out = gqa.forward(&input).expect("test");
 
         // All should have same output shape
         assert_eq!(multi_head_out.shape(), &[4, 64]);
@@ -6731,14 +6736,14 @@ mod tests {
     fn test_multi_head_attention_gqa_different_group_sizes() {
         // Test GQA with different group sizes
         // 16 heads, 4 KV heads (4 heads per group)
-        let gqa1 = MultiHeadAttention::gqa(128, 16, 4).unwrap();
-        let input = Tensor::from_vec(vec![2, 128], vec![0.3; 256]).unwrap();
-        let output1 = gqa1.forward(&input).unwrap();
+        let gqa1 = MultiHeadAttention::gqa(128, 16, 4).expect("test");
+        let input = Tensor::from_vec(vec![2, 128], vec![0.3; 256]).expect("test");
+        let output1 = gqa1.forward(&input).expect("test");
         assert_eq!(output1.shape(), &[2, 128]);
 
         // 16 heads, 8 KV heads (2 heads per group)
-        let gqa2 = MultiHeadAttention::gqa(128, 16, 8).unwrap();
-        let output2 = gqa2.forward(&input).unwrap();
+        let gqa2 = MultiHeadAttention::gqa(128, 16, 8).expect("test");
+        let output2 = gqa2.forward(&input).expect("test");
         assert_eq!(output2.shape(), &[2, 128]);
     }
 
@@ -6777,12 +6782,12 @@ mod tests {
             intermediate_dim: 128,
             eps: 1e-5,
         };
-        let model = Model::new(config).unwrap();
+        let model = Model::new(config).expect("test");
 
         // Warmup run
         let prompt = vec![1, 5, 10];
         let gen_config = GenerationConfig::greedy().with_max_tokens(5);
-        let _ = model.generate(&prompt, &gen_config).unwrap();
+        let _ = model.generate(&prompt, &gen_config).expect("test");
 
         // Benchmark: generate 20 tokens 10 times
         let tokens_per_run = 20;
@@ -6791,7 +6796,7 @@ mod tests {
 
         let start = Instant::now();
         for _ in 0..num_runs {
-            let _ = model.generate(&prompt, &gen_config).unwrap();
+            let _ = model.generate(&prompt, &gen_config).expect("test");
         }
         let elapsed = start.elapsed();
 
@@ -6827,29 +6832,32 @@ mod tests {
         let seq_len = 32;
 
         // Attention::new takes head_dim only
-        let attn = Attention::new(head_dim).unwrap();
+        let attn = Attention::new(head_dim).expect("test");
 
         // Create QKV tensors
-        let q = Tensor::from_vec(vec![seq_len, head_dim], vec![0.1; seq_len * head_dim]).unwrap();
-        let k = Tensor::from_vec(vec![seq_len, head_dim], vec![0.2; seq_len * head_dim]).unwrap();
-        let v = Tensor::from_vec(vec![seq_len, head_dim], vec![0.3; seq_len * head_dim]).unwrap();
+        let q =
+            Tensor::from_vec(vec![seq_len, head_dim], vec![0.1; seq_len * head_dim]).expect("test");
+        let k =
+            Tensor::from_vec(vec![seq_len, head_dim], vec![0.2; seq_len * head_dim]).expect("test");
+        let v =
+            Tensor::from_vec(vec![seq_len, head_dim], vec![0.3; seq_len * head_dim]).expect("test");
 
         // Warmup
-        let _ = attn.flash_forward_v2(&q, &k, &v, 8).unwrap();
-        let _ = attn.flash_forward_parallel(&q, &k, &v, 8).unwrap();
+        let _ = attn.flash_forward_v2(&q, &k, &v, 8).expect("test");
+        let _ = attn.flash_forward_parallel(&q, &k, &v, 8).expect("test");
 
         // Benchmark Flash Attention v2 (SIMD)
         let iterations = 100;
         let start = Instant::now();
         for _ in 0..iterations {
-            let _ = attn.flash_forward_v2(&q, &k, &v, 8).unwrap();
+            let _ = attn.flash_forward_v2(&q, &k, &v, 8).expect("test");
         }
         let v2_time = start.elapsed();
 
         // Benchmark Flash Attention parallel
         let start = Instant::now();
         for _ in 0..iterations {
-            let _ = attn.flash_forward_parallel(&q, &k, &v, 8).unwrap();
+            let _ = attn.flash_forward_parallel(&q, &k, &v, 8).expect("test");
         }
         let parallel_time = start.elapsed();
 
@@ -6880,31 +6888,31 @@ mod tests {
         // FusedLayerNormLinear::new initializes with default weights
         // (norm_weight=1.0, norm_bias=0.0, linear_weight=0.0, linear_bias=0.0)
         // which is fine for performance testing
-        let fused = FusedLayerNormLinear::new(feature_dim, out_features, 1e-5).unwrap();
+        let fused = FusedLayerNormLinear::new(feature_dim, out_features, 1e-5).expect("test");
 
         // Create input batch
         let input = Tensor::from_vec(
             vec![batch_size, feature_dim],
             vec![0.5; batch_size * feature_dim],
         )
-        .unwrap();
+        .expect("test");
 
         // Warmup
-        let _ = fused.forward(&input).unwrap();
-        let _ = fused.forward_parallel(&input).unwrap();
+        let _ = fused.forward(&input).expect("test");
+        let _ = fused.forward_parallel(&input).expect("test");
 
         // Benchmark fused forward
         let iterations = 100;
         let start = Instant::now();
         for _ in 0..iterations {
-            let _ = fused.forward(&input).unwrap();
+            let _ = fused.forward(&input).expect("test");
         }
         let fused_time = start.elapsed();
 
         // Benchmark parallel fused forward
         let start = Instant::now();
         for _ in 0..iterations {
-            let _ = fused.forward_parallel(&input).unwrap();
+            let _ = fused.forward_parallel(&input).expect("test");
         }
         let parallel_time = start.elapsed();
 
@@ -6945,7 +6953,7 @@ mod tests {
             "Should create QuantizedLinear from Q4_K bytes"
         );
 
-        let layer = layer.unwrap();
+        let layer = layer.expect("test");
         assert_eq!(layer.in_features(), in_features);
         assert_eq!(layer.out_features(), out_features);
     }
@@ -7042,7 +7050,7 @@ mod tests {
 
     #[test]
     fn test_sliding_window_attention_new() {
-        let swa = SlidingWindowAttention::new(64, 4096).unwrap();
+        let swa = SlidingWindowAttention::new(64, 4096).expect("test");
         assert_eq!(swa.head_dim(), 64);
         assert_eq!(swa.window_size(), 4096);
         assert!((swa.scale() - 0.125).abs() < 1e-6); // 1/sqrt(64) = 0.125
@@ -7058,31 +7066,31 @@ mod tests {
 
     #[test]
     fn test_sliding_window_attention_forward_basic() {
-        let swa = SlidingWindowAttention::new(4, 3).unwrap();
+        let swa = SlidingWindowAttention::new(4, 3).expect("test");
         // Small test: 5 positions, window size 3
         // Query: 5x4, Key: 5x4, Value: 5x4
         let query_data: Vec<f32> = (0..20).map(|i| i as f32 * 0.1).collect();
         let key_data: Vec<f32> = (0..20).map(|i| i as f32 * 0.1).collect();
         let value_data: Vec<f32> = (0..20).map(|i| (i % 4) as f32).collect();
 
-        let query = Tensor::from_vec(vec![5, 4], query_data).unwrap();
-        let key = Tensor::from_vec(vec![5, 4], key_data).unwrap();
-        let value = Tensor::from_vec(vec![5, 4], value_data).unwrap();
+        let query = Tensor::from_vec(vec![5, 4], query_data).expect("test");
+        let key = Tensor::from_vec(vec![5, 4], key_data).expect("test");
+        let value = Tensor::from_vec(vec![5, 4], value_data).expect("test");
 
-        let output = swa.forward(&query, &key, &value).unwrap();
+        let output = swa.forward(&query, &key, &value).expect("test");
         assert_eq!(output.size(), 20); // 5 positions * 4 head_dim
     }
 
     #[test]
     fn test_sliding_window_attention_causal_masking() {
         // Test that position i can only attend to positions <= i
-        let swa = SlidingWindowAttention::new(2, 10).unwrap(); // Large window, so only causal matters
-                                                               // Query: 3x2, Key: 3x2, Value: 3x2
-        let query = Tensor::from_vec(vec![3, 2], vec![1.0, 0.0, 1.0, 0.0, 1.0, 0.0]).unwrap();
-        let key = Tensor::from_vec(vec![3, 2], vec![1.0, 0.0, 0.0, 1.0, 1.0, 1.0]).unwrap();
-        let value = Tensor::from_vec(vec![3, 2], vec![1.0, 0.0, 0.0, 1.0, 0.5, 0.5]).unwrap();
+        let swa = SlidingWindowAttention::new(2, 10).expect("test"); // Large window, so only causal matters
+                                                                     // Query: 3x2, Key: 3x2, Value: 3x2
+        let query = Tensor::from_vec(vec![3, 2], vec![1.0, 0.0, 1.0, 0.0, 1.0, 0.0]).expect("test");
+        let key = Tensor::from_vec(vec![3, 2], vec![1.0, 0.0, 0.0, 1.0, 1.0, 1.0]).expect("test");
+        let value = Tensor::from_vec(vec![3, 2], vec![1.0, 0.0, 0.0, 1.0, 0.5, 0.5]).expect("test");
 
-        let output = swa.forward(&query, &key, &value).unwrap();
+        let output = swa.forward(&query, &key, &value).expect("test");
         assert_eq!(output.size(), 6);
 
         // Position 0 can only attend to itself
@@ -7096,14 +7104,14 @@ mod tests {
     #[test]
     fn test_sliding_window_attention_window_boundary() {
         // Window size 2: each position can attend to at most 2 keys
-        let swa = SlidingWindowAttention::new(2, 2).unwrap();
+        let swa = SlidingWindowAttention::new(2, 2).expect("test");
         // 5 positions, window=2
-        let query = Tensor::from_vec(vec![5, 2], vec![1.0; 10]).unwrap();
-        let key = Tensor::from_vec(vec![5, 2], vec![1.0; 10]).unwrap();
+        let query = Tensor::from_vec(vec![5, 2], vec![1.0; 10]).expect("test");
+        let key = Tensor::from_vec(vec![5, 2], vec![1.0; 10]).expect("test");
         let value_data: Vec<f32> = (0..10).map(|i| i as f32).collect();
-        let value = Tensor::from_vec(vec![5, 2], value_data).unwrap();
+        let value = Tensor::from_vec(vec![5, 2], value_data).expect("test");
 
-        let output = swa.forward(&query, &key, &value).unwrap();
+        let output = swa.forward(&query, &key, &value).expect("test");
         assert_eq!(output.size(), 10);
 
         // Position 0: attends to [0] (only 1 key available due to causality)
@@ -7115,7 +7123,7 @@ mod tests {
 
     #[test]
     fn test_sliding_window_attention_effective_context() {
-        let swa = SlidingWindowAttention::new(64, 4).unwrap();
+        let swa = SlidingWindowAttention::new(64, 4).expect("test");
 
         // Position 0, seq_len 10: can attend to min(1, 4) = 1
         assert_eq!(swa.effective_context(0, 10), 1);
@@ -7132,7 +7140,7 @@ mod tests {
 
     #[test]
     fn test_sliding_window_attention_memory_ratio() {
-        let swa = SlidingWindowAttention::new(64, 4096).unwrap();
+        let swa = SlidingWindowAttention::new(64, 4096).expect("test");
 
         // For short sequences, ratio ~= 1.0
         let ratio_short = swa.memory_ratio(1000);
@@ -7154,10 +7162,10 @@ mod tests {
 
     #[test]
     fn test_sliding_window_attention_error_mismatched_kv() {
-        let swa = SlidingWindowAttention::new(4, 3).unwrap();
-        let query = Tensor::from_vec(vec![2, 4], vec![1.0; 8]).unwrap();
-        let key = Tensor::from_vec(vec![3, 4], vec![1.0; 12]).unwrap();
-        let value = Tensor::from_vec(vec![2, 4], vec![1.0; 8]).unwrap(); // Different from K
+        let swa = SlidingWindowAttention::new(4, 3).expect("test");
+        let query = Tensor::from_vec(vec![2, 4], vec![1.0; 8]).expect("test");
+        let key = Tensor::from_vec(vec![3, 4], vec![1.0; 12]).expect("test");
+        let value = Tensor::from_vec(vec![2, 4], vec![1.0; 8]).expect("test"); // Different from K
 
         // K and V must have same seq_len
         let result = swa.forward(&query, &key, &value);
@@ -7166,11 +7174,11 @@ mod tests {
 
     #[test]
     fn test_sliding_window_attention_error_bad_head_dim() {
-        let swa = SlidingWindowAttention::new(4, 3).unwrap();
+        let swa = SlidingWindowAttention::new(4, 3).expect("test");
         // Key has wrong head_dim (3 instead of 4)
-        let query = Tensor::from_vec(vec![2, 4], vec![1.0; 8]).unwrap();
-        let key = Tensor::from_vec(vec![2, 3], vec![1.0; 6]).unwrap();
-        let value = Tensor::from_vec(vec![2, 4], vec![1.0; 8]).unwrap();
+        let query = Tensor::from_vec(vec![2, 4], vec![1.0; 8]).expect("test");
+        let key = Tensor::from_vec(vec![2, 3], vec![1.0; 6]).expect("test");
+        let value = Tensor::from_vec(vec![2, 4], vec![1.0; 8]).expect("test");
 
         let result = swa.forward(&query, &key, &value);
         assert!(result.is_err());
@@ -7178,15 +7186,17 @@ mod tests {
 
     #[test]
     fn test_sliding_window_attention_bidirectional() {
-        let swa = SlidingWindowAttention::new(2, 4).unwrap();
+        let swa = SlidingWindowAttention::new(2, 4).expect("test");
         // 5 positions, bidirectional window
-        let query = Tensor::from_vec(vec![5, 2], vec![1.0; 10]).unwrap();
-        let key = Tensor::from_vec(vec![5, 2], vec![1.0; 10]).unwrap();
+        let query = Tensor::from_vec(vec![5, 2], vec![1.0; 10]).expect("test");
+        let key = Tensor::from_vec(vec![5, 2], vec![1.0; 10]).expect("test");
         let value_data: Vec<f32> = (0..10).map(|i| i as f32).collect();
-        let value = Tensor::from_vec(vec![5, 2], value_data).unwrap();
+        let value = Tensor::from_vec(vec![5, 2], value_data).expect("test");
 
-        let output_causal = swa.forward(&query, &key, &value).unwrap();
-        let output_bidir = swa.forward_with_mask(&query, &key, &value, false).unwrap();
+        let output_causal = swa.forward(&query, &key, &value).expect("test");
+        let output_bidir = swa
+            .forward_with_mask(&query, &key, &value, false)
+            .expect("test");
 
         // Bidirectional can attend to more positions, so outputs may differ
         assert_eq!(output_causal.size(), output_bidir.size());
@@ -7197,14 +7207,16 @@ mod tests {
 
     #[test]
     fn test_sliding_window_attention_forward_with_mask_causal() {
-        let swa = SlidingWindowAttention::new(2, 3).unwrap();
-        let query = Tensor::from_vec(vec![3, 2], vec![1.0; 6]).unwrap();
-        let key = Tensor::from_vec(vec![3, 2], vec![1.0; 6]).unwrap();
-        let value = Tensor::from_vec(vec![3, 2], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+        let swa = SlidingWindowAttention::new(2, 3).expect("test");
+        let query = Tensor::from_vec(vec![3, 2], vec![1.0; 6]).expect("test");
+        let key = Tensor::from_vec(vec![3, 2], vec![1.0; 6]).expect("test");
+        let value = Tensor::from_vec(vec![3, 2], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).expect("test");
 
         // forward_with_mask(causal=true) should match forward()
-        let output_forward = swa.forward(&query, &key, &value).unwrap();
-        let output_mask = swa.forward_with_mask(&query, &key, &value, true).unwrap();
+        let output_forward = swa.forward(&query, &key, &value).expect("test");
+        let output_mask = swa
+            .forward_with_mask(&query, &key, &value, true)
+            .expect("test");
 
         for (a, b) in output_forward.data().iter().zip(output_mask.data().iter()) {
             assert!(
@@ -7218,13 +7230,13 @@ mod tests {
 
     #[test]
     fn test_sliding_window_attention_single_token() {
-        let swa = SlidingWindowAttention::new(4, 3).unwrap();
+        let swa = SlidingWindowAttention::new(4, 3).expect("test");
         // Single token input
-        let query = Tensor::from_vec(vec![1, 4], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
-        let key = Tensor::from_vec(vec![1, 4], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
-        let value = Tensor::from_vec(vec![1, 4], vec![0.5, 0.5, 0.5, 0.5]).unwrap();
+        let query = Tensor::from_vec(vec![1, 4], vec![1.0, 2.0, 3.0, 4.0]).expect("test");
+        let key = Tensor::from_vec(vec![1, 4], vec![1.0, 2.0, 3.0, 4.0]).expect("test");
+        let value = Tensor::from_vec(vec![1, 4], vec![0.5, 0.5, 0.5, 0.5]).expect("test");
 
-        let output = swa.forward(&query, &key, &value).unwrap();
+        let output = swa.forward(&query, &key, &value).expect("test");
         assert_eq!(output.size(), 4);
         // Self-attention on single token returns the value
         let data = output.data();
@@ -7241,10 +7253,10 @@ mod tests {
     #[test]
     fn test_fused_qkv_attention_basic() {
         // IMP-003: Fused attention should match separate Q/K/V computation
-        let fused = FusedQKVAttention::new(4, 64).unwrap();
-        let input = Tensor::from_vec(vec![8, 64], vec![0.1; 8 * 64]).unwrap();
+        let fused = FusedQKVAttention::new(4, 64).expect("test");
+        let input = Tensor::from_vec(vec![8, 64], vec![0.1; 8 * 64]).expect("test");
 
-        let output = fused.forward(&input).unwrap();
+        let output = fused.forward(&input).expect("test");
         assert_eq!(output.shape(), &[8, 64]);
     }
 
@@ -7255,16 +7267,16 @@ mod tests {
         let hidden_dim = 64;
         let seq_len = 4;
 
-        let fused = FusedQKVAttention::new(head_dim, hidden_dim).unwrap();
+        let fused = FusedQKVAttention::new(head_dim, hidden_dim).expect("test");
         let input = Tensor::from_vec(
             vec![seq_len, hidden_dim],
             (0..(seq_len * hidden_dim))
                 .map(|i| (i as f32 * 0.01).sin())
                 .collect(),
         )
-        .unwrap();
+        .expect("test");
 
-        let output = fused.forward(&input).unwrap();
+        let output = fused.forward(&input).expect("test");
 
         // Output should have same shape as input
         assert_eq!(output.shape(), input.shape());
@@ -7278,10 +7290,10 @@ mod tests {
     #[test]
     fn test_fused_qkv_attention_single_token() {
         // Single token case - important for autoregressive generation
-        let fused = FusedQKVAttention::new(8, 32).unwrap();
-        let input = Tensor::from_vec(vec![1, 32], vec![0.5; 32]).unwrap();
+        let fused = FusedQKVAttention::new(8, 32).expect("test");
+        let input = Tensor::from_vec(vec![1, 32], vec![0.5; 32]).expect("test");
 
-        let output = fused.forward(&input).unwrap();
+        let output = fused.forward(&input).expect("test");
         assert_eq!(output.shape(), &[1, 32]);
     }
 
@@ -7299,9 +7311,9 @@ mod tests {
 
     #[test]
     fn test_fused_qkv_attention_error_mismatched_input() {
-        let fused = FusedQKVAttention::new(8, 64).unwrap();
+        let fused = FusedQKVAttention::new(8, 64).expect("test");
         // Input with wrong hidden dim
-        let input = Tensor::from_vec(vec![4, 32], vec![0.1; 4 * 32]).unwrap();
+        let input = Tensor::from_vec(vec![4, 32], vec![0.1; 4 * 32]).expect("test");
 
         let result = fused.forward(&input);
         assert!(result.is_err());
@@ -7310,12 +7322,12 @@ mod tests {
     #[test]
     fn test_fused_qkv_attention_numerical_stability() {
         // Test with extreme values - should not produce NaN/Inf
-        let fused = FusedQKVAttention::new(8, 32).unwrap();
+        let fused = FusedQKVAttention::new(8, 32).expect("test");
 
         // Large values that could overflow naive softmax
-        let input = Tensor::from_vec(vec![4, 32], vec![100.0; 4 * 32]).unwrap();
+        let input = Tensor::from_vec(vec![4, 32], vec![100.0; 4 * 32]).expect("test");
 
-        let output = fused.forward(&input).unwrap();
+        let output = fused.forward(&input).expect("test");
 
         for &val in output.data() {
             assert!(
@@ -7326,9 +7338,9 @@ mod tests {
         }
 
         // Small values that could underflow
-        let input_small = Tensor::from_vec(vec![4, 32], vec![1e-10; 4 * 32]).unwrap();
+        let input_small = Tensor::from_vec(vec![4, 32], vec![1e-10; 4 * 32]).expect("test");
 
-        let output_small = fused.forward(&input_small).unwrap();
+        let output_small = fused.forward(&input_small).expect("test");
 
         for &val in output_small.data() {
             assert!(
@@ -7342,11 +7354,11 @@ mod tests {
     #[test]
     fn test_fused_qkv_attention_causal_mask() {
         // Causal attention: position i can only attend to positions <= i
-        let fused = FusedQKVAttention::new(4, 16).unwrap();
-        let input =
-            Tensor::from_vec(vec![4, 16], (0..64).map(|i| (i as f32) * 0.1).collect()).unwrap();
+        let fused = FusedQKVAttention::new(4, 16).expect("test");
+        let input = Tensor::from_vec(vec![4, 16], (0..64).map(|i| (i as f32) * 0.1).collect())
+            .expect("test");
 
-        let output = fused.forward(&input).unwrap();
+        let output = fused.forward(&input).expect("test");
 
         // Each output position should only depend on prior positions
         // This is implicitly verified by the implementation using causal mask
@@ -7362,22 +7374,22 @@ mod tests {
     #[test]
     fn test_qa_003_attention_scores_correctness() {
         let head_dim = 4;
-        let attention = Attention::new(head_dim).unwrap();
+        let attention = Attention::new(head_dim).expect("test");
 
         // Create simple Q, K, V tensors for verification
         let q = Tensor::from_vec(
             vec![2, head_dim],
             vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
         )
-        .unwrap();
+        .expect("test");
         let k = q.clone();
         let v = Tensor::from_vec(
             vec![2, head_dim],
             vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
         )
-        .unwrap();
+        .expect("test");
 
-        let output = attention.forward(&q, &k, &v).unwrap();
+        let output = attention.forward(&q, &k, &v).expect("test");
 
         // Output should have correct shape
         assert_eq!(output.shape(), &[2, head_dim]);
@@ -7394,14 +7406,14 @@ mod tests {
     /// QA-004: RoPE embeddings produce correct rotations
     #[test]
     fn test_qa_004_rope_embeddings_correctness() {
-        let rope = RoPE::new(64, 10000.0).unwrap();
+        let rope = RoPE::new(64, 10000.0).expect("test");
 
         // Apply RoPE at position 0 - should be identity-like
-        let input = Tensor::from_vec(vec![1, 64], vec![1.0; 64]).unwrap();
-        let output_pos0 = rope.forward(&input, 0).unwrap();
+        let input = Tensor::from_vec(vec![1, 64], vec![1.0; 64]).expect("test");
+        let output_pos0 = rope.forward(&input, 0).expect("test");
 
         // Apply at position 1 - should be rotated
-        let output_pos1 = rope.forward(&input, 1).unwrap();
+        let output_pos1 = rope.forward(&input, 1).expect("test");
 
         // Outputs at different positions should differ
         let data0 = output_pos0.data();
@@ -7434,9 +7446,9 @@ mod tests {
                 vec![size],
                 (0..size).map(|i| (i as f32 * 0.1).sin()).collect(),
             )
-            .unwrap();
+            .expect("test");
 
-            let output = softmax(&input).unwrap();
+            let output = softmax(&input).expect("test");
             let sum: f32 = output.data().iter().sum();
 
             assert!(
@@ -7458,16 +7470,16 @@ mod tests {
     #[test]
     fn test_qa_006_layer_norm_unit_variance() {
         let hidden_dim = 64;
-        let layer_norm = LayerNorm::new(hidden_dim, 1e-5).unwrap();
+        let layer_norm = LayerNorm::new(hidden_dim, 1e-5).expect("test");
 
         // Create input with known statistics
         let input = Tensor::from_vec(
             vec![1, hidden_dim],
             (0..hidden_dim).map(|i| i as f32).collect(),
         )
-        .unwrap();
+        .expect("test");
 
-        let output = layer_norm.forward(&input).unwrap();
+        let output = layer_norm.forward(&input).expect("test");
         let data = output.data();
 
         // Calculate variance of output
@@ -7495,8 +7507,8 @@ mod tests {
     #[test]
     fn test_qa_007_gelu_activation_correctness() {
         // GELU(0) ≈ 0
-        let input_zero = Tensor::from_vec(vec![1], vec![0.0]).unwrap();
-        let output_zero = gelu(&input_zero).unwrap();
+        let input_zero = Tensor::from_vec(vec![1], vec![0.0]).expect("test");
+        let output_zero = gelu(&input_zero).expect("test");
         assert!(
             output_zero.data()[0].abs() < 1e-5,
             "QA-007: GELU(0) should be ~0, got {}",
@@ -7504,24 +7516,24 @@ mod tests {
         );
 
         // GELU(x) > 0 for x > 0
-        let input_pos = Tensor::from_vec(vec![1], vec![1.0]).unwrap();
-        let output_pos = gelu(&input_pos).unwrap();
+        let input_pos = Tensor::from_vec(vec![1], vec![1.0]).expect("test");
+        let output_pos = gelu(&input_pos).expect("test");
         assert!(
             output_pos.data()[0] > 0.0,
             "QA-007: GELU(1.0) should be positive"
         );
 
         // GELU is approximately linear for large x
-        let input_large = Tensor::from_vec(vec![1], vec![10.0]).unwrap();
-        let output_large = gelu(&input_large).unwrap();
+        let input_large = Tensor::from_vec(vec![1], vec![10.0]).expect("test");
+        let output_large = gelu(&input_large).expect("test");
         assert!(
             (output_large.data()[0] - 10.0).abs() < 1.0,
             "QA-007: GELU(10) should be ~10"
         );
 
         // GELU(x) < 0 for small negative x but bounded
-        let input_neg = Tensor::from_vec(vec![1], vec![-0.5]).unwrap();
-        let output_neg = gelu(&input_neg).unwrap();
+        let input_neg = Tensor::from_vec(vec![1], vec![-0.5]).expect("test");
+        let output_neg = gelu(&input_neg).expect("test");
         assert!(
             output_neg.data()[0] < 0.0 && output_neg.data()[0] > -1.0,
             "QA-007: GELU(-0.5) should be small negative"
@@ -7607,7 +7619,7 @@ mod tests {
             q8_data[4 + i] = i as u8; // quants start at offset 4
         }
 
-        let dequant = dequantize_q8_0(&q8_data).unwrap();
+        let dequant = dequantize_q8_0(&q8_data).expect("test");
         assert_eq!(
             dequant.len(),
             32,
@@ -7628,7 +7640,7 @@ mod tests {
         q4k_data[0..2].copy_from_slice(&0x3C00_u16.to_le_bytes());
         q4k_data[2..4].copy_from_slice(&0x0000_u16.to_le_bytes());
 
-        let q4k_dequant = dequantize_q4_k(&q4k_data).unwrap();
+        let q4k_dequant = dequantize_q4_k(&q4k_data).expect("test");
         assert_eq!(
             q4k_dequant.len(),
             256,
@@ -7656,16 +7668,16 @@ mod tests {
 
         // Run multiple iterations of a simple operation
         let mut latencies = Vec::with_capacity(100);
-        let layer_norm = LayerNorm::new(64, 1e-5).unwrap();
-        let input = Tensor::from_vec(vec![8, 64], vec![0.1; 512]).unwrap();
+        let layer_norm = LayerNorm::new(64, 1e-5).expect("test");
+        let input = Tensor::from_vec(vec![8, 64], vec![0.1; 512]).expect("test");
 
         for _ in 0..100 {
             let start = Instant::now();
-            let _ = layer_norm.forward(&input).unwrap();
+            let _ = layer_norm.forward(&input).expect("test");
             latencies.push(start.elapsed().as_nanos() as f64);
         }
 
-        latencies.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        latencies.sort_by(|a, b| a.partial_cmp(b).expect("test"));
 
         let p50 = latencies[49];
         let p99 = latencies[98];
@@ -7684,11 +7696,11 @@ mod tests {
     #[test]
     fn test_qa_015_no_memory_leaks() {
         // Run many iterations and verify allocations are bounded
-        let layer_norm = LayerNorm::new(128, 1e-5).unwrap();
+        let layer_norm = LayerNorm::new(128, 1e-5).expect("test");
 
         for cycle in 0..1000 {
-            let input = Tensor::from_vec(vec![4, 128], vec![0.1; 512]).unwrap();
-            let output = layer_norm.forward(&input).unwrap();
+            let input = Tensor::from_vec(vec![4, 128], vec![0.1; 512]).expect("test");
+            let output = layer_norm.forward(&input).expect("test");
 
             // Verify output is valid
             assert_eq!(output.size(), 512);
@@ -7710,13 +7722,13 @@ mod tests {
     fn test_qa_017_warm_inference_stability() {
         use std::time::Instant;
 
-        let linear = Linear::new(64, 64).unwrap();
-        let input = Tensor::from_vec(vec![1, 64], vec![0.1; 64]).unwrap();
+        let linear = Linear::new(64, 64).expect("test");
+        let input = Tensor::from_vec(vec![1, 64], vec![0.1; 64]).expect("test");
 
         // Extended warmup per Mytkowicz et al. [4] "Producing wrong data without doing anything
         // obviously wrong" - JIT compilation, cache population, branch predictor training
         for _ in 0..100 {
-            let _ = linear.forward(&input).unwrap();
+            let _ = linear.forward(&input).expect("test");
         }
 
         // Multiple rounds, take best (most stable) per Georges et al. [3]
@@ -7727,12 +7739,12 @@ mod tests {
             let mut steady_latencies = Vec::with_capacity(50);
             for _ in 0..50 {
                 let start = Instant::now();
-                let _ = linear.forward(&input).unwrap();
+                let _ = linear.forward(&input).expect("test");
                 steady_latencies.push(start.elapsed().as_nanos() as f64);
             }
 
             // Remove outliers (top/bottom 10%) per robust statistics
-            steady_latencies.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            steady_latencies.sort_by(|a, b| a.partial_cmp(b).expect("test"));
             let trimmed_start = steady_latencies.len() / 10;
             let trimmed_end = steady_latencies.len() - trimmed_start;
             let trimmed: Vec<f64> = steady_latencies[trimmed_start..trimmed_end].to_vec();
@@ -7763,10 +7775,10 @@ mod tests {
     fn test_qa_019_generation_rate_stability() {
         use std::time::Instant;
 
-        let attention = Attention::new(32).unwrap();
+        let attention = Attention::new(32).expect("test");
         let seq_len = 16;
 
-        let q = Tensor::from_vec(vec![seq_len, 32], vec![0.1; seq_len * 32]).unwrap();
+        let q = Tensor::from_vec(vec![seq_len, 32], vec![0.1; seq_len * 32]).expect("test");
         let k = q.clone();
         let v = q.clone();
 
@@ -7774,7 +7786,7 @@ mod tests {
         let mut times = Vec::with_capacity(20);
         for _ in 0..20 {
             let start = Instant::now();
-            let _ = attention.forward(&q, &k, &v).unwrap();
+            let _ = attention.forward(&q, &k, &v).expect("test");
             times.push(start.elapsed().as_nanos() as f64);
         }
 
@@ -7801,7 +7813,7 @@ mod tests {
     #[test]
     fn test_qa_025_no_panic_empty_input() {
         // LayerNorm with empty input should error gracefully, not panic
-        let layer_norm = LayerNorm::new(64, 1e-5).unwrap();
+        let layer_norm = LayerNorm::new(64, 1e-5).expect("test");
 
         // Test 1: Creating a tensor with zero dimension should fail gracefully
         let empty_tensor_result = Tensor::<f32>::from_vec(vec![0, 64], vec![]);
@@ -7811,7 +7823,7 @@ mod tests {
         );
 
         // Test 2: Empty embedding lookup should be handled
-        let embedding = Embedding::new(100, 64).unwrap();
+        let embedding = Embedding::new(100, 64).expect("test");
         let empty_ids: &[usize] = &[];
         let embed_result = embedding.forward(empty_ids);
         // Empty input may return error or empty output - either is acceptable
@@ -7824,7 +7836,7 @@ mod tests {
         }
 
         // Test 3: softmax on minimal input should not panic
-        let single_val = Tensor::from_vec(vec![1], vec![1.0_f32]).unwrap();
+        let single_val = Tensor::from_vec(vec![1], vec![1.0_f32]).expect("test");
         let softmax_result = softmax(&single_val);
         assert!(
             softmax_result.is_ok(),
@@ -7832,7 +7844,7 @@ mod tests {
         );
 
         // Test 4: LayerNorm on minimal input should not panic
-        let min_input = Tensor::from_vec(vec![1, 64], vec![0.0_f32; 64]).unwrap();
+        let min_input = Tensor::from_vec(vec![1, 64], vec![0.0_f32; 64]).expect("test");
         let ln_result = layer_norm.forward(&min_input);
         assert!(
             ln_result.is_ok(),
@@ -7846,7 +7858,7 @@ mod tests {
         // Test that embedding layer handles special token IDs correctly
         let vocab_size = 1000;
         let embed_dim = 64;
-        let embedding = Embedding::new(vocab_size, embed_dim).unwrap();
+        let embedding = Embedding::new(vocab_size, embed_dim).expect("test");
 
         // BOS token (typically 1)
         let bos_result = embedding.forward(&[1]);
@@ -7880,15 +7892,16 @@ mod tests {
     /// QA-029: Deterministic output with fixed operations
     #[test]
     fn test_qa_029_deterministic_output() {
-        let attention = Attention::new(16).unwrap();
+        let attention = Attention::new(16).expect("test");
 
-        let q = Tensor::from_vec(vec![4, 16], (0..64).map(|i| i as f32 * 0.01).collect()).unwrap();
+        let q = Tensor::from_vec(vec![4, 16], (0..64).map(|i| i as f32 * 0.01).collect())
+            .expect("test");
         let k = q.clone();
         let v = q.clone();
 
         // Run twice and compare
-        let output1 = attention.forward(&q, &k, &v).unwrap();
-        let output2 = attention.forward(&q, &k, &v).unwrap();
+        let output1 = attention.forward(&q, &k, &v).expect("test");
+        let output2 = attention.forward(&q, &k, &v).expect("test");
 
         assert_eq!(
             output1.data(),
@@ -7901,12 +7914,12 @@ mod tests {
     #[test]
     fn test_qa_030_consistent_results() {
         // Test that the same computation gives same results
-        let layer_norm = LayerNorm::new(32, 1e-5).unwrap();
+        let layer_norm = LayerNorm::new(32, 1e-5).expect("test");
         let input =
-            Tensor::from_vec(vec![2, 32], (0..64).map(|i| i as f32 * 0.1).collect()).unwrap();
+            Tensor::from_vec(vec![2, 32], (0..64).map(|i| i as f32 * 0.1).collect()).expect("test");
 
         let results: Vec<_> = (0..5)
-            .map(|_| layer_norm.forward(&input).unwrap())
+            .map(|_| layer_norm.forward(&input).expect("test"))
             .collect();
 
         // All results should be identical
@@ -7948,13 +7961,13 @@ mod tests {
             eps: 1e-5,
         };
 
-        let model = Model::new(config).unwrap();
+        let model = Model::new(config).expect("test");
 
         // Same input should produce same output
         let input_ids = vec![1, 2, 3, 4, 5];
 
-        let output1 = model.forward(&input_ids).unwrap();
-        let output2 = model.forward(&input_ids).unwrap();
+        let output1 = model.forward(&input_ids).expect("test");
+        let output2 = model.forward(&input_ids).expect("test");
 
         // Outputs must be identical
         assert_eq!(
@@ -7990,8 +8003,8 @@ mod tests {
             "a".to_string(),
             "test".to_string(),
         ])
-        .unwrap();
-        let tokenizer = Tokenizer::new(vocab, "<unk>").unwrap();
+        .expect("test");
+        let tokenizer = Tokenizer::new(vocab, "<unk>").expect("test");
         let text = "hello world this is a test";
 
         // Tokenize the same text multiple times
@@ -8023,14 +8036,14 @@ mod tests {
     #[test]
     fn test_qa_008_swiglu_activation_correctness() {
         // Create FeedForward which uses GELU activation
-        let ffn = FeedForward::new(32, 128).unwrap();
+        let ffn = FeedForward::new(32, 128).expect("test");
         let input = Tensor::from_vec(
             vec![2, 32],
             (0..64).map(|i| (i as f32 * 0.1) - 3.2).collect(),
         )
-        .unwrap();
+        .expect("test");
 
-        let output = ffn.forward(&input).unwrap();
+        let output = ffn.forward(&input).expect("test");
 
         // FFN with gated activation should:
         // 1. Preserve input shape
@@ -8047,7 +8060,7 @@ mod tests {
         }
 
         // 3. Different runs should be identical
-        let output2 = ffn.forward(&input).unwrap();
+        let output2 = ffn.forward(&input).expect("test");
         for (i, (a, b)) in output.data().iter().zip(output2.data().iter()).enumerate() {
             assert!(
                 (a - b).abs() < 1e-10,
@@ -8072,13 +8085,13 @@ mod tests {
         use std::time::Instant;
 
         // Run a benchmark-style operation multiple times
-        let layer_norm = LayerNorm::new(256, 1e-5).unwrap();
-        let input = Tensor::from_vec(vec![32, 256], vec![0.1; 32 * 256]).unwrap();
+        let layer_norm = LayerNorm::new(256, 1e-5).expect("test");
+        let input = Tensor::from_vec(vec![32, 256], vec![0.1; 32 * 256]).expect("test");
 
         // Warmup runs to stabilize JIT/cache effects (per Mytkowicz et al. [4])
         let warmup_iterations = 50;
         for _ in 0..warmup_iterations {
-            let _ = layer_norm.forward(&input).unwrap();
+            let _ = layer_norm.forward(&input).expect("test");
         }
 
         // Measure baseline throughput (multiple samples, take median per Georges et al. [3])
@@ -8087,11 +8100,11 @@ mod tests {
         for _ in 0..5 {
             let start = Instant::now();
             for _ in 0..iterations {
-                let _ = layer_norm.forward(&input).unwrap();
+                let _ = layer_norm.forward(&input).expect("test");
             }
             baseline_times.push(start.elapsed().as_secs_f64());
         }
-        baseline_times.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        baseline_times.sort_by(|a, b| a.partial_cmp(b).expect("test"));
         let baseline_time = baseline_times[2]; // Median
 
         // Measure again (simulating "after commit") - also take median
@@ -8099,11 +8112,11 @@ mod tests {
         for _ in 0..5 {
             let start = Instant::now();
             for _ in 0..iterations {
-                let _ = layer_norm.forward(&input).unwrap();
+                let _ = layer_norm.forward(&input).expect("test");
             }
             current_times.push(start.elapsed().as_secs_f64());
         }
-        current_times.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        current_times.sort_by(|a, b| a.partial_cmp(b).expect("test"));
         let current_time = current_times[2]; // Median
 
         // Current time should not be more than 100% slower than baseline
@@ -8141,7 +8154,7 @@ mod tests {
             eps: 1e-5,
         };
 
-        let model = Model::new(config).unwrap();
+        let model = Model::new(config).expect("test");
 
         // Estimate model size (rough calculation based on parameters)
         // vocab_size * hidden_dim (embeddings) + layer params
@@ -8153,7 +8166,7 @@ mod tests {
         let model_size_bytes = total_params * 4; // f32
 
         // Run inference to exercise memory
-        let output = model.forward(&[1, 2, 3]).unwrap();
+        let output = model.forward(&[1, 2, 3]).expect("test");
 
         // Model should work (basic sanity check for memory)
         assert!(output.size() > 0, "QA-013: Model should produce output");
@@ -8174,19 +8187,19 @@ mod tests {
         use std::time::Instant;
 
         // For CPU, we measure that compute time dominates
-        let layer_norm = LayerNorm::new(512, 1e-5).unwrap();
-        let input = Tensor::from_vec(vec![64, 512], vec![0.1; 64 * 512]).unwrap();
+        let layer_norm = LayerNorm::new(512, 1e-5).expect("test");
+        let input = Tensor::from_vec(vec![64, 512], vec![0.1; 64 * 512]).expect("test");
 
         // Warm up
         for _ in 0..10 {
-            let _ = layer_norm.forward(&input).unwrap();
+            let _ = layer_norm.forward(&input).expect("test");
         }
 
         // Measure compute-bound operation
         let iterations = 50;
         let start = Instant::now();
         for _ in 0..iterations {
-            let _ = layer_norm.forward(&input).unwrap();
+            let _ = layer_norm.forward(&input).expect("test");
         }
         let elapsed = start.elapsed();
 
@@ -8218,7 +8231,7 @@ mod tests {
             eps: 1e-5,
         };
 
-        let model = Model::new(config).unwrap();
+        let model = Model::new(config).expect("test");
         let cold_start = start.elapsed();
 
         // Should initialize in < 5 seconds
@@ -8229,7 +8242,7 @@ mod tests {
         );
 
         // Verify model is usable
-        let output = model.forward(&[1]).unwrap();
+        let output = model.forward(&[1]).expect("test");
         assert!(output.size() > 0, "QA-016: Model should be functional");
     }
 
@@ -8239,24 +8252,24 @@ mod tests {
     fn test_qa_018_batch_scaling() {
         use std::time::Instant;
 
-        let layer_norm = LayerNorm::new(128, 1e-5).unwrap();
+        let layer_norm = LayerNorm::new(128, 1e-5).expect("test");
 
         // Measure single item throughput
-        let single_input = Tensor::from_vec(vec![1, 128], vec![0.1; 128]).unwrap();
+        let single_input = Tensor::from_vec(vec![1, 128], vec![0.1; 128]).expect("test");
         let iterations = 100;
 
         let start = Instant::now();
         for _ in 0..iterations {
-            let _ = layer_norm.forward(&single_input).unwrap();
+            let _ = layer_norm.forward(&single_input).expect("test");
         }
         let single_time = start.elapsed();
 
         // Measure batch=8 throughput
-        let batch_input = Tensor::from_vec(vec![8, 128], vec![0.1; 8 * 128]).unwrap();
+        let batch_input = Tensor::from_vec(vec![8, 128], vec![0.1; 8 * 128]).expect("test");
 
         let start = Instant::now();
         for _ in 0..iterations {
-            let _ = layer_norm.forward(&batch_input).unwrap();
+            let _ = layer_norm.forward(&batch_input).expect("test");
         }
         let batch_time = start.elapsed();
 
@@ -8279,29 +8292,35 @@ mod tests {
     fn test_qa_020_context_scaling() {
         use std::time::Instant;
 
-        let attention = Attention::new(32).unwrap();
+        let attention = Attention::new(32).expect("test");
 
         // Measure small context
         let small_len = 16;
-        let small_q = Tensor::from_vec(vec![small_len, 32], vec![0.1; small_len * 32]).unwrap();
+        let small_q =
+            Tensor::from_vec(vec![small_len, 32], vec![0.1; small_len * 32]).expect("test");
         let small_k = small_q.clone();
         let small_v = small_q.clone();
 
         let start = Instant::now();
         for _ in 0..50 {
-            let _ = attention.forward(&small_q, &small_k, &small_v).unwrap();
+            let _ = attention
+                .forward(&small_q, &small_k, &small_v)
+                .expect("test");
         }
         let small_time = start.elapsed();
 
         // Measure larger context (4x)
         let large_len = 64;
-        let large_q = Tensor::from_vec(vec![large_len, 32], vec![0.1; large_len * 32]).unwrap();
+        let large_q =
+            Tensor::from_vec(vec![large_len, 32], vec![0.1; large_len * 32]).expect("test");
         let large_k = large_q.clone();
         let large_v = large_q.clone();
 
         let start = Instant::now();
         for _ in 0..50 {
-            let _ = attention.forward(&large_q, &large_k, &large_v).unwrap();
+            let _ = attention
+                .forward(&large_q, &large_k, &large_v)
+                .expect("test");
         }
         let large_time = start.elapsed();
 
@@ -8362,8 +8381,8 @@ mod tests {
 
         use std::time::{Duration, Instant};
 
-        let layer_norm = LayerNorm::new(64, 1e-5).unwrap();
-        let input = Tensor::from_vec(vec![16, 64], vec![0.1; 16 * 64]).unwrap();
+        let layer_norm = LayerNorm::new(64, 1e-5).expect("test");
+        let input = Tensor::from_vec(vec![16, 64], vec![0.1; 16 * 64]).expect("test");
 
         let timeout = Duration::from_secs(5);
         let start = Instant::now();
@@ -8467,14 +8486,14 @@ mod tests {
         use std::thread;
 
         // Create model and wrap in Arc for sharing
-        let layer_norm = Arc::new(LayerNorm::new(64, 1e-5).unwrap());
+        let layer_norm = Arc::new(LayerNorm::new(64, 1e-5).expect("test"));
 
         let handles: Vec<_> = (0..4)
             .map(|i| {
                 let ln = Arc::clone(&layer_norm);
                 thread::spawn(move || {
-                    let input =
-                        Tensor::from_vec(vec![4, 64], vec![(i as f32) * 0.1; 4 * 64]).unwrap();
+                    let input = Tensor::from_vec(vec![4, 64], vec![(i as f32) * 0.1; 4 * 64])
+                        .expect("test");
 
                     // Run inference from multiple threads
                     for _ in 0..10 {
@@ -8521,8 +8540,8 @@ mod tests {
         }
 
         // Verify correctness: SIMD matches scalar
-        let scalar = dequantize_q4_k(&data).unwrap();
-        let simd = dequantize_q4_k_simd(&data).unwrap();
+        let scalar = dequantize_q4_k(&data).expect("test");
+        let simd = dequantize_q4_k_simd(&data).expect("test");
 
         assert_eq!(
             scalar.len(),
@@ -8546,8 +8565,8 @@ mod tests {
 
         // Verify both functions handle larger data correctly
         let large_data = vec![0u8; 144 * 64]; // 64 super-blocks
-        let scalar_large = dequantize_q4_k(&large_data).unwrap();
-        let simd_large = dequantize_q4_k_simd(&large_data).unwrap();
+        let scalar_large = dequantize_q4_k(&large_data).expect("test");
+        let simd_large = dequantize_q4_k_simd(&large_data).expect("test");
         assert_eq!(
             scalar_large.len(),
             simd_large.len(),
@@ -8576,7 +8595,7 @@ mod tests {
         let mmap = unsafe { memmap2::Mmap::map(&file) };
 
         assert!(mmap.is_ok(), "IMP-002: Memory mapping should succeed");
-        let mmap = mmap.unwrap();
+        let mmap = mmap.expect("test");
 
         // Verify we can read the data without loading it all into heap
         assert_eq!(
@@ -8607,16 +8626,16 @@ mod tests {
         let seq_len = 16;
 
         // Create fused QKV attention
-        let fused = FusedQKVAttention::new(head_dim, hidden_dim).unwrap();
+        let fused = FusedQKVAttention::new(head_dim, hidden_dim).expect("test");
 
         // Create separate attention for comparison (kept for future comparison tests)
-        let _attention = Attention::new(head_dim).unwrap();
+        let _attention = Attention::new(head_dim).expect("test");
 
-        let input =
-            Tensor::from_vec(vec![seq_len, hidden_dim], vec![0.1; seq_len * hidden_dim]).unwrap();
+        let input = Tensor::from_vec(vec![seq_len, hidden_dim], vec![0.1; seq_len * hidden_dim])
+            .expect("test");
 
         // Fused attention should work
-        let fused_output = fused.forward(&input).unwrap();
+        let fused_output = fused.forward(&input).expect("test");
         assert_eq!(
             fused_output.shape(),
             &[seq_len, hidden_dim],
@@ -8629,7 +8648,7 @@ mod tests {
         // Time fused attention
         let start = Instant::now();
         for _ in 0..iterations {
-            let _ = fused.forward(&input).unwrap();
+            let _ = fused.forward(&input).expect("test");
         }
         let fused_time = start.elapsed();
 
@@ -8711,7 +8730,7 @@ mod tests {
             intermediate_dim: 256,
             eps: 1e-5,
         };
-        let model = Model::new(config).unwrap();
+        let model = Model::new(config).expect("test");
 
         // Test batch prefill with varying lengths
         let prompts = vec![
@@ -8722,7 +8741,7 @@ mod tests {
 
         let start = Instant::now();
         for prompt in &prompts {
-            let output = model.forward(prompt).unwrap();
+            let output = model.forward(prompt).expect("test");
             assert!(
                 output.size() > 0,
                 "IMP-005: Batch prefill should produce output"
@@ -8752,10 +8771,10 @@ mod tests {
     fn test_imp_006_wgpu_matmul() {
         // Test that GPU compute infrastructure exists
         // Actual GPU tests require --features gpu
-        let linear = Linear::new(64, 128).unwrap();
-        let input = Tensor::from_vec(vec![4, 64], vec![0.1; 4 * 64]).unwrap();
+        let linear = Linear::new(64, 128).expect("test");
+        let input = Tensor::from_vec(vec![4, 64], vec![0.1; 4 * 64]).expect("test");
 
-        let output = linear.forward(&input).unwrap();
+        let output = linear.forward(&input).expect("test");
         assert_eq!(
             output.shape(),
             &[4, 128],
@@ -8768,12 +8787,12 @@ mod tests {
     #[test]
     fn test_imp_007_gpu_buffer_pool() {
         // Test that repeated operations don't cause excessive allocations
-        let layer_norm = LayerNorm::new(64, 1e-5).unwrap();
-        let input = Tensor::from_vec(vec![8, 64], vec![0.1; 8 * 64]).unwrap();
+        let layer_norm = LayerNorm::new(64, 1e-5).expect("test");
+        let input = Tensor::from_vec(vec![8, 64], vec![0.1; 8 * 64]).expect("test");
 
         // Run multiple times to test allocation behavior
         for i in 0..100 {
-            let output = layer_norm.forward(&input).unwrap();
+            let output = layer_norm.forward(&input).expect("test");
             assert_eq!(
                 output.size(),
                 input.size(),
@@ -8790,14 +8809,14 @@ mod tests {
         use std::time::Instant;
 
         // Test that operations can be pipelined
-        let linear1 = Linear::new(64, 64).unwrap();
-        let linear2 = Linear::new(64, 64).unwrap();
-        let input = Tensor::from_vec(vec![4, 64], vec![0.1; 4 * 64]).unwrap();
+        let linear1 = Linear::new(64, 64).expect("test");
+        let linear2 = Linear::new(64, 64).expect("test");
+        let input = Tensor::from_vec(vec![4, 64], vec![0.1; 4 * 64]).expect("test");
 
         let start = Instant::now();
         for _ in 0..50 {
-            let mid = linear1.forward(&input).unwrap();
-            let _ = linear2.forward(&mid).unwrap();
+            let mid = linear1.forward(&input).expect("test");
+            let _ = linear2.forward(&mid).expect("test");
         }
         let elapsed = start.elapsed();
 
@@ -8817,12 +8836,12 @@ mod tests {
         let hidden_dim = 64;
         let intermediate_dim = 256;
 
-        let block = TransformerBlock::new(hidden_dim, 4, intermediate_dim, 1e-5).unwrap();
-        let input = Tensor::from_vec(vec![8, hidden_dim], vec![0.1; 8 * hidden_dim]).unwrap();
+        let block = TransformerBlock::new(hidden_dim, 4, intermediate_dim, 1e-5).expect("test");
+        let input = Tensor::from_vec(vec![8, hidden_dim], vec![0.1; 8 * hidden_dim]).expect("test");
 
         let start = Instant::now();
         for _ in 0..10 {
-            let _ = block.forward(&input).unwrap();
+            let _ = block.forward(&input).expect("test");
         }
         let elapsed = start.elapsed();
 
@@ -8840,16 +8859,16 @@ mod tests {
     fn test_imp_010_streaming_overlap() {
         use std::time::Instant;
 
-        let embedding = Embedding::new(100, 64).unwrap();
-        let linear = Linear::new(64, 100).unwrap();
+        let embedding = Embedding::new(100, 64).expect("test");
+        let linear = Linear::new(64, 100).expect("test");
 
         let mut latencies = Vec::new();
 
         for token_id in 0..20 {
             let start = Instant::now();
 
-            let embedded = embedding.forward(&[token_id]).unwrap();
-            let _ = linear.forward(&embedded).unwrap();
+            let embedded = embedding.forward(&[token_id]).expect("test");
+            let _ = linear.forward(&embedded).expect("test");
 
             latencies.push(start.elapsed().as_micros() as f64);
         }
@@ -8884,7 +8903,7 @@ mod tests {
         let q4k_data = vec![0u8; 144]; // 1 super-block = 256 values
 
         // Dequantize
-        let weights = dequantize_q4_k(&q4k_data).unwrap();
+        let weights = dequantize_q4_k(&q4k_data).expect("test");
         assert_eq!(
             weights.len(),
             256,
@@ -8915,7 +8934,7 @@ mod tests {
             "IMP-012: Q5_K dequantization should work"
         );
         assert_eq!(
-            q5k_result.unwrap().len(),
+            q5k_result.expect("test").len(),
             256,
             "IMP-012: Q5_K should produce 256 values"
         );
@@ -8928,7 +8947,7 @@ mod tests {
             "IMP-012: Q6_K dequantization should work"
         );
         assert_eq!(
-            q6k_result.unwrap().len(),
+            q6k_result.expect("test").len(),
             256,
             "IMP-012: Q6_K should produce 256 values"
         );
@@ -8982,7 +9001,7 @@ mod tests {
         let q4_data = vec![0u8; 18]; // One Q4_0 block
 
         // Dequantize Q4 weights to F32 (simulating F16->F32 promotion)
-        let weights_f32 = dequantize_q4_0(&q4_data).unwrap();
+        let weights_f32 = dequantize_q4_0(&q4_data).expect("test");
         assert_eq!(
             weights_f32.len(),
             32,
@@ -9069,13 +9088,14 @@ mod tests {
     /// Target: O(N) memory for attention, <100MB for 4K context
     #[test]
     fn test_imp_016_flash_attention() {
-        let attention = Attention::new(32).unwrap();
+        let attention = Attention::new(32).expect("test");
 
         // Create 4K context simulation (scaled down for test)
         let seq_len = 64; // Simulating longer context
         let head_dim = 32;
 
-        let q = Tensor::from_vec(vec![seq_len, head_dim], vec![0.1; seq_len * head_dim]).unwrap();
+        let q =
+            Tensor::from_vec(vec![seq_len, head_dim], vec![0.1; seq_len * head_dim]).expect("test");
         let k = q.clone();
         let v = q.clone();
 
@@ -9083,7 +9103,7 @@ mod tests {
         let result = attention.flash_forward(&q, &k, &v, 16);
         assert!(result.is_ok(), "IMP-016: Flash attention should succeed");
 
-        let output = result.unwrap();
+        let output = result.expect("test");
         assert_eq!(
             output.shape(),
             &[seq_len, head_dim],
@@ -9097,11 +9117,11 @@ mod tests {
     fn test_imp_017_gqa_inference() {
         // GQA uses fewer KV heads than query heads
         // Test with attention that supports this pattern
-        let attention = Attention::new(32).unwrap();
+        let attention = Attention::new(32).expect("test");
 
-        let q = Tensor::from_vec(vec![4, 32], vec![0.1; 4 * 32]).unwrap();
-        let k = Tensor::from_vec(vec![2, 32], vec![0.2; 2 * 32]).unwrap(); // Fewer K
-        let v = Tensor::from_vec(vec![2, 32], vec![0.3; 2 * 32]).unwrap(); // Fewer V
+        let q = Tensor::from_vec(vec![4, 32], vec![0.1; 4 * 32]).expect("test");
+        let k = Tensor::from_vec(vec![2, 32], vec![0.2; 2 * 32]).expect("test"); // Fewer K
+        let v = Tensor::from_vec(vec![2, 32], vec![0.3; 2 * 32]).expect("test"); // Fewer V
 
         // Should handle different Q/KV sizes (or error gracefully)
         let result = attention.forward(&q, &k, &v);
@@ -9125,13 +9145,16 @@ mod tests {
         let window_size = 128; // Attend only to last 128 tokens
 
         // Create attention with window constraint
-        let attention = Attention::new(head_dim).unwrap();
+        let attention = Attention::new(head_dim).expect("test");
 
         // Simulate long context by testing window behavior
         let seq_len = 256;
-        let q = Tensor::from_vec(vec![seq_len, head_dim], vec![0.1; seq_len * head_dim]).unwrap();
-        let k = Tensor::from_vec(vec![seq_len, head_dim], vec![0.2; seq_len * head_dim]).unwrap();
-        let v = Tensor::from_vec(vec![seq_len, head_dim], vec![0.3; seq_len * head_dim]).unwrap();
+        let q =
+            Tensor::from_vec(vec![seq_len, head_dim], vec![0.1; seq_len * head_dim]).expect("test");
+        let k =
+            Tensor::from_vec(vec![seq_len, head_dim], vec![0.2; seq_len * head_dim]).expect("test");
+        let v =
+            Tensor::from_vec(vec![seq_len, head_dim], vec![0.3; seq_len * head_dim]).expect("test");
 
         let result = attention.forward(&q, &k, &v);
         assert!(
@@ -9156,8 +9179,8 @@ mod tests {
         let num_heads = 4;
         let seq_len = 8;
 
-        let alibi = ALiBi::new(num_heads).unwrap();
-        let bias = alibi.get_bias(seq_len).unwrap();
+        let alibi = ALiBi::new(num_heads).expect("test");
+        let bias = alibi.get_bias(seq_len).expect("test");
 
         // ALiBi bias should be [seq_len, seq_len, num_heads]
         assert_eq!(
@@ -9181,11 +9204,14 @@ mod tests {
         let seq_len = 64;
 
         // Create standard attention
-        let attention = Attention::new(head_dim).unwrap();
+        let attention = Attention::new(head_dim).expect("test");
 
-        let q = Tensor::from_vec(vec![seq_len, head_dim], vec![0.1; seq_len * head_dim]).unwrap();
-        let k = Tensor::from_vec(vec![seq_len, head_dim], vec![0.2; seq_len * head_dim]).unwrap();
-        let v = Tensor::from_vec(vec![seq_len, head_dim], vec![0.3; seq_len * head_dim]).unwrap();
+        let q =
+            Tensor::from_vec(vec![seq_len, head_dim], vec![0.1; seq_len * head_dim]).expect("test");
+        let k =
+            Tensor::from_vec(vec![seq_len, head_dim], vec![0.2; seq_len * head_dim]).expect("test");
+        let v =
+            Tensor::from_vec(vec![seq_len, head_dim], vec![0.3; seq_len * head_dim]).expect("test");
 
         let result = attention.forward(&q, &k, &v);
         assert!(result.is_ok(), "IMP-020: Attention baseline should work");
@@ -9221,7 +9247,7 @@ mod tests {
             eps: 1e-5,
         };
 
-        let model = Arc::new(Model::new(config).unwrap());
+        let model = Arc::new(Model::new(config).expect("test"));
 
         // Simulate 5 concurrent requests
         let handles: Vec<_> = (0..5)
@@ -9263,7 +9289,7 @@ mod tests {
             eps: 1e-5,
         };
 
-        let target_model = Model::new(config.clone()).unwrap();
+        let target_model = Model::new(config.clone()).expect("test");
 
         // Draft model proposes tokens
         let draft_tokens = vec![1, 2, 3, 4, 5]; // Proposed continuation
@@ -9343,12 +9369,12 @@ mod tests {
             intermediate_dim: 256,
             eps: 1e-5,
         };
-        let model = Model::new(config.clone()).unwrap();
+        let model = Model::new(config.clone()).expect("test");
         let cold_time = cold_start.elapsed();
 
         // Simulate cached load (create another model quickly)
         let warm_start = Instant::now();
-        let _model2 = Model::new(config).unwrap();
+        let _model2 = Model::new(config).expect("test");
         let warm_time = warm_start.elapsed();
 
         // Both should be fast for small models
@@ -9364,7 +9390,7 @@ mod tests {
         );
 
         // Verify model is functional
-        let output = model.forward(&[1, 2, 3]).unwrap();
+        let output = model.forward(&[1, 2, 3]).expect("test");
         assert!(output.size() > 0, "IMP-024: Model should be functional");
     }
 
@@ -9525,7 +9551,7 @@ mod tests {
             "IMP-026: Forward pass should succeed with loaded weights"
         );
 
-        let logits = logits.unwrap();
+        let logits = logits.expect("test");
         assert_eq!(
             logits.len(),
             token_ids.len() * config.vocab_size,
@@ -9928,8 +9954,8 @@ mod tests {
         })
         .expect("IMP-030: Should create model");
 
-        let tokens1 = model.generate(&prompt, &gen_config).unwrap();
-        let tokens2 = model2.generate(&prompt, &gen_config).unwrap();
+        let tokens1 = model.generate(&prompt, &gen_config).expect("test");
+        let tokens2 = model2.generate(&prompt, &gen_config).expect("test");
 
         assert_eq!(
             tokens1.len(),
@@ -9949,7 +9975,7 @@ mod tests {
         }
 
         let start = Instant::now();
-        let tokens = model.generate(&prompt, &gen_config).unwrap();
+        let tokens = model.generate(&prompt, &gen_config).expect("test");
         let elapsed = start.elapsed();
 
         let result = BenchmarkResult {
@@ -11935,7 +11961,7 @@ mod tests {
             full_batch.is_some(),
             "IMP-058: Fourth push should return full batch"
         );
-        let tokens = full_batch.unwrap();
+        let tokens = full_batch.expect("test");
         assert_eq!(
             tokens,
             vec![100, 101, 102, 103],
@@ -12085,7 +12111,7 @@ mod tests {
         // Test 5: Poll returns completed batch
         let completed = scheduler.poll();
         assert!(completed.is_some(), "IMP-060: Should get completed batch");
-        let (id, results) = completed.unwrap();
+        let (id, results) = completed.expect("test");
         assert_eq!(id, batch_id_1, "IMP-060: Should get batch_id_1");
         assert_eq!(
             results,
@@ -12153,7 +12179,7 @@ mod tests {
         let item = queue.try_pop();
         assert!(item.is_some(), "IMP-061: Should pop item");
         assert_eq!(
-            item.unwrap(),
+            item.expect("test"),
             "request1",
             "IMP-061: Should pop in FIFO order"
         );
@@ -12336,21 +12362,21 @@ mod tests {
         let req = queue.dequeue_highest();
         assert!(req.is_some(), "IMP-064: Should dequeue request");
         assert_eq!(
-            req.unwrap().data(),
+            req.expect("test").data(),
             "high_priority",
             "IMP-064: Highest priority first"
         );
 
         let req = queue.dequeue_highest();
         assert_eq!(
-            req.unwrap().data(),
+            req.expect("test").data(),
             "medium_priority",
             "IMP-064: Medium priority second"
         );
 
         let req = queue.dequeue_highest();
         assert_eq!(
-            req.unwrap().data(),
+            req.expect("test").data(),
             "low_priority",
             "IMP-064: Low priority last"
         );
@@ -12367,17 +12393,17 @@ mod tests {
         queue.enqueue(PriorityRequest::new(5, "second".to_string()));
         queue.enqueue(PriorityRequest::new(5, "third".to_string()));
         assert_eq!(
-            queue.dequeue_highest().unwrap().data(),
+            queue.dequeue_highest().expect("test").data(),
             "first",
             "IMP-064: FIFO for same priority"
         );
         assert_eq!(
-            queue.dequeue_highest().unwrap().data(),
+            queue.dequeue_highest().expect("test").data(),
             "second",
             "IMP-064: FIFO order"
         );
         assert_eq!(
-            queue.dequeue_highest().unwrap().data(),
+            queue.dequeue_highest().expect("test").data(),
             "third",
             "IMP-064: FIFO order"
         );
@@ -12499,7 +12525,7 @@ mod tests {
         assert_eq!(tracker.compute_usage(), 50, "IMP-066: Compute accumulated");
 
         // Test 5: Release resources
-        tracker.release(alloc_id.unwrap());
+        tracker.release(alloc_id.expect("test"));
         assert_eq!(
             tracker.memory_usage(),
             128 * 1024 * 1024,
@@ -12555,7 +12581,7 @@ mod tests {
         // Test 3: Latency percentiles
         let p50 = metrics.latency_percentile(50);
         assert!(p50.is_some(), "IMP-067: Should have p50");
-        let p50_ms = p50.unwrap().as_millis();
+        let p50_ms = p50.expect("test").as_millis();
         assert!(
             p50_ms >= 10 && p50_ms <= 20,
             "IMP-067: p50 should be ~15ms, got {}ms",
@@ -12961,7 +12987,7 @@ mod tests {
             "IMP-073: Should track active connections"
         );
 
-        pool.release(conn.unwrap());
+        pool.release(conn.expect("test"));
         assert_eq!(
             pool.active_connections(),
             0,
@@ -12973,7 +12999,7 @@ mod tests {
         for i in 0..10 {
             let c = pool.acquire();
             assert!(c.is_ok(), "IMP-073: Should acquire connection {}", i);
-            conns.push(c.unwrap());
+            conns.push(c.expect("test"));
         }
         let overflow = pool.try_acquire();
         assert!(
@@ -12987,7 +13013,7 @@ mod tests {
         }
 
         // Test 4: Connection health checking
-        let conn = pool.acquire().unwrap();
+        let conn = pool.acquire().expect("test");
         let state = pool.check_health(&conn);
         assert!(
             matches!(state, ConnectionState::Healthy),
@@ -13324,7 +13350,7 @@ mod tests {
         );
 
         // Test 5: Release returns to correct pool
-        manager.release(&permit.unwrap());
+        manager.release(&permit.expect("test"));
         assert_eq!(
             manager.available(RequestType::Inference),
             10,
@@ -13433,7 +13459,8 @@ mod tests {
             "IMP-080: Should track inference"
         );
         assert!(
-            *breakdown.get("inference").unwrap() > *breakdown.get("tokenization").unwrap(),
+            *breakdown.get("inference").expect("test")
+                > *breakdown.get("tokenization").expect("test"),
             "IMP-080: Inference should take longer"
         );
 
@@ -13499,7 +13526,7 @@ mod tests {
         let restored = RequestCapture::from_json(&json);
         assert!(restored.is_ok(), "IMP-081: Should deserialize");
         assert_eq!(
-            restored.unwrap().input(),
+            restored.expect("test").input(),
             "Hello, world!",
             "IMP-081: Should restore input"
         );
@@ -13579,7 +13606,7 @@ mod tests {
         // This should work - creates a minimal GPU model
         assert!(result.is_ok(), "IMP-083: Should load test model to GPU");
 
-        let state = result.unwrap();
+        let state = result.expect("test");
         assert!(state.is_loaded(), "IMP-083: Should be loaded after load");
         assert!(state.is_ready(), "IMP-083: Should be ready for inference");
         assert_eq!(
@@ -13900,7 +13927,7 @@ mod tests {
             result.err()
         );
 
-        let logits = result.unwrap();
+        let logits = result.expect("test");
         // Output should be [seq_len * vocab_size]
         assert_eq!(
             logits.len(),
@@ -13941,7 +13968,7 @@ mod tests {
             model_result.err()
         );
 
-        let mut model = model_result.unwrap();
+        let mut model = model_result.expect("test");
 
         // Forward pass should also work with CPU embedding lookup
         let tokens = vec![0usize, 1000, 50000, 99999]; // Include edge tokens
@@ -13953,7 +13980,7 @@ mod tests {
             result.err()
         );
 
-        let logits = result.unwrap();
+        let logits = result.expect("test");
         assert_eq!(
             logits.len(),
             tokens.len() * 100_000,
@@ -14048,7 +14075,7 @@ mod tests {
             result.err()
         );
 
-        let generated = result.unwrap();
+        let generated = result.expect("test");
         let gen_secs = gen_elapsed.as_secs_f64();
         let tps = max_tokens as f64 / gen_secs;
 

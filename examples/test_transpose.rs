@@ -9,7 +9,7 @@ fn l2_norm(v: &[f32]) -> f32 {
 fn main() {
     let path = "/tmp/parity-bench/tinyllama-1.1b-q4_k_m.gguf";
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     let hidden_dim = 2048;
     let token_id = 450u32;
@@ -36,7 +36,7 @@ fn main() {
     // Our current computation (row-major assumption)
     let q_out =
         fused_q4k_parallel_matvec(&q_weight.data, embedding, q_weight.in_dim, q_weight.out_dim)
-            .unwrap();
+            .expect("test");
     println!(
         "\nRow-major result: L2={:.4}, first 5: {:?}",
         l2_norm(&q_out),

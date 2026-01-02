@@ -31,12 +31,12 @@ fn silu(x: &mut [f32]) {
 
 fn fused_matmul(input: &[f32], data: &[u8], qtype: u32, in_dim: usize, out_dim: usize) -> Vec<f32> {
     match qtype {
-        GGUF_TYPE_Q4_K => fused_q4k_parallel_matvec(data, input, in_dim, out_dim).unwrap(),
+        GGUF_TYPE_Q4_K => fused_q4k_parallel_matvec(data, input, in_dim, out_dim).expect("test"),
         GGUF_TYPE_Q6_K => {
             if out_dim == 256 {
-                fused_q6k_colmajor_matvec(data, input, in_dim, out_dim).unwrap()
+                fused_q6k_colmajor_matvec(data, input, in_dim, out_dim).expect("test")
             } else {
-                fused_q6k_parallel_matvec(data, input, in_dim, out_dim).unwrap()
+                fused_q6k_parallel_matvec(data, input, in_dim, out_dim).expect("test")
             }
         },
         _ => panic!(""),
@@ -46,8 +46,8 @@ fn fused_matmul(input: &[f32], data: &[u8], qtype: u32, in_dim: usize, out_dim: 
 fn main() {
     let path = "/tmp/parity-bench/tinyllama-1.1b-q4_k_m.gguf";
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
-    let vocab = mapped.model.vocabulary().unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
+    let vocab = mapped.model.vocabulary().expect("test");
 
     let hidden_dim = model.config.hidden_dim;
     let eps = model.config.eps;
@@ -56,7 +56,7 @@ fn main() {
     // Method 1: Model's forward_cached
     let kv_dim = model.config.num_kv_heads * (hidden_dim / model.config.num_heads);
     let mut cache = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim, 128);
-    let logits_cached = model.forward_cached(token_id, &mut cache, 0).unwrap();
+    let logits_cached = model.forward_cached(token_id, &mut cache, 0).expect("test");
 
     // Method 2: Manual forward (from par_001_trace_hidden.rs)
     let start = token_id as usize * hidden_dim;
@@ -151,10 +151,10 @@ fn main() {
 
     // Top predictions from each
     let mut indexed_cached: Vec<(usize, f32)> = logits_cached.iter().cloned().enumerate().collect();
-    indexed_cached.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+    indexed_cached.sort_by(|a, b| b.1.partial_cmp(&a.1).expect("test"));
 
     let mut indexed_manual: Vec<(usize, f32)> = logits_manual.iter().cloned().enumerate().collect();
-    indexed_manual.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+    indexed_manual.sort_by(|a, b| b.1.partial_cmp(&a.1).expect("test"));
 
     println!("\nCached top 5:");
     for (rank, (idx, score)) in indexed_cached.iter().take(5).enumerate() {

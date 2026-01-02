@@ -16,7 +16,7 @@ fn main() {
     println!("=== PAR-001: Verify ffn_down (row-major Q6_K) ===\n");
 
     let mapped = MappedGGUFModel::from_path(path).expect("Failed to load model");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     let layer = &model.layers[0];
     let ffn_down = &layer.ffn_down_weight;

@@ -3,10 +3,11 @@ use realizar::gguf::GGUFModel;
 use std::fs;
 
 fn main() {
-    let data = fs::read("/home/noah/src/aprender/tinyllama-1.1b-chat-v1.0.Q4_0.gguf").unwrap();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let data =
+        fs::read("/home/noah/src/aprender/tinyllama-1.1b-chat-v1.0.Q4_0.gguf").expect("test");
+    let model = GGUFModel::from_bytes(&data).expect("test");
 
-    let vocab = model.vocabulary().unwrap();
+    let vocab = model.vocabulary().expect("test");
     println!("Vocabulary size: {}", vocab.len());
 
     // Check what some tokens look like
@@ -23,7 +24,7 @@ fn main() {
     let prompt = "The capital of France is";
     println!("\nTokenizing: '{}'", prompt);
 
-    let tokens = model.encode(prompt).unwrap();
+    let tokens = model.encode(prompt).expect("test");
     println!("Tokens: {:?}", tokens);
 
     // Decode each token
@@ -41,7 +42,7 @@ fn main() {
     for prompt in [
         "Hello", " Hello", "hello", " hello", "Paris", " Paris", "France", " France",
     ] {
-        let tokens = model.encode(prompt).unwrap();
+        let tokens = model.encode(prompt).expect("test");
         let decoded: String = tokens
             .iter()
             .filter_map(|&t| vocab.get(t as usize).map(|s| s.replace("▁", " ")))

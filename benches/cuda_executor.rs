@@ -118,7 +118,9 @@ fn bench_gemm_gpu(c: &mut Criterion) {
             let mut c = vec![0.0f32; (size * size) as usize];
 
             b.iter(|| {
-                executor.gemm(&a, &b_mat, &mut c, size, size, size).unwrap();
+                executor
+                    .gemm(&a, &b_mat, &mut c, size, size, size)
+                    .expect("test");
                 black_box(&c);
             })
         });
@@ -174,7 +176,7 @@ fn bench_softmax_gpu(c: &mut Criterion) {
             let mut data: Vec<f32> = (0..dim).map(|i| (i as f32) * 0.01).collect();
 
             b.iter(|| {
-                executor.softmax(&mut data).unwrap();
+                executor.softmax(&mut data).expect("test");
                 black_box(&data);
             })
         });

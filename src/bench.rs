@@ -389,8 +389,8 @@ impl ItlMetrics {
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
         let n = sorted.len();
-        let median_ms = if n % 2 == 0 {
-            (sorted[n / 2 - 1] + sorted[n / 2]) / 2.0
+        let median_ms = if n.is_multiple_of(2) {
+            f64::midpoint(sorted[n / 2 - 1], sorted[n / 2])
         } else {
             sorted[n / 2]
         };
@@ -2367,8 +2367,8 @@ pub fn detect_outliers(samples: &[f64], threshold: f64) -> Vec<usize> {
     // Calculate median
     let mut sorted = samples.to_vec();
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let median = if sorted.len() % 2 == 0 {
-        (sorted[sorted.len() / 2 - 1] + sorted[sorted.len() / 2]) / 2.0
+    let median = if sorted.len().is_multiple_of(2) {
+        f64::midpoint(sorted[sorted.len() / 2 - 1], sorted[sorted.len() / 2])
     } else {
         sorted[sorted.len() / 2]
     };
@@ -2376,8 +2376,11 @@ pub fn detect_outliers(samples: &[f64], threshold: f64) -> Vec<usize> {
     // Calculate MAD (Median Absolute Deviation)
     let mut deviations: Vec<f64> = samples.iter().map(|x| (x - median).abs()).collect();
     deviations.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let mad = if deviations.len() % 2 == 0 {
-        (deviations[deviations.len() / 2 - 1] + deviations[deviations.len() / 2]) / 2.0
+    let mad = if deviations.len().is_multiple_of(2) {
+        f64::midpoint(
+            deviations[deviations.len() / 2 - 1],
+            deviations[deviations.len() / 2],
+        )
     } else {
         deviations[deviations.len() / 2]
     };
@@ -3702,7 +3705,11 @@ impl BenchmarkMatrix {
         self.entries_for_backend(backend)
             .into_iter()
             .filter(|e| e.available)
-            .min_by(|a, b| a.p50_latency_ms.partial_cmp(&b.p50_latency_ms).unwrap())
+            .min_by(|a, b| {
+                a.p50_latency_ms
+                    .partial_cmp(&b.p50_latency_ms)
+                    .expect("test")
+            })
     }
 
     /// Find the highest throughput runtime for a given backend
@@ -3714,7 +3721,11 @@ impl BenchmarkMatrix {
         self.entries_for_backend(backend)
             .into_iter()
             .filter(|e| e.available)
-            .max_by(|a, b| a.throughput_tps.partial_cmp(&b.throughput_tps).unwrap())
+            .max_by(|a, b| {
+                a.throughput_tps
+                    .partial_cmp(&b.throughput_tps)
+                    .expect("test")
+            })
     }
 
     /// Generate markdown table for README
@@ -3870,12 +3881,16 @@ impl BenchmarkMatrix {
             let entries: Vec<_> = self.entries_for_backend(backend);
             let available: Vec<_> = entries.iter().filter(|e| e.available).collect();
 
-            let fastest = available
-                .iter()
-                .min_by(|a, b| a.p50_latency_ms.partial_cmp(&b.p50_latency_ms).unwrap());
-            let highest_tp = available
-                .iter()
-                .max_by(|a, b| a.throughput_tps.partial_cmp(&b.throughput_tps).unwrap());
+            let fastest = available.iter().min_by(|a, b| {
+                a.p50_latency_ms
+                    .partial_cmp(&b.p50_latency_ms)
+                    .expect("test")
+            });
+            let highest_tp = available.iter().max_by(|a, b| {
+                a.throughput_tps
+                    .partial_cmp(&b.throughput_tps)
+                    .expect("test")
+            });
 
             backend_summaries.push(BackendSummary {
                 backend,
@@ -3891,7 +3906,11 @@ impl BenchmarkMatrix {
         let available = self.entries.iter().filter(|e| e.available);
         let overall_fastest = available
             .clone()
-            .min_by(|a, b| a.p50_latency_ms.partial_cmp(&b.p50_latency_ms).unwrap())
+            .min_by(|a, b| {
+                a.p50_latency_ms
+                    .partial_cmp(&b.p50_latency_ms)
+                    .expect("test")
+            })
             .map(|e| {
                 (
                     format!("{:?}", e.runtime).to_lowercase(),
@@ -3899,7 +3918,11 @@ impl BenchmarkMatrix {
                 )
             });
         let overall_highest_throughput = available
-            .max_by(|a, b| a.throughput_tps.partial_cmp(&b.throughput_tps).unwrap())
+            .max_by(|a, b| {
+                a.throughput_tps
+                    .partial_cmp(&b.throughput_tps)
+                    .expect("test")
+            })
             .map(|e| {
                 (
                     format!("{:?}", e.runtime).to_lowercase(),
@@ -6028,7 +6051,7 @@ mod tests {
         let response = backend.inference(&req);
 
         assert!(response.is_ok());
-        let resp = response.unwrap();
+        let resp = response.expect("test");
         assert!((resp.ttft_ms - 42.0).abs() < 0.001);
         assert!(resp.tokens_generated > 0);
     }
@@ -6782,7 +6805,7 @@ mod tests {
         }
 
         // 2 GPUs should be >85% efficient (spec target for 2-8 GPUs)
-        let gpu2 = results.iter().find(|r| r.gpu_count == 2).unwrap();
+        let gpu2 = results.iter().find(|r| r.gpu_count == 2).expect("test");
         assert!(gpu2.efficiency > 0.85, "2-GPU efficiency should be >85%");
     }
 
@@ -6845,7 +6868,7 @@ mod tests {
         assert!(!results.is_empty());
 
         // Check that TP=1 has no communication overhead
-        let tp1 = results.iter().find(|r| r.tp_degree == 1).unwrap();
+        let tp1 = results.iter().find(|r| r.tp_degree == 1).expect("test");
         assert!(tp1.all_reduce_ms.abs() < 0.001);
         assert!(tp1.comm_overhead_pct.abs() < 0.001);
 
@@ -6868,7 +6891,7 @@ mod tests {
         assert!(!results.is_empty());
 
         // Check PP=1 has no bubble
-        let pp1 = results.iter().find(|r| r.pp_degree == 1).unwrap();
+        let pp1 = results.iter().find(|r| r.pp_degree == 1).expect("test");
         assert!(pp1.bubble_ratio.abs() < 0.001);
         assert!(pp1.inter_stage_ms.abs() < 0.001);
 
@@ -6905,11 +6928,11 @@ mod tests {
         let reduce_1kb = results
             .iter()
             .find(|r| r.operation == "all_reduce" && r.data_size_bytes == 1024)
-            .unwrap();
+            .expect("test");
         let gather_1kb = results
             .iter()
             .find(|r| r.operation == "all_gather" && r.data_size_bytes == 1024)
-            .unwrap();
+            .expect("test");
         assert!(gather_1kb.latency_us < reduce_1kb.latency_us);
     }
 
@@ -7098,7 +7121,7 @@ mod tests {
         let output = r"llama_perf_context_print: prompt eval time =      12.34 ms /    10 tokens (    1.23 ms per token,   810.37 tokens per second)";
         let timing = LlamaCppBackend::parse_timing_line(output, "prompt eval time");
         assert!(timing.is_some());
-        let (total_ms, tokens) = timing.unwrap();
+        let (total_ms, tokens) = timing.expect("test");
         assert!((total_ms - 12.34).abs() < 0.01);
         assert_eq!(tokens, 10);
     }
@@ -7108,7 +7131,7 @@ mod tests {
         let output = r"llama_perf_context_print:        eval time =      22.60 ms /     5 runs   (    4.52 ms per token,   221.28 tokens per second)";
         let timing = LlamaCppBackend::parse_timing_line(output, "eval time");
         assert!(timing.is_some());
-        let (total_ms, runs) = timing.unwrap();
+        let (total_ms, runs) = timing.expect("test");
         assert!((total_ms - 22.60).abs() < 0.01);
         assert_eq!(runs, 5);
     }
@@ -7118,7 +7141,7 @@ mod tests {
         let output = r"llama_perf_context_print:       total time =      23.27 ms /     6 tokens";
         let timing = LlamaCppBackend::parse_timing_line(output, "total time");
         assert!(timing.is_some());
-        let (total_ms, tokens) = timing.unwrap();
+        let (total_ms, tokens) = timing.expect("test");
         assert!((total_ms - 23.27).abs() < 0.01);
         assert_eq!(tokens, 6);
     }
@@ -7136,7 +7159,7 @@ llama_perf_context_print:       total time =      27.60 ms /     6 tokens"#;
 
         let result = LlamaCppBackend::parse_cli_output(output);
         assert!(result.is_ok());
-        let response = result.unwrap();
+        let response = result.expect("test");
         // TTFT = prompt eval time (time to first token)
         assert!((response.ttft_ms - 5.0).abs() < 0.1);
         // Total time from parse
@@ -7382,7 +7405,7 @@ llama_perf_context_print:       total time =      27.60 ms /     6 tokens"#;
 
         let found = matrix.get_entry(RuntimeType::Realizar, ComputeBackendType::Cpu);
         assert!(found.is_some());
-        assert_eq!(found.unwrap().runtime, RuntimeType::Realizar);
+        assert_eq!(found.expect("test").runtime, RuntimeType::Realizar);
 
         let not_found = matrix.get_entry(RuntimeType::LlamaCpp, ComputeBackendType::Cuda);
         assert!(not_found.is_none());
@@ -7489,7 +7512,7 @@ llama_perf_context_print:       total time =      27.60 ms /     6 tokens"#;
 
         let fastest = matrix.fastest_for_backend(ComputeBackendType::Cpu);
         assert!(fastest.is_some());
-        assert_eq!(fastest.unwrap().runtime, RuntimeType::LlamaCpp);
+        assert_eq!(fastest.expect("test").runtime, RuntimeType::LlamaCpp);
     }
 
     #[test]
@@ -7516,7 +7539,7 @@ llama_perf_context_print:       total time =      27.60 ms /     6 tokens"#;
 
         let highest = matrix.highest_throughput_for_backend(ComputeBackendType::Cpu);
         assert!(highest.is_some());
-        assert_eq!(highest.unwrap().runtime, RuntimeType::LlamaCpp);
+        assert_eq!(highest.expect("test").runtime, RuntimeType::LlamaCpp);
     }
 
     #[test]
@@ -7607,13 +7630,13 @@ llama_perf_context_print:       total time =      27.60 ms /     6 tokens"#;
 
         // Overall fastest should be llama-cpp with wgpu (p50 ~60ms)
         assert!(summary.overall_fastest.is_some());
-        let (fastest_runtime, fastest_backend) = summary.overall_fastest.unwrap();
+        let (fastest_runtime, fastest_backend) = summary.overall_fastest.expect("test");
         assert_eq!(fastest_runtime, "llamacpp");
         assert_eq!(fastest_backend, "wgpu");
 
         // Overall highest throughput should also be llama-cpp with wgpu (~80 tok/s)
         assert!(summary.overall_highest_throughput.is_some());
-        let (tp_runtime, tp_backend) = summary.overall_highest_throughput.unwrap();
+        let (tp_runtime, tp_backend) = summary.overall_highest_throughput.expect("test");
         assert_eq!(tp_runtime, "llamacpp");
         assert_eq!(tp_backend, "wgpu");
     }
@@ -7753,7 +7776,7 @@ llama_perf_context_print:       total time =      27.60 ms /     6 tokens"#;
         );
 
         // Should deserialize back
-        let deser: Result<MatrixBenchmarkEntry, _> = serde_json::from_str(&json.unwrap());
+        let deser: Result<MatrixBenchmarkEntry, _> = serde_json::from_str(&json.expect("test"));
         assert!(
             deser.is_ok(),
             "QA-035: MatrixBenchmarkEntry should deserialize"
@@ -8130,7 +8153,7 @@ llama_perf_context_print:       total time =      27.60 ms /     6 tokens"#;
         assert!(json.is_ok(), "QA-047: Entry should serialize for CI");
 
         // Should deserialize back
-        let deser: Result<MatrixBenchmarkEntry, _> = serde_json::from_str(&json.unwrap());
+        let deser: Result<MatrixBenchmarkEntry, _> = serde_json::from_str(&json.expect("test"));
         assert!(deser.is_ok(), "QA-047: Entry should deserialize from CI");
     }
 

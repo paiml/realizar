@@ -696,17 +696,21 @@ mod tests {
             .targets
             .iter()
             .find(|t| t.name == "linux-x86_64")
-            .unwrap();
+            .expect("test");
         assert_eq!(x86_target.deploy_target, DeployTarget::Docker);
 
         let arm_target = manifest
             .targets
             .iter()
             .find(|t| t.name == "linux-arm64")
-            .unwrap();
+            .expect("test");
         assert_eq!(arm_target.deploy_target, DeployTarget::Lambda);
 
-        let wasm_target = manifest.targets.iter().find(|t| t.name == "wasm").unwrap();
+        let wasm_target = manifest
+            .targets
+            .iter()
+            .find(|t| t.name == "wasm")
+            .expect("test");
         assert_eq!(wasm_target.deploy_target, DeployTarget::Wasm);
     }
 
@@ -717,34 +721,34 @@ mod tests {
     #[test]
     fn test_deploy_target_serialization() {
         let target = DeployTarget::Lambda;
-        let json = serde_json::to_string(&target).unwrap();
+        let json = serde_json::to_string(&target).expect("test");
         assert!(json.contains("Lambda"));
 
-        let deserialized: DeployTarget = serde_json::from_str(&json).unwrap();
+        let deserialized: DeployTarget = serde_json::from_str(&json).expect("test");
         assert_eq!(deserialized, DeployTarget::Lambda);
     }
 
     #[test]
     fn test_docker_config_serialization() {
         let config = DockerConfig::default();
-        let json = serde_json::to_string(&config).unwrap();
+        let json = serde_json::to_string(&config).expect("test");
 
         assert!(json.contains("rust:1.83"));
         assert!(json.contains("distroless"));
 
-        let deserialized: DockerConfig = serde_json::from_str(&json).unwrap();
+        let deserialized: DockerConfig = serde_json::from_str(&json).expect("test");
         assert_eq!(deserialized.expose_port, 8080);
     }
 
     #[test]
     fn test_wasm_config_serialization() {
         let config = WasmConfig::default();
-        let json = serde_json::to_string(&config).unwrap();
+        let json = serde_json::to_string(&config).expect("test");
 
         assert!(json.contains("Web"));
         assert!(json.contains("pkg"));
 
-        let deserialized: WasmConfig = serde_json::from_str(&json).unwrap();
+        let deserialized: WasmConfig = serde_json::from_str(&json).expect("test");
         assert_eq!(deserialized.target, WasmTarget::Web);
     }
 }

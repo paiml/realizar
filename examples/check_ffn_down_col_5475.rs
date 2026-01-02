@@ -11,7 +11,7 @@ fn l2_norm(v: &[f32]) -> f32 {
 fn main() {
     let path = "/tmp/parity-bench/tinyllama-1.1b-q4_k_m.gguf";
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     println!("FFN down weight analysis (Q6_K, row-major [hidden_dim, intermediate_dim]):");
     println!("  in_dim=5632 (intermediate), out_dim=2048 (hidden)");
@@ -41,7 +41,7 @@ fn main() {
             let row_start = row * bytes_per_row;
             let block_start = row_start + superblock_idx * Q6_K_BLOCK_SIZE;
             let block_data = &down.data[block_start..block_start + Q6_K_BLOCK_SIZE];
-            let dequant = dequantize_q6_k(block_data).unwrap();
+            let dequant = dequantize_q6_k(block_data).expect("test");
             col_vals.push(dequant[pos_in_block]);
         }
 
@@ -54,7 +54,7 @@ fn main() {
             let row_start = row * bytes_per_row;
             let block_start = row_start + 0 * Q6_K_BLOCK_SIZE; // superblock 0
             let block_data = &down.data[block_start..block_start + Q6_K_BLOCK_SIZE];
-            let dequant = dequantize_q6_k(block_data).unwrap();
+            let dequant = dequantize_q6_k(block_data).expect("test");
             col100_vals.push(dequant[100]);
         }
 

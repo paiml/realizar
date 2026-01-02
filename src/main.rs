@@ -849,7 +849,7 @@ fn run_gguf_inference(
 
     // Prefill: process prompt tokens to populate KV cache
     // We process all tokens but keep the logits from the last one
-    let mut logits = vec![];
+    let mut logits: Vec<f32> = vec![];
     for (pos, &token_id) in prompt_tokens.iter().enumerate() {
         logits = model.forward_cached(token_id, &mut cache, pos)?;
     }
@@ -1005,17 +1005,64 @@ fn run_gguf_inference_gpu(
     println!("Temperature: {:.1}", temperature);
     println!();
 
-    // Run inference using OwnedQuantizedModel generate method
+    // PARITY-003: Run inference with KV cache for O(n) per-token cost
+    // Previously used generate() which is O(n²) - this caused the slow GPU performance
     let gen_start = Instant::now();
 
-    // Use the model's generate function with CUDA acceleration
-    let generated = quantized_model
-        .generate(&prompt_tokens, max_tokens, temperature, eos_token_id)
-        .map_err(|e| realizar::error::RealizarError::UnsupportedOperation {
-            operation: "generate".to_string(),
-            reason: format!("Generation failed: {e}"),
-        })?;
+    // Create KV cache for efficient autoregressive decoding
+    let max_seq_len = prompt_tokens.len() + max_tokens;
+    let mut cache =
+        realizar::gguf::OwnedQuantizedKVCache::from_config(&quantized_model.config, max_seq_len);
+    let mut all_tokens = prompt_tokens.clone();
 
+    // Prefill: process prompt tokens to populate KV cache
+    let mut logits: Vec<f32> = vec![];
+    for (pos, &token_id) in prompt_tokens.iter().enumerate() {
+        logits = quantized_model
+            .forward_cached(token_id, &mut cache, pos)
+            .map_err(|e| realizar::error::RealizarError::UnsupportedOperation {
+                operation: "forward_cached".to_string(),
+                reason: format!("Prefill failed: {e}"),
+            })?;
+    }
+
+    // Decode: generate new tokens one at a time with KV caching
+    for i in 0..max_tokens {
+        // Sample next token
+        let next_token = if temperature <= 0.01 {
+            // Greedy decoding
+            logits
+                .iter()
+                .enumerate()
+                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                .map_or(0, |(idx, _)| idx as u32)
+        } else {
+            // Temperature sampling with top-k
+            OwnedQuantizedModel::sample_topk(&logits, temperature, 40)
+        };
+
+        // Stop on EOS
+        if let Some(eos) = eos_token_id {
+            if next_token == eos {
+                break;
+            }
+        }
+
+        all_tokens.push(next_token);
+
+        // Forward with KV cache for next iteration (if not last token)
+        if i < max_tokens - 1 {
+            let position = prompt_tokens.len() + i;
+            logits = quantized_model
+                .forward_cached(next_token, &mut cache, position)
+                .map_err(|e| realizar::error::RealizarError::UnsupportedOperation {
+                    operation: "forward_cached".to_string(),
+                    reason: format!("Decode failed: {e}"),
+                })?;
+        }
+    }
+
+    let generated = all_tokens;
     let gen_time = gen_start.elapsed();
 
     let tokens_generated = generated.len().saturating_sub(prompt_len);

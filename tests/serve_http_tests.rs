@@ -60,14 +60,14 @@ fn create_empty_state() -> ServeState {
 
 /// Helper to extract body as string
 async fn body_to_string(body: Body) -> String {
-    let bytes = body.collect().await.unwrap().to_bytes();
-    String::from_utf8(bytes.to_vec()).unwrap()
+    let bytes = body.collect().await.expect("test").to_bytes();
+    String::from_utf8(bytes.to_vec()).expect("test")
 }
 
 /// Helper to extract body as JSON
 async fn body_to_json<T: serde::de::DeserializeOwned>(body: Body) -> T {
-    let bytes = body.collect().await.unwrap().to_bytes();
-    serde_json::from_slice(&bytes).unwrap()
+    let bytes = body.collect().await.expect("test").to_bytes();
+    serde_json::from_slice(&bytes).expect("test")
 }
 
 // ============================================================================
@@ -83,10 +83,10 @@ async fn test_health_endpoint_returns_200() {
             Request::builder()
                 .uri("/health")
                 .body(Body::empty())
-                .unwrap(),
+                .expect("test"),
         )
         .await
-        .unwrap();
+        .expect("test");
 
     assert_eq!(response.status(), StatusCode::OK);
 }
@@ -100,10 +100,10 @@ async fn test_health_endpoint_returns_json() {
             Request::builder()
                 .uri("/health")
                 .body(Body::empty())
-                .unwrap(),
+                .expect("test"),
         )
         .await
-        .unwrap();
+        .expect("test");
 
     let body = body_to_string(response.into_body()).await;
     assert!(body.contains("healthy"));
@@ -123,10 +123,10 @@ async fn test_ready_endpoint_with_model() {
             Request::builder()
                 .uri("/ready")
                 .body(Body::empty())
-                .unwrap(),
+                .expect("test"),
         )
         .await
-        .unwrap();
+        .expect("test");
 
     assert_eq!(response.status(), StatusCode::OK);
 
@@ -144,10 +144,10 @@ async fn test_ready_endpoint_without_model() {
             Request::builder()
                 .uri("/ready")
                 .body(Body::empty())
-                .unwrap(),
+                .expect("test"),
         )
         .await
-        .unwrap();
+        .expect("test");
 
     assert_eq!(response.status(), StatusCode::OK);
 
@@ -176,11 +176,11 @@ async fn test_predict_endpoint_success() {
                 .method("POST")
                 .uri("/predict")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&request).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&request).expect("test")))
+                .expect("test"),
         )
         .await
-        .unwrap();
+        .expect("test");
 
     assert_eq!(response.status(), StatusCode::OK);
 
@@ -209,17 +209,17 @@ async fn test_predict_endpoint_with_probabilities() {
                 .method("POST")
                 .uri("/predict")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&request).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&request).expect("test")))
+                .expect("test"),
         )
         .await
-        .unwrap();
+        .expect("test");
 
     assert_eq!(response.status(), StatusCode::OK);
 
     let pred: PredictResponse = body_to_json(response.into_body()).await;
     assert!(pred.probabilities.is_some());
-    let probs = pred.probabilities.unwrap();
+    let probs = pred.probabilities.expect("test");
     assert_eq!(probs.len(), 2);
     // Probabilities should sum to ~1
     let sum: f32 = probs.iter().sum();
@@ -242,11 +242,11 @@ async fn test_predict_endpoint_class_0() {
                 .method("POST")
                 .uri("/predict")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&request).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&request).expect("test")))
+                .expect("test"),
         )
         .await
-        .unwrap();
+        .expect("test");
 
     assert_eq!(response.status(), StatusCode::OK);
 
@@ -270,11 +270,11 @@ async fn test_predict_endpoint_no_model() {
                 .method("POST")
                 .uri("/predict")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&request).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&request).expect("test")))
+                .expect("test"),
         )
         .await
-        .unwrap();
+        .expect("test");
 
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
 
@@ -298,11 +298,11 @@ async fn test_predict_endpoint_wrong_dimensions() {
                 .method("POST")
                 .uri("/predict")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&request).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&request).expect("test")))
+                .expect("test"),
         )
         .await
-        .unwrap();
+        .expect("test");
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
@@ -321,10 +321,10 @@ async fn test_predict_endpoint_invalid_json() {
                 .uri("/predict")
                 .header("content-type", "application/json")
                 .body(Body::from("not valid json"))
-                .unwrap(),
+                .expect("test"),
         )
         .await
-        .unwrap();
+        .expect("test");
 
     // axum returns 400 Bad Request for JSON parse errors
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
@@ -356,11 +356,11 @@ async fn test_batch_predict_endpoint_success() {
                 .method("POST")
                 .uri("/predict/batch")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&request).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&request).expect("test")))
+                .expect("test"),
         )
         .await
-        .unwrap();
+        .expect("test");
 
     assert_eq!(response.status(), StatusCode::OK);
 
@@ -384,11 +384,11 @@ async fn test_batch_predict_endpoint_empty_batch() {
                 .method("POST")
                 .uri("/predict/batch")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&request).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&request).expect("test")))
+                .expect("test"),
         )
         .await
-        .unwrap();
+        .expect("test");
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
@@ -409,10 +409,10 @@ async fn test_models_endpoint_with_model() {
             Request::builder()
                 .uri("/models")
                 .body(Body::empty())
-                .unwrap(),
+                .expect("test"),
         )
         .await
-        .unwrap();
+        .expect("test");
 
     assert_eq!(response.status(), StatusCode::OK);
 
@@ -430,10 +430,10 @@ async fn test_models_endpoint_without_model() {
             Request::builder()
                 .uri("/models")
                 .body(Body::empty())
-                .unwrap(),
+                .expect("test"),
         )
         .await
-        .unwrap();
+        .expect("test");
 
     assert_eq!(response.status(), StatusCode::OK);
 
@@ -454,10 +454,10 @@ async fn test_metrics_endpoint_prometheus_format() {
             Request::builder()
                 .uri("/metrics")
                 .body(Body::empty())
-                .unwrap(),
+                .expect("test"),
         )
         .await
-        .unwrap();
+        .expect("test");
 
     assert_eq!(response.status(), StatusCode::OK);
 
@@ -482,10 +482,10 @@ async fn test_404_for_unknown_route() {
             Request::builder()
                 .uri("/unknown/route")
                 .body(Body::empty())
-                .unwrap(),
+                .expect("test"),
         )
         .await
-        .unwrap();
+        .expect("test");
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
@@ -501,10 +501,10 @@ async fn test_method_not_allowed() {
                 .method("GET")
                 .uri("/predict")
                 .body(Body::empty())
-                .unwrap(),
+                .expect("test"),
         )
         .await
-        .unwrap();
+        .expect("test");
 
     assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
 }
@@ -531,11 +531,11 @@ async fn test_predict_latency_is_submillisecond() {
                 .method("POST")
                 .uri("/predict")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&request).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&request).expect("test")))
+                .expect("test"),
         )
         .await
-        .unwrap();
+        .expect("test");
 
     let elapsed = start.elapsed();
 

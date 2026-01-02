@@ -31,12 +31,12 @@ fn silu(x: &mut [f32]) {
 
 fn fused_matmul(input: &[f32], data: &[u8], qtype: u32, in_dim: usize, out_dim: usize) -> Vec<f32> {
     match qtype {
-        GGUF_TYPE_Q4_K => fused_q4k_parallel_matvec(data, input, in_dim, out_dim).unwrap(),
+        GGUF_TYPE_Q4_K => fused_q4k_parallel_matvec(data, input, in_dim, out_dim).expect("test"),
         GGUF_TYPE_Q6_K => {
             if out_dim == 256 {
-                fused_q6k_colmajor_matvec(data, input, in_dim, out_dim).unwrap()
+                fused_q6k_colmajor_matvec(data, input, in_dim, out_dim).expect("test")
             } else {
-                fused_q6k_parallel_matvec(data, input, in_dim, out_dim).unwrap()
+                fused_q6k_parallel_matvec(data, input, in_dim, out_dim).expect("test")
             }
         },
         _ => panic!(""),
@@ -46,7 +46,7 @@ fn fused_matmul(input: &[f32], data: &[u8], qtype: u32, in_dim: usize, out_dim: 
 fn main() {
     let path = "/tmp/parity-bench/tinyllama-1.1b-q4_k_m.gguf";
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     let hidden_dim = model.config.hidden_dim;
     let eps = model.config.eps;
@@ -66,7 +66,7 @@ fn main() {
             let bytes_per_row = (gw.in_dim / 256) * Q4_K_BLOCK_SIZE;
             let row_start = 5475 * bytes_per_row;
             let first_block = &gw.data[row_start..row_start + Q4_K_BLOCK_SIZE];
-            let dequant = dequantize_q4_k(first_block).unwrap();
+            let dequant = dequantize_q4_k(first_block).expect("test");
             let l2: f32 = dequant.iter().map(|x| x * x).sum::<f32>().sqrt();
             println!(
                 "  Layer {} gate row 5475 block 0: L2={:.4}, first 5: {:?}",

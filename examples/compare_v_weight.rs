@@ -10,7 +10,7 @@ fn l2_norm(v: &[f32]) -> f32 {
 fn main() {
     let path = "/tmp/parity-bench/tinyllama-1.1b-q4_k_m.gguf";
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     let layer = &model.layers[0];
     let (_, _, v_weight) = match &layer.qkv_weight {
@@ -31,7 +31,7 @@ fn main() {
     );
 
     // Dequantize first 256 values (first row or column?)
-    let first_block = dequantize_q6_k(&v_weight.data[..210]).unwrap();
+    let first_block = dequantize_q6_k(&v_weight.data[..210]).expect("test");
     println!("\nFirst 256 dequantized values:");
     println!("  First 5: {:?}", &first_block[..5]);
     println!("  L2: {:.6}", l2_norm(&first_block));
@@ -49,7 +49,7 @@ fn main() {
     let mut full_weight = Vec::new();
     for i in 0..num_blocks {
         let block_data = &v_weight.data[i * 210..(i + 1) * 210];
-        let dequant = dequantize_q6_k(block_data).unwrap();
+        let dequant = dequantize_q6_k(block_data).expect("test");
         full_weight.extend(dequant);
     }
     println!("\nFull weight L2: {:.6}", l2_norm(&full_weight));

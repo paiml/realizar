@@ -25,7 +25,7 @@ fn main() {
     println!("=== PAR-001: Verify V Projection with Real Input ===\n");
 
     let mapped = MappedGGUFModel::from_path(path).expect("Failed to load model");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     let token_id: u32 = 26222; // "Once"
     println!(
@@ -34,7 +34,7 @@ fn main() {
         mapped
             .model
             .vocabulary()
-            .unwrap()
+            .expect("test")
             .get(token_id as usize)
             .map(|s| s.as_str())
             .unwrap_or("?")

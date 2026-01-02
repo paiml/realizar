@@ -6,7 +6,7 @@ use realizar::quantize::dequantize_q6_k;
 fn main() {
     let path = "/tmp/parity-bench/tinyllama-1.1b-q4_k_m.gguf";
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     let layer = &model.layers[0];
     let (_, _, v_weight) = match &layer.qkv_weight {
@@ -30,13 +30,13 @@ fn main() {
     );
 
     // Dequantize first superblock (first 256 values)
-    let sb0 = dequantize_q6_k(&v_weight.data[..210]).unwrap();
+    let sb0 = dequantize_q6_k(&v_weight.data[..210]).expect("test");
     println!("\nSuperblock 0 (first 256 values):");
     println!("  Values 0..5: {:?}", &sb0[..5]);
     println!("  Values 251..256: {:?}", &sb0[251..256]);
 
     // Dequantize second superblock (values 256..512)
-    let sb1 = dequantize_q6_k(&v_weight.data[210..420]).unwrap();
+    let sb1 = dequantize_q6_k(&v_weight.data[210..420]).expect("test");
     println!("\nSuperblock 1 (values 256..512):");
     println!("  Values 0..5: {:?}", &sb1[..5]);
 
@@ -44,7 +44,7 @@ fn main() {
     let num_blocks = 2048;
     let mut all_vals = Vec::new();
     for i in 0..num_blocks {
-        let block = dequantize_q6_k(&v_weight.data[i * 210..(i + 1) * 210]).unwrap();
+        let block = dequantize_q6_k(&v_weight.data[i * 210..(i + 1) * 210]).expect("test");
         all_vals.extend(block);
     }
 

@@ -62,7 +62,7 @@ fn test_lambda_capabilities_affect_behavior() {
     if target.supports(TargetFeature::Simd) {
         // SIMD-capable targets should have faster inference (verified by benchmark)
         let model_bytes: &'static [u8] = b"APR\0\x01\x00\x00\x00simd_test";
-        let handler = LambdaHandler::from_bytes(model_bytes).unwrap();
+        let handler = LambdaHandler::from_bytes(model_bytes).expect("test");
 
         // Run multiple inferences to warm up
         let request = LambdaRequest {
@@ -75,7 +75,7 @@ fn test_lambda_capabilities_affect_behavior() {
         }
 
         // Final inference should be fast
-        let response = handler.handle(&request).unwrap();
+        let response = handler.handle(&request).expect("test");
         assert!(
             response.latency_ms < 100.0,
             "SIMD inference should be fast: {} ms",
@@ -139,7 +139,7 @@ fn test_batch_inference_pipeline() {
 #[test]
 fn test_batch_inference_error_handling() {
     let model_bytes: &'static [u8] = b"APR\0\x01\x00\x00\x00error_test";
-    let handler = LambdaHandler::from_bytes(model_bytes).unwrap();
+    let handler = LambdaHandler::from_bytes(model_bytes).expect("test");
 
     let batch_request = BatchLambdaRequest {
         instances: vec![
@@ -167,7 +167,7 @@ fn test_batch_inference_error_handling() {
         max_parallelism: None,
     };
 
-    let response = handler.handle_batch(&batch_request).unwrap();
+    let response = handler.handle_batch(&batch_request).expect("test");
 
     // Verify counts
     assert_eq!(response.predictions.len(), 5);
@@ -190,7 +190,7 @@ fn test_batch_inference_error_handling() {
 #[test]
 fn test_metrics_collection_integration() {
     let model_bytes: &'static [u8] = b"APR\0\x01\x00\x00\x00metrics_test";
-    let handler = LambdaHandler::from_bytes(model_bytes).unwrap();
+    let handler = LambdaHandler::from_bytes(model_bytes).expect("test");
     let mut metrics = LambdaMetrics::new();
 
     // Simulate request flow
@@ -200,7 +200,7 @@ fn test_metrics_collection_integration() {
     };
 
     // First request (cold start)
-    let response1 = handler.handle(&request).unwrap();
+    let response1 = handler.handle(&request).expect("test");
     metrics.record_success(response1.latency_ms, response1.cold_start);
 
     assert_eq!(metrics.requests_total, 1);
@@ -208,7 +208,7 @@ fn test_metrics_collection_integration() {
 
     // Subsequent requests (warm)
     for _ in 0..9 {
-        let response = handler.handle(&request).unwrap();
+        let response = handler.handle(&request).expect("test");
         metrics.record_success(response.latency_ms, response.cold_start);
     }
 
@@ -227,7 +227,7 @@ fn test_metrics_collection_integration() {
 #[test]
 fn test_metrics_batch_integration() {
     let model_bytes: &'static [u8] = b"APR\0\x01\x00\x00\x00batch_metrics";
-    let handler = LambdaHandler::from_bytes(model_bytes).unwrap();
+    let handler = LambdaHandler::from_bytes(model_bytes).expect("test");
     let mut metrics = LambdaMetrics::new();
 
     let batch = BatchLambdaRequest {
@@ -248,7 +248,7 @@ fn test_metrics_batch_integration() {
         max_parallelism: None,
     };
 
-    let response = handler.handle_batch(&batch).unwrap();
+    let response = handler.handle_batch(&batch).expect("test");
     metrics.record_batch(
         response.success_count,
         response.error_count,
@@ -324,7 +324,7 @@ fn test_error_flow_integration() {
 
     // Test empty features
     let model_bytes: &'static [u8] = b"APR\0\x01\x00\x00\x00error_flow";
-    let handler = LambdaHandler::from_bytes(model_bytes).unwrap();
+    let handler = LambdaHandler::from_bytes(model_bytes).expect("test");
 
     let empty_request = LambdaRequest {
         features: vec![],
@@ -350,7 +350,7 @@ fn test_error_flow_integration() {
 #[test]
 fn test_cold_start_metrics_integration() {
     let model_bytes: &'static [u8] = b"APR\0\x01\x00\x00\x00cold_start_test";
-    let handler = LambdaHandler::from_bytes(model_bytes).unwrap();
+    let handler = LambdaHandler::from_bytes(model_bytes).expect("test");
 
     // Before first invocation
     assert!(handler.is_cold_start());
@@ -361,7 +361,7 @@ fn test_cold_start_metrics_integration() {
         features: vec![1.0],
         model_id: None,
     };
-    let response = handler.handle(&request).unwrap();
+    let response = handler.handle(&request).expect("test");
     assert!(response.cold_start);
 
     // After first invocation
@@ -371,7 +371,7 @@ fn test_cold_start_metrics_integration() {
     assert!(metrics.first_inference_ms >= 0.0);
 
     // Subsequent invocations are not cold
-    let response2 = handler.handle(&request).unwrap();
+    let response2 = handler.handle(&request).expect("test");
     assert!(!response2.cold_start);
 }
 
@@ -383,7 +383,7 @@ fn test_cold_start_metrics_integration() {
 #[test]
 fn test_performance_comparison() {
     let model_bytes: &'static [u8] = b"APR\0\x01\x00\x00\x00perf_comparison";
-    let handler = LambdaHandler::from_bytes(model_bytes).unwrap();
+    let handler = LambdaHandler::from_bytes(model_bytes).expect("test");
 
     let small_request = LambdaRequest {
         features: vec![1.0; 10],
@@ -402,10 +402,10 @@ fn test_performance_comparison() {
     }
 
     // Measure small request
-    let small_response = handler.handle(&small_request).unwrap();
+    let small_response = handler.handle(&small_request).expect("test");
 
     // Measure large request
-    let large_response = handler.handle(&large_request).unwrap();
+    let large_response = handler.handle(&large_request).expect("test");
 
     // Both should complete quickly (mock inference)
     assert!(small_response.latency_ms < 10.0);

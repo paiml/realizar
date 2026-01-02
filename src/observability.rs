@@ -1285,7 +1285,7 @@ mod tests {
 
         assert_eq!(span.status, SpanStatus::Ok);
         assert!(span.duration_us.is_some());
-        assert!(span.duration_us.unwrap() >= 10000); // At least 10ms
+        assert!(span.duration_us.expect("test") >= 10000); // At least 10ms
     }
 
     #[test]
@@ -1401,9 +1401,9 @@ mod tests {
         observer.record_ab_result("test", "control", true, 60, 120);
         observer.record_ab_result("test", "treatment", false, 40, 80);
 
-        let results = observer.get_ab_results("test").unwrap();
-        let control = results.variants.get("control").unwrap();
-        let treatment = results.variants.get("treatment").unwrap();
+        let results = observer.get_ab_results("test").expect("test");
+        let control = results.variants.get("control").expect("test");
+        let treatment = results.variants.get("treatment").expect("test");
 
         assert_eq!(control.requests, 2);
         assert_eq!(control.successes, 2);
@@ -1517,7 +1517,7 @@ mod tests {
     #[test]
     fn test_trace_context_from_traceparent_valid() {
         let header = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
-        let ctx = TraceContext::from_traceparent(header).unwrap();
+        let ctx = TraceContext::from_traceparent(header).expect("test");
 
         assert_eq!(ctx.trace_id, "0af7651916cd43dd8448eb211c80319c");
         assert_eq!(ctx.parent_span_id, Some("b7ad6b7169203331".to_string()));
@@ -1527,7 +1527,7 @@ mod tests {
     #[test]
     fn test_trace_context_from_traceparent_not_sampled() {
         let header = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-00";
-        let ctx = TraceContext::from_traceparent(header).unwrap();
+        let ctx = TraceContext::from_traceparent(header).expect("test");
 
         assert_eq!(ctx.trace_flags, 0x00);
         assert!(!ctx.is_sampled());
@@ -1620,7 +1620,7 @@ mod tests {
         hist.observe(2000);
         hist.observe(3000);
 
-        let mean = hist.mean().unwrap();
+        let mean = hist.mean().expect("test");
         assert!((mean - 2000.0).abs() < 0.001);
     }
 
@@ -1642,15 +1642,15 @@ mod tests {
         }
 
         // p50 should be around 50ms
-        let p50 = hist.p50().unwrap();
+        let p50 = hist.p50().expect("test");
         assert!(p50 >= 25_000 && p50 <= 100_000);
 
         // p95 should be around 95ms
-        let p95 = hist.p95().unwrap();
+        let p95 = hist.p95().expect("test");
         assert!(p95 >= 50000);
 
         // p99 should be around 99ms
-        let p99 = hist.p99().unwrap();
+        let p99 = hist.p99().expect("test");
         assert!(p99 >= 50000);
     }
 

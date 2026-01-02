@@ -314,12 +314,12 @@ impl ModelHealth {
     /// Get current status
     #[must_use]
     pub fn status(&self) -> WarmupStatus {
-        *self.status.read().unwrap()
+        *self.status.read().expect("test")
     }
 
     /// Set status
     pub fn set_status(&self, status: WarmupStatus) {
-        *self.status.write().unwrap() = status;
+        *self.status.write().expect("test") = status;
         if status == WarmupStatus::Ready {
             self.set_ready(true);
         }
@@ -361,7 +361,7 @@ impl ModelHealth {
 
     /// Update health check timestamp
     pub fn touch(&self) {
-        *self.last_health_check.write().unwrap() = Instant::now();
+        *self.last_health_check.write().expect("test") = Instant::now();
     }
 
     /// Get uptime since model was loaded
@@ -373,7 +373,7 @@ impl ModelHealth {
     /// Get time since last health check
     #[must_use]
     pub fn time_since_last_check(&self) -> Duration {
-        self.last_health_check.read().unwrap().elapsed()
+        self.last_health_check.read().expect("test").elapsed()
     }
 
     /// Generate health report
@@ -696,7 +696,7 @@ mod tests {
 
         assert_eq!(result.status, WarmupStatus::TimedOut);
         assert!(result.error.is_some());
-        assert!(result.error.unwrap().contains("timed out"));
+        assert!(result.error.expect("test").contains("timed out"));
     }
 
     #[test]
@@ -835,7 +835,7 @@ mod tests {
 
         let result = executor.check_timeout(start, 0);
         assert!(result.is_some());
-        assert_eq!(result.unwrap().status, WarmupStatus::TimedOut);
+        assert_eq!(result.expect("test").status, WarmupStatus::TimedOut);
     }
 
     #[test]
@@ -901,7 +901,7 @@ mod tests {
         assert_eq!(model.priority, 10);
         assert!(model.warmup);
         assert!(model.warmup_config.is_some());
-        assert_eq!(model.warmup_config.unwrap().warmup_iterations, 5);
+        assert_eq!(model.warmup_config.expect("test").warmup_iterations, 5);
     }
 
     #[test]
@@ -924,19 +924,19 @@ mod tests {
             .with_warmup_iterations(5)
             .with_sample_prompt("Hello");
 
-        let json = serde_json::to_string(&config).unwrap();
+        let json = serde_json::to_string(&config).expect("test");
         assert!(json.contains("5"));
         assert!(json.contains("Hello"));
 
-        let deserialized: WarmupConfig = serde_json::from_str(&json).unwrap();
+        let deserialized: WarmupConfig = serde_json::from_str(&json).expect("test");
         assert_eq!(deserialized.warmup_iterations, 5);
     }
 
     #[test]
     fn test_warmup_status_serialization() {
         let status = WarmupStatus::Ready;
-        let json = serde_json::to_string(&status).unwrap();
-        let deserialized: WarmupStatus = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&status).expect("test");
+        let deserialized: WarmupStatus = serde_json::from_str(&json).expect("test");
         assert_eq!(deserialized, WarmupStatus::Ready);
     }
 
@@ -945,7 +945,7 @@ mod tests {
         let result =
             WarmupResult::success(3, Duration::from_millis(100), &[Duration::from_millis(50)]);
 
-        let json = serde_json::to_string(&result).unwrap();
+        let json = serde_json::to_string(&result).expect("test");
         assert!(json.contains("Ready"));
         assert!(json.contains('3'));
     }
@@ -962,7 +962,7 @@ mod tests {
             time_since_last_check_secs: 1.5,
         };
 
-        let json = serde_json::to_string(&report).unwrap();
+        let json = serde_json::to_string(&report).expect("test");
         assert!(json.contains("true"));
         assert!(json.contains("1000"));
         assert!(json.contains("0.005"));

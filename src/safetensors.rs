@@ -183,7 +183,7 @@ impl SafetensorsModel {
         let bytes = &self.data[start..end];
 
         // Convert bytes to f32 vector
-        if bytes.len() % 4 != 0 {
+        if !bytes.len().is_multiple_of(4) {
             let len = bytes.len();
             return Err(RealizarError::UnsupportedOperation {
                 operation: "get_tensor_f32".to_string(),
@@ -273,7 +273,7 @@ mod tests {
         data.extend_from_slice(&2u64.to_le_bytes()); // metadata_len = 2
         data.extend_from_slice(b"{}"); // Empty JSON
 
-        let model = SafetensorsModel::from_bytes(&data).unwrap();
+        let model = SafetensorsModel::from_bytes(&data).expect("test");
         assert_eq!(model.tensors.len(), 0);
         assert_eq!(model.data.len(), 0);
     }
@@ -305,10 +305,10 @@ mod tests {
         // Add 24 bytes of dummy tensor data (2*3*4 = 24 bytes for F32)
         data.extend_from_slice(&[0u8; 24]);
 
-        let model = SafetensorsModel::from_bytes(&data).unwrap();
+        let model = SafetensorsModel::from_bytes(&data).expect("test");
         assert_eq!(model.tensors.len(), 1);
 
-        let tensor = model.tensors.get("weight").unwrap();
+        let tensor = model.tensors.get("weight").expect("test");
         assert_eq!(tensor.name, "weight");
         assert_eq!(tensor.dtype, SafetensorsDtype::F32);
         assert_eq!(tensor.shape, vec![2, 3]);
@@ -330,15 +330,15 @@ mod tests {
         // Add dummy tensor data
         data.extend_from_slice(&vec![0u8; 131_584]);
 
-        let model = SafetensorsModel::from_bytes(&data).unwrap();
+        let model = SafetensorsModel::from_bytes(&data).expect("test");
         assert_eq!(model.tensors.len(), 2);
 
-        let weight = model.tensors.get("layer1.weight").unwrap();
+        let weight = model.tensors.get("layer1.weight").expect("test");
         assert_eq!(weight.dtype, SafetensorsDtype::F32);
         assert_eq!(weight.shape, vec![128, 256]);
         assert_eq!(weight.data_offsets, [0, 131_072]);
 
-        let bias = model.tensors.get("layer1.bias").unwrap();
+        let bias = model.tensors.get("layer1.bias").expect("test");
         assert_eq!(bias.dtype, SafetensorsDtype::F32);
         assert_eq!(bias.shape, vec![128]);
         assert_eq!(bias.data_offsets, [131_072, 131_584]);
@@ -359,19 +359,19 @@ mod tests {
         data.extend_from_slice(json_bytes);
         data.extend_from_slice(&[0u8; 20]);
 
-        let model = SafetensorsModel::from_bytes(&data).unwrap();
+        let model = SafetensorsModel::from_bytes(&data).expect("test");
         assert_eq!(model.tensors.len(), 3);
 
         assert_eq!(
-            model.tensors.get("f32_tensor").unwrap().dtype,
+            model.tensors.get("f32_tensor").expect("test").dtype,
             SafetensorsDtype::F32
         );
         assert_eq!(
-            model.tensors.get("i32_tensor").unwrap().dtype,
+            model.tensors.get("i32_tensor").expect("test").dtype,
             SafetensorsDtype::I32
         );
         assert_eq!(
-            model.tensors.get("u8_tensor").unwrap().dtype,
+            model.tensors.get("u8_tensor").expect("test").dtype,
             SafetensorsDtype::U8
         );
     }
@@ -425,32 +425,35 @@ mod tests {
         data.extend_from_slice(json_bytes);
         data.extend_from_slice(&[0u8; 22]);
 
-        let model = SafetensorsModel::from_bytes(&data).unwrap();
+        let model = SafetensorsModel::from_bytes(&data).expect("test");
         assert_eq!(model.tensors.len(), 7);
 
         assert_eq!(
-            model.tensors.get("f32").unwrap().dtype,
+            model.tensors.get("f32").expect("test").dtype,
             SafetensorsDtype::F32
         );
         assert_eq!(
-            model.tensors.get("f16").unwrap().dtype,
+            model.tensors.get("f16").expect("test").dtype,
             SafetensorsDtype::F16
         );
         assert_eq!(
-            model.tensors.get("bf16").unwrap().dtype,
+            model.tensors.get("bf16").expect("test").dtype,
             SafetensorsDtype::BF16
         );
         assert_eq!(
-            model.tensors.get("i32").unwrap().dtype,
+            model.tensors.get("i32").expect("test").dtype,
             SafetensorsDtype::I32
         );
         assert_eq!(
-            model.tensors.get("i64").unwrap().dtype,
+            model.tensors.get("i64").expect("test").dtype,
             SafetensorsDtype::I64
         );
-        assert_eq!(model.tensors.get("u8").unwrap().dtype, SafetensorsDtype::U8);
         assert_eq!(
-            model.tensors.get("bool").unwrap().dtype,
+            model.tensors.get("u8").expect("test").dtype,
+            SafetensorsDtype::U8
+        );
+        assert_eq!(
+            model.tensors.get("bool").expect("test").dtype,
             SafetensorsDtype::Bool
         );
     }
@@ -468,12 +471,12 @@ mod tests {
         data.extend_from_slice(&1.0f32.to_le_bytes());
         data.extend_from_slice(&2.0f32.to_le_bytes());
 
-        let model = SafetensorsModel::from_bytes(&data).unwrap();
+        let model = SafetensorsModel::from_bytes(&data).expect("test");
         assert_eq!(model.data.len(), 8);
 
         // Verify we can read back the f32 values
-        let val1 = f32::from_le_bytes(model.data[0..4].try_into().unwrap());
-        let val2 = f32::from_le_bytes(model.data[4..8].try_into().unwrap());
+        let val1 = f32::from_le_bytes(model.data[0..4].try_into().expect("test"));
+        let val2 = f32::from_le_bytes(model.data[4..8].try_into().expect("test"));
         assert!((val1 - 1.0).abs() < 1e-6);
         assert!((val2 - 2.0).abs() < 1e-6);
     }
@@ -494,16 +497,19 @@ mod tests {
         data.extend_from_slice(json_bytes);
         data.extend_from_slice(&[0u8; 188]);
 
-        let model = SafetensorsModel::from_bytes(&data).unwrap();
+        let model = SafetensorsModel::from_bytes(&data).expect("test");
         assert_eq!(model.tensors.len(), 4);
 
         assert_eq!(
-            model.tensors.get("scalar").unwrap().shape,
+            model.tensors.get("scalar").expect("test").shape,
             Vec::<usize>::new()
         );
-        assert_eq!(model.tensors.get("vector").unwrap().shape, vec![10]);
-        assert_eq!(model.tensors.get("matrix").unwrap().shape, vec![3, 4]);
-        assert_eq!(model.tensors.get("tensor3d").unwrap().shape, vec![2, 3, 4]);
+        assert_eq!(model.tensors.get("vector").expect("test").shape, vec![10]);
+        assert_eq!(model.tensors.get("matrix").expect("test").shape, vec![3, 4]);
+        assert_eq!(
+            model.tensors.get("tensor3d").expect("test").shape,
+            vec![2, 3, 4]
+        );
     }
 
     #[test]
@@ -535,19 +541,19 @@ mod tests {
         data.extend_from_slice(&0.5f32.to_le_bytes());
 
         // Parse with realizar
-        let model = SafetensorsModel::from_bytes(&data).unwrap();
+        let model = SafetensorsModel::from_bytes(&data).expect("test");
 
         // Verify structure
         assert_eq!(model.tensors.len(), 2);
 
         // Check coefficients tensor
-        let coef = model.tensors.get("coefficients").unwrap();
+        let coef = model.tensors.get("coefficients").expect("test");
         assert_eq!(coef.dtype, SafetensorsDtype::F32);
         assert_eq!(coef.shape, vec![3]);
         assert_eq!(coef.data_offsets, [0, 12]);
 
         // Check intercept tensor
-        let intercept = model.tensors.get("intercept").unwrap();
+        let intercept = model.tensors.get("intercept").expect("test");
         assert_eq!(intercept.dtype, SafetensorsDtype::F32);
         assert_eq!(intercept.shape, vec![1]);
         assert_eq!(intercept.data_offsets, [12, 16]);
@@ -556,14 +562,14 @@ mod tests {
         let coef_vals: Vec<f32> = (0..3)
             .map(|i| {
                 let offset = i * 4;
-                f32::from_le_bytes(model.data[offset..offset + 4].try_into().unwrap())
+                f32::from_le_bytes(model.data[offset..offset + 4].try_into().expect("test"))
             })
             .collect();
         assert!((coef_vals[0] - 2.0).abs() < 1e-6);
         assert!((coef_vals[1] - 3.0).abs() < 1e-6);
         assert!((coef_vals[2] - 1.5).abs() < 1e-6);
 
-        let intercept_val = f32::from_le_bytes(model.data[12..16].try_into().unwrap());
+        let intercept_val = f32::from_le_bytes(model.data[12..16].try_into().expect("test"));
         assert!((intercept_val - 0.5).abs() < 1e-6);
     }
 
@@ -590,10 +596,10 @@ mod tests {
         data.extend_from_slice(&0.5f32.to_le_bytes());
         data.extend_from_slice(&0.25f32.to_le_bytes());
 
-        let model = SafetensorsModel::from_bytes(&data).unwrap();
+        let model = SafetensorsModel::from_bytes(&data).expect("test");
 
         // Test extracting weights
-        let weights = model.get_tensor_f32("weights").unwrap();
+        let weights = model.get_tensor_f32("weights").expect("test");
         assert_eq!(weights.len(), 4);
         assert!((weights[0] - 1.0).abs() < 1e-6);
         assert!((weights[1] - 2.0).abs() < 1e-6);
@@ -601,7 +607,7 @@ mod tests {
         assert!((weights[3] - 4.0).abs() < 1e-6);
 
         // Test extracting bias
-        let bias = model.get_tensor_f32("bias").unwrap();
+        let bias = model.get_tensor_f32("bias").expect("test");
         assert_eq!(bias.len(), 2);
         assert!((bias[0] - 0.5).abs() < 1e-6);
         assert!((bias[1] - 0.25).abs() < 1e-6);
@@ -625,7 +631,7 @@ mod tests {
         data.extend_from_slice(&1i32.to_le_bytes());
         data.extend_from_slice(&2i32.to_le_bytes());
 
-        let model = SafetensorsModel::from_bytes(&data).unwrap();
+        let model = SafetensorsModel::from_bytes(&data).expect("test");
 
         // Should error because dtype is I32, not F32
         let result = model.get_tensor_f32("int_tensor");
@@ -649,13 +655,13 @@ mod tests {
         data.extend_from_slice(&1.5f32.to_le_bytes());
         data.extend_from_slice(&0.5f32.to_le_bytes());
 
-        let model = SafetensorsModel::from_bytes(&data).unwrap();
+        let model = SafetensorsModel::from_bytes(&data).expect("test");
 
         // Extract using helper method - much cleaner!
-        let coefficients = model.get_tensor_f32("coefficients").unwrap();
+        let coefficients = model.get_tensor_f32("coefficients").expect("test");
         assert_eq!(coefficients, vec![2.0, 3.0, 1.5]);
 
-        let intercept = model.get_tensor_f32("intercept").unwrap();
+        let intercept = model.get_tensor_f32("intercept").expect("test");
         assert_eq!(intercept, vec![0.5]);
     }
 }

@@ -23,7 +23,7 @@ fn y11_1a_detect_apr_v2_format() {
     let format = detect_format(apr_v2_data);
     assert!(format.is_ok(), "Should detect APR v2 format");
     assert_eq!(
-        format.unwrap(),
+        format.expect("test"),
         ModelFormat::Apr,
         "Should identify as APR format"
     );
@@ -41,7 +41,7 @@ fn y11_1b_detect_apr_v1_format() {
     let format = detect_format(apr_v1_data);
     assert!(format.is_ok(), "Should detect APR v1 format");
     assert_eq!(
-        format.unwrap(),
+        format.expect("test"),
         ModelFormat::Apr,
         "Should identify as APR format"
     );
@@ -84,7 +84,7 @@ fn y11_2b_apr_architecture_detection() {
         return;
     }
 
-    let transformer = AprTransformer::from_apr_file(test_model).unwrap();
+    let transformer = AprTransformer::from_apr_file(test_model).expect("test");
     let config = transformer.config();
 
     // TinyLlama architecture
@@ -109,14 +109,14 @@ fn y11_3a_apr_forward_pass() {
         return;
     }
 
-    let transformer = AprTransformer::from_apr_file(test_model).unwrap();
+    let transformer = AprTransformer::from_apr_file(test_model).expect("test");
 
     // Run forward pass
     let input_tokens = vec![1u32, 2, 3];
     let logits = transformer.forward(&input_tokens);
 
     assert!(logits.is_ok(), "Forward pass should succeed");
-    let logits = logits.unwrap();
+    let logits = logits.expect("test");
     assert_eq!(
         logits.len(),
         transformer.config().vocab_size,
@@ -136,7 +136,7 @@ fn y11_3b_apr_generate() {
         return;
     }
 
-    let transformer = AprTransformer::from_apr_file(test_model).unwrap();
+    let transformer = AprTransformer::from_apr_file(test_model).expect("test");
 
     let prompt = vec![1u32, 2, 3];
     let max_tokens = 5;
@@ -144,7 +144,7 @@ fn y11_3b_apr_generate() {
     let generated = transformer.generate(&prompt, max_tokens);
     assert!(generated.is_ok(), "Generate should succeed");
 
-    let tokens = generated.unwrap();
+    let tokens = generated.expect("test");
     assert!(
         tokens.len() >= prompt.len(),
         "Should generate at least prompt tokens"
@@ -224,13 +224,13 @@ fn y12_1_apr_performance_parity() {
     }
 
     // Benchmark APR
-    let apr_transformer = AprTransformer::from_apr_file(apr_model).unwrap();
+    let apr_transformer = AprTransformer::from_apr_file(apr_model).expect("test");
     let mut apr_runner = AprBenchmarkRunner::new(apr_transformer);
     apr_runner.set_warmup_iterations(3);
     apr_runner.set_measure_iterations(10);
 
     let prompt = vec![1u32, 2, 3, 4, 5];
-    let apr_result = apr_runner.benchmark_decode(&prompt, 20).unwrap();
+    let apr_result = apr_runner.benchmark_decode(&prompt, 20).expect("test");
 
     // For now, just check APR meets minimum threshold
     // Full GGUF comparison requires GGUFBenchmarkRunner

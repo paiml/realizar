@@ -16,7 +16,7 @@ fn main() {
     println!("=== PAR-001: Trace V Projection ===\n");
 
     let mapped = MappedGGUFModel::from_path(path).expect("Failed to load model");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     let hidden_dim = model.config.hidden_dim;
     let layer = &model.layers[0];

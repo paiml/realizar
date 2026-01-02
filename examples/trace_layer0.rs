@@ -14,7 +14,7 @@ fn main() {
     println!("=== PAR-001b: Layer 0 Trace Debug ===\n");
 
     let mapped = MappedGGUFModel::from_path(path).expect("Failed to load model");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     println!("Model config:");
     println!("  hidden_dim: {}", model.config.hidden_dim);
@@ -201,7 +201,7 @@ fn main() {
             let mut indexed: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
             indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
             println!("\n   Top 5 predicted tokens:");
-            let vocab = mapped.model.vocabulary().unwrap();
+            let vocab = mapped.model.vocabulary().expect("test");
             for (idx, score) in indexed.iter().take(5) {
                 let token_str = if *idx < vocab.len() {
                     vocab[*idx].replace('▁', " ")

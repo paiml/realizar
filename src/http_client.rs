@@ -4254,7 +4254,7 @@ mod tests {
         println!(
             "{}",
             serde_json::to_string_pretty(
-                &serde_json::from_str::<serde_json::Value>(&json).unwrap()
+                &serde_json::from_str::<serde_json::Value>(&json).expect("test")
             )
             .unwrap_or(json)
         );
@@ -7432,8 +7432,8 @@ mod tests {
             }
 
             // Calculate memory per token for last measurement
-            let (last_ctx, last_mem) = context_memory_pairs.last().unwrap();
-            let (first_ctx, first_mem) = context_memory_pairs.first().unwrap();
+            let (last_ctx, last_mem) = context_memory_pairs.last().expect("test");
+            let (first_ctx, first_mem) = context_memory_pairs.first().expect("test");
 
             let delta_mem = last_mem - first_mem;
             let delta_ctx = (*last_ctx - *first_ctx) as f64;

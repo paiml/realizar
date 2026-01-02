@@ -1060,7 +1060,7 @@ pub fn sample_typical(logits: &Tensor<f32>, p: f32, rng_value: f32) -> Result<us
         let max_idx = probs
             .iter()
             .enumerate()
-            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
             .map_or(0, |(i, _)| i);
         return Ok(max_idx);
     }
@@ -1419,7 +1419,7 @@ pub fn sample_eta(logits: &Tensor<f32>, config: &EtaConfig, rng_value: f32) -> R
         let max_idx = probs
             .iter()
             .enumerate()
-            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
             .map_or(0, |(i, _)| i);
         return Ok(max_idx);
     }
@@ -3143,28 +3143,28 @@ mod tests {
 
     #[test]
     fn test_apply_temperature() {
-        let logits = Tensor::from_vec(vec![4], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+        let logits = Tensor::from_vec(vec![4], vec![1.0, 2.0, 3.0, 4.0]).expect("test");
 
         // Temperature = 1.0 should return same values
-        let scaled = apply_temperature(&logits, 1.0).unwrap();
+        let scaled = apply_temperature(&logits, 1.0).expect("test");
         for i in 0..4 {
             assert!((scaled.data()[i] - logits.data()[i]).abs() < 1e-6);
         }
 
         // Temperature = 2.0 should halve values
-        let scaled = apply_temperature(&logits, 2.0).unwrap();
+        let scaled = apply_temperature(&logits, 2.0).expect("test");
         assert!((scaled.data()[0] - 0.5).abs() < 1e-6);
         assert!((scaled.data()[3] - 2.0).abs() < 1e-6);
 
         // Temperature = 0.5 should double values
-        let scaled = apply_temperature(&logits, 0.5).unwrap();
+        let scaled = apply_temperature(&logits, 0.5).expect("test");
         assert!((scaled.data()[0] - 2.0).abs() < 1e-6);
         assert!((scaled.data()[3] - 8.0).abs() < 1e-6);
     }
 
     #[test]
     fn test_apply_temperature_invalid() {
-        let logits = Tensor::from_vec(vec![4], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+        let logits = Tensor::from_vec(vec![4], vec![1.0, 2.0, 3.0, 4.0]).expect("test");
         assert!(apply_temperature(&logits, 0.0).is_err());
         assert!(apply_temperature(&logits, -1.0).is_err());
     }
@@ -3172,90 +3172,90 @@ mod tests {
     #[test]
     fn test_sample_greedy() {
         // Clear winner at index 2
-        let logits = Tensor::from_vec(vec![5], vec![1.0, 2.0, 10.0, 3.0, 4.0]).unwrap();
-        let token = sample_greedy(&logits).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![1.0, 2.0, 10.0, 3.0, 4.0]).expect("test");
+        let token = sample_greedy(&logits).expect("test");
         assert_eq!(token, 2);
 
         // Winner at last index
-        let logits = Tensor::from_vec(vec![3], vec![1.0, 2.0, 5.0]).unwrap();
-        let token = sample_greedy(&logits).unwrap();
+        let logits = Tensor::from_vec(vec![3], vec![1.0, 2.0, 5.0]).expect("test");
+        let token = sample_greedy(&logits).expect("test");
         assert_eq!(token, 2);
 
         // Winner at first index
-        let logits = Tensor::from_vec(vec![3], vec![5.0, 2.0, 1.0]).unwrap();
-        let token = sample_greedy(&logits).unwrap();
+        let logits = Tensor::from_vec(vec![3], vec![5.0, 2.0, 1.0]).expect("test");
+        let token = sample_greedy(&logits).expect("test");
         assert_eq!(token, 0);
     }
 
     #[test]
     fn test_sample_greedy_empty_error() {
-        let logits = Tensor::from_vec(vec![1], vec![1.0]).unwrap();
+        let logits = Tensor::from_vec(vec![1], vec![1.0]).expect("test");
         // Single element should work
-        assert_eq!(sample_greedy(&logits).unwrap(), 0);
+        assert_eq!(sample_greedy(&logits).expect("test"), 0);
     }
 
     #[test]
     fn test_sample_top_k() {
         // Strong preference for index 0
-        let logits = Tensor::from_vec(vec![5], vec![100.0, 1.0, 1.0, 1.0, 1.0]).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![100.0, 1.0, 1.0, 1.0, 1.0]).expect("test");
 
         // With rng_value = 0.0, should always get first (highest prob)
-        let token = sample_top_k(&logits, 3, 0.0).unwrap();
+        let token = sample_top_k(&logits, 3, 0.0).expect("test");
         assert_eq!(token, 0);
 
         // With k=1, should always get highest
-        let token = sample_top_k(&logits, 1, 0.5).unwrap();
+        let token = sample_top_k(&logits, 1, 0.5).expect("test");
         assert_eq!(token, 0);
     }
 
     #[test]
     fn test_sample_top_k_distribution() {
         // Two equally likely tokens
-        let logits = Tensor::from_vec(vec![4], vec![10.0, 10.0, 0.0, 0.0]).unwrap();
+        let logits = Tensor::from_vec(vec![4], vec![10.0, 10.0, 0.0, 0.0]).expect("test");
 
         // Low rng should get index 0 or 1 (they're equal)
-        let token = sample_top_k(&logits, 2, 0.1).unwrap();
+        let token = sample_top_k(&logits, 2, 0.1).expect("test");
         assert!(token == 0 || token == 1);
 
         // High rng should get index 0 or 1
-        let token = sample_top_k(&logits, 2, 0.9).unwrap();
+        let token = sample_top_k(&logits, 2, 0.9).expect("test");
         assert!(token == 0 || token == 1);
     }
 
     #[test]
     fn test_sample_top_k_errors() {
-        let logits = Tensor::from_vec(vec![3], vec![1.0, 2.0, 3.0]).unwrap();
+        let logits = Tensor::from_vec(vec![3], vec![1.0, 2.0, 3.0]).expect("test");
         assert!(sample_top_k(&logits, 0, 0.5).is_err());
     }
 
     #[test]
     fn test_sample_top_p() {
         // One dominant token
-        let logits = Tensor::from_vec(vec![3], vec![100.0, 1.0, 1.0]).unwrap();
+        let logits = Tensor::from_vec(vec![3], vec![100.0, 1.0, 1.0]).expect("test");
 
         // With p=0.9, nucleus likely just the first token
-        let token = sample_top_p(&logits, 0.9, 0.5).unwrap();
+        let token = sample_top_p(&logits, 0.9, 0.5).expect("test");
         assert_eq!(token, 0);
     }
 
     #[test]
     fn test_sample_top_p_uniform() {
         // Equal logits
-        let logits = Tensor::from_vec(vec![4], vec![0.0, 0.0, 0.0, 0.0]).unwrap();
+        let logits = Tensor::from_vec(vec![4], vec![0.0, 0.0, 0.0, 0.0]).expect("test");
 
         // With p=1.0, all tokens in nucleus
         // Low rng should get early token
-        let token = sample_top_p(&logits, 1.0, 0.1).unwrap();
+        let token = sample_top_p(&logits, 1.0, 0.1).expect("test");
         assert!(token < 4);
 
         // High rng should get later token
-        let token = sample_top_p(&logits, 1.0, 0.9).unwrap();
+        let token = sample_top_p(&logits, 1.0, 0.9).expect("test");
         assert!(token < 4);
     }
 
     #[test]
     fn test_sample_top_p_errors() {
-        let logits = Tensor::from_vec(vec![3], vec![1.0, 2.0, 3.0]).unwrap();
+        let logits = Tensor::from_vec(vec![3], vec![1.0, 2.0, 3.0]).expect("test");
         assert!(sample_top_p(&logits, 0.0, 0.5).is_err());
         assert!(sample_top_p(&logits, 1.1, 0.5).is_err());
         assert!(sample_top_p(&logits, -0.1, 0.5).is_err());
@@ -3263,34 +3263,34 @@ mod tests {
 
     #[test]
     fn test_sample_token_greedy() {
-        let logits = Tensor::from_vec(vec![5], vec![1.0, 2.0, 10.0, 3.0, 4.0]).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![1.0, 2.0, 10.0, 3.0, 4.0]).expect("test");
         let config = GenerationConfig::greedy();
-        let token = sample_token(&logits, &config, 0.5).unwrap();
+        let token = sample_token(&logits, &config, 0.5).expect("test");
         assert_eq!(token, 2);
     }
 
     #[test]
     fn test_sample_token_with_temperature() {
-        let logits = Tensor::from_vec(vec![3], vec![1.0, 2.0, 3.0]).unwrap();
+        let logits = Tensor::from_vec(vec![3], vec![1.0, 2.0, 3.0]).expect("test");
         let config = GenerationConfig::greedy().with_temperature(0.5);
-        let token = sample_token(&logits, &config, 0.5).unwrap();
+        let token = sample_token(&logits, &config, 0.5).expect("test");
         // Higher temperature doesn't change greedy selection
         assert_eq!(token, 2);
     }
 
     #[test]
     fn test_sample_token_top_k() {
-        let logits = Tensor::from_vec(vec![5], vec![100.0, 1.0, 1.0, 1.0, 1.0]).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![100.0, 1.0, 1.0, 1.0, 1.0]).expect("test");
         let config = GenerationConfig::top_k(3);
-        let token = sample_token(&logits, &config, 0.0).unwrap();
+        let token = sample_token(&logits, &config, 0.0).expect("test");
         assert_eq!(token, 0);
     }
 
     #[test]
     fn test_sample_token_top_p() {
-        let logits = Tensor::from_vec(vec![3], vec![100.0, 1.0, 1.0]).unwrap();
+        let logits = Tensor::from_vec(vec![3], vec![100.0, 1.0, 1.0]).expect("test");
         let config = GenerationConfig::top_p(0.95);
-        let token = sample_token(&logits, &config, 0.5).unwrap();
+        let token = sample_token(&logits, &config, 0.5).expect("test");
         assert_eq!(token, 0);
     }
 
@@ -3393,7 +3393,7 @@ mod tests {
 
     #[test]
     fn test_apply_repetition_penalty_basic() {
-        let logits = Tensor::from_vec(vec![5], vec![2.0, 1.0, 3.0, 0.5, -1.0]).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![2.0, 1.0, 3.0, 0.5, -1.0]).expect("test");
         let context = vec![0, 2, 4]; // Penalize tokens 0, 2, 4
         let config = RepetitionPenaltyConfig::new(2.0);
 
@@ -3410,7 +3410,7 @@ mod tests {
 
     #[test]
     fn test_apply_repetition_penalty_window() {
-        let logits = Tensor::from_vec(vec![5], vec![2.0, 2.0, 2.0, 2.0, 2.0]).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![2.0, 2.0, 2.0, 2.0, 2.0]).expect("test");
         let context = vec![0, 1, 2, 3, 4]; // All tokens in context
         let config = RepetitionPenaltyConfig::new(2.0).with_window(2); // Only last 2 tokens
 
@@ -3426,7 +3426,7 @@ mod tests {
 
     #[test]
     fn test_apply_repetition_penalty_no_penalty() {
-        let logits = Tensor::from_vec(vec![3], vec![1.0, 2.0, 3.0]).unwrap();
+        let logits = Tensor::from_vec(vec![3], vec![1.0, 2.0, 3.0]).expect("test");
         let context = vec![0, 1, 2];
         let config = RepetitionPenaltyConfig::new(1.0); // No penalty
 
@@ -3465,7 +3465,7 @@ mod tests {
 
     #[test]
     fn test_apply_presence_penalty() {
-        let logits = Tensor::from_vec(vec![5], vec![10.0, 10.0, 10.0, 10.0, 10.0]).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![10.0, 10.0, 10.0, 10.0, 10.0]).expect("test");
         let context = vec![0, 0, 1]; // Token 0 appears twice, token 1 once
         let config = PresenceFrequencyPenalty::new(1.0, 0.0);
 
@@ -3479,7 +3479,7 @@ mod tests {
 
     #[test]
     fn test_apply_frequency_penalty() {
-        let logits = Tensor::from_vec(vec![5], vec![10.0, 10.0, 10.0, 10.0, 10.0]).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![10.0, 10.0, 10.0, 10.0, 10.0]).expect("test");
         let context = vec![0, 0, 0, 1]; // Token 0 appears 3x, token 1 once
         let config = PresenceFrequencyPenalty::new(0.0, 1.0);
 
@@ -3493,7 +3493,7 @@ mod tests {
 
     #[test]
     fn test_apply_combined_penalties() {
-        let logits = Tensor::from_vec(vec![3], vec![10.0, 10.0, 10.0]).unwrap();
+        let logits = Tensor::from_vec(vec![3], vec![10.0, 10.0, 10.0]).expect("test");
         let context = vec![0, 0, 1]; // Token 0 appears 2x, token 1 once
         let config = PresenceFrequencyPenalty::new(0.5, 0.5);
 
@@ -3533,7 +3533,7 @@ mod tests {
 
     #[test]
     fn test_apply_logit_bias() {
-        let logits = Tensor::from_vec(vec![5], vec![1.0, 2.0, 3.0, 4.0, 5.0]).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![1.0, 2.0, 3.0, 4.0, 5.0]).expect("test");
         let bias = LogitBias::new()
             .with_bias(0, 10.0)
             .with_bias(2, -100.0)
@@ -3550,7 +3550,7 @@ mod tests {
 
     #[test]
     fn test_apply_logit_bias_out_of_range() {
-        let logits = Tensor::from_vec(vec![3], vec![1.0, 2.0, 3.0]).unwrap();
+        let logits = Tensor::from_vec(vec![3], vec![1.0, 2.0, 3.0]).expect("test");
         let bias = LogitBias::new().with_bias(100, 50.0); // Index out of range
 
         let result = apply_logit_bias(&logits, &bias);
@@ -3566,49 +3566,49 @@ mod tests {
     #[test]
     fn test_sample_min_p_basic() {
         // Token 0 has probability ~0.7, token 1 ~0.2, token 2 ~0.1
-        let logits = Tensor::from_vec(vec![3], vec![1.0, -0.5, -1.0]).unwrap();
+        let logits = Tensor::from_vec(vec![3], vec![1.0, -0.5, -1.0]).expect("test");
 
         // With min_p = 0.3 (30% of max), only token 0 should remain
-        let token = sample_min_p(&logits, 0.3, 0.5).unwrap();
+        let token = sample_min_p(&logits, 0.3, 0.5).expect("test");
         assert_eq!(token, 0);
     }
 
     #[test]
     fn test_sample_min_p_all_pass() {
         // All tokens have similar logits
-        let logits = Tensor::from_vec(vec![3], vec![0.0, 0.0, 0.0]).unwrap();
+        let logits = Tensor::from_vec(vec![3], vec![0.0, 0.0, 0.0]).expect("test");
 
         // With min_p = 0.9, all tokens should pass (all equal)
-        let token = sample_min_p(&logits, 0.9, 0.3).unwrap();
+        let token = sample_min_p(&logits, 0.9, 0.3).expect("test");
         assert!(token < 3);
     }
 
     #[test]
     fn test_sample_min_p_low_threshold() {
-        let logits = Tensor::from_vec(vec![4], vec![10.0, 1.0, 0.5, 0.1]).unwrap();
+        let logits = Tensor::from_vec(vec![4], vec![10.0, 1.0, 0.5, 0.1]).expect("test");
 
         // With very low min_p, all tokens can be sampled
-        let token = sample_min_p(&logits, 0.001, 0.99).unwrap();
+        let token = sample_min_p(&logits, 0.001, 0.99).expect("test");
         assert!(token < 4);
     }
 
     #[test]
     fn test_sample_min_p_edge_cases() {
-        let logits = Tensor::from_vec(vec![3], vec![1.0, 2.0, 3.0]).unwrap();
+        let logits = Tensor::from_vec(vec![3], vec![1.0, 2.0, 3.0]).expect("test");
 
         // min_p = 0 should include all tokens
-        let _ = sample_min_p(&logits, 0.0, 0.5).unwrap();
+        let _ = sample_min_p(&logits, 0.0, 0.5).expect("test");
 
         // min_p = 1.0 should still return something (at least the max)
-        let token = sample_min_p(&logits, 1.0, 0.5).unwrap();
+        let token = sample_min_p(&logits, 1.0, 0.5).expect("test");
         assert_eq!(token, 2); // Highest probability token
     }
 
     #[test]
     fn test_sample_min_p_rng_boundary() {
         // Test with rng_value at boundary (0.0)
-        let logits = Tensor::from_vec(vec![3], vec![1.0, 2.0, 3.0]).unwrap();
-        let token = sample_min_p(&logits, 0.5, 0.0).unwrap();
+        let logits = Tensor::from_vec(vec![3], vec![1.0, 2.0, 3.0]).expect("test");
+        let token = sample_min_p(&logits, 0.5, 0.0).expect("test");
         assert!(token < 3);
     }
 
@@ -3650,33 +3650,33 @@ mod tests {
 
     #[test]
     fn test_sample_mirostat_basic() {
-        let logits = Tensor::from_vec(vec![5], vec![10.0, 5.0, 1.0, 0.0, -5.0]).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![10.0, 5.0, 1.0, 0.0, -5.0]).expect("test");
         let mut state = MirostatState::default();
 
-        let token = sample_mirostat(&logits, &mut state, 0.5).unwrap();
+        let token = sample_mirostat(&logits, &mut state, 0.5).expect("test");
         assert!(token < 5);
     }
 
     #[test]
     fn test_sample_mirostat_deterministic() {
-        let logits = Tensor::from_vec(vec![3], vec![100.0, 1.0, 1.0]).unwrap();
+        let logits = Tensor::from_vec(vec![3], vec![100.0, 1.0, 1.0]).expect("test");
         let mut state = MirostatState::new(0.1); // Low target perplexity
 
         // With very low tau, should prefer highest probability token
-        let token = sample_mirostat(&logits, &mut state, 0.0).unwrap();
+        let token = sample_mirostat(&logits, &mut state, 0.0).expect("test");
         assert_eq!(token, 0);
     }
 
     #[test]
     fn test_sample_mirostat_state_evolution() {
-        let logits = Tensor::from_vec(vec![5], vec![10.0, 5.0, 1.0, 0.0, -5.0]).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![10.0, 5.0, 1.0, 0.0, -5.0]).expect("test");
         let mut state = MirostatState::default();
 
         let initial_mu = state.mu;
 
         // Sample multiple times and verify mu evolves
         for _ in 0..10 {
-            let _ = sample_mirostat(&logits, &mut state, 0.5).unwrap();
+            let _ = sample_mirostat(&logits, &mut state, 0.5).expect("test");
         }
 
         // Mu should have changed from initial
@@ -3686,9 +3686,9 @@ mod tests {
     #[test]
     fn test_sample_mirostat_rng_boundary() {
         // Test with rng_value at boundary (1.0 - epsilon)
-        let logits = Tensor::from_vec(vec![3], vec![1.0, 2.0, 3.0]).unwrap();
+        let logits = Tensor::from_vec(vec![3], vec![1.0, 2.0, 3.0]).expect("test");
         let mut state = MirostatState::default();
-        let token = sample_mirostat(&logits, &mut state, 0.999).unwrap();
+        let token = sample_mirostat(&logits, &mut state, 0.999).expect("test");
         assert!(token < 3);
     }
 
@@ -3721,7 +3721,7 @@ mod tests {
 
     #[test]
     fn test_apply_all_penalties_empty() {
-        let logits = Tensor::from_vec(vec![3], vec![1.0, 2.0, 3.0]).unwrap();
+        let logits = Tensor::from_vec(vec![3], vec![1.0, 2.0, 3.0]).expect("test");
         let original = logits.data().to_vec();
         let context: Vec<usize> = vec![];
         let config = AdvancedGenerationConfig::default();
@@ -3734,7 +3734,7 @@ mod tests {
 
     #[test]
     fn test_apply_all_penalties_combined() {
-        let logits = Tensor::from_vec(vec![5], vec![10.0, 10.0, 10.0, 10.0, 10.0]).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![10.0, 10.0, 10.0, 10.0, 10.0]).expect("test");
         let context = vec![0, 0, 1]; // Token 0 twice, token 1 once
 
         let config = AdvancedGenerationConfig::new(GenerationConfig::greedy())
@@ -3749,8 +3749,8 @@ mod tests {
             .data()
             .iter()
             .enumerate()
-            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
-            .unwrap()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .expect("test")
             .0;
         assert_eq!(max_idx, 4);
 
@@ -3773,22 +3773,22 @@ mod tests {
     #[test]
     fn test_tfs_basic_filtering() {
         // Create logits with distinct probabilities
-        let logits = Tensor::from_vec(vec![5], vec![2.0, 1.0, 0.5, 0.1, -1.0]).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![2.0, 1.0, 0.5, 0.1, -1.0]).expect("test");
 
         // With z=0.95, should filter some low-probability tokens
         let result = sample_tfs(&logits, 0.95, 0.0);
         assert!(result.is_ok());
         // Should return one of the high-probability tokens
-        assert!(result.unwrap() < 5);
+        assert!(result.expect("test") < 5);
     }
 
     #[test]
     fn test_tfs_z_one_returns_greedy() {
         // z=1.0 should keep all tokens (no filtering)
-        let logits = Tensor::from_vec(vec![5], vec![2.0, 1.0, 0.5, 0.1, -1.0]).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![2.0, 1.0, 0.5, 0.1, -1.0]).expect("test");
 
         // rng=0.0 should select the first valid token after filtering
-        let result = sample_tfs(&logits, 1.0, 0.0).unwrap();
+        let result = sample_tfs(&logits, 1.0, 0.0).expect("test");
         // Should be a valid token
         assert!(result < 5);
     }
@@ -3796,87 +3796,87 @@ mod tests {
     #[test]
     fn test_tfs_z_zero_selects_top() {
         // z=0.0 should filter aggressively, keeping only top tokens
-        let logits = Tensor::from_vec(vec![5], vec![10.0, 1.0, 0.5, 0.1, -1.0]).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![10.0, 1.0, 0.5, 0.1, -1.0]).expect("test");
 
-        let result = sample_tfs(&logits, 0.01, 0.0).unwrap();
+        let result = sample_tfs(&logits, 0.01, 0.0).expect("test");
         // Should select from top tokens
         assert!(result < 3);
     }
 
     #[test]
     fn test_tfs_single_token() {
-        let logits = Tensor::from_vec(vec![1], vec![1.0]).unwrap();
-        let result = sample_tfs(&logits, 0.95, 0.5).unwrap();
+        let logits = Tensor::from_vec(vec![1], vec![1.0]).expect("test");
+        let result = sample_tfs(&logits, 0.95, 0.5).expect("test");
         assert_eq!(result, 0);
     }
 
     #[test]
     fn test_tfs_uniform_distribution() {
         // With uniform logits, all tokens have equal second derivative
-        let logits = Tensor::from_vec(vec![5], vec![1.0, 1.0, 1.0, 1.0, 1.0]).unwrap();
-        let result = sample_tfs(&logits, 0.95, 0.5).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![1.0, 1.0, 1.0, 1.0, 1.0]).expect("test");
+        let result = sample_tfs(&logits, 0.95, 0.5).expect("test");
         assert!(result < 5);
     }
 
     #[test]
     fn test_tfs_two_tokens() {
         // Test with minimum viable token count
-        let logits = Tensor::from_vec(vec![2], vec![1.0, 0.5]).unwrap();
+        let logits = Tensor::from_vec(vec![2], vec![1.0, 0.5]).expect("test");
         let result = sample_tfs(&logits, 0.95, 0.5);
         assert!(result.is_ok());
-        assert!(result.unwrap() < 2);
+        assert!(result.expect("test") < 2);
     }
 
     // ===== Locally Typical Sampling Tests =====
 
     #[test]
     fn test_typical_basic_sampling() {
-        let logits = Tensor::from_vec(vec![5], vec![2.0, 1.5, 1.0, 0.5, 0.0]).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![2.0, 1.5, 1.0, 0.5, 0.0]).expect("test");
 
         let result = sample_typical(&logits, 0.95, 0.5);
         assert!(result.is_ok());
-        assert!(result.unwrap() < 5);
+        assert!(result.expect("test") < 5);
     }
 
     #[test]
     fn test_typical_p_one_keeps_all() {
         // p=1.0 should keep all tokens
-        let logits = Tensor::from_vec(vec![5], vec![2.0, 1.0, 0.5, 0.1, -1.0]).unwrap();
-        let result = sample_typical(&logits, 1.0, 0.5).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![2.0, 1.0, 0.5, 0.1, -1.0]).expect("test");
+        let result = sample_typical(&logits, 1.0, 0.5).expect("test");
         assert!(result < 5);
     }
 
     #[test]
     fn test_typical_low_p_selects_typical() {
         // Low p should select only the most typical tokens (closest to entropy)
-        let logits = Tensor::from_vec(vec![5], vec![10.0, 1.0, 0.5, 0.1, -1.0]).unwrap();
-        let result = sample_typical(&logits, 0.1, 0.0).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![10.0, 1.0, 0.5, 0.1, -1.0]).expect("test");
+        let result = sample_typical(&logits, 0.1, 0.0).expect("test");
         // Should select a token
         assert!(result < 5);
     }
 
     #[test]
     fn test_typical_single_token() {
-        let logits = Tensor::from_vec(vec![1], vec![1.0]).unwrap();
-        let result = sample_typical(&logits, 0.95, 0.5).unwrap();
+        let logits = Tensor::from_vec(vec![1], vec![1.0]).expect("test");
+        let result = sample_typical(&logits, 0.95, 0.5).expect("test");
         assert_eq!(result, 0);
     }
 
     #[test]
     fn test_typical_uniform_distribution() {
         // Uniform distribution - all tokens equally typical
-        let logits = Tensor::from_vec(vec![4], vec![1.0, 1.0, 1.0, 1.0]).unwrap();
-        let result = sample_typical(&logits, 0.95, 0.5).unwrap();
+        let logits = Tensor::from_vec(vec![4], vec![1.0, 1.0, 1.0, 1.0]).expect("test");
+        let result = sample_typical(&logits, 0.95, 0.5).expect("test");
         assert!(result < 4);
     }
 
     #[test]
     fn test_typical_two_tokens() {
         // Test with minimum viable token count
-        let logits = Tensor::from_vec(vec![2], vec![1.0, 0.5]).unwrap();
+        let logits = Tensor::from_vec(vec![2], vec![1.0, 0.5]).expect("test");
         let result = sample_typical(&logits, 0.95, 0.5);
         assert!(result.is_ok());
-        assert!(result.unwrap() < 2);
+        assert!(result.expect("test") < 2);
     }
 
     // ===== DRY (Don't Repeat Yourself) Sampling Tests =====
@@ -3911,7 +3911,7 @@ mod tests {
 
     #[test]
     fn test_dry_no_penalty_when_disabled() {
-        let logits = Tensor::from_vec(vec![5], vec![1.0, 2.0, 3.0, 4.0, 5.0]).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![1.0, 2.0, 3.0, 4.0, 5.0]).expect("test");
         let config = DryConfig::new(0.0); // disabled (multiplier=0)
         let context = vec![0, 1, 0, 1, 0];
 
@@ -3921,7 +3921,7 @@ mod tests {
 
     #[test]
     fn test_dry_penalty_applied() {
-        let logits = Tensor::from_vec(vec![5], vec![1.0, 2.0, 3.0, 4.0, 5.0]).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![1.0, 2.0, 3.0, 4.0, 5.0]).expect("test");
         let config = DryConfig {
             multiplier: 1.0,
             base: 1.75,
@@ -3938,7 +3938,7 @@ mod tests {
 
     #[test]
     fn test_dry_short_context_no_penalty() {
-        let logits = Tensor::from_vec(vec![5], vec![1.0, 2.0, 3.0, 4.0, 5.0]).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![1.0, 2.0, 3.0, 4.0, 5.0]).expect("test");
         let config = DryConfig {
             multiplier: 1.0,
             base: 1.75,
@@ -3954,7 +3954,7 @@ mod tests {
 
     #[test]
     fn test_dry_respects_penalty_last_n() {
-        let logits = Tensor::from_vec(vec![5], vec![1.0, 2.0, 3.0, 4.0, 5.0]).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![1.0, 2.0, 3.0, 4.0, 5.0]).expect("test");
         let config = DryConfig {
             multiplier: 1.0,
             base: 1.75,
@@ -4233,7 +4233,7 @@ mod tests {
 
     #[test]
     fn test_xtc_disabled_no_change() {
-        let logits = Tensor::from_vec(vec![5], vec![2.0, 1.0, 0.5, 0.1, -1.0]).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![2.0, 1.0, 0.5, 0.1, -1.0]).expect("test");
         let config = XtcConfig::default(); // disabled
         let result = apply_xtc(&logits, &config, 0.5);
         assert_eq!(result.data(), logits.data());
@@ -4241,7 +4241,7 @@ mod tests {
 
     #[test]
     fn test_xtc_rng_above_probability_no_change() {
-        let logits = Tensor::from_vec(vec![5], vec![2.0, 1.0, 0.5, 0.1, -1.0]).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![2.0, 1.0, 0.5, 0.1, -1.0]).expect("test");
         let config = XtcConfig::new(0.5); // 50% probability
         let result = apply_xtc(&logits, &config, 0.8); // rng > probability
         assert_eq!(result.data(), logits.data());
@@ -4249,7 +4249,7 @@ mod tests {
 
     #[test]
     fn test_xtc_excludes_top_tokens() {
-        let logits = Tensor::from_vec(vec![5], vec![10.0, 1.0, 0.5, 0.1, -1.0]).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![10.0, 1.0, 0.5, 0.1, -1.0]).expect("test");
         let config = XtcConfig::new(1.0).with_threshold(0.5); // Always exclude, high threshold
         let result = apply_xtc(&logits, &config, 0.0); // rng < probability
                                                        // Top token (index 0) should be excluded (set to NEG_INFINITY)
@@ -4258,7 +4258,7 @@ mod tests {
 
     #[test]
     fn test_xtc_respects_min_keep() {
-        let logits = Tensor::from_vec(vec![3], vec![10.0, 9.0, 8.0]).unwrap();
+        let logits = Tensor::from_vec(vec![3], vec![10.0, 9.0, 8.0]).expect("test");
         let config = XtcConfig::new(1.0).with_threshold(0.1).with_min_keep(2);
         let result = apply_xtc(&logits, &config, 0.0);
         // Should keep at least 2 tokens (not set all to NEG_INFINITY)
@@ -4291,26 +4291,26 @@ mod tests {
 
     #[test]
     fn test_eta_sampling_basic() {
-        let logits = Tensor::from_vec(vec![5], vec![2.0, 1.0, 0.5, 0.1, -1.0]).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![2.0, 1.0, 0.5, 0.1, -1.0]).expect("test");
         let config = EtaConfig::default();
         let result = sample_eta(&logits, &config, 0.5);
         assert!(result.is_ok());
-        assert!(result.unwrap() < 5);
+        assert!(result.expect("test") < 5);
     }
 
     #[test]
     fn test_eta_sampling_single_token() {
-        let logits = Tensor::from_vec(vec![1], vec![1.0]).unwrap();
+        let logits = Tensor::from_vec(vec![1], vec![1.0]).expect("test");
         let config = EtaConfig::default();
-        let result = sample_eta(&logits, &config, 0.5).unwrap();
+        let result = sample_eta(&logits, &config, 0.5).expect("test");
         assert_eq!(result, 0);
     }
 
     #[test]
     fn test_eta_sampling_uniform() {
-        let logits = Tensor::from_vec(vec![4], vec![1.0, 1.0, 1.0, 1.0]).unwrap();
+        let logits = Tensor::from_vec(vec![4], vec![1.0, 1.0, 1.0, 1.0]).expect("test");
         let config = EtaConfig::default();
-        let result = sample_eta(&logits, &config, 0.5).unwrap();
+        let result = sample_eta(&logits, &config, 0.5).expect("test");
         assert!(result < 4);
     }
 
@@ -4386,27 +4386,27 @@ mod tests {
 
     #[test]
     fn test_cfg_scale_one_no_change() {
-        let cond = Tensor::from_vec(vec![4], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
-        let uncond = Tensor::from_vec(vec![4], vec![0.5, 1.5, 2.5, 3.5]).unwrap();
-        let result = apply_cfg(&cond, &uncond, 1.0).unwrap();
+        let cond = Tensor::from_vec(vec![4], vec![1.0, 2.0, 3.0, 4.0]).expect("test");
+        let uncond = Tensor::from_vec(vec![4], vec![0.5, 1.5, 2.5, 3.5]).expect("test");
+        let result = apply_cfg(&cond, &uncond, 1.0).expect("test");
         // scale=1.0: uncond + 1.0 * (cond - uncond) = cond
         assert_eq!(result.data(), cond.data());
     }
 
     #[test]
     fn test_cfg_scale_zero_returns_uncond() {
-        let cond = Tensor::from_vec(vec![4], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
-        let uncond = Tensor::from_vec(vec![4], vec![0.5, 1.5, 2.5, 3.5]).unwrap();
-        let result = apply_cfg(&cond, &uncond, 0.0).unwrap();
+        let cond = Tensor::from_vec(vec![4], vec![1.0, 2.0, 3.0, 4.0]).expect("test");
+        let uncond = Tensor::from_vec(vec![4], vec![0.5, 1.5, 2.5, 3.5]).expect("test");
+        let result = apply_cfg(&cond, &uncond, 0.0).expect("test");
         // scale=0.0: uncond + 0.0 * (cond - uncond) = uncond
         assert_eq!(result.data(), uncond.data());
     }
 
     #[test]
     fn test_cfg_amplifies_difference() {
-        let cond = Tensor::from_vec(vec![3], vec![2.0, 1.0, 0.0]).unwrap();
-        let uncond = Tensor::from_vec(vec![3], vec![1.0, 1.0, 1.0]).unwrap();
-        let result = apply_cfg(&cond, &uncond, 2.0).unwrap();
+        let cond = Tensor::from_vec(vec![3], vec![2.0, 1.0, 0.0]).expect("test");
+        let uncond = Tensor::from_vec(vec![3], vec![1.0, 1.0, 1.0]).expect("test");
+        let result = apply_cfg(&cond, &uncond, 2.0).expect("test");
         // scale=2.0: uncond + 2.0 * (cond - uncond)
         // = [1,1,1] + 2*([2,1,0] - [1,1,1])
         // = [1,1,1] + 2*[1,0,-1]
@@ -4417,8 +4417,8 @@ mod tests {
 
     #[test]
     fn test_cfg_shape_mismatch_error() {
-        let cond = Tensor::from_vec(vec![4], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
-        let uncond = Tensor::from_vec(vec![3], vec![0.5, 1.5, 2.5]).unwrap();
+        let cond = Tensor::from_vec(vec![4], vec![1.0, 2.0, 3.0, 4.0]).expect("test");
+        let uncond = Tensor::from_vec(vec![3], vec![0.5, 1.5, 2.5]).expect("test");
         let result = apply_cfg(&cond, &uncond, 1.5);
         assert!(result.is_err());
     }
@@ -4447,7 +4447,7 @@ mod tests {
         // Find exact match
         let result = cache.find_prefix(&[1, 2, 3]);
         assert!(result.is_some());
-        let (len, kv_hash) = result.unwrap();
+        let (len, kv_hash) = result.expect("test");
         assert_eq!(len, 3);
         assert_eq!(kv_hash, 12345);
     }
@@ -4461,7 +4461,7 @@ mod tests {
         // Should find longer prefix first
         let result = cache.find_prefix(&[1, 2, 3, 4]);
         assert!(result.is_some());
-        let (len, _) = result.unwrap();
+        let (len, _) = result.expect("test");
         assert_eq!(len, 3);
     }
 
@@ -4542,11 +4542,11 @@ mod tests {
 
     #[test]
     fn test_dyn_temp_no_delta_uses_static() {
-        let logits = Tensor::from_vec(vec![5], vec![1.0, 2.0, 3.0, 4.0, 5.0]).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![1.0, 2.0, 3.0, 4.0, 5.0]).expect("test");
         let config = DynTempConfig::static_temp(0.5);
 
         let result = apply_dynamic_temperature(&logits, &config);
-        let static_result = apply_temperature(&logits, 0.5).unwrap();
+        let static_result = apply_temperature(&logits, 0.5).expect("test");
 
         // Should be identical to static temperature
         for (a, b) in result.data().iter().zip(static_result.data().iter()) {
@@ -4556,7 +4556,7 @@ mod tests {
 
     #[test]
     fn test_dyn_temp_single_element() {
-        let logits = Tensor::from_vec(vec![1], vec![5.0]).unwrap();
+        let logits = Tensor::from_vec(vec![1], vec![5.0]).expect("test");
         let config = DynTempConfig::new(1.0, 0.5, 1.0);
 
         let result = apply_dynamic_temperature(&logits, &config);
@@ -4567,7 +4567,7 @@ mod tests {
     #[test]
     fn test_dyn_temp_low_entropy_higher_temp() {
         // Low entropy (one dominant logit) should use higher temperature
-        let logits = Tensor::from_vec(vec![5], vec![10.0, 0.0, 0.0, 0.0, 0.0]).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![10.0, 0.0, 0.0, 0.0, 0.0]).expect("test");
         let config = DynTempConfig::new(1.0, 0.5, 1.0);
 
         let result = apply_dynamic_temperature(&logits, &config);
@@ -4578,7 +4578,7 @@ mod tests {
     #[test]
     fn test_dyn_temp_high_entropy_lower_temp() {
         // High entropy (uniform logits) should use lower temperature
-        let logits = Tensor::from_vec(vec![5], vec![1.0, 1.0, 1.0, 1.0, 1.0]).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![1.0, 1.0, 1.0, 1.0, 1.0]).expect("test");
         let config = DynTempConfig::new(1.0, 0.5, 1.0);
 
         let result = apply_dynamic_temperature(&logits, &config);
@@ -4590,7 +4590,7 @@ mod tests {
 
     #[test]
     fn test_dyn_temp_exponent_affects_scaling() {
-        let logits = Tensor::from_vec(vec![5], vec![2.0, 1.5, 1.0, 0.5, 0.0]).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![2.0, 1.5, 1.0, 0.5, 0.0]).expect("test");
         let config_exp1 = DynTempConfig::new(1.0, 0.5, 1.0);
         let config_exp2 = DynTempConfig::new(1.0, 0.5, 2.0);
 
@@ -4632,7 +4632,7 @@ mod tests {
 
     #[test]
     fn test_infill_empty_eog_tokens() {
-        let logits = Tensor::from_vec(vec![5], vec![1.0, 2.0, 3.0, 4.0, 5.0]).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![1.0, 2.0, 3.0, 4.0, 5.0]).expect("test");
         let config = InfillConfig::default();
 
         let result = apply_infill_sampling(&logits, &config);
@@ -4644,7 +4644,7 @@ mod tests {
     #[test]
     fn test_infill_no_force_eog_when_text_dominant() {
         // Text tokens have much higher probability than EOG
-        let logits = Tensor::from_vec(vec![5], vec![10.0, 10.0, 10.0, 10.0, 0.0]).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![10.0, 10.0, 10.0, 10.0, 0.0]).expect("test");
         let config = InfillConfig::new(vec![4]); // Token 4 is EOG
 
         let result = apply_infill_sampling(&logits, &config);
@@ -4655,7 +4655,7 @@ mod tests {
     #[test]
     fn test_infill_force_eog_when_eog_dominant() {
         // EOG token has high probability relative to text
-        let logits = Tensor::from_vec(vec![5], vec![0.0, 0.0, 0.0, 0.0, 10.0]).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![0.0, 0.0, 0.0, 0.0, 10.0]).expect("test");
         let config = InfillConfig::new(vec![4]); // Token 4 is EOG
 
         let result = apply_infill_sampling(&logits, &config);
@@ -4665,7 +4665,7 @@ mod tests {
 
     #[test]
     fn test_infill_modified_logits_when_force_eog() {
-        let logits = Tensor::from_vec(vec![5], vec![0.0, 0.0, 0.0, 0.0, 10.0]).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![0.0, 0.0, 0.0, 0.0, 10.0]).expect("test");
         let config = InfillConfig::new(vec![4]);
 
         let result = apply_infill_sampling(&logits, &config);
@@ -4680,7 +4680,7 @@ mod tests {
 
     #[test]
     fn test_infill_multiple_eog_tokens() {
-        let logits = Tensor::from_vec(vec![5], vec![0.0, 0.0, 0.0, 5.0, 5.0]).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![0.0, 0.0, 0.0, 5.0, 5.0]).expect("test");
         let config = InfillConfig::new(vec![3, 4]); // Tokens 3 and 4 are EOG
 
         let result = apply_infill_sampling(&logits, &config);
@@ -4734,7 +4734,7 @@ mod tests {
     fn test_sampler_chain_apply() {
         let chain = SamplerChain::new().with_sampler(TemperatureSampler::new(0.5));
 
-        let mut logits = Tensor::from_vec(vec![5], vec![1.0, 2.0, 3.0, 4.0, 5.0]).unwrap();
+        let mut logits = Tensor::from_vec(vec![5], vec![1.0, 2.0, 3.0, 4.0, 5.0]).expect("test");
         let context = SamplerContext::new();
 
         chain.apply(&mut logits, &context);
@@ -4748,10 +4748,10 @@ mod tests {
     fn test_sampler_chain_sample() {
         let chain = SamplerChain::new().with_sampler(TemperatureSampler::new(1.0));
 
-        let logits = Tensor::from_vec(vec![5], vec![1.0, 2.0, 3.0, 4.0, 5.0]).unwrap();
+        let logits = Tensor::from_vec(vec![5], vec![1.0, 2.0, 3.0, 4.0, 5.0]).expect("test");
         let context = SamplerContext::new();
 
-        let result = chain.sample(&logits, &context).unwrap();
+        let result = chain.sample(&logits, &context).expect("test");
         assert_eq!(result, 4); // Greedy should pick max
     }
 
@@ -4827,7 +4827,7 @@ mod tests {
     #[test]
     fn test_top_k_sampler_apply() {
         let sampler = TopKSampler::new(2);
-        let mut logits = Tensor::from_vec(vec![5], vec![1.0, 5.0, 3.0, 2.0, 4.0]).unwrap();
+        let mut logits = Tensor::from_vec(vec![5], vec![1.0, 5.0, 3.0, 2.0, 4.0]).expect("test");
         let context = SamplerContext::new();
 
         sampler.apply(&mut logits, &context);
@@ -4844,7 +4844,7 @@ mod tests {
     #[test]
     fn test_top_p_sampler_apply() {
         let sampler = TopPSampler::new(0.5);
-        let mut logits = Tensor::from_vec(vec![5], vec![1.0, 5.0, 2.0, 0.0, 0.0]).unwrap();
+        let mut logits = Tensor::from_vec(vec![5], vec![1.0, 5.0, 2.0, 0.0, 0.0]).expect("test");
         let context = SamplerContext::new();
 
         sampler.apply(&mut logits, &context);
@@ -4866,10 +4866,10 @@ mod tests {
             vec![10],
             vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
         )
-        .unwrap();
+        .expect("test");
         let context = SamplerContext::new();
 
-        let result = chain.sample(&logits, &context).unwrap();
+        let result = chain.sample(&logits, &context).expect("test");
         assert_eq!(result, 9); // Should still pick max after pipeline
     }
 
@@ -5113,7 +5113,7 @@ mod tests {
         let mut pipeline = GenerationPipeline::new(model)
             .with_config(GenerationConfig::greedy().with_max_tokens(3));
 
-        let result = pipeline.generate(&[1, 2]).unwrap();
+        let result = pipeline.generate(&[1, 2]).expect("test");
 
         // Initial tokens + 3 generated
         assert_eq!(result.len(), 5);
@@ -5152,7 +5152,7 @@ mod tests {
                 .with_eos_token_id(99),
         );
 
-        let result = pipeline.generate(&[1]).unwrap();
+        let result = pipeline.generate(&[1]).expect("test");
 
         // Should stop at EOS: [1, 50, 50, 99]
         assert_eq!(result.len(), 4);
@@ -5180,7 +5180,7 @@ mod tests {
             .add_processor(TokenSuppressor::new(vec![0])) // Suppress token 0
             .with_config(GenerationConfig::greedy().with_max_tokens(1));
 
-        let result = pipeline.generate(&[1]).unwrap();
+        let result = pipeline.generate(&[1]).expect("test");
 
         // Should pick token 5 (second highest) since 0 is suppressed
         assert_eq!(result, vec![1, 5]);
@@ -5200,7 +5200,7 @@ mod tests {
                 self.call_count += 1;
                 let mut logits = vec![0.0f32; 51865];
 
-                // Simulate bug: SOT has highest logit
+                // Test scenario: SOT has highest logit (intentional for testing SOT suppression)
                 logits[SOT as usize] = 11.0;
 
                 // Text token has second highest
@@ -5227,7 +5227,7 @@ mod tests {
                     .with_eos_token_id(EOT as usize),
             );
 
-        let result = pipeline.generate(&[50257, 50258]).unwrap();
+        let result = pipeline.generate(&[50257, 50258]).expect("test");
 
         // Should NOT contain SOT (50257) in generated tokens
         for &token in &result[2..] {

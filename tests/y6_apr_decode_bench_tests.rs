@@ -74,7 +74,7 @@ fn y6_1b_benchmark_decode_works() {
 
     assert!(result.is_ok(), "benchmark_decode should succeed");
 
-    let bench = result.unwrap();
+    let bench = result.expect("test");
     assert!(bench.tokens_generated > 0, "Should generate some tokens");
     assert!(bench.total_time_ms > 0.0, "Should take some time");
     assert!(
@@ -112,7 +112,7 @@ fn y6_2a_throughput_accurate() {
     let prompt = vec![1u32, 2, 3];
     let num_tokens = 5;
 
-    let result = runner.benchmark_decode(&prompt, num_tokens).unwrap();
+    let result = runner.benchmark_decode(&prompt, num_tokens).expect("test");
 
     // Manual calculation
     let expected_throughput = (result.tokens_generated as f64) / (result.total_time_ms / 1000.0);
@@ -151,7 +151,7 @@ fn y6_2b_statistics_included() {
     runner.set_measure_iterations(10);
 
     let prompt = vec![1u32, 2, 3];
-    let result = runner.benchmark_decode(&prompt, 5).unwrap();
+    let result = runner.benchmark_decode(&prompt, 5).expect("test");
 
     // Should have statistical metrics
     assert!(result.throughput_p50 > 0.0, "Should have p50");
@@ -195,7 +195,7 @@ fn y6_3a_threshold_check() {
     runner.set_measure_iterations(5);
 
     let prompt = vec![1u32, 2, 3];
-    let result = runner.benchmark_decode(&prompt, 5).unwrap();
+    let result = runner.benchmark_decode(&prompt, 5).expect("test");
 
     // Check against various thresholds
     let very_low_threshold = 0.001; // Almost any model should pass
@@ -256,7 +256,7 @@ fn y6_4a_prefill_benchmark_exists() {
 
     assert!(result.is_ok(), "benchmark_prefill should succeed");
 
-    let bench = result.unwrap();
+    let bench = result.expect("test");
     assert!(bench.prompt_tokens > 0, "Should process prompt tokens");
     assert!(bench.prefill_time_ms > 0.0, "Should take some time");
     assert!(
@@ -306,7 +306,7 @@ fn y6_5a_baseline_comparison() {
     runner.set_measure_iterations(5);
 
     let prompt = vec![1u32, 2, 3];
-    let result = runner.benchmark_decode(&prompt, 5).unwrap();
+    let result = runner.benchmark_decode(&prompt, 5).expect("test");
 
     // Create a synthetic baseline result
     let baseline = AprBenchmarkResult {
@@ -371,7 +371,7 @@ fn y6_6a_memory_measurement() {
     runner.set_measure_iterations(3);
 
     let prompt = vec![1u32, 2, 3];
-    let result = runner.benchmark_decode(&prompt, 5).unwrap();
+    let result = runner.benchmark_decode(&prompt, 5).expect("test");
 
     // Should report memory usage
     assert!(result.peak_memory_mb > 0.0, "Should report memory usage");
@@ -404,7 +404,7 @@ fn y6_7a_load_time_benchmark() {
 
     assert!(load_result.is_ok(), "benchmark_load should succeed");
 
-    let bench = load_result.unwrap();
+    let bench = load_result.expect("test");
     assert!(bench.load_time_ms > 0.0, "Should take some time to load");
 }
 

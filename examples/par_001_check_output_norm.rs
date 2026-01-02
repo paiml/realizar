@@ -24,7 +24,7 @@ fn main() {
     println!("=== PAR-001: Check Output Norm ===\n");
 
     let mapped = MappedGGUFModel::from_path(path).expect("Failed to load model");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     println!("Output norm weight:");
     let norm_weight = &model.output_norm_weight;

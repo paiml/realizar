@@ -27,7 +27,7 @@ fn bench_cold_start(c: &mut Criterion) {
     // Measure handler creation + first inference
     group.bench_function("handler_creation", |b| {
         b.iter(|| {
-            let handler = LambdaHandler::from_bytes(black_box(MODEL_BYTES)).unwrap();
+            let handler = LambdaHandler::from_bytes(black_box(MODEL_BYTES)).expect("test");
             black_box(handler)
         });
     });
@@ -38,7 +38,7 @@ fn bench_cold_start(c: &mut Criterion) {
 
             for _ in 0..iters {
                 // Create fresh handler for each iteration (cold start)
-                let handler = LambdaHandler::from_bytes(MODEL_BYTES).unwrap();
+                let handler = LambdaHandler::from_bytes(MODEL_BYTES).expect("test");
                 let request = LambdaRequest {
                     features: vec![1.0, 2.0, 3.0, 4.0, 5.0],
                     model_id: None,
@@ -67,7 +67,7 @@ fn bench_warm_inference(c: &mut Criterion) {
     let mut group = c.benchmark_group("lambda_warm_inference");
 
     // Pre-create handler (warm)
-    let handler = LambdaHandler::from_bytes(MODEL_BYTES).unwrap();
+    let handler = LambdaHandler::from_bytes(MODEL_BYTES).expect("test");
 
     // Warm up with first invocation
     let warmup_request = LambdaRequest {
@@ -103,7 +103,7 @@ fn bench_warm_inference(c: &mut Criterion) {
 fn bench_batch_inference(c: &mut Criterion) {
     let mut group = c.benchmark_group("lambda_batch_inference");
 
-    let handler = LambdaHandler::from_bytes(MODEL_BYTES).unwrap();
+    let handler = LambdaHandler::from_bytes(MODEL_BYTES).expect("test");
 
     // Warm up
     let _ = handler.handle(&LambdaRequest {
@@ -187,7 +187,7 @@ fn bench_metrics(c: &mut Criterion) {
 fn bench_pipeline(c: &mut Criterion) {
     let mut group = c.benchmark_group("lambda_pipeline");
 
-    let handler = LambdaHandler::from_bytes(MODEL_BYTES).unwrap();
+    let handler = LambdaHandler::from_bytes(MODEL_BYTES).expect("test");
     let mut metrics = LambdaMetrics::new();
 
     // Warm up
@@ -204,7 +204,7 @@ fn bench_pipeline(c: &mut Criterion) {
         };
 
         b.iter(|| {
-            let response = handler.handle(black_box(&request)).unwrap();
+            let response = handler.handle(black_box(&request)).expect("test");
             metrics.record_success(response.latency_ms, response.cold_start);
             black_box(response)
         });
@@ -223,7 +223,7 @@ fn bench_pipeline(c: &mut Criterion) {
         };
 
         b.iter(|| {
-            let response = handler.handle_batch(black_box(&batch)).unwrap();
+            let response = handler.handle_batch(black_box(&batch)).expect("test");
             metrics.record_batch(
                 response.success_count,
                 response.error_count,

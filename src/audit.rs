@@ -392,18 +392,18 @@ impl InMemoryAuditSink {
 
     /// Get all stored records
     pub fn records(&self) -> Vec<AuditRecord> {
-        self.records.lock().unwrap().clone()
+        self.records.lock().expect("test").clone()
     }
 
     /// Get record count
     pub fn count(&self) -> usize {
-        self.records.lock().unwrap().len()
+        self.records.lock().expect("test").len()
     }
 }
 
 impl AuditSink for InMemoryAuditSink {
     fn write_batch(&self, records: &[AuditRecord]) -> Result<(), AuditError> {
-        let mut storage = self.records.lock().unwrap();
+        let mut storage = self.records.lock().expect("test");
         storage.extend(records.iter().cloned());
         Ok(())
     }
@@ -533,7 +533,7 @@ impl AuditLogger {
         let record = AuditRecord::new(request_id, &self.model_hash, model_type)
             .with_input_dims(input_dims.to_vec());
 
-        let mut buffer = self.buffer.lock().unwrap();
+        let mut buffer = self.buffer.lock().expect("test");
         buffer.push_back(record);
 
         request_id
@@ -547,7 +547,7 @@ impl AuditLogger {
         latency: Duration,
         confidence: Option<f32>,
     ) {
-        let mut buffer = self.buffer.lock().unwrap();
+        let mut buffer = self.buffer.lock().expect("test");
 
         // Find and update the record
         if let Some(record) = buffer
@@ -567,7 +567,7 @@ impl AuditLogger {
 
     /// Manually flush the buffer
     pub fn flush(&self) -> Result<(), AuditError> {
-        let mut buffer = self.buffer.lock().unwrap();
+        let mut buffer = self.buffer.lock().expect("test");
         self.flush_buffer_locked(&mut buffer)
     }
 
@@ -593,7 +593,7 @@ impl AuditLogger {
 
     /// Get current buffer size
     pub fn buffer_size(&self) -> usize {
-        self.buffer.lock().unwrap().len()
+        self.buffer.lock().expect("test").len()
     }
 
     /// Get model hash
@@ -677,8 +677,8 @@ mod tests {
         let record =
             AuditRecord::new(request_id, "hash", "KNN").with_prediction(serde_json::json!(5));
 
-        let json = serde_json::to_string(&record).unwrap();
-        let deserialized: AuditRecord = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&record).expect("test");
+        let deserialized: AuditRecord = serde_json::from_str(&json).expect("test");
 
         assert_eq!(deserialized.model_type, "KNN");
         assert_eq!(deserialized.prediction, serde_json::json!(5));
@@ -815,7 +815,7 @@ mod tests {
             AuditRecord::new(Uuid::new_v4(), "h2", "RF"),
         ];
 
-        sink.write_batch(&records).unwrap();
+        sink.write_batch(&records).expect("test");
 
         assert_eq!(sink.count(), 2);
         let stored = sink.records();
@@ -846,7 +846,7 @@ mod tests {
         );
 
         assert_eq!(logger.buffer_size(), 1);
-        logger.flush().unwrap();
+        logger.flush().expect("test");
         assert_eq!(logger.buffer_size(), 0);
         assert_eq!(sink.count(), 1);
     }
@@ -868,7 +868,7 @@ mod tests {
             logger.log_response(id, serde_json::json!(0), Duration::from_millis(1), None);
         }
 
-        logger.flush().unwrap();
+        logger.flush().expect("test");
         assert_eq!(logger.total_logged(), 5);
     }
 
@@ -921,8 +921,8 @@ mod tests {
     #[test]
     fn test_latency_breakdown_serialization() {
         let breakdown = LatencyBreakdown::new(1.0, 5.0, 2.0).with_explanation(1.5);
-        let json = serde_json::to_string(&breakdown).unwrap();
-        let restored: LatencyBreakdown = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&breakdown).expect("test");
+        let restored: LatencyBreakdown = serde_json::from_str(&json).expect("test");
 
         assert!((restored.inference_ms - 5.0).abs() < 0.001);
         assert_eq!(restored.explanation_ms, Some(1.5));
@@ -934,8 +934,8 @@ mod tests {
             .with_training_data("data123")
             .with_code_sha("commit456");
 
-        let json = serde_json::to_string(&chain).unwrap();
-        let restored: ProvenanceChain = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&chain).expect("test");
+        let restored: ProvenanceChain = serde_json::from_str(&json).expect("test");
 
         assert_eq!(restored.training_data_hash, Some("data123".to_string()));
         assert_eq!(restored.training_code_sha, Some("commit456".to_string()));
@@ -950,8 +950,8 @@ mod tests {
             calibration_hash: Some("calibration_data_hash".to_string()),
         };
 
-        let json = serde_json::to_string(&quant).unwrap();
-        let restored: QuantizationProvenance = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&quant).expect("test");
+        let restored: QuantizationProvenance = serde_json::from_str(&json).expect("test");
 
         assert_eq!(restored.method, "Q4_K_M");
         assert_eq!(restored.bits, 4);

@@ -24,7 +24,7 @@ use crate::error::{RealizarError, Result};
 /// let t = Tensor::from_vec(vec![2, 3], vec![
 ///     1.0, 2.0, 3.0,
 ///     4.0, 5.0, 6.0,
-/// ]).unwrap();
+/// ]).expect("test");
 ///
 /// assert_eq!(t.shape(), &[2, 3]);
 /// assert_eq!(t.ndim(), 2);
@@ -58,7 +58,7 @@ impl<T: Num + Clone> Tensor<T> {
     /// ```
     /// use realizar::Tensor;
     ///
-    /// let t = Tensor::from_vec(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+    /// let t = Tensor::from_vec(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]).expect("test");
     /// assert_eq!(t.shape(), &[2, 2]);
     /// ```
     pub fn from_vec(shape: Vec<usize>, data: Vec<T>) -> Result<Self> {
@@ -97,7 +97,7 @@ impl<T: Num + Clone> Tensor<T> {
     /// ```
     /// use realizar::Tensor;
     ///
-    /// let t = Tensor::from_vec(vec![3, 4], vec![0.0; 12]).unwrap();
+    /// let t = Tensor::from_vec(vec![3, 4], vec![0.0; 12]).expect("test");
     /// assert_eq!(t.shape(), &[3, 4]);
     /// ```
     #[must_use]
@@ -112,7 +112,7 @@ impl<T: Num + Clone> Tensor<T> {
     /// ```
     /// use realizar::Tensor;
     ///
-    /// let t = Tensor::from_vec(vec![2, 3, 4], vec![0.0; 24]).unwrap();
+    /// let t = Tensor::from_vec(vec![2, 3, 4], vec![0.0; 24]).expect("test");
     /// assert_eq!(t.ndim(), 3);
     /// ```
     #[must_use]
@@ -127,7 +127,7 @@ impl<T: Num + Clone> Tensor<T> {
     /// ```
     /// use realizar::Tensor;
     ///
-    /// let t = Tensor::from_vec(vec![2, 3], vec![0.0; 6]).unwrap();
+    /// let t = Tensor::from_vec(vec![2, 3], vec![0.0; 6]).expect("test");
     /// assert_eq!(t.size(), 6);
     /// ```
     #[must_use]
@@ -142,7 +142,7 @@ impl<T: Num + Clone> Tensor<T> {
     /// ```
     /// use realizar::Tensor;
     ///
-    /// let t = Tensor::from_vec(vec![2], vec![1.0, 2.0]).unwrap();
+    /// let t = Tensor::from_vec(vec![2], vec![1.0, 2.0]).expect("test");
     /// assert_eq!(t.data(), &[1.0, 2.0]);
     /// ```
     #[must_use]
@@ -170,7 +170,7 @@ mod tests {
 
     #[test]
     fn test_create_tensor() {
-        let t = Tensor::from_vec(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+        let t = Tensor::from_vec(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).expect("test");
         assert_eq!(t.shape(), &[2, 3]);
         assert_eq!(t.ndim(), 2);
         assert_eq!(t.size(), 6);
@@ -204,7 +204,7 @@ mod tests {
 
     #[test]
     fn test_display() {
-        let t = Tensor::from_vec(vec![2], vec![1.0, 2.0]).unwrap();
+        let t = Tensor::from_vec(vec![2], vec![1.0, 2.0]).expect("test");
         let display = format!("{t}");
         assert!(display.contains("shape=[2]"));
         assert!(display.contains('1'));

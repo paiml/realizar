@@ -9,8 +9,8 @@ fn main() {
     // Load model
     let load_start = Instant::now();
     let mapped = MappedGGUFModel::from_path(path).expect("Failed to load model");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
-    let vocab = mapped.model.vocabulary().unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
+    let vocab = mapped.model.vocabulary().expect("test");
     let load_time = load_start.elapsed();
 
     let model_name = path.split('/').last().unwrap_or(path);
@@ -27,7 +27,7 @@ fn main() {
 
     // Encode prompt
     let prompt = "Once upon a time";
-    let prompt_tokens = mapped.model.encode(prompt).unwrap();
+    let prompt_tokens = mapped.model.encode(prompt).expect("test");
     println!("Prompt: '{}' ({} tokens)", prompt, prompt_tokens.len());
 
     // Create KV cache with GQA-aware dimensions
@@ -58,7 +58,7 @@ fn main() {
             &mut cache,
             prompt_tokens.len() - 1,
         )
-        .unwrap();
+        .expect("test");
 
     // Reset cache and re-prefill for clean benchmark
     cache = OwnedQuantizedKVCache::new(
@@ -69,7 +69,7 @@ fn main() {
     for (pos, &tok) in prompt_tokens.iter().enumerate() {
         logits = model
             .forward_single_with_cache(tok, &mut cache, pos)
-            .unwrap();
+            .expect("test");
     }
 
     // Benchmark decode
@@ -84,16 +84,16 @@ fn main() {
         let next_token = logits
             .iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).expect("test"))
             .map(|(i, _)| i as u32)
-            .unwrap();
+            .expect("test");
 
         generated_tokens.push(next_token);
 
         // Forward single token with cache
         logits = model
             .forward_single_with_cache(next_token, &mut cache, pos)
-            .unwrap();
+            .expect("test");
         pos += 1;
     }
     let decode_time = decode_start.elapsed();

@@ -956,7 +956,7 @@ impl TruenoInferenceEngine {
             if end <= self.token_embedding.len() {
                 embeddings.extend_from_slice(&self.token_embedding[start..end]);
             } else {
-                embeddings.extend(std::iter::repeat(0.0).take(hidden_dim));
+                embeddings.extend(std::iter::repeat_n(0.0, hidden_dim));
             }
         }
 
@@ -1518,7 +1518,7 @@ impl TruenoInferenceEngine {
         let mut tokens = prompt.to_vec();
 
         // Get logits from last prompt token for first generation
-        let last_token = *prompt.last().unwrap();
+        let last_token = *prompt.last().expect("prompt must be non-empty");
         // Reset cache to re-process with proper attention
         kv_cache.reset();
         for (pos, &token_id) in prompt.iter().enumerate() {
@@ -1533,7 +1533,7 @@ impl TruenoInferenceEngine {
             let current_token = if i == 0 {
                 last_token
             } else {
-                *tokens.last().unwrap()
+                *tokens.last().expect("tokens must be non-empty")
             };
 
             // Skip first iteration since we already computed it in prefill
@@ -1556,8 +1556,11 @@ impl TruenoInferenceEngine {
                 tokens.push(next_token);
             } else {
                 // First token: use logits from prefill
-                let logits =
-                    self.forward_one_token(*tokens.last().unwrap(), position, &mut kv_cache)?;
+                let logits = self.forward_one_token(
+                    *tokens.last().expect("tokens must be non-empty"),
+                    position,
+                    &mut kv_cache,
+                )?;
                 let next_token = logits
                     .iter()
                     .enumerate()
@@ -1628,7 +1631,7 @@ impl TruenoInferenceEngine {
         // Decode: generate tokens one at a time
         for i in 0..max_tokens {
             let position = prompt.len() + i;
-            let current_token = *tokens.last().unwrap();
+            let current_token = *tokens.last().expect("tokens must be non-empty");
 
             let mut logits = self.forward_one_token(current_token, position, &mut kv_cache)?;
 
@@ -1887,7 +1890,7 @@ impl QuantizedInferenceEngine {
             if end <= self.token_embedding.len() {
                 embeddings.extend_from_slice(&self.token_embedding[start..end]);
             } else {
-                embeddings.extend(std::iter::repeat(0.0).take(hidden_dim));
+                embeddings.extend(std::iter::repeat_n(0.0, hidden_dim));
             }
         }
 
@@ -2390,7 +2393,7 @@ impl QuantizedInferenceEngine {
         // Decode
         for i in 0..max_tokens {
             let position = prompt.len() + i;
-            let current_token = *tokens.last().unwrap();
+            let current_token = *tokens.last().expect("tokens must be non-empty");
 
             let logits = self.forward_one_token(current_token, position, &mut kv_cache)?;
 
@@ -2575,9 +2578,9 @@ mod attention_tests {
         let max_idx = logits
             .iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).expect("test"))
             .map(|(i, _)| i)
-            .unwrap();
+            .expect("test");
         assert_eq!(max_idx, 0);
     }
 
@@ -2611,9 +2614,9 @@ mod attention_tests {
         let max_idx = penalized
             .iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).expect("test"))
             .map(|(i, _)| i)
-            .unwrap();
+            .expect("test");
         assert_eq!(max_idx, 2, "After penalty, token 2 should be chosen");
     }
 
@@ -3398,7 +3401,7 @@ mod tests {
         // Q4K format: 256 values per super-block, 144 bytes per super-block
         // in_dim = 256, out_dim = 1 → 1 super-block per row, 1 row = 144 bytes
         let data = create_q4k_test_data(1);
-        let weight = Q4KWeight::new(data, 256, 1).unwrap();
+        let weight = Q4KWeight::new(data, 256, 1).expect("test");
 
         assert_eq!(weight.in_dim, 256);
         assert_eq!(weight.out_dim, 1);
@@ -3418,7 +3421,7 @@ mod tests {
     #[test]
     fn test_q4k_weight_matvec_dimension_mismatch() {
         let data = create_q4k_test_data(1);
-        let weight = Q4KWeight::new(data, 256, 1).unwrap();
+        let weight = Q4KWeight::new(data, 256, 1).expect("test");
 
         // Wrong input dimension
         let input = vec![1.0f32; 128]; // Should be 256
@@ -3429,10 +3432,10 @@ mod tests {
     #[test]
     fn test_q4k_weight_matvec_correct_output_size() {
         let data = create_q4k_test_data(2); // 2 super-blocks = 512 values, 1 row
-        let weight = Q4KWeight::new(data, 512, 1).unwrap();
+        let weight = Q4KWeight::new(data, 512, 1).expect("test");
 
         let input = vec![1.0f32; 512];
-        let output = weight.matvec(&input).unwrap();
+        let output = weight.matvec(&input).expect("test");
 
         assert_eq!(output.len(), 1); // out_dim = 1
     }
@@ -3481,15 +3484,15 @@ mod tests {
         let layer = QuantizedTransformerLayer {
             attn_norm_weight: vec![1.0; 256],
             attn_norm_bias: None,
-            qkv_weight: Q4KWeight::new(qkv_data, 256, 768).unwrap(),
+            qkv_weight: Q4KWeight::new(qkv_data, 256, 768).expect("test"),
             qkv_bias: None,
-            attn_output_weight: Q4KWeight::new(attn_out_data, 256, 256).unwrap(),
+            attn_output_weight: Q4KWeight::new(attn_out_data, 256, 256).expect("test"),
             attn_output_bias: None,
             ffn_gate_weight: None,
             ffn_gate_bias: None,
-            ffn_up_weight: Q4KWeight::new(ffn_up_data, 256, 512).unwrap(),
+            ffn_up_weight: Q4KWeight::new(ffn_up_data, 256, 512).expect("test"),
             ffn_up_bias: None,
-            ffn_down_weight: Q4KWeight::new(ffn_down_data, 512, 256).unwrap(),
+            ffn_down_weight: Q4KWeight::new(ffn_down_data, 512, 256).expect("test"),
             ffn_down_bias: None,
             ffn_norm_weight: None,
             ffn_norm_bias: None,
@@ -3503,7 +3506,7 @@ mod tests {
             vec![layer],
             vec![1.0; 256],
             None,
-            Q4KWeight::new(lm_head_data, 256, 100).unwrap(),
+            Q4KWeight::new(lm_head_data, 256, 100).expect("test"),
             None,
         );
 
@@ -3551,7 +3554,7 @@ mod tests {
             vec![],
             vec![1.0; 256],
             None,
-            Q4KWeight::new(lm_head_data, 256, 10).unwrap(),
+            Q4KWeight::new(lm_head_data, 256, 10).expect("test"),
             None,
         );
 
@@ -3568,7 +3571,7 @@ mod tests {
         // Compression ratio = 4 / 0.5625 ≈ 7.11x
 
         let data = create_q4k_test_data(4); // 4 super-blocks = 1024 values
-        let weight = Q4KWeight::new(data, 1024, 1).unwrap();
+        let weight = Q4KWeight::new(data, 1024, 1).expect("test");
 
         let ratio = weight.compression_ratio();
         assert!(ratio > 7.0, "Compression ratio {} should be > 7.0", ratio);
@@ -3588,15 +3591,15 @@ mod tests {
         let layer = QuantizedTransformerLayer {
             attn_norm_weight: vec![1.0; 256],
             attn_norm_bias: Some(vec![0.0; 256]),
-            qkv_weight: Q4KWeight::new(qkv_data, 256, 3).unwrap(),
+            qkv_weight: Q4KWeight::new(qkv_data, 256, 3).expect("test"),
             qkv_bias: Some(vec![0.0; 768]),
-            attn_output_weight: Q4KWeight::new(attn_out_data, 256, 1).unwrap(),
+            attn_output_weight: Q4KWeight::new(attn_out_data, 256, 1).expect("test"),
             attn_output_bias: Some(vec![0.0; 256]),
-            ffn_gate_weight: Some(Q4KWeight::new(gate_data, 256, 2).unwrap()),
+            ffn_gate_weight: Some(Q4KWeight::new(gate_data, 256, 2).expect("test")),
             ffn_gate_bias: Some(vec![0.0; 512]),
-            ffn_up_weight: Q4KWeight::new(up_data, 256, 2).unwrap(),
+            ffn_up_weight: Q4KWeight::new(up_data, 256, 2).expect("test"),
             ffn_up_bias: Some(vec![0.0; 512]),
-            ffn_down_weight: Q4KWeight::new(down_data, 512, 2).unwrap(),
+            ffn_down_weight: Q4KWeight::new(down_data, 512, 2).expect("test"),
             ffn_down_bias: Some(vec![0.0; 256]),
             ffn_norm_weight: Some(vec![1.0; 256]),
             ffn_norm_bias: Some(vec![0.0; 256]),
@@ -3892,11 +3895,11 @@ mod tests {
     fn test_q4k_weight_multiple_output_rows() {
         // Test with multiple output rows
         let data = create_q4k_test_data(4); // 4 rows × 1 super-block each
-        let weight = Q4KWeight::new(data, 256, 4).unwrap();
+        let weight = Q4KWeight::new(data, 256, 4).expect("test");
 
         assert_eq!(weight.out_dim, 4);
         let input = vec![1.0f32; 256];
-        let output = weight.matvec(&input).unwrap();
+        let output = weight.matvec(&input).expect("test");
         assert_eq!(output.len(), 4);
     }
 }

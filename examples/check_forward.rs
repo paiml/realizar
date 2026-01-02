@@ -4,10 +4,10 @@ fn main() {
     println!("Loading model...");
     let mapped =
         MappedGGUFModel::from_path("/home/noah/src/aprender/tinyllama-1.1b-chat-v1.0.Q4_0.gguf")
-            .unwrap();
+            .expect("test");
 
     println!("Creating quantized model...");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     println!("Config:");
     println!("  vocab_size: {}", model.config().vocab_size);
@@ -22,7 +22,7 @@ fn main() {
     let tokens = vec![1u32, 1576]; // BOS=1, "The"=1576
     println!("\nInput tokens: {:?}", tokens);
 
-    let logits = model.forward(&tokens).unwrap();
+    let logits = model.forward(&tokens).expect("test");
 
     println!("Logits shape: {}", logits.len());
 
@@ -31,7 +31,7 @@ fn main() {
     indexed.sort_by(|(_, a), (_, b)| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
 
     println!("\nTop 10 predictions:");
-    let vocab = mapped.model.vocabulary().unwrap();
+    let vocab = mapped.model.vocabulary().expect("test");
     for (i, (idx, logit)) in indexed.iter().take(10).enumerate() {
         let token = if *idx < vocab.len() {
             &vocab[*idx]

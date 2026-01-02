@@ -130,7 +130,7 @@ impl DecisionTree {
 
     /// Check if a node is a leaf
     pub fn is_leaf(&self, node: usize) -> bool {
-        self.feature.get(node).map_or(true, |&f| f < 0)
+        self.feature.get(node).is_none_or(|&f| f < 0)
     }
 
     /// Predict for a single instance
@@ -695,7 +695,7 @@ mod tests {
         let explainer = ShapExplainer::new(background);
 
         let instance = vec![2.0, 3.0]; // prediction = 2*1 + 3*2 = 8
-        let explanation = explainer.explain(&model, &instance).unwrap();
+        let explanation = explainer.explain(&model, &instance).expect("test");
 
         assert_eq!(explanation.prediction, 8.0);
         assert_eq!(explanation.shap_values.len(), 2);
@@ -716,7 +716,7 @@ mod tests {
         let background = vec![vec![0.3], vec![0.7]];
         let explainer = ShapExplainer::new(background);
 
-        let explanation = explainer.explain(&model, &[0.3]).unwrap();
+        let explanation = explainer.explain(&model, &[0.3]).expect("test");
         assert_eq!(explanation.prediction, 1.0);
     }
 
@@ -800,7 +800,7 @@ mod tests {
             trees: vec![tree],
         };
 
-        let json = serde_json::to_string(&structure).unwrap();
+        let json = serde_json::to_string(&structure).expect("test");
         assert!(json.contains("n_trees"));
         assert!(json.contains("n_features"));
     }
@@ -808,8 +808,8 @@ mod tests {
     #[test]
     fn test_shap_explanation_serialization() {
         let exp = ShapExplanation::new(0.5, vec![0.1, -0.2], 0.4);
-        let json = serde_json::to_string(&exp).unwrap();
-        let parsed: ShapExplanation = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&exp).expect("test");
+        let parsed: ShapExplanation = serde_json::from_str(&json).expect("test");
 
         assert_eq!(parsed.base_value, exp.base_value);
         assert_eq!(parsed.shap_values, exp.shap_values);
@@ -841,7 +841,7 @@ mod tests {
     fn test_linear_model_batch_predict() {
         let model = LinearModel::new(vec![1.0, 2.0], 0.0);
         let instances = vec![vec![1.0, 1.0], vec![2.0, 2.0]];
-        let predictions = model.predict_batch(&instances).unwrap();
+        let predictions = model.predict_batch(&instances).expect("test");
         assert_eq!(predictions, vec![3.0, 6.0]);
     }
 }

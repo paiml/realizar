@@ -638,7 +638,7 @@ mod tests {
             "world".to_string(),
         ];
 
-        let vocab = Vocabulary::from_tokens(tokens).unwrap();
+        let vocab = Vocabulary::from_tokens(tokens).expect("test");
         assert_eq!(vocab.size(), 3);
         assert_eq!(vocab.get_id("<unk>"), Some(0));
         assert_eq!(vocab.get_id("hello"), Some(1));
@@ -668,7 +668,7 @@ mod tests {
     #[test]
     fn test_vocabulary_get_missing() {
         let tokens = vec!["hello".to_string()];
-        let vocab = Vocabulary::from_tokens(tokens).unwrap();
+        let vocab = Vocabulary::from_tokens(tokens).expect("test");
         assert_eq!(vocab.get_id("world"), None);
         assert_eq!(vocab.get_token(999), None);
     }
@@ -680,23 +680,23 @@ mod tests {
             "hello".to_string(),
             "world".to_string(),
         ];
-        let vocab = Vocabulary::from_tokens(tokens).unwrap();
-        let tokenizer = Tokenizer::new(vocab, "<unk>").unwrap();
+        let vocab = Vocabulary::from_tokens(tokens).expect("test");
+        let tokenizer = Tokenizer::new(vocab, "<unk>").expect("test");
 
         // Encode known tokens
         let encoded = tokenizer.encode("hello world");
         assert_eq!(encoded, vec![1, 2]);
 
         // Decode back
-        let decoded = tokenizer.decode(&encoded).unwrap();
+        let decoded = tokenizer.decode(&encoded).expect("test");
         assert_eq!(decoded, "hello world");
     }
 
     #[test]
     fn test_tokenizer_unknown_token() {
         let tokens = vec!["<unk>".to_string(), "hello".to_string()];
-        let vocab = Vocabulary::from_tokens(tokens).unwrap();
-        let tokenizer = Tokenizer::new(vocab, "<unk>").unwrap();
+        let vocab = Vocabulary::from_tokens(tokens).expect("test");
+        let tokenizer = Tokenizer::new(vocab, "<unk>").expect("test");
 
         // Unknown token should map to <unk> (ID 0)
         let encoded = tokenizer.encode("hello foo");
@@ -706,7 +706,7 @@ mod tests {
     #[test]
     fn test_tokenizer_invalid_unk_token() {
         let tokens = vec!["hello".to_string()];
-        let vocab = Vocabulary::from_tokens(tokens).unwrap();
+        let vocab = Vocabulary::from_tokens(tokens).expect("test");
         let result = Tokenizer::new(vocab, "<unk>");
         assert!(result.is_err());
     }
@@ -714,8 +714,8 @@ mod tests {
     #[test]
     fn test_tokenizer_decode_invalid_id() {
         let tokens = vec!["<unk>".to_string(), "hello".to_string()];
-        let vocab = Vocabulary::from_tokens(tokens).unwrap();
-        let tokenizer = Tokenizer::new(vocab, "<unk>").unwrap();
+        let vocab = Vocabulary::from_tokens(tokens).expect("test");
+        let tokenizer = Tokenizer::new(vocab, "<unk>").expect("test");
 
         let result = tokenizer.decode(&[1, 999]); // 999 is invalid
         assert!(result.is_err());
@@ -724,13 +724,13 @@ mod tests {
     #[test]
     fn test_tokenizer_empty_string() {
         let tokens = vec!["<unk>".to_string()];
-        let vocab = Vocabulary::from_tokens(tokens).unwrap();
-        let tokenizer = Tokenizer::new(vocab, "<unk>").unwrap();
+        let vocab = Vocabulary::from_tokens(tokens).expect("test");
+        let tokenizer = Tokenizer::new(vocab, "<unk>").expect("test");
 
         let encoded = tokenizer.encode("");
         assert_eq!(encoded, Vec::<u32>::new());
 
-        let decoded = tokenizer.decode(&[]).unwrap();
+        let decoded = tokenizer.decode(&[]).expect("test");
         assert_eq!(decoded, "");
     }
 
@@ -741,8 +741,8 @@ mod tests {
             "hello".to_string(),
             "world".to_string(),
         ];
-        let vocab = Vocabulary::from_tokens(tokens).unwrap();
-        let tokenizer = Tokenizer::new(vocab, "<unk>").unwrap();
+        let vocab = Vocabulary::from_tokens(tokens).expect("test");
+        let tokenizer = Tokenizer::new(vocab, "<unk>").expect("test");
 
         assert_eq!(tokenizer.vocab_size(), 3);
     }
@@ -769,7 +769,7 @@ mod tests {
             ("hel".to_string(), "lo".to_string()),
         ];
 
-        let tokenizer = BPETokenizer::new(vocab, merges, "<unk>").unwrap();
+        let tokenizer = BPETokenizer::new(vocab, merges, "<unk>").expect("test");
         assert_eq!(tokenizer.vocab_size(), 9);
     }
 
@@ -790,7 +790,7 @@ mod tests {
     fn test_bpe_encode_no_merges() {
         // Simple character-level tokenization without merges
         let vocab = vec!["<unk>".to_string(), "h".to_string(), "i".to_string()];
-        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").unwrap();
+        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").expect("test");
 
         let encoded = tokenizer.encode("hi");
         assert_eq!(encoded, vec![1, 2]); // h=1, i=2
@@ -812,7 +812,7 @@ mod tests {
             ("l".to_string(), "l".to_string()),
         ];
 
-        let tokenizer = BPETokenizer::new(vocab, merges, "<unk>").unwrap();
+        let tokenizer = BPETokenizer::new(vocab, merges, "<unk>").expect("test");
         let encoded = tokenizer.encode("hello");
         // h+e -> he, l+l -> ll, o stays
         // so: he, ll, o = [5, 6, 4]
@@ -822,7 +822,7 @@ mod tests {
     #[test]
     fn test_bpe_encode_unknown_char() {
         let vocab = vec!["<unk>".to_string(), "h".to_string(), "i".to_string()];
-        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").unwrap();
+        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").expect("test");
 
         // 'x' is not in vocab, should map to <unk>
         let encoded = tokenizer.encode("hix");
@@ -832,7 +832,7 @@ mod tests {
     #[test]
     fn test_bpe_encode_empty_string() {
         let vocab = vec!["<unk>".to_string()];
-        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").unwrap();
+        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").expect("test");
 
         let encoded = tokenizer.encode("");
         assert!(encoded.is_empty());
@@ -849,7 +849,7 @@ mod tests {
         ];
         let merges = vec![(" ".to_string(), "h".to_string())];
 
-        let tokenizer = BPETokenizer::new(vocab, merges, "<unk>").unwrap();
+        let tokenizer = BPETokenizer::new(vocab, merges, "<unk>").expect("test");
         // "hi hi" -> "hi" + " hi"
         // "hi" -> h, i
         // " hi" -> " " + "h" -> " h", then "i"
@@ -860,25 +860,25 @@ mod tests {
     #[test]
     fn test_bpe_decode() {
         let vocab = vec!["<unk>".to_string(), "hel".to_string(), "lo".to_string()];
-        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").unwrap();
+        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").expect("test");
 
-        let decoded = tokenizer.decode(&[1, 2]).unwrap();
+        let decoded = tokenizer.decode(&[1, 2]).expect("test");
         assert_eq!(decoded, "hello");
     }
 
     #[test]
     fn test_bpe_decode_empty() {
         let vocab = vec!["<unk>".to_string()];
-        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").unwrap();
+        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").expect("test");
 
-        let decoded = tokenizer.decode(&[]).unwrap();
+        let decoded = tokenizer.decode(&[]).expect("test");
         assert_eq!(decoded, "");
     }
 
     #[test]
     fn test_bpe_decode_invalid_id_error() {
         let vocab = vec!["<unk>".to_string(), "hi".to_string()];
-        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").unwrap();
+        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").expect("test");
 
         let result = tokenizer.decode(&[1, 999]);
         assert!(result.is_err());
@@ -906,17 +906,17 @@ mod tests {
             ("hel".to_string(), "lo".to_string()),
         ];
 
-        let tokenizer = BPETokenizer::new(vocab, merges, "<unk>").unwrap();
+        let tokenizer = BPETokenizer::new(vocab, merges, "<unk>").expect("test");
 
         let encoded = tokenizer.encode("hello");
-        let decoded = tokenizer.decode(&encoded).unwrap();
+        let decoded = tokenizer.decode(&encoded).expect("test");
         assert_eq!(decoded, "hello");
     }
 
     #[test]
     fn test_bpe_get_token_methods() {
         let vocab = vec!["<unk>".to_string(), "hello".to_string()];
-        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").unwrap();
+        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").expect("test");
 
         assert_eq!(tokenizer.get_token_id("hello"), Some(1));
         assert_eq!(tokenizer.get_token_id("world"), None);
@@ -939,7 +939,7 @@ mod tests {
             ("ab".to_string(), "ab".to_string()),
         ];
 
-        let tokenizer = BPETokenizer::new(vocab, merges, "<unk>").unwrap();
+        let tokenizer = BPETokenizer::new(vocab, merges, "<unk>").expect("test");
         let encoded = tokenizer.encode("abab");
         // First: a+b -> ab, a+b -> ab giving [ab, ab]
         // Then: ab+ab -> abab giving [abab]
@@ -956,7 +956,7 @@ mod tests {
             ("world".to_string(), -1.5),
         ];
 
-        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").unwrap();
+        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").expect("test");
         assert_eq!(tokenizer.vocab_size(), 3);
     }
 
@@ -976,7 +976,7 @@ mod tests {
     #[test]
     fn test_sentencepiece_encode_empty() {
         let vocab = vec![("<unk>".to_string(), 0.0)];
-        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").unwrap();
+        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").expect("test");
 
         let encoded = tokenizer.encode("");
         assert!(encoded.is_empty());
@@ -985,7 +985,7 @@ mod tests {
     #[test]
     fn test_sentencepiece_encode_single_token() {
         let vocab = vec![("<unk>".to_string(), 0.0), ("hello".to_string(), -1.0)];
-        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").unwrap();
+        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").expect("test");
 
         let encoded = tokenizer.encode("hello");
         assert_eq!(encoded, vec![1]);
@@ -1006,7 +1006,7 @@ mod tests {
             ("lo".to_string(), -2.0),
             ("hello".to_string(), -1.0),
         ];
-        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").unwrap();
+        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").expect("test");
 
         let encoded = tokenizer.encode("hello");
         // Should prefer single "hello" token (score -1.0) over subwords
@@ -1025,7 +1025,7 @@ mod tests {
             ("he".to_string(), -0.5),
             ("llo".to_string(), -0.5),
         ];
-        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").unwrap();
+        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").expect("test");
 
         let encoded = tokenizer.encode("hello");
         // "he" (-0.5) + "llo" (-0.5) = -1.0 is better than "h" + "e" + "l" + "l" + "o" = -5.0
@@ -1039,25 +1039,25 @@ mod tests {
             ("hel".to_string(), -1.0),
             ("lo".to_string(), -1.0),
         ];
-        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").unwrap();
+        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").expect("test");
 
-        let decoded = tokenizer.decode(&[1, 2]).unwrap();
+        let decoded = tokenizer.decode(&[1, 2]).expect("test");
         assert_eq!(decoded, "hello");
     }
 
     #[test]
     fn test_sentencepiece_decode_empty() {
         let vocab = vec![("<unk>".to_string(), 0.0)];
-        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").unwrap();
+        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").expect("test");
 
-        let decoded = tokenizer.decode(&[]).unwrap();
+        let decoded = tokenizer.decode(&[]).expect("test");
         assert_eq!(decoded, "");
     }
 
     #[test]
     fn test_sentencepiece_decode_invalid_id_error() {
         let vocab = vec![("<unk>".to_string(), 0.0), ("hi".to_string(), -1.0)];
-        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").unwrap();
+        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").expect("test");
 
         let result = tokenizer.decode(&[1, 999]);
         assert!(result.is_err());
@@ -1073,23 +1073,23 @@ mod tests {
             ("o".to_string(), -2.0),
             ("hello".to_string(), -1.0),
         ];
-        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").unwrap();
+        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").expect("test");
 
         let encoded = tokenizer.encode("hello");
-        let decoded = tokenizer.decode(&encoded).unwrap();
+        let decoded = tokenizer.decode(&encoded).expect("test");
         assert_eq!(decoded, "hello");
     }
 
     #[test]
     fn test_sentencepiece_get_methods() {
         let vocab = vec![("<unk>".to_string(), 0.0), ("hello".to_string(), -1.5)];
-        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").unwrap();
+        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").expect("test");
 
         assert_eq!(tokenizer.get_token_id("hello"), Some(1));
         assert_eq!(tokenizer.get_token_id("world"), None);
         assert_eq!(tokenizer.get_token(1), Some("hello"));
         assert_eq!(tokenizer.get_token(999), None);
-        assert!((tokenizer.get_score("hello").unwrap() - (-1.5)).abs() < 1e-6);
+        assert!((tokenizer.get_score("hello").expect("test") - (-1.5)).abs() < 1e-6);
         assert_eq!(tokenizer.get_score("world"), None);
     }
 
@@ -1101,7 +1101,7 @@ mod tests {
             ("h".to_string(), -1.0),
             ("i".to_string(), -1.0),
         ];
-        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").unwrap();
+        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").expect("test");
 
         // 'x' is not in vocab, should be tokenized with penalty
         let encoded = tokenizer.encode("hix");
@@ -1120,7 +1120,7 @@ mod tests {
             (" ".to_string(), -0.5),
             ("world".to_string(), -1.0),
         ];
-        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").unwrap();
+        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").expect("test");
 
         let encoded = tokenizer.encode("hello world");
         assert_eq!(encoded, vec![1, 2, 3]); // hello, space, world

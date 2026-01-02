@@ -47,8 +47,11 @@ use trueno_gpu::driver::{
     cuda_available, device_count, CudaContext, CudaModule, CudaStream, GpuBuffer, LaunchConfig,
 };
 use trueno_gpu::kernels::{
-    Activation, AttentionKernel, BiasActivationKernel, CoalescedGemvKernel, GemmKernel, GemvKernel,
-    Kernel, LayerNormKernel, Q5KKernel, Q6KKernel, QuantizeKernel, SoftmaxKernel,
+    Activation, AttentionKernel, BiasActivationKernel, CoalescedGemvKernel, ElementwiseMulKernel,
+    FusedResidualRmsNormKernel, FusedSwigluKernel, GeluKernel, GemmKernel, GemvKernel,
+    IncrementalAttentionKernel, Kernel, LayerNormKernel, Q4KGemvKernel, Q5KGemvKernel, Q5KKernel,
+    Q6KGemvKernel, Q6KKernel, QuantizeKernel, ResidualAddKernel, RmsNormKernel, SiluKernel,
+    SoftmaxKernel,
 };
 use trueno_gpu::GpuError;
 
@@ -241,6 +244,98 @@ pub enum KernelType {
         /// Number of values (must be multiple of 256 for Q4_K super-blocks)
         n: u32,
     },
+    /// Q4_K quantized GEMV (fused dequantization) - PAR-003
+    /// Optimized for M=1 token generation: one warp per output, no shared memory
+    /// 7.1x memory bandwidth reduction vs dequant+GEMV
+    Q4KGemv {
+        /// Input dimension (K, must be multiple of 256)
+        k: u32,
+        /// Output dimension (N)
+        n: u32,
+    },
+    /// Q5_K quantized GEMV (fused dequantization) - PAR-003
+    Q5KGemv {
+        /// Input dimension (K, must be multiple of 256)
+        k: u32,
+        /// Output dimension (N)
+        n: u32,
+    },
+    /// Q6_K quantized GEMV (fused dequantization) - PAR-003
+    Q6KGemv {
+        /// Input dimension (K, must be multiple of 256)
+        k: u32,
+        /// Output dimension (N)
+        n: u32,
+    },
+    /// Incremental attention for M=1 autoregressive decoding (PAR-020 + PAR-021)
+    /// GPU-resident KV cache, warp-level shuffle, no shared memory
+    /// Optimized for single-token generation in LLM inference
+    /// Supports GQA (Grouped Query Attention) where n_kv_heads < n_heads
+    IncrementalAttention {
+        /// Maximum sequence length for KV cache allocation
+        max_seq_len: u32,
+        /// Head dimension (e.g., 64 for TinyLlama)
+        head_dim: u32,
+        /// Number of query attention heads (e.g., 32 for TinyLlama)
+        n_heads: u32,
+        /// Number of key-value heads (for GQA, e.g., 4 for TinyLlama)
+        n_kv_heads: u32,
+    },
+    /// PAR-023: RMSNorm kernel (Root Mean Square Layer Normalization)
+    /// Used by LLaMA, Mistral, TinyLlama for pre-attention and pre-FFN normalization
+    /// RMSNorm(x) = x / sqrt(mean(x^2) + epsilon) * gamma
+    RmsNorm {
+        /// Hidden dimension size
+        hidden_size: u32,
+        /// Epsilon for numerical stability (default: 1e-5)
+        epsilon: f32,
+    },
+    /// PAR-023: Residual Add kernel for async pipeline
+    /// Element-wise addition for residual connections: output = input1 + input2
+    ResidualAdd {
+        /// Number of elements
+        n: u32,
+    },
+    /// PAR-023: Fused Residual Add + RMSNorm kernel
+    /// Combines residual addition and normalization in one pass
+    /// output = rmsnorm(input1 + input2, gamma, epsilon)
+    FusedResidualRmsNorm {
+        /// Hidden dimension size
+        hidden_size: u32,
+        /// Epsilon for numerical stability
+        epsilon: f32,
+    },
+
+    // =========================================================================
+    // PAR-023: Activation and Element-wise Kernels for GPU-Resident Pipeline
+    // =========================================================================
+    /// SiLU activation: output = x * sigmoid(x)
+    /// Used in LLaMA/TinyLlama FFN
+    Silu {
+        /// Number of elements
+        n: u32,
+    },
+
+    /// GELU activation: output ≈ 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x³)))
+    /// Used in GPT/BERT FFN
+    Gelu {
+        /// Number of elements
+        n: u32,
+    },
+
+    /// Element-wise multiply: output = input1 * input2
+    /// Used for gated activations (SwiGLU)
+    ElementwiseMul {
+        /// Number of elements
+        n: u32,
+    },
+
+    /// Fused SwiGLU: output = silu(gate) * up
+    /// Combines SiLU activation and multiply in one pass
+    FusedSwiglu {
+        /// Number of elements
+        n: u32,
+    },
 }
 
 /// CUDA kernel generator
@@ -372,6 +467,42 @@ impl CudaKernels {
             // PARITY-073: Fused Q4_K × Q8_0 dot product - use trueno's QuantizeKernel
             // Dot product is 1×n × n×1 GEMM (m=1, n=1, k=n_values)
             KernelType::FusedQ4Q8Dot { n } => QuantizeKernel::ggml(1, 1, *n).emit_ptx(),
+            // PAR-003: Q4_K GEMV - fused dequant for M=1 token generation
+            KernelType::Q4KGemv { k, n } => Q4KGemvKernel::new(*k, *n).emit_ptx(),
+            KernelType::Q5KGemv { k, n } => Q5KGemvKernel::new(*k, *n).emit_ptx(),
+            KernelType::Q6KGemv { k, n } => Q6KGemvKernel::new(*k, *n).emit_ptx(),
+            // PAR-020 + PAR-021: Incremental attention for M=1 autoregressive decoding
+            // Supports GQA via with_gqa() constructor
+            KernelType::IncrementalAttention {
+                max_seq_len,
+                head_dim,
+                n_heads,
+                n_kv_heads,
+            } => {
+                IncrementalAttentionKernel::with_gqa(*max_seq_len, *head_dim, *n_heads, *n_kv_heads)
+                    .emit_ptx()
+            },
+            // PAR-023: RMSNorm for async pipeline
+            KernelType::RmsNorm {
+                hidden_size,
+                epsilon,
+            } => RmsNormKernel::new(*hidden_size)
+                .with_epsilon(*epsilon)
+                .emit_ptx(),
+            // PAR-023: Residual Add for async pipeline
+            KernelType::ResidualAdd { n } => ResidualAddKernel::new(*n).emit_ptx(),
+            // PAR-023: Fused Residual Add + RMSNorm for reduced memory bandwidth
+            KernelType::FusedResidualRmsNorm {
+                hidden_size,
+                epsilon,
+            } => FusedResidualRmsNormKernel::new(*hidden_size)
+                .with_epsilon(*epsilon)
+                .emit_ptx(),
+            // PAR-023: Activation kernels for GPU-resident pipeline
+            KernelType::Silu { n } => SiluKernel::new(*n).emit_ptx(),
+            KernelType::Gelu { n } => GeluKernel::new(*n).emit_ptx(),
+            KernelType::ElementwiseMul { n } => ElementwiseMulKernel::new(*n).emit_ptx(),
+            KernelType::FusedSwiglu { n } => FusedSwigluKernel::new(*n).emit_ptx(),
         }
     }
 
@@ -420,6 +551,23 @@ impl CudaKernels {
             KernelType::GemmFp16TensorCore { .. } => "gemm_wmma_fp16",
             // FusedQ4Q8Dot now uses trueno's QuantizeKernel::ggml (same as QuantizedGemmGgml)
             KernelType::FusedQ4Q8Dot { .. } => "q4k_gemm_ggml",
+            // PAR-003: Quantized GEMV kernel names (M=1 token generation)
+            KernelType::Q4KGemv { .. } => "q4k_gemv_warp_reduce",
+            KernelType::Q5KGemv { .. } => "q5k_gemv_warp_reduce",
+            KernelType::Q6KGemv { .. } => "q6k_gemv_warp_reduce",
+            // PAR-020: Incremental attention for M=1 autoregressive decoding
+            KernelType::IncrementalAttention { .. } => "incremental_attention",
+            // PAR-023: RMSNorm
+            KernelType::RmsNorm { .. } => "rmsnorm",
+            // PAR-023: Residual Add
+            KernelType::ResidualAdd { .. } => "residual_add",
+            // PAR-023: Fused Residual Add + RMSNorm
+            KernelType::FusedResidualRmsNorm { .. } => "fused_residual_rmsnorm",
+            // PAR-023: Activation kernels
+            KernelType::Silu { .. } => "silu",
+            KernelType::Gelu { .. } => "gelu",
+            KernelType::ElementwiseMul { .. } => "elementwise_mul",
+            KernelType::FusedSwiglu { .. } => "fused_swiglu",
         }
     }
 
@@ -984,6 +1132,35 @@ pub struct CudaExecutor {
     // Persistent weight buffers on GPU (PARITY-037)
     // These are loaded once at startup and reused for all forward passes
     weight_cache: HashMap<String, GpuBuffer<f32>>,
+    // PAR-005: Persistent quantized weight buffers on GPU
+    // For Q4_K/Q5_K/Q6_K weights that use native GEMV kernels
+    // Avoids CPU→GPU transfer on every forward pass (~50+ transfers/token)
+    quantized_weight_cache: HashMap<String, GpuBuffer<u8>>,
+    // PAR-023: Cached RMSNorm gamma weights on GPU
+    // Key format: "blk.{layer_idx}.{attn|ffn}_norm.gamma"
+    // Pre-cached at model load to avoid per-token uploads
+    rmsnorm_cache: HashMap<String, GpuBuffer<f32>>,
+    // PAR-007: Cached I/O buffers for GEMV (avoid per-call allocation)
+    // input_buffer: reused for all GEMV input vectors
+    // output_buffer: reused for all GEMV output vectors
+    // Grows as needed but never shrinks (high-water mark allocation)
+    gemv_input_buffer: Option<GpuBuffer<f32>>,
+    gemv_output_buffer: Option<GpuBuffer<f32>>,
+    gemv_input_size: usize,  // Current capacity in elements
+    gemv_output_size: usize, // Current capacity in elements
+    // PAR-018 + PAR-021: GPU-resident KV cache to avoid CPU→GPU transfer each token
+    // Key format: "kv_{layer_idx}_{k|v}" -> GPU buffer [num_kv_heads, max_len, head_dim]
+    // For GQA models, uses num_kv_heads (smaller than num_heads)
+    // Eliminates ~66 MB transfer per token for TinyLlama (22 layers × 3 MB)
+    kv_cache_gpu: HashMap<String, GpuBuffer<f32>>,
+    // Track how many positions are filled in each layer's KV cache
+    kv_cache_lengths: HashMap<usize, usize>,
+    // Max sequence length for KV cache (pre-allocated)
+    kv_cache_max_len: usize,
+    // KV cache dimensions (set on first use)
+    kv_num_heads: usize,    // Number of Q heads (for output dimension)
+    kv_num_kv_heads: usize, // Number of KV heads (for cache dimension, PAR-021 GQA)
+    kv_head_dim: usize,
     // Compute stream for kernel execution (PARITY-038)
     compute_stream: CudaStream,
     // Transfer stream for async H2D/D2H copies (PARITY-038)
@@ -1019,6 +1196,18 @@ impl CudaExecutor {
             staging_pool: StagingBufferPool::new(), // PARITY-042: pinned memory pool
             modules: HashMap::new(),
             weight_cache: HashMap::new(),
+            quantized_weight_cache: HashMap::new(), // PAR-005: quantized weight cache
+            rmsnorm_cache: HashMap::new(),          // PAR-023: RMSNorm gamma cache
+            gemv_input_buffer: None,                // PAR-007: lazy init on first GEMV
+            gemv_output_buffer: None,
+            gemv_input_size: 0,
+            gemv_output_size: 0,
+            kv_cache_gpu: HashMap::new(), // PAR-018 + PAR-021: GPU-resident KV cache
+            kv_cache_lengths: HashMap::new(),
+            kv_cache_max_len: 0,
+            kv_num_heads: 0,
+            kv_num_kv_heads: 0, // PAR-021 GQA
+            kv_head_dim: 0,
             compute_stream,
             transfer_stream,
             stream,
@@ -1132,6 +1321,127 @@ impl CudaExecutor {
     /// Clear all cached weights (releases GPU memory)
     pub fn clear_weights(&mut self) {
         self.weight_cache.clear();
+    }
+
+    // ========================================================================
+    // PAR-005: Quantized Weight Cache (Q4_K/Q5_K/Q6_K)
+    // ========================================================================
+
+    /// Load quantized weights onto GPU for persistent caching
+    ///
+    /// Uploads raw quantized bytes (Q4_K/Q5_K/Q6_K format) to GPU memory.
+    /// These weights are reused for all forward passes, eliminating
+    /// the ~50+ CPU→GPU transfers per token.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Unique identifier for this weight tensor (e.g., "layer_0.attn_q")
+    /// * `data` - Raw quantized weight bytes
+    ///
+    /// # Returns
+    ///
+    /// Size in bytes of the uploaded weights.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if GPU allocation or transfer fails.
+    pub fn load_quantized_weights(&mut self, name: &str, data: &[u8]) -> Result<usize, GpuError> {
+        let buf = GpuBuffer::from_host(&self.context, data)?;
+        let size_bytes = buf.size_bytes();
+        self.quantized_weight_cache.insert(name.to_string(), buf);
+        Ok(size_bytes)
+    }
+
+    /// Check if quantized weights are cached on GPU
+    #[must_use]
+    pub fn has_quantized_weights(&self, name: &str) -> bool {
+        self.quantized_weight_cache.contains_key(name)
+    }
+
+    /// Get the number of cached quantized weight tensors
+    #[must_use]
+    pub fn cached_quantized_weight_count(&self) -> usize {
+        self.quantized_weight_cache.len()
+    }
+
+    /// Get total size of cached quantized weights in bytes
+    #[must_use]
+    pub fn cached_quantized_weight_bytes(&self) -> usize {
+        self.quantized_weight_cache
+            .values()
+            .map(GpuBuffer::size_bytes)
+            .sum()
+    }
+
+    /// Clear all cached quantized weights (releases GPU memory)
+    pub fn clear_quantized_weights(&mut self) {
+        self.quantized_weight_cache.clear();
+    }
+
+    // ========================================================================
+    // PAR-007: GEMV Buffer Pool (avoid per-call allocation)
+    // ========================================================================
+
+    /// Ensure GEMV input buffer has exact required size
+    ///
+    /// Returns a reference to the GPU buffer pointer. The buffer is
+    /// reallocated only when the size changes (common case: same size reused).
+    fn ensure_gemv_input_buffer(&mut self, required_size: usize) -> Result<u64, GpuError> {
+        // Reallocate only if size changed (common case: reuse existing buffer)
+        if self.gemv_input_size != required_size {
+            self.gemv_input_buffer = Some(GpuBuffer::new(&self.context, required_size)?);
+            self.gemv_input_size = required_size;
+        }
+        Ok(self
+            .gemv_input_buffer
+            .as_ref()
+            .expect("buffer just created")
+            .as_ptr())
+    }
+
+    /// Ensure GEMV output buffer has exact required size
+    fn ensure_gemv_output_buffer(&mut self, required_size: usize) -> Result<u64, GpuError> {
+        if self.gemv_output_size != required_size {
+            self.gemv_output_buffer = Some(GpuBuffer::new(&self.context, required_size)?);
+            self.gemv_output_size = required_size;
+        }
+        Ok(self
+            .gemv_output_buffer
+            .as_ref()
+            .expect("buffer just created")
+            .as_ptr())
+    }
+
+    /// Copy input data to cached GEMV input buffer
+    fn copy_to_gemv_input(&mut self, input: &[f32]) -> Result<(), GpuError> {
+        let buf = self
+            .gemv_input_buffer
+            .as_mut()
+            .expect("buffer should exist");
+        buf.copy_from_host(input)
+    }
+
+    /// Copy output data from cached GEMV output buffer
+    fn copy_from_gemv_output(&self, output: &mut [f32]) -> Result<(), GpuError> {
+        let buf = self
+            .gemv_output_buffer
+            .as_ref()
+            .expect("buffer should exist");
+        buf.copy_to_host(output)
+    }
+
+    /// Get GEMV buffer pool statistics
+    #[must_use]
+    pub fn gemv_buffer_stats(&self) -> (usize, usize) {
+        (self.gemv_input_size * 4, self.gemv_output_size * 4) // bytes
+    }
+
+    /// Clear GEMV buffers (releases GPU memory)
+    pub fn clear_gemv_buffers(&mut self) {
+        self.gemv_input_buffer = None;
+        self.gemv_output_buffer = None;
+        self.gemv_input_size = 0;
+        self.gemv_output_size = 0;
     }
 
     // ========================================================================
@@ -1451,12 +1761,10 @@ impl CudaExecutor {
         }
 
         // Generate PTX for this configuration
-        // Use CoalescedGemv for M=1 (PARITY-118: 44x speedup via memory coalescing)
-        let (kernel_type, cache_key) = if m == 1 {
-            (
-                KernelType::CoalescedGemv { k, n },
-                format!("gemv_coalesced_{}_{}", k, n),
-            )
+        // PARITY-003: Enable simpler Gemv (warp-reduce) for M=1 operations
+        let use_gemv = m == 1;
+        let (kernel_type, cache_key) = if use_gemv {
+            (KernelType::Gemv { k, n }, format!("gemv_{}_{}", k, n))
         } else {
             (
                 KernelType::GemmTiled {
@@ -1489,12 +1797,12 @@ impl CudaExecutor {
         let c_zeros = vec![0.0f32; expected_c];
         let buf_c = GpuBuffer::from_host(&self.context, &c_zeros)?;
 
-        // Launch configuration differs for CoalescedGemv vs GEMM
-        let config = if m == 1 {
-            // PARITY-118: CoalescedGemv - 256 threads per block, shared memory for x cache
-            // Grid = ceil(N/256) blocks, each thread computes one output element
-            let blocks = (n + 255) / 256;
-            LaunchConfig::grid_2d(blocks, 1, 256, 1).with_shared_mem(256 * 4) // 1024 bytes for x tile
+        // Launch configuration differs for Gemv vs GEMM
+        // PARITY-003: Enable simpler Gemv with correct config
+        let config = if use_gemv {
+            // Simple Gemv: 32 threads (one warp) per block, N blocks
+            // Each block computes one output element y[block_id]
+            LaunchConfig::grid_2d(n, 1, 32, 1)
         } else {
             // GEMM: 2D grid of 32x32 tiles
             // PARITY-114 FIX: Grid X is for columns (N), Grid Y is for rows (M)
@@ -1515,8 +1823,9 @@ impl CudaExecutor {
 
         // Launch kernel
         // SAFETY: Buffers are valid, config matches kernel expectations
+        // PARITY-003: Enable GEMV for M=1 operations
         unsafe {
-            if m == 1 {
+            if use_gemv {
                 // GEMV kernel: y = B * x where x is A (1×K row as K vector), B is K×N, y is C (1×N as N vector)
                 // Args: y_ptr, a_ptr (matrix), x_ptr, k_dim, n_dim
                 self.stream.launch_kernel(
@@ -1605,9 +1914,9 @@ impl CudaExecutor {
             GpuError::InvalidLaunchConfig(format!("Weight '{}' not cached on GPU", weight_name))
         })?;
 
-        // Generate PTX for CoalescedGemv
-        let kernel_type = KernelType::CoalescedGemv { k, n };
-        let cache_key = format!("gemv_coalesced_{}_{}", k, n);
+        // PARITY-003: Use simpler Gemv kernel (32 threads warp-reduce) instead of CoalescedGemv
+        let kernel_type = KernelType::Gemv { k, n };
+        let cache_key = format!("gemv_simple_{}_{}", k, n);
         let kernel_name = self.kernels.kernel_name(&kernel_type);
 
         // Load module if not cached
@@ -1627,9 +1936,8 @@ impl CudaExecutor {
         let y_zeros = vec![0.0f32; n as usize];
         let buf_y = GpuBuffer::from_host(&self.context, &y_zeros)?;
 
-        // Launch config: 256 threads per block, ceil(N/256) blocks
-        let blocks = (n + 255) / 256;
-        let config = LaunchConfig::grid_2d(blocks, 1, 256, 1).with_shared_mem(256 * 4);
+        // PARITY-003: Simple Gemv config - 32 threads (one warp) per block, N blocks
+        let config = LaunchConfig::grid_2d(n, 1, 32, 1);
 
         // Get raw pointers
         let mut ptr_y = buf_y.as_ptr();
@@ -2045,9 +2353,11 @@ impl CudaExecutor {
         m: u32,
         k: u32,
     ) -> Result<(), GpuError> {
-        let kernel_type = KernelType::QuantizedGemm { m, n: 1, k };
+        // PARITY-003 FIX: Use QuantizedGemmGgml for GGUF Q4_K format (256 values, 144 bytes per super-block)
+        // Previous: QuantizedGemm was for a different Q4 layout, causing garbage output
+        let kernel_type = KernelType::QuantizedGemmGgml { m, n: 1, k };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
-        let cache_key = format!("q4k_{}_{}", m, k);
+        let cache_key = format!("q4k_ggml_{}_{}", m, k);
 
         // Load module if not cached
         if !self.modules.contains_key(&cache_key) {
@@ -2066,17 +2376,30 @@ impl CudaExecutor {
         let buf_input = GpuBuffer::from_host(&self.context, input)?;
         let buf_output = GpuBuffer::<f32>::new(&self.context, m as usize)?;
 
-        // Launch configuration: 1 block per output element
-        let config = LaunchConfig::linear(m, 256);
+        // PARITY-003 FIX: Launch configuration for GGML kernel with tile_size=32
+        // The GGML kernel uses: weight_row = clamped_col, where clamped_col = ctaid_x * tile + local_col
+        // For matvec (n=1), we want weight_row to iterate over m output elements
+        // CRITICAL FIX: Swap m and n so kernel uses ctaid_x for weight row indexing
+        // grid.x = ceil(m/tile), grid.y = 1 (but we pass n=m, m=1 to kernel!)
+        let tile_size = 32u32;
+        let blocks_x = (m + tile_size - 1) / tile_size; // Iterate over m outputs
+        let blocks_y = 1u32; // n=1, so 1 block in y
+        let config = LaunchConfig::grid_2d(blocks_x, blocks_y, tile_size, tile_size);
 
         // Get raw pointers for kernel args
-        // Kernel signature: q4k_gemm_fused(a_ptr, b_quant_ptr, c_ptr, m, n, k)
+        // Kernel signature: q4k_gemm_ggml(a_ptr, b_quant_ptr, c_ptr, m, n, k)
         // Where: a_ptr = input activations, b_quant_ptr = weights, c_ptr = output
+        //
+        // PARITY-003 FIX: For matvec, swap m and n so kernel uses ctaid_x for weight row
+        // The kernel uses clamped_col (derived from ctaid_x) to index weight rows
+        // By passing m=1, n=out_dim, the kernel will:
+        //   - Use ctaid_x (0 to out_dim/tile) for weight row indexing via clamped_col
+        //   - Output at index global_row * n + global_col = 0 * out_dim + col = col
         let mut ptr_input = buf_input.as_ptr(); // a_ptr: input activations
         let mut ptr_weights = buf_weights.as_ptr(); // b_quant_ptr: quantized weights
         let mut ptr_output = buf_output.as_ptr(); // c_ptr: output
-        let mut m_val = m; // u32 as expected by kernel
-        let mut n_val = 1u32; // n=1 for matvec (CRITICAL: was missing!)
+        let mut m_val = 1u32; // m=1 (swapped for matvec)
+        let mut n_val = m; // n=out_dim (swapped for matvec)
         let mut k_val = k; // u32 as expected by kernel
 
         // Launch kernel
@@ -2099,6 +2422,2144 @@ impl CudaExecutor {
         // Synchronize and copy result
         self.stream.synchronize()?;
         buf_output.copy_to_host(output)?;
+
+        Ok(())
+    }
+
+    /// Execute Q4_K GEMV (fused dequantization + matvec) - PAR-003
+    ///
+    /// Optimized kernel for M=1 token generation. Uses warp shuffle reduction
+    /// with one warp (32 threads) per output element. No shared memory needed.
+    ///
+    /// # Performance
+    ///
+    /// - Memory: 7.1x more efficient than dequant+GEMV (reads Q4_K directly)
+    /// - Compute: Fused dequant+multiply avoids intermediate buffer
+    /// - Target: >24 tok/s (M2 milestone), matching llama.cpp performance
+    ///
+    /// # Arguments
+    ///
+    /// * `weights` - Quantized weights in Q4_K GGML format (144 bytes per 256 values)
+    /// * `input` - Input vector (f32, length k)
+    /// * `output` - Output vector (f32, length n)
+    /// * `n` - Output dimension
+    /// * `k` - Input dimension (must be divisible by 256)
+    pub fn q4k_gemv(
+        &mut self,
+        weights: &[u8],
+        input: &[f32],
+        output: &mut [f32],
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        // PAR-003: Use dedicated Q4_K GEMV kernel for M=1 operations
+        let kernel_type = KernelType::Q4KGemv { k, n };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("q4k_gemv_{}_{}", k, n);
+
+        // Load module if not cached
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // Allocate GPU buffers
+        let buf_weights = GpuBuffer::from_host(&self.context, weights)?;
+        let buf_input = GpuBuffer::from_host(&self.context, input)?;
+        let buf_output = GpuBuffer::<f32>::new(&self.context, n as usize)?;
+
+        // PAR-003: Launch configuration for GEMV kernel
+        // Grid: N blocks (one per output element)
+        // Block: 32 threads (one warp for reduction)
+        // No shared memory needed
+        let config = LaunchConfig::grid_2d(n, 1, 32, 1);
+
+        // Kernel signature: q4k_gemv_warp_reduce(y_ptr, w_ptr, x_ptr, k_dim, n_dim)
+        let mut ptr_output = buf_output.as_ptr(); // y_ptr: output vector
+        let mut ptr_weights = buf_weights.as_ptr(); // w_ptr: quantized weights
+        let mut ptr_input = buf_input.as_ptr(); // x_ptr: input vector
+        let mut k_val = k; // k_dim
+        let mut n_val = n; // n_dim
+
+        // Launch kernel
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    &mut ptr_output as *mut _ as *mut std::ffi::c_void, // y_ptr
+                    &mut ptr_weights as *mut _ as *mut std::ffi::c_void, // w_ptr
+                    &mut ptr_input as *mut _ as *mut std::ffi::c_void,  // x_ptr
+                    &mut k_val as *mut _ as *mut std::ffi::c_void,      // k_dim
+                    &mut n_val as *mut _ as *mut std::ffi::c_void,      // n_dim
+                ],
+            )?;
+        }
+
+        // Synchronize and copy result
+        self.stream.synchronize()?;
+        buf_output.copy_to_host(output)?;
+
+        Ok(())
+    }
+
+    /// Execute Q5_K GEMV (fused dequantization + matvec) - PAR-003
+    pub fn q5k_gemv(
+        &mut self,
+        weights: &[u8],
+        input: &[f32],
+        output: &mut [f32],
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        let kernel_type = KernelType::Q5KGemv { k, n };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("q5k_gemv_{}_{}", k, n);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        let buf_weights = GpuBuffer::from_host(&self.context, weights)?;
+        let buf_input = GpuBuffer::from_host(&self.context, input)?;
+        let buf_output = GpuBuffer::<f32>::new(&self.context, n as usize)?;
+
+        let config = LaunchConfig::grid_2d(n, 1, 32, 1);
+
+        let mut ptr_output = buf_output.as_ptr();
+        let mut ptr_weights = buf_weights.as_ptr();
+        let mut ptr_input = buf_input.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_weights as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_input as *mut _ as *mut std::ffi::c_void,
+                    &mut k_val as *mut _ as *mut std::ffi::c_void,
+                    &mut n_val as *mut _ as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        self.stream.synchronize()?;
+        buf_output.copy_to_host(output)?;
+
+        Ok(())
+    }
+
+    /// Execute Q6_K GEMV (fused dequantization + matvec) - PAR-003
+    pub fn q6k_gemv(
+        &mut self,
+        weights: &[u8],
+        input: &[f32],
+        output: &mut [f32],
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        let kernel_type = KernelType::Q6KGemv { k, n };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("q6k_gemv_{}_{}", k, n);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        let buf_weights = GpuBuffer::from_host(&self.context, weights)?;
+        let buf_input = GpuBuffer::from_host(&self.context, input)?;
+        let buf_output = GpuBuffer::<f32>::new(&self.context, n as usize)?;
+
+        let config = LaunchConfig::grid_2d(n, 1, 32, 1);
+
+        let mut ptr_output = buf_output.as_ptr();
+        let mut ptr_weights = buf_weights.as_ptr();
+        let mut ptr_input = buf_input.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_weights as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_input as *mut _ as *mut std::ffi::c_void,
+                    &mut k_val as *mut _ as *mut std::ffi::c_void,
+                    &mut n_val as *mut _ as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        self.stream.synchronize()?;
+        buf_output.copy_to_host(output)?;
+
+        Ok(())
+    }
+
+    // ========================================================================
+    // PAR-005: Cached GEMV Methods (avoid per-call weight transfers)
+    // ========================================================================
+
+    /// Execute Q4_K GEMV using cached weights - PAR-005
+    ///
+    /// Uses pre-uploaded weights from `quantized_weight_cache` to avoid
+    /// CPU→GPU transfer on every forward pass. Weights must be loaded
+    /// beforehand via `load_quantized_weights()`.
+    ///
+    /// # Arguments
+    ///
+    /// * `weight_name` - Name of cached weight tensor
+    /// * `input` - Input vector (f32, length k)
+    /// * `output` - Output vector (f32, length n)
+    /// * `n` - Output dimension
+    /// * `k` - Input dimension (must be divisible by 256)
+    ///
+    /// # Errors
+    ///
+    /// Returns error if weights not cached or kernel fails.
+    pub fn q4k_gemv_cached(
+        &mut self,
+        weight_name: &str,
+        input: &[f32],
+        output: &mut [f32],
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        // Get cached weight buffer
+        let weight_ptr = self
+            .quantized_weight_cache
+            .get(weight_name)
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "PAR-005: Quantized weight '{}' not cached",
+                    weight_name
+                ))
+            })?
+            .as_ptr();
+
+        // Load kernel module
+        let kernel_type = KernelType::Q4KGemv { k, n };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("q4k_gemv_{}_{}", k, n);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // Transfer input (allocation overhead is negligible compared to weight caching)
+        let buf_input = GpuBuffer::from_host(&self.context, input)?;
+        let buf_output = GpuBuffer::<f32>::new(&self.context, n as usize)?;
+
+        let config = LaunchConfig::grid_2d(n, 1, 32, 1);
+
+        let mut ptr_output = buf_output.as_ptr();
+        let mut ptr_weights = weight_ptr;
+        let mut ptr_input = buf_input.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_weights as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_input as *mut _ as *mut std::ffi::c_void,
+                    &mut k_val as *mut _ as *mut std::ffi::c_void,
+                    &mut n_val as *mut _ as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        self.stream.synchronize()?;
+        buf_output.copy_to_host(output)?;
+
+        Ok(())
+    }
+
+    /// PAR-023: Execute Q4_K GEMV with GPU buffer input/output (async, no sync)
+    ///
+    /// This is the async variant that keeps data on GPU. Used for pipelining
+    /// multiple operations without CPU round-trips.
+    ///
+    /// # Arguments
+    ///
+    /// * `weight_name` - Name of cached weight buffer
+    /// * `input` - GPU buffer containing input vector
+    /// * `n` - Output dimension
+    /// * `k` - Input dimension
+    ///
+    /// # Returns
+    ///
+    /// GPU buffer containing output vector (not synchronized)
+    pub fn q4k_gemv_cached_async(
+        &mut self,
+        weight_name: &str,
+        input: &GpuBuffer<f32>,
+        n: u32,
+        k: u32,
+    ) -> Result<GpuBuffer<f32>, GpuError> {
+        // Get cached weight buffer
+        let weight_ptr = self
+            .quantized_weight_cache
+            .get(weight_name)
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "PAR-023: Quantized weight '{}' not cached",
+                    weight_name
+                ))
+            })?
+            .as_ptr();
+
+        // Load kernel module
+        let kernel_type = KernelType::Q4KGemv { k, n };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("q4k_gemv_{}_{}", k, n);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // Allocate output buffer
+        let buf_output = GpuBuffer::<f32>::new(&self.context, n as usize)?;
+
+        let config = LaunchConfig::grid_2d(n, 1, 32, 1);
+
+        let mut ptr_output = buf_output.as_ptr();
+        let mut ptr_weights = weight_ptr;
+        let mut ptr_input = input.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_weights as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_input as *mut _ as *mut std::ffi::c_void,
+                    &mut k_val as *mut _ as *mut std::ffi::c_void,
+                    &mut n_val as *mut _ as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        // PAR-023: NO synchronization here - caller can chain operations
+        Ok(buf_output)
+    }
+
+    /// Execute Q5_K GEMV using cached weights - PAR-005
+    pub fn q5k_gemv_cached(
+        &mut self,
+        weight_name: &str,
+        input: &[f32],
+        output: &mut [f32],
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        let weight_ptr = self
+            .quantized_weight_cache
+            .get(weight_name)
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "PAR-005: Quantized weight '{}' not cached",
+                    weight_name
+                ))
+            })?
+            .as_ptr();
+
+        let kernel_type = KernelType::Q5KGemv { k, n };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("q5k_gemv_{}_{}", k, n);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        let buf_input = GpuBuffer::from_host(&self.context, input)?;
+        let buf_output = GpuBuffer::<f32>::new(&self.context, n as usize)?;
+
+        let config = LaunchConfig::grid_2d(n, 1, 32, 1);
+
+        let mut ptr_output = buf_output.as_ptr();
+        let mut ptr_weights = weight_ptr;
+        let mut ptr_input = buf_input.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_weights as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_input as *mut _ as *mut std::ffi::c_void,
+                    &mut k_val as *mut _ as *mut std::ffi::c_void,
+                    &mut n_val as *mut _ as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        self.stream.synchronize()?;
+        buf_output.copy_to_host(output)?;
+
+        Ok(())
+    }
+
+    /// Execute Q6_K GEMV using cached weights - PAR-005
+    pub fn q6k_gemv_cached(
+        &mut self,
+        weight_name: &str,
+        input: &[f32],
+        output: &mut [f32],
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        let weight_ptr = self
+            .quantized_weight_cache
+            .get(weight_name)
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "PAR-005: Quantized weight '{}' not cached",
+                    weight_name
+                ))
+            })?
+            .as_ptr();
+
+        let kernel_type = KernelType::Q6KGemv { k, n };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("q6k_gemv_{}_{}", k, n);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        let buf_input = GpuBuffer::from_host(&self.context, input)?;
+        let buf_output = GpuBuffer::<f32>::new(&self.context, n as usize)?;
+
+        let config = LaunchConfig::grid_2d(n, 1, 32, 1);
+
+        let mut ptr_output = buf_output.as_ptr();
+        let mut ptr_weights = weight_ptr;
+        let mut ptr_input = buf_input.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_weights as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_input as *mut _ as *mut std::ffi::c_void,
+                    &mut k_val as *mut _ as *mut std::ffi::c_void,
+                    &mut n_val as *mut _ as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        self.stream.synchronize()?;
+        buf_output.copy_to_host(output)?;
+
+        Ok(())
+    }
+
+    /// PAR-014: Apply GELU activation in-place on a GPU buffer
+    ///
+    /// Uses BiasActivation kernel with zero bias for pure GELU.
+    /// Part of persistent GPU tensor optimization for M4 milestone.
+    pub fn gelu_gpu(&mut self, buffer: &GpuBuffer<f32>, n: u32) -> Result<(), GpuError> {
+        // Use BiasActivation kernel with GELU activation (type 2) and zero bias
+        let kernel_type = KernelType::BiasActivation {
+            n,
+            bias_size: 1,  // Single zero element
+            activation: 2, // GELU
+        };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("gelu_{}", n);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // Zero bias buffer (single element)
+        let zero_bias = GpuBuffer::from_host(&self.context, &[0.0f32])?;
+
+        // Launch config: 256 threads per block, enough blocks to cover n elements
+        let threads_per_block = 256u32;
+        let blocks = (n + threads_per_block - 1) / threads_per_block;
+        let config = LaunchConfig::grid_2d(blocks, 1, threads_per_block, 1);
+
+        let mut ptr_output = buffer.as_ptr();
+        let mut ptr_bias = zero_bias.as_ptr();
+        let mut n_val = n;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_bias as *mut _ as *mut std::ffi::c_void,
+                    &mut n_val as *mut _ as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        // No sync - caller can batch operations
+        Ok(())
+    }
+
+    /// PAR-014: Apply LayerNorm on GPU
+    ///
+    /// Performs: output = (input - mean) / sqrt(var + eps) * gamma + beta
+    /// Part of persistent GPU tensor optimization for M4 milestone.
+    #[allow(clippy::too_many_arguments)]
+    pub fn layer_norm_gpu(
+        &mut self,
+        input: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        gamma: &GpuBuffer<f32>,
+        beta: &GpuBuffer<f32>,
+        hidden_size: u32,
+        batch_size: u32,
+        epsilon: f32,
+    ) -> Result<(), GpuError> {
+        let kernel_type = KernelType::LayerNorm {
+            hidden_size,
+            epsilon,
+            affine: true,
+        };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("layernorm_{}_{}", hidden_size, batch_size);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // LayerNorm uses one warp per row
+        let config = LaunchConfig::grid_2d(batch_size, 1, 32, 1);
+
+        let mut ptr_input = input.as_ptr();
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_gamma = gamma.as_ptr();
+        let mut ptr_beta = beta.as_ptr();
+        let mut hidden_size_val = hidden_size;
+        let mut batch_size_val = batch_size;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    &mut ptr_input as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_gamma as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_beta as *mut _ as *mut std::ffi::c_void,
+                    &mut hidden_size_val as *mut _ as *mut std::ffi::c_void,
+                    &mut batch_size_val as *mut _ as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        // No sync - caller can batch operations
+        Ok(())
+    }
+
+    /// PAR-023: RMSNorm on GPU (async, no sync)
+    ///
+    /// RMSNorm(x) = x / sqrt(mean(x^2) + epsilon) * gamma
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - GPU buffer with input vector [hidden_size]
+    /// * `gamma` - GPU buffer with scale weights [hidden_size]
+    /// * `hidden_size` - Dimension of the vector
+    /// * `epsilon` - Numerical stability constant (default: 1e-5)
+    ///
+    /// # Returns
+    ///
+    /// GPU buffer with normalized output (no sync - async)
+    pub fn rmsnorm_gpu(
+        &mut self,
+        input: &GpuBuffer<f32>,
+        gamma: &GpuBuffer<f32>,
+        hidden_size: u32,
+        epsilon: f32,
+    ) -> Result<GpuBuffer<f32>, GpuError> {
+        let kernel_type = KernelType::RmsNorm {
+            hidden_size,
+            epsilon,
+        };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("rmsnorm_{}", hidden_size);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // Allocate output buffer
+        let output = GpuBuffer::<f32>::new(&self.context, hidden_size as usize)?;
+
+        // RMSNorm uses one warp (32 threads)
+        let config = LaunchConfig::grid_2d(1, 1, 32, 1);
+
+        let mut ptr_input = input.as_ptr();
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_gamma = gamma.as_ptr();
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    &mut ptr_input as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_gamma as *mut _ as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        // PAR-023: NO sync - async operation for pipeline
+        Ok(output)
+    }
+
+    /// PAR-023: RMSNorm on GPU with host input/output (synchronous convenience method)
+    ///
+    /// This is a convenience wrapper around `rmsnorm_gpu` that handles
+    /// host-to-device and device-to-host transfers.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - Host slice with input vector [hidden_size]
+    /// * `gamma` - Host slice with scale weights [hidden_size]
+    /// * `output` - Host slice for output [hidden_size]
+    /// * `epsilon` - Numerical stability constant (default: 1e-5)
+    pub fn rmsnorm_host(
+        &mut self,
+        input: &[f32],
+        gamma: &[f32],
+        output: &mut [f32],
+        epsilon: f32,
+    ) -> Result<(), GpuError> {
+        let hidden_size = input.len() as u32;
+
+        // Upload to GPU
+        let input_gpu = GpuBuffer::from_host(&self.context, input)?;
+        let gamma_gpu = GpuBuffer::from_host(&self.context, gamma)?;
+
+        // Run kernel
+        let output_gpu = self.rmsnorm_gpu(&input_gpu, &gamma_gpu, hidden_size, epsilon)?;
+
+        // Sync and download
+        self.stream.synchronize()?;
+        output_gpu.copy_to_host(output)?;
+
+        Ok(())
+    }
+
+    /// PAR-023: Residual Add on GPU with host input/output (synchronous convenience method)
+    ///
+    /// This is a convenience wrapper around `residual_add_gpu` that handles
+    /// host-to-device and device-to-host transfers.
+    ///
+    /// # Arguments
+    ///
+    /// * `input1` - Host slice with first input vector
+    /// * `input2` - Host slice with second input vector
+    /// * `output` - Host slice for output
+    pub fn residual_add_host(
+        &mut self,
+        input1: &[f32],
+        input2: &[f32],
+        output: &mut [f32],
+    ) -> Result<(), GpuError> {
+        let n = input1.len() as u32;
+
+        // Upload to GPU
+        let input1_gpu = GpuBuffer::from_host(&self.context, input1)?;
+        let input2_gpu = GpuBuffer::from_host(&self.context, input2)?;
+
+        // Run kernel
+        let output_gpu = self.residual_add_gpu(&input1_gpu, &input2_gpu, n)?;
+
+        // Sync and download
+        self.stream.synchronize()?;
+        output_gpu.copy_to_host(output)?;
+
+        Ok(())
+    }
+
+    /// PAR-023: Fused Residual Add + RMSNorm with host input/output (synchronous convenience method)
+    ///
+    /// This is a convenience wrapper around `fused_residual_rmsnorm_gpu` that handles
+    /// host-to-device and device-to-host transfers.
+    ///
+    /// # Arguments
+    ///
+    /// * `residual` - Host slice with residual input
+    /// * `input` - Host slice with input to add
+    /// * `gamma` - Host slice with scale weights
+    /// * `output` - Host slice for output
+    /// * `epsilon` - Numerical stability constant
+    pub fn fused_residual_rmsnorm_host(
+        &mut self,
+        residual: &[f32],
+        input: &[f32],
+        gamma: &[f32],
+        output: &mut [f32],
+        epsilon: f32,
+    ) -> Result<(), GpuError> {
+        let hidden_size = residual.len() as u32;
+
+        // Upload to GPU
+        let residual_gpu = GpuBuffer::from_host(&self.context, residual)?;
+        let input_gpu = GpuBuffer::from_host(&self.context, input)?;
+        let gamma_gpu = GpuBuffer::from_host(&self.context, gamma)?;
+
+        // Run kernel
+        let output_gpu = self.fused_residual_rmsnorm_gpu(
+            &residual_gpu,
+            &input_gpu,
+            &gamma_gpu,
+            hidden_size,
+            epsilon,
+        )?;
+
+        // Sync and download
+        self.stream.synchronize()?;
+        output_gpu.copy_to_host(output)?;
+
+        Ok(())
+    }
+
+    /// PAR-023: Residual Add using dedicated kernel (async)
+    ///
+    /// Computes: output[i] = input1[i] + input2[i]
+    /// Uses the new ResidualAddKernel for better async pipeline integration.
+    ///
+    /// # Arguments
+    ///
+    /// * `input1` - First input buffer
+    /// * `input2` - Second input buffer
+    /// * `n` - Number of elements
+    ///
+    /// # Returns
+    ///
+    /// GPU buffer with result (no sync - async)
+    pub fn residual_add_gpu(
+        &mut self,
+        input1: &GpuBuffer<f32>,
+        input2: &GpuBuffer<f32>,
+        n: u32,
+    ) -> Result<GpuBuffer<f32>, GpuError> {
+        let kernel_type = KernelType::ResidualAdd { n };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("residual_add_{}", n);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // Allocate output buffer
+        let output = GpuBuffer::<f32>::new(&self.context, n as usize)?;
+
+        // 256 threads per block
+        let threads_per_block = 256u32;
+        let blocks = (n + threads_per_block - 1) / threads_per_block;
+        let config = LaunchConfig::grid_2d(blocks, 1, threads_per_block, 1);
+
+        let mut ptr_input1 = input1.as_ptr();
+        let mut ptr_input2 = input2.as_ptr();
+        let mut ptr_output = output.as_ptr();
+        let mut n_val = n;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    &mut ptr_input1 as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_input2 as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
+                    &mut n_val as *mut _ as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        // PAR-023: NO sync - async operation for pipeline
+        Ok(output)
+    }
+
+    /// PAR-023: Fused Residual Add + RMSNorm (async)
+    ///
+    /// Computes: output = rmsnorm(residual + input, gamma, epsilon)
+    /// Fuses residual add and normalization to reduce memory bandwidth.
+    ///
+    /// # Arguments
+    ///
+    /// * `residual` - Residual input buffer
+    /// * `input` - Input to add to residual
+    /// * `gamma` - RMSNorm scale weights
+    /// * `hidden_size` - Hidden dimension
+    /// * `epsilon` - Numerical stability constant
+    ///
+    /// # Returns
+    ///
+    /// GPU buffer with normalized result (no sync - async)
+    pub fn fused_residual_rmsnorm_gpu(
+        &mut self,
+        residual: &GpuBuffer<f32>,
+        input: &GpuBuffer<f32>,
+        gamma: &GpuBuffer<f32>,
+        hidden_size: u32,
+        epsilon: f32,
+    ) -> Result<GpuBuffer<f32>, GpuError> {
+        let kernel_type = KernelType::FusedResidualRmsNorm {
+            hidden_size,
+            epsilon,
+        };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("fused_residual_rmsnorm_{}", hidden_size);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // Allocate output buffer
+        let output = GpuBuffer::<f32>::new(&self.context, hidden_size as usize)?;
+
+        // Fused kernel uses one warp (32 threads)
+        let config = LaunchConfig::grid_2d(1, 1, 32, 1);
+
+        let mut ptr_residual = residual.as_ptr();
+        let mut ptr_input = input.as_ptr();
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_gamma = gamma.as_ptr();
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    &mut ptr_residual as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_input as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_gamma as *mut _ as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        // PAR-023: NO sync - async operation for pipeline
+        Ok(output)
+    }
+
+    // =========================================================================
+    // PAR-023: Activation and Element-wise GPU Operations
+    // =========================================================================
+
+    /// PAR-023: SiLU activation on GPU buffer
+    ///
+    /// Computes: output[i] = input[i] * sigmoid(input[i])
+    ///
+    /// # Returns
+    ///
+    /// GPU buffer with activated result (no sync - async)
+    pub fn silu_gpu(&mut self, input: &GpuBuffer<f32>, n: u32) -> Result<GpuBuffer<f32>, GpuError> {
+        let kernel_type = KernelType::Silu { n };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("silu_{}", n);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        let output = GpuBuffer::<f32>::new(&self.context, n as usize)?;
+
+        // 256 threads per block for element-wise ops
+        let threads = 256;
+        let blocks = (n + threads - 1) / threads;
+        let config = LaunchConfig::grid_2d(blocks, 1, threads, 1);
+
+        let mut ptr_input = input.as_ptr();
+        let mut ptr_output = output.as_ptr();
+        let mut n_val = n;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    &mut ptr_input as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
+                    &mut n_val as *mut _ as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(output)
+    }
+
+    /// PAR-023: GELU activation on GPU buffer (async, returns new buffer)
+    ///
+    /// Computes approximate GELU: 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x³)))
+    ///
+    /// Unlike `gelu_gpu`, this returns a new buffer for async pipeline use.
+    ///
+    /// # Returns
+    ///
+    /// GPU buffer with activated result (no sync - async)
+    pub fn gelu_async(
+        &mut self,
+        input: &GpuBuffer<f32>,
+        n: u32,
+    ) -> Result<GpuBuffer<f32>, GpuError> {
+        let kernel_type = KernelType::Gelu { n };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("gelu_async_{}", n);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        let output = GpuBuffer::<f32>::new(&self.context, n as usize)?;
+
+        let threads = 256;
+        let blocks = (n + threads - 1) / threads;
+        let config = LaunchConfig::grid_2d(blocks, 1, threads, 1);
+
+        let mut ptr_input = input.as_ptr();
+        let mut ptr_output = output.as_ptr();
+        let mut n_val = n;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    &mut ptr_input as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
+                    &mut n_val as *mut _ as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(output)
+    }
+
+    /// PAR-023: Element-wise multiply on GPU buffers
+    ///
+    /// Computes: output[i] = input1[i] * input2[i]
+    /// Used for gated activations in SwiGLU.
+    ///
+    /// # Returns
+    ///
+    /// GPU buffer with product (no sync - async)
+    pub fn elementwise_mul_gpu(
+        &mut self,
+        input1: &GpuBuffer<f32>,
+        input2: &GpuBuffer<f32>,
+        n: u32,
+    ) -> Result<GpuBuffer<f32>, GpuError> {
+        let kernel_type = KernelType::ElementwiseMul { n };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("elementwise_mul_{}", n);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        let output = GpuBuffer::<f32>::new(&self.context, n as usize)?;
+
+        let threads = 256;
+        let blocks = (n + threads - 1) / threads;
+        let config = LaunchConfig::grid_2d(blocks, 1, threads, 1);
+
+        let mut ptr_input1 = input1.as_ptr();
+        let mut ptr_input2 = input2.as_ptr();
+        let mut ptr_output = output.as_ptr();
+        let mut n_val = n;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    &mut ptr_input1 as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_input2 as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
+                    &mut n_val as *mut _ as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(output)
+    }
+
+    /// PAR-023: Fused SwiGLU activation on GPU buffers
+    ///
+    /// Computes: output[i] = silu(gate[i]) * up[i]
+    /// Combines SiLU activation and multiply in one memory pass.
+    ///
+    /// # Returns
+    ///
+    /// GPU buffer with activated result (no sync - async)
+    pub fn fused_swiglu_gpu(
+        &mut self,
+        gate: &GpuBuffer<f32>,
+        up: &GpuBuffer<f32>,
+        n: u32,
+    ) -> Result<GpuBuffer<f32>, GpuError> {
+        let kernel_type = KernelType::FusedSwiglu { n };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("fused_swiglu_{}", n);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        let output = GpuBuffer::<f32>::new(&self.context, n as usize)?;
+
+        let threads = 256;
+        let blocks = (n + threads - 1) / threads;
+        let config = LaunchConfig::grid_2d(blocks, 1, threads, 1);
+
+        let mut ptr_gate = gate.as_ptr();
+        let mut ptr_up = up.as_ptr();
+        let mut ptr_output = output.as_ptr();
+        let mut n_val = n;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    &mut ptr_gate as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_up as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
+                    &mut n_val as *mut _ as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(output)
+    }
+
+    // =========================================================================
+    // PAR-023: Host Convenience Methods for Activation Kernels
+    // =========================================================================
+
+    /// PAR-023: SiLU activation with host memory (convenience)
+    ///
+    /// Uploads input, runs kernel, syncs, downloads result.
+    pub fn silu_host(&mut self, input: &[f32], output: &mut [f32]) -> Result<(), GpuError> {
+        let n = input.len() as u32;
+        let input_gpu = GpuBuffer::from_host(&self.context, input)?;
+        let output_gpu = self.silu_gpu(&input_gpu, n)?;
+        self.stream.synchronize()?;
+        output_gpu.copy_to_host(output)?;
+        Ok(())
+    }
+
+    /// PAR-023: GELU activation with host memory (convenience)
+    pub fn gelu_host(&mut self, input: &[f32], output: &mut [f32]) -> Result<(), GpuError> {
+        let n = input.len() as u32;
+        let input_gpu = GpuBuffer::from_host(&self.context, input)?;
+        let output_gpu = self.gelu_async(&input_gpu, n)?;
+        self.stream.synchronize()?;
+        output_gpu.copy_to_host(output)?;
+        Ok(())
+    }
+
+    /// PAR-023: Element-wise multiply with host memory (convenience)
+    pub fn elementwise_mul_host(
+        &mut self,
+        a: &[f32],
+        b: &[f32],
+        output: &mut [f32],
+    ) -> Result<(), GpuError> {
+        let n = a.len() as u32;
+        let a_gpu = GpuBuffer::from_host(&self.context, a)?;
+        let b_gpu = GpuBuffer::from_host(&self.context, b)?;
+        let output_gpu = self.elementwise_mul_gpu(&a_gpu, &b_gpu, n)?;
+        self.stream.synchronize()?;
+        output_gpu.copy_to_host(output)?;
+        Ok(())
+    }
+
+    /// PAR-023: Fused SwiGLU with host memory (convenience)
+    pub fn fused_swiglu_host(
+        &mut self,
+        gate: &[f32],
+        up: &[f32],
+        output: &mut [f32],
+    ) -> Result<(), GpuError> {
+        let n = gate.len() as u32;
+        let gate_gpu = GpuBuffer::from_host(&self.context, gate)?;
+        let up_gpu = GpuBuffer::from_host(&self.context, up)?;
+        let output_gpu = self.fused_swiglu_gpu(&gate_gpu, &up_gpu, n)?;
+        self.stream.synchronize()?;
+        output_gpu.copy_to_host(output)?;
+        Ok(())
+    }
+
+    /// PAR-014: Add two GPU buffers element-wise (residual connection)
+    ///
+    /// Computes: output[i] += input[i] for all i
+    /// Uses simple element-wise kernel for residual connections.
+    pub fn add_residual_gpu(
+        &mut self,
+        output: &GpuBuffer<f32>,
+        input: &GpuBuffer<f32>,
+        n: u32,
+    ) -> Result<(), GpuError> {
+        // Use BiasActivation kernel with no activation - it adds "bias" to output
+        // We repurpose this by treating input as "bias" to add to output
+        let kernel_type = KernelType::BiasActivation {
+            n,
+            bias_size: n,  // Same size as output
+            activation: 0, // No activation
+        };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("residual_{}", n);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        let threads_per_block = 256u32;
+        let blocks = (n + threads_per_block - 1) / threads_per_block;
+        let config = LaunchConfig::grid_2d(blocks, 1, threads_per_block, 1);
+
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_input = input.as_ptr();
+        let mut n_val = n;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_input as *mut _ as *mut std::ffi::c_void,
+                    &mut n_val as *mut _ as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        // No sync - caller can batch operations
+        Ok(())
+    }
+
+    /// PAR-014: Q4K GEMV operating on GPU buffers (no CPU round-trip)
+    ///
+    /// Input and output are GPU-resident buffers. Only weight name lookup uses CPU.
+    /// Part of persistent GPU tensor optimization for M4 milestone.
+    pub fn q4k_gemv_gpu(
+        &mut self,
+        weight_name: &str,
+        input: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        let weight_ptr = self
+            .quantized_weight_cache
+            .get(weight_name)
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "PAR-014: Quantized weight '{}' not cached",
+                    weight_name
+                ))
+            })?
+            .as_ptr();
+
+        let kernel_type = KernelType::Q4KGemv { k, n };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("q4k_gemv_{}_{}", k, n);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        let config = LaunchConfig::grid_2d(n, 1, 32, 1);
+
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_weights = weight_ptr;
+        let mut ptr_input = input.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_weights as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_input as *mut _ as *mut std::ffi::c_void,
+                    &mut k_val as *mut _ as *mut std::ffi::c_void,
+                    &mut n_val as *mut _ as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        // No sync - caller can batch operations
+        Ok(())
+    }
+
+    /// PAR-014: Fused FFN on GPU (up + GELU + down in single GPU round-trip)
+    ///
+    /// Reduces 2 GPU round-trips to 1 by keeping intermediate FFN hidden state on GPU.
+    /// Input and output are CPU slices; intermediate computation stays on GPU.
+    ///
+    /// # Arguments
+    /// * `input` - Hidden state [hidden_dim]
+    /// * `output` - Output hidden state [hidden_dim]
+    /// * `ffn_up_name` - Cache key for FFN up weight
+    /// * `ffn_down_name` - Cache key for FFN down weight
+    /// * `hidden_dim` - Model hidden dimension
+    /// * `intermediate_dim` - FFN intermediate dimension
+    #[allow(clippy::too_many_arguments)]
+    pub fn fused_ffn_q4k(
+        &mut self,
+        input: &[f32],
+        output: &mut [f32],
+        ffn_up_name: &str,
+        ffn_down_name: &str,
+        hidden_dim: u32,
+        intermediate_dim: u32,
+    ) -> Result<(), GpuError> {
+        // Verify weights are cached
+        let up_ptr = self
+            .quantized_weight_cache
+            .get(ffn_up_name)
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "PAR-014: FFN up weight '{}' not cached",
+                    ffn_up_name
+                ))
+            })?
+            .as_ptr();
+
+        let down_ptr = self
+            .quantized_weight_cache
+            .get(ffn_down_name)
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "PAR-014: FFN down weight '{}' not cached",
+                    ffn_down_name
+                ))
+            })?
+            .as_ptr();
+
+        // 1. Upload input to GPU (only transfer IN for FFN)
+        let buf_input = GpuBuffer::from_host(&self.context, input)?;
+
+        // 2. Allocate intermediate buffer for FFN hidden state
+        let buf_intermediate = GpuBuffer::<f32>::new(&self.context, intermediate_dim as usize)?;
+
+        // 3. Allocate output buffer
+        let buf_output = GpuBuffer::<f32>::new(&self.context, hidden_dim as usize)?;
+
+        // 4. FFN up projection: [hidden_dim] -> [intermediate_dim]
+        let up_kernel_type = KernelType::Q4KGemv {
+            k: hidden_dim,
+            n: intermediate_dim,
+        };
+        let up_kernel_name = self.kernels.kernel_name(&up_kernel_type);
+        let up_cache_key = format!("q4k_gemv_{}_{}", hidden_dim, intermediate_dim);
+
+        if !self.modules.contains_key(&up_cache_key) {
+            let ptx = self.kernels.generate_ptx(&up_kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(up_cache_key.clone(), module);
+        }
+
+        {
+            let module = self.modules.get_mut(&up_cache_key).expect("just inserted");
+            let config = LaunchConfig::grid_2d(intermediate_dim, 1, 32, 1);
+
+            let mut ptr_output = buf_intermediate.as_ptr();
+            let mut ptr_weights = up_ptr;
+            let mut ptr_input = buf_input.as_ptr();
+            let mut k_val = hidden_dim;
+            let mut n_val = intermediate_dim;
+
+            unsafe {
+                self.stream.launch_kernel(
+                    module,
+                    up_kernel_name,
+                    &config,
+                    &mut [
+                        &mut ptr_output as *mut _ as *mut std::ffi::c_void,
+                        &mut ptr_weights as *mut _ as *mut std::ffi::c_void,
+                        &mut ptr_input as *mut _ as *mut std::ffi::c_void,
+                        &mut k_val as *mut _ as *mut std::ffi::c_void,
+                        &mut n_val as *mut _ as *mut std::ffi::c_void,
+                    ],
+                )?;
+            }
+        }
+
+        // 5. GELU activation in-place on intermediate buffer
+        self.gelu_gpu(&buf_intermediate, intermediate_dim)?;
+
+        // 6. FFN down projection: [intermediate_dim] -> [hidden_dim]
+        let down_kernel_type = KernelType::Q4KGemv {
+            k: intermediate_dim,
+            n: hidden_dim,
+        };
+        let down_kernel_name = self.kernels.kernel_name(&down_kernel_type);
+        let down_cache_key = format!("q4k_gemv_{}_{}", intermediate_dim, hidden_dim);
+
+        if !self.modules.contains_key(&down_cache_key) {
+            let ptx = self.kernels.generate_ptx(&down_kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(down_cache_key.clone(), module);
+        }
+
+        {
+            let module = self
+                .modules
+                .get_mut(&down_cache_key)
+                .expect("just inserted");
+            let config = LaunchConfig::grid_2d(hidden_dim, 1, 32, 1);
+
+            let mut ptr_output = buf_output.as_ptr();
+            let mut ptr_weights = down_ptr;
+            let mut ptr_input = buf_intermediate.as_ptr();
+            let mut k_val = intermediate_dim;
+            let mut n_val = hidden_dim;
+
+            unsafe {
+                self.stream.launch_kernel(
+                    module,
+                    down_kernel_name,
+                    &config,
+                    &mut [
+                        &mut ptr_output as *mut _ as *mut std::ffi::c_void,
+                        &mut ptr_weights as *mut _ as *mut std::ffi::c_void,
+                        &mut ptr_input as *mut _ as *mut std::ffi::c_void,
+                        &mut k_val as *mut _ as *mut std::ffi::c_void,
+                        &mut n_val as *mut _ as *mut std::ffi::c_void,
+                    ],
+                )?;
+            }
+        }
+
+        // 7. Sync and download result (only transfer OUT for FFN)
+        self.stream.synchronize()?;
+        buf_output.copy_to_host(output)?;
+
+        Ok(())
+    }
+
+    // =========================================================================
+    // PAR-023: GPU-Resident SwiGLU FFN (LLaMA-style)
+    // Reduces 3 syncs per layer to 1 by chaining: gate→up→swiglu→down
+    // =========================================================================
+
+    /// PAR-023: GPU-resident SwiGLU FFN operating entirely on GPU buffers
+    ///
+    /// Implements LLaMA-style FFN: down(swiglu(gate(x), up(x)))
+    /// All operations chained without sync - only syncs when output needed.
+    ///
+    /// # Arguments
+    /// * `input` - GPU buffer containing hidden state [hidden_dim]
+    /// * `ffn_gate_name` - Cache key for FFN gate weight
+    /// * `ffn_up_name` - Cache key for FFN up weight
+    /// * `ffn_down_name` - Cache key for FFN down weight
+    /// * `hidden_dim` - Model hidden dimension
+    /// * `intermediate_dim` - FFN intermediate dimension
+    ///
+    /// # Returns
+    /// GPU buffer containing FFN output [hidden_dim] - not synchronized
+    #[allow(clippy::too_many_arguments)]
+    pub fn fused_ffn_swiglu_gpu(
+        &mut self,
+        input: &GpuBuffer<f32>,
+        ffn_gate_name: &str,
+        ffn_up_name: &str,
+        ffn_down_name: &str,
+        hidden_dim: u32,
+        intermediate_dim: u32,
+    ) -> Result<GpuBuffer<f32>, GpuError> {
+        // 1. Gate projection: [hidden_dim] -> [intermediate_dim] (no sync)
+        let gate =
+            self.q4k_gemv_cached_async(ffn_gate_name, input, intermediate_dim, hidden_dim)?;
+
+        // 2. Up projection: [hidden_dim] -> [intermediate_dim] (no sync)
+        let up = self.q4k_gemv_cached_async(ffn_up_name, input, intermediate_dim, hidden_dim)?;
+
+        // 3. Fused SwiGLU: silu(gate) * up (no sync)
+        let activated = self.fused_swiglu_gpu(&gate, &up, intermediate_dim)?;
+
+        // 4. Down projection: [intermediate_dim] -> [hidden_dim] (no sync)
+        let output =
+            self.q4k_gemv_cached_async(ffn_down_name, &activated, hidden_dim, intermediate_dim)?;
+
+        // PAR-023: NO sync here - caller chains more operations or syncs when needed
+        Ok(output)
+    }
+
+    /// PAR-023: SwiGLU FFN with host memory (convenience wrapper)
+    ///
+    /// Uploads input, runs GPU-resident FFN, syncs, downloads result.
+    /// For testing and single-FFN use cases.
+    #[allow(clippy::too_many_arguments)]
+    pub fn fused_ffn_swiglu_host(
+        &mut self,
+        input: &[f32],
+        output: &mut [f32],
+        ffn_gate_name: &str,
+        ffn_up_name: &str,
+        ffn_down_name: &str,
+        hidden_dim: u32,
+        intermediate_dim: u32,
+    ) -> Result<(), GpuError> {
+        // Upload input
+        let input_gpu = GpuBuffer::from_host(&self.context, input)?;
+
+        // Run GPU-resident FFN (no intermediate syncs)
+        let output_gpu = self.fused_ffn_swiglu_gpu(
+            &input_gpu,
+            ffn_gate_name,
+            ffn_up_name,
+            ffn_down_name,
+            hidden_dim,
+            intermediate_dim,
+        )?;
+
+        // Single sync and download
+        self.stream.synchronize()?;
+        output_gpu.copy_to_host(output)?;
+
+        Ok(())
+    }
+
+    // =========================================================================
+    // PAR-023: GPU-Resident Transformer Layer
+    // Chains all operations with minimal syncs for maximum throughput
+    // Target: Reduce 176 syncs/token to ~22 syncs/token (1 per layer)
+    // =========================================================================
+
+    /// PAR-023: GPU-resident transformer layer (LLaMA-style)
+    ///
+    /// Chains all layer operations on GPU with single sync at end:
+    /// 1. Pre-attention RMSNorm
+    /// 2. Q/K/V projections
+    /// 3. Incremental attention
+    /// 4. Output projection
+    /// 5. Residual add
+    /// 6. Pre-FFN RMSNorm
+    /// 7. Gate/Up projections + SwiGLU + Down projection
+    /// 8. Residual add
+    ///
+    /// # Arguments
+    /// * `input` - GPU buffer containing hidden state [hidden_dim]
+    /// * `layer_idx` - Layer index for weight lookup and KV cache
+    /// * `layer_prefix` - Weight name prefix (e.g., "blk.0")
+    /// * `hidden_dim` - Model hidden dimension
+    /// * `intermediate_dim` - FFN intermediate dimension
+    /// * `attn_norm_gamma` - Pre-attention RMSNorm weights
+    /// * `ffn_norm_gamma` - Pre-FFN RMSNorm weights
+    /// * `epsilon` - RMSNorm epsilon
+    ///
+    /// # Returns
+    /// GPU buffer containing layer output [hidden_dim] - NOT synchronized
+    #[allow(clippy::too_many_arguments)]
+    pub fn transformer_layer_gpu(
+        &mut self,
+        input: &GpuBuffer<f32>,
+        layer_idx: usize,
+        layer_prefix: &str,
+        hidden_dim: u32,
+        intermediate_dim: u32,
+        attn_norm_gamma: &GpuBuffer<f32>,
+        ffn_norm_gamma: &GpuBuffer<f32>,
+        epsilon: f32,
+    ) -> Result<GpuBuffer<f32>, GpuError> {
+        // Weight names follow GGML convention
+        let q_name = format!("{}.attn_q.weight", layer_prefix);
+        let k_name = format!("{}.attn_k.weight", layer_prefix);
+        let v_name = format!("{}.attn_v.weight", layer_prefix);
+        let o_name = format!("{}.attn_output.weight", layer_prefix);
+        let gate_name = format!("{}.ffn_gate.weight", layer_prefix);
+        let up_name = format!("{}.ffn_up.weight", layer_prefix);
+        let down_name = format!("{}.ffn_down.weight", layer_prefix);
+
+        // 1. Pre-attention RMSNorm (no sync)
+        let normed = self.rmsnorm_gpu(input, attn_norm_gamma, hidden_dim, epsilon)?;
+
+        // 2. Q/K/V projections (no sync)
+        // Q: [hidden_dim] -> [num_heads * head_dim]
+        // K: [hidden_dim] -> [num_kv_heads * head_dim]
+        // V: [hidden_dim] -> [num_kv_heads * head_dim]
+        let q_dim = (self.kv_num_heads * self.kv_head_dim) as u32;
+        let kv_dim = (self.kv_num_kv_heads * self.kv_head_dim) as u32;
+
+        let q = self.q4k_gemv_cached_async(&q_name, &normed, q_dim, hidden_dim)?;
+        let k = self.q4k_gemv_cached_async(&k_name, &normed, kv_dim, hidden_dim)?;
+        let v = self.q4k_gemv_cached_async(&v_name, &normed, kv_dim, hidden_dim)?;
+
+        // 3. Incremental attention (has internal sync for KV cache update)
+        let (attn_out, _seq_len) = self.incremental_attention_async(layer_idx, &q, &k, &v)?;
+
+        // 4. Output projection (no sync)
+        let projected = self.q4k_gemv_cached_async(&o_name, &attn_out, hidden_dim, q_dim)?;
+
+        // 5. First residual add (no sync)
+        let residual1 = self.residual_add_gpu(input, &projected, hidden_dim)?;
+
+        // 6. Pre-FFN RMSNorm (no sync)
+        let ffn_normed = self.rmsnorm_gpu(&residual1, ffn_norm_gamma, hidden_dim, epsilon)?;
+
+        // 7. FFN SwiGLU (no sync)
+        let ffn_out = self.fused_ffn_swiglu_gpu(
+            &ffn_normed,
+            &gate_name,
+            &up_name,
+            &down_name,
+            hidden_dim,
+            intermediate_dim,
+        )?;
+
+        // 8. Second residual add (no sync)
+        let output = self.residual_add_gpu(&residual1, &ffn_out, hidden_dim)?;
+
+        // PAR-023: NO sync here - caller can chain multiple layers
+        Ok(output)
+    }
+
+    /// PAR-023: Cache RMSNorm gamma weights on GPU for all layers
+    ///
+    /// Pre-uploads attn_norm and ffn_norm gamma vectors to avoid per-layer uploads.
+    /// Uses naming convention: `blk.{i}.attn_norm.gamma`, `blk.{i}.ffn_norm.gamma`
+    ///
+    /// # Arguments
+    ///
+    /// * `num_layers` - Number of transformer layers
+    /// * `attn_norms` - Slice of attn_norm gamma vectors [num_layers][hidden_dim]
+    /// * `ffn_norms` - Slice of ffn_norm gamma vectors [num_layers][hidden_dim]
+    ///
+    /// # Returns
+    ///
+    /// Total bytes uploaded to GPU
+    pub fn preload_rmsnorm_weights(
+        &mut self,
+        num_layers: usize,
+        attn_norms: &[&[f32]],
+        ffn_norms: &[&[f32]],
+    ) -> Result<usize, GpuError> {
+        let mut total_bytes = 0usize;
+
+        for layer_idx in 0..num_layers {
+            // Attn norm
+            let attn_name = format!("blk.{}.attn_norm.gamma", layer_idx);
+            if !self.rmsnorm_cache.contains_key(&attn_name) {
+                let buf = GpuBuffer::from_host(&self.context, attn_norms[layer_idx])?;
+                total_bytes += buf.size_bytes();
+                self.rmsnorm_cache.insert(attn_name, buf);
+            }
+
+            // FFN norm
+            let ffn_name = format!("blk.{}.ffn_norm.gamma", layer_idx);
+            if !self.rmsnorm_cache.contains_key(&ffn_name) {
+                let buf = GpuBuffer::from_host(&self.context, ffn_norms[layer_idx])?;
+                total_bytes += buf.size_bytes();
+                self.rmsnorm_cache.insert(ffn_name, buf);
+            }
+        }
+
+        Ok(total_bytes)
+    }
+
+    /// PAR-023: Check if RMSNorm weights are cached for a layer
+    #[must_use]
+    pub fn has_rmsnorm_weights(&self, layer_idx: usize) -> bool {
+        let attn_name = format!("blk.{}.attn_norm.gamma", layer_idx);
+        let ffn_name = format!("blk.{}.ffn_norm.gamma", layer_idx);
+        self.rmsnorm_cache.contains_key(&attn_name) && self.rmsnorm_cache.contains_key(&ffn_name)
+    }
+
+    /// PAR-023: Pre-cache output norm (final layer norm) weight on GPU
+    ///
+    /// The output norm is applied after all transformer layers before LM head.
+    /// Pre-caching allows fully GPU-resident forward pass.
+    ///
+    /// # Returns
+    ///
+    /// Total bytes uploaded to GPU
+    pub fn preload_output_norm(&mut self, gamma: &[f32]) -> Result<usize, GpuError> {
+        let output_name = "output_norm.gamma".to_string();
+        if !self.rmsnorm_cache.contains_key(&output_name) {
+            let buf = GpuBuffer::from_host(&self.context, gamma)?;
+            let bytes = buf.size_bytes();
+            self.rmsnorm_cache.insert(output_name, buf);
+            Ok(bytes)
+        } else {
+            Ok(0)
+        }
+    }
+
+    /// PAR-023: Check if output norm is cached
+    #[must_use]
+    pub fn has_output_norm(&self) -> bool {
+        self.rmsnorm_cache.contains_key("output_norm.gamma")
+    }
+
+    /// PAR-023: Run ALL transformer layers GPU-resident (minimal syncs)
+    ///
+    /// Chains all layers on GPU, only syncing at the very end.
+    /// Requires RMSNorm weights pre-cached via `preload_rmsnorm_weights()`.
+    ///
+    /// # Sync Count
+    ///
+    /// - Input upload: 1 sync
+    /// - Per layer: 0 syncs (attention has internal D2D)
+    /// - Output download: 1 sync
+    /// - Total: ~2 syncs vs 22 syncs (per-layer) or 176 syncs (original)
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - Embedding input [hidden_dim]
+    /// * `output` - Output buffer [hidden_dim]
+    /// * `num_layers` - Number of transformer layers
+    /// * `hidden_dim` - Hidden dimension
+    /// * `intermediate_dim` - FFN intermediate dimension
+    /// * `epsilon` - RMSNorm epsilon
+    #[allow(clippy::too_many_arguments)]
+    pub fn forward_all_layers_gpu(
+        &mut self,
+        input: &[f32],
+        output: &mut [f32],
+        num_layers: usize,
+        hidden_dim: u32,
+        intermediate_dim: u32,
+        epsilon: f32,
+    ) -> Result<(), GpuError> {
+        // 1. Validate all RMSNorm weights are cached
+        for layer_idx in 0..num_layers {
+            let attn_name = format!("blk.{}.attn_norm.gamma", layer_idx);
+            let ffn_name = format!("blk.{}.ffn_norm.gamma", layer_idx);
+            if !self.rmsnorm_cache.contains_key(&attn_name) {
+                return Err(GpuError::InvalidLaunchConfig(format!(
+                    "PAR-023: attn_norm not cached for layer {}",
+                    layer_idx
+                )));
+            }
+            if !self.rmsnorm_cache.contains_key(&ffn_name) {
+                return Err(GpuError::InvalidLaunchConfig(format!(
+                    "PAR-023: ffn_norm not cached for layer {}",
+                    layer_idx
+                )));
+            }
+        }
+
+        // 2. Collect all cache key names (avoids repeated string allocs in loop)
+        let layer_keys: Vec<(String, String)> = (0..num_layers)
+            .map(|i| {
+                (
+                    format!("blk.{}.attn_norm.gamma", i),
+                    format!("blk.{}.ffn_norm.gamma", i),
+                )
+            })
+            .collect();
+
+        // 3. Upload input embedding - sync point #1
+        let mut hidden_gpu = GpuBuffer::from_host(&self.context, input)?;
+
+        // 4. Chain all transformer layers (no intermediate syncs)
+        for layer_idx in 0..num_layers {
+            let prefix = format!("blk.{}", layer_idx);
+            let (ref attn_name, ref ffn_name) = layer_keys[layer_idx];
+
+            // Get cached gamma buffer pointers (no data copy, just metadata)
+            let attn_gamma = self.rmsnorm_cache.get(attn_name).ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "PAR-023: Missing cached gamma for {}",
+                    attn_name
+                ))
+            })?;
+            let attn_ptr = attn_gamma.as_ptr();
+            let attn_len = attn_gamma.len();
+            let ffn_gamma = self.rmsnorm_cache.get(ffn_name).ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "PAR-023: Missing cached gamma for {}",
+                    ffn_name
+                ))
+            })?;
+            let ffn_ptr = ffn_gamma.as_ptr();
+            let ffn_len = ffn_gamma.len();
+
+            // Run layer GPU-resident using cached gamma buffers
+            hidden_gpu = self.transformer_layer_gpu_cached(
+                &hidden_gpu,
+                layer_idx,
+                &prefix,
+                hidden_dim,
+                intermediate_dim,
+                attn_ptr,
+                attn_len,
+                ffn_ptr,
+                ffn_len,
+                epsilon,
+            )?;
+        }
+
+        // 5. Final sync and download - sync point #2
+        self.stream.synchronize()?;
+        hidden_gpu.copy_to_host(output)?;
+
+        Ok(())
+    }
+
+    /// PAR-023: Fully GPU-resident forward to logits (minimal syncs)
+    ///
+    /// Runs all transformer layers + output norm + LM head projection entirely on GPU,
+    /// only downloading the final logits. This eliminates the CPU round-trip for output norm.
+    ///
+    /// # Sync Count
+    ///
+    /// - Input embedding upload: 1 sync
+    /// - All transformer layers: 0 syncs (attention has internal D2D)
+    /// - Output RMSNorm: 0 syncs (on GPU)
+    /// - LM head projection: 0 syncs (on GPU)
+    /// - Logits download: 1 sync
+    /// - **Total: 2 syncs** vs 3+ syncs (with CPU output norm)
+    ///
+    /// # Requirements
+    ///
+    /// Must call `preload_rmsnorm_weights()` and `preload_output_norm()` before use.
+    /// LM head weights must be pre-cached via `load_quantized_weights("output.weight", ...)`.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - Input embedding [hidden_dim]
+    /// * `logits` - Output logits buffer [vocab_size]
+    /// * `num_layers` - Number of transformer layers
+    /// * `hidden_dim` - Hidden dimension
+    /// * `intermediate_dim` - FFN intermediate dimension
+    /// * `vocab_size` - Output vocabulary size
+    /// * `epsilon` - RMSNorm epsilon
+    #[allow(clippy::too_many_arguments)]
+    pub fn forward_all_layers_gpu_to_logits(
+        &mut self,
+        input: &[f32],
+        logits: &mut [f32],
+        num_layers: usize,
+        hidden_dim: u32,
+        intermediate_dim: u32,
+        vocab_size: u32,
+        epsilon: f32,
+    ) -> Result<(), GpuError> {
+        // 1. Validate all RMSNorm weights are cached (including output norm)
+        for layer_idx in 0..num_layers {
+            let attn_name = format!("blk.{}.attn_norm.gamma", layer_idx);
+            let ffn_name = format!("blk.{}.ffn_norm.gamma", layer_idx);
+            if !self.rmsnorm_cache.contains_key(&attn_name) {
+                return Err(GpuError::InvalidLaunchConfig(format!(
+                    "PAR-023: attn_norm not cached for layer {}",
+                    layer_idx
+                )));
+            }
+            if !self.rmsnorm_cache.contains_key(&ffn_name) {
+                return Err(GpuError::InvalidLaunchConfig(format!(
+                    "PAR-023: ffn_norm not cached for layer {}",
+                    layer_idx
+                )));
+            }
+        }
+        if !self.rmsnorm_cache.contains_key("output_norm.gamma") {
+            return Err(GpuError::InvalidLaunchConfig(
+                "PAR-023: output_norm not cached".to_string(),
+            ));
+        }
+
+        // 2. Collect all cache key names
+        let layer_keys: Vec<(String, String)> = (0..num_layers)
+            .map(|i| {
+                (
+                    format!("blk.{}.attn_norm.gamma", i),
+                    format!("blk.{}.ffn_norm.gamma", i),
+                )
+            })
+            .collect();
+
+        // 3. Upload input embedding - sync point #1
+        let mut hidden_gpu = GpuBuffer::from_host(&self.context, input)?;
+
+        // 4. Chain all transformer layers (no intermediate syncs)
+        for layer_idx in 0..num_layers {
+            let prefix = format!("blk.{}", layer_idx);
+            let (ref attn_name, ref ffn_name) = layer_keys[layer_idx];
+
+            // Get cached gamma buffer pointers (no data copy, just metadata)
+            let attn_gamma = self.rmsnorm_cache.get(attn_name).ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "PAR-023: Missing cached gamma for {}",
+                    attn_name
+                ))
+            })?;
+            let attn_ptr = attn_gamma.as_ptr();
+            let attn_len = attn_gamma.len();
+            let ffn_gamma = self.rmsnorm_cache.get(ffn_name).ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "PAR-023: Missing cached gamma for {}",
+                    ffn_name
+                ))
+            })?;
+            let ffn_ptr = ffn_gamma.as_ptr();
+            let ffn_len = ffn_gamma.len();
+
+            // Run layer GPU-resident using cached gamma buffers
+            hidden_gpu = self.transformer_layer_gpu_cached(
+                &hidden_gpu,
+                layer_idx,
+                &prefix,
+                hidden_dim,
+                intermediate_dim,
+                attn_ptr,
+                attn_len,
+                ffn_ptr,
+                ffn_len,
+                epsilon,
+            )?;
+        }
+
+        // 5. Output RMSNorm on GPU (no sync)
+        let output_norm_gamma = self.rmsnorm_cache.get("output_norm.gamma").ok_or_else(|| {
+            GpuError::InvalidLaunchConfig(
+                "PAR-023: Missing cached gamma for output_norm.gamma".to_string(),
+            )
+        })?;
+        let output_gamma_ptr = output_norm_gamma.as_ptr();
+        let output_gamma_len = output_norm_gamma.len();
+        let normed_hidden = self.rmsnorm_gpu_ptr(
+            &hidden_gpu,
+            output_gamma_ptr,
+            output_gamma_len,
+            hidden_dim,
+            epsilon,
+        )?;
+
+        // 6. LM head projection on GPU (no sync)
+        let lm_head_name = "output.weight".to_string();
+        let logits_gpu =
+            self.q4k_gemv_cached_async(&lm_head_name, &normed_hidden, vocab_size, hidden_dim)?;
+
+        // 7. Final sync and download - sync point #2
+        self.stream.synchronize()?;
+        logits_gpu.copy_to_host(logits)?;
+
+        Ok(())
+    }
+
+    /// PAR-023: Transformer layer with cached gamma pointers
+    ///
+    /// Like `transformer_layer_gpu` but takes raw device pointers for gamma weights
+    /// to avoid borrow checker conflicts with cached buffers.
+    #[allow(clippy::too_many_arguments)]
+    fn transformer_layer_gpu_cached(
+        &mut self,
+        input: &GpuBuffer<f32>,
+        layer_idx: usize,
+        layer_prefix: &str,
+        hidden_dim: u32,
+        intermediate_dim: u32,
+        attn_gamma_ptr: u64, // CUdeviceptr
+        attn_gamma_len: usize,
+        ffn_gamma_ptr: u64, // CUdeviceptr
+        ffn_gamma_len: usize,
+        epsilon: f32,
+    ) -> Result<GpuBuffer<f32>, GpuError> {
+        // Weight names follow GGML convention
+        let q_name = format!("{}.attn_q.weight", layer_prefix);
+        let k_name = format!("{}.attn_k.weight", layer_prefix);
+        let v_name = format!("{}.attn_v.weight", layer_prefix);
+        let o_name = format!("{}.attn_output.weight", layer_prefix);
+        let gate_name = format!("{}.ffn_gate.weight", layer_prefix);
+        let up_name = format!("{}.ffn_up.weight", layer_prefix);
+        let down_name = format!("{}.ffn_down.weight", layer_prefix);
+
+        // 1. Pre-attention RMSNorm using cached gamma pointer
+        let normed =
+            self.rmsnorm_gpu_ptr(input, attn_gamma_ptr, attn_gamma_len, hidden_dim, epsilon)?;
+
+        // 2. Q/K/V projections (no sync)
+        let q_dim = (self.kv_num_heads * self.kv_head_dim) as u32;
+        let kv_dim = (self.kv_num_kv_heads * self.kv_head_dim) as u32;
+
+        let q = self.q4k_gemv_cached_async(&q_name, &normed, q_dim, hidden_dim)?;
+        let k = self.q4k_gemv_cached_async(&k_name, &normed, kv_dim, hidden_dim)?;
+        let v = self.q4k_gemv_cached_async(&v_name, &normed, kv_dim, hidden_dim)?;
+
+        // 3. Incremental attention (has internal sync for KV cache update)
+        let (attn_out, _seq_len) = self.incremental_attention_async(layer_idx, &q, &k, &v)?;
+
+        // 4. Output projection (no sync)
+        let projected = self.q4k_gemv_cached_async(&o_name, &attn_out, hidden_dim, q_dim)?;
+
+        // 5. First residual add (no sync)
+        let residual1 = self.residual_add_gpu(input, &projected, hidden_dim)?;
+
+        // 6. Pre-FFN RMSNorm using cached gamma pointer
+        let ffn_normed = self.rmsnorm_gpu_ptr(
+            &residual1,
+            ffn_gamma_ptr,
+            ffn_gamma_len,
+            hidden_dim,
+            epsilon,
+        )?;
+
+        // 7. FFN SwiGLU (no sync)
+        let ffn_out = self.fused_ffn_swiglu_gpu(
+            &ffn_normed,
+            &gate_name,
+            &up_name,
+            &down_name,
+            hidden_dim,
+            intermediate_dim,
+        )?;
+
+        // 8. Second residual add (no sync)
+        let output = self.residual_add_gpu(&residual1, &ffn_out, hidden_dim)?;
+
+        Ok(output)
+    }
+
+    /// PAR-023: RMSNorm using raw device pointer for gamma
+    fn rmsnorm_gpu_ptr(
+        &mut self,
+        input: &GpuBuffer<f32>,
+        gamma_ptr: u64, // CUdeviceptr
+        gamma_len: usize,
+        hidden_dim: u32,
+        epsilon: f32,
+    ) -> Result<GpuBuffer<f32>, GpuError> {
+        // Create temporary non-owning buffer wrapper
+        // SAFETY: gamma_ptr points to valid GPU memory owned by rmsnorm_cache
+        let gamma = unsafe { GpuBuffer::from_raw_parts(gamma_ptr, gamma_len) };
+
+        let result = self.rmsnorm_gpu(input, &gamma, hidden_dim, epsilon)?;
+
+        // Prevent Drop from freeing the borrowed memory
+        std::mem::forget(gamma);
+
+        Ok(result)
+    }
+
+    /// PAR-023: GPU RMSNorm for output layer
+    ///
+    /// Runs RMSNorm on GPU for the final output before LM head projection.
+    pub fn output_rmsnorm_gpu(
+        &mut self,
+        input: &[f32],
+        output: &mut [f32],
+        gamma: &[f32],
+        hidden_dim: u32,
+        epsilon: f32,
+    ) -> Result<(), GpuError> {
+        let input_gpu = GpuBuffer::from_host(&self.context, input)?;
+        let gamma_gpu = GpuBuffer::from_host(&self.context, gamma)?;
+
+        let output_gpu = self.rmsnorm_gpu(&input_gpu, &gamma_gpu, hidden_dim, epsilon)?;
+
+        self.stream.synchronize()?;
+        output_gpu.copy_to_host(output)?;
+
+        Ok(())
+    }
+
+    /// PAR-023: Helper to run transformer layer with host input/output
+    ///
+    /// Convenience method for testing and single-layer execution.
+    #[allow(clippy::too_many_arguments)]
+    pub fn transformer_layer_host(
+        &mut self,
+        input: &[f32],
+        output: &mut [f32],
+        layer_idx: usize,
+        layer_prefix: &str,
+        hidden_dim: u32,
+        intermediate_dim: u32,
+        attn_norm_gamma: &[f32],
+        ffn_norm_gamma: &[f32],
+        epsilon: f32,
+    ) -> Result<(), GpuError> {
+        // Upload inputs
+        let input_gpu = GpuBuffer::from_host(&self.context, input)?;
+        let attn_gamma_gpu = GpuBuffer::from_host(&self.context, attn_norm_gamma)?;
+        let ffn_gamma_gpu = GpuBuffer::from_host(&self.context, ffn_norm_gamma)?;
+
+        // Run GPU-resident layer
+        let output_gpu = self.transformer_layer_gpu(
+            &input_gpu,
+            layer_idx,
+            layer_prefix,
+            hidden_dim,
+            intermediate_dim,
+            &attn_gamma_gpu,
+            &ffn_gamma_gpu,
+            epsilon,
+        )?;
+
+        // Single sync and download
+        self.stream.synchronize()?;
+        output_gpu.copy_to_host(output)?;
 
         Ok(())
     }
@@ -2504,6 +4965,582 @@ impl CudaExecutor {
         self.memory_pool.record_deallocation(total_size * 4 * 4);
 
         Ok(())
+    }
+
+    // ========================================================================
+    // PAR-018: GPU-Resident KV Cache for Incremental Attention
+    // ========================================================================
+
+    /// Initialize GPU KV cache for a given number of layers and max sequence length
+    ///
+    /// Pre-allocates GPU memory for all layers to avoid allocation during inference.
+    /// Call this once at model load time with the expected max sequence length.
+    ///
+    /// # Arguments
+    ///
+    /// * `num_layers` - Number of transformer layers
+    /// * `num_heads` - Number of query attention heads
+    /// * `num_kv_heads` - Number of key-value heads (for GQA, <= num_heads)
+    /// * `head_dim` - Dimension per head
+    /// * `max_len` - Maximum sequence length to support
+    #[allow(clippy::too_many_arguments)]
+    pub fn init_kv_cache_gpu(
+        &mut self,
+        num_layers: usize,
+        num_heads: usize,
+        num_kv_heads: usize,
+        head_dim: usize,
+        max_len: usize,
+    ) -> Result<(), GpuError> {
+        // Store dimensions (PAR-021: track both Q heads and KV heads for GQA)
+        self.kv_num_heads = num_heads;
+        self.kv_num_kv_heads = num_kv_heads;
+        self.kv_head_dim = head_dim;
+        self.kv_cache_max_len = max_len;
+
+        // Pre-allocate K and V buffers for each layer
+        // PAR-021 GQA: Layout is [num_kv_heads, max_len, head_dim]
+        let buffer_size = num_kv_heads * max_len * head_dim;
+
+        for layer_idx in 0..num_layers {
+            let k_key = format!("kv_{}_k", layer_idx);
+            let v_key = format!("kv_{}_v", layer_idx);
+
+            // Allocate if not already present
+            if !self.kv_cache_gpu.contains_key(&k_key) {
+                let k_buf = GpuBuffer::<f32>::new(&self.context, buffer_size)?;
+                let v_buf = GpuBuffer::<f32>::new(&self.context, buffer_size)?;
+                self.kv_cache_gpu.insert(k_key, k_buf);
+                self.kv_cache_gpu.insert(v_key, v_buf);
+                self.kv_cache_lengths.insert(layer_idx, 0);
+            }
+        }
+
+        let total_bytes = num_layers * 2 * buffer_size * 4;
+        self.memory_pool.record_allocation(total_bytes);
+
+        Ok(())
+    }
+
+    /// Clear KV cache for a new generation (reset sequence position to 0)
+    pub fn reset_kv_cache_gpu(&mut self) {
+        for len in self.kv_cache_lengths.values_mut() {
+            *len = 0;
+        }
+    }
+
+    /// Get current KV cache length for a layer
+    #[must_use]
+    pub fn kv_cache_len(&self, layer_idx: usize) -> usize {
+        self.kv_cache_lengths.get(&layer_idx).copied().unwrap_or(0)
+    }
+
+    /// Check if GPU KV cache is initialized (PAR-020)
+    #[must_use]
+    pub fn has_kv_cache_gpu(&self) -> bool {
+        self.kv_cache_max_len > 0
+    }
+
+    /// Append new K/V to GPU cache and run flash attention
+    ///
+    /// This is the main incremental attention method for autoregressive decoding.
+    /// Only the new K/V vectors are transferred to GPU (hidden_dim floats each),
+    /// avoiding the O(seq_len × hidden_dim) transfer that was the main bottleneck.
+    ///
+    /// # Arguments
+    ///
+    /// * `layer_idx` - Transformer layer index
+    /// * `q` - Query vector for current position [hidden_dim]
+    /// * `current_k` - Key vector for current position [hidden_dim]
+    /// * `current_v` - Value vector for current position [hidden_dim]
+    /// * `output` - Output buffer [hidden_dim]
+    ///
+    /// # Returns
+    ///
+    /// New total sequence length after appending
+    #[allow(clippy::too_many_arguments)]
+    pub fn flash_attention_cached(
+        &mut self,
+        layer_idx: usize,
+        q: &[f32],
+        current_k: &[f32],
+        current_v: &[f32],
+        output: &mut [f32],
+    ) -> Result<usize, GpuError> {
+        let num_heads = self.kv_num_heads;
+        let head_dim = self.kv_head_dim;
+        let hidden_dim = num_heads * head_dim;
+        let max_len = self.kv_cache_max_len;
+
+        // Validate dimensions
+        if q.len() != hidden_dim || current_k.len() != hidden_dim || current_v.len() != hidden_dim {
+            return Err(GpuError::InvalidLaunchConfig(format!(
+                "PAR-018: dimension mismatch - expected {}, got Q[{}] K[{}] V[{}]",
+                hidden_dim,
+                q.len(),
+                current_k.len(),
+                current_v.len()
+            )));
+        }
+
+        // Get current cache length and check bounds
+        let cache_len = self.kv_cache_lengths.get(&layer_idx).copied().unwrap_or(0);
+        let new_len = cache_len + 1;
+        if new_len > max_len {
+            return Err(GpuError::InvalidLaunchConfig(format!(
+                "PAR-018: KV cache overflow - max_len={}, trying to add position {}",
+                max_len, new_len
+            )));
+        }
+
+        // Get cache buffer keys
+        let k_key = format!("kv_{}_k", layer_idx);
+        let v_key = format!("kv_{}_v", layer_idx);
+
+        // Reorganize current_k/v from [hidden_dim] to [num_heads, 1, head_dim]
+        // and upload to correct position in GPU cache
+        // GPU layout: [num_heads, max_len, head_dim]
+        // Position for new data: head * (max_len * head_dim) + cache_len * head_dim
+        {
+            let k_buf = self.kv_cache_gpu.get_mut(&k_key).ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "PAR-018: KV cache not initialized for layer {}",
+                    layer_idx
+                ))
+            })?;
+
+            // Copy each head's K portion to correct position
+            for head in 0..num_heads {
+                let src_offset = head * head_dim;
+                let dst_offset = head * (max_len * head_dim) + cache_len * head_dim;
+                k_buf
+                    .copy_from_host_at(&current_k[src_offset..src_offset + head_dim], dst_offset)?;
+            }
+        }
+
+        {
+            let v_buf = self.kv_cache_gpu.get_mut(&v_key).ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "PAR-018: KV cache not initialized for layer {}",
+                    layer_idx
+                ))
+            })?;
+
+            // Copy each head's V portion to correct position
+            for head in 0..num_heads {
+                let src_offset = head * head_dim;
+                let dst_offset = head * (max_len * head_dim) + cache_len * head_dim;
+                v_buf
+                    .copy_from_host_at(&current_v[src_offset..src_offset + head_dim], dst_offset)?;
+            }
+        }
+
+        // Update cache length
+        self.kv_cache_lengths.insert(layer_idx, new_len);
+
+        // For GPU-only attention, we need to compact K/V from max_len layout to new_len layout
+        // This is necessary because the flash attention kernel expects contiguous seq_len data
+        //
+        // Current GPU layout: [num_heads, max_len, head_dim] with only new_len positions filled
+        // Required layout:    [num_heads, new_len, head_dim] contiguous
+        //
+        // Options:
+        // A) D2D copy to compact buffers (faster than D2H+H2D for long sequences)
+        // B) Use padded kernel that handles max_len with actual_len mask (requires kernel change)
+        // C) For now: read back and use existing flash_attention_multi_head (baseline)
+        //
+        // PAR-018 Phase 1: Use compacted read approach for correctness
+        // PAR-019 (future): Implement D2D compaction or padded kernel for full GPU residency
+
+        let tensor_size = num_heads * new_len * head_dim;
+
+        // Build Q tensor on CPU: [num_heads, new_len, head_dim]
+        // Q is the same for all positions (broadcasting optimization possible in future)
+        let mut q_full = vec![0.0f32; tensor_size];
+        for head in 0..num_heads {
+            let head_offset = head * head_dim;
+            let gpu_head_offset = head * new_len * head_dim;
+            for pos in 0..new_len {
+                let gpu_pos_offset = gpu_head_offset + pos * head_dim;
+                q_full[gpu_pos_offset..gpu_pos_offset + head_dim]
+                    .copy_from_slice(&q[head_offset..head_offset + head_dim]);
+            }
+        }
+
+        // Read compacted K/V from GPU cache
+        // Uses new copy_to_host_at for partial reads
+        let mut k_data = vec![0.0f32; tensor_size];
+        let mut v_data = vec![0.0f32; tensor_size];
+
+        {
+            let k_buf = self
+                .kv_cache_gpu
+                .get(&k_key)
+                .ok_or_else(|| GpuError::InvalidLaunchConfig("KV cache K not found".to_string()))?;
+            let v_buf = self
+                .kv_cache_gpu
+                .get(&v_key)
+                .ok_or_else(|| GpuError::InvalidLaunchConfig("KV cache V not found".to_string()))?;
+
+            for head in 0..num_heads {
+                let gpu_head_offset = head * max_len * head_dim;
+                let out_head_offset = head * new_len * head_dim;
+
+                // Batch read: read new_len contiguous positions per head
+                // This is more efficient than per-position reads
+                k_buf.copy_to_host_at(
+                    &mut k_data[out_head_offset..out_head_offset + new_len * head_dim],
+                    gpu_head_offset,
+                )?;
+                v_buf.copy_to_host_at(
+                    &mut v_data[out_head_offset..out_head_offset + new_len * head_dim],
+                    gpu_head_offset,
+                )?;
+            }
+        }
+
+        // Run flash attention
+        let mut output_full = vec![0.0f32; tensor_size];
+        self.flash_attention_multi_head(
+            &q_full,
+            &k_data,
+            &v_data,
+            &mut output_full,
+            new_len as u32,
+            head_dim as u32,
+            num_heads as u32,
+            true, // causal
+        )?;
+
+        // Extract output for last position, reorganize to [hidden_dim]
+        let last_pos = new_len - 1;
+        for head in 0..num_heads {
+            let gpu_offset = head * new_len * head_dim + last_pos * head_dim;
+            let out_offset = head * head_dim;
+            output[out_offset..out_offset + head_dim]
+                .copy_from_slice(&output_full[gpu_offset..gpu_offset + head_dim]);
+        }
+
+        Ok(new_len)
+    }
+
+    /// PAR-020: True GPU-resident incremental attention for M=1 autoregressive decoding
+    ///
+    /// Unlike `flash_attention_cached` which does D2H+H2D roundtrips, this method:
+    /// 1. Appends new K/V to GPU-resident cache (H2D, small transfer)
+    /// 2. Launches IncrementalAttentionKernel directly on GPU buffers
+    /// 3. Downloads only the output (D2H, small transfer)
+    ///
+    /// Target performance: Eliminate ~66 MB/token transfer overhead for TinyLlama
+    ///
+    /// # Arguments
+    ///
+    /// * `layer_idx` - Transformer layer index
+    /// * `q` - Query vector for current position [num_heads, head_dim]
+    /// * `current_k` - Key vector for current position [num_heads, head_dim]
+    /// * `current_v` - Value vector for current position [num_heads, head_dim]
+    /// * `output` - Output buffer [num_heads, head_dim]
+    ///
+    /// # Returns
+    ///
+    /// New total sequence length after appending
+    #[allow(clippy::too_many_arguments)]
+    pub fn incremental_attention_gpu(
+        &mut self,
+        layer_idx: usize,
+        q: &[f32],
+        current_k: &[f32],
+        current_v: &[f32],
+        output: &mut [f32],
+    ) -> Result<usize, GpuError> {
+        let num_heads = self.kv_num_heads;
+        let num_kv_heads = self.kv_num_kv_heads;
+        let head_dim = self.kv_head_dim;
+        let q_dim = num_heads * head_dim; // Q/output dimension
+        let kv_dim = num_kv_heads * head_dim; // K/V dimension (smaller for GQA)
+        let max_len = self.kv_cache_max_len;
+
+        // PAR-021 GQA: Q has num_heads dimensions, K/V have num_kv_heads dimensions
+        if q.len() != q_dim {
+            return Err(GpuError::InvalidLaunchConfig(format!(
+                "PAR-021: Q dimension mismatch - expected {}, got {}",
+                q_dim,
+                q.len()
+            )));
+        }
+        if current_k.len() != kv_dim || current_v.len() != kv_dim {
+            return Err(GpuError::InvalidLaunchConfig(format!(
+                "PAR-021: K/V dimension mismatch - expected {}, got K[{}] V[{}]",
+                kv_dim,
+                current_k.len(),
+                current_v.len()
+            )));
+        }
+
+        // Get current cache length and check bounds
+        let cache_len = self.kv_cache_lengths.get(&layer_idx).copied().unwrap_or(0);
+        let new_len = cache_len + 1;
+        if new_len > max_len {
+            return Err(GpuError::InvalidLaunchConfig(format!(
+                "PAR-020: KV cache overflow - max_len={}, trying to add position {}",
+                max_len, new_len
+            )));
+        }
+
+        // Get cache buffer keys
+        let k_key = format!("kv_{}_k", layer_idx);
+        let v_key = format!("kv_{}_v", layer_idx);
+
+        // Append new K/V to GPU cache
+        // PAR-021 GQA: Layout is [num_kv_heads, max_len, head_dim]
+        {
+            let k_buf = self.kv_cache_gpu.get_mut(&k_key).ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "PAR-020: KV cache not initialized for layer {}",
+                    layer_idx
+                ))
+            })?;
+            for kv_head in 0..num_kv_heads {
+                let src_offset = kv_head * head_dim;
+                let dst_offset = kv_head * (max_len * head_dim) + cache_len * head_dim;
+                k_buf
+                    .copy_from_host_at(&current_k[src_offset..src_offset + head_dim], dst_offset)?;
+            }
+        }
+
+        {
+            let v_buf = self.kv_cache_gpu.get_mut(&v_key).ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "PAR-020: KV cache not initialized for layer {}",
+                    layer_idx
+                ))
+            })?;
+            for kv_head in 0..num_kv_heads {
+                let src_offset = kv_head * head_dim;
+                let dst_offset = kv_head * (max_len * head_dim) + cache_len * head_dim;
+                v_buf
+                    .copy_from_host_at(&current_v[src_offset..src_offset + head_dim], dst_offset)?;
+            }
+        }
+
+        // Update cache length
+        self.kv_cache_lengths.insert(layer_idx, new_len);
+
+        // Upload Q to GPU (small transfer: num_heads * head_dim floats)
+        let mut q_buf = GpuBuffer::<f32>::new(&self.context, q_dim)?;
+        q_buf.copy_from_host(q)?;
+
+        // Allocate output buffer (same size as Q)
+        let out_buf = GpuBuffer::<f32>::new(&self.context, q_dim)?;
+
+        // Get kernel module (PAR-021: includes n_kv_heads for GQA)
+        let kernel_type = KernelType::IncrementalAttention {
+            max_seq_len: max_len as u32,
+            head_dim: head_dim as u32,
+            n_heads: num_heads as u32,
+            n_kv_heads: num_kv_heads as u32,
+        };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let ptx = self.kernels.generate_ptx(&kernel_type);
+        let module_key = format!(
+            "incremental_attention_{}_{}_{}_{}",
+            max_len, head_dim, num_heads, num_kv_heads
+        );
+
+        if !self.modules.contains_key(&module_key) {
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(module_key.clone(), module);
+        }
+        let module = self
+            .modules
+            .get_mut(&module_key)
+            .expect("module just inserted");
+
+        // Get K and V buffer pointers
+        let k_buf = self
+            .kv_cache_gpu
+            .get(&k_key)
+            .ok_or_else(|| GpuError::InvalidLaunchConfig("K cache not found".to_string()))?;
+        let v_buf = self
+            .kv_cache_gpu
+            .get(&v_key)
+            .ok_or_else(|| GpuError::InvalidLaunchConfig("V cache not found".to_string()))?;
+
+        // Launch kernel
+        // Grid: (num_heads, 1, 1) - one block per head
+        // Block: (32, 1, 1) - one warp per block
+        let config = LaunchConfig::grid_2d(num_heads as u32, 1, 32, 1);
+
+        let mut ptr_q = q_buf.as_ptr();
+        let mut ptr_k = k_buf.as_ptr();
+        let mut ptr_v = v_buf.as_ptr();
+        let mut ptr_out = out_buf.as_ptr();
+        let mut seq_len_val = new_len as u32;
+
+        unsafe {
+            self.compute_stream.launch_kernel(
+                module,
+                &kernel_name,
+                &config,
+                &mut [
+                    &mut ptr_q as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_k as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_v as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_out as *mut _ as *mut std::ffi::c_void,
+                    &mut seq_len_val as *mut _ as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        // Synchronize and download output
+        self.compute_stream.synchronize()?;
+        out_buf.copy_to_host(output)?;
+
+        Ok(new_len)
+    }
+
+    // =========================================================================
+    // PAR-023: GPU-Resident Incremental Attention (No Sync)
+    // Reduces sync per attention call by keeping Q/K/V on GPU
+    // =========================================================================
+
+    /// PAR-023: GPU-resident incremental attention operating on GPU buffers
+    ///
+    /// Same as `incremental_attention_gpu` but takes GPU buffers instead of
+    /// host slices, allowing full GPU pipeline without intermediate syncs.
+    ///
+    /// # Arguments
+    /// * `layer_idx` - Layer index for KV cache lookup
+    /// * `q_gpu` - Query GPU buffer [num_heads * head_dim]
+    /// * `k_gpu` - Current key GPU buffer [num_kv_heads * head_dim]
+    /// * `v_gpu` - Current value GPU buffer [num_kv_heads * head_dim]
+    ///
+    /// # Returns
+    /// (output_gpu, new_seq_len) - Attention output buffer and updated sequence length
+    #[allow(clippy::too_many_arguments)]
+    pub fn incremental_attention_async(
+        &mut self,
+        layer_idx: usize,
+        q_gpu: &GpuBuffer<f32>,
+        k_gpu: &GpuBuffer<f32>,
+        v_gpu: &GpuBuffer<f32>,
+    ) -> Result<(GpuBuffer<f32>, usize), GpuError> {
+        let num_heads = self.kv_num_heads;
+        let num_kv_heads = self.kv_num_kv_heads;
+        let head_dim = self.kv_head_dim;
+        let q_dim = num_heads * head_dim;
+        let max_len = self.kv_cache_max_len;
+
+        // Get current cache length and check bounds
+        let cache_len = self.kv_cache_lengths.get(&layer_idx).copied().unwrap_or(0);
+        let new_len = cache_len + 1;
+        if new_len > max_len {
+            return Err(GpuError::InvalidLaunchConfig(format!(
+                "PAR-023: KV cache overflow - max_len={}, trying to add position {}",
+                max_len, new_len
+            )));
+        }
+
+        // Get cache buffer keys
+        let k_key = format!("kv_{}_k", layer_idx);
+        let v_key = format!("kv_{}_v", layer_idx);
+
+        // PAR-023: Copy K/V from GPU buffers to cache positions (D2D transfer)
+        // Layout is [num_kv_heads, max_len, head_dim]
+        // We need to copy each head's current K/V to the correct position
+        //
+        // Using D2D copy to avoid host round-trip (zero-sync attention)
+        {
+            let k_buf = self.kv_cache_gpu.get_mut(&k_key).ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "PAR-023: KV cache not initialized for layer {}",
+                    layer_idx
+                ))
+            })?;
+            for kv_head in 0..num_kv_heads {
+                let src_offset = kv_head * head_dim;
+                let dst_offset = kv_head * (max_len * head_dim) + cache_len * head_dim;
+                k_buf.copy_from_buffer_at(k_gpu, dst_offset, src_offset, head_dim)?;
+            }
+
+            let v_buf = self.kv_cache_gpu.get_mut(&v_key).ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "PAR-023: KV cache not initialized for layer {}",
+                    layer_idx
+                ))
+            })?;
+            for kv_head in 0..num_kv_heads {
+                let src_offset = kv_head * head_dim;
+                let dst_offset = kv_head * (max_len * head_dim) + cache_len * head_dim;
+                v_buf.copy_from_buffer_at(v_gpu, dst_offset, src_offset, head_dim)?;
+            }
+        }
+
+        // Update cache length
+        self.kv_cache_lengths.insert(layer_idx, new_len);
+
+        // Allocate output buffer (same size as Q)
+        let out_buf = GpuBuffer::<f32>::new(&self.context, q_dim)?;
+
+        // Get kernel module (PAR-021: includes n_kv_heads for GQA)
+        let kernel_type = KernelType::IncrementalAttention {
+            max_seq_len: max_len as u32,
+            head_dim: head_dim as u32,
+            n_heads: num_heads as u32,
+            n_kv_heads: num_kv_heads as u32,
+        };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let ptx = self.kernels.generate_ptx(&kernel_type);
+        let module_key = format!(
+            "incremental_attention_{}_{}_{}_{}",
+            max_len, head_dim, num_heads, num_kv_heads
+        );
+
+        if !self.modules.contains_key(&module_key) {
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(module_key.clone(), module);
+        }
+        let module = self
+            .modules
+            .get_mut(&module_key)
+            .expect("module just inserted");
+
+        // Get K and V buffer pointers from cache
+        let k_buf = self
+            .kv_cache_gpu
+            .get(&k_key)
+            .ok_or_else(|| GpuError::InvalidLaunchConfig("K cache not found".to_string()))?;
+        let v_buf = self
+            .kv_cache_gpu
+            .get(&v_key)
+            .ok_or_else(|| GpuError::InvalidLaunchConfig("V cache not found".to_string()))?;
+
+        // Launch kernel
+        let config = LaunchConfig::grid_2d(num_heads as u32, 1, 32, 1);
+
+        let mut ptr_q = q_gpu.as_ptr();
+        let mut ptr_k = k_buf.as_ptr();
+        let mut ptr_v = v_buf.as_ptr();
+        let mut ptr_out = out_buf.as_ptr();
+        let mut seq_len_val = new_len as u32;
+
+        unsafe {
+            self.compute_stream.launch_kernel(
+                module,
+                &kernel_name,
+                &config,
+                &mut [
+                    &mut ptr_q as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_k as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_v as *mut _ as *mut std::ffi::c_void,
+                    &mut ptr_out as *mut _ as *mut std::ffi::c_void,
+                    &mut seq_len_val as *mut _ as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        // PAR-023: NO sync here - caller continues pipeline
+        Ok((out_buf, new_len))
     }
 
     /// Tensor Core attention using WMMA for FP16 matrix operations (PARITY-001.3)
@@ -3893,15 +6930,15 @@ mod tests {
     fn test_cuda_executor_new() {
         let executor = CudaExecutor::new(0);
         assert!(executor.is_ok());
-        let executor = executor.unwrap();
+        let executor = executor.expect("test");
         assert!(executor.device_name().is_ok());
     }
 
     #[test]
     #[serial]
     fn test_cuda_executor_memory_info() {
-        let executor = CudaExecutor::new(0).unwrap();
-        let (free, total) = executor.memory_info().unwrap();
+        let executor = CudaExecutor::new(0).expect("test");
+        let (free, total) = executor.memory_info().expect("test");
         assert!(total > 0);
         assert!(free <= total);
     }
@@ -3909,7 +6946,7 @@ mod tests {
     #[test]
     #[serial]
     fn test_cuda_executor_gemm_small() {
-        let mut executor = CudaExecutor::new(0).unwrap();
+        let mut executor = CudaExecutor::new(0).expect("test");
 
         // Small 4x4 GEMM
         let a = vec![1.0f32; 16];
@@ -3930,7 +6967,7 @@ mod tests {
     #[test]
     #[serial]
     fn test_cuda_executor_gemm_non_square() {
-        let mut executor = CudaExecutor::new(0).unwrap();
+        let mut executor = CudaExecutor::new(0).expect("test");
 
         // First test: 32x32x32 (single tile)
         {
@@ -4175,7 +7212,7 @@ mod tests {
     #[serial]
     fn test_cuda_executor_gemm_size_validation() {
         // This test requires CUDA GPU to create an executor
-        let mut executor = CudaExecutor::new(0).unwrap();
+        let mut executor = CudaExecutor::new(0).expect("test");
 
         // Wrong sizes - should fail validation
         let a = vec![1.0f32; 10]; // Wrong size
@@ -4194,7 +7231,7 @@ mod tests {
         let ptx = kernels.generate_ptx(&KernelType::Softmax { dim: 4 });
         eprintln!("Generated PTX:\n{}", ptx);
 
-        let mut executor = CudaExecutor::new(0).unwrap();
+        let mut executor = CudaExecutor::new(0).expect("test");
 
         let mut data = vec![1.0, 2.0, 3.0, 4.0];
         let result = executor.softmax(&mut data);
@@ -4211,7 +7248,7 @@ mod tests {
     #[test]
     #[serial]
     fn test_cuda_executor_synchronize() {
-        let executor = CudaExecutor::new(0).unwrap();
+        let executor = CudaExecutor::new(0).expect("test");
         let result = executor.synchronize();
         assert!(result.is_ok());
     }
@@ -4361,7 +7398,7 @@ mod tests {
         // Now try to get it back
         let result = pool.try_get(4096);
         assert!(result.is_some());
-        let handle = result.unwrap();
+        let handle = result.expect("test");
         assert!(handle.in_use);
 
         let stats = pool.stats();
@@ -4944,7 +7981,7 @@ mod proptests {
             return;
         }
 
-        let mut executor = CudaExecutor::new(0).unwrap();
+        let mut executor = CudaExecutor::new(0).expect("test");
 
         // Wrong A size
         let a = vec![1.0f32; 10]; // Should be 16
@@ -5020,7 +8057,7 @@ mod proptests {
             return;
         }
 
-        let mut executor = CudaExecutor::new(0).unwrap();
+        let mut executor = CudaExecutor::new(0).expect("test");
 
         // Valid: all dimensions multiple of 16
         let a = vec![1.0f32; 16 * 32];
@@ -5055,7 +8092,7 @@ mod proptests {
             return;
         }
 
-        let mut executor = CudaExecutor::new(0).unwrap();
+        let mut executor = CudaExecutor::new(0).expect("test");
 
         // Simple 16x16 identity-like multiplication
         let m = 16u32;
@@ -5070,7 +8107,7 @@ mod proptests {
         }
         let mut c = vec![0.0f32; (m * n) as usize];
 
-        executor.gemm_fp16(&a, &b, &mut c, m, n, k).unwrap();
+        executor.gemm_fp16(&a, &b, &mut c, m, n, k).expect("test");
 
         // Each row of C should sum to n (since A is all 1s and B is identity, C = A)
         for row in 0..m {
@@ -5147,7 +8184,7 @@ mod proptests {
             return;
         }
 
-        let mut executor = CudaExecutor::new(0).unwrap();
+        let mut executor = CudaExecutor::new(0).expect("test");
 
         // Use dimensions compatible with Q4_K (K must be multiple of 32)
         let m = 32u32;
@@ -5190,12 +8227,12 @@ mod proptests {
             return;
         }
 
-        let context = CudaContext::new(0).unwrap();
+        let context = CudaContext::new(0).expect("test");
         let pipeline = AsyncPipeline::new(&context);
 
         assert!(pipeline.is_ok(), "AsyncPipeline creation failed");
 
-        let pipeline = pipeline.unwrap();
+        let pipeline = pipeline.expect("test");
         assert!(!pipeline.is_active());
         assert_eq!(pipeline.layers_queued(), 0);
     }
@@ -5208,8 +8245,8 @@ mod proptests {
             return;
         }
 
-        let context = CudaContext::new(0).unwrap();
-        let mut pipeline = AsyncPipeline::new(&context).unwrap();
+        let context = CudaContext::new(0).expect("test");
+        let mut pipeline = AsyncPipeline::new(&context).expect("test");
 
         // Begin
         pipeline.begin();
@@ -5239,8 +8276,8 @@ mod proptests {
             return;
         }
 
-        let context = CudaContext::new(0).unwrap();
-        let pipeline = AsyncPipeline::new(&context).unwrap();
+        let context = CudaContext::new(0).expect("test");
+        let pipeline = AsyncPipeline::new(&context).expect("test");
 
         // Both streams should sync without error
         let sync_result = pipeline.sync();
@@ -5255,8 +8292,8 @@ mod proptests {
             return;
         }
 
-        let context = CudaContext::new(0).unwrap();
-        let pipeline = AsyncPipeline::new(&context).unwrap();
+        let context = CudaContext::new(0).expect("test");
+        let pipeline = AsyncPipeline::new(&context).expect("test");
 
         // Streams should be accessible
         let _compute = pipeline.compute_stream();
@@ -5546,7 +8583,7 @@ mod proptests {
             return;
         }
 
-        let _context = CudaContext::new(0).unwrap();
+        let _context = CudaContext::new(0).expect("test");
         let kernels = CudaKernels::new();
 
         let config = StressConfig {

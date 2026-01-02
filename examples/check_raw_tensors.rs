@@ -11,14 +11,17 @@ fn stats(x: &[f32]) -> (f32, f32, f32, f32) {
 }
 
 fn main() {
-    let data = fs::read("/home/noah/src/aprender/tinyllama-1.1b-chat-v1.0.Q4_0.gguf").unwrap();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let data =
+        fs::read("/home/noah/src/aprender/tinyllama-1.1b-chat-v1.0.Q4_0.gguf").expect("test");
+    let model = GGUFModel::from_bytes(&data).expect("test");
 
     // Check token_embd.weight
     println!("Checking token_embd.weight...");
     if let Some(t) = model.tensors.iter().find(|t| t.name == "token_embd.weight") {
         println!("  dims: {:?}, qtype: {}", t.dims, t.qtype);
-        let values = model.get_tensor_f32("token_embd.weight", &data).unwrap();
+        let values = model
+            .get_tensor_f32("token_embd.weight", &data)
+            .expect("test");
         let (min, max, mean, std) = stats(&values);
         println!("  total elements: {}", values.len());
         println!(
@@ -56,7 +59,7 @@ fn main() {
     println!("\nChecking output.weight...");
     if let Some(t) = model.tensors.iter().find(|t| t.name == "output.weight") {
         println!("  dims: {:?}, qtype: {}", t.dims, t.qtype);
-        let values = model.get_tensor_f32("output.weight", &data).unwrap();
+        let values = model.get_tensor_f32("output.weight", &data).expect("test");
         let (min, max, mean, std) = stats(&values);
         println!("  total elements: {}", values.len());
         println!(
@@ -73,7 +76,9 @@ fn main() {
         .find(|t| t.name == "blk.0.attn_q.weight")
     {
         println!("  dims: {:?}, qtype: {}", t.dims, t.qtype);
-        let values = model.get_tensor_f32("blk.0.attn_q.weight", &data).unwrap();
+        let values = model
+            .get_tensor_f32("blk.0.attn_q.weight", &data)
+            .expect("test");
         let (min, max, mean, std) = stats(&values);
         println!("  total elements: {}", values.len());
         println!(
@@ -92,7 +97,7 @@ fn main() {
         println!("  dims: {:?}, qtype: {}", t.dims, t.qtype);
         let values = model
             .get_tensor_f32("blk.0.ffn_gate.weight", &data)
-            .unwrap();
+            .expect("test");
         let (min, max, mean, std) = stats(&values);
         println!("  total elements: {}", values.len());
         println!(

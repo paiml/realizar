@@ -20,6 +20,6 @@ fn main() {
     println!("{}", ptx);
 
     // Save to file
-    std::fs::write("/tmp/attention_phi2.ptx", &ptx).unwrap();
+    std::fs::write("/tmp/attention_phi2.ptx", &ptx).expect("test");
     println!("\nPTX saved to /tmp/attention_phi2.ptx");
 }

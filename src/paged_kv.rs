@@ -1834,7 +1834,7 @@ mod tests {
     #[test]
     fn test_allocate_sequence() {
         let mut cache = PagedKvCache::new(100, 16, 8, 64);
-        let seq_id = cache.allocate_sequence(32).unwrap();
+        let seq_id = cache.allocate_sequence(32).expect("test");
 
         // 32 tokens needs 2 pages (16 tokens per page)
         assert_eq!(cache.free_page_count(), 98);
@@ -1849,7 +1849,7 @@ mod tests {
         let mut cache = PagedKvCache::new(1, 16, 8, 64);
 
         // First allocation succeeds
-        let _ = cache.allocate_sequence(10).unwrap();
+        let _ = cache.allocate_sequence(10).expect("test");
 
         // Second allocation fails
         let result = cache.allocate_sequence(20);
@@ -1859,20 +1859,20 @@ mod tests {
     #[test]
     fn test_extend_sequence() {
         let mut cache = PagedKvCache::new(100, 16, 8, 64);
-        let seq_id = cache.allocate_sequence(10).unwrap();
+        let seq_id = cache.allocate_sequence(10).expect("test");
 
         // Initially 1 page
         assert_eq!(cache.free_page_count(), 99);
 
         // Extend to need 2 pages
-        cache.extend(seq_id, 20).unwrap();
+        cache.extend(seq_id, 20).expect("test");
         assert_eq!(cache.free_page_count(), 98);
     }
 
     #[test]
     fn test_free_sequence() {
         let mut cache = PagedKvCache::new(100, 16, 8, 64);
-        let seq_id = cache.allocate_sequence(32).unwrap();
+        let seq_id = cache.allocate_sequence(32).expect("test");
 
         assert_eq!(cache.free_page_count(), 98);
 
@@ -1885,9 +1885,9 @@ mod tests {
     #[test]
     fn test_fork_sequence() {
         let mut cache = PagedKvCache::new(100, 16, 8, 64);
-        let parent_id = cache.allocate_sequence(16).unwrap();
+        let parent_id = cache.allocate_sequence(16).expect("test");
 
-        let child_id = cache.fork_sequence(parent_id).unwrap();
+        let child_id = cache.fork_sequence(parent_id).expect("test");
 
         // Pages are shared via COW
         assert_eq!(cache.stats().active_sequences, 2);
@@ -1898,25 +1898,25 @@ mod tests {
     #[test]
     fn test_get_page() {
         let mut cache = PagedKvCache::new(100, 16, 8, 64);
-        let seq_id = cache.allocate_sequence(32).unwrap();
+        let seq_id = cache.allocate_sequence(32).expect("test");
 
-        let page = cache.get_page(seq_id, 0).unwrap();
+        let page = cache.get_page(seq_id, 0).expect("test");
         assert_eq!(
             page.id.value(),
-            cache.page_tables.get(&seq_id).unwrap()[0].value()
+            cache.page_tables.get(&seq_id).expect("test")[0].value()
         );
 
-        let page2 = cache.get_page(seq_id, 16).unwrap();
+        let page2 = cache.get_page(seq_id, 16).expect("test");
         assert_eq!(
             page2.id.value(),
-            cache.page_tables.get(&seq_id).unwrap()[1].value()
+            cache.page_tables.get(&seq_id).expect("test")[1].value()
         );
     }
 
     #[test]
     fn test_get_page_invalid() {
         let mut cache = PagedKvCache::new(100, 16, 8, 64);
-        let seq_id = cache.allocate_sequence(16).unwrap();
+        let seq_id = cache.allocate_sequence(16).expect("test");
 
         let result = cache.get_page(seq_id, 100); // Beyond allocated pages
         assert!(matches!(
@@ -1928,10 +1928,10 @@ mod tests {
     #[test]
     fn test_get_sequence_tokens() {
         let mut cache = PagedKvCache::new(100, 16, 8, 64);
-        let seq_id = cache.allocate_sequence(10).unwrap();
-        cache.update_tokens(seq_id, 10).unwrap();
+        let seq_id = cache.allocate_sequence(10).expect("test");
+        cache.update_tokens(seq_id, 10).expect("test");
 
-        let tokens = cache.get_sequence_tokens(seq_id).unwrap();
+        let tokens = cache.get_sequence_tokens(seq_id).expect("test");
         assert_eq!(tokens, 10);
     }
 
@@ -1941,7 +1941,7 @@ mod tests {
 
         assert_eq!(cache.memory_usage(), 0);
 
-        let _ = cache.allocate_sequence(16).unwrap();
+        let _ = cache.allocate_sequence(16).expect("test");
 
         // 1 page * 16 tokens * 8 heads * 64 dim * 4 bytes * 2 (K+V)
         let expected = 16 * 8 * 64 * 4 * 2;
@@ -1963,7 +1963,7 @@ mod tests {
 
         assert_eq!(cache.utilization(), 0.0);
 
-        let _ = cache.allocate_sequence(160).unwrap(); // 10 pages
+        let _ = cache.allocate_sequence(160).expect("test"); // 10 pages
 
         assert!((cache.utilization() - 10.0).abs() < 0.01);
     }
@@ -2016,8 +2016,8 @@ mod tests {
             pages_moved: 15,
         };
 
-        let json = serde_json::to_string(&stats).unwrap();
-        let parsed: PagedCacheStats = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&stats).expect("test");
+        let parsed: PagedCacheStats = serde_json::from_str(&json).expect("test");
 
         assert_eq!(parsed.sequences_allocated, stats.sequences_allocated);
         assert_eq!(parsed.cow_operations, stats.cow_operations);
@@ -2030,15 +2030,15 @@ mod tests {
     #[test]
     fn test_cow_on_write() {
         let mut cache = PagedKvCache::new(100, 16, 8, 64);
-        let parent_id = cache.allocate_sequence(16).unwrap();
-        cache.update_tokens(parent_id, 16).unwrap();
+        let parent_id = cache.allocate_sequence(16).expect("test");
+        cache.update_tokens(parent_id, 16).expect("test");
 
         // Fork creates shared pages
-        let child_id = cache.fork_sequence(parent_id).unwrap();
+        let child_id = cache.fork_sequence(parent_id).expect("test");
 
         // Get mutable page should trigger COW
         let initial_cow = cache.stats().cow_operations;
-        let _page = cache.get_page_mut(child_id, 0).unwrap();
+        let _page = cache.get_page_mut(child_id, 0).expect("test");
 
         // COW should have been triggered
         assert!(cache.stats().cow_operations > initial_cow);
@@ -2069,8 +2069,8 @@ mod tests {
     #[test]
     fn test_fragmentation_stats_single_sequence() {
         let mut cache = PagedKvCache::new(100, 16, 8, 64);
-        let seq_id = cache.allocate_sequence(32).unwrap(); // 2 pages
-        cache.update_tokens(seq_id, 32).unwrap();
+        let seq_id = cache.allocate_sequence(32).expect("test"); // 2 pages
+        cache.update_tokens(seq_id, 32).expect("test");
 
         let stats = cache.fragmentation_stats();
 
@@ -2086,9 +2086,9 @@ mod tests {
         let mut cache = PagedKvCache::new(10, 16, 8, 64);
 
         // Allocate 3 sequences
-        let seq1 = cache.allocate_sequence(16).unwrap(); // Page 0
-        let seq2 = cache.allocate_sequence(16).unwrap(); // Page 1
-        let seq3 = cache.allocate_sequence(16).unwrap(); // Page 2
+        let seq1 = cache.allocate_sequence(16).expect("test"); // Page 0
+        let seq2 = cache.allocate_sequence(16).expect("test"); // Page 1
+        let seq3 = cache.allocate_sequence(16).expect("test"); // Page 2
 
         // Free middle sequence to create a hole
         cache.free_sequence(seq2);
@@ -2107,8 +2107,8 @@ mod tests {
     #[test]
     fn test_fragmentation_stats_wasted_capacity() {
         let mut cache = PagedKvCache::new(100, 16, 8, 64);
-        let seq_id = cache.allocate_sequence(32).unwrap(); // 2 pages
-        cache.update_tokens(seq_id, 10).unwrap(); // Only 10 tokens in 2 pages
+        let seq_id = cache.allocate_sequence(32).expect("test"); // 2 pages
+        cache.update_tokens(seq_id, 10).expect("test"); // Only 10 tokens in 2 pages
 
         let stats = cache.fragmentation_stats();
 
@@ -2125,8 +2125,8 @@ mod tests {
     #[test]
     fn test_should_defragment_no_fragmentation() {
         let mut cache = PagedKvCache::new(100, 16, 8, 64);
-        let seq_id = cache.allocate_sequence(32).unwrap();
-        cache.update_tokens(seq_id, 32).unwrap();
+        let seq_id = cache.allocate_sequence(32).expect("test");
+        cache.update_tokens(seq_id, 32).expect("test");
 
         // Single contiguous allocation = no fragmentation
         assert!(!cache.should_defragment());
@@ -2155,8 +2155,8 @@ mod tests {
     #[test]
     fn test_defragment_single_sequence() {
         let mut cache = PagedKvCache::new(100, 16, 8, 64);
-        let seq_id = cache.allocate_sequence(32).unwrap();
-        cache.update_tokens(seq_id, 32).unwrap();
+        let seq_id = cache.allocate_sequence(32).expect("test");
+        cache.update_tokens(seq_id, 32).expect("test");
 
         // Already contiguous, no defrag needed
         let pages_moved = cache.defragment();
@@ -2166,7 +2166,7 @@ mod tests {
     #[test]
     fn test_compact_sequence_already_contiguous() {
         let mut cache = PagedKvCache::new(100, 16, 8, 64);
-        let seq_id = cache.allocate_sequence(32).unwrap();
+        let seq_id = cache.allocate_sequence(32).expect("test");
 
         let moved = cache.compact_sequence(seq_id);
         assert_eq!(moved, 0); // Already contiguous
@@ -2184,18 +2184,18 @@ mod tests {
     #[test]
     fn test_sequence_contiguity_single_page() {
         let mut cache = PagedKvCache::new(100, 16, 8, 64);
-        let seq_id = cache.allocate_sequence(10).unwrap(); // 1 page
+        let seq_id = cache.allocate_sequence(10).expect("test"); // 1 page
 
-        let contiguity = cache.sequence_contiguity(seq_id).unwrap();
+        let contiguity = cache.sequence_contiguity(seq_id).expect("test");
         assert_eq!(contiguity, 1.0); // Single page always contiguous
     }
 
     #[test]
     fn test_sequence_contiguity_multiple_pages() {
         let mut cache = PagedKvCache::new(100, 16, 8, 64);
-        let seq_id = cache.allocate_sequence(32).unwrap(); // 2 pages
+        let seq_id = cache.allocate_sequence(32).expect("test"); // 2 pages
 
-        let contiguity = cache.sequence_contiguity(seq_id).unwrap();
+        let contiguity = cache.sequence_contiguity(seq_id).expect("test");
         // Fresh allocation should be contiguous
         assert!(contiguity >= 0.0);
         assert!(contiguity <= 1.0);
@@ -2220,8 +2220,8 @@ mod tests {
             avg_tokens_per_page: 12.5,
         };
 
-        let json = serde_json::to_string(&stats).unwrap();
-        let parsed: FragmentationStats = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&stats).expect("test");
+        let parsed: FragmentationStats = serde_json::from_str(&json).expect("test");
 
         assert_eq!(parsed.holes, 5);
         assert_eq!(parsed.wasted_capacity, 100);
@@ -2246,11 +2246,11 @@ mod tests {
     #[test]
     fn test_defragment_preserves_data() {
         let mut cache = PagedKvCache::new(100, 16, 8, 64);
-        let seq_id = cache.allocate_sequence(16).unwrap();
-        cache.update_tokens(seq_id, 16).unwrap();
+        let seq_id = cache.allocate_sequence(16).expect("test");
+        cache.update_tokens(seq_id, 16).expect("test");
 
         // Get page and write some test data
-        let page = cache.get_page_mut(seq_id, 0).unwrap();
+        let page = cache.get_page_mut(seq_id, 0).expect("test");
         page.keys[0] = 42.0;
         page.values[0] = 99.0;
 
@@ -2258,7 +2258,7 @@ mod tests {
         cache.defragment();
 
         // Verify data is preserved
-        let page = cache.get_page(seq_id, 0).unwrap();
+        let page = cache.get_page(seq_id, 0).expect("test");
         assert_eq!(page.keys[0], 42.0);
         assert_eq!(page.values[0], 99.0);
     }
@@ -2266,11 +2266,11 @@ mod tests {
     #[test]
     fn test_cow_prevents_compact() {
         let mut cache = PagedKvCache::new(100, 16, 8, 64);
-        let parent_id = cache.allocate_sequence(32).unwrap();
-        cache.update_tokens(parent_id, 32).unwrap();
+        let parent_id = cache.allocate_sequence(32).expect("test");
+        cache.update_tokens(parent_id, 32).expect("test");
 
         // Fork creates shared pages (COW)
-        let _child_id = cache.fork_sequence(parent_id).unwrap();
+        let _child_id = cache.fork_sequence(parent_id).expect("test");
 
         // Shared pages should not be moved during compaction
         // (ref_count > 1 check in compact_sequence)
@@ -2353,7 +2353,7 @@ mod tests {
 
         let result = cache.lookup(hash);
         assert!(result.is_some());
-        assert_eq!(result.unwrap().num_tokens, 3);
+        assert_eq!(result.expect("test").num_tokens, 3);
     }
 
     #[test]
@@ -2491,8 +2491,8 @@ mod tests {
             tokens_saved: 500,
         };
 
-        let json = serde_json::to_string(&stats).unwrap();
-        let parsed: PrefixCacheStats = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&stats).expect("test");
+        let parsed: PrefixCacheStats = serde_json::from_str(&json).expect("test");
 
         assert_eq!(parsed.hits, 100);
         assert_eq!(parsed.misses, 50);
@@ -2515,7 +2515,7 @@ mod tests {
         let result = find_longest_prefix(&mut cache, &tokens);
 
         assert!(result.is_some());
-        let (hash, len) = result.unwrap();
+        let (hash, len) = result.expect("test");
         assert_eq!(hash, prefix_5);
         assert_eq!(len, 5);
     }
@@ -2752,7 +2752,7 @@ mod tests {
     #[test]
     fn test_quantized_paged_kv_cache_allocate() {
         let mut cache = QuantizedPagedKvCache::new(100, 16, 8, 64, KvQuantType::Q8);
-        let seq_id = cache.allocate_sequence(32).unwrap();
+        let seq_id = cache.allocate_sequence(32).expect("test");
 
         assert_eq!(cache.free_page_count(), 98); // 32 tokens = 2 pages
         assert_eq!(cache.stats().active_sequences, 1);
@@ -2762,7 +2762,7 @@ mod tests {
     #[test]
     fn test_quantized_paged_kv_cache_free() {
         let mut cache = QuantizedPagedKvCache::new(100, 16, 8, 64, KvQuantType::Q4);
-        let seq_id = cache.allocate_sequence(16).unwrap();
+        let seq_id = cache.allocate_sequence(16).expect("test");
 
         assert_eq!(cache.free_page_count(), 99);
 
@@ -2775,7 +2775,7 @@ mod tests {
     #[test]
     fn test_quantized_paged_kv_cache_memory_savings() {
         let mut cache = QuantizedPagedKvCache::new(100, 16, 8, 64, KvQuantType::Q8);
-        let _seq_id = cache.allocate_sequence(16).unwrap();
+        let _seq_id = cache.allocate_sequence(16).expect("test");
 
         let savings = cache.memory_savings();
         // Q8 uses (4 + 32) = 36 bytes per block of 32 values vs 128 bytes for FP32
@@ -2790,7 +2790,7 @@ mod tests {
     #[test]
     fn test_quantized_paged_kv_cache_q4_savings() {
         let mut cache = QuantizedPagedKvCache::new(100, 16, 8, 64, KvQuantType::Q4);
-        let _seq_id = cache.allocate_sequence(16).unwrap();
+        let _seq_id = cache.allocate_sequence(16).expect("test");
 
         let savings = cache.memory_savings();
         // Q4 uses (4 + 16) = 20 bytes per block of 32 values vs 128 bytes for FP32
@@ -2805,31 +2805,31 @@ mod tests {
     #[test]
     fn test_quantized_paged_kv_cache_get_page() {
         let mut cache = QuantizedPagedKvCache::new(100, 16, 8, 64, KvQuantType::Q8);
-        let seq_id = cache.allocate_sequence(32).unwrap();
+        let seq_id = cache.allocate_sequence(32).expect("test");
 
-        let page = cache.get_page(seq_id, 0).unwrap();
+        let page = cache.get_page(seq_id, 0).expect("test");
         assert_eq!(page.quant_type(), KvQuantType::Q8);
 
-        let page2 = cache.get_page(seq_id, 16).unwrap();
+        let page2 = cache.get_page(seq_id, 16).expect("test");
         assert_eq!(page2.quant_type(), KvQuantType::Q8);
     }
 
     #[test]
     fn test_quantized_paged_kv_cache_get_page_mut() {
         let mut cache = QuantizedPagedKvCache::new(100, 16, 8, 64, KvQuantType::Q8);
-        let seq_id = cache.allocate_sequence(16).unwrap();
+        let seq_id = cache.allocate_sequence(16).expect("test");
 
-        let page = cache.get_page_mut(seq_id, 0).unwrap();
+        let page = cache.get_page_mut(seq_id, 0).expect("test");
         page.num_tokens = 8;
 
-        let page2 = cache.get_page(seq_id, 0).unwrap();
+        let page2 = cache.get_page(seq_id, 0).expect("test");
         assert_eq!(page2.num_tokens, 8);
     }
 
     #[test]
     fn test_quantized_paged_kv_cache_oom() {
         let mut cache = QuantizedPagedKvCache::new(1, 16, 8, 64, KvQuantType::Q8);
-        let _seq1 = cache.allocate_sequence(16).unwrap();
+        let _seq1 = cache.allocate_sequence(16).expect("test");
 
         let result = cache.allocate_sequence(16);
         assert!(matches!(result, Err(PagedCacheError::OutOfMemory { .. })));

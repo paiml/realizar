@@ -10,8 +10,8 @@ fn main() {
 
     println!("Loading model: {}", model_path);
     let start = Instant::now();
-    let mapped = MappedGGUFModel::from_path(&model_path).unwrap();
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+    let mapped = MappedGGUFModel::from_path(&model_path).expect("test");
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
     println!("Model loaded in {:.2}s", start.elapsed().as_secs_f32());
 
     let config = model.config();
@@ -23,7 +23,7 @@ fn main() {
     // Warmup
     println!("\nWarming up (3 iterations)...");
     for _ in 0..3 {
-        let _ = model.forward(&[1]).unwrap();
+        let _ = model.forward(&[1]).expect("test");
     }
 
     // Benchmark single-token forward passes
@@ -31,7 +31,7 @@ fn main() {
     let iterations = 10;
     let start = Instant::now();
     for _ in 0..iterations {
-        let _ = model.forward(&[1]).unwrap();
+        let _ = model.forward(&[1]).expect("test");
     }
     let total_time = start.elapsed();
     let avg_time = total_time / iterations;
@@ -49,7 +49,7 @@ fn main() {
     println!("Throughput: {:.1} tok/s", tok_per_sec);
 
     // Test with single token (for validation)
-    let logits = model.forward(&[1]).unwrap();
+    let logits = model.forward(&[1]).expect("test");
     println!(
         "\nLogits len: {}, first 5: {:?}",
         logits.len(),
@@ -61,9 +61,9 @@ fn main() {
         .iter()
         .enumerate()
         .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-        .unwrap();
+        .expect("test");
 
-    let vocab = mapped.model.vocabulary().unwrap();
+    let vocab = mapped.model.vocabulary().expect("test");
     let tok = if best_idx < vocab.len() {
         &vocab[best_idx]
     } else {

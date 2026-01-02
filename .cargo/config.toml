@@ -14,3 +14,7 @@ RUST_TEST_THREADS = "1"
 # Use mold linker - faster and uses less memory than ld
 linker = "clang"
 rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+
+# RAM disk acceleration (auto-generated)
+[build]
+target-dir = "/mnt/ramdisk/projects/realizar/target"

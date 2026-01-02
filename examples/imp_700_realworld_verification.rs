@@ -286,7 +286,7 @@ fn main() {
                 println!("  Found model: {}", path.display());
                 let prompt_tokens: Vec<u32> = vec![1, 450, 3007, 310, 3444, 338]; // "The capital of France is"
 
-                match measure_realizar(path.to_str().unwrap(), &prompt_tokens, num_tokens) {
+                match measure_realizar(path.to_str().expect("test"), &prompt_tokens, num_tokens) {
                     Ok((tps, latency)) => {
                         println!("  Result: {:.2} tok/s (latency={:?})", tps, latency);
                         model_found = true;
@@ -347,7 +347,11 @@ fn main() {
                         prompt_tokens.len()
                     );
 
-                    match measure_realizar_gpu(path.to_str().unwrap(), &prompt_tokens, num_tokens) {
+                    match measure_realizar_gpu(
+                        path.to_str().expect("test"),
+                        &prompt_tokens,
+                        num_tokens,
+                    ) {
                         Ok((tps, latency)) => {
                             println!("  Result: {:.2} tok/s (latency={:?})", tps, latency);
                             gpu_model_found = true;

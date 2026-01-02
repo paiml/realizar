@@ -1136,7 +1136,8 @@ impl ToolDefinition {
             return false;
         }
         let mut chars = name.chars();
-        let first = chars.next().unwrap();
+        // SAFETY: name is non-empty (checked above)
+        let first = chars.next().expect("name is non-empty");
         if !first.is_ascii_alphabetic() && first != '_' {
             return false;
         }
@@ -1317,7 +1318,7 @@ impl ToolCallParser {
                         // Check if this is a valid tool
                         if self.tools.iter().any(|t| t.name == name) {
                             let arguments = if args.is_string() {
-                                args.as_str().unwrap().to_string()
+                                args.as_str().expect("checked is_string above").to_string()
                             } else {
                                 args.to_string()
                             };
@@ -1380,7 +1381,7 @@ impl ToolCallParser {
                     ) {
                         if self.tools.iter().any(|t| t.name == name) {
                             let arguments = if args.is_string() {
-                                args.as_str().unwrap().to_string()
+                                args.as_str().expect("checked is_string above").to_string()
                             } else {
                                 args.to_string()
                             };
@@ -1880,7 +1881,7 @@ mod tests {
             ],
         ));
 
-        let mut sm = GrammarStateMachine::new(grammar).unwrap();
+        let mut sm = GrammarStateMachine::new(grammar).expect("test");
 
         assert!(sm.is_valid_char('a'));
         assert!(!sm.is_valid_char('b'));
@@ -1907,7 +1908,7 @@ mod tests {
             ],
         ));
 
-        let sm = GrammarStateMachine::new(grammar).unwrap();
+        let sm = GrammarStateMachine::new(grammar).expect("test");
 
         // Both 'a' and 'b' should be valid initially
         assert!(sm.is_valid_char('a'));
@@ -1923,7 +1924,7 @@ mod tests {
             vec![GrammarElement::CharRange('a', 'z')],
         ));
 
-        let sm = GrammarStateMachine::new(grammar).unwrap();
+        let sm = GrammarStateMachine::new(grammar).expect("test");
 
         assert!(sm.is_valid_char('a'));
         assert!(sm.is_valid_char('m'));
@@ -1937,7 +1938,7 @@ mod tests {
         let mut grammar = Grammar::with_root("root");
         grammar.add_rule(GrammarRule::single("root", vec![GrammarElement::Char('a')]));
 
-        let mut sm = GrammarStateMachine::new(grammar).unwrap();
+        let mut sm = GrammarStateMachine::new(grammar).expect("test");
 
         sm.advance('a');
         assert!(sm.is_complete());
@@ -1963,7 +1964,7 @@ mod tests {
         let schema = JsonSchemaType::Integer;
         let grammar = grammar_from_json_schema(&schema);
 
-        let sm = GrammarStateMachine::new(grammar).unwrap();
+        let sm = GrammarStateMachine::new(grammar).expect("test");
         assert!(sm.is_valid_char('0'));
         assert!(sm.is_valid_char('9'));
         assert!(sm.is_valid_char('-'));
@@ -1974,7 +1975,7 @@ mod tests {
         let schema = JsonSchemaType::Boolean;
         let grammar = grammar_from_json_schema(&schema);
 
-        let mut sm = GrammarStateMachine::new(grammar).unwrap();
+        let mut sm = GrammarStateMachine::new(grammar).expect("test");
 
         // Should accept 't' for 'true' or 'f' for 'false'
         assert!(sm.is_valid_char('t'));
@@ -1994,7 +1995,7 @@ mod tests {
         let schema = JsonSchemaType::Null;
         let grammar = grammar_from_json_schema(&schema);
 
-        let mut sm = GrammarStateMachine::new(grammar).unwrap();
+        let mut sm = GrammarStateMachine::new(grammar).expect("test");
 
         assert!(sm.advance('n'));
         assert!(sm.advance('u'));
@@ -2008,7 +2009,7 @@ mod tests {
         let schema = JsonSchemaType::Enum(vec!["red".to_string(), "blue".to_string()]);
         let grammar = grammar_from_json_schema(&schema);
 
-        let mut sm = GrammarStateMachine::new(grammar).unwrap();
+        let mut sm = GrammarStateMachine::new(grammar).expect("test");
 
         // Should accept '"' to start string
         assert!(sm.is_valid_char('"'));
@@ -2097,7 +2098,7 @@ mod tests {
         token_strings.insert(2, "c".to_string());
         token_strings.insert(3, "ab".to_string());
 
-        let mut masker = GrammarTokenMasker::new(grammar, token_strings, 99).unwrap();
+        let mut masker = GrammarTokenMasker::new(grammar, token_strings, 99).expect("test");
 
         // Initially, only 'a' and 'ab' should be allowed
         let mask = masker.get_mask();
@@ -2128,7 +2129,7 @@ mod tests {
         let mut token_strings = HashMap::new();
         token_strings.insert(0, "x".to_string());
 
-        let mut masker = GrammarTokenMasker::new(grammar, token_strings, 99).unwrap();
+        let mut masker = GrammarTokenMasker::new(grammar, token_strings, 99).expect("test");
 
         masker.advance_token(0);
         assert!(masker.is_complete());
@@ -2149,7 +2150,7 @@ mod tests {
             ],
         ));
 
-        let sm = GrammarStateMachine::new(grammar).unwrap();
+        let sm = GrammarStateMachine::new(grammar).expect("test");
         let valid = sm.valid_chars();
 
         assert!(valid.contains(&'a'));
@@ -2166,8 +2167,8 @@ mod tests {
         let mut grammar = Grammar::with_root("test");
         grammar.add_rule(GrammarRule::single("test", vec![GrammarElement::Char('x')]));
 
-        let json = serde_json::to_string(&grammar).unwrap();
-        let deserialized: Grammar = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&grammar).expect("test");
+        let deserialized: Grammar = serde_json::from_str(&json).expect("test");
 
         assert_eq!(deserialized.root(), "test");
         assert!(deserialized.get_rule("test").is_some());
@@ -2379,7 +2380,7 @@ mod tests {
             r#"{"location": "NYC", "unit": "celsius"}"#,
         );
 
-        let args = call.parse_arguments().unwrap();
+        let args = call.parse_arguments().expect("test");
         assert_eq!(args["location"], "NYC");
         assert_eq!(args["unit"], "celsius");
     }
@@ -2463,7 +2464,7 @@ Here's the weather."#;
 
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].name, "get_weather");
-        let args: serde_json::Value = serde_json::from_str(&calls[0].arguments).unwrap();
+        let args: serde_json::Value = serde_json::from_str(&calls[0].arguments).expect("test");
         assert_eq!(args["location"], "New York");
     }
 
@@ -2527,7 +2528,7 @@ Some text
 
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].name, "get_weather");
-        let args: serde_json::Value = serde_json::from_str(&calls[0].arguments).unwrap();
+        let args: serde_json::Value = serde_json::from_str(&calls[0].arguments).expect("test");
         assert_eq!(args["location"], "Paris");
     }
 
@@ -2603,7 +2604,7 @@ Some text
 
         // Result includes surrounding newlines - trim for comparison
         assert!(result.is_some());
-        let trimmed = result.unwrap().trim().to_string();
+        let trimmed = result.expect("test").trim().to_string();
         assert_eq!(trimmed, r#"{"location": "NYC"}"#);
     }
 
@@ -2661,8 +2662,8 @@ Some text
             vec![ToolParameter::required_string("arg1", "First argument")],
         );
 
-        let json = serde_json::to_string(&tool).unwrap();
-        let deserialized: ToolDefinition = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&tool).expect("test");
+        let deserialized: ToolDefinition = serde_json::from_str(&json).expect("test");
 
         assert_eq!(deserialized.name, "test_tool");
         assert_eq!(deserialized.description, "A test tool");
@@ -2673,8 +2674,8 @@ Some text
     fn test_tool_call_serialization() {
         let call = ToolCall::new("call_123", "my_tool", r#"{"key": "value"}"#);
 
-        let json = serde_json::to_string(&call).unwrap();
-        let deserialized: ToolCall = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&call).expect("test");
+        let deserialized: ToolCall = serde_json::from_str(&json).expect("test");
 
         assert_eq!(deserialized.id, "call_123");
         assert_eq!(deserialized.name, "my_tool");
@@ -2685,8 +2686,8 @@ Some text
     fn test_tool_result_serialization() {
         let result = ToolResult::success("call_123", "result data");
 
-        let json = serde_json::to_string(&result).unwrap();
-        let deserialized: ToolResult = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&result).expect("test");
+        let deserialized: ToolResult = serde_json::from_str(&json).expect("test");
 
         assert_eq!(deserialized.tool_call_id, "call_123");
         assert_eq!(deserialized.content, "result data");
@@ -2697,11 +2698,11 @@ Some text
     fn test_tool_choice_serialization() {
         let choice = ToolChoice::Specific("my_tool".to_string());
 
-        let json = serde_json::to_string(&choice).unwrap();
+        let json = serde_json::to_string(&choice).expect("test");
         assert!(json.contains("my_tool"));
 
         let auto = ToolChoice::Auto;
-        let auto_json = serde_json::to_string(&auto).unwrap();
+        let auto_json = serde_json::to_string(&auto).expect("test");
         assert_eq!(auto_json, "\"auto\"");
     }
 
@@ -2711,8 +2712,8 @@ Some text
             items: Box::new(ToolParameterType::Integer),
         };
 
-        let json = serde_json::to_string(&array_type).unwrap();
-        let deserialized: ToolParameterType = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&array_type).expect("test");
+        let deserialized: ToolParameterType = serde_json::from_str(&json).expect("test");
 
         match deserialized {
             ToolParameterType::Array { items } => {

@@ -3,9 +3,9 @@ use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
 fn main() {
     let mapped =
         MappedGGUFModel::from_path("/home/noah/src/aprender/tinyllama-1.1b-chat-v1.0.Q4_0.gguf")
-            .unwrap();
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
-    let vocab = mapped.model.vocabulary().unwrap();
+            .expect("test");
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
+    let vocab = mapped.model.vocabulary().expect("test");
 
     // Find "Paris" token
     let paris_tokens: Vec<(usize, String)> = vocab
@@ -22,11 +22,11 @@ fn main() {
 
     // Run forward pass
     let prompt = "The capital of France is";
-    let tokens = mapped.model.encode(prompt).unwrap();
+    let tokens = mapped.model.encode(prompt).expect("test");
     println!("\nPrompt: '{}'", prompt);
     println!("Tokens: {:?}", tokens);
 
-    let logits = model.forward(&tokens).unwrap();
+    let logits = model.forward(&tokens).expect("test");
 
     // Check logit values for Paris-related tokens
     println!("\nLogits for Paris-related tokens:");

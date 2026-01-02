@@ -4263,7 +4263,11 @@ async fn apr_explain_handler(
         .iter()
         .zip(shap_values.iter())
         .collect();
-    feature_importance.sort_by(|a, b| b.1.abs().partial_cmp(&a.1.abs()).unwrap());
+    feature_importance.sort_by(|a, b| {
+        b.1.abs()
+            .partial_cmp(&a.1.abs())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let top_features: Vec<_> = feature_importance
         .iter()
@@ -4345,7 +4349,7 @@ mod tests {
     use super::*;
 
     fn create_test_app() -> Router {
-        let state = AppState::demo().unwrap();
+        let state = AppState::demo().expect("test");
         create_router(state)
     }
 
@@ -4358,17 +4362,17 @@ mod tests {
                 Request::builder()
                     .uri("/health")
                     .body(Body::empty())
-                    .unwrap(),
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .unwrap();
-        let health: HealthResponse = serde_json::from_slice(&body).unwrap();
+            .expect("test");
+        let health: HealthResponse = serde_json::from_slice(&body).expect("test");
         assert_eq!(health.status, "healthy");
     }
 
@@ -4381,17 +4385,17 @@ mod tests {
                 Request::builder()
                     .uri("/metrics")
                     .body(Body::empty())
-                    .unwrap(),
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .unwrap();
-        let metrics_text = String::from_utf8(body.to_vec()).unwrap();
+            .expect("test");
+        let metrics_text = String::from_utf8(body.to_vec()).expect("test");
 
         // Verify Prometheus format
         assert!(metrics_text.contains("realizar_requests_total"));
@@ -4403,7 +4407,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_metrics_tracking() {
-        let state = AppState::demo().unwrap();
+        let state = AppState::demo().expect("test");
         let app = create_router(state.clone());
 
         // Make a generate request
@@ -4425,11 +4429,11 @@ mod tests {
                     .method("POST")
                     .uri("/generate")
                     .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&request).unwrap()))
-                    .unwrap(),
+                    .body(Body::from(serde_json::to_string(&request).expect("test")))
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         // Check metrics were recorded
         let snapshot = state.metrics.snapshot();
@@ -4448,17 +4452,17 @@ mod tests {
                 Request::builder()
                     .uri("/v1/metrics")
                     .body(Body::empty())
-                    .unwrap(),
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .unwrap();
-        let metrics: ServerMetricsResponse = serde_json::from_slice(&body).unwrap();
+            .expect("test");
+        let metrics: ServerMetricsResponse = serde_json::from_slice(&body).expect("test");
 
         // Verify JSON structure per PARITY-107 spec
         assert!(metrics.throughput_tok_per_sec >= 0.0);
@@ -4486,18 +4490,18 @@ mod tests {
                     .method("POST")
                     .uri("/tokenize")
                     .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&request).unwrap()))
-                    .unwrap(),
+                    .body(Body::from(serde_json::to_string(&request).expect("test")))
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .unwrap();
-        let result: TokenizeResponse = serde_json::from_slice(&body).unwrap();
+            .expect("test");
+        let result: TokenizeResponse = serde_json::from_slice(&body).expect("test");
         assert!(result.num_tokens > 0);
     }
 
@@ -4522,18 +4526,18 @@ mod tests {
                     .method("POST")
                     .uri("/generate")
                     .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&request).unwrap()))
-                    .unwrap(),
+                    .body(Body::from(serde_json::to_string(&request).expect("test")))
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .unwrap();
-        let result: GenerateResponse = serde_json::from_slice(&body).unwrap();
+            .expect("test");
+        let result: GenerateResponse = serde_json::from_slice(&body).expect("test");
         assert!(!result.token_ids.is_empty());
     }
 
@@ -4558,11 +4562,11 @@ mod tests {
                     .method("POST")
                     .uri("/generate")
                     .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&request).unwrap()))
-                    .unwrap(),
+                    .body(Body::from(serde_json::to_string(&request).expect("test")))
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
@@ -4588,11 +4592,11 @@ mod tests {
                     .method("POST")
                     .uri("/generate")
                     .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&request).unwrap()))
-                    .unwrap(),
+                    .body(Body::from(serde_json::to_string(&request).expect("test")))
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
@@ -4618,11 +4622,11 @@ mod tests {
                     .method("POST")
                     .uri("/generate")
                     .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&request).unwrap()))
-                    .unwrap(),
+                    .body(Body::from(serde_json::to_string(&request).expect("test")))
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         assert_eq!(response.status(), StatusCode::OK);
     }
@@ -4648,11 +4652,11 @@ mod tests {
                     .method("POST")
                     .uri("/generate")
                     .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&request).unwrap()))
-                    .unwrap(),
+                    .body(Body::from(serde_json::to_string(&request).expect("test")))
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         assert_eq!(response.status(), StatusCode::OK);
     }
@@ -4661,8 +4665,8 @@ mod tests {
     async fn test_app_state_demo() {
         let state = AppState::demo();
         assert!(state.is_ok());
-        let state = state.unwrap();
-        assert_eq!(state.tokenizer.as_ref().unwrap().vocab_size(), 100);
+        let state = state.expect("test");
+        assert_eq!(state.tokenizer.as_ref().expect("test").vocab_size(), 100);
     }
 
     #[test]
@@ -4704,17 +4708,17 @@ mod tests {
                     .uri("/generate")
                     .header("content-type", "application/json")
                     .body(Body::from(json))
-                    .unwrap(),
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .unwrap();
-        let result: GenerateResponse = serde_json::from_slice(&body).unwrap();
+            .expect("test");
+        let result: GenerateResponse = serde_json::from_slice(&body).expect("test");
         assert!(!result.token_ids.is_empty());
         // Verify generation used defaults (greedy with max 50 tokens)
         assert!(result.num_generated <= 50);
@@ -4731,14 +4735,14 @@ mod tests {
                     .uri("/tokenize")
                     .header("content-type", "application/json")
                     .body(Body::from(r#"{"text": "a"}"#))
-                    .unwrap(),
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
         let prompt_body = axum::body::to_bytes(prompt_tokens.into_body(), usize::MAX)
             .await
-            .unwrap();
-        let prompt_result: TokenizeResponse = serde_json::from_slice(&prompt_body).unwrap();
+            .expect("test");
+        let prompt_result: TokenizeResponse = serde_json::from_slice(&prompt_body).expect("test");
         let prompt_len = prompt_result.token_ids.len();
 
         // Now generate
@@ -4760,18 +4764,18 @@ mod tests {
                     .method("POST")
                     .uri("/generate")
                     .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&request).unwrap()))
-                    .unwrap(),
+                    .body(Body::from(serde_json::to_string(&request).expect("test")))
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .unwrap();
-        let result: GenerateResponse = serde_json::from_slice(&body).unwrap();
+            .expect("test");
+        let result: GenerateResponse = serde_json::from_slice(&body).expect("test");
 
         // Verify num_generated = total_tokens - prompt_tokens
         assert_eq!(result.num_generated, result.token_ids.len() - prompt_len);
@@ -4795,18 +4799,18 @@ mod tests {
                     .method("POST")
                     .uri("/batch/tokenize")
                     .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&request).unwrap()))
-                    .unwrap(),
+                    .body(Body::from(serde_json::to_string(&request).expect("test")))
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .unwrap();
-        let result: BatchTokenizeResponse = serde_json::from_slice(&body).unwrap();
+            .expect("test");
+        let result: BatchTokenizeResponse = serde_json::from_slice(&body).expect("test");
 
         // Verify we got 2 results
         assert_eq!(result.results.len(), 2);
@@ -4827,11 +4831,11 @@ mod tests {
                     .method("POST")
                     .uri("/batch/tokenize")
                     .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&request).unwrap()))
-                    .unwrap(),
+                    .body(Body::from(serde_json::to_string(&request).expect("test")))
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
@@ -4856,18 +4860,18 @@ mod tests {
                     .method("POST")
                     .uri("/batch/generate")
                     .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&request).unwrap()))
-                    .unwrap(),
+                    .body(Body::from(serde_json::to_string(&request).expect("test")))
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .unwrap();
-        let result: BatchGenerateResponse = serde_json::from_slice(&body).unwrap();
+            .expect("test");
+        let result: BatchGenerateResponse = serde_json::from_slice(&body).expect("test");
 
         // Verify we got 2 results
         assert_eq!(result.results.len(), 2);
@@ -4899,11 +4903,11 @@ mod tests {
                     .method("POST")
                     .uri("/batch/generate")
                     .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&request).unwrap()))
-                    .unwrap(),
+                    .body(Body::from(serde_json::to_string(&request).expect("test")))
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
@@ -4922,17 +4926,17 @@ mod tests {
                     .uri("/batch/generate")
                     .header("content-type", "application/json")
                     .body(Body::from(json))
-                    .unwrap(),
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .unwrap();
-        let result: BatchGenerateResponse = serde_json::from_slice(&body).unwrap();
+            .expect("test");
+        let result: BatchGenerateResponse = serde_json::from_slice(&body).expect("test");
 
         assert_eq!(result.results.len(), 2);
         // Verify generation used defaults (greedy with max 50 tokens)
@@ -4965,18 +4969,18 @@ mod tests {
                     .method("POST")
                     .uri("/batch/generate")
                     .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&request).unwrap()))
-                    .unwrap(),
+                    .body(Body::from(serde_json::to_string(&request).expect("test")))
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .unwrap();
-        let result: BatchGenerateResponse = serde_json::from_slice(&body).unwrap();
+            .expect("test");
+        let result: BatchGenerateResponse = serde_json::from_slice(&body).expect("test");
 
         // Verify order is preserved: 3 prompts -> 3 results in same order
         assert_eq!(result.results.len(), 3);
@@ -5008,11 +5012,11 @@ mod tests {
                     .method("POST")
                     .uri("/batch/generate")
                     .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&request).unwrap()))
-                    .unwrap(),
+                    .body(Body::from(serde_json::to_string(&request).expect("test")))
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
@@ -5037,18 +5041,18 @@ mod tests {
                     .method("POST")
                     .uri("/batch/generate")
                     .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&request).unwrap()))
-                    .unwrap(),
+                    .body(Body::from(serde_json::to_string(&request).expect("test")))
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .unwrap();
-        let result: BatchGenerateResponse = serde_json::from_slice(&body).unwrap();
+            .expect("test");
+        let result: BatchGenerateResponse = serde_json::from_slice(&body).expect("test");
 
         assert_eq!(result.results.len(), 2);
     }
@@ -5073,18 +5077,18 @@ mod tests {
                     .method("POST")
                     .uri("/batch/generate")
                     .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&request).unwrap()))
-                    .unwrap(),
+                    .body(Body::from(serde_json::to_string(&request).expect("test")))
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .unwrap();
-        let result: BatchGenerateResponse = serde_json::from_slice(&body).unwrap();
+            .expect("test");
+        let result: BatchGenerateResponse = serde_json::from_slice(&body).expect("test");
 
         assert_eq!(result.results.len(), 1);
     }
@@ -5102,17 +5106,17 @@ mod tests {
                 Request::builder()
                     .uri("/v1/models")
                     .body(Body::empty())
-                    .unwrap(),
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .unwrap();
-        let result: OpenAIModelsResponse = serde_json::from_slice(&body).unwrap();
+            .expect("test");
+        let result: OpenAIModelsResponse = serde_json::from_slice(&body).expect("test");
 
         assert_eq!(result.object, "list");
         assert!(!result.data.is_empty());
@@ -5153,18 +5157,18 @@ mod tests {
                     .method("POST")
                     .uri("/v1/chat/completions")
                     .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&request).unwrap()))
-                    .unwrap(),
+                    .body(Body::from(serde_json::to_string(&request).expect("test")))
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .unwrap();
-        let result: ChatCompletionResponse = serde_json::from_slice(&body).unwrap();
+            .expect("test");
+        let result: ChatCompletionResponse = serde_json::from_slice(&body).expect("test");
 
         assert!(result.id.starts_with("chatcmpl-"));
         assert_eq!(result.object, "chat.completion");
@@ -5189,17 +5193,17 @@ mod tests {
                     .uri("/v1/chat/completions")
                     .header("content-type", "application/json")
                     .body(Body::from(json))
-                    .unwrap(),
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .unwrap();
-        let result: ChatCompletionResponse = serde_json::from_slice(&body).unwrap();
+            .expect("test");
+        let result: ChatCompletionResponse = serde_json::from_slice(&body).expect("test");
 
         // Verify response structure
         assert!(result.id.starts_with("chatcmpl-"));
@@ -5280,7 +5284,7 @@ mod tests {
             name: Some("test_user".to_string()),
         };
 
-        let json = serde_json::to_string(&msg).unwrap();
+        let json = serde_json::to_string(&msg).expect("test");
         assert!(json.contains("\"role\":\"user\""));
         assert!(json.contains("\"content\":\"Hello\""));
         assert!(json.contains("\"name\":\"test_user\""));
@@ -5294,7 +5298,7 @@ mod tests {
             total_tokens: 30,
         };
 
-        let json = serde_json::to_string(&usage).unwrap();
+        let json = serde_json::to_string(&usage).expect("test");
         assert!(json.contains("\"prompt_tokens\":10"));
         assert!(json.contains("\"completion_tokens\":20"));
         assert!(json.contains("\"total_tokens\":30"));
@@ -5337,7 +5341,7 @@ mod tests {
     #[test]
     fn test_chat_completion_chunk_serialization() {
         let chunk = ChatCompletionChunk::content("chatcmpl-123", "gpt-4", "Hi");
-        let json = serde_json::to_string(&chunk).unwrap();
+        let json = serde_json::to_string(&chunk).expect("test");
 
         assert!(json.contains("\"object\":\"chat.completion.chunk\""));
         assert!(json.contains("\"id\":\"chatcmpl-123\""));
@@ -5350,7 +5354,7 @@ mod tests {
             role: None,
             content: Some("test".to_string()),
         };
-        let json = serde_json::to_string(&delta).unwrap();
+        let json = serde_json::to_string(&delta).expect("test");
 
         // Should not contain "role" when it's None
         assert!(!json.contains("\"role\""));
@@ -5367,7 +5371,7 @@ mod tests {
             },
             finish_reason: None,
         };
-        let json = serde_json::to_string(&choice).unwrap();
+        let json = serde_json::to_string(&choice).expect("test");
 
         assert!(json.contains("\"index\":0"));
         assert!(json.contains("\"role\":\"assistant\""));
@@ -5578,18 +5582,18 @@ mod tests {
                     .method("POST")
                     .uri("/v1/predict")
                     .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&request).unwrap()))
-                    .unwrap(),
+                    .body(Body::from(serde_json::to_string(&request).expect("test")))
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .unwrap();
-        let result: PredictResponse = serde_json::from_slice(&body).unwrap();
+            .expect("test");
+        let result: PredictResponse = serde_json::from_slice(&body).expect("test");
 
         assert!(!result.request_id.is_empty());
         assert_eq!(result.model, "default");
@@ -5619,11 +5623,11 @@ mod tests {
                     .method("POST")
                     .uri("/v1/predict")
                     .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&request).unwrap()))
-                    .unwrap(),
+                    .body(Body::from(serde_json::to_string(&request).expect("test")))
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
@@ -5646,18 +5650,18 @@ mod tests {
                     .method("POST")
                     .uri("/v1/explain")
                     .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&request).unwrap()))
-                    .unwrap(),
+                    .body(Body::from(serde_json::to_string(&request).expect("test")))
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .unwrap();
-        let result: ExplainResponse = serde_json::from_slice(&body).unwrap();
+            .expect("test");
+        let result: ExplainResponse = serde_json::from_slice(&body).expect("test");
 
         assert!(!result.request_id.is_empty());
         assert_eq!(result.model, "default");
@@ -5684,11 +5688,11 @@ mod tests {
                     .method("POST")
                     .uri("/v1/explain")
                     .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&request).unwrap()))
-                    .unwrap(),
+                    .body(Body::from(serde_json::to_string(&request).expect("test")))
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
@@ -5696,7 +5700,7 @@ mod tests {
     #[tokio::test]
     async fn test_apr_audit_endpoint() {
         // Tests real audit trail: predict creates record, audit fetches it
-        let state = AppState::demo().unwrap();
+        let state = AppState::demo().expect("test");
         let app = create_router(state);
 
         // First, make a prediction to create an audit record
@@ -5715,18 +5719,20 @@ mod tests {
                     .method("POST")
                     .uri("/v1/predict")
                     .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&predict_request).unwrap()))
-                    .unwrap(),
+                    .body(Body::from(
+                        serde_json::to_string(&predict_request).expect("test"),
+                    ))
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .unwrap();
-        let predict_result: PredictResponse = serde_json::from_slice(&body).unwrap();
+            .expect("test");
+        let predict_result: PredictResponse = serde_json::from_slice(&body).expect("test");
         let request_id = predict_result.request_id;
 
         // Now fetch the audit record for this prediction
@@ -5735,17 +5741,17 @@ mod tests {
                 Request::builder()
                     .uri(format!("/v1/audit/{}", request_id))
                     .body(Body::empty())
-                    .unwrap(),
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         assert_eq!(audit_response.status(), StatusCode::OK);
 
         let audit_body = axum::body::to_bytes(audit_response.into_body(), usize::MAX)
             .await
-            .unwrap();
-        let audit_result: AuditResponse = serde_json::from_slice(&audit_body).unwrap();
+            .expect("test");
+        let audit_result: AuditResponse = serde_json::from_slice(&audit_body).expect("test");
 
         // Verify the audit record matches the prediction request
         assert_eq!(audit_result.record.request_id, request_id);
@@ -5760,10 +5766,10 @@ mod tests {
                 Request::builder()
                     .uri("/v1/audit/not-a-valid-uuid")
                     .body(Body::empty())
-                    .unwrap(),
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
@@ -5778,19 +5784,19 @@ mod tests {
             include_confidence: true,
         };
 
-        let json = serde_json::to_string(&request).unwrap();
+        let json = serde_json::to_string(&request).expect("test");
         assert!(json.contains("test-model"));
         assert!(json.contains("features"));
 
         // Deserialize back
-        let deserialized: PredictRequest = serde_json::from_str(&json).unwrap();
+        let deserialized: PredictRequest = serde_json::from_str(&json).expect("test");
         assert_eq!(deserialized.features.len(), 3);
     }
 
     #[test]
     fn test_explain_request_defaults() {
         let json = r#"{"features": [1.0], "feature_names": ["f1"]}"#;
-        let request: ExplainRequest = serde_json::from_str(json).unwrap();
+        let request: ExplainRequest = serde_json::from_str(json).expect("test");
 
         assert_eq!(request.top_k_features, 5); // default
         assert_eq!(request.method, "shap"); // default
@@ -5865,11 +5871,11 @@ mod tests {
                     .method("POST")
                     .uri("/v1/completions")
                     .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&request).unwrap()))
-                    .unwrap(),
+                    .body(Body::from(serde_json::to_string(&request).expect("test")))
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         // Should succeed (200 OK) with GPU model
         assert_eq!(
@@ -6012,11 +6018,11 @@ mod tests {
                     .method("POST")
                     .uri("/v1/completions")
                     .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&request).unwrap()))
-                    .unwrap(),
+                    .body(Body::from(serde_json::to_string(&request).expect("test")))
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         // The request was routed (may fail with 500 due to test model)
         // Key point: no panic, request was handled
@@ -6364,10 +6370,10 @@ mod tests {
                 Request::builder()
                     .uri("/metrics/dispatch")
                     .body(Body::empty())
-                    .unwrap(),
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         assert_eq!(
             response.status(),
@@ -6417,14 +6423,14 @@ mod tests {
                 Request::builder()
                     .uri("/metrics/dispatch")
                     .body(Body::empty())
-                    .unwrap(),
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .unwrap();
+            .expect("test");
         let json: serde_json::Value =
             serde_json::from_slice(&body).expect("IMP-127b: Response should be valid JSON");
 
@@ -6478,15 +6484,15 @@ mod tests {
                 Request::builder()
                     .uri("/metrics/dispatch")
                     .body(Body::empty())
-                    .unwrap(),
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .unwrap();
-        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            .expect("test");
+        let json: serde_json::Value = serde_json::from_slice(&body).expect("test");
 
         assert_eq!(
             json["cpu_dispatches"].as_u64(),
@@ -6517,10 +6523,10 @@ mod tests {
                 Request::builder()
                     .uri("/metrics/dispatch")
                     .body(Body::empty())
-                    .unwrap(),
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         // Should return 503 Service Unavailable when no dispatch metrics available
         assert_eq!(
@@ -6565,10 +6571,10 @@ mod tests {
                 Request::builder()
                     .uri("/metrics/dispatch?format=prometheus")
                     .body(Body::empty())
-                    .unwrap(),
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         assert_eq!(
             response.status(),
@@ -6618,14 +6624,14 @@ mod tests {
                 Request::builder()
                     .uri("/metrics/dispatch?format=prometheus")
                     .body(Body::empty())
-                    .unwrap(),
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .unwrap();
+            .expect("test");
         let text = String::from_utf8_lossy(&body);
 
         // Verify Prometheus metric format
@@ -6675,10 +6681,10 @@ mod tests {
                 Request::builder()
                     .uri("/metrics/dispatch")
                     .body(Body::empty())
-                    .unwrap(),
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         let content_type = response
             .headers()
@@ -6721,10 +6727,10 @@ mod tests {
                 Request::builder()
                     .uri("/metrics/dispatch?format=json")
                     .body(Body::empty())
-                    .unwrap(),
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         let content_type = response
             .headers()
@@ -6776,14 +6782,14 @@ mod tests {
                 Request::builder()
                     .uri("/metrics/dispatch?format=prometheus")
                     .body(Body::empty())
-                    .unwrap(),
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .unwrap();
+            .expect("test");
         let body_str = String::from_utf8_lossy(&body);
 
         // IMP-130a: Should include CPU latency histogram buckets
@@ -6839,14 +6845,14 @@ mod tests {
                 Request::builder()
                     .uri("/metrics/dispatch?format=prometheus")
                     .body(Body::empty())
-                    .unwrap(),
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .unwrap();
+            .expect("test");
         let body_str = String::from_utf8_lossy(&body);
 
         // IMP-130b: Should include GPU latency histogram buckets
@@ -6896,14 +6902,14 @@ mod tests {
                 Request::builder()
                     .uri("/metrics/dispatch?format=prometheus")
                     .body(Body::empty())
-                    .unwrap(),
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .unwrap();
+            .expect("test");
         let body_str = String::from_utf8_lossy(&body);
 
         // IMP-130c: Should have Prometheus histogram bucket labels (le="X")
@@ -6961,14 +6967,14 @@ mod tests {
                 Request::builder()
                     .uri("/metrics/dispatch?format=prometheus")
                     .body(Body::empty())
-                    .unwrap(),
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .unwrap();
+            .expect("test");
         let body_str = String::from_utf8_lossy(&body);
 
         // IMP-130d: Should have HELP and TYPE annotations for histograms
@@ -7035,14 +7041,14 @@ mod tests {
                 Request::builder()
                     .uri("/metrics/dispatch?format=prometheus")
                     .body(Body::empty())
-                    .unwrap(),
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .unwrap();
+            .expect("test");
         let body_str = String::from_utf8_lossy(&body);
 
         // IMP-141a: Should include throughput_rps metric
@@ -7084,14 +7090,14 @@ mod tests {
                 Request::builder()
                     .uri("/metrics/dispatch?format=prometheus")
                     .body(Body::empty())
-                    .unwrap(),
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .unwrap();
+            .expect("test");
         let body_str = String::from_utf8_lossy(&body);
 
         // IMP-141b: Should include elapsed_seconds metric
@@ -7133,14 +7139,14 @@ mod tests {
                 Request::builder()
                     .uri("/metrics/dispatch?format=prometheus")
                     .body(Body::empty())
-                    .unwrap(),
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .unwrap();
+            .expect("test");
         let body_str = String::from_utf8_lossy(&body);
 
         // IMP-141c: Should have HELP and TYPE for throughput_rps
@@ -7185,14 +7191,14 @@ mod tests {
                 Request::builder()
                     .uri("/metrics/dispatch?format=prometheus")
                     .body(Body::empty())
-                    .unwrap(),
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .unwrap();
+            .expect("test");
         let body_str = String::from_utf8_lossy(&body);
 
         // IMP-141d: Should have HELP and TYPE for elapsed_seconds
@@ -7308,14 +7314,14 @@ mod tests {
                 Request::builder()
                     .uri("/metrics/dispatch")
                     .body(Body::empty())
-                    .unwrap(),
+                    .expect("test"),
             )
             .await
-            .unwrap();
+            .expect("test");
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .unwrap();
+            .expect("test");
         let body_str = String::from_utf8_lossy(&body);
 
         // IMP-131c: JSON should include percentile fields

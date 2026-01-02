@@ -528,8 +528,8 @@ mod tests {
         // Check border consistency
         assert!(lines[0].starts_with('╭'));
         assert!(lines[0].ends_with('╮'));
-        assert!(lines.last().unwrap().starts_with('╰'));
-        assert!(lines.last().unwrap().ends_with('╯'));
+        assert!(lines.last().expect("test").starts_with('╰'));
+        assert!(lines.last().expect("test").ends_with('╯'));
 
         // Check content
         assert!(
@@ -563,7 +563,7 @@ mod tests {
         assert_eq!(tui.latency_history().len(), 40);
 
         // Most recent should be last
-        assert!((tui.throughput_history().back().unwrap() - 98.0).abs() < 0.1);
+        assert!((tui.throughput_history().back().expect("test") - 98.0).abs() < 0.1);
     }
 
     /// PARITY-091f: Test empty sparkline handling

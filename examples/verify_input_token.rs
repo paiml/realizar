@@ -3,7 +3,7 @@ use realizar::gguf::MappedGGUFModel;
 fn main() {
     let path = "/tmp/parity-bench/tinyllama-1.1b-q4_k_m.gguf";
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
-    let vocab = mapped.model.vocabulary().unwrap();
+    let vocab = mapped.model.vocabulary().expect("test");
 
     println!("Checking tokens around 450:");
     for i in 448..455 {

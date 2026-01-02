@@ -16,7 +16,7 @@ fn main() {
     println!("=== PAR-001: Verify LM head (row-major Q6_K) ===\n");
 
     let mapped = MappedGGUFModel::from_path(path).expect("Failed to load model");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     let lm_head = &model.lm_head_weight;
 

@@ -22,7 +22,7 @@ fn benchmark_tensor_creation(c: &mut Criterion) {
 }
 
 fn benchmark_tensor_properties(c: &mut Criterion) {
-    let t = Tensor::from_vec(vec![100, 100], vec![0.0; 10_000]).unwrap();
+    let t = Tensor::from_vec(vec![100, 100], vec![0.0; 10_000]).expect("test");
 
     c.bench_function("tensor_shape", |b| {
         b.iter(|| {

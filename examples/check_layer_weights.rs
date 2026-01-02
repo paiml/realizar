@@ -7,7 +7,7 @@ const Q4_K_BLOCK_SIZE: usize = 144;
 fn main() {
     let path = "/tmp/parity-bench/tinyllama-1.1b-q4_k_m.gguf";
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     println!("FFN Gate/Up weight statistics per layer:\n");
 
@@ -17,7 +17,7 @@ fn main() {
         if let Some(ref gate) = layer.ffn_gate_weight {
             // Get first superblock (256 values)
             let first_block = &gate.data[..Q4_K_BLOCK_SIZE];
-            let dequant = dequantize_q4_k(first_block).unwrap();
+            let dequant = dequantize_q4_k(first_block).expect("test");
             let l2: f32 = dequant.iter().map(|x| x * x).sum::<f32>().sqrt();
             let min = dequant.iter().cloned().fold(f32::INFINITY, f32::min);
             let max = dequant.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
@@ -29,7 +29,7 @@ fn main() {
 
         let up = &layer.ffn_up_weight;
         let first_block = &up.data[..Q4_K_BLOCK_SIZE];
-        let dequant = dequantize_q4_k(first_block).unwrap();
+        let dequant = dequantize_q4_k(first_block).expect("test");
         let l2: f32 = dequant.iter().map(|x| x * x).sum::<f32>().sqrt();
         let min = dequant.iter().cloned().fold(f32::INFINITY, f32::min);
         let max = dequant.iter().cloned().fold(f32::NEG_INFINITY, f32::max);

@@ -9,8 +9,8 @@ fn l2_norm(v: &[f32]) -> f32 {
 fn main() {
     let path = "/tmp/parity-bench/tinyllama-1.1b-q4_k_m.gguf";
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
-    let vocab = mapped.model.vocabulary().unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
+    let vocab = mapped.model.vocabulary().expect("test");
 
     println!("=== PAR-001: Embedding Check ===\n");
 

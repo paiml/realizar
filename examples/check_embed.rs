@@ -3,15 +3,16 @@ use std::fs;
 
 fn main() {
     // Load raw model
-    let data = fs::read("/home/noah/src/aprender/tinyllama-1.1b-chat-v1.0.Q4_0.gguf").unwrap();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let data =
+        fs::read("/home/noah/src/aprender/tinyllama-1.1b-chat-v1.0.Q4_0.gguf").expect("test");
+    let model = GGUFModel::from_bytes(&data).expect("test");
 
     // Get token_embd tensor info
     let tensor = model
         .tensors
         .iter()
         .find(|t| t.name == "token_embd.weight")
-        .unwrap();
+        .expect("test");
     println!("token_embd.weight:");
     println!("  dims: {:?}", tensor.dims);
     println!(
@@ -22,7 +23,9 @@ fn main() {
     println!("  offset: {}", tensor.offset);
 
     // Load token embedding as f32
-    let embed = model.get_tensor_f32("token_embd.weight", &data).unwrap();
+    let embed = model
+        .get_tensor_f32("token_embd.weight", &data)
+        .expect("test");
     println!("  loaded len: {}", embed.len());
 
     let hidden_dim = 2048;

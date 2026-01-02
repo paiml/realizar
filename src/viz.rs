@@ -427,7 +427,7 @@ mod tests {
     fn test_with_throughput() {
         let data = BenchmarkData::new("test", vec![1.0, 2.0]).with_throughput(vec![1000.0, 2000.0]);
         assert!(data.throughput.is_some());
-        assert_eq!(data.throughput.unwrap().len(), 2);
+        assert_eq!(data.throughput.expect("test").len(), 2);
     }
 
     #[cfg(feature = "visualization")]
@@ -436,7 +436,7 @@ mod tests {
         let data = BenchmarkData::new("test", vec![1.0, 2.0, 3.0, 4.0, 5.0]);
         let result = render_histogram_terminal(&data, 40);
         assert!(result.is_ok());
-        assert!(!result.unwrap().is_empty());
+        assert!(!result.expect("test").is_empty());
     }
 
     #[cfg(feature = "visualization")]

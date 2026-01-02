@@ -57,7 +57,6 @@
 //! - Achieves 6.5625 bits per weight (highest quality K-quant format)
 
 use crate::error::{RealizarError, Result};
-use once_cell::sync::Lazy;
 
 /// Pre-computed f16 to f32 lookup table (65536 entries = 256KB)
 ///
@@ -66,7 +65,7 @@ use once_cell::sync::Lazy;
 ///
 /// # Safety
 /// The table is initialized once on first access and is immutable thereafter.
-static F16_TO_F32_LUT: Lazy<Box<[f32; 65536]>> = Lazy::new(|| {
+static F16_TO_F32_LUT: std::sync::LazyLock<Box<[f32; 65536]>> = std::sync::LazyLock::new(|| {
     let mut lut = Box::new([0.0f32; 65536]);
     for i in 0..65536u32 {
         lut[i as usize] = half::f16::from_bits(i as u16).to_f32();
@@ -201,7 +200,7 @@ impl Q8_0Block {
 /// # Errors
 /// Returns error if length is not a multiple of 32
 pub fn quantize_to_q8_blocks(values: &[f32]) -> Result<Vec<Q8_0Block>> {
-    if values.len() % 32 != 0 {
+    if !values.len().is_multiple_of(32) {
         return Err(RealizarError::FormatError {
             reason: format!(
                 "Q8_0 quantization requires length multiple of 32, got {}",
@@ -336,7 +335,7 @@ pub fn dequantize_q4_0(data: &[u8]) -> Result<Vec<f32>> {
     // GGML spec: typedef struct { ggml_half d; uint8_t qs[QK4_0/2]; } block_q4_0;
     const BLOCK_BYTES: usize = 2 + 16;
 
-    if data.len() % BLOCK_BYTES != 0 {
+    if !data.len().is_multiple_of(BLOCK_BYTES) {
         return Err(RealizarError::InvalidShape {
             reason: format!(
                 "Q4_0 data length {} is not a multiple of block size {}",
@@ -398,7 +397,7 @@ pub fn dequantize_q8_0(data: &[u8]) -> Result<Vec<f32>> {
     // Note: GGML spec uses f16 for scale, not f32!
     const BLOCK_BYTES: usize = 2 + 32;
 
-    if data.len() % BLOCK_BYTES != 0 {
+    if !data.len().is_multiple_of(BLOCK_BYTES) {
         return Err(RealizarError::InvalidShape {
             reason: format!(
                 "Q8_0 data length {} is not a multiple of block size {}",
@@ -495,7 +494,7 @@ pub fn f16_to_f32(h: u16) -> f32 {
 ///
 /// Returns error if data length is not a multiple of 2 bytes
 pub fn dequantize_f16(data: &[u8]) -> Result<Vec<f32>> {
-    if data.len() % 2 != 0 {
+    if !data.len().is_multiple_of(2) {
         return Err(RealizarError::InvalidShape {
             reason: format!(
                 "F16 data length {} is not a multiple of 2 bytes",
@@ -539,7 +538,7 @@ pub fn dequantize_q4_1(data: &[u8]) -> Result<Vec<f32>> {
     // Q4_1 block: 2 + 2 + 16 = 20 bytes
     const BLOCK_BYTES: usize = 20;
 
-    if data.len() % BLOCK_BYTES != 0 {
+    if !data.len().is_multiple_of(BLOCK_BYTES) {
         return Err(RealizarError::InvalidShape {
             reason: format!(
                 "Q4_1 data length {} is not a multiple of block size {}",
@@ -605,7 +604,7 @@ pub fn dequantize_q5_0(data: &[u8]) -> Result<Vec<f32>> {
     // Q5_0 block: 2 + 4 + 16 = 22 bytes for 32 values
     const BLOCK_BYTES: usize = 22;
 
-    if data.len() % BLOCK_BYTES != 0 {
+    if !data.len().is_multiple_of(BLOCK_BYTES) {
         return Err(RealizarError::InvalidShape {
             reason: format!(
                 "Q5_0 data length {} is not a multiple of block size {}",
@@ -685,7 +684,7 @@ pub fn dequantize_q5_1(data: &[u8]) -> Result<Vec<f32>> {
     // Q5_1 block: 2 + 2 + 4 + 16 = 24 bytes for 32 values
     const BLOCK_BYTES: usize = 24;
 
-    if data.len() % BLOCK_BYTES != 0 {
+    if !data.len().is_multiple_of(BLOCK_BYTES) {
         return Err(RealizarError::InvalidShape {
             reason: format!(
                 "Q5_1 data length {} is not a multiple of block size {}",
@@ -763,7 +762,7 @@ pub fn dequantize_q4_k(data: &[u8]) -> Result<Vec<f32>> {
     // Q4_K super-block: 2 + 2 + 12 + 128 = 144 bytes
     const SUPER_BLOCK_BYTES: usize = 144;
 
-    if data.len() % SUPER_BLOCK_BYTES != 0 {
+    if !data.len().is_multiple_of(SUPER_BLOCK_BYTES) {
         return Err(RealizarError::InvalidShape {
             reason: format!(
                 "Q4_K data length {} is not a multiple of super-block size {}",
@@ -852,7 +851,7 @@ pub fn dequantize_q5_k(data: &[u8]) -> Result<Vec<f32>> {
     // Q5_K super-block: 2 + 2 + 12 + 32 + 128 = 176 bytes
     const SUPER_BLOCK_BYTES: usize = 176;
 
-    if data.len() % SUPER_BLOCK_BYTES != 0 {
+    if !data.len().is_multiple_of(SUPER_BLOCK_BYTES) {
         return Err(RealizarError::InvalidShape {
             reason: format!(
                 "Q5_K data length {} is not a multiple of super-block size {}",
@@ -954,7 +953,7 @@ pub fn dequantize_q6_k(data: &[u8]) -> Result<Vec<f32>> {
     // Total: 128 + 64 + 16 + 2 = 210 bytes
     const SUPER_BLOCK_BYTES: usize = 210;
 
-    if data.len() % SUPER_BLOCK_BYTES != 0 {
+    if !data.len().is_multiple_of(SUPER_BLOCK_BYTES) {
         return Err(RealizarError::InvalidShape {
             reason: format!(
                 "Q6_K data length {} is not a multiple of super-block size {}",
@@ -1081,7 +1080,7 @@ pub fn fused_q4k_dot(q4k_data: &[u8], activations: &[f32]) -> Result<f32> {
     const SUPER_BLOCK_BYTES: usize = 144;
 
     // Validate Q4_K data length
-    if q4k_data.len() % SUPER_BLOCK_BYTES != 0 {
+    if !q4k_data.len().is_multiple_of(SUPER_BLOCK_BYTES) {
         return Err(RealizarError::InvalidShape {
             reason: format!(
                 "Q4_K data length {} is not a multiple of super-block size {}",
@@ -1230,7 +1229,7 @@ unsafe fn fused_q4k_dot_avx2(q4k_data: &[u8], activations: &[f32]) -> Result<f32
     const SUPER_BLOCK_BYTES: usize = 144;
 
     // Validate inputs (same as scalar)
-    if q4k_data.len() % SUPER_BLOCK_BYTES != 0 {
+    if !q4k_data.len().is_multiple_of(SUPER_BLOCK_BYTES) {
         return Err(RealizarError::InvalidShape {
             reason: format!(
                 "Q4_K data length {} is not a multiple of super-block size {}",
@@ -1417,7 +1416,7 @@ pub fn fused_q4k_q8_dot(q4k_data: &[u8], q8_blocks: &[Q8_0Block]) -> Result<f32>
     const SUPER_BLOCK_BYTES: usize = 144;
 
     // Validate Q4_K data length
-    if q4k_data.len() % SUPER_BLOCK_BYTES != 0 {
+    if !q4k_data.len().is_multiple_of(SUPER_BLOCK_BYTES) {
         return Err(RealizarError::InvalidShape {
             reason: format!(
                 "Q4_K data length {} is not a multiple of super-block size {}",
@@ -1536,7 +1535,7 @@ pub fn fused_q6k_dot(q6k_data: &[u8], activations: &[f32]) -> Result<f32> {
     const SUPER_BLOCK_BYTES: usize = 210;
 
     // Validate Q6_K data length
-    if q6k_data.len() % SUPER_BLOCK_BYTES != 0 {
+    if !q6k_data.len().is_multiple_of(SUPER_BLOCK_BYTES) {
         return Err(RealizarError::InvalidShape {
             reason: format!(
                 "Q6_K data length {} is not a multiple of super-block size {}",
@@ -1675,7 +1674,7 @@ pub fn fused_q5k_dot(q5k_data: &[u8], activations: &[f32]) -> Result<f32> {
     const SUPER_BLOCK_BYTES: usize = 176;
 
     // Validate Q5_K data length
-    if q5k_data.len() % SUPER_BLOCK_BYTES != 0 {
+    if !q5k_data.len().is_multiple_of(SUPER_BLOCK_BYTES) {
         return Err(RealizarError::InvalidShape {
             reason: format!(
                 "Q5_K data length {} is not a multiple of super-block size {}",
@@ -2649,6 +2648,21 @@ fn fused_q4_0_dot_scalar(q4_data: &[u8], activations: &[f32], in_dim: usize) -> 
 /// This avoids allocating an intermediate normalized vector.
 #[inline]
 pub fn quantize_rmsnorm_q8_0(input: &[f32], norm_weight: &[f32], eps: f32) -> (Vec<f32>, Vec<i8>) {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("avx2") {
+            return unsafe { quantize_rmsnorm_q8_0_avx2(input, norm_weight, eps) };
+        }
+    }
+    quantize_rmsnorm_q8_0_scalar(input, norm_weight, eps)
+}
+
+/// Scalar implementation of fused RMSNorm + Q8_0 quantization
+fn quantize_rmsnorm_q8_0_scalar(
+    input: &[f32],
+    norm_weight: &[f32],
+    eps: f32,
+) -> (Vec<f32>, Vec<i8>) {
     let hidden_dim = input.len();
     debug_assert_eq!(hidden_dim, norm_weight.len());
 
@@ -2699,6 +2713,169 @@ pub fn quantize_rmsnorm_q8_0(input: &[f32], norm_weight: &[f32], eps: f32) -> (V
     }
 
     (scales, quants)
+}
+
+/// AVX2-accelerated fused RMSNorm + Q8_0 quantization
+///
+/// Processes 8 floats at a time using SIMD for:
+/// - Sum of squares computation
+/// - Max abs finding per block
+/// - Normalization and quantization
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[inline]
+unsafe fn quantize_rmsnorm_q8_0_avx2(
+    input: &[f32],
+    norm_weight: &[f32],
+    eps: f32,
+) -> (Vec<f32>, Vec<i8>) {
+    unsafe {
+        use std::arch::x86_64::{
+            _mm256_add_ps, _mm256_and_ps, _mm256_andnot_ps, _mm256_castps256_ps128,
+            _mm256_castsi256_ps, _mm256_castsi256_si128, _mm256_cvtps_epi32, _mm256_extractf128_ps,
+            _mm256_extracti128_si256, _mm256_floor_ps, _mm256_fmadd_ps, _mm256_loadu_ps,
+            _mm256_max_ps, _mm256_min_ps, _mm256_mul_ps, _mm256_or_ps, _mm256_set1_epi32,
+            _mm256_set1_ps, _mm256_setzero_ps, _mm_add_ps, _mm_cvtss_f32, _mm_hadd_ps, _mm_max_ps,
+            _mm_movehl_ps, _mm_packs_epi16, _mm_packs_epi32, _mm_shuffle_ps, _mm_storel_epi64,
+        };
+
+        let hidden_dim = input.len();
+        debug_assert_eq!(hidden_dim, norm_weight.len());
+
+        // SIMD sum of squares
+        let mut sum_sq_vec = _mm256_setzero_ps();
+        let mut i = 0;
+
+        // Process 8 floats at a time
+        while i + 8 <= hidden_dim {
+            let v = _mm256_loadu_ps(input.as_ptr().add(i));
+            sum_sq_vec = _mm256_fmadd_ps(v, v, sum_sq_vec);
+            i += 8;
+        }
+
+        // Horizontal sum
+        let hi = _mm256_extractf128_ps(sum_sq_vec, 1);
+        let lo = _mm256_castps256_ps128(sum_sq_vec);
+        let sum128 = _mm_add_ps(lo, hi);
+        let sum64 = _mm_hadd_ps(sum128, sum128);
+        let sum32 = _mm_hadd_ps(sum64, sum64);
+        let mut sum_sq = _mm_cvtss_f32(sum32);
+
+        // Handle remaining elements
+        while i < hidden_dim {
+            sum_sq += input[i] * input[i];
+            i += 1;
+        }
+
+        let mean_sq = sum_sq / hidden_dim as f32;
+        let inv_rms = 1.0 / (mean_sq + eps).sqrt();
+        let inv_rms_vec = _mm256_set1_ps(inv_rms);
+
+        // Quantize with SIMD
+        let num_blocks = hidden_dim.div_ceil(32);
+        let mut scales = Vec::with_capacity(num_blocks);
+        let mut quants = vec![0i8; num_blocks * 32];
+
+        let abs_mask = _mm256_castsi256_ps(_mm256_set1_epi32(0x7FFFFFFF_u32 as i32));
+        let round_const = _mm256_set1_ps(0.5);
+        let clamp_min = _mm256_set1_ps(-128.0);
+        let clamp_max = _mm256_set1_ps(127.0);
+
+        for block_idx in 0..num_blocks {
+            let start = block_idx * 32;
+            let block_end = (start + 32).min(hidden_dim);
+            let valid_len = block_end - start;
+
+            // Find max abs in this block using SIMD
+            let mut max_vec = _mm256_setzero_ps();
+            let mut j = 0;
+            while j + 8 <= valid_len {
+                let idx = start + j;
+                let inp = _mm256_loadu_ps(input.as_ptr().add(idx));
+                let wgt = _mm256_loadu_ps(norm_weight.as_ptr().add(idx));
+                let normalized = _mm256_mul_ps(_mm256_mul_ps(inp, inv_rms_vec), wgt);
+                let abs_val = _mm256_and_ps(normalized, abs_mask);
+                max_vec = _mm256_max_ps(max_vec, abs_val);
+                j += 8;
+            }
+
+            // Horizontal max
+            let max_hi = _mm256_extractf128_ps(max_vec, 1);
+            let max_lo = _mm256_castps256_ps128(max_vec);
+            let max_128 = _mm_max_ps(max_lo, max_hi);
+            let max_64 = _mm_max_ps(max_128, _mm_movehl_ps(max_128, max_128));
+            let max_32 = _mm_max_ps(max_64, _mm_shuffle_ps(max_64, max_64, 1));
+            let mut max_abs = _mm_cvtss_f32(max_32);
+
+            // Handle remaining elements in block
+            while j < valid_len {
+                let normalized = input[start + j] * inv_rms * norm_weight[start + j];
+                let abs = normalized.abs();
+                if abs > max_abs {
+                    max_abs = abs;
+                }
+                j += 1;
+            }
+
+            // Compute scale
+            let scale = if max_abs > 1e-10 {
+                max_abs / 127.0
+            } else {
+                1.0 / 127.0
+            };
+            let inv_scale = 1.0 / scale;
+            let inv_scale_vec = _mm256_set1_ps(inv_scale);
+            scales.push(scale);
+
+            // Quantize with SIMD
+            let quant_ptr = quants.as_mut_ptr().add(block_idx * 32);
+            let mut k = 0;
+            while k + 8 <= valid_len {
+                let idx = start + k;
+                let inp = _mm256_loadu_ps(input.as_ptr().add(idx));
+                let wgt = _mm256_loadu_ps(norm_weight.as_ptr().add(idx));
+                let normalized = _mm256_mul_ps(_mm256_mul_ps(inp, inv_rms_vec), wgt);
+                let scaled = _mm256_mul_ps(normalized, inv_scale_vec);
+
+                // Round to nearest (add 0.5 and truncate, handle sign)
+                let sign = _mm256_and_ps(
+                    scaled,
+                    _mm256_castsi256_ps(_mm256_set1_epi32(0x80000000_u32 as i32)),
+                );
+                let abs_scaled = _mm256_andnot_ps(sign, scaled);
+                let rounded = _mm256_or_ps(
+                    _mm256_floor_ps(_mm256_add_ps(abs_scaled, round_const)),
+                    sign,
+                );
+
+                // Clamp to [-128, 127]
+                let clamped = _mm256_max_ps(clamp_min, _mm256_min_ps(clamp_max, rounded));
+
+                // Convert to int32 and extract to i8
+                let int32 = _mm256_cvtps_epi32(clamped);
+
+                // Pack i32 -> i16 -> i8 (only need lower 8 values)
+                let lo128 = _mm256_castsi256_si128(int32);
+                let hi128 = _mm256_extracti128_si256(int32, 1);
+                let packed16 = _mm_packs_epi32(lo128, hi128);
+                let packed8 = _mm_packs_epi16(packed16, packed16);
+
+                // Store 8 i8 values
+                _mm_storel_epi64(quant_ptr.add(k).cast(), packed8);
+                k += 8;
+            }
+
+            // Handle remaining elements
+            while k < valid_len {
+                let normalized = input[start + k] * inv_rms * norm_weight[start + k];
+                let q = (normalized * inv_scale).round();
+                *quant_ptr.add(k) = q.clamp(-128.0, 127.0) as i8;
+                k += 1;
+            }
+        }
+
+        (scales, quants)
+    }
 }
 
 /// Fused RMSNorm + Q4_0 matmul
@@ -2925,6 +3102,10 @@ fn has_avx_vnni() -> bool {
 ///
 /// Uses _mm256_maddubs_epi16 for efficient integer multiply-accumulate.
 /// This is the key optimization that brings us to llama.cpp parity.
+///
+/// Selects between 2-block and 4-block unrolling based on vector size:
+/// - in_dim >= 256: 4-block unrolling (better ILP, ~1.3x faster)
+/// - in_dim < 256: 2-block unrolling (lower overhead for small vectors)
 fn fused_q4_0_q8_0_dot_simd(
     q4_data: &[u8],
     q8_scales: &[f32],
@@ -2933,12 +3114,24 @@ fn fused_q4_0_q8_0_dot_simd(
 ) -> f32 {
     #[cfg(target_arch = "x86_64")]
     {
-        // Note: AVX-VNNI's vpdpbusd has similar throughput to AVX2's maddubs+madd
-        // on most CPUs, and the AVX2 path has 2-block unrolling for better ILP.
-        // For future: consider VNNI when processing can be batched across blocks.
-        //
-        // Fall back to AVX2 with maddubs (well-tuned with 2-block unrolling)
+        // Try AVX-512 VNNI first (2x vector width + native u8×i8 MAC)
+        // ~2x faster than AVX2 path on supported CPUs (Zen4+, Sapphire Rapids+)
+        if is_x86_feature_detected!("avx512vnni") && is_x86_feature_detected!("avx512bw") {
+            // SAFETY: AVX-512 VNNI verified at runtime
+            return unsafe {
+                fused_q4_0_q8_0_dot_avx512_vnni(q4_data, q8_scales, q8_quants, in_dim)
+            };
+        }
+
         if is_x86_feature_detected!("avx2") {
+            // Use 4-block unrolling for larger vectors (8+ blocks = 256+ elements)
+            // 4-block provides ~1.3x speedup over 2-block due to better ILP
+            if in_dim >= 256 {
+                // SAFETY: AVX2 verified at runtime
+                return unsafe {
+                    fused_q4_0_q8_0_dot_avx2_4block(q4_data, q8_scales, q8_quants, in_dim)
+                };
+            }
             // SAFETY: AVX2 verified at runtime
             return unsafe { fused_q4_0_q8_0_dot_avx2(q4_data, q8_scales, q8_quants, in_dim) };
         }
@@ -3036,6 +3229,282 @@ unsafe fn fused_q4_0_q8_0_dot_avx_vnni(
         let sum64 = std::arch::x86_64::_mm_hadd_ps(sum128, sum128);
         let sum32 = std::arch::x86_64::_mm_hadd_ps(sum64, sum64);
         std::arch::x86_64::_mm_cvtss_f32(sum32)
+    }
+}
+
+/// AVX-512 VNNI accelerated Q4_0 × Q8_0 dot product using vpdpbusd with 512-bit vectors
+///
+/// Uses 512-bit registers to process 2 blocks (64 values) per iteration, providing
+/// ~2x throughput over the 256-bit AVX2 path. The vpdpbusd instruction performs
+/// native u8×i8 multiply-accumulate directly to i32.
+///
+/// Performance: ~1.8-2x faster than AVX2 path on Zen4, Sapphire Rapids, and later.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vnni")]
+#[inline]
+unsafe fn fused_q4_0_q8_0_dot_avx512_vnni(
+    q4_data: &[u8],
+    q8_scales: &[f32],
+    q8_quants: &[i8],
+    in_dim: usize,
+) -> f32 {
+    unsafe {
+        use std::arch::x86_64::{
+            __m512i, _mm256_cvtepi32_ps, _mm256_fmadd_ps, _mm256_setzero_ps, _mm512_and_si512,
+            _mm512_castsi512_si256, _mm512_dpbusd_epi32, _mm512_extracti64x4_epi64,
+            _mm512_loadu_si512, _mm512_set1_epi8, _mm512_setzero_si512, _mm512_sub_epi8,
+            _mm_add_ps, _mm_cvtss_f32, _mm_hadd_ps,
+        };
+
+        const Q4_0_BLOCK_BYTES: usize = 18;
+        const Q4_0_BLOCK_SIZE: usize = 32;
+
+        let num_blocks = in_dim.div_ceil(Q4_0_BLOCK_SIZE);
+
+        // Use two accumulators for better pipelining
+        let mut acc0 = _mm256_setzero_ps();
+        let mut acc1 = _mm256_setzero_ps();
+        let offset = _mm512_set1_epi8(8);
+        let low_mask = _mm512_set1_epi8(0x0F);
+
+        let mut block_idx = 0;
+
+        // Process 4 blocks at a time (128 values per iteration) using 2x 512-bit vectors
+        // This provides better ILP on modern OoO CPUs
+        while block_idx + 4 <= num_blocks {
+            // Prefetch next iteration's data (8 blocks ahead = 2 iterations)
+            if block_idx + 8 <= num_blocks {
+                let pf_q4 = q4_data.as_ptr().add((block_idx + 8) * Q4_0_BLOCK_BYTES);
+                let pf_q8 = q8_quants.as_ptr().add((block_idx + 8) * Q4_0_BLOCK_SIZE);
+                std::arch::x86_64::_mm_prefetch(pf_q4.cast(), std::arch::x86_64::_MM_HINT_T0);
+                std::arch::x86_64::_mm_prefetch(
+                    pf_q4.add(72).cast(),
+                    std::arch::x86_64::_MM_HINT_T0,
+                );
+                std::arch::x86_64::_mm_prefetch(pf_q8.cast(), std::arch::x86_64::_MM_HINT_T0);
+                std::arch::x86_64::_mm_prefetch(
+                    pf_q8.add(64).cast(),
+                    std::arch::x86_64::_MM_HINT_T0,
+                );
+            }
+
+            // === First pair of blocks (0, 1) ===
+            let q4_ptr_0 = q4_data.as_ptr().add(block_idx * Q4_0_BLOCK_BYTES);
+            let q4_ptr_1 = q4_data.as_ptr().add((block_idx + 1) * Q4_0_BLOCK_BYTES);
+            let q8_ptr_a = q8_quants.as_ptr().add(block_idx * Q4_0_BLOCK_SIZE);
+
+            let q4_scale_0 = f16_to_f32_lut(u16::from_le_bytes([*q4_ptr_0, *q4_ptr_0.add(1)]));
+            let q4_scale_1 = f16_to_f32_lut(u16::from_le_bytes([*q4_ptr_1, *q4_ptr_1.add(1)]));
+            let q8_scale_0 = q8_scales[block_idx];
+            let q8_scale_1 = q8_scales[block_idx + 1];
+
+            // Expand nibbles for blocks 0,1
+            let q4_lo_0 = std::arch::x86_64::_mm_loadu_si128(q4_ptr_0.add(2).cast());
+            let q4_hi_0 = std::arch::x86_64::_mm_srli_epi16(q4_lo_0, 4);
+            let q4_expanded_0 = std::arch::x86_64::_mm256_set_m128i(q4_hi_0, q4_lo_0);
+            let q4_lo_1 = std::arch::x86_64::_mm_loadu_si128(q4_ptr_1.add(2).cast());
+            let q4_hi_1 = std::arch::x86_64::_mm_srli_epi16(q4_lo_1, 4);
+            let q4_expanded_1 = std::arch::x86_64::_mm256_set_m128i(q4_hi_1, q4_lo_1);
+
+            let q4_combined_a: __m512i = std::arch::x86_64::_mm512_inserti64x4(
+                std::arch::x86_64::_mm512_castsi256_si512(q4_expanded_0),
+                q4_expanded_1,
+                1,
+            );
+            let q4_nibbles_a = _mm512_and_si512(q4_combined_a, low_mask);
+            let q4_signed_a = _mm512_sub_epi8(q4_nibbles_a, offset);
+            let q8_vec_a = _mm512_loadu_si512(q8_ptr_a.cast());
+
+            let q4_abs_a = std::arch::x86_64::_mm512_abs_epi8(q4_signed_a);
+            let mask_a = std::arch::x86_64::_mm512_movepi8_mask(q4_signed_a);
+            let neg_q8_a = std::arch::x86_64::_mm512_sub_epi8(_mm512_setzero_si512(), q8_vec_a);
+            let q8_signed_a = std::arch::x86_64::_mm512_mask_blend_epi8(mask_a, q8_vec_a, neg_q8_a);
+            let int_acc_a = _mm512_dpbusd_epi32(_mm512_setzero_si512(), q4_abs_a, q8_signed_a);
+
+            // === Second pair of blocks (2, 3) ===
+            let q4_ptr_2 = q4_data.as_ptr().add((block_idx + 2) * Q4_0_BLOCK_BYTES);
+            let q4_ptr_3 = q4_data.as_ptr().add((block_idx + 3) * Q4_0_BLOCK_BYTES);
+            let q8_ptr_b = q8_quants.as_ptr().add((block_idx + 2) * Q4_0_BLOCK_SIZE);
+
+            let q4_scale_2 = f16_to_f32_lut(u16::from_le_bytes([*q4_ptr_2, *q4_ptr_2.add(1)]));
+            let q4_scale_3 = f16_to_f32_lut(u16::from_le_bytes([*q4_ptr_3, *q4_ptr_3.add(1)]));
+            let q8_scale_2 = q8_scales[block_idx + 2];
+            let q8_scale_3 = q8_scales[block_idx + 3];
+
+            let q4_lo_2 = std::arch::x86_64::_mm_loadu_si128(q4_ptr_2.add(2).cast());
+            let q4_hi_2 = std::arch::x86_64::_mm_srli_epi16(q4_lo_2, 4);
+            let q4_expanded_2 = std::arch::x86_64::_mm256_set_m128i(q4_hi_2, q4_lo_2);
+            let q4_lo_3 = std::arch::x86_64::_mm_loadu_si128(q4_ptr_3.add(2).cast());
+            let q4_hi_3 = std::arch::x86_64::_mm_srli_epi16(q4_lo_3, 4);
+            let q4_expanded_3 = std::arch::x86_64::_mm256_set_m128i(q4_hi_3, q4_lo_3);
+
+            let q4_combined_b: __m512i = std::arch::x86_64::_mm512_inserti64x4(
+                std::arch::x86_64::_mm512_castsi256_si512(q4_expanded_2),
+                q4_expanded_3,
+                1,
+            );
+            let q4_nibbles_b = _mm512_and_si512(q4_combined_b, low_mask);
+            let q4_signed_b = _mm512_sub_epi8(q4_nibbles_b, offset);
+            let q8_vec_b = _mm512_loadu_si512(q8_ptr_b.cast());
+
+            let q4_abs_b = std::arch::x86_64::_mm512_abs_epi8(q4_signed_b);
+            let mask_b = std::arch::x86_64::_mm512_movepi8_mask(q4_signed_b);
+            let neg_q8_b = std::arch::x86_64::_mm512_sub_epi8(_mm512_setzero_si512(), q8_vec_b);
+            let q8_signed_b = std::arch::x86_64::_mm512_mask_blend_epi8(mask_b, q8_vec_b, neg_q8_b);
+            let int_acc_b = _mm512_dpbusd_epi32(_mm512_setzero_si512(), q4_abs_b, q8_signed_b);
+
+            // Scale and accumulate first pair
+            let int_lo_a = _mm512_castsi512_si256(int_acc_a);
+            let int_hi_a = _mm512_extracti64x4_epi64(int_acc_a, 1);
+            let prod_f32_0 = _mm256_cvtepi32_ps(int_lo_a);
+            let prod_f32_1 = _mm256_cvtepi32_ps(int_hi_a);
+            acc0 = _mm256_fmadd_ps(
+                std::arch::x86_64::_mm256_set1_ps(q4_scale_0 * q8_scale_0),
+                prod_f32_0,
+                acc0,
+            );
+            acc0 = _mm256_fmadd_ps(
+                std::arch::x86_64::_mm256_set1_ps(q4_scale_1 * q8_scale_1),
+                prod_f32_1,
+                acc0,
+            );
+
+            // Scale and accumulate second pair
+            let int_lo_b = _mm512_castsi512_si256(int_acc_b);
+            let int_hi_b = _mm512_extracti64x4_epi64(int_acc_b, 1);
+            let prod_f32_2 = _mm256_cvtepi32_ps(int_lo_b);
+            let prod_f32_3 = _mm256_cvtepi32_ps(int_hi_b);
+            acc1 = _mm256_fmadd_ps(
+                std::arch::x86_64::_mm256_set1_ps(q4_scale_2 * q8_scale_2),
+                prod_f32_2,
+                acc1,
+            );
+            acc1 = _mm256_fmadd_ps(
+                std::arch::x86_64::_mm256_set1_ps(q4_scale_3 * q8_scale_3),
+                prod_f32_3,
+                acc1,
+            );
+
+            block_idx += 4;
+        }
+
+        // Process 2 blocks at a time (64 values per iteration) using 512-bit vectors
+        while block_idx + 2 <= num_blocks {
+            let q4_ptr_0 = q4_data.as_ptr().add(block_idx * Q4_0_BLOCK_BYTES);
+            let q4_ptr_1 = q4_data.as_ptr().add((block_idx + 1) * Q4_0_BLOCK_BYTES);
+            let q8_ptr = q8_quants.as_ptr().add(block_idx * Q4_0_BLOCK_SIZE);
+
+            // Read scales for both blocks
+            let q4_scale_bits_0 = u16::from_le_bytes([*q4_ptr_0, *q4_ptr_0.add(1)]);
+            let q4_scale_bits_1 = u16::from_le_bytes([*q4_ptr_1, *q4_ptr_1.add(1)]);
+            let q4_scale_0 = f16_to_f32_lut(q4_scale_bits_0);
+            let q4_scale_1 = f16_to_f32_lut(q4_scale_bits_1);
+            let q8_scale_0 = q8_scales[block_idx];
+            let q8_scale_1 = q8_scales[block_idx + 1];
+
+            // Load Q4_0 quants for both blocks (16 bytes each = 32 nibbles)
+            let q4_bytes_0 = std::slice::from_raw_parts(q4_ptr_0.add(2), 16);
+            let q4_bytes_1 = std::slice::from_raw_parts(q4_ptr_1.add(2), 16);
+
+            // Expand nibbles to bytes for both blocks
+            // Block 0
+            let q4_lo_0 = std::arch::x86_64::_mm_loadu_si128(q4_bytes_0.as_ptr().cast());
+            let q4_hi_0 = std::arch::x86_64::_mm_srli_epi16(q4_lo_0, 4);
+            let q4_expanded_0 = std::arch::x86_64::_mm256_set_m128i(q4_hi_0, q4_lo_0);
+
+            // Block 1
+            let q4_lo_1 = std::arch::x86_64::_mm_loadu_si128(q4_bytes_1.as_ptr().cast());
+            let q4_hi_1 = std::arch::x86_64::_mm_srli_epi16(q4_lo_1, 4);
+            let q4_expanded_1 = std::arch::x86_64::_mm256_set_m128i(q4_hi_1, q4_lo_1);
+
+            // Combine into 512-bit vector
+            let q4_combined: __m512i = std::arch::x86_64::_mm512_inserti64x4(
+                std::arch::x86_64::_mm512_castsi256_si512(q4_expanded_0),
+                q4_expanded_1,
+                1,
+            );
+
+            // Mask and convert to signed
+            let q4_nibbles = _mm512_and_si512(q4_combined, low_mask);
+            let q4_signed = _mm512_sub_epi8(q4_nibbles, offset);
+
+            // Load Q8 quants (64 bytes = 2 blocks)
+            let q8_vec = _mm512_loadu_si512(q8_ptr.cast());
+
+            // For vpdpbusd, we need unsigned × signed
+            // Use sign trick: |q4| × sign(q8, q4)
+            let q4_abs = std::arch::x86_64::_mm512_abs_epi8(q4_signed);
+            let q8_signed = {
+                // _mm512_sign_epi8 doesn't exist, implement with mask
+                let mask = std::arch::x86_64::_mm512_movepi8_mask(q4_signed);
+                let neg_q8 = std::arch::x86_64::_mm512_sub_epi8(_mm512_setzero_si512(), q8_vec);
+                std::arch::x86_64::_mm512_mask_blend_epi8(mask, q8_vec, neg_q8)
+            };
+
+            // vpdpbusd: 512-bit version processes 64 u8×i8 products
+            // Accumulates 16 lanes of i32 (each is sum of 4 products)
+            let int_acc = _mm512_dpbusd_epi32(_mm512_setzero_si512(), q4_abs, q8_signed);
+
+            // Split result into two 256-bit halves for separate scaling
+            let int_lo = _mm512_castsi512_si256(int_acc);
+            let int_hi = _mm512_extracti64x4_epi64(int_acc, 1);
+
+            // Convert to float and scale each block separately
+            let prod_f32_0 = _mm256_cvtepi32_ps(int_lo);
+            let prod_f32_1 = _mm256_cvtepi32_ps(int_hi);
+
+            let scale_0 = std::arch::x86_64::_mm256_set1_ps(q4_scale_0 * q8_scale_0);
+            let scale_1 = std::arch::x86_64::_mm256_set1_ps(q4_scale_1 * q8_scale_1);
+
+            acc0 = _mm256_fmadd_ps(scale_0, prod_f32_0, acc0);
+            acc0 = _mm256_fmadd_ps(scale_1, prod_f32_1, acc0);
+
+            block_idx += 2;
+        }
+
+        // Handle remaining single block with AVX2
+        while block_idx < num_blocks {
+            let q4_ptr = q4_data.as_ptr().add(block_idx * Q4_0_BLOCK_BYTES);
+            let q8_ptr = q8_quants.as_ptr().add(block_idx * Q4_0_BLOCK_SIZE);
+
+            let q4_scale_bits = u16::from_le_bytes([*q4_ptr, *q4_ptr.add(1)]);
+            let q4_scale = f16_to_f32_lut(q4_scale_bits);
+            let q8_scale = q8_scales[block_idx];
+            let combined_scale = std::arch::x86_64::_mm256_set1_ps(q4_scale * q8_scale);
+
+            let q4_bytes = std::slice::from_raw_parts(q4_ptr.add(2), 16);
+            let q4_lo_128 = std::arch::x86_64::_mm_loadu_si128(q4_bytes.as_ptr().cast());
+            let q4_hi_128 = std::arch::x86_64::_mm_srli_epi16(q4_lo_128, 4);
+            let q4_combined = std::arch::x86_64::_mm256_set_m128i(q4_hi_128, q4_lo_128);
+            let low_mask_256 = std::arch::x86_64::_mm256_set1_epi8(0x0F);
+            let offset_256 = std::arch::x86_64::_mm256_set1_epi8(8);
+            let q4_nibbles = std::arch::x86_64::_mm256_and_si256(q4_combined, low_mask_256);
+            let q4_signed = std::arch::x86_64::_mm256_sub_epi8(q4_nibbles, offset_256);
+
+            let q8_vec = std::arch::x86_64::_mm256_loadu_si256(q8_ptr.cast());
+
+            // Use maddubs approach for remaining block
+            let q4_abs = std::arch::x86_64::_mm256_sign_epi8(q4_signed, q4_signed);
+            let q8_signed = std::arch::x86_64::_mm256_sign_epi8(q8_vec, q4_signed);
+
+            let ones = std::arch::x86_64::_mm256_set1_epi16(1);
+            let prod_i16 = std::arch::x86_64::_mm256_maddubs_epi16(q4_abs, q8_signed);
+            let prod_i32 = std::arch::x86_64::_mm256_madd_epi16(prod_i16, ones);
+            let prod_f32 = _mm256_cvtepi32_ps(prod_i32);
+
+            acc0 = _mm256_fmadd_ps(combined_scale, prod_f32, acc0);
+
+            block_idx += 1;
+        }
+
+        // Combine both accumulators and do horizontal sum
+        let acc = std::arch::x86_64::_mm256_add_ps(acc0, acc1);
+        let hi = std::arch::x86_64::_mm256_extractf128_ps(acc, 1);
+        let lo = std::arch::x86_64::_mm256_castps256_ps128(acc);
+        let sum128 = _mm_add_ps(lo, hi);
+        let sum64 = _mm_hadd_ps(sum128, sum128);
+        let sum32 = _mm_hadd_ps(sum64, sum64);
+        _mm_cvtss_f32(sum32)
     }
 }
 
@@ -3204,6 +3673,195 @@ unsafe fn fused_q4_0_q8_0_dot_avx2(
     }
 }
 
+/// AVX2 accelerated Q4_0 × Q8_0 dot product with 4-block unrolling
+///
+/// Processes 4 blocks per iteration for maximum ILP on modern OoO CPUs.
+/// This version achieves ~1.3x speedup over 2-block unrolling for large vectors.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[inline]
+unsafe fn fused_q4_0_q8_0_dot_avx2_4block(
+    q4_data: &[u8],
+    q8_scales: &[f32],
+    q8_quants: &[i8],
+    in_dim: usize,
+) -> f32 {
+    unsafe {
+        use std::arch::x86_64::{
+            _mm256_add_ps, _mm256_and_si256, _mm256_cvtepi32_ps, _mm256_fmadd_ps,
+            _mm256_loadu_si256, _mm256_madd_epi16, _mm256_maddubs_epi16, _mm256_set1_epi16,
+            _mm256_set1_epi8, _mm256_set1_ps, _mm256_setzero_ps, _mm256_sign_epi8, _mm256_sub_epi8,
+            _mm_cvtss_f32, _mm_hadd_ps, _mm_prefetch, _MM_HINT_T0,
+        };
+
+        const Q4_0_BLOCK_BYTES: usize = 18;
+        const Q4_0_BLOCK_SIZE: usize = 32;
+
+        let num_blocks = in_dim.div_ceil(Q4_0_BLOCK_SIZE);
+
+        // Use two accumulators for better pipelining
+        let mut acc0 = _mm256_setzero_ps();
+        let mut acc1 = _mm256_setzero_ps();
+
+        let offset = _mm256_set1_epi8(8);
+        let low_mask = _mm256_set1_epi8(0x0F);
+        let ones = _mm256_set1_epi16(1);
+
+        let mut block_idx = 0;
+
+        // Process 4 blocks at a time for maximum ILP
+        while block_idx + 4 <= num_blocks {
+            // Prefetch next iteration's blocks
+            if block_idx + 8 <= num_blocks {
+                let prefetch_q4 = q4_data.as_ptr().add((block_idx + 4) * Q4_0_BLOCK_BYTES);
+                let prefetch_q8 = q8_quants.as_ptr().add((block_idx + 4) * Q4_0_BLOCK_SIZE);
+                _mm_prefetch(prefetch_q4.cast(), _MM_HINT_T0);
+                _mm_prefetch(prefetch_q8.cast(), _MM_HINT_T0);
+                _mm_prefetch(prefetch_q4.add(64).cast(), _MM_HINT_T0);
+                _mm_prefetch(prefetch_q8.add(64).cast(), _MM_HINT_T0);
+            }
+
+            // Block 0
+            let q4_ptr_0 = q4_data.as_ptr().add(block_idx * Q4_0_BLOCK_BYTES);
+            let q8_ptr_0 = q8_quants.as_ptr().add(block_idx * Q4_0_BLOCK_SIZE);
+            let q4_scale_0 = f16_to_f32_lut(u16::from_le_bytes([*q4_ptr_0, *q4_ptr_0.add(1)]));
+            let combined_scale_0 = _mm256_set1_ps(q4_scale_0 * q8_scales[block_idx]);
+            let q4_lo_0 = std::arch::x86_64::_mm_loadu_si128(q4_ptr_0.add(2).cast());
+            let q4_hi_0 = std::arch::x86_64::_mm_srli_epi16(q4_lo_0, 4);
+            let q4_signed_0 = _mm256_sub_epi8(
+                _mm256_and_si256(
+                    std::arch::x86_64::_mm256_set_m128i(q4_hi_0, q4_lo_0),
+                    low_mask,
+                ),
+                offset,
+            );
+            let q8_vec_0 = _mm256_loadu_si256(q8_ptr_0.cast());
+            let q4_abs_0 = _mm256_sign_epi8(q4_signed_0, q4_signed_0);
+            let q8_signed_0 = _mm256_sign_epi8(q8_vec_0, q4_signed_0);
+            let prod_0 = _mm256_cvtepi32_ps(_mm256_madd_epi16(
+                _mm256_maddubs_epi16(q4_abs_0, q8_signed_0),
+                ones,
+            ));
+            acc0 = _mm256_fmadd_ps(combined_scale_0, prod_0, acc0);
+
+            // Block 1
+            let q4_ptr_1 = q4_data.as_ptr().add((block_idx + 1) * Q4_0_BLOCK_BYTES);
+            let q8_ptr_1 = q8_quants.as_ptr().add((block_idx + 1) * Q4_0_BLOCK_SIZE);
+            let q4_scale_1 = f16_to_f32_lut(u16::from_le_bytes([*q4_ptr_1, *q4_ptr_1.add(1)]));
+            let combined_scale_1 = _mm256_set1_ps(q4_scale_1 * q8_scales[block_idx + 1]);
+            let q4_lo_1 = std::arch::x86_64::_mm_loadu_si128(q4_ptr_1.add(2).cast());
+            let q4_hi_1 = std::arch::x86_64::_mm_srli_epi16(q4_lo_1, 4);
+            let q4_signed_1 = _mm256_sub_epi8(
+                _mm256_and_si256(
+                    std::arch::x86_64::_mm256_set_m128i(q4_hi_1, q4_lo_1),
+                    low_mask,
+                ),
+                offset,
+            );
+            let q8_vec_1 = _mm256_loadu_si256(q8_ptr_1.cast());
+            let q4_abs_1 = _mm256_sign_epi8(q4_signed_1, q4_signed_1);
+            let q8_signed_1 = _mm256_sign_epi8(q8_vec_1, q4_signed_1);
+            let prod_1 = _mm256_cvtepi32_ps(_mm256_madd_epi16(
+                _mm256_maddubs_epi16(q4_abs_1, q8_signed_1),
+                ones,
+            ));
+            acc1 = _mm256_fmadd_ps(combined_scale_1, prod_1, acc1);
+
+            // Block 2
+            let q4_ptr_2 = q4_data.as_ptr().add((block_idx + 2) * Q4_0_BLOCK_BYTES);
+            let q8_ptr_2 = q8_quants.as_ptr().add((block_idx + 2) * Q4_0_BLOCK_SIZE);
+            let q4_scale_2 = f16_to_f32_lut(u16::from_le_bytes([*q4_ptr_2, *q4_ptr_2.add(1)]));
+            let combined_scale_2 = _mm256_set1_ps(q4_scale_2 * q8_scales[block_idx + 2]);
+            let q4_lo_2 = std::arch::x86_64::_mm_loadu_si128(q4_ptr_2.add(2).cast());
+            let q4_hi_2 = std::arch::x86_64::_mm_srli_epi16(q4_lo_2, 4);
+            let q4_signed_2 = _mm256_sub_epi8(
+                _mm256_and_si256(
+                    std::arch::x86_64::_mm256_set_m128i(q4_hi_2, q4_lo_2),
+                    low_mask,
+                ),
+                offset,
+            );
+            let q8_vec_2 = _mm256_loadu_si256(q8_ptr_2.cast());
+            let q4_abs_2 = _mm256_sign_epi8(q4_signed_2, q4_signed_2);
+            let q8_signed_2 = _mm256_sign_epi8(q8_vec_2, q4_signed_2);
+            let prod_2 = _mm256_cvtepi32_ps(_mm256_madd_epi16(
+                _mm256_maddubs_epi16(q4_abs_2, q8_signed_2),
+                ones,
+            ));
+            acc0 = _mm256_fmadd_ps(combined_scale_2, prod_2, acc0);
+
+            // Block 3
+            let q4_ptr_3 = q4_data.as_ptr().add((block_idx + 3) * Q4_0_BLOCK_BYTES);
+            let q8_ptr_3 = q8_quants.as_ptr().add((block_idx + 3) * Q4_0_BLOCK_SIZE);
+            let q4_scale_3 = f16_to_f32_lut(u16::from_le_bytes([*q4_ptr_3, *q4_ptr_3.add(1)]));
+            let combined_scale_3 = _mm256_set1_ps(q4_scale_3 * q8_scales[block_idx + 3]);
+            let q4_lo_3 = std::arch::x86_64::_mm_loadu_si128(q4_ptr_3.add(2).cast());
+            let q4_hi_3 = std::arch::x86_64::_mm_srli_epi16(q4_lo_3, 4);
+            let q4_signed_3 = _mm256_sub_epi8(
+                _mm256_and_si256(
+                    std::arch::x86_64::_mm256_set_m128i(q4_hi_3, q4_lo_3),
+                    low_mask,
+                ),
+                offset,
+            );
+            let q8_vec_3 = _mm256_loadu_si256(q8_ptr_3.cast());
+            let q4_abs_3 = _mm256_sign_epi8(q4_signed_3, q4_signed_3);
+            let q8_signed_3 = _mm256_sign_epi8(q8_vec_3, q4_signed_3);
+            let prod_3 = _mm256_cvtepi32_ps(_mm256_madd_epi16(
+                _mm256_maddubs_epi16(q4_abs_3, q8_signed_3),
+                ones,
+            ));
+            acc1 = _mm256_fmadd_ps(combined_scale_3, prod_3, acc1);
+
+            block_idx += 4;
+        }
+
+        // Merge accumulators
+        let acc = _mm256_add_ps(acc0, acc1);
+
+        // Handle remaining blocks (0-3)
+        let mut scalar_sum = 0.0f32;
+        while block_idx < num_blocks {
+            let q4_ptr = q4_data.as_ptr().add(block_idx * Q4_0_BLOCK_BYTES);
+            let q8_ptr = q8_quants.as_ptr().add(block_idx * Q4_0_BLOCK_SIZE);
+            let q4_scale = f16_to_f32_lut(u16::from_le_bytes([*q4_ptr, *q4_ptr.add(1)]));
+            let combined_scale = _mm256_set1_ps(q4_scale * q8_scales[block_idx]);
+            let q4_lo = std::arch::x86_64::_mm_loadu_si128(q4_ptr.add(2).cast());
+            let q4_hi = std::arch::x86_64::_mm_srli_epi16(q4_lo, 4);
+            let q4_signed = _mm256_sub_epi8(
+                _mm256_and_si256(std::arch::x86_64::_mm256_set_m128i(q4_hi, q4_lo), low_mask),
+                offset,
+            );
+            let q8_vec = _mm256_loadu_si256(q8_ptr.cast());
+            let q4_abs = _mm256_sign_epi8(q4_signed, q4_signed);
+            let q8_signed = _mm256_sign_epi8(q8_vec, q4_signed);
+            let prod = _mm256_cvtepi32_ps(_mm256_madd_epi16(
+                _mm256_maddubs_epi16(q4_abs, q8_signed),
+                ones,
+            ));
+            let scaled = _mm256_fmadd_ps(combined_scale, prod, _mm256_setzero_ps());
+
+            // Horizontal sum for this block
+            let hi = std::arch::x86_64::_mm256_extractf128_ps(scaled, 1);
+            let lo = std::arch::x86_64::_mm256_castps256_ps128(scaled);
+            let sum128 = std::arch::x86_64::_mm_add_ps(lo, hi);
+            let sum64 = _mm_hadd_ps(sum128, sum128);
+            let sum32 = _mm_hadd_ps(sum64, sum64);
+            scalar_sum += _mm_cvtss_f32(sum32);
+
+            block_idx += 1;
+        }
+
+        // Horizontal sum of accumulated vector
+        let hi = std::arch::x86_64::_mm256_extractf128_ps(acc, 1);
+        let lo = std::arch::x86_64::_mm256_castps256_ps128(acc);
+        let sum128 = std::arch::x86_64::_mm_add_ps(lo, hi);
+        let sum64 = _mm_hadd_ps(sum128, sum128);
+        let sum32 = _mm_hadd_ps(sum64, sum64);
+        _mm_cvtss_f32(sum32) + scalar_sum
+    }
+}
+
 /// Scalar fallback for Q4_0 × Q8_0 dot product
 #[inline]
 fn fused_q4_0_q8_0_dot_scalar(
@@ -3258,7 +3916,7 @@ fn fused_q4_0_q8_0_dot_scalar(
 /// This is the key function for llama.cpp parity. It:
 /// 1. Quantizes activations to Q8_0 format once
 /// 2. Uses integer SIMD for all row dot products
-/// 3. Parallelizes across output rows with rayon
+/// 3. Parallelizes across output rows with rayon (adaptive threshold)
 ///
 /// Expected speedup: 4-6x over the f32 FMA version
 #[allow(clippy::similar_names)]
@@ -3268,8 +3926,6 @@ pub fn fused_q4_0_q8_0_parallel_matvec(
     in_dim: usize,
     out_dim: usize,
 ) -> Result<Vec<f32>> {
-    use rayon::prelude::*;
-
     const Q4_0_BLOCK_BYTES: usize = 18;
     const Q4_0_BLOCK_SIZE: usize = 32;
 
@@ -3302,11 +3958,29 @@ pub fn fused_q4_0_q8_0_parallel_matvec(
     // Quantize activations to Q8_0 ONCE (amortized over all rows)
     let (q8_scales, q8_quants) = quantize_activations_q8_0(activations);
 
-    // Note: rayon::prelude imported at function scope above
+    // Adaptive parallelization: sequential for small matrices, parallel for large
+    // Rayon overhead (~50-100µs) dominates for small out_dim
+    // Threshold tuned for 22-core CPU: break-even at ~1024 rows
+    const PARALLEL_THRESHOLD: usize = 1024;
 
+    if out_dim < PARALLEL_THRESHOLD {
+        // Sequential path: avoids Rayon overhead entirely
+        let output: Vec<f32> = (0..out_dim)
+            .map(|o| {
+                let row_start = o * bytes_per_row;
+                let row_end = row_start + bytes_per_row;
+                let row_data = &weight_data[row_start..row_end];
+                fused_q4_0_q8_0_dot_simd(row_data, &q8_scales, &q8_quants, in_dim)
+            })
+            .collect();
+        return Ok(output);
+    }
+
+    // Parallel path for large matrices
+    use rayon::prelude::*;
     // Use chunked parallel iteration to reduce Rayon scheduling overhead
-    // CHUNK_SIZE=64 matches Q4K implementation for optimal L2 cache usage
-    const CHUNK_SIZE: usize = 64;
+    // CHUNK_SIZE=128 provides good balance between parallelism and overhead
+    const CHUNK_SIZE: usize = 128;
     let output: Vec<f32> = (0..out_dim)
         .into_par_iter()
         .with_min_len(CHUNK_SIZE)
@@ -3800,7 +4474,7 @@ pub fn dequantize_q4_k_parallel(data: &[u8]) -> Result<Vec<f32>> {
 
     const SUPER_BLOCK_BYTES: usize = 144;
 
-    if data.len() % SUPER_BLOCK_BYTES != 0 {
+    if !data.len().is_multiple_of(SUPER_BLOCK_BYTES) {
         return Err(RealizarError::InvalidShape {
             reason: format!(
                 "Q4_K data length {} is not a multiple of super-block size {}",
@@ -3926,7 +4600,7 @@ unsafe fn dequantize_q4_k_avx2_parallel(data: &[u8]) -> Result<Vec<f32>> {
     const CHUNK_SIZE: usize = 64;
     const CHUNK_BYTES: usize = SUPER_BLOCK_BYTES * CHUNK_SIZE;
 
-    if data.len() % SUPER_BLOCK_BYTES != 0 {
+    if !data.len().is_multiple_of(SUPER_BLOCK_BYTES) {
         return Err(RealizarError::InvalidShape {
             reason: format!(
                 "Q4_K data length {} is not a multiple of super-block size {}",
@@ -4079,7 +4753,7 @@ pub fn dequantize_q8_0_parallel(data: &[u8]) -> Result<Vec<f32>> {
 
     const BLOCK_BYTES: usize = 34; // 2 (f16 scale) + 32 (i8 quants)
 
-    if data.len() % BLOCK_BYTES != 0 {
+    if !data.len().is_multiple_of(BLOCK_BYTES) {
         return Err(RealizarError::InvalidShape {
             reason: format!(
                 "Q8_0 data length {} is not a multiple of block size {}",
@@ -4150,7 +4824,7 @@ unsafe fn dequantize_q8_0_avx2_parallel(data: &[u8]) -> Result<Vec<f32>> {
 
     const BLOCK_BYTES: usize = 34; // 2 (f16 scale) + 32 (i8 quants)
 
-    if data.len() % BLOCK_BYTES != 0 {
+    if !data.len().is_multiple_of(BLOCK_BYTES) {
         return Err(RealizarError::InvalidShape {
             reason: format!(
                 "Q8_0 data length {} is not a multiple of block size {}",
@@ -4266,7 +4940,7 @@ pub fn dequantize_q4_0_parallel(data: &[u8]) -> Result<Vec<f32>> {
     // Q4_0 block: 2 bytes (f16 scale) + 16 bytes (quants) = 18 bytes
     const BLOCK_BYTES: usize = 18;
 
-    if data.len() % BLOCK_BYTES != 0 {
+    if !data.len().is_multiple_of(BLOCK_BYTES) {
         return Err(RealizarError::InvalidShape {
             reason: format!(
                 "Q4_0 data length {} is not a multiple of block size {}",
@@ -4322,7 +4996,7 @@ unsafe fn dequantize_q4_0_avx2_parallel(data: &[u8]) -> Result<Vec<f32>> {
     // Q4_0 block: 2 bytes (f16 scale) + 16 bytes (quants) = 18 bytes
     const BLOCK_BYTES: usize = 18;
 
-    if data.len() % BLOCK_BYTES != 0 {
+    if !data.len().is_multiple_of(BLOCK_BYTES) {
         return Err(RealizarError::InvalidShape {
             reason: format!(
                 "Q4_0 data length {} is not a multiple of block size {}",
@@ -4422,7 +5096,7 @@ unsafe fn dequantize_q4_0_sse2_parallel(data: &[u8]) -> Result<Vec<f32>> {
     // Q4_0 block: 2 bytes (f16 scale) + 16 bytes (quants) = 18 bytes
     const BLOCK_BYTES: usize = 18;
 
-    if data.len() % BLOCK_BYTES != 0 {
+    if !data.len().is_multiple_of(BLOCK_BYTES) {
         return Err(RealizarError::InvalidShape {
             reason: format!(
                 "Q4_0 data length {} is not a multiple of block size {}",
@@ -4630,7 +5304,7 @@ unsafe fn dequantize_q8_0_avx2_optimized(data: &[u8]) -> Result<Vec<f32>> {
 
     const BLOCK_BYTES: usize = 34; // 2 (f16 scale) + 32 (i8 quants)
 
-    if data.len() % BLOCK_BYTES != 0 {
+    if !data.len().is_multiple_of(BLOCK_BYTES) {
         return Err(RealizarError::InvalidShape {
             reason: format!(
                 "Q8_0 data length {} is not a multiple of block size {}",
@@ -5003,7 +5677,7 @@ mod tests {
             data.push((high << 4) | low);
         }
 
-        let result = dequantize_q4_0(&data).unwrap();
+        let result = dequantize_q4_0(&data).expect("test");
         assert_eq!(result.len(), 32);
 
         // Check first few values: scale * (value - 8)
@@ -5035,7 +5709,7 @@ mod tests {
             data.push(i.to_le_bytes()[0]);
         }
 
-        let result = dequantize_q8_0(&data).unwrap();
+        let result = dequantize_q8_0(&data).expect("test");
         assert_eq!(result.len(), 32);
 
         // Check first few values
@@ -5068,7 +5742,7 @@ mod tests {
             data.push((i << 4) | i);
         }
 
-        let result = dequantize_q4_0(&data).unwrap();
+        let result = dequantize_q4_0(&data).expect("test");
         assert_eq!(result.len(), 64); // 2 blocks * 32 values
     }
 
@@ -5098,7 +5772,7 @@ mod tests {
         // qs: 128 bytes (256 4-bit values)
         data.extend_from_slice(&[0x00; 128]);
 
-        let result = dequantize_q4_k(&data).unwrap();
+        let result = dequantize_q4_k(&data).expect("test");
         assert_eq!(result.len(), 256); // 1 super-block * 256 values
     }
 
@@ -5106,7 +5780,7 @@ mod tests {
     fn test_dequantize_q4_k_output_size() {
         // 2 super-blocks: 2 * 144 = 288 bytes
         let data = vec![0u8; 288];
-        let result = dequantize_q4_k(&data).unwrap();
+        let result = dequantize_q4_k(&data).expect("test");
         assert_eq!(result.len(), 512); // 2 super-blocks * 256 values each
     }
 
@@ -5179,7 +5853,7 @@ mod tests {
         // qs: 128 bytes (low 4 bits)
         data.extend_from_slice(&[0x00; 128]);
 
-        let result = dequantize_q5_k(&data).unwrap();
+        let result = dequantize_q5_k(&data).expect("test");
         assert_eq!(result.len(), 256); // 1 super-block * 256 values
     }
 
@@ -5187,7 +5861,7 @@ mod tests {
     fn test_dequantize_q5_k_output_size() {
         // 2 super-blocks: 2 * 176 = 352 bytes
         let data = vec![0u8; 352];
-        let result = dequantize_q5_k(&data).unwrap();
+        let result = dequantize_q5_k(&data).expect("test");
         assert_eq!(result.len(), 512); // 2 super-blocks * 256 values each
     }
 
@@ -5213,7 +5887,7 @@ mod tests {
         // qs: 128 bytes (all zeros)
         data.extend_from_slice(&[0x00; 128]);
 
-        let result = dequantize_q5_k(&data).unwrap();
+        let result = dequantize_q5_k(&data).expect("test");
         assert_eq!(result.len(), 256);
         // Values should be computed based on formula: d * scale * q - dmin * min
     }
@@ -5244,7 +5918,7 @@ mod tests {
         // d = 1.0 (f16) at the END
         data.extend_from_slice(&half::f16::from_f32(1.0).to_bits().to_le_bytes());
 
-        let result = dequantize_q6_k(&data).unwrap();
+        let result = dequantize_q6_k(&data).expect("test");
         assert_eq!(result.len(), 256); // 1 super-block * 256 values
     }
 
@@ -5252,7 +5926,7 @@ mod tests {
     fn test_dequantize_q6_k_output_size() {
         // 2 super-blocks: 2 * 210 = 420 bytes
         let data = vec![0u8; 420];
-        let result = dequantize_q6_k(&data).unwrap();
+        let result = dequantize_q6_k(&data).expect("test");
         assert_eq!(result.len(), 512); // 2 super-blocks * 256 values each
     }
 
@@ -5276,7 +5950,7 @@ mod tests {
         // d = 2.0 (f16) at the END
         data.extend_from_slice(&half::f16::from_f32(2.0).to_bits().to_le_bytes());
 
-        let result = dequantize_q6_k(&data).unwrap();
+        let result = dequantize_q6_k(&data).expect("test");
         assert_eq!(result.len(), 256);
         // Values should be computed based on formula: d * scale * (q - 32)
     }
@@ -5289,7 +5963,7 @@ mod tests {
     fn test_q5k_q6k_dequant() {
         // Q5_K test: 176 bytes per super-block
         let q5k_data = vec![0u8; 176]; // Zero block
-        let q5k_result = dequantize_q5_k(&q5k_data).unwrap();
+        let q5k_result = dequantize_q5_k(&q5k_data).expect("test");
         assert_eq!(
             q5k_result.len(),
             256,
@@ -5298,7 +5972,7 @@ mod tests {
 
         // Q6_K test: 210 bytes per super-block
         let q6k_data = vec![0u8; 210]; // Zero block
-        let q6k_result = dequantize_q6_k(&q6k_data).unwrap();
+        let q6k_result = dequantize_q6_k(&q6k_data).expect("test");
         assert_eq!(
             q6k_result.len(),
             256,
@@ -5308,8 +5982,8 @@ mod tests {
         // Test with multiple super-blocks
         let q5k_multi = vec![0u8; 176 * 4];
         let q6k_multi = vec![0u8; 210 * 4];
-        assert_eq!(dequantize_q5_k(&q5k_multi).unwrap().len(), 1024);
-        assert_eq!(dequantize_q6_k(&q6k_multi).unwrap().len(), 1024);
+        assert_eq!(dequantize_q5_k(&q5k_multi).expect("test").len(), 1024);
+        assert_eq!(dequantize_q6_k(&q6k_multi).expect("test").len(), 1024);
 
         // Verify bits per weight (K-quants are higher quality)
         // Q5_K: 5.5 bits per weight (176 bytes / 256 values * 8 = 5.5)
@@ -5479,11 +6153,11 @@ mod tests {
         let activations: Vec<f32> = (0..256).map(|i| (i as f32) * 0.01).collect();
 
         // Reference: dequantize then dot
-        let dequantized = dequantize_q4_k(&q4k_data).unwrap();
+        let dequantized = dequantize_q4_k(&q4k_data).expect("test");
         let reference = naive_dot_product(&dequantized, &activations);
 
         // Fused: dequant+dot in single pass (no intermediate buffer)
-        let fused = fused_q4k_dot(&q4k_data, &activations).unwrap();
+        let fused = fused_q4k_dot(&q4k_data, &activations).expect("test");
 
         // ULP comparison per spec (≤4 ULPs tolerance)
         assert_ulp_eq(fused, reference, 4, "fused_q4k_dot basic");
@@ -5520,11 +6194,11 @@ mod tests {
         let activations: Vec<f32> = (0..1024).map(|i| (i as f32 * 0.017).sin() * 2.0).collect();
 
         // Reference
-        let dequantized = dequantize_q4_k(&q4k_data).unwrap();
+        let dequantized = dequantize_q4_k(&q4k_data).expect("test");
         let reference = naive_dot_product(&dequantized, &activations);
 
         // Fused
-        let fused = fused_q4k_dot(&q4k_data, &activations).unwrap();
+        let fused = fused_q4k_dot(&q4k_data, &activations).expect("test");
 
         assert_ulp_eq(fused, reference, 4, "fused_q4k_dot multiple super-blocks");
     }
@@ -5544,7 +6218,7 @@ mod tests {
         q4k_zeros.extend_from_slice(&[0u8; 128]); // qs
 
         let activations_zeros: Vec<f32> = vec![1.0; 256];
-        let fused_zeros = fused_q4k_dot(&q4k_zeros, &activations_zeros).unwrap();
+        let fused_zeros = fused_q4k_dot(&q4k_zeros, &activations_zeros).expect("test");
         assert!(
             fused_zeros.abs() < 1e-6,
             "Zero weights should produce zero dot product"
@@ -5558,17 +6232,17 @@ mod tests {
         q4k_max.extend_from_slice(&[0xFF; 128]); // max qs (all 15s)
 
         let activations_ones: Vec<f32> = vec![1.0; 256];
-        let dequantized_max = dequantize_q4_k(&q4k_max).unwrap();
+        let dequantized_max = dequantize_q4_k(&q4k_max).expect("test");
         let reference_max = naive_dot_product(&dequantized_max, &activations_ones);
-        let fused_max = fused_q4k_dot(&q4k_max, &activations_ones).unwrap();
+        let fused_max = fused_q4k_dot(&q4k_max, &activations_ones).expect("test");
 
         assert_ulp_eq(fused_max, reference_max, 4, "fused_q4k_dot max values");
 
         // Test 3: Negative activations
         let activations_neg: Vec<f32> = (0..256).map(|i| -((i as f32) * 0.01)).collect();
-        let dequantized_neg = dequantize_q4_k(&q4k_max).unwrap();
+        let dequantized_neg = dequantize_q4_k(&q4k_max).expect("test");
         let reference_neg = naive_dot_product(&dequantized_neg, &activations_neg);
-        let fused_neg = fused_q4k_dot(&q4k_max, &activations_neg).unwrap();
+        let fused_neg = fused_q4k_dot(&q4k_max, &activations_neg).expect("test");
 
         assert_ulp_eq(
             fused_neg,
@@ -5654,11 +6328,11 @@ mod tests {
         let activations: Vec<f32> = (0..256).map(|i| (i as f32) * 0.01).collect();
 
         // Reference
-        let dequantized = dequantize_q6_k(&q6k_data).unwrap();
+        let dequantized = dequantize_q6_k(&q6k_data).expect("test");
         let reference = naive_dot_product(&dequantized, &activations);
 
         // Fused
-        let fused = fused_q6k_dot(&q6k_data, &activations).unwrap();
+        let fused = fused_q6k_dot(&q6k_data, &activations).expect("test");
 
         assert_ulp_eq(fused, reference, 4, "fused_q6k_dot basic");
     }
@@ -5696,11 +6370,11 @@ mod tests {
         let activations: Vec<f32> = (0..1024).map(|i| (i as f32 * 0.023).cos() * 1.5).collect();
 
         // Reference
-        let dequantized = dequantize_q6_k(&q6k_data).unwrap();
+        let dequantized = dequantize_q6_k(&q6k_data).expect("test");
         let reference = naive_dot_product(&dequantized, &activations);
 
         // Fused
-        let fused = fused_q6k_dot(&q6k_data, &activations).unwrap();
+        let fused = fused_q6k_dot(&q6k_data, &activations).expect("test");
 
         assert_ulp_eq(fused, reference, 4, "fused_q6k_dot multiple super-blocks");
     }
@@ -5754,10 +6428,10 @@ mod tests {
         let activations: Vec<f32> = (0..1024).map(|i| (i as f32 * 0.017).sin() * 2.0).collect();
 
         // Get scalar result (reference)
-        let scalar_result = fused_q4k_dot(&q4k_data, &activations).unwrap();
+        let scalar_result = fused_q4k_dot(&q4k_data, &activations).expect("test");
 
         // Get SIMD result (may use AVX2 or fall back to scalar)
-        let simd_result = fused_q4k_dot_simd(&q4k_data, &activations).unwrap();
+        let simd_result = fused_q4k_dot_simd(&q4k_data, &activations).expect("test");
 
         // Should match within 8 ULPs (allowing for FMA reassociation in SIMD)
         // Per Goldberg [9], SIMD accumulation reordering can cause slightly more divergence
@@ -5815,11 +6489,11 @@ mod tests {
         let activations: Vec<f32> = (0..4096).map(|i| (i as f32 * 0.001).cos()).collect();
 
         // Get reference from dequantize + naive dot
-        let dequantized = dequantize_q4_k(&q4k_data).unwrap();
+        let dequantized = dequantize_q4_k(&q4k_data).expect("test");
         let reference = naive_dot_product(&dequantized, &activations);
 
         // SIMD result
-        let simd_result = fused_q4k_dot_simd(&q4k_data, &activations).unwrap();
+        let simd_result = fused_q4k_dot_simd(&q4k_data, &activations).expect("test");
 
         // Allow slightly more ULP tolerance for larger accumulations
         // due to floating-point associativity differences
@@ -5872,13 +6546,13 @@ mod tests {
         for row in 0..out_dim {
             let row_start = row * 144;
             let row_data = &weight_data[row_start..row_start + 144];
-            let dot = fused_q4k_dot_simd(row_data, &activations).unwrap();
+            let dot = fused_q4k_dot_simd(row_data, &activations).expect("test");
             reference.push(dot);
         }
 
         // Tiled result
-        let tiled =
-            fused_q4k_tiled_matvec(&weight_data, &activations, in_dim, out_dim, None).unwrap();
+        let tiled = fused_q4k_tiled_matvec(&weight_data, &activations, in_dim, out_dim, None)
+            .expect("test");
 
         // Compare
         assert_eq!(tiled.len(), out_dim);
@@ -5926,13 +6600,13 @@ mod tests {
         for row in 0..out_dim {
             let row_start = row * bytes_per_row;
             let row_data = &weight_data[row_start..row_start + bytes_per_row];
-            let dot = fused_q4k_dot_simd(row_data, &activations).unwrap();
+            let dot = fused_q4k_dot_simd(row_data, &activations).expect("test");
             reference.push(dot);
         }
 
         // Tiled with default tile size (64)
-        let tiled =
-            fused_q4k_tiled_matvec(&weight_data, &activations, in_dim, out_dim, None).unwrap();
+        let tiled = fused_q4k_tiled_matvec(&weight_data, &activations, in_dim, out_dim, None)
+            .expect("test");
 
         assert_eq!(tiled.len(), out_dim);
         for i in 0..out_dim {
@@ -5972,7 +6646,8 @@ mod tests {
         // Test with different tile sizes
         let tile_sizes = [1, 8, 16, 32, 64, 100, 128];
         let reference =
-            fused_q4k_tiled_matvec(&weight_data, &activations, in_dim, out_dim, Some(1)).unwrap();
+            fused_q4k_tiled_matvec(&weight_data, &activations, in_dim, out_dim, Some(1))
+                .expect("test");
 
         for &tile_size in &tile_sizes[1..] {
             let result = fused_q4k_tiled_matvec(
@@ -5982,7 +6657,7 @@ mod tests {
                 out_dim,
                 Some(tile_size),
             )
-            .unwrap();
+            .expect("test");
             assert_eq!(result.len(), out_dim);
             for i in 0..out_dim {
                 assert_ulp_eq(
@@ -6047,13 +6722,13 @@ mod tests {
         for row in 0..out_dim {
             let row_start = row * bytes_per_row;
             let row_data = &weight_data[row_start..row_start + bytes_per_row];
-            let dot = fused_q5k_dot_simd(row_data, &activations).unwrap();
+            let dot = fused_q5k_dot_simd(row_data, &activations).expect("test");
             reference.push(dot);
         }
 
         // Tiled result
-        let tiled =
-            fused_q5k_tiled_matvec(&weight_data, &activations, in_dim, out_dim, None).unwrap();
+        let tiled = fused_q5k_tiled_matvec(&weight_data, &activations, in_dim, out_dim, None)
+            .expect("test");
 
         assert_eq!(tiled.len(), out_dim);
         for i in 0..out_dim {
@@ -6102,13 +6777,13 @@ mod tests {
         for row in 0..out_dim {
             let row_start = row * bytes_per_row;
             let row_data = &weight_data[row_start..row_start + bytes_per_row];
-            let dot = fused_q6k_dot_simd(row_data, &activations).unwrap();
+            let dot = fused_q6k_dot_simd(row_data, &activations).expect("test");
             reference.push(dot);
         }
 
         // Tiled result
-        let tiled =
-            fused_q6k_tiled_matvec(&weight_data, &activations, in_dim, out_dim, None).unwrap();
+        let tiled = fused_q6k_tiled_matvec(&weight_data, &activations, in_dim, out_dim, None)
+            .expect("test");
 
         assert_eq!(tiled.len(), out_dim);
         for i in 0..out_dim {
@@ -6154,13 +6829,13 @@ mod tests {
         for row in 0..out_dim {
             let row_start = row * 144;
             let row_data = &weight_data[row_start..row_start + 144];
-            let dot = fused_q4k_dot_simd(row_data, &activations).unwrap();
+            let dot = fused_q4k_dot_simd(row_data, &activations).expect("test");
             reference.push(dot);
         }
 
         // Parallel result
         let parallel =
-            fused_q4k_parallel_matvec(&weight_data, &activations, in_dim, out_dim).unwrap();
+            fused_q4k_parallel_matvec(&weight_data, &activations, in_dim, out_dim).expect("test");
 
         assert_eq!(parallel.len(), out_dim);
         for i in 0..out_dim {
@@ -6205,13 +6880,13 @@ mod tests {
         for row in 0..out_dim {
             let row_start = row * bytes_per_row;
             let row_data = &weight_data[row_start..row_start + bytes_per_row];
-            let dot = fused_q4k_dot_simd(row_data, &activations).unwrap();
+            let dot = fused_q4k_dot_simd(row_data, &activations).expect("test");
             reference.push(dot);
         }
 
         // Parallel result
         let parallel =
-            fused_q4k_parallel_matvec(&weight_data, &activations, in_dim, out_dim).unwrap();
+            fused_q4k_parallel_matvec(&weight_data, &activations, in_dim, out_dim).expect("test");
 
         assert_eq!(parallel.len(), out_dim);
         for i in 0..out_dim {
@@ -6260,13 +6935,13 @@ mod tests {
         for row in 0..out_dim {
             let row_start = row * bytes_per_row;
             let row_data = &weight_data[row_start..row_start + bytes_per_row];
-            let dot = fused_q5k_dot_simd(row_data, &activations).unwrap();
+            let dot = fused_q5k_dot_simd(row_data, &activations).expect("test");
             reference.push(dot);
         }
 
         // Parallel result
         let parallel =
-            fused_q5k_parallel_matvec(&weight_data, &activations, in_dim, out_dim).unwrap();
+            fused_q5k_parallel_matvec(&weight_data, &activations, in_dim, out_dim).expect("test");
 
         assert_eq!(parallel.len(), out_dim);
         for i in 0..out_dim {
@@ -6315,13 +6990,13 @@ mod tests {
         for row in 0..out_dim {
             let row_start = row * bytes_per_row;
             let row_data = &weight_data[row_start..row_start + bytes_per_row];
-            let dot = fused_q6k_dot_simd(row_data, &activations).unwrap();
+            let dot = fused_q6k_dot_simd(row_data, &activations).expect("test");
             reference.push(dot);
         }
 
         // Parallel result
         let parallel =
-            fused_q6k_parallel_matvec(&weight_data, &activations, in_dim, out_dim).unwrap();
+            fused_q6k_parallel_matvec(&weight_data, &activations, in_dim, out_dim).expect("test");
 
         assert_eq!(parallel.len(), out_dim);
         for i in 0..out_dim {
@@ -6400,7 +7075,7 @@ mod tests {
             .collect();
 
         // Reference: dequantize then dot (the naive approach)
-        let dequantized = dequantize_q4_k(&q4k_data).unwrap();
+        let dequantized = dequantize_q4_k(&q4k_data).expect("test");
         let reference: f32 = dequantized
             .iter()
             .zip(activations.iter())
@@ -6408,7 +7083,7 @@ mod tests {
             .sum();
 
         // Fused: dequant+dot in single pass (8x bandwidth reduction)
-        let fused = fused_q4k_dot_simd(&q4k_data, &activations).unwrap();
+        let fused = fused_q4k_dot_simd(&q4k_data, &activations).expect("test");
 
         // ULP comparison per spec §5.1 (≤4 ULPs tolerance)
         assert_ulp_eq(fused, reference, 4, "Phase 1: fused Q4_K dot product");
@@ -6501,7 +7176,7 @@ mod tests {
             // FFN: up projection
             let intermediate =
                 fused_q4k_tiled_matvec(&ffn_up_weights, &input, hidden_dim, intermediate_dim, None)
-                    .unwrap();
+                    .expect("test");
             // FFN: down projection
             let _ = fused_q4k_tiled_matvec(
                 &ffn_down_weights,
@@ -6510,7 +7185,7 @@ mod tests {
                 hidden_dim,
                 None,
             )
-            .unwrap();
+            .expect("test");
         }
         let forward_elapsed = start.elapsed();
 
@@ -6542,7 +7217,7 @@ mod tests {
                     intermediate_dim,
                     None,
                 )
-                .unwrap();
+                .expect("test");
             }
         }
         let long_context_elapsed = start.elapsed();
@@ -6630,7 +7305,7 @@ mod tests {
     fn test_dequantize_f16_single_value() {
         // Test F16 dequantization with 1.0
         let data: [u8; 2] = 0x3C00_u16.to_le_bytes();
-        let result = dequantize_f16(&data).unwrap();
+        let result = dequantize_f16(&data).expect("test");
         assert_eq!(result.len(), 1);
         assert!((result[0] - 1.0).abs() < 1e-3);
     }
@@ -6645,7 +7320,7 @@ mod tests {
         // 0.5
         data.extend_from_slice(&0x3800_u16.to_le_bytes());
 
-        let result = dequantize_f16(&data).unwrap();
+        let result = dequantize_f16(&data).expect("test");
         assert_eq!(result.len(), 3);
         assert!((result[0] - 1.0).abs() < 1e-3);
         assert!((result[1] - (-1.0)).abs() < 1e-3);
@@ -6673,7 +7348,7 @@ mod tests {
         // 16 bytes of quants: all zeros
         data.extend_from_slice(&[0x00; 16]);
 
-        let result = dequantize_q4_1(&data).unwrap();
+        let result = dequantize_q4_1(&data).expect("test");
         assert_eq!(result.len(), 32);
         // All values should be d * 0 + min = 0.0
         for v in &result {
@@ -6692,7 +7367,7 @@ mod tests {
         // 16 bytes of quants: all zeros
         data.extend_from_slice(&[0x00; 16]);
 
-        let result = dequantize_q4_1(&data).unwrap();
+        let result = dequantize_q4_1(&data).expect("test");
         assert_eq!(result.len(), 32);
         // All values should be d * q + min = 0 + 1.0 = 1.0
         for v in &result {
@@ -6721,7 +7396,7 @@ mod tests {
         data.extend_from_slice(&0x3C00_u16.to_le_bytes()); // min=1.0
         data.extend_from_slice(&[0x00; 16]);
 
-        let result = dequantize_q4_1(&data).unwrap();
+        let result = dequantize_q4_1(&data).expect("test");
         assert_eq!(result.len(), 64); // 2 blocks * 32 values
     }
 
@@ -6739,7 +7414,7 @@ mod tests {
         // qs: 16 bytes of low 4 bits (all zeros)
         data.extend_from_slice(&[0x00; 16]);
 
-        let result = dequantize_q5_0(&data).unwrap();
+        let result = dequantize_q5_0(&data).expect("test");
         assert_eq!(result.len(), 32);
         // All values should be d * (q - 16) = 1.0 * (0 - 16) = -16.0
         for v in &result {
@@ -6758,7 +7433,7 @@ mod tests {
         // qs: all zeros
         data.extend_from_slice(&[0x00; 16]);
 
-        let result = dequantize_q5_0(&data).unwrap();
+        let result = dequantize_q5_0(&data).expect("test");
         assert_eq!(result.len(), 32);
         // With high bit = 1, q = 0 | (1 << 4) = 16, value = 1.0 * (16 - 16) = 0.0
         for v in &result {
@@ -6787,7 +7462,7 @@ mod tests {
         data.extend_from_slice(&[0x00; 4]);
         data.extend_from_slice(&[0x00; 16]);
 
-        let result = dequantize_q5_0(&data).unwrap();
+        let result = dequantize_q5_0(&data).expect("test");
         assert_eq!(result.len(), 64); // 2 blocks * 32 values
     }
 
@@ -6807,7 +7482,7 @@ mod tests {
         // qs: 16 bytes of low 4 bits (all zeros)
         data.extend_from_slice(&[0x00; 16]);
 
-        let result = dequantize_q5_1(&data).unwrap();
+        let result = dequantize_q5_1(&data).expect("test");
         assert_eq!(result.len(), 32);
         // All values should be d * q + min = 1.0 * 0 + 0.0 = 0.0
         for v in &result {
@@ -6828,7 +7503,7 @@ mod tests {
         // qs: 16 bytes of low 4 bits (all zeros)
         data.extend_from_slice(&[0x00; 16]);
 
-        let result = dequantize_q5_1(&data).unwrap();
+        let result = dequantize_q5_1(&data).expect("test");
         assert_eq!(result.len(), 32);
         // All values should be d * q + min = 0 + 2.0 = 2.0
         for v in &result {
@@ -6849,7 +7524,7 @@ mod tests {
         // qs: all zeros
         data.extend_from_slice(&[0x00; 16]);
 
-        let result = dequantize_q5_1(&data).unwrap();
+        let result = dequantize_q5_1(&data).expect("test");
         assert_eq!(result.len(), 32);
         // With high bit = 1, q = 0 | (1 << 4) = 16, value = 1.0 * 16 + 0 = 16.0
         for v in &result {
@@ -6880,7 +7555,7 @@ mod tests {
         data.extend_from_slice(&[0x00; 4]);
         data.extend_from_slice(&[0x00; 16]);
 
-        let result = dequantize_q5_1(&data).unwrap();
+        let result = dequantize_q5_1(&data).expect("test");
         assert_eq!(result.len(), 64); // 2 blocks * 32 values
     }
 
@@ -6901,8 +7576,8 @@ mod tests {
         data[144..146].copy_from_slice(&0x4000_u16.to_le_bytes()); // d=2.0
         data[146..148].copy_from_slice(&0x3800_u16.to_le_bytes()); // dmin=0.5
 
-        let scalar = dequantize_q4_k(&data).unwrap();
-        let parallel = dequantize_q4_k_parallel(&data).unwrap();
+        let scalar = dequantize_q4_k(&data).expect("test");
+        let parallel = dequantize_q4_k_parallel(&data).expect("test");
 
         assert_eq!(scalar.len(), parallel.len());
         for (s, p) in scalar.iter().zip(parallel.iter()) {
@@ -6924,8 +7599,8 @@ mod tests {
             *byte = (idx % 16) as u8 | ((idx % 8) << 4) as u8;
         }
 
-        let scalar = dequantize_q4_k(&data).unwrap();
-        let simd = dequantize_q4_k_simd(&data).unwrap();
+        let scalar = dequantize_q4_k(&data).expect("test");
+        let simd = dequantize_q4_k_simd(&data).expect("test");
 
         assert_eq!(scalar.len(), simd.len());
         assert_eq!(simd.len(), 256);
@@ -6956,7 +7631,7 @@ mod tests {
     fn test_dequantize_q4_k_parallel_output_size() {
         // 4 super-blocks = 1024 values
         let data = vec![0u8; 144 * 4];
-        let result = dequantize_q4_k_parallel(&data).unwrap();
+        let result = dequantize_q4_k_parallel(&data).expect("test");
         assert_eq!(result.len(), 256 * 4);
     }
 
@@ -6981,8 +7656,8 @@ mod tests {
         data[72..76].copy_from_slice(&0.0f32.to_le_bytes());
         data[108..112].copy_from_slice(&0.0f32.to_le_bytes());
 
-        let scalar = dequantize_q8_0(&data).unwrap();
-        let parallel = dequantize_q8_0_parallel(&data).unwrap();
+        let scalar = dequantize_q8_0(&data).expect("test");
+        let parallel = dequantize_q8_0_parallel(&data).expect("test");
 
         assert_eq!(scalar.len(), parallel.len());
         for (s, p) in scalar.iter().zip(parallel.iter()) {
@@ -7007,8 +7682,8 @@ mod tests {
             data[40 + i] = (127 - i as i8) as u8;
         }
 
-        let scalar = dequantize_q8_0(&data).unwrap();
-        let simd = dequantize_q8_0_simd(&data).unwrap();
+        let scalar = dequantize_q8_0(&data).expect("test");
+        let simd = dequantize_q8_0_simd(&data).expect("test");
 
         assert_eq!(scalar.len(), simd.len());
         assert_eq!(simd.len(), 64);
@@ -7046,7 +7721,7 @@ mod tests {
             data[block * 36..block * 36 + 4].copy_from_slice(&scale.to_le_bytes());
         }
 
-        let result = dequantize_q8_0_parallel(&data).unwrap();
+        let result = dequantize_q8_0_parallel(&data).expect("test");
         assert_eq!(result.len(), 32000);
     }
 
@@ -7066,7 +7741,7 @@ mod tests {
 
         // Compare superblock helper with main function
         let superblock_result = dequantize_q4_k_superblock(&sb_data);
-        let main_result = dequantize_q4_k(&sb_data).unwrap();
+        let main_result = dequantize_q4_k(&sb_data).expect("test");
 
         assert_eq!(superblock_result.len(), main_result.len());
         assert_eq!(superblock_result.len(), 256);
@@ -7099,8 +7774,8 @@ mod tests {
             data[2 + i] = (i as u8 & 0x0F) | ((((i + 1) % 16) as u8) << 4);
         }
 
-        let result = dequantize_q4_0_simd(&data).unwrap();
-        let scalar_result = dequantize_q4_0(&data).unwrap();
+        let result = dequantize_q4_0_simd(&data).expect("test");
+        let scalar_result = dequantize_q4_0(&data).expect("test");
 
         assert_eq!(result.len(), 32);
         assert_eq!(result.len(), scalar_result.len());
@@ -7131,8 +7806,8 @@ mod tests {
             }
         }
 
-        let result = dequantize_q4_0_simd(&data).unwrap();
-        let scalar_result = dequantize_q4_0(&data).unwrap();
+        let result = dequantize_q4_0_simd(&data).expect("test");
+        let scalar_result = dequantize_q4_0(&data).expect("test");
 
         assert_eq!(result.len(), num_blocks * 32);
 
@@ -7160,7 +7835,7 @@ mod tests {
             }
         }
 
-        let result = dequantize_q4_0_parallel(&data).unwrap();
+        let result = dequantize_q4_0_parallel(&data).expect("test");
         assert_eq!(result.len(), num_blocks * 32);
 
         // All values should be 0.0
@@ -7191,8 +7866,8 @@ mod tests {
             data[4 + i] = (i as i8 - 16) as u8;
         }
 
-        let result = dequantize_q8_0_simd_optimized(&data).unwrap();
-        let scalar_result = dequantize_q8_0(&data).unwrap();
+        let result = dequantize_q8_0_simd_optimized(&data).expect("test");
+        let scalar_result = dequantize_q8_0(&data).expect("test");
 
         assert_eq!(result.len(), 32);
         assert_eq!(result.len(), scalar_result.len());
@@ -7222,8 +7897,8 @@ mod tests {
             }
         }
 
-        let result = dequantize_q8_0_simd_optimized(&data).unwrap();
-        let scalar_result = dequantize_q8_0(&data).unwrap();
+        let result = dequantize_q8_0_simd_optimized(&data).expect("test");
+        let scalar_result = dequantize_q8_0(&data).expect("test");
 
         assert_eq!(result.len(), num_blocks * 32);
 
@@ -7297,7 +7972,7 @@ mod tests {
         data[4] = 0x80; // low=0, high=8 -> values: -8*1=-8, 0*1=0
         data[5] = 0xF1; // low=1, high=15 -> values: -7*1=-7, 7*1=7
 
-        let result = dequantize_q4_0_simd(&data).unwrap();
+        let result = dequantize_q4_0_simd(&data).expect("test");
 
         // First pair: nibbles 0,8 -> (-8, 0)
         assert!(
@@ -7339,7 +8014,7 @@ mod tests {
                         // Zero
         data[6] = 0x00; // 0
 
-        let result = dequantize_q8_0_simd_optimized(&data).unwrap();
+        let result = dequantize_q8_0_simd_optimized(&data).expect("test");
 
         assert!(
             (result[0] - (-128.0)).abs() < 1e-5,
@@ -7371,7 +8046,7 @@ mod tests {
             *byte = (i as u8).wrapping_mul(17);
         }
 
-        let result = dequantize_q4_0_simd(&data).unwrap();
+        let result = dequantize_q4_0_simd(&data).expect("test");
 
         for (i, &val) in result.iter().enumerate() {
             assert!(val == 0.0, "Expected 0.0 at index {i}, got {val}");
@@ -7389,7 +8064,7 @@ mod tests {
         // Positive quant value
         data[4] = 10; // 10 * -1 = -10
 
-        let result = dequantize_q8_0_simd_optimized(&data).unwrap();
+        let result = dequantize_q8_0_simd_optimized(&data).expect("test");
 
         assert!(
             (result[0] - (-10.0)).abs() < 1e-5,
@@ -7438,8 +8113,8 @@ mod tests {
         }
 
         // Compare SIMD vs scalar Q4_0
-        let q4_simd = dequantize_q4_0_simd(&q4_data).unwrap();
-        let q4_scalar = dequantize_q4_0(&q4_data).unwrap();
+        let q4_simd = dequantize_q4_0_simd(&q4_data).expect("test");
+        let q4_scalar = dequantize_q4_0(&q4_data).expect("test");
         assert_eq!(q4_simd.len(), q4_scalar.len());
         for (i, (s, sc)) in q4_simd.iter().zip(q4_scalar.iter()).enumerate() {
             assert!(
@@ -7449,8 +8124,8 @@ mod tests {
         }
 
         // Compare SIMD vs scalar Q8_0
-        let q8_simd = dequantize_q8_0_simd_optimized(&q8_data).unwrap();
-        let q8_scalar = dequantize_q8_0(&q8_data).unwrap();
+        let q8_simd = dequantize_q8_0_simd_optimized(&q8_data).expect("test");
+        let q8_scalar = dequantize_q8_0(&q8_data).expect("test");
         assert_eq!(q8_simd.len(), q8_scalar.len());
         for (i, (s, sc)) in q8_simd.iter().zip(q8_scalar.iter()).enumerate() {
             assert!(

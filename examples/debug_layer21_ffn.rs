@@ -33,8 +33,8 @@ fn silu(x: &mut [f32]) {
 
 fn fused_matmul(input: &[f32], data: &[u8], qtype: u32, in_dim: usize, out_dim: usize) -> Vec<f32> {
     match qtype {
-        GGUF_TYPE_Q4_K => fused_q4k_parallel_matvec(data, input, in_dim, out_dim).unwrap(),
-        GGUF_TYPE_Q6_K => fused_q6k_parallel_matvec(data, input, in_dim, out_dim).unwrap(),
+        GGUF_TYPE_Q4_K => fused_q4k_parallel_matvec(data, input, in_dim, out_dim).expect("test"),
+        GGUF_TYPE_Q6_K => fused_q6k_parallel_matvec(data, input, in_dim, out_dim).expect("test"),
         _ => panic!("Unsupported qtype: {}", qtype),
     }
 }
@@ -42,7 +42,7 @@ fn fused_matmul(input: &[f32], data: &[u8], qtype: u32, in_dim: usize, out_dim: 
 fn main() {
     let path = "/tmp/parity-bench/tinyllama-1.1b-q4_k_m.gguf";
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     let hidden_dim = model.config.hidden_dim;
     let intermediate_dim = model.config.intermediate_dim;
@@ -112,7 +112,7 @@ fn main() {
         }
 
         // FFN
-        let ffn_input = rms_norm(&hidden, layer.ffn_norm_weight.as_ref().unwrap(), eps);
+        let ffn_input = rms_norm(&hidden, layer.ffn_norm_weight.as_ref().expect("test"), eps);
         if let Some(ref gate_weight) = layer.ffn_gate_weight {
             let ffn_up = fused_matmul(
                 &ffn_input,
@@ -223,7 +223,7 @@ fn main() {
     println!("3. After attention residual L2: {:.4}", l2_norm(&hidden));
 
     // FFN with detailed tracing
-    let ffn_norm_weight = layer.ffn_norm_weight.as_ref().unwrap();
+    let ffn_norm_weight = layer.ffn_norm_weight.as_ref().expect("test");
     let ffn_input = rms_norm(&hidden, ffn_norm_weight, eps);
 
     println!(
@@ -238,7 +238,7 @@ fn main() {
             .collect::<Vec<_>>()
     );
 
-    let gate_weight = layer.ffn_gate_weight.as_ref().unwrap();
+    let gate_weight = layer.ffn_gate_weight.as_ref().expect("test");
     let up_weight = &layer.ffn_up_weight;
     let down_weight = &layer.ffn_down_weight;
 

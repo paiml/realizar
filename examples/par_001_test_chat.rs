@@ -8,8 +8,8 @@ use realizar::gguf::{MappedGGUFModel, OwnedQuantizedKVCache, OwnedQuantizedModel
 fn main() {
     let path = "/tmp/parity-bench/tinyllama-1.1b-q4_k_m.gguf";
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
-    let vocab = mapped.model.vocabulary().unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
+    let vocab = mapped.model.vocabulary().expect("test");
 
     println!("=== PAR-001: Chat Template Test ===\n");
 
@@ -51,10 +51,10 @@ fn main() {
     }
 
     // Process BOS
-    let _ = model.forward_cached(bos, &mut cache, 0).unwrap();
+    let _ = model.forward_cached(bos, &mut cache, 0).expect("test");
 
     // Try token 29950 which is 'H'
-    let logits = model.forward_cached(29950, &mut cache, 1).unwrap();
+    let logits = model.forward_cached(29950, &mut cache, 1).expect("test");
 
     // Top 10
     let mut indexed: Vec<(usize, f32)> = logits.iter().cloned().enumerate().collect();
@@ -69,7 +69,7 @@ fn main() {
     // Test 2: Just BOS
     println!("\n=== Test 2: Just BOS ===");
     let mut cache2 = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim, 128);
-    let logits2 = model.forward_cached(bos, &mut cache2, 0).unwrap();
+    let logits2 = model.forward_cached(bos, &mut cache2, 0).expect("test");
 
     let mut indexed2: Vec<(usize, f32)> = logits2.iter().cloned().enumerate().collect();
     indexed2.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
@@ -87,13 +87,13 @@ fn main() {
 
     for pos in 0..20 {
         let token = generated[pos];
-        let logits = model.forward_cached(token, &mut cache3, pos).unwrap();
+        let logits = model.forward_cached(token, &mut cache3, pos).expect("test");
 
         let (next_idx, _) = logits
             .iter()
             .enumerate()
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
-            .unwrap();
+            .expect("test");
 
         generated.push(next_idx as u32);
         let tok_str = vocab.get(next_idx).map(|s| s.as_str()).unwrap_or("?");

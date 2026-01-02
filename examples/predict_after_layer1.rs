@@ -25,12 +25,12 @@ fn silu(x: &mut [f32]) {
 
 fn fused_matmul(input: &[f32], data: &[u8], qtype: u32, in_dim: usize, out_dim: usize) -> Vec<f32> {
     match qtype {
-        GGUF_TYPE_Q4_K => fused_q4k_parallel_matvec(data, input, in_dim, out_dim).unwrap(),
+        GGUF_TYPE_Q4_K => fused_q4k_parallel_matvec(data, input, in_dim, out_dim).expect("test"),
         GGUF_TYPE_Q6_K => {
             if out_dim == 256 {
-                fused_q6k_colmajor_matvec(data, input, in_dim, out_dim).unwrap()
+                fused_q6k_colmajor_matvec(data, input, in_dim, out_dim).expect("test")
             } else {
-                fused_q6k_parallel_matvec(data, input, in_dim, out_dim).unwrap()
+                fused_q6k_parallel_matvec(data, input, in_dim, out_dim).expect("test")
             }
         },
         _ => panic!(""),
@@ -40,8 +40,8 @@ fn fused_matmul(input: &[f32], data: &[u8], qtype: u32, in_dim: usize, out_dim: 
 fn main() {
     let path = "/tmp/parity-bench/tinyllama-1.1b-q4_k_m.gguf";
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
-    let vocab = mapped.model.vocabulary().unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
+    let vocab = mapped.model.vocabulary().expect("test");
 
     let hidden_dim = model.config.hidden_dim;
     let intermediate_dim = model.config.intermediate_dim;
@@ -131,7 +131,7 @@ fn main() {
         );
 
         let mut indexed: Vec<(usize, f32)> = logits.iter().cloned().enumerate().collect();
-        indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).expect("test"));
 
         println!("After {} layer(s), top 5:", max_layers);
         for (rank, (idx, score)) in indexed.iter().take(5).enumerate() {

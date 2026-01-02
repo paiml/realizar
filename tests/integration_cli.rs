@@ -11,7 +11,7 @@ use predicates::prelude::*;
 
 #[test]
 fn test_cli_help() {
-    let mut cmd = Command::cargo_bin("realizar").unwrap();
+    let mut cmd = Command::cargo_bin("realizar").expect("test");
     cmd.arg("--help");
     cmd.assert()
         .success()
@@ -20,7 +20,7 @@ fn test_cli_help() {
 
 #[test]
 fn test_cli_info_command() {
-    let mut cmd = Command::cargo_bin("realizar").unwrap();
+    let mut cmd = Command::cargo_bin("realizar").expect("test");
     cmd.arg("info");
     cmd.assert()
         .success()
@@ -30,7 +30,7 @@ fn test_cli_info_command() {
 
 #[test]
 fn test_cli_serve_requires_demo_or_model() {
-    let mut cmd = Command::cargo_bin("realizar").unwrap();
+    let mut cmd = Command::cargo_bin("realizar").expect("test");
     cmd.arg("serve");
     // Without --demo flag, it should fail since no model path is provided
     cmd.assert().failure();
@@ -38,7 +38,7 @@ fn test_cli_serve_requires_demo_or_model() {
 
 #[test]
 fn test_cli_serve_help() {
-    let mut cmd = Command::cargo_bin("realizar").unwrap();
+    let mut cmd = Command::cargo_bin("realizar").expect("test");
     cmd.arg("serve").arg("--help");
     cmd.assert()
         .success()
@@ -49,21 +49,21 @@ fn test_cli_serve_help() {
 
 #[test]
 fn test_cli_serve_invalid_port() {
-    let mut cmd = Command::cargo_bin("realizar").unwrap();
+    let mut cmd = Command::cargo_bin("realizar").expect("test");
     cmd.arg("serve").arg("--demo").arg("--port").arg("invalid");
     cmd.assert().failure();
 }
 
 #[test]
 fn test_cli_unknown_command() {
-    let mut cmd = Command::cargo_bin("realizar").unwrap();
+    let mut cmd = Command::cargo_bin("realizar").expect("test");
     cmd.arg("unknown");
     cmd.assert().failure();
 }
 
 #[test]
 fn test_cli_version_flag() {
-    let mut cmd = Command::cargo_bin("realizar").unwrap();
+    let mut cmd = Command::cargo_bin("realizar").expect("test");
     cmd.arg("--version");
     cmd.assert()
         .success()

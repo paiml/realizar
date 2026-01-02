@@ -32,7 +32,7 @@ fn reference_matvec(weight: &[f32], input: &[f32], in_dim: usize, out_dim: usize
 fn main() {
     let path = "/tmp/parity-bench/tinyllama-1.1b-q4_k_m.gguf";
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     let hidden_dim = model.config.hidden_dim;
     let eps = model.config.eps;

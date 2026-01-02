@@ -281,7 +281,7 @@ pub fn run_benchmarks(
 
         file.write_all(
             serde_json::to_string_pretty(&json_output)
-                .unwrap()
+                .expect("test")
                 .as_bytes(),
         )
         .map_err(|e| RealizarError::IoError {
@@ -435,7 +435,7 @@ fn run_external_benchmark(
     }
 
     // Calculate statistics
-    latencies.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    latencies.sort_by(|a, b| a.partial_cmp(b).expect("test"));
     let p50 = latencies[latencies.len() / 2];
     let p99_idx = (latencies.len() as f64 * 0.99) as usize;
     let p99 = latencies[p99_idx.min(latencies.len() - 1)];
@@ -1252,10 +1252,14 @@ mod tests {
         let dir = std::env::temp_dir();
         let file1 = dir.join("bench_compare_one.json");
 
-        let mut f1 = std::fs::File::create(&file1).unwrap();
-        f1.write_all(b"{}").unwrap();
+        let mut f1 = std::fs::File::create(&file1).expect("test");
+        f1.write_all(b"{}").expect("test");
 
-        let result = run_bench_compare(file1.to_str().unwrap(), "/nonexistent/file2.json", 5.0);
+        let result = run_bench_compare(
+            file1.to_str().expect("test"),
+            "/nonexistent/file2.json",
+            5.0,
+        );
 
         let _ = std::fs::remove_file(&file1);
         assert!(result.is_err());
@@ -1268,11 +1272,11 @@ mod tests {
         let dir = std::env::temp_dir();
         let baseline = dir.join("bench_regress_base.json");
 
-        let mut f1 = std::fs::File::create(&baseline).unwrap();
-        f1.write_all(b"{}").unwrap();
+        let mut f1 = std::fs::File::create(&baseline).expect("test");
+        f1.write_all(b"{}").expect("test");
 
         let result = run_bench_regression(
-            baseline.to_str().unwrap(),
+            baseline.to_str().expect("test"),
             "/nonexistent/current.json",
             false,
         );
@@ -1293,7 +1297,7 @@ mod tests {
         let result = run_convoy_test(
             Some("test".to_string()),
             Some("model.gguf".to_string()),
-            Some(output.to_str().unwrap().to_string()),
+            Some(output.to_str().expect("test").to_string()),
         );
 
         assert!(result.is_ok());
@@ -1310,7 +1314,7 @@ mod tests {
         let result = run_saturation_test(
             Some("test".to_string()),
             Some("model.gguf".to_string()),
-            Some(output.to_str().unwrap().to_string()),
+            Some(output.to_str().expect("test").to_string()),
         );
 
         assert!(result.is_ok());

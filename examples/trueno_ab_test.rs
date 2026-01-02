@@ -50,13 +50,13 @@ fn main() {
     );
 
     // === TRUENO BENCHMARK ===
-    let weight_mat = Matrix::from_vec(rows, cols, weight.clone()).unwrap();
+    let weight_mat = Matrix::from_vec(rows, cols, weight.clone()).expect("test");
     let input_vec = Vector::from_slice(&input);
-    let _ = black_box(weight_mat.matvec(&input_vec).unwrap()); // warmup
+    let _ = black_box(weight_mat.matvec(&input_vec).expect("test")); // warmup
 
     let start = Instant::now();
     for _ in 0..iterations {
-        black_box(weight_mat.matvec(&input_vec).unwrap());
+        black_box(weight_mat.matvec(&input_vec).expect("test"));
     }
     let trueno_time = start.elapsed();
     let trueno_per_iter = trueno_time.as_micros() as f64 / iterations as f64;
@@ -81,7 +81,7 @@ fn main() {
 
     // Verify correctness
     let scalar_result = scalar_matvec(&weight, &input, rows, cols);
-    let trueno_result = weight_mat.matvec(&input_vec).unwrap();
+    let trueno_result = weight_mat.matvec(&input_vec).expect("test");
     let max_diff: f32 = scalar_result
         .iter()
         .zip(trueno_result.as_slice().iter())

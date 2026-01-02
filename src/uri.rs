@@ -289,28 +289,28 @@ mod tests {
 
     #[test]
     fn test_parse_full_uri() {
-        let uri = PachaUri::parse("pacha://llama-7b:1.0.0").unwrap();
+        let uri = PachaUri::parse("pacha://llama-7b:1.0.0").expect("test");
         assert_eq!(uri.model, "llama-7b");
         assert_eq!(uri.version, Some("1.0.0".to_string()));
     }
 
     #[test]
     fn test_parse_uri_without_version() {
-        let uri = PachaUri::parse("pacha://mistral-7b").unwrap();
+        let uri = PachaUri::parse("pacha://mistral-7b").expect("test");
         assert_eq!(uri.model, "mistral-7b");
         assert_eq!(uri.version, None);
     }
 
     #[test]
     fn test_parse_uri_with_semver() {
-        let uri = PachaUri::parse("pacha://gpt2:2.0.0-beta.1").unwrap();
+        let uri = PachaUri::parse("pacha://gpt2:2.0.0-beta.1").expect("test");
         assert_eq!(uri.model, "gpt2");
         assert_eq!(uri.version, Some("2.0.0-beta.1".to_string()));
     }
 
     #[test]
     fn test_parse_uri_with_org() {
-        let uri = PachaUri::parse("pacha://paiml/trueno-llm:1.0").unwrap();
+        let uri = PachaUri::parse("pacha://paiml/trueno-llm:1.0").expect("test");
         assert_eq!(uri.model, "paiml/trueno-llm");
         assert_eq!(uri.version, Some("1.0".to_string()));
     }
@@ -343,31 +343,31 @@ mod tests {
 
     #[test]
     fn test_to_uri_string() {
-        let uri = PachaUri::parse("pacha://model:1.0").unwrap();
+        let uri = PachaUri::parse("pacha://model:1.0").expect("test");
         assert_eq!(uri.to_uri_string(), "pacha://model:1.0");
 
-        let uri_no_version = PachaUri::parse("pacha://model").unwrap();
+        let uri_no_version = PachaUri::parse("pacha://model").expect("test");
         assert_eq!(uri_no_version.to_uri_string(), "pacha://model");
     }
 
     #[test]
     fn test_version_or_latest() {
-        let uri = PachaUri::parse("pacha://model:2.0").unwrap();
+        let uri = PachaUri::parse("pacha://model:2.0").expect("test");
         assert_eq!(uri.version_or_latest(), "2.0");
 
-        let uri_no_version = PachaUri::parse("pacha://model").unwrap();
+        let uri_no_version = PachaUri::parse("pacha://model").expect("test");
         assert_eq!(uri_no_version.version_or_latest(), "latest");
     }
 
     #[test]
     fn test_display() {
-        let uri = PachaUri::parse("pacha://llama:1.0.0").unwrap();
+        let uri = PachaUri::parse("pacha://llama:1.0.0").expect("test");
         assert_eq!(format!("{uri}"), "pacha://llama:1.0.0");
     }
 
     #[test]
     fn test_lineage_from_uri() {
-        let uri = PachaUri::parse("pacha://model:1.0").unwrap();
+        let uri = PachaUri::parse("pacha://model:1.0").expect("test");
         let lineage = ModelLineage::from_uri(&uri);
 
         assert_eq!(lineage.uri, "pacha://model:1.0");

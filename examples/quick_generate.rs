@@ -10,12 +10,12 @@ fn main() {
         .map(|s| s.as_str())
         .unwrap_or("/home/noah/src/aprender/tinyllama-1.1b-chat-v1.0.Q4_0.gguf");
     let mapped = MappedGGUFModel::from_path(path).expect("Failed to load model");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
-    let vocab = mapped.model.vocabulary().unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
+    let vocab = mapped.model.vocabulary().expect("test");
 
     // Simple greedy generation with KV cache
     let prompt = "Once upon a time";
-    let prompt_tokens = mapped.model.encode(prompt).unwrap();
+    let prompt_tokens = mapped.model.encode(prompt).expect("test");
     println!("Prompt: '{}'", prompt);
     println!("Tokens: {:?}", prompt_tokens);
 
@@ -30,7 +30,7 @@ fn main() {
     for (pos, &tok) in prompt_tokens.iter().enumerate() {
         logits = model
             .forward_single_with_cache(tok, &mut cache, pos)
-            .unwrap();
+            .expect("test");
     }
 
     // Generate new tokens
@@ -41,7 +41,7 @@ fn main() {
             .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-            .unwrap();
+            .expect("test");
 
         let tok_str = if best_idx < vocab.len() {
             &vocab[best_idx]
@@ -57,7 +57,7 @@ fn main() {
         let pos = prompt_tokens.len() + i;
         logits = model
             .forward_single_with_cache(best_idx as u32, &mut cache, pos)
-            .unwrap();
+            .expect("test");
     }
     println!("\n");
 

@@ -562,7 +562,7 @@ impl QuantizedAprTransformer {
             if offset + hidden_dim <= self.token_embedding.len() {
                 hidden.extend_from_slice(&self.token_embedding[offset..offset + hidden_dim]);
             } else {
-                hidden.extend(std::iter::repeat(0.0).take(hidden_dim));
+                hidden.extend(std::iter::repeat_n(0.0, hidden_dim));
             }
         }
 
@@ -761,7 +761,7 @@ impl QuantizedAprTransformer {
         if offset + hidden_dim <= self.token_embedding.len() {
             hidden.extend_from_slice(&self.token_embedding[offset..offset + hidden_dim]);
         } else {
-            hidden.extend(std::iter::repeat(0.0).take(hidden_dim));
+            hidden.extend(std::iter::repeat_n(0.0, hidden_dim));
         }
 
         // 2. Process through layers (simplified for quantized)
@@ -1560,7 +1560,7 @@ impl AprTransformer {
                 embeddings.extend_from_slice(&self.token_embedding[offset..offset + hidden_dim]);
             } else {
                 // Out of vocab - return zeros
-                embeddings.extend(std::iter::repeat(0.0).take(hidden_dim));
+                embeddings.extend(std::iter::repeat_n(0.0, hidden_dim));
             }
         }
 
@@ -2800,7 +2800,7 @@ impl QuantizedAprTransformerQ4 {
             if offset + hidden_dim <= self.token_embedding.len() {
                 hidden.extend_from_slice(&self.token_embedding[offset..offset + hidden_dim]);
             } else {
-                hidden.extend(std::iter::repeat(0.0).take(hidden_dim));
+                hidden.extend(std::iter::repeat_n(0.0, hidden_dim));
             }
         }
 
@@ -3222,7 +3222,7 @@ impl QuantizedAprTransformerQ4 {
             if offset + hidden_dim <= self.token_embedding.len() {
                 hidden.extend_from_slice(&self.token_embedding[offset..offset + hidden_dim]);
             } else {
-                hidden.extend(std::iter::repeat(0.0).take(hidden_dim));
+                hidden.extend(std::iter::repeat_n(0.0, hidden_dim));
             }
         }
 

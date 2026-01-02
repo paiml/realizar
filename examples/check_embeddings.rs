@@ -12,14 +12,15 @@ fn stats(x: &[f32]) -> (f32, f32, f32, f32) {
 }
 
 fn main() {
-    let data = fs::read("/home/noah/src/aprender/tinyllama-1.1b-chat-v1.0.Q4_0.gguf").unwrap();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let data =
+        fs::read("/home/noah/src/aprender/tinyllama-1.1b-chat-v1.0.Q4_0.gguf").expect("test");
+    let model = GGUFModel::from_bytes(&data).expect("test");
 
     let t = model
         .tensors
         .iter()
         .find(|t| t.name == "token_embd.weight")
-        .unwrap();
+        .expect("test");
     println!("token_embd.weight:");
     println!("  dims (after reverse): {:?}", t.dims);
     println!("  qtype: {} (2=Q4_0)", t.qtype);
@@ -38,7 +39,7 @@ fn main() {
 
     // Dequantize the full tensor
     let quant_data = &data[abs_offset..abs_offset + byte_size];
-    let values = dequantize_q4_0(quant_data).unwrap();
+    let values = dequantize_q4_0(quant_data).expect("test");
     println!("  dequantized elements: {}", values.len());
 
     // Check multiple tokens

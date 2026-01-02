@@ -9,7 +9,7 @@ fn l2_norm(v: &[f32]) -> f32 {
 fn main() {
     let path = "/tmp/parity-bench/tinyllama-1.1b-q4_k_m.gguf";
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     println!("Output norm weight:");
     println!("  L2: {:.6}", l2_norm(&model.output_norm_weight));

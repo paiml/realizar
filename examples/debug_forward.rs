@@ -5,8 +5,8 @@ fn main() {
     println!("Loading model...");
     let mapped =
         MappedGGUFModel::from_path("/home/noah/src/aprender/tinyllama-1.1b-chat-v1.0.Q4_0.gguf")
-            .unwrap();
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+            .expect("test");
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     let config = model.config();
     println!("\nModel config:");
@@ -92,7 +92,7 @@ fn main() {
 
     // Run a simple forward on BOS
     println!("\nRunning forward on token [1] (BOS)...");
-    let logits = model.forward(&[1]).unwrap();
+    let logits = model.forward(&[1]).expect("test");
 
     println!("Logits shape: {}", logits.len());
     println!("Logits[0..5]: {:?}", &logits[0..5]);
@@ -109,7 +109,7 @@ fn main() {
     );
 
     // Top 5 predictions
-    let vocab = mapped.model.vocabulary().unwrap();
+    let vocab = mapped.model.vocabulary().expect("test");
     let mut indexed: Vec<(usize, f32)> = logits.iter().cloned().enumerate().collect();
     indexed.sort_by(|(_, a), (_, b)| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
 

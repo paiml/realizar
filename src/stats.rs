@@ -376,8 +376,8 @@ fn median(data: &[f64]) -> f64 {
         return 0.0;
     }
 
-    if n % 2 == 0 {
-        (sorted[n / 2 - 1] + sorted[n / 2]) / 2.0
+    if n.is_multiple_of(2) {
+        f64::midpoint(sorted[n / 2 - 1], sorted[n / 2])
     } else {
         sorted[n / 2]
     }

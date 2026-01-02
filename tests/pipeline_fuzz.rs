@@ -44,7 +44,7 @@ proptest! {
         let result = model.forward(&tokens);
 
         prop_assert!(result.is_ok(), "Forward failed");
-        let logits = result.unwrap();
+        let logits = result.expect("test");
         prop_assert!(
             logits.data().iter().all(|x| x.is_finite()),
             "Forward output contains non-finite values"
@@ -87,7 +87,7 @@ proptest! {
         let result = model.generate(&prompt, &gen_config);
         prop_assert!(result.is_ok(), "Generate failed");
 
-        let generated = result.unwrap();
+        let generated = result.expect("test");
         prop_assert!(
             generated.iter().all(|&t| t < config.vocab_size),
             "Generated invalid token IDs"
@@ -106,7 +106,7 @@ proptest! {
             .collect();
 
         let v = Vector::from_slice(&input);
-        let output = v.softmax().unwrap();
+        let output = v.softmax().expect("test");
 
         let sum: f32 = output.as_slice().iter().sum();
         prop_assert!(
@@ -131,7 +131,7 @@ proptest! {
             .collect();
 
         let v = Vector::from_slice(&input);
-        let output = v.softmax().unwrap();
+        let output = v.softmax().expect("test");
 
         // Should be finite
         prop_assert!(
@@ -163,10 +163,10 @@ proptest! {
             .map(|i| (i as f32 * 0.02).cos())
             .collect();
 
-        let ma = Matrix::from_vec(rows, inner, a).unwrap();
-        let mb = Matrix::from_vec(inner, cols, b).unwrap();
+        let ma = Matrix::from_vec(rows, inner, a).expect("test");
+        let mb = Matrix::from_vec(inner, cols, b).expect("test");
 
-        let mc = ma.matmul(&mb).unwrap();
+        let mc = ma.matmul(&mb).expect("test");
 
         prop_assert_eq!(
             mc.rows(),
@@ -195,7 +195,7 @@ proptest! {
             .collect();
 
         let v = Vector::from_slice(&input);
-        let output = v.gelu().unwrap();
+        let output = v.gelu().expect("test");
 
         prop_assert!(
             output.as_slice().iter().all(|x| x.is_finite()),
@@ -223,8 +223,8 @@ proptest! {
         let va = Vector::from_slice(&a);
         let vb = Vector::from_slice(&b);
 
-        let dot_ab = va.dot(&vb).unwrap();
-        let dot_ba = vb.dot(&va).unwrap();
+        let dot_ab = va.dot(&vb).expect("test");
+        let dot_ba = vb.dot(&va).expect("test");
 
         prop_assert!(
             (dot_ab - dot_ba).abs() < 1e-4,
@@ -242,7 +242,7 @@ proptest! {
             .map(|i| i as f32 * 0.1)
             .collect();
 
-        let tensor = Tensor::from_vec(vec![dim1, dim2], data.clone()).unwrap();
+        let tensor = Tensor::from_vec(vec![dim1, dim2], data.clone()).expect("test");
 
         prop_assert_eq!(tensor.shape(), &[dim1, dim2]);
         prop_assert_eq!(tensor.size(), dim1 * dim2);
@@ -262,7 +262,7 @@ fn test_single_token_forward() {
     let result = model.forward(&[0]);
     assert!(result.is_ok());
 
-    let logits = result.unwrap();
+    let logits = result.expect("test");
     assert_eq!(logits.shape()[0], 1);
     assert_eq!(logits.shape()[1], config.vocab_size);
 }
@@ -282,7 +282,7 @@ fn test_empty_softmax() {
 fn test_single_element_softmax() {
     let single = vec![5.0_f32];
     let v = Vector::from_slice(&single);
-    let result = v.softmax().unwrap();
+    let result = v.softmax().expect("test");
     assert_eq!(result.as_slice().len(), 1);
     assert!((result.as_slice()[0] - 1.0).abs() < 1e-6);
 }
@@ -291,7 +291,7 @@ fn test_single_element_softmax() {
 fn test_uniform_softmax() {
     let uniform = vec![1.0_f32; 10];
     let v = Vector::from_slice(&uniform);
-    let result = v.softmax().unwrap();
+    let result = v.softmax().expect("test");
     for x in result.as_slice() {
         assert!((*x - 0.1).abs() < 0.01);
     }
@@ -302,14 +302,14 @@ fn test_extreme_softmax() {
     // Very large values
     let large = vec![500.0_f32, 501.0, 499.0];
     let v = Vector::from_slice(&large);
-    let result = v.softmax().unwrap();
+    let result = v.softmax().expect("test");
     assert!(result.as_slice().iter().all(|x| x.is_finite()));
     assert!((result.as_slice().iter().sum::<f32>() - 1.0).abs() < 0.01);
 
     // Very negative values
     let negative = vec![-500.0_f32, -501.0, -499.0];
     let v = Vector::from_slice(&negative);
-    let result = v.softmax().unwrap();
+    let result = v.softmax().expect("test");
     assert!(result.as_slice().iter().all(|x| x.is_finite()));
     assert!((result.as_slice().iter().sum::<f32>() - 1.0).abs() < 0.01);
 }
@@ -360,7 +360,7 @@ fn test_different_sampling_strategies() {
         let result = model.generate(&prompt, &gen_config);
         assert!(result.is_ok(), "Strategy {:?} failed", strategy);
 
-        let generated = result.unwrap();
+        let generated = result.expect("test");
         assert!(generated.len() >= prompt.len());
     }
 }
@@ -381,7 +381,7 @@ fn stress_test_repeated_forward() {
         let result = model.forward(&tokens);
         assert!(result.is_ok(), "Forward failed at iteration {}", i);
 
-        let logits = result.unwrap();
+        let logits = result.expect("test");
         assert!(
             logits.data().iter().all(|x| x.is_finite()),
             "Non-finite output at iteration {}",
@@ -401,10 +401,10 @@ fn stress_test_vocab_projection() {
         .map(|i| (i as f32 * 0.0001).sin())
         .collect();
 
-    let h = Matrix::from_vec(1, hidden_dim, hidden).unwrap();
-    let e = Matrix::from_vec(hidden_dim, vocab_size, embedding).unwrap();
+    let h = Matrix::from_vec(1, hidden_dim, hidden).expect("test");
+    let e = Matrix::from_vec(hidden_dim, vocab_size, embedding).expect("test");
 
-    let logits = h.matmul(&e).unwrap();
+    let logits = h.matmul(&e).expect("test");
     assert_eq!(logits.rows(), 1);
     assert_eq!(logits.cols(), vocab_size);
     assert!(logits.as_slice().iter().all(|x| x.is_finite()));
@@ -423,10 +423,10 @@ fn stress_test_batch_matmul() {
         .map(|i| (i as f32 * 0.02).cos())
         .collect();
 
-    let ma = Matrix::from_vec(batch_size, hidden_dim, a).unwrap();
-    let mb = Matrix::from_vec(hidden_dim, hidden_dim, b).unwrap();
+    let ma = Matrix::from_vec(batch_size, hidden_dim, a).expect("test");
+    let mb = Matrix::from_vec(hidden_dim, hidden_dim, b).expect("test");
 
-    let mc = ma.matmul(&mb).unwrap();
+    let mc = ma.matmul(&mb).expect("test");
     assert_eq!(mc.rows(), batch_size);
     assert_eq!(mc.cols(), hidden_dim);
     assert!(mc.as_slice().iter().all(|x| x.is_finite()));

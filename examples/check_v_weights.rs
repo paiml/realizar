@@ -15,7 +15,7 @@ fn main() {
     println!("=== PAR-001c: V Weight Analysis ===\n");
 
     let mapped = MappedGGUFModel::from_path(path).expect("Failed to load model");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     let layer = &model.layers[0];
 

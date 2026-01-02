@@ -1352,7 +1352,7 @@ mod tests {
 
         let result = runner.run();
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), 2);
+        assert_eq!(result.expect("test").len(), 2);
     }
 
     #[test]
@@ -1382,7 +1382,7 @@ mod tests {
         let mut runner = PreflightRunner::new();
         let result = runner.run();
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("test").is_empty());
     }
 
     #[test]

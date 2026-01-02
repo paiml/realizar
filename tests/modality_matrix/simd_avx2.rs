@@ -215,7 +215,9 @@ fn test_simd_duration_faster_than_scalar() {
         simd_duration_us,
     ));
 
-    let span = trace.span_by_name("compute_block:simd_matmul").unwrap();
+    let span = trace
+        .span_by_name("compute_block:simd_matmul")
+        .expect("test");
 
     // FALSIFIABLE: SIMD should be significantly faster
     assert!(
@@ -238,7 +240,9 @@ fn test_simd_instruction_set_attribute() {
         TraceSpan::new("compute_block:simd_matmul", 10000).with_attr("instruction_set", "avx2"),
     );
 
-    let span = trace.span_by_name("compute_block:simd_matmul").unwrap();
+    let span = trace
+        .span_by_name("compute_block:simd_matmul")
+        .expect("test");
 
     // FALSIFIABLE: instruction_set attribute should indicate AVX2
     assert!(
@@ -258,7 +262,7 @@ mod integration {
 
         let val = std::env::var("REALIZAR_FORCE_SIMD");
         assert!(
-            val.is_ok() && val.unwrap() == "1",
+            val.is_ok() && val.expect("test") == "1",
             "FALSIFICATION: REALIZAR_FORCE_SIMD not set to '1'"
         );
 

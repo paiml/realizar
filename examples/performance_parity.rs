@@ -292,7 +292,7 @@ fn bench_simd_dequantization() -> BenchResult {
     let iterations = 20;
     let start = Instant::now();
     for _ in 0..iterations {
-        let _ = dequantize_q4_k_simd(&data).unwrap();
+        let _ = dequantize_q4_k_simd(&data).expect("test");
     }
     let simd_time = start.elapsed();
 
@@ -346,9 +346,9 @@ fn bench_fused_attention() -> BenchResult {
     let hidden_dim = 256;
     let seq_len = 128;
 
-    let fused = FusedQKVAttention::new(head_dim, hidden_dim).unwrap();
+    let fused = FusedQKVAttention::new(head_dim, hidden_dim).expect("test");
     let input =
-        Tensor::from_vec(vec![seq_len, hidden_dim], vec![0.1; seq_len * hidden_dim]).unwrap();
+        Tensor::from_vec(vec![seq_len, hidden_dim], vec![0.1; seq_len * hidden_dim]).expect("test");
 
     // Warm up
     for _ in 0..10 {
@@ -359,7 +359,7 @@ fn bench_fused_attention() -> BenchResult {
     let iterations = 100;
     let start = Instant::now();
     for _ in 0..iterations {
-        let _ = fused.forward(&input).unwrap();
+        let _ = fused.forward(&input).expect("test");
     }
     let elapsed = start.elapsed();
 
@@ -433,7 +433,7 @@ fn bench_batch_prefill() -> BenchResult {
         eps: 1e-5,
     };
 
-    let model = std::sync::Arc::new(Model::new(config).unwrap());
+    let model = std::sync::Arc::new(Model::new(config).expect("test"));
 
     // Single request baseline
     let tokens = vec![1usize, 2, 3, 4];
@@ -446,7 +446,7 @@ fn bench_batch_prefill() -> BenchResult {
     let iterations = 50;
     let start = Instant::now();
     for _ in 0..iterations {
-        let _ = model.forward(&tokens).unwrap();
+        let _ = model.forward(&tokens).expect("test");
     }
     let single_time = start.elapsed();
 
@@ -459,7 +459,7 @@ fn bench_batch_prefill() -> BenchResult {
         // Process batch in parallel
         let _results: Vec<_> = requests
             .par_iter()
-            .map(|req| model.forward(req).unwrap())
+            .map(|req| model.forward(req).expect("test"))
             .collect();
     }
     let batch_time = start.elapsed();
@@ -489,7 +489,7 @@ fn bench_quantization_formats() -> BenchResult {
     let q4_0_data = vec![0u8; 20 * 32];
     let start = Instant::now();
     for _ in 0..iterations {
-        let _ = dequantize_q4_0(&q4_0_data).unwrap();
+        let _ = dequantize_q4_0(&q4_0_data).expect("test");
     }
     let _q4_0_time = start.elapsed();
 
@@ -497,7 +497,7 @@ fn bench_quantization_formats() -> BenchResult {
     let q8_0_data = vec![0u8; 36 * 32];
     let start = Instant::now();
     for _ in 0..iterations {
-        let _ = dequantize_q8_0(&q8_0_data).unwrap();
+        let _ = dequantize_q8_0(&q8_0_data).expect("test");
     }
     let _q8_0_time = start.elapsed();
 
@@ -505,7 +505,7 @@ fn bench_quantization_formats() -> BenchResult {
     let q4_k_data = vec![0u8; 144 * 8];
     let start = Instant::now();
     for _ in 0..iterations {
-        let _ = dequantize_q4_k(&q4_k_data).unwrap();
+        let _ = dequantize_q4_k(&q4_k_data).expect("test");
     }
     let q4_k_time = start.elapsed();
 
@@ -534,7 +534,7 @@ fn bench_inference_latency() -> BenchResult {
         eps: 1e-5,
     };
 
-    let model = Model::new(config).unwrap();
+    let model = Model::new(config).expect("test");
     let tokens = vec![1, 2, 3, 4, 5];
 
     // Warm up
@@ -546,7 +546,7 @@ fn bench_inference_latency() -> BenchResult {
     let iterations = 50;
     let start = Instant::now();
     for _ in 0..iterations {
-        let _ = model.forward(&tokens).unwrap();
+        let _ = model.forward(&tokens).expect("test");
     }
     let elapsed = start.elapsed();
 
@@ -573,7 +573,7 @@ fn bench_token_generation() -> BenchResult {
         eps: 1e-5,
     };
 
-    let model = Model::new(config).unwrap();
+    let model = Model::new(config).expect("test");
 
     // Simulate token generation
     let num_tokens = 20;
@@ -581,13 +581,13 @@ fn bench_token_generation() -> BenchResult {
 
     let start = Instant::now();
     for _ in 0..num_tokens {
-        let output = model.forward(&tokens).unwrap();
+        let output = model.forward(&tokens).expect("test");
         // Simulate sampling (take argmax of last position)
         let logits = output.data();
         let next_token = logits
             .iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).expect("test"))
             .map(|(i, _)| i)
             .unwrap_or(0);
         tokens.push(next_token % 500); // Keep in vocab range
@@ -635,7 +635,7 @@ fn check_gpu_availability() -> bool {
 
 /// GPU-001: GPU matmul throughput (M2 target)
 fn bench_gpu_matmul() -> BenchResult {
-    let mut gpu = GpuCompute::auto().unwrap();
+    let mut gpu = GpuCompute::auto().expect("test");
 
     // Matrix dimensions for benchmark
     let m = 512;
@@ -654,7 +654,7 @@ fn bench_gpu_matmul() -> BenchResult {
     let iterations = 20;
     let start = Instant::now();
     for _ in 0..iterations {
-        let _ = gpu.matmul(&a, &b, m, k, n).unwrap();
+        let _ = gpu.matmul(&a, &b, m, k, n).expect("test");
     }
     let elapsed = start.elapsed();
 
@@ -674,7 +674,7 @@ fn bench_gpu_matmul() -> BenchResult {
 
 /// GPU-002: Hybrid scheduler efficiency
 fn bench_hybrid_scheduler() -> BenchResult {
-    let mut scheduler = HybridScheduler::new().unwrap();
+    let mut scheduler = HybridScheduler::new().expect("test");
 
     // Test workloads of different sizes
     let small_m = 32;
@@ -703,7 +703,7 @@ fn bench_hybrid_scheduler() -> BenchResult {
     for _ in 0..iterations {
         let _ = scheduler
             .matmul(&small_a, &small_b, small_m, small_k, small_n)
-            .unwrap();
+            .expect("test");
     }
     let small_time = start.elapsed();
 
@@ -712,7 +712,7 @@ fn bench_hybrid_scheduler() -> BenchResult {
     for _ in 0..iterations {
         let _ = scheduler
             .matmul(&large_a, &large_b, large_m, large_k, large_n)
-            .unwrap();
+            .expect("test");
     }
     let large_time = start.elapsed();
 
@@ -737,7 +737,7 @@ fn bench_hybrid_scheduler() -> BenchResult {
 
 /// GPU-003: GPU activation functions
 fn bench_gpu_activations() -> BenchResult {
-    let mut gpu = GpuCompute::auto().unwrap();
+    let mut gpu = GpuCompute::auto().expect("test");
 
     let size = 1024 * 1024; // 1M elements
     let input: Vec<f32> = (0..size).map(|i| (i as f32 - 512.0) * 0.01).collect();
@@ -752,14 +752,14 @@ fn bench_gpu_activations() -> BenchResult {
     let iterations = 20;
     let start = Instant::now();
     for _ in 0..iterations {
-        let _ = gpu.relu(&input).unwrap();
+        let _ = gpu.relu(&input).expect("test");
     }
     let relu_time = start.elapsed();
 
     // Benchmark sigmoid
     let start = Instant::now();
     for _ in 0..iterations {
-        let _ = gpu.sigmoid(&input).unwrap();
+        let _ = gpu.sigmoid(&input).expect("test");
     }
     let sigmoid_time = start.elapsed();
 
@@ -780,7 +780,7 @@ fn bench_gpu_activations() -> BenchResult {
 
 /// GPU-004: Buffer pool efficiency
 fn bench_gpu_buffer_pool() -> BenchResult {
-    let mut scheduler = HybridScheduler::new().unwrap();
+    let mut scheduler = HybridScheduler::new().expect("test");
 
     let m = 128;
     let k = 128;
@@ -793,7 +793,7 @@ fn bench_gpu_buffer_pool() -> BenchResult {
     let iterations = 100;
     let start = Instant::now();
     for _ in 0..iterations {
-        let result = scheduler.matmul(&a, &b, m, k, n).unwrap();
+        let result = scheduler.matmul(&a, &b, m, k, n).expect("test");
         drop(result); // Simulate allocation/deallocation
     }
     let no_pool_time = start.elapsed();
@@ -801,7 +801,7 @@ fn bench_gpu_buffer_pool() -> BenchResult {
     // Benchmark with pooling
     let start = Instant::now();
     for _ in 0..iterations {
-        let result = scheduler.matmul_pooled(&a, &b, m, k, n).unwrap();
+        let result = scheduler.matmul_pooled(&a, &b, m, k, n).expect("test");
         scheduler.release_buffer(result);
     }
     let pool_time = start.elapsed();
@@ -824,7 +824,7 @@ fn bench_gpu_buffer_pool() -> BenchResult {
 
 /// GPU-005: Async compute
 fn bench_gpu_async() -> BenchResult {
-    let mut scheduler = HybridScheduler::new().unwrap();
+    let mut scheduler = HybridScheduler::new().expect("test");
 
     let m = 128;
     let k = 128;
@@ -837,14 +837,14 @@ fn bench_gpu_async() -> BenchResult {
     let iterations = 50;
     let start = Instant::now();
     for _ in 0..iterations {
-        let _ = scheduler.matmul(&a, &b, m, k, n).unwrap();
+        let _ = scheduler.matmul(&a, &b, m, k, n).expect("test");
     }
     let sync_time = start.elapsed();
 
     // Benchmark async matmul (submit and wait pattern)
     let start = Instant::now();
     for _ in 0..iterations {
-        let result = scheduler.matmul_async(&a, &b, m, k, n).unwrap();
+        let result = scheduler.matmul_async(&a, &b, m, k, n).expect("test");
         let _ = result.wait(); // Wait for completion
     }
     let async_time = start.elapsed();
@@ -874,7 +874,7 @@ fn bench_gpu_token_generation() -> BenchResult {
         eps: 1e-5,
     };
 
-    let mut gpu_model = GpuModel::new(config).unwrap();
+    let mut gpu_model = GpuModel::new(config).expect("test");
     let has_gpu = gpu_model.has_gpu();
 
     // Warm up
@@ -886,7 +886,7 @@ fn bench_gpu_token_generation() -> BenchResult {
     // Benchmark token generation
     let num_tokens = 20;
     let start = Instant::now();
-    let generated = gpu_model.generate_gpu(&prompt, num_tokens).unwrap();
+    let generated = gpu_model.generate_gpu(&prompt, num_tokens).expect("test");
     let elapsed = start.elapsed();
 
     let total_tokens = generated.len() - prompt.len();
@@ -927,7 +927,7 @@ fn bench_large_model_simulation() -> BenchResult {
         eps: 1e-5,
     };
 
-    let mut gpu_model = GpuModel::new(config).unwrap();
+    let mut gpu_model = GpuModel::new(config).expect("test");
     let has_gpu = gpu_model.has_gpu();
 
     // Warm up with shorter prompt
@@ -939,7 +939,7 @@ fn bench_large_model_simulation() -> BenchResult {
     // Benchmark with 10 tokens (representative workload)
     let num_tokens = 10;
     let start = Instant::now();
-    let generated = gpu_model.generate_gpu(&prompt, num_tokens).unwrap();
+    let generated = gpu_model.generate_gpu(&prompt, num_tokens).expect("test");
     let elapsed = start.elapsed();
 
     let total_tokens = generated.len() - prompt.len();
@@ -1104,7 +1104,7 @@ fn bench_production_parity() -> BenchResult {
         eps: 1e-5,
     };
 
-    let mut gpu_model = GpuModel::new(config).unwrap();
+    let mut gpu_model = GpuModel::new(config).expect("test");
     let has_gpu = gpu_model.has_gpu();
 
     // Warm up with production-like workload
@@ -1122,7 +1122,9 @@ fn bench_production_parity() -> BenchResult {
 
     for _ in 0..generations {
         let start = Instant::now();
-        let generated = gpu_model.generate_gpu(&prompt, tokens_per_gen).unwrap();
+        let generated = gpu_model
+            .generate_gpu(&prompt, tokens_per_gen)
+            .expect("test");
         total_time += start.elapsed();
         total_tokens += generated.len() - prompt.len();
     }
@@ -1562,7 +1564,7 @@ fn bench_e2e_text_generation() -> BenchResult {
             passed: false,
         };
     }
-    let mut model = model_result.unwrap();
+    let mut model = model_result.expect("test");
 
     // Generate tokens
     let prompt = vec![1, 2, 3, 4, 5];
@@ -1623,7 +1625,7 @@ fn bench_apples_to_apples() -> BenchResult {
             passed: false,
         };
     }
-    let mut model = model_result.unwrap();
+    let mut model = model_result.expect("test");
 
     // Warmup (per llama.cpp benchmark methodology)
     let prompt = vec![1, 2, 3, 4, 5, 6, 7, 8]; // 8-token prompt
@@ -1714,7 +1716,7 @@ fn bench_kv_cached_generation() -> BenchResult {
             passed: false,
         };
     }
-    let mut model = model_result.unwrap();
+    let mut model = model_result.expect("test");
 
     // Test configuration - longer generation to show KV benefit
     let prompt: Vec<usize> = (1..=16).collect(); // 16-token prompt
@@ -2285,7 +2287,8 @@ fn bench_token_batching_speculative() -> BenchResult {
     batch.push(101);
     batch.push(102);
     let full_batch = batch.push(103);
-    let batch_full_ok = full_batch.is_some() && full_batch.unwrap() == vec![100, 101, 102, 103];
+    let batch_full_ok =
+        full_batch.is_some() && full_batch.expect("test") == vec![100, 101, 102, 103];
 
     // Flush partial batch
     batch.push(200);
@@ -2323,7 +2326,7 @@ fn bench_token_batching_speculative() -> BenchResult {
     let scheduler_complete_ok = scheduler.completed_count() == 1 && scheduler.pending_count() == 1;
 
     let polled = scheduler.poll();
-    let scheduler_poll_ok = polled.is_some() && polled.unwrap().0 == batch_id_1;
+    let scheduler_poll_ok = polled.is_some() && polled.expect("test").0 == batch_id_1;
 
     // Test 4: Performance benchmark - token batching throughput
     let iterations = 10000;

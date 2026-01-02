@@ -549,7 +549,7 @@ mod tests {
 
         // With scores favoring experts 1 and 2, should pick least loaded (2)
         let scores = vec![0.1, 0.9, 0.8, 0.1];
-        let choice = router.route(&scores).unwrap();
+        let choice = router.route(&scores).expect("test");
 
         // Should pick expert 2 (second best) since expert 1 is heavily loaded
         assert_eq!(choice, 2);
@@ -564,7 +564,7 @@ mod tests {
 
         // No load on any expert
         let scores = vec![0.1, 0.9, 0.8, 0.1];
-        let choice = router.route(&scores).unwrap();
+        let choice = router.route(&scores).expect("test");
 
         // Should pick expert 1 (best score) since all equally loaded
         assert_eq!(choice, 1);
@@ -722,7 +722,7 @@ mod tests {
             num_experts: 4,
         });
         let scores = vec![0.1, 0.5, 0.3, 0.1];
-        assert_eq!(router.route(&scores).unwrap(), 1);
+        assert_eq!(router.route(&scores).expect("test"), 1);
     }
 
     #[test]
@@ -733,7 +733,7 @@ mod tests {
         });
         router.record_start(1); // Fill expert 1
         let scores = vec![0.1, 0.5, 0.3, 0.1];
-        assert_eq!(router.route(&scores).unwrap(), 2); // Falls back to #2
+        assert_eq!(router.route(&scores).expect("test"), 2); // Falls back to #2
     }
 
     #[test]

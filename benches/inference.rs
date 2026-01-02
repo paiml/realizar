@@ -17,7 +17,7 @@ fn create_test_model() -> Model {
         intermediate_dim: 64,
         eps: 1e-5,
     };
-    Model::new(config).unwrap()
+    Model::new(config).expect("test")
 }
 
 fn benchmark_model_forward(c: &mut Criterion) {
@@ -31,7 +31,7 @@ fn benchmark_model_forward(c: &mut Criterion) {
             |b, &seq_len| {
                 let tokens: Vec<usize> = (0..seq_len).map(|i| i % 100).collect();
                 b.iter(|| {
-                    let logits = model.forward(black_box(&tokens)).unwrap();
+                    let logits = model.forward(black_box(&tokens)).expect("test");
                     black_box(logits)
                 });
             },
@@ -50,7 +50,7 @@ fn benchmark_generation_greedy(c: &mut Criterion) {
         b.iter(|| {
             let result = model
                 .generate(black_box(&prompt), black_box(&config))
-                .unwrap();
+                .expect("test");
             black_box(result)
         });
     });
@@ -65,7 +65,7 @@ fn benchmark_generation_top_k(c: &mut Criterion) {
         b.iter(|| {
             let result = model
                 .generate(black_box(&prompt), black_box(&config))
-                .unwrap();
+                .expect("test");
             black_box(result)
         });
     });
@@ -82,7 +82,7 @@ fn benchmark_generation_top_p(c: &mut Criterion) {
         b.iter(|| {
             let result = model
                 .generate(black_box(&prompt), black_box(&config))
-                .unwrap();
+                .expect("test");
             black_box(result)
         });
     });
@@ -102,7 +102,7 @@ fn benchmark_generation_varying_length(c: &mut Criterion) {
                 b.iter(|| {
                     let result = model
                         .generate(black_box(&prompt), black_box(&config))
-                        .unwrap();
+                        .expect("test");
                     black_box(result)
                 });
             },
@@ -131,7 +131,7 @@ fn benchmark_sampling_strategies(c: &mut Criterion) {
             b.iter(|| {
                 let result = model
                     .generate(black_box(&prompt), black_box(config))
-                    .unwrap();
+                    .expect("test");
                 black_box(result)
             });
         });
@@ -163,7 +163,7 @@ fn benchmark_batch_generation(c: &mut Criterion) {
                         .map(|prompt| {
                             model
                                 .generate(black_box(prompt), black_box(&config))
-                                .unwrap()
+                                .expect("test")
                         })
                         .collect();
                     black_box(results)
@@ -193,7 +193,7 @@ fn benchmark_batch_vs_single(c: &mut Criterion) {
                 .map(|prompt| {
                     model
                         .generate(black_box(prompt), black_box(&config))
-                        .unwrap()
+                        .expect("test")
                 })
                 .collect();
             black_box(results)
@@ -208,7 +208,7 @@ fn benchmark_batch_vs_single(c: &mut Criterion) {
                 .map(|prompt| {
                     model
                         .generate(black_box(prompt), black_box(&config))
-                        .unwrap()
+                        .expect("test")
                 })
                 .collect();
             black_box(results)

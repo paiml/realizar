@@ -101,7 +101,7 @@ fn benchmark_q4k_dequant_simd(c: &mut Criterion) {
             &data,
             |b, d| {
                 b.iter(|| {
-                    let result = dequantize_q4_k_simd(black_box(d)).unwrap();
+                    let result = dequantize_q4_k_simd(black_box(d)).expect("test");
                     black_box(result)
                 });
             },
@@ -146,7 +146,7 @@ fn benchmark_fused_q4k_dot(c: &mut Criterion) {
             &(&weights, &activations),
             |b, (w, a)| {
                 b.iter(|| {
-                    let result = fused_q4k_dot_simd(black_box(*w), black_box(*a)).unwrap();
+                    let result = fused_q4k_dot_simd(black_box(*w), black_box(*a)).expect("test");
                     black_box(result)
                 });
             },
@@ -168,14 +168,14 @@ fn benchmark_fused_attention(c: &mut Criterion) {
         let hidden_dim = 256; // Smaller for benchmark speed
         let head_dim = 32;
 
-        let fused = FusedQKVAttention::new(head_dim, hidden_dim).unwrap();
+        let fused = FusedQKVAttention::new(head_dim, hidden_dim).expect("test");
         let input = Tensor::from_vec(
             vec![seq_len, hidden_dim],
             (0..(seq_len * hidden_dim))
                 .map(|i| (i as f32 * 0.001).sin())
                 .collect(),
         )
-        .unwrap();
+        .expect("test");
 
         group.throughput(Throughput::Elements(seq_len as u64));
         group.bench_with_input(
@@ -183,7 +183,7 @@ fn benchmark_fused_attention(c: &mut Criterion) {
             &(&fused, &input),
             |b, (f, i)| {
                 b.iter(|| {
-                    let output = f.forward(black_box(*i)).unwrap();
+                    let output = f.forward(black_box(*i)).expect("test");
                     black_box(output)
                 });
             },
@@ -206,25 +206,25 @@ fn benchmark_attention_comparison(c: &mut Criterion) {
     let hidden_dim = 128;
 
     // Fused attention
-    let fused = FusedQKVAttention::new(head_dim, hidden_dim).unwrap();
+    let fused = FusedQKVAttention::new(head_dim, hidden_dim).expect("test");
     let input = Tensor::from_vec(
         vec![seq_len, hidden_dim],
         (0..(seq_len * hidden_dim))
             .map(|i| (i as f32 * 0.001).sin())
             .collect(),
     )
-    .unwrap();
+    .expect("test");
 
     group.bench_function("fused_qkv_attention", |b| {
         b.iter(|| {
-            let output = fused.forward(black_box(&input)).unwrap();
+            let output = fused.forward(black_box(&input)).expect("test");
             black_box(output)
         });
     });
 
     // Separate attention (baseline)
-    let attention = Attention::new(head_dim).unwrap();
-    let q = Tensor::from_vec(vec![seq_len, head_dim], vec![0.1; seq_len * head_dim]).unwrap();
+    let attention = Attention::new(head_dim).expect("test");
+    let q = Tensor::from_vec(vec![seq_len, head_dim], vec![0.1; seq_len * head_dim]).expect("test");
     let k = q.clone();
     let v = q.clone();
 
@@ -232,7 +232,7 @@ fn benchmark_attention_comparison(c: &mut Criterion) {
         b.iter(|| {
             let output = attention
                 .forward(black_box(&q), black_box(&k), black_box(&v))
-                .unwrap();
+                .expect("test");
             black_box(output)
         });
     });
@@ -249,14 +249,14 @@ fn benchmark_layer_norm(c: &mut Criterion) {
 
     for &seq_len in SEQ_LENGTHS {
         let hidden_dim = 256;
-        let layer_norm = LayerNorm::new(hidden_dim, 1e-5).unwrap();
+        let layer_norm = LayerNorm::new(hidden_dim, 1e-5).expect("test");
         let input = Tensor::from_vec(
             vec![seq_len, hidden_dim],
             (0..(seq_len * hidden_dim))
                 .map(|i| (i as f32 * 0.01).sin())
                 .collect(),
         )
-        .unwrap();
+        .expect("test");
 
         group.throughput(Throughput::Elements((seq_len * hidden_dim) as u64));
         group.bench_with_input(
@@ -264,7 +264,7 @@ fn benchmark_layer_norm(c: &mut Criterion) {
             &(&layer_norm, &input),
             |b, (ln, i)| {
                 b.iter(|| {
-                    let output = ln.forward(black_box(*i)).unwrap();
+                    let output = ln.forward(black_box(*i)).expect("test");
                     black_box(output)
                 });
             },
@@ -286,7 +286,7 @@ fn benchmark_softmax(c: &mut Criterion) {
             vec![seq_len],
             (0..seq_len).map(|i| (i as f32 * 0.1).sin()).collect(),
         )
-        .unwrap();
+        .expect("test");
 
         group.throughput(Throughput::Elements(seq_len as u64));
         group.bench_with_input(
@@ -294,7 +294,7 @@ fn benchmark_softmax(c: &mut Criterion) {
             &input,
             |b, i| {
                 b.iter(|| {
-                    let output = softmax(black_box(i)).unwrap();
+                    let output = softmax(black_box(i)).expect("test");
                     black_box(output)
                 });
             },
@@ -315,12 +315,12 @@ fn benchmark_linear(c: &mut Criterion) {
     let dimensions = [(256, 256), (256, 1024), (1024, 256), (1024, 1024)];
 
     for (in_dim, out_dim) in dimensions {
-        let linear = Linear::new(in_dim, out_dim).unwrap();
+        let linear = Linear::new(in_dim, out_dim).expect("test");
         let input = Tensor::from_vec(
             vec![1, in_dim],
             (0..in_dim).map(|i| (i as f32 * 0.01).sin()).collect(),
         )
-        .unwrap();
+        .expect("test");
 
         let ops = (in_dim * out_dim) as u64; // FLOPs approximation
         group.throughput(Throughput::Elements(ops));
@@ -329,7 +329,7 @@ fn benchmark_linear(c: &mut Criterion) {
             &(&linear, &input),
             |b, (l, i)| {
                 b.iter(|| {
-                    let output = l.forward(black_box(*i)).unwrap();
+                    let output = l.forward(black_box(*i)).expect("test");
                     black_box(output)
                 });
             },
@@ -355,10 +355,10 @@ fn benchmark_ttft_simulation(c: &mut Criterion) {
 
     // Create layers
     let fused_attns: Vec<_> = (0..num_layers)
-        .map(|_| FusedQKVAttention::new(head_dim, hidden_dim).unwrap())
+        .map(|_| FusedQKVAttention::new(head_dim, hidden_dim).expect("test"))
         .collect();
     let layer_norms: Vec<_> = (0..num_layers)
-        .map(|_| LayerNorm::new(hidden_dim, 1e-5).unwrap())
+        .map(|_| LayerNorm::new(hidden_dim, 1e-5).expect("test"))
         .collect();
 
     let input = Tensor::from_vec(
@@ -367,7 +367,7 @@ fn benchmark_ttft_simulation(c: &mut Criterion) {
             .map(|i| (i as f32 * 0.001).sin())
             .collect(),
     )
-    .unwrap();
+    .expect("test");
 
     group.throughput(Throughput::Elements(prompt_len as u64));
     group.bench_function("prefill_4_layers", |b| {
@@ -375,9 +375,9 @@ fn benchmark_ttft_simulation(c: &mut Criterion) {
             let mut hidden = input.clone();
             for layer_idx in 0..num_layers {
                 // Layer norm
-                hidden = layer_norms[layer_idx].forward(&hidden).unwrap();
+                hidden = layer_norms[layer_idx].forward(&hidden).expect("test");
                 // Attention
-                hidden = fused_attns[layer_idx].forward(&hidden).unwrap();
+                hidden = fused_attns[layer_idx].forward(&hidden).expect("test");
             }
             black_box(hidden)
         });
@@ -401,12 +401,12 @@ fn benchmark_memory_efficiency(c: &mut Criterion) {
 
     for &batch_size in &batch_sizes {
         let seq_len = 64;
-        let fused = FusedQKVAttention::new(head_dim, hidden_dim).unwrap();
+        let fused = FusedQKVAttention::new(head_dim, hidden_dim).expect("test");
         let input = Tensor::from_vec(
             vec![batch_size * seq_len, hidden_dim],
             vec![0.1; batch_size * seq_len * hidden_dim],
         )
-        .unwrap();
+        .expect("test");
 
         group.throughput(Throughput::Elements((batch_size * seq_len) as u64));
         group.bench_with_input(
@@ -414,7 +414,7 @@ fn benchmark_memory_efficiency(c: &mut Criterion) {
             &(&fused, &input),
             |b, (f, i)| {
                 b.iter(|| {
-                    let output = f.forward(black_box(*i)).unwrap();
+                    let output = f.forward(black_box(*i)).expect("test");
                     black_box(output)
                 });
             },
@@ -449,7 +449,7 @@ mod tests {
 
         let result = dequantize_q4_k_simd(&data);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), sb_count * 256);
+        assert_eq!(result.expect("test").len(), sb_count * 256);
     }
 
     #[test]
@@ -459,12 +459,12 @@ mod tests {
             let hidden_dim = 256;
             let head_dim = 32;
 
-            let fused = FusedQKVAttention::new(head_dim, hidden_dim).unwrap();
+            let fused = FusedQKVAttention::new(head_dim, hidden_dim).expect("test");
             let input =
                 Tensor::from_vec(vec![seq_len, hidden_dim], vec![0.1; seq_len * hidden_dim])
-                    .unwrap();
+                    .expect("test");
 
-            let output = fused.forward(&input).unwrap();
+            let output = fused.forward(&input).expect("test");
             assert_eq!(output.shape(), &[seq_len, hidden_dim]);
         }
     }
@@ -527,7 +527,7 @@ fn benchmark_quantized_vs_dequantized(c: &mut Criterion) {
                 b.iter(|| {
                     let result =
                         fused_q4k_parallel_matvec(black_box(*w), black_box(*a), *in_d, *out_d)
-                            .unwrap();
+                            .expect("test");
                     black_box(result)
                 });
             },
@@ -541,7 +541,7 @@ fn benchmark_quantized_vs_dequantized(c: &mut Criterion) {
             |b, (w, a, in_d, out_d)| {
                 b.iter(|| {
                     // Step 1: Dequantize Q4_K to f32
-                    let dequantized = dequantize_q4_k_simd(black_box(*w)).unwrap();
+                    let dequantized = dequantize_q4_k_simd(black_box(*w)).expect("test");
 
                     // Step 2: Manual matmul (out_dim x in_dim) * (in_dim,) -> (out_dim,)
                     let mut output = vec![0.0f32; *out_d];
@@ -869,7 +869,7 @@ fn benchmark_e2e_generation(c: &mut Criterion) {
             &(&model, &prompt, &config),
             |b, (m, p, cfg)| {
                 b.iter(|| {
-                    let result = m.generate(black_box(*p), black_box(*cfg)).unwrap();
+                    let result = m.generate(black_box(*p), black_box(*cfg)).expect("test");
                     black_box(result)
                 });
             },
@@ -883,7 +883,7 @@ fn benchmark_e2e_generation(c: &mut Criterion) {
                 b.iter(|| {
                     let result = m
                         .generate_with_cache(black_box(*p), black_box(*cfg))
-                        .unwrap();
+                        .expect("test");
                     black_box(result)
                 });
             },
@@ -994,7 +994,7 @@ fn benchmark_component_profiling(c: &mut Criterion) {
                 hidden_dim,
                 hidden_dim * 3,
             )
-            .unwrap();
+            .expect("test");
             black_box(result)
         });
     });
@@ -1118,7 +1118,7 @@ fn benchmark_component_profiling(c: &mut Criterion) {
                 hidden_dim,
                 hidden_dim,
             )
-            .unwrap();
+            .expect("test");
             black_box(result)
         });
     });
@@ -1134,7 +1134,7 @@ fn benchmark_component_profiling(c: &mut Criterion) {
                 hidden_dim,
                 intermediate_dim,
             )
-            .unwrap();
+            .expect("test");
             black_box(result)
         });
     });
@@ -1174,7 +1174,7 @@ fn benchmark_component_profiling(c: &mut Criterion) {
                 intermediate_dim,
                 hidden_dim,
             )
-            .unwrap();
+            .expect("test");
             black_box(result)
         });
     });
@@ -1190,7 +1190,7 @@ fn benchmark_component_profiling(c: &mut Criterion) {
                 hidden_dim,
                 vocab_size,
             )
-            .unwrap();
+            .expect("test");
             black_box(result)
         });
     });
@@ -1218,7 +1218,7 @@ fn benchmark_component_profiling(c: &mut Criterion) {
                 // QKV projection
                 let _qkv =
                     fused_q4k_parallel_matvec(&qkv_weights, &input_vec, hidden_dim, hidden_dim * 3)
-                        .unwrap();
+                        .expect("test");
 
                 // Attention (simplified)
                 let scale = 1.0 / (head_dim as f32).sqrt();
@@ -1263,7 +1263,7 @@ fn benchmark_component_profiling(c: &mut Criterion) {
                 // Output projection
                 let _out =
                     fused_q4k_parallel_matvec(&output_weights, &input_vec, hidden_dim, hidden_dim)
-                        .unwrap();
+                        .expect("test");
 
                 // FFN up
                 let _ffn_up = fused_q4k_parallel_matvec(
@@ -1272,7 +1272,7 @@ fn benchmark_component_profiling(c: &mut Criterion) {
                     hidden_dim,
                     intermediate_dim,
                 )
-                .unwrap();
+                .expect("test");
 
                 // FFN down
                 let _ffn_down = fused_q4k_parallel_matvec(
@@ -1281,12 +1281,12 @@ fn benchmark_component_profiling(c: &mut Criterion) {
                     intermediate_dim,
                     hidden_dim,
                 )
-                .unwrap();
+                .expect("test");
 
                 // LM head
                 let _logits =
                     fused_q4k_parallel_matvec(&lm_head_weights, &input_vec, hidden_dim, vocab_size)
-                        .unwrap();
+                        .expect("test");
 
                 black_box(());
             }
@@ -1354,7 +1354,7 @@ fn benchmark_q4k_matvec_optimization(c: &mut Criterion) {
                 b.iter(|| {
                     let result =
                         fused_q4k_parallel_matvec(black_box(*w), black_box(*a), *in_d, *out_d)
-                            .unwrap();
+                            .expect("test");
                     black_box(result)
                 });
             },
@@ -1379,7 +1379,7 @@ fn benchmark_q4k_matvec_optimization(c: &mut Criterion) {
     group.bench_function("single_row_dot_512", |b| {
         b.iter(|| {
             let result =
-                fused_q4k_dot_simd(black_box(&row_weights), black_box(&activations)).unwrap();
+                fused_q4k_dot_simd(black_box(&row_weights), black_box(&activations)).expect("test");
             black_box(result)
         });
     });
@@ -1401,8 +1401,8 @@ fn benchmark_q4k_matvec_optimization(c: &mut Criterion) {
 
     group.bench_function("single_row_dot_4096", |b| {
         b.iter(|| {
-            let result =
-                fused_q4k_dot_simd(black_box(&row_weights), black_box(&activations_large)).unwrap();
+            let result = fused_q4k_dot_simd(black_box(&row_weights), black_box(&activations_large))
+                .expect("test");
             black_box(result)
         });
     });
@@ -1594,11 +1594,11 @@ fn benchmark_gpu_batch_matmul(c: &mut Criterion) {
             BenchmarkId::new("hybrid", format!("{m}x{k}x{n}")),
             &(&a, &b),
             |bencher, (a, b)| {
-                let mut scheduler = HybridScheduler::with_threshold(1000).unwrap();
+                let mut scheduler = HybridScheduler::with_threshold(1000).expect("test");
                 bencher.iter(|| {
                     let result = scheduler
                         .matmul(black_box(a), black_box(b), m, k, n)
-                        .unwrap();
+                        .expect("test");
                     black_box(result)
                 });
             },
@@ -1707,7 +1707,7 @@ fn benchmark_batched_causal_attention(c: &mut Criterion) {
                             black_box(v),
                             seq_len,
                         )
-                        .unwrap();
+                        .expect("test");
                     black_box(result)
                 });
             },
@@ -1828,7 +1828,7 @@ fn benchmark_fused_batch_matmul(c: &mut Criterion) {
                 let row_start = row * super_blocks_per_row * 144;
                 let row_end = row_start + super_blocks_per_row * 144;
                 let row_data = &weight.data[row_start..row_end];
-                let row_dequant = dequantize_q4_k_simd(row_data).unwrap();
+                let row_dequant = dequantize_q4_k_simd(row_data).expect("test");
                 output.extend_from_slice(&row_dequant[..in_dim.min(row_dequant.len())]);
             }
             output
@@ -1846,7 +1846,7 @@ fn benchmark_fused_batch_matmul(c: &mut Criterion) {
                 bencher.iter(|| {
                     let result = model
                         .fused_batch_matmul_gpu(black_box(act), black_box(w), batch_size)
-                        .unwrap();
+                        .expect("test");
                     black_box(result)
                 });
             },
@@ -1859,7 +1859,7 @@ fn benchmark_fused_batch_matmul(c: &mut Criterion) {
             &(&activations, &weight_clone),
             |bencher, (act, w)| {
                 bencher.iter(|| {
-                    let mut scheduler = HybridScheduler::with_threshold(1000).unwrap();
+                    let mut scheduler = HybridScheduler::with_threshold(1000).expect("test");
                     let result = scheduler
                         .matmul(
                             black_box(act),
@@ -1868,7 +1868,7 @@ fn benchmark_fused_batch_matmul(c: &mut Criterion) {
                             hidden_dim,
                             intermediate_dim,
                         )
-                        .unwrap();
+                        .expect("test");
                     black_box(result)
                 });
             },
@@ -1889,14 +1889,14 @@ fn benchmark_fused_batch_matmul(c: &mut Criterion) {
                         let row_start = row * super_blocks_per_row * 144;
                         let row_end = row_start + super_blocks_per_row * 144;
                         let row_data = &w.data[row_start..row_end];
-                        let row_dequant = dequantize_q4_k_simd(row_data).unwrap();
+                        let row_dequant = dequantize_q4_k_simd(row_data).expect("test");
                         w_f32.extend_from_slice(&row_dequant[..in_dim.min(row_dequant.len())]);
                     }
 
-                    let mut scheduler = HybridScheduler::with_threshold(1000).unwrap();
+                    let mut scheduler = HybridScheduler::with_threshold(1000).expect("test");
                     let result = scheduler
                         .matmul(black_box(act), &w_f32, batch_size, in_dim, out_dim)
-                        .unwrap();
+                        .expect("test");
                     black_box(result)
                 });
             },
@@ -1973,7 +1973,7 @@ fn benchmark_parallel_multihead_attention(c: &mut Criterion) {
                             black_box(v),
                             seq_len,
                         )
-                        .unwrap();
+                        .expect("test");
                     black_box(result)
                 });
             },
@@ -1992,7 +1992,7 @@ fn benchmark_parallel_multihead_attention(c: &mut Criterion) {
                             black_box(v),
                             seq_len,
                         )
-                        .unwrap();
+                        .expect("test");
                     black_box(result)
                 });
             },
@@ -2074,7 +2074,7 @@ fn benchmark_tiled_attention(c: &mut Criterion) {
                             head_dim,
                             scale,
                         )
-                        .unwrap();
+                        .expect("test");
                     black_box(result)
                 });
             },
@@ -2096,7 +2096,7 @@ fn benchmark_tiled_attention(c: &mut Criterion) {
                             scale,
                             tile_size,
                         )
-                        .unwrap();
+                        .expect("test");
                     black_box(result)
                 });
             },
@@ -2118,7 +2118,7 @@ fn benchmark_tiled_attention(c: &mut Criterion) {
                             scale,
                             tile_size,
                         )
-                        .unwrap();
+                        .expect("test");
                     black_box(result)
                 });
             },
@@ -2162,12 +2162,14 @@ fn benchmark_scheduler_caching(c: &mut Criterion) {
     ));
 
     // Warm up cached model (initialize scheduler)
-    let _ = cached_model.forward_batch_gpu_cached(&tokens).unwrap();
+    let _ = cached_model
+        .forward_batch_gpu_cached(&tokens)
+        .expect("test");
 
     // Benchmark uncached (creates new scheduler each call - ~300ms overhead)
     group.bench_function("uncached_forward", |bencher| {
         bencher.iter(|| {
-            let result = model.forward_batch_gpu(black_box(&tokens)).unwrap();
+            let result = model.forward_batch_gpu(black_box(&tokens)).expect("test");
             black_box(result)
         });
     });
@@ -2177,7 +2179,7 @@ fn benchmark_scheduler_caching(c: &mut Criterion) {
         bencher.iter(|| {
             let result = cached_model
                 .forward_batch_gpu_cached(black_box(&tokens))
-                .unwrap();
+                .expect("test");
             black_box(result)
         });
     });
@@ -2188,7 +2190,7 @@ fn benchmark_scheduler_caching(c: &mut Criterion) {
             for _ in 0..5 {
                 let result = cached_model
                     .forward_batch_gpu_cached(black_box(&tokens))
-                    .unwrap();
+                    .expect("test");
                 black_box(&result);
             }
         });
@@ -2266,7 +2268,7 @@ fn benchmark_single_dispatch_attention(c: &mut Criterion) {
                             black_box(v),
                             seq_len,
                         )
-                        .unwrap();
+                        .expect("test");
                     black_box(result)
                 });
             },
@@ -2285,7 +2287,7 @@ fn benchmark_single_dispatch_attention(c: &mut Criterion) {
                             black_box(v),
                             seq_len,
                         )
-                        .unwrap();
+                        .expect("test");
                     black_box(result)
                 });
             },
@@ -2362,7 +2364,7 @@ fn benchmark_flattened_batched_gemm(c: &mut Criterion) {
                             k,
                             n,
                         )
-                        .unwrap();
+                        .expect("test");
                     black_box(result)
                 });
             },
@@ -2376,7 +2378,7 @@ fn benchmark_flattened_batched_gemm(c: &mut Criterion) {
                 bencher.iter(|| {
                     let result = cached_model
                         .flattened_batched_gemm(black_box(a), black_box(b), batch_size, m, k, n)
-                        .unwrap();
+                        .expect("test");
                     black_box(result)
                 });
             },
@@ -2451,7 +2453,7 @@ fn benchmark_fused_kernel_attention(c: &mut Criterion) {
                             black_box(v),
                             seq_len,
                         )
-                        .unwrap();
+                        .expect("test");
                     black_box(result)
                 });
             },
@@ -2470,7 +2472,7 @@ fn benchmark_fused_kernel_attention(c: &mut Criterion) {
                             black_box(v),
                             seq_len,
                         )
-                        .unwrap();
+                        .expect("test");
                     black_box(result)
                 });
             },
@@ -2556,7 +2558,7 @@ fn benchmark_gpu_cpu_crossover(c: &mut Criterion) {
                             head_dim,
                             scale,
                         )
-                        .unwrap();
+                        .expect("test");
                     black_box(result)
                 });
             },
@@ -2577,7 +2579,7 @@ fn benchmark_gpu_cpu_crossover(c: &mut Criterion) {
                             head_dim,
                             scale,
                         )
-                        .unwrap();
+                        .expect("test");
                     black_box(result)
                 });
             },
@@ -2598,7 +2600,7 @@ fn benchmark_gpu_cpu_crossover(c: &mut Criterion) {
                             head_dim,
                             scale,
                         )
-                        .unwrap();
+                        .expect("test");
                     black_box(result)
                 });
             },

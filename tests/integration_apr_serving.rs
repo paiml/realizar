@@ -332,7 +332,7 @@ fn test_special_float_values() {
             features
         );
 
-        let resp = response.unwrap();
+        let resp = response.expect("test");
         assert!(
             resp.prediction.is_finite(),
             "Prediction should be finite for features: {:?}",

@@ -329,7 +329,7 @@ mod tests {
             metrics.record_success(1, Duration::from_micros(100));
         }
 
-        handle.join().unwrap();
+        handle.join().expect("test");
 
         let snapshot = metrics.snapshot();
         assert_eq!(snapshot.total_requests, 200);

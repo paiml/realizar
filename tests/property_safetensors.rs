@@ -85,8 +85,8 @@ proptest! {
         let shape = vec![data.len()];
         let safetensors = create_safetensors_file(vec![("test_tensor", data.clone(), shape)]);
 
-        let model = SafetensorsModel::from_bytes(&safetensors).unwrap();
-        let extracted = model.get_tensor_f32("test_tensor").unwrap();
+        let model = SafetensorsModel::from_bytes(&safetensors).expect("test");
+        let extracted = model.get_tensor_f32("test_tensor").expect("test");
 
         prop_assert_eq!(extracted.len(), data.len());
 
@@ -103,8 +103,8 @@ proptest! {
         let shape = vec![data.len()];
         let safetensors = create_safetensors_file(vec![("data", data.clone(), shape)]);
 
-        let model = SafetensorsModel::from_bytes(&safetensors).unwrap();
-        let extracted = model.get_tensor_f32("data").unwrap();
+        let model = SafetensorsModel::from_bytes(&safetensors).expect("test");
+        let extracted = model.get_tensor_f32("data").expect("test");
 
         prop_assert_eq!(extracted.len(), data.len());
     }
@@ -122,12 +122,12 @@ proptest! {
             ("tensor2", data2.clone(), shape2),
         ]);
 
-        let model = SafetensorsModel::from_bytes(&safetensors).unwrap();
+        let model = SafetensorsModel::from_bytes(&safetensors).expect("test");
 
         prop_assert_eq!(model.tensors.len(), 2);
 
-        let extracted1 = model.get_tensor_f32("tensor1").unwrap();
-        let extracted2 = model.get_tensor_f32("tensor2").unwrap();
+        let extracted1 = model.get_tensor_f32("tensor1").expect("test");
+        let extracted2 = model.get_tensor_f32("tensor2").expect("test");
 
         prop_assert_eq!(extracted1.len(), data1.len());
         prop_assert_eq!(extracted2.len(), data2.len());
@@ -150,7 +150,7 @@ proptest! {
         let shape = vec![data.len()];
         let safetensors = create_safetensors_file(vec![(&name, data, shape)]);
 
-        let model = SafetensorsModel::from_bytes(&safetensors).unwrap();
+        let model = SafetensorsModel::from_bytes(&safetensors).expect("test");
 
         prop_assert!(model.tensors.contains_key(&name));
         prop_assert_eq!(model.tensors.len(), 1);
@@ -164,7 +164,7 @@ proptest! {
         let shape = vec![data.len()];
         let safetensors = create_safetensors_file(vec![("exists", data, shape)]);
 
-        let model = SafetensorsModel::from_bytes(&safetensors).unwrap();
+        let model = SafetensorsModel::from_bytes(&safetensors).expect("test");
         let result = model.get_tensor_f32("does_not_exist");
 
         prop_assert!(result.is_err());
@@ -178,8 +178,8 @@ proptest! {
         let shape = vec![data.len()];
         let safetensors = create_safetensors_file(vec![("ordered", data.clone(), shape)]);
 
-        let model = SafetensorsModel::from_bytes(&safetensors).unwrap();
-        let extracted = model.get_tensor_f32("ordered").unwrap();
+        let model = SafetensorsModel::from_bytes(&safetensors).expect("test");
+        let extracted = model.get_tensor_f32("ordered").expect("test");
 
         // Check that order is exactly preserved
         for i in 0..data.len() {

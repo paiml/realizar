@@ -44,7 +44,7 @@ fn main() {
 
         // Validate with ptxas
         println!("Validating PTX with ptxas...");
-        std::fs::write("/tmp/mha_debug.ptx", &mha_ptx).unwrap();
+        std::fs::write("/tmp/mha_debug.ptx", &mha_ptx).expect("test");
         let output = std::process::Command::new("ptxas")
             .args([
                 "--gpu-name",

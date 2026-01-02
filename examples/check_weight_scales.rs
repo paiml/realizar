@@ -6,7 +6,7 @@ const Q4_K_BLOCK_SIZE: usize = 144;
 fn main() {
     let path = "/tmp/parity-bench/tinyllama-1.1b-q4_k_m.gguf";
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     println!("=== Q4_K scale values at row 5475 (first superblock) ===\n");
 

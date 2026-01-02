@@ -6,7 +6,7 @@ const Q4_K_BLOCK_SIZE: usize = 144;
 fn main() {
     let path = "/tmp/parity-bench/tinyllama-1.1b-q4_k_m.gguf";
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     let layer = &model.layers[2];
     let down = &layer.ffn_down_weight;
@@ -32,7 +32,7 @@ fn main() {
         let row_start = row * bytes_per_row;
         let block_start = row_start + superblock_idx * Q4_K_BLOCK_SIZE;
         let block_data = &down.data[block_start..block_start + Q4_K_BLOCK_SIZE];
-        let dequant = dequantize_q4_k(block_data).unwrap();
+        let dequant = dequantize_q4_k(block_data).expect("test");
         println!("  row {}: col_5475={:.6}", row, dequant[pos_in_block]);
     }
 
@@ -42,7 +42,7 @@ fn main() {
         let row_start = row * bytes_per_row;
         let block_start = row_start + 0 * Q4_K_BLOCK_SIZE; // superblock 0
         let block_data = &down.data[block_start..block_start + Q4_K_BLOCK_SIZE];
-        let dequant = dequantize_q4_k(block_data).unwrap();
+        let dequant = dequantize_q4_k(block_data).expect("test");
         println!("  row {}: col_100={:.6}", row, dequant[100]);
     }
 
@@ -54,12 +54,12 @@ fn main() {
 
         let block_start = row_start + superblock_idx * Q4_K_BLOCK_SIZE;
         let block_data = &down.data[block_start..block_start + Q4_K_BLOCK_SIZE];
-        let dequant = dequantize_q4_k(block_data).unwrap();
+        let dequant = dequantize_q4_k(block_data).expect("test");
         col_5475_l2 += dequant[pos_in_block] * dequant[pos_in_block];
 
         let block_start = row_start + 0 * Q4_K_BLOCK_SIZE;
         let block_data = &down.data[block_start..block_start + Q4_K_BLOCK_SIZE];
-        let dequant = dequantize_q4_k(block_data).unwrap();
+        let dequant = dequantize_q4_k(block_data).expect("test");
         col_100_l2 += dequant[100] * dequant[100];
     }
 

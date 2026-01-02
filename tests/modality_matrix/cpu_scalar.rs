@@ -179,7 +179,9 @@ fn test_cpu_scalar_duration_range() {
     let mut trace = ExecutionTrace::new();
     trace.add_span(TraceSpan::new("compute_block:scalar_matmul", 100_000)); // 100ms
 
-    let span = trace.span_by_name("compute_block:scalar_matmul").unwrap();
+    let span = trace
+        .span_by_name("compute_block:scalar_matmul")
+        .expect("test");
 
     // FALSIFIABLE: Scalar matmul should be slow (>10ms for meaningful work)
     assert!(
@@ -207,7 +209,7 @@ mod integration {
 
         let val = std::env::var("REALIZAR_FORCE_SCALAR");
         assert!(
-            val.is_ok() && val.unwrap() == "1",
+            val.is_ok() && val.expect("test") == "1",
             "FALSIFICATION: REALIZAR_FORCE_SCALAR not set to '1'"
         );
 

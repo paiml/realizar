@@ -658,16 +658,16 @@ fn test_parity_114_flow_visualization() {
     println!();
 
     // wgpu
-    let mut wgpu = HybridScheduler::with_threshold(0).unwrap();
-    let wgpu_out = wgpu.matmul(&a, &b, m, k, n).unwrap();
+    let mut wgpu = HybridScheduler::with_threshold(0).expect("test");
+    let wgpu_out = wgpu.matmul(&a, &b, m, k, n).expect("test");
     println!("wgpu Flow:");
     println!("  Backend: {}", if wgpu.has_gpu() { "GPU" } else { "CPU" });
     println!("  C = {:?}", wgpu_out);
     println!();
 
     // CUDA
-    let mut cuda = CudaScheduler::new().unwrap();
-    let cuda_out = cuda.matmul(&a, &b, m, k, n).unwrap();
+    let mut cuda = CudaScheduler::new().expect("test");
+    let cuda_out = cuda.matmul(&a, &b, m, k, n).expect("test");
     println!("CUDA Flow:");
     println!(
         "  Device: {}",

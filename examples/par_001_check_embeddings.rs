@@ -14,8 +14,8 @@ fn main() {
     println!("=== PAR-001: Check Token Embeddings ===\n");
 
     let mapped = MappedGGUFModel::from_path(path).expect("Failed to load model");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
-    let vocab = mapped.model.vocabulary().unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
+    let vocab = mapped.model.vocabulary().expect("test");
 
     println!(
         "Token embedding shape: [{}, {}]",
@@ -151,7 +151,7 @@ fn main() {
         .iter()
         .enumerate()
         .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
-        .unwrap();
+        .expect("test");
     let top_str = vocab.get(top_idx).map(|s| s.as_str()).unwrap_or("?");
     println!(
         "  Top token: {} = {:.4} ('{}')",

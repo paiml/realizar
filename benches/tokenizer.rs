@@ -20,8 +20,8 @@ fn create_basic_tokenizer(vocab_size: usize) -> Tokenizer {
             }
         })
         .collect();
-    let vocab = Vocabulary::from_tokens(vocab).unwrap();
-    Tokenizer::new(vocab, "<unk>").unwrap()
+    let vocab = Vocabulary::from_tokens(vocab).expect("test");
+    Tokenizer::new(vocab, "<unk>").expect("test")
 }
 
 fn create_bpe_tokenizer(vocab_size: usize) -> BPETokenizer {
@@ -42,7 +42,7 @@ fn create_bpe_tokenizer(vocab_size: usize) -> BPETokenizer {
         ("n".to_string(), "s".to_string()),
     ];
 
-    BPETokenizer::new(vocab, merges, "<unk>").unwrap()
+    BPETokenizer::new(vocab, merges, "<unk>").expect("test")
 }
 
 fn create_sentencepiece_tokenizer(vocab_size: usize) -> SentencePieceTokenizer {
@@ -58,7 +58,7 @@ fn create_sentencepiece_tokenizer(vocab_size: usize) -> SentencePieceTokenizer {
         })
         .collect();
 
-    SentencePieceTokenizer::new(vocab, "<unk>").unwrap()
+    SentencePieceTokenizer::new(vocab, "<unk>").expect("test")
 }
 
 // Benchmark: Basic tokenizer encode
@@ -101,7 +101,7 @@ fn benchmark_basic_decode(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::from_parameter(name), tokens, |b, tokens| {
             let tokenizer = create_basic_tokenizer(100);
             b.iter(|| {
-                let text = tokenizer.decode(black_box(tokens)).unwrap();
+                let text = tokenizer.decode(black_box(tokens)).expect("test");
                 black_box(text)
             });
         });
@@ -147,7 +147,7 @@ fn benchmark_bpe_decode(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::from_parameter(name), tokens, |b, tokens| {
             let tokenizer = create_bpe_tokenizer(100);
             b.iter(|| {
-                let text = tokenizer.decode(black_box(tokens)).unwrap();
+                let text = tokenizer.decode(black_box(tokens)).expect("test");
                 black_box(text)
             });
         });
@@ -193,7 +193,7 @@ fn benchmark_sentencepiece_decode(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::from_parameter(name), tokens, |b, tokens| {
             let tokenizer = create_sentencepiece_tokenizer(100);
             b.iter(|| {
-                let text = tokenizer.decode(black_box(tokens)).unwrap();
+                let text = tokenizer.decode(black_box(tokens)).expect("test");
                 black_box(text)
             });
         });
@@ -243,7 +243,7 @@ fn benchmark_roundtrip(c: &mut Criterion) {
             let tokenizer = create_basic_tokenizer(100);
             b.iter(|| {
                 let tokens = tokenizer.encode(black_box(text));
-                let decoded = tokenizer.decode(&tokens).unwrap();
+                let decoded = tokenizer.decode(&tokens).expect("test");
                 black_box(decoded)
             });
         });

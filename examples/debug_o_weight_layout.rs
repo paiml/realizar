@@ -20,7 +20,7 @@ fn main() {
         .tensors
         .iter()
         .find(|t| t.name == "blk.0.attn_output.weight")
-        .unwrap();
+        .expect("test");
     println!("Tensor: {}", tensor.name);
     println!("  dims: {:?}", tensor.dims);
     println!("  qtype: {} (12=Q4_K)", tensor.qtype);
@@ -77,7 +77,8 @@ fn main() {
 
     let row_output = ref_rowmajor(&weight_dequant, &input, in_dim, out_dim);
     let col_output = ref_colmajor(&weight_dequant, &input, in_dim, out_dim);
-    let fused_output = fused_q4k_parallel_matvec(weight_data, &input, in_dim, out_dim).unwrap();
+    let fused_output =
+        fused_q4k_parallel_matvec(weight_data, &input, in_dim, out_dim).expect("test");
 
     println!("\nRow-major output L2: {:.6}", l2_norm(&row_output));
     println!("Col-major output L2: {:.6}", l2_norm(&col_output));

@@ -24,7 +24,7 @@ fn main() {
             return;
         }
 
-        let mut executor = CudaExecutor::new(0).unwrap();
+        let mut executor = CudaExecutor::new(0).expect("test");
         println!(
             "CUDA executor created: {}",
             executor.device_name().unwrap_or_default()

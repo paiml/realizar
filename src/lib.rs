@@ -23,7 +23,7 @@
 //!     1.0, 2.0, 3.0,
 //!     4.0, 5.0, 6.0,
 //!     7.0, 8.0, 9.0,
-//! ]).unwrap();
+//! ]).expect("test");
 //!
 //! // Check tensor properties
 //! assert_eq!(a.shape(), &[3, 3]);
@@ -35,10 +35,10 @@
 //!
 //! ```rust,ignore
 //! // Element-wise operations (SIMD-accelerated) - Coming in Phase 1
-//! let sum = a.add(&b).unwrap();
+//! let sum = a.add(&b).expect("test");
 //!
 //! // Matrix multiplication (GPU-accelerated for large matrices) - Coming in Phase 2
-//! let product = a.matmul(&b).unwrap();
+//! let product = a.matmul(&b).expect("test");
 //! ```
 //!
 //! ## Architecture

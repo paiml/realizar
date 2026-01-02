@@ -2518,7 +2518,7 @@ mod tests {
     #[test]
     fn test_scheduler_add_request() {
         let mut scheduler = Scheduler::new(32, 1000);
-        let request_id = scheduler.add_request(vec![1, 2, 3], 10).unwrap();
+        let request_id = scheduler.add_request(vec![1, 2, 3], 10).expect("test");
 
         assert_eq!(request_id, 0);
         assert_eq!(scheduler.waiting_count(), 1);
@@ -2528,7 +2528,7 @@ mod tests {
     #[test]
     fn test_scheduler_add_request_queue_full() {
         let mut scheduler = Scheduler::new(32, 1);
-        let _ = scheduler.add_request(vec![1], 10).unwrap();
+        let _ = scheduler.add_request(vec![1], 10).expect("test");
 
         let result = scheduler.add_request(vec![2], 10);
         assert!(matches!(result, Err(SchedulerError::QueueFull { .. })));
@@ -2539,8 +2539,8 @@ mod tests {
         let mut scheduler = Scheduler::new(32, 1000);
         let mut kv_cache = PagedKvCache::new(100, 16, 8, 64);
 
-        let _ = scheduler.add_request(vec![1, 2, 3], 10).unwrap();
-        let output = scheduler.schedule(&mut kv_cache, 0).unwrap();
+        let _ = scheduler.add_request(vec![1, 2, 3], 10).expect("test");
+        let output = scheduler.schedule(&mut kv_cache, 0).expect("test");
 
         assert_eq!(output.scheduled_request_ids.len(), 1);
         assert_eq!(scheduler.running_count(), 1);
@@ -2552,14 +2552,14 @@ mod tests {
         let mut scheduler = Scheduler::new(32, 1000);
         let mut kv_cache = PagedKvCache::new(100, 16, 8, 64);
 
-        let request_id = scheduler.add_request(vec![1], 10).unwrap();
-        let _ = scheduler.schedule(&mut kv_cache, 0).unwrap();
+        let request_id = scheduler.add_request(vec![1], 10).expect("test");
+        let _ = scheduler.schedule(&mut kv_cache, 0).expect("test");
 
         let mut generated = HashMap::new();
         generated.insert(request_id, 42u32);
         scheduler.update_after_iteration(&generated);
 
-        let request = scheduler.get_request(request_id).unwrap();
+        let request = scheduler.get_request(request_id).expect("test");
         assert_eq!(request.generated_tokens, vec![42]);
         assert_eq!(request.iterations, 1);
     }
@@ -2569,8 +2569,8 @@ mod tests {
         let mut scheduler = Scheduler::new(32, 1000);
         let mut kv_cache = PagedKvCache::new(100, 16, 8, 64);
 
-        let request_id = scheduler.add_request(vec![1], 10).unwrap();
-        let _ = scheduler.schedule(&mut kv_cache, 0).unwrap();
+        let request_id = scheduler.add_request(vec![1], 10).expect("test");
+        let _ = scheduler.schedule(&mut kv_cache, 0).expect("test");
 
         scheduler.complete_request(request_id, &mut kv_cache);
 
@@ -2586,20 +2586,20 @@ mod tests {
         // Add low priority first
         let low_id = scheduler
             .add_request_with_priority(vec![1], 10, Priority::Low)
-            .unwrap();
+            .expect("test");
         // Add high priority second
         let _high_id = scheduler
             .add_request_with_priority(vec![2], 10, Priority::High)
-            .unwrap();
+            .expect("test");
 
         // Schedule - should pick high priority
-        let output = scheduler.schedule(&mut kv_cache, 0).unwrap();
+        let output = scheduler.schedule(&mut kv_cache, 0).expect("test");
 
         // With only 1 slot, we should see preemption or priority selection
         assert_eq!(output.scheduled_request_ids.len(), 1);
 
         // Low priority should still be waiting or preempted
-        let low_request = scheduler.get_request(low_id).unwrap();
+        let low_request = scheduler.get_request(low_id).expect("test");
         assert!(
             low_request.state == SequenceState::Waiting
                 || low_request.state == SequenceState::Preempted
@@ -2612,11 +2612,11 @@ mod tests {
         let mut kv_cache = PagedKvCache::new(100, 16, 8, 64);
 
         // Add 3 requests
-        let _ = scheduler.add_request(vec![1], 10).unwrap();
-        let _ = scheduler.add_request(vec![2], 10).unwrap();
-        let _ = scheduler.add_request(vec![3], 10).unwrap();
+        let _ = scheduler.add_request(vec![1], 10).expect("test");
+        let _ = scheduler.add_request(vec![2], 10).expect("test");
+        let _ = scheduler.add_request(vec![3], 10).expect("test");
 
-        let output = scheduler.schedule(&mut kv_cache, 0).unwrap();
+        let output = scheduler.schedule(&mut kv_cache, 0).expect("test");
 
         // Should only schedule 2 (max batch size)
         assert_eq!(output.scheduled_request_ids.len(), 2);
@@ -2629,8 +2629,8 @@ mod tests {
         let mut scheduler = Scheduler::new(32, 1000);
         let mut kv_cache = PagedKvCache::new(100, 16, 8, 64);
 
-        let request_id = scheduler.add_request(vec![1], 10).unwrap();
-        let _ = scheduler.schedule(&mut kv_cache, 0).unwrap();
+        let request_id = scheduler.add_request(vec![1], 10).expect("test");
+        let _ = scheduler.schedule(&mut kv_cache, 0).expect("test");
         scheduler.complete_request(request_id, &mut kv_cache);
 
         let stats = scheduler.stats();
@@ -2689,8 +2689,8 @@ mod tests {
             running_count: 8,
         };
 
-        let json = serde_json::to_string(&stats).unwrap();
-        let parsed: SchedulerStats = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&stats).expect("test");
+        let parsed: SchedulerStats = serde_json::from_str(&json).expect("test");
 
         assert_eq!(parsed.total_requests, stats.total_requests);
         assert_eq!(parsed.preemptions, stats.preemptions);
@@ -2808,7 +2808,7 @@ mod tests {
         let result = manager.assign_request(vec![1, 2, 3], 10);
         assert!(result.is_some());
 
-        let (slot_id, request_id) = result.unwrap();
+        let (slot_id, request_id) = result.expect("test");
         assert_eq!(slot_id, 0);
         assert_eq!(request_id, 0);
 
@@ -2821,8 +2821,8 @@ mod tests {
         let mut manager = SlotManager::new(2, 2048);
 
         // Fill all slots
-        manager.assign_request(vec![1], 10).unwrap();
-        manager.assign_request(vec![2], 10).unwrap();
+        manager.assign_request(vec![1], 10).expect("test");
+        manager.assign_request(vec![2], 10).expect("test");
 
         // Third assignment should fail
         let result = manager.assign_request(vec![3], 10);
@@ -2850,7 +2850,7 @@ mod tests {
         manager.assign_request(vec![1], 10);
         manager.assign_request(vec![2], 10);
 
-        manager.get_slot_mut(0).unwrap().start_generation(1.0);
+        manager.get_slot_mut(0).expect("test").start_generation(1.0);
 
         let batch = manager.batch_slots();
         assert_eq!(batch, vec![0]); // Only slot 0 is generating
@@ -3082,7 +3082,7 @@ mod tests {
 
         let seq_idx = scheduler.add_sequence(0, 1, vec![10, 20, 30]);
         assert!(seq_idx.is_some());
-        assert_eq!(seq_idx.unwrap(), 0);
+        assert_eq!(seq_idx.expect("test"), 0);
         assert_eq!(scheduler.num_sequences(), 1);
     }
 
@@ -3090,7 +3090,7 @@ mod tests {
     fn test_batch_scheduler_complete_sequence() {
         let mut scheduler = BatchScheduler::new();
 
-        let seq_idx = scheduler.add_sequence(0, 1, vec![10, 20]).unwrap();
+        let seq_idx = scheduler.add_sequence(0, 1, vec![10, 20]).expect("test");
         assert_eq!(scheduler.num_sequences(), 1);
 
         let completed = scheduler.complete_sequence(seq_idx);
@@ -3102,15 +3102,17 @@ mod tests {
     fn test_batch_scheduler_start_decode() {
         let mut scheduler = BatchScheduler::new();
 
-        let seq_idx = scheduler.add_sequence(0, 1, vec![10, 20, 30]).unwrap();
+        let seq_idx = scheduler
+            .add_sequence(0, 1, vec![10, 20, 30])
+            .expect("test");
 
         // Initially in prefill
-        assert!(scheduler.sbatch().get(seq_idx).unwrap().is_prefill);
+        assert!(scheduler.sbatch().get(seq_idx).expect("test").is_prefill);
 
         // Transition to decode
         assert!(scheduler.start_decode(seq_idx, 3));
 
-        let entry = scheduler.sbatch().get(seq_idx).unwrap();
+        let entry = scheduler.sbatch().get(seq_idx).expect("test");
         assert!(!entry.is_prefill);
         assert_eq!(entry.position, 3);
         assert!(entry.tokens.is_empty()); // Cleared after prefill
@@ -3133,7 +3135,9 @@ mod tests {
     fn test_batch_scheduler_create_ubatch_decode() {
         let mut scheduler = BatchScheduler::new();
 
-        let seq_idx = scheduler.add_sequence(0, 1, vec![10, 20, 30]).unwrap();
+        let seq_idx = scheduler
+            .add_sequence(0, 1, vec![10, 20, 30])
+            .expect("test");
         scheduler.start_decode(seq_idx, 3);
 
         let ubatch = scheduler.create_ubatch();
@@ -3244,7 +3248,7 @@ mod tests {
     fn test_dynamic_request_with_deadline() {
         let request = DynamicRequest::new(0, vec![1], 10).with_deadline(Deadline::with_target(500));
         assert!(request.deadline.is_some());
-        assert_eq!(request.deadline.unwrap().target_latency_ms, 500);
+        assert_eq!(request.deadline.expect("test").target_latency_ms, 500);
     }
 
     #[test]
@@ -3381,8 +3385,8 @@ mod tests {
             queue_depth_by_priority: [5, 10, 3, 1],
         };
 
-        let json = serde_json::to_string(&stats).unwrap();
-        let parsed: DynamicSchedulerStats = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&stats).expect("test");
+        let parsed: DynamicSchedulerStats = serde_json::from_str(&json).expect("test");
 
         assert_eq!(parsed.total_requests, 100);
         assert_eq!(parsed.sla_met, 85);
@@ -3395,7 +3399,7 @@ mod tests {
 
         let request = scheduler.get_request(id);
         assert!(request.is_some());
-        assert_eq!(request.unwrap().input_ids, vec![1, 2, 3]);
+        assert_eq!(request.expect("test").input_ids, vec![1, 2, 3]);
 
         assert!(scheduler.get_request(999).is_none());
     }
@@ -3641,7 +3645,7 @@ mod tests {
 
         let chunk = scheduler.next_chunk();
         assert!(chunk.is_some());
-        let (seq_id, range) = chunk.unwrap();
+        let (seq_id, range) = chunk.expect("test");
         assert_eq!(seq_id, 0);
         assert_eq!(range, 0..512);
     }
@@ -3658,7 +3662,7 @@ mod tests {
         assert_eq!(scheduler.stats().max_chunk_latency_ms, 50);
 
         // State should be updated
-        let state = scheduler.get_state(0).unwrap();
+        let state = scheduler.get_state(0).expect("test");
         assert_eq!(state.processed_tokens, 512);
     }
 
@@ -3670,12 +3674,12 @@ mod tests {
         scheduler.submit(1000);
 
         // First chunk
-        let (seq_id, range) = scheduler.next_chunk().unwrap();
+        let (seq_id, range) = scheduler.next_chunk().expect("test");
         assert_eq!(range, 0..512);
         scheduler.complete_chunk(seq_id, 512, 50);
 
         // Second chunk
-        let (seq_id, range) = scheduler.next_chunk().unwrap();
+        let (seq_id, range) = scheduler.next_chunk().expect("test");
         assert_eq!(range, 512..1000);
         scheduler.complete_chunk(seq_id, 488, 40);
 

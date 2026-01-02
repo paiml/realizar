@@ -53,8 +53,8 @@ fn profile_matmul(name: &str, in_dim: usize, out_dim: usize) {
     }
 
     let times_us: Vec<u128> = times.iter().map(|t| t.as_micros()).collect();
-    let min = *times_us.iter().min().unwrap();
-    let max = *times_us.iter().max().unwrap();
+    let min = *times_us.iter().min().expect("test");
+    let max = *times_us.iter().max().expect("test");
     let sum: u128 = times_us.iter().sum();
     let avg = sum / times_us.len() as u128;
 

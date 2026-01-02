@@ -3,10 +3,10 @@ use realizar::gguf::MappedGGUFModel;
 fn main() {
     let mapped =
         MappedGGUFModel::from_path("/home/noah/src/aprender/tinyllama-1.1b-chat-v1.0.Q4_0.gguf")
-            .unwrap();
+            .expect("test");
 
     let prompt = "The capital of France is";
-    let tokens = mapped.model.encode(prompt).unwrap();
+    let tokens = mapped.model.encode(prompt).expect("test");
 
     println!("Prompt: '{}'", prompt);
     println!("Tokens: {:?}", tokens);

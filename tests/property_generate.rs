@@ -15,7 +15,7 @@ use realizar::{
 fn logits_strategy(min_len: usize, max_len: usize) -> impl Strategy<Value = Tensor<f32>> {
     prop::collection::vec(-10.0f32..10.0f32, min_len..=max_len).prop_map(|data| {
         let len = data.len();
-        Tensor::from_vec(vec![len], data).unwrap()
+        Tensor::from_vec(vec![len], data).expect("test")
     })
 }
 
@@ -28,14 +28,14 @@ proptest! {
         logits in logits_strategy(1, 100),
         temperature in 0.1f32..10.0f32
     ) {
-        let scaled = apply_temperature(&logits, temperature).unwrap();
+        let scaled = apply_temperature(&logits, temperature).expect("test");
         prop_assert_eq!(scaled.shape(), logits.shape());
     }
 
     /// Temperature scaling with t=1 preserves values
     #[test]
     fn test_temperature_one_identity(logits in logits_strategy(1, 100)) {
-        let scaled = apply_temperature(&logits, 1.0).unwrap();
+        let scaled = apply_temperature(&logits, 1.0).expect("test");
         for (a, b) in logits.data().iter().zip(scaled.data().iter()) {
             prop_assert!((a - b).abs() < 1e-6);
         }
@@ -47,7 +47,7 @@ proptest! {
         logits in logits_strategy(2, 50),
         temp in 0.1f32..5.0f32
     ) {
-        let scaled = apply_temperature(&logits, temp).unwrap();
+        let scaled = apply_temperature(&logits, temp).expect("test");
         // Verify scaling: scaled[i] = logits[i] / temp
         for (orig, scaled_val) in logits.data().iter().zip(scaled.data().iter()) {
             let expected = orig / temp;
@@ -58,14 +58,14 @@ proptest! {
     /// Greedy sampling always returns valid index
     #[test]
     fn test_greedy_returns_valid_index(logits in logits_strategy(1, 100)) {
-        let idx = sample_greedy(&logits).unwrap();
+        let idx = sample_greedy(&logits).expect("test");
         prop_assert!(idx < logits.size());
     }
 
     /// Greedy sampling returns argmax
     #[test]
     fn test_greedy_returns_argmax(logits in logits_strategy(1, 100)) {
-        let idx = sample_greedy(&logits).unwrap();
+        let idx = sample_greedy(&logits).expect("test");
         let data = logits.data();
         let max_val = data[idx];
 
@@ -82,7 +82,7 @@ proptest! {
         k in 1usize..50,
         rng in 0.0f32..1.0f32
     ) {
-        let idx = sample_top_k(&logits, k.min(logits.size()), rng).unwrap();
+        let idx = sample_top_k(&logits, k.min(logits.size()), rng).expect("test");
         prop_assert!(idx < logits.size());
     }
 
@@ -92,8 +92,8 @@ proptest! {
         logits in logits_strategy(1, 100),
         rng in 0.0f32..1.0f32
     ) {
-        let greedy_idx = sample_greedy(&logits).unwrap();
-        let top_k_idx = sample_top_k(&logits, 1, rng).unwrap();
+        let greedy_idx = sample_greedy(&logits).expect("test");
+        let top_k_idx = sample_top_k(&logits, 1, rng).expect("test");
         prop_assert_eq!(greedy_idx, top_k_idx);
     }
 
@@ -104,7 +104,7 @@ proptest! {
         p in 0.01f32..1.0f32,
         rng in 0.0f32..1.0f32
     ) {
-        let idx = sample_top_p(&logits, p, rng).unwrap();
+        let idx = sample_top_p(&logits, p, rng).expect("test");
         prop_assert!(idx < logits.size());
     }
 
@@ -114,7 +114,7 @@ proptest! {
         logits in logits_strategy(1, 50),
         rng in 0.0f32..1.0f32
     ) {
-        let idx = sample_top_p(&logits, 1.0, rng).unwrap();
+        let idx = sample_top_p(&logits, 1.0, rng).expect("test");
         prop_assert!(idx < logits.size());
     }
 
@@ -122,8 +122,8 @@ proptest! {
     #[test]
     fn test_sample_token_greedy(logits in logits_strategy(1, 100)) {
         let config = GenerationConfig::greedy();
-        let idx = sample_token(&logits, &config, 0.5).unwrap();
-        let greedy_idx = sample_greedy(&logits).unwrap();
+        let idx = sample_token(&logits, &config, 0.5).expect("test");
+        let greedy_idx = sample_greedy(&logits).expect("test");
         prop_assert_eq!(idx, greedy_idx);
     }
 
@@ -134,8 +134,8 @@ proptest! {
         t1 in 0.1f32..1.0f32,
         t2 in 1.5f32..5.0f32
     ) {
-        let scaled1 = apply_temperature(&logits, t1).unwrap();
-        let scaled2 = apply_temperature(&logits, t2).unwrap();
+        let scaled1 = apply_temperature(&logits, t1).expect("test");
+        let scaled2 = apply_temperature(&logits, t2).expect("test");
 
         // Lower temperature should have larger differences between values
         if logits.size() >= 2 {

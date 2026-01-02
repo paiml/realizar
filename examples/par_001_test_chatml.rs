@@ -8,8 +8,8 @@ use realizar::gguf::{MappedGGUFModel, OwnedQuantizedKVCache, OwnedQuantizedModel
 fn main() {
     let path = "/tmp/parity-bench/tinyllama-1.1b-q4_k_m.gguf";
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
-    let vocab = mapped.model.vocabulary().unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
+    let vocab = mapped.model.vocabulary().expect("test");
 
     println!("=== PAR-001: ChatML Template Test ===\n");
 
@@ -84,11 +84,13 @@ fn main() {
 
         println!("\nPrompt: BOS + '▁The'");
         for (pos, &token) in tokens.iter().enumerate() {
-            let _ = model.forward_cached(token, &mut cache, pos).unwrap();
+            let _ = model.forward_cached(token, &mut cache, pos).expect("test");
         }
 
         // Get prediction after "The"
-        let logits = model.forward_cached(tokens[1], &mut cache, 1).unwrap();
+        let logits = model
+            .forward_cached(tokens[1], &mut cache, 1)
+            .expect("test");
 
         let mut indexed: Vec<(usize, f32)> = logits.iter().cloned().enumerate().collect();
         indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
@@ -105,13 +107,13 @@ fn main() {
         for _ in 0..15 {
             let pos = generated.len() - 1;
             let token = generated[generated.len() - 1];
-            let logits = model.forward_cached(token, &mut cache, pos).unwrap();
+            let logits = model.forward_cached(token, &mut cache, pos).expect("test");
 
             let (next_idx, _) = logits
                 .iter()
                 .enumerate()
                 .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
-                .unwrap();
+                .expect("test");
 
             generated.push(next_idx as u32);
             let tok_str = vocab.get(next_idx).map(|s| s.as_str()).unwrap_or("?");

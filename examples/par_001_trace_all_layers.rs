@@ -11,8 +11,8 @@ fn l2_norm(v: &[f32]) -> f32 {
 fn main() {
     let path = "/tmp/parity-bench/tinyllama-1.1b-q4_k_m.gguf";
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
-    let vocab = mapped.model.vocabulary().unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
+    let vocab = mapped.model.vocabulary().expect("test");
 
     println!("=== PAR-001: Trace All Layers ===\n");
     println!(
@@ -29,7 +29,7 @@ fn main() {
 
     // Test with BOS token
     let bos = 1u32;
-    let logits = model.forward_cached(bos, &mut cache, 0).unwrap();
+    let logits = model.forward_cached(bos, &mut cache, 0).expect("test");
 
     println!("\nAfter BOS token:");
     println!("  Logits L2: {:.4}", l2_norm(&logits));

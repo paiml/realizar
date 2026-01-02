@@ -2,7 +2,7 @@
 name = "realizar"
 version = "0.3.2"
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.89"
 authors = ["Pragmatic AI Labs <contact@paiml.com>"]
 license = "MIT"
 description = "Pure Rust ML inference engine built from scratch - model serving for GGUF and safetensors"
@@ -348,10 +348,11 @@ debug = true
 [profile.dev.package."*"]
 opt-level = 3
 
-# Test profile - minimize memory usage for 11GB RAM machines
+# Test profile - optimized for GPU benchmarks (PAR-023)
+# Note: opt-level=3 required for accurate GPU timing measurements
 [profile.test]
-opt-level = 0
+opt-level = 3
 debug = false          # Reduce memory during debug info generation
-lto = false            # Disable LTO completely
-codegen-units = 16     # More units = less peak memory per unit
+lto = false            # Disable LTO for faster compile
+codegen-units = 4      # Balance between speed and optimization
 incremental = true     # Enable incremental compilation

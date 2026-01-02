@@ -81,11 +81,11 @@ fn test_parity_092a_box_structure() {
     assert!(lines[0].starts_with('╭'), "First line should start with ╭");
     assert!(lines[0].ends_with('╮'), "First line should end with ╮");
     assert!(
-        lines.last().unwrap().starts_with('╰'),
+        lines.last().expect("test").starts_with('╰'),
         "Last line should start with ╰"
     );
     assert!(
-        lines.last().unwrap().ends_with('╯'),
+        lines.last().expect("test").ends_with('╯'),
         "Last line should end with ╯"
     );
 
@@ -436,7 +436,7 @@ fn test_parity_107c_metrics_json_format() {
     };
 
     // Serialize to JSON
-    let json = serde_json::to_string(&response).unwrap();
+    let json = serde_json::to_string(&response).expect("test");
 
     // Verify all required fields are present
     assert!(json.contains("\"throughput_tok_per_sec\""));
@@ -455,7 +455,7 @@ fn test_parity_107c_metrics_json_format() {
     assert!(json.contains("\"model_name\""));
 
     // Verify round-trip deserialization
-    let parsed: realizar::api::ServerMetricsResponse = serde_json::from_str(&json).unwrap();
+    let parsed: realizar::api::ServerMetricsResponse = serde_json::from_str(&json).expect("test");
     assert!((parsed.throughput_tok_per_sec - 192.0).abs() < 0.001);
     assert_eq!(parsed.batch_size, 32);
     assert_eq!(parsed.model_name, "test-model");

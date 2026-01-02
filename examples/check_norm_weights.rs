@@ -3,8 +3,9 @@ use realizar::gguf::GGUFModel;
 use std::fs;
 
 fn main() {
-    let data = fs::read("/home/noah/src/aprender/tinyllama-1.1b-chat-v1.0.Q4_0.gguf").unwrap();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let data =
+        fs::read("/home/noah/src/aprender/tinyllama-1.1b-chat-v1.0.Q4_0.gguf").expect("test");
+    let model = GGUFModel::from_bytes(&data).expect("test");
 
     // Find norm weight tensors
     let norm_tensors: Vec<_> = model
@@ -86,7 +87,9 @@ fn main() {
         println!("  qtype: {}", t.qtype);
 
         // Get values
-        let values = model.get_tensor_f32("output_norm.weight", &data).unwrap();
+        let values = model
+            .get_tensor_f32("output_norm.weight", &data)
+            .expect("test");
         println!("  First 10 values: {:?}", &values[..10.min(values.len())]);
 
         let min = values.iter().cloned().fold(f32::INFINITY, f32::min);

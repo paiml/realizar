@@ -372,8 +372,12 @@ mod tests {
         let key1 = CacheKey::new("model1".to_string());
         let key2 = CacheKey::new("model2".to_string());
 
-        cache.get_or_load(&key1, || create_test_model(50)).unwrap();
-        cache.get_or_load(&key2, || create_test_model(60)).unwrap();
+        cache
+            .get_or_load(&key1, || create_test_model(50))
+            .expect("test");
+        cache
+            .get_or_load(&key2, || create_test_model(60))
+            .expect("test");
 
         let metrics = cache.metrics();
         assert_eq!(metrics.hits, 0);
@@ -390,13 +394,19 @@ mod tests {
         let key3 = CacheKey::new("model3".to_string());
 
         // Fill cache to capacity
-        cache.get_or_load(&key1, || create_test_model(50)).unwrap();
-        cache.get_or_load(&key2, || create_test_model(60)).unwrap();
+        cache
+            .get_or_load(&key1, || create_test_model(50))
+            .expect("test");
+        cache
+            .get_or_load(&key2, || create_test_model(60))
+            .expect("test");
 
         assert_eq!(cache.len(), 2);
 
         // Add third model - should evict LRU (model1)
-        cache.get_or_load(&key3, || create_test_model(70)).unwrap();
+        cache
+            .get_or_load(&key3, || create_test_model(70))
+            .expect("test");
 
         assert_eq!(cache.len(), 2);
         let metrics = cache.metrics();
@@ -410,8 +420,12 @@ mod tests {
         let key1 = CacheKey::new("model1".to_string());
         let key2 = CacheKey::new("model2".to_string());
 
-        cache.get_or_load(&key1, || create_test_model(50)).unwrap();
-        cache.get_or_load(&key2, || create_test_model(60)).unwrap();
+        cache
+            .get_or_load(&key1, || create_test_model(50))
+            .expect("test");
+        cache
+            .get_or_load(&key2, || create_test_model(60))
+            .expect("test");
 
         assert_eq!(cache.len(), 2);
 
@@ -437,7 +451,7 @@ mod tests {
 
     #[test]
     fn test_cache_entry_access_tracking() {
-        let (model, tokenizer) = create_test_model(50).unwrap();
+        let (model, tokenizer) = create_test_model(50).expect("test");
         let mut entry = CacheEntry::new(model, tokenizer);
 
         assert_eq!(entry.access_count, 0);
@@ -457,7 +471,9 @@ mod tests {
         let key = CacheKey::new("concurrent".to_string());
 
         // Pre-populate cache to avoid race condition on first load
-        cache.get_or_load(&key, || create_test_model(50)).unwrap();
+        cache
+            .get_or_load(&key, || create_test_model(50))
+            .expect("test");
 
         // Reset metrics to get clean counts
         let initial_metrics = cache.metrics();
@@ -470,13 +486,15 @@ mod tests {
                 let cache = cache.clone();
                 let key = key.clone();
                 thread::spawn(move || {
-                    cache.get_or_load(&key, || create_test_model(50)).unwrap();
+                    cache
+                        .get_or_load(&key, || create_test_model(50))
+                        .expect("test");
                 })
             })
             .collect();
 
         for handle in handles {
-            handle.join().unwrap();
+            handle.join().expect("test");
         }
 
         // All threads should have hit the cache

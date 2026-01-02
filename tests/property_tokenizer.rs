@@ -53,8 +53,8 @@ proptest! {
             "y".to_string(),
             "z".to_string(),
         ];
-        let vocab = Vocabulary::from_tokens(tokens).unwrap();
-        let tokenizer = Tokenizer::new(vocab, "<unk>").unwrap();
+        let vocab = Vocabulary::from_tokens(tokens).expect("test");
+        let tokenizer = Tokenizer::new(vocab, "<unk>").expect("test");
 
         let encoded = tokenizer.encode(&text);
         prop_assert!(!encoded.is_empty(), "Encoded output should not be empty for non-empty input");
@@ -73,8 +73,8 @@ proptest! {
             "u".to_string(), "v".to_string(), "w".to_string(), "x".to_string(),
             "y".to_string(), "z".to_string(),
         ];
-        let vocab = Vocabulary::from_tokens(tokens.clone()).unwrap();
-        let tokenizer = Tokenizer::new(vocab, "<unk>").unwrap();
+        let vocab = Vocabulary::from_tokens(tokens.clone()).expect("test");
+        let tokenizer = Tokenizer::new(vocab, "<unk>").expect("test");
 
         let encoded = tokenizer.encode(&text);
 
@@ -99,7 +99,7 @@ proptest! {
             ("a".to_string(), "b".to_string()),
             ("b".to_string(), "c".to_string()),
         ];
-        let tokenizer = BPETokenizer::new(vocab.clone(), merges, "<unk>").unwrap();
+        let tokenizer = BPETokenizer::new(vocab.clone(), merges, "<unk>").expect("test");
 
         let encoded = tokenizer.encode(&text);
 
@@ -124,10 +124,10 @@ proptest! {
             ("a".to_string(), "b".to_string()),
             ("b".to_string(), "c".to_string()),
         ];
-        let tokenizer = BPETokenizer::new(vocab, merges, "<unk>").unwrap();
+        let tokenizer = BPETokenizer::new(vocab, merges, "<unk>").expect("test");
 
         let encoded = tokenizer.encode(&text);
-        let decoded = tokenizer.decode(&encoded).unwrap();
+        let decoded = tokenizer.decode(&encoded).expect("test");
 
         prop_assert_eq!(decoded, text);
     }
@@ -143,7 +143,7 @@ proptest! {
             ("ab".to_string(), -0.5),
             ("bc".to_string(), -0.5),
         ];
-        let tokenizer = SentencePieceTokenizer::new(vocab.clone(), "<unk>").unwrap();
+        let tokenizer = SentencePieceTokenizer::new(vocab.clone(), "<unk>").expect("test");
 
         let encoded = tokenizer.encode(&text);
 
@@ -164,10 +164,10 @@ proptest! {
             ("ab".to_string(), -0.5),
             ("bc".to_string(), -0.5),
         ];
-        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").unwrap();
+        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").expect("test");
 
         let encoded = tokenizer.encode(&text);
-        let decoded = tokenizer.decode(&encoded).unwrap();
+        let decoded = tokenizer.decode(&encoded).expect("test");
 
         prop_assert_eq!(decoded, text);
     }
@@ -176,8 +176,8 @@ proptest! {
     #[test]
     fn test_empty_string_encoding(_ in Just(())) {
         let tokens = vec!["<unk>".to_string(), "a".to_string()];
-        let vocab = Vocabulary::from_tokens(tokens).unwrap();
-        let tokenizer = Tokenizer::new(vocab, "<unk>").unwrap();
+        let vocab = Vocabulary::from_tokens(tokens).expect("test");
+        let tokenizer = Tokenizer::new(vocab, "<unk>").expect("test");
 
         let encoded = tokenizer.encode("");
         prop_assert!(encoded.is_empty());
@@ -189,8 +189,8 @@ proptest! {
         let tokens: Vec<String> = (0..size)
             .map(|i| if i == 0 { "<unk>".to_string() } else { format!("t{}", i) })
             .collect();
-        let vocab = Vocabulary::from_tokens(tokens.clone()).unwrap();
-        let tokenizer = Tokenizer::new(vocab, "<unk>").unwrap();
+        let vocab = Vocabulary::from_tokens(tokens.clone()).expect("test");
+        let tokenizer = Tokenizer::new(vocab, "<unk>").expect("test");
 
         prop_assert_eq!(tokenizer.vocab_size(), tokens.len());
     }

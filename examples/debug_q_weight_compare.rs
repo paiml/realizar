@@ -6,7 +6,7 @@ use realizar::quantize::dequantize_q4_k;
 fn main() {
     let path = "/tmp/parity-bench/tinyllama-1.1b-q4_k_m.gguf";
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     // Get Q weight
     let q_weight = match &model.layers[0].qkv_weight {

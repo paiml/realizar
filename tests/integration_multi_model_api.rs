@@ -30,7 +30,7 @@ fn create_test_model(vocab_size: usize) -> (Model, BPETokenizer) {
         intermediate_dim: 64,
         eps: 1e-5,
     };
-    let model = Model::new(config).unwrap();
+    let model = Model::new(config).expect("test");
 
     let vocab: Vec<String> = (0..vocab_size)
         .map(|i| {
@@ -41,7 +41,7 @@ fn create_test_model(vocab_size: usize) -> (Model, BPETokenizer) {
             }
         })
         .collect();
-    let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").unwrap();
+    let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").expect("test");
 
     (model, tokenizer)
 }
@@ -54,27 +54,31 @@ async fn test_multi_model_registry_list() {
     let (model1, tokenizer1) = create_test_model(100);
     let (model2, tokenizer2) = create_test_model(200);
 
-    registry.register("model-1", model1, tokenizer1).unwrap();
-    registry.register("model-2", model2, tokenizer2).unwrap();
+    registry
+        .register("model-1", model1, tokenizer1)
+        .expect("test");
+    registry
+        .register("model-2", model2, tokenizer2)
+        .expect("test");
 
     // Create app state with registry
-    let state = AppState::with_registry(registry, "model-1").unwrap();
+    let state = AppState::with_registry(registry, "model-1").expect("test");
     let app = create_router(state);
 
     // Request models list
     let request = Request::builder()
         .uri("/models")
         .body(Body::empty())
-        .unwrap();
+        .expect("test");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test");
     assert_eq!(response.status(), StatusCode::OK);
 
     // Parse response
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
-        .unwrap();
-    let models_response: ModelsResponse = serde_json::from_slice(&body).unwrap();
+        .expect("test");
+    let models_response: ModelsResponse = serde_json::from_slice(&body).expect("test");
 
     assert_eq!(models_response.models.len(), 2);
 
@@ -97,12 +101,12 @@ async fn test_multi_model_tokenize_with_model_id() {
 
     registry
         .register("small-model", model1, tokenizer1)
-        .unwrap();
+        .expect("test");
     registry
         .register("large-model", model2, tokenizer2)
-        .unwrap();
+        .expect("test");
 
-    let state = AppState::with_registry(registry, "small-model").unwrap();
+    let state = AppState::with_registry(registry, "small-model").expect("test");
     let app = create_router(state);
 
     // Tokenize with specific model
@@ -115,16 +119,18 @@ async fn test_multi_model_tokenize_with_model_id() {
         .uri("/tokenize")
         .method("POST")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_vec(&tokenize_request).unwrap()))
-        .unwrap();
+        .body(Body::from(
+            serde_json::to_vec(&tokenize_request).expect("test"),
+        ))
+        .expect("test");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test");
     assert_eq!(response.status(), StatusCode::OK);
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
-        .unwrap();
-    let tokenize_response: TokenizeResponse = serde_json::from_slice(&body).unwrap();
+        .expect("test");
+    let tokenize_response: TokenizeResponse = serde_json::from_slice(&body).expect("test");
 
     // Verify tokens were generated
     assert!(tokenize_response.num_tokens > 0);
@@ -140,12 +146,12 @@ async fn test_multi_model_tokenize_default_model() {
 
     registry
         .register("small-model", model1, tokenizer1)
-        .unwrap();
+        .expect("test");
     registry
         .register("large-model", model2, tokenizer2)
-        .unwrap();
+        .expect("test");
 
-    let state = AppState::with_registry(registry, "small-model").unwrap();
+    let state = AppState::with_registry(registry, "small-model").expect("test");
     let app = create_router(state);
 
     // Tokenize without specifying model_id (should use default)
@@ -158,10 +164,12 @@ async fn test_multi_model_tokenize_default_model() {
         .uri("/tokenize")
         .method("POST")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_vec(&tokenize_request).unwrap()))
-        .unwrap();
+        .body(Body::from(
+            serde_json::to_vec(&tokenize_request).expect("test"),
+        ))
+        .expect("test");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test");
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -173,10 +181,14 @@ async fn test_multi_model_generate_with_model_id() {
     let (model1, tokenizer1) = create_test_model(100);
     let (model2, tokenizer2) = create_test_model(200);
 
-    registry.register("model-a", model1, tokenizer1).unwrap();
-    registry.register("model-b", model2, tokenizer2).unwrap();
+    registry
+        .register("model-a", model1, tokenizer1)
+        .expect("test");
+    registry
+        .register("model-b", model2, tokenizer2)
+        .expect("test");
 
-    let state = AppState::with_registry(registry, "model-a").unwrap();
+    let state = AppState::with_registry(registry, "model-a").expect("test");
     let app = create_router(state);
 
     // Generate with specific model
@@ -195,16 +207,18 @@ async fn test_multi_model_generate_with_model_id() {
         .uri("/generate")
         .method("POST")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_vec(&generate_request).unwrap()))
-        .unwrap();
+        .body(Body::from(
+            serde_json::to_vec(&generate_request).expect("test"),
+        ))
+        .expect("test");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test");
     assert_eq!(response.status(), StatusCode::OK);
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
-        .unwrap();
-    let generate_response: GenerateResponse = serde_json::from_slice(&body).unwrap();
+        .expect("test");
+    let generate_response: GenerateResponse = serde_json::from_slice(&body).expect("test");
 
     // Verify generation occurred
     assert!(!generate_response.text.is_empty());
@@ -219,12 +233,14 @@ async fn test_multi_model_generate_default_model() {
     let (model1, tokenizer1) = create_test_model(100);
     let (model2, tokenizer2) = create_test_model(200);
 
-    registry.register("default", model1, tokenizer1).unwrap();
+    registry
+        .register("default", model1, tokenizer1)
+        .expect("test");
     registry
         .register("alternative", model2, tokenizer2)
-        .unwrap();
+        .expect("test");
 
-    let state = AppState::with_registry(registry, "default").unwrap();
+    let state = AppState::with_registry(registry, "default").expect("test");
     let app = create_router(state);
 
     // Generate without specifying model_id (should use default)
@@ -243,10 +259,12 @@ async fn test_multi_model_generate_default_model() {
         .uri("/generate")
         .method("POST")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_vec(&generate_request).unwrap()))
-        .unwrap();
+        .body(Body::from(
+            serde_json::to_vec(&generate_request).expect("test"),
+        ))
+        .expect("test");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test");
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -256,9 +274,9 @@ async fn test_multi_model_not_found_error() {
     let registry = ModelRegistry::new(5);
 
     let (model, tokenizer) = create_test_model(100);
-    registry.register("exists", model, tokenizer).unwrap();
+    registry.register("exists", model, tokenizer).expect("test");
 
-    let state = AppState::with_registry(registry, "exists").unwrap();
+    let state = AppState::with_registry(registry, "exists").expect("test");
     let app = create_router(state);
 
     // Try to use non-existent model
@@ -277,16 +295,18 @@ async fn test_multi_model_not_found_error() {
         .uri("/generate")
         .method("POST")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_vec(&generate_request).unwrap()))
-        .unwrap();
+        .body(Body::from(
+            serde_json::to_vec(&generate_request).expect("test"),
+        ))
+        .expect("test");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test");
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
     // Verify error response contains expected message
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
-        .unwrap();
+        .expect("test");
     let body_str = String::from_utf8_lossy(&body);
     assert!(body_str.contains("not found"));
 }
@@ -315,10 +335,12 @@ async fn test_multi_model_backward_compatibility() {
         .uri("/generate")
         .method("POST")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_vec(&generate_request).unwrap()))
-        .unwrap();
+        .body(Body::from(
+            serde_json::to_vec(&generate_request).expect("test"),
+        ))
+        .expect("test");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test");
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -333,16 +355,16 @@ async fn test_multi_model_single_model_mode_default() {
     let request = Request::builder()
         .uri("/models")
         .body(Body::empty())
-        .unwrap();
+        .expect("test");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test");
     // Should return OK with default model
     assert_eq!(response.status(), StatusCode::OK);
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
-        .unwrap();
-    let models_response: ModelsResponse = serde_json::from_slice(&body).unwrap();
+        .expect("test");
+    let models_response: ModelsResponse = serde_json::from_slice(&body).expect("test");
 
     // Single model mode returns a default model entry
     assert_eq!(models_response.models.len(), 1);
@@ -362,9 +384,15 @@ async fn test_concurrent_model_access() {
     let (model2, tokenizer2) = create_test_model(100);
     let (model3, tokenizer3) = create_test_model(100);
 
-    registry.register("model-1", model1, tokenizer1).unwrap();
-    registry.register("model-2", model2, tokenizer2).unwrap();
-    registry.register("model-3", model3, tokenizer3).unwrap();
+    registry
+        .register("model-1", model1, tokenizer1)
+        .expect("test");
+    registry
+        .register("model-2", model2, tokenizer2)
+        .expect("test");
+    registry
+        .register("model-3", model3, tokenizer3)
+        .expect("test");
 
     // Spawn concurrent tasks accessing different models
     let mut set = JoinSet::new();
@@ -380,7 +408,7 @@ async fn test_concurrent_model_access() {
 
     // Wait for all tasks to complete
     while let Some(result) = set.join_next().await {
-        result.unwrap();
+        result.expect("test");
     }
 }
 
@@ -401,24 +429,26 @@ async fn test_model_info_metadata() {
         loaded: false,
     };
 
-    registry.register_with_info(info, model, tokenizer).unwrap();
+    registry
+        .register_with_info(info, model, tokenizer)
+        .expect("test");
 
-    let state = AppState::with_registry(registry, "llama-7b").unwrap();
+    let state = AppState::with_registry(registry, "llama-7b").expect("test");
     let app = create_router(state);
 
     // Request models list
     let request = Request::builder()
         .uri("/models")
         .body(Body::empty())
-        .unwrap();
+        .expect("test");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test");
     assert_eq!(response.status(), StatusCode::OK);
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
-        .unwrap();
-    let models_response: ModelsResponse = serde_json::from_slice(&body).unwrap();
+        .expect("test");
+    let models_response: ModelsResponse = serde_json::from_slice(&body).expect("test");
 
     assert_eq!(models_response.models.len(), 1);
     let model_info = &models_response.models[0];

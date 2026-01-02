@@ -3,8 +3,8 @@ use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
 fn main() {
     let mapped =
         MappedGGUFModel::from_path("/home/noah/src/aprender/tinyllama-1.1b-chat-v1.0.Q4_0.gguf")
-            .unwrap();
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+            .expect("test");
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     let hidden_dim = model.config().hidden_dim;
     let vocab_size = model.config().vocab_size;
@@ -18,7 +18,7 @@ fn main() {
     // We can't call embed directly, but we can check via forward pass with single token
 
     // Do a single-token forward pass
-    let logits = model.forward(&[1]).unwrap();
+    let logits = model.forward(&[1]).expect("test");
 
     // Print some specific logits
     println!("\nLogits for specific tokens (BOS as input):");
@@ -30,7 +30,7 @@ fn main() {
     let mut indexed: Vec<(usize, f32)> = logits.iter().cloned().enumerate().collect();
     indexed.sort_by(|(_, a), (_, b)| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
 
-    let vocab = mapped.model.vocabulary().unwrap();
+    let vocab = mapped.model.vocabulary().expect("test");
     println!("\nTop 5 predictions for BOS:");
     for (i, (idx, logit)) in indexed.iter().take(5).enumerate() {
         let tok = if *idx < vocab.len() {

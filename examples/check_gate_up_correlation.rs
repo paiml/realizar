@@ -25,7 +25,7 @@ fn silu(x: &mut [f32]) {
 fn main() {
     let path = "/tmp/parity-bench/tinyllama-1.1b-q4_k_m.gguf";
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     let hidden_dim = model.config.hidden_dim;
     let eps = model.config.eps;
@@ -46,10 +46,10 @@ fn main() {
         };
         let _ =
             fused_q4k_parallel_matvec(&q_weight.data, &normed, q_weight.in_dim, q_weight.out_dim)
-                .unwrap();
+                .expect("test");
         let v =
             fused_q4k_parallel_matvec(&v_weight.data, &normed, v_weight.in_dim, v_weight.out_dim)
-                .unwrap();
+                .expect("test");
 
         let head_dim = hidden_dim / model.config.num_heads;
         let group_size = model.config.num_heads / model.config.num_kv_heads;
@@ -66,7 +66,7 @@ fn main() {
             layer.attn_output_weight.in_dim,
             layer.attn_output_weight.out_dim,
         )
-        .unwrap();
+        .expect("test");
         for i in 0..hidden_dim {
             hidden[i] += attn_proj[i];
         }
@@ -85,14 +85,14 @@ fn main() {
                 layer.ffn_up_weight.in_dim,
                 layer.ffn_up_weight.out_dim,
             )
-            .unwrap();
+            .expect("test");
             let mut ffn_gate = fused_q4k_parallel_matvec(
                 &gate_weight.data,
                 &ffn_input,
                 gate_weight.in_dim,
                 gate_weight.out_dim,
             )
-            .unwrap();
+            .expect("test");
 
             // Calculate correlation BEFORE silu
             let dot_pre: f32 = ffn_gate.iter().zip(ffn_up.iter()).map(|(a, b)| a * b).sum();
@@ -138,7 +138,7 @@ fn main() {
                 layer.ffn_down_weight.in_dim,
                 layer.ffn_down_weight.out_dim,
             )
-            .unwrap();
+            .expect("test");
             for i in 0..hidden_dim {
                 hidden[i] += ffn_out[i];
             }

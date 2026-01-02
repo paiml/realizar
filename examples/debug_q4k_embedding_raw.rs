@@ -20,7 +20,7 @@ fn main() {
         .tensors
         .iter()
         .find(|t| t.name == "token_embd.weight")
-        .unwrap();
+        .expect("test");
     println!("Tensor: {}", tensor.name);
     println!("  dims: {:?}", tensor.dims);
     println!("  qtype: {} (12=Q4_K)", tensor.qtype);
@@ -102,7 +102,7 @@ fn main() {
     println!("\nL2 of difference: {:.6}", diff_l2);
 
     // Compare with OwnedQuantizedModel's token_embedding
-    let owned_model = realizar::gguf::OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+    let owned_model = realizar::gguf::OwnedQuantizedModel::from_mapped(&mapped).expect("test");
     let owned_start = token_id * hidden_dim;
     let owned_row: Vec<f32> =
         owned_model.token_embedding[owned_start..owned_start + hidden_dim].to_vec();

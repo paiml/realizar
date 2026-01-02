@@ -33,7 +33,7 @@ proptest! {
     /// Q4_0 dequantization produces exactly BLOCK_SIZE values per block
     #[test]
     fn test_q4_0_output_size(block in q4_0_block_strategy()) {
-        let result = dequantize_q4_0(&block).unwrap();
+        let result = dequantize_q4_0(&block).expect("test");
         prop_assert_eq!(result.len(), BLOCK_SIZE);
     }
 
@@ -48,7 +48,7 @@ proptest! {
             data.extend_from_slice(&[0u8; 16]);
         }
 
-        let result = dequantize_q4_0(&data).unwrap();
+        let result = dequantize_q4_0(&data).expect("test");
         prop_assert_eq!(result.len(), num_blocks * BLOCK_SIZE);
     }
 
@@ -60,7 +60,7 @@ proptest! {
         data.extend_from_slice(&0x0000u16.to_le_bytes());
         data.extend(quants);
 
-        let result = dequantize_q4_0(&data).unwrap();
+        let result = dequantize_q4_0(&data).expect("test");
         for val in result {
             prop_assert!((val - 0.0).abs() < 1e-10);
         }
@@ -93,7 +93,7 @@ proptest! {
         data.extend_from_slice(&scale_bits.to_le_bytes());
         data.extend(quants);
 
-        let result = dequantize_q4_0(&data).unwrap();
+        let result = dequantize_q4_0(&data).expect("test");
 
         // Convert f16 to f32 for bound check
         let scale = half::f16::from_bits(scale_bits).to_f32();
@@ -108,7 +108,7 @@ proptest! {
     /// Q8_0 dequantization produces exactly BLOCK_SIZE values per block
     #[test]
     fn test_q8_0_output_size(block in q8_0_block_strategy()) {
-        let result = dequantize_q8_0(&block).unwrap();
+        let result = dequantize_q8_0(&block).expect("test");
         prop_assert_eq!(result.len(), BLOCK_SIZE);
     }
 
@@ -123,7 +123,7 @@ proptest! {
             data.extend_from_slice(&[0u8; 32]);
         }
 
-        let result = dequantize_q8_0(&data).unwrap();
+        let result = dequantize_q8_0(&data).expect("test");
         prop_assert_eq!(result.len(), num_blocks * BLOCK_SIZE);
     }
 
@@ -135,7 +135,7 @@ proptest! {
         data.extend_from_slice(&0x0000u16.to_le_bytes());
         data.extend(quants);
 
-        let result = dequantize_q8_0(&data).unwrap();
+        let result = dequantize_q8_0(&data).expect("test");
         for val in result {
             prop_assert!((val - 0.0).abs() < 1e-10);
         }
@@ -168,7 +168,7 @@ proptest! {
         data.extend_from_slice(&scale_bits.to_le_bytes());
         data.extend(quants);
 
-        let result = dequantize_q8_0(&data).unwrap();
+        let result = dequantize_q8_0(&data).expect("test");
 
         // Convert f16 to f32 for bound check
         let scale = half::f16::from_bits(scale_bits).to_f32();
@@ -183,10 +183,10 @@ proptest! {
     /// Empty data returns empty result
     #[test]
     fn test_empty_data(_ in Just(())) {
-        let result_q4 = dequantize_q4_0(&[]).unwrap();
+        let result_q4 = dequantize_q4_0(&[]).expect("test");
         prop_assert!(result_q4.is_empty());
 
-        let result_q8 = dequantize_q8_0(&[]).unwrap();
+        let result_q8 = dequantize_q8_0(&[]).expect("test");
         prop_assert!(result_q8.is_empty());
     }
 }

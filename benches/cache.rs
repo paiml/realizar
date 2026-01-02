@@ -46,7 +46,9 @@ fn benchmark_cache_hit(c: &mut Criterion) {
     let key = CacheKey::new("test".to_string());
 
     // Pre-populate cache
-    cache.get_or_load(&key, || create_test_model(100)).unwrap();
+    cache
+        .get_or_load(&key, || create_test_model(100))
+        .expect("test");
 
     c.bench_function("cache_hit", |b| {
         b.iter(|| {
@@ -86,7 +88,7 @@ fn benchmark_cache_eviction(c: &mut Criterion) {
                         let key = CacheKey::new(format!("model{i}"));
                         let result = cache
                             .get_or_load(black_box(&key), || create_test_model(100))
-                            .unwrap();
+                            .expect("test");
                         black_box(result);
                     }
                 });
@@ -105,7 +107,9 @@ fn benchmark_cache_concurrent(c: &mut Criterion) {
         let key = CacheKey::new("shared".to_string());
 
         // Pre-populate
-        cache.get_or_load(&key, || create_test_model(100)).unwrap();
+        cache
+            .get_or_load(&key, || create_test_model(100))
+            .expect("test");
 
         b.iter(|| {
             let handles: Vec<_> = (0..4)
@@ -115,13 +119,13 @@ fn benchmark_cache_concurrent(c: &mut Criterion) {
                     thread::spawn(move || {
                         cache
                             .get_or_load(black_box(&key), || create_test_model(100))
-                            .unwrap()
+                            .expect("test")
                     })
                 })
                 .collect();
 
             for handle in handles {
-                black_box(handle.join().unwrap());
+                black_box(handle.join().expect("test"));
             }
         });
     });
@@ -133,7 +137,9 @@ fn benchmark_cache_metrics(c: &mut Criterion) {
 
     // Create some activity
     for _ in 0..10 {
-        cache.get_or_load(&key, || create_test_model(100)).unwrap();
+        cache
+            .get_or_load(&key, || create_test_model(100))
+            .expect("test");
     }
 
     c.bench_function("cache_metrics_access", |b| {
@@ -187,7 +193,9 @@ fn benchmark_cache_varying_capacity(c: &mut Criterion) {
                     // Fill to half capacity
                     for i in 0..capacity / 2 {
                         let key = CacheKey::new(format!("model{i}"));
-                        cache.get_or_load(&key, || create_test_model(50)).unwrap();
+                        cache
+                            .get_or_load(&key, || create_test_model(50))
+                            .expect("test");
                     }
 
                     black_box(&cache);

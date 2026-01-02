@@ -71,7 +71,7 @@ proptest! {
     /// Property: Handler should report correct model size
     #[test]
     fn prop_model_size_matches(model in valid_apr_model()) {
-        let handler = LambdaHandler::from_bytes(model).unwrap();
+        let handler = LambdaHandler::from_bytes(model).expect("test");
         prop_assert_eq!(handler.model_size_bytes(), model.len());
     }
 
@@ -81,15 +81,15 @@ proptest! {
         model in valid_apr_model(),
         features in valid_features()
     ) {
-        let handler = LambdaHandler::from_bytes(model).unwrap();
+        let handler = LambdaHandler::from_bytes(model).expect("test");
         let request = LambdaRequest { features, model_id: None };
 
         // First invocation
-        let response = handler.handle(&request).unwrap();
+        let response = handler.handle(&request).expect("test");
         prop_assert!(response.cold_start, "First invocation must be cold start");
 
         // Second invocation
-        let response2 = handler.handle(&request).unwrap();
+        let response2 = handler.handle(&request).expect("test");
         prop_assert!(!response2.cold_start, "Second invocation must not be cold start");
     }
 
@@ -99,10 +99,10 @@ proptest! {
         model in valid_apr_model(),
         features in valid_features()
     ) {
-        let handler = LambdaHandler::from_bytes(model).unwrap();
+        let handler = LambdaHandler::from_bytes(model).expect("test");
         let request = LambdaRequest { features, model_id: None };
 
-        let response = handler.handle(&request).unwrap();
+        let response = handler.handle(&request).expect("test");
         prop_assert!(response.latency_ms >= 0.0, "Latency must be non-negative");
     }
 
@@ -112,11 +112,11 @@ proptest! {
         model in valid_apr_model(),
         features in valid_features()
     ) {
-        let handler = LambdaHandler::from_bytes(model).unwrap();
+        let handler = LambdaHandler::from_bytes(model).expect("test");
         let expected_sum: f32 = features.iter().sum();
         let request = LambdaRequest { features, model_id: None };
 
-        let response = handler.handle(&request).unwrap();
+        let response = handler.handle(&request).expect("test");
 
         // Handle special cases: infinity, NaN
         if expected_sum.is_infinite() {
@@ -152,7 +152,7 @@ proptest! {
         model in valid_apr_model(),
         n in batch_size()
     ) {
-        let handler = LambdaHandler::from_bytes(model).unwrap();
+        let handler = LambdaHandler::from_bytes(model).expect("test");
 
         let instances: Vec<LambdaRequest> = (0..n)
             .map(|i| LambdaRequest {
@@ -166,7 +166,7 @@ proptest! {
             max_parallelism: None,
         };
 
-        let response = handler.handle_batch(&batch).unwrap();
+        let response = handler.handle_batch(&batch).expect("test");
         prop_assert_eq!(
             response.predictions.len(),
             instances.len(),
@@ -180,7 +180,7 @@ proptest! {
         model in valid_apr_model(),
         n in batch_size()
     ) {
-        let handler = LambdaHandler::from_bytes(model).unwrap();
+        let handler = LambdaHandler::from_bytes(model).expect("test");
 
         // Mix of valid and invalid requests
         let instances: Vec<LambdaRequest> = (0..n)
@@ -195,7 +195,7 @@ proptest! {
             max_parallelism: None,
         };
 
-        let response = handler.handle_batch(&batch).unwrap();
+        let response = handler.handle_batch(&batch).expect("test");
         prop_assert_eq!(
             response.success_count + response.error_count,
             response.predictions.len(),
@@ -209,7 +209,7 @@ proptest! {
         model in valid_apr_model(),
         n in batch_size()
     ) {
-        let handler = LambdaHandler::from_bytes(model).unwrap();
+        let handler = LambdaHandler::from_bytes(model).expect("test");
 
         let instances: Vec<LambdaRequest> = (0..n)
             .map(|i| LambdaRequest {
@@ -223,7 +223,7 @@ proptest! {
             max_parallelism: None,
         };
 
-        let response = handler.handle_batch(&batch).unwrap();
+        let response = handler.handle_batch(&batch).expect("test");
         prop_assert!(
             response.total_latency_ms >= 0.0,
             "Batch latency must be non-negative"
@@ -410,7 +410,7 @@ proptest! {
     fn prop_empty_features_error(model in valid_apr_model()) {
         use realizar::lambda::LambdaError;
 
-        let handler = LambdaHandler::from_bytes(model).unwrap();
+        let handler = LambdaHandler::from_bytes(model).expect("test");
         let request = LambdaRequest {
             features: vec![],
             model_id: None,
@@ -425,7 +425,7 @@ proptest! {
     fn prop_empty_batch_error(model in valid_apr_model()) {
         use realizar::lambda::LambdaError;
 
-        let handler = LambdaHandler::from_bytes(model).unwrap();
+        let handler = LambdaHandler::from_bytes(model).expect("test");
         let batch = BatchLambdaRequest {
             instances: vec![],
             max_parallelism: None,

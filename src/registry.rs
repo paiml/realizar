@@ -328,7 +328,7 @@ mod tests {
             intermediate_dim: 64,
             eps: 1e-5,
         };
-        let model = Model::new(config).unwrap();
+        let model = Model::new(config).expect("test");
 
         let vocab: Vec<String> = (0..100)
             .map(|i| {
@@ -339,7 +339,7 @@ mod tests {
                 }
             })
             .collect();
-        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").unwrap();
+        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").expect("test");
 
         (model, tokenizer)
     }
@@ -356,7 +356,9 @@ mod tests {
         let registry = ModelRegistry::new(5);
         let (model, tokenizer) = create_test_model();
 
-        registry.register("test-model", model, tokenizer).unwrap();
+        registry
+            .register("test-model", model, tokenizer)
+            .expect("test");
 
         assert_eq!(registry.len(), 1);
         assert!(!registry.is_empty());
@@ -369,7 +371,9 @@ mod tests {
         let (model1, tokenizer1) = create_test_model();
         let (model2, tokenizer2) = create_test_model();
 
-        registry.register("test-model", model1, tokenizer1).unwrap();
+        registry
+            .register("test-model", model1, tokenizer1)
+            .expect("test");
         let result = registry.register("test-model", model2, tokenizer2);
 
         assert!(result.is_err());
@@ -381,9 +385,11 @@ mod tests {
         let registry = ModelRegistry::new(5);
         let (model, tokenizer) = create_test_model();
 
-        registry.register("test-model", model, tokenizer).unwrap();
+        registry
+            .register("test-model", model, tokenizer)
+            .expect("test");
 
-        let (retrieved_model, retrieved_tokenizer) = registry.get("test-model").unwrap();
+        let (retrieved_model, retrieved_tokenizer) = registry.get("test-model").expect("test");
         assert!(Arc::strong_count(&retrieved_model) >= 2); // Registry + local
         assert!(Arc::strong_count(&retrieved_tokenizer) >= 2);
     }
@@ -411,9 +417,9 @@ mod tests {
 
         registry
             .register_with_info(info.clone(), model, tokenizer)
-            .unwrap();
+            .expect("test");
 
-        let retrieved_info = registry.get_info("llama-7b").unwrap();
+        let retrieved_info = registry.get_info("llama-7b").expect("test");
         assert_eq!(retrieved_info.id, "llama-7b");
         assert_eq!(retrieved_info.name, "Llama 7B");
         assert_eq!(retrieved_info.description, "7B parameter Llama model");
@@ -427,8 +433,12 @@ mod tests {
         let (model1, tokenizer1) = create_test_model();
         let (model2, tokenizer2) = create_test_model();
 
-        registry.register("model-1", model1, tokenizer1).unwrap();
-        registry.register("model-2", model2, tokenizer2).unwrap();
+        registry
+            .register("model-1", model1, tokenizer1)
+            .expect("test");
+        registry
+            .register("model-2", model2, tokenizer2)
+            .expect("test");
 
         let model_list = registry.list();
         assert_eq!(model_list.len(), 2);
@@ -443,10 +453,12 @@ mod tests {
         let registry = ModelRegistry::new(5);
         let (model, tokenizer) = create_test_model();
 
-        registry.register("test-model", model, tokenizer).unwrap();
+        registry
+            .register("test-model", model, tokenizer)
+            .expect("test");
         assert_eq!(registry.len(), 1);
 
-        registry.unregister("test-model").unwrap();
+        registry.unregister("test-model").expect("test");
         assert_eq!(registry.len(), 0);
         assert!(!registry.contains("test-model"));
     }
@@ -473,13 +485,13 @@ mod tests {
                 let (model, tokenizer) = create_test_model();
                 registry_clone
                     .register(&format!("model-{i}"), model, tokenizer)
-                    .unwrap();
+                    .expect("test");
             });
             handles.push(handle);
         }
 
         for handle in handles {
-            handle.join().unwrap();
+            handle.join().expect("test");
         }
 
         assert_eq!(registry.len(), 5);
@@ -490,11 +502,13 @@ mod tests {
         let registry = ModelRegistry::new(5);
         let (model, tokenizer) = create_test_model();
 
-        registry.register("test-model", model, tokenizer).unwrap();
+        registry
+            .register("test-model", model, tokenizer)
+            .expect("test");
 
         // Get the same model multiple times
-        let (model1, _) = registry.get("test-model").unwrap();
-        let (model2, _) = registry.get("test-model").unwrap();
+        let (model1, _) = registry.get("test-model").expect("test");
+        let (model2, _) = registry.get("test-model").expect("test");
 
         // Both should point to the same underlying model
         assert!(Arc::ptr_eq(&model1, &model2));
@@ -507,15 +521,19 @@ mod tests {
         let (model2, tokenizer2) = create_test_model();
 
         // Register initial model
-        registry.register("test-model", model1, tokenizer1).unwrap();
+        registry
+            .register("test-model", model1, tokenizer1)
+            .expect("test");
         assert_eq!(registry.len(), 1);
 
         // Replace with new model
-        registry.replace("test-model", model2, tokenizer2).unwrap();
+        registry
+            .replace("test-model", model2, tokenizer2)
+            .expect("test");
         assert_eq!(registry.len(), 1);
 
         // Verify replacement worked
-        let (retrieved, _) = registry.get("test-model").unwrap();
+        let (retrieved, _) = registry.get("test-model").expect("test");
         assert!(Arc::strong_count(&retrieved) >= 2);
     }
 
@@ -535,7 +553,9 @@ mod tests {
         let (model, tokenizer) = create_test_model();
 
         assert!(!registry.contains("test-model"));
-        registry.register("test-model", model, tokenizer).unwrap();
+        registry
+            .register("test-model", model, tokenizer)
+            .expect("test");
         assert!(registry.contains("test-model"));
     }
 
@@ -545,7 +565,9 @@ mod tests {
         assert!(registry.is_empty());
 
         let (model, tokenizer) = create_test_model();
-        registry.register("test-model", model, tokenizer).unwrap();
+        registry
+            .register("test-model", model, tokenizer)
+            .expect("test");
         assert!(!registry.is_empty());
     }
 
@@ -562,11 +584,15 @@ mod tests {
         assert_eq!(registry.len(), 0);
 
         let (model1, tokenizer1) = create_test_model();
-        registry.register("model-1", model1, tokenizer1).unwrap();
+        registry
+            .register("model-1", model1, tokenizer1)
+            .expect("test");
         assert_eq!(registry.len(), 1);
 
         let (model2, tokenizer2) = create_test_model();
-        registry.register("model-2", model2, tokenizer2).unwrap();
+        registry
+            .register("model-2", model2, tokenizer2)
+            .expect("test");
         assert_eq!(registry.len(), 2);
     }
 }

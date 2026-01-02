@@ -18,8 +18,8 @@ fn main() {
     println!("=== PAR-001b: LM Head Verification ===\n");
 
     let mapped = MappedGGUFModel::from_path(path).expect("Failed to load model");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
-    let vocab = mapped.model.vocabulary().unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
+    let vocab = mapped.model.vocabulary().expect("test");
 
     // Hypothesis 1: If we just pass the embedding through output_norm + lm_head,
     // do we get sensible token predictions?
@@ -68,7 +68,7 @@ fn main() {
 
     let logits_full = model
         .forward_single_with_cache(token_id, &mut cache, 0)
-        .unwrap();
+        .expect("test");
 
     let mut indexed_full: Vec<(usize, f32)> = logits_full.iter().copied().enumerate().collect();
     indexed_full.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
@@ -103,7 +103,7 @@ fn main() {
         let mut test_cache = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim, 256);
         let test_logits = model
             .forward_single_with_cache(test_token, &mut test_cache, 0)
-            .unwrap();
+            .expect("test");
 
         let mut test_indexed: Vec<(usize, f32)> = test_logits.iter().copied().enumerate().collect();
         test_indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));

@@ -20,7 +20,7 @@ fn rms_norm(input: &[f32], weight: &[f32], eps: f32) -> Vec<f32> {
 fn main() {
     let path = "/tmp/parity-bench/tinyllama-1.1b-q4_k_m.gguf";
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     let hidden_dim = model.config.hidden_dim; // 2048
     let eps = model.config.eps;
@@ -63,7 +63,7 @@ fn main() {
 
     // Q projection
     let q = fused_q4k_parallel_matvec(&q_weight.data, &normed, q_weight.in_dim, q_weight.out_dim)
-        .unwrap();
+        .expect("test");
     println!("\nQ projection output:");
     println!("  L2: {:.6}", l2_norm(&q));
     println!("  First 10: {:?}", &q[..10]);
@@ -80,7 +80,7 @@ fn main() {
 
     // K projection
     let k = fused_q4k_parallel_matvec(&k_weight.data, &normed, k_weight.in_dim, k_weight.out_dim)
-        .unwrap();
+        .expect("test");
     println!("\nK projection output:");
     println!("  Shape: {}", k.len());
     println!("  L2: {:.6}", l2_norm(&k));
@@ -88,7 +88,7 @@ fn main() {
 
     // V projection
     let v = fused_q4k_parallel_matvec(&v_weight.data, &normed, v_weight.in_dim, v_weight.out_dim)
-        .unwrap();
+        .expect("test");
     println!("\nV projection output:");
     println!("  Shape: {}", v.len());
     println!("  L2: {:.6}", l2_norm(&v));
@@ -97,7 +97,7 @@ fn main() {
     // Check if Q has any extreme values
     let q_sorted: Vec<f32> = {
         let mut s: Vec<f32> = q.iter().map(|x| x.abs()).collect();
-        s.sort_by(|a, b| b.partial_cmp(a).unwrap());
+        s.sort_by(|a, b| b.partial_cmp(a).expect("test"));
         s
     };
     println!("\nQ top 10 absolute values: {:?}", &q_sorted[..10]);

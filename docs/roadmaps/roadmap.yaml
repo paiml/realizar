@@ -3900,3 +3900,43 @@ roadmap:
   estimated_effort: null
   labels: []
   notes: null
+- id: REALIZAR-METAL-001
+  github_issue: null
+  item_type: task
+  title: 'Metal GPU Inference: LLM Acceleration via Intel Mac AMD GPU'
+  status: pending
+  priority: medium
+  assigned_to: null
+  created: 2026-01-02T12:00:00+00:00
+  updated: 2026-01-02T12:00:00+00:00
+  spec: null
+  acceptance_criteria:
+  - 'GGUF model inference works on AMD GPU via Metal'
+  - 'Metal matmul kernels integrated from trueno backend'
+  - 'tok/s performance measured on Radeon Pro W5700X'
+  - 'Cross-platform inference parity (CUDA vs Metal output match)'
+  - 'Afterburner available for video preprocessing if needed'
+  - 'CI validation via self-hosted Intel Mac runner'
+  phases: []
+  subtasks:
+  - Add Metal feature flag to Cargo.toml
+  - Integrate trueno Metal matmul when TRUENO-METAL-001 completes
+  - Implement Metal attention kernels
+  - Benchmark phi-2 inference on AMD GPU
+  - Compare tok/s with CUDA baseline
+  - Add examples/metal_inference.rs
+  estimated_effort: 2 weeks
+  labels:
+  - metal
+  - amd-gpu
+  - llm-inference
+  - intel-mac
+  - depends-on-trueno
+  notes: |
+    Depends on TRUENO-METAL-001 completion.
+    Uses lambda-lab-rust-development Intel Mac integration:
+    - Host: mac (Intel Mac Pro)
+    - GPU: AMD Radeon Pro W5700X (16GB VRAM, 60 CUs, Metal 3)
+    - Afterburner card available for video transcoding
+    - Target: Achieve >50 tok/s for phi-2 on Metal
+    - Run: cargo run --bin mac-flow (from lambda-lab-rust-development)

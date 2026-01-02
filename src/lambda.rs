@@ -624,7 +624,7 @@ mod tests {
         let model_bytes = create_sum_model(3);
         let handler = LambdaHandler::from_bytes(model_bytes);
         assert!(handler.is_ok(), "Should accept valid .apr model");
-        let handler = handler.unwrap();
+        let handler = handler.expect("test");
         assert!(handler.model_size_bytes() > HEADER_SIZE);
     }
 
@@ -698,7 +698,7 @@ mod tests {
     #[test]
     fn test_lambda_handler_cold_start_detection() {
         let model_bytes = create_sum_model(3);
-        let handler = LambdaHandler::from_bytes(model_bytes).unwrap();
+        let handler = LambdaHandler::from_bytes(model_bytes).expect("test");
 
         // Before first invocation: cold start
         assert!(handler.is_cold_start());
@@ -709,14 +709,14 @@ mod tests {
         };
 
         // First invocation
-        let response = handler.handle(&request).unwrap();
+        let response = handler.handle(&request).expect("test");
         assert!(response.cold_start, "First invocation should be cold start");
 
         // After first invocation: no longer cold
         assert!(!handler.is_cold_start());
 
         // Second invocation
-        let response2 = handler.handle(&request).unwrap();
+        let response2 = handler.handle(&request).expect("test");
         assert!(
             !response2.cold_start,
             "Second invocation should not be cold start"
@@ -726,7 +726,7 @@ mod tests {
     #[test]
     fn test_lambda_handler_rejects_empty_features() {
         let model_bytes = create_sum_model(3);
-        let handler = LambdaHandler::from_bytes(model_bytes).unwrap();
+        let handler = LambdaHandler::from_bytes(model_bytes).expect("test");
 
         let request = LambdaRequest {
             features: vec![],
@@ -742,14 +742,14 @@ mod tests {
     fn test_lambda_handler_real_inference() {
         // Create a model where output = sum of 3 inputs
         let model_bytes = create_sum_model(3);
-        let handler = LambdaHandler::from_bytes(model_bytes).unwrap();
+        let handler = LambdaHandler::from_bytes(model_bytes).expect("test");
 
         let request = LambdaRequest {
             features: vec![1.0, 2.0, 3.0],
             model_id: None,
         };
 
-        let response = handler.handle(&request).unwrap();
+        let response = handler.handle(&request).expect("test");
         // Real inference: sum model returns sum of features
         // output = 1.0 * 1.0 + 1.0 * 2.0 + 1.0 * 3.0 = 6.0
         assert!((response.prediction - 6.0).abs() < 0.001);
@@ -763,7 +763,7 @@ mod tests {
     #[test]
     fn test_cold_start_metrics_recorded() {
         let model_bytes = create_sum_model(1);
-        let handler = LambdaHandler::from_bytes(model_bytes).unwrap();
+        let handler = LambdaHandler::from_bytes(model_bytes).expect("test");
 
         // No metrics before first invocation
         assert!(handler.cold_start_metrics().is_none());
@@ -773,12 +773,12 @@ mod tests {
             model_id: None,
         };
 
-        let _ = handler.handle(&request).unwrap();
+        let _ = handler.handle(&request).expect("test");
 
         // Metrics available after first invocation
         let metrics = handler.cold_start_metrics();
         assert!(metrics.is_some());
-        let metrics = metrics.unwrap();
+        let metrics = metrics.expect("test");
         assert!(metrics.total_ms >= 0.0);
         assert!(metrics.first_inference_ms >= 0.0);
         assert!(metrics.model_load_ms >= 0.0);
@@ -814,14 +814,14 @@ mod tests {
     #[test]
     fn test_benchmark_cold_start() {
         let model_bytes = create_sum_model(2);
-        let handler = LambdaHandler::from_bytes(model_bytes).unwrap();
+        let handler = LambdaHandler::from_bytes(model_bytes).expect("test");
 
         let request = LambdaRequest {
             features: vec![1.0, 2.0],
             model_id: None,
         };
 
-        let result = benchmark::benchmark_cold_start(&handler, &request, 10).unwrap();
+        let result = benchmark::benchmark_cold_start(&handler, &request, 10).expect("test");
 
         assert!(result.cold_start_ms >= 0.0);
         assert!(result.warm_inference_ms >= 0.0);
@@ -942,7 +942,7 @@ mod tests {
     #[test]
     fn test_batch_handler_success() {
         let model_bytes = create_sum_model(2);
-        let handler = LambdaHandler::from_bytes(model_bytes).unwrap();
+        let handler = LambdaHandler::from_bytes(model_bytes).expect("test");
 
         let request = BatchLambdaRequest {
             instances: vec![
@@ -958,7 +958,7 @@ mod tests {
             max_parallelism: None,
         };
 
-        let response = handler.handle_batch(&request).unwrap();
+        let response = handler.handle_batch(&request).expect("test");
 
         assert_eq!(response.predictions.len(), 2);
         assert_eq!(response.success_count, 2);
@@ -973,7 +973,7 @@ mod tests {
     #[test]
     fn test_batch_handler_with_errors() {
         let model_bytes = create_sum_model(2);
-        let handler = LambdaHandler::from_bytes(model_bytes).unwrap();
+        let handler = LambdaHandler::from_bytes(model_bytes).expect("test");
 
         let request = BatchLambdaRequest {
             instances: vec![
@@ -993,7 +993,7 @@ mod tests {
             max_parallelism: None,
         };
 
-        let response = handler.handle_batch(&request).unwrap();
+        let response = handler.handle_batch(&request).expect("test");
 
         assert_eq!(response.predictions.len(), 3);
         assert_eq!(response.success_count, 2);
@@ -1008,7 +1008,7 @@ mod tests {
     #[test]
     fn test_batch_handler_rejects_empty_batch() {
         let model_bytes = create_sum_model(2);
-        let handler = LambdaHandler::from_bytes(model_bytes).unwrap();
+        let handler = LambdaHandler::from_bytes(model_bytes).expect("test");
 
         let request = BatchLambdaRequest {
             instances: vec![],

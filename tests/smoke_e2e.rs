@@ -44,7 +44,7 @@ fn smoke_q4_0_dequant() {
     let result = dequantize_q4_0(&block);
     assert!(result.is_ok(), "Q4_0 dequantization should succeed");
 
-    let values = result.unwrap();
+    let values = result.expect("test");
     assert_eq!(values.len(), 32, "Q4_0 block should produce 32 values");
 }
 
@@ -65,7 +65,7 @@ fn smoke_q8_0_dequant() {
     let result = dequantize_q8_0(&block);
     assert!(result.is_ok(), "Q8_0 dequantization should succeed");
 
-    let values = result.unwrap();
+    let values = result.expect("test");
     assert_eq!(values.len(), 32, "Q8_0 block should produce 32 values");
 }
 
@@ -103,16 +103,16 @@ fn smoke_layer_norm() {
     use realizar::layers::LayerNorm;
 
     let hidden_size = 256;
-    let layer_norm = LayerNorm::new(hidden_size, 1e-5).unwrap();
+    let layer_norm = LayerNorm::new(hidden_size, 1e-5).expect("test");
 
     // Create input tensor: from_vec(shape, data)
     let input_data: Vec<f32> = (0..hidden_size).map(|i| (i as f32 * 0.01).sin()).collect();
-    let input = Tensor::from_vec(vec![1, hidden_size], input_data).unwrap();
+    let input = Tensor::from_vec(vec![1, hidden_size], input_data).expect("test");
 
     let result = layer_norm.forward(&input);
     assert!(result.is_ok(), "LayerNorm forward should succeed");
 
-    let output = result.unwrap();
+    let output = result.expect("test");
     assert_eq!(output.shape(), &[1, hidden_size]);
 }
 
@@ -123,12 +123,12 @@ fn smoke_softmax_stability() {
 
     // Test with large values (potential overflow without max subtraction)
     let large_input: Vec<f32> = (0..100).map(|i| i as f32 * 10.0).collect();
-    let input = Tensor::from_vec(vec![1, 100], large_input).unwrap();
+    let input = Tensor::from_vec(vec![1, 100], large_input).expect("test");
 
     let result = softmax(&input);
     assert!(result.is_ok(), "Softmax should succeed");
 
-    let output = result.unwrap();
+    let output = result.expect("test");
 
     // Softmax output should sum to approximately 1
     let sum: f32 = output.data().iter().sum();
@@ -144,12 +144,12 @@ fn smoke_gelu_activation() {
     use realizar::layers::gelu;
 
     let input_data: Vec<f32> = (-10..10).map(|i| i as f32 * 0.5).collect();
-    let input = Tensor::from_vec(vec![20], input_data.clone()).unwrap();
+    let input = Tensor::from_vec(vec![20], input_data.clone()).expect("test");
 
     let result = gelu(&input);
     assert!(result.is_ok(), "GELU should succeed");
 
-    let output = result.unwrap();
+    let output = result.expect("test");
     assert_eq!(output.shape(), &[20]);
 
     // GELU(0) should be ≈ 0
@@ -171,13 +171,13 @@ fn smoke_linear_forward() {
     let in_features = 64;
     let out_features = 32;
 
-    let linear = Linear::new(in_features, out_features).unwrap();
+    let linear = Linear::new(in_features, out_features).expect("test");
 
-    let input = Tensor::from_vec(vec![1, in_features], vec![1.0f32; in_features]).unwrap();
+    let input = Tensor::from_vec(vec![1, in_features], vec![1.0f32; in_features]).expect("test");
     let result = linear.forward(&input);
 
     assert!(result.is_ok(), "Linear forward should succeed");
-    let output = result.unwrap();
+    let output = result.expect("test");
     assert_eq!(output.shape(), &[1, out_features]);
 }
 
@@ -194,11 +194,11 @@ fn smoke_kv_cache_basic() {
     let head_dim = 32;
     let max_seq_len = 128;
 
-    let mut cache = KVCache::new(num_layers, max_seq_len, head_dim).unwrap();
+    let mut cache = KVCache::new(num_layers, max_seq_len, head_dim).expect("test");
 
     // Create key/value tensors - single token: [head_dim]
-    let k = Tensor::from_vec(vec![head_dim], vec![1.0f32; head_dim]).unwrap();
-    let v = Tensor::from_vec(vec![head_dim], vec![2.0f32; head_dim]).unwrap();
+    let k = Tensor::from_vec(vec![head_dim], vec![1.0f32; head_dim]).expect("test");
+    let v = Tensor::from_vec(vec![head_dim], vec![2.0f32; head_dim]).expect("test");
 
     // Update cache for layer 0
     let result = cache.update(0, &k, &v);
@@ -224,14 +224,15 @@ fn smoke_attention() {
     let seq_len = 8;
 
     // Attention::new takes only head_dim
-    let attention = Attention::new(head_dim).unwrap();
+    let attention = Attention::new(head_dim).expect("test");
 
     // Attention takes separate Q, K, V tensors with shape [seq_len, head_dim]
     let query =
-        Tensor::from_vec(vec![seq_len, head_dim], vec![1.0f32; seq_len * head_dim]).unwrap();
-    let key = Tensor::from_vec(vec![seq_len, head_dim], vec![1.0f32; seq_len * head_dim]).unwrap();
+        Tensor::from_vec(vec![seq_len, head_dim], vec![1.0f32; seq_len * head_dim]).expect("test");
+    let key =
+        Tensor::from_vec(vec![seq_len, head_dim], vec![1.0f32; seq_len * head_dim]).expect("test");
     let value =
-        Tensor::from_vec(vec![seq_len, head_dim], vec![1.0f32; seq_len * head_dim]).unwrap();
+        Tensor::from_vec(vec![seq_len, head_dim], vec![1.0f32; seq_len * head_dim]).expect("test");
 
     let result = attention.forward(&query, &key, &value);
     assert!(
@@ -240,7 +241,7 @@ fn smoke_attention() {
         result
     );
 
-    let output = result.unwrap();
+    let output = result.expect("test");
     assert_eq!(output.shape()[0], seq_len);
 }
 
@@ -264,7 +265,7 @@ mod gpu_smoke {
         let executor = CudaExecutor::new(0);
         assert!(executor.is_ok(), "CUDA executor should initialize");
 
-        let executor = executor.unwrap();
+        let executor = executor.expect("test");
         let name = executor.device_name().unwrap_or_default();
         println!("CUDA device: {name}");
         assert!(!name.is_empty(), "Device name should not be empty");
@@ -341,16 +342,16 @@ fn smoke_baseline_forward_latency() {
 
     let hidden_size = 2560; // phi-2 dimensions
 
-    let layer_norm = LayerNorm::new(hidden_size, 1e-5).unwrap();
-    let input = Tensor::from_vec(vec![1, hidden_size], vec![1.0f32; hidden_size]).unwrap();
+    let layer_norm = LayerNorm::new(hidden_size, 1e-5).expect("test");
+    let input = Tensor::from_vec(vec![1, hidden_size], vec![1.0f32; hidden_size]).expect("test");
 
     let start = Instant::now();
 
     // Layer norm
-    let normed = layer_norm.forward(&input).unwrap();
+    let normed = layer_norm.forward(&input).expect("test");
 
     // GELU
-    let _activated = gelu(&normed).unwrap();
+    let _activated = gelu(&normed).expect("test");
 
     let elapsed = start.elapsed();
     println!("Baseline LayerNorm + GELU latency: {:?}", elapsed);

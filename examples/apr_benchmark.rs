@@ -22,7 +22,7 @@ fn main() {
     runner.set_measure_iterations(10);
 
     let prompt = vec![1u32, 2, 3, 4, 5];
-    let result = runner.benchmark_decode(&prompt, 32).unwrap();
+    let result = runner.benchmark_decode(&prompt, 32).expect("test");
 
     println!("Small Model (256 hidden, 4 layers):");
     println!("  Tokens: {}", result.tokens_generated);

@@ -25,7 +25,7 @@ fn main() {
     println!("=== PAR-001: Verify Q4_K Fused Matvec ===\n");
 
     let mapped = MappedGGUFModel::from_path(path).expect("Failed to load model");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     // Get Q projection weight (Q4_K)
     let layer = &model.layers[0];

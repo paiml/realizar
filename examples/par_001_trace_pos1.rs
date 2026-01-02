@@ -80,8 +80,8 @@ fn main() {
     println!("=== PAR-001: Trace Position 1 with KV Cache ===\n");
 
     let mapped = MappedGGUFModel::from_path(path).expect("Failed to load model");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
-    let vocab = mapped.model.vocabulary().unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
+    let vocab = mapped.model.vocabulary().expect("test");
 
     let hidden_dim = model.config.hidden_dim;
     let num_heads = model.config.num_heads;

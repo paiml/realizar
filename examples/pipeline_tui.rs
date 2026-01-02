@@ -310,8 +310,8 @@ fn run_pipeline_tests() {
     for (m, k, n, desc) in matmul_sizes {
         let a: Vec<f32> = (0..m * k).map(|i| (i as f32 * 0.001).sin()).collect();
         let b: Vec<f32> = (0..k * n).map(|i| (i as f32 * 0.0001).cos()).collect();
-        let ma = Matrix::from_vec(m, k, a).unwrap();
-        let mb = Matrix::from_vec(k, n, b).unwrap();
+        let ma = Matrix::from_vec(m, k, a).expect("test");
+        let mb = Matrix::from_vec(k, n, b).expect("test");
 
         // Warmup
         for _ in 0..3 {
@@ -321,7 +321,7 @@ fn run_pipeline_tests() {
         let iterations = if m * k * n > 1_000_000 { 5 } else { 20 };
         let start = Instant::now();
         for _ in 0..iterations {
-            let _ = ma.matmul(&mb).unwrap();
+            let _ = ma.matmul(&mb).expect("test");
         }
         let time_ms = start.elapsed().as_secs_f64() * 1000.0 / iterations as f64;
         let ops = (2 * m * k * n) as f64;
@@ -353,11 +353,17 @@ fn run_pipeline_tests() {
 
     #[allow(clippy::type_complexity)]
     let activations: Vec<(&str, Box<dyn Fn(&Vector<f32>) -> Vector<f32>>)> = vec![
-        ("relu", Box::new(|v: &Vector<f32>| v.relu().unwrap())),
-        ("sigmoid", Box::new(|v: &Vector<f32>| v.sigmoid().unwrap())),
-        ("tanh", Box::new(|v: &Vector<f32>| v.tanh().unwrap())),
-        ("softmax", Box::new(|v: &Vector<f32>| v.softmax().unwrap())),
-        ("gelu", Box::new(|v: &Vector<f32>| v.gelu().unwrap())),
+        ("relu", Box::new(|v: &Vector<f32>| v.relu().expect("test"))),
+        (
+            "sigmoid",
+            Box::new(|v: &Vector<f32>| v.sigmoid().expect("test")),
+        ),
+        ("tanh", Box::new(|v: &Vector<f32>| v.tanh().expect("test"))),
+        (
+            "softmax",
+            Box::new(|v: &Vector<f32>| v.softmax().expect("test")),
+        ),
+        ("gelu", Box::new(|v: &Vector<f32>| v.gelu().expect("test"))),
     ];
 
     for (name, func) in &activations {
@@ -416,7 +422,7 @@ fn run_pipeline_tests() {
     let last_logits_start = logits_data.len() - vocab_size;
     let last_logits = &logits_data[last_logits_start..];
     let softmax_v = Vector::from_slice(last_logits);
-    let softmax_out = softmax_v.softmax().unwrap();
+    let softmax_out = softmax_v.softmax().expect("test");
     let softmax_sum: f32 = softmax_out.as_slice().iter().sum();
     let softmax_ok = (softmax_sum - 1.0).abs() < 0.001;
     println!(
@@ -450,8 +456,8 @@ fn run_pipeline_tests() {
     let b: Vec<f32> = (0..100).map(|i| (i as f32 * 0.2).cos()).collect();
     let va = Vector::from_slice(&a);
     let vb = Vector::from_slice(&b);
-    let dot_ab = va.dot(&vb).unwrap();
-    let dot_ba = vb.dot(&va).unwrap();
+    let dot_ab = va.dot(&vb).expect("test");
+    let dot_ba = vb.dot(&va).expect("test");
     let dot_commutative = (dot_ab - dot_ba).abs() < 1e-5;
     println!(
         "  Dot commutative         {} {}{RESET}",
@@ -460,9 +466,9 @@ fn run_pipeline_tests() {
     );
 
     // Check matmul dimensions
-    let m1 = Matrix::from_vec(3, 4, vec![1.0; 12]).unwrap();
-    let m2 = Matrix::from_vec(4, 5, vec![1.0; 20]).unwrap();
-    let m3 = m1.matmul(&m2).unwrap();
+    let m1 = Matrix::from_vec(3, 4, vec![1.0; 12]).expect("test");
+    let m2 = Matrix::from_vec(4, 5, vec![1.0; 20]).expect("test");
+    let m3 = m1.matmul(&m2).expect("test");
     let dims_ok = m3.rows() == 3 && m3.cols() == 5;
     println!(
         "  Matmul dimensions       {} (3x4 @ 4x5 = {}x{}) {}{RESET}",

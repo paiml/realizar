@@ -13,8 +13,8 @@ fn main() {
     println!("Loading model...");
     let mapped =
         MappedGGUFModel::from_path("/home/noah/src/aprender/tinyllama-1.1b-chat-v1.0.Q4_0.gguf")
-            .unwrap();
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+            .expect("test");
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     let hidden_dim = model.config.hidden_dim;
 
@@ -102,7 +102,7 @@ fn main() {
 
     // Try full forward pass
     println!("\n7. Running full forward pass on [1] (BOS)...");
-    let logits = model.forward(&[1]).unwrap();
+    let logits = model.forward(&[1]).expect("test");
     let (min, max, mean, std) = stats(&logits);
     println!(
         "   logits stats: min={:.4}, max={:.4}, mean={:.4}, std={:.4}",

@@ -90,7 +90,7 @@ fn test_cuda_kernel_execution() {
     // CRITICAL FALSIFIABLE ASSERTION #3
     // ==========================================
     // Duration must indicate REAL GPU execution (not CPU fallback)
-    let gemm = gemm_span.unwrap();
+    let gemm = gemm_span.expect("test");
     assert!(
         gemm.duration_us < 5000, // 5ms max for GPU
         "🚨 FALSIFICATION FAILURE: GEMM took {}us - too slow for RTX 4090!\n\
@@ -324,7 +324,9 @@ fn test_cuda_memory_transfer_spans() {
         "FALSIFICATION: No GPU memory transfer span - weights not moved to GPU?"
     );
 
-    let transfer = trace.span_by_name("gpu_transfer:weights_to_gpu").unwrap();
+    let transfer = trace
+        .span_by_name("gpu_transfer:weights_to_gpu")
+        .expect("test");
     assert_eq!(transfer.attr("gpu.transfer.direction"), Some("cpu_to_gpu"));
 }
 
@@ -367,7 +369,7 @@ fn test_cuda_gemm_duration_sanity() {
             .with_attr("gpu.backend", "cuda"),
     );
 
-    let gemm = trace.span_by_name("gpu_kernel:gemm_fp32").unwrap();
+    let gemm = trace.span_by_name("gpu_kernel:gemm_fp32").expect("test");
 
     // FALSIFIABLE: GEMM on RTX 4090 should be < 10ms
     assert!(
@@ -394,7 +396,7 @@ mod integration {
 
         let val = std::env::var("REALIZAR_BACKEND");
         assert!(
-            val.is_ok() && val.unwrap() == "cuda",
+            val.is_ok() && val.expect("test") == "cuda",
             "FALSIFICATION: REALIZAR_BACKEND not set to 'cuda'"
         );
 

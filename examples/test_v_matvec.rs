@@ -20,7 +20,7 @@ fn rms_norm(input: &[f32], weight: &[f32], eps: f32) -> Vec<f32> {
 fn main() {
     let path = "/tmp/parity-bench/tinyllama-1.1b-q4_k_m.gguf";
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     let hidden_dim = model.config.hidden_dim; // 2048
     let eps = model.config.eps;
@@ -49,7 +49,7 @@ fn main() {
 
     // Method 1: Use fused_q6k_colmajor_matvec
     let v1 = fused_q6k_colmajor_matvec(&v_weight.data, &normed, v_weight.in_dim, v_weight.out_dim)
-        .unwrap();
+        .expect("test");
     println!("\nMethod 1 (fused_q6k_colmajor_matvec):");
     println!("  Output L2: {:.6}", l2_norm(&v1));
     println!("  Output first 5: {:?}", &v1[..5]);
@@ -66,7 +66,7 @@ fn main() {
     let mut full_weight = Vec::new();
     for i in 0..num_blocks {
         let block_data = &v_weight.data[i * 210..(i + 1) * 210];
-        let dequant = dequantize_q6_k(block_data).unwrap();
+        let dequant = dequantize_q6_k(block_data).expect("test");
         full_weight.extend(dequant);
     }
 

@@ -30,7 +30,7 @@ fn main() {
         .tensors
         .iter()
         .find(|t| t.name == "blk.0.attn_v.weight")
-        .unwrap();
+        .expect("test");
     println!("Tensor: {}", tensor.name);
     println!("  dims: {:?}", tensor.dims);
     println!("  qtype: {} (14=Q6_K)", tensor.qtype);
@@ -72,7 +72,7 @@ fn main() {
     );
 
     // Get normed input (token 450 embedding)
-    let owned = realizar::gguf::OwnedQuantizedModel::from_mapped(&mapped).unwrap();
+    let owned = realizar::gguf::OwnedQuantizedModel::from_mapped(&mapped).expect("test");
     let token_id = 450usize;
     let hidden_dim = 2048usize;
     let start = token_id * hidden_dim;
@@ -83,7 +83,7 @@ fn main() {
         .tensors
         .iter()
         .find(|t| t.name == "blk.0.attn_norm.weight")
-        .unwrap();
+        .expect("test");
     let attn_norm_offset = model.tensor_data_start + attn_norm_tensor.offset as usize;
     let attn_norm_bytes = &data[attn_norm_offset..attn_norm_offset + hidden_dim * 4];
     let attn_norm_weight: Vec<f32> = attn_norm_bytes
@@ -103,7 +103,7 @@ fn main() {
     );
 
     // Fused V projection
-    let v_fused = fused_q6k_parallel_matvec(weight_data, &normed, dim1, dim0).unwrap();
+    let v_fused = fused_q6k_parallel_matvec(weight_data, &normed, dim1, dim0).expect("test");
     println!("\nFused V output L2: {:.4}", l2_norm(&v_fused));
     println!(
         "Fused V first 20: {:?}",

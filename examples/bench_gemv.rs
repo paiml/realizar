@@ -11,13 +11,13 @@ fn main() {
     let mut sched = realizar::gpu::CudaScheduler::new().expect("CUDA init");
 
     // Warmup
-    sched.matmul(&a, &b, 1, k, n).unwrap();
+    sched.matmul(&a, &b, 1, k, n).expect("test");
 
     // Bench
     let iters = 100;
     let start = Instant::now();
     for _ in 0..iters {
-        sched.matmul(&a, &b, 1, k, n).unwrap();
+        sched.matmul(&a, &b, 1, k, n).expect("test");
     }
     let total_ms = start.elapsed().as_secs_f64() * 1000.0;
     let ms_per_op = total_ms / iters as f64;
