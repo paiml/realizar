@@ -11863,8 +11863,15 @@ impl OwnedQuantizedModel {
                 && layer.ffn_norm_weight.is_some()
                 && layer.ffn_gate_weight.is_some()
             {
-                let ffn_norm = layer.ffn_norm_weight.as_ref().unwrap();
-                let gate_weight = layer.ffn_gate_weight.as_ref().unwrap();
+                // SAFETY: is_some() checked above in the if condition
+                let ffn_norm = layer
+                    .ffn_norm_weight
+                    .as_ref()
+                    .expect("ffn_norm_weight checked above");
+                let gate_weight = layer
+                    .ffn_gate_weight
+                    .as_ref()
+                    .expect("ffn_gate_weight checked above");
 
                 // Get FFN dimensions for this layer
                 let ffn_out_dim = layer.ffn_up_weight.out_dim;
