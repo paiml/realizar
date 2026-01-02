@@ -188,7 +188,7 @@
 - [Code Coverage (>95%)](./quality/coverage.md)
 - [Mutation Testing](./quality/mutation.md)
 - [TDG Score](./quality/tdg.md)
-- [Rust Project Score (146.5/134 A+)](./quality/rust-project-score.md)
+- [Rust Project Score (132.9/134 A+)](./quality/rust-project-score.md)
 - [Continuous Integration](./quality/ci.md)
 
 # Performance
