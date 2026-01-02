@@ -3039,6 +3039,145 @@ pub fn fused_rmsnorm_ffn_up_gate(
     Ok((up_output, gate_output))
 }
 
+/// SIMD-accelerated fused SwiGLU activation: silu(gate) * up
+///
+/// Combines silu activation and element-wise multiply in a single pass
+/// for better cache locality. Uses AVX2/AVX-512 SIMD where available.
+///
+/// # Arguments
+/// * `gate` - Gate values, modified in-place to contain result
+/// * `up` - Up projection values
+pub fn fused_swiglu_simd(gate: &mut [f32], up: &[f32]) {
+    debug_assert_eq!(gate.len(), up.len());
+
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
+            // SAFETY: AVX2 and FMA verified at runtime
+            unsafe {
+                fused_swiglu_avx2(gate, up);
+            }
+            return;
+        }
+    }
+
+    // Scalar fallback
+    fused_swiglu_scalar(gate, up);
+}
+
+/// Scalar fused SwiGLU: silu(gate) * up
+#[inline]
+fn fused_swiglu_scalar(gate: &mut [f32], up: &[f32]) {
+    for (g, &u) in gate.iter_mut().zip(up.iter()) {
+        // silu(x) = x * sigmoid(x) = x / (1 + exp(-x))
+        let silu_g = *g / (1.0 + (-*g).exp());
+        *g = silu_g * u;
+    }
+}
+
+/// AVX2 SIMD fused SwiGLU with FMA
+///
+/// Computes silu(gate) * up using:
+/// - Polynomial approximation for exp(-x)
+/// - FMA for efficient multiply-add
+/// - 8-wide AVX2 vectors
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+#[allow(clippy::many_single_char_names)]
+unsafe fn fused_swiglu_avx2(gate: &mut [f32], up: &[f32]) {
+    use std::arch::x86_64::{
+        _mm256_add_epi32, _mm256_add_ps, _mm256_castsi256_ps, _mm256_cvtps_epi32, _mm256_floor_ps,
+        _mm256_fmadd_ps, _mm256_fnmadd_ps, _mm256_loadu_ps, _mm256_max_ps, _mm256_mul_ps,
+        _mm256_rcp_ps, _mm256_set1_epi32, _mm256_set1_ps, _mm256_setzero_ps, _mm256_slli_epi32,
+        _mm256_storeu_ps, _mm256_sub_ps,
+    };
+
+    unsafe {
+        let n = gate.len();
+        let mut i = 0;
+
+        // Constants for exp approximation (polynomial coefficients)
+        // Using 5th-degree polynomial approximation for exp(x) on [-87, 0]
+        let one = _mm256_set1_ps(1.0);
+        let ln2_inv = _mm256_set1_ps(1.442_695); // 1/ln(2)
+        let ln2 = _mm256_set1_ps(0.693_147_2);
+        let c0 = _mm256_set1_ps(1.0);
+        let c1 = _mm256_set1_ps(0.693_147_2); // ln(2)
+        let c2 = _mm256_set1_ps(0.240_226_5); // ln(2)^2 / 2!
+        let c3 = _mm256_set1_ps(0.055_504_11); // ln(2)^3 / 3!
+        let c4 = _mm256_set1_ps(0.009_618_13); // ln(2)^4 / 4!
+        let c5 = _mm256_set1_ps(0.001_333_36); // ln(2)^5 / 5!
+        let min_exp = _mm256_set1_ps(-87.0); // Minimum input to avoid underflow
+        let two = _mm256_set1_ps(2.0); // For Newton-Raphson
+
+        // Process 8 elements at a time
+        while i + 8 <= n {
+            // Load gate and up values
+            let g = _mm256_loadu_ps(gate.as_ptr().add(i));
+            let u = _mm256_loadu_ps(up.as_ptr().add(i));
+
+            // Compute -g for sigmoid
+            let neg_g = _mm256_sub_ps(_mm256_setzero_ps(), g);
+
+            // Clamp to avoid exp underflow
+            let neg_g_clamped = _mm256_max_ps(neg_g, min_exp);
+
+            // Fast exp approximation using 2^(x/ln2) = 2^n * 2^f where n=floor, f=frac
+            // n = floor(x * 1/ln2)
+            let xln2 = _mm256_mul_ps(neg_g_clamped, ln2_inv);
+            let n_f = _mm256_floor_ps(xln2);
+            let n_i = _mm256_cvtps_epi32(n_f);
+
+            // f = x - n * ln2 (fractional part scaled back)
+            let f = _mm256_fnmadd_ps(n_f, ln2, neg_g_clamped);
+
+            // Horner's method: c0 + f*(c1 + f*(c2 + f*(c3 + f*(c4 + f*c5))))
+            let p = _mm256_fmadd_ps(f, c5, c4);
+            let p = _mm256_fmadd_ps(f, p, c3);
+            let p = _mm256_fmadd_ps(f, p, c2);
+            let p = _mm256_fmadd_ps(f, p, c1);
+            let p = _mm256_fmadd_ps(f, p, c0);
+
+            // Scale by 2^n using integer bit manipulation
+            // 2^n = reinterpret((n + 127) << 23) as float
+            let bias = _mm256_set1_epi32(127);
+            let n_biased = _mm256_add_epi32(n_i, bias);
+            let exp_scale = _mm256_slli_epi32::<23>(n_biased);
+            let exp_scale_f = _mm256_castsi256_ps(exp_scale);
+
+            // exp(-g) = 2^n * p(f)
+            let exp_neg_g = _mm256_mul_ps(p, exp_scale_f);
+
+            // sigmoid(-(-g)) = 1 / (1 + exp(-g))
+            // Use fast reciprocal approximation with Newton-Raphson refinement
+            let denom = _mm256_add_ps(one, exp_neg_g);
+            let rcp = _mm256_rcp_ps(denom); // ~12-bit precision
+                                            // One Newton-Raphson iteration: x' = x * (2 - d*x)
+            let sigmoid = _mm256_mul_ps(rcp, _mm256_fnmadd_ps(denom, rcp, two));
+
+            // silu(g) = g * sigmoid(g)
+            let silu_g = _mm256_mul_ps(g, sigmoid);
+
+            // Result = silu(g) * u
+            let result = _mm256_mul_ps(silu_g, u);
+
+            // Store result
+            _mm256_storeu_ps(gate.as_mut_ptr().add(i), result);
+
+            i += 8;
+        }
+
+        // Handle remainder with scalar code
+        while i < n {
+            let g = gate[i];
+            let silu_g = g / (1.0 + (-g).exp());
+            gate[i] = silu_g * up[i];
+            i += 1;
+        }
+    }
+}
+
 /// Quantize f32 activations to Q8_0 format for fast integer matmul
 ///
 /// Returns (scales, quantized_values) where each block of 32 values
