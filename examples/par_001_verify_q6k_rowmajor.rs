@@ -43,10 +43,7 @@ fn main() {
     let out_dim = weight.out_dim;
 
     // Create test input
-    let mut input = vec![0.0f32; in_dim];
-    for i in 0..in_dim {
-        input[i] = (i as f32 * 0.001).sin();
-    }
+    let input: Vec<f32> = (0..in_dim).map(|i| (i as f32 * 0.001).sin()).collect();
     println!("Input L2: {:.4}", l2_norm(&input));
 
     // Q6_K: 210 bytes per superblock, 256 values

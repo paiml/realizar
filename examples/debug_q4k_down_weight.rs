@@ -1,5 +1,7 @@
 //! Debug Q4_K FFN down weight - compare dequantized values with HuggingFace
 
+#![allow(clippy::needless_range_loop)]
+
 use realizar::gguf::MappedGGUFModel;
 use realizar::quantize::dequantize_q4_k;
 
@@ -34,7 +36,7 @@ fn main() {
 
     // Q4_K: 144 bytes per superblock, 256 elements
     let num_elements = out_dim * in_dim;
-    let num_superblocks = (num_elements + 255) / 256;
+    let num_superblocks = num_elements.div_ceil(256);
     let expected_bytes = num_superblocks * 144;
 
     println!("Expected superblocks: {}", num_superblocks);
@@ -62,16 +64,16 @@ fn main() {
 
     println!("\n=== HF row 0 first 10 (reference) ===");
     let hf_row0 = [
-        0.00011110305786132812f32,
-        0.0067138671875,
-        -0.00433349609375,
-        0.0042724609375,
-        0.003997802734375,
-        -0.003570556640625,
-        0.010986328125,
-        -0.0021820068359375,
-        -0.007354736328125,
-        0.01397705078125,
+        0.000_111_103_06_f32,
+        0.006_713_867,
+        -0.004_333_496,
+        0.004_272_461,
+        0.003_997_802_7,
+        -0.003_570_556_6,
+        0.010_986_328,
+        -0.002_182_006_8,
+        -0.007_354_736_3,
+        0.013_977_051,
     ];
     for (i, v) in hf_row0.iter().enumerate() {
         println!("  HF[0,{}] = {:.6}", i, v);

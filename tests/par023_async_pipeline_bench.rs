@@ -52,7 +52,7 @@ fn test_par023_sync_reduction_potential() {
     eprintln!("  Current (176 syncs/token): {:?}", current);
     eprintln!("  Target (22 syncs/token):   {:?}", target);
     eprintln!("  Potential speedup:         {:.2}x", speedup);
-    eprintln!("");
+    eprintln!();
     eprintln!("  M4 Target: >192 tok/s (from 121 tok/s baseline)");
     eprintln!("  Required speedup: {:.2}x", 192.0 / 121.0);
 
@@ -271,7 +271,7 @@ fn test_par023_ffn_swiglu_pipeline_timing() {
     };
 
     // TinyLlama dimensions
-    let hidden_dim = 2048;
+    let _hidden_dim = 2048;
     let intermediate_dim = 5632;
     let iterations = 10;
 
@@ -462,12 +462,12 @@ fn test_par023_e2e_gpu_resident_throughput() {
     let gpu_time = gpu_start.elapsed().as_secs_f64();
     let gpu_toks = gpu_tokens as f64 / gpu_time;
 
-    eprintln!("");
+    eprintln!();
     eprintln!("PAR-023 E2E Throughput Results:");
     eprintln!("  GPU-resident path:  {:.1} tok/s", gpu_toks);
     eprintln!("  Baseline (PAR-022): ~121 tok/s");
     eprintln!("  Speedup vs baseline: {:.2}x", gpu_toks / 121.0);
-    eprintln!("");
+    eprintln!();
     eprintln!("  M4 Target:          >192 tok/s");
     if gpu_toks > 192.0 {
         eprintln!(

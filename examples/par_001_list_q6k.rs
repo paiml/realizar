@@ -26,7 +26,7 @@ fn main() {
 
     for tensor in &q6k_tensors {
         let dims = &tensor.dims;
-        let in_dim = dims.get(0).copied().unwrap_or(0) as usize;
+        let in_dim = dims.first().copied().unwrap_or(0) as usize;
         let out_dim = dims.get(1).copied().unwrap_or(0) as usize;
 
         // Check if this tensor would work with column-major

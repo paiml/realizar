@@ -3,6 +3,8 @@
 //! ffn_down has out_dim=2048, so it uses row-major Q6_K.
 //! This test compares the row-major function with naive dequant+matmul.
 
+#![allow(clippy::needless_range_loop)]
+
 use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
 use realizar::quantize::{dequantize_q6_k, fused_q6k_parallel_matvec};
 

@@ -2,12 +2,11 @@
 //!
 //! Run with: cargo run --release --example profile_forward_breakdown -- <model.gguf>
 
+#![allow(dead_code)]
+
 use realizar::gguf::{MappedGGUFModel, OwnedQuantizedKVCache, OwnedQuantizedModel};
 use std::time::Instant;
-use std::{
-    env,
-    sync::atomic::{AtomicU64, Ordering},
-};
+use std::{env, sync::atomic::AtomicU64};
 
 // Global timing accumulators
 static EMBED_TIME: AtomicU64 = AtomicU64::new(0);
@@ -36,7 +35,7 @@ fn main() {
     let load_time = start.elapsed();
 
     let config = model.config();
-    let model_name = path.split('/').last().unwrap_or(path);
+    let model_name = path.split('/').next_back().unwrap_or(path);
 
     println!("Model: {}", model_name);
     println!("Load time: {:.2?}", load_time);
@@ -77,7 +76,7 @@ fn main() {
     let sum: u128 = total_us.iter().sum();
     let avg = sum / total_us.len() as u128;
 
-    let mut sorted = total_us.clone();
+    let mut sorted = total_us;
     sorted.sort();
     let median = sorted[sorted.len() / 2];
 

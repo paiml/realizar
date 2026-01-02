@@ -42,7 +42,7 @@ fn main() {
     );
 
     // Also check BOS (token 1)
-    let bos_start = 1 * hidden_dim;
+    let bos_start = hidden_dim;
     let bos_embedding: Vec<f32> = model.token_embedding[bos_start..bos_start + hidden_dim].to_vec();
     println!("\nBOS (token 1) embedding stats:");
     println!(

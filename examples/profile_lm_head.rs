@@ -56,9 +56,9 @@ fn profile_matmul(name: &str, in_dim: usize, out_dim: usize) {
     let min = *times_us.iter().min().expect("test");
     let max = *times_us.iter().max().expect("test");
     let sum: u128 = times_us.iter().sum();
-    let avg = sum / times_us.len() as u128;
+    let _avg = sum / times_us.len() as u128;
 
-    let mut sorted = times_us.clone();
+    let mut sorted = times_us;
     sorted.sort();
     let median = sorted[sorted.len() / 2];
 

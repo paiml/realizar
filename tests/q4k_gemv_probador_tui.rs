@@ -5,6 +5,9 @@
 //! Run with: cargo test --test q4k_gemv_probador_tui --features cuda -- --nocapture
 
 #![cfg(feature = "cuda")]
+// Allow explicit indexing in tests for clarity
+#![allow(clippy::needless_range_loop)]
+#![allow(clippy::type_complexity)]
 
 use realizar::quantize::{dequantize_q4_k, fused_q4k_parallel_matvec};
 

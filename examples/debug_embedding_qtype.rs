@@ -29,17 +29,17 @@ fn main() {
                 0 => size * 4, // F32
                 2 => {
                     // Q4_0: 18 bytes per 32 elements
-                    let num_blocks = (size + 31) / 32;
+                    let num_blocks = size.div_ceil(32);
                     num_blocks * 18
                 },
                 12 => {
                     // Q4_K: 144 bytes per 256 elements
-                    let num_blocks = (size + 255) / 256;
+                    let num_blocks = size.div_ceil(256);
                     num_blocks * 144
                 },
                 14 => {
                     // Q6_K: 210 bytes per 256 elements
-                    let num_blocks = (size + 255) / 256;
+                    let num_blocks = size.div_ceil(256);
                     num_blocks * 210
                 },
                 _ => 0,

@@ -1,6 +1,6 @@
 //! Test if transposing weights helps - check a simple matmul
 use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
-use realizar::quantize::{dequantize_q4_k, fused_q4k_parallel_matvec};
+use realizar::quantize::fused_q4k_parallel_matvec;
 
 fn l2_norm(v: &[f32]) -> f32 {
     (v.iter().map(|x| x * x).sum::<f32>()).sqrt()

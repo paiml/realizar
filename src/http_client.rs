@@ -4796,7 +4796,7 @@ mod tests {
             };
 
             // Cohen's d effect size
-            let pooled_stddev = ((a.stddev_tps.powi(2) + b.stddev_tps.powi(2)) / 2.0).sqrt();
+            let pooled_stddev = f64::midpoint(a.stddev_tps.powi(2), b.stddev_tps.powi(2)).sqrt();
             let effect_size = if pooled_stddev > 0.0 {
                 (b.mean_tps - a.mean_tps).abs() / pooled_stddev
             } else {
@@ -5921,8 +5921,8 @@ mod tests {
             let mut sorted = samples.to_vec();
             sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
             let mid = sorted.len() / 2;
-            if sorted.len() % 2 == 0 {
-                (sorted[mid - 1] + sorted[mid]) / 2.0
+            if sorted.len().is_multiple_of(2) {
+                f64::midpoint(sorted[mid - 1], sorted[mid])
             } else {
                 sorted[mid]
             }
@@ -13629,8 +13629,8 @@ mod tests {
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
         let n = sorted.len();
-        if n % 2 == 0 {
-            (sorted[n / 2 - 1] + sorted[n / 2]) / 2.0
+        if n.is_multiple_of(2) {
+            f64::midpoint(sorted[n / 2 - 1], sorted[n / 2])
         } else {
             sorted[n / 2]
         }

@@ -2,6 +2,8 @@
 //!
 //! This is the key test - if Q4_K fused matvec is wrong, everything is wrong
 
+#![allow(clippy::needless_range_loop)]
+
 use realizar::gguf::{MappedGGUFModel, OwnedQKVWeights, OwnedQuantizedModel};
 use realizar::quantize::{dequantize_q4_k, fused_q4k_parallel_matvec};
 

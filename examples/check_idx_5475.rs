@@ -9,6 +9,7 @@ const GGUF_TYPE_Q4_K: u32 = 12;
 const GGUF_TYPE_Q6_K: u32 = 14;
 const Q4_K_BLOCK_SIZE: usize = 144;
 
+#[allow(dead_code)]
 fn l2_norm(v: &[f32]) -> f32 {
     (v.iter().map(|x| x * x).sum::<f32>()).sqrt()
 }

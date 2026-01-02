@@ -43,7 +43,7 @@ fn main() {
     let mut hidden: Vec<f32> = model.token_embedding[start..start + hidden_dim].to_vec();
 
     // HuggingFace reference values (first 5 elements after each layer)
-    let hf_refs = [
+    let _hf_refs = [
         vec![
             -0.020388871,
             0.013137838,

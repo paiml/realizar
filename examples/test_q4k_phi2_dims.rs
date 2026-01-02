@@ -21,7 +21,7 @@ fn main() {
 
         // Q4_K block size is 256 values, so we need k to be a multiple
         // Each Q4_K superblock is 144 bytes for 256 values
-        let num_blocks = (k as usize + 255) / 256;
+        let num_blocks = (k as usize).div_ceil(256);
         let weight_bytes = num_blocks * 144 * m as usize;
 
         println!("Testing q4k_matvec with m={}, k={}", m, k);

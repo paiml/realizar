@@ -3,6 +3,8 @@
 //! The dequantization produces reasonable values but the projection output
 //! is still wrong. Let's verify the fused dot matches naive dequantize+dot.
 
+#![allow(clippy::needless_range_loop)]
+
 use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
 use realizar::quantize::{dequantize_q6_k, fused_q6k_dot, fused_q6k_parallel_matvec};
 

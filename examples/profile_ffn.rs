@@ -132,7 +132,7 @@ fn main() {
     }
 
     // Calculate statistics
-    fn stats(times: &mut Vec<u128>) -> (u128, u128, u128) {
+    fn stats(times: &mut [u128]) -> (u128, u128, u128) {
         times.sort();
         let min = times[0];
         let median = times[times.len() / 2];

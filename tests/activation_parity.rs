@@ -13,7 +13,7 @@ fn cpu_silu(input: &[f32]) -> Vec<f32> {
 
 /// Reference CPU GELU implementation (approximate)
 fn cpu_gelu(input: &[f32]) -> Vec<f32> {
-    const SQRT_2_PI: f32 = 0.797_884_56;
+    const SQRT_2_PI: f32 = 0.797_884_6;
     const C: f32 = 0.044_715;
 
     input

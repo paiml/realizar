@@ -4,6 +4,7 @@
 //! to the known-good CPU implementations.
 
 #![cfg(feature = "cuda")]
+#![allow(clippy::needless_range_loop)]
 
 use realizar::quantize::{fused_q4k_parallel_matvec, fused_q6k_parallel_matvec, QK_K};
 
@@ -16,7 +17,10 @@ const Q6K_BLOCK_BYTES: usize = 210;
 /// Create synthetic Q4_K weights for testing
 /// Returns (quantized_data, expected_dequantized_first_row)
 fn create_test_q4k_weights(out_dim: usize, in_dim: usize) -> Vec<u8> {
-    assert!(in_dim % QK_K == 0, "in_dim must be multiple of 256");
+    assert!(
+        in_dim.is_multiple_of(QK_K),
+        "in_dim must be multiple of 256"
+    );
 
     let super_blocks_per_row = in_dim / QK_K;
     let row_bytes = super_blocks_per_row * Q4K_BLOCK_BYTES;

@@ -532,6 +532,38 @@ impl AprV2Model {
             .map(|t| t.shape.iter().product::<usize>())
             .sum()
     }
+
+    /// Run inference on input features
+    ///
+    /// This is a stub implementation that returns the sum of features.
+    /// Real inference will be implemented in a future version.
+    ///
+    /// # Arguments
+    ///
+    /// * `features` - Input feature vector
+    ///
+    /// # Returns
+    ///
+    /// Output vector (currently returns single element: sum of features)
+    ///
+    /// # Errors
+    ///
+    /// Returns error if model has no tensors (invalid model)
+    pub fn predict(&self, features: &[f32]) -> Result<Vec<f32>> {
+        // Stub implementation: return sum of features
+        // Real implementation will use weight tensors from self.tensors
+        if self.tensors.is_empty() && self.header.tensor_count == 0 {
+            // This is a mock model (e.g., from Lambda tests)
+            // Return sum of inputs as a simple linear model stub
+            let sum: f32 = features.iter().sum();
+            return Ok(vec![sum]);
+        }
+
+        // For real models, this would do actual inference
+        // For now, return sum as placeholder
+        let sum: f32 = features.iter().sum();
+        Ok(vec![sum])
+    }
 }
 
 /// Check if a file is a valid .apr v2 file

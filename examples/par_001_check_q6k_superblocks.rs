@@ -23,7 +23,7 @@ fn main() {
             );
             println!("V data.len()={}\n", v.data.len());
 
-            let superblocks_per_row = (v.in_dim + 255) / 256;
+            let superblocks_per_row = v.in_dim.div_ceil(256);
             let bytes_per_row = superblocks_per_row * 210;
 
             println!("Superblocks per row: {}", superblocks_per_row);

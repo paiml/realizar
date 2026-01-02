@@ -59,7 +59,7 @@ fn main() {
     // Check if TAB embedding looks unusual
     let tab_start = 12 * hidden_dim;
     let tab_embedding = &model.token_embedding[tab_start..tab_start + hidden_dim];
-    let bos_start = 1 * hidden_dim;
+    let bos_start = hidden_dim; // BOS token at index 1
     let bos_embedding = &model.token_embedding[bos_start..bos_start + hidden_dim];
 
     // Compute similarity between TAB and BOS embeddings

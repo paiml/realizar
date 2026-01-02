@@ -40,7 +40,7 @@ fn main() {
     println!("\nColumn 100 values (first 10 rows):");
     for row in 0..10 {
         let row_start = row * bytes_per_row;
-        let block_start = row_start + 0 * Q4_K_BLOCK_SIZE; // superblock 0
+        let block_start = row_start; // superblock 0
         let block_data = &down.data[block_start..block_start + Q4_K_BLOCK_SIZE];
         let dequant = dequantize_q4_k(block_data).expect("test");
         println!("  row {}: col_100={:.6}", row, dequant[100]);
@@ -57,7 +57,7 @@ fn main() {
         let dequant = dequantize_q4_k(block_data).expect("test");
         col_5475_l2 += dequant[pos_in_block] * dequant[pos_in_block];
 
-        let block_start = row_start + 0 * Q4_K_BLOCK_SIZE;
+        let block_start = row_start; // superblock 0
         let block_data = &down.data[block_start..block_start + Q4_K_BLOCK_SIZE];
         let dequant = dequantize_q4_k(block_data).expect("test");
         col_100_l2 += dequant[100] * dequant[100];

@@ -221,7 +221,7 @@ mod fused_rmsnorm_tests {
         let norm_weight: Vec<f32> = vec![1.0; 32];
         let eps = 1e-6;
 
-        let (scales, quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, eps);
+        let (_scales, quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, eps);
 
         // All zeros should produce zero quants
         for &q in &quants {

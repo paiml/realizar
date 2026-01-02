@@ -118,7 +118,7 @@ pub mod renacer {
                 AssertionType::SpanCount { pattern, min, max } => {
                     let count = trace.spans_matching(pattern).len();
                     let min_ok = count >= *min;
-                    let max_ok = max.map_or(true, |m| count <= m);
+                    let max_ok = max.is_none_or(|m| count <= m);
                     self.passed = min_ok && max_ok;
                     if !self.passed {
                         self.message = Some(format!(

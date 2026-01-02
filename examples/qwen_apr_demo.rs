@@ -140,7 +140,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let apr_prefill = start.elapsed();
 
     // Generate
-    let mut apr_generated = prompt_tokens.clone();
+    let mut apr_generated = prompt_tokens;
     let gen_start = Instant::now();
     for _ in 0..30 {
         let (best_idx, _) = apr_logits

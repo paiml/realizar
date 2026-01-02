@@ -1543,12 +1543,12 @@ impl CudaExecutor {
                 kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_a as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_b as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_c as *mut _ as *mut std::ffi::c_void,
-                    &mut m_val as *mut _ as *mut std::ffi::c_void,
-                    &mut n_val as *mut _ as *mut std::ffi::c_void,
-                    &mut k_val as *mut _ as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_a) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_b) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_c) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut m_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
                 ],
             )?;
         }
@@ -1703,12 +1703,12 @@ impl CudaExecutor {
                 kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_a as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_b as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_c as *mut _ as *mut std::ffi::c_void,
-                    &mut m_val as *mut _ as *mut std::ffi::c_void,
-                    &mut n_val as *mut _ as *mut std::ffi::c_void,
-                    &mut k_val as *mut _ as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_a) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_b) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_c) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut m_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
                 ],
             )?;
         }
@@ -1833,11 +1833,11 @@ impl CudaExecutor {
                     kernel_name,
                     &config,
                     &mut [
-                        &mut ptr_c as *mut _ as *mut std::ffi::c_void, // y_ptr (output)
-                        &mut ptr_b as *mut _ as *mut std::ffi::c_void, // a_ptr (K×N matrix)
-                        &mut ptr_a as *mut _ as *mut std::ffi::c_void, // x_ptr (K input vector)
-                        &mut k_val as *mut _ as *mut std::ffi::c_void, // k_dim
-                        &mut n_val as *mut _ as *mut std::ffi::c_void, // n_dim
+                        std::ptr::from_mut(&mut ptr_c) as *mut std::ffi::c_void, // y_ptr (output)
+                        std::ptr::from_mut(&mut ptr_b) as *mut std::ffi::c_void, // a_ptr (K×N matrix)
+                        std::ptr::from_mut(&mut ptr_a) as *mut std::ffi::c_void, // x_ptr (K input vector)
+                        std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void, // k_dim
+                        std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void, // n_dim
                     ],
                 )?;
             } else {
@@ -1851,12 +1851,12 @@ impl CudaExecutor {
                     kernel_name,
                     &config,
                     &mut [
-                        &mut ptr_a as *mut _ as *mut std::ffi::c_void,
-                        &mut ptr_b as *mut _ as *mut std::ffi::c_void,
-                        &mut ptr_c as *mut _ as *mut std::ffi::c_void,
-                        &mut m_val as *mut _ as *mut std::ffi::c_void,
-                        &mut n_val_i32 as *mut _ as *mut std::ffi::c_void,
-                        &mut k_val_i32 as *mut _ as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut ptr_a) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut ptr_b) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut ptr_c) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut m_val) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut n_val_i32) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut k_val_i32) as *mut std::ffi::c_void,
                     ],
                 )?;
             }
@@ -1954,11 +1954,11 @@ impl CudaExecutor {
                 kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_y as *mut _ as *mut std::ffi::c_void, // y_ptr (output)
-                    &mut ptr_w as *mut _ as *mut std::ffi::c_void, // w_ptr (K×N matrix, CACHED)
-                    &mut ptr_x as *mut _ as *mut std::ffi::c_void, // x_ptr (K input vector)
-                    &mut k_val as *mut _ as *mut std::ffi::c_void, // k_dim
-                    &mut n_val as *mut _ as *mut std::ffi::c_void, // n_dim
+                    std::ptr::from_mut(&mut ptr_y) as *mut std::ffi::c_void, // y_ptr (output)
+                    std::ptr::from_mut(&mut ptr_w) as *mut std::ffi::c_void, // w_ptr (K×N matrix, CACHED)
+                    std::ptr::from_mut(&mut ptr_x) as *mut std::ffi::c_void, // x_ptr (K input vector)
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void, // k_dim
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void, // n_dim
                 ],
             )?;
         }
@@ -2072,12 +2072,12 @@ impl CudaExecutor {
                 kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_a as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_b as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_c as *mut _ as *mut std::ffi::c_void,
-                    &mut m_val as *mut _ as *mut std::ffi::c_void,
-                    &mut n_val as *mut _ as *mut std::ffi::c_void,
-                    &mut k_val as *mut _ as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_a) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_b) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_c) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut m_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
                 ],
             )?;
         }
@@ -2206,12 +2206,12 @@ impl CudaExecutor {
                 kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_a as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_b as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_c as *mut _ as *mut std::ffi::c_void,
-                    &mut m_val as *mut _ as *mut std::ffi::c_void,
-                    &mut n_val as *mut _ as *mut std::ffi::c_void,
-                    &mut k_val as *mut _ as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_a) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_b) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_c) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut m_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
                 ],
             )?;
         }
@@ -2261,10 +2261,10 @@ impl CudaExecutor {
                     epilogue_name,
                     &epilogue_config,
                     &mut [
-                        &mut ptr_c_epilogue as *mut _ as *mut std::ffi::c_void,
-                        &mut ptr_bias as *mut _ as *mut std::ffi::c_void,
-                        &mut n_val_epilogue as *mut _ as *mut std::ffi::c_void,
-                        &mut bias_size_val as *mut _ as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut ptr_c_epilogue) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut ptr_bias) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut n_val_epilogue) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut bias_size_val) as *mut std::ffi::c_void,
                     ],
                 )?;
             }
@@ -2322,9 +2322,9 @@ impl CudaExecutor {
                 kernel_name,
                 &config,
                 &mut [
-                    &mut input_ptr as *mut _ as *mut std::ffi::c_void,
-                    &mut output_ptr as *mut _ as *mut std::ffi::c_void,
-                    &mut length_val as *mut _ as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut input_ptr) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut output_ptr) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut length_val) as *mut std::ffi::c_void,
                 ],
             )?;
         }
@@ -2409,12 +2409,12 @@ impl CudaExecutor {
                 kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_input as *mut _ as *mut std::ffi::c_void, // a_ptr
-                    &mut ptr_weights as *mut _ as *mut std::ffi::c_void, // b_quant_ptr
-                    &mut ptr_output as *mut _ as *mut std::ffi::c_void, // c_ptr
-                    &mut m_val as *mut _ as *mut std::ffi::c_void,     // m
-                    &mut n_val as *mut _ as *mut std::ffi::c_void,     // n (was missing!)
-                    &mut k_val as *mut _ as *mut std::ffi::c_void,     // k
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void, // a_ptr
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void, // b_quant_ptr
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void, // c_ptr
+                    std::ptr::from_mut(&mut m_val) as *mut std::ffi::c_void,     // m
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,     // n (was missing!)
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,     // k
                 ],
             )?;
         }
@@ -2494,11 +2494,11 @@ impl CudaExecutor {
                 kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_output as *mut _ as *mut std::ffi::c_void, // y_ptr
-                    &mut ptr_weights as *mut _ as *mut std::ffi::c_void, // w_ptr
-                    &mut ptr_input as *mut _ as *mut std::ffi::c_void,  // x_ptr
-                    &mut k_val as *mut _ as *mut std::ffi::c_void,      // k_dim
-                    &mut n_val as *mut _ as *mut std::ffi::c_void,      // n_dim
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void, // y_ptr
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void, // w_ptr
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,  // x_ptr
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,      // k_dim
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,      // n_dim
                 ],
             )?;
         }
@@ -2552,11 +2552,11 @@ impl CudaExecutor {
                 kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_weights as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_input as *mut _ as *mut std::ffi::c_void,
-                    &mut k_val as *mut _ as *mut std::ffi::c_void,
-                    &mut n_val as *mut _ as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
                 ],
             )?;
         }
@@ -2609,11 +2609,11 @@ impl CudaExecutor {
                 kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_weights as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_input as *mut _ as *mut std::ffi::c_void,
-                    &mut k_val as *mut _ as *mut std::ffi::c_void,
-                    &mut n_val as *mut _ as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
                 ],
             )?;
         }
@@ -2699,11 +2699,11 @@ impl CudaExecutor {
                 kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_weights as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_input as *mut _ as *mut std::ffi::c_void,
-                    &mut k_val as *mut _ as *mut std::ffi::c_void,
-                    &mut n_val as *mut _ as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
                 ],
             )?;
         }
@@ -2781,11 +2781,11 @@ impl CudaExecutor {
                 kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_weights as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_input as *mut _ as *mut std::ffi::c_void,
-                    &mut k_val as *mut _ as *mut std::ffi::c_void,
-                    &mut n_val as *mut _ as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
                 ],
             )?;
         }
@@ -2846,11 +2846,11 @@ impl CudaExecutor {
                 kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_weights as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_input as *mut _ as *mut std::ffi::c_void,
-                    &mut k_val as *mut _ as *mut std::ffi::c_void,
-                    &mut n_val as *mut _ as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
                 ],
             )?;
         }
@@ -2913,11 +2913,11 @@ impl CudaExecutor {
                 kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_weights as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_input as *mut _ as *mut std::ffi::c_void,
-                    &mut k_val as *mut _ as *mut std::ffi::c_void,
-                    &mut n_val as *mut _ as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
                 ],
             )?;
         }
@@ -2971,9 +2971,9 @@ impl CudaExecutor {
                 kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_bias as *mut _ as *mut std::ffi::c_void,
-                    &mut n_val as *mut _ as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_bias) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
                 ],
             )?;
         }
@@ -3032,12 +3032,12 @@ impl CudaExecutor {
                 kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_input as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_gamma as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_beta as *mut _ as *mut std::ffi::c_void,
-                    &mut hidden_size_val as *mut _ as *mut std::ffi::c_void,
-                    &mut batch_size_val as *mut _ as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_gamma) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_beta) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut hidden_size_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut batch_size_val) as *mut std::ffi::c_void,
                 ],
             )?;
         }
@@ -3101,9 +3101,9 @@ impl CudaExecutor {
                 kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_input as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_gamma as *mut _ as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_gamma) as *mut std::ffi::c_void,
                 ],
             )?;
         }
@@ -3275,10 +3275,10 @@ impl CudaExecutor {
                 kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_input1 as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_input2 as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
-                    &mut n_val as *mut _ as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input1) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input2) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
                 ],
             )?;
         }
@@ -3346,10 +3346,10 @@ impl CudaExecutor {
                 kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_residual as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_input as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_gamma as *mut _ as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_residual) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_gamma) as *mut std::ffi::c_void,
                 ],
             )?;
         }
@@ -3402,9 +3402,9 @@ impl CudaExecutor {
                 kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_input as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
-                    &mut n_val as *mut _ as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
                 ],
             )?;
         }
@@ -3457,9 +3457,9 @@ impl CudaExecutor {
                 kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_input as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
-                    &mut n_val as *mut _ as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
                 ],
             )?;
         }
@@ -3513,10 +3513,10 @@ impl CudaExecutor {
                 kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_input1 as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_input2 as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
-                    &mut n_val as *mut _ as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input1) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input2) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
                 ],
             )?;
         }
@@ -3570,10 +3570,10 @@ impl CudaExecutor {
                 kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_gate as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_up as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
-                    &mut n_val as *mut _ as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_gate) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_up) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
                 ],
             )?;
         }
@@ -3684,9 +3684,9 @@ impl CudaExecutor {
                 kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_input as *mut _ as *mut std::ffi::c_void,
-                    &mut n_val as *mut _ as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
                 ],
             )?;
         }
@@ -3747,11 +3747,11 @@ impl CudaExecutor {
                 kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_weights as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_input as *mut _ as *mut std::ffi::c_void,
-                    &mut k_val as *mut _ as *mut std::ffi::c_void,
-                    &mut n_val as *mut _ as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
                 ],
             )?;
         }
@@ -3844,11 +3844,11 @@ impl CudaExecutor {
                     up_kernel_name,
                     &config,
                     &mut [
-                        &mut ptr_output as *mut _ as *mut std::ffi::c_void,
-                        &mut ptr_weights as *mut _ as *mut std::ffi::c_void,
-                        &mut ptr_input as *mut _ as *mut std::ffi::c_void,
-                        &mut k_val as *mut _ as *mut std::ffi::c_void,
-                        &mut n_val as *mut _ as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
                     ],
                 )?;
             }
@@ -3890,11 +3890,11 @@ impl CudaExecutor {
                     down_kernel_name,
                     &config,
                     &mut [
-                        &mut ptr_output as *mut _ as *mut std::ffi::c_void,
-                        &mut ptr_weights as *mut _ as *mut std::ffi::c_void,
-                        &mut ptr_input as *mut _ as *mut std::ffi::c_void,
-                        &mut k_val as *mut _ as *mut std::ffi::c_void,
-                        &mut n_val as *mut _ as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
                     ],
                 )?;
             }
@@ -4618,12 +4618,12 @@ impl CudaExecutor {
                 kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_input as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_weights as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
-                    &mut m_val as *mut _ as *mut std::ffi::c_void,
-                    &mut n_val as *mut _ as *mut std::ffi::c_void,
-                    &mut k_val as *mut _ as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut m_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
                 ],
             )?;
         }
@@ -4688,12 +4688,12 @@ impl CudaExecutor {
                 kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_input as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_weights as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
-                    &mut m_val as *mut _ as *mut std::ffi::c_void,
-                    &mut n_val as *mut _ as *mut std::ffi::c_void,
-                    &mut k_val as *mut _ as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut m_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
                 ],
             )?;
         }
@@ -4814,13 +4814,13 @@ impl CudaExecutor {
                 kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_q as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_k as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_v as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
-                    &mut seq_len_val as *mut _ as *mut std::ffi::c_void,
-                    &mut head_dim_val as *mut _ as *mut std::ffi::c_void,
-                    &mut num_heads_val as *mut _ as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_q) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_k) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_v) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut seq_len_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut head_dim_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut num_heads_val) as *mut std::ffi::c_void,
                 ],
             )?;
         }
@@ -4947,13 +4947,13 @@ impl CudaExecutor {
                 kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_q as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_k as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_v as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
-                    &mut seq_len_val as *mut _ as *mut std::ffi::c_void,
-                    &mut head_dim_val as *mut _ as *mut std::ffi::c_void,
-                    &mut n_heads_val as *mut _ as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_q) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_k) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_v) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut seq_len_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut head_dim_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_heads_val) as *mut std::ffi::c_void,
                 ],
             )?;
         }
@@ -5380,14 +5380,14 @@ impl CudaExecutor {
         unsafe {
             self.compute_stream.launch_kernel(
                 module,
-                &kernel_name,
+                kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_q as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_k as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_v as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_out as *mut _ as *mut std::ffi::c_void,
-                    &mut seq_len_val as *mut _ as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_q) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_k) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_v) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_out) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut seq_len_val) as *mut std::ffi::c_void,
                 ],
             )?;
         }
@@ -5527,14 +5527,14 @@ impl CudaExecutor {
         unsafe {
             self.compute_stream.launch_kernel(
                 module,
-                &kernel_name,
+                kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_q as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_k as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_v as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_out as *mut _ as *mut std::ffi::c_void,
-                    &mut seq_len_val as *mut _ as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_q) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_k) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_v) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_out) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut seq_len_val) as *mut std::ffi::c_void,
                 ],
             )?;
         }
@@ -5576,7 +5576,7 @@ impl CudaExecutor {
         causal: bool,
     ) -> Result<(), GpuError> {
         // WMMA requires dimensions to be multiples of 16
-        if seq_len % 16 != 0 || head_dim % 16 != 0 {
+        if !seq_len.is_multiple_of(16) || !head_dim.is_multiple_of(16) {
             return Err(GpuError::InvalidLaunchConfig(format!(
                 "Tensor Core attention requires dimensions multiple of 16: seq_len={}, head_dim={}",
                 seq_len, head_dim
@@ -5659,13 +5659,13 @@ impl CudaExecutor {
                 kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_q as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_k as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_v as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_output as *mut _ as *mut std::ffi::c_void,
-                    &mut seq_len_val as *mut _ as *mut std::ffi::c_void,
-                    &mut head_dim_val as *mut _ as *mut std::ffi::c_void,
-                    &mut n_heads_val as *mut _ as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_q) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_k) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_v) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut seq_len_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut head_dim_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_heads_val) as *mut std::ffi::c_void,
                 ],
             )?;
         }
@@ -5704,7 +5704,7 @@ impl CudaExecutor {
         k: u32,
     ) -> Result<(), GpuError> {
         // Validate dimensions are multiples of 16 (WMMA requirement)
-        if m % 16 != 0 || n % 16 != 0 || k % 16 != 0 {
+        if !m.is_multiple_of(16) || !n.is_multiple_of(16) || !k.is_multiple_of(16) {
             return Err(GpuError::InvalidLaunchConfig(format!(
                 "FP16 Tensor Core requires dimensions multiple of 16: m={}, n={}, k={}",
                 m, n, k
@@ -5783,12 +5783,12 @@ impl CudaExecutor {
                 kernel_name,
                 &config,
                 &mut [
-                    &mut ptr_a as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_b as *mut _ as *mut std::ffi::c_void,
-                    &mut ptr_c as *mut _ as *mut std::ffi::c_void,
-                    &mut m_val as *mut _ as *mut std::ffi::c_void,
-                    &mut n_val as *mut _ as *mut std::ffi::c_void,
-                    &mut k_val as *mut _ as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_a) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_b) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_c) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut m_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
                 ],
             )?;
         }
@@ -6186,7 +6186,7 @@ pub mod presets {
     /// k must be divisible by 256 (super-block size)
     pub fn q4k_ggml_inference(batch: u32, hidden: u32, k: u32) -> KernelType {
         debug_assert!(
-            k % 256 == 0,
+            k.is_multiple_of(256),
             "k must be divisible by 256 for GGML super-blocks"
         );
         KernelType::QuantizedGemmGgml {

@@ -44,16 +44,15 @@ fn main() {
     let vocab = mapped.model.vocabulary().expect("test");
 
     let hidden_dim = model.config.hidden_dim;
-    let intermediate_dim = model.config.intermediate_dim;
+    let _intermediate_dim = model.config.intermediate_dim;
     let eps = model.config.eps;
     let token_id = 450u32;
     let start = token_id as usize * hidden_dim;
-    let mut hidden: Vec<f32> = model.token_embedding[start..start + hidden_dim].to_vec();
 
     println!("=== Predictions after each layer ===\n");
 
     for max_layers in [1, 2, 3, 22] {
-        hidden = model.token_embedding[start..start + hidden_dim].to_vec();
+        let mut hidden: Vec<f32> = model.token_embedding[start..start + hidden_dim].to_vec();
 
         for layer_idx in 0..max_layers.min(model.config.num_layers) {
             let layer = &model.layers[layer_idx];

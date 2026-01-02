@@ -76,7 +76,7 @@ fn main() {
     println!("Top 10 predictions (full forward pass):");
     for (rank, (idx, score)) in indexed_full.iter().take(10).enumerate() {
         let token_str = if *idx < vocab.len() {
-            vocab[*idx].replace('▁', " ").replace('\u{0120}', " ")
+            vocab[*idx].replace(['▁', '\u{0120}'], " ")
         } else {
             format!("<{}>", idx)
         };

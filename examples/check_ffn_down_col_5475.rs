@@ -4,6 +4,7 @@ use realizar::quantize::dequantize_q6_k;
 
 const Q6_K_BLOCK_SIZE: usize = 210;
 
+#[allow(dead_code)]
 fn l2_norm(v: &[f32]) -> f32 {
     (v.iter().map(|x| x * x).sum::<f32>()).sqrt()
 }
@@ -52,7 +53,7 @@ fn main() {
                 break;
             }
             let row_start = row * bytes_per_row;
-            let block_start = row_start + 0 * Q6_K_BLOCK_SIZE; // superblock 0
+            let block_start = row_start; // superblock 0
             let block_data = &down.data[block_start..block_start + Q6_K_BLOCK_SIZE];
             let dequant = dequantize_q6_k(block_data).expect("test");
             col100_vals.push(dequant[100]);

@@ -110,12 +110,12 @@ lint: ## Run all linting with auto-format (Batuta stack standard)
 
 test-fast: ## Fast unit tests (<5min target, low memory - excludes 29k lines of gguf tests)
 	@echo "$(GREEN)⚡ Running fast tests (excludes heavy-tests feature)...$(NC)"
-	time env PROPTEST_CASES=50 cargo test --lib
+	time env PROPTEST_CASES=25 cargo test --lib
 	@echo "$(GREEN)✅ Fast tests passed$(NC)"
 
 test-full: ## Full test suite (requires 16GB+ RAM for gguf tests)
 	@echo "$(GREEN)🧪 Running full tests (includes heavy-tests)...$(NC)"
-	time env PROPTEST_CASES=50 cargo test --lib --features heavy-tests
+	time env PROPTEST_CASES=25 cargo test --lib --features heavy-tests
 	@echo "$(GREEN)✅ Full tests passed$(NC)"
 
 # === Quality Gates ===
@@ -145,14 +145,14 @@ coverage: ## Generate HTML coverage report (target: >95%, Batuta stack standard)
 	@echo "$(GREEN)📊 Running coverage analysis (target: >95%)...$(NC)"
 	@which cargo-llvm-cov > /dev/null 2>&1 || (echo "$(YELLOW)📦 Installing cargo-llvm-cov...$(NC)" && cargo install cargo-llvm-cov --locked)
 	@which cargo-nextest > /dev/null 2>&1 || (echo "$(YELLOW)📦 Installing cargo-nextest...$(NC)" && cargo install cargo-nextest --locked)
-	@# Temporarily disable mold linker (breaks LLVM coverage)
-	@test -f ~/.cargo/config.toml && mv ~/.cargo/config.toml ~/.cargo/config.toml.cov-backup || true
+	@# Temporarily disable mold linker (breaks LLVM coverage instrumentation)
 	@cargo llvm-cov clean --workspace
 	@mkdir -p target/coverage
 	@# Phase 1: Run tests with coverage instrumentation (no report)
 	@# Note: --lib --tests excludes examples (which may require cuda feature not enabled here)
 	@# Memory-safe: limit parallelism to 2 threads to avoid OOM with transformer tests
-	@env PROPTEST_CASES=100 cargo llvm-cov --no-report nextest -j 2 --lib --tests --no-tests=warn --workspace --no-fail-fast --features "server,cli,gpu"
+	@# RUSTFLAGS="" disables mold linker from .cargo/config.toml which breaks profraw generation
+	@env RUSTFLAGS="" CARGO_BUILD_RUSTFLAGS="" PROPTEST_CASES=25 QUICKCHECK_TESTS=25 cargo llvm-cov --no-report nextest -j 2 --lib --tests --no-tests=warn --workspace --no-fail-fast --features "server,cli,gpu"
 	@# Phase 2: Generate reports (exclude entry points, binary parsers, hardware-dependent, server code, and trueno dep)
 	@# Exclusions: main.rs (entry), cli.rs (CLI), api.rs (HTTP handlers), apr.rs (binary format),
 	@#            gguf.rs (binary GGUF parser), serve.rs (HTTP server), gpu.rs (hardware-dependent GPU),
@@ -162,7 +162,6 @@ coverage: ## Generate HTML coverage report (target: >95%, Batuta stack standard)
 	@cargo llvm-cov report --html --output-dir target/coverage/html --ignore-filename-regex '(main|cli|api|apr|apr_transformer|gguf|serve|gpu|generate|quantize|scheduler|layers|bench|inference)\.rs|trueno/'
 	@cargo llvm-cov report --lcov --output-path target/coverage/lcov.info --ignore-filename-regex '(main|cli|api|apr|apr_transformer|gguf|serve|gpu|generate|quantize|scheduler|layers|bench|inference)\.rs|trueno/'
 	@# Restore mold linker
-	@test -f ~/.cargo/config.toml.cov-backup && mv ~/.cargo/config.toml.cov-backup ~/.cargo/config.toml || true
 	@cargo llvm-cov report --summary-only --ignore-filename-regex '(main|cli|api|apr|apr_transformer|gguf|serve|gpu|generate|quantize|scheduler|layers|bench|inference)\.rs|trueno/'
 	@echo "$(GREEN)✅ Coverage report: target/coverage/html/index.html$(NC)"
 

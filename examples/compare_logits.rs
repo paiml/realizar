@@ -60,7 +60,7 @@ fn main() {
             _ => panic!("Expected separate"),
         };
 
-        let q = fused_matmul(
+        let _q = fused_matmul(
             &normed,
             &q_weight.data,
             q_weight.qtype,

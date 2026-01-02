@@ -1,5 +1,6 @@
 //! Benchmark AVX2 vs AVX-VNNI for Q4_0×Q8_0 dot product
 #![allow(unsafe_op_in_unsafe_fn)]
+#![allow(clippy::needless_range_loop)]
 
 use std::arch::x86_64::*;
 use std::time::Instant;

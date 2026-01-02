@@ -6139,6 +6139,8 @@ mod tests {
             cuda_executor: None,
             #[cfg(feature = "cuda")]
             cuda_kernel_count: std::sync::atomic::AtomicU64::new(0),
+            #[cfg(feature = "cuda")]
+            cached_weight_names: std::sync::Mutex::new(std::collections::HashSet::new()),
         }
     }
 

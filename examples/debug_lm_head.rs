@@ -1,5 +1,7 @@
 //! Debug LM head projection
 
+#![allow(clippy::needless_range_loop)]
+
 use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
 use realizar::quantize::{dequantize_q6_k, fused_q6k_parallel_matvec};
 
@@ -83,7 +85,7 @@ fn main() {
     let scale = 81.0 / (in_dim as f32).sqrt();
     let real_input: Vec<f32> = (0..in_dim)
         .map(|i| {
-            let x = (i as f32 * 2.718281828).sin(); // Pseudo-random pattern
+            let x = (i as f32 * 2.718_281_7).sin(); // Pseudo-random pattern
             x * scale
         })
         .collect();

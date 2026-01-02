@@ -250,7 +250,7 @@ fn create_example_gguf_model() -> Vec<u8> {
         buffer.extend_from_slice(&1.0f32.to_le_bytes()[..2]); // simplified f16
 
         // 16 bytes of 4-bit quantized data (32 values)
-        buffer.extend(std::iter::repeat(0x12).take(16)); // Demo data: each byte contains two 4-bit values
+        buffer.extend(std::iter::repeat_n(0x12, 16)); // Demo data: each byte contains two 4-bit values
     }
 
     buffer

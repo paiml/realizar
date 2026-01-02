@@ -1,6 +1,6 @@
 [package]
 name = "realizar"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2021"
 rust-version = "1.89"
 authors = ["Pragmatic AI Labs <contact@paiml.com>"]
@@ -34,8 +34,7 @@ useless_vec = "allow"
 # High-performance SIMD compute library with GPU support
 trueno = { version = "0.10.1", features = ["gpu"] }
 # CUDA PTX generation and runtime for NVIDIA GPUs (optional, pure Rust, no LLVM/nvcc)
-# Using local path for REALIZAR-PARITY-001.3 Tensor Core support until 0.4.0 release
-trueno-gpu = { path = "../trueno/trueno-gpu", optional = true, features = ["cuda"] }
+trueno-gpu = { version = "0.4.4", optional = true, features = ["cuda"] }
 # KV cache storage (for attention caching)
 trueno-db = { version = "0.3.8", optional = true }
 

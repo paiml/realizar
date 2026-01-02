@@ -69,7 +69,7 @@ fn main() {
     // Generate a few tokens greedily
     println!("\n=== Generation ===");
     let mut generated = tokens.to_vec();
-    for step in 0..5 {
+    for _step in 0..5 {
         let pos = generated.len() - 1;
         let token = generated[generated.len() - 1];
 

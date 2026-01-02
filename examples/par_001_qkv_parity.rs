@@ -38,7 +38,7 @@ fn main() {
     let layer = &model.layers[0];
 
     match &layer.qkv_weight {
-        realizar::gguf::OwnedQKVWeights::Separate { q, k, v } => {
+        realizar::gguf::OwnedQKVWeights::Separate { q, k: _, v } => {
             println!("\nQ weight:");
             println!(
                 "  in_dim={}, out_dim={}, qtype={}",
@@ -47,7 +47,7 @@ fn main() {
             println!("  data_len={} bytes", q.data.len());
 
             // Q4_K: 144 bytes per superblock (256 elements)
-            let q_superblocks_per_row = (q.in_dim + 255) / 256;
+            let q_superblocks_per_row = q.in_dim.div_ceil(256);
             let q_bytes_per_row = q_superblocks_per_row * 144;
             let q_expected_bytes = q.out_dim * q_bytes_per_row;
             println!(
@@ -76,15 +76,12 @@ fn main() {
                 // Also try row 1
                 if q.data.len() >= 2 * q_bytes_per_row {
                     let row1_data = &q.data[q_bytes_per_row..2 * q_bytes_per_row];
-                    match dequantize_q4_k_simd(row1_data) {
-                        Ok(row1_dequant) => {
-                            println!(
-                                "  Row 1 L2={:.4}, first 5: {:?}",
-                                l2_norm(&row1_dequant),
-                                &row1_dequant[..5.min(row1_dequant.len())]
-                            );
-                        },
-                        Err(_) => {},
+                    if let Ok(row1_dequant) = dequantize_q4_k_simd(row1_data) {
+                        println!(
+                            "  Row 1 L2={:.4}, first 5: {:?}",
+                            l2_norm(&row1_dequant),
+                            &row1_dequant[..5.min(row1_dequant.len())]
+                        );
                     }
                 }
             }
@@ -97,7 +94,7 @@ fn main() {
             println!("  data_len={} bytes", v.data.len());
 
             // Q6_K: 210 bytes per superblock (256 elements)
-            let v_superblocks_per_row = (v.in_dim + 255) / 256;
+            let v_superblocks_per_row = v.in_dim.div_ceil(256);
             let v_bytes_per_row = v_superblocks_per_row * 210;
             let v_expected_bytes = v.out_dim * v_bytes_per_row;
             println!(
@@ -142,7 +139,7 @@ fn main() {
 
             // In column-major, superblocks would be packed along columns (out_dim elements)
             // So each superblock contains 256 consecutive column elements
-            let v_superblocks_per_col = (v.out_dim + 255) / 256; // 256/256 = 1
+            let v_superblocks_per_col = v.out_dim.div_ceil(256); // 256/256 = 1
             let v_bytes_per_col = v_superblocks_per_col * 210; // 1 * 210 = 210
             let v_expected_bytes_transposed = v.in_dim * v_bytes_per_col;
             println!(

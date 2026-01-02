@@ -60,7 +60,7 @@ fn main() {
     // Process each layer
     for layer_idx in 0..model.config.num_layers {
         let layer = &model.layers[layer_idx];
-        let trace = layer_idx < 5 || layer_idx >= 20; // Trace first 5 and last 2 layers
+        let trace = !(5..20).contains(&layer_idx); // Trace first 5 and last 2 layers
 
         if trace {
             println!("\n=== Layer {} detailed trace ===", layer_idx);

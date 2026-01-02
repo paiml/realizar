@@ -23,7 +23,7 @@ fn main() {
     // Dequantize first row
     // For Q6_K row-major [out_dim, in_dim] = [2048, 5632]
     // Each row has ceil(5632/256) = 22 superblocks = 22 * 210 = 4620 bytes
-    let superblocks_per_row = (down_weight.in_dim + 255) / 256;
+    let superblocks_per_row = down_weight.in_dim.div_ceil(256);
     let bytes_per_row = superblocks_per_row * 210;
     println!("  superblocks_per_row: {}", superblocks_per_row);
     println!("  bytes_per_row: {}", bytes_per_row);

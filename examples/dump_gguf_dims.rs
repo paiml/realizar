@@ -87,7 +87,7 @@ fn main() {
             );
 
             // Calculate expected byte size for Q6_K
-            let superblocks_per_row = (dim1 + 255) / 256;
+            let superblocks_per_row = dim1.div_ceil(256);
             let bytes_per_row_q6k = superblocks_per_row * 210;
             let total_bytes_q6k = dim0 * bytes_per_row_q6k;
 

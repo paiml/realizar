@@ -156,7 +156,7 @@ fn main() {
     }
     let start = Instant::now();
     for i in 0..iterations {
-        let _ = apr_q4.forward_single_with_scratch((i % 100), &mut scratch);
+        let _ = apr_q4.forward_single_with_scratch(i % 100, &mut scratch);
     }
     let scratch_avg = start.elapsed() / iterations;
     let scratch_tps = 1.0 / scratch_avg.as_secs_f64();

@@ -36,7 +36,7 @@ fn main() {
     // Let's try a simpler test - just BOS + prompt
     let bos = 1u32;
     // "Hello" should produce something sensible
-    let hello_tokens: Vec<u32> = vec![bos, 15043]; // 15043 is often "Hello" in LLaMA tokenizer
+    let _hello_tokens: Vec<u32> = vec![bos, 15043]; // 15043 is often "Hello" in LLaMA tokenizer
 
     println!("\nTest 1: BOS + 'Hello'");
     let kv_dim = model.config.num_kv_heads * (model.config.hidden_dim / model.config.num_heads);

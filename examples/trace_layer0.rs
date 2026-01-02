@@ -28,7 +28,7 @@ fn main() {
 
     // Test with token "Once" = 26222
     let token_id: u32 = 26222;
-    println!("Test token: {} (id={})", "Once", token_id);
+    println!("Test token: Once (id={})", token_id);
 
     // Step 1: Embedding lookup
     let embedding = model.embed(&[token_id]);

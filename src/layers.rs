@@ -4314,11 +4314,11 @@ mod tests {
         assert_eq!(output_data.len(), 4);
 
         // First group [1.0, 3.0]: mean=2.0, normalized should have mean≈0, var≈1
-        let group1_mean = (output_data[0] + output_data[1]) / 2.0;
+        let group1_mean = f32::midpoint(output_data[0], output_data[1]);
         assert!((group1_mean - 0.0).abs() < 1e-5);
 
         // Second group [2.0, 4.0]: mean=3.0, normalized should have mean≈0, var≈1
-        let group2_mean = (output_data[2] + output_data[3]) / 2.0;
+        let group2_mean = f32::midpoint(output_data[2], output_data[3]);
         assert!((group2_mean - 0.0).abs() < 1e-5);
     }
 

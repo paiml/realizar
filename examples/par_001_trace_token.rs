@@ -137,8 +137,8 @@ fn main() {
     println!("At position 0: cos(0)=1, sin(0)=0 -> RoPE is identity transform");
 
     // Verify RoPE at position 0 is identity
-    let mut q_roped = q.clone();
-    let mut k_roped = k.clone();
+    let q_roped = q;
+    let k_roped = k;
     // Position 0: angle = 0 for all dims, so cos=1, sin=0, output = input
     stats("Q (roped, pos 0 = identity)", &q_roped);
     stats("K (roped, pos 0 = identity)", &k_roped);

@@ -32,7 +32,7 @@ fn main() {
         // Calculate launch config (same as flash_attention_multi_head)
         let max_tile = (48 * 1024) / (head_dim * 12);
         let tile_q = max_tile.min(64).min(seq_len);
-        let num_q_blocks = (seq_len + tile_q - 1) / tile_q;
+        let num_q_blocks = seq_len.div_ceil(tile_q);
         let threads_per_block = (tile_q * head_dim).min(1024);
 
         println!("  max_tile: {}", max_tile);

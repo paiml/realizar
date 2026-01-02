@@ -156,7 +156,7 @@ fn main() {
     );
 
     // Residual
-    let mut hidden = embedding.clone();
+    let mut hidden = embedding;
     for i in 0..hidden_dim {
         hidden[i] += attn_proj[i];
     }
@@ -213,7 +213,7 @@ fn main() {
             .collect::<Vec<_>>()
     );
 
-    let mut ffn_gate_silu = ffn_gate.clone();
+    let mut ffn_gate_silu = ffn_gate;
     silu(&mut ffn_gate_silu);
     println!("\nFFN gate (after SiLU) L2: {:.4}", l2_norm(&ffn_gate_silu));
 

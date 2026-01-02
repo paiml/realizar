@@ -22,7 +22,32 @@
 #![allow(clippy::cast_precision_loss)]
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use realizar::apr::{AprHeader, AprModel, AprModelType, ModelWeights, HEADER_SIZE, MAGIC};
+use realizar::apr::{AprHeader, AprModel, HEADER_SIZE, MAGIC};
+
+// =============================================================================
+// Mock types for APR model creation (real types not yet exported from apr module)
+// =============================================================================
+
+/// Mock model weights structure for benchmark APR file creation
+#[derive(serde::Serialize)]
+struct MockModelWeights {
+    weights: Vec<Vec<f32>>,
+    biases: Vec<Vec<f32>>,
+    dimensions: Vec<usize>,
+}
+
+/// Mock model type enum for benchmark APR file creation
+#[repr(u16)]
+#[derive(Clone, Copy)]
+enum MockAprModelType {
+    NeuralSequential = 2,
+}
+
+impl MockAprModelType {
+    fn as_u16(self) -> u16 {
+        self as u16
+    }
+}
 
 /// Fixed seed for reproducible weight generation (DO NOT CHANGE)
 const REPRODUCIBLE_SEED: u64 = 42;
@@ -115,7 +140,7 @@ fn get_test_configs() -> Vec<ModelConfig> {
 }
 
 /// Generate deterministic weights for a model configuration
-fn generate_weights(config: &ModelConfig, seed: u64) -> ModelWeights {
+fn generate_weights(config: &ModelConfig, seed: u64) -> MockModelWeights {
     let mut rng = ReproducibleRng::new(seed);
     let mut weights = Vec::new();
     let mut biases = Vec::new();
@@ -150,7 +175,7 @@ fn generate_weights(config: &ModelConfig, seed: u64) -> ModelWeights {
     biases.push(output_biases);
     dimensions.push(config.output_dim);
 
-    ModelWeights {
+    MockModelWeights {
         weights,
         biases,
         dimensions,
@@ -177,7 +202,7 @@ fn create_apr_bytes(config: &ModelConfig, seed: u64) -> Vec<u8> {
     // Reserved
     data.push(0);
     // Model type: NeuralSequential
-    data.extend_from_slice(&AprModelType::NeuralSequential.as_u16().to_le_bytes());
+    data.extend_from_slice(&MockAprModelType::NeuralSequential.as_u16().to_le_bytes());
     // Metadata length: 0
     data.extend_from_slice(&0u32.to_le_bytes());
     // Payload length
@@ -222,7 +247,8 @@ fn benchmark_apr_model_loading(c: &mut Criterion) {
             &apr_bytes,
             |b, data| {
                 b.iter(|| {
-                    let model = AprModel::from_bytes(black_box(data)).expect("Failed to load");
+                    let model =
+                        AprModel::from_bytes(black_box(data.clone())).expect("Failed to load");
                     black_box(model)
                 });
             },
@@ -258,7 +284,7 @@ fn benchmark_apr_inference_single(c: &mut Criterion) {
 
     for config in get_test_configs() {
         let apr_bytes = create_apr_bytes(&config, REPRODUCIBLE_SEED);
-        let model = AprModel::from_bytes(&apr_bytes).expect("Failed to load");
+        let model = AprModel::from_bytes(apr_bytes.clone()).expect("Failed to load");
         let input = generate_input(config.input_dim, REPRODUCIBLE_SEED + 1000);
 
         group.throughput(Throughput::Elements(1));
@@ -284,7 +310,7 @@ fn benchmark_apr_inference_batch(c: &mut Criterion) {
 
     for config in get_test_configs() {
         let apr_bytes = create_apr_bytes(&config, REPRODUCIBLE_SEED);
-        let model = AprModel::from_bytes(&apr_bytes).expect("Failed to load");
+        let model = AprModel::from_bytes(apr_bytes.clone()).expect("Failed to load");
 
         for &batch_size in &batch_sizes {
             let inputs = generate_batch(batch_size, config.input_dim, REPRODUCIBLE_SEED + 2000);
@@ -295,9 +321,11 @@ fn benchmark_apr_inference_batch(c: &mut Criterion) {
                 &inputs,
                 |b, inp| {
                     b.iter(|| {
-                        let output = model
-                            .predict_batch(black_box(inp))
-                            .expect("Failed to predict");
+                        // Note: predict_batch not implemented, using sequential predict
+                        let output: Vec<Vec<f32>> = inp
+                            .iter()
+                            .map(|input| model.predict(black_box(input)).expect("predict"))
+                            .collect();
                         black_box(output)
                     });
                 },
@@ -322,7 +350,7 @@ fn benchmark_apr_throughput(c: &mut Criterion) {
     };
 
     let apr_bytes = create_apr_bytes(&config, REPRODUCIBLE_SEED);
-    let model = AprModel::from_bytes(&apr_bytes).expect("Failed to load");
+    let model = AprModel::from_bytes(apr_bytes).expect("Failed to load");
 
     // Large batch for throughput measurement
     let batch_size = 256;
@@ -331,9 +359,11 @@ fn benchmark_apr_throughput(c: &mut Criterion) {
     group.throughput(Throughput::Elements(batch_size as u64));
     group.bench_function("mnist_256_batch", |b| {
         b.iter(|| {
-            let output = model
-                .predict_batch(black_box(&inputs))
-                .expect("Failed to predict");
+            // Note: predict_batch not implemented, using sequential predict
+            let output: Vec<Vec<f32>> = inputs
+                .iter()
+                .map(|input| model.predict(black_box(input)).expect("predict"))
+                .collect();
             black_box(output)
         });
     });
@@ -363,7 +393,7 @@ fn benchmark_apr_parameters(c: &mut Criterion) {
         };
 
         let apr_bytes = create_apr_bytes(&config, REPRODUCIBLE_SEED);
-        let model = AprModel::from_bytes(&apr_bytes).expect("Failed to load");
+        let model = AprModel::from_bytes(apr_bytes).expect("Failed to load");
         let input_data = generate_input(input, REPRODUCIBLE_SEED + 4000);
 
         group.throughput(Throughput::Elements(config.num_parameters() as u64));
@@ -397,8 +427,8 @@ fn verify_reproducibility() {
     assert_eq!(apr_bytes1, apr_bytes2, "APR bytes should be reproducible");
 
     // Models should produce identical outputs
-    let model1 = AprModel::from_bytes(&apr_bytes1).expect("test");
-    let model2 = AprModel::from_bytes(&apr_bytes2).expect("test");
+    let model1 = AprModel::from_bytes(apr_bytes1.clone()).expect("test");
+    let model2 = AprModel::from_bytes(apr_bytes2).expect("test");
 
     let input = generate_input(4, REPRODUCIBLE_SEED + 100);
     let output1 = model1.predict(&input).expect("test");

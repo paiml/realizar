@@ -237,20 +237,42 @@ impl SafetensorsModel {
                 reason: e.to_string(),
             })?;
 
-        // Parse JSON
-        let json_map: HashMap<String, TensorMetadata> = serde_json::from_slice(&json_bytes)
-            .map_err(|e| RealizarError::UnsupportedOperation {
+        // Parse JSON as generic Value first to handle __metadata__ and other special keys
+        let json_value: serde_json::Value = serde_json::from_slice(&json_bytes).map_err(|e| {
+            RealizarError::UnsupportedOperation {
                 operation: "parse_json".to_string(),
                 reason: e.to_string(),
+            }
+        })?;
+
+        let json_map =
+            json_value
+                .as_object()
+                .ok_or_else(|| RealizarError::UnsupportedOperation {
+                    operation: "parse_json".to_string(),
+                    reason: "Expected JSON object".to_string(),
+                })?;
+
+        // Convert to SafetensorsTensorInfo, skipping special keys like __metadata__
+        let mut tensors = HashMap::new();
+        for (name, value) in json_map {
+            // Skip metadata keys (start with __)
+            if name.starts_with("__") {
+                continue;
+            }
+
+            // Parse tensor metadata
+            let meta: TensorMetadata = serde_json::from_value(value.clone()).map_err(|e| {
+                RealizarError::UnsupportedOperation {
+                    operation: "parse_tensor_metadata".to_string(),
+                    reason: format!("Failed to parse tensor '{name}': {e}"),
+                }
             })?;
 
-        // Convert to SafetensorsTensorInfo
-        let mut tensors = HashMap::new();
-        for (name, meta) in json_map {
             tensors.insert(
                 name.clone(),
                 SafetensorsTensorInfo {
-                    name,
+                    name: name.clone(),
                     dtype: meta.dtype,
                     shape: meta.shape,
                     data_offsets: meta.data_offsets,

@@ -17,7 +17,7 @@ fn main() {
     println!("Looking for ChatML tokens...");
     let mut user_token = None;
     let mut assistant_token = None;
-    let mut system_token = None;
+    let mut _system_token = None;
 
     for (i, tok) in vocab.iter().enumerate() {
         if tok.contains("<|user|>") {
@@ -29,14 +29,14 @@ fn main() {
             println!("  <|assistant|> = {}", i);
         }
         if tok.contains("<|system|>") {
-            system_token = Some(i as u32);
+            _system_token = Some(i as u32);
             println!("  <|system|> = {}", i);
         }
     }
 
     // Also find newline and </s>
-    let newline = 13u32; // <0x0A>
-    let eos = 2u32; // </s>
+    let _newline = 13u32; // <0x0A>
+    let _eos = 2u32; // </s>
 
     println!("\nStandard tokens:");
     println!("  <0x0A> (newline) = 13");
@@ -103,7 +103,7 @@ fn main() {
 
         // Generate a few tokens
         println!("\n=== Generation from 'The' ===");
-        let mut generated = tokens.clone();
+        let mut generated = tokens;
         for _ in 0..15 {
             let pos = generated.len() - 1;
             let token = generated[generated.len() - 1];

@@ -3007,6 +3007,7 @@ pub fn fused_rmsnorm_ffn_up_gate(
     let (q8_scales, q8_quants) = quantize_rmsnorm_q8_0(input, norm_weight, eps);
 
     // Run both matmuls in parallel using rayon::join
+    // Each matmul uses parallel iteration with chunking to reduce overhead
     let (up_output, gate_output) = rayon::join(
         || {
             const CHUNK_SIZE: usize = 64;
@@ -3037,6 +3038,168 @@ pub fn fused_rmsnorm_ffn_up_gate(
     );
 
     Ok((up_output, gate_output))
+}
+
+/// Zero-allocation variant of fused_rmsnorm_ffn_up_gate
+///
+/// Writes results directly into pre-allocated output buffers.
+/// Eliminates per-token Vec allocations for the FFN output.
+///
+/// # Arguments
+/// * `input` - Input hidden states [in_dim]
+/// * `norm_weight` - RMSNorm weight [in_dim]
+/// * `eps` - RMSNorm epsilon
+/// * `up_weight_data` - Q4_0 quantized up projection weights
+/// * `gate_weight_data` - Q4_0 quantized gate projection weights
+/// * `in_dim` - Input dimension
+/// * `out_dim` - Output dimension (intermediate size)
+/// * `up_output` - Pre-allocated output buffer for up projection [out_dim]
+/// * `gate_output` - Pre-allocated output buffer for gate projection [out_dim]
+/// * `q8_scales` - Pre-allocated scratch for Q8 scales [num_blocks]
+/// * `q8_quants` - Pre-allocated scratch for Q8 quants [num_blocks * 32]
+#[allow(clippy::too_many_arguments)]
+pub fn fused_rmsnorm_ffn_up_gate_into(
+    input: &[f32],
+    norm_weight: &[f32],
+    eps: f32,
+    up_weight_data: &[u8],
+    gate_weight_data: &[u8],
+    in_dim: usize,
+    out_dim: usize,
+    up_output: &mut [f32],
+    gate_output: &mut [f32],
+    q8_scales: &mut [f32],
+    q8_quants: &mut [i8],
+) -> Result<()> {
+    use rayon::prelude::*;
+
+    const Q4_0_BLOCK_BYTES: usize = 18;
+    const Q4_0_BLOCK_SIZE: usize = 32;
+
+    if input.len() != in_dim {
+        return Err(RealizarError::InvalidShape {
+            reason: format!(
+                "Input length {} doesn't match in_dim {}",
+                input.len(),
+                in_dim
+            ),
+        });
+    }
+
+    let blocks_per_row = in_dim.div_ceil(Q4_0_BLOCK_SIZE);
+    let bytes_per_row = blocks_per_row * Q4_0_BLOCK_BYTES;
+    let expected_weight_bytes = out_dim * bytes_per_row;
+
+    if up_weight_data.len() < expected_weight_bytes {
+        return Err(RealizarError::InvalidShape {
+            reason: format!(
+                "FFN up weight data too small: need {} bytes, have {}",
+                expected_weight_bytes,
+                up_weight_data.len()
+            ),
+        });
+    }
+    if gate_weight_data.len() < expected_weight_bytes {
+        return Err(RealizarError::InvalidShape {
+            reason: format!(
+                "FFN gate weight data too small: need {} bytes, have {}",
+                expected_weight_bytes,
+                gate_weight_data.len()
+            ),
+        });
+    }
+
+    // Fused RMSNorm + Q8_0 quantization into scratch buffers
+    quantize_rmsnorm_q8_0_into(input, norm_weight, eps, q8_scales, q8_quants);
+
+    // Run both matmuls in parallel using rayon::join
+    rayon::join(
+        || {
+            const CHUNK_SIZE: usize = 64;
+            up_output
+                .par_iter_mut()
+                .enumerate()
+                .with_min_len(CHUNK_SIZE)
+                .for_each(|(o, out)| {
+                    let row_start = o * bytes_per_row;
+                    let row_end = row_start + bytes_per_row;
+                    let row_data = &up_weight_data[row_start..row_end];
+                    *out = fused_q4_0_q8_0_dot_simd(row_data, q8_scales, q8_quants, in_dim);
+                });
+        },
+        || {
+            const CHUNK_SIZE: usize = 64;
+            gate_output
+                .par_iter_mut()
+                .enumerate()
+                .with_min_len(CHUNK_SIZE)
+                .for_each(|(o, out)| {
+                    let row_start = o * bytes_per_row;
+                    let row_end = row_start + bytes_per_row;
+                    let row_data = &gate_weight_data[row_start..row_end];
+                    *out = fused_q4_0_q8_0_dot_simd(row_data, q8_scales, q8_quants, in_dim);
+                });
+        },
+    );
+
+    Ok(())
+}
+
+/// Zero-allocation variant of quantize_rmsnorm_q8_0
+///
+/// Writes results directly into pre-allocated output buffers.
+pub fn quantize_rmsnorm_q8_0_into(
+    input: &[f32],
+    norm_weight: &[f32],
+    eps: f32,
+    scales: &mut [f32],
+    quants: &mut [i8],
+) {
+    let hidden_dim = input.len();
+    debug_assert_eq!(hidden_dim, norm_weight.len());
+
+    // Compute sum of squares for RMSNorm
+    let sum_sq: f32 = input.iter().map(|x| x * x).sum();
+    let mean_sq = sum_sq / hidden_dim as f32;
+    let inv_rms = 1.0 / (mean_sq + eps).sqrt();
+
+    let num_blocks = hidden_dim.div_ceil(32);
+
+    for block_idx in 0..num_blocks {
+        let start = block_idx * 32;
+        let end = (start + 32).min(hidden_dim);
+
+        // Find max absolute value of normalized values for this block
+        let mut max_abs = 0.0f32;
+        for i in start..end {
+            let normalized = input[i] * inv_rms * norm_weight[i];
+            let abs = normalized.abs();
+            if abs > max_abs {
+                max_abs = abs;
+            }
+        }
+
+        // Compute scale
+        let scale = if max_abs > 1e-10 {
+            max_abs / 127.0
+        } else {
+            1.0 / 127.0
+        };
+        let inv_scale = 1.0 / scale;
+        scales[block_idx] = scale;
+
+        // Quantize normalized values
+        let quant_start = block_idx * 32;
+        for i in start..end {
+            let normalized = input[i] * inv_rms * norm_weight[i];
+            let q = (normalized * inv_scale).round();
+            quants[quant_start + (i - start)] = q.clamp(-128.0, 127.0) as i8;
+        }
+        // Pad to 32 if partial block
+        for j in (end - start)..32 {
+            quants[quant_start + j] = 0i8;
+        }
+    }
 }
 
 /// SIMD-accelerated fused SwiGLU activation: silu(gate) * up
@@ -3175,6 +3338,213 @@ unsafe fn fused_swiglu_avx2(gate: &mut [f32], up: &[f32]) {
             gate[i] = silu_g * up[i];
             i += 1;
         }
+    }
+}
+
+/// SIMD-optimized in-place softmax
+///
+/// Computes softmax(x) = exp(x - max) / sum(exp(x - max))
+/// Uses AVX2/AVX-512 for vectorized exp and horizontal operations.
+///
+/// # Arguments
+/// * `x` - Slice to softmax in-place
+#[inline]
+pub fn softmax_simd(x: &mut [f32]) {
+    if x.is_empty() {
+        return;
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
+            unsafe {
+                softmax_avx2(x);
+            }
+            return;
+        }
+    }
+
+    // Scalar fallback
+    softmax_scalar(x);
+}
+
+/// Scalar softmax
+#[inline]
+fn softmax_scalar(x: &mut [f32]) {
+    // Find max for numerical stability
+    let max = x.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+
+    // Compute exp(x - max) and sum
+    let mut sum = 0.0f32;
+    for v in x.iter_mut() {
+        *v = (*v - max).exp();
+        sum += *v;
+    }
+
+    // Normalize
+    let inv_sum = 1.0 / sum;
+    for v in x.iter_mut() {
+        *v *= inv_sum;
+    }
+}
+
+/// AVX2 SIMD softmax - only SIMD for max-find and normalization
+/// (exp() uses libm which is faster than polynomial for short vectors)
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[inline]
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn softmax_avx2(x: &mut [f32]) {
+    use std::arch::x86_64::{
+        _mm256_loadu_ps, _mm256_max_ps, _mm256_mul_ps, _mm256_set1_ps, _mm256_storeu_ps,
+    };
+
+    let n = x.len();
+    if n == 0 {
+        return;
+    }
+
+    // ============= Phase 1: Find max (SIMD) =============
+    let mut max_vec = _mm256_set1_ps(f32::NEG_INFINITY);
+    let mut i = 0;
+
+    while i + 8 <= n {
+        let v = _mm256_loadu_ps(x.as_ptr().add(i));
+        max_vec = _mm256_max_ps(max_vec, v);
+        i += 8;
+    }
+
+    let mut max_scalar = horizontal_max_avx2(max_vec);
+    for j in i..n {
+        max_scalar = max_scalar.max(x[j]);
+    }
+
+    // ============= Phase 2: Compute exp(x - max) (scalar libm) =============
+    let mut sum_scalar = 0.0f32;
+    for j in 0..n {
+        let exp_v = (x[j] - max_scalar).exp();
+        x[j] = exp_v;
+        sum_scalar += exp_v;
+    }
+
+    // ============= Phase 3: Normalize (SIMD) =============
+    let inv_sum = _mm256_set1_ps(1.0 / sum_scalar);
+
+    i = 0;
+    while i + 8 <= n {
+        let v = _mm256_loadu_ps(x.as_ptr().add(i));
+        let normalized = _mm256_mul_ps(v, inv_sum);
+        _mm256_storeu_ps(x.as_mut_ptr().add(i), normalized);
+        i += 8;
+    }
+
+    let inv_sum_scalar = 1.0 / sum_scalar;
+    for j in i..n {
+        x[j] *= inv_sum_scalar;
+    }
+}
+
+/// Fast exp approximation using polynomial (AVX2)
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn fast_exp_avx2(
+    x: std::arch::x86_64::__m256,
+    ln2_inv: std::arch::x86_64::__m256,
+    ln2: std::arch::x86_64::__m256,
+    c0: std::arch::x86_64::__m256,
+    c1: std::arch::x86_64::__m256,
+    c2: std::arch::x86_64::__m256,
+    c3: std::arch::x86_64::__m256,
+    c4: std::arch::x86_64::__m256,
+    c5: std::arch::x86_64::__m256,
+    min_exp: std::arch::x86_64::__m256,
+) -> std::arch::x86_64::__m256 {
+    use std::arch::x86_64::{
+        _mm256_add_epi32, _mm256_castsi256_ps, _mm256_cvtps_epi32, _mm256_floor_ps,
+        _mm256_fmadd_ps, _mm256_fnmadd_ps, _mm256_max_ps, _mm256_mul_ps, _mm256_set1_epi32,
+        _mm256_slli_epi32,
+    };
+
+    {
+        // Clamp to avoid underflow
+        let x_clamped = _mm256_max_ps(x, min_exp);
+
+        // n = floor(x / ln2)
+        let xln2 = _mm256_mul_ps(x_clamped, ln2_inv);
+        let n_f = _mm256_floor_ps(xln2);
+        let n_i = _mm256_cvtps_epi32(n_f);
+
+        // f = x - n * ln2
+        let f = _mm256_fnmadd_ps(n_f, ln2, x_clamped);
+
+        // Polynomial: c0 + f*(c1 + f*(c2 + f*(c3 + f*(c4 + f*c5))))
+        let p = _mm256_fmadd_ps(f, c5, c4);
+        let p = _mm256_fmadd_ps(f, p, c3);
+        let p = _mm256_fmadd_ps(f, p, c2);
+        let p = _mm256_fmadd_ps(f, p, c1);
+        let p = _mm256_fmadd_ps(f, p, c0);
+
+        // 2^n via bit manipulation
+        let bias = _mm256_set1_epi32(127);
+        let n_biased = _mm256_add_epi32(n_i, bias);
+        let exp_scale = _mm256_slli_epi32::<23>(n_biased);
+        let exp_scale_f = _mm256_castsi256_ps(exp_scale);
+
+        _mm256_mul_ps(p, exp_scale_f)
+    }
+}
+
+/// Horizontal max of 8-wide AVX2 vector
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[inline]
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn horizontal_max_avx2(v: std::arch::x86_64::__m256) -> f32 {
+    use std::arch::x86_64::{
+        _mm256_extractf128_ps, _mm_cvtss_f32, _mm_max_ps, _mm_max_ss, _mm_movehl_ps, _mm_shuffle_ps,
+    };
+
+    {
+        // Extract high and low 128-bit lanes
+        let hi = _mm256_extractf128_ps::<1>(v);
+        let lo = _mm256_extractf128_ps::<0>(v);
+        let max128 = _mm_max_ps(hi, lo);
+
+        // Reduce 4 to 2
+        let max64 = _mm_max_ps(max128, _mm_movehl_ps(max128, max128));
+
+        // Reduce 2 to 1
+        let max32 = _mm_max_ss(max64, _mm_shuffle_ps::<0x55>(max64, max64));
+
+        _mm_cvtss_f32(max32)
+    }
+}
+
+/// Horizontal sum of 8-wide AVX2 vector
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[inline]
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn horizontal_sum_avx2(v: std::arch::x86_64::__m256) -> f32 {
+    use std::arch::x86_64::{
+        _mm256_extractf128_ps, _mm_add_ps, _mm_add_ss, _mm_cvtss_f32, _mm_movehl_ps, _mm_shuffle_ps,
+    };
+
+    {
+        // Extract high and low 128-bit lanes
+        let hi = _mm256_extractf128_ps::<1>(v);
+        let lo = _mm256_extractf128_ps::<0>(v);
+        let sum128 = _mm_add_ps(hi, lo);
+
+        // Reduce 4 to 2
+        let sum64 = _mm_add_ps(sum128, _mm_movehl_ps(sum128, sum128));
+
+        // Reduce 2 to 1
+        let sum32 = _mm_add_ss(sum64, _mm_shuffle_ps::<0x55>(sum64, sum64));
+
+        _mm_cvtss_f32(sum32)
     }
 }
 
@@ -5795,6 +6165,160 @@ pub fn int8_matvec_parallel(weights: &[Int8Row], activations: &[f32]) -> Vec<f32
             dot_i32 as f32 * row.scale * act_scale
         })
         .collect()
+}
+
+/// SIMD-optimized RoPE rotation for a single head
+///
+/// Applies rotary position embedding rotation to a single attention head:
+/// x1[i] = x1[i] * cos[i] - x2[i] * sin[i]
+/// x2[i] = x1[i] * sin[i] + x2[i] * cos[i]
+///
+/// # Arguments
+/// * `x1` - First half of head (will be modified in-place)
+/// * `x2` - Second half of head (will be modified in-place)
+/// * `cos_vals` - Precomputed cosine values
+/// * `sin_vals` - Precomputed sine values
+#[inline]
+pub fn apply_rope_rotation_simd(
+    x1: &mut [f32],
+    x2: &mut [f32],
+    cos_vals: &[f32],
+    sin_vals: &[f32],
+) {
+    debug_assert_eq!(x1.len(), x2.len());
+    debug_assert_eq!(x1.len(), cos_vals.len());
+    debug_assert_eq!(x1.len(), sin_vals.len());
+
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("avx512f") {
+            unsafe {
+                apply_rope_rotation_avx512(x1, x2, cos_vals, sin_vals);
+            }
+            return;
+        }
+        if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
+            unsafe {
+                apply_rope_rotation_avx2(x1, x2, cos_vals, sin_vals);
+            }
+            return;
+        }
+    }
+
+    // Scalar fallback
+    apply_rope_rotation_scalar(x1, x2, cos_vals, sin_vals);
+}
+
+#[inline]
+fn apply_rope_rotation_scalar(x1: &mut [f32], x2: &mut [f32], cos_vals: &[f32], sin_vals: &[f32]) {
+    for i in 0..x1.len() {
+        let v1 = x1[i];
+        let v2 = x2[i];
+        let cos_v = cos_vals[i];
+        let sin_v = sin_vals[i];
+        x1[i] = v1 * cos_v - v2 * sin_v;
+        x2[i] = v1 * sin_v + v2 * cos_v;
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn apply_rope_rotation_avx2(
+    x1: &mut [f32],
+    x2: &mut [f32],
+    cos_vals: &[f32],
+    sin_vals: &[f32],
+) {
+    use std::arch::x86_64::{
+        _mm256_fmadd_ps, _mm256_fnmadd_ps, _mm256_loadu_ps, _mm256_mul_ps, _mm256_storeu_ps,
+    };
+
+    let n = x1.len();
+    let mut i = 0;
+
+    // Process 8 elements at a time
+    while i + 8 <= n {
+        let v1 = _mm256_loadu_ps(x1.as_ptr().add(i));
+        let v2 = _mm256_loadu_ps(x2.as_ptr().add(i));
+        let cos_v = _mm256_loadu_ps(cos_vals.as_ptr().add(i));
+        let sin_v = _mm256_loadu_ps(sin_vals.as_ptr().add(i));
+
+        // r1 = v1 * cos - v2 * sin
+        let v1_cos = _mm256_mul_ps(v1, cos_v);
+        let r1 = _mm256_fnmadd_ps(v2, sin_v, v1_cos);
+
+        // r2 = v1 * sin + v2 * cos
+        let v1_sin = _mm256_mul_ps(v1, sin_v);
+        let r2 = _mm256_fmadd_ps(v2, cos_v, v1_sin);
+
+        _mm256_storeu_ps(x1.as_mut_ptr().add(i), r1);
+        _mm256_storeu_ps(x2.as_mut_ptr().add(i), r2);
+
+        i += 8;
+    }
+
+    // Handle remainder
+    while i < n {
+        let v1 = x1[i];
+        let v2 = x2[i];
+        let cos_v = cos_vals[i];
+        let sin_v = sin_vals[i];
+        x1[i] = v1 * cos_v - v2 * sin_v;
+        x2[i] = v1 * sin_v + v2 * cos_v;
+        i += 1;
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f")]
+#[inline]
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn apply_rope_rotation_avx512(
+    x1: &mut [f32],
+    x2: &mut [f32],
+    cos_vals: &[f32],
+    sin_vals: &[f32],
+) {
+    use std::arch::x86_64::{
+        _mm512_fmadd_ps, _mm512_fnmadd_ps, _mm512_loadu_ps, _mm512_mul_ps, _mm512_storeu_ps,
+    };
+
+    let n = x1.len();
+    let mut i = 0;
+
+    // Process 16 elements at a time with AVX-512
+    while i + 16 <= n {
+        let v1 = _mm512_loadu_ps(x1.as_ptr().add(i));
+        let v2 = _mm512_loadu_ps(x2.as_ptr().add(i));
+        let cos_v = _mm512_loadu_ps(cos_vals.as_ptr().add(i));
+        let sin_v = _mm512_loadu_ps(sin_vals.as_ptr().add(i));
+
+        // r1 = v1 * cos - v2 * sin
+        let v1_cos = _mm512_mul_ps(v1, cos_v);
+        let r1 = _mm512_fnmadd_ps(v2, sin_v, v1_cos);
+
+        // r2 = v1 * sin + v2 * cos
+        let v1_sin = _mm512_mul_ps(v1, sin_v);
+        let r2 = _mm512_fmadd_ps(v2, cos_v, v1_sin);
+
+        _mm512_storeu_ps(x1.as_mut_ptr().add(i), r1);
+        _mm512_storeu_ps(x2.as_mut_ptr().add(i), r2);
+
+        i += 16;
+    }
+
+    // Handle remainder with AVX2 or scalar
+    while i < n {
+        let v1 = x1[i];
+        let v2 = x2[i];
+        let cos_v = cos_vals[i];
+        let sin_v = sin_vals[i];
+        x1[i] = v1 * cos_v - v2 * sin_v;
+        x2[i] = v1 * sin_v + v2 * cos_v;
+        i += 1;
+    }
 }
 
 #[cfg(all(test, feature = "heavy-tests"))]

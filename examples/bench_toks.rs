@@ -1,10 +1,13 @@
 //! Quick tok/s benchmark with KV cache (GQA-aware)
-use realizar::gguf::{MappedGGUFModel, OwnedQuantizedKVCache, OwnedQuantizedModel};
+use realizar::gguf::{
+    MappedGGUFModel, OwnedInferenceScratchBuffer, OwnedQuantizedKVCache, OwnedQuantizedModel,
+};
 use std::{env, time::Instant};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
     let path = args.get(1).expect("Usage: bench_toks <model.gguf>");
+    let use_scratch = args.get(2).map(|s| s == "--scratch").unwrap_or(false);
 
     // Load model
     let load_start = Instant::now();
@@ -13,7 +16,7 @@ fn main() {
     let vocab = mapped.model.vocabulary().expect("test");
     let load_time = load_start.elapsed();
 
-    let model_name = path.split('/').last().unwrap_or(path);
+    let model_name = path.split('/').next_back().unwrap_or(path);
     println!("Model: {}", model_name);
     println!("Load time: {:.2?}", load_time);
     println!(
@@ -23,6 +26,9 @@ fn main() {
         model.config.num_heads,
         model.config.num_kv_heads
     );
+    if use_scratch {
+        println!("Mode: Scratch buffers (zero-alloc)");
+    }
     println!();
 
     // Encode prompt
@@ -38,10 +44,19 @@ fn main() {
         max_seq_len,
     );
 
+    // Create scratch buffer if using scratch mode
+    let mut scratch = OwnedInferenceScratchBuffer::from_config(&model.config);
+
     // Prefill: process prompt tokens
     let prefill_start = Instant::now();
-    for (pos, &tok) in prompt_tokens.iter().enumerate() {
-        let _ = model.forward_single_with_cache(tok, &mut cache, pos);
+    if use_scratch {
+        for (pos, &tok) in prompt_tokens.iter().enumerate() {
+            let _ = model.forward_single_with_cache_scratch(tok, &mut cache, pos, &mut scratch);
+        }
+    } else {
+        for (pos, &tok) in prompt_tokens.iter().enumerate() {
+            let _ = model.forward_single_with_cache(tok, &mut cache, pos);
+        }
     }
     let prefill_time = prefill_start.elapsed();
     println!(
@@ -52,13 +67,26 @@ fn main() {
     );
 
     // Get initial logits for first generated token
-    let mut logits = model
-        .forward_single_with_cache(
-            prompt_tokens[prompt_tokens.len() - 1],
-            &mut cache,
-            prompt_tokens.len() - 1,
-        )
-        .expect("test");
+    let mut logits_owned: Vec<f32>;
+    if use_scratch {
+        let logits = model
+            .forward_single_with_cache_scratch(
+                prompt_tokens[prompt_tokens.len() - 1],
+                &mut cache,
+                prompt_tokens.len() - 1,
+                &mut scratch,
+            )
+            .expect("test");
+        logits_owned = logits.to_vec();
+    } else {
+        logits_owned = model
+            .forward_single_with_cache(
+                prompt_tokens[prompt_tokens.len() - 1],
+                &mut cache,
+                prompt_tokens.len() - 1,
+            )
+            .expect("test");
+    }
 
     // Reset cache and re-prefill for clean benchmark
     cache = OwnedQuantizedKVCache::new(
@@ -66,10 +94,20 @@ fn main() {
         model.config.num_kv_heads * (model.config.hidden_dim / model.config.num_heads),
         max_seq_len,
     );
-    for (pos, &tok) in prompt_tokens.iter().enumerate() {
-        logits = model
-            .forward_single_with_cache(tok, &mut cache, pos)
-            .expect("test");
+
+    if use_scratch {
+        for (pos, &tok) in prompt_tokens.iter().enumerate() {
+            let logits = model
+                .forward_single_with_cache_scratch(tok, &mut cache, pos, &mut scratch)
+                .expect("test");
+            logits_owned = logits.to_vec();
+        }
+    } else {
+        for (pos, &tok) in prompt_tokens.iter().enumerate() {
+            logits_owned = model
+                .forward_single_with_cache(tok, &mut cache, pos)
+                .expect("test");
+        }
     }
 
     // Benchmark decode
@@ -81,7 +119,7 @@ fn main() {
 
     for _ in 0..num_tokens {
         // Greedy sampling
-        let next_token = logits
+        let next_token = logits_owned
             .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).expect("test"))
@@ -91,9 +129,17 @@ fn main() {
         generated_tokens.push(next_token);
 
         // Forward single token with cache
-        logits = model
-            .forward_single_with_cache(next_token, &mut cache, pos)
-            .expect("test");
+        if use_scratch {
+            let logits = model
+                .forward_single_with_cache_scratch(next_token, &mut cache, pos, &mut scratch)
+                .expect("test");
+            logits_owned.clear();
+            logits_owned.extend_from_slice(logits);
+        } else {
+            logits_owned = model
+                .forward_single_with_cache(next_token, &mut cache, pos)
+                .expect("test");
+        }
         pos += 1;
     }
     let decode_time = decode_start.elapsed();

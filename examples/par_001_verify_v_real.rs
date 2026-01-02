@@ -2,6 +2,8 @@
 //!
 //! Check if the V projection is computing correctly for the actual normed hidden state
 
+#![allow(clippy::needless_range_loop)]
+
 use realizar::gguf::{MappedGGUFModel, OwnedQKVWeights, OwnedQuantizedModel};
 use realizar::quantize::{dequantize_q6_k, fused_q6k_colmajor_matvec};
 

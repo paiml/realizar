@@ -302,12 +302,13 @@ impl LambdaHandler {
         // Lazy-initialize model from bytes (per spec §6.1: OnceLock pattern)
         let model_load_start = Instant::now();
         let model = self.model.get_or_init(|| {
-            AprModel::from_bytes(self.model_bytes)
+            AprModel::from_bytes(self.model_bytes.to_vec())
                 .expect("Model bytes already validated in from_bytes()")
         });
         let model_load_ms = model_load_start.elapsed().as_secs_f64() * 1000.0;
 
         // Run real inference using AprModel::predict()
+        // Note: predict() is a stub returning sum of features until real inference is implemented
         let inference_start = Instant::now();
         let output = model
             .predict(&request.features)
@@ -576,16 +577,40 @@ pub mod benchmark {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::apr::{AprModelType, ModelWeights, HEADER_SIZE, MAGIC};
+    use crate::apr::{HEADER_SIZE, MAGIC};
 
     // ==========================================================================
-    // Test Helpers: Create valid APR model bytes for testing
+    // Test Helpers: Mock types for creating test APR model bytes
+    // Note: These are test-only mocks; real APR inference is not yet implemented
     // ==========================================================================
+
+    /// Mock model weights structure for test APR file creation
+    /// This creates valid APR file format for testing the Lambda handler scaffolding
+    #[derive(serde::Serialize)]
+    struct MockModelWeights {
+        weights: Vec<Vec<f32>>,
+        biases: Vec<Vec<f32>>,
+        dimensions: Vec<usize>,
+    }
+
+    /// Mock model type enum for test APR file creation
+    #[repr(u16)]
+    #[derive(Clone, Copy)]
+    enum MockAprModelType {
+        LinearRegression = 1,
+    }
+
+    impl MockAprModelType {
+        fn as_u16(self) -> u16 {
+            self as u16
+        }
+    }
 
     /// Create APR model bytes where output = sum of inputs (for easy verification)
+    /// Note: Real inference is not implemented yet; tests verify handler scaffolding
     fn create_sum_model(input_dim: usize) -> &'static [u8] {
         // Single output that sums all inputs: output[0] = sum(input[i])
-        let weights = ModelWeights {
+        let weights = MockModelWeights {
             weights: vec![vec![1.0; input_dim]], // 1 x input_dim weights (all 1.0)
             biases: vec![vec![0.0]],             // Single bias of 0
             dimensions: vec![input_dim, 1],
@@ -599,7 +624,7 @@ mod tests {
         data.push(0);
         data.push(0);
         data.push(0);
-        data.extend_from_slice(&AprModelType::LinearRegression.as_u16().to_le_bytes());
+        data.extend_from_slice(&MockAprModelType::LinearRegression.as_u16().to_le_bytes());
         data.extend_from_slice(&0u32.to_le_bytes());
         #[allow(clippy::cast_possible_truncation)]
         data.extend_from_slice(&(payload.len() as u32).to_le_bytes());

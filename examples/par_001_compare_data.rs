@@ -135,22 +135,19 @@ fn main() {
 
     // Try interpreting V data as Q4_K to see if it makes more sense
     println!("\n\n=== Try interpreting V as Q4_K ===");
-    match &model.layers[0].qkv_weight {
-        realizar::gguf::OwnedQKVWeights::Separate { v, .. } => {
-            // If V was actually Q4_K, d would be at offset 0
-            if v.data.len() >= 4 {
-                let d_bytes = [v.data[0], v.data[1]];
-                let d = half::f16::from_bits(u16::from_le_bytes(d_bytes)).to_f32();
-                let dmin_bytes = [v.data[2], v.data[3]];
-                let dmin = half::f16::from_bits(u16::from_le_bytes(dmin_bytes)).to_f32();
-                println!("  If Q4_K: d={:.6}, dmin={:.6}", d, dmin);
-            }
+    if let realizar::gguf::OwnedQKVWeights::Separate { v, .. } = &model.layers[0].qkv_weight {
+        // If V was actually Q4_K, d would be at offset 0
+        if v.data.len() >= 4 {
+            let d_bytes = [v.data[0], v.data[1]];
+            let d = half::f16::from_bits(u16::from_le_bytes(d_bytes)).to_f32();
+            let dmin_bytes = [v.data[2], v.data[3]];
+            let dmin = half::f16::from_bits(u16::from_le_bytes(dmin_bytes)).to_f32();
+            println!("  If Q4_K: d={:.6}, dmin={:.6}", d, dmin);
+        }
 
-            // The V first 2 bytes are [28, eb], which as f16 would be:
-            let d = half::f16::from_bits(u16::from_le_bytes([0x28, 0xeb])).to_f32();
-            println!("  V first 2 bytes as f16: {:.6}", d);
-        },
-        _ => {},
+        // The V first 2 bytes are [28, eb], which as f16 would be:
+        let d = half::f16::from_bits(u16::from_le_bytes([0x28, 0xeb])).to_f32();
+        println!("  V first 2 bytes as f16: {:.6}", d);
     }
 
     println!("\n=== Analysis complete ===");

@@ -21,7 +21,7 @@ fn main() {
     let load_time = start.elapsed();
 
     let config = model.config();
-    let model_name = path.split('/').last().unwrap_or(path);
+    let model_name = path.split('/').next_back().unwrap_or(path);
 
     println!("Model: {}", model_name);
     println!("Load time: {:.2?}", load_time);
@@ -86,7 +86,7 @@ fn main() {
     let sum: u128 = times_us.iter().sum();
     let avg = sum / times_us.len() as u128;
 
-    let mut sorted = times_us.clone();
+    let mut sorted = times_us;
     sorted.sort();
     let median = sorted[sorted.len() / 2];
     let p95 = sorted[(sorted.len() as f64 * 0.95) as usize];
@@ -130,7 +130,7 @@ fn main() {
     let layer_weights = qkv_weights + out_weights + ffn_weights;
     let total_layer_weights = layer_weights * layers;
     let lm_head_weights = hidden * vocab * bytes_per_weight;
-    let embed_weights = vocab * hidden * bytes_per_weight;
+    let _embed_weights = vocab * hidden * bytes_per_weight;
     let total_weights = total_layer_weights + lm_head_weights; // embed often shared
 
     println!("Weight sizes (Q4_0):");
