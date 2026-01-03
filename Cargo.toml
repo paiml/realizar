@@ -1,6 +1,6 @@
 [package]
 name = "realizar"
-version = "0.3.3"
+version = "0.4.0"
 edition = "2021"
 rust-version = "1.89"
 authors = ["Pragmatic AI Labs <contact@paiml.com>"]
@@ -32,7 +32,7 @@ useless_vec = "allow"
 [dependencies]
 # OUR ecosystem - SIMD/GPU compute primitives (we control this)
 # High-performance SIMD compute library with GPU support
-trueno = { version = "0.10.1", features = ["gpu"] }
+trueno = { version = "0.11.0", features = ["gpu"] }
 # CUDA PTX generation and runtime for NVIDIA GPUs (optional, pure Rust, no LLVM/nvcc)
 trueno-gpu = { version = "0.4.4", optional = true, features = ["cuda"] }
 # KV cache storage (for attention caching)
@@ -40,7 +40,7 @@ trueno-db = { version = "0.3.8", optional = true }
 
 # ML algorithms and .apr model format (optional for aprender model serving)
 # v0.20.1: latest with TransformerLM, MoE, improved format
-aprender = { version = "0.20", optional = true }
+aprender = { version = "0.21", optional = true }
 
 # Data loading library (optional for data pipeline examples)
 alimentar = { version = "0.2", optional = true, default-features = false, features = ["local", "shuffle"] }

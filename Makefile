@@ -146,7 +146,6 @@ coverage: ## Generate HTML coverage report (target: >95%, Batuta stack standard)
 	@which cargo-llvm-cov > /dev/null 2>&1 || (echo "$(YELLOW)📦 Installing cargo-llvm-cov...$(NC)" && cargo install cargo-llvm-cov --locked)
 	@which cargo-nextest > /dev/null 2>&1 || (echo "$(YELLOW)📦 Installing cargo-nextest...$(NC)" && cargo install cargo-nextest --locked)
 	@# Temporarily disable mold linker (breaks LLVM coverage instrumentation)
-	@cargo llvm-cov clean --workspace
 	@mkdir -p target/coverage
 	@# Phase 1: Run tests with coverage instrumentation (no report)
 	@# Note: --lib --tests excludes examples (which may require cuda feature not enabled here)
@@ -178,7 +177,6 @@ coverage-open: ## Open HTML coverage report in browser
 	fi
 
 coverage-clean: ## Clean coverage artifacts
-	@cargo llvm-cov clean --workspace 2>/dev/null || true
 	@rm -f lcov.info coverage.xml
 	@rm -rf target/llvm-cov target/coverage
 	@find . -name "*.profraw" -delete 2>/dev/null || true
