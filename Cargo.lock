@@ -3859,6 +3859,7 @@ dependencies = [
  "indicatif",
  "jugar-probar",
  "libc",
+ "lz4_flex",
  "memmap2",
  "mime",
  "num-traits",
@@ -3885,6 +3886,7 @@ dependencies = [
  "trueno-viz",
  "ureq",
  "uuid",
+ "zstd",
 ]
 
 [[package]]
