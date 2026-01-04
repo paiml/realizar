@@ -87,6 +87,18 @@ impl AprFlags {
         self.0 & (Self::LZ4_COMPRESSED | Self::ZSTD_COMPRESSED) != 0
     }
 
+    /// Check if model uses LZ4 compression
+    #[must_use]
+    pub const fn is_lz4(&self) -> bool {
+        self.0 & Self::LZ4_COMPRESSED != 0
+    }
+
+    /// Check if model uses ZSTD compression
+    #[must_use]
+    pub const fn is_zstd(&self) -> bool {
+        self.0 & Self::ZSTD_COMPRESSED != 0
+    }
+
     /// Check if model is encrypted
     #[must_use]
     pub const fn is_encrypted(&self) -> bool {
@@ -392,11 +404,12 @@ impl AprV2Model {
             });
         }
 
-        if header.flags.is_compressed() {
-            return Err(RealizarError::FormatError {
-                reason: "Compressed .apr files not yet supported".to_string(),
-            });
-        }
+        // Decompress data if needed (GH-35)
+        let data = if header.flags.is_compressed() {
+            Self::decompress_apr_data(&header, data)?
+        } else {
+            data
+        };
 
         // Parse metadata
         let metadata_start = header.metadata_offset as usize;
@@ -444,6 +457,50 @@ impl AprV2Model {
             tensors,
             data,
         })
+    }
+
+    /// Decompress APR data based on compression flags (GH-35)
+    ///
+    /// The compressed format stores: header (64 bytes, uncompressed) + compressed payload.
+    /// We decompress the payload and reconstruct the full data vector.
+    #[allow(unreachable_patterns)] // Pattern varies based on apr-compression feature
+    fn decompress_apr_data(header: &AprHeader, data: Vec<u8>) -> Result<Vec<u8>> {
+        #[cfg(feature = "apr-compression")]
+        let compressed_payload = &data[HEADER_SIZE..];
+
+        #[cfg(feature = "apr-compression")]
+        {
+            let decompressed = if header.flags.is_lz4() {
+                lz4_flex::decompress_size_prepended(compressed_payload).map_err(|e| {
+                    RealizarError::FormatError {
+                        reason: format!("LZ4 decompression failed: {e}"),
+                    }
+                })?
+            } else if header.flags.is_zstd() {
+                zstd::decode_all(compressed_payload).map_err(|e| RealizarError::FormatError {
+                    reason: format!("ZSTD decompression failed: {e}"),
+                })?
+            } else {
+                // Unknown compression - should not happen
+                return Err(RealizarError::FormatError {
+                    reason: "Unknown compression algorithm in APR flags".to_string(),
+                });
+            };
+
+            // Reconstruct full data: header + decompressed payload
+            let mut result = Vec::with_capacity(HEADER_SIZE + decompressed.len());
+            result.extend_from_slice(&data[..HEADER_SIZE]);
+            result.extend_from_slice(&decompressed);
+            return Ok(result);
+        }
+
+        #[cfg(not(feature = "apr-compression"))]
+        {
+            let _ = (header, &data); // Suppress unused warnings
+            Err(RealizarError::FormatError {
+                reason: "Compressed .apr files require 'apr-compression' feature".to_string(),
+            })
+        }
     }
 
     /// Get number of tensors
@@ -840,5 +897,58 @@ mod tests {
         assert_eq!(entries[1].name, "tensor2");
         assert_eq!(entries[2].name, "tensor3");
         assert_eq!(entries[1].shape, vec![200, 300]);
+    }
+
+    // =========================================================================
+    // Compression Tests (GH-35)
+    // =========================================================================
+
+    #[test]
+    fn test_flags_lz4() {
+        let flags = AprFlags::new(AprFlags::LZ4_COMPRESSED);
+        assert!(flags.is_lz4());
+        assert!(!flags.is_zstd());
+        assert!(flags.is_compressed());
+    }
+
+    #[test]
+    fn test_flags_zstd() {
+        let flags = AprFlags::new(AprFlags::ZSTD_COMPRESSED);
+        assert!(!flags.is_lz4());
+        assert!(flags.is_zstd());
+        assert!(flags.is_compressed());
+    }
+
+    #[test]
+    fn test_flags_no_compression() {
+        let flags = AprFlags::new(0);
+        assert!(!flags.is_lz4());
+        assert!(!flags.is_zstd());
+        assert!(!flags.is_compressed());
+    }
+
+    #[cfg(not(feature = "apr-compression"))]
+    #[test]
+    fn test_compressed_file_requires_feature() {
+        // Create a minimal APR v2 header with LZ4 flag
+        let mut data = vec![0u8; HEADER_SIZE + 100];
+        data[0..4].copy_from_slice(&MAGIC);
+        data[4] = 2; // version major
+        data[5] = 0; // version minor
+        data[6..8].copy_from_slice(&(AprFlags::LZ4_COMPRESSED).to_le_bytes()); // LZ4 flag
+        data[8..12].copy_from_slice(&0u32.to_le_bytes()); // tensor_count = 0
+        data[12..20].copy_from_slice(&64u64.to_le_bytes()); // metadata_offset
+        data[20..24].copy_from_slice(&0u32.to_le_bytes()); // metadata_size = 0
+        data[24..32].copy_from_slice(&64u64.to_le_bytes()); // tensor_index_offset
+        data[32..40].copy_from_slice(&64u64.to_le_bytes()); // data_offset
+
+        let result = AprV2Model::from_bytes(data);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("apr-compression"),
+            "Error should mention feature: {}",
+            err_msg
+        );
     }
 }
