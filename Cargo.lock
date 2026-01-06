@@ -164,13 +164,14 @@ dependencies = [
 
 [[package]]
 name = "aprender"
-version = "0.21.0"
+version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e2ce7eda2fdbba4cf761daed7f0e22df24c54d3b192d0d0328d572f9e15eed2"
+checksum = "9f0da5259c3f5e51f9eb70168d53d344f100bcd7f8632ce47409870bb693bb0d"
 dependencies = [
  "bincode",
  "getrandom 0.2.16",
  "memmap2",
+ "minijinja",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
  "rayon",
@@ -3851,7 +3852,7 @@ dependencies = [
 
 [[package]]
 name = "realizar"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "alimentar",
  "anyhow",
