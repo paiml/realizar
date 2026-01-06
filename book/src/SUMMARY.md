@@ -210,6 +210,7 @@
 - [Inference Demo](./examples/inference.md)
 - [TinyLlama Benchmark](./examples/tinyllama-benchmark.md)
 - [Tokenization Comparison](./examples/tokenization.md)
+- [Chat Templates](./examples/chat-template.md)
 - [API Server Demo](./examples/api-server.md)
 - [Observability Demo](./examples/observability.md)
 - [Wine Quality Lambda](./examples/wine-lambda.md)

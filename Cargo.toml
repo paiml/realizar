@@ -116,6 +116,10 @@ rand = "0.8"
 # Stack allocation for small token buffers and attention scores
 smallvec = "1.13"
 
+# Chat template engine (Jinja2-compatible) for model-specific formatting
+# Supports ChatML, LLaMA2, Mistral, Phi, Alpaca formats
+minijinja = { version = "2.14", features = ["loader"] }
+
 # That's it. NO candle, NO llama-cpp-rs, NO hf-hub
 # We build everything from scratch: GGUF parser, safetensors, transformer, quantization, tokenizer
 
@@ -281,6 +285,18 @@ required-features = ["alimentar-data"]
 
 [[example]]
 name = "performance_parity"
+
+[[example]]
+name = "chat_template"
+
+[[example]]
+name = "inference"
+
+[[example]]
+name = "tokenization"
+
+[[example]]
+name = "gguf_loading"
 
 [[example]]
 name = "cuda_debug"

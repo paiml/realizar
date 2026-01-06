@@ -23,6 +23,7 @@ curl -X POST http://localhost:8080/generate -d '{"prompt": "Hello", "max_tokens"
 | Formats | GGUF, SafeTensors, APR (native) |
 | Quantization | Q4_0, Q8_0, Q4_K, Q5_K, Q6_K |
 | Inference | Transformer, RoPE, KV cache, Flash Attention |
+| Chat Templates | ChatML, LLaMA2, Mistral, Phi, Alpaca (auto-detect) |
 | API | REST, streaming, Prometheus metrics |
 | GPU | CUDA via [trueno-gpu](https://crates.io/crates/trueno-gpu) (pure Rust PTX) |
 | Quality | 2,400+ tests, 95% function coverage |
@@ -236,12 +237,47 @@ All benchmarks follow [Hoefler & Belli SC'15](https://doi.org/10.1145/2807591.28
 
 See [docs/benchmarking-other-servers.md](docs/benchmarking-other-servers.md) for full methodology.
 
+## Chat Templates
+
+Format LLM conversations for different model families with automatic template detection:
+
+```rust
+use realizar::chat_template::{
+    auto_detect_template, ChatMessage, ChatTemplateEngine
+};
+
+// Auto-detect template from model name
+let template = auto_detect_template("Qwen2-0.5B-Instruct");
+
+let messages = vec![
+    ChatMessage::system("You are a helpful assistant."),
+    ChatMessage::user("Hello!"),
+];
+
+let formatted = template.format_conversation(&messages)?;
+```
+
+**Supported Formats:**
+
+| Format | Models | System Prompt |
+|--------|--------|---------------|
+| ChatML | Qwen2, Yi, OpenHermes | Yes |
+| Llama2 | TinyLlama, Vicuna, LLaMA 2 | Yes |
+| Mistral | Mistral-7B, Mixtral | No |
+| Phi | Phi-2, Phi-3 | Yes |
+| Alpaca | Alpaca, Guanaco | Yes |
+| Raw | Fallback | Passthrough |
+| Custom | Any (Jinja2) | Configurable |
+
+See [`examples/chat_template.rs`](examples/chat_template.rs) for complete usage.
+
 ## Examples
 
 ```bash
 # All examples
 cargo run --example inference          # Basic inference demo
 cargo run --example api_server         # HTTP server demo
+cargo run --example chat_template      # Chat template formatting
 cargo run --example gguf_loading       # Load GGUF models
 cargo run --example apr_loading        # Load APR models
 cargo run --example tokenization       # Tokenizer demo
@@ -283,6 +319,7 @@ realizar/
 │   ├── quantize.rs     # Q4_K, Q8_0 dequantization
 │   ├── layers.rs       # Transformer layers
 │   ├── tokenizer.rs    # BPE, SentencePiece
+│   ├── chat_template.rs # Chat templates (ChatML, LLaMA2, Mistral, etc.)
 │   ├── api.rs          # REST endpoints
 │   └── bench_preflight.rs # Deterministic benchmarking
 └── benches/

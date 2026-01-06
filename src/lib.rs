@@ -154,6 +154,12 @@ pub mod bench;
 /// - Vitek & Kalibera EMSOFT'11: Reproducibility requirements
 pub mod bench_preflight;
 pub mod cache;
+/// Chat template engine for model-specific message formatting
+///
+/// Supports ChatML (Qwen2, Yi), LLaMA2 (TinyLlama, Vicuna),
+/// Mistral, Phi, Alpaca, and Raw formats.
+/// Auto-detects format from model name.
+pub mod chat_template;
 /// CLI command implementations (extracted for testability)
 pub mod cli;
 /// GGUF to APR Transformer converter

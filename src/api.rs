@@ -2766,8 +2766,8 @@ async fn openai_chat_completions_handler(
         )
     })?;
 
-    // Convert chat messages to prompt
-    let prompt_text = format_chat_messages(&request.messages);
+    // Convert chat messages to prompt using model-specific template
+    let prompt_text = format_chat_messages(&request.messages, Some(&request.model));
 
     // Tokenize prompt
     let prompt_ids = tokenizer.encode(&prompt_text);
@@ -2898,8 +2898,8 @@ async fn openai_chat_completions_stream_handler(
         )
     })?;
 
-    // Convert chat messages to prompt
-    let prompt_text = format_chat_messages(&request.messages);
+    // Convert chat messages to prompt using model-specific template
+    let prompt_text = format_chat_messages(&request.messages, Some(&request.model));
 
     // Tokenize prompt
     let prompt_ids = tokenizer.encode(&prompt_text);
@@ -3142,35 +3142,29 @@ impl ContextWindowManager {
     }
 }
 
-/// Format chat messages into a single prompt string
-fn format_chat_messages(messages: &[ChatMessage]) -> String {
-    let mut prompt = String::new();
-    for msg in messages {
-        match msg.role.as_str() {
-            "system" => {
-                prompt.push_str("System: ");
-                prompt.push_str(&msg.content);
-                prompt.push('\n');
-            },
-            "user" => {
-                prompt.push_str("User: ");
-                prompt.push_str(&msg.content);
-                prompt.push('\n');
-            },
-            "assistant" => {
-                prompt.push_str("Assistant: ");
-                prompt.push_str(&msg.content);
-                prompt.push('\n');
-            },
-            _ => {
-                prompt.push_str(&msg.content);
-                prompt.push('\n');
-            },
+/// Format chat messages into a single prompt string using model-specific templates
+///
+/// Uses the chat_template module to format messages according to the model's
+/// expected format (ChatML, LLaMA2, Mistral, Phi, Alpaca, or Raw fallback).
+fn format_chat_messages(messages: &[ChatMessage], model_name: Option<&str>) -> String {
+    use crate::chat_template::{self, ChatMessage as TemplateMessage};
+
+    // Convert API ChatMessage to template ChatMessage
+    let template_messages: Vec<TemplateMessage> = messages
+        .iter()
+        .map(|m| TemplateMessage::new(&m.role, &m.content))
+        .collect();
+
+    // Use model-aware template formatting
+    chat_template::format_messages(&template_messages, model_name).unwrap_or_else(|_| {
+        // Fallback to simple concatenation if template fails
+        let mut prompt = String::new();
+        for msg in messages {
+            prompt.push_str(&msg.content);
+            prompt.push('\n');
         }
-    }
-    // Add assistant prompt for generation
-    prompt.push_str("Assistant: ");
-    prompt
+        prompt
+    })
 }
 
 // ============================================================================
@@ -5211,20 +5205,36 @@ mod tests {
     }
 
     #[test]
-    fn test_format_chat_messages_simple() {
+    fn test_format_chat_messages_simple_raw() {
         let messages = vec![ChatMessage {
             role: "user".to_string(),
             content: "Hello".to_string(),
             name: None,
         }];
 
-        let result = format_chat_messages(&messages);
-        assert!(result.contains("User: Hello"));
-        assert!(result.ends_with("Assistant: "));
+        // Raw format (None model) just concatenates content
+        let result = format_chat_messages(&messages, None);
+        assert!(result.contains("Hello"));
     }
 
     #[test]
-    fn test_format_chat_messages_with_system() {
+    fn test_format_chat_messages_chatml() {
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: "Hello".to_string(),
+            name: None,
+        }];
+
+        // Qwen2 uses ChatML format
+        let result = format_chat_messages(&messages, Some("Qwen2-0.5B"));
+        assert!(result.contains("<|im_start|>user"));
+        assert!(result.contains("Hello"));
+        assert!(result.contains("<|im_end|>"));
+        assert!(result.ends_with("<|im_start|>assistant\n"));
+    }
+
+    #[test]
+    fn test_format_chat_messages_llama2() {
         let messages = vec![
             ChatMessage {
                 role: "system".to_string(),
@@ -5238,14 +5248,17 @@ mod tests {
             },
         ];
 
-        let result = format_chat_messages(&messages);
-        assert!(result.contains("System: You are helpful."));
-        assert!(result.contains("User: Hi"));
-        assert!(result.ends_with("Assistant: "));
+        // TinyLlama uses LLaMA2 format
+        let result = format_chat_messages(&messages, Some("TinyLlama-1.1B"));
+        assert!(result.contains("[INST]"));
+        assert!(result.contains("<<SYS>>"));
+        assert!(result.contains("You are helpful."));
+        assert!(result.contains("<</SYS>>"));
+        assert!(result.contains("Hi"));
     }
 
     #[test]
-    fn test_format_chat_messages_conversation() {
+    fn test_format_chat_messages_mistral() {
         let messages = vec![
             ChatMessage {
                 role: "user".to_string(),
@@ -5264,11 +5277,41 @@ mod tests {
             },
         ];
 
-        let result = format_chat_messages(&messages);
-        assert!(result.contains("User: Hello"));
-        assert!(result.contains("Assistant: Hi there!"));
-        assert!(result.contains("User: How are you?"));
-        assert!(result.ends_with("Assistant: "));
+        // Mistral format
+        let result = format_chat_messages(&messages, Some("Mistral-7B"));
+        assert!(result.contains("[INST]"));
+        assert!(result.contains("Hello"));
+        assert!(result.contains("Hi there!"));
+        assert!(result.contains("How are you?"));
+    }
+
+    #[test]
+    fn test_format_chat_messages_phi() {
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: "Test".to_string(),
+            name: None,
+        }];
+
+        // Phi format
+        let result = format_chat_messages(&messages, Some("phi-2"));
+        assert!(result.contains("Instruct: Test"));
+        assert!(result.ends_with("Output:"));
+    }
+
+    #[test]
+    fn test_format_chat_messages_alpaca() {
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: "Test".to_string(),
+            name: None,
+        }];
+
+        // Alpaca format
+        let result = format_chat_messages(&messages, Some("alpaca-7b"));
+        assert!(result.contains("### Instruction:"));
+        assert!(result.contains("Test"));
+        assert!(result.ends_with("### Response:\n"));
     }
 
     #[test]

@@ -62,6 +62,14 @@ enum Commands {
         #[arg(short, long, default_value = "text")]
         format: String,
 
+        /// System prompt for chat template
+        #[arg(short, long)]
+        system: Option<String>,
+
+        /// Disable chat template formatting (send raw prompt)
+        #[arg(long)]
+        raw: bool,
+
         /// Force GPU acceleration (requires CUDA feature)
         #[arg(long)]
         gpu: bool,
@@ -252,6 +260,8 @@ async fn main() -> Result<()> {
             max_tokens,
             temperature,
             format,
+            system,
+            raw,
             gpu,
         } => {
             run_model(
@@ -260,6 +270,8 @@ async fn main() -> Result<()> {
                 max_tokens,
                 temperature,
                 &format,
+                system.as_deref(),
+                raw,
                 gpu,
             )
             .await?;
@@ -633,14 +645,19 @@ async fn serve_model(
 // ============================================================================
 
 #[cfg(feature = "registry")]
+#[allow(clippy::too_many_arguments)]
 async fn run_model(
     model_ref: &str,
     prompt: Option<&str>,
     max_tokens: usize,
     temperature: f32,
     format: &str,
+    system_prompt: Option<&str>,
+    raw_mode: bool,
     force_gpu: bool,
 ) -> Result<()> {
+    use realizar::chat_template::{auto_detect_template, ChatMessage};
+
     println!("Loading model: {model_ref}");
     if force_gpu {
         println!("GPU: FORCED (--gpu flag)");
@@ -716,7 +733,42 @@ async fn run_model(
     println!();
 
     if let Some(prompt_text) = prompt {
-        println!("Prompt: {prompt_text}");
+        // Apply chat template formatting unless --raw mode
+        let formatted_prompt = if raw_mode {
+            println!("Prompt (raw): {prompt_text}");
+            prompt_text.to_string()
+        } else {
+            // Auto-detect template from model name
+            let template = auto_detect_template(model_ref);
+            println!("Chat template: {:?}", template.format());
+
+            // Build messages
+            let mut messages = Vec::new();
+            if let Some(sys) = system_prompt {
+                messages.push(ChatMessage::system(sys));
+            }
+            messages.push(ChatMessage::user(prompt_text));
+
+            // Format using detected template
+            match template.format_conversation(&messages) {
+                Ok(formatted) => {
+                    println!("Prompt (formatted):");
+                    // Show first 200 chars of formatted prompt
+                    let preview: String = formatted.chars().take(200).collect();
+                    println!(
+                        "  {}{}",
+                        preview,
+                        if formatted.len() > 200 { "..." } else { "" }
+                    );
+                    formatted
+                },
+                Err(e) => {
+                    eprintln!("Warning: chat template failed ({e}), using raw prompt");
+                    prompt_text.to_string()
+                },
+            }
+        };
+
         println!("Max tokens: {max_tokens}");
         println!("Temperature: {temperature}");
         println!("Format: {format}");
@@ -726,7 +778,7 @@ async fn run_model(
         run_gguf_inference(
             model_ref,
             &file_data,
-            prompt_text,
+            &formatted_prompt,
             max_tokens,
             temperature,
             format,
@@ -1194,14 +1246,19 @@ fn run_apr_inference(
 }
 
 #[cfg(not(feature = "registry"))]
+#[allow(clippy::too_many_arguments)]
 async fn run_model(
     model_ref: &str,
     prompt: Option<&str>,
     max_tokens: usize,
     temperature: f32,
     format: &str,
+    system_prompt: Option<&str>,
+    raw_mode: bool,
     force_gpu: bool,
 ) -> Result<()> {
+    use realizar::chat_template::{auto_detect_template, ChatMessage};
+
     println!("Loading model: {model_ref}");
     if force_gpu {
         println!("GPU: FORCED (--gpu flag)");
@@ -1241,7 +1298,42 @@ async fn run_model(
     println!();
 
     if let Some(prompt_text) = prompt {
-        println!("Prompt: {prompt_text}");
+        // Apply chat template formatting unless --raw mode
+        let formatted_prompt = if raw_mode {
+            println!("Prompt (raw): {prompt_text}");
+            prompt_text.to_string()
+        } else {
+            // Auto-detect template from model name
+            let template = auto_detect_template(model_ref);
+            println!("Chat template: {:?}", template.format());
+
+            // Build messages
+            let mut messages = Vec::new();
+            if let Some(sys) = system_prompt {
+                messages.push(ChatMessage::system(sys));
+            }
+            messages.push(ChatMessage::user(prompt_text));
+
+            // Format using detected template
+            match template.format_conversation(&messages) {
+                Ok(formatted) => {
+                    println!("Prompt (formatted):");
+                    // Show first 200 chars of formatted prompt
+                    let preview: String = formatted.chars().take(200).collect();
+                    println!(
+                        "  {}{}",
+                        preview,
+                        if formatted.len() > 200 { "..." } else { "" }
+                    );
+                    formatted
+                },
+                Err(e) => {
+                    eprintln!("Warning: chat template failed ({e}), using raw prompt");
+                    prompt_text.to_string()
+                },
+            }
+        };
+
         println!("Max tokens: {max_tokens}");
         println!("Temperature: {temperature}");
         println!("Format: {format}");
@@ -1256,7 +1348,7 @@ async fn run_model(
                 run_apr_inference(
                     model_ref,
                     &file_data,
-                    prompt_text,
+                    &formatted_prompt,
                     max_tokens,
                     temperature,
                     format,
@@ -1266,7 +1358,7 @@ async fn run_model(
                 run_gguf_inference(
                     model_ref,
                     &file_data,
-                    prompt_text,
+                    &formatted_prompt,
                     max_tokens,
                     temperature,
                     format,
