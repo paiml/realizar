@@ -3321,9 +3321,9 @@ dependencies = [
 
 [[package]]
 name = "pacha"
-version = "0.1.2"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "838166a0e86ec3f84edc5526003dacccdfaffe80daaaf7b9277f84b5d7fc62cf"
+checksum = "3f6d59e289c5b70f2b8613348d4f17fe2ce1a1b0d6ebeaad79ce6ca5d2eb7a33"
 dependencies = [
  "anyhow",
  "blake3",
