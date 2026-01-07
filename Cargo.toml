@@ -46,7 +46,7 @@ aprender = { version = "0.23", optional = true }
 alimentar = { version = "0.2", optional = true, default-features = false, features = ["local", "shuffle"] }
 
 # Model registry (optional for pull/push commands)
-pacha = { version = "0.1.2", optional = true }
+pacha = { version = "0.2", optional = true }
 
 # Terminal/PNG visualization for benchmarks and metrics
 trueno-viz = { version = "0.1.6", optional = true, features = ["terminal"] }
