@@ -12022,6 +12022,9 @@ impl OwnedQuantizedModel {
             .first()
             .is_some_and(|l| l.ffn_gate_weight.is_some() && l.attn_norm_bias.is_none());
 
+        // Pre-allocate attention output buffer - reused across all layers
+        let mut attn_out_buffer = vec![0.0f32; hidden_dim];
+
         // 2. Process through transformer layers
         for (layer_idx, layer) in self.layers.iter().enumerate() {
             // 2a+2b. Fused attention layer norm + QKV projection
@@ -12073,29 +12076,29 @@ impl OwnedQuantizedModel {
             let k_cache = cache.get_k(layer_idx);
             let v_cache = cache.get_v(layer_idx);
 
-            let attn_out = if k_cache.is_empty() {
+            // Use pre-allocated attention output buffer (reused across layers)
+            if k_cache.is_empty() {
                 // First token - no cache yet, output is just weighted V
                 // With single query and single K/V, need to expand V for all Q heads
-                let mut expanded_v = vec![0.0f32; hidden_dim];
                 let q_per_kv = self.config.num_heads / num_kv_heads;
                 for q_head in 0..self.config.num_heads {
                     let kv_head = q_head / q_per_kv;
                     let v_start = kv_head * head_dim;
                     let out_start = q_head * head_dim;
-                    expanded_v[out_start..out_start + head_dim]
+                    attn_out_buffer[out_start..out_start + head_dim]
                         .copy_from_slice(&v[v_start..v_start + head_dim]);
                 }
-                expanded_v
             } else {
                 // Use cached K/V for attention with GQA
-                self.attention_with_cache_gqa(q, k_cache, v_cache, k, v)
-            };
+                // Uses pre-allocated buffer to avoid 704 Vec allocations per token
+                self.attention_with_cache_gqa_into(q, k_cache, v_cache, k, v, &mut attn_out_buffer);
+            }
 
             // 2e. Store K and V in cache for future tokens
             cache.append(layer_idx, k, v);
 
             // 2f. Attention output projection
-            let mut attn_output = self.fused_matmul(&attn_out, &layer.attn_output_weight)?;
+            let mut attn_output = self.fused_matmul(&attn_out_buffer, &layer.attn_output_weight)?;
             if let Some(ref bias) = layer.attn_output_bias {
                 self.add_bias(&mut attn_output, bias);
             }
@@ -12321,8 +12324,15 @@ impl OwnedQuantizedModel {
                 }
             } else {
                 // Use cached K/V for attention with GQA
-                let attn_result = self.attention_with_cache_gqa(q, k_cache, v_cache, k, v);
-                scratch.attn_out.copy_from_slice(&attn_result);
+                // Use pre-allocated buffer to avoid 704 Vec allocations per token
+                self.attention_with_cache_gqa_into(
+                    q,
+                    k_cache,
+                    v_cache,
+                    k,
+                    v,
+                    &mut scratch.attn_out,
+                );
             }
 
             // 2e. Store K and V in cache
