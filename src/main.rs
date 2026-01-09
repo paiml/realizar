@@ -906,6 +906,47 @@ fn run_gguf_inference(
         logits = model.forward_cached(token_id, &mut cache, pos)?;
     }
 
+    // PAR-051: Diagnostic - show top5 logits after prefill
+    {
+        let mut top5: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
+        top5.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        top5.truncate(5);
+        eprintln!("[PAR-051] Prompt tokens: {:?}", prompt_tokens);
+        eprintln!("[PAR-051] Logits top5 after prefill: {:?}", top5);
+        let greedy_token = top5[0].0 as u32;
+        let decoded = mapped.model.decode(&[greedy_token]);
+        eprintln!(
+            "[PAR-051] Greedy next token: {} = {:?}",
+            greedy_token, decoded
+        );
+
+        // Check embedding - compare first 5 values
+        let last_token = prompt_tokens[prompt_tokens.len() - 1];
+        let embed = model.embed(&[last_token]);
+        eprintln!(
+            "[PAR-051] Last token {} embed[0..5]: {:?}",
+            last_token,
+            &embed[..5.min(embed.len())]
+        );
+        eprintln!("[PAR-051] embed sum: {:.6}", embed.iter().sum::<f32>());
+
+        // Check model config
+        let cfg = model.config();
+        eprintln!(
+            "[PAR-051] Config: hidden={}, heads={}/{}, layers={}, vocab={}, eps={:e}",
+            cfg.hidden_dim,
+            cfg.num_heads,
+            cfg.num_kv_heads,
+            cfg.num_layers,
+            cfg.vocab_size,
+            cfg.eps
+        );
+
+        // Check logit at index 29906 (token "2")
+        let logit_2 = logits.get(29906).copied().unwrap_or(f32::NAN);
+        eprintln!("[PAR-051] Logit for token 29906 ('2'): {:.6}", logit_2);
+    }
+
     // Decode: generate new tokens one at a time
     // First iteration uses logits from prefill, subsequent use new logits
     for i in 0..max_tokens {
@@ -1000,29 +1041,35 @@ fn run_gguf_inference_gpu(
     format: &str,
     load_start: std::time::Instant,
 ) -> Result<()> {
-    use realizar::gguf::OwnedQuantizedModel;
+    use realizar::gguf::{OwnedQuantizedModel, OwnedQuantizedModelCuda, QuantizedGenerateConfig};
     use std::time::Instant;
 
     println!("Backend: CUDA (GPU)");
     println!("Creating quantized model with CUDA acceleration...");
 
     // Create owned quantized model (required for CUDA - can't use borrowed mmap data)
-    let mut quantized_model = OwnedQuantizedModel::from_mapped(mapped).map_err(|e| {
+    let quantized_model = OwnedQuantizedModel::from_mapped(mapped).map_err(|e| {
         realizar::error::RealizarError::UnsupportedOperation {
             operation: "create_quantized".to_string(),
             reason: format!("Failed to create quantized model: {e}"),
         }
     })?;
 
-    // Enable CUDA on GPU 0
-    match quantized_model.enable_cuda(0) {
-        Ok(()) => {
-            println!("  CUDA enabled on GPU 0");
-        },
-        Err(e) => {
-            eprintln!("Warning: CUDA enable failed: {}. Falling back to CPU.", e);
-        },
-    }
+    // Get config info before wrapping
+    let vocab_size = quantized_model.config.vocab_size;
+    let hidden_dim = quantized_model.config.hidden_dim;
+    let num_layers = quantized_model.layers.len();
+
+    // PAR-046: Create OwnedQuantizedModelCuda wrapper for actual GPU acceleration
+    // The previous implementation used OwnedQuantizedModel.enable_cuda() which only
+    // initialized the executor but forward_cached still used CPU code paths.
+    let max_seq_len = 256 + max_tokens; // Allow for prompt + generation
+    let mut cuda_model = OwnedQuantizedModelCuda::with_max_seq_len(quantized_model, 0, max_seq_len)
+        .map_err(|e| realizar::error::RealizarError::UnsupportedOperation {
+            operation: "OwnedQuantizedModelCuda::new".to_string(),
+            reason: format!("CUDA initialization failed: {e}"),
+        })?;
+    println!("  CUDA enabled on GPU: {}", cuda_model.device_name());
 
     let load_time = load_start.elapsed();
     println!("Model loaded in {:.2}ms", load_time.as_secs_f64() * 1000.0);
@@ -1044,9 +1091,7 @@ fn run_gguf_inference_gpu(
 
     println!(
         "Vocab size: {}, Hidden dim: {}, Layers: {}",
-        quantized_model.config.vocab_size,
-        quantized_model.config.hidden_dim,
-        quantized_model.layers.len()
+        vocab_size, hidden_dim, num_layers
     );
     println!(
         "Prompt tokens: {} (BOS={:?}, EOS={:?})",
@@ -1057,64 +1102,35 @@ fn run_gguf_inference_gpu(
     println!("Temperature: {:.1}", temperature);
     println!();
 
-    // PARITY-003: Run inference with KV cache for O(n) per-token cost
-    // Previously used generate() which is O(n²) - this caused the slow GPU performance
+    // PAR-046: Use CUDA-accelerated generation with GPU-resident KV cache
+    // This calls generate_cuda_with_cache -> forward_single_cuda_with_cache -> GPU kernels
     let gen_start = Instant::now();
 
-    // Create KV cache for efficient autoregressive decoding
-    let max_seq_len = prompt_tokens.len() + max_tokens;
-    let mut cache =
-        realizar::gguf::OwnedQuantizedKVCache::from_config(&quantized_model.config, max_seq_len);
-    let mut all_tokens = prompt_tokens.clone();
-
-    // Prefill: process prompt tokens to populate KV cache
-    let mut logits: Vec<f32> = vec![];
-    for (pos, &token_id) in prompt_tokens.iter().enumerate() {
-        logits = quantized_model
-            .forward_cached(token_id, &mut cache, pos)
-            .map_err(|e| realizar::error::RealizarError::UnsupportedOperation {
-                operation: "forward_cached".to_string(),
-                reason: format!("Prefill failed: {e}"),
-            })?;
+    // Build stop tokens list
+    let mut stop_tokens = Vec::new();
+    if let Some(eos) = eos_token_id {
+        stop_tokens.push(eos);
     }
 
-    // Decode: generate new tokens one at a time with KV caching
-    for i in 0..max_tokens {
-        // Sample next token
-        let next_token = if temperature <= 0.01 {
-            // Greedy decoding
-            logits
-                .iter()
-                .enumerate()
-                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .map_or(0, |(idx, _)| idx as u32)
-        } else {
-            // Temperature sampling with top-k
-            OwnedQuantizedModel::sample_topk(&logits, temperature, 40)
-        };
+    // Configure CUDA generation
+    let gen_config = QuantizedGenerateConfig {
+        max_tokens,
+        temperature,
+        top_k: if temperature <= 0.01 { 1 } else { 40 },
+        stop_tokens,
+    };
 
-        // Stop on EOS
-        if let Some(eos) = eos_token_id {
-            if next_token == eos {
-                break;
-            }
-        }
-
-        all_tokens.push(next_token);
-
-        // Forward with KV cache for next iteration (if not last token)
-        if i < max_tokens - 1 {
-            let position = prompt_tokens.len() + i;
-            logits = quantized_model
-                .forward_cached(next_token, &mut cache, position)
-                .map_err(|e| realizar::error::RealizarError::UnsupportedOperation {
-                    operation: "forward_cached".to_string(),
-                    reason: format!("Decode failed: {e}"),
-                })?;
-        }
-    }
-
-    let generated = all_tokens;
+    // PAR-047: Use generate_full_cuda_with_cache for maximum GPU acceleration
+    // This path uses:
+    // - GPU matmul for QKV, output projection, and FFN
+    // - GPU incremental_attention_gpu with GQA support (PAR-021)
+    // - Proper SwiGLU activation (PAR-015)
+    let generated = cuda_model
+        .generate_full_cuda_with_cache(&prompt_tokens, &gen_config)
+        .map_err(|e| realizar::error::RealizarError::UnsupportedOperation {
+            operation: "generate_full_cuda_with_cache".to_string(),
+            reason: format!("CUDA generation failed: {e}"),
+        })?;
     let gen_time = gen_start.elapsed();
 
     let tokens_generated = generated.len().saturating_sub(prompt_len);
@@ -1141,7 +1157,8 @@ fn run_gguf_inference_gpu(
                 "generation_time_ms": gen_time.as_secs_f64() * 1000.0,
                 "tokens_per_second": tokens_per_sec,
                 "temperature": temperature,
-                "cuda_enabled": quantized_model.cuda_enabled(),
+                "cuda_enabled": true,
+                "cuda_device": cuda_model.device_name(),
             });
             println!(
                 "{}",

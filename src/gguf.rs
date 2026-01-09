@@ -1157,6 +1157,25 @@ impl GGUFModel {
         }
     }
 
+    /// Get RoPE type from metadata
+    /// Returns: 0 = NORM (adjacent pairs, default), 2 = NEOX (split halves)
+    /// Per llama.cpp: LLAMA_ROPE_TYPE_NORM = 0, LLAMA_ROPE_TYPE_NEOX = 2
+    pub fn rope_type(&self) -> Option<u32> {
+        let arch = self.architecture()?;
+        let key = format!("{}.rope.scaling.type", arch);
+        // Try rope type from scaling type first
+        if let Some(GGUFValue::String(s)) = self.metadata.get(&key) {
+            match s.as_str() {
+                "none" | "linear" => return Some(0), // NORM style
+                "yarn" | "neox" => return Some(2),   // NEOX style
+                _ => {},
+            }
+        }
+        // Most LLaMA-family models use type 0 (adjacent pairs) by default
+        // This is confirmed by llama.cpp printing "rope type = 0" for TinyLlama
+        None
+    }
+
     /// Get BOS (beginning of sentence) token ID
     #[must_use]
     pub fn bos_token_id(&self) -> Option<u32> {
@@ -1256,28 +1275,23 @@ impl GGUFModel {
 
         let space_char = if is_gpt2_style { '\u{0120}' } else { '▁' };
 
-        // Preprocessing: replace spaces with the appropriate space character
-        // The first character doesn't get space_char if the text doesn't start with space
-        // Otherwise, leading space gets converted too
-        let processed = if text.starts_with(' ') {
-            text.replace(' ', &space_char.to_string())
+        // Preprocessing: For SentencePiece tokenizers (LLaMA), prepend a space
+        // to the text before processing. This matches llama.cpp behavior where
+        // "hello" becomes " hello" → "▁hello".
+        // For GPT-2 style, spaces within text become Ġ but no leading space is added.
+        let text_with_prefix = if is_gpt2_style {
+            text.to_string()
         } else {
-            // Add space_char before spaces but keep first char as-is
-            let mut result = String::new();
-            let mut first = true;
-            for ch in text.chars() {
-                if ch == ' ' {
-                    result.push(space_char);
-                } else {
-                    if !first && !result.ends_with(space_char) {
-                        // This handles non-space chars normally
-                    }
-                    result.push(ch);
-                }
-                first = false;
+            // SentencePiece: always prepend space (unless text already starts with space)
+            if text.starts_with(' ') {
+                text.to_string()
+            } else {
+                format!(" {}", text)
             }
-            result
         };
+
+        // Now replace all spaces with the appropriate space character
+        let processed = text_with_prefix.replace(' ', &space_char.to_string());
 
         let mut tokens = Vec::new();
         let mut remaining = processed.as_str();
@@ -1357,6 +1371,8 @@ pub struct GGUFConfig {
     pub rope_theta: f32,
     /// Layer norm epsilon
     pub eps: f32,
+    /// RoPE type: 0 = NORM (adjacent pairs), 2 = NEOX (split halves)
+    pub rope_type: u32,
 }
 
 impl GGUFConfig {
@@ -1416,6 +1432,10 @@ impl GGUFConfig {
         // num_kv_heads (for GQA - e.g., Qwen uses fewer KV heads than Q heads)
         let num_kv_heads = model.num_kv_heads().unwrap_or(num_heads);
 
+        // Read rope_type: 0 = NORM (adjacent pairs, default for LLaMA), 2 = NEOX (split halves)
+        // LLaMA models use type 0 (adjacent pairs) per llama.cpp's LLAMA_ROPE_TYPE_NORM
+        let rope_type = model.rope_type().unwrap_or(0);
+
         Ok(Self {
             architecture,
             hidden_dim,
@@ -1427,6 +1447,7 @@ impl GGUFConfig {
             context_length,
             rope_theta,
             eps,
+            rope_type,
         })
     }
 }
@@ -3091,6 +3112,7 @@ impl<'a> QuantizedGGUFTransformer<'a> {
         let head_dim = self.config.hidden_dim / self.config.num_heads;
         let half_dim = head_dim / 2;
         let theta = self.config.rope_theta;
+        let rope_type = self.config.rope_type;
 
         // Stack-based buffers (max 128 = 256 head_dim, covers all common models)
         let mut cos_vals: [f32; 128] = [0.0; 128];
@@ -3107,24 +3129,38 @@ impl<'a> QuantizedGGUFTransformer<'a> {
             sin_vals[i] = sin_v;
         }
 
-        // Apply rotation to each head using SIMD (AVX-512/AVX2)
+        // Apply rotation to each head
         for h in 0..num_heads_in_x {
             let head_start = h * head_dim;
-            let idx2_start = head_start + half_dim;
 
-            if idx2_start + half_dim > x.len() {
+            if head_start + head_dim > x.len() {
                 continue;
             }
 
-            // Split into first/second halves for SIMD rotation
-            let (first_half, second_half) =
-                x[head_start..head_start + head_dim].split_at_mut(half_dim);
-            crate::quantize::apply_rope_rotation_simd(
-                first_half,
-                second_half,
-                &cos_vals[..half_dim],
-                &sin_vals[..half_dim],
-            );
+            if rope_type == 2 {
+                // NEOX style: split halves (x[0..half], x[half..])
+                // Used by GPT-NeoX and some newer models
+                let (first_half, second_half) =
+                    x[head_start..head_start + head_dim].split_at_mut(half_dim);
+                crate::quantize::apply_rope_rotation_simd(
+                    first_half,
+                    second_half,
+                    &cos_vals[..half_dim],
+                    &sin_vals[..half_dim],
+                );
+            } else {
+                // NORM style (type 0): adjacent pairs (x[0], x[1]), (x[2], x[3]), ...
+                // This is the default for LLaMA-family models
+                let head_slice = &mut x[head_start..head_start + head_dim];
+                for i in 0..half_dim {
+                    let x0 = head_slice[2 * i];
+                    let x1 = head_slice[2 * i + 1];
+                    let cos_v = cos_vals[i];
+                    let sin_v = sin_vals[i];
+                    head_slice[2 * i] = x0 * cos_v - x1 * sin_v;
+                    head_slice[2 * i + 1] = x0 * sin_v + x1 * cos_v;
+                }
+            }
         }
     }
 
@@ -3232,6 +3268,20 @@ impl<'a> QuantizedGGUFTransformer<'a> {
         // 1. Token embedding lookup
         let mut hidden = self.embed(&[token_id]);
 
+        // PAR-051: Layer-by-layer diagnostic
+        let debug_forward = std::env::var("REALIZAR_DEBUG_FORWARD").is_ok();
+        if debug_forward && position == 0 {
+            eprintln!(
+                "[PAR-051-L0] Embed token {} sum: {:.6}",
+                token_id,
+                hidden.iter().sum::<f32>()
+            );
+            eprintln!(
+                "[PAR-051-L0] Embed[0..8]: {:?}",
+                &hidden[..8.min(hidden.len())]
+            );
+        }
+
         // 2. Process through transformer layers
         for (layer_idx, layer) in self.layers.iter().enumerate() {
             // 2a. Attention layer norm
@@ -3245,6 +3295,17 @@ impl<'a> QuantizedGGUFTransformer<'a> {
                     self.config.eps,
                 )
             };
+
+            if debug_forward && layer_idx == 0 && position == 0 {
+                eprintln!(
+                    "[PAR-051-L0] RMSNorm sum: {:.6}",
+                    normed.iter().sum::<f32>()
+                );
+                eprintln!(
+                    "[PAR-051-L0] RMSNorm[0..8]: {:?}",
+                    &normed[..8.min(normed.len())]
+                );
+            }
 
             // 2b. QKV projection
             let q_dim = layer.qkv_weight.q_dim(hidden_dim);
@@ -3260,6 +3321,32 @@ impl<'a> QuantizedGGUFTransformer<'a> {
             let mut qkv = self.qkv_matmul(&normed, &layer.qkv_weight, hidden_dim)?;
             if let Some(ref bias) = layer.qkv_bias {
                 self.add_bias(&mut qkv, bias);
+            }
+
+            if debug_forward && layer_idx == 0 && position == 0 {
+                // Print attn_norm weights to verify loading
+                eprintln!(
+                    "[PAR-051-L0] attn_norm[0..8]: {:?}",
+                    &layer.attn_norm_weight[..8.min(layer.attn_norm_weight.len())]
+                );
+                eprintln!(
+                    "[PAR-051-L0] QKV dims: q_dim={}, k_dim={}, v_dim={}, total={}",
+                    q_dim,
+                    k_dim,
+                    v_dim,
+                    qkv.len()
+                );
+                eprintln!("[PAR-051-L0] QKV sum: {:.6}", qkv.iter().sum::<f32>());
+                eprintln!("[PAR-051-L0] Q[0..8]: {:?}", &qkv[..8.min(qkv.len())]);
+                // Print K and V starts too
+                eprintln!(
+                    "[PAR-051-L0] K[0..4]: {:?}",
+                    &qkv[q_dim..q_dim + 4.min(k_dim)]
+                );
+                eprintln!(
+                    "[PAR-051-L0] V[0..4]: {:?}",
+                    &qkv[q_dim + k_dim..q_dim + k_dim + 4.min(v_dim)]
+                );
             }
 
             // 2c. Extract Q, K, V and apply RoPE
@@ -3408,6 +3495,35 @@ impl<'a> QuantizedGGUFTransformer<'a> {
                 self.config.eps,
             )
         };
+
+        if debug_forward && (position == 0 || position == 5) {
+            eprintln!(
+                "[PAR-051-P{}] Final hidden sum: {:.6}",
+                position,
+                hidden.iter().sum::<f32>()
+            );
+            eprintln!(
+                "[PAR-051-P{}] Final hidden[0..8]: {:?}",
+                position,
+                &hidden[..8.min(hidden.len())]
+            );
+            eprintln!(
+                "[PAR-051-P{}] After output_norm sum: {:.6}",
+                position,
+                normed.iter().sum::<f32>()
+            );
+            eprintln!(
+                "[PAR-051-P{}] normed[0..8]: {:?}",
+                position,
+                &normed[..8.min(normed.len())]
+            );
+            if position == 0 {
+                eprintln!(
+                    "[PAR-051] output_norm_weight[0..4]: {:?}",
+                    &self.output_norm_weight[..4.min(self.output_norm_weight.len())]
+                );
+            }
+        }
 
         // 4. LM head projection
         let mut logits = self.fused_matmul(
@@ -10100,6 +10216,7 @@ impl OwnedQuantizedModel {
         let head_dim = self.config.hidden_dim / self.config.num_heads;
         let half_dim = head_dim / 2;
         let theta = self.config.rope_theta;
+        let rope_type = self.config.rope_type;
 
         // Stack-based buffers (max 128 = 256 head_dim, covers all common models)
         // Avoids heap allocation on every call
@@ -10117,24 +10234,38 @@ impl OwnedQuantizedModel {
             sin_vals[i] = sin_v;
         }
 
-        // Apply rotation to each head using SIMD (AVX-512/AVX2)
+        // Apply rotation to each head
         for h in 0..num_heads_in_x {
             let head_start = h * head_dim;
-            let idx2_start = head_start + half_dim;
 
-            if idx2_start + half_dim > x.len() {
+            if head_start + head_dim > x.len() {
                 continue;
             }
 
-            // Split into first/second halves for SIMD rotation
-            let (first_half, second_half) =
-                x[head_start..head_start + head_dim].split_at_mut(half_dim);
-            crate::quantize::apply_rope_rotation_simd(
-                first_half,
-                second_half,
-                &cos_vals[..half_dim],
-                &sin_vals[..half_dim],
-            );
+            if rope_type == 2 {
+                // NEOX style: split halves (x[0..half], x[half..])
+                // Used by GPT-NeoX and some newer models
+                let (first_half, second_half) =
+                    x[head_start..head_start + head_dim].split_at_mut(half_dim);
+                crate::quantize::apply_rope_rotation_simd(
+                    first_half,
+                    second_half,
+                    &cos_vals[..half_dim],
+                    &sin_vals[..half_dim],
+                );
+            } else {
+                // NORM style (type 0): adjacent pairs (x[0], x[1]), (x[2], x[3]), ...
+                // This is the default for LLaMA-family models
+                let head_slice = &mut x[head_start..head_start + head_dim];
+                for i in 0..half_dim {
+                    let x0 = head_slice[2 * i];
+                    let x1 = head_slice[2 * i + 1];
+                    let cos_v = cos_vals[i];
+                    let sin_v = sin_vals[i];
+                    head_slice[2 * i] = x0 * cos_v - x1 * sin_v;
+                    head_slice[2 * i + 1] = x0 * sin_v + x1 * cos_v;
+                }
+            }
         }
     }
 
@@ -10553,6 +10684,19 @@ impl OwnedQuantizedModel {
         // 1. Token embedding lookup
         let mut hidden = self.embed(&[token_id]);
 
+        // PAR-052: Debug output for OwnedQuantizedModel forward path
+        let debug_forward = std::env::var("REALIZAR_DEBUG_FORWARD").is_ok();
+        if debug_forward && position == 0 {
+            eprintln!("[PAR-052] OwnedQuantizedModel::forward_cached");
+            eprintln!("[PAR-052] Token ID: {}, Position: {}", token_id, position);
+            eprintln!("[PAR-052] use_rmsnorm: {}", use_rmsnorm);
+            eprintln!(
+                "[PAR-052] Embedding[0..8]: {:?}",
+                &hidden[..8.min(hidden.len())]
+            );
+            eprintln!("[PAR-052] Embedding sum: {:.6}", hidden.iter().sum::<f32>());
+        }
+
         // 2. Process through transformer layers
         for (layer_idx, layer) in self.layers.iter().enumerate() {
             // 2a. Attention layer norm (RMSNorm for LLaMA, LayerNorm for phi-2)
@@ -10566,6 +10710,19 @@ impl OwnedQuantizedModel {
                     self.config.eps,
                 )
             };
+
+            // PAR-052: Debug layer 0 normed and QKV values
+            if debug_forward && layer_idx == 0 && position == 0 {
+                eprintln!(
+                    "[PAR-052-L0] attn_norm[0..8]: {:?}",
+                    &layer.attn_norm_weight[..8.min(layer.attn_norm_weight.len())]
+                );
+                eprintln!(
+                    "[PAR-052-L0] normed[0..8]: {:?}",
+                    &normed[..8.min(normed.len())]
+                );
+                eprintln!("[PAR-052-L0] normed sum: {:.6}", normed.iter().sum::<f32>());
+            }
 
             // 2b. QKV projection
             let _qkv_dim = layer.qkv_weight.out_dim();
@@ -10584,6 +10741,19 @@ impl OwnedQuantizedModel {
                 self.add_bias(&mut qkv, bias);
             }
 
+            // PAR-052: Debug QKV after projection
+            if debug_forward && layer_idx == 0 && position == 0 {
+                eprintln!(
+                    "[PAR-052-L0] QKV dims: q={}, k={}, v={}, total={}",
+                    q_dim,
+                    k_dim,
+                    v_dim,
+                    qkv.len()
+                );
+                eprintln!("[PAR-052-L0] QKV sum: {:.6}", qkv.iter().sum::<f32>());
+                eprintln!("[PAR-052-L0] Q[0..8]: {:?}", &qkv[..8.min(q_dim)]);
+            }
+
             // 2c. Extract Q, K, V and apply RoPE
             let mut q = qkv[0..q_dim].to_vec();
             let mut k = qkv[q_dim..q_dim + k_dim].to_vec();
@@ -10592,6 +10762,18 @@ impl OwnedQuantizedModel {
             // Apply RoPE with correct head counts for GQA
             self.apply_rope(&mut q, position, self.config.num_heads);
             self.apply_rope(&mut k, position, self.config.num_kv_heads);
+
+            // PAR-052: Debug Q after RoPE
+            if debug_forward && layer_idx == 0 && position == 0 {
+                eprintln!(
+                    "[PAR-052-L0] Q after RoPE[0..8]: {:?}",
+                    &q[..8.min(q.len())]
+                );
+                eprintln!(
+                    "[PAR-052-L0] K after RoPE[0..4]: {:?}",
+                    &k[..4.min(k.len())]
+                );
+            }
 
             // 2d. Compute attention using cached K/V
             let k_cache = cache.get_k(layer_idx);
@@ -10708,10 +10890,46 @@ impl OwnedQuantizedModel {
             )
         };
 
+        // PAR-052: Debug final hidden state
+        if debug_forward && position == 0 {
+            eprintln!(
+                "[PAR-052] Final hidden sum: {:.6}",
+                hidden.iter().sum::<f32>()
+            );
+            eprintln!(
+                "[PAR-052] Final hidden[0..8]: {:?}",
+                &hidden[..8.min(hidden.len())]
+            );
+            eprintln!(
+                "[PAR-052] After output_norm sum: {:.6}",
+                normed.iter().sum::<f32>()
+            );
+            eprintln!(
+                "[PAR-052] output_norm_weight[0..4]: {:?}",
+                &self.output_norm_weight[..4.min(self.output_norm_weight.len())]
+            );
+            eprintln!(
+                "[PAR-052] LM head weight dims: in={}, out={}",
+                self.lm_head_weight.in_dim, self.lm_head_weight.out_dim
+            );
+        }
+
         // 4. LM head projection
         let mut logits = self.fused_matmul(&normed, &self.lm_head_weight)?;
         if let Some(ref bias) = self.lm_head_bias {
             self.add_bias(&mut logits, bias);
+        }
+
+        // PAR-052: Debug final logits
+        if debug_forward && position == 0 {
+            // Find top-5 logits
+            let mut indexed: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
+            indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            eprintln!("[PAR-052] Top-5 logits:");
+            for (idx, val) in indexed.iter().take(5) {
+                eprintln!("  Token {}: {:.6}", idx, val);
+            }
+            eprintln!("[PAR-052] Logits sum: {:.6}", logits.iter().sum::<f32>());
         }
 
         Ok(logits)
@@ -15510,7 +15728,9 @@ impl OwnedQuantizedModelCuda {
     ) -> Result<Vec<f32>> {
         let hidden_dim = self.model.config.hidden_dim;
         let num_heads = self.model.config.num_heads;
+        let num_kv_heads = self.model.config.num_kv_heads;
         let head_dim = hidden_dim / num_heads;
+        let kv_dim = num_kv_heads * head_dim; // GQA: K/V may have fewer heads than Q
         let num_layers = self.model.layers.len();
         let eps = self.model.config.eps;
 
@@ -15535,41 +15755,62 @@ impl OwnedQuantizedModelCuda {
                 self.model.add_bias(&mut qkv, bias);
             }
 
-            // 2c. Extract Q, K, V and apply RoPE
-            // Note: Uses num_heads for both (non-GQA code path)
+            // 2c. Extract Q, K, V and apply RoPE (GQA-aware dimensions)
+            // Q has hidden_dim = num_heads * head_dim
+            // K/V have kv_dim = num_kv_heads * head_dim (may be smaller for GQA)
             let mut q = qkv[0..hidden_dim].to_vec();
-            let mut k = qkv[hidden_dim..2 * hidden_dim].to_vec();
-            let v = qkv[2 * hidden_dim..3 * hidden_dim].to_vec();
+            let mut k = qkv[hidden_dim..hidden_dim + kv_dim].to_vec();
+            let v = qkv[hidden_dim + kv_dim..hidden_dim + 2 * kv_dim].to_vec();
 
             self.model
                 .apply_rope(&mut q, position, self.model.config.num_heads);
             self.model
-                .apply_rope(&mut k, position, self.model.config.num_heads);
+                .apply_rope(&mut k, position, self.model.config.num_kv_heads);
 
             // 2d. Get cached K/V and compute attention
             let k_cache = cache.get_k(layer_idx);
             let v_cache = cache.get_v(layer_idx);
 
             let attn_out = if k_cache.is_empty() {
-                // First token - no cache yet, output is just weighted V
-                v.clone()
+                // First token - no cache yet, GQA expansion needed for output
+                if num_kv_heads < num_heads {
+                    // Expand V to match num_heads by repeating KV groups
+                    let q_per_kv = num_heads / num_kv_heads;
+                    let mut expanded = vec![0.0f32; hidden_dim];
+                    for q_head in 0..num_heads {
+                        let kv_head = q_head / q_per_kv;
+                        let src_offset = kv_head * head_dim;
+                        let dst_offset = q_head * head_dim;
+                        expanded[dst_offset..dst_offset + head_dim]
+                            .copy_from_slice(&v[src_offset..src_offset + head_dim]);
+                    }
+                    expanded
+                } else {
+                    v.clone()
+                }
             } else {
                 // Use GPU multi-head attention if cache is large enough (PARITY-044)
-                let cache_len = k_cache.len() / hidden_dim;
+                let cache_len = if kv_dim > 0 {
+                    k_cache.len() / kv_dim
+                } else {
+                    0
+                };
                 let total_len = cache_len + 1;
 
                 // PAR-017: Lower GPU attention threshold for more consistent GPU usage
                 // Previous: 32 tokens caused high variance with short sequences
                 const GPU_ATTN_THRESHOLD: usize = 8;
 
-                if total_len >= GPU_ATTN_THRESHOLD {
+                if total_len >= GPU_ATTN_THRESHOLD && num_kv_heads == num_heads {
+                    // GPU path only works for non-GQA models currently
                     self.cuda_attention_with_cache(
                         &q, k_cache, v_cache, &k, &v, total_len, num_heads, head_dim,
                     )?
                 } else {
-                    // CPU path for short sequences
+                    // CPU path for short sequences or GQA models
+                    // Use GQA-aware version that handles grouped KV heads correctly
                     self.model
-                        .attention_with_cache(&q, k_cache, v_cache, &k, &v)
+                        .attention_with_cache_gqa(&q, k_cache, v_cache, &k, &v)
                 }
             };
 
@@ -15589,19 +15830,60 @@ impl OwnedQuantizedModelCuda {
                 hidden[i] += attn_output[i];
             }
 
-            // 2h. FFN up projection (CPU fused - GPU overhead too high for m=1)
-            let mut ffn_hidden = self
-                .model
-                .fused_matmul(&hidden, &self.model.layers[layer_idx].ffn_up_weight)?;
-            if let Some(ref bias) = self.model.layers[layer_idx].ffn_up_bias {
-                self.model.add_bias(&mut ffn_hidden, bias);
-            }
-            self.model.gelu(&mut ffn_hidden);
+            // PAR-047: FFN with proper SwiGLU/GELU detection
+            // LLaMA-family models use SwiGLU (ffn_gate_weight present)
+            // Phi-2 style models use GELU (no gate weight)
+            let ffn_activated =
+                if let Some(ref gate_weight) = self.model.layers[layer_idx].ffn_gate_weight {
+                    // SwiGLU path (LLaMA, TinyLlama, Mistral, Qwen, etc.)
+                    // Apply FFN norm if present (separate from attention norm in LLaMA-style)
+                    let ffn_input =
+                        if let Some(ref ffn_norm) = self.model.layers[layer_idx].ffn_norm_weight {
+                            self.model.layer_norm(
+                                &hidden,
+                                ffn_norm,
+                                self.model.layers[layer_idx].ffn_norm_bias.as_deref(),
+                                eps,
+                            )
+                        } else {
+                            hidden.clone()
+                        };
+
+                    let mut ffn_up = self
+                        .model
+                        .fused_matmul(&ffn_input, &self.model.layers[layer_idx].ffn_up_weight)?;
+                    if let Some(ref bias) = self.model.layers[layer_idx].ffn_up_bias {
+                        self.model.add_bias(&mut ffn_up, bias);
+                    }
+
+                    let mut ffn_gate = self.model.fused_matmul(&ffn_input, gate_weight)?;
+                    if let Some(ref bias) = self.model.layers[layer_idx].ffn_gate_bias {
+                        self.model.add_bias(&mut ffn_gate, bias);
+                    }
+
+                    // SwiGLU: silu(gate) * up
+                    self.model.silu(&mut ffn_gate);
+                    for i in 0..ffn_gate.len() {
+                        ffn_gate[i] *= ffn_up[i];
+                    }
+                    ffn_gate
+                } else {
+                    // GELU path (phi-2 style, no gate weight)
+                    let mut ffn_hidden = self
+                        .model
+                        .fused_matmul(&hidden, &self.model.layers[layer_idx].ffn_up_weight)?;
+                    if let Some(ref bias) = self.model.layers[layer_idx].ffn_up_bias {
+                        self.model.add_bias(&mut ffn_hidden, bias);
+                    }
+                    self.model.gelu(&mut ffn_hidden);
+                    ffn_hidden
+                };
 
             // 2i. FFN down projection (CPU fused)
-            let mut ffn_output = self
-                .model
-                .fused_matmul(&ffn_hidden, &self.model.layers[layer_idx].ffn_down_weight)?;
+            let mut ffn_output = self.model.fused_matmul(
+                &ffn_activated,
+                &self.model.layers[layer_idx].ffn_down_weight,
+            )?;
             if let Some(ref bias) = self.model.layers[layer_idx].ffn_down_bias {
                 self.model.add_bias(&mut ffn_output, bias);
             }
@@ -15869,6 +16151,13 @@ impl OwnedQuantizedModelCuda {
             self.model.lm_head_weight.data.as_ptr() as usize
         );
 
+        // PAR-050: Detect RMSNorm architecture (LLaMA uses RMSNorm and SwiGLU)
+        let use_rmsnorm = self
+            .model
+            .layers
+            .first()
+            .is_some_and(|l| l.ffn_gate_weight.is_some() && l.attn_norm_bias.is_none());
+
         // 2. Process through transformer layers
         for layer_idx in 0..num_layers {
             // PAR-014: Capture original weight pointers BEFORE cloning for stable cache keys
@@ -15950,9 +16239,13 @@ impl OwnedQuantizedModelCuda {
             };
 
             // 2a. Attention layer norm (CPU - fast for single vector)
-            let normed =
+            // PAR-050: Use RMSNorm for LLaMA models (no bias), LayerNorm for others
+            let normed = if use_rmsnorm {
+                self.model.rms_norm(&hidden, &attn_norm_weight, eps)
+            } else {
                 self.model
-                    .layer_norm(&hidden, &attn_norm_weight, attn_norm_bias.as_deref(), eps);
+                    .layer_norm(&hidden, &attn_norm_weight, attn_norm_bias.as_deref(), eps)
+            };
 
             // 2b. QKV projection (GPU - PAR-014: use pre-captured cache key)
             let mut qkv = self.qkv_matmul_cuda_with_key(&normed, &qkv_weight, &qkv_cache_key)?;
@@ -15977,7 +16270,8 @@ impl OwnedQuantizedModelCuda {
             let attn_out = if k_cache.is_empty() {
                 // First token - no cache yet
                 // PAR-021: Use GPU incremental attention for GQA
-                if self.executor.has_kv_cache_gpu() {
+                // PAR-049-DEBUG: Temporarily force CPU attention for debugging
+                if false && self.executor.has_kv_cache_gpu() {
                     // For first token, attention output = V (weighted by 1.0)
                     // Still need to populate GPU cache for subsequent tokens
                     let mut attn_output = vec![0.0f32; hidden_dim];
@@ -16012,7 +16306,8 @@ impl OwnedQuantizedModelCuda {
                 let _total_len = cache_len + 1;
 
                 // PAR-020/021: Use GPU-resident KV cache with GQA support
-                if self.executor.has_kv_cache_gpu() {
+                // PAR-049-DEBUG: Temporarily force CPU attention for debugging
+                if false && self.executor.has_kv_cache_gpu() {
                     let mut attn_output = vec![0.0f32; hidden_dim];
                     self.executor
                         .incremental_attention_gpu(layer_idx, &q, &k, &v, &mut attn_output)
@@ -16030,11 +16325,10 @@ impl OwnedQuantizedModelCuda {
                 }
             };
 
-            // 2e. Store K and V in cache (only if using CPU attention path)
-            // PAR-022: Skip CPU cache when GPU attention is active (saves ~10% overhead)
-            if !self.executor.has_kv_cache_gpu() {
-                cache.append(layer_idx, &k, &v);
-            }
+            // 2e. Store K and V in cache
+            // PAR-049-DEBUG: Always store in CPU cache for debugging
+            // Original: if !self.executor.has_kv_cache_gpu() { cache.append(layer_idx, &k, &v); }
+            cache.append(layer_idx, &k, &v);
 
             // 2f. Attention output projection (GPU - PAR-014: use pre-captured cache key)
             let mut attn_output = self.fused_matmul_cuda_with_key(
@@ -16049,6 +16343,32 @@ impl OwnedQuantizedModelCuda {
             // 2g. Residual connection
             for i in 0..hidden_dim {
                 hidden[i] += attn_output[i];
+            }
+
+            // PAR-049-DEBUG: Compare attention output with CPU
+            if layer_idx == 0 && (position == 0 || position == 1) {
+                let cpu_attn = self.model.fused_matmul(&attn_out, &attn_output_weight)?;
+                let max_diff = attn_output
+                    .iter()
+                    .zip(cpu_attn.iter())
+                    .map(|(g, c)| (g - c).abs())
+                    .fold(0.0f32, f32::max);
+                eprintln!(
+                    "[PAR-049] L0 pos{} attn_output max_diff: {:.6e}",
+                    position, max_diff
+                );
+                if position == 1 {
+                    eprintln!(
+                        "[PAR-049] L0 pos1 attn_out[0..5]: {:?}",
+                        &attn_out[..5.min(attn_out.len())]
+                    );
+                    let k_len = cache.get_k(layer_idx).len();
+                    let v_len = cache.get_v(layer_idx).len();
+                    eprintln!(
+                        "[PAR-049] L0 pos1 k_cache.len: {}, v_cache.len: {}",
+                        k_len, v_len
+                    );
+                }
             }
 
             // 2h/2i. FFN (PAR-014: fused path temporarily disabled for debugging)
@@ -16101,19 +16421,38 @@ impl OwnedQuantizedModelCuda {
             } else if let (Some(ref gate_weight), Some(ref gate_cache_key)) =
                 (&ffn_gate_weight, &ffn_gate_cache_key)
             {
-                // PAR-015: SwiGLU path for LLaMA models
-                // Formula: down(silu(gate(x)) * up(x))
+                // PAR-015/PAR-049: SwiGLU path for LLaMA models
+                // Formula: down(silu(gate(norm(x))) * up(norm(x)))
+                // PAR-049 FIX: Apply FFN layer norm before projections (was missing!)
 
-                // UP projection
+                // Apply FFN layer norm if present (separate from attention norm in LLaMA-style)
+                // PAR-050: Use RMSNorm for LLaMA models
+                let ffn_input =
+                    if let Some(ref ffn_norm) = self.model.layers[layer_idx].ffn_norm_weight {
+                        if use_rmsnorm {
+                            self.model.rms_norm(&hidden, ffn_norm, eps)
+                        } else {
+                            self.model.layer_norm(
+                                &hidden,
+                                ffn_norm,
+                                self.model.layers[layer_idx].ffn_norm_bias.as_deref(),
+                                eps,
+                            )
+                        }
+                    } else {
+                        hidden.clone()
+                    };
+
+                // UP projection on normalized input
                 let mut ffn_up =
-                    self.fused_matmul_cuda_with_key(&hidden, &ffn_up_weight, &ffn_up_cache_key)?;
+                    self.fused_matmul_cuda_with_key(&ffn_input, &ffn_up_weight, &ffn_up_cache_key)?;
                 if let Some(ref bias) = ffn_up_bias {
                     self.model.add_bias(&mut ffn_up, bias);
                 }
 
-                // GATE projection
+                // GATE projection on normalized input
                 let mut ffn_gate =
-                    self.fused_matmul_cuda_with_key(&hidden, gate_weight, gate_cache_key)?;
+                    self.fused_matmul_cuda_with_key(&ffn_input, gate_weight, gate_cache_key)?;
                 if let Some(ref bias) = ffn_gate_bias {
                     self.model.add_bias(&mut ffn_gate, bias);
                 }
@@ -16154,9 +16493,104 @@ impl OwnedQuantizedModelCuda {
                 ffn_output
             };
 
+            // PAR-049-DEBUG: Compare FFN output with CPU
+            if layer_idx == 0 && position == 0 {
+                // Compute CPU FFN for comparison
+                let ffn_input_cpu =
+                    if let Some(ref ffn_norm) = self.model.layers[layer_idx].ffn_norm_weight {
+                        self.model.layer_norm(
+                            &hidden,
+                            ffn_norm,
+                            self.model.layers[layer_idx].ffn_norm_bias.as_deref(),
+                            eps,
+                        )
+                    } else {
+                        hidden.clone()
+                    };
+                // hidden before residual add of ffn
+                let hidden_before_ffn: Vec<f32> = hidden
+                    .iter()
+                    .zip(&attn_output)
+                    .map(|(h, a)| h - a)
+                    .collect();
+                eprintln!(
+                    "[PAR-049] L0 hidden before attn residual[0..5]: {:?}",
+                    &hidden_before_ffn[..5.min(hidden_before_ffn.len())]
+                );
+                eprintln!(
+                    "[PAR-049] L0 ffn_output GPU[0..5]: {:?}",
+                    &ffn_output[..5.min(ffn_output.len())]
+                );
+            }
+
             // Residual
             for i in 0..hidden_dim {
                 hidden[i] += ffn_output[i];
+            }
+
+            // PAR-049-DEBUG: Print hidden state after layer 0 and compute CPU reference
+            if layer_idx == 0 && position == 0 {
+                eprintln!(
+                    "[PAR-049] L0 GPU hidden[0..5]: {:?}",
+                    &hidden[..5.min(hidden.len())]
+                );
+
+                // Compute CPU reference for layer 0
+                // Start from embedding
+                let cpu_hidden = self.model.embed(&[token_id]);
+                let cpu_normed = self.model.layer_norm(
+                    &cpu_hidden,
+                    &self.model.layers[0].attn_norm_weight,
+                    self.model.layers[0].attn_norm_bias.as_deref(),
+                    eps,
+                );
+                let cpu_qkv = self
+                    .model
+                    .qkv_matmul(&cpu_normed, &self.model.layers[0].qkv_weight)
+                    .expect("CPU qkv");
+                let mut cpu_q = cpu_qkv[0..hidden_dim].to_vec();
+                let mut cpu_k = cpu_qkv[hidden_dim..hidden_dim + kv_dim].to_vec();
+                let cpu_v = cpu_qkv[hidden_dim + kv_dim..hidden_dim + 2 * kv_dim].to_vec();
+                self.model.apply_rope(&mut cpu_q, 0, num_heads);
+                self.model.apply_rope(&mut cpu_k, 0, num_kv_heads);
+
+                // First token - expand V for GQA
+                let cpu_attn_out = if num_kv_heads < num_heads {
+                    let q_per_kv = num_heads / num_kv_heads;
+                    let mut expanded = vec![0.0f32; hidden_dim];
+                    for qh in 0..num_heads {
+                        let kv_h = qh / q_per_kv;
+                        expanded[qh * head_dim..(qh + 1) * head_dim]
+                            .copy_from_slice(&cpu_v[kv_h * head_dim..(kv_h + 1) * head_dim]);
+                    }
+                    expanded
+                } else {
+                    cpu_v.clone()
+                };
+
+                let cpu_attn_proj = self
+                    .model
+                    .fused_matmul(&cpu_attn_out, &self.model.layers[0].attn_output_weight)
+                    .expect("CPU attn proj");
+                let mut cpu_h = cpu_hidden.clone();
+                for i in 0..hidden_dim {
+                    cpu_h[i] += cpu_attn_proj[i];
+                }
+
+                eprintln!(
+                    "[PAR-049] L0 CPU hidden after attn[0..5]: {:?}",
+                    &cpu_h[..5.min(cpu_h.len())]
+                );
+
+                // Compare attention residual state
+                let hidden_after_attn: Vec<f32> =
+                    hidden.iter().zip(&ffn_output).map(|(h, f)| h - f).collect();
+                let max_diff_attn = hidden_after_attn
+                    .iter()
+                    .zip(cpu_h.iter())
+                    .map(|(g, c)| (g - c).abs())
+                    .fold(0.0f32, f32::max);
+                eprintln!("[PAR-049] L0 attn residual max_diff: {:.6e}", max_diff_attn);
             }
         }
 
@@ -16164,12 +16598,21 @@ impl OwnedQuantizedModelCuda {
         cache.advance();
 
         // 3. Final layer norm (CPU - fast for single vector)
-        let normed = self.model.layer_norm(
-            &hidden,
-            &self.model.output_norm_weight,
-            self.model.output_norm_bias.as_deref(),
-            self.model.config.eps,
-        );
+        // PAR-050: Use RMSNorm for LLaMA models
+        let normed = if use_rmsnorm {
+            self.model.rms_norm(
+                &hidden,
+                &self.model.output_norm_weight,
+                self.model.config.eps,
+            )
+        } else {
+            self.model.layer_norm(
+                &hidden,
+                &self.model.output_norm_weight,
+                self.model.output_norm_bias.as_deref(),
+                self.model.config.eps,
+            )
+        };
 
         // 4. LM head projection (GPU - IMP-1010, PAR-016: use pre-captured cache key)
         // Clone LM head weight to avoid borrow conflicts, but use stable cache key
@@ -16188,6 +16631,39 @@ impl OwnedQuantizedModelCuda {
             self.fused_matmul_cuda_with_key(&normed, &lm_head_weight, &lm_head_cache_key)?;
         if let Some(ref bias) = self.model.lm_head_bias {
             self.model.add_bias(&mut logits, bias);
+        }
+
+        // PAR-049-DEBUG: Compare final logits with CPU for position 1
+        if position == 1 {
+            let cpu_logits = self.model.fused_matmul(&normed, &lm_head_weight)?;
+            let max_diff = logits
+                .iter()
+                .zip(cpu_logits.iter())
+                .map(|(g, c)| (g - c).abs())
+                .fold(0.0f32, f32::max);
+            let top5_gpu: Vec<_> = logits.iter().enumerate().map(|(i, &v)| (i, v)).fold(
+                vec![(0usize, f32::MIN); 5],
+                |mut acc, (i, v)| {
+                    if v > acc[4].1 {
+                        acc[4] = (i, v);
+                        acc.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+                    }
+                    acc
+                },
+            );
+            let top5_cpu: Vec<_> = cpu_logits.iter().enumerate().map(|(i, &v)| (i, v)).fold(
+                vec![(0usize, f32::MIN); 5],
+                |mut acc, (i, v)| {
+                    if v > acc[4].1 {
+                        acc[4] = (i, v);
+                        acc.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+                    }
+                    acc
+                },
+            );
+            eprintln!("[PAR-049] pos1 logits max_diff: {:.6e}", max_diff);
+            eprintln!("[PAR-049] pos1 GPU top5: {:?}", top5_gpu);
+            eprintln!("[PAR-049] pos1 CPU top5: {:?}", top5_cpu);
         }
 
         Ok(logits)
@@ -16315,10 +16791,14 @@ impl OwnedQuantizedModelCuda {
             return Ok(Vec::new());
         }
 
-        // Create KV cache
+        // PAR-045: Create KV cache with GQA-aware dimensions
+        // For GQA models, K/V have kv_dim = num_kv_heads * head_dim (smaller than hidden_dim)
+        let num_kv_heads = self.model.config.num_kv_heads;
+        let head_dim = self.model.config.hidden_dim / self.model.config.num_heads;
+        let kv_dim = num_kv_heads * head_dim;
         let mut cache = OwnedQuantizedKVCache::new(
             self.model.config.num_layers,
-            self.model.config.hidden_dim,
+            kv_dim, // GQA: use kv_dim instead of hidden_dim
             prompt.len() + config.max_tokens,
         );
 
@@ -16394,10 +16874,14 @@ impl OwnedQuantizedModelCuda {
             return Ok(Vec::new());
         }
 
-        // Create KV cache
+        // PAR-045: Create KV cache with GQA-aware dimensions
+        // For GQA models, K/V have kv_dim = num_kv_heads * head_dim (smaller than hidden_dim)
+        let num_kv_heads = self.model.config.num_kv_heads;
+        let head_dim = self.model.config.hidden_dim / self.model.config.num_heads;
+        let kv_dim = num_kv_heads * head_dim;
         let mut cache = OwnedQuantizedKVCache::new(
             self.model.config.num_layers,
-            self.model.config.hidden_dim,
+            kv_dim, // GQA: use kv_dim instead of hidden_dim
             prompt.len() + config.max_tokens,
         );
 
@@ -16437,6 +16921,16 @@ impl OwnedQuantizedModelCuda {
             // Check stop tokens
             if config.stop_tokens.contains(&next_token) {
                 break;
+            }
+
+            // PAR-050-DEBUG: Print sampled tokens
+            if tokens.len() <= 15 {
+                eprintln!(
+                    "[PAR-050] Generated token {}: {} (position {})",
+                    tokens.len() - prompt.len() + 1,
+                    next_token,
+                    position
+                );
             }
 
             tokens.push(next_token);
@@ -16642,6 +17136,27 @@ impl OwnedQuantizedModelCuda {
                 reason: format!("Failed to upload output norm weights: {}", e),
             })?;
 
+        // PAR-043: Build indexed weight lookup table for O(1) access during decode
+        // This eliminates ~10ms constant CPU overhead per token from string formatting + HashMap lookups
+        self.executor
+            .build_indexed_weights(num_layers, |i| format!("blk.{}", i))
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "preload_weights_gpu".to_string(),
+                reason: format!("PAR-043: Failed to build indexed weights: {}", e),
+            })?;
+
+        // PAR-044: Initialize workspace buffers for zero-allocation forward pass
+        // This eliminates ~288 buffer allocations per token
+        self.executor
+            .init_workspace(
+                self.model.config.hidden_dim,
+                self.model.config.intermediate_dim,
+            )
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "preload_weights_gpu".to_string(),
+                reason: format!("PAR-044: Failed to initialize workspace: {}", e),
+            })?;
+
         Ok(total_bytes)
     }
 
@@ -16781,10 +17296,14 @@ impl OwnedQuantizedModelCuda {
             bytes_uploaded / (1024 * 1024)
         );
 
-        // Create KV cache (for position tracking)
+        // PAR-045: Create KV cache with GQA-aware dimensions
+        // For GQA models, K/V have kv_dim = num_kv_heads * head_dim (smaller than hidden_dim)
+        let num_kv_heads = self.model.config.num_kv_heads;
+        let head_dim = self.model.config.hidden_dim / self.model.config.num_heads;
+        let kv_dim = num_kv_heads * head_dim;
         let mut cache = OwnedQuantizedKVCache::new(
             self.model.config.num_layers,
-            self.model.config.hidden_dim,
+            kv_dim, // GQA: use kv_dim instead of hidden_dim
             prompt.len() + config.max_tokens,
         );
 
@@ -18393,8 +18912,9 @@ mod vocab_tests {
         data.extend_from_slice(&3u64.to_le_bytes());
 
         // Tokens with SentencePiece-style ▁ prefix for word boundaries
-        // Token 0: "Hello", Token 1: "▁world", Token 2: unused
-        for token in ["Hello", "▁world", "unused"] {
+        // Token 0: "▁Hello", Token 1: "▁world", Token 2: unused
+        // With SentencePiece prepending, "Hello world" → "▁Hello▁world"
+        for token in ["▁Hello", "▁world", "unused"] {
             data.extend_from_slice(&(token.len() as u64).to_le_bytes());
             data.extend_from_slice(token.as_bytes());
         }
@@ -18402,7 +18922,7 @@ mod vocab_tests {
         let model = GGUFModel::from_bytes(&data).expect("test");
         let tokens = model.encode("Hello world").expect("test");
 
-        assert_eq!(tokens, vec![0, 1]); // "Hello" + "▁world"
+        assert_eq!(tokens, vec![0, 1]); // "▁Hello" + "▁world"
     }
 
     #[test]
@@ -18420,8 +18940,9 @@ mod vocab_tests {
         data.extend_from_slice(&8u32.to_le_bytes());
         data.extend_from_slice(&3u64.to_le_bytes());
 
-        // Tokens: "a", "ab", "abc" - should pick longest match
-        for token in ["a", "ab", "abc"] {
+        // Tokens: "▁a", "▁ab", "▁abc" - should pick longest match
+        // With SentencePiece prepending, "abc" → "▁abc"
+        for token in ["▁a", "▁ab", "▁abc"] {
             data.extend_from_slice(&(token.len() as u64).to_le_bytes());
             data.extend_from_slice(token.as_bytes());
         }
@@ -18429,7 +18950,7 @@ mod vocab_tests {
         let model = GGUFModel::from_bytes(&data).expect("test");
         let tokens = model.encode("abc").expect("test");
 
-        assert_eq!(tokens, vec![2]); // Should pick "abc" (longest match)
+        assert_eq!(tokens, vec![2]); // Should pick "▁abc" (longest match)
     }
 
     #[test]
@@ -18448,7 +18969,8 @@ mod vocab_tests {
         data.extend_from_slice(&4u64.to_le_bytes());
 
         // SentencePiece-style vocabulary with ▁ prefix for word boundaries
-        for token in ["The", "▁capital", "▁of", "▁France"] {
+        // With SentencePiece prepending, "The capital..." → "▁The▁capital..."
+        for token in ["▁The", "▁capital", "▁of", "▁France"] {
             data.extend_from_slice(&(token.len() as u64).to_le_bytes());
             data.extend_from_slice(token.as_bytes());
         }
@@ -18459,7 +18981,7 @@ mod vocab_tests {
         let decoded = model.decode(&tokens);
 
         // Decoded text has ▁ instead of spaces (SentencePiece format)
-        assert_eq!(decoded, "The▁capital▁of▁France");
+        assert_eq!(decoded, "▁The▁capital▁of▁France");
     }
 
     /// Test that sample_topk produces varied outputs (non-deterministic)

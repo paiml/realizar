@@ -34,7 +34,8 @@ useless_vec = "allow"
 # High-performance SIMD compute library with GPU support
 trueno = { version = "0.11.0", features = ["gpu"] }
 # CUDA PTX generation and runtime for NVIDIA GPUs (optional, pure Rust, no LLVM/nvcc)
-trueno-gpu = { version = "0.4.4", optional = true, features = ["cuda"] }
+# Using path dependency for development - publish requires crates.io version
+trueno-gpu = { path = "/home/noah/src/trueno/trueno-gpu", optional = true, features = ["cuda"] }
 # KV cache storage (for attention caching)
 trueno-db = { version = "0.3.8", optional = true }
 

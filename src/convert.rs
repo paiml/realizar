@@ -518,6 +518,7 @@ mod tests {
             context_length: 512,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0, // NORM style (adjacent pairs)
         };
 
         let layers: Vec<GGUFTransformerLayer> = (0..num_layers)
