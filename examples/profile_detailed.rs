@@ -75,7 +75,7 @@ fn main() -> Result<(), RealizarError> {
     // Warmup
     println!("\nWarming up (3 iterations)...");
     for _ in 0..3 {
-        let _ = model.generate_with_cache(&prompt, &config)?;
+        let _ = model.generate_with_scratch(&prompt, &config)?;
     }
 
     // Benchmark multiple runs
@@ -85,7 +85,7 @@ fn main() -> Result<(), RealizarError> {
     println!("\nBenchmarking ({} iterations)...", iterations);
     for i in 0..iterations {
         let start = Instant::now();
-        let tokens = model.generate_with_cache(&prompt, &config)?;
+        let tokens = model.generate_with_scratch(&prompt, &config)?;
         let elapsed = start.elapsed();
 
         let generated = tokens.len() - prompt.len();
