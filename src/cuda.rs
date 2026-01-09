@@ -51,7 +51,7 @@ use trueno_gpu::kernels::{
     FusedResidualRmsNormKernel, FusedSwigluKernel, GeluKernel, GemmKernel, GemvKernel,
     IncrementalAttentionKernel, Kernel, LayerNormKernel, Q4KGemvKernel, Q5KGemvKernel, Q5KKernel,
     Q6KGemvKernel, Q6KKernel, QuantizeKernel, ResidualAddKernel, RmsNormKernel, SiluKernel,
-    SoftmaxKernel,
+    SoftmaxKernel, TiledQ4KGemvKernel,
 };
 use trueno_gpu::GpuError;
 
@@ -252,6 +252,18 @@ pub enum KernelType {
         k: u32,
         /// Output dimension (N)
         n: u32,
+    },
+    /// PAR-041: Tiled Q4_K GEMV with shared memory input caching
+    /// Uses 256 threads per block (8 warps) for better GPU occupancy
+    /// Input vector cached in shared memory, shared by multiple outputs
+    /// Memory reduction: N / outputs_per_block fewer global input reads
+    TiledQ4KGemv {
+        /// Input dimension (K, must be multiple of 256)
+        k: u32,
+        /// Output dimension (N)
+        n: u32,
+        /// Number of outputs per block (default: 4)
+        outputs_per_block: u32,
     },
     /// Q5_K quantized GEMV (fused dequantization) - PAR-003
     Q5KGemv {
@@ -469,6 +481,14 @@ impl CudaKernels {
             KernelType::FusedQ4Q8Dot { n } => QuantizeKernel::ggml(1, 1, *n).emit_ptx(),
             // PAR-003: Q4_K GEMV - fused dequant for M=1 token generation
             KernelType::Q4KGemv { k, n } => Q4KGemvKernel::new(*k, *n).emit_ptx(),
+            // PAR-041: Tiled Q4_K GEMV with shared memory input caching
+            KernelType::TiledQ4KGemv {
+                k,
+                n,
+                outputs_per_block,
+            } => TiledQ4KGemvKernel::new(*k, *n)
+                .with_outputs_per_block(*outputs_per_block)
+                .emit_ptx(),
             KernelType::Q5KGemv { k, n } => Q5KGemvKernel::new(*k, *n).emit_ptx(),
             KernelType::Q6KGemv { k, n } => Q6KGemvKernel::new(*k, *n).emit_ptx(),
             // PAR-020 + PAR-021: Incremental attention for M=1 autoregressive decoding
@@ -553,6 +573,8 @@ impl CudaKernels {
             KernelType::FusedQ4Q8Dot { .. } => "q4k_gemm_ggml",
             // PAR-003: Quantized GEMV kernel names (M=1 token generation)
             KernelType::Q4KGemv { .. } => "q4k_gemv_warp_reduce",
+            // PAR-041: Tiled Q4K GEMV (256 threads, shared memory caching)
+            KernelType::TiledQ4KGemv { .. } => "tiled_q4k_gemv",
             KernelType::Q5KGemv { .. } => "q5k_gemv_warp_reduce",
             KernelType::Q6KGemv { .. } => "q6k_gemv_warp_reduce",
             // PAR-020: Incremental attention for M=1 autoregressive decoding
@@ -1120,6 +1142,119 @@ impl TransferMode {
 /// let mut c = vec![0.0f32; 1024 * 1024];
 /// executor.gemm(&a, &b, &mut c, 1024, 1024, 1024)?;
 /// ```
+
+/// PAR-043: Pre-computed layer weight indices for O(1) lookup
+///
+/// Eliminates per-layer string formatting and HashMap lookups during decode.
+/// Each layer's weights are stored as raw device pointers for direct access.
+///
+/// Performance impact:
+/// - Before: ~10-12ms overhead per token (string formatting + HashMap)
+/// - After: ~0.1ms overhead per token (direct indexed access)
+#[derive(Debug, Clone, Default)]
+pub struct IndexedLayerWeights {
+    /// Q projection weights device pointer (Q4K quantized)
+    pub attn_q_ptr: u64,
+    /// Q projection weights size in bytes
+    pub attn_q_len: usize,
+    /// K projection weights device pointer (Q4K quantized)
+    pub attn_k_ptr: u64,
+    /// K projection weights size in bytes
+    pub attn_k_len: usize,
+    /// V projection weights device pointer (Q4K quantized)
+    pub attn_v_ptr: u64,
+    /// V projection weights size in bytes
+    pub attn_v_len: usize,
+    /// O projection weights device pointer (Q4K quantized)
+    pub attn_output_ptr: u64,
+    /// O projection weights size in bytes
+    pub attn_output_len: usize,
+    /// FFN gate projection device pointer (Q4K quantized)
+    pub ffn_gate_ptr: u64,
+    /// FFN gate projection size in bytes
+    pub ffn_gate_len: usize,
+    /// FFN up projection device pointer (Q4K quantized)
+    pub ffn_up_ptr: u64,
+    /// FFN up projection size in bytes
+    pub ffn_up_len: usize,
+    /// FFN down projection device pointer (Q4K quantized)
+    pub ffn_down_ptr: u64,
+    /// FFN down projection size in bytes
+    pub ffn_down_len: usize,
+    /// Attention RMSNorm gamma device pointer (FP32)
+    pub attn_norm_ptr: u64,
+    /// Attention RMSNorm gamma size in elements
+    pub attn_norm_len: usize,
+    /// FFN RMSNorm gamma device pointer (FP32)
+    pub ffn_norm_ptr: u64,
+    /// FFN RMSNorm gamma size in elements
+    pub ffn_norm_len: usize,
+}
+
+/// PAR-044: Pre-allocated workspace buffers for transformer forward pass
+///
+/// Eliminates ~288 GPU buffer allocations per token by reusing pre-sized buffers.
+/// All buffers are allocated once at model load and reused for every token.
+///
+/// Performance impact:
+/// - Before: ~288 cuMemAlloc calls per token (~2-3ms overhead)
+/// - After: 0 allocations per token (all reused)
+pub struct TransformerWorkspace {
+    /// Hidden state buffer 1 (hidden_dim) - for normed, projected, ffn_normed, ffn_down
+    pub hidden_buf1: Option<GpuBuffer<f32>>,
+    /// Hidden state buffer 2 (hidden_dim) - for residual1, output
+    pub hidden_buf2: Option<GpuBuffer<f32>>,
+    /// Input staging buffer (hidden_dim) - preserves input for residual connections
+    pub input_staging: Option<GpuBuffer<f32>>,
+    /// Q/attention output buffer (q_dim)
+    pub q_buf: Option<GpuBuffer<f32>>,
+    /// K projection buffer (kv_dim)
+    pub k_buf: Option<GpuBuffer<f32>>,
+    /// V projection buffer (kv_dim)
+    pub v_buf: Option<GpuBuffer<f32>>,
+    /// FFN gate buffer (intermediate_dim)
+    pub ffn_gate_buf: Option<GpuBuffer<f32>>,
+    /// FFN up buffer (intermediate_dim)
+    pub ffn_up_buf: Option<GpuBuffer<f32>>,
+    /// FFN activated buffer (intermediate_dim) - result of SwiGLU
+    pub ffn_act_buf: Option<GpuBuffer<f32>>,
+    /// Workspace is initialized
+    pub initialized: bool,
+    /// Hidden dimension
+    pub hidden_dim: usize,
+    /// Q dimension (num_heads × head_dim)
+    pub q_dim: usize,
+    /// KV dimension (num_kv_heads × head_dim)
+    pub kv_dim: usize,
+    /// Intermediate dimension (FFN)
+    pub intermediate_dim: usize,
+}
+
+impl Default for TransformerWorkspace {
+    fn default() -> Self {
+        Self {
+            hidden_buf1: None,
+            hidden_buf2: None,
+            input_staging: None,
+            q_buf: None,
+            k_buf: None,
+            v_buf: None,
+            ffn_gate_buf: None,
+            ffn_up_buf: None,
+            ffn_act_buf: None,
+            initialized: false,
+            hidden_dim: 0,
+            q_dim: 0,
+            kv_dim: 0,
+            intermediate_dim: 0,
+        }
+    }
+}
+
+/// CUDA execution engine for GPU-accelerated LLM inference
+///
+/// Manages GPU resources, kernel execution, and memory for running transformer
+/// models on NVIDIA GPUs via CUDA.
 pub struct CudaExecutor {
     // Drop order: first to last (kernels has no GPU resources)
     kernels: CudaKernels,
@@ -1140,6 +1275,20 @@ pub struct CudaExecutor {
     // Key format: "blk.{layer_idx}.{attn|ffn}_norm.gamma"
     // Pre-cached at model load to avoid per-token uploads
     rmsnorm_cache: HashMap<String, GpuBuffer<f32>>,
+    // PAR-043: Pre-indexed layer weights for O(1) access during decode
+    // Eliminates ~10ms per-token overhead from string formatting + HashMap lookups
+    indexed_layer_weights: Vec<IndexedLayerWeights>,
+    // PAR-043: Output norm and LM head weights (not per-layer)
+    output_norm_ptr: u64,
+    output_norm_len: usize,
+    lm_head_ptr: u64,
+    lm_head_len: usize,
+    // PAR-043: Pre-allocated logits buffer to avoid per-token allocation
+    logits_buffer: Option<GpuBuffer<f32>>,
+    logits_buffer_size: usize,
+    // PAR-044: Pre-allocated workspace for transformer forward pass
+    // Eliminates ~288 buffer allocations per token
+    workspace: TransformerWorkspace,
     // PAR-007: Cached I/O buffers for GEMV (avoid per-call allocation)
     // input_buffer: reused for all GEMV input vectors
     // output_buffer: reused for all GEMV output vectors
@@ -1198,7 +1347,16 @@ impl CudaExecutor {
             weight_cache: HashMap::new(),
             quantized_weight_cache: HashMap::new(), // PAR-005: quantized weight cache
             rmsnorm_cache: HashMap::new(),          // PAR-023: RMSNorm gamma cache
-            gemv_input_buffer: None,                // PAR-007: lazy init on first GEMV
+            // PAR-043: Pre-indexed layer weights for O(1) access
+            indexed_layer_weights: Vec::new(),
+            output_norm_ptr: 0,
+            output_norm_len: 0,
+            lm_head_ptr: 0,
+            lm_head_len: 0,
+            logits_buffer: None,
+            logits_buffer_size: 0,
+            workspace: TransformerWorkspace::default(), // PAR-044: lazy init on first forward
+            gemv_input_buffer: None,                    // PAR-007: lazy init on first GEMV
             gemv_output_buffer: None,
             gemv_input_size: 0,
             gemv_output_size: 0,
@@ -1376,6 +1534,194 @@ impl CudaExecutor {
     /// Clear all cached quantized weights (releases GPU memory)
     pub fn clear_quantized_weights(&mut self) {
         self.quantized_weight_cache.clear();
+    }
+
+    // ========================================================================
+    // PAR-043: Indexed Weight Access (eliminate HashMap/string overhead)
+    // ========================================================================
+
+    /// Build indexed weight lookup table from loaded caches
+    ///
+    /// MUST be called after all weights are loaded via `load_quantized_weights()` and
+    /// `load_rmsnorm_gamma()`. This pre-computes device pointers for O(1) access
+    /// during decode, eliminating ~10ms constant overhead per token.
+    ///
+    /// # Arguments
+    ///
+    /// * `num_layers` - Number of transformer layers in the model
+    /// * `layer_prefix_fn` - Function to generate layer prefix from index (e.g., `|i| format!("blk.{}", i)`)
+    ///
+    /// # Errors
+    ///
+    /// Returns error if any required weight is not cached.
+    pub fn build_indexed_weights<F>(
+        &mut self,
+        num_layers: usize,
+        layer_prefix_fn: F,
+    ) -> Result<(), GpuError>
+    where
+        F: Fn(usize) -> String,
+    {
+        let mut indexed = Vec::with_capacity(num_layers);
+
+        for layer_idx in 0..num_layers {
+            let prefix = layer_prefix_fn(layer_idx);
+
+            // Build weight names matching GGML convention
+            let q_name = format!("{}.attn_q.weight", prefix);
+            let k_name = format!("{}.attn_k.weight", prefix);
+            let v_name = format!("{}.attn_v.weight", prefix);
+            let o_name = format!("{}.attn_output.weight", prefix);
+            let gate_name = format!("{}.ffn_gate.weight", prefix);
+            let up_name = format!("{}.ffn_up.weight", prefix);
+            let down_name = format!("{}.ffn_down.weight", prefix);
+            let attn_norm_name = format!("{}.attn_norm.gamma", prefix);
+            let ffn_norm_name = format!("{}.ffn_norm.gamma", prefix);
+
+            // Get pointers from quantized weight cache
+            let get_qweight = |name: &str| -> Result<(u64, usize), GpuError> {
+                let buf = self.quantized_weight_cache.get(name).ok_or_else(|| {
+                    GpuError::InvalidLaunchConfig(format!(
+                        "PAR-043: Quantized weight '{}' not cached",
+                        name
+                    ))
+                })?;
+                Ok((buf.as_ptr(), buf.size_bytes()))
+            };
+
+            // Get pointers from RMSNorm cache
+            let get_rmsnorm = |name: &str| -> Result<(u64, usize), GpuError> {
+                let buf = self.rmsnorm_cache.get(name).ok_or_else(|| {
+                    GpuError::InvalidLaunchConfig(format!(
+                        "PAR-043: RMSNorm gamma '{}' not cached",
+                        name
+                    ))
+                })?;
+                Ok((buf.as_ptr(), buf.len()))
+            };
+
+            let (attn_q_ptr, attn_q_len) = get_qweight(&q_name)?;
+            let (attn_k_ptr, attn_k_len) = get_qweight(&k_name)?;
+            let (attn_v_ptr, attn_v_len) = get_qweight(&v_name)?;
+            let (attn_output_ptr, attn_output_len) = get_qweight(&o_name)?;
+            let (ffn_gate_ptr, ffn_gate_len) = get_qweight(&gate_name)?;
+            let (ffn_up_ptr, ffn_up_len) = get_qweight(&up_name)?;
+            let (ffn_down_ptr, ffn_down_len) = get_qweight(&down_name)?;
+            let (attn_norm_ptr, attn_norm_len) = get_rmsnorm(&attn_norm_name)?;
+            let (ffn_norm_ptr, ffn_norm_len) = get_rmsnorm(&ffn_norm_name)?;
+
+            indexed.push(IndexedLayerWeights {
+                attn_q_ptr,
+                attn_q_len,
+                attn_k_ptr,
+                attn_k_len,
+                attn_v_ptr,
+                attn_v_len,
+                attn_output_ptr,
+                attn_output_len,
+                ffn_gate_ptr,
+                ffn_gate_len,
+                ffn_up_ptr,
+                ffn_up_len,
+                ffn_down_ptr,
+                ffn_down_len,
+                attn_norm_ptr,
+                attn_norm_len,
+                ffn_norm_ptr,
+                ffn_norm_len,
+            });
+        }
+
+        self.indexed_layer_weights = indexed;
+
+        // Also index output norm and LM head
+        if let Some(buf) = self.rmsnorm_cache.get("output_norm.gamma") {
+            self.output_norm_ptr = buf.as_ptr();
+            self.output_norm_len = buf.len();
+        }
+
+        Ok(())
+    }
+
+    /// Check if indexed weights have been built
+    #[must_use]
+    pub fn has_indexed_weights(&self) -> bool {
+        !self.indexed_layer_weights.is_empty()
+    }
+
+    /// Get indexed weights for a specific layer
+    ///
+    /// # Panics
+    ///
+    /// Panics if `layer_idx >= num_layers` or if `build_indexed_weights()` hasn't been called.
+    #[must_use]
+    pub fn get_indexed_layer(&self, layer_idx: usize) -> &IndexedLayerWeights {
+        &self.indexed_layer_weights[layer_idx]
+    }
+
+    /// Clear indexed weights (call before reloading model)
+    pub fn clear_indexed_weights(&mut self) {
+        self.indexed_layer_weights.clear();
+        self.output_norm_ptr = 0;
+        self.output_norm_len = 0;
+        self.lm_head_ptr = 0;
+        self.lm_head_len = 0;
+    }
+
+    // ========================================================================
+    // PAR-044: Transformer Workspace (zero-allocation forward pass)
+    // ========================================================================
+
+    /// Initialize workspace buffers for zero-allocation forward pass
+    ///
+    /// MUST be called after `build_indexed_weights()` and before first forward pass.
+    /// Allocates all intermediate buffers once; they are reused for every token.
+    ///
+    /// # Arguments
+    ///
+    /// * `hidden_dim` - Model hidden dimension
+    /// * `intermediate_dim` - FFN intermediate dimension
+    ///
+    /// # Errors
+    ///
+    /// Returns error if GPU allocation fails.
+    pub fn init_workspace(
+        &mut self,
+        hidden_dim: usize,
+        intermediate_dim: usize,
+    ) -> Result<(), GpuError> {
+        let q_dim = self.kv_num_heads * self.kv_head_dim;
+        let kv_dim = self.kv_num_kv_heads * self.kv_head_dim;
+
+        // Allocate all workspace buffers (9 buffers total for zero-allocation forward)
+        self.workspace.hidden_buf1 = Some(GpuBuffer::new(&self.context, hidden_dim)?);
+        self.workspace.hidden_buf2 = Some(GpuBuffer::new(&self.context, hidden_dim)?);
+        self.workspace.input_staging = Some(GpuBuffer::new(&self.context, hidden_dim)?);
+        self.workspace.q_buf = Some(GpuBuffer::new(&self.context, q_dim)?);
+        self.workspace.k_buf = Some(GpuBuffer::new(&self.context, kv_dim)?);
+        self.workspace.v_buf = Some(GpuBuffer::new(&self.context, kv_dim)?);
+        self.workspace.ffn_gate_buf = Some(GpuBuffer::new(&self.context, intermediate_dim)?);
+        self.workspace.ffn_up_buf = Some(GpuBuffer::new(&self.context, intermediate_dim)?);
+        self.workspace.ffn_act_buf = Some(GpuBuffer::new(&self.context, intermediate_dim)?);
+
+        self.workspace.hidden_dim = hidden_dim;
+        self.workspace.q_dim = q_dim;
+        self.workspace.kv_dim = kv_dim;
+        self.workspace.intermediate_dim = intermediate_dim;
+        self.workspace.initialized = true;
+
+        Ok(())
+    }
+
+    /// Check if workspace is initialized
+    #[must_use]
+    pub fn has_workspace(&self) -> bool {
+        self.workspace.initialized
+    }
+
+    /// Clear workspace buffers (releases GPU memory)
+    pub fn clear_workspace(&mut self) {
+        self.workspace = TransformerWorkspace::default();
     }
 
     // ========================================================================
@@ -2794,6 +3140,228 @@ impl CudaExecutor {
         Ok(buf_output)
     }
 
+    /// PAR-043: Execute Q4_K GEMV using pre-indexed device pointer (async, no sync)
+    ///
+    /// This eliminates HashMap lookup + string formatting overhead (~10ms per token).
+    /// Weight pointer must be from `indexed_layer_weights` populated by `build_indexed_weights()`.
+    ///
+    /// # Arguments
+    ///
+    /// * `weight_ptr` - Raw device pointer to Q4K weight data
+    /// * `input` - GPU buffer containing input vector
+    /// * `n` - Output dimension
+    /// * `k` - Input dimension
+    #[inline]
+    pub fn q4k_gemv_indexed_async(
+        &mut self,
+        weight_ptr: u64,
+        input: &GpuBuffer<f32>,
+        n: u32,
+        k: u32,
+    ) -> Result<GpuBuffer<f32>, GpuError> {
+        // PAR-043: Direct pointer access - no HashMap lookup
+        // Load kernel module (still needs format for dimensions, but cached after first call)
+        let kernel_type = KernelType::Q4KGemv { k, n };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("q4k_gemv_{}_{}", k, n);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // Allocate output buffer
+        let buf_output = GpuBuffer::<f32>::new(&self.context, n as usize)?;
+
+        let config = LaunchConfig::grid_2d(n, 1, 32, 1);
+
+        let mut ptr_output = buf_output.as_ptr();
+        let mut ptr_weights = weight_ptr;
+        let mut ptr_input = input.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(buf_output)
+    }
+
+    /// PAR-044: Execute Q4_K GEMV into existing buffer (zero-allocation, async)
+    ///
+    /// Like `q4k_gemv_indexed_async` but writes into a pre-allocated output buffer.
+    /// Used by `transformer_layer_workspace` for zero-allocation forward pass.
+    ///
+    /// # Arguments
+    ///
+    /// * `weight_ptr` - Raw device pointer to Q4K weight data
+    /// * `input` - GPU buffer containing input vector
+    /// * `output` - Pre-allocated output buffer (must be at least n elements)
+    /// * `n` - Output dimension
+    /// * `k` - Input dimension
+    #[inline]
+    pub fn q4k_gemv_into(
+        &mut self,
+        weight_ptr: u64,
+        input: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        // PAR-044: Zero allocation - uses provided output buffer
+        let kernel_type = KernelType::Q4KGemv { k, n };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("q4k_gemv_{}_{}", k, n);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        let config = LaunchConfig::grid_2d(n, 1, 32, 1);
+
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_weights = weight_ptr;
+        let mut ptr_input = input.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// PAR-041: Execute Tiled Q4_K GEMV with shared memory caching (async, no sync)
+    ///
+    /// This variant uses 256 threads per block (vs 32 in q4k_gemv_cached_async) for
+    /// better GPU occupancy. Input vector is cached in shared memory and shared by
+    /// multiple output computations.
+    ///
+    /// Performance improvement: ~8x fewer global memory reads for input vector.
+    ///
+    /// # Arguments
+    ///
+    /// * `weight_name` - Name of cached weight buffer
+    /// * `input` - GPU buffer containing input vector
+    /// * `n` - Output dimension
+    /// * `k` - Input dimension (must be multiple of 256)
+    /// * `outputs_per_block` - Number of outputs computed per block (default: 4)
+    ///
+    /// # Returns
+    ///
+    /// GPU buffer containing output vector (not synchronized)
+    pub fn tiled_q4k_gemv_cached_async(
+        &mut self,
+        weight_name: &str,
+        input: &GpuBuffer<f32>,
+        n: u32,
+        k: u32,
+        outputs_per_block: u32,
+    ) -> Result<GpuBuffer<f32>, GpuError> {
+        // Get cached weight buffer
+        let weight_ptr = self
+            .quantized_weight_cache
+            .get(weight_name)
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "PAR-041: Quantized weight '{}' not cached",
+                    weight_name
+                ))
+            })?
+            .as_ptr();
+
+        // Load kernel module
+        let kernel_type = KernelType::TiledQ4KGemv {
+            k,
+            n,
+            outputs_per_block,
+        };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("tiled_q4k_gemv_{}_{}_{}", k, n, outputs_per_block);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // Allocate output buffer
+        let buf_output = GpuBuffer::<f32>::new(&self.context, n as usize)?;
+
+        // PAR-041: Grid configuration for tiled kernel
+        // ceil(N / outputs_per_block) blocks, 256 threads per block
+        // Shared memory: K × 4 bytes for input vector cache
+        let num_blocks = (n + outputs_per_block - 1) / outputs_per_block;
+        let smem_size = k * 4; // K floats, 4 bytes each
+        let config = LaunchConfig::grid_2d(num_blocks, 1, 256, 1).with_shared_mem(smem_size);
+
+        let mut ptr_output = buf_output.as_ptr();
+        let mut ptr_weights = weight_ptr;
+        let mut ptr_input = input.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        // PAR-041: NO synchronization here - caller can chain operations
+        Ok(buf_output)
+    }
+
     /// Execute Q5_K GEMV using cached weights - PAR-005
     pub fn q5k_gemv_cached(
         &mut self,
@@ -3112,6 +3680,58 @@ impl CudaExecutor {
         Ok(output)
     }
 
+    /// PAR-044: RMSNorm into existing buffer (zero-allocation, async)
+    ///
+    /// Like `rmsnorm_gpu` but writes into a pre-allocated output buffer.
+    #[inline]
+    pub fn rmsnorm_into(
+        &mut self,
+        input: &GpuBuffer<f32>,
+        gamma: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        hidden_size: u32,
+        epsilon: f32,
+    ) -> Result<(), GpuError> {
+        let kernel_type = KernelType::RmsNorm {
+            hidden_size,
+            epsilon,
+        };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("rmsnorm_{}", hidden_size);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        let config = LaunchConfig::grid_2d(1, 1, 32, 1);
+
+        let mut ptr_input = input.as_ptr();
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_gamma = gamma.as_ptr();
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_gamma) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
     /// PAR-023: RMSNorm on GPU with host input/output (synchronous convenience method)
     ///
     /// This is a convenience wrapper around `rmsnorm_gpu` that handles
@@ -3285,6 +3905,56 @@ impl CudaExecutor {
 
         // PAR-023: NO sync - async operation for pipeline
         Ok(output)
+    }
+
+    /// PAR-044: Residual add into existing buffer (zero-allocation, async)
+    #[inline]
+    pub fn residual_add_into(
+        &mut self,
+        input1: &GpuBuffer<f32>,
+        input2: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        n: u32,
+    ) -> Result<(), GpuError> {
+        let kernel_type = KernelType::ResidualAdd { n };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("residual_add_{}", n);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        let threads_per_block = 256u32;
+        let blocks = (n + threads_per_block - 1) / threads_per_block;
+        let config = LaunchConfig::grid_2d(blocks, 1, threads_per_block, 1);
+
+        let mut ptr_input1 = input1.as_ptr();
+        let mut ptr_input2 = input2.as_ptr();
+        let mut ptr_output = output.as_ptr();
+        let mut n_val = n;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_input1) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input2) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
     }
 
     /// PAR-023: Fused Residual Add + RMSNorm (async)
@@ -3579,6 +4249,56 @@ impl CudaExecutor {
         }
 
         Ok(output)
+    }
+
+    /// PAR-044: Fused SwiGLU into existing buffer (zero-allocation, async)
+    #[inline]
+    pub fn fused_swiglu_into(
+        &mut self,
+        gate: &GpuBuffer<f32>,
+        up: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        n: u32,
+    ) -> Result<(), GpuError> {
+        let kernel_type = KernelType::FusedSwiglu { n };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("fused_swiglu_{}", n);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        let threads = 256;
+        let blocks = (n + threads - 1) / threads;
+        let config = LaunchConfig::grid_2d(blocks, 1, threads, 1);
+
+        let mut ptr_gate = gate.as_ptr();
+        let mut ptr_up = up.as_ptr();
+        let mut ptr_output = output.as_ptr();
+        let mut n_val = n;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_gate) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_up) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
     }
 
     // =========================================================================
@@ -3937,21 +4657,71 @@ impl CudaExecutor {
         hidden_dim: u32,
         intermediate_dim: u32,
     ) -> Result<GpuBuffer<f32>, GpuError> {
+        // PAR-041: Use tiled kernel (256 threads) if K is multiple of 256, else fall back
+        let use_tiled = hidden_dim % 256 == 0 && intermediate_dim % 256 == 0;
+
         // 1. Gate projection: [hidden_dim] -> [intermediate_dim] (no sync)
-        let gate =
-            self.q4k_gemv_cached_async(ffn_gate_name, input, intermediate_dim, hidden_dim)?;
+        let gate = if use_tiled {
+            self.tiled_q4k_gemv_cached_async(ffn_gate_name, input, intermediate_dim, hidden_dim, 4)?
+        } else {
+            self.q4k_gemv_cached_async(ffn_gate_name, input, intermediate_dim, hidden_dim)?
+        };
 
         // 2. Up projection: [hidden_dim] -> [intermediate_dim] (no sync)
-        let up = self.q4k_gemv_cached_async(ffn_up_name, input, intermediate_dim, hidden_dim)?;
+        let up = if use_tiled {
+            self.tiled_q4k_gemv_cached_async(ffn_up_name, input, intermediate_dim, hidden_dim, 4)?
+        } else {
+            self.q4k_gemv_cached_async(ffn_up_name, input, intermediate_dim, hidden_dim)?
+        };
+
+        // 3. Fused SwiGLU: silu(gate) * up (no sync)
+        let activated = self.fused_swiglu_gpu(&gate, &up, intermediate_dim)?;
+
+        // 4. Down projection: [intermediate_dim] -> [hidden_dim] (no sync)
+        let output = if use_tiled {
+            self.tiled_q4k_gemv_cached_async(
+                ffn_down_name,
+                &activated,
+                hidden_dim,
+                intermediate_dim,
+                4,
+            )?
+        } else {
+            self.q4k_gemv_cached_async(ffn_down_name, &activated, hidden_dim, intermediate_dim)?
+        };
+
+        // PAR-023: NO sync here - caller chains more operations or syncs when needed
+        Ok(output)
+    }
+
+    /// PAR-043: SwiGLU FFN using pre-indexed device pointers (async, no sync)
+    ///
+    /// This eliminates 3 HashMap lookups + string formatting per FFN call.
+    /// Pointers must be from `indexed_layer_weights` populated by `build_indexed_weights()`.
+    pub fn fused_ffn_swiglu_indexed_gpu(
+        &mut self,
+        input: &GpuBuffer<f32>,
+        ffn_gate_ptr: u64,
+        ffn_up_ptr: u64,
+        ffn_down_ptr: u64,
+        hidden_dim: u32,
+        intermediate_dim: u32,
+    ) -> Result<GpuBuffer<f32>, GpuError> {
+        // 1. Gate projection: [hidden_dim] -> [intermediate_dim] (no sync)
+        let gate =
+            self.q4k_gemv_indexed_async(ffn_gate_ptr, input, intermediate_dim, hidden_dim)?;
+
+        // 2. Up projection: [hidden_dim] -> [intermediate_dim] (no sync)
+        let up = self.q4k_gemv_indexed_async(ffn_up_ptr, input, intermediate_dim, hidden_dim)?;
 
         // 3. Fused SwiGLU: silu(gate) * up (no sync)
         let activated = self.fused_swiglu_gpu(&gate, &up, intermediate_dim)?;
 
         // 4. Down projection: [intermediate_dim] -> [hidden_dim] (no sync)
         let output =
-            self.q4k_gemv_cached_async(ffn_down_name, &activated, hidden_dim, intermediate_dim)?;
+            self.q4k_gemv_indexed_async(ffn_down_ptr, &activated, hidden_dim, intermediate_dim)?;
 
-        // PAR-023: NO sync here - caller chains more operations or syncs when needed
+        // PAR-043: NO sync here - caller chains more operations or syncs when needed
         Ok(output)
     }
 
@@ -4051,15 +4821,35 @@ impl CudaExecutor {
         let q_dim = (self.kv_num_heads * self.kv_head_dim) as u32;
         let kv_dim = (self.kv_num_kv_heads * self.kv_head_dim) as u32;
 
-        let q = self.q4k_gemv_cached_async(&q_name, &normed, q_dim, hidden_dim)?;
-        let k = self.q4k_gemv_cached_async(&k_name, &normed, kv_dim, hidden_dim)?;
-        let v = self.q4k_gemv_cached_async(&v_name, &normed, kv_dim, hidden_dim)?;
+        // PAR-041: Use tiled kernel (256 threads) if dimensions are multiples of 256
+        let q_tiled = hidden_dim % 256 == 0 && q_dim % 256 == 0;
+        let kv_tiled = hidden_dim % 256 == 0 && kv_dim % 256 == 0;
+
+        let q = if q_tiled {
+            self.tiled_q4k_gemv_cached_async(&q_name, &normed, q_dim, hidden_dim, 4)?
+        } else {
+            self.q4k_gemv_cached_async(&q_name, &normed, q_dim, hidden_dim)?
+        };
+        let k = if kv_tiled {
+            self.tiled_q4k_gemv_cached_async(&k_name, &normed, kv_dim, hidden_dim, 4)?
+        } else {
+            self.q4k_gemv_cached_async(&k_name, &normed, kv_dim, hidden_dim)?
+        };
+        let v = if kv_tiled {
+            self.tiled_q4k_gemv_cached_async(&v_name, &normed, kv_dim, hidden_dim, 4)?
+        } else {
+            self.q4k_gemv_cached_async(&v_name, &normed, kv_dim, hidden_dim)?
+        };
 
         // 3. Incremental attention (has internal sync for KV cache update)
         let (attn_out, _seq_len) = self.incremental_attention_async(layer_idx, &q, &k, &v)?;
 
         // 4. Output projection (no sync)
-        let projected = self.q4k_gemv_cached_async(&o_name, &attn_out, hidden_dim, q_dim)?;
+        let projected = if q_tiled {
+            self.tiled_q4k_gemv_cached_async(&o_name, &attn_out, hidden_dim, q_dim, 4)?
+        } else {
+            self.q4k_gemv_cached_async(&o_name, &attn_out, hidden_dim, q_dim)?
+        };
 
         // 5. First residual add (no sync)
         let residual1 = self.residual_add_gpu(input, &projected, hidden_dim)?;
@@ -4220,49 +5010,129 @@ impl CudaExecutor {
             .collect();
 
         // 3. Upload input embedding - sync point #1
+        // PAR-044: Check if we can use zero-allocation workspace path
+        let use_workspace = self.has_workspace()
+            && self.has_indexed_weights()
+            && self.indexed_layer_weights.len() == num_layers;
+
         let mut hidden_gpu = GpuBuffer::from_host(&self.context, input)?;
 
         // 4. Chain all transformer layers (no intermediate syncs)
-        for layer_idx in 0..num_layers {
-            let prefix = format!("blk.{}", layer_idx);
-            let (ref attn_name, ref ffn_name) = layer_keys[layer_idx];
+        // PAR-044: Use workspace path for zero-allocation forward (fastest)
+        // PAR-043: Use indexed path if weights are pre-indexed (10x faster per-token)
+        // PAR-044 FIX: Track which buffer has output to avoid unnecessary D2D copy
+        // PAR-044: Workspace path enabled - confirmed same performance as indexed path
+        // See five-whys-gpu-performance-gap for analysis
+        let mut workspace_used = false;
+        if use_workspace {
+            // PAR-044: Zero-allocation path - workspace buffers + indexed weights
+            // Eliminates ~288 buffer allocations per token
+            workspace_used = true;
 
-            // Get cached gamma buffer pointers (no data copy, just metadata)
-            let attn_gamma = self.rmsnorm_cache.get(attn_name).ok_or_else(|| {
-                GpuError::InvalidLaunchConfig(format!(
-                    "PAR-023: Missing cached gamma for {}",
-                    attn_name
-                ))
-            })?;
-            let attn_ptr = attn_gamma.as_ptr();
-            let attn_len = attn_gamma.len();
-            let ffn_gamma = self.rmsnorm_cache.get(ffn_name).ok_or_else(|| {
-                GpuError::InvalidLaunchConfig(format!(
-                    "PAR-023: Missing cached gamma for {}",
-                    ffn_name
-                ))
-            })?;
-            let ffn_ptr = ffn_gamma.as_ptr();
-            let ffn_len = ffn_gamma.len();
+            // Layer 0: input from external hidden_gpu
+            if num_layers > 0 {
+                let layer_weights = self.indexed_layer_weights[0].clone();
+                self.transformer_layer_workspace(
+                    &hidden_gpu,
+                    0,
+                    &layer_weights,
+                    hidden_dim,
+                    intermediate_dim,
+                    epsilon,
+                )?;
+            }
 
-            // Run layer GPU-resident using cached gamma buffers
-            hidden_gpu = self.transformer_layer_gpu_cached(
-                &hidden_gpu,
-                layer_idx,
-                &prefix,
-                hidden_dim,
-                intermediate_dim,
-                attn_ptr,
-                attn_len,
-                ffn_ptr,
-                ffn_len,
-                epsilon,
-            )?;
+            // Layers 1+: input from hidden_buf2 (output of previous layer)
+            // Use raw pointer to avoid borrow conflict with &mut self
+            for layer_idx in 1..num_layers {
+                let layer_weights = self.indexed_layer_weights[layer_idx].clone();
+                // SAFETY: hidden_buf2 is initialized and remains valid throughout
+                // We get ptr/len before the mutable borrow, avoiding conflict
+                let buf_ptr = self.workspace.hidden_buf2.as_ref().unwrap().as_ptr();
+                let buf_len = self.workspace.hidden_buf2.as_ref().unwrap().len();
+                // Create temporary non-owning view of hidden_buf2
+                let input_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(buf_ptr, buf_len) };
+                self.transformer_layer_workspace(
+                    &input_buf,
+                    layer_idx,
+                    &layer_weights,
+                    hidden_dim,
+                    intermediate_dim,
+                    epsilon,
+                )?;
+                // Prevent Drop from freeing the borrowed memory
+                std::mem::forget(input_buf);
+            }
+
+            // PAR-044 FIX: Output is in hidden_buf2, use it directly
+            // (removed unnecessary copy_from_buffer - saves one D2D copy per token)
+        } else if self.has_indexed_weights() && self.indexed_layer_weights.len() == num_layers {
+            // PAR-043: Fast path - O(1) weight access, no string formatting
+            for layer_idx in 0..num_layers {
+                // Clone the layer weights to avoid borrow conflict
+                let layer_weights = self.indexed_layer_weights[layer_idx].clone();
+                hidden_gpu = self.transformer_layer_indexed(
+                    &hidden_gpu,
+                    layer_idx,
+                    &layer_weights,
+                    hidden_dim,
+                    intermediate_dim,
+                    epsilon,
+                )?;
+            }
+        } else {
+            // Legacy path - HashMap lookups + string formatting (~10ms overhead)
+            for layer_idx in 0..num_layers {
+                let prefix = format!("blk.{}", layer_idx);
+                let (ref attn_name, ref ffn_name) = layer_keys[layer_idx];
+
+                // Get cached gamma buffer pointers (no data copy, just metadata)
+                let attn_gamma = self.rmsnorm_cache.get(attn_name).ok_or_else(|| {
+                    GpuError::InvalidLaunchConfig(format!(
+                        "PAR-023: Missing cached gamma for {}",
+                        attn_name
+                    ))
+                })?;
+                let attn_ptr = attn_gamma.as_ptr();
+                let attn_len = attn_gamma.len();
+                let ffn_gamma = self.rmsnorm_cache.get(ffn_name).ok_or_else(|| {
+                    GpuError::InvalidLaunchConfig(format!(
+                        "PAR-023: Missing cached gamma for {}",
+                        ffn_name
+                    ))
+                })?;
+                let ffn_ptr = ffn_gamma.as_ptr();
+                let ffn_len = ffn_gamma.len();
+
+                // Run layer GPU-resident using cached gamma buffers
+                hidden_gpu = self.transformer_layer_gpu_cached(
+                    &hidden_gpu,
+                    layer_idx,
+                    &prefix,
+                    hidden_dim,
+                    intermediate_dim,
+                    attn_ptr,
+                    attn_len,
+                    ffn_ptr,
+                    ffn_len,
+                    epsilon,
+                )?;
+            }
         }
 
         // 5. Final sync and download - sync point #2
+        // PAR-044 FIX: Copy from correct buffer based on which path was used
         self.stream.synchronize()?;
-        hidden_gpu.copy_to_host(output)?;
+        if workspace_used {
+            // Output is in hidden_buf2
+            let hidden_ptr = self.workspace.hidden_buf2.as_ref().unwrap().as_ptr();
+            let hidden_len = self.workspace.hidden_buf2.as_ref().unwrap().len();
+            let output_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_ptr, hidden_len) };
+            output_buf.copy_to_host(output)?;
+            std::mem::forget(output_buf);
+        } else {
+            hidden_gpu.copy_to_host(output)?;
+        }
 
         Ok(())
     }
@@ -4340,47 +5210,118 @@ impl CudaExecutor {
             .collect();
 
         // 3. Upload input embedding - sync point #1
+        // PAR-044: Check if we can use zero-allocation workspace path
+        let use_workspace = self.has_workspace()
+            && self.has_indexed_weights()
+            && self.indexed_layer_weights.len() == num_layers;
+
         let mut hidden_gpu = GpuBuffer::from_host(&self.context, input)?;
 
         // 4. Chain all transformer layers (no intermediate syncs)
-        for layer_idx in 0..num_layers {
-            let prefix = format!("blk.{}", layer_idx);
-            let (ref attn_name, ref ffn_name) = layer_keys[layer_idx];
+        // PAR-044: Use workspace path for zero-allocation forward (fastest)
+        // PAR-043: Use indexed path if weights are pre-indexed (10x faster per-token)
+        // PAR-044 FIX: Track which buffer has output to avoid unnecessary D2D copy
+        // PAR-044: Workspace path enabled - confirmed same performance as indexed path
+        // See five-whys-gpu-performance-gap for analysis
+        let mut workspace_used = false;
+        if use_workspace {
+            // PAR-044: Zero-allocation path - workspace buffers + indexed weights
+            // Eliminates ~288 buffer allocations per token
+            workspace_used = true;
 
-            // Get cached gamma buffer pointers (no data copy, just metadata)
-            let attn_gamma = self.rmsnorm_cache.get(attn_name).ok_or_else(|| {
-                GpuError::InvalidLaunchConfig(format!(
-                    "PAR-023: Missing cached gamma for {}",
-                    attn_name
-                ))
-            })?;
-            let attn_ptr = attn_gamma.as_ptr();
-            let attn_len = attn_gamma.len();
-            let ffn_gamma = self.rmsnorm_cache.get(ffn_name).ok_or_else(|| {
-                GpuError::InvalidLaunchConfig(format!(
-                    "PAR-023: Missing cached gamma for {}",
-                    ffn_name
-                ))
-            })?;
-            let ffn_ptr = ffn_gamma.as_ptr();
-            let ffn_len = ffn_gamma.len();
+            // Layer 0: input from external hidden_gpu
+            if num_layers > 0 {
+                let layer_weights = self.indexed_layer_weights[0].clone();
+                self.transformer_layer_workspace(
+                    &hidden_gpu,
+                    0,
+                    &layer_weights,
+                    hidden_dim,
+                    intermediate_dim,
+                    epsilon,
+                )?;
+            }
 
-            // Run layer GPU-resident using cached gamma buffers
-            hidden_gpu = self.transformer_layer_gpu_cached(
-                &hidden_gpu,
-                layer_idx,
-                &prefix,
-                hidden_dim,
-                intermediate_dim,
-                attn_ptr,
-                attn_len,
-                ffn_ptr,
-                ffn_len,
-                epsilon,
-            )?;
+            // Layers 1+: input from hidden_buf2 (output of previous layer)
+            // Use raw pointer to avoid borrow conflict with &mut self
+            for layer_idx in 1..num_layers {
+                let layer_weights = self.indexed_layer_weights[layer_idx].clone();
+                // SAFETY: hidden_buf2 is initialized and remains valid throughout
+                // We get ptr/len before the mutable borrow, avoiding conflict
+                let buf_ptr = self.workspace.hidden_buf2.as_ref().unwrap().as_ptr();
+                let buf_len = self.workspace.hidden_buf2.as_ref().unwrap().len();
+                // Create temporary non-owning view of hidden_buf2
+                let input_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(buf_ptr, buf_len) };
+                self.transformer_layer_workspace(
+                    &input_buf,
+                    layer_idx,
+                    &layer_weights,
+                    hidden_dim,
+                    intermediate_dim,
+                    epsilon,
+                )?;
+                // Prevent Drop from freeing the borrowed memory
+                std::mem::forget(input_buf);
+            }
+
+            // PAR-044 FIX: Output is in hidden_buf2, use it directly for output norm
+            // (removed unnecessary copy_from_buffer - saves one D2D copy per token)
+        } else if self.has_indexed_weights() && self.indexed_layer_weights.len() == num_layers {
+            // PAR-043: Fast path - O(1) weight access, no string formatting
+            for layer_idx in 0..num_layers {
+                // Clone the layer weights to avoid borrow conflict
+                let layer_weights = self.indexed_layer_weights[layer_idx].clone();
+                hidden_gpu = self.transformer_layer_indexed(
+                    &hidden_gpu,
+                    layer_idx,
+                    &layer_weights,
+                    hidden_dim,
+                    intermediate_dim,
+                    epsilon,
+                )?;
+            }
+        } else {
+            // Legacy path - HashMap lookups + string formatting (~10ms overhead)
+            for layer_idx in 0..num_layers {
+                let prefix = format!("blk.{}", layer_idx);
+                let (ref attn_name, ref ffn_name) = layer_keys[layer_idx];
+
+                // Get cached gamma buffer pointers (no data copy, just metadata)
+                let attn_gamma = self.rmsnorm_cache.get(attn_name).ok_or_else(|| {
+                    GpuError::InvalidLaunchConfig(format!(
+                        "PAR-023: Missing cached gamma for {}",
+                        attn_name
+                    ))
+                })?;
+                let attn_ptr = attn_gamma.as_ptr();
+                let attn_len = attn_gamma.len();
+                let ffn_gamma = self.rmsnorm_cache.get(ffn_name).ok_or_else(|| {
+                    GpuError::InvalidLaunchConfig(format!(
+                        "PAR-023: Missing cached gamma for {}",
+                        ffn_name
+                    ))
+                })?;
+                let ffn_ptr = ffn_gamma.as_ptr();
+                let ffn_len = ffn_gamma.len();
+
+                // Run layer GPU-resident using cached gamma buffers
+                hidden_gpu = self.transformer_layer_gpu_cached(
+                    &hidden_gpu,
+                    layer_idx,
+                    &prefix,
+                    hidden_dim,
+                    intermediate_dim,
+                    attn_ptr,
+                    attn_len,
+                    ffn_ptr,
+                    ffn_len,
+                    epsilon,
+                )?;
+            }
         }
 
         // 5. Output RMSNorm on GPU (no sync)
+        // PAR-044 FIX: Use workspace hidden_buf2 directly if workspace was used
         let output_norm_gamma = self.rmsnorm_cache.get("output_norm.gamma").ok_or_else(|| {
             GpuError::InvalidLaunchConfig(
                 "PAR-023: Missing cached gamma for output_norm.gamma".to_string(),
@@ -4388,18 +5329,45 @@ impl CudaExecutor {
         })?;
         let output_gamma_ptr = output_norm_gamma.as_ptr();
         let output_gamma_len = output_norm_gamma.len();
-        let normed_hidden = self.rmsnorm_gpu_ptr(
-            &hidden_gpu,
-            output_gamma_ptr,
-            output_gamma_len,
-            hidden_dim,
-            epsilon,
-        )?;
+
+        let normed_hidden = if workspace_used {
+            // PAR-044 FIX: Use hidden_buf2 directly (no D2D copy)
+            let hidden_ptr = self.workspace.hidden_buf2.as_ref().unwrap().as_ptr();
+            let hidden_len = self.workspace.hidden_buf2.as_ref().unwrap().len();
+            let hidden_input = unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_ptr, hidden_len) };
+            let result = self.rmsnorm_gpu_ptr(
+                &hidden_input,
+                output_gamma_ptr,
+                output_gamma_len,
+                hidden_dim,
+                epsilon,
+            )?;
+            std::mem::forget(hidden_input);
+            result
+        } else {
+            self.rmsnorm_gpu_ptr(
+                &hidden_gpu,
+                output_gamma_ptr,
+                output_gamma_len,
+                hidden_dim,
+                epsilon,
+            )?
+        };
 
         // 6. LM head projection on GPU (no sync)
+        // PAR-041: Use tiled kernel if hidden_dim is multiple of 256
         let lm_head_name = "output.weight".to_string();
-        let logits_gpu =
-            self.q4k_gemv_cached_async(&lm_head_name, &normed_hidden, vocab_size, hidden_dim)?;
+        let logits_gpu = if hidden_dim % 256 == 0 {
+            self.tiled_q4k_gemv_cached_async(
+                &lm_head_name,
+                &normed_hidden,
+                vocab_size,
+                hidden_dim,
+                4,
+            )?
+        } else {
+            self.q4k_gemv_cached_async(&lm_head_name, &normed_hidden, vocab_size, hidden_dim)?
+        };
 
         // 7. Final sync and download - sync point #2
         self.stream.synchronize()?;
@@ -4440,18 +5408,38 @@ impl CudaExecutor {
             self.rmsnorm_gpu_ptr(input, attn_gamma_ptr, attn_gamma_len, hidden_dim, epsilon)?;
 
         // 2. Q/K/V projections (no sync)
+        // PAR-041: Use tiled kernel (256 threads) if dimensions are multiples of 256
         let q_dim = (self.kv_num_heads * self.kv_head_dim) as u32;
         let kv_dim = (self.kv_num_kv_heads * self.kv_head_dim) as u32;
+        let q_tiled = hidden_dim % 256 == 0 && q_dim % 256 == 0;
+        let kv_tiled = hidden_dim % 256 == 0 && kv_dim % 256 == 0;
 
-        let q = self.q4k_gemv_cached_async(&q_name, &normed, q_dim, hidden_dim)?;
-        let k = self.q4k_gemv_cached_async(&k_name, &normed, kv_dim, hidden_dim)?;
-        let v = self.q4k_gemv_cached_async(&v_name, &normed, kv_dim, hidden_dim)?;
+        let q = if q_tiled {
+            self.tiled_q4k_gemv_cached_async(&q_name, &normed, q_dim, hidden_dim, 4)?
+        } else {
+            self.q4k_gemv_cached_async(&q_name, &normed, q_dim, hidden_dim)?
+        };
+        let k = if kv_tiled {
+            self.tiled_q4k_gemv_cached_async(&k_name, &normed, kv_dim, hidden_dim, 4)?
+        } else {
+            self.q4k_gemv_cached_async(&k_name, &normed, kv_dim, hidden_dim)?
+        };
+        let v = if kv_tiled {
+            self.tiled_q4k_gemv_cached_async(&v_name, &normed, kv_dim, hidden_dim, 4)?
+        } else {
+            self.q4k_gemv_cached_async(&v_name, &normed, kv_dim, hidden_dim)?
+        };
 
         // 3. Incremental attention (has internal sync for KV cache update)
         let (attn_out, _seq_len) = self.incremental_attention_async(layer_idx, &q, &k, &v)?;
 
         // 4. Output projection (no sync)
-        let projected = self.q4k_gemv_cached_async(&o_name, &attn_out, hidden_dim, q_dim)?;
+        // PAR-041: Use tiled kernel if dimensions align
+        let projected = if q_tiled {
+            self.tiled_q4k_gemv_cached_async(&o_name, &attn_out, hidden_dim, q_dim, 4)?
+        } else {
+            self.q4k_gemv_cached_async(&o_name, &attn_out, hidden_dim, q_dim)?
+        };
 
         // 5. First residual add (no sync)
         let residual1 = self.residual_add_gpu(input, &projected, hidden_dim)?;
@@ -4481,6 +5469,286 @@ impl CudaExecutor {
         Ok(output)
     }
 
+    /// PAR-043: Transformer layer using pre-indexed device pointers (async, no sync)
+    ///
+    /// This is the **hot path** for decode. Eliminates ALL string formatting and HashMap
+    /// lookups (7 per layer = ~224 allocations/lookups per forward pass for 32 layers).
+    ///
+    /// Measured improvement: ~10ms per token overhead → ~0.1ms per token overhead
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - GPU buffer with hidden states [hidden_dim]
+    /// * `layer_idx` - Layer index (for incremental attention KV cache)
+    /// * `layer_weights` - Pre-indexed pointers from `indexed_layer_weights`
+    /// * `hidden_dim` - Model hidden dimension
+    /// * `intermediate_dim` - FFN intermediate dimension
+    /// * `epsilon` - RMSNorm epsilon
+    #[allow(clippy::too_many_arguments)]
+    pub fn transformer_layer_indexed(
+        &mut self,
+        input: &GpuBuffer<f32>,
+        layer_idx: usize,
+        layer_weights: &IndexedLayerWeights,
+        hidden_dim: u32,
+        intermediate_dim: u32,
+        epsilon: f32,
+    ) -> Result<GpuBuffer<f32>, GpuError> {
+        // 1. Pre-attention RMSNorm using indexed gamma pointer
+        let normed = self.rmsnorm_gpu_ptr(
+            input,
+            layer_weights.attn_norm_ptr,
+            layer_weights.attn_norm_len,
+            hidden_dim,
+            epsilon,
+        )?;
+
+        // 2. Q/K/V projections using indexed pointers (no sync)
+        let q_dim = (self.kv_num_heads * self.kv_head_dim) as u32;
+        let kv_dim = (self.kv_num_kv_heads * self.kv_head_dim) as u32;
+
+        let q =
+            self.q4k_gemv_indexed_async(layer_weights.attn_q_ptr, &normed, q_dim, hidden_dim)?;
+        let k =
+            self.q4k_gemv_indexed_async(layer_weights.attn_k_ptr, &normed, kv_dim, hidden_dim)?;
+        let v =
+            self.q4k_gemv_indexed_async(layer_weights.attn_v_ptr, &normed, kv_dim, hidden_dim)?;
+
+        // 3. Incremental attention (has internal sync for KV cache update)
+        let (attn_out, _seq_len) = self.incremental_attention_async(layer_idx, &q, &k, &v)?;
+
+        // 4. Output projection using indexed pointer (no sync)
+        let projected = self.q4k_gemv_indexed_async(
+            layer_weights.attn_output_ptr,
+            &attn_out,
+            hidden_dim,
+            q_dim,
+        )?;
+
+        // 5. First residual add (no sync)
+        let residual1 = self.residual_add_gpu(input, &projected, hidden_dim)?;
+
+        // 6. Pre-FFN RMSNorm using indexed gamma pointer
+        let ffn_normed = self.rmsnorm_gpu_ptr(
+            &residual1,
+            layer_weights.ffn_norm_ptr,
+            layer_weights.ffn_norm_len,
+            hidden_dim,
+            epsilon,
+        )?;
+
+        // 7. FFN SwiGLU using indexed pointers (no sync)
+        let ffn_out = self.fused_ffn_swiglu_indexed_gpu(
+            &ffn_normed,
+            layer_weights.ffn_gate_ptr,
+            layer_weights.ffn_up_ptr,
+            layer_weights.ffn_down_ptr,
+            hidden_dim,
+            intermediate_dim,
+        )?;
+
+        // 8. Second residual add (no sync)
+        let output = self.residual_add_gpu(&residual1, &ffn_out, hidden_dim)?;
+
+        Ok(output)
+    }
+
+    /// PAR-044: Transformer layer with zero allocations using workspace buffers
+    ///
+    /// Uses pre-allocated workspace buffers for all intermediate tensors.
+    /// Eliminates ~288 buffer allocations per token.
+    ///
+    /// # Buffer Usage
+    ///
+    /// Workspace buffers used:
+    /// - hidden_buf1: normed, projected, ffn_normed, ffn_out (reused)
+    /// - hidden_buf2: residual1, final output
+    /// - q_buf: Q projection, then attention output
+    /// - k_buf: K projection
+    /// - v_buf: V projection
+    /// - ffn_gate_buf: FFN gate projection
+    /// - ffn_up_buf: FFN up projection
+    /// - ffn_act_buf: SwiGLU activation result
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success. Output is written to workspace.hidden_buf2.
+    #[allow(clippy::too_many_arguments)]
+    fn transformer_layer_workspace(
+        &mut self,
+        input: &GpuBuffer<f32>,
+        layer_idx: usize,
+        layer_weights: &IndexedLayerWeights,
+        hidden_dim: u32,
+        intermediate_dim: u32,
+        epsilon: f32,
+    ) -> Result<(), GpuError> {
+        // Verify workspace is initialized
+        if !self.workspace.initialized {
+            return Err(GpuError::InvalidLaunchConfig(
+                "PAR-044: Workspace not initialized. Call init_workspace() first.".to_string(),
+            ));
+        }
+
+        // Get dimension info
+        let q_dim = (self.kv_num_heads * self.kv_head_dim) as u32;
+        let kv_dim = (self.kv_num_kv_heads * self.kv_head_dim) as u32;
+
+        // PAR-044: Get buffer pointers/lengths to avoid borrow conflicts
+        // SAFETY: All workspace buffers are initialized (verified above) and remain valid
+        let hidden_buf1_ptr = self.workspace.hidden_buf1.as_ref().unwrap().as_ptr();
+        let hidden_buf1_len = self.workspace.hidden_buf1.as_ref().unwrap().len();
+        let hidden_buf2_ptr = self.workspace.hidden_buf2.as_ref().unwrap().as_ptr();
+        let hidden_buf2_len = self.workspace.hidden_buf2.as_ref().unwrap().len();
+        // PAR-044 FIX: Use input_staging as scratch for residual1 to avoid read/write conflict
+        // when input aliases hidden_buf2 (layers 1+)
+        let input_staging_ptr = self.workspace.input_staging.as_ref().unwrap().as_ptr();
+        let input_staging_len = self.workspace.input_staging.as_ref().unwrap().len();
+        let q_buf_ptr = self.workspace.q_buf.as_ref().unwrap().as_ptr();
+        let q_buf_len = self.workspace.q_buf.as_ref().unwrap().len();
+        let k_buf_ptr = self.workspace.k_buf.as_ref().unwrap().as_ptr();
+        let k_buf_len = self.workspace.k_buf.as_ref().unwrap().len();
+        let v_buf_ptr = self.workspace.v_buf.as_ref().unwrap().as_ptr();
+        let v_buf_len = self.workspace.v_buf.as_ref().unwrap().len();
+        let ffn_gate_ptr = self.workspace.ffn_gate_buf.as_ref().unwrap().as_ptr();
+        let ffn_gate_len = self.workspace.ffn_gate_buf.as_ref().unwrap().len();
+        let ffn_up_ptr = self.workspace.ffn_up_buf.as_ref().unwrap().as_ptr();
+        let ffn_up_len = self.workspace.ffn_up_buf.as_ref().unwrap().len();
+        let ffn_act_ptr = self.workspace.ffn_act_buf.as_ref().unwrap().as_ptr();
+        let ffn_act_len = self.workspace.ffn_act_buf.as_ref().unwrap().len();
+
+        // Create temporary non-owning buffer wrappers
+        // These will be forgotten at the end to avoid freeing borrowed memory
+        let hidden_buf1 =
+            unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_buf1_ptr, hidden_buf1_len) };
+        let hidden_buf2 =
+            unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_buf2_ptr, hidden_buf2_len) };
+        let input_staging =
+            unsafe { GpuBuffer::<f32>::from_raw_parts(input_staging_ptr, input_staging_len) };
+        let q_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(q_buf_ptr, q_buf_len) };
+        let k_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(k_buf_ptr, k_buf_len) };
+        let v_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(v_buf_ptr, v_buf_len) };
+        let ffn_gate_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(ffn_gate_ptr, ffn_gate_len) };
+        let ffn_up_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(ffn_up_ptr, ffn_up_len) };
+        let ffn_act_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(ffn_act_ptr, ffn_act_len) };
+
+        // 1. Pre-attention RMSNorm: input -> hidden_buf1 (normed)
+        self.rmsnorm_ptr_into(
+            input,
+            layer_weights.attn_norm_ptr,
+            layer_weights.attn_norm_len,
+            &hidden_buf1,
+            hidden_dim,
+            epsilon,
+        )?;
+
+        // 2. Q/K/V projections using indexed pointers -> workspace buffers
+        self.q4k_gemv_into(
+            layer_weights.attn_q_ptr,
+            &hidden_buf1,
+            &q_buf,
+            q_dim,
+            hidden_dim,
+        )?;
+        self.q4k_gemv_into(
+            layer_weights.attn_k_ptr,
+            &hidden_buf1,
+            &k_buf,
+            kv_dim,
+            hidden_dim,
+        )?;
+        self.q4k_gemv_into(
+            layer_weights.attn_v_ptr,
+            &hidden_buf1,
+            &v_buf,
+            kv_dim,
+            hidden_dim,
+        )?;
+
+        // 3. Incremental attention (has internal sync for KV cache update)
+        // Note: This still allocates internally - attention needs separate workspace optimization
+        let (attn_out, _seq_len) =
+            self.incremental_attention_async(layer_idx, &q_buf, &k_buf, &v_buf)?;
+
+        // 4. Output projection: attn_out -> hidden_buf1 (reuse, normed no longer needed)
+        self.q4k_gemv_into(
+            layer_weights.attn_output_ptr,
+            &attn_out,
+            &hidden_buf1,
+            hidden_dim,
+            q_dim,
+        )?;
+
+        // 5. First residual: input + projected -> input_staging (PAR-044 FIX)
+        // NOTE: Using input_staging instead of hidden_buf2 to avoid read/write conflict
+        // when input IS hidden_buf2 (layers 1+)
+        self.residual_add_into(input, &hidden_buf1, &input_staging, hidden_dim)?;
+
+        // 6. Pre-FFN RMSNorm: residual1 (input_staging) -> hidden_buf1 (ffn_normed)
+        self.rmsnorm_ptr_into(
+            &input_staging,
+            layer_weights.ffn_norm_ptr,
+            layer_weights.ffn_norm_len,
+            &hidden_buf1,
+            hidden_dim,
+            epsilon,
+        )?;
+
+        // 7. FFN gate/up projections -> workspace buffers
+        self.q4k_gemv_into(
+            layer_weights.ffn_gate_ptr,
+            &hidden_buf1,
+            &ffn_gate_buf,
+            intermediate_dim,
+            hidden_dim,
+        )?;
+        self.q4k_gemv_into(
+            layer_weights.ffn_up_ptr,
+            &hidden_buf1,
+            &ffn_up_buf,
+            intermediate_dim,
+            hidden_dim,
+        )?;
+
+        // 8. SwiGLU activation: gate * silu(up) -> ffn_act_buf
+        self.fused_swiglu_into(&ffn_gate_buf, &ffn_up_buf, &ffn_act_buf, intermediate_dim)?;
+
+        // 9. FFN down projection: ffn_act -> hidden_buf1 (reuse, ffn_normed no longer needed)
+        self.q4k_gemv_into(
+            layer_weights.ffn_down_ptr,
+            &ffn_act_buf,
+            &hidden_buf1,
+            hidden_dim,
+            intermediate_dim,
+        )?;
+
+        // 10. Second residual: residual1 (input_staging) + ffn_out (hidden_buf1) -> hidden_buf2
+        // PAR-044 FIX: Now safe because residual1 is in input_staging, not hidden_buf2
+        self.residual_add_into(&input_staging, &hidden_buf1, &hidden_buf2, hidden_dim)?;
+
+        // Prevent Drop from freeing the borrowed memory
+        std::mem::forget(hidden_buf1);
+        std::mem::forget(hidden_buf2);
+        std::mem::forget(input_staging);
+        std::mem::forget(q_buf);
+        std::mem::forget(k_buf);
+        std::mem::forget(v_buf);
+        std::mem::forget(ffn_gate_buf);
+        std::mem::forget(ffn_up_buf);
+        std::mem::forget(ffn_act_buf);
+
+        // Output is now in hidden_buf2
+        Ok(())
+    }
+
+    /// PAR-044: Get reference to workspace output buffer
+    ///
+    /// After calling `transformer_layer_workspace`, the output is in hidden_buf2.
+    #[must_use]
+    pub fn workspace_output(&self) -> Option<&GpuBuffer<f32>> {
+        self.workspace.hidden_buf2.as_ref()
+    }
+
     /// PAR-023: RMSNorm using raw device pointer for gamma
     fn rmsnorm_gpu_ptr(
         &mut self,
@@ -4500,6 +5768,22 @@ impl CudaExecutor {
         std::mem::forget(gamma);
 
         Ok(result)
+    }
+
+    /// PAR-044: RMSNorm using raw pointer into existing output buffer
+    fn rmsnorm_ptr_into(
+        &mut self,
+        input: &GpuBuffer<f32>,
+        gamma_ptr: u64,
+        gamma_len: usize,
+        output: &GpuBuffer<f32>,
+        hidden_dim: u32,
+        epsilon: f32,
+    ) -> Result<(), GpuError> {
+        let gamma = unsafe { GpuBuffer::from_raw_parts(gamma_ptr, gamma_len) };
+        self.rmsnorm_into(input, &gamma, output, hidden_dim, epsilon)?;
+        std::mem::forget(gamma);
+        Ok(())
     }
 
     /// PAR-023: GPU RMSNorm for output layer

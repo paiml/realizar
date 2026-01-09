@@ -5081,9 +5081,7 @@ dependencies = [
 
 [[package]]
 name = "trueno-gpu"
-version = "0.4.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "58a93aae7e6303d958694da406458eb787f6d6bbc6f92b8f2a20e3462fe7eb4f"
+version = "0.4.5"
 dependencies = [
  "libloading",
  "thiserror 2.0.17",

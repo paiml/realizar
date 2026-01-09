@@ -153,6 +153,11 @@ pub mod bench;
 /// - Hoefler & Belli SC'15: CV-based stopping
 /// - Vitek & Kalibera EMSOFT'11: Reproducibility requirements
 pub mod bench_preflight;
+/// Benchmark visualization for inference comparison (PAR-040)
+///
+/// Creates 2×3 grid visualizations comparing APR vs Ollama vs llama.cpp
+/// and generates profiling logs suitable for chat paste debugging.
+pub mod bench_viz;
 pub mod cache;
 /// Chat template engine for model-specific message formatting
 ///
