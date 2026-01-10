@@ -1083,6 +1083,294 @@ pub fn benchmark_brick<B: ComputeBrick>(
 }
 
 // ============================================================================
+// CUDA Graph Brick (Section 5.2 - P0)
+// ============================================================================
+
+/// CUDA Graph Brick for eliminating kernel launch overhead.
+///
+/// Per spec: docs/specifications/qwen2.5-coder-showcase-demo.md §5.2
+///
+/// Uses CUDA graph capture to reduce ~280 kernel launches to single graph replay.
+/// Expected impact: 5.6ms overhead → 0.02ms = 280x overhead reduction.
+///
+/// # Implementation
+///
+/// Wraps `CudaExecutor::decode_graph` and `try_graph_capture()` from cuda.rs.
+/// Uses indirect kernels (KvCacheScatterIndirect, RopeIndirect) for graph compatibility.
+#[derive(Debug, Clone)]
+pub struct CudaGraphBrick {
+    /// Number of layers captured in graph
+    pub num_layers: usize,
+    /// Hidden dimension
+    pub hidden_dim: usize,
+    /// Whether graph is currently captured
+    pub captured: bool,
+    /// Token budget (target: 10µs launch overhead vs 5600µs eager)
+    budget: TokenBudget,
+}
+
+impl CudaGraphBrick {
+    /// Create new CUDA Graph brick for model configuration.
+    #[must_use]
+    pub fn new(num_layers: usize, hidden_dim: usize) -> Self {
+        // Graph overhead should be < 100µs (vs ~5.6ms for 280 launches)
+        let budget_us = 20.0; // Conservative: 20µs for graph replay
+        Self {
+            num_layers,
+            hidden_dim,
+            captured: false,
+            budget: TokenBudget::from_latency(budget_us),
+        }
+    }
+
+    /// Set custom budget.
+    #[must_use]
+    pub fn with_budget(mut self, budget: TokenBudget) -> Self {
+        self.budget = budget;
+        self
+    }
+
+    /// Mark graph as captured.
+    pub fn set_captured(&mut self, captured: bool) {
+        self.captured = captured;
+    }
+
+    /// Check if graph can be used (captured and valid).
+    #[must_use]
+    pub fn can_replay(&self) -> bool {
+        self.captured
+    }
+
+    /// Replay the captured graph (stub - actual execution via CudaExecutor).
+    pub fn replay(&self) -> Result<(), BrickError> {
+        if !self.captured {
+            return Err(BrickError::ComputeError(
+                "CUDA graph not captured yet".to_string(),
+            ));
+        }
+        // Actual replay would be done via CudaExecutor::forward_graphed()
+        Ok(())
+    }
+}
+
+impl ComputeBrick for CudaGraphBrick {
+    type Output = ();
+
+    fn name(&self) -> &'static str {
+        "cuda_graph"
+    }
+
+    fn budget(&self) -> TokenBudget {
+        self.budget
+    }
+
+    fn assertions(&self) -> Vec<BrickAssertion> {
+        vec![
+            BrickAssertion::budget_met(),
+            BrickAssertion {
+                name: "graph_speedup".to_string(),
+                description: "Graph replay faster than eager execution".to_string(),
+                kind: AssertionKind::Custom {
+                    check_name: "graph_speedup".to_string(),
+                },
+            },
+        ]
+    }
+
+    fn can_run(&self) -> bool {
+        self.num_layers > 0 && self.hidden_dim > 0
+    }
+}
+
+// ============================================================================
+// Coalesced DP4A Brick (Section 5.3 - P0)
+// ============================================================================
+
+/// Coalesced DP4A GEMV Brick for bandwidth-optimized quantized matmul.
+///
+/// Per spec: docs/specifications/qwen2.5-coder-showcase-demo.md §5.3
+///
+/// Key optimizations:
+/// - 4-byte coalesced loads (vs 1-byte non-coalesced)
+/// - DP4A instruction for 4 multiply-adds per cycle
+/// - Pre-quantized Q8 activations for integer arithmetic
+///
+/// # Implementation
+///
+/// Wraps `CudaExecutor::packed_dp4a_q4k_q8_gemv_async()` from cuda.rs (PAR-063-V6).
+#[derive(Debug, Clone)]
+pub struct CoalescedDp4aBrick {
+    /// Input dimension (K)
+    pub k: usize,
+    /// Output dimension (N)
+    pub n: usize,
+    /// Token budget (target: 4x improvement over non-coalesced)
+    budget: TokenBudget,
+}
+
+impl CoalescedDp4aBrick {
+    /// Create new Coalesced DP4A brick.
+    ///
+    /// # Arguments
+    ///
+    /// * `k` - Input dimension (must be multiple of 256 for Q4K)
+    /// * `n` - Output dimension
+    #[must_use]
+    pub fn new(k: usize, n: usize) -> Self {
+        // Budget based on memory bandwidth model
+        // Q4K: 4.5 bits/value → k * 4.5 / 8 bytes
+        // At 700 GB/s bandwidth: time_us = bytes / (700e9 / 1e6)
+        let bytes = (k as f64 * n as f64 * 4.5) / 8.0;
+        let bandwidth_gb_s = 700.0; // RTX 4090 achievable
+        let budget_us = bytes / (bandwidth_gb_s * 1e3);
+
+        Self {
+            k,
+            n,
+            budget: TokenBudget::from_latency(budget_us.max(1.0)),
+        }
+    }
+
+    /// Set custom budget.
+    #[must_use]
+    pub fn with_budget(mut self, budget: TokenBudget) -> Self {
+        self.budget = budget;
+        self
+    }
+
+    /// Theoretical FLOPS for this operation.
+    #[must_use]
+    pub fn flops(&self) -> u64 {
+        // GEMV: 2 * K * N (multiply-add per element)
+        2 * self.k as u64 * self.n as u64
+    }
+
+    /// Arithmetic intensity (FLOPS / bytes).
+    #[must_use]
+    pub fn arithmetic_intensity(&self) -> f64 {
+        let bytes = (self.k as f64 * 4.5) / 8.0 + self.n as f64 * 4.0; // Q4K weights + f32 output
+        self.flops() as f64 / bytes
+    }
+
+    /// Execute GEMV (stub - actual execution via CudaExecutor).
+    pub fn execute(&self) -> Result<Vec<f32>, BrickError> {
+        if !self.k.is_multiple_of(256) || self.k == 0 || self.n == 0 {
+            return Err(BrickError::InvalidInput(format!(
+                "Invalid dimensions: k={} (must be multiple of 256), n={}",
+                self.k, self.n
+            )));
+        }
+        // Actual execution would be done via CudaExecutor::packed_dp4a_q4k_q8_gemv_async()
+        Ok(vec![0.0; self.n])
+    }
+}
+
+impl ComputeBrick for CoalescedDp4aBrick {
+    type Output = Vec<f32>;
+
+    fn name(&self) -> &'static str {
+        "coalesced_dp4a"
+    }
+
+    fn budget(&self) -> TokenBudget {
+        self.budget
+    }
+
+    fn assertions(&self) -> Vec<BrickAssertion> {
+        vec![
+            BrickAssertion::no_nan(),
+            BrickAssertion::no_inf(),
+            BrickAssertion::budget_met(),
+            BrickAssertion {
+                name: "bandwidth_efficient".to_string(),
+                description: "Achieves >= 70% of peak memory bandwidth".to_string(),
+                kind: AssertionKind::Custom {
+                    check_name: "bandwidth_efficient".to_string(),
+                },
+            },
+        ]
+    }
+
+    fn can_run(&self) -> bool {
+        // K must be multiple of 256 for Q4K super-blocks
+        self.k.is_multiple_of(256) && self.k > 0 && self.n > 0
+    }
+}
+
+// ============================================================================
+// Fused Megakernel Brick (P1)
+// ============================================================================
+
+/// Fused SwiGLU FFN Brick (gate-up-down in single kernel).
+///
+/// Per spec: docs/specifications/qwen2.5-coder-showcase-demo.md §5.1 (P1)
+///
+/// Fuses gate, up, and down projections into single kernel launch.
+/// Expected impact: 3x speedup (1 launch vs 3).
+#[derive(Debug, Clone)]
+pub struct FusedFfnBrick {
+    /// Hidden dimension
+    pub hidden_dim: usize,
+    /// Intermediate dimension
+    pub intermediate_dim: usize,
+    /// Token budget
+    budget: TokenBudget,
+}
+
+impl FusedFfnBrick {
+    /// Create new fused FFN brick.
+    #[must_use]
+    pub fn new(hidden_dim: usize, intermediate_dim: usize) -> Self {
+        // Budget: ~12µs for the full FFN (matches FfnBrick)
+        Self {
+            hidden_dim,
+            intermediate_dim,
+            budget: TokenBudget::from_latency(12.2),
+        }
+    }
+
+    /// Set custom budget.
+    #[must_use]
+    pub fn with_budget(mut self, budget: TokenBudget) -> Self {
+        self.budget = budget;
+        self
+    }
+
+    /// Execute FFN (stub - actual execution via CudaExecutor).
+    pub fn execute(&self) -> Result<Vec<f32>, BrickError> {
+        if self.hidden_dim == 0 || self.intermediate_dim == 0 {
+            return Err(BrickError::InvalidInput("Zero dimension".to_string()));
+        }
+        // Actual execution via CudaExecutor::fused_ffn_swiglu_gpu_true_dp4a()
+        Ok(vec![0.0; self.hidden_dim])
+    }
+}
+
+impl ComputeBrick for FusedFfnBrick {
+    type Output = Vec<f32>;
+
+    fn name(&self) -> &'static str {
+        "fused_ffn"
+    }
+
+    fn budget(&self) -> TokenBudget {
+        self.budget
+    }
+
+    fn assertions(&self) -> Vec<BrickAssertion> {
+        vec![
+            BrickAssertion::no_nan(),
+            BrickAssertion::no_inf(),
+            BrickAssertion::budget_met(),
+        ]
+    }
+
+    fn can_run(&self) -> bool {
+        self.hidden_dim > 0 && self.intermediate_dim > 0
+    }
+}
+
+// ============================================================================
 // Tests (F001-F020)
 // ============================================================================
 
