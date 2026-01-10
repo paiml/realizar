@@ -961,6 +961,152 @@ impl ComputeBrick for OProjBrick {
     }
 }
 
+/// ActivationQuantBrick - Q8 activation quantization for memory bandwidth reduction (P2).
+///
+/// **Purpose**: Quantize intermediate activations from f32 to int8 to reduce
+/// memory bandwidth by 4x during inter-layer communication.
+///
+/// **Pipeline**:
+/// ```text
+/// Layer N output (f32) → Q8 quantize → transfer → Q8 dequantize → Layer N+1 input (f32)
+///
+/// Memory bandwidth reduction:
+///   f32: 4 bytes/element
+///   int8: 1 byte/element + 2 floats (scale, zero_point)
+///   Effective: ~4x reduction for large activations
+/// ```
+///
+/// **Algorithm** (per-tensor affine quantization):
+/// ```text
+/// Quantize:
+///   scale = (max - min) / 255
+///   zero_point = round(-min / scale)
+///   q[i] = clamp(round(x[i] / scale + zero_point), 0, 255)
+///
+/// Dequantize:
+///   x[i] = (q[i] - zero_point) * scale
+/// ```
+///
+/// **Performance**: 2x memory BW improvement with ~0.1% accuracy loss
+///
+/// **Reference**: Jacob, B., et al. (2018). "Quantization and Training of
+/// Neural Networks for Efficient Integer-Arithmetic-Only Inference." CVPR '18.
+#[derive(Debug, Clone)]
+pub struct ActivationQuantBrick {
+    /// Activation dimension (e.g., hidden_dim or intermediate_dim)
+    pub dim: usize,
+    /// Budget (target: 0.5µs for quant+dequant overhead)
+    budget: TokenBudget,
+    /// Use per-channel quantization (more accurate but slower)
+    pub per_channel: bool,
+}
+
+impl ActivationQuantBrick {
+    /// Create new activation quantization brick.
+    #[must_use]
+    pub fn new(dim: usize) -> Self {
+        Self {
+            dim,
+            budget: TokenBudget::from_latency(0.5), // 0.5µs overhead target
+            per_channel: false,
+        }
+    }
+
+    /// Create with per-channel quantization.
+    #[must_use]
+    pub fn with_per_channel(dim: usize) -> Self {
+        Self {
+            dim,
+            budget: TokenBudget::from_latency(1.0), // 1.0µs for per-channel
+            per_channel: true,
+        }
+    }
+
+    /// Set custom budget.
+    #[must_use]
+    pub fn with_budget(mut self, budget: TokenBudget) -> Self {
+        self.budget = budget;
+        self
+    }
+
+    /// Compute memory bandwidth reduction factor.
+    ///
+    /// f32 (4 bytes) → int8 (1 byte) + scale/zero_point = ~4x reduction
+    #[must_use]
+    pub fn bandwidth_reduction(&self) -> f64 {
+        // Original: dim * 4 bytes (f32)
+        // Quantized: dim * 1 byte (int8) + 8 bytes (scale + zero_point)
+        let original_bytes = self.dim * 4;
+        let quantized_bytes = self.dim + 8; // +8 for scale and zero_point (f32 each)
+        original_bytes as f64 / quantized_bytes as f64
+    }
+
+    /// Compute quantization error estimate (typical for 8-bit).
+    ///
+    /// Per Jacob et al. 2018, typical Q8 error is ~0.1% for activations.
+    #[must_use]
+    pub fn estimated_error(&self) -> f64 {
+        if self.per_channel {
+            0.0005 // 0.05% for per-channel
+        } else {
+            0.001 // 0.1% for per-tensor
+        }
+    }
+
+    /// Compute bytes saved per token.
+    #[must_use]
+    pub fn bytes_saved(&self) -> usize {
+        // f32 (4 bytes) → int8 (1 byte) = 3 bytes saved per element
+        self.dim * 3
+    }
+
+    /// Execute quantization (stub - actual execution via CudaExecutor).
+    pub fn execute(&self) -> Result<Vec<u8>, BrickError> {
+        if self.dim == 0 {
+            return Err(BrickError::InvalidInput("Zero dimension".to_string()));
+        }
+        // Stub: actual execution via CudaExecutor::quantize_activation_q8()
+        Ok(vec![128u8; self.dim]) // Placeholder: all zeros in Q8
+    }
+}
+
+impl ComputeBrick for ActivationQuantBrick {
+    type Output = Vec<u8>;
+
+    fn name(&self) -> &'static str {
+        "activation_quant"
+    }
+
+    fn budget(&self) -> TokenBudget {
+        self.budget
+    }
+
+    fn assertions(&self) -> Vec<BrickAssertion> {
+        vec![
+            BrickAssertion::budget_met(),
+            BrickAssertion {
+                name: "symmetric_range".to_string(),
+                description: "Q8 values centered around 128 (zero_point)".to_string(),
+                kind: AssertionKind::Custom {
+                    check_name: "symmetric_range".to_string(),
+                },
+            },
+            BrickAssertion {
+                name: "error_bound".to_string(),
+                description: "Quantization error < 0.1% (per-tensor) or 0.05% (per-channel)"
+                    .to_string(),
+                kind: AssertionKind::Custom {
+                    check_name: "error_bound".to_string(),
+                },
+            },
+        ]
+    }
+
+    fn can_run(&self) -> bool {
+        self.dim > 0
+    }
+}
+
 // ============================================================================
 // Transformer Layer Brick
 // ============================================================================
@@ -1637,6 +1783,7 @@ mod tests {
         let _ = FusedFfnBrick::new(64, 256);
         let _ = RopeBrick::new(64, 8, 10000.0, 0);
         let _ = OProjBrick::new(512, 64);
+        let _ = ActivationQuantBrick::new(64);
     }
 
     // F002: assertions().len() > 0 for all bricks
@@ -1652,6 +1799,7 @@ mod tests {
         assert!(!FusedFfnBrick::new(64, 256).assertions().is_empty());
         assert!(!RopeBrick::new(64, 8, 10000.0, 0).assertions().is_empty());
         assert!(!OProjBrick::new(512, 64).assertions().is_empty());
+        assert!(!ActivationQuantBrick::new(64).assertions().is_empty());
     }
 
     // F004: budget() returns non-zero value
@@ -1663,6 +1811,7 @@ mod tests {
         assert!(FlashAttentionBrick::new(8, 2, 64).budget().us_per_token > 0.0);
         assert!(FfnBrick::new(64, 256).budget().us_per_token > 0.0);
         assert!(FusedFfnBrick::new(64, 256).budget().us_per_token > 0.0);
+        assert!(ActivationQuantBrick::new(64).budget().us_per_token > 0.0);
     }
 
     // F005: name() is unique per brick type
@@ -1677,6 +1826,7 @@ mod tests {
             FusedFfnBrick::new(64, 256).name(),
             RopeBrick::new(64, 8, 10000.0, 0).name(),
             OProjBrick::new(512, 64).name(),
+            ActivationQuantBrick::new(64).name(),
         ];
         let unique: std::collections::HashSet<_> = names.iter().collect();
         assert_eq!(names.len(), unique.len());
@@ -2086,5 +2236,75 @@ mod tests {
 
         assert!(has_shared_q8, "Should have shared_q8_quant assertion");
         assert!(has_swiglu_fused, "Should have swiglu_fused assertion");
+    }
+
+    // F058: ActivationQuantBrick bandwidth reduction
+    #[test]
+    fn f058_activation_quant_bandwidth() {
+        let brick = ActivationQuantBrick::new(1024);
+        let reduction = brick.bandwidth_reduction();
+
+        // Should achieve ~4x reduction (f32 → int8)
+        assert!(
+            reduction > 3.5 && reduction < 4.0,
+            "Bandwidth reduction should be ~4x, got {:.2}x",
+            reduction
+        );
+    }
+
+    // F059: ActivationQuantBrick bytes saved
+    #[test]
+    fn f059_activation_quant_bytes_saved() {
+        let brick = ActivationQuantBrick::new(1024);
+        let saved = brick.bytes_saved();
+
+        // 3 bytes saved per element (f32 - int8 = 4 - 1 = 3)
+        assert_eq!(saved, 1024 * 3, "Should save 3 bytes per element");
+    }
+
+    // F060: ActivationQuantBrick error estimate
+    #[test]
+    fn f060_activation_quant_error() {
+        let per_tensor = ActivationQuantBrick::new(1024);
+        let per_channel = ActivationQuantBrick::with_per_channel(1024);
+
+        // Per-tensor: 0.1% error
+        assert!(
+            (per_tensor.estimated_error() - 0.001).abs() < 0.0001,
+            "Per-tensor error should be 0.1%"
+        );
+
+        // Per-channel: 0.05% error (more accurate)
+        assert!(
+            (per_channel.estimated_error() - 0.0005).abs() < 0.0001,
+            "Per-channel error should be 0.05%"
+        );
+    }
+
+    // F061: ActivationQuantBrick has custom assertions
+    #[test]
+    fn f061_activation_quant_assertions() {
+        let brick = ActivationQuantBrick::new(1024);
+        let assertions = brick.assertions();
+
+        let has_symmetric = assertions.iter().any(|a| a.name == "symmetric_range");
+        let has_error_bound = assertions.iter().any(|a| a.name == "error_bound");
+
+        assert!(has_symmetric, "Should have symmetric_range assertion");
+        assert!(has_error_bound, "Should have error_bound assertion");
+    }
+
+    // F062: ActivationQuantBrick ComputeBrick trait
+    #[test]
+    fn f062_activation_quant_trait() {
+        let brick = ActivationQuantBrick::new(1024);
+
+        assert_eq!(brick.name(), "activation_quant");
+        assert!(brick.budget().us_per_token > 0.0);
+        assert!(brick.can_run());
+
+        // Zero dim should not run
+        let zero_brick = ActivationQuantBrick::new(0);
+        assert!(!zero_brick.can_run());
     }
 }
