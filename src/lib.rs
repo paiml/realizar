@@ -158,6 +158,15 @@ pub mod bench_preflight;
 /// Creates 2×3 grid visualizations comparing APR vs Ollama vs llama.cpp
 /// and generates profiling logs suitable for chat paste debugging.
 pub mod bench_viz;
+/// ComputeBrick architecture for token-centric, self-verifying inference
+///
+/// Per spec: Qwen2.5-Coder Showcase Demo v3.0.0
+/// Implements 5-layer brick hierarchy with Toyota Way engineering:
+/// - Jidoka: Every brick has stop-the-line assertions
+/// - Poka-Yoke: Token budgets enforce performance contracts
+/// - Genchi Genbutsu: Statistical benchmarking with CV < 5%
+/// - Mieruka: Visual progress via TUI integration
+pub mod brick;
 pub mod cache;
 /// Chat template engine for model-specific message formatting
 ///

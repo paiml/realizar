@@ -189,6 +189,162 @@ impl Q8_0Block {
     }
 }
 
+/// `Q8_K` quantized super-block (llama.cpp-compatible activation format)
+///
+/// Super-block aligned format for maximum SIMD efficiency with Q4_K weights.
+/// Uses single scale per 256 values (vs Q8_0's scale per 32 values).
+///
+/// Each super-block contains:
+/// - 1 float32 scale factor (for all 256 values)
+/// - 256 int8 quantized values
+///
+/// # Performance
+///
+/// - Aligned with Q4_K super-block (256 values)
+/// - Single scale multiplication per super-block (vs 8 for Q8_0)
+/// - Enables contiguous SIMD loads without shuffle/deinterleave
+/// - Matches llama.cpp `block_q8_K` structure
+#[derive(Debug, Clone)]
+pub struct Q8KSuperBlock {
+    /// Scale factor for the entire super-block
+    pub scale: f32,
+    /// 256 quantized int8 values
+    pub quants: [i8; 256],
+}
+
+impl Q8KSuperBlock {
+    /// Quantize 256 f32 values to Q8_K format
+    ///
+    /// Uses symmetric quantization: scale = max(abs(values)) / 127.0
+    ///
+    /// # Arguments
+    /// * `values` - Exactly 256 f32 values (one super-block)
+    ///
+    /// # Returns
+    /// A Q8KSuperBlock with single scale and 256 quantized values
+    #[must_use]
+    pub fn quantize(values: &[f32; 256]) -> Self {
+        // Find max absolute value for symmetric quantization
+        let max_abs = values.iter().map(|v| v.abs()).fold(0.0f32, f32::max);
+
+        // Avoid division by zero
+        let scale = if max_abs > 1e-10 {
+            max_abs / 127.0
+        } else {
+            1.0 / 127.0
+        };
+
+        let inv_scale = 1.0 / scale;
+
+        // Quantize all 256 values
+        let mut quants = [0i8; 256];
+        for (i, &v) in values.iter().enumerate() {
+            let q = (v * inv_scale).round();
+            quants[i] = q.clamp(-128.0, 127.0) as i8;
+        }
+
+        Self { scale, quants }
+    }
+
+    /// Zero-allocation quantization into pre-allocated buffer
+    ///
+    /// # Arguments
+    /// * `values` - 256 f32 values to quantize
+    /// * `scale_out` - Output for scale value
+    /// * `quants_out` - Output buffer for 256 int8 quantized values
+    #[inline]
+    pub fn quantize_into(values: &[f32], scale_out: &mut f32, quants_out: &mut [i8]) {
+        debug_assert!(values.len() >= 256);
+        debug_assert!(quants_out.len() >= 256);
+
+        // Find max absolute value
+        let max_abs = values[..256].iter().map(|v| v.abs()).fold(0.0f32, f32::max);
+
+        let scale = if max_abs > 1e-10 {
+            max_abs / 127.0
+        } else {
+            1.0 / 127.0
+        };
+        *scale_out = scale;
+
+        let inv_scale = 1.0 / scale;
+
+        for (i, &v) in values[..256].iter().enumerate() {
+            let q = (v * inv_scale).round();
+            quants_out[i] = q.clamp(-128.0, 127.0) as i8;
+        }
+    }
+
+    /// Dequantize back to f32 values
+    #[must_use]
+    pub fn dequantize(&self) -> [f32; 256] {
+        let mut values = [0.0f32; 256];
+        for (i, &q) in self.quants.iter().enumerate() {
+            values[i] = q as f32 * self.scale;
+        }
+        values
+    }
+}
+
+/// Quantize f32 activations to Q8_K super-blocks (zero-allocation variant)
+///
+/// Pre-allocates output buffers for scales and quantized values.
+/// Used for amortized quantization in hot inference path.
+///
+/// # Arguments
+/// * `activations` - Input f32 values (must be multiple of 256)
+/// * `scales` - Output scales buffer (len = activations.len() / 256)
+/// * `quants` - Output int8 buffer (len = activations.len())
+///
+/// # Errors
+/// Returns error if length is not a multiple of 256
+pub fn quantize_activations_q8k_into(
+    activations: &[f32],
+    scales: &mut [f32],
+    quants: &mut [i8],
+) -> Result<()> {
+    if !activations.len().is_multiple_of(256) {
+        return Err(RealizarError::FormatError {
+            reason: format!(
+                "Q8_K quantization requires length multiple of 256, got {}",
+                activations.len()
+            ),
+        });
+    }
+
+    let num_superblocks = activations.len() / 256;
+
+    if scales.len() < num_superblocks {
+        return Err(RealizarError::InvalidShape {
+            reason: format!(
+                "Scales buffer too small: need {}, have {}",
+                num_superblocks,
+                scales.len()
+            ),
+        });
+    }
+
+    if quants.len() < activations.len() {
+        return Err(RealizarError::InvalidShape {
+            reason: format!(
+                "Quants buffer too small: need {}, have {}",
+                activations.len(),
+                quants.len()
+            ),
+        });
+    }
+
+    for (sb_idx, chunk) in activations.chunks_exact(256).enumerate() {
+        Q8KSuperBlock::quantize_into(
+            chunk,
+            &mut scales[sb_idx],
+            &mut quants[sb_idx * 256..(sb_idx + 1) * 256],
+        );
+    }
+
+    Ok(())
+}
+
 /// Quantize a slice of f32 values to Q8_0 blocks
 ///
 /// # Arguments
@@ -1707,6 +1863,646 @@ unsafe fn fused_q4k_q8_dot_avx2(q4k_data: &[u8], q8_blocks: &[Q8_0Block]) -> Res
     }
 
     Ok(total_acc)
+}
+
+// ============================================================================
+// Q4_K × Q8_K KERNELS (Super-block aligned integer-only arithmetic)
+// ============================================================================
+
+/// Fused Q4_K × Q8_K dot product (super-block aligned, llama.cpp-style)
+///
+/// Uses Q8_K format (256 values per super-block, single scale) for maximum
+/// SIMD efficiency. This matches llama.cpp's `ggml_vec_dot_q4_K_q8_K`.
+///
+/// # Arguments
+/// * `q4k_data` - Raw Q4_K quantized data (144 bytes per super-block)
+/// * `q8k_scales` - Q8_K scales (one per super-block)
+/// * `q8k_quants` - Q8_K quantized int8 values (256 per super-block)
+///
+/// # Performance
+///
+/// Compared to Q4_K × f32:
+/// - 8x fewer memory reads for activations
+/// - Integer-only inner loop (no f32 conversion until end)
+/// - Single scale multiplication per super-block (vs 8 for Q8_0)
+pub fn fused_q4k_q8k_dot(q4k_data: &[u8], q8k_scales: &[f32], q8k_quants: &[i8]) -> Result<f32> {
+    const SUPER_BLOCK_BYTES: usize = 144;
+
+    if !q4k_data.len().is_multiple_of(SUPER_BLOCK_BYTES) {
+        return Err(RealizarError::InvalidShape {
+            reason: format!(
+                "Q4_K data length {} is not a multiple of {}",
+                q4k_data.len(),
+                SUPER_BLOCK_BYTES
+            ),
+        });
+    }
+
+    let num_super_blocks = q4k_data.len() / SUPER_BLOCK_BYTES;
+    let expected_values = num_super_blocks * QK_K;
+
+    if q8k_scales.len() < num_super_blocks {
+        return Err(RealizarError::InvalidShape {
+            reason: format!(
+                "Q8_K scales count {} < expected {}",
+                q8k_scales.len(),
+                num_super_blocks
+            ),
+        });
+    }
+
+    if q8k_quants.len() < expected_values {
+        return Err(RealizarError::InvalidShape {
+            reason: format!(
+                "Q8_K quants count {} < expected {}",
+                q8k_quants.len(),
+                expected_values
+            ),
+        });
+    }
+
+    let mut total_acc = 0.0f32;
+
+    for sb_idx in 0..num_super_blocks {
+        let sb_start = sb_idx * SUPER_BLOCK_BYTES;
+        let q8_start = sb_idx * QK_K;
+
+        // Read Q4_K super-block header
+        let d = read_f16(&q4k_data[sb_start..sb_start + 2]);
+        let dmin = read_f16(&q4k_data[sb_start + 2..sb_start + 4]);
+
+        // Read scales (12 bytes for 8 blocks)
+        let mut scales = [0u8; 12];
+        scales.copy_from_slice(&q4k_data[sb_start + 4..sb_start + 16]);
+
+        // Q8_K scale for this super-block
+        let q8_scale = q8k_scales[sb_idx];
+
+        // Process 4 chunks of 64 values (matching dequantize_q4_k layout)
+        // The dequantized output order is: 32 low nibbles, then 32 high nibbles
+        // So activations[j..j+32] correspond to low nibbles, activations[j+32..j+64] to high
+        for j in (0..QK_K).step_by(64) {
+            let q_offset = sb_start + 16 + j / 2; // 32 bytes per 64-value chunk
+            let q8_offset = q8_start + j;
+
+            // Get scales for low and high nibbles
+            let is = j / 32;
+            let (sc1, m1) = extract_scale_min(&scales, is);
+            let (sc2, m2) = extract_scale_min(&scales, is + 1);
+
+            // Combined scale factors
+            let d_sc1_q8 = d * sc1 * q8_scale;
+            let dm1_q8 = dmin * m1 * q8_scale;
+            let d_sc2_q8 = d * sc2 * q8_scale;
+            let dm2_q8 = dmin * m2 * q8_scale;
+
+            // Accumulators for low and high nibbles
+            let mut sum_lo: i32 = 0; // q4_lo × q8 (for activations[j..j+32])
+            let mut sum_hi: i32 = 0; // q4_hi × q8 (for activations[j+32..j+64])
+            let mut q8_sum_lo: i32 = 0;
+            let mut q8_sum_hi: i32 = 0;
+
+            for b in 0..32 {
+                let q4_byte = q4k_data[q_offset + b];
+
+                // Low nibble × activation[j + b] (first 32 positions in dequant order)
+                let q4_lo = (q4_byte & 0x0F) as i32;
+                let q8_lo = q8k_quants[q8_offset + b] as i32;
+                sum_lo += q4_lo * q8_lo;
+                q8_sum_lo += q8_lo;
+
+                // High nibble × activation[j + 32 + b] (second 32 positions in dequant order)
+                let q4_hi = ((q4_byte >> 4) & 0x0F) as i32;
+                let q8_hi = q8k_quants[q8_offset + 32 + b] as i32;
+                sum_hi += q4_hi * q8_hi;
+                q8_sum_hi += q8_hi;
+            }
+
+            // Apply formula: (d * scale * sum_q4_q8 - dmin * min * sum_q8) * q8_scale
+            total_acc += d_sc1_q8 * (sum_lo as f32) - dm1_q8 * (q8_sum_lo as f32);
+            total_acc += d_sc2_q8 * (sum_hi as f32) - dm2_q8 * (q8_sum_hi as f32);
+        }
+    }
+
+    Ok(total_acc)
+}
+
+/// SIMD-accelerated Q4_K × Q8_K dot product
+///
+/// Uses AVX-512 VNNI (vpdpbusd) for maximum throughput, falls back to AVX2 or scalar.
+/// Single scale per super-block eliminates per-block overhead.
+pub fn fused_q4k_q8k_dot_simd(
+    q4k_data: &[u8],
+    q8k_scales: &[f32],
+    q8k_quants: &[i8],
+) -> Result<f32> {
+    #[cfg(target_arch = "x86_64")]
+    {
+        // Prefer AVX-512 VNNI for best performance
+        if is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512vnni") {
+            return unsafe { fused_q4k_q8k_dot_avx512vnni(q4k_data, q8k_scales, q8k_quants) };
+        }
+        // Fallback to AVX2 (layout bug fixed)
+        if is_x86_feature_detected!("avx2") {
+            return unsafe { fused_q4k_q8k_dot_avx2(q4k_data, q8k_scales, q8k_quants) };
+        }
+    }
+
+    fused_q4k_q8k_dot(q4k_data, q8k_scales, q8k_quants)
+}
+
+/// AVX-512 VNNI optimized Q4_K × Q8_K dot product (llama.cpp style)
+///
+/// Uses `vpdpbusd` instruction for 16-way uint8×int8→int32 multiply-accumulate.
+/// This is the fastest CPU path for quantized matmul.
+///
+/// # Safety
+/// Requires AVX-512F and AVX-512 VNNI CPU features.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f", enable = "avx512vnni", enable = "avx512bw")]
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn fused_q4k_q8k_dot_avx512vnni(
+    q4k_data: &[u8],
+    q8k_scales: &[f32],
+    q8k_quants: &[i8],
+) -> Result<f32> {
+    #[allow(clippy::wildcard_imports)]
+    use std::arch::x86_64::*;
+
+    const SUPER_BLOCK_BYTES: usize = 144;
+
+    if !q4k_data.len().is_multiple_of(SUPER_BLOCK_BYTES) {
+        return Err(RealizarError::InvalidShape {
+            reason: format!(
+                "Q4_K data length {} is not a multiple of {}",
+                q4k_data.len(),
+                SUPER_BLOCK_BYTES
+            ),
+        });
+    }
+
+    let num_super_blocks = q4k_data.len() / SUPER_BLOCK_BYTES;
+    let expected_values = num_super_blocks * QK_K;
+
+    if q8k_scales.len() < num_super_blocks || q8k_quants.len() < expected_values {
+        return Err(RealizarError::InvalidShape {
+            reason: "Q8_K buffer too small".to_string(),
+        });
+    }
+
+    let _nibble_mask = _mm512_set1_epi8(0x0F_i8); // Reserved for future optimization
+    let mut total_acc = 0.0f32;
+
+    for sb_idx in 0..num_super_blocks {
+        let sb_start = sb_idx * SUPER_BLOCK_BYTES;
+        let q8_start = sb_idx * QK_K;
+
+        // Prefetch next super-block
+        if sb_idx + 1 < num_super_blocks {
+            _mm_prefetch(
+                q4k_data
+                    .as_ptr()
+                    .add((sb_idx + 1) * SUPER_BLOCK_BYTES)
+                    .cast::<i8>(),
+                _MM_HINT_T0,
+            );
+        }
+
+        // Read Q4_K header
+        let d = read_f16(&q4k_data[sb_start..sb_start + 2]);
+        let dmin = read_f16(&q4k_data[sb_start + 2..sb_start + 4]);
+
+        let mut scales = [0u8; 12];
+        scales.copy_from_slice(&q4k_data[sb_start + 4..sb_start + 16]);
+
+        let q8_scale = q8k_scales[sb_idx];
+        let d_q8 = d * q8_scale;
+        let dmin_q8 = dmin * q8_scale;
+
+        let qs_ptr = q4k_data.as_ptr().add(sb_start + 16);
+        let q8_ptr = q8k_quants.as_ptr().add(q8_start);
+
+        // Process 4 chunks of 64 values (matching dequantize_q4_k layout)
+        for j in (0..QK_K).step_by(64) {
+            let q_offset = j / 2; // 32 bytes per 64-value chunk
+
+            let is = j / 32;
+            let (sc1, m1) = extract_scale_min(&scales, is);
+            let (sc2, m2) = extract_scale_min(&scales, is + 1);
+
+            // Load 32 bytes of Q4_K (as lower half of 512-bit register)
+            // We need to process 64 Q4 values (32 bytes) with 64 Q8 values (64 bytes)
+            let q4_256 = _mm256_loadu_si256(qs_ptr.add(q_offset).cast::<__m256i>());
+
+            // Zero-extend to 512-bit (q4 data in lower 256 bits) - reserved for full-width optimization
+            let _q4_512 = _mm512_castsi256_si512(q4_256);
+
+            // Extract low nibbles (first 32 values) and high nibbles (second 32 values)
+            let q4_lo_256 = _mm256_and_si256(q4_256, _mm256_set1_epi8(0x0F_i8));
+            let q4_hi_256 =
+                _mm256_and_si256(_mm256_srli_epi16(q4_256, 4), _mm256_set1_epi8(0x0F_i8));
+
+            // Load Q8 values: first 32 for low nibbles, next 32 for high nibbles
+            // (matching dequantize_q4_k output order: 32 low, then 32 high)
+            let q8_lo_256 = _mm256_loadu_si256(q8_ptr.add(j).cast::<__m256i>());
+            let q8_hi_256 = _mm256_loadu_si256(q8_ptr.add(j + 32).cast::<__m256i>());
+
+            // For VNNI vpdpbusd: accumulator += (unsigned a) × (signed b)
+            // Q4 values are 0-15 (unsigned), Q8 values are -128..127 (signed)
+            // We need to cast Q4 to unsigned interpretation
+
+            // Convert to 512-bit for VNNI
+            let q4_lo_512 = _mm512_castsi256_si512(q4_lo_256);
+            let q4_hi_512 = _mm512_castsi256_si512(q4_hi_256);
+            let q8_lo_512 = _mm512_castsi256_si512(q8_lo_256);
+            let q8_hi_512 = _mm512_castsi256_si512(q8_hi_256);
+
+            // VNNI multiply-accumulate: result[i] += q4[4i..4i+4] · q8[4i..4i+4]
+            // This computes 4 int8×int8 products and adds them to int32 accumulator
+            let acc_lo = _mm512_dpbusd_epi32(_mm512_setzero_si512(), q4_lo_512, q8_lo_512);
+            let acc_hi = _mm512_dpbusd_epi32(_mm512_setzero_si512(), q4_hi_512, q8_hi_512);
+
+            // Horizontal sum the accumulators (each has 16 int32 values)
+            // Extract lower 256 bits which contain our results
+            let acc_lo_256 = _mm512_castsi512_si256(acc_lo);
+            let acc_hi_256 = _mm512_castsi512_si256(acc_hi);
+
+            // Sum all 8 int32 values in each 256-bit register
+            let sum_lo = horizontal_sum_epi32_256(acc_lo_256);
+            let sum_hi = horizontal_sum_epi32_256(acc_hi_256);
+
+            // Sum Q8 values for min contribution
+            // For signed i8, we need to convert to i16 first to avoid overflow
+            let q8_lo_256_i16_lo = _mm256_cvtepi8_epi16(_mm256_castsi256_si128(q8_lo_256));
+            let q8_lo_256_i16_hi = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(q8_lo_256, 1));
+            let q8_sum_lo = horizontal_sum_epi16_256(q8_lo_256_i16_lo)
+                + horizontal_sum_epi16_256(q8_lo_256_i16_hi);
+
+            let q8_hi_256_i16_lo = _mm256_cvtepi8_epi16(_mm256_castsi256_si128(q8_hi_256));
+            let q8_hi_256_i16_hi = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(q8_hi_256, 1));
+            let q8_sum_hi = horizontal_sum_epi16_256(q8_hi_256_i16_lo)
+                + horizontal_sum_epi16_256(q8_hi_256_i16_hi);
+
+            // Apply scales
+            total_acc += d_q8 * sc1 * (sum_lo as f32) - dmin_q8 * m1 * (q8_sum_lo as f32);
+            total_acc += d_q8 * sc2 * (sum_hi as f32) - dmin_q8 * m2 * (q8_sum_hi as f32);
+        }
+    }
+
+    Ok(total_acc)
+}
+
+/// Helper: horizontal sum of 8 int32 values in a 256-bit register
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[inline]
+unsafe fn horizontal_sum_epi32_256(v: std::arch::x86_64::__m256i) -> i32 {
+    use std::arch::x86_64::{
+        _mm256_castsi256_si128, _mm256_extracti128_si256, _mm_add_epi32, _mm_cvtsi128_si32,
+        _mm_hadd_epi32,
+    };
+
+    // Add high 128 bits to low 128 bits
+    let hi = _mm256_extracti128_si256(v, 1);
+    let lo = _mm256_castsi256_si128(v);
+    let sum128 = _mm_add_epi32(lo, hi);
+
+    // Horizontal add within 128 bits
+    let sum64 = _mm_hadd_epi32(sum128, sum128);
+    let sum32 = _mm_hadd_epi32(sum64, sum64);
+
+    _mm_cvtsi128_si32(sum32)
+}
+
+/// Helper: horizontal sum of 16 int16 values in a 256-bit register
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[inline]
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn horizontal_sum_epi16_256(v: std::arch::x86_64::__m256i) -> i32 {
+    use std::arch::x86_64::{_mm256_madd_epi16, _mm256_set1_epi16};
+
+    // Use madd to sum pairs of i16 to i32
+    let ones = _mm256_set1_epi16(1);
+    let sum_i32 = _mm256_madd_epi16(v, ones);
+
+    // Now sum the 8 i32 values
+    horizontal_sum_epi32_256(sum_i32)
+}
+
+/// AVX2-optimized Q4_K × Q8_K dot product
+///
+/// # Safety
+/// Requires AVX2 CPU feature.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn fused_q4k_q8k_dot_avx2(
+    q4k_data: &[u8],
+    q8k_scales: &[f32],
+    q8k_quants: &[i8],
+) -> Result<f32> {
+    #[allow(clippy::wildcard_imports)]
+    use std::arch::x86_64::*;
+
+    const SUPER_BLOCK_BYTES: usize = 144;
+
+    if !q4k_data.len().is_multiple_of(SUPER_BLOCK_BYTES) {
+        return Err(RealizarError::InvalidShape {
+            reason: format!(
+                "Q4_K data length {} is not a multiple of {}",
+                q4k_data.len(),
+                SUPER_BLOCK_BYTES
+            ),
+        });
+    }
+
+    let num_super_blocks = q4k_data.len() / SUPER_BLOCK_BYTES;
+    let expected_values = num_super_blocks * QK_K;
+
+    if q8k_scales.len() < num_super_blocks || q8k_quants.len() < expected_values {
+        return Err(RealizarError::InvalidShape {
+            reason: "Q8_K buffer too small".to_string(),
+        });
+    }
+
+    let nibble_mask = _mm256_set1_epi8(0x0F_i8);
+    let ones_16 = _mm256_set1_epi16(1);
+
+    let mut total_acc = 0.0f32;
+
+    for sb_idx in 0..num_super_blocks {
+        let sb_start = sb_idx * SUPER_BLOCK_BYTES;
+        let q8_start = sb_idx * QK_K;
+
+        // Prefetch next super-block
+        if sb_idx + 1 < num_super_blocks {
+            _mm_prefetch(
+                q4k_data
+                    .as_ptr()
+                    .add((sb_idx + 1) * SUPER_BLOCK_BYTES)
+                    .cast::<i8>(),
+                _MM_HINT_T0,
+            );
+            _mm_prefetch(
+                q8k_quants.as_ptr().add((sb_idx + 1) * QK_K).cast::<i8>(),
+                _MM_HINT_T0,
+            );
+        }
+
+        // Read Q4_K header
+        let d = read_f16(&q4k_data[sb_start..sb_start + 2]);
+        let dmin = read_f16(&q4k_data[sb_start + 2..sb_start + 4]);
+
+        let mut scales = [0u8; 12];
+        scales.copy_from_slice(&q4k_data[sb_start + 4..sb_start + 16]);
+
+        let q8_scale = q8k_scales[sb_idx];
+        let d_q8 = d * q8_scale;
+        let dmin_q8 = dmin * q8_scale;
+
+        let qs_ptr = q4k_data.as_ptr().add(sb_start + 16);
+        let q8_ptr = q8k_quants.as_ptr().add(q8_start);
+
+        // (accumulator variables for future fixed-point optimization)
+        let _acc_sum = _mm256_setzero_si256();
+        let _acc_min = _mm256_setzero_si256();
+
+        // Process 4 iterations of 64 values each (256 total)
+        for j in (0..QK_K).step_by(64) {
+            let q_offset = j / 2; // 32 bytes per 64 values
+
+            // Get scales for two 32-value blocks
+            let is = j / 32;
+            let (sc1, m1) = extract_scale_min(&scales, is);
+            let (sc2, m2) = extract_scale_min(&scales, is + 1);
+
+            // Fixed-point scales (8.8 format) - used for integer path
+            let sc1_i16 = (sc1 * 256.0).round() as i16;
+            let sc2_i16 = (sc2 * 256.0).round() as i16;
+            let _m1_i16 = (m1 * 256.0).round() as i16;
+            let _m2_i16 = (m2 * 256.0).round() as i16;
+
+            // Load 32 bytes of Q4_K (64 nibbles)
+            let q4_bytes = _mm256_loadu_si256(qs_ptr.add(q_offset).cast::<__m256i>());
+
+            // Extract nibbles
+            let q4_lo = _mm256_and_si256(q4_bytes, nibble_mask);
+            let q4_hi = _mm256_and_si256(_mm256_srli_epi16(q4_bytes, 4), nibble_mask);
+
+            // Load 64 bytes of Q8_K (sequential values)
+            // CORRECT LAYOUT: dequantize_q4_k outputs 32 low nibbles, then 32 high nibbles
+            // So Q8[j..j+32] corresponds to low nibbles, Q8[j+32..j+64] to high nibbles
+            let q8_lo = _mm256_loadu_si256(q8_ptr.add(j).cast::<__m256i>());
+            let q8_hi = _mm256_loadu_si256(q8_ptr.add(j + 32).cast::<__m256i>());
+
+            // Q4_lo × Q8_lo: low nibbles times first 32 Q8 values (unsigned × signed → i16)
+            let prod_lo = _mm256_maddubs_epi16(q4_lo, q8_lo);
+            // Q4_hi × Q8_hi: high nibbles times second 32 Q8 values
+            let prod_hi = _mm256_maddubs_epi16(q4_hi, q8_hi);
+
+            // Apply block scales and accumulate (for future integer-only path)
+            let _scale_lo = _mm256_set1_epi16(sc1_i16);
+            let _scale_hi = _mm256_set1_epi16(sc2_i16);
+
+            // Split products by block (first 128 bits = block 1, second 128 bits = block 2)
+            let prod_lo_128 = _mm256_castsi256_si128(prod_lo);
+            let prod_lo_hi128 = _mm256_extracti128_si256(prod_lo, 1);
+            let prod_hi_128 = _mm256_castsi256_si128(prod_hi);
+            let prod_hi_hi128 = _mm256_extracti128_si256(prod_hi, 1);
+
+            // Horizontal sum to i32
+            let sum_lo_1 = _mm_madd_epi16(prod_lo_128, _mm_set1_epi16(1));
+            let sum_lo_2 = _mm_madd_epi16(prod_lo_hi128, _mm_set1_epi16(1));
+            let sum_hi_1 = _mm_madd_epi16(prod_hi_128, _mm_set1_epi16(1));
+            let sum_hi_2 = _mm_madd_epi16(prod_hi_hi128, _mm_set1_epi16(1));
+
+            // Add low and high nibble products
+            let sum_1 = _mm_add_epi32(sum_lo_1, sum_hi_1);
+            let sum_2 = _mm_add_epi32(sum_lo_2, sum_hi_2);
+
+            // Apply scales (as f32 to avoid overflow)
+            let sum_1_f = _mm_cvtepi32_ps(sum_1);
+            let sum_2_f = _mm_cvtepi32_ps(sum_2);
+
+            let scaled_1 = _mm_mul_ps(sum_1_f, _mm_set1_ps(sc1));
+            let scaled_2 = _mm_mul_ps(sum_2_f, _mm_set1_ps(sc2));
+
+            // Sum for min contribution (sum of Q8 values)
+            let q8_sum_lo =
+                _mm256_madd_epi16(_mm256_cvtepi8_epi16(_mm256_castsi256_si128(q8_lo)), ones_16);
+            let q8_sum_hi = _mm256_madd_epi16(
+                _mm256_cvtepi8_epi16(_mm256_extracti128_si256(q8_lo, 1)),
+                ones_16,
+            );
+
+            // Horizontal reduce
+            let hsum_lo = _mm_add_epi32(
+                _mm256_castsi256_si128(q8_sum_lo),
+                _mm256_extracti128_si256(q8_sum_lo, 1),
+            );
+            let _hsum_hi = _mm_add_epi32(
+                _mm256_castsi256_si128(q8_sum_hi),
+                _mm256_extracti128_si256(q8_sum_hi, 1),
+            );
+
+            // Include both halves in block sum
+            let q8_block1_sum = _mm_add_epi32(hsum_lo, _mm_shuffle_epi32(hsum_lo, 0b10_11_00_01));
+            let q8_block1_sum = _mm_add_epi32(
+                q8_block1_sum,
+                _mm_shuffle_epi32(q8_block1_sum, 0b00_00_10_10),
+            );
+            let q8_block1_val = _mm_cvtsi128_si32(q8_block1_sum);
+
+            // Similar for second block (q8_hi)
+            let q8_sum_hi2 =
+                _mm256_madd_epi16(_mm256_cvtepi8_epi16(_mm256_castsi256_si128(q8_hi)), ones_16);
+            let q8_sum_hi3 = _mm256_madd_epi16(
+                _mm256_cvtepi8_epi16(_mm256_extracti128_si256(q8_hi, 1)),
+                ones_16,
+            );
+            let hsum2_lo = _mm_add_epi32(
+                _mm256_castsi256_si128(q8_sum_hi2),
+                _mm256_extracti128_si256(q8_sum_hi2, 1),
+            );
+            let hsum2_hi = _mm_add_epi32(
+                _mm256_castsi256_si128(q8_sum_hi3),
+                _mm256_extracti128_si256(q8_sum_hi3, 1),
+            );
+            let q8_block2_sum = _mm_add_epi32(hsum2_lo, hsum2_hi);
+            let q8_block2_sum = _mm_add_epi32(
+                q8_block2_sum,
+                _mm_shuffle_epi32(q8_block2_sum, 0b10_11_00_01),
+            );
+            let q8_block2_sum = _mm_add_epi32(
+                q8_block2_sum,
+                _mm_shuffle_epi32(q8_block2_sum, 0b00_00_10_10),
+            );
+            let q8_block2_val = _mm_cvtsi128_si32(q8_block2_sum);
+
+            // Final accumulation with f32 precision
+            let scaled_sum = _mm_add_ps(scaled_1, scaled_2);
+            let hsum = _mm_hadd_ps(scaled_sum, scaled_sum);
+            let hsum = _mm_hadd_ps(hsum, hsum);
+            let block_prod = _mm_cvtss_f32(hsum);
+
+            total_acc += d_q8 * block_prod;
+            total_acc -= dmin_q8 * (m1 * q8_block1_val as f32 + m2 * q8_block2_val as f32);
+        }
+    }
+
+    Ok(total_acc)
+}
+
+/// Parallel Q4_K × Q8_K matrix-vector multiply with pre-quantized activations
+///
+/// # Arguments
+/// * `weight_data` - Q4_K quantized weight data
+/// * `q8k_scales` - Pre-computed Q8_K scales for activations
+/// * `q8k_quants` - Pre-computed Q8_K quantized activations
+/// * `in_dim` - Input dimension (must be multiple of 256)
+/// * `out_dim` - Output dimension
+/// * `output` - Pre-allocated output buffer
+///
+/// # Performance
+///
+/// This is the fastest CPU path for Q4_K inference:
+/// - Pre-quantization amortizes activation quantization cost
+/// - Integer-only inner loop (single f32 conversion per super-block)
+/// - Super-block alignment eliminates per-block overhead
+pub fn fused_q4k_q8k_parallel_matvec_into(
+    weight_data: &[u8],
+    q8k_scales: &[f32],
+    q8k_quants: &[i8],
+    in_dim: usize,
+    out_dim: usize,
+    output: &mut [f32],
+) -> Result<()> {
+    use rayon::prelude::*;
+
+    const SUPER_BLOCK_BYTES: usize = 144;
+
+    let super_blocks_per_row = in_dim.div_ceil(QK_K);
+    let bytes_per_row = super_blocks_per_row * SUPER_BLOCK_BYTES;
+
+    let expected_weight_bytes = out_dim * bytes_per_row;
+    if weight_data.len() < expected_weight_bytes {
+        return Err(RealizarError::InvalidShape {
+            reason: format!(
+                "Weight data too small: need {} bytes, have {}",
+                expected_weight_bytes,
+                weight_data.len()
+            ),
+        });
+    }
+
+    if output.len() < out_dim {
+        return Err(RealizarError::InvalidShape {
+            reason: format!(
+                "Output buffer too small: need {}, have {}",
+                out_dim,
+                output.len()
+            ),
+        });
+    }
+
+    // Parallel over output rows
+    const CHUNK_SIZE: usize = 64;
+
+    output[..out_dim]
+        .par_iter_mut()
+        .enumerate()
+        .with_min_len(CHUNK_SIZE)
+        .for_each(|(o, out)| {
+            let row_start = o * bytes_per_row;
+            let row_data = &weight_data[row_start..row_start + bytes_per_row];
+            *out = fused_q4k_q8k_dot_simd(row_data, q8k_scales, q8k_quants).unwrap_or(0.0);
+        });
+
+    Ok(())
+}
+
+/// High-level Q4_K × f32 matmul with automatic Q8_K quantization
+///
+/// Convenience function that handles activation quantization internally.
+/// For repeated matmuls with the same activations (e.g., multi-head attention),
+/// pre-quantize once and use `fused_q4k_q8k_parallel_matvec_into` directly.
+pub fn fused_q4k_auto_matvec_into(
+    weight_data: &[u8],
+    activations: &[f32],
+    in_dim: usize,
+    out_dim: usize,
+    output: &mut [f32],
+) -> Result<()> {
+    // Pad activations to multiple of 256 if needed
+    let padded_len = in_dim.next_multiple_of(256);
+    let num_superblocks = padded_len / 256;
+
+    // Allocate Q8_K buffers
+    let mut q8k_scales = vec![0.0f32; num_superblocks];
+    let mut q8k_quants = vec![0i8; padded_len];
+
+    // Handle padding
+    if activations.len() < padded_len {
+        let mut padded = vec![0.0f32; padded_len];
+        padded[..activations.len()].copy_from_slice(activations);
+        quantize_activations_q8k_into(&padded, &mut q8k_scales, &mut q8k_quants)?;
+    } else {
+        quantize_activations_q8k_into(
+            &activations[..padded_len],
+            &mut q8k_scales,
+            &mut q8k_quants,
+        )?;
+    }
+
+    fused_q4k_q8k_parallel_matvec_into(
+        weight_data,
+        &q8k_scales,
+        &q8k_quants,
+        in_dim,
+        out_dim,
+        output,
+    )
 }
 
 /// Fused Q6_K dequantize + dot product

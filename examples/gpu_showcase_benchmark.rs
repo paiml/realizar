@@ -203,16 +203,32 @@ fn run_benchmark() {
 
     let prompt_tokens: Vec<u32> = vec![1, 2, 3, 4, 5, 6, 7, 8]; // Simple prompt
 
-    // Try CUDA first, fall back to full_cuda if that fails
+    // PAR-057: Try GPU-resident path first (optimized, ~3 syncs vs 176), fall back if unsupported
     println!("Warming up ({} iterations)...", warmup);
+    let mut use_gpu_resident = cuda_model.supports_gpu_resident();
     let mut use_full_cuda = false;
 
+    if use_gpu_resident {
+        println!("  Using optimized GPU-resident path (PAR-023)");
+    }
+
     for i in 0..warmup {
-        let result = cuda_model.generate_cuda_with_cache(&prompt_tokens, &config);
+        let result = if use_gpu_resident {
+            cuda_model.generate_gpu_resident(&prompt_tokens, &config)
+        } else {
+            cuda_model.generate_cuda_with_cache(&prompt_tokens, &config)
+        };
         if result.is_err() && i == 0 {
-            println!(
-                "  ⚠️ generate_cuda_with_cache failed, trying generate_full_cuda_with_cache..."
-            );
+            if use_gpu_resident {
+                println!(
+                    "  ⚠️ generate_gpu_resident failed, trying generate_full_cuda_with_cache..."
+                );
+                use_gpu_resident = false;
+            } else {
+                println!(
+                    "  ⚠️ generate_cuda_with_cache failed, trying generate_full_cuda_with_cache..."
+                );
+            }
             use_full_cuda = true;
             let _ = cuda_model.generate_full_cuda_with_cache(&prompt_tokens, &config);
         }
@@ -226,7 +242,9 @@ fn run_benchmark() {
         let start = Instant::now();
         let first_token_time;
 
-        let result = if use_full_cuda {
+        let result = if use_gpu_resident {
+            cuda_model.generate_gpu_resident(&prompt_tokens, &config)
+        } else if use_full_cuda {
             cuda_model.generate_full_cuda_with_cache(&prompt_tokens, &config)
         } else {
             cuda_model.generate_cuda_with_cache(&prompt_tokens, &config)

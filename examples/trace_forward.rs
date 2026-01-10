@@ -1,111 +1,76 @@
-//! Trace forward pass step by step
+//! Trace forward pass to find bug
 use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
 
-fn stats(x: &[f32]) -> (f32, f32, f32, f32) {
-    let min = x.iter().cloned().fold(f32::INFINITY, f32::min);
-    let max = x.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-    let mean: f32 = x.iter().sum::<f32>() / x.len() as f32;
-    let std: f32 = (x.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / x.len() as f32).sqrt();
-    (min, max, mean, std)
-}
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let path = "/home/noah/.cache/huggingface/hub/models--Qwen--Qwen2-0.5B-Instruct-GGUF/snapshots/198f08841147e5196a6a69bd0053690fb1fd3857/qwen2-0_5b-instruct-q4_0.gguf";
+    let mapped = MappedGGUFModel::from_path(path)?;
+    let model = OwnedQuantizedModel::from_mapped(&mapped)?;
+    let vocab = mapped.model.vocabulary().expect("vocab");
 
-fn main() {
-    println!("Loading model...");
-    let mapped =
-        MappedGGUFModel::from_path("/home/noah/src/aprender/tinyllama-1.1b-chat-v1.0.Q4_0.gguf")
-            .expect("test");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
-
+    let bos = 151643u32;
     let hidden_dim = model.config.hidden_dim;
 
-    // Get embedding for token 1 (BOS)
-    let token_id = 1u32;
-    let embed = &model.token_embedding
-        [token_id as usize * hidden_dim..(token_id as usize + 1) * hidden_dim];
+    // Get initial embedding
+    let emb_start = bos as usize * hidden_dim;
+    let embedding: Vec<f32> = model.token_embedding[emb_start..emb_start + hidden_dim].to_vec();
 
-    println!("\n1. Embedding for BOS (token 1):");
-    let (min, max, mean, std) = stats(embed);
-    println!("   shape: [{}]", hidden_dim);
-    println!("   first 5: {:?}", &embed[..5]);
-    println!(
-        "   stats: min={:.4}, max={:.4}, mean={:.4}, std={:.4}",
-        min, max, mean, std
-    );
+    let emb_sum: f32 = embedding.iter().sum();
+    let emb_norm: f32 = embedding.iter().map(|x| x * x).sum::<f32>().sqrt();
+    println!("Initial embedding (BOS):");
+    println!("  sum={:.4}, norm={:.4}", emb_sum, emb_norm);
+    println!("  first 8: {:?}", &embedding[..8]);
 
-    // Get first layer
-    let layer = &model.layers[0];
+    // Check token 0's embedding for comparison
+    let tok0_emb: Vec<f32> = model.token_embedding[..hidden_dim].to_vec();
+    let tok0_sum: f32 = tok0_emb.iter().sum();
+    let tok0_norm: f32 = tok0_emb.iter().map(|x| x * x).sum::<f32>().sqrt();
+    println!("\nToken 0 (\"!\") embedding:");
+    println!("  sum={:.4}, norm={:.4}", tok0_sum, tok0_norm);
 
-    // Apply RMSNorm manually to understand what's happening
-    println!("\n2. First layer attn_norm_weight:");
-    let (min, max, mean, std) = stats(&layer.attn_norm_weight);
-    println!("   shape: [{}]", layer.attn_norm_weight.len());
-    println!("   first 5: {:?}", &layer.attn_norm_weight[..5]);
-    println!(
-        "   stats: min={:.4}, max={:.4}, mean={:.4}, std={:.4}",
-        min, max, mean, std
-    );
-
-    // Compute RMSNorm of embedding
-    let eps = model.config.eps;
-    let mean_sq: f32 = embed.iter().map(|v| v * v).sum::<f32>() / hidden_dim as f32;
-    let inv_rms = 1.0 / (mean_sq + eps).sqrt();
-
-    let normed: Vec<f32> = embed
+    // Check cosine similarity between BOS embedding and token 0 embedding
+    let dot: f32 = embedding
         .iter()
-        .zip(&layer.attn_norm_weight)
-        .map(|(&x, &w)| x * inv_rms * w)
-        .collect();
+        .zip(tok0_emb.iter())
+        .map(|(a, b)| a * b)
+        .sum();
+    let cos_sim = dot / (emb_norm * tok0_norm);
+    println!("\nCosine similarity(BOS, token_0) = {:.4}", cos_sim);
 
-    println!("\n3. After RMSNorm (embed * inv_rms * weight):");
-    let (min, max, mean, std) = stats(&normed);
-    println!("   mean_sq={:.6}, inv_rms={:.4}", mean_sq, inv_rms);
-    println!("   first 5: {:?}", &normed[..5]);
+    // Run forward and check final hidden state before LM head
+    // We can't access intermediate states easily, but we can check the LM head input
+    // by computing the full forward and then looking at what the final norm produces
+
+    // Full forward to get logits
+    let logits = model.forward(&[bos])?;
+
+    // Check logits for BOS position (only 1 token, so logits are for position 0)
+    println!("\nLogits for position 0 (after BOS):");
+    println!("  Token 0 (\"!\"): {:.4}", logits[0]);
+    println!("  Token 19 (\"4\"): {:.4}", logits[19]);
+
+    // Check if token 0's embedding dot product with hidden would give high logit
+    // If hidden ≈ token_0_embedding * scale, then logit ≈ scale * ||token_0_emb||²
+    // For tok0_norm = 0.47, that would give logit ≈ scale * 0.22
+    // But we're seeing logit = 15.24, which would need scale ≈ 69!
+
+    // Let's check what hidden state would produce such logits
+    // logit[i] = hidden · lm_head_row[i]
+    // For logit[0] = 15.24 and lm_head_row[0] = token_0_embedding (tied weights)
+    // hidden · token_0_emb = 15.24
+    // If hidden were similar to token_0_emb with some scale:
+    // scale * ||token_0_emb||² = 15.24
+    // scale = 15.24 / 0.22 ≈ 69
+
+    println!("\nAnalysis:");
     println!(
-        "   stats: min={:.4}, max={:.4}, mean={:.4}, std={:.4}",
-        min, max, mean, std
+        "  If logit = hidden · token_emb, and token_0 norm² = {:.4}",
+        tok0_norm * tok0_norm
     );
-
-    // What if we just normalized WITHOUT the weight?
-    let normed_no_weight: Vec<f32> = embed.iter().map(|&x| x * inv_rms).collect();
-
-    println!("\n4. RMSNorm WITHOUT weight multiplication:");
-    let (min, max, mean, std) = stats(&normed_no_weight);
-    println!("   first 5: {:?}", &normed_no_weight[..5]);
     println!(
-        "   stats: min={:.4}, max={:.4}, mean={:.4}, std={:.4}",
-        min, max, mean, std
+        "  Then for logit=15.24: scale = {:.4}",
+        15.24 / (tok0_norm * tok0_norm)
     );
+    println!("  This suggests hidden has large norm or is aligned with token_0");
 
-    // What if weight is 1.0 + stored_weight?
-    let normed_with_offset: Vec<f32> = embed
-        .iter()
-        .zip(&layer.attn_norm_weight)
-        .map(|(&x, &w)| x * inv_rms * (1.0 + w))
-        .collect();
-
-    println!("\n5. RMSNorm with weight=1.0+stored:");
-    let (min, max, mean, std) = stats(&normed_with_offset);
-    println!("   first 5: {:?}", &normed_with_offset[..5]);
-    println!(
-        "   stats: min={:.4}, max={:.4}, mean={:.4}, std={:.4}",
-        min, max, mean, std
-    );
-
-    // Check the output_norm_weight for comparison
-    println!("\n6. output_norm_weight (for comparison):");
-    let (min, max, mean, std) = stats(&model.output_norm_weight);
-    println!("   first 5: {:?}", &model.output_norm_weight[..5]);
-    println!(
-        "   stats: min={:.4}, max={:.4}, mean={:.4}, std={:.4}",
-        min, max, mean, std
-    );
-
-    // Try full forward pass
-    println!("\n7. Running full forward pass on [1] (BOS)...");
-    let logits = model.forward(&[1]).expect("test");
-    let (min, max, mean, std) = stats(&logits);
-    println!(
-        "   logits stats: min={:.4}, max={:.4}, mean={:.4}, std={:.4}",
-        min, max, mean, std
-    );
+    Ok(())
 }

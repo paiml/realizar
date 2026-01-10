@@ -1,33 +1,23 @@
 use realizar::gguf::MappedGGUFModel;
 
 fn main() {
-    let mapped =
-        MappedGGUFModel::from_path("/home/noah/src/aprender/tinyllama-1.1b-chat-v1.0.Q4_0.gguf")
-            .expect("test");
+    let path = "/home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf";
+    let mapped = MappedGGUFModel::from_path(path).expect("load");
+    let vocab = mapped.model.vocabulary().expect("vocab");
 
-    let prompt = "The capital of France is";
-    let tokens = mapped.model.encode(prompt).expect("test");
+    println!("Token ID -> String mapping:");
+    for id in [15, 16, 17, 18, 19, 20, 21] {
+        let s = vocab.get(id).map(|s| s.as_str()).unwrap_or("?");
+        println!("  {} = {:?}", id, s);
+    }
 
-    println!("Prompt: '{}'", prompt);
-    println!("Tokens: {:?}", tokens);
-    println!("Num tokens: {}", tokens.len());
-
-    // Decode back
-    let decoded = mapped.model.decode(&tokens);
-    println!("Decoded: '{}'", decoded);
-
-    // Check vocabulary
-    if let Some(vocab) = mapped.model.vocabulary() {
-        println!("\nVocabulary sample:");
-        for (i, tok) in vocab.iter().enumerate().take(10) {
-            println!("  {}: '{}'", i, tok);
-        }
-        println!("  ...");
-
-        // Check specific token IDs
-        for &tid in &tokens {
-            if (tid as usize) < vocab.len() {
-                println!("Token {}: '{}'", tid, vocab[tid as usize]);
+    println!("\nDigit tokens:");
+    for ch in ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'] {
+        // Search for the digit token
+        for (i, tok) in vocab.iter().enumerate().take(100) {
+            if tok == &ch.to_string() || tok == &format!("Ġ{}", ch) {
+                println!("  '{}' = token {}", ch, i);
+                break;
             }
         }
     }

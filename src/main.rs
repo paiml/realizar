@@ -906,8 +906,10 @@ fn run_gguf_inference(
         logits = model.forward_cached(token_id, &mut cache, pos)?;
     }
 
-    // PAR-051: Diagnostic - show top5 logits after prefill
-    {
+    // PAR-051: Diagnostic - show top5 logits after prefill (disabled for performance)
+    // Re-enable by changing `false` to `true` for debugging
+    #[allow(clippy::never_loop)]
+    if false {
         let mut top5: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
         top5.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         top5.truncate(5);
@@ -972,9 +974,28 @@ fn run_gguf_inference(
             QuantizedGGUFTransformer::sample_topk(&logits, temperature, 40)
         };
 
+        // PAR-058-DEBUG: Print predicted token
+        if i == 0 {
+            eprintln!(
+                "[PAR-058] First predicted token: {} (EOS={:?})",
+                next_token, eos_token_id
+            );
+            // Print top 5 logits
+            let mut top5: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
+            top5.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            top5.truncate(5);
+            eprintln!("[PAR-058] Top 5 logits: {:?}", top5);
+            // PAR-060: Show digit token logits (15="0", 19="4")
+            if logits.len() > 20 {
+                eprintln!("[PAR-060-CPU] Digit logits: 0={:.2}, 1={:.2}, 2={:.2}, 3={:.2}, 4={:.2}, 5={:.2}",
+                    logits[15], logits[16], logits[17], logits[18], logits[19], logits[20]);
+            }
+        }
+
         // Stop on EOS
         if let Some(eos) = eos_token_id {
             if next_token == eos {
+                eprintln!("[PAR-058] Breaking on EOS token");
                 break;
             }
         }
@@ -1125,12 +1146,26 @@ fn run_gguf_inference_gpu(
     // - GPU matmul for QKV, output projection, and FFN
     // - GPU incremental_attention_gpu with GQA support (PAR-021)
     // - Proper SwiGLU activation (PAR-015)
-    let generated = cuda_model
-        .generate_full_cuda_with_cache(&prompt_tokens, &gen_config)
-        .map_err(|e| realizar::error::RealizarError::UnsupportedOperation {
-            operation: "generate_full_cuda_with_cache".to_string(),
-            reason: format!("CUDA generation failed: {e}"),
-        })?;
+    // PAR-057: Use GPU-resident path for maximum performance (pre-uploads weights, minimal syncs)
+    // Falls back to generate_full_cuda_with_cache if architecture not supported
+    // PAR-058: Test GPU-resident vs standard CUDA path
+    let generated = if cuda_model.supports_gpu_resident() {
+        println!("Using GPU-resident path (pre-uploaded weights, ~2 syncs/token)");
+        cuda_model
+            .generate_gpu_resident(&prompt_tokens, &gen_config)
+            .map_err(|e| realizar::error::RealizarError::UnsupportedOperation {
+                operation: "generate_gpu_resident".to_string(),
+                reason: format!("GPU-resident generation failed: {e}"),
+            })?
+    } else {
+        println!("Using standard CUDA path");
+        cuda_model
+            .generate_full_cuda_with_cache(&prompt_tokens, &gen_config)
+            .map_err(|e| realizar::error::RealizarError::UnsupportedOperation {
+                operation: "generate_full_cuda_with_cache".to_string(),
+                reason: format!("CUDA generation failed: {e}"),
+            })?
+    };
     let gen_time = gen_start.elapsed();
 
     let tokens_generated = generated.len().saturating_sub(prompt_len);
