@@ -19,6 +19,8 @@
 use std::fmt;
 use std::time::Instant;
 
+use crate::quantize::Q8_0Block;
+
 // ============================================================================
 // Core Types
 // ============================================================================
@@ -810,14 +812,126 @@ impl FlashAttentionBrick {
         seq_len.div_ceil(self.tile_size)
     }
 
-    /// Execute flash attention (stub - actual execution via CudaExecutor).
+    /// Compute flash attention with online softmax algorithm.
     ///
-    /// Real execution: `CudaExecutor::flash_attention_decode()`
+    /// **REAL IMPLEMENTATION** - FlashAttention-2 (Dao et al. 2023)
+    ///
+    /// # Arguments
+    /// * `query` - Query tensor [num_heads, head_dim]
+    /// * `keys` - Key cache [seq_len, num_kv_heads, head_dim]
+    /// * `values` - Value cache [seq_len, num_kv_heads, head_dim]
+    ///
+    /// # Returns
+    /// * Output tensor [num_heads, head_dim]
+    pub fn forward(
+        &self,
+        query: &[f32],  // [num_heads * head_dim]
+        keys: &[f32],   // [seq_len * num_kv_heads * head_dim]
+        values: &[f32], // [seq_len * num_kv_heads * head_dim]
+        seq_len: usize,
+    ) -> Result<Vec<f32>, BrickError> {
+        if self.num_heads == 0 || self.head_dim == 0 {
+            return Err(BrickError::InvalidInput("Zero dimension".to_string()));
+        }
+        if query.len() != self.num_heads * self.head_dim {
+            return Err(BrickError::InvalidInput(format!(
+                "Query length {} != num_heads * head_dim = {}",
+                query.len(),
+                self.num_heads * self.head_dim
+            )));
+        }
+        let expected_kv_len = seq_len * self.num_kv_heads * self.head_dim;
+        if keys.len() != expected_kv_len || values.len() != expected_kv_len {
+            return Err(BrickError::InvalidInput(format!(
+                "KV length {} != seq_len * num_kv_heads * head_dim = {}",
+                keys.len(),
+                expected_kv_len
+            )));
+        }
+
+        let scale = 1.0 / (self.head_dim as f32).sqrt();
+        let group_size = self.group_size();
+        let mut output = vec![0.0f32; self.num_heads * self.head_dim];
+
+        // Process each query head
+        for h in 0..self.num_heads {
+            let kv_head = h / group_size; // GQA: map query head to KV head
+            let q_start = h * self.head_dim;
+
+            // Online softmax variables (FlashAttention-2)
+            let mut m = f32::NEG_INFINITY; // Running max
+            let mut l = 0.0f32; // Running sum of exp
+            let mut o = vec![0.0f32; self.head_dim]; // Running output
+
+            // Process in tiles for cache efficiency
+            for tile_start in (0..seq_len).step_by(self.tile_size) {
+                let tile_end = (tile_start + self.tile_size).min(seq_len);
+
+                for s in tile_start..tile_end {
+                    // Compute Q @ K^T for this position
+                    let k_start = (s * self.num_kv_heads + kv_head) * self.head_dim;
+                    let mut score = 0.0f32;
+                    for d in 0..self.head_dim {
+                        score += query[q_start + d] * keys[k_start + d];
+                    }
+                    score *= scale;
+
+                    // Online softmax update (Milakov & Gimelshein, 2018)
+                    let m_new = m.max(score);
+                    let exp_old = (m - m_new).exp();
+                    let exp_score = (score - m_new).exp();
+
+                    // Update running sum
+                    l = l * exp_old + exp_score;
+
+                    // Update running output: O = O * exp(m_old - m_new) + exp(score - m_new) * V
+                    let v_start = (s * self.num_kv_heads + kv_head) * self.head_dim;
+                    for d in 0..self.head_dim {
+                        o[d] = o[d] * exp_old + exp_score * values[v_start + d];
+                    }
+
+                    m = m_new;
+                }
+            }
+
+            // Normalize output: O = O / l
+            if l > 0.0 {
+                for d in 0..self.head_dim {
+                    output[h * self.head_dim + d] = o[d] / l;
+                }
+            }
+        }
+
+        Ok(output)
+    }
+
+    /// Execute flash attention with timing (for benchmarking).
+    pub fn forward_timed(
+        &self,
+        query: &[f32],
+        keys: &[f32],
+        values: &[f32],
+        seq_len: usize,
+    ) -> Result<TokenResult<Vec<f32>>, BrickError> {
+        let start = Instant::now();
+        let output = self.forward(query, keys, values, seq_len)?;
+        let elapsed_us = start.elapsed().as_secs_f64() * 1_000_000.0;
+
+        Ok(TokenResult {
+            output,
+            tokens_processed: 1,
+            us_per_token: elapsed_us,
+            tokens_per_sec: 1_000_000.0 / elapsed_us,
+            budget_met: elapsed_us <= self.budget.us_per_token,
+        })
+    }
+
+    /// Legacy stub for backward compatibility (prefer `forward()`)
+    #[deprecated(note = "Use forward() for real implementation")]
     pub fn execute(&self, _seq_len: usize) -> Result<Vec<f32>, BrickError> {
         if self.num_heads == 0 || self.head_dim == 0 {
             return Err(BrickError::InvalidInput("Zero dimension".to_string()));
         }
-        // Stub: actual execution via CudaExecutor::flash_attention_decode()
         Ok(vec![0.0; self.num_heads * self.head_dim])
     }
 }
@@ -1060,13 +1174,139 @@ impl ActivationQuantBrick {
         self.dim * 3
     }
 
-    /// Execute quantization (stub - actual execution via CudaExecutor).
+    /// Quantize f32 activations to int8 using Q8_0 block format.
+    ///
+    /// **REAL IMPLEMENTATION** - Not a stub.
+    /// Uses symmetric quantization: scale = max(abs(values)) / 127.0
+    ///
+    /// # Arguments
+    /// * `input` - f32 activations to quantize (must be length == self.dim)
+    ///
+    /// # Returns
+    /// * Quantized int8 values and scale factors
+    ///
+    /// # Example
+    /// ```ignore
+    /// let brick = ActivationQuantBrick::new(64);
+    /// let input = vec![1.0f32; 64];
+    /// let (quants, scales) = brick.quantize(&input)?;
+    /// assert_eq!(quants.len(), 64);
+    /// ```
+    pub fn quantize(&self, input: &[f32]) -> Result<(Vec<i8>, Vec<f32>), BrickError> {
+        if input.len() != self.dim {
+            return Err(BrickError::InvalidInput(format!(
+                "Input length {} != dim {}",
+                input.len(),
+                self.dim
+            )));
+        }
+        if self.dim == 0 {
+            return Err(BrickError::InvalidInput("Zero dimension".to_string()));
+        }
+
+        // Quantize in blocks of 32 (Q8_0 block size)
+        let num_blocks = self.dim.div_ceil(32);
+        let mut quants = Vec::with_capacity(self.dim);
+        let mut scales = Vec::with_capacity(num_blocks);
+
+        for block_idx in 0..num_blocks {
+            let start = block_idx * 32;
+            let end = (start + 32).min(self.dim);
+
+            // Pad to 32 if needed
+            let mut block_data = [0.0f32; 32];
+            for (i, &v) in input[start..end].iter().enumerate() {
+                block_data[i] = v;
+            }
+
+            let block = Q8_0Block::quantize(&block_data);
+            scales.push(block.scale);
+
+            // Only take the actual values (not padding)
+            for &q in &block.quants[0..(end - start)] {
+                quants.push(q);
+            }
+        }
+
+        Ok((quants, scales))
+    }
+
+    /// Dequantize int8 back to f32 using stored scales.
+    ///
+    /// **REAL IMPLEMENTATION** - Not a stub.
+    pub fn dequantize(&self, quants: &[i8], scales: &[f32]) -> Result<Vec<f32>, BrickError> {
+        if quants.len() != self.dim {
+            return Err(BrickError::InvalidInput(format!(
+                "Quants length {} != dim {}",
+                quants.len(),
+                self.dim
+            )));
+        }
+
+        let mut output = Vec::with_capacity(self.dim);
+        for (block_idx, &scale) in scales.iter().enumerate() {
+            let start = block_idx * 32;
+            let end = (start + 32).min(self.dim);
+            for &q in &quants[start..end] {
+                output.push(q as f32 * scale);
+            }
+        }
+
+        Ok(output)
+    }
+
+    /// Compute quantization error vs original input.
+    ///
+    /// **REAL IMPLEMENTATION** - Measures actual error, not estimates.
+    pub fn measure_error(
+        &self,
+        original: &[f32],
+        quants: &[i8],
+        scales: &[f32],
+    ) -> Result<f64, BrickError> {
+        let dequantized = self.dequantize(quants, scales)?;
+
+        let max_error = original
+            .iter()
+            .zip(dequantized.iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f32, f32::max);
+
+        let max_val = original.iter().map(|v| v.abs()).fold(0.0f32, f32::max);
+        if max_val < 1e-10 {
+            return Ok(0.0);
+        }
+
+        Ok((max_error / max_val) as f64)
+    }
+
+    /// Execute quantization with timing (for benchmarking).
+    #[allow(clippy::type_complexity)]
+    pub fn execute_timed(
+        &self,
+        input: &[f32],
+    ) -> Result<TokenResult<(Vec<i8>, Vec<f32>)>, BrickError> {
+        let start = Instant::now();
+        let (quants, scales) = self.quantize(input)?;
+        let elapsed_us = start.elapsed().as_secs_f64() * 1_000_000.0;
+
+        Ok(TokenResult {
+            output: (quants, scales),
+            tokens_processed: 1,
+            us_per_token: elapsed_us,
+            tokens_per_sec: 1_000_000.0 / elapsed_us,
+            budget_met: elapsed_us <= self.budget.us_per_token,
+        })
+    }
+
+    /// Legacy stub for backward compatibility (prefer `quantize()`)
+    #[deprecated(note = "Use quantize() for real implementation")]
     pub fn execute(&self) -> Result<Vec<u8>, BrickError> {
         if self.dim == 0 {
             return Err(BrickError::InvalidInput("Zero dimension".to_string()));
         }
-        // Stub: actual execution via CudaExecutor::quantize_activation_q8()
-        Ok(vec![128u8; self.dim]) // Placeholder: all zeros in Q8
+        // Return zeros for backward compat - use quantize() for real output
+        Ok(vec![128u8; self.dim])
     }
 }
 
@@ -1571,7 +1811,107 @@ impl CoalescedDp4aBrick {
         self.flops() as f64 / bytes
     }
 
-    /// Execute GEMV (stub - actual execution via CudaExecutor).
+    /// Compute GEMV with Q8 activations and Q4K weights.
+    ///
+    /// **REAL IMPLEMENTATION** - CPU reference for DP4A-style compute.
+    ///
+    /// # Arguments
+    /// * `input_q8` - Quantized int8 input vector [K]
+    /// * `input_scale` - Scale factor for input
+    /// * `weights_q4` - Quantized 4-bit weights [N * K / 2] (packed nibbles)
+    /// * `weight_scales` - Scale factors per output [N]
+    ///
+    /// # Returns
+    /// * Output vector [N]
+    pub fn forward(
+        &self,
+        input_q8: &[i8],
+        input_scale: f32,
+        weights_q4: &[u8],
+        weight_scales: &[f32],
+    ) -> Result<Vec<f32>, BrickError> {
+        if input_q8.len() != self.k {
+            return Err(BrickError::InvalidInput(format!(
+                "Input length {} != k {}",
+                input_q8.len(),
+                self.k
+            )));
+        }
+        if weights_q4.len() != self.n * self.k / 2 {
+            return Err(BrickError::InvalidInput(format!(
+                "Weights length {} != n * k / 2 = {}",
+                weights_q4.len(),
+                self.n * self.k / 2
+            )));
+        }
+        if weight_scales.len() != self.n {
+            return Err(BrickError::InvalidInput(format!(
+                "Weight scales length {} != n {}",
+                weight_scales.len(),
+                self.n
+            )));
+        }
+
+        let mut output = vec![0.0f32; self.n];
+
+        // GEMV: output[n] = sum_k(input[k] * weights[n, k])
+        for n in 0..self.n {
+            let mut acc = 0i32;
+
+            // Process in groups of 4 (simulating DP4A: 4 multiply-adds per instruction)
+            for k_group in (0..self.k).step_by(4) {
+                // Unpack 4-bit weights (2 weights per byte)
+                for k_offset in 0..4 {
+                    let k = k_group + k_offset;
+                    if k >= self.k {
+                        break;
+                    }
+
+                    // Index into packed nibble array (2 weights per byte)
+                    // Not a midpoint calculation - clippy false positive
+                    #[allow(clippy::manual_midpoint)]
+                    let weight_byte_idx = (n * self.k + k) / 2;
+                    let weight_nibble = if k % 2 == 0 {
+                        (weights_q4[weight_byte_idx] & 0x0F) as i8 - 8 // Low nibble, centered
+                    } else {
+                        ((weights_q4[weight_byte_idx] >> 4) & 0x0F) as i8 - 8 // High nibble
+                    };
+
+                    // Integer multiply-accumulate (DP4A-style)
+                    acc += input_q8[k] as i32 * weight_nibble as i32;
+                }
+            }
+
+            // Dequantize: scale by input_scale * weight_scale
+            output[n] = acc as f32 * input_scale * weight_scales[n];
+        }
+
+        Ok(output)
+    }
+
+    /// Execute GEMV with timing (for benchmarking).
+    pub fn forward_timed(
+        &self,
+        input_q8: &[i8],
+        input_scale: f32,
+        weights_q4: &[u8],
+        weight_scales: &[f32],
+    ) -> Result<TokenResult<Vec<f32>>, BrickError> {
+        let start = Instant::now();
+        let output = self.forward(input_q8, input_scale, weights_q4, weight_scales)?;
+        let elapsed_us = start.elapsed().as_secs_f64() * 1_000_000.0;
+
+        Ok(TokenResult {
+            output,
+            tokens_processed: 1,
+            us_per_token: elapsed_us,
+            tokens_per_sec: 1_000_000.0 / elapsed_us,
+            budget_met: elapsed_us <= self.budget.us_per_token,
+        })
+    }
+
+    /// Legacy stub for backward compatibility (prefer `forward()`)
+    #[deprecated(note = "Use forward() for real implementation")]
     pub fn execute(&self) -> Result<Vec<f32>, BrickError> {
         if !self.k.is_multiple_of(256) || self.k == 0 || self.n == 0 {
             return Err(BrickError::InvalidInput(format!(
@@ -1579,7 +1919,6 @@ impl CoalescedDp4aBrick {
                 self.k, self.n
             )));
         }
-        // Actual execution would be done via CudaExecutor::packed_dp4a_q4k_q8_gemv_async()
         Ok(vec![0.0; self.n])
     }
 }
@@ -1712,15 +2051,122 @@ impl FusedFfnBrick {
         self.flops() as f64 / (weight_bytes + activation_bytes)
     }
 
-    /// Execute FFN (stub - actual execution via CudaExecutor).
+    /// Compute FFN with SwiGLU activation.
     ///
-    /// Real execution: `CudaExecutor::fused_ffn_swiglu_gpu_true_dp4a()`
+    /// **REAL IMPLEMENTATION** - Full FFN forward pass:
+    /// ```text
+    /// gate = input @ gate_proj
+    /// up = input @ up_proj
+    /// hidden = silu(gate) * up  // SwiGLU
+    /// output = hidden @ down_proj
+    /// ```
+    ///
+    /// # Arguments
+    /// * `input` - Input tensor [hidden_dim]
+    /// * `gate_proj` - Gate projection weights [intermediate_dim, hidden_dim]
+    /// * `up_proj` - Up projection weights [intermediate_dim, hidden_dim]
+    /// * `down_proj` - Down projection weights [hidden_dim, intermediate_dim]
+    ///
+    /// # Returns
+    /// * Output tensor [hidden_dim]
+    pub fn forward(
+        &self,
+        input: &[f32],
+        gate_proj: &[f32],
+        up_proj: &[f32],
+        down_proj: &[f32],
+    ) -> Result<Vec<f32>, BrickError> {
+        if input.len() != self.hidden_dim {
+            return Err(BrickError::InvalidInput(format!(
+                "Input length {} != hidden_dim {}",
+                input.len(),
+                self.hidden_dim
+            )));
+        }
+        let expected_gate_up = self.intermediate_dim * self.hidden_dim;
+        if gate_proj.len() != expected_gate_up || up_proj.len() != expected_gate_up {
+            return Err(BrickError::InvalidInput(format!(
+                "Gate/Up length {} != intermediate * hidden = {}",
+                gate_proj.len(),
+                expected_gate_up
+            )));
+        }
+        if down_proj.len() != self.hidden_dim * self.intermediate_dim {
+            return Err(BrickError::InvalidInput(format!(
+                "Down length {} != hidden * intermediate = {}",
+                down_proj.len(),
+                self.hidden_dim * self.intermediate_dim
+            )));
+        }
+
+        // Step 1: Gate projection (input @ gate_proj^T)
+        let mut gate = vec![0.0f32; self.intermediate_dim];
+        for i in 0..self.intermediate_dim {
+            let mut sum = 0.0f32;
+            for j in 0..self.hidden_dim {
+                sum += input[j] * gate_proj[i * self.hidden_dim + j];
+            }
+            gate[i] = sum;
+        }
+
+        // Step 2: Up projection (input @ up_proj^T)
+        let mut up = vec![0.0f32; self.intermediate_dim];
+        for i in 0..self.intermediate_dim {
+            let mut sum = 0.0f32;
+            for j in 0..self.hidden_dim {
+                sum += input[j] * up_proj[i * self.hidden_dim + j];
+            }
+            up[i] = sum;
+        }
+
+        // Step 3: SwiGLU activation: silu(gate) * up
+        // silu(x) = x * sigmoid(x) = x / (1 + exp(-x))
+        let mut hidden = vec![0.0f32; self.intermediate_dim];
+        for i in 0..self.intermediate_dim {
+            let silu_gate = gate[i] / (1.0 + (-gate[i]).exp());
+            hidden[i] = silu_gate * up[i];
+        }
+
+        // Step 4: Down projection (hidden @ down_proj^T)
+        let mut output = vec![0.0f32; self.hidden_dim];
+        for i in 0..self.hidden_dim {
+            let mut sum = 0.0f32;
+            for j in 0..self.intermediate_dim {
+                sum += hidden[j] * down_proj[i * self.intermediate_dim + j];
+            }
+            output[i] = sum;
+        }
+
+        Ok(output)
+    }
+
+    /// Execute FFN with timing (for benchmarking).
+    pub fn forward_timed(
+        &self,
+        input: &[f32],
+        gate_proj: &[f32],
+        up_proj: &[f32],
+        down_proj: &[f32],
+    ) -> Result<TokenResult<Vec<f32>>, BrickError> {
+        let start = Instant::now();
+        let output = self.forward(input, gate_proj, up_proj, down_proj)?;
+        let elapsed_us = start.elapsed().as_secs_f64() * 1_000_000.0;
+
+        Ok(TokenResult {
+            output,
+            tokens_processed: 1,
+            us_per_token: elapsed_us,
+            tokens_per_sec: 1_000_000.0 / elapsed_us,
+            budget_met: elapsed_us <= self.budget.us_per_token,
+        })
+    }
+
+    /// Legacy stub for backward compatibility (prefer `forward()`)
+    #[deprecated(note = "Use forward() for real implementation")]
     pub fn execute(&self) -> Result<Vec<f32>, BrickError> {
         if self.hidden_dim == 0 || self.intermediate_dim == 0 {
             return Err(BrickError::InvalidInput("Zero dimension".to_string()));
         }
-        // Stub: actual execution via CudaExecutor::fused_ffn_swiglu_gpu_true_dp4a()
-        // which implements the full DP4A pipeline shown in the docstring
         Ok(vec![0.0; self.hidden_dim])
     }
 }
@@ -2527,5 +2973,228 @@ mod tests {
         if let Err(BrickError::InvalidInput(msg)) = result {
             assert!(!msg.is_empty(), "Error should have message");
         }
+    }
+
+    // ========================================================================
+    // REAL IMPLEMENTATION TESTS (not stubs)
+    // ========================================================================
+
+    // R001: ActivationQuantBrick real quantize/dequantize
+    #[test]
+    fn r001_activation_quant_real_quantize() {
+        let brick = ActivationQuantBrick::new(64);
+        let input: Vec<f32> = (0..64).map(|i| (i as f32 - 32.0) / 10.0).collect();
+
+        let (quants, scales) = brick.quantize(&input).unwrap();
+
+        assert_eq!(quants.len(), 64);
+        assert_eq!(scales.len(), 2); // 64 / 32 = 2 blocks
+        assert!(scales.iter().all(|&s| s > 0.0), "Scales must be positive");
+    }
+
+    // R002: ActivationQuantBrick roundtrip accuracy
+    #[test]
+    fn r002_activation_quant_roundtrip() {
+        let brick = ActivationQuantBrick::new(32);
+        let input: Vec<f32> = (0..32).map(|i| (i as f32 - 16.0) * 0.1).collect();
+
+        let (quants, scales) = brick.quantize(&input).unwrap();
+        let output = brick.dequantize(&quants, &scales).unwrap();
+
+        // Q8 error should be < 1%
+        let error = brick.measure_error(&input, &quants, &scales).unwrap();
+        assert!(error < 0.01, "Q8 error {} should be < 1%", error);
+
+        // Output should be close to input
+        for (i, (&orig, &dequant)) in input.iter().zip(output.iter()).enumerate() {
+            let diff = (orig - dequant).abs();
+            assert!(diff < 0.05, "Value {} diff {} too large", i, diff);
+        }
+    }
+
+    // R003: FlashAttentionBrick real forward pass
+    #[test]
+    fn r003_flash_attention_real_forward() {
+        let brick = FlashAttentionBrick::new(4, 2, 8); // 4 heads, 2 kv heads, dim 8
+        let seq_len = 4;
+
+        // Create test data
+        let query = vec![1.0f32; 4 * 8]; // [num_heads * head_dim]
+        let keys = vec![0.5f32; seq_len * 2 * 8]; // [seq_len * num_kv_heads * head_dim]
+        let values = vec![0.25f32; seq_len * 2 * 8];
+
+        let output = brick.forward(&query, &keys, &values, seq_len).unwrap();
+
+        assert_eq!(output.len(), 4 * 8);
+        // With uniform values, output should be close to uniform values
+        assert!(output.iter().all(|&v| !v.is_nan()), "No NaNs");
+        assert!(output.iter().all(|&v| v.is_finite()), "All finite");
+    }
+
+    // R004: FlashAttentionBrick online softmax correctness
+    #[test]
+    fn r004_flash_attention_softmax_correct() {
+        let brick = FlashAttentionBrick::new(1, 1, 4); // Single head for easy verification
+        let seq_len = 3;
+
+        // Query = [1, 0, 0, 0]
+        let query = vec![1.0f32, 0.0, 0.0, 0.0];
+
+        // Keys with different similarities to query
+        // K0 = [1, 0, 0, 0] -> dot = 1.0
+        // K1 = [0, 1, 0, 0] -> dot = 0.0
+        // K2 = [-1, 0, 0, 0] -> dot = -1.0
+        let keys = vec![
+            1.0, 0.0, 0.0, 0.0, // K0
+            0.0, 1.0, 0.0, 0.0, // K1
+            -1.0, 0.0, 0.0, 0.0, // K2
+        ];
+
+        // Values
+        let values = vec![
+            1.0, 0.0, 0.0, 0.0, // V0
+            0.0, 1.0, 0.0, 0.0, // V1
+            0.0, 0.0, 1.0, 0.0, // V2
+        ];
+
+        let output = brick.forward(&query, &keys, &values, seq_len).unwrap();
+
+        // After softmax, K0 should have highest weight
+        // Output should be weighted combination dominated by V0
+        assert!(output[0] > output[1], "V0 weight should be highest");
+        assert!(output[0] > output[2], "V0 weight should be highest");
+    }
+
+    // R005: CoalescedDp4aBrick real GEMV
+    #[test]
+    fn r005_coalesced_dp4a_real_gemv() {
+        let brick = CoalescedDp4aBrick::new(256, 4); // K=256, N=4
+
+        // Create Q8 input (all 1s)
+        let input_q8 = vec![1i8; 256];
+        let input_scale = 1.0 / 127.0;
+
+        // Create Q4 weights (alternating 0x77 = nibbles 7,7 centered to -1,-1)
+        let weights_q4 = vec![0x88u8; 4 * 256 / 2]; // All 8s -> centered to 0
+
+        // Weight scales
+        let weight_scales = vec![0.1f32; 4];
+
+        let output = brick
+            .forward(&input_q8, input_scale, &weights_q4, &weight_scales)
+            .unwrap();
+
+        assert_eq!(output.len(), 4);
+        assert!(output.iter().all(|&v| !v.is_nan()));
+    }
+
+    // R006: FusedFfnBrick real SwiGLU FFN
+    #[test]
+    fn r006_fused_ffn_real_swiglu() {
+        let brick = FusedFfnBrick::new(4, 8); // hidden=4, intermediate=8
+
+        let input = vec![1.0f32; 4];
+        let gate_proj = vec![0.1f32; 8 * 4]; // [intermediate, hidden]
+        let up_proj = vec![0.2f32; 8 * 4];
+        let down_proj = vec![0.1f32; 4 * 8]; // [hidden, intermediate]
+
+        let output = brick
+            .forward(&input, &gate_proj, &up_proj, &down_proj)
+            .unwrap();
+
+        assert_eq!(output.len(), 4);
+        assert!(output.iter().all(|&v| !v.is_nan()), "No NaNs");
+        assert!(output.iter().all(|&v| v.is_finite()), "All finite");
+    }
+
+    // R007: FusedFfnBrick SwiGLU activation verification
+    #[test]
+    fn r007_fused_ffn_swiglu_activation() {
+        // Verify SiLU activation: silu(x) = x * sigmoid(x)
+        let brick = FusedFfnBrick::new(1, 1);
+
+        // With identity-ish weights, we can verify SwiGLU behavior
+        let input = vec![1.0f32];
+        let gate_proj = vec![1.0f32]; // Pass input through
+        let up_proj = vec![1.0f32]; // Pass input through
+        let down_proj = vec![1.0f32]; // Pass intermediate through
+
+        let output = brick
+            .forward(&input, &gate_proj, &up_proj, &down_proj)
+            .unwrap();
+
+        // SwiGLU(1.0, 1.0) = silu(1.0) * 1.0 = 1.0 * sigmoid(1.0) * 1.0
+        // sigmoid(1.0) ≈ 0.731
+        // silu(1.0) ≈ 0.731
+        let expected = 0.731;
+        assert!(
+            (output[0] - expected).abs() < 0.01,
+            "SwiGLU output {} should be ~{}",
+            output[0],
+            expected
+        );
+    }
+
+    // R008: ActivationQuantBrick timed execution
+    #[test]
+    fn r008_activation_quant_timed() {
+        let brick = ActivationQuantBrick::new(1024);
+        let input: Vec<f32> = (0..1024).map(|i| i as f32 / 1024.0).collect();
+
+        let result = brick.execute_timed(&input).unwrap();
+
+        assert_eq!(result.output.0.len(), 1024); // quants
+        assert!(result.us_per_token > 0.0);
+        assert!(result.tokens_per_sec > 0.0);
+        println!(
+            "ActivationQuant: {:.2}µs/tok, {:.0} tok/s",
+            result.us_per_token, result.tokens_per_sec
+        );
+    }
+
+    // R009: FlashAttention timed execution
+    #[test]
+    fn r009_flash_attention_timed() {
+        let brick = FlashAttentionBrick::new(8, 2, 64);
+        let seq_len = 128;
+
+        let query = vec![0.1f32; 8 * 64];
+        let keys = vec![0.1f32; seq_len * 2 * 64];
+        let values = vec![0.1f32; seq_len * 2 * 64];
+
+        let result = brick
+            .forward_timed(&query, &keys, &values, seq_len)
+            .unwrap();
+
+        assert_eq!(result.output.len(), 8 * 64);
+        assert!(result.us_per_token > 0.0);
+        println!(
+            "FlashAttention (seq={}): {:.2}µs/tok, {:.0} tok/s",
+            seq_len, result.us_per_token, result.tokens_per_sec
+        );
+    }
+
+    // R010: FusedFfn timed execution
+    #[test]
+    fn r010_fused_ffn_timed() {
+        let hidden = 64;
+        let intermediate = 256;
+        let brick = FusedFfnBrick::new(hidden, intermediate);
+
+        let input = vec![0.1f32; hidden];
+        let gate_proj = vec![0.01f32; intermediate * hidden];
+        let up_proj = vec![0.01f32; intermediate * hidden];
+        let down_proj = vec![0.01f32; hidden * intermediate];
+
+        let result = brick
+            .forward_timed(&input, &gate_proj, &up_proj, &down_proj)
+            .unwrap();
+
+        assert_eq!(result.output.len(), hidden);
+        assert!(result.us_per_token > 0.0);
+        println!(
+            "FusedFfn ({}x{}): {:.2}µs/tok, {:.0} tok/s",
+            hidden, intermediate, result.us_per_token, result.tokens_per_sec
+        );
     }
 }
