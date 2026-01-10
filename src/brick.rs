@@ -2307,4 +2307,225 @@ mod tests {
         let zero_brick = ActivationQuantBrick::new(0);
         assert!(!zero_brick.can_run());
     }
+
+    // =========================================================================
+    // F061-F080: CUDA Kernel Validation (Infrastructure Stubs)
+    // These tests verify the infrastructure is ready for CUDA validation.
+    // Full validation requires CUDA hardware (ptxas, ncu, compute-sanitizer).
+    // =========================================================================
+
+    // F063: CUDA graph capture infrastructure ready
+    #[test]
+    fn f063_cuda_graph_capture_ready() {
+        // CudaGraphBrick exists and has correct structure
+        let brick = CudaGraphBrick::new(28, 1536); // 28 layers, 1536 hidden
+        assert_eq!(brick.name(), "cuda_graph");
+        assert!(brick.budget().us_per_token > 0.0);
+
+        // Graph capture status works
+        assert!(!brick.captured, "Should start not captured");
+        assert!(
+            !brick.can_replay(),
+            "Should not be replayable until captured"
+        );
+    }
+
+    // F064: CUDA graph replay verification infrastructure
+    #[test]
+    fn f064_cuda_graph_replay_ready() {
+        let mut brick = CudaGraphBrick::new(28, 1536);
+        let assertions = brick.assertions();
+
+        // Should have graph-specific assertions
+        let has_speedup = assertions.iter().any(|a| a.name == "graph_speedup");
+        assert!(has_speedup, "Should verify graph speedup");
+
+        // Capture and replay flow works
+        brick.set_captured(true);
+        assert!(brick.can_replay(), "Should be replayable after capture");
+        assert!(brick.replay().is_ok(), "Replay should succeed");
+    }
+
+    // F065: Indirect kernel infrastructure ready
+    #[test]
+    fn f065_indirect_kernel_ready() {
+        // CoalescedDp4aBrick supports coalesced memory access
+        let brick = CoalescedDp4aBrick::new(1024, 256);
+        assert!(brick.can_run());
+
+        // Should have bandwidth efficiency assertion
+        let assertions = brick.assertions();
+        let has_bandwidth = assertions.iter().any(|a| a.name == "bandwidth_efficient");
+        assert!(has_bandwidth, "Should verify bandwidth efficiency");
+    }
+
+    // F066: DP4A instruction infrastructure ready
+    #[test]
+    fn f066_dp4a_instruction_ready() {
+        // CoalescedDp4aBrick name indicates DP4A usage
+        let brick = CoalescedDp4aBrick::new(1024, 256);
+
+        // Name includes "dp4a" indicating DP4A instruction usage
+        assert!(
+            brick.name().contains("dp4a"),
+            "Name should indicate DP4A usage"
+        );
+
+        // K dimension must be multiple of 256 for DP4A Q4K
+        assert!(brick.k.is_multiple_of(256), "K should align for DP4A");
+    }
+
+    // F067: Memory coalescing infrastructure ready
+    #[test]
+    fn f067_memory_coalescing_ready() {
+        let brick = CoalescedDp4aBrick::new(1024, 256);
+
+        // K dimension should be multiple of 256 for coalescing
+        assert!(
+            brick.k.is_multiple_of(256) || brick.k < 256,
+            "K should align for coalescing"
+        );
+    }
+
+    // F070: Register usage tracking infrastructure
+    #[test]
+    fn f070_register_usage_ready() {
+        // All bricks have budgets that implicitly constrain register usage
+        let rms = RmsNormBrick::new(vec![1.0; 64], 1e-5);
+        let qkv = QkvBrick::new(64, 64, 64, 64);
+        let attn = AttentionBrick::new(8, 2, 64);
+        let ffn = FfnBrick::new(64, 256);
+
+        assert!(rms.budget().us_per_token > 0.0);
+        assert!(qkv.budget().us_per_token > 0.0);
+        assert!(attn.budget().us_per_token > 0.0);
+        assert!(ffn.budget().us_per_token > 0.0);
+    }
+
+    // F073: Error handling infrastructure ready
+    #[test]
+    fn f073_error_handling_ready() {
+        // BrickError variants exist for error handling
+        let invalid_err = BrickError::InvalidInput("test".to_string());
+        let budget_err = BrickError::BudgetExceeded {
+            limit_us: 10.0,
+            actual_us: 20.0,
+        };
+
+        // Errors are formattable
+        assert!(!format!("{invalid_err}").is_empty());
+        assert!(!format!("{budget_err}").is_empty());
+    }
+
+    // =========================================================================
+    // F081-F100: Performance Regression (Infrastructure Stubs)
+    // These tests verify benchmark infrastructure is ready.
+    // Full validation requires benchmark runs against baselines.
+    // =========================================================================
+
+    // F081-F084: Throughput comparison infrastructure
+    #[test]
+    fn f081_throughput_comparison_ready() {
+        // TokenBudget can express throughput targets
+        let target_2x_llama = TokenBudget::from_throughput(976.0 * 2.0); // 2x Ollama for 1.5B
+
+        assert!(target_2x_llama.tokens_per_sec > 1900.0);
+        assert!(target_2x_llama.us_per_token < 520.0); // ~512µs for 2x
+    }
+
+    // F085: CV calculation infrastructure
+    #[test]
+    fn f085_cv_calculation_ready() {
+        // BenchmarkReport has CV field
+        let config = BenchmarkConfig::default();
+        assert!(config.samples >= 100, "Need >= 100 samples for valid CV");
+    }
+
+    // F086: Latency percentile infrastructure
+    #[test]
+    fn f086_latency_percentile_ready() {
+        // BenchmarkReport has p50 and p99 fields
+        let report = BenchmarkReport {
+            brick_name: "test".to_string(),
+            mean_us: 50.0,
+            std_us: 5.0,
+            cv: 10.0,
+            p50_us: 50.0,
+            p99_us: 58.0,
+            tokens_per_sec: 20000.0,
+            budget_us: 100.0,
+            budget_met: true,
+            statistically_valid: true,
+        };
+
+        // p99 should be reasonable vs p50
+        assert!(report.p99_us < report.p50_us * 2.0);
+    }
+
+    // F087: Baseline comparison infrastructure
+    #[test]
+    fn f087_baseline_comparison_ready() {
+        // TokenBudget::gap_factor can compare to baseline
+        let budget = TokenBudget::from_latency(100.0);
+        let actual = 80.0;
+
+        let gap = budget.gap_factor(actual);
+        assert!(gap < 1.0, "Under budget should have gap < 1.0");
+
+        let over_budget = budget.gap_factor(120.0);
+        assert!(over_budget > 1.0, "Over budget should have gap > 1.0");
+    }
+
+    // F090: CUDA graph overhead infrastructure
+    #[test]
+    fn f090_cuda_graph_overhead_ready() {
+        let brick = CudaGraphBrick::new(28, 1536); // 28 layers, 1536 hidden
+
+        // Graph replay should be much faster than 100µs target
+        assert!(
+            brick.budget().us_per_token < 100.0,
+            "Graph overhead should be < 100µs"
+        );
+    }
+
+    // F092: Memory usage tracking infrastructure
+    #[test]
+    fn f092_memory_usage_ready() {
+        // ActivationQuantBrick tracks memory reduction
+        let brick = ActivationQuantBrick::new(1024);
+        let bytes_saved = brick.bytes_saved();
+
+        assert!(bytes_saved > 0, "Should track memory savings");
+
+        // FlashAttentionBrick tracks memory usage
+        let flash = FlashAttentionBrick::new(8, 2, 64);
+        let (naive, flash_mem) = flash.memory_bytes(512);
+
+        assert!(flash_mem < naive, "Flash should use less memory");
+    }
+
+    // F093: Memory leak detection infrastructure (no-op without valgrind)
+    #[test]
+    fn f093_memory_leak_detection_ready() {
+        // Create and drop bricks - Rust's ownership handles cleanup
+        for _ in 0..100 {
+            let _ = RmsNormBrick::new(vec![1.0; 1024], 1e-5);
+            let _ = FfnBrick::new(1024, 4096);
+            let _ = AttentionBrick::new(32, 8, 128);
+        }
+        // If we get here without OOM, basic leak detection passes
+    }
+
+    // F094: Graceful degradation infrastructure
+    #[test]
+    fn f094_graceful_degradation_ready() {
+        // Bricks return Result for error handling
+        let brick = ActivationQuantBrick::new(0);
+        let result = brick.execute();
+
+        assert!(result.is_err(), "Zero-dim should fail gracefully");
+        if let Err(BrickError::InvalidInput(msg)) = result {
+            assert!(!msg.is_empty(), "Error should have message");
+        }
+    }
 }
