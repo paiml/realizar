@@ -50,13 +50,14 @@ use trueno_gpu::driver::{
 use trueno_gpu::kernels::{
     Activation, ArgMaxFinalKernel, ArgMaxKernel, AttentionKernel, BiasActivationKernel,
     ChunkedTiledQ4KGemvKernel, CoalescedGemvKernel, CoalescedQ4KGemvKernel, Dp4aQ4KGemvKernel,
-    Dp4aSIMDQ4KGemvKernel, ElementwiseMulKernel, Fp16Q4KGemvKernel, FusedResidualRmsNormKernel,
-    FusedSwigluKernel, GeluKernel, GemmKernel, GemvKernel, IncrementalAttentionKernel, Kernel,
-    KvCacheScatterIndirectKernel, KvCacheScatterKernel, LayerNormKernel, PackedDp4aQ4KQ8Kernel,
-    Q4KGemvKernel, Q4KQ8DotKernel, Q4_0GemvKernel, Q4_1GemvKernel, Q5KGemvKernel, Q5KKernel,
-    Q5_0GemvKernel, Q6KGemvKernel, Q6KKernel, Q8QuantizeKernel, Q8_0GemvKernel, QuantizeKernel,
-    ResidualAddKernel, RmsNormKernel, RopeIndirectKernel, RopeKernel, SiluKernel, SoftmaxKernel,
-    TiledQ4KGemvKernel, TrueDp4aQ4KGemvKernel,
+    Dp4aSIMDQ4KGemvKernel, ElementwiseMulKernel, Fp16Q4KGemvKernel, FusedGateUpKernel,
+    FusedQKVKernel, FusedResidualRmsNormKernel, FusedSwigluKernel, GeluKernel, GemmKernel,
+    GemvKernel, IncrementalAttentionKernel, Kernel, KvCacheScatterIndirectKernel,
+    KvCacheScatterKernel, LayerNormKernel, PackedDp4aQ4KQ8Kernel, Q4KGemvKernel, Q4KQ8DotKernel,
+    Q4_0GemvKernel, Q4_1GemvKernel, Q5KGemvKernel, Q5KKernel, Q5_0GemvKernel, Q6KGemvKernel,
+    Q6KKernel, Q8QuantizeKernel, Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel, RmsNormKernel,
+    RopeIndirectKernel, RopeKernel, SiluKernel, SoftmaxKernel, TiledQ4KGemvKernel,
+    TrueDp4aQ4KGemvKernel,
 };
 use trueno_gpu::GpuError;
 
@@ -487,6 +488,24 @@ pub enum KernelType {
         n: u32,
     },
 
+    /// PMAT-PERF-009: Fused Q/K/V projection kernel
+    /// Computes Q, K, V projections in single kernel (3x launch reduction)
+    FusedQKV {
+        /// Hidden dimension size
+        hidden_size: u32,
+        /// KV dimension (for GQA, may differ from hidden_size)
+        kv_dim: u32,
+    },
+
+    /// PMAT-PERF-009: Fused Gate+Up FFN kernel with SwiGLU
+    /// Computes gate and up projections + SiLU in single kernel (2x launch reduction)
+    FusedGateUp {
+        /// Hidden dimension size
+        hidden_size: u32,
+        /// Intermediate FFN dimension
+        intermediate_size: u32,
+    },
+
     /// PAR-060: RoPE (Rotary Position Embedding) kernel
     /// Applies rotary position embeddings to Q or K vectors
     Rope {
@@ -742,6 +761,17 @@ impl CudaKernels {
             KernelType::Gelu { n } => GeluKernel::new(*n).emit_ptx(),
             KernelType::ElementwiseMul { n } => ElementwiseMulKernel::new(*n).emit_ptx(),
             KernelType::FusedSwiglu { n } => FusedSwigluKernel::new(*n).emit_ptx(),
+            // PMAT-PERF-009: Fused QKV projection (3 GEMV → 1 kernel)
+            KernelType::FusedQKV {
+                hidden_size,
+                kv_dim,
+            } => FusedQKVKernel::new(*hidden_size as usize, *kv_dim as usize).emit_ptx(),
+            // PMAT-PERF-009: Fused Gate+Up FFN with SwiGLU (2 GEMV → 1 kernel)
+            KernelType::FusedGateUp {
+                hidden_size,
+                intermediate_size,
+            } => FusedGateUpKernel::new(*hidden_size as usize, *intermediate_size as usize)
+                .emit_ptx(),
             // PAR-060: RoPE kernel for GPU-resident position embeddings
             KernelType::Rope {
                 num_heads,
@@ -863,6 +893,9 @@ impl CudaKernels {
             KernelType::Gelu { .. } => "gelu",
             KernelType::ElementwiseMul { .. } => "elementwise_mul",
             KernelType::FusedSwiglu { .. } => "fused_swiglu",
+            // PMAT-PERF-009: Fused QKV and Gate+Up kernels
+            KernelType::FusedQKV { .. } => "fused_qkv_gemv",
+            KernelType::FusedGateUp { .. } => "fused_gate_up_swiglu",
             // PAR-060: RoPE kernel
             KernelType::Rope { .. } => "rope",
             // PAR-054: RoPE Indirect for CUDA graph capture
@@ -6111,6 +6144,151 @@ impl CudaExecutor {
                     std::ptr::from_mut(&mut ptr_up) as *mut std::ffi::c_void,
                     std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
                     std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// PMAT-PERF-009: Fused Q/K/V projection on GPU
+    ///
+    /// Computes Q, K, V projections in a single kernel launch.
+    /// Reduces kernel launch overhead from 3 launches to 1.
+    ///
+    /// # Arguments
+    ///
+    /// * `x` - Input hidden state [hidden_size]
+    /// * `w_q` - Query weight matrix [hidden_size, hidden_size]
+    /// * `w_k` - Key weight matrix [hidden_size, kv_dim]
+    /// * `w_v` - Value weight matrix [hidden_size, kv_dim]
+    /// * `out_q` - Output Q buffer [hidden_size]
+    /// * `out_k` - Output K buffer [kv_dim]
+    /// * `out_v` - Output V buffer [kv_dim]
+    /// * `hidden_size` - Hidden dimension
+    /// * `kv_dim` - KV dimension (for GQA, may differ from hidden_size)
+    pub fn fused_qkv_into(
+        &mut self,
+        x: &GpuBuffer<f32>,
+        w_q: &GpuBuffer<f32>,
+        w_k: &GpuBuffer<f32>,
+        w_v: &GpuBuffer<f32>,
+        out_q: &GpuBuffer<f32>,
+        out_k: &GpuBuffer<f32>,
+        out_v: &GpuBuffer<f32>,
+        hidden_size: u32,
+        kv_dim: u32,
+    ) -> Result<(), GpuError> {
+        let kernel_type = KernelType::FusedQKV {
+            hidden_size,
+            kv_dim,
+        };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("fused_qkv_{}_{}", hidden_size, kv_dim);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // Grid: one block per output row (max of hidden_size for Q, kv_dim for K/V)
+        // Block: 32 threads (one warp) per row
+        let rows = hidden_size.max(kv_dim);
+        let config = LaunchConfig::grid_2d(rows, 1, 32, 1);
+
+        let mut ptr_x = x.as_ptr();
+        let mut ptr_wq = w_q.as_ptr();
+        let mut ptr_wk = w_k.as_ptr();
+        let mut ptr_wv = w_v.as_ptr();
+        let mut ptr_out_q = out_q.as_ptr();
+        let mut ptr_out_k = out_k.as_ptr();
+        let mut ptr_out_v = out_v.as_ptr();
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_x) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_wq) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_wk) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_wv) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_out_q) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_out_k) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_out_v) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// PMAT-PERF-009: Fused Gate+Up FFN with SwiGLU on GPU
+    ///
+    /// Computes gate and up projections + SiLU activation in a single kernel.
+    /// Reduces kernel launch overhead from 2 launches + activation to 1.
+    ///
+    /// # Arguments
+    ///
+    /// * `x` - Input hidden state [hidden_size]
+    /// * `w_gate` - Gate weight matrix [hidden_size, intermediate_size]
+    /// * `w_up` - Up weight matrix [hidden_size, intermediate_size]
+    /// * `output` - Output buffer [intermediate_size], contains SiLU(gate) * up
+    /// * `hidden_size` - Hidden dimension
+    /// * `intermediate_size` - Intermediate FFN dimension
+    pub fn fused_gate_up_into(
+        &mut self,
+        x: &GpuBuffer<f32>,
+        w_gate: &GpuBuffer<f32>,
+        w_up: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        hidden_size: u32,
+        intermediate_size: u32,
+    ) -> Result<(), GpuError> {
+        let kernel_type = KernelType::FusedGateUp {
+            hidden_size,
+            intermediate_size,
+        };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("fused_gate_up_{}_{}", hidden_size, intermediate_size);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // Grid: one block per output row (intermediate_size)
+        // Block: 32 threads (one warp) per row
+        let config = LaunchConfig::grid_2d(intermediate_size, 1, 32, 1);
+
+        let mut ptr_x = x.as_ptr();
+        let mut ptr_wg = w_gate.as_ptr();
+        let mut ptr_wu = w_up.as_ptr();
+        let mut ptr_out = output.as_ptr();
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_x) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_wg) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_wu) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_out) as *mut std::ffi::c_void,
                 ],
             )?;
         }
