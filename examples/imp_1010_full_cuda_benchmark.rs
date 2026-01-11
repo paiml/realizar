@@ -135,9 +135,9 @@ fn main() {
     println!("   VRAM: {} MB", cuda_model.vram_mb());
     println!();
 
-    // Test configuration - 100 tokens (use more for accurate throughput measurement)
+    // Test configuration - 200 tokens for accurate throughput measurement
     let config = QuantizedGenerateConfig {
-        max_tokens: 100,
+        max_tokens: 200,
         temperature: 0.0,
         top_k: 1,
         stop_tokens: vec![],

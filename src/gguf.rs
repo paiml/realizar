@@ -18579,13 +18579,9 @@ impl OwnedQuantizedModelCuda {
         // 1. Token embedding lookup (CPU - fast, single lookup)
         let embedding = self.model.embed(&[token_id]);
 
-        // PAR-060-DEBUG: Compare embedding sum
-        let embed_sum: f32 = embedding.iter().sum();
-        eprintln!(
-            "[PAR-060-DEBUG] Embedding sum: {:.6}, first 5: {:?}",
-            embed_sum,
-            &embedding[..5.min(embedding.len())]
-        );
+        // PAR-060-DEBUG: Disabled for performance measurement
+        // let embed_sum: f32 = embedding.iter().sum();
+        // eprintln!("[PAR-060-DEBUG] Embedding sum: {:.6}", embed_sum);
 
         // 2. Fully GPU-resident forward: layers + output norm + LM head
         // PAR-054: Use CUDA graph-captured path for decode (reduces 280 launches to 1)
@@ -18689,29 +18685,13 @@ impl OwnedQuantizedModelCuda {
         let mut position = prompt.len() - 1;
         let mut last_token = prompt[prompt.len() - 1];
 
-        for token_num in 0..config.max_tokens {
+        for _token_num in 0..config.max_tokens {
             let logits = self.forward_gpu_resident(last_token, &mut cache, position)?;
 
-            // PAR-058-DEBUG: Print first few and last few logits
-            if token_num == 0 {
-                eprintln!("[PAR-058-GPU] Logits len: {}", logits.len());
-                eprintln!(
-                    "[PAR-058-GPU] First 5: {:?}",
-                    &logits[..5.min(logits.len())]
-                );
-                eprintln!(
-                    "[PAR-058-GPU] Last 5: {:?}",
-                    &logits[logits.len().saturating_sub(5)..]
-                );
-                // Print top 5 logits
-                let mut indexed: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
-                indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-                indexed.truncate(5);
-                eprintln!("[PAR-058-GPU] Top 5: {:?}", indexed);
-                // PAR-060: Show digit token logits (15="0", 19="4")
-                eprintln!("[PAR-060-GPU] Digit logits: 0={:.2}, 1={:.2}, 2={:.2}, 3={:.2}, 4={:.2}, 5={:.2}",
-                    logits[15], logits[16], logits[17], logits[18], logits[19], logits[20]);
-            }
+            // PAR-058-DEBUG: Disabled for performance measurement
+            // if token_num == 0 {
+            //     eprintln!("[PAR-058-GPU] Logits len: {}", logits.len());
+            // }
 
             // Greedy sampling (temperature=0)
             let next_token = if config.temperature == 0.0 || config.top_k == 1 {
