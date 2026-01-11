@@ -50,8 +50,16 @@ fn main() {
     println!();
     drop(executor);
 
-    // Try to load a real phi-2 model
+    // Try to load a model - prefer Qwen (supports GPU-resident) over phi-2
+    // Test larger models first for better GPU utilization
     let model_paths = [
+        // Qwen models (support GPU-resident path - separate QKV, SwiGLU, RMSNorm)
+        // 1.5B has intermediate_dim <= 8192, uses optimized tiled kernels
+        "/home/noah/src/aprender/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
+        // 7B has intermediate_dim > 8192, uses fallback kernels for FFN
+        "/home/noah/src/aprender/models/qwen2.5-coder-7b-instruct-q4_k_m.gguf",
+        "/home/noah/src/aprender/models/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf",
+        // phi-2 (fused QKV, GELU - does NOT support GPU-resident)
         "/home/noah/src/single-shot-eval/models/raw/phi-2-q4_k_m.gguf",
         "/home/noah/src/realizar/models/phi-2-q4_k_m.gguf",
         "/home/noah/.cache/lm-studio/models/TheBloke/phi-2-GGUF/phi-2.Q4_K_M.gguf",
@@ -127,9 +135,9 @@ fn main() {
     println!("   VRAM: {} MB", cuda_model.vram_mb());
     println!();
 
-    // Test configuration
+    // Test configuration - 100 tokens (use more for accurate throughput measurement)
     let config = QuantizedGenerateConfig {
-        max_tokens: 50,
+        max_tokens: 100,
         temperature: 0.0,
         top_k: 1,
         stop_tokens: vec![],
@@ -190,10 +198,46 @@ fn main() {
     }
     println!();
 
+    // Test 3: GPU-Resident Path (if supported)
+    println!("═══════════════════════════════════════════════════════════════");
+    println!("  Test 3: GPU-Resident Path (PMAT-PERF-008)");
+    println!("═══════════════════════════════════════════════════════════════");
+
+    if cuda_model.supports_gpu_resident() {
+        println!("✅ Model supports GPU-resident path (separate QKV, SwiGLU, RMSNorm)");
+
+        let start = Instant::now();
+        let result_resident = cuda_model.generate_gpu_resident(&prompt_tokens, &config);
+        let resident_time = start.elapsed();
+
+        match result_resident {
+            Ok(tokens) => {
+                let generated = tokens.len() - prompt_tokens.len();
+                let tps = generated as f64 / resident_time.as_secs_f64();
+                println!(
+                    "✅ GPU-resident: {} tokens in {:.2}s",
+                    generated,
+                    resident_time.as_secs_f64()
+                );
+                println!("   Throughput: {:.2} tok/s", tps);
+                println!("   Target: 400 tok/s (2x Ollama)");
+            },
+            Err(e) => {
+                println!("❌ GPU-resident path failed: {}", e);
+                println!("   Error details: {:?}", e);
+            },
+        }
+    } else {
+        println!("⚠️  Model does NOT support GPU-resident path");
+        println!("   Requires: separate Q/K/V, SwiGLU, RMSNorm (LLaMA/Qwen architecture)");
+        println!("   Current model has fused QKV or GELU (phi-2 style)");
+    }
+    println!();
+
     println!("═══════════════════════════════════════════════════════════════");
     println!("  Performance Gap Analysis");
     println!("═══════════════════════════════════════════════════════════════");
     println!("  Ollama baseline: ~200 tok/s");
-    println!("  Target gap: <1.25x");
+    println!("  Target: 400 tok/s (2x Ollama)");
     println!();
 }

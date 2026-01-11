@@ -582,7 +582,11 @@ impl CudaKernels {
                 // With tile_q = tile_kv = T: smem = T * head_dim * 3 * 4
                 // Max T = 48KB / (head_dim * 12)
                 let max_tile = (48 * 1024) / (head_dim * 12);
-                let tile_size = max_tile.min(64).min(*seq_len); // Cap at 64 and seq_len
+                // IMP-1010 FIX: Also constrain by thread limit (1024 / head_dim)
+                // Must match flash_attention_multi_head launch config
+                // Kernel assumes tile_q == tile_kv (same threads load Q and K)
+                let thread_limit = 1024 / head_dim;
+                let tile_size = max_tile.min(64).min(*seq_len).min(thread_limit);
 
                 let mut kernel =
                     AttentionKernel::new(*seq_len, *head_dim).with_tiles(tile_size, tile_size);
@@ -8048,23 +8052,29 @@ impl CudaExecutor {
             let module = CudaModule::from_ptx(&self.context, &ptx)?;
             self.modules.insert(q4k_up_key, module);
         }
-        // Tiled Q4K for FFN down (K=intermediate_dim may be > 10K for large models)
-        let q4k_down_key = format!(
-            "tiled_q4k_gemv_{}_{}_{}",
-            intermediate_dim, hidden_dim, outputs_per_block
-        );
-        if !self.modules.contains_key(&q4k_down_key) {
-            let kernel_type = KernelType::TiledQ4KGemv {
-                k: intermediate_dim,
-                n: hidden_dim,
-                outputs_per_block,
-            };
-            let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
-            self.modules.insert(q4k_down_key, module);
+        // Tiled Q4K for FFN down (K=intermediate_dim)
+        // PAR-061-FIX: Skip TiledQ4KGemv for K > 8192 (shared memory = K * 4 > 32 KB)
+        // The tiled kernel needs K * 4 bytes shared memory; for K=18944 (7B) that's 74 KB,
+        // exceeding the default 48 KB limit and causing CUDA_ERROR_INVALID_PTX (code 218).
+        const SHARED_MEM_THRESHOLD: u32 = 8192; // K * 4 = 32 KB at threshold
+        if intermediate_dim <= SHARED_MEM_THRESHOLD {
+            let q4k_down_key = format!(
+                "tiled_q4k_gemv_{}_{}_{}",
+                intermediate_dim, hidden_dim, outputs_per_block
+            );
+            if !self.modules.contains_key(&q4k_down_key) {
+                let kernel_type = KernelType::TiledQ4KGemv {
+                    k: intermediate_dim,
+                    n: hidden_dim,
+                    outputs_per_block,
+                };
+                let ptx = self.kernels.generate_ptx(&kernel_type);
+                let module = CudaModule::from_ptx(&self.context, &ptx)?;
+                self.modules.insert(q4k_down_key, module);
+            }
         }
-        // Also pre-load basic Q4K as fallback for large intermediate_dim (> 10K)
-        if intermediate_dim > 10000 {
+        // Pre-load basic Q4K for large intermediate_dim (> 8192) or as fallback
+        if intermediate_dim > SHARED_MEM_THRESHOLD {
             let q4k_down_fallback_key = format!("q4k_gemv_{}_{}", intermediate_dim, hidden_dim);
             if !self.modules.contains_key(&q4k_down_fallback_key) {
                 let kernel_type = KernelType::Q4KGemv {
@@ -8250,6 +8260,13 @@ impl CudaExecutor {
         // Update position buffer (async memcpy, doesn't invalidate graph)
         if let Some(ref mut pos_buf) = self.position_buf {
             pos_buf.copy_from_host(&[position])?;
+        }
+
+        // PAR-061-FIX: Update seq_len buffer (seq_len = position + 1)
+        // The attention kernel reads seq_len from device memory in indirect mode
+        if let Some(ref mut seq_len_buf) = self.seq_len_buf {
+            let seq_len = position + 1;
+            seq_len_buf.copy_from_host(&[seq_len])?;
         }
 
         // Update input buffer
@@ -9814,11 +9831,13 @@ impl CudaExecutor {
 
         // Launch configuration: 2D grid for attention
         // Grid X: Q blocks (ceil(seq_len / tile_q)), Grid Y: num_heads
-        // Threads: tile_q * head_dim (capped at 1024)
-        let tile_q = 64u32;
+        // Threads: tile_q * head_dim (must be <= 1024)
+        // IMP-1010 FIX: Ensure tile_q * head_dim <= 1024 so all threads can load Q/K/V elements
+        let thread_limit = 1024 / head_dim;
+        let tile_q = 64u32.min(seq_len).min(thread_limit);
         let num_q_blocks = (seq_len + tile_q - 1) / tile_q;
         let num_heads = 1u32; // Single head for now
-        let threads_per_block = (tile_q * head_dim).min(1024);
+        let threads_per_block = tile_q * head_dim; // Now guaranteed <= 1024
         let config = LaunchConfig::grid_2d(num_q_blocks, num_heads, threads_per_block, 1);
 
         // Get raw pointers
@@ -9950,9 +9969,12 @@ impl CudaExecutor {
         // - Threads = tile_q * head_dim (each thread handles one element)
         // Calculate tile size to fit in 48KB shared memory (same as generate_ptx)
         let max_tile = (48 * 1024) / (head_dim * 12);
-        let tile_q = max_tile.min(64).min(seq_len);
+        // IMP-1010 FIX: Ensure tile_q * head_dim <= 1024 so all threads can load Q/K/V elements
+        // Without this constraint, we launch 1024 threads but need tile_q * head_dim > 1024 loads
+        let thread_limit = 1024 / head_dim;
+        let tile_q = max_tile.min(64).min(seq_len).min(thread_limit);
         let num_q_blocks = (seq_len + tile_q - 1) / tile_q;
-        let threads_per_block = (tile_q * head_dim).min(1024); // Max 1024 threads per block
+        let threads_per_block = tile_q * head_dim; // Now guaranteed <= 1024
         let config = LaunchConfig::grid_2d(num_q_blocks, n_heads, threads_per_block, 1);
 
         // Get raw pointers for kernel args

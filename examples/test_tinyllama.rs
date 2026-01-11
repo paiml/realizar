@@ -1,38 +1,79 @@
-//! Test TinyLlama to verify model is working
-use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
+//! Test TinyLlama to check if the bug is Qwen2-specific
+use realizar::gguf::{MappedGGUFModel, OwnedQuantizedKVCache, OwnedQuantizedModel};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let path = "/home/noah/.cache/huggingface/hub/models--TheBloke--TinyLlama-1.1B-Chat-v1.0-GGUF/snapshots/52e7645ba7c309695bec7ac98f4f005b139cf465/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf";
-    if !std::path::Path::new(path).exists() {
-        println!("TinyLlama model not found at {}", path);
-        return Ok(());
-    }
-
-    let mapped = MappedGGUFModel::from_path(path)?;
-    let model = OwnedQuantizedModel::from_mapped(&mapped)?;
+fn main() {
+    let path = "/home/noah/models/TinyLlama-1.1B-Chat-v1.0-Q4_K_M.gguf";
+    let mapped = MappedGGUFModel::from_path(path).expect("load");
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("model");
     let vocab = mapped.model.vocabulary().expect("vocab");
 
-    println!("Model config:");
-    println!("  hidden_dim: {}", model.config.hidden_dim);
-    println!("  num_layers: {}", model.config.num_layers);
-    println!("  num_heads: {}", model.config.num_heads);
-    println!("  num_kv_heads: {}", model.config.num_kv_heads);
-    println!("  rope_theta: {}", model.config.rope_theta);
-    println!("  rope_type: {}", model.config.rope_type);
+    eprintln!("Model: TinyLlama-1.1B");
+    eprintln!(
+        "Config: {} layers, {} hidden, {} heads, {} kv_heads",
+        model.config.num_layers,
+        model.config.hidden_dim,
+        model.config.num_heads,
+        model.config.num_kv_heads
+    );
 
-    // BOS token for TinyLlama is 1
-    let bos = 1u32;
+    // TinyLlama uses LLaMA chat format: <s>[INST] ... [/INST]
+    // But let's just test simple prediction: what comes after "Hello"?
 
-    println!("\nForward with BOS token ({})...", bos);
-    let logits = model.forward(&[bos])?;
+    // Find "Hello" token
+    let hello_id = vocab.iter().position(|t| t == "▁Hello").unwrap_or(0) as u32;
+    eprintln!(
+        "Hello token: {} = '{}'",
+        hello_id,
+        vocab.get(hello_id as usize).unwrap_or(&"?".to_string())
+    );
 
-    println!("Top 10 predictions:");
-    let mut indexed: Vec<_> = logits.iter().enumerate().collect();
-    indexed.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
-    for (tok, logit) in indexed.iter().take(10) {
-        let tok_str = vocab.get(*tok).map(|s| s.as_str()).unwrap_or("?");
-        println!("  Token {} ({:?}): logit={:.4}", tok, tok_str, logit);
+    let head_dim = model.config.hidden_dim / model.config.num_heads;
+    let kv_dim = model.config.num_kv_heads * head_dim;
+    let mut cache = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim, 8);
+
+    // Test with BOS token (1) first
+    let bos_token = 1u32;
+    eprintln!("\nAfter BOS token:");
+    let logits = model
+        .forward_single_with_cache(bos_token, &mut cache, 0)
+        .expect("forward");
+
+    let mut indexed: Vec<(usize, f32)> = logits.iter().cloned().enumerate().collect();
+    indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    eprintln!("Top 10 after BOS:");
+    for (rank, (idx, score)) in indexed.iter().take(10).enumerate() {
+        let tok_str = vocab
+            .get(*idx)
+            .map(|s| s.escape_debug().to_string())
+            .unwrap_or("?".to_string());
+        eprintln!(
+            "{:2}. {:6} score={:.4}  '{}'",
+            rank + 1,
+            idx,
+            score,
+            tok_str
+        );
     }
 
-    Ok(())
+    // Also test generating a few tokens
+    eprintln!("\n=== Generating 10 tokens ===");
+    cache = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim, 64);
+    let mut logits = model
+        .forward_single_with_cache(bos_token, &mut cache, 0)
+        .expect("forward");
+    let mut tokens = vec![bos_token];
+
+    for i in 0..10 {
+        let mut indexed: Vec<(usize, f32)> = logits.iter().cloned().enumerate().collect();
+        indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        let next_tok = indexed[0].0 as u32;
+        let default = "?".to_string();
+        let tok_str = vocab.get(next_tok as usize).unwrap_or(&default);
+        eprintln!("{}: {} '{}'", i + 1, next_tok, tok_str.escape_debug());
+        tokens.push(next_tok);
+        logits = model
+            .forward_single_with_cache(next_tok, &mut cache, tokens.len() - 1)
+            .expect("forward");
+    }
 }
