@@ -203,6 +203,9 @@ fn main() {
     println!("  Test 3: GPU-Resident Path (PMAT-PERF-008)");
     println!("═══════════════════════════════════════════════════════════════");
 
+    // Clear decode graph from previous tests to ensure fresh capture
+    cuda_model.clear_decode_graph();
+
     if cuda_model.supports_gpu_resident() {
         println!("✅ Model supports GPU-resident path (separate QKV, SwiGLU, RMSNorm)");
 
