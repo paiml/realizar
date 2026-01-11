@@ -3828,7 +3828,7 @@ impl<'a> QuantizedGGUFTransformer<'a> {
         }
 
         // PAR-060-DEBUG: Removed print from hot path (was causing slowdown)
-        if false && logits.len() > 20 {
+        if false {
             eprintln!(
                 "[PAR-060-CPU] Digit logits: 0={:.2}, 1={:.2}, 2={:.2}, 3={:.2}, 4={:.2}, 5={:.2}",
                 logits[15], logits[16], logits[17], logits[18], logits[19], logits[20]
@@ -17319,7 +17319,7 @@ impl OwnedQuantizedModelCuda {
 
         // IMP-1010-DEBUG: Check embedding output (disabled for performance)
         #[allow(clippy::never_loop)]
-        if false && position < 2 {
+        if false {
             let embed_sum: f32 = hidden.iter().sum();
             let embed_has_nan = hidden.iter().any(|x| x.is_nan());
             eprintln!(
@@ -17432,7 +17432,7 @@ impl OwnedQuantizedModelCuda {
 
             // IMP-1010-DEBUG: Check normed output for NaN (disabled for performance)
             #[allow(clippy::never_loop)]
-            if false && position < 2 && (layer_idx <= 5 || (layer_idx >= 18 && layer_idx <= 22)) {
+            if false {
                 let normed_has_nan = normed.iter().any(|x| x.is_nan());
                 let normed_sum: f32 = normed.iter().sum();
                 let normed_max = normed.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
@@ -17449,7 +17449,7 @@ impl OwnedQuantizedModelCuda {
             }
 
             // IMP-1010-DEBUG: Check QKV output for NaN
-            if false && position < 2 && (layer_idx <= 5 || (layer_idx >= 18 && layer_idx <= 22)) {
+            if false {
                 let qkv_has_nan = qkv.iter().any(|x| x.is_nan());
                 let qkv_sum: f32 = qkv.iter().sum();
                 let qkv_max = qkv.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
@@ -17550,7 +17550,7 @@ impl OwnedQuantizedModelCuda {
             }
 
             // IMP-1010-DEBUG: Check attention output for NaN
-            if false && position < 2 && (layer_idx <= 5 || (layer_idx >= 18 && layer_idx <= 22)) {
+            if false {
                 let attn_out_has_nan = attn_out.iter().any(|x| x.is_nan());
                 let attn_out_sum: f32 = attn_out.iter().sum();
                 let attn_proj_has_nan = attn_output.iter().any(|x| x.is_nan());
@@ -17569,7 +17569,7 @@ impl OwnedQuantizedModelCuda {
             }
 
             // IMP-1010-DEBUG: Check hidden after residual
-            if false && position < 2 && (layer_idx <= 5 || (layer_idx >= 18 && layer_idx <= 22)) {
+            if false {
                 let hidden_has_nan = hidden.iter().any(|x| x.is_nan());
                 let hidden_sum: f32 = hidden.iter().sum();
                 let hidden_max = hidden.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
@@ -17582,7 +17582,7 @@ impl OwnedQuantizedModelCuda {
             // PAR-049-DEBUG: Compare attention output with CPU (disabled for performance)
             // Re-enable by changing `false` to `true` for debugging
             #[allow(clippy::never_loop, clippy::while_let_on_iterator)]
-            if false && layer_idx == 0 && (position == 0 || position == 1) {
+            if false {
                 let cpu_attn = self.model.fused_matmul(&attn_out, &attn_output_weight)?;
                 let max_diff = attn_output
                     .iter()
@@ -17611,7 +17611,7 @@ impl OwnedQuantizedModelCuda {
             // PAR-057: Re-enable fused FFN path now that kernels are fixed
 
             // IMP-1010-DEBUG: Check hidden state going into FFN for layers near NaN origin
-            if false && position < 2 && (layer_idx <= 5 || (layer_idx >= 18 && layer_idx <= 22)) {
+            if false {
                 let hidden_sum: f32 = hidden.iter().sum();
                 let hidden_max = hidden.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
                 let hidden_min = hidden.iter().cloned().fold(f32::INFINITY, f32::min);
@@ -17663,8 +17663,7 @@ impl OwnedQuantizedModelCuda {
                     })?;
 
                 // IMP-1010-DEBUG: Check fused FFN output for layers near NaN origin
-                if false && position < 2 && (layer_idx <= 5 || (layer_idx >= 18 && layer_idx <= 22))
-                {
+                if false {
                     let out_sum: f32 = output.iter().sum();
                     let out_max = output.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
                     let out_min = output.iter().cloned().fold(f32::INFINITY, f32::min);
@@ -17769,7 +17768,7 @@ impl OwnedQuantizedModelCuda {
 
             // PAR-049-DEBUG: Compare FFN output with CPU (disabled for performance)
             #[allow(clippy::never_loop)]
-            if false && layer_idx == 0 && position == 0 {
+            if false {
                 // Compute CPU FFN for comparison
                 let _ffn_input_cpu =
                     if let Some(ref ffn_norm) = self.model.layers[layer_idx].ffn_norm_weight {
@@ -17804,7 +17803,7 @@ impl OwnedQuantizedModelCuda {
             }
 
             // IMP-1010-DEBUG: Check hidden after FFN residual
-            if false && position < 2 && (layer_idx <= 5 || (layer_idx >= 18 && layer_idx <= 22)) {
+            if false {
                 let hidden_has_nan = hidden.iter().any(|x| x.is_nan());
                 let ffn_output_has_nan = ffn_output.iter().any(|x| x.is_nan());
                 let ffn_output_sum: f32 = ffn_output.iter().sum();
@@ -17839,7 +17838,7 @@ impl OwnedQuantizedModelCuda {
             // PAR-049-DEBUG: Print hidden state after layer 0 and compute CPU reference (disabled for performance)
             // Re-enable by changing `false` to `true` for debugging
             #[allow(clippy::never_loop)]
-            if false && layer_idx == 0 && position == 0 {
+            if false {
                 eprintln!(
                     "[PAR-049] L0 GPU hidden[0..5]: {:?}",
                     &hidden[..5.min(hidden.len())]
@@ -17947,7 +17946,7 @@ impl OwnedQuantizedModelCuda {
         // Re-enable by changing `false` to `true` for debugging
         // IMP-1010-DEBUG: Enable for all positions to debug garbage output
         #[allow(clippy::never_loop)]
-        if false && position < 5 {
+        if false {
             // IMP-1010-DEBUG: Print hidden and normed stats
             let hidden_sum: f32 = hidden.iter().sum();
             let hidden_max = hidden.iter().copied().fold(f32::NEG_INFINITY, f32::max);
@@ -18515,6 +18514,14 @@ impl OwnedQuantizedModelCuda {
         Ok(total_bytes)
     }
 
+    /// Clear decode graph and related state
+    ///
+    /// Call this before starting a new generation session to ensure
+    /// the graph is recaptured with fresh state.
+    pub fn clear_decode_graph(&mut self) {
+        self.executor.clear_decode_graph();
+    }
+
     /// PAR-023: Check if model supports GPU-resident forward pass
     ///
     /// GPU-resident path requires:
@@ -18614,6 +18621,98 @@ impl OwnedQuantizedModelCuda {
         Ok(logits)
     }
 
+    /// PAR-062: GPU-resident forward pass returning token ID directly
+    ///
+    /// Like `forward_gpu_resident` but uses GPU-side argmax for greedy sampling.
+    /// Eliminates 600KB logits transfer per token, reducing to 4 bytes (token ID).
+    ///
+    /// # Performance Improvement
+    ///
+    /// - Before: Download 152064 x 4 = 600KB per token
+    /// - After: Download 1 x 4 = 4 bytes per token
+    /// - Expected speedup: ~1.2x overall throughput
+    ///
+    /// # Arguments
+    ///
+    /// * `token_id` - Input token
+    /// * `cache` - KV cache (advanced but not used for logits)
+    /// * `position` - Position in sequence
+    ///
+    /// # Returns
+    ///
+    /// Token ID with highest logit value (greedy sampling)
+    ///
+    /// # Errors
+    ///
+    /// Returns error if GPU operations fail or model has lm_head_bias (requires CPU path).
+    pub fn forward_gpu_resident_to_token_id(
+        &mut self,
+        token_id: u32,
+        cache: &mut OwnedQuantizedKVCache,
+        position: usize,
+    ) -> Result<u32> {
+        // PAR-062: If model has LM head bias, fall back to CPU path
+        // (bias addition requires CPU, so we'd download logits anyway)
+        if self.model.lm_head_bias.is_some() {
+            let logits = self.forward_gpu_resident(token_id, cache, position)?;
+            return Ok(logits
+                .iter()
+                .enumerate()
+                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                .map_or(0, |(idx, _)| idx as u32));
+        }
+
+        let hidden_dim = self.model.config.hidden_dim;
+        let intermediate_dim = self.model.layers[0].ffn_up_weight.out_dim;
+        let num_layers = self.model.layers.len();
+        let vocab_size = self.model.lm_head_weight.out_dim;
+        let eps = self.model.config.eps;
+
+        // 1. Token embedding lookup (CPU - fast, single lookup)
+        let embedding = self.model.embed(&[token_id]);
+
+        // 2. Check if CUDA graph is captured; if not, use regular path first
+        // The graphed path needs to be initialized via forward_all_layers_gpu_to_logits_graphed
+        if !self.executor.has_decode_graph() {
+            // First call - need to capture graph, use regular path
+            let mut logits = vec![0.0f32; vocab_size];
+            self.executor
+                .forward_all_layers_gpu_to_logits_graphed(
+                    &embedding,
+                    &mut logits,
+                    position as u32,
+                    num_layers,
+                    hidden_dim as u32,
+                    intermediate_dim as u32,
+                    vocab_size as u32,
+                    eps,
+                )
+                .map_err(|e| RealizarError::UnsupportedOperation {
+                    operation: "forward_gpu_resident_to_token_id".to_string(),
+                    reason: format!("forward_all_layers_gpu_to_logits_graphed failed: {}", e),
+                })?;
+
+            cache.advance();
+            return Ok(logits
+                .iter()
+                .enumerate()
+                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                .map_or(0, |(idx, _)| idx as u32));
+        }
+
+        // 3. Use GPU argmax path - graph is captured, use optimized replay
+        let next_token = self
+            .executor
+            .forward_graphed_replay_to_token_id(&embedding, position as u32, vocab_size as u32)
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "forward_gpu_resident_to_token_id".to_string(),
+                reason: format!("forward_graphed_replay_to_token_id failed: {}", e),
+            })?;
+
+        cache.advance();
+        Ok(next_token)
+    }
+
     /// PAR-023: GPU-resident token generation
     ///
     /// Uses `forward_gpu_resident` for maximum GPU utilization with minimal syncs.
@@ -18686,22 +18785,13 @@ impl OwnedQuantizedModelCuda {
         let mut last_token = prompt[prompt.len() - 1];
 
         for _token_num in 0..config.max_tokens {
-            let logits = self.forward_gpu_resident(last_token, &mut cache, position)?;
-
-            // PAR-058-DEBUG: Disabled for performance measurement
-            // if token_num == 0 {
-            //     eprintln!("[PAR-058-GPU] Logits len: {}", logits.len());
-            // }
-
-            // Greedy sampling (temperature=0)
+            // PAR-062: Use GPU argmax path for greedy sampling (150,000x data transfer reduction)
             let next_token = if config.temperature == 0.0 || config.top_k == 1 {
-                logits
-                    .iter()
-                    .enumerate()
-                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                    .map_or(0, |(idx, _)| idx as u32)
+                // Greedy sampling - use GPU-side argmax (4 bytes transfer vs 600KB)
+                self.forward_gpu_resident_to_token_id(last_token, &mut cache, position)?
             } else {
-                // Top-k sampling
+                // Non-greedy sampling - need full logits for top-k
+                let logits = self.forward_gpu_resident(last_token, &mut cache, position)?;
                 let mut indexed: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
                 indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
                 indexed.truncate(config.top_k);
