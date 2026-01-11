@@ -1299,7 +1299,7 @@ impl GGUFModel {
 
     /// Encode text to token IDs using vocabulary
     ///
-    /// Uses greedy longest-match tokenization.
+    /// Uses greedy longest-match tokenization with special token priority.
     /// Returns None if no vocabulary is available.
     ///
     /// Supports both tokenizer types:
@@ -1316,6 +1316,15 @@ impl GGUFModel {
             .map(|(id, token)| (token.as_str(), id as u32))
             .collect();
 
+        // Identify special tokens (high-ID tokens with <|...|> pattern)
+        // These need priority matching to avoid being split by greedy algorithm
+        let special_tokens: Vec<(&str, u32)> = vocab
+            .iter()
+            .enumerate()
+            .filter(|(id, tok)| *id >= 151643 && tok.starts_with("<|") && tok.ends_with("|>"))
+            .map(|(id, tok)| (tok.as_str(), id as u32))
+            .collect();
+
         // Detect tokenizer type from metadata
         // GPT-2 style uses Ġ (U+0120), SentencePiece uses ▁ (U+2581)
         let is_gpt2_style = self
@@ -1325,72 +1334,110 @@ impl GGUFModel {
 
         let space_char = if is_gpt2_style { '\u{0120}' } else { '▁' };
 
-        // Preprocessing: For SentencePiece tokenizers (LLaMA), prepend a space
-        // to the text before processing. This matches llama.cpp behavior where
-        // "hello" becomes " hello" → "▁hello".
-        // For GPT-2 style, spaces within text become Ġ but no leading space is added.
-        let text_with_prefix = if is_gpt2_style {
-            text.to_string()
-        } else {
-            // SentencePiece: always prepend space (unless text already starts with space)
-            if text.starts_with(' ') {
-                text.to_string()
-            } else {
-                format!(" {}", text)
-            }
-        };
-
-        // Now replace all spaces with the appropriate space character
-        let processed = text_with_prefix.replace(' ', &space_char.to_string());
-
-        let mut tokens = Vec::new();
-        let mut remaining = processed.as_str();
-
-        while !remaining.is_empty() {
-            // Greedy longest match using character boundaries (not byte indices)
-            let mut best_byte_len = 0;
-            let mut best_id = None;
-
-            // Collect character byte offsets for proper slicing
-            let char_indices: Vec<usize> = remaining
-                .char_indices()
-                .map(|(i, _)| i)
-                .chain(std::iter::once(remaining.len()))
-                .collect();
-
-            // Try all prefixes up to 32 chars (reasonable max token length)
-            for char_count in 1..=char_indices.len().saturating_sub(1).min(32) {
-                let byte_end = char_indices[char_count];
-                let prefix = &remaining[..byte_end];
-                if let Some(&id) = token_to_id.get(prefix) {
-                    best_byte_len = byte_end;
-                    best_id = Some(id);
-                }
-            }
-
-            if let Some(id) = best_id {
-                tokens.push(id);
-                remaining = &remaining[best_byte_len..];
-            } else {
-                // No match found - try single UTF-8 char as byte tokens
-                // SAFETY: remaining is non-empty (loop condition guarantees this)
-                let ch = remaining
-                    .chars()
-                    .next()
-                    .expect("loop invariant: remaining non-empty");
-                let ch_len = ch.len_utf8();
-
-                // Look for byte tokens like <0x48> for 'H'
-                for byte in remaining[..ch_len].bytes() {
-                    let byte_token = format!("<0x{:02X}>", byte);
-                    if let Some(&id) = token_to_id.get(byte_token.as_str()) {
-                        tokens.push(id);
-                    } else {
-                        // Unknown byte - use a common unknown token ID (usually 0 or 1)
-                        tokens.push(0);
+        // Split text on special tokens first, preserving them
+        let mut segments: Vec<(bool, &str)> = Vec::new(); // (is_special, text)
+        let mut text_remaining = text;
+        while !text_remaining.is_empty() {
+            // Find earliest special token match
+            let mut earliest_match: Option<(usize, &str, u32)> = None;
+            for &(special_tok, special_id) in &special_tokens {
+                if let Some(pos) = text_remaining.find(special_tok) {
+                    if earliest_match.is_none()
+                        || pos < earliest_match.as_ref().map_or(usize::MAX, |m| m.0)
+                    {
+                        earliest_match = Some((pos, special_tok, special_id));
                     }
                 }
-                remaining = &remaining[ch_len..];
+            }
+
+            if let Some((pos, special_tok, _)) = earliest_match {
+                if pos > 0 {
+                    segments.push((false, &text_remaining[..pos]));
+                }
+                segments.push((true, special_tok));
+                text_remaining = &text_remaining[pos + special_tok.len()..];
+            } else {
+                segments.push((false, text_remaining));
+                break;
+            }
+        }
+
+        let mut tokens = Vec::new();
+
+        for (is_special, segment) in segments {
+            if is_special {
+                // Direct lookup for special token
+                if let Some(&id) = token_to_id.get(segment) {
+                    tokens.push(id);
+                }
+                continue;
+            }
+
+            // Process non-special segment with character replacement
+            let text_with_prefix = if is_gpt2_style {
+                segment.to_string()
+            } else if segment.starts_with(' ') {
+                segment.to_string()
+            } else {
+                format!(" {}", segment)
+            };
+
+            let processed = if is_gpt2_style {
+                text_with_prefix
+                    .replace(' ', &space_char.to_string())
+                    .replace('\n', "\u{010A}") // Ċ = GPT-2 newline
+            } else {
+                text_with_prefix.replace(' ', &space_char.to_string())
+            };
+
+            let mut remaining = processed.as_str();
+
+            while !remaining.is_empty() {
+                // Greedy longest match using character boundaries (not byte indices)
+                let mut best_byte_len = 0;
+                let mut best_id = None;
+
+                // Collect character byte offsets for proper slicing
+                let char_indices: Vec<usize> = remaining
+                    .char_indices()
+                    .map(|(i, _)| i)
+                    .chain(std::iter::once(remaining.len()))
+                    .collect();
+
+                // Try all prefixes up to 32 chars (reasonable max token length)
+                for char_count in 1..=char_indices.len().saturating_sub(1).min(32) {
+                    let byte_end = char_indices[char_count];
+                    let prefix = &remaining[..byte_end];
+                    if let Some(&id) = token_to_id.get(prefix) {
+                        best_byte_len = byte_end;
+                        best_id = Some(id);
+                    }
+                }
+
+                if let Some(id) = best_id {
+                    tokens.push(id);
+                    remaining = &remaining[best_byte_len..];
+                } else {
+                    // No match found - try single UTF-8 char as byte tokens
+                    // SAFETY: remaining is non-empty (loop condition guarantees this)
+                    let ch = remaining
+                        .chars()
+                        .next()
+                        .expect("loop invariant: remaining non-empty");
+                    let ch_len = ch.len_utf8();
+
+                    // Look for byte tokens like <0x48> for 'H'
+                    for byte in remaining[..ch_len].bytes() {
+                        let byte_token = format!("<0x{:02X}>", byte);
+                        if let Some(&id) = token_to_id.get(byte_token.as_str()) {
+                            tokens.push(id);
+                        } else {
+                            // Unknown byte - use a common unknown token ID (usually 0 or 1)
+                            tokens.push(0);
+                        }
+                    }
+                    remaining = &remaining[ch_len..];
+                }
             }
         }
 
@@ -3738,13 +3785,7 @@ impl<'a> QuantizedGGUFTransformer<'a> {
             )
         };
 
-        // PAR-060-DEBUG: Always print CPU normed hidden for comparison with GPU
-        let cpu_normed_sum: f32 = normed.iter().sum();
-        eprintln!(
-            "[PAR-060-CPU] Normed hidden: first 5: {:?}, sum: {:.4}",
-            &normed[..5.min(normed.len())],
-            cpu_normed_sum
-        );
+        // PAR-060-DEBUG: Removed unconditional print from hot path (was causing 100x slowdown)
 
         if debug_forward && (position == 0 || position == 5) {
             eprintln!(
@@ -3786,8 +3827,8 @@ impl<'a> QuantizedGGUFTransformer<'a> {
             self.add_bias(&mut logits, bias);
         }
 
-        // PAR-060-DEBUG: Print CPU digit logits for comparison with GPU
-        if logits.len() > 20 {
+        // PAR-060-DEBUG: Removed print from hot path (was causing slowdown)
+        if false && logits.len() > 20 {
             eprintln!(
                 "[PAR-060-CPU] Digit logits: 0={:.2}, 1={:.2}, 2={:.2}, 3={:.2}, 4={:.2}, 5={:.2}",
                 logits[15], logits[16], logits[17], logits[18], logits[19], logits[20]
@@ -10379,13 +10420,7 @@ impl OwnedQuantizedModel {
         // Fallback to separate RMSNorm + matmul for other types
         let normed = self.rms_norm(input, &self.output_norm_weight, self.config.eps);
 
-        // PAR-060-DEBUG: Print CPU normed hidden for comparison with GPU
-        let normed_sum: f32 = normed.iter().sum();
-        eprintln!(
-            "[PAR-060-CPU] Normed hidden: first 5: {:?}, sum: {:.4}",
-            &normed[..5.min(normed.len())],
-            normed_sum
-        );
+        // PAR-060-DEBUG: Removed unconditional print from hot path (was causing 100x slowdown)
 
         self.fused_matmul(&normed, &self.lm_head_weight)
     }
@@ -12395,6 +12430,18 @@ impl OwnedQuantizedModel {
         // 1. Token embedding lookup
         let mut hidden = self.embed(&[token_id]);
 
+        // DEBUG: Print hidden state after embedding
+        let debug_forward = std::env::var("REALIZAR_DEBUG_FORWARD").is_ok();
+        if debug_forward {
+            let hidden_sum: f32 = hidden.iter().sum();
+            eprintln!("[DEBUG-FORWARD] Token={}, Position={}", token_id, position);
+            eprintln!(
+                "[DEBUG-FORWARD] After embed: sum={:.6}, hidden[0..4]={:?}",
+                hidden_sum,
+                &hidden[..4.min(hidden.len())]
+            );
+        }
+
         // Detect if model uses RMSNorm (LLaMA-style) or LayerNorm (phi-2 style)
         // LLaMA models have ffn_gate_weight (SwiGLU) and no bias in norms
         let use_rmsnorm = self
@@ -12583,10 +12630,50 @@ impl OwnedQuantizedModel {
             for i in 0..hidden_dim {
                 hidden[i] += ffn_output[i];
             }
+
+            // DEBUG: Print hidden state after first layer
+            if debug_forward && layer_idx == 0 {
+                let hidden_sum: f32 = hidden.iter().sum();
+                eprintln!(
+                    "[DEBUG-FORWARD] After layer 0: sum={:.6}, hidden[0..4]={:?}",
+                    hidden_sum,
+                    &hidden[..4.min(hidden.len())]
+                );
+            }
         }
 
         // Advance cache position after processing all layers
         cache.advance();
+
+        // DEBUG: Print hidden state before LM head
+        if debug_forward {
+            let hidden_sum: f32 = hidden.iter().sum();
+            let hidden_max = hidden.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+            let hidden_min = hidden.iter().copied().fold(f32::INFINITY, f32::min);
+            eprintln!(
+                "[DEBUG-FORWARD] Hidden after all layers: sum={:.4}, min={:.4}, max={:.4}",
+                hidden_sum, hidden_min, hidden_max
+            );
+            eprintln!(
+                "[DEBUG-FORWARD] Hidden[0..8]: {:?}",
+                &hidden[..8.min(hidden.len())]
+            );
+            eprintln!(
+                "[DEBUG-LM-HEAD] lm_head_weight: in_dim={}, out_dim={}, qtype={}, data_len={}",
+                self.lm_head_weight.in_dim,
+                self.lm_head_weight.out_dim,
+                self.lm_head_weight.qtype,
+                self.lm_head_weight.data.len()
+            );
+            eprintln!(
+                "[DEBUG-LM-HEAD] First 16 bytes of lm_head data: {:02x?}",
+                &self.lm_head_weight.data[..16.min(self.lm_head_weight.data.len())]
+            );
+            eprintln!(
+                "[DEBUG-LM-HEAD] output_norm_weight[0..4]: {:?}",
+                &self.output_norm_weight[..4.min(self.output_norm_weight.len())]
+            );
+        }
 
         // 3+4. Fused final layer norm + LM head projection
         // For RMSNorm models: fuse norm + matmul to eliminate intermediate allocation
@@ -12601,6 +12688,60 @@ impl OwnedQuantizedModel {
             );
             self.fused_matmul(&normed, &self.lm_head_weight)?
         };
+
+        // DEBUG: Verify Q8_0 matmul by manual computation
+        if debug_forward {
+            // Get the normalized hidden state
+            let normed = self.rms_norm(&hidden, &self.output_norm_weight, self.config.eps);
+            eprintln!(
+                "[DEBUG-VERIFY] Normed hidden[0..8]: {:?}",
+                &normed[..8.min(normed.len())]
+            );
+
+            // Manual dequantize row 0 of LM head weight
+            const Q8_0_BLOCK_BYTES: usize = 34;
+            const Q8_0_BLOCK_SIZE: usize = 32;
+            let blocks_per_row = self.lm_head_weight.in_dim.div_ceil(Q8_0_BLOCK_SIZE);
+            let bytes_per_row = blocks_per_row * Q8_0_BLOCK_BYTES;
+
+            // Dequantize row 0 (token 0's projection weights)
+            let row0_data = &self.lm_head_weight.data[0..bytes_per_row];
+            let mut row0_f32 = vec![0.0f32; self.lm_head_weight.in_dim];
+            for block_idx in 0..blocks_per_row {
+                let block_start = block_idx * Q8_0_BLOCK_BYTES;
+                let block = &row0_data[block_start..block_start + Q8_0_BLOCK_BYTES];
+                let scale = half::f16::from_le_bytes([block[0], block[1]]).to_f32();
+                for j in 0..32 {
+                    let idx = block_idx * 32 + j;
+                    if idx >= self.lm_head_weight.in_dim {
+                        break;
+                    }
+                    row0_f32[idx] = (block[2 + j] as i8 as f32) * scale;
+                }
+            }
+            eprintln!(
+                "[DEBUG-VERIFY] LM head row 0 (dequantized) first 8: {:?}",
+                &row0_f32[..8.min(row0_f32.len())]
+            );
+
+            // Compute dot product manually
+            let manual_logit0: f32 = normed.iter().zip(row0_f32.iter()).map(|(a, b)| a * b).sum();
+            eprintln!("[DEBUG-VERIFY] Manual logits[0] = {:.6}", manual_logit0);
+            eprintln!("[DEBUG-VERIFY] Computed logits[0] = {:.6}", logits[0]);
+            eprintln!(
+                "[DEBUG-VERIFY] Difference = {:.6}",
+                (manual_logit0 - logits[0]).abs()
+            );
+
+            // Check top tokens
+            let mut indexed: Vec<(usize, f32)> =
+                logits.iter().enumerate().map(|(i, &v)| (i, v)).collect();
+            indexed.sort_by(|(_, a), (_, b)| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+            eprintln!(
+                "[DEBUG-VERIFY] Top 5 tokens: {:?}",
+                &indexed[..5.min(indexed.len())]
+            );
+        }
 
         if let Some(ref bias) = self.lm_head_bias {
             self.add_bias(&mut logits, bias);
@@ -13270,17 +13411,42 @@ impl OwnedQuantizedModel {
         let mut cache = OwnedQuantizedKVCache::from_config(&self.config, max_seq_len);
         let mut tokens = prompt.to_vec();
 
-        // Process prompt tokens (prefill)
+        // Process prompt tokens (prefill), keeping the logits from the last position
+        // The logits from processing token[n-1] at position n-1 predict token[n]
+        let mut logits = Vec::new();
         for (pos, &token_id) in prompt.iter().enumerate() {
-            let _ = self.forward_single_with_cache(token_id, &mut cache, pos)?;
+            logits = self.forward_single_with_cache(token_id, &mut cache, pos)?;
         }
 
         // Generate new tokens
+        // First iteration uses logits from prefill, subsequent use logits from forward pass
         for gen_idx in 0..config.max_tokens {
-            let position = prompt.len() + gen_idx;
-            let last_token = *tokens.last().expect("tokens must be non-empty");
-
-            let logits = self.forward_single_with_cache(last_token, &mut cache, position)?;
+            // DEBUG: Print logits info for first generated token
+            if gen_idx == 0 && std::env::var("REALIZAR_DEBUG_LOGITS").is_ok() {
+                let sum: f32 = logits.iter().sum();
+                let max_val = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+                let min_val = logits.iter().copied().fold(f32::INFINITY, f32::min);
+                let top_5: Vec<(usize, f32)> = {
+                    let mut indexed: Vec<_> =
+                        logits.iter().enumerate().map(|(i, &v)| (i, v)).collect();
+                    indexed.sort_by(|(_, a), (_, b)| {
+                        b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal)
+                    });
+                    indexed.into_iter().take(5).collect()
+                };
+                eprintln!(
+                    "[DEBUG-LOGITS] len={}, sum={:.4}, min={:.4}, max={:.4}",
+                    logits.len(),
+                    sum,
+                    min_val,
+                    max_val
+                );
+                eprintln!("[DEBUG-LOGITS] top 5 token ids and logits: {:?}", top_5);
+                eprintln!(
+                    "[DEBUG-LOGITS] logits[0..5]: {:?}",
+                    &logits[..5.min(logits.len())]
+                );
+            }
 
             // Sample next token
             let next_token = if config.temperature == 0.0 || config.top_k == 1 {
@@ -13288,6 +13454,15 @@ impl OwnedQuantizedModel {
             } else {
                 Self::sample_topk(&logits, config.temperature, config.top_k)
             };
+
+            // DEBUG: Print selected token
+            if gen_idx == 0 && std::env::var("REALIZAR_DEBUG_LOGITS").is_ok() {
+                eprintln!(
+                    "[DEBUG-LOGITS] selected token: {} (logit={:.4})",
+                    next_token,
+                    logits.get(next_token as usize).copied().unwrap_or(f32::NAN)
+                );
+            }
 
             // Check stop condition
             if config.stop_tokens.contains(&next_token) {
@@ -13300,6 +13475,11 @@ impl OwnedQuantizedModel {
             if tokens.len() >= max_seq_len {
                 break;
             }
+
+            // Get logits for next iteration by forwarding the newly sampled token
+            // Position is prompt.len() + gen_idx (where token was just added)
+            let position = prompt.len() + gen_idx;
+            logits = self.forward_single_with_cache(next_token, &mut cache, position)?;
         }
 
         Ok(tokens)
@@ -13848,19 +14028,15 @@ impl OwnedQuantizedModel {
         let mut tokens = prompt.to_vec();
 
         // Process prompt tokens (prefill) with adaptive attention
+        // Keep the logits from the last position for the first generated token
+        let mut logits = Vec::new();
         for (pos, &token_id) in prompt.iter().enumerate() {
-            let _ = self.forward_single_with_cache_adaptive(token_id, &mut cache, pos, metrics)?;
+            logits = self.forward_single_with_cache_adaptive(token_id, &mut cache, pos, metrics)?;
         }
 
         // Generate new tokens with adaptive attention
         for gen_idx in 0..config.max_tokens {
-            let position = prompt.len() + gen_idx;
-            let last_token = *tokens.last().expect("tokens must be non-empty");
-
-            let logits =
-                self.forward_single_with_cache_adaptive(last_token, &mut cache, position, metrics)?;
-
-            // Sample next token
+            // Sample next token from current logits
             let next_token = if config.temperature == 0.0 || config.top_k == 1 {
                 Self::argmax(&logits)
             } else {
@@ -13878,6 +14054,11 @@ impl OwnedQuantizedModel {
             if tokens.len() >= max_seq_len {
                 break;
             }
+
+            // Get logits for next iteration by forwarding the newly sampled token
+            let position = prompt.len() + gen_idx;
+            logits =
+                self.forward_single_with_cache_adaptive(next_token, &mut cache, position, metrics)?;
         }
 
         Ok(tokens)
@@ -17136,6 +17317,17 @@ impl OwnedQuantizedModelCuda {
         // 1. Token embedding lookup (CPU - fast enough, single lookup)
         let mut hidden = self.model.embed(&[token_id]);
 
+        // IMP-1010-DEBUG: Check embedding output (disabled for performance)
+        #[allow(clippy::never_loop)]
+        if false && position < 2 {
+            let embed_sum: f32 = hidden.iter().sum();
+            let embed_has_nan = hidden.iter().any(|x| x.is_nan());
+            eprintln!(
+                "[IMP-1010] pos{} embedding: sum={:.6e}, has_nan={}",
+                position, embed_sum, embed_has_nan
+            );
+        }
+
         // PAR-016: Pre-capture LM head cache key for stable caching
         let lm_head_cache_key = format!(
             "q4k_{:016x}",
@@ -17238,10 +17430,33 @@ impl OwnedQuantizedModelCuda {
                     .layer_norm(&hidden, &attn_norm_weight, attn_norm_bias.as_deref(), eps)
             };
 
+            // IMP-1010-DEBUG: Check normed output for NaN (disabled for performance)
+            #[allow(clippy::never_loop)]
+            if false && position < 2 && (layer_idx <= 5 || (layer_idx >= 18 && layer_idx <= 22)) {
+                let normed_has_nan = normed.iter().any(|x| x.is_nan());
+                let normed_sum: f32 = normed.iter().sum();
+                let normed_max = normed.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                eprintln!(
+                    "[IMP-1010] pos{} L{} normed: sum={:.6e}, max={:.6e}, has_nan={}",
+                    position, layer_idx, normed_sum, normed_max, normed_has_nan
+                );
+            }
+
             // 2b. QKV projection (GPU - PAR-014: use pre-captured cache key)
             let mut qkv = self.qkv_matmul_cuda_with_key(&normed, &qkv_weight, &qkv_cache_key)?;
             if let Some(ref bias) = qkv_bias {
                 self.model.add_bias(&mut qkv, bias);
+            }
+
+            // IMP-1010-DEBUG: Check QKV output for NaN
+            if false && position < 2 && (layer_idx <= 5 || (layer_idx >= 18 && layer_idx <= 22)) {
+                let qkv_has_nan = qkv.iter().any(|x| x.is_nan());
+                let qkv_sum: f32 = qkv.iter().sum();
+                let qkv_max = qkv.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                eprintln!(
+                    "[IMP-1010] pos{} L{} QKV: sum={:.6e}, max={:.6e}, has_nan={}",
+                    position, layer_idx, qkv_sum, qkv_max, qkv_has_nan
+                );
             }
 
             // 2c. Extract Q, K, V with GQA-aware sizes and apply RoPE
@@ -17262,6 +17477,7 @@ impl OwnedQuantizedModelCuda {
                 // First token - no cache yet
                 // PAR-021: Use GPU incremental attention for GQA
                 // PAR-057: Re-enable GPU attention now that TiledQ4KGemvKernel underflow is fixed
+                // IMP-1010-DEBUG: Temporarily disable GPU attention to debug garbage output
                 if self.executor.has_kv_cache_gpu() {
                     // For first token, attention output = V (weighted by 1.0)
                     // Still need to populate GPU cache for subsequent tokens
@@ -17298,6 +17514,7 @@ impl OwnedQuantizedModelCuda {
 
                 // PAR-020/021: Use GPU-resident KV cache with GQA support
                 // PAR-057: Re-enable GPU attention now that TiledQ4KGemvKernel underflow is fixed
+                // IMP-1010-DEBUG: Temporarily disable GPU attention to debug garbage output
                 if self.executor.has_kv_cache_gpu() {
                     let mut attn_output = vec![0.0f32; hidden_dim];
                     self.executor
@@ -17317,9 +17534,10 @@ impl OwnedQuantizedModelCuda {
             };
 
             // 2e. Store K and V in cache (only CPU cache if no GPU cache)
-            if !self.executor.has_kv_cache_gpu() {
-                cache.append(layer_idx, &k, &v);
-            }
+            // IMP-1010-DEBUG: Always use CPU cache since GPU attention is disabled
+            // if !self.executor.has_kv_cache_gpu() {
+            cache.append(layer_idx, &k, &v);
+            // }
 
             // 2f. Attention output projection (GPU - PAR-014: use pre-captured cache key)
             let mut attn_output = self.fused_matmul_cuda_with_key(
@@ -17331,9 +17549,34 @@ impl OwnedQuantizedModelCuda {
                 self.model.add_bias(&mut attn_output, bias);
             }
 
+            // IMP-1010-DEBUG: Check attention output for NaN
+            if false && position < 2 && (layer_idx <= 5 || (layer_idx >= 18 && layer_idx <= 22)) {
+                let attn_out_has_nan = attn_out.iter().any(|x| x.is_nan());
+                let attn_out_sum: f32 = attn_out.iter().sum();
+                let attn_proj_has_nan = attn_output.iter().any(|x| x.is_nan());
+                let attn_proj_sum: f32 = attn_output.iter().sum();
+                let attn_proj_max = attn_output
+                    .iter()
+                    .cloned()
+                    .fold(f32::NEG_INFINITY, f32::max);
+                eprintln!("[IMP-1010] pos{} L{} attn_out: sum={:.6e}, has_nan={} | proj: sum={:.6e}, max={:.6e}, has_nan={}",
+                    position, layer_idx, attn_out_sum, attn_out_has_nan, attn_proj_sum, attn_proj_max, attn_proj_has_nan);
+            }
+
             // 2g. Residual connection
             for i in 0..hidden_dim {
                 hidden[i] += attn_output[i];
+            }
+
+            // IMP-1010-DEBUG: Check hidden after residual
+            if false && position < 2 && (layer_idx <= 5 || (layer_idx >= 18 && layer_idx <= 22)) {
+                let hidden_has_nan = hidden.iter().any(|x| x.is_nan());
+                let hidden_sum: f32 = hidden.iter().sum();
+                let hidden_max = hidden.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                eprintln!(
+                    "[IMP-1010] pos{} L{} after attn: sum={:.6e}, max={:.6e}, has_nan={}",
+                    position, layer_idx, hidden_sum, hidden_max, hidden_has_nan
+                );
             }
 
             // PAR-049-DEBUG: Compare attention output with CPU (disabled for performance)
@@ -17366,6 +17609,17 @@ impl OwnedQuantizedModelCuda {
 
             // 2h/2i. FFN
             // PAR-057: Re-enable fused FFN path now that kernels are fixed
+
+            // IMP-1010-DEBUG: Check hidden state going into FFN for layers near NaN origin
+            if false && position < 2 && (layer_idx <= 5 || (layer_idx >= 18 && layer_idx <= 22)) {
+                let hidden_sum: f32 = hidden.iter().sum();
+                let hidden_max = hidden.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                let hidden_min = hidden.iter().cloned().fold(f32::INFINITY, f32::min);
+                let hidden_has_nan = hidden.iter().any(|x| x.is_nan());
+                eprintln!("[IMP-1010] pos{} L{} before FFN: sum={:.6e}, min={:.6e}, max={:.6e}, has_nan={}",
+                    position, layer_idx, hidden_sum, hidden_min, hidden_max, hidden_has_nan);
+            }
+
             #[allow(clippy::overly_complex_bool_expr)]
             let ffn_output = if ffn_up_bias.is_none()
                 && ffn_down_bias.is_none()
@@ -17407,6 +17661,17 @@ impl OwnedQuantizedModelCuda {
                         operation: "cuda_fused_ffn".to_string(),
                         reason: format!("CUDA fused FFN failed: {e}"),
                     })?;
+
+                // IMP-1010-DEBUG: Check fused FFN output for layers near NaN origin
+                if false && position < 2 && (layer_idx <= 5 || (layer_idx >= 18 && layer_idx <= 22))
+                {
+                    let out_sum: f32 = output.iter().sum();
+                    let out_max = output.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                    let out_min = output.iter().cloned().fold(f32::INFINITY, f32::min);
+                    let out_has_nan = output.iter().any(|x| x.is_nan());
+                    eprintln!("[IMP-1010] pos{} L{} fused_ffn out: sum={:.6e}, min={:.6e}, max={:.6e}, has_nan={}",
+                        position, layer_idx, out_sum, out_min, out_max, out_has_nan);
+                }
 
                 output
             } else if let (Some(ref gate_weight), Some(ref gate_cache_key)) =
@@ -17466,8 +17731,26 @@ impl OwnedQuantizedModelCuda {
                 ffn_output
             } else {
                 // GELU path for phi-2 style models (no gate projection)
+                // IMP-1010 FIX: Apply FFN layer norm if present (parallel residual models like phi-2
+                // use the same normalized input for both attention and FFN)
+                let ffn_input =
+                    if let Some(ref ffn_norm) = self.model.layers[layer_idx].ffn_norm_weight {
+                        if use_rmsnorm {
+                            self.model.rms_norm(&hidden, ffn_norm, eps)
+                        } else {
+                            self.model.layer_norm(
+                                &hidden,
+                                ffn_norm,
+                                self.model.layers[layer_idx].ffn_norm_bias.as_deref(),
+                                eps,
+                            )
+                        }
+                    } else {
+                        // Parallel residual: use same normalized input as attention
+                        normed.clone()
+                    };
                 let mut ffn_hidden =
-                    self.fused_matmul_cuda_with_key(&hidden, &ffn_up_weight, &ffn_up_cache_key)?;
+                    self.fused_matmul_cuda_with_key(&ffn_input, &ffn_up_weight, &ffn_up_cache_key)?;
                 if let Some(ref bias) = ffn_up_bias {
                     self.model.add_bias(&mut ffn_hidden, bias);
                 }
@@ -17518,6 +17801,39 @@ impl OwnedQuantizedModelCuda {
             // Residual
             for i in 0..hidden_dim {
                 hidden[i] += ffn_output[i];
+            }
+
+            // IMP-1010-DEBUG: Check hidden after FFN residual
+            if false && position < 2 && (layer_idx <= 5 || (layer_idx >= 18 && layer_idx <= 22)) {
+                let hidden_has_nan = hidden.iter().any(|x| x.is_nan());
+                let ffn_output_has_nan = ffn_output.iter().any(|x| x.is_nan());
+                let ffn_output_sum: f32 = ffn_output.iter().sum();
+                let ffn_output_max = ffn_output.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                eprintln!(
+                    "[IMP-1010] pos{} L{} ffn_out: sum={:.6e}, max={:.6e}, has_nan={}",
+                    position, layer_idx, ffn_output_sum, ffn_output_max, ffn_output_has_nan
+                );
+                let hidden_sum: f32 = hidden.iter().sum();
+                let hidden_max = hidden.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                eprintln!(
+                    "[IMP-1010] pos{} L{} final: sum={:.6e}, max={:.6e}, has_nan={}",
+                    position, layer_idx, hidden_sum, hidden_max, hidden_has_nan
+                );
+            } else if position < 2 {
+                let hidden_has_nan = hidden.iter().any(|x| x.is_nan());
+                if hidden_has_nan {
+                    let ffn_output_has_nan = ffn_output.iter().any(|x| x.is_nan());
+                    let ffn_output_sum: f32 = ffn_output.iter().sum();
+                    eprintln!(
+                        "[IMP-1010] pos{} L{} ffn_out: sum={:.6e}, has_nan={}",
+                        position, layer_idx, ffn_output_sum, ffn_output_has_nan
+                    );
+                    let hidden_sum: f32 = hidden.iter().sum();
+                    eprintln!(
+                        "[IMP-1010] pos{} L{} hidden after FFN: sum={:.6e}, has_nan={}",
+                        position, layer_idx, hidden_sum, hidden_has_nan
+                    );
+                }
             }
 
             // PAR-049-DEBUG: Print hidden state after layer 0 and compute CPU reference (disabled for performance)
@@ -17629,8 +17945,24 @@ impl OwnedQuantizedModelCuda {
 
         // PAR-049-DEBUG: Compare final logits with CPU for position 1 (disabled for performance)
         // Re-enable by changing `false` to `true` for debugging
+        // IMP-1010-DEBUG: Enable for all positions to debug garbage output
         #[allow(clippy::never_loop)]
-        if false && position == 1 {
+        if false && position < 5 {
+            // IMP-1010-DEBUG: Print hidden and normed stats
+            let hidden_sum: f32 = hidden.iter().sum();
+            let hidden_max = hidden.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+            let hidden_min = hidden.iter().copied().fold(f32::INFINITY, f32::min);
+            eprintln!(
+                "[IMP-1010] pos{} hidden: sum={:.6e}, min={:.6e}, max={:.6e}",
+                position, hidden_sum, hidden_min, hidden_max
+            );
+            let normed_sum: f32 = normed.iter().sum();
+            let normed_max = normed.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+            let normed_min = normed.iter().copied().fold(f32::INFINITY, f32::min);
+            eprintln!(
+                "[IMP-1010] pos{} normed: sum={:.6e}, min={:.6e}, max={:.6e}",
+                position, normed_sum, normed_min, normed_max
+            );
             let cpu_logits = self.model.fused_matmul(&normed, &lm_head_weight)?;
             let max_diff = logits
                 .iter()

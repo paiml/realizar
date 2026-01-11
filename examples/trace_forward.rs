@@ -1,76 +1,124 @@
-//! Trace forward pass to find bug
-use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
+//! Trace forward pass - check if single token forward produces sensible output
+use realizar::gguf::{MappedGGUFModel, OwnedQuantizedKVCache, OwnedQuantizedModel};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let path = "/home/noah/.cache/huggingface/hub/models--Qwen--Qwen2-0.5B-Instruct-GGUF/snapshots/198f08841147e5196a6a69bd0053690fb1fd3857/qwen2-0_5b-instruct-q4_0.gguf";
-    let mapped = MappedGGUFModel::from_path(path)?;
-    let model = OwnedQuantizedModel::from_mapped(&mapped)?;
+fn stats(name: &str, v: &[f32]) {
+    let sum: f32 = v.iter().sum();
+    let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+    let min = v.iter().copied().fold(f32::INFINITY, f32::min);
+    let max = v.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    eprintln!(
+        "{}: sum={:.4}, norm={:.4}, min={:.4}, max={:.4}",
+        name, sum, norm, min, max
+    );
+}
+
+fn main() {
+    let path = "../aprender/models/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf";
+    let mapped = MappedGGUFModel::from_path(path).expect("load");
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("model");
     let vocab = mapped.model.vocabulary().expect("vocab");
 
-    let bos = 151643u32;
-    let hidden_dim = model.config.hidden_dim;
+    // Test: After seeing <|im_start|>, model should predict "system" or "user"
+    let token_id = 151644u32; // <|im_start|>
+    let position = 0;
 
-    // Get initial embedding
-    let emb_start = bos as usize * hidden_dim;
-    let embedding: Vec<f32> = model.token_embedding[emb_start..emb_start + hidden_dim].to_vec();
-
-    let emb_sum: f32 = embedding.iter().sum();
-    let emb_norm: f32 = embedding.iter().map(|x| x * x).sum::<f32>().sqrt();
-    println!("Initial embedding (BOS):");
-    println!("  sum={:.4}, norm={:.4}", emb_sum, emb_norm);
-    println!("  first 8: {:?}", &embedding[..8]);
-
-    // Check token 0's embedding for comparison
-    let tok0_emb: Vec<f32> = model.token_embedding[..hidden_dim].to_vec();
-    let tok0_sum: f32 = tok0_emb.iter().sum();
-    let tok0_norm: f32 = tok0_emb.iter().map(|x| x * x).sum::<f32>().sqrt();
-    println!("\nToken 0 (\"!\") embedding:");
-    println!("  sum={:.4}, norm={:.4}", tok0_sum, tok0_norm);
-
-    // Check cosine similarity between BOS embedding and token 0 embedding
-    let dot: f32 = embedding
-        .iter()
-        .zip(tok0_emb.iter())
-        .map(|(a, b)| a * b)
-        .sum();
-    let cos_sim = dot / (emb_norm * tok0_norm);
-    println!("\nCosine similarity(BOS, token_0) = {:.4}", cos_sim);
-
-    // Run forward and check final hidden state before LM head
-    // We can't access intermediate states easily, but we can check the LM head input
-    // by computing the full forward and then looking at what the final norm produces
-
-    // Full forward to get logits
-    let logits = model.forward(&[bos])?;
-
-    // Check logits for BOS position (only 1 token, so logits are for position 0)
-    println!("\nLogits for position 0 (after BOS):");
-    println!("  Token 0 (\"!\"): {:.4}", logits[0]);
-    println!("  Token 19 (\"4\"): {:.4}", logits[19]);
-
-    // Check if token 0's embedding dot product with hidden would give high logit
-    // If hidden ≈ token_0_embedding * scale, then logit ≈ scale * ||token_0_emb||²
-    // For tok0_norm = 0.47, that would give logit ≈ scale * 0.22
-    // But we're seeing logit = 15.24, which would need scale ≈ 69!
-
-    // Let's check what hidden state would produce such logits
-    // logit[i] = hidden · lm_head_row[i]
-    // For logit[0] = 15.24 and lm_head_row[0] = token_0_embedding (tied weights)
-    // hidden · token_0_emb = 15.24
-    // If hidden were similar to token_0_emb with some scale:
-    // scale * ||token_0_emb||² = 15.24
-    // scale = 15.24 / 0.22 ≈ 69
-
-    println!("\nAnalysis:");
-    println!(
-        "  If logit = hidden · token_emb, and token_0 norm² = {:.4}",
-        tok0_norm * tok0_norm
+    eprintln!(
+        "=== Testing single token: {} at position {} ===",
+        token_id, position
     );
-    println!(
-        "  Then for logit=15.24: scale = {:.4}",
-        15.24 / (tok0_norm * tok0_norm)
+    eprintln!(
+        "Token string: {}",
+        vocab.get(token_id as usize).unwrap_or(&"?".to_string())
     );
-    println!("  This suggests hidden has large norm or is aligned with token_0");
 
-    Ok(())
+    let head_dim = model.config.hidden_dim / model.config.num_heads;
+    let kv_dim = model.config.num_kv_heads * head_dim;
+    let mut cache = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim, 8);
+
+    let logits = model
+        .forward_single_with_cache(token_id, &mut cache, position)
+        .expect("forward");
+
+    stats("Logits", &logits);
+
+    // Top 10
+    let mut indexed: Vec<(usize, f32)> = logits.iter().cloned().enumerate().collect();
+    indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    eprintln!("\nTop 10 after seeing '<|im_start|>':");
+    for (rank, (idx, score)) in indexed.iter().take(10).enumerate() {
+        let tok_str = vocab
+            .get(*idx)
+            .map(|s| s.escape_debug().to_string())
+            .unwrap_or("?".to_string());
+        eprintln!(
+            "{:2}. {:6} score={:.4}  '{}'",
+            rank + 1,
+            idx,
+            score,
+            tok_str
+        );
+    }
+
+    // Expected: "system", "user" should be top predictions
+    eprintln!("\nExpected tokens (should be ranked high):");
+    for check in ["system", "user", "assistant", "Ċ"] {
+        if let Some(idx) = vocab.iter().position(|t| t == check) {
+            let score = logits[idx];
+            let rank = indexed
+                .iter()
+                .position(|(i, _)| *i == idx)
+                .map(|r| r + 1)
+                .unwrap_or(0);
+            eprintln!(
+                "  '{}' (id={}) score={:.4} rank={}",
+                check, idx, score, rank
+            );
+        }
+    }
+
+    // Now test two tokens: <|im_start|> followed by "system"
+    eprintln!("\n=== Testing two tokens: <|im_start|> system ===");
+    cache = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim, 8);
+
+    // First token
+    let _ = model
+        .forward_single_with_cache(151644, &mut cache, 0)
+        .expect("forward1");
+    // Second token: "system" = 8948
+    let logits2 = model
+        .forward_single_with_cache(8948, &mut cache, 1)
+        .expect("forward2");
+
+    let mut indexed2: Vec<(usize, f32)> = logits2.iter().cloned().enumerate().collect();
+    indexed2.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    eprintln!("\nTop 10 after '<|im_start|>system' (expecting newline Ċ):");
+    for (rank, (idx, score)) in indexed2.iter().take(10).enumerate() {
+        let tok_str = vocab
+            .get(*idx)
+            .map(|s| s.escape_debug().to_string())
+            .unwrap_or("?".to_string());
+        eprintln!(
+            "{:2}. {:6} score={:.4}  '{}'",
+            rank + 1,
+            idx,
+            score,
+            tok_str
+        );
+    }
+
+    // Check newline rank
+    if let Some(idx) = vocab.iter().position(|t| t == "Ċ") {
+        let score = logits2[idx];
+        let rank = indexed2
+            .iter()
+            .position(|(i, _)| *i == idx)
+            .map(|r| r + 1)
+            .unwrap_or(0);
+        eprintln!(
+            "\n  'Ċ' (newline, id={}) score={:.4} rank={}",
+            idx, score, rank
+        );
+    }
 }
