@@ -4056,9 +4056,8 @@ impl CudaExecutor {
         // Requirements: k must be multiple of 256 (super-block boundary)
 
         if k.is_multiple_of(256) {
-            // PAR-065: Use CoalescedQ4KGemv for aligned dimensions
-            // Five-Whys root cause: TiledQ4KGemv uses single-byte loads (6% bandwidth)
-            // CoalescedQ4KGemv uses vectorized u32 loads + warp shuffles (27% speedup)
+            // PAR-065: CoalescedQ4KGemv for aligned dimensions
+            // Uses vectorized u32 loads + warp shuffles for better bandwidth
             return self.coalesced_q4k_gemv_into(weight_ptr, input, output, n, k);
         }
 
@@ -4362,13 +4361,13 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
-        // PAR-066: CoalescedQ6KGemv disabled due to runtime errors
-        // TODO: Debug the scale computation logic
-        // if k.is_multiple_of(256) {
-        //     return self.coalesced_q6k_gemv_into(weight_ptr, input, output, n, k);
-        // }
+        // PAR-066: CoalescedQ6K for aligned dimensions
+        // Uses vectorized byte loads + warp shuffle for scales
+        if k % 256 == 0 {
+            return self.coalesced_q6k_gemv_into(weight_ptr, input, output, n, k);
+        }
 
-        // Use original Q6K kernel
+        // Fallback: original Q6K kernel for non-aligned dimensions
         let kernel_type = KernelType::Q6KGemv { k, n };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
         let cache_key = format!("q6k_gemv_{}_{}", k, n);
@@ -8256,7 +8255,8 @@ impl CudaExecutor {
             self.modules.insert(q5_0_kv_key, module);
         }
 
-        // Q6K GEMV for Q projection (original kernel, PAR-066 coalesced version disabled)
+        // Q6K GEMV for Q projection - PAR-066: Preload both original and coalesced versions
+        // Original Q6K (for non-256-aligned K dimensions)
         let q6k_q_key = format!("q6k_gemv_{}_{}", hidden_dim, q_dim);
         if !self.modules.contains_key(&q6k_q_key) {
             let kernel_type = KernelType::Q6KGemv {
@@ -8266,6 +8266,19 @@ impl CudaExecutor {
             let ptx = self.kernels.generate_ptx(&kernel_type);
             let module = CudaModule::from_ptx(&self.context, &ptx)?;
             self.modules.insert(q6k_q_key, module);
+        }
+        // PAR-066: CoalescedQ6K for Q (byte-wise scale loading, fixes alignment issue)
+        if hidden_dim % 256 == 0 {
+            let coalesced_q6k_q_key = format!("coalesced_q6k_gemv_{}_{}", hidden_dim, q_dim);
+            if !self.modules.contains_key(&coalesced_q6k_q_key) {
+                let kernel_type = KernelType::CoalescedQ6KGemv {
+                    k: hidden_dim,
+                    n: q_dim,
+                };
+                let ptx = self.kernels.generate_ptx(&kernel_type);
+                let module = CudaModule::from_ptx(&self.context, &ptx)?;
+                self.modules.insert(coalesced_q6k_q_key, module);
+            }
         }
         // Q6K GEMV for KV projection
         let q6k_kv_key = format!("q6k_gemv_{}_{}", hidden_dim, kv_dim);
@@ -8277,6 +8290,19 @@ impl CudaExecutor {
             let ptx = self.kernels.generate_ptx(&kernel_type);
             let module = CudaModule::from_ptx(&self.context, &ptx)?;
             self.modules.insert(q6k_kv_key, module);
+        }
+        // PAR-066: CoalescedQ6K for KV
+        if hidden_dim % 256 == 0 {
+            let coalesced_q6k_kv_key = format!("coalesced_q6k_gemv_{}_{}", hidden_dim, kv_dim);
+            if !self.modules.contains_key(&coalesced_q6k_kv_key) {
+                let kernel_type = KernelType::CoalescedQ6KGemv {
+                    k: hidden_dim,
+                    n: kv_dim,
+                };
+                let ptx = self.kernels.generate_ptx(&kernel_type);
+                let module = CudaModule::from_ptx(&self.context, &ptx)?;
+                self.modules.insert(coalesced_q6k_kv_key, module);
+            }
         }
 
         // Q8_0 GEMV
@@ -8360,6 +8386,20 @@ impl CudaExecutor {
             let module = CudaModule::from_ptx(&self.context, &ptx)?;
             self.modules.insert(q6k_down_key, module);
         }
+        // PAR-066: CoalescedQ6K for FFN down (byte-wise scale loading)
+        if intermediate_dim % 256 == 0 {
+            let coalesced_q6k_down_key =
+                format!("coalesced_q6k_gemv_{}_{}", intermediate_dim, hidden_dim);
+            if !self.modules.contains_key(&coalesced_q6k_down_key) {
+                let kernel_type = KernelType::CoalescedQ6KGemv {
+                    k: intermediate_dim,
+                    n: hidden_dim,
+                };
+                let ptx = self.kernels.generate_ptx(&kernel_type);
+                let module = CudaModule::from_ptx(&self.context, &ptx)?;
+                self.modules.insert(coalesced_q6k_down_key, module);
+            }
+        }
 
         // 5. LM head (hidden_dim -> vocab_size) - pre-load both Q4K and Q6K
         // PAR-058-FIX: Qwen 1.5B uses Q6K for LM head, not Q4K
@@ -8384,6 +8424,20 @@ impl CudaExecutor {
             let ptx = self.kernels.generate_ptx(&kernel_type);
             let module = CudaModule::from_ptx(&self.context, &ptx)?;
             self.modules.insert(lm_head_q6k_key, module);
+        }
+        // PAR-066: CoalescedQ6K for LM head
+        if hidden_dim % 256 == 0 {
+            let coalesced_lm_head_q6k_key =
+                format!("coalesced_q6k_gemv_{}_{}", hidden_dim, vocab_size);
+            if !self.modules.contains_key(&coalesced_lm_head_q6k_key) {
+                let kernel_type = KernelType::CoalescedQ6KGemv {
+                    k: hidden_dim,
+                    n: vocab_size,
+                };
+                let ptx = self.kernels.generate_ptx(&kernel_type);
+                let module = CudaModule::from_ptx(&self.context, &ptx)?;
+                self.modules.insert(coalesced_lm_head_q6k_key, module);
+            }
         }
 
         // 6. RoPE kernels (for Q and K)
