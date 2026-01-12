@@ -1,6 +1,6 @@
 [package]
 name = "realizar"
-version = "0.5.1"
+version = "0.5.2"
 edition = "2021"
 rust-version = "1.89"
 authors = ["Pragmatic AI Labs <contact@paiml.com>"]
@@ -41,7 +41,7 @@ trueno-db = { version = "0.3.8", optional = true }
 
 # ML algorithms and .apr model format (optional for aprender model serving)
 # v0.23: chat templates, GGUF tokenizer preservation
-aprender = { version = "0.23", optional = true }
+aprender = { version = "0.24", optional = true }
 
 # Data loading library (optional for data pipeline examples)
 alimentar = { version = "0.2", optional = true, default-features = false, features = ["local", "shuffle"] }

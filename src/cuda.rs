@@ -57,7 +57,7 @@ use trueno_gpu::kernels::{
     Q4_0GemvKernel, Q4_1GemvKernel, Q5KGemvKernel, Q5KKernel, Q5_0GemvKernel, Q6KGemvKernel,
     Q6KKernel, Q8QuantizeKernel, Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel, RmsNormKernel,
     RopeIndirectKernel, RopeKernel, SiluKernel, SoftmaxKernel, TiledQ4KGemvKernel,
-    TrueDp4aQ4KGemvKernel,
+    TrueDp4aQ4KGemvKernel, VectorizedQ4KGemvKernel,
 };
 use trueno_gpu::GpuError;
 
@@ -286,6 +286,15 @@ pub enum KernelType {
     /// Lane 0 loads scales as 3 x u32, broadcasts via shuffle
     /// Reduces 384 redundant byte loads to 3 loads + 3 broadcasts per super-block
     CoalescedQ4KGemv {
+        /// Input dimension (K, must be multiple of 256)
+        k: u32,
+        /// Output dimension (N)
+        n: u32,
+    },
+    /// PAR-069: Vectorized Q4_K GEMV with coalesced u32 weight loads
+    /// Uses ld_global_u32 for 32-thread coalesced loads (128 bytes/transaction)
+    /// Target: 80%+ memory bandwidth vs 6% with byte loads
+    VectorizedQ4KGemv {
         /// Input dimension (K, must be multiple of 256)
         k: u32,
         /// Output dimension (N)
@@ -707,6 +716,10 @@ impl CudaKernels {
                 .emit_ptx(),
             // PAR-062: Coalesced Q4K GEMV with bandwidth optimization
             KernelType::CoalescedQ4KGemv { k, n } => CoalescedQ4KGemvKernel::new(*k, *n).emit_ptx(),
+            // PAR-069: Vectorized Q4K GEMV with coalesced u32 loads
+            KernelType::VectorizedQ4KGemv { k, n } => {
+                VectorizedQ4KGemvKernel::new(*k, *n).emit_ptx()
+            },
             // PAR-063: DP4A Q4K GEMV with 4x instruction reduction
             KernelType::Dp4aQ4KGemv { k, n } => Dp4aQ4KGemvKernel::new(*k, *n).emit_ptx(),
             // PAR-063-V2: DP4A SIMD Q4K GEMV with integer accumulation
@@ -864,6 +877,8 @@ impl CudaKernels {
             KernelType::ChunkedTiledQ4KGemv { .. } => "chunked_tiled_q4k_gemv",
             // PAR-062: Coalesced Q4K GEMV (bandwidth optimized)
             KernelType::CoalescedQ4KGemv { .. } => "coalesced_q4k_gemv",
+            // PAR-069: Vectorized Q4K GEMV (coalesced u32 loads)
+            KernelType::VectorizedQ4KGemv { .. } => "vectorized_q4k_gemv",
             // PAR-063: DP4A Q4K GEMV (instruction optimized)
             KernelType::Dp4aQ4KGemv { .. } => "dp4a_q4k_gemv",
             // PAR-063-V2: DP4A SIMD Q4K GEMV (integer accumulation)
@@ -4056,9 +4071,10 @@ impl CudaExecutor {
         // Requirements: k must be multiple of 256 (super-block boundary)
 
         if k.is_multiple_of(256) {
-            // PAR-065: CoalescedQ4KGemv for aligned dimensions
-            // Uses vectorized u32 loads + warp shuffles for better bandwidth
-            return self.coalesced_q4k_gemv_into(weight_ptr, input, output, n, k);
+            // PAR-069: VectorizedQ4KGemv achieved best performance (184 tok/s)
+            // - Uses coalesced u32 weight loads (1 memory transaction vs 32 for bytes)
+            // - selp overhead is smaller than memory bandwidth gains
+            return self.vectorized_q4k_gemv_into(weight_ptr, input, output, n, k);
         }
 
         // Fallback for non-aligned dimensions (rare): basic Q4KGemv kernel
@@ -4128,6 +4144,71 @@ impl CudaExecutor {
         let kernel_type = KernelType::CoalescedQ4KGemv { k, n };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
         let cache_key = format!("coalesced_q4k_gemv_{}_{}", k, n);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // One warp (32 threads) per output element
+        let config = LaunchConfig::grid_2d(n, 1, 32, 1);
+
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_weights = weight_ptr;
+        let mut ptr_input = input.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// PAR-069: Execute Vectorized Q4_K GEMV with coalesced u32 weight loads
+    ///
+    /// Key optimization over CoalescedQ4KGemv:
+    /// 1. **Weight loading**: Uses ld_global_u32 for coalesced 4-byte loads
+    ///    - 32 threads × 4 bytes = 128 bytes per transaction (vs 32 × 1 byte scattered)
+    /// 2. **Memory bandwidth**: Target 80%+ of peak (vs 6% with byte loads)
+    ///
+    /// # Arguments
+    ///
+    /// * `weight_ptr` - Raw device pointer to Q4K weight data
+    /// * `input` - GPU buffer containing input vector
+    /// * `output` - Pre-allocated output buffer (must be at least n elements)
+    /// * `n` - Output dimension
+    /// * `k` - Input dimension (must be multiple of 256)
+    #[inline]
+    pub fn vectorized_q4k_gemv_into(
+        &mut self,
+        weight_ptr: u64,
+        input: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        let kernel_type = KernelType::VectorizedQ4KGemv { k, n };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("vectorized_q4k_gemv_{}_{}", k, n);
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
