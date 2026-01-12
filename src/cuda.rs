@@ -49,10 +49,10 @@ use trueno_gpu::driver::{
 };
 use trueno_gpu::kernels::{
     Activation, ArgMaxFinalKernel, ArgMaxKernel, AttentionKernel, BiasActivationKernel,
-    ChunkedTiledQ4KGemvKernel, CoalescedGemvKernel, CoalescedQ4KGemvKernel, Dp4aQ4KGemvKernel,
-    Dp4aSIMDQ4KGemvKernel, ElementwiseMulKernel, Fp16Q4KGemvKernel, FusedGateUpKernel,
-    FusedQKVKernel, FusedResidualRmsNormKernel, FusedSwigluKernel, GeluKernel, GemmKernel,
-    GemvKernel, IncrementalAttentionKernel, Kernel, KvCacheScatterIndirectKernel,
+    ChunkedTiledQ4KGemvKernel, CoalescedGemvKernel, CoalescedQ4KGemvKernel, CoalescedQ6KGemvKernel,
+    Dp4aQ4KGemvKernel, Dp4aSIMDQ4KGemvKernel, ElementwiseMulKernel, Fp16Q4KGemvKernel,
+    FusedGateUpKernel, FusedQKVKernel, FusedResidualRmsNormKernel, FusedSwigluKernel, GeluKernel,
+    GemmKernel, GemvKernel, IncrementalAttentionKernel, Kernel, KvCacheScatterIndirectKernel,
     KvCacheScatterKernel, LayerNormKernel, PackedDp4aQ4KQ8Kernel, Q4KGemvKernel, Q4KQ8DotKernel,
     Q4_0GemvKernel, Q4_1GemvKernel, Q5KGemvKernel, Q5KKernel, Q5_0GemvKernel, Q6KGemvKernel,
     Q6KKernel, Q8QuantizeKernel, Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel, RmsNormKernel,
@@ -345,6 +345,15 @@ pub enum KernelType {
     },
     /// Q6_K quantized GEMV (fused dequantization) - PAR-003
     Q6KGemv {
+        /// Input dimension (K, must be multiple of 256)
+        k: u32,
+        /// Output dimension (N)
+        n: u32,
+    },
+    /// PAR-066: Coalesced Q6_K GEMV with vectorized scale loading
+    /// Five-Whys root cause: Q6KGemvKernel uses single-byte loads for scales
+    /// This kernel loads 16 scales as 4 x u32 via lane 0 + warp shuffle
+    CoalescedQ6KGemv {
         /// Input dimension (K, must be multiple of 256)
         k: u32,
         /// Output dimension (N)
@@ -704,6 +713,8 @@ impl CudaKernels {
             KernelType::Dp4aSIMDQ4KGemv { k, n } => Dp4aSIMDQ4KGemvKernel::new(*k, *n).emit_ptx(),
             KernelType::Q5KGemv { k, n } => Q5KGemvKernel::new(*k, *n).emit_ptx(),
             KernelType::Q6KGemv { k, n } => Q6KGemvKernel::new(*k, *n).emit_ptx(),
+            // PAR-066: Coalesced Q6K GEMV - vectorized scale loading
+            KernelType::CoalescedQ6KGemv { k, n } => CoalescedQ6KGemvKernel::new(*k, *n).emit_ptx(),
             // PAR-053: FP16 Q4K GEMV - 2x bandwidth savings
             KernelType::Fp16Q4KGemv { k, n } => Fp16Q4KGemvKernel::new(*k, *n).emit_ptx(),
             // PAR-058: Q8_0 GEMV - simpler quantization for FFN down in some models
@@ -859,6 +870,8 @@ impl CudaKernels {
             KernelType::Dp4aSIMDQ4KGemv { .. } => "dp4a_simd_q4k_gemv",
             KernelType::Q5KGemv { .. } => "q5k_gemv_warp_reduce",
             KernelType::Q6KGemv { .. } => "q6k_gemv_warp_reduce",
+            // PAR-066: Coalesced Q6K GEMV
+            KernelType::CoalescedQ6KGemv { .. } => "coalesced_q6k_gemv",
             // PAR-053: FP16 Q4K GEMV
             KernelType::Fp16Q4KGemv { .. } => "fp16_q4k_gemv",
             // PAR-058: Q8_0 GEMV
@@ -4349,10 +4362,78 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
-        // PAR-058: Zero allocation Q6K GEMV for mixed-quantization models
+        // PAR-066: CoalescedQ6KGemv disabled due to runtime errors
+        // TODO: Debug the scale computation logic
+        // if k.is_multiple_of(256) {
+        //     return self.coalesced_q6k_gemv_into(weight_ptr, input, output, n, k);
+        // }
+
+        // Use original Q6K kernel
         let kernel_type = KernelType::Q6KGemv { k, n };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
         let cache_key = format!("q6k_gemv_{}_{}", k, n);
+        let config = LaunchConfig::grid_2d(n, 1, 32, 1);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_weights = weight_ptr;
+        let mut ptr_input = input.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// PAR-066: Execute coalesced Q6K GEMV into existing buffer
+    ///
+    /// Uses vectorized scale loading (4 x u32) instead of 16 single-byte loads.
+    /// Five-Whys root cause: Original Q6KGemvKernel caused 16 memory transactions
+    /// per super-block for scale loading. This kernel reduces to 4 transactions.
+    ///
+    /// # Arguments
+    ///
+    /// * `weight_ptr` - Raw device pointer to Q6K weight data
+    /// * `input` - GPU buffer containing input vector
+    /// * `output` - Pre-allocated output buffer (must be at least n elements)
+    /// * `n` - Output dimension
+    /// * `k` - Input dimension (must be multiple of 256)
+    #[inline]
+    pub fn coalesced_q6k_gemv_into(
+        &mut self,
+        weight_ptr: u64,
+        input: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        let kernel_type = KernelType::CoalescedQ6KGemv { k, n };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("coalesced_q6k_gemv_{}_{}", k, n);
         let config = LaunchConfig::grid_2d(n, 1, 32, 1);
 
         if !self.modules.contains_key(&cache_key) {
@@ -8175,7 +8256,7 @@ impl CudaExecutor {
             self.modules.insert(q5_0_kv_key, module);
         }
 
-        // Q6K GEMV
+        // Q6K GEMV for Q projection (original kernel, PAR-066 coalesced version disabled)
         let q6k_q_key = format!("q6k_gemv_{}_{}", hidden_dim, q_dim);
         if !self.modules.contains_key(&q6k_q_key) {
             let kernel_type = KernelType::Q6KGemv {
@@ -8186,6 +8267,7 @@ impl CudaExecutor {
             let module = CudaModule::from_ptx(&self.context, &ptx)?;
             self.modules.insert(q6k_q_key, module);
         }
+        // Q6K GEMV for KV projection
         let q6k_kv_key = format!("q6k_gemv_{}_{}", hidden_dim, kv_dim);
         if !self.modules.contains_key(&q6k_kv_key) {
             let kernel_type = KernelType::Q6KGemv {
@@ -8267,7 +8349,7 @@ impl CudaExecutor {
             self.modules.insert(q4k_down_fallback_key, module);
         }
 
-        // Q6K FFN (some models use Q6K for FFN down)
+        // Q6K FFN down (some models use Q6K for FFN down)
         let q6k_down_key = format!("q6k_gemv_{}_{}", intermediate_dim, hidden_dim);
         if !self.modules.contains_key(&q6k_down_key) {
             let kernel_type = KernelType::Q6KGemv {

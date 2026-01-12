@@ -974,28 +974,12 @@ fn run_gguf_inference(
             QuantizedGGUFTransformer::sample_topk(&logits, temperature, 40)
         };
 
-        // PAR-058-DEBUG: Print predicted token
-        if i == 0 {
-            eprintln!(
-                "[PAR-058] First predicted token: {} (EOS={:?})",
-                next_token, eos_token_id
-            );
-            // Print top 5 logits
-            let mut top5: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
-            top5.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-            top5.truncate(5);
-            eprintln!("[PAR-058] Top 5 logits: {:?}", top5);
-            // PAR-060: Show digit token logits (15="0", 19="4")
-            if logits.len() > 20 {
-                eprintln!("[PAR-060-CPU] Digit logits: 0={:.2}, 1={:.2}, 2={:.2}, 3={:.2}, 4={:.2}, 5={:.2}",
-                    logits[15], logits[16], logits[17], logits[18], logits[19], logits[20]);
-            }
-        }
+        // PERF-002: Debug code removed (was PAR-058-DEBUG and PAR-060)
 
         // Stop on EOS
         if let Some(eos) = eos_token_id {
             if next_token == eos {
-                eprintln!("[PAR-058] Breaking on EOS token");
+                // PERF-002: eprintln removed for performance
                 break;
             }
         }

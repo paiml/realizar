@@ -3527,6 +3527,7 @@ pub fn fused_q4k_parallel_matvec(
                 fused_q4k_dot_simd(row_data, activations).unwrap_or(0.0)
             })
             .collect();
+
         Ok(output)
     } else {
         // Parallel path: better for large matrices

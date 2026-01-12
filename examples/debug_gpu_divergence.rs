@@ -11,7 +11,14 @@ fn main() {
     let mapped = MappedGGUFModel::from_path(model_path).expect("load");
     let cpu_model = OwnedQuantizedModel::from_mapped(&mapped).expect("cpu model");
 
-    println!("Creating CUDA model...");
+    println!("Model config:");
+    println!("  hidden_dim: {}", cpu_model.config.hidden_dim);
+    println!("  num_heads: {}", cpu_model.config.num_heads);
+    println!("  num_kv_heads: {}", cpu_model.config.num_kv_heads);
+    println!("  num_layers: {}", cpu_model.config.num_layers);
+    println!("  rope_theta: {}", cpu_model.config.rope_theta);
+
+    println!("\nCreating CUDA model...");
     let mut cuda_model = OwnedQuantizedModelCuda::new(cpu_model.clone(), 0).expect("cuda model");
 
     // Single token test

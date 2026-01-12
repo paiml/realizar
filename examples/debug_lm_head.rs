@@ -1,103 +1,139 @@
-//! Debug LM head projection
-
-#![allow(clippy::needless_range_loop)]
-
-use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
-use realizar::quantize::{dequantize_q6_k, fused_q6k_parallel_matvec};
-
-fn l2_norm(v: &[f32]) -> f32 {
-    (v.iter().map(|x| x * x).sum::<f32>()).sqrt()
-}
-
-fn reference_matvec(weight: &[f32], input: &[f32], in_dim: usize, out_dim: usize) -> Vec<f32> {
-    let mut output = vec![0.0f32; out_dim];
-    for o in 0..out_dim {
-        let mut sum = 0.0f32;
-        for i in 0..in_dim {
-            sum += weight[o * in_dim + i] * input[i];
-        }
-        output[o] = sum;
-    }
-    output
-}
+//! Debug LM head projection - compare CPU vs GPU with same input
+use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel, OwnedQuantizedModelCuda};
 
 fn main() {
-    let path = "/tmp/parity-bench/tinyllama-1.1b-q4_k_m.gguf";
-    let mapped = MappedGGUFModel::from_path(path).expect("Failed");
-    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
+    std::env::set_var("CUDA_GRAPH_DISABLE", "1");
 
-    println!("=== LM Head Debug ===\n");
+    let model_path = "/home/noah/src/aprender/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf";
 
-    // LM head weight info
-    let lm_head = &model.lm_head_weight;
-    println!("LM head weight:");
-    println!("  in_dim: {} (hidden_dim)", lm_head.in_dim);
-    println!("  out_dim: {} (vocab_size)", lm_head.out_dim);
-    println!("  qtype: {} (14=Q6_K)", lm_head.qtype);
-    println!("  data.len: {}", lm_head.data.len());
+    println!("Loading model...");
+    let mapped = MappedGGUFModel::from_path(model_path).expect("load");
+    let cpu_model = OwnedQuantizedModel::from_mapped(&mapped).expect("cpu model");
 
-    // Create a test input (unit vector with some pattern)
-    let in_dim = lm_head.in_dim;
-    let out_dim = lm_head.out_dim;
+    println!("Creating CUDA model...");
+    let mut cuda_model = OwnedQuantizedModelCuda::new(cpu_model.clone(), 0).expect("cuda model");
+    cuda_model.preload_weights_gpu().expect("preload");
 
-    // Use final_hidden from a known state
-    // For now, use a simple pattern
-    let mut test_input = vec![0.0f32; in_dim];
-    for i in 0..in_dim {
-        test_input[i] = (i as f32 / in_dim as f32 - 0.5) * 0.1;
-    }
-    let input_l2 = l2_norm(&test_input);
-    println!("\nTest input L2: {:.6}", input_l2);
+    // Run a single forward pass on both to compare final hidden state
+    let token_id = 9707u32;
 
-    // Dequantize LM head weight
-    let dequant = dequantize_q6_k(&lm_head.data).expect("Failed to dequantize");
-    println!(
-        "Dequantized weight length: {} (expected {})",
-        dequant.len(),
-        in_dim * out_dim
-    );
-    println!("Dequantized weight L2: {:.4}", l2_norm(&dequant));
+    // CPU forward to get hidden state before output norm
+    let cpu_logits = cpu_model.forward(&[token_id]).expect("cpu forward");
 
-    // Reference matvec
-    let ref_output = reference_matvec(&dequant, &test_input, in_dim, out_dim);
-    println!("\nReference matvec:");
-    println!("  L2: {:.4}", l2_norm(&ref_output));
-    println!("  First 5: {:?}", &ref_output[0..5]);
+    // Create a known input vector (simple pattern)
+    let hidden_dim = cpu_model.config.hidden_dim;
+    let vocab_size = cpu_model.lm_head_weight.out_dim;
 
-    // Fused matvec
-    let fused_output = fused_q6k_parallel_matvec(&lm_head.data, &test_input, in_dim, out_dim)
-        .expect("Fused matvec failed");
-    println!("\nFused matvec:");
-    println!("  L2: {:.4}", l2_norm(&fused_output));
-    println!("  First 5: {:?}", &fused_output[0..5]);
+    println!("\nModel dimensions:");
+    println!("  hidden_dim: {}", hidden_dim);
+    println!("  vocab_size: {}", vocab_size);
 
-    // Compare
-    let diff_l2: f32 = ref_output
+    println!("\n=== Running GPU forward ===");
+    let kv_dim =
+        cpu_model.config.num_kv_heads * (cpu_model.config.hidden_dim / cpu_model.config.num_heads);
+    let mut cache =
+        realizar::gguf::OwnedQuantizedKVCache::new(cpu_model.config.num_layers, kv_dim, 16);
+
+    let gpu_logits = cuda_model
+        .forward_gpu_resident(token_id, &mut cache, 0)
+        .expect("gpu forward");
+
+    // Compare logits
+    println!("\n=== Final logits comparison ===");
+    println!("CPU logits[0..10]: {:?}", &cpu_logits[..10]);
+    println!("GPU logits[0..10]: {:?}", &gpu_logits[..10]);
+
+    let cpu_top: (usize, f32) = cpu_logits
         .iter()
-        .zip(fused_output.iter())
-        .map(|(a, b)| (a - b).powi(2))
-        .sum::<f32>()
-        .sqrt();
-    println!("\nL2 of difference: {:.6}", diff_l2);
+        .enumerate()
+        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+        .map(|(i, v)| (i, *v))
+        .unwrap();
+    let gpu_top: (usize, f32) = gpu_logits
+        .iter()
+        .enumerate()
+        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+        .map(|(i, v)| (i, *v))
+        .unwrap();
 
-    // Now use actual final hidden state (simulate)
-    // Use a uniform distribution normalized to L2=81 (what we expect)
-    let scale = 81.0 / (in_dim as f32).sqrt();
-    let real_input: Vec<f32> = (0..in_dim)
-        .map(|i| {
-            let x = (i as f32 * 2.718_281_7).sin(); // Pseudo-random pattern
-            x * scale
-        })
-        .collect();
-    println!("\nReal-like input L2: {:.4}", l2_norm(&real_input));
-
-    let real_output = fused_q6k_parallel_matvec(&lm_head.data, &real_input, in_dim, out_dim)
-        .expect("Fused matvec failed");
-    println!("Real-like output L2: {:.4}", l2_norm(&real_output));
     println!(
-        "Expected output L2 (proportional to input): ~{:.0}",
-        81.0 * 866.77 / 90.52
+        "\nCPU full forward argmax: {} (logit {:.4})",
+        cpu_top.0, cpu_top.1
+    );
+    println!(
+        "GPU full forward argmax: {} (logit {:.4})",
+        gpu_top.0, gpu_top.1
     );
 
-    println!("\n=== Complete ===");
+    // Compare at specific indices
+    println!("\nComparison at CPU top indices:");
+    let mut cpu_top_indices: Vec<(usize, f32)> = cpu_logits
+        .iter()
+        .enumerate()
+        .map(|(i, v)| (i, *v))
+        .collect();
+    cpu_top_indices.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+
+    for &(idx, cpu_val) in cpu_top_indices.iter().take(10) {
+        let gpu_val = gpu_logits[idx];
+        println!(
+            "  idx {:6}: CPU={:8.4}, GPU={:8.4}, diff={:8.4}",
+            idx,
+            cpu_val,
+            gpu_val,
+            cpu_val - gpu_val
+        );
+    }
+
+    // Also check where GPU gets high values
+    println!("\nComparison at GPU top indices:");
+    let mut gpu_top_indices: Vec<(usize, f32)> = gpu_logits
+        .iter()
+        .enumerate()
+        .map(|(i, v)| (i, *v))
+        .collect();
+    gpu_top_indices.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+
+    for &(idx, gpu_val) in gpu_top_indices.iter().take(10) {
+        let cpu_val = cpu_logits[idx];
+        println!(
+            "  idx {:6}: CPU={:8.4}, GPU={:8.4}, diff={:8.4}",
+            idx,
+            cpu_val,
+            gpu_val,
+            cpu_val - gpu_val
+        );
+    }
+
+    // Calculate correlation
+    let mut sum_cpu = 0.0f64;
+    let mut sum_gpu = 0.0f64;
+    let mut sum_cpu_sq = 0.0f64;
+    let mut sum_gpu_sq = 0.0f64;
+    let mut sum_cross = 0.0f64;
+    let n = cpu_logits.len();
+
+    for i in 0..n {
+        let c = cpu_logits[i] as f64;
+        let g = gpu_logits[i] as f64;
+        sum_cpu += c;
+        sum_gpu += g;
+        sum_cpu_sq += c * c;
+        sum_gpu_sq += g * g;
+        sum_cross += c * g;
+    }
+
+    let mean_cpu = sum_cpu / n as f64;
+    let mean_gpu = sum_gpu / n as f64;
+    let var_cpu = sum_cpu_sq / n as f64 - mean_cpu * mean_cpu;
+    let var_gpu = sum_gpu_sq / n as f64 - mean_gpu * mean_gpu;
+    let cov = sum_cross / n as f64 - mean_cpu * mean_gpu;
+    let correlation = cov / (var_cpu.sqrt() * var_gpu.sqrt());
+
+    println!("\nStatistics:");
+    println!("  CPU mean: {:.4}", mean_cpu);
+    println!("  GPU mean: {:.4}", mean_gpu);
+    println!("  CPU std: {:.4}", var_cpu.sqrt());
+    println!("  GPU std: {:.4}", var_gpu.sqrt());
+    println!("  Correlation: {:.6}", correlation);
 }
