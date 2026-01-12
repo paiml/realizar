@@ -2013,6 +2013,23 @@ impl CudaExecutor {
         self.quantized_weight_cache.contains_key(name)
     }
 
+    /// Get raw device pointer for cached quantized weights
+    ///
+    /// Returns the raw u64 device pointer for the named weight buffer.
+    /// Used for debugging and direct kernel invocation.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if weight is not cached.
+    pub fn get_quantized_weight_ptr(&self, name: &str) -> Result<u64, GpuError> {
+        self.quantized_weight_cache
+            .get(name)
+            .map(|buf| buf.as_ptr())
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!("Quantized weight '{}' not cached", name))
+            })
+    }
+
     /// Get the number of cached quantized weight tensors
     #[must_use]
     pub fn cached_quantized_weight_count(&self) -> usize {
@@ -3730,10 +3747,29 @@ impl CudaExecutor {
             })?
             .as_ptr();
 
-        // Load kernel module
-        let kernel_type = KernelType::Q4KGemv { k, n };
+        // CORRECTNESS-001: Use TiledQ4KGemv for aligned K (matches sync version)
+        // The basic Q4KGemv kernel has the same scale extraction bug
+        let use_tiled = k.is_multiple_of(256);
+        let outputs_per_block = 4u32;
+
+        let (kernel_type, cache_key, config) = if use_tiled {
+            let kt = KernelType::TiledQ4KGemv {
+                k,
+                n,
+                outputs_per_block,
+            };
+            let ck = format!("tiled_q4k_gemv_{}_{}_{}", k, n, outputs_per_block);
+            let num_blocks = (n + outputs_per_block - 1) / outputs_per_block;
+            let cfg = LaunchConfig::grid_2d(num_blocks, 1, 128, 1);
+            (kt, ck, cfg)
+        } else {
+            let kt = KernelType::Q4KGemv { k, n };
+            let ck = format!("q4k_gemv_{}_{}", k, n);
+            let cfg = LaunchConfig::grid_2d(n, 1, 32, 1);
+            (kt, ck, cfg)
+        };
+
         let kernel_name = self.kernels.kernel_name(&kernel_type);
-        let cache_key = format!("q4k_gemv_{}_{}", k, n);
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
@@ -3748,8 +3784,6 @@ impl CudaExecutor {
 
         // Allocate output buffer
         let buf_output = GpuBuffer::<f32>::new(&self.context, n as usize)?;
-
-        let config = LaunchConfig::grid_2d(n, 1, 32, 1);
 
         let mut ptr_output = buf_output.as_ptr();
         let mut ptr_weights = weight_ptr;
@@ -4009,8 +4043,8 @@ impl CudaExecutor {
         // Requirements: k must be multiple of 256 (super-block boundary)
 
         if k.is_multiple_of(256) {
-            // PAR-065: Use DP4A kernel for 4x SIMD throughput
-            return self.dp4a_q4k_gemv_into(weight_ptr, input, output, n, k);
+            // Use TiledQ4KGemv for aligned dimensions (faster, verified correct)
+            return self.q4k_gemv_into_tiled(weight_ptr, input, output, n, k);
         }
 
         // Fallback for non-aligned dimensions (rare): basic Q4KGemv kernel
@@ -4207,9 +4241,9 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
-        // PAR-061: Use 8 outputs per block for 256 threads (32 threads × 8)
-        // This provides good occupancy and cache efficiency
-        let outputs_per_block = 8;
+        // CORRECTNESS-001: Use 4 outputs per block (matches verified working q4k_gemv_cached)
+        // The 8-outputs config was causing incorrect results
+        let outputs_per_block = 4u32;
 
         let kernel_type = KernelType::TiledQ4KGemv {
             k,
@@ -4230,13 +4264,10 @@ impl CudaExecutor {
             .get_mut(&cache_key)
             .expect("module just inserted");
 
-        // PAR-061: Grid configuration for tiled kernel
-        // ceil(N / outputs_per_block) blocks, (32 * outputs_per_block) threads per block
-        // Shared memory: Static in PTX (K × 4 bytes), NOT passed dynamically
+        // CORRECTNESS-001: Grid configuration matching q4k_gemv_cached
+        // 128 threads per block, 4 outputs per block
         let num_blocks = (n + outputs_per_block - 1) / outputs_per_block;
-        let threads_per_block = 32 * outputs_per_block; // 256 threads for 8 outputs
-                                                        // NOTE: Do NOT use .with_shared_mem() - PTX declares static shared memory via .shared directive
-        let config = LaunchConfig::grid_2d(num_blocks, 1, threads_per_block, 1);
+        let config = LaunchConfig::grid_2d(num_blocks, 1, 128, 1);
 
         let mut ptr_output = output.as_ptr();
         let mut ptr_weights = weight_ptr;
@@ -4258,6 +4289,37 @@ impl CudaExecutor {
                 ],
             )?;
         }
+
+        Ok(())
+    }
+
+    /// CORRECTNESS-001: Test wrapper for q4k_gemv_into_tiled with CPU I/O
+    ///
+    /// Uses the exact same kernel as workspace path but with sync and CPU transfer.
+    /// For debugging correctness issues.
+    pub fn q4k_gemv_cached_tiled(
+        &mut self,
+        weight_name: &str,
+        input: &[f32],
+        output: &mut [f32],
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        // Get cached weight pointer
+        let weight_ptr = self.get_quantized_weight_ptr(weight_name)?;
+
+        // Upload input to GPU
+        let buf_input = GpuBuffer::from_host(&self.context, input)?;
+
+        // Create output buffer
+        let buf_output = GpuBuffer::<f32>::new(&self.context, n as usize)?;
+
+        // Run the tiled kernel (same as workspace path)
+        self.q4k_gemv_into_tiled(weight_ptr, &buf_input, &buf_output, n, k)?;
+
+        // Sync and download
+        self.stream.synchronize()?;
+        buf_output.copy_to_host(output)?;
 
         Ok(())
     }
@@ -7058,33 +7120,23 @@ impl CudaExecutor {
         let kv_aligned = kv_dim.is_multiple_of(256);
 
         // Q/K/V projections: K = hidden_dim
+        // CORRECTNESS-001: Temporarily disable DP4A to test fixed TiledQ4K kernel
         // PAR-063: Use DP4A kernel for aligned dimensions (fastest)
-        let q = if hidden_aligned && q_aligned && hidden_dim <= CHUNK_THRESHOLD {
-            self.dp4a_q4k_gemv_cached_async(&q_name, &normed, q_dim, hidden_dim)?
-        } else {
+        let _use_dp4a = hidden_aligned && q_aligned && hidden_dim <= CHUNK_THRESHOLD;
+        let q = {
+            // Force TiledQ4K for now - dp4a_q4k has scale extraction bug
             self.q4k_gemv_cached_async(&q_name, &normed, q_dim, hidden_dim)?
         };
-        let k = if hidden_aligned && kv_aligned && hidden_dim <= CHUNK_THRESHOLD {
-            self.dp4a_q4k_gemv_cached_async(&k_name, &normed, kv_dim, hidden_dim)?
-        } else {
-            self.q4k_gemv_cached_async(&k_name, &normed, kv_dim, hidden_dim)?
-        };
-        let v = if hidden_aligned && kv_aligned && hidden_dim <= CHUNK_THRESHOLD {
-            self.dp4a_q4k_gemv_cached_async(&v_name, &normed, kv_dim, hidden_dim)?
-        } else {
-            self.q4k_gemv_cached_async(&v_name, &normed, kv_dim, hidden_dim)?
-        };
+        let _use_dp4a_kv = hidden_aligned && kv_aligned && hidden_dim <= CHUNK_THRESHOLD;
+        let k = { self.q4k_gemv_cached_async(&k_name, &normed, kv_dim, hidden_dim)? };
+        let v = { self.q4k_gemv_cached_async(&v_name, &normed, kv_dim, hidden_dim)? };
 
         // 3. Incremental attention (has internal sync for KV cache update)
         let (attn_out, _seq_len) = self.incremental_attention_async(layer_idx, &q, &k, &v)?;
 
         // 4. Output projection (no sync) - K = q_dim
-        // PAR-063: Use DP4A kernel for aligned dimensions
-        let projected = if q_aligned && hidden_aligned && q_dim <= CHUNK_THRESHOLD {
-            self.dp4a_q4k_gemv_cached_async(&o_name, &attn_out, hidden_dim, q_dim)?
-        } else {
-            self.q4k_gemv_cached_async(&o_name, &attn_out, hidden_dim, q_dim)?
-        };
+        // CORRECTNESS-001: Force TiledQ4K kernel
+        let projected = { self.q4k_gemv_cached_async(&o_name, &attn_out, hidden_dim, q_dim)? };
 
         // 5. First residual add (no sync)
         let residual1 = self.residual_add_gpu(input, &projected, hidden_dim)?;
@@ -7297,6 +7349,7 @@ impl CudaExecutor {
         &mut self,
         input: &[f32],
         output: &mut [f32],
+        position: u32, // PAR-070: Explicit position for RoPE and KV cache
         num_layers: usize,
         hidden_dim: u32,
         intermediate_dim: u32,
@@ -7360,6 +7413,7 @@ impl CudaExecutor {
                     hidden_dim,
                     intermediate_dim,
                     epsilon,
+                    position,
                 )?;
             }
 
@@ -7380,6 +7434,7 @@ impl CudaExecutor {
                     hidden_dim,
                     intermediate_dim,
                     epsilon,
+                    position,
                 )?;
                 // Prevent Drop from freeing the borrowed memory
                 std::mem::forget(input_buf);
@@ -7481,6 +7536,7 @@ impl CudaExecutor {
     ///
     /// * `input` - Input embedding [hidden_dim]
     /// * `logits` - Output logits buffer [vocab_size]
+    /// * `position` - Token position for RoPE and KV cache (PAR-070: CORRECTNESS-001 fix)
     /// * `num_layers` - Number of transformer layers
     /// * `hidden_dim` - Hidden dimension
     /// * `intermediate_dim` - FFN intermediate dimension
@@ -7491,6 +7547,7 @@ impl CudaExecutor {
         &mut self,
         input: &[f32],
         logits: &mut [f32],
+        position: u32,
         num_layers: usize,
         hidden_dim: u32,
         intermediate_dim: u32,
@@ -7554,6 +7611,7 @@ impl CudaExecutor {
             workspace_used = true;
 
             // Layer 0: input from external hidden_gpu
+            // PAR-070: Pass explicit position for RoPE and KV cache
             if num_layers > 0 {
                 let layer_weights = self.indexed_layer_weights[0].clone();
                 self.transformer_layer_workspace(
@@ -7563,6 +7621,7 @@ impl CudaExecutor {
                     hidden_dim,
                     intermediate_dim,
                     epsilon,
+                    position,
                 )?;
             }
 
@@ -7576,6 +7635,7 @@ impl CudaExecutor {
                 let buf_len = self.workspace.hidden_buf2.as_ref().unwrap().len();
                 // Create temporary non-owning view of hidden_buf2
                 let input_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(buf_ptr, buf_len) };
+                // PAR-070: Pass explicit position for RoPE and KV cache
                 self.transformer_layer_workspace(
                     &input_buf,
                     layer_idx,
@@ -7583,6 +7643,7 @@ impl CudaExecutor {
                     hidden_dim,
                     intermediate_dim,
                     epsilon,
+                    position,
                 )?;
                 // Prevent Drop from freeing the borrowed memory
                 std::mem::forget(input_buf);
@@ -7646,6 +7707,34 @@ impl CudaExecutor {
 
         // PERF-002: Debug code removed (was PAR-058-DEBUG hidden state check)
         // D2H transfer + NaN check was ~15ms overhead per token
+
+        // CORRECTNESS-001: Compare hidden state before output norm
+        static HIDDEN_DEBUG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if *HIDDEN_DEBUG.get_or_init(|| {
+            std::env::var("GPU_DEBUG")
+                .map(|v| v == "1")
+                .unwrap_or(false)
+        }) {
+            self.stream.synchronize()?;
+            let hidden_to_check = if workspace_used {
+                let ptr = self.workspace.hidden_buf2.as_ref().unwrap().as_ptr();
+                let len = self.workspace.hidden_buf2.as_ref().unwrap().len();
+                unsafe { GpuBuffer::<f32>::from_raw_parts(ptr, len) }
+            } else {
+                unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_gpu.as_ptr(), hidden_gpu.len()) }
+            };
+            let mut hidden_host = vec![0.0f32; hidden_to_check.len()];
+            hidden_to_check.copy_to_host(&mut hidden_host)?;
+            std::mem::forget(hidden_to_check);
+            let sum: f32 = hidden_host.iter().sum();
+            let sum_sq: f32 = hidden_host.iter().map(|x| x * x).sum();
+            eprintln!(
+                "[CORRECTNESS-001] Hidden before output_norm: first 5 = {:?}, sum = {:.4}, rms = {:.4}",
+                &hidden_host[..5.min(hidden_host.len())],
+                sum,
+                (sum_sq / hidden_host.len() as f32).sqrt()
+            );
+        }
 
         // 5. Output RMSNorm on GPU (no sync)
         // PAR-044 FIX: Use workspace hidden_buf2 directly if workspace was used
@@ -7832,9 +7921,11 @@ impl CudaExecutor {
                 .unwrap_or(false)
         });
         if graph_disabled {
+            // PAR-070: Pass position for correct RoPE and KV cache behavior
             return self.forward_all_layers_gpu_to_logits(
                 input,
                 logits,
+                position,
                 num_layers,
                 hidden_dim,
                 intermediate_dim,
@@ -7865,9 +7956,11 @@ impl CudaExecutor {
             // Fall back to non-graphed path if workspace not available
             eprintln!("[PAR-054] Workspace not ready, using non-graphed path (has_workspace={}, has_indexed={}, layers={})",
                 self.has_workspace(), self.has_indexed_weights(), self.indexed_layer_weights.len());
+            // PAR-070: Pass position for correct RoPE and KV cache behavior
             return self.forward_all_layers_gpu_to_logits(
                 input,
                 logits,
+                position,
                 num_layers,
                 hidden_dim,
                 intermediate_dim,
@@ -7879,9 +7972,11 @@ impl CudaExecutor {
         // PAR-054: Verify lm_head_ptr is set (needed for graph-captured LM head projection)
         if self.lm_head_ptr == 0 {
             eprintln!("[PAR-054] lm_head_ptr not set, using non-graphed path");
+            // PAR-070: Pass position for correct RoPE and KV cache behavior
             return self.forward_all_layers_gpu_to_logits(
                 input,
                 logits,
+                position,
                 num_layers,
                 hidden_dim,
                 intermediate_dim,
@@ -7971,9 +8066,11 @@ impl CudaExecutor {
                     "[PAR-054] Graph capture failed: {:?}, using non-graphed path",
                     e
                 );
+                // PAR-070: Pass position for correct RoPE and KV cache behavior
                 self.forward_all_layers_gpu_to_logits(
                     input,
                     logits,
+                    position,
                     num_layers,
                     hidden_dim,
                     intermediate_dim,
@@ -8591,6 +8688,8 @@ impl CudaExecutor {
         epsilon: f32,
     ) -> Result<(), GpuError> {
         // Layer 0: input from graph_input_buf
+        // PAR-070: Position is read from position_buf in indirect mode (graph capture)
+        // The position parameter here is ignored since position_buf.is_some() triggers indirect mode
         if num_layers > 0 {
             let input_ptr = self.graph_input_buf.as_ref().unwrap().as_ptr();
             let input_len = self.graph_input_buf.as_ref().unwrap().len();
@@ -8604,6 +8703,7 @@ impl CudaExecutor {
                 hidden_dim,
                 intermediate_dim,
                 epsilon,
+                0, // PAR-070: Ignored in graph capture mode (uses position_buf)
             )?;
             std::mem::forget(input_buf);
         }
@@ -8622,6 +8722,7 @@ impl CudaExecutor {
                 hidden_dim,
                 intermediate_dim,
                 epsilon,
+                0, // PAR-070: Ignored in graph capture mode (uses position_buf)
             )?;
             std::mem::forget(input_buf);
         }
@@ -8957,6 +9058,7 @@ impl CudaExecutor {
     ///
     /// Returns `Ok(())` on success. Output is written to workspace.hidden_buf2.
     /// PAR-054: Transformer layer for graph capture (no debug output)
+    /// PAR-070: Takes position but uses indirect mode (reads from position_buf) during graph capture
     #[allow(clippy::too_many_arguments)]
     fn transformer_layer_workspace_for_capture(
         &mut self,
@@ -8966,6 +9068,7 @@ impl CudaExecutor {
         hidden_dim: u32,
         intermediate_dim: u32,
         epsilon: f32,
+        position: u32,
     ) -> Result<(), GpuError> {
         self.transformer_layer_workspace_inner(
             input,
@@ -8974,6 +9077,7 @@ impl CudaExecutor {
             hidden_dim,
             intermediate_dim,
             epsilon,
+            position,
             true,
         )
     }
@@ -8987,9 +9091,17 @@ impl CudaExecutor {
         hidden_dim: u32,
         intermediate_dim: u32,
         epsilon: f32,
+        position: u32, // PAR-070: Explicit position for RoPE and KV cache
     ) -> Result<(), GpuError> {
         // PERF-001: skip_debug=true disables stream.synchronize() calls and debug prints
         // that were causing ~4x slowdown (70 tok/s -> target 280+ tok/s)
+        // CORRECTNESS-001: Set GPU_DEBUG=1 to enable layer-by-layer debug output
+        static GPU_DEBUG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let skip_debug = !*GPU_DEBUG.get_or_init(|| {
+            std::env::var("GPU_DEBUG")
+                .map(|v| v == "1")
+                .unwrap_or(false)
+        });
         self.transformer_layer_workspace_inner(
             input,
             layer_idx,
@@ -8997,7 +9109,8 @@ impl CudaExecutor {
             hidden_dim,
             intermediate_dim,
             epsilon,
-            true, // PERF-001: skip debug for performance
+            position,
+            skip_debug,
         )
     }
 
@@ -9010,6 +9123,7 @@ impl CudaExecutor {
         hidden_dim: u32,
         intermediate_dim: u32,
         epsilon: f32,
+        position: u32, // PAR-070: Explicit position for RoPE and KV cache
         skip_debug: bool,
     ) -> Result<(), GpuError> {
         // Verify workspace is initialized
@@ -9360,10 +9474,8 @@ impl CudaExecutor {
 
         // PAR-060: Apply RoPE to Q and K before attention using GPU kernel
         // This eliminates 28 GPU syncs + D2H/H2D copies per token
+        // PAR-070: Use explicit position parameter instead of deriving from cache length
         {
-            // Get current position (cache length = position of new token)
-            let position = self.kv_cache_lengths.get(&layer_idx).copied().unwrap_or(0);
-
             // Apply RoPE on GPU - Q has num_heads, K has num_kv_heads (GQA)
             let num_heads = self.kv_num_heads as u32;
             let num_kv_heads = self.kv_num_kv_heads as u32;
