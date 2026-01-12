@@ -35,7 +35,7 @@ useless_vec = "allow"
 trueno = { version = "0.11.0", features = ["gpu"] }
 # CUDA PTX generation and runtime for NVIDIA GPUs (optional, pure Rust, no LLVM/nvcc)
 # Using path dependency for development - publish requires crates.io version
-trueno-gpu = { path = "../trueno/trueno-gpu", optional = true, features = ["cuda"] }
+trueno-gpu = { version = "0.4.5", path = "../trueno/trueno-gpu", optional = true, features = ["cuda"] }
 # KV cache storage (for attention caching)
 trueno-db = { version = "0.3.8", optional = true }
 
