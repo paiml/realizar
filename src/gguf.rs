@@ -16674,6 +16674,46 @@ impl OwnedQuantizedModelCuda {
         (self.memory_info.1 / (1024 * 1024)) as u64
     }
 
+    // ========================================================================
+    // PAR-073: BrickProfiler API for per-brick timing
+    // ========================================================================
+
+    /// Enable per-brick profiling for real timing measurements.
+    ///
+    /// When enabled, each brick operation is timed individually using
+    /// `std::time::Instant` with CUDA sync for accurate GPU timing.
+    pub fn enable_profiling(&mut self) {
+        self.executor.enable_profiling();
+    }
+
+    /// Disable per-brick profiling (default state).
+    pub fn disable_profiling(&mut self) {
+        self.executor.disable_profiling();
+    }
+
+    /// Check if profiling is enabled.
+    #[must_use]
+    pub fn is_profiling_enabled(&self) -> bool {
+        self.executor.is_profiling_enabled()
+    }
+
+    /// Get the brick profiler for reading statistics.
+    #[must_use]
+    pub fn profiler(&self) -> &trueno::BrickProfiler {
+        self.executor.profiler()
+    }
+
+    /// Reset profiler statistics.
+    pub fn reset_profiler(&mut self) {
+        self.executor.reset_profiler();
+    }
+
+    /// Get profiler summary report.
+    #[must_use]
+    pub fn profiler_summary(&self) -> String {
+        self.executor.profiler_summary()
+    }
+
     /// Get reference to inner model
     #[must_use]
     pub fn model(&self) -> &OwnedQuantizedModel {
