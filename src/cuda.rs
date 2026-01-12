@@ -1837,6 +1837,9 @@ pub struct CudaExecutor {
     argmax_result: Option<GpuBuffer<u32>>,
     // Number of blocks (based on vocab_size)
     argmax_num_blocks: u32,
+    // PAR-073: BrickProfiler for real per-brick timing
+    // Uses std::time::Instant + CUDA sync for accurate GPU timing
+    profiler: trueno::BrickProfiler,
     // Context MUST be dropped LAST (cuDevicePrimaryCtxRelease invalidates all handles)
     context: CudaContext,
 }
@@ -1903,6 +1906,9 @@ impl CudaExecutor {
             argmax_block_idxs: None,
             argmax_result: None,
             argmax_num_blocks: 0,
+            // PAR-073: BrickProfiler (disabled by default for zero overhead)
+            // Enable with executor.enable_profiling() for per-brick timing
+            profiler: trueno::BrickProfiler::new(),
             context, // Last field - dropped last
         })
     }
@@ -1919,6 +1925,56 @@ impl CudaExecutor {
     #[must_use]
     pub fn num_devices() -> usize {
         device_count().unwrap_or(0)
+    }
+
+    // ========================================================================
+    // PAR-073: BrickProfiler API for per-brick timing
+    // ========================================================================
+
+    /// Enable per-brick profiling for real timing measurements.
+    ///
+    /// When enabled, each brick operation is timed individually using
+    /// `std::time::Instant` with CUDA sync for accurate GPU timing.
+    ///
+    /// # Performance Impact
+    ///
+    /// Profiling adds ~1 CUDA sync per brick, which adds overhead.
+    /// Use only during development/benchmarking, not production.
+    pub fn enable_profiling(&mut self) {
+        self.profiler.enable();
+    }
+
+    /// Disable per-brick profiling (default state).
+    pub fn disable_profiling(&mut self) {
+        self.profiler.disable();
+    }
+
+    /// Check if profiling is enabled.
+    #[must_use]
+    pub fn is_profiling_enabled(&self) -> bool {
+        self.profiler.is_enabled()
+    }
+
+    /// Get the brick profiler for reading statistics.
+    #[must_use]
+    pub fn profiler(&self) -> &trueno::BrickProfiler {
+        &self.profiler
+    }
+
+    /// Get mutable access to the brick profiler.
+    pub fn profiler_mut(&mut self) -> &mut trueno::BrickProfiler {
+        &mut self.profiler
+    }
+
+    /// Reset profiler statistics.
+    pub fn reset_profiler(&mut self) {
+        self.profiler.reset();
+    }
+
+    /// Get profiler summary report.
+    #[must_use]
+    pub fn profiler_summary(&self) -> String {
+        self.profiler.summary()
     }
 
     /// Get device name
@@ -8870,23 +8926,37 @@ impl CudaExecutor {
         // Root cause fix: Removed .with_shared_mem() from argmax kernel launch configs
         // (PTX declares static shared memory, mixing with dynamic causes CUDA_ERROR_UNKNOWN)
 
-        // Update position buffer (async memcpy, doesn't invalidate graph)
+        // PAR-072: Use ASYNC H2D copies to eliminate blocking overhead
+        // Root cause: cuMemcpyHtoD has ~10-30µs overhead per call
+        // Fix: Use cuMemcpyHtoDAsync on the same stream as graph launch
+
+        // Update position buffer (async memcpy on same stream)
         if let Some(ref mut pos_buf) = self.position_buf {
-            pos_buf.copy_from_host(&[position])?;
+            // SAFETY: position is stack-allocated and we synchronize before returning
+            unsafe {
+                pos_buf.copy_from_host_async(&[position], &self.stream)?;
+            }
         }
 
         // PAR-061-FIX: Update seq_len buffer (seq_len = position + 1)
+        let seq_len = position + 1;
         if let Some(ref mut seq_len_buf) = self.seq_len_buf {
-            let seq_len = position + 1;
-            seq_len_buf.copy_from_host(&[seq_len])?;
+            // SAFETY: seq_len is stack-allocated and we synchronize before returning
+            unsafe {
+                seq_len_buf.copy_from_host_async(&[seq_len], &self.stream)?;
+            }
         }
 
-        // Update input buffer
+        // Update input buffer (async - largest copy, ~14KB for Qwen 0.5B)
         if let Some(ref mut input_buf) = self.graph_input_buf {
-            input_buf.copy_from_host(input)?;
+            // SAFETY: input slice is valid for the duration of this function
+            // and we synchronize in gpu_argmax before returning
+            unsafe {
+                input_buf.copy_from_host_async(input, &self.stream)?;
+            }
         }
 
-        // Launch captured graph
+        // Launch captured graph (all H2D copies are ordered before this on same stream)
         if let Some(ref graph_exec) = self.decode_graph {
             self.stream.launch_graph(graph_exec)?;
         }

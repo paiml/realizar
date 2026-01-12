@@ -32,7 +32,8 @@ useless_vec = "allow"
 [dependencies]
 # OUR ecosystem - SIMD/GPU compute primitives (we control this)
 # High-performance SIMD compute library with GPU support
-trueno = { version = "0.11.0", features = ["gpu"] }
+# PAR-073: Path dependency for BrickProfiler development
+trueno = { path = "../trueno", features = ["gpu"] }
 # CUDA PTX generation and runtime for NVIDIA GPUs (optional, pure Rust, no LLVM/nvcc)
 # Using path dependency for development - publish requires crates.io version
 trueno-gpu = { version = "0.4.5", path = "../trueno/trueno-gpu", optional = true, features = ["cuda"] }

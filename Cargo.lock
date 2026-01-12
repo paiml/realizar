@@ -178,7 +178,7 @@ dependencies = [
  "rmp-serde",
  "serde",
  "serde_json",
- "trueno 0.11.0",
+ "trueno 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -5038,8 +5038,6 @@ dependencies = [
 [[package]]
 name = "trueno"
 version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a0756605a19a0b79f5dca9b61fba7e428c497abe9ebeac2ef91b39d90b6da91"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -5048,6 +5046,17 @@ dependencies = [
  "pollster",
  "thiserror 2.0.17",
  "wgpu",
+]
+
+[[package]]
+name = "trueno"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a0756605a19a0b79f5dca9b61fba7e428c497abe9ebeac2ef91b39d90b6da91"
+dependencies = [
+ "anyhow",
+ "num_cpus",
+ "thiserror 2.0.17",
 ]
 
 [[package]]
