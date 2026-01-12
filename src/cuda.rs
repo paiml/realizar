@@ -1589,10 +1589,24 @@ impl WeightQuantType {
 
     /// PAR-058-FIX: Detect quantization type from actual weight size
     /// Some GGUF files have incorrect type metadata, so we verify by size
+    ///
+    /// CORRECTNESS-002 FIX: For certain dimension combinations, Q4_0 and Q4K have
+    /// the SAME byte size (e.g., 1536×8960: 1536×280×18 = 1536×35×144 = 7,741,440).
+    /// Check super-block formats FIRST since they have more distinctive layouts.
     pub fn from_size(size_bytes: usize, n_rows: usize, n_cols: usize) -> Option<Self> {
-        let n_blocks = n_rows * ((n_cols + 31) / 32);
+        // CORRECTNESS-002: Check super-block formats FIRST
+        // Super-block formats (256 elements per super-block)
+        let n_superblocks = n_rows * ((n_cols + 255) / 256);
+        let superblock_formats = [(Self::Q6K, 210), (Self::Q5K, 176), (Self::Q4K, 144)];
 
-        // Check each format's expected size
+        for (fmt, bytes_per_sb) in superblock_formats {
+            if size_bytes == n_superblocks * bytes_per_sb {
+                return Some(fmt);
+            }
+        }
+
+        // Then check block formats (32 elements per block)
+        let n_blocks = n_rows * ((n_cols + 31) / 32);
         let formats = [
             (Self::Q4_0, 18),
             (Self::Q4_1, 20),
@@ -1602,16 +1616,6 @@ impl WeightQuantType {
 
         for (fmt, bytes_per_block) in formats {
             if size_bytes == n_blocks * bytes_per_block {
-                return Some(fmt);
-            }
-        }
-
-        // Super-block formats (256 elements per super-block)
-        let n_superblocks = n_rows * ((n_cols + 255) / 256);
-        let superblock_formats = [(Self::Q4K, 144), (Self::Q5K, 176), (Self::Q6K, 210)];
-
-        for (fmt, bytes_per_sb) in superblock_formats {
-            if size_bytes == n_superblocks * bytes_per_sb {
                 return Some(fmt);
             }
         }
@@ -1753,6 +1757,15 @@ pub struct CudaExecutor {
     graph_input_buf: Option<GpuBuffer<f32>>,
     // PAR-054: Token counter for graph capture (first decode captures, subsequent replay)
     decode_token_count: usize,
+    // PAR-068: Pre-allocated argmax buffers to avoid per-token allocation
+    // Block-level max values (num_blocks f32s)
+    argmax_block_vals: Option<GpuBuffer<f32>>,
+    // Block-level max indices (num_blocks u32s)
+    argmax_block_idxs: Option<GpuBuffer<u32>>,
+    // Final result (1 u32)
+    argmax_result: Option<GpuBuffer<u32>>,
+    // Number of blocks (based on vocab_size)
+    argmax_num_blocks: u32,
     // Context MUST be dropped LAST (cuDevicePrimaryCtxRelease invalidates all handles)
     context: CudaContext,
 }
@@ -1814,6 +1827,11 @@ impl CudaExecutor {
             seq_len_buf: None,
             graph_input_buf: None,
             decode_token_count: 0,
+            // PAR-068: Pre-allocated argmax buffers (lazy init on first use)
+            argmax_block_vals: None,
+            argmax_block_idxs: None,
+            argmax_result: None,
+            argmax_num_blocks: 0,
             context, // Last field - dropped last
         })
     }
@@ -3977,98 +3995,60 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
-        // PAR-061: Use tiled kernel for K <= 10K (shared memory fits in 48KB limit)
-        // Tiled kernel: 128 threads (4 warps), shared memory caching of input
-        // ~4x fewer global memory reads vs basic kernel
-        // FIX: Shared memory addressing bug fixed in trueno-gpu
-        const MAX_TILED_K: u32 = 10240; // 10K × 4 bytes = 40KB < 48KB limit
+        // PAR-065: Use DP4A kernel for 4x instruction reduction
+        // Five-Whys root cause chain:
+        // 1. TiledQ4KGemv uses single-byte loads (ld_global_u8) - 6% bandwidth
+        // 2. CoalescedQ4KGemv improved memory access - 27% speedup (99→126 tok/s)
+        // 3. DP4A kernel uses SIMD dp4a instruction for 4x arithmetic throughput
+        //
+        // DP4A (Dot Product of 4 Bytes with Accumulate):
+        // - Computes 4 int8 multiply-adds in single instruction
+        // - 4x compute throughput vs scalar FMA
+        // - Better ALU utilization
+        //
+        // Requirements: k must be multiple of 256 (super-block boundary)
 
-        if k <= MAX_TILED_K && k.is_multiple_of(256) {
-            // PAR-061: High-performance tiled kernel
-            let outputs_per_block = 4u32;
-            let kernel_type = KernelType::TiledQ4KGemv {
-                k,
-                n,
-                outputs_per_block,
-            };
-            let kernel_name = self.kernels.kernel_name(&kernel_type);
-            let cache_key = format!("tiled_q4k_gemv_{}_{}_{}", k, n, outputs_per_block);
+        if k.is_multiple_of(256) {
+            // PAR-065: Use DP4A kernel for 4x SIMD throughput
+            return self.dp4a_q4k_gemv_into(weight_ptr, input, output, n, k);
+        }
 
-            if !self.modules.contains_key(&cache_key) {
-                let ptx = self.kernels.generate_ptx(&kernel_type);
-                let module = CudaModule::from_ptx(&self.context, &ptx)?;
-                self.modules.insert(cache_key.clone(), module);
-            }
+        // Fallback for non-aligned dimensions (rare): basic Q4KGemv kernel
+        let kernel_type = KernelType::Q4KGemv { k, n };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("q4k_gemv_{}_{}", k, n);
+        let config = LaunchConfig::grid_2d(n, 1, 32, 1);
 
-            let module = self
-                .modules
-                .get_mut(&cache_key)
-                .expect("module just inserted");
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
 
-            let num_blocks = (n + outputs_per_block - 1) / outputs_per_block;
-            let threads_per_block = 32 * outputs_per_block; // 128 threads = 4 warps
-                                                            // NOTE: Static shared memory is declared in PTX via .shared directive
-                                                            // Do NOT pass dynamic shared memory - it's redundant and may cause issues
-            let config = LaunchConfig::grid_2d(num_blocks, 1, threads_per_block, 1);
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
 
-            let mut ptr_output = output.as_ptr();
-            let mut ptr_weights = weight_ptr;
-            let mut ptr_input = input.as_ptr();
-            let mut k_val = k;
-            let mut n_val = n;
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_weights = weight_ptr;
+        let mut ptr_input = input.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
 
-            unsafe {
-                self.stream.launch_kernel(
-                    module,
-                    kernel_name,
-                    &config,
-                    &mut [
-                        std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
-                        std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
-                        std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
-                        std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
-                        std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
-                    ],
-                )?;
-            }
-        } else {
-            // Fallback: basic Q4KGemv for large K (> 10K elements)
-            let kernel_type = KernelType::Q4KGemv { k, n };
-            let kernel_name = self.kernels.kernel_name(&kernel_type);
-            let cache_key = format!("q4k_gemv_{}_{}", k, n);
-            let config = LaunchConfig::grid_2d(n, 1, 32, 1);
-
-            if !self.modules.contains_key(&cache_key) {
-                let ptx = self.kernels.generate_ptx(&kernel_type);
-                let module = CudaModule::from_ptx(&self.context, &ptx)?;
-                self.modules.insert(cache_key.clone(), module);
-            }
-
-            let module = self
-                .modules
-                .get_mut(&cache_key)
-                .expect("module just inserted");
-
-            let mut ptr_output = output.as_ptr();
-            let mut ptr_weights = weight_ptr;
-            let mut ptr_input = input.as_ptr();
-            let mut k_val = k;
-            let mut n_val = n;
-
-            unsafe {
-                self.stream.launch_kernel(
-                    module,
-                    kernel_name,
-                    &config,
-                    &mut [
-                        std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
-                        std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
-                        std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
-                        std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
-                        std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
-                    ],
-                )?;
-            }
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                ],
+            )?;
         }
 
         Ok(())
@@ -7517,17 +7497,8 @@ impl CudaExecutor {
         vocab_size: u32,
         epsilon: f32,
     ) -> Result<(), GpuError> {
-        // PAR-058-DEBUG: Check input embedding for NaN
-        let nan_input = input.iter().filter(|x| x.is_nan()).count();
-        if nan_input > 0 {
-            eprintln!("[PAR-058] Input embedding has {} NaN values", nan_input);
-        } else {
-            eprintln!(
-                "[PAR-058] Input embedding OK, first 5: {:?}, sum: {:.4}",
-                &input[..5.min(input.len())],
-                input.iter().sum::<f32>()
-            );
-        }
+        // PERF-002: Debug code removed for performance (was PAR-058-DEBUG)
+        // NaN checks required D2H transfer on every token - ~10ms overhead each
 
         // 1. Validate all RMSNorm weights are cached (including output norm)
         for layer_idx in 0..num_layers {
@@ -7673,28 +7644,8 @@ impl CudaExecutor {
             }
         }
 
-        // PAR-058-DEBUG: Check hidden state after all layers
-        if workspace_used {
-            self.stream.synchronize()?;
-            if let Some(ref buf) = self.workspace.hidden_buf2 {
-                let mut hidden_values = vec![0.0f32; buf.len()];
-                buf.copy_to_host(&mut hidden_values)?;
-                let nan_count = hidden_values.iter().filter(|x| x.is_nan()).count();
-                if nan_count > 0 {
-                    eprintln!(
-                        "[PAR-058] Hidden after layers has {} NaN values out of {}",
-                        nan_count,
-                        hidden_values.len()
-                    );
-                } else {
-                    eprintln!(
-                        "[PAR-058] Hidden after layers OK, first 5: {:?}, sum: {:.4}",
-                        &hidden_values[..5.min(hidden_values.len())],
-                        hidden_values.iter().sum::<f32>()
-                    );
-                }
-            }
-        }
+        // PERF-002: Debug code removed (was PAR-058-DEBUG hidden state check)
+        // D2H transfer + NaN check was ~15ms overhead per token
 
         // 5. Output RMSNorm on GPU (no sync)
         // PAR-044 FIX: Use workspace hidden_buf2 directly if workspace was used
@@ -7730,26 +7681,8 @@ impl CudaExecutor {
             )?
         };
 
-        // PAR-058-DEBUG: Check hidden state after output norm
-        {
-            self.stream.synchronize()?;
-            let mut normed_values = vec![0.0f32; normed_hidden.len()];
-            normed_hidden.copy_to_host(&mut normed_values)?;
-            let nan_count = normed_values.iter().filter(|x| x.is_nan()).count();
-            if nan_count > 0 {
-                eprintln!(
-                    "[PAR-058] Normed hidden has {} NaN values out of {}",
-                    nan_count,
-                    normed_values.len()
-                );
-            } else {
-                eprintln!(
-                    "[PAR-058] Normed hidden OK, first 5: {:?}, sum: {:.4}",
-                    &normed_values[..5.min(normed_values.len())],
-                    normed_values.iter().sum::<f32>()
-                );
-            }
-        }
+        // PERF-002: Debug code removed (was PAR-058-DEBUG normed hidden check)
+        // D2H transfer + NaN check was ~10ms overhead per token
 
         // 6. LM head projection on GPU (no sync)
         // PAR-056: Tiled kernel selection based on K dimension
@@ -7770,10 +7703,7 @@ impl CudaExecutor {
                             .and_then(|&t| WeightQuantType::from_ggml_type(t))
                             .unwrap_or(WeightQuantType::Q4K)
                     });
-            eprintln!(
-                "[PAR-058-FIX] LM head qtype: {:?} (size={}, hidden={})",
-                detected_qtype, lm_head_size, hidden_dim
-            );
+            // PERF-002: eprintln removed for performance
             detected_qtype
         } else {
             WeightQuantType::Q4K
@@ -7858,34 +7788,12 @@ impl CudaExecutor {
             },
         }
 
-        // 7. Final sync and download - sync point #2
+        // 7. Final sync and download - sync point #2 (only required sync)
         self.stream.synchronize()?;
         logits_gpu.copy_to_host(logits)?;
 
-        // PAR-058-DEBUG: Check logits for NaN
-        let nan_count = logits.iter().filter(|x| x.is_nan()).count();
-        if nan_count > 0 {
-            eprintln!(
-                "[PAR-058] Logits have {} NaN values out of {}",
-                nan_count,
-                logits.len()
-            );
-        } else {
-            eprintln!(
-                "[PAR-058] Logits OK, first 5: {:?}",
-                &logits[..5.min(logits.len())]
-            );
-            let mut top5: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
-            top5.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-            top5.truncate(5);
-            eprintln!("[PAR-058] Logits top 5: {:?}", top5);
-        }
-
-        // PAR-060-DEBUG: Print digit logits for comparison with CPU
-        eprintln!(
-            "[PAR-060-GPU] Digit logits: 0={:.2}, 1={:.2}, 2={:.2}, 3={:.2}, 4={:.2}, 5={:.2}",
-            logits[15], logits[16], logits[17], logits[18], logits[19], logits[20]
-        );
+        // PERF-002: Debug code removed (was PAR-058-DEBUG and PAR-060-DEBUG)
+        // NaN checks, top5 sorting, and digit logits prints removed for performance
 
         Ok(())
     }
@@ -8510,17 +8418,25 @@ impl CudaExecutor {
     ///
     /// The token ID with the maximum logit value
     pub fn gpu_argmax(&mut self, logits_ptr: u64, vocab_size: u32) -> Result<u32, GpuError> {
-        // Calculate number of blocks needed
+        // PAR-068: Optimized GPU argmax with pre-allocated buffers
+        // Eliminates 3 GPU allocations per token and removes intermediate sync
         let block_size = 256u32;
         let elements_per_block = block_size * 4; // 4 elements per thread
         let num_blocks = (vocab_size + elements_per_block - 1) / elements_per_block;
 
-        // Allocate temp buffers for block results (reuse if possible)
-        let block_max_vals: GpuBuffer<f32> = GpuBuffer::new(&self.context, num_blocks as usize)?;
-        let block_max_idxs: GpuBuffer<u32> = GpuBuffer::new(&self.context, num_blocks as usize)?;
-        let result_buf: GpuBuffer<u32> = GpuBuffer::new(&self.context, 1)?;
+        // PAR-068: Lazy allocate argmax buffers on first use, reuse thereafter
+        if self.argmax_block_vals.is_none() || self.argmax_num_blocks != num_blocks {
+            self.argmax_block_vals = Some(GpuBuffer::new(&self.context, num_blocks as usize)?);
+            self.argmax_block_idxs = Some(GpuBuffer::new(&self.context, num_blocks as usize)?);
+            self.argmax_result = Some(GpuBuffer::new(&self.context, 1)?);
+            self.argmax_num_blocks = num_blocks;
+        }
 
-        // Load first-pass kernel module
+        let block_max_vals = self.argmax_block_vals.as_ref().unwrap();
+        let block_max_idxs = self.argmax_block_idxs.as_ref().unwrap();
+        let result_buf = self.argmax_result.as_ref().unwrap();
+
+        // Load first-pass kernel module (cached after first use)
         let argmax_kernel_type = KernelType::ArgMax { length: vocab_size };
         let argmax_key = format!("argmax_{}", vocab_size);
         if !self.modules.contains_key(&argmax_key) {
@@ -8529,17 +8445,26 @@ impl CudaExecutor {
             self.modules.insert(argmax_key.clone(), module);
         }
 
+        // Load second-pass kernel module (cached after first use)
+        let final_kernel_type = KernelType::ArgMaxFinal { num_blocks };
+        let final_key = format!("argmax_final_{}", num_blocks);
+        if !self.modules.contains_key(&final_key) {
+            let ptx = self.kernels.generate_ptx(&final_kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(final_key.clone(), module);
+        }
+
         // Prepare kernel arguments
         let kernel_name = self.kernels.kernel_name(&argmax_kernel_type);
-        let launch_config =
-            LaunchConfig::grid_2d(num_blocks, 1, block_size, 1).with_shared_mem(256 * 8); // 2KB shared memory
+        // PAR-068-FIX: Do NOT use .with_shared_mem() - PTX declares static shared memory via .shared directive
+        let launch_config = LaunchConfig::grid_2d(num_blocks, 1, block_size, 1);
 
         let mut input_ptr = logits_ptr;
         let mut block_vals_ptr = block_max_vals.as_ptr();
         let mut block_idxs_ptr = block_max_idxs.as_ptr();
         let mut length_val = vocab_size;
 
-        // Launch first-pass kernel
+        // Launch first-pass kernel (block-level reduction)
         // SAFETY: Buffers are valid, args match kernel signature
         unsafe {
             let module = self
@@ -8559,21 +8484,12 @@ impl CudaExecutor {
             )?;
         }
 
-        // Sync after first kernel to catch any async errors before loading second module
-        self.stream.synchronize()?;
+        // PAR-068: NO intermediate sync - launch both kernels back-to-back
+        // The kernels are on the same stream, so execution is serialized
 
-        // Load second-pass kernel module
-        let final_kernel_type = KernelType::ArgMaxFinal { num_blocks };
-        let final_key = format!("argmax_final_{}", num_blocks);
-        if !self.modules.contains_key(&final_key) {
-            let ptx = self.kernels.generate_ptx(&final_kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
-            self.modules.insert(final_key.clone(), module);
-        }
-
-        // Launch second-pass kernel (single block)
+        // Launch second-pass kernel (final reduction)
         let final_kernel_name = self.kernels.kernel_name(&final_kernel_type);
-        let final_launch_config = LaunchConfig::grid_2d(1, 1, 256, 1).with_shared_mem(256 * 8);
+        let final_launch_config = LaunchConfig::grid_2d(1, 1, 256, 1);
 
         let mut result_ptr = result_buf.as_ptr();
         let mut num_blocks_val = num_blocks;
@@ -8597,7 +8513,7 @@ impl CudaExecutor {
             )?;
         }
 
-        // Sync and download just the result (4 bytes instead of 600KB)
+        // PAR-068: Single sync after both kernels complete
         self.stream.synchronize()?;
         let mut result = [0u32];
         result_buf.copy_to_host(&mut result)?;
@@ -8621,19 +8537,43 @@ impl CudaExecutor {
         position: u32,
         vocab_size: u32,
     ) -> Result<u32, GpuError> {
-        // PAR-062: Use regular replay path, then CPU argmax
-        // TODO: GPU argmax has issues with kernel execution, needs debugging
-        let mut logits = vec![0.0f32; vocab_size as usize];
-        self.forward_graphed_replay(input, &mut logits, position)?;
+        // PAR-068: Use GPU argmax to eliminate 600KB D2H transfer bottleneck
+        // Root cause fix: Removed .with_shared_mem() from argmax kernel launch configs
+        // (PTX declares static shared memory, mixing with dynamic causes CUDA_ERROR_UNKNOWN)
 
-        // CPU argmax (still saves vs downloading full logits for non-greedy)
-        let token_id = logits
-            .iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-            .map_or(0, |(idx, _)| idx as u32);
+        // Update position buffer (async memcpy, doesn't invalidate graph)
+        if let Some(ref mut pos_buf) = self.position_buf {
+            pos_buf.copy_from_host(&[position])?;
+        }
 
-        Ok(token_id)
+        // PAR-061-FIX: Update seq_len buffer (seq_len = position + 1)
+        if let Some(ref mut seq_len_buf) = self.seq_len_buf {
+            let seq_len = position + 1;
+            seq_len_buf.copy_from_host(&[seq_len])?;
+        }
+
+        // Update input buffer
+        if let Some(ref mut input_buf) = self.graph_input_buf {
+            input_buf.copy_from_host(input)?;
+        }
+
+        // Launch captured graph
+        if let Some(ref graph_exec) = self.decode_graph {
+            self.stream.launch_graph(graph_exec)?;
+        }
+
+        self.decode_token_count += 1;
+
+        // PAR-068: GPU argmax instead of downloading 600KB logits
+        // This reduces D2H transfer from 600KB to 4 bytes per token
+        let logits_ptr = self
+            .workspace
+            .logits_buf
+            .as_ref()
+            .ok_or_else(|| GpuError::InvalidParameter("logits_buf not allocated".into()))?
+            .as_ptr();
+
+        self.gpu_argmax(logits_ptr, vocab_size)
     }
 
     /// PAR-054: Forward pass for graph capture (uses pre-allocated workspace)
@@ -9048,6 +8988,8 @@ impl CudaExecutor {
         intermediate_dim: u32,
         epsilon: f32,
     ) -> Result<(), GpuError> {
+        // PERF-001: skip_debug=true disables stream.synchronize() calls and debug prints
+        // that were causing ~4x slowdown (70 tok/s -> target 280+ tok/s)
         self.transformer_layer_workspace_inner(
             input,
             layer_idx,
@@ -9055,7 +8997,7 @@ impl CudaExecutor {
             hidden_dim,
             intermediate_dim,
             epsilon,
-            false,
+            true, // PERF-001: skip debug for performance
         )
     }
 
@@ -9136,16 +9078,20 @@ impl CudaExecutor {
         )?;
 
         // PAR-058-DEBUG: Check after RMSNorm (skip during graph capture)
-        if !skip_debug && layer_idx == 0 {
+        if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2) {
             self.stream.synchronize()?;
             let mut rmsnorm_out = vec![0.0f32; hidden_buf1.len()];
             hidden_buf1.copy_to_host(&mut rmsnorm_out)?;
             let nan_count = rmsnorm_out.iter().filter(|x| x.is_nan()).count();
             if nan_count > 0 {
-                eprintln!("[PAR-058-L0] RMSNorm output has {} NaN", nan_count);
+                eprintln!(
+                    "[PAR-058-L{}] RMSNorm output has {} NaN",
+                    layer_idx, nan_count
+                );
             } else {
                 eprintln!(
-                    "[PAR-058-L0] RMSNorm OK, first 3: {:?}",
+                    "[PAR-058-L{}] RMSNorm OK, first 3: {:?}",
+                    layer_idx,
                     &rmsnorm_out[..3.min(rmsnorm_out.len())]
                 );
             }
@@ -9352,26 +9298,33 @@ impl CudaExecutor {
         }
 
         // PAR-058-DEBUG: Check Q/K/V after projections (skip during graph capture)
-        if !skip_debug && layer_idx == 0 {
+        if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2) {
             self.stream.synchronize()?;
             // Print weight pointers
             eprintln!(
-                "[PAR-058-L0] Weight ptrs: Q={:#x}, K={:#x}, V={:#x}",
-                layer_weights.attn_q_ptr, layer_weights.attn_k_ptr, layer_weights.attn_v_ptr
+                "[PAR-058-L{}] Weight ptrs: Q={:#x}, K={:#x}, V={:#x}",
+                layer_idx,
+                layer_weights.attn_q_ptr,
+                layer_weights.attn_k_ptr,
+                layer_weights.attn_v_ptr
             );
             eprintln!(
-                "[PAR-058-L0] Weight lens: Q={}, K={}, V={}",
-                layer_weights.attn_q_len, layer_weights.attn_k_len, layer_weights.attn_v_len
+                "[PAR-058-L{}] Weight lens: Q={}, K={}, V={}",
+                layer_idx,
+                layer_weights.attn_q_len,
+                layer_weights.attn_k_len,
+                layer_weights.attn_v_len
             );
 
             let mut q_out = vec![0.0f32; q_buf.len()];
             q_buf.copy_to_host(&mut q_out)?;
             let q_nan = q_out.iter().filter(|x| x.is_nan()).count();
             if q_nan > 0 {
-                eprintln!("[PAR-058-L0] Q has {} NaN", q_nan);
+                eprintln!("[PAR-058-L{}] Q has {} NaN", layer_idx, q_nan);
             } else {
                 eprintln!(
-                    "[PAR-058-L0] Q OK, first 3: {:?}",
+                    "[PAR-058-L{}] Q OK, first 3: {:?}",
+                    layer_idx,
                     &q_out[..3.min(q_out.len())]
                 );
             }
@@ -9382,7 +9335,8 @@ impl CudaExecutor {
             let k_max = k_out.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
             let k_min = k_out.iter().fold(f32::INFINITY, |a, &b| a.min(b));
             eprintln!(
-                "[PAR-058-L0] K stats: nan={}, min={:.4}, max={:.4}, first 5: {:?}",
+                "[PAR-058-L{}] K stats: nan={}, min={:.4}, max={:.4}, first 5: {:?}",
+                layer_idx,
                 k_nan,
                 k_min,
                 k_max,
@@ -9395,7 +9349,8 @@ impl CudaExecutor {
             let v_max = v_out.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
             let v_min = v_out.iter().fold(f32::INFINITY, |a, &b| a.min(b));
             eprintln!(
-                "[PAR-058-L0] V stats: nan={}, min={:.4}, max={:.4}, first 5: {:?}",
+                "[PAR-058-L{}] V stats: nan={}, min={:.4}, max={:.4}, first 5: {:?}",
+                layer_idx,
                 v_nan,
                 v_min,
                 v_max,
@@ -9439,15 +9394,15 @@ impl CudaExecutor {
                 )?;
             }
 
-            if !skip_debug && layer_idx == 0 {
-                // Debug: download and print (only for layer 0, skip during graph capture)
+            if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2) {
+                // Debug: download and print (only for layer 0/2, skip during graph capture)
                 self.stream.synchronize()?;
                 let mut q_host = vec![0.0f32; q_buf.len()];
                 let mut k_host = vec![0.0f32; k_buf.len()];
                 q_buf.copy_to_host(&mut q_host)?;
                 k_buf.copy_to_host(&mut k_host)?;
-                eprintln!("[PAR-060-L0] Applied GPU RoPE at position {}, theta={}, Q first 3: {:?}, K first 3: {:?}",
-                    position, theta, &q_host[..3.min(q_host.len())], &k_host[..3.min(k_host.len())]);
+                eprintln!("[PAR-060-L{}] Applied GPU RoPE at position {}, theta={}, Q first 3: {:?}, K first 3: {:?}",
+                    layer_idx, position, theta, &q_host[..3.min(q_host.len())], &k_host[..3.min(k_host.len())]);
             }
         }
 
@@ -9467,7 +9422,7 @@ impl CudaExecutor {
         };
 
         // PAR-058-DEBUG: Check attention output (skip during graph capture)
-        if !skip_debug && layer_idx == 0 {
+        if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2) {
             // PAR-058: Must sync on compute_stream since attention kernel runs there
             self.compute_stream.synchronize()?;
             let mut attn_out = vec![0.0f32; attn_out_buf.len()];
@@ -9494,22 +9449,28 @@ impl CudaExecutor {
                     }
                 }
                 eprintln!(
-                    "[PAR-058-L0] Attn output has {} NaN, heads with NaN: {:?}",
+                    "[PAR-058-L{}] Attn output has {} NaN, heads with NaN: {:?}",
+                    layer_idx,
                     nan_indices.len(),
                     heads_with_nan
                 );
                 // Show first few NaN indices
                 eprintln!(
-                    "[PAR-058-L0] First 10 NaN indices: {:?}",
+                    "[PAR-058-L{}] First 10 NaN indices: {:?}",
+                    layer_idx,
                     &nan_indices[..10.min(nan_indices.len())]
                 );
                 // Show first OK value
                 if let Some((idx, val)) = attn_out.iter().enumerate().find(|(_, v)| !v.is_nan()) {
-                    eprintln!("[PAR-058-L0] First OK value at idx {}: {}", idx, val);
+                    eprintln!(
+                        "[PAR-058-L{}] First OK value at idx {}: {}",
+                        layer_idx, idx, val
+                    );
                 }
             } else {
                 eprintln!(
-                    "[PAR-058-L0] Attn OK, first 3: {:?}",
+                    "[PAR-058-L{}] Attn OK, first 3: {:?}",
+                    layer_idx,
                     &attn_out[..3.min(attn_out.len())]
                 );
             }
@@ -9539,16 +9500,20 @@ impl CudaExecutor {
         }
 
         // PAR-058-DEBUG: Check output projection (skip during graph capture)
-        if !skip_debug && layer_idx == 0 {
+        if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2) {
             self.stream.synchronize()?;
             let mut out_proj = vec![0.0f32; hidden_buf1.len()];
             hidden_buf1.copy_to_host(&mut out_proj)?;
             let nan_count = out_proj.iter().filter(|x| x.is_nan()).count();
             if nan_count > 0 {
-                eprintln!("[PAR-058-L0] Output projection has {} NaN", nan_count);
+                eprintln!(
+                    "[PAR-058-L{}] Output projection has {} NaN",
+                    layer_idx, nan_count
+                );
             } else {
                 eprintln!(
-                    "[PAR-058-L0] Output proj OK, first 3: {:?}",
+                    "[PAR-058-L{}] Output proj OK, first 3: {:?}",
+                    layer_idx,
                     &out_proj[..3.min(out_proj.len())]
                 );
             }
@@ -9560,16 +9525,17 @@ impl CudaExecutor {
         self.residual_add_into(input, &hidden_buf1, &input_staging, hidden_dim)?;
 
         // PAR-058-DEBUG: Check residual1 output (skip during graph capture)
-        if !skip_debug && layer_idx == 0 {
+        if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2) {
             self.stream.synchronize()?;
             let mut resid1 = vec![0.0f32; input_staging.len()];
             input_staging.copy_to_host(&mut resid1)?;
             let nan_count = resid1.iter().filter(|x| x.is_nan()).count();
             if nan_count > 0 {
-                eprintln!("[PAR-058-L0] Residual1 has {} NaN", nan_count);
+                eprintln!("[PAR-058-L{}] Residual1 has {} NaN", layer_idx, nan_count);
             } else {
                 eprintln!(
-                    "[PAR-058-L0] Residual1 OK, first 3: {:?}",
+                    "[PAR-058-L{}] Residual1 OK, first 3: {:?}",
+                    layer_idx,
                     &resid1[..3.min(resid1.len())]
                 );
             }
@@ -9629,16 +9595,17 @@ impl CudaExecutor {
         }
 
         // PAR-058-DEBUG: Check FFN gate/up outputs (skip during graph capture)
-        if !skip_debug && layer_idx == 0 {
+        if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2) {
             self.stream.synchronize()?;
             let mut gate_out = vec![0.0f32; ffn_gate_buf.len()];
             ffn_gate_buf.copy_to_host(&mut gate_out)?;
             let gate_nan = gate_out.iter().filter(|x| x.is_nan()).count();
             if gate_nan > 0 {
-                eprintln!("[PAR-058-L0] FFN gate has {} NaN", gate_nan);
+                eprintln!("[PAR-058-L{}] FFN gate has {} NaN", layer_idx, gate_nan);
             } else {
                 eprintln!(
-                    "[PAR-058-L0] FFN gate OK, first 3: {:?}",
+                    "[PAR-058-L{}] FFN gate OK, first 3: {:?}",
+                    layer_idx,
                     &gate_out[..3.min(gate_out.len())]
                 );
             }
@@ -9646,10 +9613,11 @@ impl CudaExecutor {
             ffn_up_buf.copy_to_host(&mut up_out)?;
             let up_nan = up_out.iter().filter(|x| x.is_nan()).count();
             if up_nan > 0 {
-                eprintln!("[PAR-058-L0] FFN up has {} NaN", up_nan);
+                eprintln!("[PAR-058-L{}] FFN up has {} NaN", layer_idx, up_nan);
             } else {
                 eprintln!(
-                    "[PAR-058-L0] FFN up OK, first 3: {:?}",
+                    "[PAR-058-L{}] FFN up OK, first 3: {:?}",
+                    layer_idx,
                     &up_out[..3.min(up_out.len())]
                 );
             }
@@ -9659,7 +9627,7 @@ impl CudaExecutor {
         self.fused_swiglu_into(&ffn_gate_buf, &ffn_up_buf, &ffn_act_buf, intermediate_dim)?;
 
         // PAR-058-DEBUG: Check SwiGLU output (skip during graph capture)
-        if !skip_debug && (layer_idx == 0 || layer_idx == 3) {
+        if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2 || layer_idx == 3) {
             self.stream.synchronize()?;
             let mut swiglu_out = vec![0.0f32; ffn_act_buf.len()];
             ffn_act_buf.copy_to_host(&mut swiglu_out)?;
@@ -9676,7 +9644,7 @@ impl CudaExecutor {
         }
 
         // PAR-058-DEBUG: Check FFN down weight info (skip during graph capture)
-        if !skip_debug && (layer_idx == 0 || layer_idx == 3) {
+        if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2 || layer_idx == 3) {
             eprintln!(
                 "[PAR-058-L{}] FFN down weight ptr={:#x}, len={}, qtype={:?}",
                 layer_idx,
@@ -9712,6 +9680,14 @@ impl CudaExecutor {
         if !skip_debug && ffn_down_qtype != layer_weights.ffn_down_qtype && layer_idx == 0 {
             eprintln!(
                 "[PAR-058-FIX] FFN down qtype override: {:?} -> {:?} (size-based detection)",
+                layer_weights.ffn_down_qtype, ffn_down_qtype
+            );
+        }
+
+        // CORRECTNESS-002: Debug actual qtype being used
+        if !skip_debug && layer_idx == 2 {
+            eprintln!(
+                "[CORRECTNESS-002] L2 FFN down: metadata_qtype={:?}, detected_qtype={:?}",
                 layer_weights.ffn_down_qtype, ffn_down_qtype
             );
         }
@@ -9773,6 +9749,32 @@ impl CudaExecutor {
                 )?;
             },
             WeightQuantType::Q4K => {
+                // CORRECTNESS-002: Debug first super-block of Layer 2 FFN down weights
+                if !skip_debug && layer_idx == 2 {
+                    self.stream.synchronize()?;
+                    eprintln!(
+                        "[CORRECTNESS-002] L2 FFN down: ptr={:#x}, n={}, k={}",
+                        layer_weights.ffn_down_ptr, hidden_dim, intermediate_dim
+                    );
+                    // Read d and dmin via GpuBuffer
+                    let mut host_data = vec![0u8; 144];
+                    let debug_buf =
+                        unsafe { GpuBuffer::<u8>::from_raw_parts(layer_weights.ffn_down_ptr, 144) };
+                    debug_buf.copy_to_host(&mut host_data)?;
+                    std::mem::forget(debug_buf); // Don't free the borrowed memory
+                    let d_bytes = [host_data[0], host_data[1]];
+                    let dmin_bytes = [host_data[2], host_data[3]];
+                    let d_f16 = half::f16::from_le_bytes(d_bytes);
+                    let dmin_f16 = half::f16::from_le_bytes(dmin_bytes);
+                    eprintln!(
+                        "[CORRECTNESS-002] L2 FFN down sb0: d_f16={:?} ({:.6}), dmin_f16={:?} ({:.6})",
+                        d_f16, d_f16.to_f32(), dmin_f16, dmin_f16.to_f32()
+                    );
+                    eprintln!(
+                        "[CORRECTNESS-002] L2 FFN down sb0 first 20 bytes: {:?}",
+                        &host_data[..20]
+                    );
+                }
                 self.q4k_gemv_into(
                     layer_weights.ffn_down_ptr,
                     &ffn_act_buf,
@@ -9784,7 +9786,7 @@ impl CudaExecutor {
         }
 
         // PAR-058-DEBUG: Check FFN down output (skip during graph capture)
-        if !skip_debug && (layer_idx == 0 || layer_idx == 3) {
+        if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2 || layer_idx == 3) {
             self.stream.synchronize()?;
             let mut ffn_down = vec![0.0f32; hidden_buf1.len()];
             hidden_buf1.copy_to_host(&mut ffn_down)?;
@@ -11048,9 +11050,15 @@ impl CudaExecutor {
         // Replaces 2 * num_kv_heads D2D copies with 2 kernel launches
         // PAR-061: Use indirect scatter during graph capture to avoid baking position
         {
-            // Launch config: total_elements threads, 256 per block
-            let total_elements = num_kv_heads * head_dim;
-            let config = LaunchConfig::linear(total_elements as u32, 256);
+            // CORRECTNESS-001 FIX: Launch config must match kernel expectations:
+            // - Each block handles one KV head (head_idx = ctaid.x)
+            // - Each thread handles one element (elem_idx = tid.x)
+            // Grid: num_kv_heads blocks, Block: head_dim threads
+            let config = LaunchConfig {
+                grid: (num_kv_heads as u32, 1, 1),
+                block: (head_dim as u32, 1, 1),
+                shared_mem: 0,
+            };
 
             // Get cache buffers
             let k_buf = self.kv_cache_gpu.get_mut(&k_key).ok_or_else(|| {
@@ -11061,7 +11069,8 @@ impl CudaExecutor {
             })?;
             let mut k_src_ptr = k_gpu.as_ptr();
             let mut k_dst_ptr = k_buf.as_ptr();
-            let mut num_heads_val = num_kv_heads as u32;
+            // CORRECTNESS-001 FIX: Kernel takes (src, cache, pos, head_dim, max_len)
+            // Removed num_heads_val which was erroneously passed
             let mut head_dim_val = head_dim as u32;
             let mut max_len_val = max_len as u32;
 
@@ -11086,6 +11095,7 @@ impl CudaExecutor {
                     // Indirect kernel takes position_ptr as 3rd argument
                     let mut pos_ptr = pos_buf.as_ptr();
 
+                    // CORRECTNESS-001 FIX: Kernel expects (src, cache, pos_ptr, head_dim, max_len)
                     unsafe {
                         self.compute_stream.launch_kernel(
                             scatter_module,
@@ -11095,7 +11105,6 @@ impl CudaExecutor {
                                 std::ptr::from_mut(&mut k_src_ptr) as *mut std::ffi::c_void,
                                 std::ptr::from_mut(&mut k_dst_ptr) as *mut std::ffi::c_void,
                                 std::ptr::from_mut(&mut pos_ptr) as *mut std::ffi::c_void,
-                                std::ptr::from_mut(&mut num_heads_val) as *mut std::ffi::c_void,
                                 std::ptr::from_mut(&mut head_dim_val) as *mut std::ffi::c_void,
                                 std::ptr::from_mut(&mut max_len_val) as *mut std::ffi::c_void,
                             ],
@@ -11114,6 +11123,7 @@ impl CudaExecutor {
                     let mut v_dst_ptr = v_buf.as_ptr();
                     let mut pos_ptr = pos_buf.as_ptr();
 
+                    // CORRECTNESS-001 FIX: Same fix for V scatter
                     unsafe {
                         self.compute_stream.launch_kernel(
                             scatter_module,
@@ -11123,7 +11133,6 @@ impl CudaExecutor {
                                 std::ptr::from_mut(&mut v_src_ptr) as *mut std::ffi::c_void,
                                 std::ptr::from_mut(&mut v_dst_ptr) as *mut std::ffi::c_void,
                                 std::ptr::from_mut(&mut pos_ptr) as *mut std::ffi::c_void,
-                                std::ptr::from_mut(&mut num_heads_val) as *mut std::ffi::c_void,
                                 std::ptr::from_mut(&mut head_dim_val) as *mut std::ffi::c_void,
                                 std::ptr::from_mut(&mut max_len_val) as *mut std::ffi::c_void,
                             ],
@@ -11154,6 +11163,8 @@ impl CudaExecutor {
 
                 let mut position_val = cache_len as u32;
 
+                // CORRECTNESS-001 FIX: Kernel expects (src, cache, pos, head_dim, max_len)
+                // Fixed parameter order: pos is 3rd, removed extra num_heads_val
                 unsafe {
                     self.compute_stream.launch_kernel(
                         scatter_module,
@@ -11162,10 +11173,9 @@ impl CudaExecutor {
                         &mut [
                             std::ptr::from_mut(&mut k_src_ptr) as *mut std::ffi::c_void,
                             std::ptr::from_mut(&mut k_dst_ptr) as *mut std::ffi::c_void,
-                            std::ptr::from_mut(&mut num_heads_val) as *mut std::ffi::c_void,
+                            std::ptr::from_mut(&mut position_val) as *mut std::ffi::c_void,
                             std::ptr::from_mut(&mut head_dim_val) as *mut std::ffi::c_void,
                             std::ptr::from_mut(&mut max_len_val) as *mut std::ffi::c_void,
-                            std::ptr::from_mut(&mut position_val) as *mut std::ffi::c_void,
                         ],
                     )?;
                 }
@@ -11181,6 +11191,7 @@ impl CudaExecutor {
                 let mut v_src_ptr = v_gpu.as_ptr();
                 let mut v_dst_ptr = v_buf.as_ptr();
 
+                // CORRECTNESS-001 FIX: Same fix for V scatter
                 unsafe {
                     self.compute_stream.launch_kernel(
                         scatter_module,
@@ -11189,10 +11200,9 @@ impl CudaExecutor {
                         &mut [
                             std::ptr::from_mut(&mut v_src_ptr) as *mut std::ffi::c_void,
                             std::ptr::from_mut(&mut v_dst_ptr) as *mut std::ffi::c_void,
-                            std::ptr::from_mut(&mut num_heads_val) as *mut std::ffi::c_void,
+                            std::ptr::from_mut(&mut position_val) as *mut std::ffi::c_void,
                             std::ptr::from_mut(&mut head_dim_val) as *mut std::ffi::c_void,
                             std::ptr::from_mut(&mut max_len_val) as *mut std::ffi::c_void,
-                            std::ptr::from_mut(&mut position_val) as *mut std::ffi::c_void,
                         ],
                     )?;
                 }
