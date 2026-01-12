@@ -11074,78 +11074,74 @@ impl CudaExecutor {
             let mut head_dim_val = head_dim as u32;
             let mut max_len_val = max_len as u32;
 
-            if skip_debug {
+            // PAR-069: Use graph mode (indirect scatter) ONLY when position_buf is initialized
+            // Previously used skip_debug flag, which conflated "skip debug prints" with "graph mode"
+            // Root cause: CORRECTNESS-001 garbage output from GPU path
+            if let Some(ref pos_buf) = self.position_buf {
                 // PAR-061: Graph capture mode - use indirect scatter (reads position from device)
-                if let Some(ref pos_buf) = self.position_buf {
-                    let scatter_type = KernelType::KvCacheScatterIndirect {
-                        num_kv_heads: num_kv_heads as u32,
-                        head_dim: head_dim as u32,
-                        max_len: max_len as u32,
-                    };
-                    let scatter_name = self.kernels.kernel_name(&scatter_type);
-                    let scatter_ptx = self.kernels.generate_ptx(&scatter_type);
-                    let scatter_key = format!("kv_scatter_indirect_{}_{}", num_kv_heads, head_dim);
+                let scatter_type = KernelType::KvCacheScatterIndirect {
+                    num_kv_heads: num_kv_heads as u32,
+                    head_dim: head_dim as u32,
+                    max_len: max_len as u32,
+                };
+                let scatter_name = self.kernels.kernel_name(&scatter_type);
+                let scatter_ptx = self.kernels.generate_ptx(&scatter_type);
+                let scatter_key = format!("kv_scatter_indirect_{}_{}", num_kv_heads, head_dim);
 
-                    if !self.modules.contains_key(&scatter_key) {
-                        let module = CudaModule::from_ptx(&self.context, &scatter_ptx)?;
-                        self.modules.insert(scatter_key.clone(), module);
-                    }
-                    let scatter_module = self.modules.get_mut(&scatter_key).expect("just inserted");
+                if !self.modules.contains_key(&scatter_key) {
+                    let module = CudaModule::from_ptx(&self.context, &scatter_ptx)?;
+                    self.modules.insert(scatter_key.clone(), module);
+                }
+                let scatter_module = self.modules.get_mut(&scatter_key).expect("just inserted");
 
-                    // Indirect kernel takes position_ptr as 3rd argument
-                    let mut pos_ptr = pos_buf.as_ptr();
+                // Indirect kernel takes position_ptr as 3rd argument
+                let mut pos_ptr = pos_buf.as_ptr();
 
-                    // CORRECTNESS-001 FIX: Kernel expects (src, cache, pos_ptr, head_dim, max_len)
-                    unsafe {
-                        self.compute_stream.launch_kernel(
-                            scatter_module,
-                            scatter_name,
-                            &config,
-                            &mut [
-                                std::ptr::from_mut(&mut k_src_ptr) as *mut std::ffi::c_void,
-                                std::ptr::from_mut(&mut k_dst_ptr) as *mut std::ffi::c_void,
-                                std::ptr::from_mut(&mut pos_ptr) as *mut std::ffi::c_void,
-                                std::ptr::from_mut(&mut head_dim_val) as *mut std::ffi::c_void,
-                                std::ptr::from_mut(&mut max_len_val) as *mut std::ffi::c_void,
-                            ],
-                        )?;
-                    }
+                // CORRECTNESS-001 FIX: Kernel expects (src, cache, pos_ptr, head_dim, max_len)
+                unsafe {
+                    self.compute_stream.launch_kernel(
+                        scatter_module,
+                        scatter_name,
+                        &config,
+                        &mut [
+                            std::ptr::from_mut(&mut k_src_ptr) as *mut std::ffi::c_void,
+                            std::ptr::from_mut(&mut k_dst_ptr) as *mut std::ffi::c_void,
+                            std::ptr::from_mut(&mut pos_ptr) as *mut std::ffi::c_void,
+                            std::ptr::from_mut(&mut head_dim_val) as *mut std::ffi::c_void,
+                            std::ptr::from_mut(&mut max_len_val) as *mut std::ffi::c_void,
+                        ],
+                    )?;
+                }
 
-                    // Re-get module and scatter V
-                    let scatter_module = self.modules.get_mut(&scatter_key).expect("module exists");
-                    let v_buf = self.kv_cache_gpu.get_mut(&v_key).ok_or_else(|| {
-                        GpuError::InvalidLaunchConfig(format!(
-                            "PAR-052: KV cache not initialized for layer {}",
-                            layer_idx
-                        ))
-                    })?;
-                    let mut v_src_ptr = v_gpu.as_ptr();
-                    let mut v_dst_ptr = v_buf.as_ptr();
-                    let mut pos_ptr = pos_buf.as_ptr();
+                // Re-get module and scatter V
+                let scatter_module = self.modules.get_mut(&scatter_key).expect("module exists");
+                let v_buf = self.kv_cache_gpu.get_mut(&v_key).ok_or_else(|| {
+                    GpuError::InvalidLaunchConfig(format!(
+                        "PAR-052: KV cache not initialized for layer {}",
+                        layer_idx
+                    ))
+                })?;
+                let mut v_src_ptr = v_gpu.as_ptr();
+                let mut v_dst_ptr = v_buf.as_ptr();
+                let mut pos_ptr = pos_buf.as_ptr();
 
-                    // CORRECTNESS-001 FIX: Same fix for V scatter
-                    unsafe {
-                        self.compute_stream.launch_kernel(
-                            scatter_module,
-                            scatter_name,
-                            &config,
-                            &mut [
-                                std::ptr::from_mut(&mut v_src_ptr) as *mut std::ffi::c_void,
-                                std::ptr::from_mut(&mut v_dst_ptr) as *mut std::ffi::c_void,
-                                std::ptr::from_mut(&mut pos_ptr) as *mut std::ffi::c_void,
-                                std::ptr::from_mut(&mut head_dim_val) as *mut std::ffi::c_void,
-                                std::ptr::from_mut(&mut max_len_val) as *mut std::ffi::c_void,
-                            ],
-                        )?;
-                    }
-                } else {
-                    // Fallback: position_buf not initialized (shouldn't happen in graph mode)
-                    return Err(GpuError::InvalidLaunchConfig(
-                        "PAR-061: position_buf not initialized for graph capture".to_string(),
-                    ));
+                // CORRECTNESS-001 FIX: Same fix for V scatter
+                unsafe {
+                    self.compute_stream.launch_kernel(
+                        scatter_module,
+                        scatter_name,
+                        &config,
+                        &mut [
+                            std::ptr::from_mut(&mut v_src_ptr) as *mut std::ffi::c_void,
+                            std::ptr::from_mut(&mut v_dst_ptr) as *mut std::ffi::c_void,
+                            std::ptr::from_mut(&mut pos_ptr) as *mut std::ffi::c_void,
+                            std::ptr::from_mut(&mut head_dim_val) as *mut std::ffi::c_void,
+                            std::ptr::from_mut(&mut max_len_val) as *mut std::ffi::c_void,
+                        ],
+                    )?;
                 }
             } else {
-                // Normal mode - use direct scatter kernel
+                // PAR-069: Normal mode (no graph capture) - use direct scatter kernel
                 let scatter_type = KernelType::KvCacheScatter {
                     num_kv_heads: num_kv_heads as u32,
                     head_dim: head_dim as u32,
@@ -11282,18 +11278,20 @@ impl CudaExecutor {
             }
         }
 
-        // PAR-061: Use indirect attention kernel for CUDA graph capture
-        // When skip_debug=true (graph capture mode), seq_len is read from device memory
+        // PAR-069: Use indirect attention kernel ONLY when seq_len_buf is initialized (graph mode)
+        // Previously used skip_debug flag, which conflated "skip debug prints" with "graph mode"
+        // Root cause: CORRECTNESS-001 garbage output from GPU path
+        let use_graph_mode = self.seq_len_buf.is_some();
         let kernel_type = KernelType::IncrementalAttention {
             max_seq_len: max_len as u32,
             head_dim: head_dim as u32,
             n_heads: num_heads as u32,
             n_kv_heads: num_kv_heads as u32,
-            indirect: skip_debug,
+            indirect: use_graph_mode,
         };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
         let ptx = self.kernels.generate_ptx(&kernel_type);
-        let module_key = if skip_debug {
+        let module_key = if use_graph_mode {
             format!(
                 "incremental_attention_indirect_{}_{}_{}_{}",
                 max_len, head_dim, num_heads, num_kv_heads
@@ -11332,28 +11330,23 @@ impl CudaExecutor {
         let mut ptr_v = v_buf.as_ptr();
         let mut ptr_out = out_gpu.as_ptr();
 
-        if skip_debug {
-            // PAR-061: Graph capture mode - pass seq_len_buf pointer
-            if let Some(ref seq_len_buf) = self.seq_len_buf {
-                let mut seq_len_ptr = seq_len_buf.as_ptr();
-                unsafe {
-                    self.compute_stream.launch_kernel(
-                        module,
-                        kernel_name,
-                        &config,
-                        &mut [
-                            std::ptr::from_mut(&mut ptr_q) as *mut std::ffi::c_void,
-                            std::ptr::from_mut(&mut ptr_k) as *mut std::ffi::c_void,
-                            std::ptr::from_mut(&mut ptr_v) as *mut std::ffi::c_void,
-                            std::ptr::from_mut(&mut ptr_out) as *mut std::ffi::c_void,
-                            std::ptr::from_mut(&mut seq_len_ptr) as *mut std::ffi::c_void,
-                        ],
-                    )?;
-                }
-            } else {
-                return Err(GpuError::InvalidLaunchConfig(
-                    "PAR-061: seq_len_buf not initialized for graph capture".to_string(),
-                ));
+        // PAR-069: Use graph mode (indirect kernel) ONLY when seq_len_buf is initialized
+        if let Some(ref seq_len_buf) = self.seq_len_buf {
+            // Graph capture mode - pass seq_len_buf pointer
+            let mut seq_len_ptr = seq_len_buf.as_ptr();
+            unsafe {
+                self.compute_stream.launch_kernel(
+                    module,
+                    kernel_name,
+                    &config,
+                    &mut [
+                        std::ptr::from_mut(&mut ptr_q) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut ptr_k) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut ptr_v) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut ptr_out) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut seq_len_ptr) as *mut std::ffi::c_void,
+                    ],
+                )?;
             }
         } else {
             // Normal mode - pass seq_len value directly
