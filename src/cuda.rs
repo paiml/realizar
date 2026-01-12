@@ -53,11 +53,12 @@ use trueno_gpu::kernels::{
     Dp4aQ4KGemvKernel, Dp4aSIMDQ4KGemvKernel, ElementwiseMulKernel, Fp16Q4KGemvKernel,
     FusedGateUpKernel, FusedQKVKernel, FusedResidualRmsNormKernel, FusedSwigluKernel, GeluKernel,
     GemmKernel, GemvKernel, IncrementalAttentionKernel, Kernel, KvCacheScatterIndirectKernel,
-    KvCacheScatterKernel, LayerNormKernel, PackedDp4aQ4KQ8Kernel, Q4KGemvKernel, Q4KQ8DotKernel,
-    Q4_0GemvKernel, Q4_1GemvKernel, Q5KGemvKernel, Q5KKernel, Q5_0GemvKernel, Q6KGemvKernel,
-    Q6KKernel, Q8QuantizeKernel, Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel, RmsNormKernel,
-    RopeIndirectKernel, RopeKernel, SiluKernel, SoftmaxKernel, TiledQ4KGemvKernel,
-    TrueDp4aQ4KGemvKernel, VectorizedQ4KGemvKernel,
+    KvCacheScatterKernel, LayerNormKernel, MultiWarpIncrementalAttentionKernel,
+    PackedDp4aQ4KQ8Kernel, Q4KGemvKernel, Q4KQ8DotKernel, Q4_0GemvKernel, Q4_1GemvKernel,
+    Q5KGemvKernel, Q5KKernel, Q5_0GemvKernel, Q6KGemvKernel, Q6KKernel, Q8QuantizeKernel,
+    Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel, RmsNormKernel, RopeIndirectKernel,
+    RopeKernel, SiluKernel, SoftmaxKernel, TiledQ4KGemvKernel, TrueDp4aQ4KGemvKernel,
+    VectorizedQ4KGemvKernel,
 };
 use trueno_gpu::GpuError;
 
@@ -429,6 +430,23 @@ pub enum KernelType {
         /// PAR-061: Read seq_len from device memory (enables CUDA graph replay)
         indirect: bool,
     },
+    /// PAR-070: Multi-warp incremental attention for decode phase
+    /// Uses multiple warps per head to parallelize across KV cache positions
+    /// Performance target: 8x speedup over single-warp (from 81µs to ~10µs)
+    MultiWarpAttention {
+        /// Maximum sequence length for KV cache allocation
+        max_seq_len: u32,
+        /// Head dimension (must be <= 128)
+        head_dim: u32,
+        /// Number of query attention heads
+        n_heads: u32,
+        /// Number of key-value heads (for GQA)
+        n_kv_heads: u32,
+        /// Number of warps per head (4-8 recommended)
+        num_warps_per_head: u32,
+        /// Read seq_len from device memory (for CUDA graph)
+        indirect: bool,
+    },
     /// PAR-052: KV Cache Scatter kernel
     /// Replaces 672+ D2D copies per token with two kernel launches
     /// Scatters contiguous K/V vectors to strided KV cache positions
@@ -752,6 +770,23 @@ impl CudaKernels {
                     .with_indirect_seq_len(*indirect)
                     .emit_ptx()
             },
+            // PAR-070: Multi-warp attention for decode with parallel position processing
+            KernelType::MultiWarpAttention {
+                max_seq_len,
+                head_dim,
+                n_heads,
+                n_kv_heads,
+                num_warps_per_head,
+                indirect,
+            } => MultiWarpIncrementalAttentionKernel::new(
+                *max_seq_len,
+                *head_dim,
+                *n_heads,
+                *n_kv_heads,
+                *num_warps_per_head,
+            )
+            .with_indirect_seq_len(*indirect)
+            .emit_ptx(),
             // PAR-052: KV Cache Scatter kernel
             KernelType::KvCacheScatter {
                 num_kv_heads,
@@ -904,6 +939,14 @@ impl CudaKernels {
                     "incremental_attention_indirect"
                 } else {
                     "incremental_attention"
+                }
+            },
+            // PAR-070: Multi-warp attention for decode
+            KernelType::MultiWarpAttention { indirect, .. } => {
+                if *indirect {
+                    "multi_warp_attention_indirect"
+                } else {
+                    "multi_warp_attention"
                 }
             },
             // PAR-052: KV Cache Scatter
@@ -11579,28 +11622,30 @@ impl CudaExecutor {
             }
         }
 
-        // PAR-069: Use indirect attention kernel ONLY when seq_len_buf is initialized (graph mode)
-        // Previously used skip_debug flag, which conflated "skip debug prints" with "graph mode"
-        // Root cause: CORRECTNESS-001 garbage output from GPU path
+        // PAR-070: Use multi-warp attention kernel for parallel position processing
+        // Uses multiple warps per head to achieve ~8x speedup over single-warp
         let use_graph_mode = self.seq_len_buf.is_some();
-        let kernel_type = KernelType::IncrementalAttention {
+        let num_warps_per_head = 4; // 4 warps = 128 threads per head
+
+        let kernel_type = KernelType::MultiWarpAttention {
             max_seq_len: max_len as u32,
             head_dim: head_dim as u32,
             n_heads: num_heads as u32,
             n_kv_heads: num_kv_heads as u32,
+            num_warps_per_head,
             indirect: use_graph_mode,
         };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
         let ptx = self.kernels.generate_ptx(&kernel_type);
         let module_key = if use_graph_mode {
             format!(
-                "incremental_attention_indirect_{}_{}_{}_{}",
-                max_len, head_dim, num_heads, num_kv_heads
+                "multi_warp_attention_indirect_{}_{}_{}_{}_{}",
+                max_len, head_dim, num_heads, num_kv_heads, num_warps_per_head
             )
         } else {
             format!(
-                "incremental_attention_{}_{}_{}_{}",
-                max_len, head_dim, num_heads, num_kv_heads
+                "multi_warp_attention_{}_{}_{}_{}_{}",
+                max_len, head_dim, num_heads, num_kv_heads, num_warps_per_head
             )
         };
 
@@ -11623,8 +11668,10 @@ impl CudaExecutor {
             .get(&v_key)
             .ok_or_else(|| GpuError::InvalidLaunchConfig("V cache not found".to_string()))?;
 
-        // Launch kernel
-        let config = LaunchConfig::grid_2d(num_heads as u32, 1, 32, 1);
+        // PAR-070: Launch with multiple warps per block for parallel position processing
+        // Grid: (num_heads, 1) - one block per head
+        // Block: (32 * num_warps_per_head, 1) - multiple warps per block
+        let config = LaunchConfig::grid_2d(num_heads as u32, 1, 32 * num_warps_per_head, 1);
 
         let mut ptr_q = q_gpu.as_ptr();
         let mut ptr_k = k_buf.as_ptr();
