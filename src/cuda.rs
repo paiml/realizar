@@ -4043,8 +4043,10 @@ impl CudaExecutor {
         // Requirements: k must be multiple of 256 (super-block boundary)
 
         if k.is_multiple_of(256) {
-            // Use TiledQ4KGemv for aligned dimensions (faster, verified correct)
-            return self.q4k_gemv_into_tiled(weight_ptr, input, output, n, k);
+            // PAR-065: Use CoalescedQ4KGemv for aligned dimensions
+            // Five-Whys root cause: TiledQ4KGemv uses single-byte loads (6% bandwidth)
+            // CoalescedQ4KGemv uses vectorized u32 loads + warp shuffles (27% speedup)
+            return self.coalesced_q4k_gemv_into(weight_ptr, input, output, n, k);
         }
 
         // Fallback for non-aligned dimensions (rare): basic Q4KGemv kernel
@@ -8123,35 +8125,28 @@ impl CudaExecutor {
         }
 
         // 2. Q/K/V GEMV kernels - pre-load all quant types that might be used
-        // PAR-061: Use tiled Q4K kernels for better performance (128 threads vs 32)
-        let outputs_per_block = 4;
+        // PAR-065: Use Coalesced Q4K kernels for better bandwidth (vectorized loads)
 
-        // Tiled Q4K GEMV for Q (hidden_dim -> q_dim)
-        let q4k_q_key = format!(
-            "tiled_q4k_gemv_{}_{}_{}",
-            hidden_dim, q_dim, outputs_per_block
-        );
+        // PAR-065: Coalesced Q4K GEMV for Q (hidden_dim -> q_dim)
+        // Five-Whys root cause: TiledQ4KGemv uses single-byte loads (6% bandwidth)
+        // CoalescedQ4KGemv uses vectorized u32 loads + warp shuffles (27% speedup)
+        let q4k_q_key = format!("coalesced_q4k_gemv_{}_{}", hidden_dim, q_dim);
         if !self.modules.contains_key(&q4k_q_key) {
-            let kernel_type = KernelType::TiledQ4KGemv {
+            let kernel_type = KernelType::CoalescedQ4KGemv {
                 k: hidden_dim,
                 n: q_dim,
-                outputs_per_block,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
             let module = CudaModule::from_ptx(&self.context, &ptx)?;
             self.modules.insert(q4k_q_key, module);
         }
 
-        // Tiled Q4K GEMV for K/V (hidden_dim -> kv_dim)
-        let q4k_kv_key = format!(
-            "tiled_q4k_gemv_{}_{}_{}",
-            hidden_dim, kv_dim, outputs_per_block
-        );
+        // PAR-065: Coalesced Q4K GEMV for K/V (hidden_dim -> kv_dim)
+        let q4k_kv_key = format!("coalesced_q4k_gemv_{}_{}", hidden_dim, kv_dim);
         if !self.modules.contains_key(&q4k_kv_key) {
-            let kernel_type = KernelType::TiledQ4KGemv {
+            let kernel_type = KernelType::CoalescedQ4KGemv {
                 k: hidden_dim,
                 n: kv_dim,
-                outputs_per_block,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
             let module = CudaModule::from_ptx(&self.context, &ptx)?;
@@ -8224,16 +8219,12 @@ impl CudaExecutor {
             self.modules.insert(q8_0_kv_key, module);
         }
 
-        // 3. Output projection (q_dim -> hidden_dim) - Tiled Q4K
-        let q4k_o_key = format!(
-            "tiled_q4k_gemv_{}_{}_{}",
-            q_dim, hidden_dim, outputs_per_block
-        );
+        // 3. Output projection (q_dim -> hidden_dim) - PAR-065: Coalesced Q4K
+        let q4k_o_key = format!("coalesced_q4k_gemv_{}_{}", q_dim, hidden_dim);
         if !self.modules.contains_key(&q4k_o_key) {
-            let kernel_type = KernelType::TiledQ4KGemv {
+            let kernel_type = KernelType::CoalescedQ4KGemv {
                 k: q_dim,
                 n: hidden_dim,
-                outputs_per_block,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
             let module = CudaModule::from_ptx(&self.context, &ptx)?;
@@ -8241,54 +8232,39 @@ impl CudaExecutor {
         }
 
         // 4. FFN GEMV kernels (gate/up: hidden->intermediate, down: intermediate->hidden)
-        // Tiled Q4K for FFN gate/up (K=hidden_dim typically <= 10K)
-        let q4k_up_key = format!(
-            "tiled_q4k_gemv_{}_{}_{}",
-            hidden_dim, intermediate_dim, outputs_per_block
-        );
+        // PAR-065: Coalesced Q4K for FFN gate/up
+        let q4k_up_key = format!("coalesced_q4k_gemv_{}_{}", hidden_dim, intermediate_dim);
         if !self.modules.contains_key(&q4k_up_key) {
-            let kernel_type = KernelType::TiledQ4KGemv {
+            let kernel_type = KernelType::CoalescedQ4KGemv {
                 k: hidden_dim,
                 n: intermediate_dim,
-                outputs_per_block,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
             let module = CudaModule::from_ptx(&self.context, &ptx)?;
             self.modules.insert(q4k_up_key, module);
         }
-        // Tiled Q4K for FFN down (K=intermediate_dim)
-        // PAR-061-FIX: Skip TiledQ4KGemv for K > 8192 (shared memory = K * 4 > 32 KB)
-        // The tiled kernel needs K * 4 bytes shared memory; for K=18944 (7B) that's 74 KB,
-        // exceeding the default 48 KB limit and causing CUDA_ERROR_INVALID_PTX (code 218).
-        const SHARED_MEM_THRESHOLD: u32 = 8192; // K * 4 = 32 KB at threshold
-        if intermediate_dim <= SHARED_MEM_THRESHOLD {
-            let q4k_down_key = format!(
-                "tiled_q4k_gemv_{}_{}_{}",
-                intermediate_dim, hidden_dim, outputs_per_block
-            );
-            if !self.modules.contains_key(&q4k_down_key) {
-                let kernel_type = KernelType::TiledQ4KGemv {
-                    k: intermediate_dim,
-                    n: hidden_dim,
-                    outputs_per_block,
-                };
-                let ptx = self.kernels.generate_ptx(&kernel_type);
-                let module = CudaModule::from_ptx(&self.context, &ptx)?;
-                self.modules.insert(q4k_down_key, module);
-            }
+        // PAR-065: Coalesced Q4K for FFN down (K=intermediate_dim)
+        // CoalescedQ4KGemv doesn't have the shared memory limitation of TiledQ4KGemv
+        let q4k_down_key = format!("coalesced_q4k_gemv_{}_{}", intermediate_dim, hidden_dim);
+        if !self.modules.contains_key(&q4k_down_key) {
+            let kernel_type = KernelType::CoalescedQ4KGemv {
+                k: intermediate_dim,
+                n: hidden_dim,
+            };
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(q4k_down_key, module);
         }
-        // Pre-load basic Q4K for large intermediate_dim (> 8192) or as fallback
-        if intermediate_dim > SHARED_MEM_THRESHOLD {
-            let q4k_down_fallback_key = format!("q4k_gemv_{}_{}", intermediate_dim, hidden_dim);
-            if !self.modules.contains_key(&q4k_down_fallback_key) {
-                let kernel_type = KernelType::Q4KGemv {
-                    k: intermediate_dim,
-                    n: hidden_dim,
-                };
-                let ptx = self.kernels.generate_ptx(&kernel_type);
-                let module = CudaModule::from_ptx(&self.context, &ptx)?;
-                self.modules.insert(q4k_down_fallback_key, module);
-            }
+        // Pre-load basic Q4K as fallback for non-256-aligned dimensions
+        let q4k_down_fallback_key = format!("q4k_gemv_{}_{}", intermediate_dim, hidden_dim);
+        if !self.modules.contains_key(&q4k_down_fallback_key) {
+            let kernel_type = KernelType::Q4KGemv {
+                k: intermediate_dim,
+                n: hidden_dim,
+            };
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(q4k_down_fallback_key, module);
         }
 
         // Q6K FFN (some models use Q6K for FFN down)
@@ -8305,16 +8281,12 @@ impl CudaExecutor {
 
         // 5. LM head (hidden_dim -> vocab_size) - pre-load both Q4K and Q6K
         // PAR-058-FIX: Qwen 1.5B uses Q6K for LM head, not Q4K
-        // PAR-061: Tiled Q4K for LM head (hidden_dim typically <= 10K)
-        let lm_head_q4k_key = format!(
-            "tiled_q4k_gemv_{}_{}_{}",
-            hidden_dim, vocab_size, outputs_per_block
-        );
+        // PAR-065: Coalesced Q4K for LM head
+        let lm_head_q4k_key = format!("coalesced_q4k_gemv_{}_{}", hidden_dim, vocab_size);
         if !self.modules.contains_key(&lm_head_q4k_key) {
-            let kernel_type = KernelType::TiledQ4KGemv {
+            let kernel_type = KernelType::CoalescedQ4KGemv {
                 k: hidden_dim,
                 n: vocab_size,
-                outputs_per_block,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
             let module = CudaModule::from_ptx(&self.context, &ptx)?;
