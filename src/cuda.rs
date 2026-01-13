@@ -6207,6 +6207,69 @@ impl CudaExecutor {
         Ok(output)
     }
 
+    /// PAR-075: Fused Residual Add + RMSNorm into pre-allocated buffer
+    ///
+    /// Computes: output = rmsnorm(residual + input, gamma, epsilon)
+    /// Fuses residual add and normalization to reduce memory bandwidth.
+    /// Uses pre-allocated output buffer to eliminate allocation.
+    ///
+    /// NOTE: input == output is safe for this kernel due to:
+    /// 1. Single-warp execution (lockstep within warp)
+    /// 2. Each thread handles disjoint elements
+    /// 3. Read before write per element per thread
+    pub fn fused_residual_rmsnorm_into(
+        &mut self,
+        residual: &GpuBuffer<f32>,
+        input: &GpuBuffer<f32>,
+        gamma_ptr: usize, // Raw device pointer to gamma weights
+        output: &GpuBuffer<f32>,
+        hidden_size: u32,
+        epsilon: f32,
+    ) -> Result<(), GpuError> {
+        let kernel_type = KernelType::FusedResidualRmsNorm {
+            hidden_size,
+            epsilon,
+        };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("fused_residual_rmsnorm_{}", hidden_size);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // Fused kernel uses one warp (32 threads)
+        let config = LaunchConfig::grid_2d(1, 1, 32, 1);
+
+        let mut ptr_residual = residual.as_ptr();
+        let mut ptr_input = input.as_ptr();
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_gamma = gamma_ptr;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_residual) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_gamma) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        // PAR-075: NO sync - async operation for pipeline
+        Ok(())
+    }
+
     // =========================================================================
     // PAR-023: Activation and Element-wise GPU Operations
     // =========================================================================
@@ -10004,6 +10067,7 @@ impl CudaExecutor {
         // 5. First residual: input + projected -> input_staging (PAR-044 FIX)
         // NOTE: Using input_staging instead of hidden_buf2 to avoid read/write conflict
         // when input IS hidden_buf2 (layers 1+)
+        // PAR-075: Cannot fuse with RmsNorm2 because we need input_staging for second residual
         let timer_res1 = if profiling {
             self.start_brick_timer("Residual1")
         } else {
