@@ -7310,6 +7310,80 @@ impl CudaExecutor {
         Ok(())
     }
 
+    /// PAR-095: Tensor Core Q4K GEMM with CPU input/output
+    ///
+    /// Batched forward pass for speculative decode verification.
+    /// Input and output are CPU slices; computation uses GPU-resident Q4K weights.
+    ///
+    /// # Arguments
+    /// * `weight_name` - Name of cached Q4K weight
+    /// * `input` - Input activations [M, K] in FP32 (converted to FP16 on GPU)
+    /// * `output` - Output buffer [M, N] in FP32
+    /// * `m` - Batch size (number of tokens)
+    /// * `k` - Input dimension (must be multiple of 256)
+    /// * `n` - Output dimension
+    ///
+    /// # Errors
+    /// Returns error if weight not cached or kernel launch fails
+    #[allow(clippy::too_many_arguments)]
+    pub fn tensor_core_q4k_gemm_cached(
+        &mut self,
+        weight_name: &str,
+        input: &[f32],
+        output: &mut [f32],
+        m: u32,
+        k: u32,
+        n: u32,
+    ) -> Result<(), GpuError> {
+        // Validate dimensions
+        let expected_input = (m as usize) * (k as usize);
+        let expected_output = (m as usize) * (n as usize);
+
+        if input.len() != expected_input {
+            return Err(GpuError::InvalidLaunchConfig(format!(
+                "PAR-095: Input size {} != expected M*K = {}*{} = {}",
+                input.len(),
+                m,
+                k,
+                expected_input
+            )));
+        }
+        if output.len() != expected_output {
+            return Err(GpuError::InvalidLaunchConfig(format!(
+                "PAR-095: Output size {} != expected M*N = {}*{} = {}",
+                output.len(),
+                m,
+                n,
+                expected_output
+            )));
+        }
+
+        // Get cached weight buffer
+        let _weight_ptr = self
+            .quantized_weight_cache
+            .get(weight_name)
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "PAR-095: Quantized weight '{}' not cached for batched GEMM",
+                    weight_name
+                ))
+            })?
+            .as_ptr();
+
+        // Upload input to GPU
+        let input_buf = GpuBuffer::from_host(&self.context, input)?;
+        let output_buf = GpuBuffer::alloc(&self.context, expected_output)?;
+
+        // Execute kernel
+        self.tensor_core_q4k_gemm(weight_name, &input_buf, &output_buf, m, k, n)?;
+
+        // Sync and download output
+        self.stream.synchronize()?;
+        output_buf.copy_to_host(output)?;
+
+        Ok(())
+    }
+
     /// PAR-014: Fused FFN on GPU (up + GELU + down in single GPU round-trip)
     ///
     /// Reduces 2 GPU round-trips to 1 by keeping intermediate FFN hidden state on GPU.
