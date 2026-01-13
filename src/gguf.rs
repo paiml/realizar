@@ -4414,6 +4414,8 @@ impl<'a> QuantizedGGUFTransformer<'a> {
 /// Buffer layout optimized for sequential access pattern:
 /// - First use: hidden → normed → qkv → q/k/v → attn_out
 /// - FFN pass: normed → ffn_up/ffn_gate → ffn_down → hidden
+///
+/// PAR-126: Added Q8K scratch buffers for VNNI-accelerated Q4K×Q8K matmul path.
 #[derive(Debug)]
 pub struct InferenceScratchBuffer {
     /// Hidden state buffer [hidden_dim]
@@ -4440,6 +4442,15 @@ pub struct InferenceScratchBuffer {
     pub ffn_down: Vec<f32>,
     /// Output logits [vocab_size]
     pub logits: Vec<f32>,
+    // PAR-126: Q8K scratch buffers for VNNI-accelerated matmul
+    /// Q8K scales for hidden-dim activations [hidden_dim/256]
+    pub q8k_hidden_scales: Vec<f32>,
+    /// Q8K quants for hidden-dim activations [hidden_dim]
+    pub q8k_hidden_quants: Vec<i8>,
+    /// Q8K scales for intermediate-dim activations [intermediate_dim/256]
+    pub q8k_inter_scales: Vec<f32>,
+    /// Q8K quants for intermediate-dim activations [intermediate_dim]
+    pub q8k_inter_quants: Vec<i8>,
 }
 
 impl InferenceScratchBuffer {
@@ -4454,6 +4465,11 @@ impl InferenceScratchBuffer {
         let vocab_size = config.vocab_size;
         let qkv_dim = hidden_dim * 3; // Max for fused QKV
 
+        // PAR-126: Q8K uses 256-element super-blocks for VNNI path
+        const QK_K: usize = 256;
+        let q8k_hidden_padded = hidden_dim.div_ceil(QK_K) * QK_K;
+        let q8k_inter_padded = intermediate_dim.div_ceil(QK_K) * QK_K;
+
         Self {
             hidden: vec![0.0; hidden_dim],
             normed: vec![0.0; hidden_dim],
@@ -4467,6 +4483,11 @@ impl InferenceScratchBuffer {
             ffn_gate: vec![0.0; intermediate_dim],
             ffn_down: vec![0.0; hidden_dim],
             logits: vec![0.0; vocab_size],
+            // PAR-126: Q8K scratch for VNNI-accelerated matmul
+            q8k_hidden_scales: vec![0.0f32; q8k_hidden_padded / QK_K],
+            q8k_hidden_quants: vec![0i8; q8k_hidden_padded],
+            q8k_inter_scales: vec![0.0f32; q8k_inter_padded / QK_K],
+            q8k_inter_quants: vec![0i8; q8k_inter_padded],
         }
     }
 
@@ -10312,6 +10333,77 @@ impl OwnedQuantizedModel {
                 Ok(())
             },
         }
+    }
+
+    /// PAR-126: Q8K-accelerated fused matmul using VNNI instructions
+    ///
+    /// This variant quantizes f32 activations to Q8K format and uses the
+    /// AVX-512 VNNI path which is ~30% faster than AVX2 for Q4K weights.
+    ///
+    /// # Arguments
+    /// * `input` - f32 activations [in_dim]
+    /// * `weight` - Q4K quantized weight tensor
+    /// * `output` - Pre-allocated output buffer [out_dim]
+    /// * `q8k_scales` - Pre-allocated Q8K scales scratch [in_dim/256]
+    /// * `q8k_quants` - Pre-allocated Q8K quants scratch [in_dim padded to 256]
+    fn fused_matmul_q8k_into(
+        &self,
+        input: &[f32],
+        weight: &OwnedQuantizedTensor,
+        output: &mut [f32],
+        q8k_scales: &mut [f32],
+        q8k_quants: &mut [i8],
+    ) -> Result<()> {
+        use crate::quantize::{fused_q4k_q8k_parallel_matvec_into, quantize_activations_q8k_into};
+
+        let in_dim = weight.in_dim;
+        let out_dim = weight.out_dim;
+        let seq_len = input.len() / in_dim;
+
+        // Only support single-token case for now (most common in generation)
+        if seq_len != 1 {
+            // Fall back to allocating version for batch
+            let result = self.fused_matmul(input, weight)?;
+            output[..result.len()].copy_from_slice(&result);
+            return Ok(());
+        }
+
+        // Only use Q8K path for Q4K weights (has VNNI optimization)
+        if weight.qtype != GGUF_TYPE_Q4_K {
+            return self.fused_matmul_into(input, weight, output);
+        }
+
+        // Pad input if needed for Q8K (256-element super-blocks)
+        let padded_len = in_dim.next_multiple_of(256);
+        let num_sb = padded_len / 256;
+
+        // Ensure scratch buffers are large enough
+        if q8k_scales.len() < num_sb || q8k_quants.len() < padded_len {
+            // Scratch too small, fall back to allocating version
+            return self.fused_matmul_into(input, weight, output);
+        }
+
+        // Quantize activations to Q8K format using scratch buffers
+        if in_dim < padded_len {
+            // Need to pad - copy input and zero-pad
+            q8k_quants[in_dim..padded_len].iter_mut().for_each(|x| *x = 0);
+            // Create temporary padded buffer (small allocation for edge case)
+            let mut padded = vec![0.0f32; padded_len];
+            padded[..in_dim].copy_from_slice(input);
+            quantize_activations_q8k_into(&padded, &mut q8k_scales[..num_sb], &mut q8k_quants[..padded_len])?;
+        } else {
+            quantize_activations_q8k_into(&input[..padded_len], &mut q8k_scales[..num_sb], &mut q8k_quants[..padded_len])?;
+        }
+
+        // Use VNNI-accelerated Q4K×Q8K path
+        fused_q4k_q8k_parallel_matvec_into(
+            &weight.data,
+            &q8k_scales[..num_sb],
+            &q8k_quants[..padded_len],
+            in_dim,
+            out_dim,
+            &mut output[..out_dim],
+        )
     }
 
     /// QKV projection supporting both fused (phi-2) and separate (llama) formats
@@ -21285,6 +21377,10 @@ impl OwnedQuantizedKVCache {
 ///
 /// Eliminates per-token allocations by reusing buffers across forward passes.
 /// For Qwen2.5-0.5B with intermediate_dim=4864, this saves ~40KB per token.
+///
+/// PAR-126: Added Q8K scratch buffers for fused Q4K×Q8K matmul path.
+/// Q8K uses 256-element super-blocks vs Q8_0's 32-element blocks.
+/// This enables VNNI instruction path which is 30% faster than AVX2.
 #[derive(Debug)]
 pub struct OwnedInferenceScratchBuffer {
     /// QKV output buffer [hidden_dim + 2*kv_dim]
@@ -21305,6 +21401,15 @@ pub struct OwnedInferenceScratchBuffer {
     pub q8_scales: Vec<f32>,
     /// Q8 quantization values scratch [num_blocks * 32]
     pub q8_quants: Vec<i8>,
+    // PAR-126: Q8K scratch buffers for VNNI-accelerated matmul
+    /// Q8K scales for hidden-dim activations [hidden_dim/256]
+    pub q8k_hidden_scales: Vec<f32>,
+    /// Q8K quants for hidden-dim activations [hidden_dim]
+    pub q8k_hidden_quants: Vec<i8>,
+    /// Q8K scales for intermediate-dim activations [intermediate_dim/256]
+    pub q8k_inter_scales: Vec<f32>,
+    /// Q8K quants for intermediate-dim activations [intermediate_dim]
+    pub q8k_inter_quants: Vec<i8>,
 }
 
 impl OwnedInferenceScratchBuffer {
@@ -21321,6 +21426,11 @@ impl OwnedInferenceScratchBuffer {
                                                // Q8 quantization uses 32-element blocks
         let num_blocks = hidden_dim.div_ceil(32);
 
+        // PAR-126: Q8K uses 256-element super-blocks for VNNI path
+        const QK_K: usize = 256;
+        let q8k_hidden_padded = hidden_dim.div_ceil(QK_K) * QK_K;
+        let q8k_inter_padded = intermediate_dim.div_ceil(QK_K) * QK_K;
+
         Self {
             qkv: vec![0.0f32; qkv_dim],
             attn_out: vec![0.0f32; hidden_dim],
@@ -21331,6 +21441,11 @@ impl OwnedInferenceScratchBuffer {
             logits: vec![0.0f32; config.vocab_size],
             q8_scales: vec![0.0f32; num_blocks],
             q8_quants: vec![0i8; num_blocks * 32],
+            // PAR-126: Q8K scratch for VNNI-accelerated matmul
+            q8k_hidden_scales: vec![0.0f32; q8k_hidden_padded / QK_K],
+            q8k_hidden_quants: vec![0i8; q8k_hidden_padded],
+            q8k_inter_scales: vec![0.0f32; q8k_inter_padded / QK_K],
+            q8k_inter_quants: vec![0i8; q8k_inter_padded],
         }
     }
 
@@ -21346,6 +21461,11 @@ impl OwnedInferenceScratchBuffer {
         self.logits.clear();
         self.q8_scales.clear();
         self.q8_quants.clear();
+        // PAR-126: Q8K buffers
+        self.q8k_hidden_scales.clear();
+        self.q8k_hidden_quants.clear();
+        self.q8k_inter_scales.clear();
+        self.q8k_inter_quants.clear();
     }
 }
 
