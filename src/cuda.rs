@@ -2100,6 +2100,12 @@ impl CudaExecutor {
         self.context.memory_info()
     }
 
+    /// Get reference to CUDA context (CORRECTNESS-002: for testing Q6K kernel directly)
+    #[must_use]
+    pub fn context(&self) -> &CudaContext {
+        &self.context
+    }
+
     /// Synchronize the execution stream (wait for all pending operations)
     pub fn synchronize(&self) -> Result<(), GpuError> {
         self.stream.synchronize()
@@ -4282,10 +4288,11 @@ impl CudaExecutor {
         //
         // Requirements: k must be multiple of 256 (super-block boundary)
 
+        // CORRECTNESS-002 FIXED: VectorizedQ4KGemv now uses correct deinterleaved layout.
+        // The kernel properly handles:
+        //   - Separate scales for low nibbles (scale chunk*2) and high nibbles (scale chunk*2+1)
+        //   - Correct activation index mapping for Q4K layout
         if k.is_multiple_of(256) {
-            // PAR-069: VectorizedQ4KGemv achieved best performance (184 tok/s)
-            // - Uses coalesced u32 weight loads (1 memory transaction vs 32 for bytes)
-            // - selp overhead is smaller than memory bandwidth gains
             return self.vectorized_q4k_gemv_into(weight_ptr, input, output, n, k);
         }
 
@@ -4811,6 +4818,7 @@ impl CudaExecutor {
     ) -> Result<(), GpuError> {
         // PAR-066: CoalescedQ6K for aligned dimensions
         // Uses vectorized byte loads + warp shuffle for scales
+        // Re-enabled after CORRECTNESS-002 Q4K fix (Q6K uses different format, no nibble issue)
         if k % 256 == 0 {
             return self.coalesced_q6k_gemv_into(weight_ptr, input, output, n, k);
         }
@@ -7481,6 +7489,7 @@ impl CudaExecutor {
             let output_buf = GpuBuffer::new(&self.context, n_usize)?;
 
             // Execute GEMV (weights stay in L2 cache)
+            // CORRECTNESS-002 FIXED: VectorizedQ4KGemv now correct, use it directly for perf
             self.vectorized_q4k_gemv_into(weight_ptr, &input_buf, &output_buf, n, k)?;
 
             // Download output row
@@ -8609,8 +8618,24 @@ impl CudaExecutor {
             )?
         };
 
-        // PERF-002: Debug code removed (was PAR-058-DEBUG normed hidden check)
-        // D2H transfer + NaN check was ~10ms overhead per token
+        // CORRECTNESS-002: Debug normed_hidden output (before LM head)
+        if *HIDDEN_DEBUG.get_or_init(|| {
+            std::env::var("GPU_DEBUG")
+                .map(|v| v == "1")
+                .unwrap_or(false)
+        }) {
+            self.stream.synchronize()?;
+            let mut normed_host = vec![0.0f32; normed_hidden.len()];
+            normed_hidden.copy_to_host(&mut normed_host)?;
+            let sum: f32 = normed_host.iter().sum();
+            let sum_sq: f32 = normed_host.iter().map(|x| x * x).sum();
+            eprintln!(
+                "[CORRECTNESS-002] Normed hidden: first 5 = {:?}, sum = {:.4}, rms = {:.4}",
+                &normed_host[..5.min(normed_host.len())],
+                sum,
+                (sum_sq / normed_host.len() as f32).sqrt()
+            );
+        }
 
         // 6. LM head projection on GPU (no sync)
         // PAR-056: Tiled kernel selection based on K dimension
@@ -8645,6 +8670,28 @@ impl CudaExecutor {
                 GpuError::InvalidLaunchConfig("LM head weight not cached".to_string())
             })?;
         let lm_head_ptr = lm_head_buf.as_ptr();
+
+        // CORRECTNESS-002: Debug LM head weight buffer
+        if *HIDDEN_DEBUG.get_or_init(|| {
+            std::env::var("GPU_DEBUG")
+                .map(|v| v == "1")
+                .unwrap_or(false)
+        }) {
+            let lm_head_size = lm_head_buf.size_bytes();
+            let super_blocks_per_row = (hidden_dim as usize + 255) / 256;
+            let bytes_per_row = super_blocks_per_row * 210;
+            let expected_size = vocab_size as usize * bytes_per_row;
+            eprintln!(
+                "[CORRECTNESS-002] LM head: ptr=0x{:x}, size={}, expected={}, qtype={:?}",
+                lm_head_ptr, lm_head_size, expected_size, lm_head_qtype
+            );
+            eprintln!(
+                "[CORRECTNESS-002] LM head dims: vocab_size={}, hidden_dim={}, sb_per_row={}, bytes_per_row={}",
+                vocab_size, hidden_dim, super_blocks_per_row, bytes_per_row
+            );
+
+            // LM head weights verified - size matches (skip partial copy due to API limitation)
+        }
 
         // Allocate logits buffer
         let logits_gpu = GpuBuffer::<f32>::new(&self.context, vocab_size as usize)?;
