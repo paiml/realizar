@@ -57,8 +57,9 @@ use trueno_gpu::kernels::{
     LayerNormKernel, MultiWarpIncrementalAttentionKernel, PackedDp4aQ4KQ8Kernel, Q4KGemvKernel,
     Q4KQ8DotKernel, Q4_0GemvKernel, Q4_1GemvKernel, Q5KGemvKernel, Q5KKernel, Q5_0GemvKernel,
     Q6KGemvKernel, Q6KKernel, Q8QuantizeKernel, Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel,
-    RmsNormKernel, RopeIndirectKernel, RopeKernel, SiluKernel, SoftmaxKernel, TiledQ4KGemvKernel,
-    TrueDp4aQ4KGemvKernel, VectorizedQ4KGemvKernel, VectorizedRmsNormKernel,
+    RmsNormKernel, RopeIndirectKernel, RopeKernel, SiluKernel, SoftmaxKernel,
+    TensorCoreQ4KGemmKernel, TiledQ4KGemvKernel, TrueDp4aQ4KGemvKernel, VectorizedQ4KGemvKernel,
+    VectorizedRmsNormKernel,
 };
 use trueno_gpu::GpuError;
 
@@ -341,6 +342,17 @@ pub enum KernelType {
     },
     /// PAR-063-V3: True DP4A Q4K GEMV with proper nibble expansion
     TrueDp4aQ4KGemv {
+        /// Input dimension (K, must be multiple of 256)
+        k: u32,
+        /// Output dimension (N)
+        n: u32,
+    },
+    /// PAR-094: Tensor Core Q4K GEMM for batched speculative decode
+    /// Enables M>1 batched forward pass with fused dequant+GEMM
+    /// Target: 8x speedup over GEMV for M≥16 speculative tokens
+    TensorCoreQ4KGemm {
+        /// Batch size (M) - number of tokens to process in parallel
+        m: u32,
         /// Input dimension (K, must be multiple of 256)
         k: u32,
         /// Output dimension (N)
@@ -892,6 +904,10 @@ impl CudaKernels {
             } => RopeIndirectKernel::new(*num_heads, *head_dim, *theta).emit_ptx(),
             // PAR-063-V3: True DP4A Q4K GEMV with proper nibble expansion
             KernelType::TrueDp4aQ4KGemv { k, n } => TrueDp4aQ4KGemvKernel::new(*k, *n).emit_ptx(),
+            // PAR-094: Tensor Core Q4K GEMM for batched speculative decode
+            KernelType::TensorCoreQ4KGemm { m, k, n } => {
+                TensorCoreQ4KGemmKernel::new(*m, *k, *n).emit_ptx()
+            },
             // PAR-063-V4: Q8 Quantization kernel for activations (f32 → Q8_1)
             KernelType::Q8Quantize { n } => Q8QuantizeKernel { n: *n }.emit_ptx(),
             // PAR-063-V5: Q4K × Q8 dot product using integer arithmetic
@@ -1026,6 +1042,8 @@ impl CudaKernels {
             KernelType::RopeIndirect { .. } => "rope_indirect",
             // PAR-063-V3: True DP4A Q4K GEMV
             KernelType::TrueDp4aQ4KGemv { .. } => "true_dp4a_q4k_gemv",
+            // PAR-094: Tensor Core Q4K GEMM for batched speculative decode
+            KernelType::TensorCoreQ4KGemm { .. } => "tensor_core_q4k_gemm",
             // PAR-063-V4: Q8 Quantization kernel
             KernelType::Q8Quantize { .. } => "q8_quantize",
             // PAR-063-V5: Q4K × Q8 dot product
@@ -7207,6 +7225,83 @@ impl CudaExecutor {
                     std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
                     std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
                     std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        // No sync - caller can batch operations
+        Ok(())
+    }
+
+    /// PAR-094: Tensor Core Q4K GEMM for batched speculative decode
+    ///
+    /// Enables M>1 batched forward pass with fused dequant+GEMM using tensor cores.
+    /// Target: 8x speedup over GEMV for M≥16 speculative tokens.
+    ///
+    /// # Arguments
+    /// * `weight_name` - Name of cached Q4K weight
+    /// * `input` - Input activations [M, K] in FP16
+    /// * `output` - Output buffer [M, N] in FP16
+    /// * `m` - Batch size (number of tokens)
+    /// * `k` - Input dimension (must be multiple of 256)
+    /// * `n` - Output dimension
+    ///
+    /// # Errors
+    /// Returns error if weight not cached or kernel launch fails
+    #[allow(clippy::too_many_arguments)]
+    pub fn tensor_core_q4k_gemm(
+        &mut self,
+        weight_name: &str,
+        input: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        m: u32,
+        k: u32,
+        n: u32,
+    ) -> Result<(), GpuError> {
+        let weight_ptr = self
+            .quantized_weight_cache
+            .get(weight_name)
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "PAR-094: Quantized weight '{}' not cached for GEMM",
+                    weight_name
+                ))
+            })?
+            .as_ptr();
+
+        let kernel_type = KernelType::TensorCoreQ4KGemm { m, k, n };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("tc_q4k_gemm_{}_{}_{}", m, k, n);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // Grid: ceil(N/16) x ceil(M/16) blocks, 32 threads per block (1 warp for WMMA)
+        let grid_x = (n + 15) / 16;
+        let grid_y = (m + 15) / 16;
+        let config = LaunchConfig::grid_2d(grid_x, grid_y, 32, 1);
+
+        let mut ptr_input = input.as_ptr();
+        let mut ptr_weights = weight_ptr;
+        let mut ptr_output = output.as_ptr();
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
                 ],
             )?;
         }
