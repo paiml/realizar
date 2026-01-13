@@ -7384,6 +7384,96 @@ impl CudaExecutor {
         Ok(())
     }
 
+    /// PAR-096: Batched Q4K GEMV with L2 cache reuse
+    ///
+    /// Performs M sequential GEMVs using the same cached weights.
+    /// Weight data stays in L2 cache between rows, amortizing memory bandwidth.
+    /// This enables speculative decode verification without WMMA kernel complexity.
+    ///
+    /// # Arguments
+    /// * `weight_name` - Name of cached Q4K weight
+    /// * `input` - Input activations [M, K] in FP32
+    /// * `output` - Output buffer [M, N] in FP32
+    /// * `m` - Batch size (number of tokens)
+    /// * `k` - Input dimension (must be multiple of 256)
+    /// * `n` - Output dimension
+    ///
+    /// # Performance
+    /// Expected ~2-3x speedup over M separate calls due to L2 weight caching.
+    /// Weights (3MB per layer) fit in RTX 4090 L2 (72MB).
+    ///
+    /// # Errors
+    /// Returns error if weight not cached or kernel launch fails
+    #[allow(clippy::too_many_arguments)]
+    pub fn batched_q4k_gemv_cached(
+        &mut self,
+        weight_name: &str,
+        input: &[f32],
+        output: &mut [f32],
+        m: u32,
+        k: u32,
+        n: u32,
+    ) -> Result<(), GpuError> {
+        // Validate dimensions
+        let expected_input = (m as usize) * (k as usize);
+        let expected_output = (m as usize) * (n as usize);
+
+        if input.len() != expected_input {
+            return Err(GpuError::InvalidLaunchConfig(format!(
+                "PAR-096: Input size {} != expected M*K = {}*{} = {}",
+                input.len(),
+                m,
+                k,
+                expected_input
+            )));
+        }
+        if output.len() != expected_output {
+            return Err(GpuError::InvalidLaunchConfig(format!(
+                "PAR-096: Output size {} != expected M*N = {}*{} = {}",
+                output.len(),
+                m,
+                n,
+                expected_output
+            )));
+        }
+
+        // Get cached weight pointer
+        let weight_ptr = self
+            .quantized_weight_cache
+            .get(weight_name)
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "PAR-096: Quantized weight '{}' not cached for batched GEMV",
+                    weight_name
+                ))
+            })?
+            .as_ptr();
+
+        // Allocate GPU buffers for row-by-row processing
+        let k_usize = k as usize;
+        let n_usize = n as usize;
+
+        // Process each row with L2 cache reuse
+        for row in 0..m {
+            let row_usize = row as usize;
+            let input_row = &input[row_usize * k_usize..(row_usize + 1) * k_usize];
+            let output_row = &mut output[row_usize * n_usize..(row_usize + 1) * n_usize];
+
+            // Upload input row to GPU
+            let input_buf = GpuBuffer::from_host(&self.context, input_row)?;
+            let output_buf = GpuBuffer::new(&self.context, n_usize)?;
+
+            // Execute GEMV (weights stay in L2 cache)
+            self.vectorized_q4k_gemv_into(weight_ptr, &input_buf, &output_buf, n, k)?;
+
+            // Download output row
+            self.stream.synchronize()?;
+            output_buf.copy_to_host(output_row)?;
+        }
+
+        Ok(())
+    }
+
     /// PAR-014: Fused FFN on GPU (up + GELU + down in single GPU round-trip)
     ///
     /// Reduces 2 GPU round-trips to 1 by keeping intermediate FFN hidden state on GPU.

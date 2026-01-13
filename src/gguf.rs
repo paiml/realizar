@@ -16844,6 +16844,280 @@ impl OwnedQuantizedModelCuda {
         Ok(logits)
     }
 
+    /// PAR-096: Batched forward pass for speculative decode verification
+    ///
+    /// Processes M tokens in batch using L2 cache reuse for weight data.
+    /// Uses `batched_q4k_gemv_cached` for all linear projections.
+    ///
+    /// # Arguments
+    ///
+    /// * `token_ids` - Batch of input token IDs [M]
+    ///
+    /// # Returns
+    ///
+    /// Logits for all positions [M, vocab_size]
+    ///
+    /// # Performance
+    ///
+    /// Expected ~2-3x speedup over M sequential forward calls due to L2 caching.
+    /// Key for speculative decode verification where we verify k speculative tokens.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if CUDA operations fail or weights not pre-cached
+    pub fn forward_batch_cuda_native(&mut self, token_ids: &[u32]) -> Result<Vec<f32>> {
+        let batch_size = token_ids.len();
+        let hidden_dim = self.model.config.hidden_dim;
+        let vocab_size = self.model.config.vocab_size;
+
+        // 1. Token embedding lookup (CPU - fast enough)
+        let mut hidden = self.model.embed(token_ids);
+
+        // 2. Process through transformer layers using batched GEMV
+        for (layer_idx, layer) in self.model.layers.iter().enumerate() {
+            let prefix = format!("layer.{}", layer_idx);
+
+            // 2a. Pre-attention RMSNorm (CPU)
+            let normed = self.model.layer_norm(
+                &hidden,
+                &layer.attn_norm_weight,
+                layer.attn_norm_bias.as_deref(),
+                self.model.config.eps,
+            );
+
+            // 2b. QKV projection using batched GEMV
+            // Uses L2 cache reuse for weight data
+            let mut qkv = match &layer.qkv_weight {
+                OwnedQKVWeights::Separate { q, k, v } => {
+                    let q_name = format!("{}.attn_q.weight", prefix);
+                    let k_name = format!("{}.attn_k.weight", prefix);
+                    let v_name = format!("{}.attn_v.weight", prefix);
+
+                    let mut q_out = vec![0.0f32; batch_size * q.out_dim];
+                    let mut k_out = vec![0.0f32; batch_size * k.out_dim];
+                    let mut v_out = vec![0.0f32; batch_size * v.out_dim];
+
+                    self.executor
+                        .batched_q4k_gemv_cached(
+                            &q_name,
+                            &normed,
+                            &mut q_out,
+                            batch_size as u32,
+                            hidden_dim as u32,
+                            q.out_dim as u32,
+                        )
+                        .map_err(|e| RealizarError::UnsupportedOperation {
+                            operation: "forward_batch_cuda_native".to_string(),
+                            reason: format!("Q projection failed: {}", e),
+                        })?;
+
+                    self.executor
+                        .batched_q4k_gemv_cached(
+                            &k_name,
+                            &normed,
+                            &mut k_out,
+                            batch_size as u32,
+                            hidden_dim as u32,
+                            k.out_dim as u32,
+                        )
+                        .map_err(|e| RealizarError::UnsupportedOperation {
+                            operation: "forward_batch_cuda_native".to_string(),
+                            reason: format!("K projection failed: {}", e),
+                        })?;
+
+                    self.executor
+                        .batched_q4k_gemv_cached(
+                            &v_name,
+                            &normed,
+                            &mut v_out,
+                            batch_size as u32,
+                            hidden_dim as u32,
+                            v.out_dim as u32,
+                        )
+                        .map_err(|e| RealizarError::UnsupportedOperation {
+                            operation: "forward_batch_cuda_native".to_string(),
+                            reason: format!("V projection failed: {}", e),
+                        })?;
+
+                    // Interleave Q, K, V for each position
+                    let qkv_dim = q.out_dim + k.out_dim + v.out_dim;
+                    let mut qkv = vec![0.0f32; batch_size * qkv_dim];
+                    for b in 0..batch_size {
+                        let out_start = b * qkv_dim;
+                        qkv[out_start..out_start + q.out_dim]
+                            .copy_from_slice(&q_out[b * q.out_dim..(b + 1) * q.out_dim]);
+                        qkv[out_start + q.out_dim..out_start + q.out_dim + k.out_dim]
+                            .copy_from_slice(&k_out[b * k.out_dim..(b + 1) * k.out_dim]);
+                        qkv[out_start + q.out_dim + k.out_dim..out_start + qkv_dim]
+                            .copy_from_slice(&v_out[b * v.out_dim..(b + 1) * v.out_dim]);
+                    }
+                    qkv
+                },
+                OwnedQKVWeights::Fused(_) => {
+                    return Err(RealizarError::UnsupportedOperation {
+                        operation: "forward_batch_cuda_native".to_string(),
+                        reason: "Fused QKV not supported, use separate Q/K/V".to_string(),
+                    });
+                },
+            };
+
+            // Add QKV bias if present
+            if let Some(ref bias) = layer.qkv_bias {
+                for b in 0..batch_size {
+                    let qkv_dim = 3 * hidden_dim;
+                    let start = b * qkv_dim;
+                    for (i, b_val) in bias.iter().enumerate().take(qkv_dim) {
+                        qkv[start + i] += b_val;
+                    }
+                }
+            }
+
+            // 2c. Split Q, K, V and apply RoPE
+            let qkv_dim = qkv.len() / batch_size;
+            let mut q_all = Vec::with_capacity(batch_size * hidden_dim);
+            let mut k_all = Vec::with_capacity(batch_size * hidden_dim);
+            let mut v_all = Vec::with_capacity(batch_size * hidden_dim);
+
+            for s in 0..batch_size {
+                let qkv_start = s * qkv_dim;
+                let mut q = qkv[qkv_start..qkv_start + hidden_dim].to_vec();
+                let mut k = qkv[qkv_start + hidden_dim..qkv_start + 2 * hidden_dim].to_vec();
+                let v = &qkv[qkv_start + 2 * hidden_dim..qkv_start + 3 * hidden_dim];
+
+                self.model
+                    .apply_rope(&mut q, s, self.model.config.num_heads);
+                self.model
+                    .apply_rope(&mut k, s, self.model.config.num_heads);
+
+                q_all.extend_from_slice(&q);
+                k_all.extend_from_slice(&k);
+                v_all.extend_from_slice(v);
+            }
+
+            // 2d. Batched causal attention (CPU)
+            let attn_out = self
+                .model
+                .causal_attention(&q_all, &k_all, &v_all, batch_size);
+
+            // 2e. Output projection using batched GEMV
+            let o_name = format!("{}.attn_output.weight", prefix);
+            let mut attn_output = vec![0.0f32; batch_size * hidden_dim];
+            self.executor
+                .batched_q4k_gemv_cached(
+                    &o_name,
+                    &attn_out,
+                    &mut attn_output,
+                    batch_size as u32,
+                    hidden_dim as u32,
+                    hidden_dim as u32,
+                )
+                .map_err(|e| RealizarError::UnsupportedOperation {
+                    operation: "forward_batch_cuda_native".to_string(),
+                    reason: format!("O projection failed: {}", e),
+                })?;
+
+            // Add O bias if present
+            if let Some(ref bias) = layer.attn_output_bias {
+                for b in 0..batch_size {
+                    for (i, b_val) in bias.iter().enumerate().take(hidden_dim) {
+                        attn_output[b * hidden_dim + i] += b_val;
+                    }
+                }
+            }
+
+            // 2f. Residual connection
+            for i in 0..hidden.len() {
+                hidden[i] += attn_output[i];
+            }
+
+            // 2g. Pre-FFN RMSNorm (CPU)
+            let ffn_normed = self.model.layer_norm(
+                &hidden,
+                &layer.attn_norm_weight,
+                layer.attn_norm_bias.as_deref(),
+                self.model.config.eps,
+            );
+
+            // 2h. FFN up projection using batched GEMV
+            let up_name = format!("{}.ffn_up.weight", prefix);
+            let intermediate_dim = layer.ffn_up_weight.out_dim;
+            let mut ffn_hidden = vec![0.0f32; batch_size * intermediate_dim];
+            self.executor
+                .batched_q4k_gemv_cached(
+                    &up_name,
+                    &ffn_normed,
+                    &mut ffn_hidden,
+                    batch_size as u32,
+                    hidden_dim as u32,
+                    intermediate_dim as u32,
+                )
+                .map_err(|e| RealizarError::UnsupportedOperation {
+                    operation: "forward_batch_cuda_native".to_string(),
+                    reason: format!("FFN up projection failed: {}", e),
+                })?;
+
+            // 2i. GELU activation
+            self.model.gelu(&mut ffn_hidden);
+
+            // 2j. FFN down projection using batched GEMV
+            let down_name = format!("{}.ffn_down.weight", prefix);
+            let mut ffn_output = vec![0.0f32; batch_size * hidden_dim];
+            self.executor
+                .batched_q4k_gemv_cached(
+                    &down_name,
+                    &ffn_hidden,
+                    &mut ffn_output,
+                    batch_size as u32,
+                    intermediate_dim as u32,
+                    hidden_dim as u32,
+                )
+                .map_err(|e| RealizarError::UnsupportedOperation {
+                    operation: "forward_batch_cuda_native".to_string(),
+                    reason: format!("FFN down projection failed: {}", e),
+                })?;
+
+            // 2k. Residual connection
+            for i in 0..hidden.len() {
+                hidden[i] += ffn_output[i];
+            }
+        }
+
+        // 3. Final layer norm (CPU)
+        let normed = self.model.layer_norm(
+            &hidden,
+            &self.model.output_norm_weight,
+            self.model.output_norm_bias.as_deref(),
+            self.model.config.eps,
+        );
+
+        // 4. LM head projection using batched GEMV
+        let mut logits = vec![0.0f32; batch_size * vocab_size];
+        self.executor
+            .batched_q4k_gemv_cached(
+                "output.weight",
+                &normed,
+                &mut logits,
+                batch_size as u32,
+                hidden_dim as u32,
+                vocab_size as u32,
+            )
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "forward_batch_cuda_native".to_string(),
+                reason: format!("LM head projection failed: {}", e),
+            })?;
+
+        // Add LM head bias if present
+        if let Some(ref bias) = self.model.lm_head_bias {
+            for b in 0..batch_size {
+                for (i, b_val) in bias.iter().enumerate().take(vocab_size) {
+                    logits[b * vocab_size + i] += b_val;
+                }
+            }
+        }
+
+        Ok(logits)
+    }
+
     /// Generate tokens using CUDA acceleration (IMP-800a)
     ///
     /// # Arguments
