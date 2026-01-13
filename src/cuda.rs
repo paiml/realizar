@@ -48,8 +48,9 @@ use trueno_gpu::driver::{
     GpuBuffer, LaunchConfig,
 };
 use trueno_gpu::kernels::{
-    Activation, ArgMaxFinalKernel, ArgMaxKernel, AttentionKernel, BatchedQ4KGemvKernel,
-    BatchedResidualAddKernel, BatchedRopeKernel, BatchedSwigluKernel, BatchedVectorizedRmsNormKernel,
+    Activation, ArgMaxFinalKernel, ArgMaxKernel, AttentionKernel, BatchedIncrementalAttentionKernel,
+    BatchedQ4KGemvKernel, BatchedResidualAddKernel, BatchedRopeKernel, BatchedSwigluKernel,
+    BatchedVectorizedRmsNormKernel,
     BiasActivationKernel, ChunkedTiledQ4KGemvKernel, CoalescedGemvKernel, CoalescedQ4KGemvKernel,
     CoalescedQ6KGemvKernel, Dp4aQ4KGemvKernel, Dp4aSIMDQ4KGemvKernel, ElementwiseMulKernel,
     Fp16Q4KGemvKernel, FusedGateUpKernel, FusedGateUpQ4KGemvKernel, FusedQKVKernel,
@@ -2008,6 +2009,21 @@ pub struct CudaExecutor {
     // PAR-061: Device-side seq_len buffer for attention in graph replay
     // Updated alongside position_buf (seq_len = position + 1)
     seq_len_buf: Option<GpuBuffer<u32>>,
+    // PAR-119: Batched KV caches for true multi-sequence batching
+    // Each layer has M separate KV caches (one per sequence in batch)
+    // Size per cache: M × num_kv_heads × max_len × head_dim
+    batched_kv_k_caches: HashMap<usize, GpuBuffer<f32>>,
+    batched_kv_v_caches: HashMap<usize, GpuBuffer<f32>>,
+    // PAR-119: Per-sequence cache lengths (all sequences share same length for now)
+    batched_kv_lengths: Vec<usize>,
+    // PAR-119: GPU pointer arrays for BatchedIncrementalAttentionKernel
+    batched_k_ptrs: Option<GpuBuffer<u64>>,
+    batched_v_ptrs: Option<GpuBuffer<u64>>,
+    batched_seq_lens_gpu: Option<GpuBuffer<u32>>,
+    // PAR-119: Stride for computing per-sequence pointers
+    batched_kv_stride: usize,
+    // PAR-119: Currently allocated batch size (for reallocation check)
+    batched_kv_allocated_batch: usize,
     // PAR-054: Stable input buffer for graph capture (same address every decode)
     graph_input_buf: Option<GpuBuffer<f32>>,
     // PAR-054: Token counter for graph capture (first decode captures, subsequent replay)
@@ -2083,6 +2099,15 @@ impl CudaExecutor {
             decode_graph: None,
             position_buf: None,
             seq_len_buf: None,
+            // PAR-119: Batched KV caches (lazy init in init_batched_kv_cache)
+            batched_kv_k_caches: HashMap::new(),
+            batched_kv_v_caches: HashMap::new(),
+            batched_kv_lengths: Vec::new(),
+            batched_k_ptrs: None,
+            batched_v_ptrs: None,
+            batched_seq_lens_gpu: None,
+            batched_kv_stride: 0,
+            batched_kv_allocated_batch: 0,
             graph_input_buf: None,
             decode_token_count: 0,
             // PAR-068: Pre-allocated argmax buffers (lazy init on first use)
@@ -12074,52 +12099,67 @@ impl CudaExecutor {
 
         std::mem::forget(positions_buf);
 
-        // ========== 4. Attention (M sequential calls - different KV caches) ==========
-        // NOTE: Attention cannot be batched because each sequence has different KV cache
-        for seq_idx in 0..m as usize {
-            let q_offset = seq_idx * q_dim as usize;
-            let kv_offset = seq_idx * kv_dim as usize;
-            let attn_offset = seq_idx * q_dim as usize;
-
-            let q_view = unsafe {
-                GpuBuffer::<f32>::from_raw_parts(
-                    q_buf_ptr + (q_offset * std::mem::size_of::<f32>()) as u64,
-                    q_dim as usize,
-                )
-            };
-            let k_view = unsafe {
-                GpuBuffer::<f32>::from_raw_parts(
-                    k_buf_ptr + (kv_offset * std::mem::size_of::<f32>()) as u64,
-                    kv_dim as usize,
-                )
-            };
-            let v_view = unsafe {
-                GpuBuffer::<f32>::from_raw_parts(
-                    v_buf_ptr + (kv_offset * std::mem::size_of::<f32>()) as u64,
-                    kv_dim as usize,
-                )
-            };
-            let attn_out_view = unsafe {
-                GpuBuffer::<f32>::from_raw_parts(
-                    attn_out_ptr + (attn_offset * std::mem::size_of::<f32>()) as u64,
-                    q_dim as usize,
-                )
-            };
-
-            // Use incremental attention with per-sequence KV cache
-            // layer_idx is shared, but KV cache scatter uses positions[seq_idx]
-            self.incremental_attention_into_for_capture(
+        // ========== 4. Attention ==========
+        // PAR-119: Use batched attention if batched KV caches are initialized
+        if self.batched_kv_stride > 0 && self.batched_kv_k_caches.contains_key(&layer_idx) {
+            // PAR-119: BATCHED attention - process all M sequences in parallel
+            // Reduces M × 3 kernel launches to 2M + 1 (scatter still sequential, attention batched)
+            self.batched_incremental_attention_into(
                 layer_idx,
-                &q_view,
-                &k_view,
-                &v_view,
-                &attn_out_view,
+                &q_buf,
+                &k_buf,
+                &v_buf,
+                &attn_out_buf,
+                m as usize,
+                positions,
             )?;
+        } else {
+            // Original sequential attention (M separate calls with shared KV cache)
+            // NOTE: This path is used when batched KV caches are NOT initialized
+            for seq_idx in 0..m as usize {
+                let q_offset = seq_idx * q_dim as usize;
+                let kv_offset = seq_idx * kv_dim as usize;
+                let attn_offset = seq_idx * q_dim as usize;
 
-            std::mem::forget(q_view);
-            std::mem::forget(k_view);
-            std::mem::forget(v_view);
-            std::mem::forget(attn_out_view);
+                let q_view = unsafe {
+                    GpuBuffer::<f32>::from_raw_parts(
+                        q_buf_ptr + (q_offset * std::mem::size_of::<f32>()) as u64,
+                        q_dim as usize,
+                    )
+                };
+                let k_view = unsafe {
+                    GpuBuffer::<f32>::from_raw_parts(
+                        k_buf_ptr + (kv_offset * std::mem::size_of::<f32>()) as u64,
+                        kv_dim as usize,
+                    )
+                };
+                let v_view = unsafe {
+                    GpuBuffer::<f32>::from_raw_parts(
+                        v_buf_ptr + (kv_offset * std::mem::size_of::<f32>()) as u64,
+                        kv_dim as usize,
+                    )
+                };
+                let attn_out_view = unsafe {
+                    GpuBuffer::<f32>::from_raw_parts(
+                        attn_out_ptr + (attn_offset * std::mem::size_of::<f32>()) as u64,
+                        q_dim as usize,
+                    )
+                };
+
+                // Use incremental attention with shared KV cache
+                self.incremental_attention_into_for_capture(
+                    layer_idx,
+                    &q_view,
+                    &k_view,
+                    &v_view,
+                    &attn_out_view,
+                )?;
+
+                std::mem::forget(q_view);
+                std::mem::forget(k_view);
+                std::mem::forget(v_view);
+                std::mem::forget(attn_out_view);
+            }
         }
 
         // ========== 5. Output Projection (BATCHED GEMV) ==========
@@ -12867,6 +12907,96 @@ impl CudaExecutor {
         self.memory_pool.record_allocation(total_bytes);
 
         Ok(())
+    }
+
+    /// PAR-119: Initialize batched KV caches for true multi-sequence batching
+    ///
+    /// Allocates M separate KV caches per layer, enabling parallel attention
+    /// across M sequences. This eliminates the sequential attention bottleneck
+    /// identified in Five-Whys analysis.
+    ///
+    /// Memory layout per layer:
+    /// - K cache: [M, num_kv_heads, max_len, head_dim]
+    /// - V cache: same
+    /// - Stride: num_kv_heads × max_len × head_dim (per sequence)
+    pub fn init_batched_kv_cache_gpu(
+        &mut self,
+        num_layers: usize,
+        batch_size: usize,
+    ) -> Result<(), GpuError> {
+        if batch_size == 0 || batch_size > 16 {
+            return Err(GpuError::InvalidParameter(format!(
+                "PAR-119: batch_size must be 1-16, got {}",
+                batch_size
+            )));
+        }
+
+        // Must have regular KV cache initialized first (to get dimensions)
+        if self.kv_cache_max_len == 0 {
+            return Err(GpuError::InvalidLaunchConfig(
+                "PAR-119: Must call init_kv_cache_gpu before init_batched_kv_cache_gpu".to_string(),
+            ));
+        }
+
+        let num_kv_heads = self.kv_num_kv_heads;
+        let head_dim = self.kv_head_dim;
+        let max_len = self.kv_cache_max_len;
+
+        // Per-sequence stride
+        let stride = num_kv_heads * max_len * head_dim;
+        self.batched_kv_stride = stride;
+
+        // M× larger buffer per layer
+        let buffer_size = batch_size * stride;
+
+        // PAR-119: Check if we need to reallocate (batch_size changed)
+        let need_realloc = batch_size > self.batched_kv_allocated_batch;
+        if need_realloc {
+            // Clear existing caches - they're too small
+            self.batched_kv_k_caches.clear();
+            self.batched_kv_v_caches.clear();
+        }
+
+        for layer_idx in 0..num_layers {
+            // Allocate if not already present or after realloc
+            if !self.batched_kv_k_caches.contains_key(&layer_idx) {
+                let k_buf = GpuBuffer::<f32>::new(&self.context, buffer_size)?;
+                let v_buf = GpuBuffer::<f32>::new(&self.context, buffer_size)?;
+                self.batched_kv_k_caches.insert(layer_idx, k_buf);
+                self.batched_kv_v_caches.insert(layer_idx, v_buf);
+            }
+        }
+
+        // Track allocated batch size
+        self.batched_kv_allocated_batch = batch_size;
+
+        // Initialize per-sequence lengths (all start at 0)
+        self.batched_kv_lengths = vec![0; batch_size];
+
+        // Allocate GPU pointer arrays for batched attention
+        self.batched_k_ptrs = Some(GpuBuffer::new(&self.context, batch_size)?);
+        self.batched_v_ptrs = Some(GpuBuffer::new(&self.context, batch_size)?);
+        self.batched_seq_lens_gpu = Some(GpuBuffer::new(&self.context, batch_size)?);
+
+        let total_bytes = num_layers * 2 * buffer_size * 4 + batch_size * 24; // caches + ptr arrays
+        self.memory_pool.record_allocation(total_bytes);
+
+        eprintln!(
+            "[PAR-119] Initialized batched KV cache: {} layers × {} sequences, stride={}, total={}MB",
+            num_layers,
+            batch_size,
+            stride,
+            total_bytes / (1024 * 1024)
+        );
+
+        Ok(())
+    }
+
+    /// PAR-119: Reset batched KV caches for new generation
+    pub fn reset_batched_kv_cache_gpu(&mut self) {
+        for len in &mut self.batched_kv_lengths {
+            *len = 0;
+        }
     }
 
     /// Clear KV cache for a new generation (reset sequence position to 0)
@@ -13879,6 +14009,231 @@ impl CudaExecutor {
 
         // PAR-051: NO sync here - caller continues pipeline
         Ok(new_len)
+    }
+
+    /// PAR-119: Batched incremental attention for M sequences in parallel
+    ///
+    /// This eliminates the sequential attention bottleneck by processing all M sequences
+    /// in a single kernel launch. Uses BatchedIncrementalAttentionKernel with pointer arrays
+    /// to access per-sequence KV caches.
+    ///
+    /// # Arguments
+    /// * `layer_idx` - Transformer layer index
+    /// * `q_batched` - Q projections [M, num_heads, head_dim]
+    /// * `k_batched` - K projections [M, num_kv_heads, head_dim]
+    /// * `v_batched` - V projections [M, num_kv_heads, head_dim]
+    /// * `out_batched` - Output buffer [M, num_heads, head_dim]
+    /// * `m` - Batch size (number of sequences)
+    /// * `positions` - Position for each sequence [M]
+    #[allow(clippy::too_many_arguments)]
+    pub fn batched_incremental_attention_into(
+        &mut self,
+        layer_idx: usize,
+        q_batched: &GpuBuffer<f32>,
+        k_batched: &GpuBuffer<f32>,
+        v_batched: &GpuBuffer<f32>,
+        out_batched: &GpuBuffer<f32>,
+        m: usize,
+        positions: &[u32],
+    ) -> Result<(), GpuError> {
+        let num_heads = self.kv_num_heads;
+        let num_kv_heads = self.kv_num_kv_heads;
+        let head_dim = self.kv_head_dim;
+        let max_len = self.kv_cache_max_len;
+        let stride = self.batched_kv_stride;
+
+        if stride == 0 {
+            return Err(GpuError::InvalidLaunchConfig(
+                "PAR-119: Batched KV cache not initialized (call init_batched_kv_cache_gpu first)".to_string(),
+            ));
+        }
+
+        // Get batched KV cache buffers for this layer
+        let k_cache = self.batched_kv_k_caches.get(&layer_idx).ok_or_else(|| {
+            GpuError::InvalidLaunchConfig(format!(
+                "PAR-119: Batched K cache not found for layer {}",
+                layer_idx
+            ))
+        })?;
+        let v_cache = self.batched_kv_v_caches.get(&layer_idx).ok_or_else(|| {
+            GpuError::InvalidLaunchConfig(format!(
+                "PAR-119: Batched V cache not found for layer {}",
+                layer_idx
+            ))
+        })?;
+
+        // Step 1: Scatter K/V to per-sequence caches
+        // For each sequence seq_idx, scatter to cache[seq_idx * stride + pos * head_dim * num_kv_heads]
+        let kv_dim = num_kv_heads * head_dim;
+        let scatter_config = LaunchConfig {
+            grid: (num_kv_heads as u32, 1, 1),
+            block: (head_dim as u32, 1, 1),
+            shared_mem: 0,
+        };
+
+        // Get or compile scatter kernel
+        let scatter_type = KernelType::KvCacheScatter {
+            num_kv_heads: num_kv_heads as u32,
+            head_dim: head_dim as u32,
+            max_len: max_len as u32,
+        };
+        let scatter_name = self.kernels.kernel_name(&scatter_type);
+        let scatter_key = format!("kv_scatter_{}_{}", num_kv_heads, head_dim);
+
+        if !self.modules.contains_key(&scatter_key) {
+            let scatter_ptx = self.kernels.generate_ptx(&scatter_type);
+            let module = CudaModule::from_ptx(&self.context, &scatter_ptx)?;
+            self.modules.insert(scatter_key.clone(), module);
+        }
+
+        // Scatter K and V for each sequence (still sequential, but now to separate caches)
+        for seq_idx in 0..m {
+            let pos = positions[seq_idx] as usize;
+
+            // Calculate source and destination pointers for this sequence
+            let k_src_offset = seq_idx * kv_dim;
+            let k_dst_offset = seq_idx * stride;
+            let k_src_ptr = k_batched.as_ptr() + (k_src_offset * std::mem::size_of::<f32>()) as u64;
+            let k_dst_ptr = k_cache.as_ptr() + (k_dst_offset * std::mem::size_of::<f32>()) as u64;
+
+            let mut k_src = k_src_ptr;
+            let mut k_dst = k_dst_ptr;
+            let mut pos_val = pos as u32;
+            let mut head_dim_val = head_dim as u32;
+            let mut max_len_val = max_len as u32;
+
+            let scatter_module = self.modules.get_mut(&scatter_key).expect("module exists");
+            unsafe {
+                self.compute_stream.launch_kernel(
+                    scatter_module,
+                    scatter_name,
+                    &scatter_config,
+                    &mut [
+                        std::ptr::from_mut(&mut k_src) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut k_dst) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut pos_val) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut head_dim_val) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut max_len_val) as *mut std::ffi::c_void,
+                    ],
+                )?;
+            }
+
+            // Scatter V
+            let v_src_offset = seq_idx * kv_dim;
+            let v_dst_offset = seq_idx * stride;
+            let v_src_ptr = v_batched.as_ptr() + (v_src_offset * std::mem::size_of::<f32>()) as u64;
+            let v_dst_ptr = v_cache.as_ptr() + (v_dst_offset * std::mem::size_of::<f32>()) as u64;
+
+            let mut v_src = v_src_ptr;
+            let mut v_dst = v_dst_ptr;
+
+            let scatter_module = self.modules.get_mut(&scatter_key).expect("module exists");
+            unsafe {
+                self.compute_stream.launch_kernel(
+                    scatter_module,
+                    scatter_name,
+                    &scatter_config,
+                    &mut [
+                        std::ptr::from_mut(&mut v_src) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut v_dst) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut pos_val) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut head_dim_val) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut max_len_val) as *mut std::ffi::c_void,
+                    ],
+                )?;
+            }
+        }
+
+        // Update per-sequence cache lengths
+        for seq_idx in 0..m {
+            let pos = positions[seq_idx] as usize;
+            if seq_idx < self.batched_kv_lengths.len() {
+                self.batched_kv_lengths[seq_idx] = pos + 1;
+            }
+        }
+
+        // Step 2: Build pointer arrays for batched attention
+        // Each pointer points to the start of that sequence's KV cache
+        let k_cache_base = k_cache.as_ptr();
+        let v_cache_base = v_cache.as_ptr();
+        let stride_bytes = (stride * std::mem::size_of::<f32>()) as u64;
+
+        let k_ptrs: Vec<u64> = (0..m)
+            .map(|seq_idx| k_cache_base + seq_idx as u64 * stride_bytes)
+            .collect();
+        let v_ptrs: Vec<u64> = (0..m)
+            .map(|seq_idx| v_cache_base + seq_idx as u64 * stride_bytes)
+            .collect();
+        let seq_lens: Vec<u32> = (0..m)
+            .map(|seq_idx| self.batched_kv_lengths.get(seq_idx).copied().unwrap_or(1) as u32)
+            .collect();
+
+        // Upload pointer arrays and sequence lengths to GPU
+        let k_ptrs_buf = self.batched_k_ptrs.as_mut().ok_or_else(|| {
+            GpuError::InvalidLaunchConfig("PAR-119: batched_k_ptrs not allocated".to_string())
+        })?;
+        let v_ptrs_buf = self.batched_v_ptrs.as_mut().ok_or_else(|| {
+            GpuError::InvalidLaunchConfig("PAR-119: batched_v_ptrs not allocated".to_string())
+        })?;
+        let seq_lens_buf = self.batched_seq_lens_gpu.as_mut().ok_or_else(|| {
+            GpuError::InvalidLaunchConfig("PAR-119: batched_seq_lens_gpu not allocated".to_string())
+        })?;
+
+        k_ptrs_buf.copy_from_host(&k_ptrs)?;
+        v_ptrs_buf.copy_from_host(&v_ptrs)?;
+        seq_lens_buf.copy_from_host(&seq_lens)?;
+
+        // Step 3: Launch batched attention kernel
+        let kernel = BatchedIncrementalAttentionKernel::new(
+            max_len as u32,
+            head_dim as u32,
+            num_heads as u32,
+            num_kv_heads as u32,
+            m as u32,
+        );
+        let kernel_name = kernel.name();
+        let module_key = format!(
+            "batched_incr_attn_{}_{}_{}_{}_{}",
+            max_len, head_dim, num_heads, num_kv_heads, m
+        );
+
+        if !self.modules.contains_key(&module_key) {
+            // PAR-119: Use emit_ptx() to get full module with version/target headers
+            let ptx_source = kernel.emit_ptx();
+            let module = CudaModule::from_ptx(&self.context, &ptx_source)?;
+            self.modules.insert(module_key.clone(), module);
+        }
+        let module = self.modules.get_mut(&module_key).expect("module just inserted");
+
+        // Grid: (num_heads, batch_size, 1), Block: (32, 1, 1)
+        let config = LaunchConfig {
+            grid: (num_heads as u32, m as u32, 1),
+            block: (32, 1, 1),
+            shared_mem: 0,
+        };
+
+        let mut q_ptr = q_batched.as_ptr();
+        let mut k_ptrs_ptr = k_ptrs_buf.as_ptr();
+        let mut v_ptrs_ptr = v_ptrs_buf.as_ptr();
+        let mut out_ptr = out_batched.as_ptr();
+        let mut seq_lens_ptr = seq_lens_buf.as_ptr();
+
+        unsafe {
+            self.compute_stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut q_ptr) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_ptrs_ptr) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut v_ptrs_ptr) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut out_ptr) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut seq_lens_ptr) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
     }
 
     /// Tensor Core attention using WMMA for FP16 matrix operations (PARITY-001.3)

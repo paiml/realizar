@@ -72,6 +72,15 @@ fn main() {
             continue;
         }
 
+        // PAR-119: Initialize batched KV caches for true parallel attention
+        if let Err(e) = cuda_model.executor_mut().init_batched_kv_cache_gpu(num_layers, m) {
+            eprintln!("  Error initializing batched KV cache for M={}: {}", m, e);
+            continue;
+        }
+
+        // Reset batched KV cache for clean state
+        cuda_model.executor_mut().reset_batched_kv_cache_gpu();
+
         // Create M embeddings (different tokens per sequence)
         let tokens: Vec<u32> = (0..m).map(|i| 9707u32 + i as u32 * 100).collect();
         let embeddings: Vec<f32> = tokens
