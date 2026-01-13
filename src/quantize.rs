@@ -2707,10 +2707,11 @@ unsafe fn fused_q4k_q8k_dot_avx512vnni(
     Ok(total_acc)
 }
 
-/// Optimized AVX-512 VNNI Q4_K × Q8_K dot product - vectorized scale application
+/// Optimized AVX-512 VNNI Q4_K × Q8_K dot product - DEFERRED horizontal sum
 ///
-/// Key optimization: Keep 8 block accumulators in __m256i vector registers,
-/// apply scales using SIMD, only do ONE horizontal sum at the very end.
+/// PAR-126 Five-Whys optimization: Instead of horizontal sums per chunk (24+ per super-block),
+/// we accumulate all 8 block results in vector registers and do ONE horizontal sum at the end.
+/// This reduces horizontal sum operations from 24+ to 1 per super-block (24x reduction).
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f", enable = "avx512vnni", enable = "avx512bw")]
 #[allow(unsafe_op_in_unsafe_fn)]
@@ -2781,7 +2782,14 @@ unsafe fn fused_q4k_q8k_dot_avx512vnni_opt(
         let qs_ptr = q4k_data.as_ptr().add(sb_start + 16);
         let q8_ptr = q8k_quants.as_ptr().add(q8_start);
 
-        // Process 64 values (2 blocks) per iteration, 4 iterations total
+        // PAR-126: DEFERRED HORIZONTAL SUM OPTIMIZATION
+        // Keep 8 block accumulators in __m256i vectors (one per 32-value block)
+        // block_dots[i] = sum of (Q4[block_i] * Q8[block_i]) for block i
+        // block_q8sums[i] = sum of Q8[block_i] for dmin correction
+        let mut block_dots = [0i32; 8];
+        let mut block_q8sums = [0i32; 8];
+
+        // Process 64 values (2 blocks) per iteration, 4 iterations total = 8 blocks
         for chunk in 0..4 {
             let j = chunk * 64;
             let q_offset = j / 2;
@@ -2789,7 +2797,7 @@ unsafe fn fused_q4k_q8k_dot_avx512vnni_opt(
             // Load 32 bytes Q4 (64 nibbles packed)
             let q4_bytes = _mm256_loadu_si256(qs_ptr.add(q_offset).cast::<__m256i>());
 
-            // Extract nibbles
+            // Extract nibbles: lo = first 32 values, hi = next 32 values
             let q4_lo = _mm256_and_si256(q4_bytes, nibble_mask);
             let q4_hi = _mm256_and_si256(_mm256_srli_epi16(q4_bytes, 4), nibble_mask);
 
@@ -2797,69 +2805,104 @@ unsafe fn fused_q4k_q8k_dot_avx512vnni_opt(
             let q8_lo = _mm256_loadu_si256(q8_ptr.add(j).cast::<__m256i>());
             let q8_hi = _mm256_loadu_si256(q8_ptr.add(j + 32).cast::<__m256i>());
 
-            // Q4 × Q8 products -> i16 -> i32
+            // Q4 × Q8 products -> i16 via maddubs -> i32 via madd
+            // maddubs: adjacent u8*i8 pairs summed to i16
+            // madd with ones: sum pairs of i16 to i32
             let prod_lo_i16 = _mm256_maddubs_epi16(q4_lo, q8_lo);
             let prod_hi_i16 = _mm256_maddubs_epi16(q4_hi, q8_hi);
             let prod_lo_i32 = _mm256_madd_epi16(prod_lo_i16, ones_16);
             let prod_hi_i32 = _mm256_madd_epi16(prod_hi_i16, ones_16);
 
-            // Sum 128-bit halves within each to get per-block sums
-            // prod_lo_i32 has 8 i32: lanes 0-3 are first half, 4-7 are second half
-            // We need to sum them to get one value per 32-value block
-            let prod_lo_sum = _mm_add_epi32(
+            // prod_lo_i32 now has 8 i32 values (4 per 128-bit lane)
+            // We need to reduce to 1 value per 32-element block
+            // Lane 0-3 are from elements 0-15, lane 4-7 are from elements 16-31
+            // So we sum all 8 to get one block sum
+
+            // Sum all 8 i32 in prod_lo_i32 using only one horizontal sum
+            // First add the two 128-bit halves
+            let prod_lo_128 = _mm_add_epi32(
                 _mm256_castsi256_si128(prod_lo_i32),
                 _mm256_extracti128_si256(prod_lo_i32, 1),
             );
-            let prod_hi_sum = _mm_add_epi32(
+            let prod_hi_128 = _mm_add_epi32(
                 _mm256_castsi256_si128(prod_hi_i32),
                 _mm256_extracti128_si256(prod_hi_i32, 1),
             );
 
-            // Now sum pairs to get 2 values (one per block in this chunk)
-            let prod_lo_final = _mm_hadd_epi32(prod_lo_sum, prod_lo_sum);
-            let prod_lo_final = _mm_hadd_epi32(prod_lo_final, prod_lo_final);
-            let prod_hi_final = _mm_hadd_epi32(prod_hi_sum, prod_hi_sum);
-            let prod_hi_final = _mm_hadd_epi32(prod_hi_final, prod_hi_final);
+            // Now we have 4 i32 each - sum them with hadd
+            let prod_lo_64 = _mm_hadd_epi32(prod_lo_128, prod_hi_128);
+            let prod_32 = _mm_hadd_epi32(prod_lo_64, prod_lo_64);
 
-            // Get per-block product sums
-            let prod_lo_scalar = _mm_cvtsi128_si32(prod_lo_final);
-            let prod_hi_scalar = _mm_cvtsi128_si32(prod_hi_final);
+            // Extract block sums - lane 0 is block_lo, lane 1 is block_hi
+            let block_idx = chunk * 2;
+            block_dots[block_idx] = _mm_extract_epi32(prod_32, 0);
+            block_dots[block_idx + 1] = _mm_extract_epi32(prod_32, 1);
 
-            // Q8 sums
-            let q8_lo_lo_i16 = _mm256_cvtepi8_epi16(_mm256_castsi256_si128(q8_lo));
-            let q8_lo_hi_i16 = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(q8_lo, 1));
-            let q8_hi_lo_i16 = _mm256_cvtepi8_epi16(_mm256_castsi256_si128(q8_hi));
-            let q8_hi_hi_i16 = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(q8_hi, 1));
+            // Q8 sums for dmin correction - convert i8 to i16 first to avoid overflow
+            // We need sum of all 32 i8 values for each block
+            let q8_lo_i16_a = _mm256_cvtepi8_epi16(_mm256_castsi256_si128(q8_lo));
+            let q8_lo_i16_b = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(q8_lo, 1));
+            let q8_hi_i16_a = _mm256_cvtepi8_epi16(_mm256_castsi256_si128(q8_hi));
+            let q8_hi_i16_b = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(q8_hi, 1));
 
-            let qsum_lo = _mm_add_epi32(
-                _mm_madd_epi16(_mm256_castsi256_si128(q8_lo_lo_i16), _mm_set1_epi16(1)),
-                _mm_madd_epi16(_mm256_extracti128_si256(q8_lo_lo_i16, 1), _mm_set1_epi16(1)),
+            // Sum the i16 values to i32 using madd with ones
+            let q8_lo_i32_a = _mm256_madd_epi16(q8_lo_i16_a, _mm256_set1_epi16(1));
+            let q8_lo_i32_b = _mm256_madd_epi16(q8_lo_i16_b, _mm256_set1_epi16(1));
+            let q8_hi_i32_a = _mm256_madd_epi16(q8_hi_i16_a, _mm256_set1_epi16(1));
+            let q8_hi_i32_b = _mm256_madd_epi16(q8_hi_i16_b, _mm256_set1_epi16(1));
+
+            // Combine halves for each block
+            let q8_lo_sum = _mm256_add_epi32(q8_lo_i32_a, q8_lo_i32_b);
+            let q8_hi_sum = _mm256_add_epi32(q8_hi_i32_a, q8_hi_i32_b);
+
+            // Horizontal sum each block's q8 sum
+            let q8_lo_128 = _mm_add_epi32(
+                _mm256_castsi256_si128(q8_lo_sum),
+                _mm256_extracti128_si256(q8_lo_sum, 1),
             );
-            let qsum_lo2 = _mm_add_epi32(
-                _mm_madd_epi16(_mm256_castsi256_si128(q8_lo_hi_i16), _mm_set1_epi16(1)),
-                _mm_madd_epi16(_mm256_extracti128_si256(q8_lo_hi_i16, 1), _mm_set1_epi16(1)),
+            let q8_hi_128 = _mm_add_epi32(
+                _mm256_castsi256_si128(q8_hi_sum),
+                _mm256_extracti128_si256(q8_hi_sum, 1),
             );
-            let qsum_hi = _mm_add_epi32(
-                _mm_madd_epi16(_mm256_castsi256_si128(q8_hi_lo_i16), _mm_set1_epi16(1)),
-                _mm_madd_epi16(_mm256_extracti128_si256(q8_hi_lo_i16, 1), _mm_set1_epi16(1)),
-            );
-            let qsum_hi2 = _mm_add_epi32(
-                _mm_madd_epi16(_mm256_castsi256_si128(q8_hi_hi_i16), _mm_set1_epi16(1)),
-                _mm_madd_epi16(_mm256_extracti128_si256(q8_hi_hi_i16, 1), _mm_set1_epi16(1)),
-            );
+            let q8_64 = _mm_hadd_epi32(q8_lo_128, q8_hi_128);
+            let q8_32 = _mm_hadd_epi32(q8_64, q8_64);
 
-            // Get per-block q8 sums (scalar for now - will optimize if needed)
-            let qsum_lo_block = hsum_epi32_128(_mm_add_epi32(qsum_lo, qsum_lo2));
-            let qsum_hi_block = hsum_epi32_128(_mm_add_epi32(qsum_hi, qsum_hi2));
-
-            // Apply scales and accumulate inline (avoiding separate loop)
-            let block_base = chunk * 2;
-            let (scale0, min0) = extract_scale_min(&scales_raw, block_base);
-            let (scale1, min1) = extract_scale_min(&scales_raw, block_base + 1);
-
-            total_acc += d_q8 * scale0 * prod_lo_scalar as f32 - dmin_q8 * min0 * qsum_lo_block as f32;
-            total_acc += d_q8 * scale1 * prod_hi_scalar as f32 - dmin_q8 * min1 * qsum_hi_block as f32;
+            block_q8sums[block_idx] = _mm_extract_epi32(q8_32, 0);
+            block_q8sums[block_idx + 1] = _mm_extract_epi32(q8_32, 1);
         }
+
+        // Extract all 8 scales and mins
+        let mut scales = [0.0f32; 8];
+        let mut mins = [0.0f32; 8];
+        for i in 0..8 {
+            let (sc, m) = extract_scale_min(&scales_raw, i);
+            scales[i] = sc;
+            mins[i] = m;
+        }
+
+        // Load scales and mins into vectors for SIMD multiply
+        let scales_vec = _mm256_loadu_ps(scales.as_ptr());
+        let mins_vec = _mm256_loadu_ps(mins.as_ptr());
+
+        // Convert block_dots and block_q8sums to f32
+        let dots_i32 = _mm256_loadu_si256(block_dots.as_ptr().cast::<__m256i>());
+        let q8sums_i32 = _mm256_loadu_si256(block_q8sums.as_ptr().cast::<__m256i>());
+        let dots_f32 = _mm256_cvtepi32_ps(dots_i32);
+        let q8sums_f32 = _mm256_cvtepi32_ps(q8sums_i32);
+
+        // Compute: d_q8 * scales * dots - dmin_q8 * mins * q8sums
+        let d_q8_vec = _mm256_set1_ps(d_q8);
+        let dmin_q8_vec = _mm256_set1_ps(dmin_q8);
+
+        let term1 = _mm256_mul_ps(d_q8_vec, _mm256_mul_ps(scales_vec, dots_f32));
+        let term2 = _mm256_mul_ps(dmin_q8_vec, _mm256_mul_ps(mins_vec, q8sums_f32));
+        let result = _mm256_sub_ps(term1, term2);
+
+        // ONE horizontal sum for all 8 blocks
+        let sum128 = _mm_add_ps(_mm256_castps256_ps128(result), _mm256_extractf128_ps(result, 1));
+        let sum64 = _mm_add_ps(sum128, _mm_movehl_ps(sum128, sum128));
+        let sum32 = _mm_add_ss(sum64, _mm_shuffle_ps(sum64, sum64, 1));
+        total_acc += _mm_cvtss_f32(sum32);
     }
 
     Ok(total_acc)
@@ -3184,7 +3227,8 @@ pub fn fused_q4k_q8k_parallel_matvec_into(
     }
 
     // Parallel over output rows
-    const CHUNK_SIZE: usize = 64;
+    // PAR-126: Optimal chunk size from bench_chunk_sizes (128 > 64 > 256)
+    const CHUNK_SIZE: usize = 128;
 
     output[..out_dim]
         .par_iter_mut()
