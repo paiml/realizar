@@ -214,18 +214,53 @@ fn main() {
     }
 
     println!();
+
+    // === Test 5: Warm graph persistence (no clear_decode_graph between requests) ===
+    println!("═══════════════════════════════════════════════════════════════");
+    println!("  Test 5: Warm Graph Persistence (NO graph clear between requests)");
+    println!("═══════════════════════════════════════════════════════════════");
+
+    // Clear once at start, then run 4 requests WITHOUT clearing graph
+    cuda_model.clear_decode_graph();
+
+    let start = Instant::now();
+    let mut total_warm = 0usize;
+
+    for prompt in &prompts[..4] {
+        // NOTE: No clear_decode_graph() here - graph persists between requests
+        if let Ok(tokens) = cuda_model.generate_gpu_resident(prompt, &config) {
+            total_warm += tokens.len() - prompt.len();
+        }
+    }
+
+    let warm_time = start.elapsed();
+    let warm_tps = total_warm as f64 / warm_time.as_secs_f64();
+
+    println!(
+        "✅ Warm graph: {} tokens in {:.2}s",
+        total_warm,
+        warm_time.as_secs_f64()
+    );
+    println!("   Throughput: {:.1} tok/s", warm_tps);
+    println!("   vs Single: {:.2}x", warm_tps / single_tps);
+    println!("   vs Cold (clear each): {:.1}% speedup", ((warm_tps / batch_tps) - 1.0) * 100.0);
+    if warm_tps >= 400.0 {
+        println!("   ✅ TARGET MET: 2x Ollama achieved!");
+    }
+
+    println!();
     println!("═══════════════════════════════════════════════════════════════");
     println!("  Summary");
     println!("═══════════════════════════════════════════════════════════════");
-    println!("  Single-request: {:.1} tok/s (baseline)", single_tps);
+    println!("  Single-request (cold): {:.1} tok/s (baseline)", single_tps);
+    println!("  Sequential (clear graph each): {:.1} tok/s", batch_tps);
+    println!("  Sequential (warm graph): {:.1} tok/s", warm_tps);
     println!("  Ollama baseline: ~200 tok/s");
     println!("  Target: 400 tok/s (2x Ollama)");
     println!();
-    println!("  To achieve 2x via continuous batching:");
-    println!("  - Need true batched decode (single weight read → N tokens)");
-    println!("  - Requires forward_batch_with_cache_cuda_native integration");
-    println!(
-        "  - At batch=4 with 70% efficiency: {:.1} tok/s",
-        single_tps * 2.8
-    );
+    if warm_tps >= 400.0 {
+        println!("  ✅ 2x OLLAMA TARGET ACHIEVED via warm graph persistence!");
+    } else {
+        println!("  Gap to 2x: {:.1} tok/s ({:.1}%)", 400.0 - warm_tps, ((400.0 / warm_tps) - 1.0) * 100.0);
+    }
 }

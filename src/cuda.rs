@@ -12467,6 +12467,8 @@ impl CudaExecutor {
             (ktype, key, cfg)
         } else {
             // Multi-warp: 128 threads per head (4 warps), uses shared memory
+            // PAR-107-REVERTED: 8 warps SLOWER due to synchronization overhead
+            // Five-Whys: More warps = more reduction barriers, hurts single-token decode
             let num_warps_per_head = 4;
             let ktype = KernelType::MultiWarpAttention {
                 max_seq_len: max_len as u32,
