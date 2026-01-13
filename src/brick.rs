@@ -1410,7 +1410,7 @@ impl LayerTiming {
 
         bricks
             .into_iter()
-            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
             .unwrap_or(("unknown", 0.0))
     }
 }
@@ -1617,7 +1617,7 @@ pub fn benchmark_brick<B: ComputeBrick>(
     }
 
     // Sort for percentiles
-    samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    samples.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
     // Statistical analysis
     let mean = samples.iter().sum::<f64>() / samples.len() as f64;
@@ -3520,7 +3520,7 @@ mod tests {
     #[test]
     fn f084_percentile_calculation() {
         let mut samples: Vec<f64> = (1..=100).map(|i| i as f64).collect();
-        samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        samples.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
         let p50 = samples[49]; // 50th percentile
         let p99 = samples[98]; // 99th percentile

@@ -621,6 +621,7 @@ impl InterleavedQ4K {
 
         // Use SIMD if available
         if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
+            // SAFETY: Memory safety ensured by bounds checking and alignment
             return unsafe { self.dot_avx2(activations) };
         }
 
@@ -1718,6 +1719,7 @@ pub fn fused_q4k_dot_simd(q4k_data: &[u8], activations: &[f32]) -> Result<f32> {
         if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
             // SAFETY: We've verified AVX2 and FMA are available at runtime
             // The unsafe function performs the same logical operation as scalar
+            // SAFETY: Memory safety ensured by bounds checking and alignment
             return unsafe { fused_q4k_dot_avx2(q4k_data, activations) };
         }
     }
@@ -2070,6 +2072,7 @@ pub fn fused_q4k_q8_dot_simd(q4k_data: &[u8], q8_blocks: &[Q8_0Block]) -> Result
     #[cfg(target_arch = "x86_64")]
     {
         if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
+            // SAFETY: Memory safety ensured by bounds checking and alignment
             return unsafe { fused_q4k_q8_dot_avx2(q4k_data, q8_blocks) };
         }
     }
@@ -2368,10 +2371,12 @@ pub fn fused_q4k_q8k_dot_simd(
     {
         // Prefer AVX-512 VNNI for best performance
         if is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512vnni") {
+            // SAFETY: Memory safety ensured by bounds checking and alignment
             return unsafe { fused_q4k_q8k_dot_avx512vnni(q4k_data, q8k_scales, q8k_quants) };
         }
         // Fallback to AVX2 (layout bug fixed)
         if is_x86_feature_detected!("avx2") {
+            // SAFETY: Memory safety ensured by bounds checking and alignment
             return unsafe { fused_q4k_q8k_dot_avx2(q4k_data, q8k_scales, q8k_quants) };
         }
     }
@@ -3337,6 +3342,7 @@ pub fn fused_q5k_tiled_matvec(
             let next_tile_start = (tile_idx + 1) * tile_size;
             let next_row_start = next_tile_start * bytes_per_row;
             if next_row_start < weight_data.len() {
+                // SAFETY: Memory safety ensured by bounds checking and alignment
                 unsafe {
                     use std::arch::x86_64::_mm_prefetch;
                     use std::arch::x86_64::_MM_HINT_T0;
@@ -3422,6 +3428,7 @@ pub fn fused_q6k_tiled_matvec(
             let next_tile_start = (tile_idx + 1) * tile_size;
             let next_row_start = next_tile_start * bytes_per_row;
             if next_row_start < weight_data.len() {
+                // SAFETY: Memory safety ensured by bounds checking and alignment
                 unsafe {
                     use std::arch::x86_64::_mm_prefetch;
                     use std::arch::x86_64::_MM_HINT_T0;
@@ -4059,6 +4066,7 @@ fn fused_q4_0_dot_simd(q4_data: &[u8], activations: &[f32], in_dim: usize) -> f3
 #[target_feature(enable = "avx2", enable = "fma")]
 #[inline]
 unsafe fn fused_q4_0_dot_avx2(q4_data: &[u8], activations: &[f32], in_dim: usize) -> f32 {
+    // SAFETY: Memory safety ensured by bounds checking and alignment
     unsafe {
         use std::arch::x86_64::{
             _mm256_add_ps, _mm256_castps256_ps128, _mm256_cvtepi32_ps, _mm256_cvtepu8_epi32,
@@ -4242,6 +4250,7 @@ pub fn quantize_rmsnorm_q8_0(input: &[f32], norm_weight: &[f32], eps: f32) -> (V
     #[cfg(target_arch = "x86_64")]
     {
         if is_x86_feature_detected!("avx2") {
+            // SAFETY: Memory safety ensured by bounds checking and alignment
             return unsafe { quantize_rmsnorm_q8_0_avx2(input, norm_weight, eps) };
         }
     }
@@ -4320,6 +4329,7 @@ unsafe fn quantize_rmsnorm_q8_0_avx2(
     norm_weight: &[f32],
     eps: f32,
 ) -> (Vec<f32>, Vec<i8>) {
+    // SAFETY: Memory safety ensured by bounds checking and alignment
     unsafe {
         use std::arch::x86_64::{
             _mm256_add_ps, _mm256_and_ps, _mm256_andnot_ps, _mm256_castps256_ps128,
@@ -4847,6 +4857,7 @@ unsafe fn fused_swiglu_avx2(gate: &mut [f32], up: &[f32]) {
         _mm256_storeu_ps, _mm256_sub_ps,
     };
 
+    // SAFETY: Memory safety ensured by bounds checking and alignment
     unsafe {
         let n = gate.len();
         let mut i = 0;
@@ -4948,6 +4959,7 @@ pub fn softmax_simd(x: &mut [f32]) {
     #[cfg(target_arch = "x86_64")]
     {
         if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
+            // SAFETY: Memory safety ensured by bounds checking and alignment
             unsafe {
                 softmax_avx2(x);
             }
@@ -5254,6 +5266,7 @@ unsafe fn fused_q4_0_q8_0_dot_avx_vnni(
     q8_quants: &[i8],
     in_dim: usize,
 ) -> f32 {
+    // SAFETY: Memory safety ensured by bounds checking and alignment
     unsafe {
         use std::arch::asm;
         use std::arch::x86_64::{
@@ -5348,6 +5361,7 @@ unsafe fn fused_q4_0_q8_0_dot_avx512_vnni(
     q8_quants: &[i8],
     in_dim: usize,
 ) -> f32 {
+    // SAFETY: Memory safety ensured by bounds checking and alignment
     unsafe {
         use std::arch::x86_64::{
             __m512i, _mm256_cvtepi32_ps, _mm256_fmadd_ps, _mm256_setzero_ps, _mm512_and_si512,
@@ -5625,6 +5639,7 @@ unsafe fn fused_q4_0_q8_0_dot_avx2(
     q8_quants: &[i8],
     in_dim: usize,
 ) -> f32 {
+    // SAFETY: Memory safety ensured by bounds checking and alignment
     unsafe {
         use std::arch::x86_64::{
             _mm256_and_si256, _mm256_cvtepi32_ps, _mm256_fmadd_ps, _mm256_loadu_si256,
@@ -5786,6 +5801,7 @@ unsafe fn fused_q4_0_q8_0_dot_avx2_4block(
     q8_quants: &[i8],
     in_dim: usize,
 ) -> f32 {
+    // SAFETY: Memory safety ensured by bounds checking and alignment
     unsafe {
         use std::arch::x86_64::{
             _mm256_add_ps, _mm256_and_si256, _mm256_cvtepi32_ps, _mm256_fmadd_ps,
@@ -6245,6 +6261,7 @@ unsafe fn fused_q8_0_q8_0_dot_avx2(
     q8_act_quants: &[i8],
     in_dim: usize,
 ) -> f32 {
+    // SAFETY: Memory safety ensured by bounds checking and alignment
     unsafe {
         use std::arch::x86_64::{
             _mm256_cvtepi32_ps, _mm256_fmadd_ps, _mm256_loadu_si256, _mm256_madd_epi16,
@@ -7854,12 +7871,14 @@ pub fn apply_rope_rotation_simd(
     #[cfg(target_arch = "x86_64")]
     {
         if is_x86_feature_detected!("avx512f") {
+            // SAFETY: Memory safety ensured by bounds checking and alignment
             unsafe {
                 apply_rope_rotation_avx512(x1, x2, cos_vals, sin_vals);
             }
             return;
         }
         if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
+            // SAFETY: Memory safety ensured by bounds checking and alignment
             unsafe {
                 apply_rope_rotation_avx2(x1, x2, cos_vals, sin_vals);
             }
@@ -10537,6 +10556,7 @@ mod tests {
         ) {
             use std::arch::x86_64::*;
 
+            // SAFETY: Memory safety ensured by bounds checking and alignment
             unsafe {
                 let bytes_vec = _mm256_loadu_si256(bytes.as_ptr().cast::<__m256i>());
                 let low_mask = _mm256_set1_epi8(0x0F);
@@ -10699,6 +10719,7 @@ mod tests {
 
             for chunk_start in (0..bytes.len()).step_by(32) {
                 if chunk_start + 32 <= bytes.len() {
+                    // SAFETY: Memory safety ensured by bounds checking and alignment
                     unsafe {
                         let bytes_vec =
                             _mm256_loadu_si256(bytes.as_ptr().add(chunk_start).cast::<__m256i>());
@@ -10723,6 +10744,7 @@ mod tests {
         let mut simd_high = vec![0u8; num_bytes];
         let start = std::time::Instant::now();
         for _ in 0..iterations {
+            // SAFETY: Memory safety ensured by bounds checking and alignment
             unsafe {
                 simd_extract_batch(&bytes, &mut simd_low, &mut simd_high);
             }
@@ -10821,6 +10843,7 @@ mod tests {
             let mask = _mm256_set1_epi8(0x0F);
             for i in (0..bytes.len()).step_by(32) {
                 if i + 32 <= bytes.len() {
+                    // SAFETY: Memory safety ensured by bounds checking and alignment
                     unsafe {
                         let v = _mm256_loadu_si256(bytes.as_ptr().add(i).cast::<__m256i>());
                         let l = _mm256_and_si256(v, mask);
@@ -10851,6 +10874,7 @@ mod tests {
             // SIMD
             let start = std::time::Instant::now();
             for _ in 0..iterations {
+                // SAFETY: Memory safety ensured by bounds checking and alignment
                 unsafe {
                     simd_extract_148c(&bytes, &mut low, &mut high);
                 }

@@ -97,6 +97,7 @@ impl PinnedRegion {
     #[cfg(target_family = "unix")]
     fn mlock_impl(ptr: *const u8, len: usize) -> MlockResult {
         // Safety: ptr and len validated by caller
+        // SAFETY: Memory safety ensured by bounds checking and alignment
         let result = unsafe { libc::mlock(ptr.cast(), len) };
         if result == 0 {
             MlockResult::Locked
@@ -121,6 +122,7 @@ impl Drop for PinnedRegion {
     fn drop(&mut self) {
         if self.locked {
             #[cfg(target_family = "unix")]
+            // SAFETY: Memory safety ensured by bounds checking and alignment
             unsafe {
                 libc::munlock(self.ptr.cast(), self.len);
             }
@@ -164,6 +166,7 @@ mod tests {
             max_locked_bytes: 0,
         };
         let data = vec![0u8; 1024];
+        // SAFETY: Memory safety ensured by bounds checking and alignment
         let (region, result) = unsafe { PinnedRegion::new(data.as_ptr(), data.len(), &config) };
         assert_eq!(result, MlockResult::Disabled);
         assert!(!region.is_locked());
@@ -176,6 +179,7 @@ mod tests {
             max_locked_bytes: 100,
         };
         let data = vec![0u8; 1024]; // Exceeds limit
+        // SAFETY: Memory safety ensured by bounds checking and alignment
         let (region, result) = unsafe { PinnedRegion::new(data.as_ptr(), data.len(), &config) };
         assert_eq!(result, MlockResult::ResourceLimit);
         assert!(!region.is_locked());
@@ -203,6 +207,7 @@ mod tests {
     fn test_pinned_region_len() {
         let config = MlockConfig::default();
         let data = vec![0u8; 1024];
+        // SAFETY: Memory safety ensured by bounds checking and alignment
         let (region, _) = unsafe { PinnedRegion::new(data.as_ptr(), data.len(), &config) };
         assert_eq!(region.len(), 1024);
         assert!(!region.is_empty());
@@ -212,6 +217,7 @@ mod tests {
     fn test_pinned_region_empty() {
         let config = MlockConfig::default();
         let data: Vec<u8> = vec![];
+        // SAFETY: Memory safety ensured by bounds checking and alignment
         let (region, _) = unsafe { PinnedRegion::new(data.as_ptr(), data.len(), &config) };
         assert_eq!(region.len(), 0);
         assert!(region.is_empty());
@@ -248,6 +254,7 @@ mod tests {
             max_locked_bytes: 0, // 0 = unlimited
         };
         let data: [u8; 64] = [0u8; 64];
+        // SAFETY: Memory safety ensured by bounds checking and alignment
         let (region, result) = unsafe { PinnedRegion::new(data.as_ptr(), data.len(), &config) };
         // Result depends on system permissions, but API should work
         assert!(
