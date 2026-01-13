@@ -3385,6 +3385,106 @@ impl<'a> QuantizedGGUFTransformer<'a> {
         output
     }
 
+    /// PAR-097: Batched attention with cache for speculative decode verification
+    ///
+    /// Computes attention for k query positions against cache + k new K/V entries.
+    /// Each query position i attends to [0..cache_len + i + 1] (causal mask).
+    ///
+    /// # Arguments
+    /// * `q_all` - Query vectors for k positions [k × hidden_dim]
+    /// * `k_cache` - Cached keys [cache_len × kv_dim]
+    /// * `v_cache` - Cached values [cache_len × kv_dim]
+    /// * `new_k` - Keys for k new positions [k × kv_dim]
+    /// * `new_v` - Values for k new positions [k × kv_dim]
+    /// * `batch_size` - Number of positions (k)
+    ///
+    /// # Returns
+    /// Attention outputs [k × hidden_dim]
+    pub fn batched_attention_with_cache_gqa(
+        &self,
+        q_all: &[f32],
+        k_cache: &[f32],
+        v_cache: &[f32],
+        new_k: &[f32],
+        new_v: &[f32],
+        batch_size: usize,
+    ) -> Vec<f32> {
+        let hidden_dim = self.config.hidden_dim;
+        let num_heads = self.config.num_heads;
+        let num_kv_heads = self.config.num_kv_heads;
+        let head_dim = hidden_dim / num_heads;
+        let kv_dim = num_kv_heads * head_dim;
+        let scale = 1.0 / (head_dim as f32).sqrt();
+
+        let q_per_kv = num_heads / num_kv_heads;
+        let cache_len = if kv_dim > 0 {
+            k_cache.len() / kv_dim
+        } else {
+            0
+        };
+
+        let mut output = vec![0.0f32; batch_size * hidden_dim];
+
+        // Process each query position
+        for pos_idx in 0..batch_size {
+            let q_offset = pos_idx * hidden_dim;
+            let out_offset = pos_idx * hidden_dim;
+
+            // This query attends to [0..cache_len + pos_idx + 1]
+            let attend_len = cache_len + pos_idx + 1;
+
+            for q_head in 0..num_heads {
+                let q_head_offset = q_head * head_dim;
+                let q_head_data =
+                    &q_all[q_offset + q_head_offset..q_offset + q_head_offset + head_dim];
+
+                let kv_head = q_head / q_per_kv;
+                let kv_head_offset = kv_head * head_dim;
+
+                let mut scores = Vec::with_capacity(attend_len);
+
+                // Scores against cached positions [0..cache_len]
+                for cache_pos in 0..cache_len {
+                    let k_start = cache_pos * kv_dim + kv_head_offset;
+                    let cached_key = &k_cache[k_start..k_start + head_dim];
+                    let score = Self::simd_dot_f32(q_head_data, cached_key);
+                    scores.push(score * scale);
+                }
+
+                // Scores against new positions [0..pos_idx + 1]
+                for new_pos in 0..=pos_idx {
+                    let k_start = new_pos * kv_dim + kv_head_offset;
+                    let new_key = &new_k[k_start..k_start + head_dim];
+                    let score = Self::simd_dot_f32(q_head_data, new_key);
+                    scores.push(score * scale);
+                }
+
+                // Softmax (SIMD-optimized)
+                crate::quantize::softmax_simd(&mut scores);
+
+                // Weighted sum of values
+                let out_head =
+                    &mut output[out_offset + q_head_offset..out_offset + q_head_offset + head_dim];
+
+                // Contribution from cached values
+                for (cache_pos, &weight) in scores.iter().enumerate().take(cache_len) {
+                    let v_start = cache_pos * kv_dim + kv_head_offset;
+                    let cached_val = &v_cache[v_start..v_start + head_dim];
+                    Self::simd_axpy_f32(out_head, weight, cached_val);
+                }
+
+                // Contribution from new values
+                for (new_pos, &weight) in scores.iter().skip(cache_len).enumerate() {
+                    let v_start = new_pos * kv_dim + kv_head_offset;
+                    let new_val = &new_v[v_start..v_start + head_dim];
+                    Self::simd_axpy_f32(out_head, weight, new_val);
+                }
+            }
+        }
+
+        output
+    }
+
     /// Single-token forward pass with KV cache for O(n) per-token inference
     ///
     /// This is the zero-copy version that works directly with memory-mapped data.
@@ -12200,6 +12300,106 @@ impl OwnedQuantizedModel {
         output
     }
 
+    /// PAR-097: Batched attention with cache for speculative decode verification
+    ///
+    /// Computes attention for k query positions against cache + k new K/V entries.
+    /// Each query position i attends to [0..cache_len + i + 1] (causal mask).
+    ///
+    /// # Arguments
+    /// * `q_all` - Query vectors for k positions [k × hidden_dim]
+    /// * `k_cache` - Cached keys [cache_len × kv_dim]
+    /// * `v_cache` - Cached values [cache_len × kv_dim]
+    /// * `new_k` - Keys for k new positions [k × kv_dim]
+    /// * `new_v` - Values for k new positions [k × kv_dim]
+    /// * `batch_size` - Number of positions (k)
+    ///
+    /// # Returns
+    /// Attention outputs [k × hidden_dim]
+    pub fn batched_attention_with_cache_gqa(
+        &self,
+        q_all: &[f32],
+        k_cache: &[f32],
+        v_cache: &[f32],
+        new_k: &[f32],
+        new_v: &[f32],
+        batch_size: usize,
+    ) -> Vec<f32> {
+        let hidden_dim = self.config.hidden_dim;
+        let num_heads = self.config.num_heads;
+        let num_kv_heads = self.config.num_kv_heads;
+        let head_dim = hidden_dim / num_heads;
+        let kv_dim = num_kv_heads * head_dim;
+        let scale = 1.0 / (head_dim as f32).sqrt();
+
+        let q_per_kv = num_heads / num_kv_heads;
+        let cache_len = if kv_dim > 0 {
+            k_cache.len() / kv_dim
+        } else {
+            0
+        };
+
+        let mut output = vec![0.0f32; batch_size * hidden_dim];
+
+        // Process each query position
+        for pos_idx in 0..batch_size {
+            let q_offset = pos_idx * hidden_dim;
+            let out_offset = pos_idx * hidden_dim;
+
+            // This query attends to [0..cache_len + pos_idx + 1]
+            let attend_len = cache_len + pos_idx + 1;
+
+            for q_head in 0..num_heads {
+                let q_head_offset = q_head * head_dim;
+                let q_head_data =
+                    &q_all[q_offset + q_head_offset..q_offset + q_head_offset + head_dim];
+
+                let kv_head = q_head / q_per_kv;
+                let kv_head_offset = kv_head * head_dim;
+
+                let mut scores = Vec::with_capacity(attend_len);
+
+                // Scores against cached positions [0..cache_len]
+                for cache_pos in 0..cache_len {
+                    let k_start = cache_pos * kv_dim + kv_head_offset;
+                    let cached_key = &k_cache[k_start..k_start + head_dim];
+                    let score = Self::simd_dot_f32(q_head_data, cached_key);
+                    scores.push(score * scale);
+                }
+
+                // Scores against new positions [0..pos_idx + 1]
+                for new_pos in 0..=pos_idx {
+                    let k_start = new_pos * kv_dim + kv_head_offset;
+                    let new_key = &new_k[k_start..k_start + head_dim];
+                    let score = Self::simd_dot_f32(q_head_data, new_key);
+                    scores.push(score * scale);
+                }
+
+                // Softmax (SIMD-optimized)
+                crate::quantize::softmax_simd(&mut scores);
+
+                // Weighted sum of values
+                let out_head =
+                    &mut output[out_offset + q_head_offset..out_offset + q_head_offset + head_dim];
+
+                // Contribution from cached values
+                for (cache_pos, &weight) in scores.iter().enumerate().take(cache_len) {
+                    let v_start = cache_pos * kv_dim + kv_head_offset;
+                    let cached_val = &v_cache[v_start..v_start + head_dim];
+                    Self::simd_axpy_f32(out_head, weight, cached_val);
+                }
+
+                // Contribution from new values
+                for (new_pos, &weight) in scores.iter().skip(cache_len).enumerate() {
+                    let v_start = new_pos * kv_dim + kv_head_offset;
+                    let new_val = &new_v[v_start..v_start + head_dim];
+                    Self::simd_axpy_f32(out_head, weight, new_val);
+                }
+            }
+        }
+
+        output
+    }
+
     /// Attention with cache - writes to pre-allocated buffer (IMP-131)
     pub fn attention_with_cache_gqa_into(
         &self,
@@ -17118,6 +17318,323 @@ impl OwnedQuantizedModelCuda {
         Ok(logits)
     }
 
+    /// PAR-097: Forward pass for k speculative tokens with KV cache integration
+    ///
+    /// This is used for speculative decode verification where we need to:
+    /// 1. Take existing KV cache from previous decode
+    /// 2. Process k draft tokens with proper causal attention
+    /// 3. Return logits for verification
+    ///
+    /// # Arguments
+    /// * `token_ids` - Token IDs for k speculative positions
+    /// * `cache` - KV cache from previous decode (updated with new K/V)
+    /// * `start_pos` - Starting position for RoPE
+    ///
+    /// # Returns
+    /// Logits for each position [k × vocab_size]
+    pub fn forward_batch_with_cache_cuda_native(
+        &mut self,
+        token_ids: &[u32],
+        cache: &mut OwnedQuantizedKVCache,
+        start_pos: usize,
+    ) -> Result<Vec<f32>> {
+        if token_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let batch_size = token_ids.len();
+        let hidden_dim = self.model.config.hidden_dim;
+        let num_kv_heads = self.model.config.num_kv_heads;
+        let head_dim = hidden_dim / self.model.config.num_heads;
+        let kv_dim = num_kv_heads * head_dim;
+
+        // 1. Token embedding (CPU)
+        let mut hidden = self.model.embed(token_ids);
+
+        // 2. Process through all layers
+        for (layer_idx, layer) in self.model.layers.iter().enumerate() {
+            let prefix = format!("blk.{}", layer_idx);
+
+            // 2a. Pre-attention RMSNorm (CPU)
+            let normed = self.model.layer_norm(
+                &hidden,
+                &layer.attn_norm_weight,
+                layer.attn_norm_bias.as_deref(),
+                self.model.config.eps,
+            );
+
+            // 2b. QKV projection using batched GEMV
+            let mut qkv = match &layer.qkv_weight {
+                OwnedQKVWeights::Separate { q, k, v } => {
+                    let q_name = format!("{}.attn_q.weight", prefix);
+                    let k_name = format!("{}.attn_k.weight", prefix);
+                    let v_name = format!("{}.attn_v.weight", prefix);
+
+                    let mut q_out = vec![0.0f32; batch_size * q.out_dim];
+                    let mut k_out = vec![0.0f32; batch_size * k.out_dim];
+                    let mut v_out = vec![0.0f32; batch_size * v.out_dim];
+
+                    self.executor
+                        .batched_q4k_gemv_cached(
+                            &q_name,
+                            &normed,
+                            &mut q_out,
+                            batch_size as u32,
+                            q.in_dim as u32,
+                            q.out_dim as u32,
+                        )
+                        .map_err(|e| RealizarError::UnsupportedOperation {
+                            operation: "forward_batch_with_cache_cuda_native".to_string(),
+                            reason: format!("Q projection failed: {}", e),
+                        })?;
+
+                    self.executor
+                        .batched_q4k_gemv_cached(
+                            &k_name,
+                            &normed,
+                            &mut k_out,
+                            batch_size as u32,
+                            k.in_dim as u32,
+                            k.out_dim as u32,
+                        )
+                        .map_err(|e| RealizarError::UnsupportedOperation {
+                            operation: "forward_batch_with_cache_cuda_native".to_string(),
+                            reason: format!("K projection failed: {}", e),
+                        })?;
+
+                    self.executor
+                        .batched_q4k_gemv_cached(
+                            &v_name,
+                            &normed,
+                            &mut v_out,
+                            batch_size as u32,
+                            v.in_dim as u32,
+                            v.out_dim as u32,
+                        )
+                        .map_err(|e| RealizarError::UnsupportedOperation {
+                            operation: "forward_batch_with_cache_cuda_native".to_string(),
+                            reason: format!("V projection failed: {}", e),
+                        })?;
+
+                    // Concatenate Q, K, V into QKV [batch_size × (q.out + k.out + v.out)]
+                    let mut qkv = vec![0.0f32; batch_size * (q.out_dim + k.out_dim + v.out_dim)];
+                    for b in 0..batch_size {
+                        qkv[b * (q.out_dim + k.out_dim + v.out_dim)
+                            ..b * (q.out_dim + k.out_dim + v.out_dim) + q.out_dim]
+                            .copy_from_slice(&q_out[b * q.out_dim..(b + 1) * q.out_dim]);
+                        qkv[b * (q.out_dim + k.out_dim + v.out_dim) + q.out_dim
+                            ..b * (q.out_dim + k.out_dim + v.out_dim) + q.out_dim + k.out_dim]
+                            .copy_from_slice(&k_out[b * k.out_dim..(b + 1) * k.out_dim]);
+                        qkv[b * (q.out_dim + k.out_dim + v.out_dim) + q.out_dim + k.out_dim
+                            ..b * (q.out_dim + k.out_dim + v.out_dim)
+                                + q.out_dim
+                                + k.out_dim
+                                + v.out_dim]
+                            .copy_from_slice(&v_out[b * v.out_dim..(b + 1) * v.out_dim]);
+                    }
+                    qkv
+                },
+                OwnedQKVWeights::Fused(_) => {
+                    return Err(RealizarError::UnsupportedOperation {
+                        operation: "forward_batch_with_cache_cuda_native".to_string(),
+                        reason: "Fused QKV not supported, use separate Q/K/V".to_string(),
+                    });
+                },
+            };
+
+            // Add QKV bias if present
+            if let Some(ref bias) = layer.qkv_bias {
+                let qkv_dim = 3 * hidden_dim;
+                for b in 0..batch_size {
+                    let start = b * qkv_dim;
+                    for (i, b_val) in bias.iter().enumerate().take(qkv_dim) {
+                        qkv[start + i] += b_val;
+                    }
+                }
+            }
+
+            // 2c. Split Q, K, V and apply RoPE
+            let qkv_dim = qkv.len() / batch_size;
+            let mut q_all = Vec::with_capacity(batch_size * hidden_dim);
+            let mut k_all = Vec::with_capacity(batch_size * kv_dim);
+            let mut v_all = Vec::with_capacity(batch_size * kv_dim);
+
+            for s in 0..batch_size {
+                let qkv_start = s * qkv_dim;
+                let mut q = qkv[qkv_start..qkv_start + hidden_dim].to_vec();
+                let mut k = qkv[qkv_start + hidden_dim..qkv_start + hidden_dim + kv_dim].to_vec();
+                let v = qkv[qkv_start + hidden_dim + kv_dim..qkv_start + hidden_dim + 2 * kv_dim]
+                    .to_vec();
+
+                // Apply RoPE with correct position (cache_len + s)
+                self.model
+                    .apply_rope(&mut q, start_pos + s, self.model.config.num_heads);
+                self.model
+                    .apply_rope(&mut k, start_pos + s, self.model.config.num_kv_heads);
+
+                q_all.extend_from_slice(&q);
+                k_all.extend_from_slice(&k);
+                v_all.extend_from_slice(&v);
+            }
+
+            // 2d. Get KV cache for this layer
+            let k_cache = cache.get_k(layer_idx);
+            let v_cache = cache.get_v(layer_idx);
+
+            // 2e. Batched causal attention with cache
+            let attn_out = self.model.batched_attention_with_cache_gqa(
+                &q_all, k_cache, v_cache, &k_all, &v_all, batch_size,
+            );
+
+            // 2f. Update KV cache with new entries
+            cache.append_kv(layer_idx, &k_all, &v_all);
+
+            // 2g. Output projection using batched GEMV
+            let o_name = format!("{}.attn_output.weight", prefix);
+            let mut attn_output = vec![0.0f32; batch_size * hidden_dim];
+            self.executor
+                .batched_q4k_gemv_cached(
+                    &o_name,
+                    &attn_out,
+                    &mut attn_output,
+                    batch_size as u32,
+                    hidden_dim as u32,
+                    hidden_dim as u32,
+                )
+                .map_err(|e| RealizarError::UnsupportedOperation {
+                    operation: "forward_batch_with_cache_cuda_native".to_string(),
+                    reason: format!("O projection failed: {}", e),
+                })?;
+
+            // Add O bias if present
+            if let Some(ref bias) = layer.attn_output_bias {
+                for b in 0..batch_size {
+                    for (i, b_val) in bias.iter().enumerate().take(hidden_dim) {
+                        attn_output[b * hidden_dim + i] += b_val;
+                    }
+                }
+            }
+
+            // 2h. Residual connection
+            for i in 0..hidden.len() {
+                hidden[i] += attn_output[i];
+            }
+
+            // 2i. Pre-FFN RMSNorm (CPU)
+            // Use ffn_norm if available (LLaMA-style), otherwise use attn_norm
+            let ffn_norm_weight = layer
+                .ffn_norm_weight
+                .as_ref()
+                .unwrap_or(&layer.attn_norm_weight);
+            let ffn_norm_bias = layer.ffn_norm_bias.as_deref();
+            let ffn_normed = self.model.layer_norm(
+                &hidden,
+                ffn_norm_weight,
+                ffn_norm_bias,
+                self.model.config.eps,
+            );
+
+            // 2j. FFN up projection using batched GEMV
+            let up_name = format!("{}.ffn_up.weight", prefix);
+            let intermediate_dim = layer.ffn_up_weight.out_dim;
+            let mut ffn_hidden = vec![0.0f32; batch_size * intermediate_dim];
+            self.executor
+                .batched_q4k_gemv_cached(
+                    &up_name,
+                    &ffn_normed,
+                    &mut ffn_hidden,
+                    batch_size as u32,
+                    hidden_dim as u32,
+                    intermediate_dim as u32,
+                )
+                .map_err(|e| RealizarError::UnsupportedOperation {
+                    operation: "forward_batch_with_cache_cuda_native".to_string(),
+                    reason: format!("FFN up projection failed: {}", e),
+                })?;
+
+            // 2k. FFN gate projection + SwiGLU
+            let gate_name = format!("{}.ffn_gate.weight", prefix);
+            let mut gate = vec![0.0f32; batch_size * intermediate_dim];
+            self.executor
+                .batched_q4k_gemv_cached(
+                    &gate_name,
+                    &ffn_normed,
+                    &mut gate,
+                    batch_size as u32,
+                    hidden_dim as u32,
+                    intermediate_dim as u32,
+                )
+                .map_err(|e| RealizarError::UnsupportedOperation {
+                    operation: "forward_batch_with_cache_cuda_native".to_string(),
+                    reason: format!("FFN gate projection failed: {}", e),
+                })?;
+
+            // Apply SiLU to gate and multiply with up
+            for i in 0..gate.len() {
+                let x = gate[i];
+                gate[i] = x / (1.0 + (-x).exp()) * ffn_hidden[i];
+            }
+
+            // 2l. FFN down projection
+            let down_name = format!("{}.ffn_down.weight", prefix);
+            let mut ffn_out = vec![0.0f32; batch_size * hidden_dim];
+            self.executor
+                .batched_q4k_gemv_cached(
+                    &down_name,
+                    &gate,
+                    &mut ffn_out,
+                    batch_size as u32,
+                    intermediate_dim as u32,
+                    hidden_dim as u32,
+                )
+                .map_err(|e| RealizarError::UnsupportedOperation {
+                    operation: "forward_batch_with_cache_cuda_native".to_string(),
+                    reason: format!("FFN down projection failed: {}", e),
+                })?;
+
+            // 2m. Residual connection
+            for i in 0..hidden.len() {
+                hidden[i] += ffn_out[i];
+            }
+        }
+
+        // 3. Final norm (CPU)
+        let final_hidden = self.model.layer_norm(
+            &hidden,
+            &self.model.output_norm_weight,
+            self.model.output_norm_bias.as_deref(),
+            self.model.config.eps,
+        );
+
+        // 4. LM head projection using batched GEMV
+        let vocab_size = self.model.config.vocab_size;
+        let mut logits = vec![0.0f32; batch_size * vocab_size];
+        self.executor
+            .batched_q4k_gemv_cached(
+                "output.weight",
+                &final_hidden,
+                &mut logits,
+                batch_size as u32,
+                hidden_dim as u32,
+                vocab_size as u32,
+            )
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "forward_batch_with_cache_cuda_native".to_string(),
+                reason: format!("LM head projection failed: {}", e),
+            })?;
+
+        // Add LM head bias if present
+        if let Some(ref bias) = self.model.lm_head_bias {
+            for b in 0..batch_size {
+                for (i, b_val) in bias.iter().enumerate().take(vocab_size) {
+                    logits[b * vocab_size + i] += b_val;
+                }
+            }
+        }
+
+        Ok(logits)
+    }
+
     /// Generate tokens using CUDA acceleration (IMP-800a)
     ///
     /// # Arguments
@@ -19245,6 +19762,24 @@ impl OwnedQuantizedKVCache {
         if self.seq_len < self.max_seq_len {
             self.seq_len += 1;
         }
+    }
+
+    /// PAR-097: Append multiple K/V entries to a layer's cache (for speculative decode)
+    ///
+    /// # Arguments
+    /// * `layer` - Layer index
+    /// * `k_all` - Key vectors for batch_size positions [batch_size × kv_dim]
+    /// * `v_all` - Value vectors for batch_size positions [batch_size × kv_dim]
+    pub fn append_kv(&mut self, layer: usize, k_all: &[f32], v_all: &[f32]) {
+        if layer < self.num_layers {
+            self.k_cache[layer].extend_from_slice(k_all);
+            self.v_cache[layer].extend_from_slice(v_all);
+        }
+    }
+
+    /// PAR-097: Advance sequence position by n tokens (for speculative decode)
+    pub fn advance_by(&mut self, n: usize) {
+        self.seq_len = (self.seq_len + n).min(self.max_seq_len);
     }
 
     /// Get cached keys for a layer
