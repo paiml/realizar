@@ -17444,11 +17444,14 @@ impl OwnedQuantizedModelCuda {
 
             // Add QKV bias if present
             if let Some(ref bias) = layer.qkv_bias {
-                let qkv_dim = 3 * hidden_dim;
+                // PAR-100-FIX: For GQA models, QKV dim is hidden_dim + 2*kv_dim, not 3*hidden_dim
+                let actual_qkv_dim = hidden_dim + 2 * kv_dim;
                 for b in 0..batch_size {
-                    let start = b * qkv_dim;
-                    for (i, b_val) in bias.iter().enumerate().take(qkv_dim) {
-                        qkv[start + i] += b_val;
+                    let start = b * actual_qkv_dim;
+                    // Use min to handle bias size mismatch
+                    let bias_len = bias.len().min(actual_qkv_dim);
+                    for i in 0..bias_len {
+                        qkv[start + i] += bias[i];
                     }
                 }
             }
@@ -19099,6 +19102,224 @@ impl OwnedQuantizedModelCuda {
         Ok(tokens)
     }
 
+    /// PAR-100: Speculative decoding with GPU-resident forward
+    ///
+    /// Uses GPU-resident path for fast single-token drafting, then verifies.
+    ///
+    /// # Theory (Five-Whys Root Cause)
+    ///
+    /// WHY is single-token decode limited to ~430 tok/s?
+    /// → Memory bandwidth bound: each token reads ALL weights from VRAM
+    ///
+    /// NOTE: Self-speculative decoding (same model for draft and verify) doesn't
+    /// improve throughput because draft phase still requires k weight reads.
+    /// True speedup requires either:
+    /// 1. Smaller draft model (e.g., 0.5B → 1.5B)
+    /// 2. Layer-skipping during draft (skip last N/2 layers)
+    ///
+    /// This implementation uses GPU-resident path for drafting to at least match
+    /// standard generation throughput as a baseline.
+    ///
+    /// # Arguments
+    ///
+    /// * `prompt` - Initial token IDs
+    /// * `config` - Generation configuration (uses max_tokens)
+    /// * `speculation_k` - Number of tokens to draft speculatively (typically 4-8)
+    ///
+    /// # Returns
+    ///
+    /// Generated token sequence including prompt
+    pub fn generate_speculative_cuda(
+        &mut self,
+        prompt: &[u32],
+        config: &QuantizedGenerateConfig,
+        speculation_k: usize,
+    ) -> Result<Vec<u32>> {
+        use std::time::Instant;
+
+        if prompt.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Check architecture support
+        if !self.supports_gpu_resident() {
+            return Err(RealizarError::UnsupportedOperation {
+                operation: "generate_speculative_cuda".to_string(),
+                reason: "Model architecture not supported for GPU-resident path".to_string(),
+            });
+        }
+
+        // Pre-upload all weights to GPU
+        let bytes_uploaded = self.preload_weights_gpu()?;
+        eprintln!(
+            "PAR-100: Pre-uploaded {} MB of weights to GPU",
+            bytes_uploaded / (1024 * 1024)
+        );
+
+        // PAR-100: Setup KV cache with GQA-aware dimensions
+        let num_kv_heads = self.model.config.num_kv_heads;
+        let head_dim = self.model.config.hidden_dim / self.model.config.num_heads;
+        let kv_dim = num_kv_heads * head_dim;
+        let mut cache = OwnedQuantizedKVCache::new(
+            self.model.config.num_layers,
+            kv_dim,
+            prompt.len() + config.max_tokens + speculation_k,
+        );
+
+        // Reset GPU KV cache positions before generation
+        self.executor.reset_kv_cache_gpu();
+
+        let mut tokens = prompt.to_vec();
+
+        // Prefill: process prompt tokens using GPU-resident path
+        let prefill_start = Instant::now();
+        for (pos, &token_id) in prompt.iter().enumerate() {
+            if pos < prompt.len() - 1 {
+                let _ = self.forward_gpu_resident(token_id, &mut cache, pos)?;
+            }
+        }
+        let prefill_time = prefill_start.elapsed();
+
+        // Start decode from last prompt token
+        let mut position = prompt.len() - 1;
+        let mut last_token = prompt[prompt.len() - 1];
+
+        // Statistics for throughput calculation
+        let decode_start = Instant::now();
+        let mut accepted_tokens = 0usize;
+        let mut total_drafts = 0usize;
+        let mut total_speculative_batches = 0usize;
+
+        while tokens.len() - prompt.len() < config.max_tokens {
+            // Step 1: Draft k tokens greedily using GPU-resident forward
+            let cache_snapshot = cache.snapshot_len();
+            let mut draft_tokens = Vec::with_capacity(speculation_k);
+
+            // Draft all k tokens using GPU-resident to_token_id (greedy argmax)
+            for i in 0..speculation_k {
+                let draft_pos = position + i;
+                let input_token = if i == 0 {
+                    last_token
+                } else {
+                    *draft_tokens.last().unwrap_or(&last_token)
+                };
+
+                let draft =
+                    self.forward_gpu_resident_to_token_id(input_token, &mut cache, draft_pos)?;
+
+                if config.stop_tokens.contains(&draft) {
+                    if i == 0 {
+                        // First draft is stop token
+                        tokens.push(draft);
+                    }
+                    break;
+                }
+
+                draft_tokens.push(draft);
+            }
+
+            if draft_tokens.is_empty() {
+                break; // Stop token on first draft
+            }
+
+            total_drafts += draft_tokens.len();
+
+            // Step 2: Rollback cache to snapshot for verification
+            cache.rollback_to(cache_snapshot, kv_dim);
+            self.executor.reset_kv_cache_gpu();
+
+            // Step 3: Verify - use single-token GPU-resident to check each draft
+            // NOTE: Batched verification would be faster but requires refactoring
+            // For now, verify sequentially to ensure correctness
+            let mut num_accepted = 0usize;
+
+            for (i, &draft) in draft_tokens.iter().enumerate() {
+                let verify_pos = position + i;
+                let input_token = if i == 0 {
+                    last_token
+                } else {
+                    *draft_tokens.get(i - 1).unwrap_or(&last_token)
+                };
+
+                let verified =
+                    self.forward_gpu_resident_to_token_id(input_token, &mut cache, verify_pos)?;
+
+                if verified == draft {
+                    // Accept this token
+                    tokens.push(draft);
+                    num_accepted += 1;
+                } else {
+                    // Reject: accept the model's correction instead
+                    if !config.stop_tokens.contains(&verified) {
+                        tokens.push(verified);
+                        num_accepted += 1;
+                    }
+                    break;
+                }
+            }
+
+            total_speculative_batches += 1;
+
+            // Handle edge case: all drafts rejected
+            if num_accepted == 0 && !draft_tokens.is_empty() {
+                // Just generate one token normally
+                cache.rollback_to(cache_snapshot, kv_dim);
+                self.executor.reset_kv_cache_gpu();
+                let fallback =
+                    self.forward_gpu_resident_to_token_id(last_token, &mut cache, position)?;
+                if config.stop_tokens.contains(&fallback) {
+                    break;
+                }
+                tokens.push(fallback);
+                num_accepted = 1;
+            }
+
+            accepted_tokens += num_accepted;
+
+            // Step 4: Update position and last_token
+            position += num_accepted;
+            last_token = *tokens.last().unwrap_or(&0);
+
+            // Rollback cache to keep only accepted entries
+            let target_cache_len = cache_snapshot + num_accepted;
+            cache.rollback_to(target_cache_len, kv_dim);
+        }
+
+        let decode_time = decode_start.elapsed();
+        let generated_tokens = tokens.len() - prompt.len();
+        let decode_tok_s = if decode_time.as_secs_f64() > 0.0 {
+            generated_tokens as f64 / decode_time.as_secs_f64()
+        } else {
+            0.0
+        };
+
+        let acceptance_rate = if total_drafts > 0 {
+            accepted_tokens as f64 / total_drafts as f64 * 100.0
+        } else {
+            0.0
+        };
+
+        eprintln!(
+            "[PAR-100] Speculative decode: {} tokens in {:.2}ms ({:.1} tok/s)",
+            generated_tokens,
+            decode_time.as_secs_f64() * 1000.0,
+            decode_tok_s
+        );
+        eprintln!(
+            "[PAR-100] Prefill: {:.2}ms, Drafts: {}, Accepted: {}, Rate: {:.1}%",
+            prefill_time.as_secs_f64() * 1000.0,
+            total_drafts,
+            accepted_tokens,
+            acceptance_rate
+        );
+        eprintln!(
+            "[PAR-100] Batched verifications: {}",
+            total_speculative_batches
+        );
+
+        Ok(tokens)
+    }
+
     // =========================================================================
     // PAR-023: GPU-Resident Transformer Layer Integration
     // =========================================================================
@@ -19780,6 +20001,34 @@ impl OwnedQuantizedKVCache {
     /// PAR-097: Advance sequence position by n tokens (for speculative decode)
     pub fn advance_by(&mut self, n: usize) {
         self.seq_len = (self.seq_len + n).min(self.max_seq_len);
+    }
+
+    /// PAR-098: Rollback cache to a previous position (for speculative decode rejection)
+    ///
+    /// When draft tokens are rejected, we need to remove their K/V entries.
+    /// This truncates each layer's cache to keep only the first `new_len` positions.
+    ///
+    /// # Arguments
+    /// * `new_len` - The new sequence length (must be <= current length)
+    /// * `kv_dim` - The dimension of each K/V entry (num_kv_heads * head_dim)
+    pub fn rollback_to(&mut self, new_len: usize, kv_dim: usize) {
+        if new_len >= self.seq_len {
+            return; // Nothing to rollback
+        }
+        let target_size = new_len * kv_dim;
+        for layer_k in &mut self.k_cache {
+            layer_k.truncate(target_size);
+        }
+        for layer_v in &mut self.v_cache {
+            layer_v.truncate(target_size);
+        }
+        self.seq_len = new_len;
+    }
+
+    /// PAR-098: Get a snapshot of current cache lengths for rollback
+    #[must_use]
+    pub fn snapshot_len(&self) -> usize {
+        self.seq_len
     }
 
     /// Get cached keys for a layer
