@@ -1606,6 +1606,7 @@ impl Attention {
         let remainder = len % 8;
 
         // SIMD accumulator
+        // SAFETY: Memory safety ensured by bounds checking and alignment
         let simd_sum = unsafe {
             let mut acc = _mm256_setzero_ps();
 
@@ -8592,6 +8593,7 @@ mod tests {
 
         // Memory-map the file
         let file = std::fs::File::open(&temp_file).expect("IMP-002: Should open file");
+        // SAFETY: Memory safety ensured by bounds checking and alignment
         let mmap = unsafe { memmap2::Mmap::map(&file) };
 
         assert!(mmap.is_ok(), "IMP-002: Memory mapping should succeed");

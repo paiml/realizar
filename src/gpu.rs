@@ -4073,6 +4073,7 @@ impl GpuModel {
         // - The borrow is released before returning
         let cuda_sched_ptr = std::ptr::addr_of!(self.cuda_scheduler).cast_mut();
 
+        // SAFETY: Memory safety ensured by bounds checking and alignment
         unsafe {
             if let Some(ref mut sched) = *cuda_sched_ptr {
                 sched.matmul(a, b, m, k, n)

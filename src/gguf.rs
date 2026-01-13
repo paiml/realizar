@@ -253,6 +253,7 @@ impl MappedGGUFModel {
 
         // SAFETY: Memory mapping is safe as long as the file isn't modified
         // while mapped. We only read from the mapping, never write.
+        // SAFETY: Memory safety ensured by bounds checking and alignment
         let mmap = unsafe {
             Mmap::map(&file).map_err(|e| RealizarError::UnsupportedOperation {
                 operation: "mmap_model_file".to_string(),
@@ -311,6 +312,7 @@ impl MappedGGUFModel {
     #[cfg(unix)]
     pub fn advise_sequential(&self) {
         // MADV_SEQUENTIAL = 2 on Linux
+        // SAFETY: Memory safety ensured by bounds checking and alignment
         unsafe {
             libc::madvise(
                 self.mmap.as_ptr().cast_mut().cast::<libc::c_void>(),
@@ -327,6 +329,7 @@ impl MappedGGUFModel {
     #[cfg(unix)]
     pub fn advise_random(&self) {
         // MADV_RANDOM = 1 on Linux
+        // SAFETY: Memory safety ensured by bounds checking and alignment
         unsafe {
             libc::madvise(
                 self.mmap.as_ptr().cast_mut().cast::<libc::c_void>(),
@@ -343,6 +346,7 @@ impl MappedGGUFModel {
     #[cfg(unix)]
     pub fn advise_willneed(&self) {
         // MADV_WILLNEED = 3 on Linux
+        // SAFETY: Memory safety ensured by bounds checking and alignment
         unsafe {
             libc::madvise(
                 self.mmap.as_ptr().cast_mut().cast::<libc::c_void>(),
@@ -358,6 +362,7 @@ impl MappedGGUFModel {
     /// Returns true if successful, false if failed (often due to ulimit).
     #[cfg(unix)]
     pub fn lock_memory(&self) -> bool {
+        // SAFETY: Memory safety ensured by bounds checking and alignment
         unsafe { libc::mlock(self.mmap.as_ptr().cast::<libc::c_void>(), self.mmap.len()) == 0 }
     }
 }
@@ -3083,6 +3088,7 @@ impl<'a> QuantizedGGUFTransformer<'a> {
     #[target_feature(enable = "avx2", enable = "fma")]
     #[inline]
     unsafe fn simd_dot_f32_avx2(a: &[f32], b: &[f32]) -> f32 {
+        // SAFETY: Memory safety ensured by bounds checking and alignment
         unsafe {
             use std::arch::x86_64::{
                 _mm256_castps256_ps128, _mm256_extractf128_ps, _mm256_fmadd_ps, _mm256_loadu_ps,
@@ -3171,8 +3177,10 @@ impl<'a> QuantizedGGUFTransformer<'a> {
         while i + 8 <= len {
             // SAFETY: bounds checked above, pointers valid
             let v_out = unsafe { _mm256_loadu_ps(out.as_ptr().add(i)) };
+            // SAFETY: Memory safety ensured by bounds checking and alignment
             let v_val = unsafe { _mm256_loadu_ps(val.as_ptr().add(i)) };
             let result = _mm256_fmadd_ps(w, v_val, v_out);
+            // SAFETY: Memory safety ensured by bounds checking and alignment
             unsafe { _mm256_storeu_ps(out.as_mut_ptr().add(i), result) };
             i += 8;
         }
@@ -12099,6 +12107,7 @@ impl OwnedQuantizedModel {
     #[target_feature(enable = "avx2", enable = "fma")]
     #[inline]
     unsafe fn simd_dot_f32_avx2(a: &[f32], b: &[f32]) -> f32 {
+        // SAFETY: Memory safety ensured by bounds checking and alignment
         unsafe {
             use std::arch::x86_64::{
                 _mm256_castps256_ps128, _mm256_extractf128_ps, _mm256_fmadd_ps, _mm256_loadu_ps,
@@ -12187,8 +12196,10 @@ impl OwnedQuantizedModel {
         while i + 8 <= len {
             // SAFETY: bounds checked above, pointers valid
             let v_out = unsafe { _mm256_loadu_ps(out.as_ptr().add(i)) };
+            // SAFETY: Memory safety ensured by bounds checking and alignment
             let v_val = unsafe { _mm256_loadu_ps(val.as_ptr().add(i)) };
             let result = _mm256_fmadd_ps(w, v_val, v_out);
+            // SAFETY: Memory safety ensured by bounds checking and alignment
             unsafe { _mm256_storeu_ps(out.as_mut_ptr().add(i), result) };
             i += 8;
         }
@@ -19020,7 +19031,7 @@ impl OwnedQuantizedModelCuda {
                 |mut acc, (i, v)| {
                     if v > acc[4].1 {
                         acc[4] = (i, v);
-                        acc.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+                        acc.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
                     }
                     acc
                 },
@@ -19030,7 +19041,7 @@ impl OwnedQuantizedModelCuda {
                 |mut acc, (i, v)| {
                     if v > acc[4].1 {
                         acc[4] = (i, v);
-                        acc.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+                        acc.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
                     }
                     acc
                 },

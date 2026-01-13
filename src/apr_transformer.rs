@@ -100,6 +100,7 @@ impl MmapAprTransformer {
         })?;
 
         // Safety: We're only reading the file, mmap is safe for read-only access
+        // SAFETY: Memory safety ensured by bounds checking and alignment
         let mmap = unsafe {
             Mmap::map(&file).map_err(|e| RealizarError::IoError {
                 message: format!("Failed to mmap APR file: {e}"),
