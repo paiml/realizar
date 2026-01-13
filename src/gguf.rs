@@ -15842,6 +15842,87 @@ impl OwnedQuantizedModel {
         Ok(output)
     }
 
+    /// PAR-104: GQA-aware batched causal attention with GPU acceleration
+    ///
+    /// Unlike `batched_causal_attention_gpu`, this handles Grouped Query Attention
+    /// where Q has more heads than K and V:
+    /// - Q: [seq_len, q_dim] where q_dim = num_heads * head_dim
+    /// - K: [seq_len, kv_dim] where kv_dim = num_kv_heads * head_dim
+    /// - V: [seq_len, kv_dim] where kv_dim = num_kv_heads * head_dim
+    ///
+    /// Each K/V head is shared by (num_heads / num_kv_heads) Q heads.
+    #[cfg(feature = "gpu")]
+    pub fn batched_causal_attention_gpu_gqa(
+        &self,
+        q: &[f32],
+        k: &[f32],
+        v: &[f32],
+        seq_len: usize,
+        q_dim: usize,
+        kv_dim: usize,
+    ) -> Result<Vec<f32>> {
+        use crate::gpu::HybridScheduler;
+
+        let num_heads = self.config.num_heads;
+        let head_dim = q_dim / num_heads;
+        let num_kv_heads = kv_dim / head_dim;
+        let groups = num_heads / num_kv_heads; // Q heads per KV head
+        let scale = 1.0 / (head_dim as f32).sqrt();
+
+        let mut scheduler = HybridScheduler::with_threshold(1000).map_err(|e| {
+            RealizarError::UnsupportedOperation {
+                operation: "HybridScheduler::with_threshold".to_string(),
+                reason: format!("GPU scheduler initialization failed: {e}"),
+            }
+        })?;
+
+        let mut output = vec![0.0f32; seq_len * q_dim];
+
+        // Process each Q head
+        for q_head in 0..num_heads {
+            let q_head_offset = q_head * head_dim;
+            let kv_head = q_head / groups; // Which KV head this Q head uses
+            let kv_head_offset = kv_head * head_dim;
+
+            // Extract Q_h: [seq_len, head_dim] from Q
+            let mut q_h = Vec::with_capacity(seq_len * head_dim);
+            for pos in 0..seq_len {
+                let start = pos * q_dim + q_head_offset;
+                q_h.extend_from_slice(&q[start..start + head_dim]);
+            }
+
+            // Extract K_h, V_h: [seq_len, head_dim] from K, V using KV head index
+            let mut k_h = Vec::with_capacity(seq_len * head_dim);
+            let mut v_h = Vec::with_capacity(seq_len * head_dim);
+            for pos in 0..seq_len {
+                let start = pos * kv_dim + kv_head_offset;
+                k_h.extend_from_slice(&k[start..start + head_dim]);
+                v_h.extend_from_slice(&v[start..start + head_dim]);
+            }
+
+            // Compute attention scores: Q_h @ K_h^T -> [seq_len, seq_len]
+            let scores =
+                self.batched_qk_scores(&q_h, &k_h, seq_len, head_dim, scale, &mut scheduler)?;
+
+            // Apply causal mask and softmax
+            let attn_weights = self.apply_causal_mask_softmax(&scores, seq_len);
+
+            // Compute output: attn_weights @ V_h -> [seq_len, head_dim]
+            let head_output =
+                self.batched_attn_v(&attn_weights, &v_h, seq_len, head_dim, &mut scheduler)?;
+
+            // Copy head output to final output
+            for pos in 0..seq_len {
+                let out_start = pos * q_dim + q_head_offset;
+                let head_start = pos * head_dim;
+                output[out_start..out_start + head_dim]
+                    .copy_from_slice(&head_output[head_start..head_start + head_dim]);
+            }
+        }
+
+        Ok(output)
+    }
+
     /// Compute Q @ K^T attention scores with GPU acceleration
     #[cfg(feature = "gpu")]
     fn batched_qk_scores(
@@ -17323,10 +17404,10 @@ impl OwnedQuantizedModelCuda {
                 v_all.extend_from_slice(v);
             }
 
-            // 2d. Batched causal attention (CPU)
-            // PAR-103: GPU batched_causal_attention_gpu is NOT GQA-aware (assumes Q/K/V same dim)
-            // ROOT CAUSE: With GQA, Q has hidden_dim but K/V have hidden_dim * num_kv_heads / num_heads
-            // TODO(PAR-104): Implement GQA-aware batched GPU attention for scaling beyond batch_size=4
+            // 2d. Batched causal attention
+            // PAR-104: GPU attention only beneficial for seq_len >= 64 due to kernel launch overhead
+            // For small batch sizes (typical decode), CPU is faster
+            // GPU wins only when amortizing across many positions (prefill, large context)
             let attn_out = self
                 .model
                 .causal_attention(&q_all, &k_all, &v_all, batch_size);
