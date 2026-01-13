@@ -51,7 +51,7 @@ fn main() {
     println!();
 
     // Test different batch sizes
-    let batch_sizes = [1, 2, 4];
+    let batch_sizes = [1, 2, 4, 8];
     let num_iterations = 50;
 
     println!("═══════════════════════════════════════════════════════════════");

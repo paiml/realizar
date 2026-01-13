@@ -49,6 +49,7 @@ use trueno_gpu::driver::{
 };
 use trueno_gpu::kernels::{
     Activation, ArgMaxFinalKernel, ArgMaxKernel, AttentionKernel, BatchedQ4KGemvKernel,
+    BatchedResidualAddKernel, BatchedRopeKernel, BatchedSwigluKernel, BatchedVectorizedRmsNormKernel,
     BiasActivationKernel, ChunkedTiledQ4KGemvKernel, CoalescedGemvKernel, CoalescedQ4KGemvKernel,
     CoalescedQ6KGemvKernel, Dp4aQ4KGemvKernel, Dp4aSIMDQ4KGemvKernel, ElementwiseMulKernel,
     Fp16Q4KGemvKernel, FusedGateUpKernel, FusedGateUpQ4KGemvKernel, FusedQKVKernel,
@@ -59,7 +60,7 @@ use trueno_gpu::kernels::{
     Q5KGemvKernel, Q5KKernel, Q5_0GemvKernel, Q6KGemvKernel, Q6KKernel, Q8QuantizeKernel,
     Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel, RmsNormKernel, RopeIndirectKernel,
     RopeKernel, SiluKernel, SoftmaxKernel, TensorCoreQ4KGemmKernel, TiledQ4KGemvKernel,
-    BatchedVectorizedRmsNormKernel, TrueDp4aQ4KGemvKernel, VectorizedQ4KGemvKernel, VectorizedRmsNormKernel,
+    TrueDp4aQ4KGemvKernel, VectorizedQ4KGemvKernel, VectorizedRmsNormKernel,
 };
 use trueno_gpu::GpuError;
 
@@ -523,6 +524,34 @@ pub enum KernelType {
         /// Epsilon for numerical stability (default: 1e-5)
         epsilon: f32,
     },
+    /// PAR-114: Batched RoPE kernel
+    /// Processes M sequences in parallel using Grid.y = M
+    BatchedRope {
+        /// Number of heads
+        num_heads: u32,
+        /// Head dimension
+        head_dim: u32,
+        /// Batch size (M)
+        batch_size: u32,
+        /// RoPE theta base (typically 10000.0)
+        theta: f32,
+    },
+    /// PAR-114: Batched Residual Add kernel
+    /// Processes M sequences in parallel using Grid.y = M
+    BatchedResidualAdd {
+        /// Elements per sequence
+        n: u32,
+        /// Batch size (M)
+        batch_size: u32,
+    },
+    /// PAR-114: Batched SwiGLU kernel
+    /// Processes M sequences in parallel using Grid.y = M
+    BatchedSwiglu {
+        /// Elements per sequence
+        n: u32,
+        /// Batch size (M)
+        batch_size: u32,
+    },
     /// PAR-023: Residual Add kernel for async pipeline
     /// Element-wise addition for residual connections: output = input1 + input2
     ResidualAdd {
@@ -889,6 +918,21 @@ impl CudaKernels {
             } => BatchedVectorizedRmsNormKernel::new(*hidden_size, *batch_size)
                 .with_epsilon(*epsilon)
                 .emit_ptx(),
+            // PAR-114: Batched RoPE for M sequences
+            KernelType::BatchedRope {
+                num_heads,
+                head_dim,
+                batch_size,
+                theta,
+            } => BatchedRopeKernel::new(*num_heads, *head_dim, *batch_size, *theta).emit_ptx(),
+            // PAR-114: Batched Residual Add for M sequences
+            KernelType::BatchedResidualAdd { n, batch_size } => {
+                BatchedResidualAddKernel::new(*n, *batch_size).emit_ptx()
+            }
+            // PAR-114: Batched SwiGLU for M sequences
+            KernelType::BatchedSwiglu { n, batch_size } => {
+                BatchedSwigluKernel::new(*n, *batch_size).emit_ptx()
+            }
             // PAR-023: Residual Add for async pipeline
             KernelType::ResidualAdd { n } => ResidualAddKernel::new(*n).emit_ptx(),
             // PAR-023: Fused Residual Add + RMSNorm for reduced memory bandwidth
@@ -1060,6 +1104,12 @@ impl CudaKernels {
             KernelType::VectorizedRmsNorm { .. } => "rmsnorm_vectorized",
             // PAR-112: Batched Vectorized RMSNorm
             KernelType::BatchedVectorizedRmsNorm { .. } => "batched_rmsnorm_vectorized",
+            // PAR-114: Batched RoPE
+            KernelType::BatchedRope { .. } => "batched_rope",
+            // PAR-114: Batched Residual Add
+            KernelType::BatchedResidualAdd { .. } => "batched_residual_add",
+            // PAR-114: Batched SwiGLU
+            KernelType::BatchedSwiglu { .. } => "batched_swiglu",
             // PAR-023: Residual Add
             KernelType::ResidualAdd { .. } => "residual_add",
             // PAR-023: Fused Residual Add + RMSNorm
@@ -1872,6 +1922,8 @@ pub struct TransformerWorkspace {
     pub intermediate_dim: usize,
     /// PAR-111: Batch size for multi-sequence processing (default 1)
     pub batch_size: usize,
+    /// PAR-114: Positions buffer for batched RoPE (M positions)
+    pub positions_buf: Option<GpuBuffer<u32>>,
 }
 
 /// CUDA execution engine for GPU-accelerated LLM inference
@@ -2662,6 +2714,8 @@ impl CudaExecutor {
         self.workspace.ffn_act_buf = Some(GpuBuffer::new(&self.context, intermediate_dim * m)?);
         // PAR-111: normed_hidden_buf for output norm before LM head
         self.workspace.normed_hidden_buf = Some(GpuBuffer::new(&self.context, hidden_dim * m)?);
+        // PAR-114: positions buffer for batched RoPE
+        self.workspace.positions_buf = Some(GpuBuffer::new(&self.context, m)?);
 
         self.workspace.hidden_dim = hidden_dim;
         self.workspace.q_dim = q_dim;
@@ -6488,6 +6542,193 @@ impl CudaExecutor {
         let gamma = unsafe { GpuBuffer::from_raw_parts(gamma_ptr, gamma_len) };
         self.batched_rmsnorm_into(input, &gamma, output, hidden_size, batch_size, epsilon)?;
         std::mem::forget(gamma);
+        Ok(())
+    }
+
+    /// PAR-114: Batched RoPE kernel for M sequences
+    ///
+    /// Applies rotary position embeddings to M sequences in parallel.
+    /// Reduces 2M kernel launches to 2 (one for Q, one for K).
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - Packed Q or K vectors [M × num_heads × head_dim]
+    /// * `output` - Output vectors (can alias input for in-place)
+    /// * `positions_buf` - GPU buffer of M positions
+    /// * `num_heads` - Number of attention heads
+    /// * `head_dim` - Dimension per head
+    /// * `batch_size` - Number of sequences (M)
+    /// * `theta` - RoPE theta base (typically 10000.0)
+    #[allow(clippy::too_many_arguments)]
+    pub fn batched_rope_into(
+        &mut self,
+        input: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        positions_buf: &GpuBuffer<u32>,
+        num_heads: u32,
+        head_dim: u32,
+        batch_size: u32,
+        theta: f32,
+    ) -> Result<(), GpuError> {
+        let kernel_type = KernelType::BatchedRope {
+            num_heads,
+            head_dim,
+            batch_size,
+            theta,
+        };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("batched_rope_{}_{}_{}", num_heads, head_dim, batch_size);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // PAR-114: Grid (num_heads, batch_size, 1) with head_dim/2 threads
+        let threads = (head_dim / 2).min(256);
+        let config = LaunchConfig::grid_2d(num_heads, batch_size, threads, 1);
+
+        let mut ptr_input = input.as_ptr();
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_positions = positions_buf.as_ptr();
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_positions) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// PAR-114: Batched Residual Add kernel for M sequences
+    ///
+    /// Element-wise addition for M sequences in parallel.
+    /// Reduces 2M kernel launches to 2 (attention residual, FFN residual).
+    ///
+    /// # Arguments
+    ///
+    /// * `input1` - First packed input [M × n]
+    /// * `input2` - Second packed input [M × n]
+    /// * `output` - Output [M × n]
+    /// * `n` - Elements per sequence
+    /// * `batch_size` - Number of sequences (M)
+    pub fn batched_residual_add_into(
+        &mut self,
+        input1: &GpuBuffer<f32>,
+        input2: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        n: u32,
+        batch_size: u32,
+    ) -> Result<(), GpuError> {
+        let kernel_type = KernelType::BatchedResidualAdd { n, batch_size };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("batched_residual_add_{}_{}", n, batch_size);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // PAR-114: Grid (ceil(n/256), batch_size, 1) with 256 threads
+        let blocks_x = (n + 255) / 256;
+        let config = LaunchConfig::grid_2d(blocks_x, batch_size, 256, 1);
+
+        let mut ptr_input1 = input1.as_ptr();
+        let mut ptr_input2 = input2.as_ptr();
+        let mut ptr_output = output.as_ptr();
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_input1) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input2) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// PAR-114: Batched SwiGLU kernel for M sequences
+    ///
+    /// Fused SiLU+multiply for M sequences in parallel.
+    /// Reduces M kernel launches to 1.
+    ///
+    /// # Arguments
+    ///
+    /// * `gate` - Packed gate values [M × n]
+    /// * `up` - Packed up values [M × n]
+    /// * `output` - Output [M × n]
+    /// * `n` - Elements per sequence
+    /// * `batch_size` - Number of sequences (M)
+    pub fn batched_swiglu_into(
+        &mut self,
+        gate: &GpuBuffer<f32>,
+        up: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        n: u32,
+        batch_size: u32,
+    ) -> Result<(), GpuError> {
+        let kernel_type = KernelType::BatchedSwiglu { n, batch_size };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("batched_swiglu_{}_{}", n, batch_size);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // PAR-114: Grid (ceil(n/256), batch_size, 1) with 256 threads
+        let blocks_x = (n + 255) / 256;
+        let config = LaunchConfig::grid_2d(blocks_x, batch_size, 256, 1);
+
+        let mut ptr_gate = gate.as_ptr();
+        let mut ptr_up = up.as_ptr();
+        let mut ptr_output = output.as_ptr();
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_gate) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_up) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
         Ok(())
     }
 
@@ -11800,36 +12041,45 @@ impl CudaExecutor {
             }
         }
 
-        // ========== 3. RoPE on Q/K (M sequential calls) ==========
+        // ========== 3. RoPE on Q/K (PAR-114: BATCHED - 2 kernel launches) ==========
         let num_heads = self.kv_num_heads as u32;
         let num_kv_heads = self.kv_num_kv_heads as u32;
         let head_dim = self.kv_head_dim as u32;
         let theta = self.rope_theta;
 
-        for seq_idx in 0..m as usize {
-            let q_offset = seq_idx * q_dim as usize;
-            let kv_offset = seq_idx * kv_dim as usize;
-            let position = positions[seq_idx];
+        // Upload positions to GPU for batched RoPE
+        let positions_buf_ptr = self.workspace.positions_buf.as_ref()
+            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-114: positions_buf not initialized".to_string()))?
+            .as_ptr();
+        let mut positions_buf = unsafe { GpuBuffer::<u32>::from_raw_parts(positions_buf_ptr, m as usize) };
 
-            let q_view = unsafe {
-                GpuBuffer::<f32>::from_raw_parts(
-                    q_buf_ptr + (q_offset * std::mem::size_of::<f32>()) as u64,
-                    q_dim as usize,
-                )
-            };
-            let k_view = unsafe {
-                GpuBuffer::<f32>::from_raw_parts(
-                    k_buf_ptr + (kv_offset * std::mem::size_of::<f32>()) as u64,
-                    kv_dim as usize,
-                )
-            };
+        // Convert positions to u32 and copy to device
+        let positions_u32: Vec<u32> = positions.to_vec();
+        positions_buf.copy_from_host(&positions_u32)?;
 
-            self.rope_into(&q_view, &q_view, position, num_heads, head_dim, theta)?;
-            self.rope_into(&k_view, &k_view, position, num_kv_heads, head_dim, theta)?;
+        // PAR-114: Batched RoPE for Q (all M sequences in one launch)
+        self.batched_rope_into(
+            &q_buf,
+            &q_buf, // In-place
+            &positions_buf,
+            num_heads,
+            head_dim,
+            m,
+            theta,
+        )?;
 
-            std::mem::forget(q_view);
-            std::mem::forget(k_view);
-        }
+        // PAR-114: Batched RoPE for K (all M sequences in one launch)
+        self.batched_rope_into(
+            &k_buf,
+            &k_buf, // In-place
+            &positions_buf,
+            num_kv_heads,
+            head_dim,
+            m,
+            theta,
+        )?;
+
+        std::mem::forget(positions_buf);
 
         // ========== 4. Attention (M sequential calls - different KV caches) ==========
         // NOTE: Attention cannot be batched because each sequence has different KV cache
@@ -11915,35 +12165,15 @@ impl CudaExecutor {
             }
         }
 
-        // ========== 6. First Residual (M sequential) ==========
-        for seq_idx in 0..m as usize {
-            let offset = seq_idx * hidden_dim as usize;
-
-            let input_view = unsafe {
-                GpuBuffer::<f32>::from_raw_parts(
-                    input.as_ptr() + (offset * std::mem::size_of::<f32>()) as u64,
-                    hidden_dim as usize,
-                )
-            };
-            let proj_view = unsafe {
-                GpuBuffer::<f32>::from_raw_parts(
-                    hidden_buf1_ptr + (offset * std::mem::size_of::<f32>()) as u64,
-                    hidden_dim as usize,
-                )
-            };
-            let residual_view = unsafe {
-                GpuBuffer::<f32>::from_raw_parts(
-                    input_staging_ptr + (offset * std::mem::size_of::<f32>()) as u64,
-                    hidden_dim as usize,
-                )
-            };
-
-            self.residual_add_into(&input_view, &proj_view, &residual_view, hidden_dim)?;
-
-            std::mem::forget(input_view);
-            std::mem::forget(proj_view);
-            std::mem::forget(residual_view);
-        }
+        // ========== 6. First Residual (PAR-114: BATCHED - 1 kernel launch) ==========
+        // residual1 = input + O_projection
+        self.batched_residual_add_into(
+            input,
+            &hidden_buf1,  // O projection output
+            &input_staging,  // Residual output
+            hidden_dim,
+            m,
+        )?;
 
         // ========== 7. Pre-FFN RMSNorm (BATCHED - PAR-112) ==========
         // Process all M sequences in a single kernel launch
@@ -12009,35 +12239,15 @@ impl CudaExecutor {
             }
         }
 
-        // ========== 9. SwiGLU (M sequential) ==========
-        for seq_idx in 0..m as usize {
-            let offset = seq_idx * intermediate_dim as usize;
-
-            let gate_view = unsafe {
-                GpuBuffer::<f32>::from_raw_parts(
-                    ffn_gate_ptr + (offset * std::mem::size_of::<f32>()) as u64,
-                    intermediate_dim as usize,
-                )
-            };
-            let up_view = unsafe {
-                GpuBuffer::<f32>::from_raw_parts(
-                    ffn_up_ptr + (offset * std::mem::size_of::<f32>()) as u64,
-                    intermediate_dim as usize,
-                )
-            };
-            let act_view = unsafe {
-                GpuBuffer::<f32>::from_raw_parts(
-                    ffn_act_ptr + (offset * std::mem::size_of::<f32>()) as u64,
-                    intermediate_dim as usize,
-                )
-            };
-
-            self.fused_swiglu_into(&gate_view, &up_view, &act_view, intermediate_dim)?;
-
-            std::mem::forget(gate_view);
-            std::mem::forget(up_view);
-            std::mem::forget(act_view);
-        }
+        // ========== 9. SwiGLU (PAR-114: BATCHED - 1 kernel launch) ==========
+        // act = silu(gate) * up
+        self.batched_swiglu_into(
+            &ffn_gate_buf,
+            &ffn_up_buf,
+            &ffn_act_buf,
+            intermediate_dim,
+            m,
+        )?;
 
         // ========== 10. FFN Down (BATCHED GEMV) ==========
         if layer_weights.ffn_down_qtype == WeightQuantType::Q4K {
@@ -12075,35 +12285,15 @@ impl CudaExecutor {
             }
         }
 
-        // ========== 11. Second Residual (M sequential) ==========
-        for seq_idx in 0..m as usize {
-            let offset = seq_idx * hidden_dim as usize;
-
-            let residual1_view = unsafe {
-                GpuBuffer::<f32>::from_raw_parts(
-                    input_staging_ptr + (offset * std::mem::size_of::<f32>()) as u64,
-                    hidden_dim as usize,
-                )
-            };
-            let ffn_view = unsafe {
-                GpuBuffer::<f32>::from_raw_parts(
-                    hidden_buf1_ptr + (offset * std::mem::size_of::<f32>()) as u64,
-                    hidden_dim as usize,
-                )
-            };
-            let output_view = unsafe {
-                GpuBuffer::<f32>::from_raw_parts(
-                    hidden_buf2_ptr + (offset * std::mem::size_of::<f32>()) as u64,
-                    hidden_dim as usize,
-                )
-            };
-
-            self.residual_add_into(&residual1_view, &ffn_view, &output_view, hidden_dim)?;
-
-            std::mem::forget(residual1_view);
-            std::mem::forget(ffn_view);
-            std::mem::forget(output_view);
-        }
+        // ========== 11. Second Residual (PAR-114: BATCHED - 1 kernel launch) ==========
+        // output = residual1 + FFN_down
+        self.batched_residual_add_into(
+            &input_staging,  // residual1
+            &hidden_buf1,    // FFN down output
+            &hidden_buf2,    // Layer output
+            hidden_dim,
+            m,
+        )?;
 
         // Prevent Drop from freeing borrowed memory
         std::mem::forget(hidden_buf1);
