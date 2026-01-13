@@ -9457,7 +9457,7 @@ impl CudaExecutor {
             }
         }
 
-        // 3. Output norm (M sequential calls)
+        // 3. Output norm (PAR-115: Batched - single launch for M sequences)
         let output_norm_buf = self.rmsnorm_cache.get("output_norm.gamma")
             .ok_or_else(|| GpuError::InvalidLaunchConfig(
                 "PAR-111: output_norm not cached".to_string()
@@ -9465,40 +9465,33 @@ impl CudaExecutor {
         let output_norm_ptr = output_norm_buf.as_ptr();
         let output_norm_len = hidden_dim as usize;
 
+        // Get buffer pointers to avoid borrow conflicts
         let hidden_buf2_ptr = self.workspace.hidden_buf2.as_ref()
             .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-111: hidden_buf2 missing".to_string()))?
             .as_ptr();
+        let hidden_buf2_len = m as usize * hidden_dim as usize;
         let normed_hidden_ptr = self.workspace.normed_hidden_buf.as_ref()
             .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-111: normed_hidden_buf missing".to_string()))?
             .as_ptr();
+        let normed_hidden_len = m as usize * hidden_dim as usize;
 
-        for seq_idx in 0..m {
-            let offset = seq_idx * hidden_dim as usize;
-            let input_view = unsafe {
-                GpuBuffer::<f32>::from_raw_parts(
-                    hidden_buf2_ptr + (offset * std::mem::size_of::<f32>()) as u64,
-                    hidden_dim as usize,
-                )
-            };
-            let output_view = unsafe {
-                GpuBuffer::<f32>::from_raw_parts(
-                    normed_hidden_ptr + (offset * std::mem::size_of::<f32>()) as u64,
-                    hidden_dim as usize,
-                )
-            };
+        // PAR-115: Use batched RMSNorm (M sequences in single kernel launch)
+        // SAFETY: Buffers are valid for the lifetime of this function
+        let hidden_buf2 = unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_buf2_ptr, hidden_buf2_len) };
+        let normed_hidden_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(normed_hidden_ptr, normed_hidden_len) };
 
-            self.rmsnorm_ptr_into(
-                &input_view,
-                output_norm_ptr,
-                output_norm_len,
-                &output_view,
-                hidden_dim,
-                epsilon,
-            )?;
+        self.batched_rmsnorm_ptr_into(
+            &hidden_buf2,
+            output_norm_ptr,
+            output_norm_len,
+            &normed_hidden_buf,
+            hidden_dim,
+            m as u32,
+            epsilon,
+        )?;
 
-            std::mem::forget(input_view);
-            std::mem::forget(output_view);
-        }
+        std::mem::forget(hidden_buf2);
+        std::mem::forget(normed_hidden_buf);
 
         // 4. LM head projection (BATCHED GEMV)
         if self.lm_head_ptr == 0 {
