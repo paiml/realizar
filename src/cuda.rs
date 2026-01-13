@@ -10305,7 +10305,9 @@ impl CudaExecutor {
         }
 
         // 7. FFN gate/up projections -> workspace buffers
-        // PAR-058-FIX: Use correct kernel based on gate/up quantization type
+        // PAR-077: Fused kernel BLOCKED - 3x slower due to shared memory + barrier overhead
+        // Root cause: Input is 6KB, weights are 15MB - weights dominate by 2500x
+        // L2 cache naturally serves input reuse between gate/up kernels
         let timer_ffn_gate_up = if profiling {
             self.start_brick_timer("FFNGateUp")
         } else {
