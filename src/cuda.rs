@@ -48,18 +48,18 @@ use trueno_gpu::driver::{
     GpuBuffer, LaunchConfig,
 };
 use trueno_gpu::kernels::{
-    Activation, ArgMaxFinalKernel, ArgMaxKernel, AttentionKernel, BiasActivationKernel,
-    ChunkedTiledQ4KGemvKernel, CoalescedGemvKernel, CoalescedQ4KGemvKernel, CoalescedQ6KGemvKernel,
-    Dp4aQ4KGemvKernel, Dp4aSIMDQ4KGemvKernel, ElementwiseMulKernel, Fp16Q4KGemvKernel,
-    FusedGateUpKernel, FusedGateUpQ4KGemvKernel, FusedQKVKernel, FusedResidualRmsNormKernel,
-    FusedRmsNormQ4KGemvKernel, FusedSwigluKernel, GeluKernel, GemmKernel, GemvKernel,
-    IncrementalAttentionKernel, Kernel, KvCacheScatterIndirectKernel, KvCacheScatterKernel,
-    LayerNormKernel, MultiWarpIncrementalAttentionKernel, PackedDp4aQ4KQ8Kernel, Q4KGemvKernel,
-    Q4KQ8DotKernel, Q4_0GemvKernel, Q4_1GemvKernel, Q5KGemvKernel, Q5KKernel, Q5_0GemvKernel,
-    Q6KGemvKernel, Q6KKernel, Q8QuantizeKernel, Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel,
-    RmsNormKernel, RopeIndirectKernel, RopeKernel, SiluKernel, SoftmaxKernel,
-    TensorCoreQ4KGemmKernel, TiledQ4KGemvKernel, TrueDp4aQ4KGemvKernel, VectorizedQ4KGemvKernel,
-    VectorizedRmsNormKernel,
+    Activation, ArgMaxFinalKernel, ArgMaxKernel, AttentionKernel, BatchedQ4KGemvKernel,
+    BiasActivationKernel, ChunkedTiledQ4KGemvKernel, CoalescedGemvKernel, CoalescedQ4KGemvKernel,
+    CoalescedQ6KGemvKernel, Dp4aQ4KGemvKernel, Dp4aSIMDQ4KGemvKernel, ElementwiseMulKernel,
+    Fp16Q4KGemvKernel, FusedGateUpKernel, FusedGateUpQ4KGemvKernel, FusedQKVKernel,
+    FusedResidualRmsNormKernel, FusedRmsNormQ4KGemvKernel, FusedSwigluKernel, GeluKernel,
+    GemmKernel, GemvKernel, IncrementalAttentionKernel, Kernel, KvCacheScatterIndirectKernel,
+    KvCacheScatterKernel, LayerNormKernel, MultiWarpIncrementalAttentionKernel,
+    PackedDp4aQ4KQ8Kernel, Q4KGemvKernel, Q4KQ8DotKernel, Q4_0GemvKernel, Q4_1GemvKernel,
+    Q5KGemvKernel, Q5KKernel, Q5_0GemvKernel, Q6KGemvKernel, Q6KKernel, Q8QuantizeKernel,
+    Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel, RmsNormKernel, RopeIndirectKernel,
+    RopeKernel, SiluKernel, SoftmaxKernel, TensorCoreQ4KGemmKernel, TiledQ4KGemvKernel,
+    TrueDp4aQ4KGemvKernel, VectorizedQ4KGemvKernel, VectorizedRmsNormKernel,
 };
 use trueno_gpu::GpuError;
 
@@ -352,6 +352,21 @@ pub enum KernelType {
     /// Target: 8x speedup over GEMV for M≥16 speculative tokens
     TensorCoreQ4KGemm {
         /// Batch size (M) - number of tokens to process in parallel
+        m: u32,
+        /// Input dimension (K, must be multiple of 256)
+        k: u32,
+        /// Output dimension (N)
+        n: u32,
+    },
+    /// PAR-108: Batched Q4_K GEMV for 2x Ollama via shared dequantization
+    ///
+    /// Key optimization: Sequential GEMV dequantizes weights M times.
+    /// Batched GEMV dequantizes once and multiplies by M different inputs.
+    /// This amortizes ALU-bound dequantization cost (32% bandwidth → higher).
+    ///
+    /// Layout: y[M×N] = x[M×K] × W[N×K]^T (Q4_K quantized)
+    BatchedQ4KGemv {
+        /// Batch size (M) - number of sequences to process in parallel
         m: u32,
         /// Input dimension (K, must be multiple of 256)
         k: u32,
@@ -908,6 +923,10 @@ impl CudaKernels {
             KernelType::TensorCoreQ4KGemm { m, k, n } => {
                 TensorCoreQ4KGemmKernel::new(*m, *k, *n).emit_ptx()
             },
+            // PAR-108: Batched Q4K GEMV for 2x Ollama via shared dequantization
+            KernelType::BatchedQ4KGemv { m, k, n } => {
+                BatchedQ4KGemvKernel::new(*k, *n, *m).emit_ptx()
+            },
             // PAR-063-V4: Q8 Quantization kernel for activations (f32 → Q8_1)
             KernelType::Q8Quantize { n } => Q8QuantizeKernel { n: *n }.emit_ptx(),
             // PAR-063-V5: Q4K × Q8 dot product using integer arithmetic
@@ -1044,6 +1063,8 @@ impl CudaKernels {
             KernelType::TrueDp4aQ4KGemv { .. } => "true_dp4a_q4k_gemv",
             // PAR-094: Tensor Core Q4K GEMM for batched speculative decode
             KernelType::TensorCoreQ4KGemm { .. } => "tensor_core_q4k_gemm",
+            // PAR-108: Batched Q4K GEMV for 2x Ollama
+            KernelType::BatchedQ4KGemv { .. } => "batched_q4k_gemv_warp_reduce",
             // PAR-063-V4: Q8 Quantization kernel
             KernelType::Q8Quantize { .. } => "q8_quantize",
             // PAR-063-V5: Q4K × Q8 dot product
@@ -4808,6 +4829,91 @@ impl CudaExecutor {
         // Sync and download
         self.stream.synchronize()?;
         buf_output.copy_to_host(output)?;
+
+        Ok(())
+    }
+
+    /// PAR-108: Execute Batched Q4_K GEMV for 2x Ollama target
+    ///
+    /// Key optimization: Sequential GEMV dequantizes weights M times for M sequences.
+    /// Batched GEMV dequantizes ONCE and multiplies by M different input vectors.
+    /// This amortizes ALU-bound dequantization cost (32% bandwidth → higher efficiency).
+    ///
+    /// Memory layout:
+    /// - `input`: M × K row-major (M batch elements, K elements each)
+    /// - `output`: M × N row-major (M batch elements, N outputs each)
+    /// - `weights`: N × K/256 Q4_K super-blocks (shared across batch)
+    ///
+    /// Performance insight (Five-Whys PAR-108):
+    /// 1. WHY can't batched throughput reach 2x? → 32% bandwidth efficiency
+    /// 2. WHY only 32%? → Sequential GEMV dequantizes per sequence
+    /// 3. WHY not share dequantization? → No batched GEMV kernel existed
+    /// 4. WHY not tensor cores? → Complex WMMA PTX (~400 LOC)
+    /// 5. WHY batched GEMV works? → Simpler, shares dequant in registers
+    ///
+    /// # Arguments
+    ///
+    /// * `weight_ptr` - Raw device pointer to Q4K weight data
+    /// * `input` - GPU buffer containing M×K input matrix (row-major)
+    /// * `output` - Pre-allocated M×N output buffer (row-major)
+    /// * `m` - Batch size (number of sequences, max 8)
+    /// * `n` - Output dimension (weight rows)
+    /// * `k` - Input dimension (weight columns, must be multiple of 256)
+    #[inline]
+    pub fn batched_q4k_gemv_into(
+        &mut self,
+        weight_ptr: u64,
+        input: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        m: u32,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        debug_assert!(m <= 8, "Batch size > 8 not supported (register pressure)");
+        debug_assert!(k % 256 == 0, "K must be multiple of 256 for Q4K super-blocks");
+
+        let kernel_type = KernelType::BatchedQ4KGemv { m, k, n };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("batched_q4k_gemv_{}_{}_{}", m, k, n);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // Grid: N blocks (one per output row), 32 threads per block
+        let config = LaunchConfig::grid_2d(n, 1, 32, 1);
+
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_weights = weight_ptr;
+        let mut ptr_input = input.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
+        let mut m_val = m;
+
+        // Kernel signature: batched_q4k_gemv_warp_reduce(y_ptr, w_ptr, x_ptr, k_dim, n_dim, m_dim)
+        // SAFETY: Memory safety ensured by bounds checking and alignment
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut m_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
 
         Ok(())
     }
