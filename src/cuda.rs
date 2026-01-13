@@ -51,14 +51,14 @@ use trueno_gpu::kernels::{
     Activation, ArgMaxFinalKernel, ArgMaxKernel, AttentionKernel, BiasActivationKernel,
     ChunkedTiledQ4KGemvKernel, CoalescedGemvKernel, CoalescedQ4KGemvKernel, CoalescedQ6KGemvKernel,
     Dp4aQ4KGemvKernel, Dp4aSIMDQ4KGemvKernel, ElementwiseMulKernel, Fp16Q4KGemvKernel,
-    FusedGateUpKernel, FusedQKVKernel, FusedResidualRmsNormKernel, FusedSwigluKernel, GeluKernel,
-    GemmKernel, GemvKernel, IncrementalAttentionKernel, Kernel, KvCacheScatterIndirectKernel,
-    KvCacheScatterKernel, LayerNormKernel, MultiWarpIncrementalAttentionKernel,
-    PackedDp4aQ4KQ8Kernel, Q4KGemvKernel, Q4KQ8DotKernel, Q4_0GemvKernel, Q4_1GemvKernel,
-    Q5KGemvKernel, Q5KKernel, Q5_0GemvKernel, Q6KGemvKernel, Q6KKernel, Q8QuantizeKernel,
-    Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel, RmsNormKernel, RopeIndirectKernel,
-    RopeKernel, SiluKernel, SoftmaxKernel, TiledQ4KGemvKernel, TrueDp4aQ4KGemvKernel,
-    VectorizedQ4KGemvKernel,
+    FusedGateUpKernel, FusedGateUpQ4KGemvKernel, FusedQKVKernel, FusedResidualRmsNormKernel,
+    FusedRmsNormQ4KGemvKernel, FusedSwigluKernel, GeluKernel, GemmKernel, GemvKernel,
+    IncrementalAttentionKernel, Kernel, KvCacheScatterIndirectKernel, KvCacheScatterKernel,
+    LayerNormKernel, MultiWarpIncrementalAttentionKernel, PackedDp4aQ4KQ8Kernel, Q4KGemvKernel,
+    Q4KQ8DotKernel, Q4_0GemvKernel, Q4_1GemvKernel, Q5KGemvKernel, Q5KKernel, Q5_0GemvKernel,
+    Q6KGemvKernel, Q6KKernel, Q8QuantizeKernel, Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel,
+    RmsNormKernel, RopeIndirectKernel, RopeKernel, SiluKernel, SoftmaxKernel, TiledQ4KGemvKernel,
+    TrueDp4aQ4KGemvKernel, VectorizedQ4KGemvKernel,
 };
 use trueno_gpu::GpuError;
 
@@ -492,6 +492,28 @@ pub enum KernelType {
         /// Epsilon for numerical stability
         epsilon: f32,
     },
+    /// PAR-076: Fused RMSNorm + Q4K GEMV kernel
+    /// Eliminates separate RMSNorm pass by fusing normalization into GEMV
+    /// output = matmul(weights, rmsnorm(input, gamma))
+    FusedRmsNormQ4KGemv {
+        /// K dimension (hidden size, input dimension)
+        k: u32,
+        /// N dimension (output dimension)
+        n: u32,
+        /// Epsilon for RMSNorm numerical stability
+        epsilon: f32,
+    },
+
+    /// PAR-077: Fused gate + up Q4K GEMV kernel
+    /// Computes both gate and up projections in one pass
+    /// gate_out = W_gate * x, up_out = W_up * x
+    /// Saves 50% input bandwidth by reading x only once
+    FusedGateUpQ4KGemv {
+        /// K dimension (hidden size, input dimension)
+        k: u32,
+        /// N dimension (intermediate size, output per projection)
+        n: u32,
+    },
 
     // =========================================================================
     // PAR-023: Activation and Element-wise Kernels for GPU-Resident Pipeline
@@ -815,6 +837,16 @@ impl CudaKernels {
             } => FusedResidualRmsNormKernel::new(*hidden_size)
                 .with_epsilon(*epsilon)
                 .emit_ptx(),
+            // PAR-076: Fused RMSNorm + Q4K GEMV
+            KernelType::FusedRmsNormQ4KGemv { k, n, epsilon } => {
+                FusedRmsNormQ4KGemvKernel::new(*k, *n)
+                    .with_epsilon(*epsilon)
+                    .emit_ptx()
+            },
+            // PAR-077: Fused gate + up Q4K GEMV
+            KernelType::FusedGateUpQ4KGemv { k, n } => {
+                FusedGateUpQ4KGemvKernel::new(*k, *n).emit_ptx()
+            },
             // PAR-023: Activation kernels for GPU-resident pipeline
             KernelType::Silu { n } => SiluKernel::new(*n).emit_ptx(),
             KernelType::Gelu { n } => GeluKernel::new(*n).emit_ptx(),
@@ -959,6 +991,10 @@ impl CudaKernels {
             KernelType::ResidualAdd { .. } => "residual_add",
             // PAR-023: Fused Residual Add + RMSNorm
             KernelType::FusedResidualRmsNorm { .. } => "fused_residual_rmsnorm",
+            // PAR-076: Fused RMSNorm + Q4K GEMV
+            KernelType::FusedRmsNormQ4KGemv { .. } => "fused_rmsnorm_q4k_gemv",
+            // PAR-077: Fused gate + up Q4K GEMV
+            KernelType::FusedGateUpQ4KGemv { .. } => "fused_gate_up_q4k_gemv",
             // PAR-023: Activation kernels
             KernelType::Silu { .. } => "silu",
             KernelType::Gelu { .. } => "gelu",
@@ -4425,6 +4461,161 @@ impl CudaExecutor {
                 &mut [
                     std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
                     std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// PAR-076: Execute Fused RMSNorm + Q4_K GEMV into existing buffer
+    ///
+    /// Fuses RMSNorm normalization with Q4K GEMV in a single kernel pass:
+    /// output = matmul(weights, rmsnorm(input, gamma))
+    ///
+    /// Phase 1: Load input, compute sum of squares, normalize in shared memory
+    /// Phase 2: Do Q4K GEMV using normalized values from shared memory
+    ///
+    /// Eliminates:
+    /// - Separate RMSNorm kernel launch (~1.5µs)
+    /// - Global memory round-trip for normalized values
+    /// - Memory bandwidth for writing/reading normalized buffer
+    ///
+    /// # Arguments
+    ///
+    /// * `weight_ptr` - Raw device pointer to Q4K weight data
+    /// * `input` - GPU buffer containing input vector (K elements, NOT normalized)
+    /// * `gamma_ptr` - RMSNorm scale weights (K elements)
+    /// * `output` - Pre-allocated output buffer (must be at least n elements)
+    /// * `k` - Input/hidden dimension (must be multiple of 256)
+    /// * `n` - Output dimension
+    /// * `epsilon` - RMSNorm numerical stability (default 1e-5)
+    #[inline]
+    pub fn fused_rmsnorm_q4k_gemv_into(
+        &mut self,
+        weight_ptr: u64,
+        input: &GpuBuffer<f32>,
+        gamma_ptr: u64,
+        output: &GpuBuffer<f32>,
+        k: u32,
+        n: u32,
+        epsilon: f32,
+    ) -> Result<(), GpuError> {
+        let kernel_type = KernelType::FusedRmsNormQ4KGemv { k, n, epsilon };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("fused_rmsnorm_q4k_gemv_{}_{}_{:.0e}", k, n, epsilon);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // One block per output element, 256 threads per block
+        let config = LaunchConfig::grid_2d(n, 1, 256, 1);
+
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_weights = weight_ptr;
+        let mut ptr_input = input.as_ptr();
+        let mut ptr_gamma = gamma_ptr;
+        let mut k_val = k;
+        let mut n_val = n;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_gamma) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// PAR-077: Execute Fused Gate+Up Q4_K GEMV into existing buffers
+    ///
+    /// Computes both gate and up projections in a single kernel pass:
+    ///   gate_out = W_gate * x
+    ///   up_out = W_up * x
+    ///
+    /// Optimization: Reads input x only ONCE (saved to shared memory)
+    /// - Standard approach: 2 kernel launches, 2x input bandwidth
+    /// - Fused approach: 1 kernel launch, 1x input bandwidth
+    ///
+    /// Expected savings: ~30% reduction in FFNGateUp time
+    ///
+    /// # Arguments
+    ///
+    /// * `gate_weight_ptr` - Raw device pointer to Q4K gate weights
+    /// * `up_weight_ptr` - Raw device pointer to Q4K up weights
+    /// * `input` - GPU buffer containing input vector (K elements)
+    /// * `gate_output` - Pre-allocated output buffer for gate (N elements)
+    /// * `up_output` - Pre-allocated output buffer for up (N elements)
+    /// * `k` - Input/hidden dimension (must be multiple of 256)
+    /// * `n` - Intermediate dimension (output size)
+    #[inline]
+    pub fn fused_gate_up_q4k_gemv_into(
+        &mut self,
+        gate_weight_ptr: u64,
+        up_weight_ptr: u64,
+        input: &GpuBuffer<f32>,
+        gate_output: &GpuBuffer<f32>,
+        up_output: &GpuBuffer<f32>,
+        k: u32,
+        n: u32,
+    ) -> Result<(), GpuError> {
+        let kernel_type = KernelType::FusedGateUpQ4KGemv { k, n };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("fused_gate_up_q4k_gemv_{}_{}", k, n);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // One block per output element, 256 threads per block
+        let config = LaunchConfig::grid_2d(n, 1, 256, 1);
+
+        let mut ptr_gate_out = gate_output.as_ptr();
+        let mut ptr_up_out = up_output.as_ptr();
+        let mut ptr_gate_weights = gate_weight_ptr;
+        let mut ptr_up_weights = up_weight_ptr;
+        let mut ptr_input = input.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_gate_out) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_up_out) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_gate_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_up_weights) as *mut std::ffi::c_void,
                     std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
                     std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
                     std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
