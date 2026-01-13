@@ -846,9 +846,15 @@ fn run_gguf_inference(
         );
     }
 
-    // CPU path: IMP-130 Zero-copy model loading - use borrowed refs to mmap data
-    // This eliminates the 1.2s startup time from copying 637MB of model weights
-    let model = QuantizedGGUFTransformer::from_gguf(&mapped.model, mapped.data()).map_err(|e| {
+    // PAR-126: Five-Whys fix - use OwnedQuantizedModel for fast CPU inference
+    // Root cause analysis:
+    //   Why-1: CPU path was 14 tok/s vs Ollama's 200 tok/s
+    //   Why-2: QuantizedGGUFTransformer uses mmap with per-matmul allocations
+    //   Why-3: Each of 196 matmuls per token allocates/frees Vec
+    //   Why-4: Vec allocation overhead + cache pollution from mmap page faults
+    //   Why-5: OwnedQuantizedModel copies weights to RAM but uses _into methods
+    // Solution: Use OwnedQuantizedModel - slower loading but faster inference
+    let model = realizar::gguf::OwnedQuantizedModel::from_mapped(&mapped).map_err(|e| {
         realizar::error::RealizarError::UnsupportedOperation {
             operation: "load_model".to_string(),
             reason: format!("Failed to load model: {e}"),
@@ -856,7 +862,7 @@ fn run_gguf_inference(
     })?;
 
     let load_time = load_start.elapsed();
-    println!("Backend: CPU (AVX2)");
+    println!("Backend: CPU (AVX2 + SIMD)");
     println!("Model loaded in {:.2}ms", load_time.as_secs_f64() * 1000.0);
 
     // Tokenize prompt using GGUF vocabulary

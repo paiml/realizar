@@ -3487,14 +3487,16 @@ pub fn fused_q4k_parallel_matvec(
     in_dim: usize,
     out_dim: usize,
 ) -> Result<Vec<f32>> {
-    // IMP-103: Adaptive parallelization threshold (must be declared first to satisfy clippy)
-    // Benchmarking shows parallel overhead hurts performance for small matrices:
-    // - Sequential: O(out_dim * single_row_time), no overhead
-    // - Parallel: O(out_dim * single_row_time / cores) + rayon_overhead
-    // - Rayon overhead ~100µs, single_row ~100ns for 512 elements
-    // - Break-even: out_dim > 100µs / (100ns/cores) = ~16K for 16 cores
-    // - But memory bandwidth saturates earlier, so use 4096 as practical threshold
-    const PARALLEL_THRESHOLD: usize = 4096;
+    // PAR-126: Five-Whys fix - parallel threshold was too high
+    // OLD: PARALLEL_THRESHOLD=4096 meant FFN down (out_dim=1536) used sequential path
+    // PROBLEM: 1.5B model was 11 tok/s instead of 200 tok/s due to single-threaded matmuls
+    //
+    // ANALYSIS (for 32-core system with in_dim=8960):
+    // - Per-row time: 8960/256 superblocks × ~50ns/superblock = ~1.75µs
+    // - Rayon overhead: ~10µs (reduced with work-stealing)
+    // - Break-even: 10µs / (1.75µs/32) = ~183 rows
+    // SOLUTION: Lower threshold to 256 to enable parallelism for all practical matmuls
+    const PARALLEL_THRESHOLD: usize = 256;
 
     // Calculate bytes per output row
     let super_blocks_per_row = in_dim.div_ceil(QK_K);
