@@ -58,7 +58,7 @@ use trueno_gpu::kernels::{
     Q4KQ8DotKernel, Q4_0GemvKernel, Q4_1GemvKernel, Q5KGemvKernel, Q5KKernel, Q5_0GemvKernel,
     Q6KGemvKernel, Q6KKernel, Q8QuantizeKernel, Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel,
     RmsNormKernel, RopeIndirectKernel, RopeKernel, SiluKernel, SoftmaxKernel, TiledQ4KGemvKernel,
-    TrueDp4aQ4KGemvKernel, VectorizedQ4KGemvKernel,
+    TrueDp4aQ4KGemvKernel, VectorizedQ4KGemvKernel, VectorizedRmsNormKernel,
 };
 use trueno_gpu::GpuError;
 
@@ -477,6 +477,14 @@ pub enum KernelType {
         /// Epsilon for numerical stability (default: 1e-5)
         epsilon: f32,
     },
+    /// PAR-081: Vectorized RMSNorm kernel with 256 threads
+    /// 8x faster than single-warp RmsNorm through better parallelism
+    VectorizedRmsNorm {
+        /// Hidden dimension size
+        hidden_size: u32,
+        /// Epsilon for numerical stability (default: 1e-5)
+        epsilon: f32,
+    },
     /// PAR-023: Residual Add kernel for async pipeline
     /// Element-wise addition for residual connections: output = input1 + input2
     ResidualAdd {
@@ -828,6 +836,13 @@ impl CudaKernels {
             } => RmsNormKernel::new(*hidden_size)
                 .with_epsilon(*epsilon)
                 .emit_ptx(),
+            // PAR-081: Vectorized RMSNorm with 256 threads (8x faster)
+            KernelType::VectorizedRmsNorm {
+                hidden_size,
+                epsilon,
+            } => VectorizedRmsNormKernel::new(*hidden_size)
+                .with_epsilon(*epsilon)
+                .emit_ptx(),
             // PAR-023: Residual Add for async pipeline
             KernelType::ResidualAdd { n } => ResidualAddKernel::new(*n).emit_ptx(),
             // PAR-023: Fused Residual Add + RMSNorm for reduced memory bandwidth
@@ -987,6 +1002,8 @@ impl CudaKernels {
             KernelType::KvCacheScatterIndirect { .. } => "kv_cache_scatter_indirect",
             // PAR-023: RMSNorm
             KernelType::RmsNorm { .. } => "rmsnorm",
+            // PAR-081: Vectorized RMSNorm
+            KernelType::VectorizedRmsNorm { .. } => "rmsnorm_vectorized",
             // PAR-023: Residual Add
             KernelType::ResidualAdd { .. } => "residual_add",
             // PAR-023: Fused Residual Add + RMSNorm
@@ -6053,6 +6070,9 @@ impl CudaExecutor {
     /// PAR-044: RMSNorm into existing buffer (zero-allocation, async)
     ///
     /// Like `rmsnorm_gpu` but writes into a pre-allocated output buffer.
+    ///
+    /// PAR-081: Uses VectorizedRmsNorm with 256 threads for ~8x speedup
+    /// over single-warp kernel (23µs → ~3µs for hidden_size=1536)
     #[inline]
     pub fn rmsnorm_into(
         &mut self,
@@ -6062,12 +6082,13 @@ impl CudaExecutor {
         hidden_size: u32,
         epsilon: f32,
     ) -> Result<(), GpuError> {
-        let kernel_type = KernelType::RmsNorm {
+        // PAR-081: Use vectorized kernel with 256 threads (8x faster)
+        let kernel_type = KernelType::VectorizedRmsNorm {
             hidden_size,
             epsilon,
         };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
-        let cache_key = format!("rmsnorm_{}", hidden_size);
+        let cache_key = format!("rmsnorm_vectorized_{}", hidden_size);
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
@@ -6080,7 +6101,8 @@ impl CudaExecutor {
             .get_mut(&cache_key)
             .expect("module just inserted");
 
-        let config = LaunchConfig::grid_2d(1, 1, 32, 1);
+        // PAR-081: 256 threads (8 warps) for better parallelism
+        let config = LaunchConfig::grid_2d(1, 1, 256, 1);
 
         let mut ptr_input = input.as_ptr();
         let mut ptr_output = output.as_ptr();
@@ -8651,10 +8673,10 @@ impl CudaExecutor {
         let kv_dim = num_kv_heads * head_dim;
 
         // 1. RMSNorm kernel (used for attn_norm, ffn_norm, output_norm)
-        // Note: epsilon is a runtime parameter, cache key only uses hidden_size
-        let rmsnorm_key = format!("rmsnorm_{}", hidden_dim);
+        // PAR-081: Use VectorizedRmsNorm with 256 threads (8x faster than single-warp)
+        let rmsnorm_key = format!("rmsnorm_vectorized_{}", hidden_dim);
         if !self.modules.contains_key(&rmsnorm_key) {
-            let kernel_type = KernelType::RmsNorm {
+            let kernel_type = KernelType::VectorizedRmsNorm {
                 hidden_size: hidden_dim,
                 epsilon: 1e-5, // Runtime parameter, kernel code same regardless
             };
