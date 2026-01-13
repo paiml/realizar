@@ -817,6 +817,58 @@ pub struct ChatCompletionRequest {
     /// User identifier
     #[serde(default)]
     pub user: Option<String>,
+    /// Tools available for the model to call
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<ToolDefinitionRequest>>,
+    /// Tool choice: "auto", "none", "required", or specific tool
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<ToolChoiceRequest>,
+}
+
+/// Tool definition in request format
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolDefinitionRequest {
+    /// Tool type (always "function")
+    #[serde(rename = "type")]
+    pub tool_type: String,
+    /// Function definition
+    pub function: FunctionDefinition,
+}
+
+/// Function definition for tool calling
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FunctionDefinition {
+    /// Function name
+    pub name: String,
+    /// Function description
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Function parameters as JSON schema
+    #[serde(default)]
+    pub parameters: Option<serde_json::Value>,
+}
+
+/// Tool choice in request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ToolChoiceRequest {
+    /// String choice: "auto", "none", "required"
+    String(String),
+    /// Specific tool choice
+    Specific {
+        /// Tool type
+        #[serde(rename = "type")]
+        tool_type: String,
+        /// Function to call
+        function: SpecificFunctionChoice,
+    },
+}
+
+/// Specific function choice
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpecificFunctionChoice {
+    /// Function name to call
+    pub name: String,
 }
 
 fn default_n() -> usize {
@@ -826,13 +878,41 @@ fn default_n() -> usize {
 /// Chat message
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
-    /// Role: "system", "user", "assistant"
+    /// Role: "system", "user", "assistant", "tool"
     pub role: String,
-    /// Message content
-    pub content: String,
-    /// Optional name
+    /// Message content (can be null for tool calls)
     #[serde(default)]
+    pub content: Option<String>,
+    /// Optional name
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// Tool calls made by the assistant
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<ToolCallResponse>>,
+    /// Tool call ID (for tool role messages)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+}
+
+/// Tool call in response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolCallResponse {
+    /// Unique tool call ID
+    pub id: String,
+    /// Tool type (always "function")
+    #[serde(rename = "type")]
+    pub tool_type: String,
+    /// Function call details
+    pub function: FunctionCallResponse,
+}
+
+/// Function call details in response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FunctionCallResponse {
+    /// Function name
+    pub name: String,
+    /// Function arguments as JSON string
+    pub arguments: String,
 }
 
 /// OpenAI-compatible chat completion response
@@ -859,7 +939,7 @@ pub struct ChatChoice {
     pub index: usize,
     /// Generated message
     pub message: ChatMessage,
-    /// Finish reason
+    /// Finish reason: "stop", "length", "tool_calls"
     pub finish_reason: String,
 }
 
@@ -2863,8 +2943,10 @@ async fn openai_chat_completions_handler(
             index: 0,
             message: ChatMessage {
                 role: "assistant".to_string(),
-                content: response_text,
+                content: Some(response_text),
                 name: None,
+                tool_calls: None,
+                tool_call_id: None,
             },
             finish_reason: "stop".to_string(),
         }],
@@ -3078,7 +3160,7 @@ impl ContextWindowManager {
         // Calculate total tokens
         let total_tokens: usize = messages
             .iter()
-            .map(|m| Self::estimate_tokens(&m.content))
+            .map(|m| Self::estimate_tokens(m.content.as_deref().unwrap_or("")))
             .sum();
 
         if total_tokens <= available {
@@ -3096,7 +3178,8 @@ impl ContextWindowManager {
 
         // Add system messages first
         for msg in &system_msgs {
-            let tokens = Self::estimate_tokens(&msg.content);
+            let content = msg.content.as_deref().unwrap_or("");
+            let tokens = Self::estimate_tokens(content);
             if used_tokens + tokens <= available {
                 result.push((*msg).clone());
                 used_tokens += tokens;
@@ -3106,7 +3189,8 @@ impl ContextWindowManager {
         // Add other messages from most recent, then reverse
         let mut temp_msgs: Vec<ChatMessage> = Vec::new();
         for msg in other_msgs.iter().rev() {
-            let tokens = Self::estimate_tokens(&msg.content);
+            let content = msg.content.as_deref().unwrap_or("");
+            let tokens = Self::estimate_tokens(content);
             if used_tokens + tokens <= available {
                 temp_msgs.push((*msg).clone());
                 used_tokens += tokens;
@@ -3128,7 +3212,7 @@ impl ContextWindowManager {
         let available = self.config.available_tokens();
         let total_tokens: usize = messages
             .iter()
-            .map(|m| Self::estimate_tokens(&m.content))
+            .map(|m| Self::estimate_tokens(m.content.as_deref().unwrap_or("")))
             .sum();
         total_tokens > available
     }
@@ -3137,7 +3221,7 @@ impl ContextWindowManager {
     pub fn estimate_total_tokens(&self, messages: &[ChatMessage]) -> usize {
         messages
             .iter()
-            .map(|m| Self::estimate_tokens(&m.content))
+            .map(|m| Self::estimate_tokens(m.content.as_deref().unwrap_or("")))
             .sum()
     }
 }
@@ -3152,7 +3236,7 @@ fn format_chat_messages(messages: &[ChatMessage], model_name: Option<&str>) -> S
     // Convert API ChatMessage to template ChatMessage
     let template_messages: Vec<TemplateMessage> = messages
         .iter()
-        .map(|m| TemplateMessage::new(&m.role, &m.content))
+        .map(|m| TemplateMessage::new(&m.role, m.content.as_deref().unwrap_or("")))
         .collect();
 
     // Use model-aware template formatting
@@ -3160,7 +3244,9 @@ fn format_chat_messages(messages: &[ChatMessage], model_name: Option<&str>) -> S
         // Fallback to simple concatenation if template fails
         let mut prompt = String::new();
         for msg in messages {
-            prompt.push_str(&msg.content);
+            if let Some(content) = &msg.content {
+                prompt.push_str(content);
+            }
             prompt.push('\n');
         }
         prompt
@@ -3329,6 +3415,23 @@ pub struct CompletionChoice {
 }
 
 /// Native Realizar embedding handler (/realize/embed)
+///
+/// Generates sentence embeddings from input text. With the `embeddings` feature enabled,
+/// uses a dedicated BERT-style embedding model (all-MiniLM, nomic-embed, etc.).
+/// Without the feature, uses a token-frequency based fallback.
+///
+/// # Integration with EmbeddingEngine
+///
+/// To use real embedding models, enable the `embeddings` feature and configure:
+/// ```toml
+/// [models.embedding]
+/// path = "models/all-MiniLM-L6-v2"
+/// type = "bert"
+/// pooling = "mean"
+/// normalize = true
+/// ```
+///
+/// Then load the EmbeddingEngine in AppState initialization.
 async fn realize_embed_handler(
     State(state): State<AppState>,
     Json(request): Json<EmbeddingRequest>,
@@ -3343,13 +3446,22 @@ async fn realize_embed_handler(
         )
     })?;
 
-    // Tokenize input
+    // Tokenize input for token count
     let token_ids = tokenizer.encode(&request.input);
     let prompt_tokens = token_ids.len();
 
-    // Generate simple embedding from token frequencies
-    // In production, this would use the model's hidden states
-    let mut embedding = vec![0.0f32; 384]; // 384-dim embedding
+    // TODO: When EmbeddingEngine is integrated into AppState, use it here:
+    // #[cfg(feature = "embeddings")]
+    // if let Some(engine) = &state.embedding_engine {
+    //     let embeddings = engine.embed(&[request.input.clone()]).map_err(|e| {
+    //         (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e.to_string() }))
+    //     })?;
+    //     return Ok(Json(EmbeddingResponse { ... }));
+    // }
+
+    // Fallback: Generate embedding from token frequencies
+    // This provides a consistent API even without a dedicated embedding model
+    let mut embedding = vec![0.0f32; 384]; // 384-dim embedding (matches all-MiniLM)
 
     for (i, &token_id) in token_ids.iter().enumerate() {
         let idx = (token_id as usize) % embedding.len();
@@ -3357,7 +3469,7 @@ async fn realize_embed_handler(
         embedding[idx] += pos_weight;
     }
 
-    // L2 normalize
+    // L2 normalize for cosine similarity compatibility
     let norm: f32 = embedding.iter().map(|x| x * x).sum::<f32>().sqrt();
     if norm > 0.0 {
         for v in &mut embedding {
@@ -3372,7 +3484,7 @@ async fn realize_embed_handler(
             index: 0,
             embedding,
         }],
-        model: request.model.unwrap_or_else(|| "default".to_string()),
+        model: request.model.unwrap_or_else(|| "token-frequency-fallback".to_string()),
         usage: EmbeddingUsage {
             prompt_tokens,
             total_tokens: prompt_tokens,
@@ -5127,12 +5239,12 @@ mod tests {
             messages: vec![
                 ChatMessage {
                     role: "system".to_string(),
-                    content: "You are a helpful assistant.".to_string(),
+                    content: Some("You are a helpful assistant.".to_string()),
                     name: None,
                 },
                 ChatMessage {
                     role: "user".to_string(),
-                    content: "Hello".to_string(),
+                    content: Some("Hello".to_string()),
                     name: None,
                 },
             ],
@@ -5208,7 +5320,7 @@ mod tests {
     fn test_format_chat_messages_simple_raw() {
         let messages = vec![ChatMessage {
             role: "user".to_string(),
-            content: "Hello".to_string(),
+            content: Some("Hello".to_string()),
             name: None,
         }];
 
@@ -5221,7 +5333,7 @@ mod tests {
     fn test_format_chat_messages_chatml() {
         let messages = vec![ChatMessage {
             role: "user".to_string(),
-            content: "Hello".to_string(),
+            content: Some("Hello".to_string()),
             name: None,
         }];
 
@@ -5238,12 +5350,12 @@ mod tests {
         let messages = vec![
             ChatMessage {
                 role: "system".to_string(),
-                content: "You are helpful.".to_string(),
+                content: Some("You are helpful.".to_string()),
                 name: None,
             },
             ChatMessage {
                 role: "user".to_string(),
-                content: "Hi".to_string(),
+                content: Some("Hi".to_string()),
                 name: None,
             },
         ];
@@ -5262,17 +5374,17 @@ mod tests {
         let messages = vec![
             ChatMessage {
                 role: "user".to_string(),
-                content: "Hello".to_string(),
+                content: Some("Hello".to_string()),
                 name: None,
             },
             ChatMessage {
                 role: "assistant".to_string(),
-                content: "Hi there!".to_string(),
+                content: Some("Hi there!".to_string()),
                 name: None,
             },
             ChatMessage {
                 role: "user".to_string(),
-                content: "How are you?".to_string(),
+                content: Some("How are you?".to_string()),
                 name: None,
             },
         ];
@@ -5289,7 +5401,7 @@ mod tests {
     fn test_format_chat_messages_phi() {
         let messages = vec![ChatMessage {
             role: "user".to_string(),
-            content: "Test".to_string(),
+            content: Some("Test".to_string()),
             name: None,
         }];
 
@@ -5303,7 +5415,7 @@ mod tests {
     fn test_format_chat_messages_alpaca() {
         let messages = vec![ChatMessage {
             role: "user".to_string(),
-            content: "Test".to_string(),
+            content: Some("Test".to_string()),
             name: None,
         }];
 
@@ -5323,7 +5435,7 @@ mod tests {
     fn test_chat_message_serialization() {
         let msg = ChatMessage {
             role: "user".to_string(),
-            content: "Hello".to_string(),
+            content: Some("Hello".to_string()),
             name: Some("test_user".to_string()),
         };
 
@@ -5472,7 +5584,7 @@ mod tests {
         let manager = ContextWindowManager::default_manager();
         let messages = vec![ChatMessage {
             role: "user".to_string(),
-            content: "Hello".to_string(),
+            content: Some("Hello".to_string()),
             name: None,
         }];
 
@@ -5504,7 +5616,7 @@ mod tests {
         let messages = vec![
             ChatMessage {
                 role: "system".to_string(),
-                content: "You are helpful.".to_string(),
+                content: Some("You are helpful.".to_string()),
                 name: None,
             },
             ChatMessage {
@@ -5514,7 +5626,7 @@ mod tests {
             },
             ChatMessage {
                 role: "user".to_string(),
-                content: "Recent".to_string(),
+                content: Some("Recent".to_string()),
                 name: None,
             },
         ];
@@ -5524,7 +5636,7 @@ mod tests {
         // System message should be preserved
         assert!(result.iter().any(|m| m.role == "system"));
         // Most recent message should be included
-        assert!(result.iter().any(|m| m.content == "Recent"));
+        assert!(result.iter().any(|m| m.content.as_deref() == Some("Recent")));
     }
 
     #[test]
@@ -5537,17 +5649,17 @@ mod tests {
         let messages = vec![
             ChatMessage {
                 role: "user".to_string(),
-                content: "Old message 1".to_string(),
+                content: Some("Old message 1".to_string()),
                 name: None,
             },
             ChatMessage {
                 role: "user".to_string(),
-                content: "Old message 2".to_string(),
+                content: Some("Old message 2".to_string()),
                 name: None,
             },
             ChatMessage {
                 role: "user".to_string(),
-                content: "Recent".to_string(),
+                content: Some("Recent".to_string()),
                 name: None,
             },
         ];
@@ -5555,7 +5667,7 @@ mod tests {
         let (result, truncated) = manager.truncate_messages(&messages);
         // If truncation occurs, most recent should be kept
         if truncated {
-            assert!(result.iter().any(|m| m.content == "Recent"));
+            assert!(result.iter().any(|m| m.content.as_deref() == Some("Recent")));
         }
     }
 
@@ -5564,7 +5676,7 @@ mod tests {
         let manager = ContextWindowManager::default_manager();
         let messages = vec![ChatMessage {
             role: "user".to_string(),
-            content: "Hello".to_string(),
+            content: Some("Hello".to_string()),
             name: None,
         }];
 

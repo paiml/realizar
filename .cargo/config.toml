@@ -17,4 +17,4 @@ rustflags = ["-C", "link-arg=-fuse-ld=mold"]
 
 # RAM disk acceleration (auto-generated)
 [build]
-target-dir = "/mnt/zram/targets/realizar"
+# target-dir = "/mnt/zram/targets/realizar"  # Disabled - read-only on macOS
