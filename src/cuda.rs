@@ -2690,9 +2690,9 @@ impl CudaExecutor {
         intermediate_dim: usize,
         batch_size: usize,
     ) -> Result<(), GpuError> {
-        if batch_size == 0 || batch_size > 8 {
+        if batch_size == 0 || batch_size > 16 {
             return Err(GpuError::InvalidParameter(format!(
-                "PAR-111: batch_size must be 1-8, got {}",
+                "PAR-111: batch_size must be 1-16, got {}",
                 batch_size
             )));
         }
@@ -9383,9 +9383,9 @@ impl CudaExecutor {
         epsilon: f32,
     ) -> Result<Vec<u32>, GpuError> {
         let m = positions.len();
-        if m == 0 || m > 8 {
+        if m == 0 || m > 16 {
             return Err(GpuError::InvalidParameter(format!(
-                "PAR-111: batch size must be 1-8, got {}",
+                "PAR-111: batch size must be 1-16, got {}",
                 m
             )));
         }
