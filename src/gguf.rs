@@ -17324,6 +17324,9 @@ impl OwnedQuantizedModelCuda {
             }
 
             // 2d. Batched causal attention (CPU)
+            // PAR-103: GPU batched_causal_attention_gpu is NOT GQA-aware (assumes Q/K/V same dim)
+            // ROOT CAUSE: With GQA, Q has hidden_dim but K/V have hidden_dim * num_kv_heads / num_heads
+            // TODO(PAR-104): Implement GQA-aware batched GPU attention for scaling beyond batch_size=4
             let attn_out = self
                 .model
                 .causal_attention(&q_all, &k_all, &v_all, batch_size);
