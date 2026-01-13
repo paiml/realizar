@@ -11808,32 +11808,67 @@ impl CudaExecutor {
             }
         }
 
-        // PAR-070: Use multi-warp attention kernel for parallel position processing
-        // Uses multiple warps per head to achieve ~8x speedup over single-warp
+        // PAR-074: Adaptive attention kernel selection based on sequence length
+        // - Short sequences (< 128): Use single-warp kernel (less overhead, ~1-2µs/token)
+        // - Long sequences (>= 128): Use multi-warp kernel (parallel processing)
+        //
+        // Five-Whys Root Cause: Multi-warp has 4x warp synchronization overhead
+        // that dominates at short sequences where there's not enough parallelism.
         let use_graph_mode = self.seq_len_buf.is_some();
-        let num_warps_per_head = 4; // 4 warps = 128 threads per head
+        let use_single_warp = new_len < 128; // Threshold from kernel analysis
 
-        let kernel_type = KernelType::MultiWarpAttention {
-            max_seq_len: max_len as u32,
-            head_dim: head_dim as u32,
-            n_heads: num_heads as u32,
-            n_kv_heads: num_kv_heads as u32,
-            num_warps_per_head,
-            indirect: use_graph_mode,
+        let (kernel_type, module_key, config) = if use_single_warp {
+            // Single-warp: 32 threads per head, no shared memory
+            let ktype = KernelType::IncrementalAttention {
+                max_seq_len: max_len as u32,
+                head_dim: head_dim as u32,
+                n_heads: num_heads as u32,
+                n_kv_heads: num_kv_heads as u32,
+                indirect: use_graph_mode,
+            };
+            let key = if use_graph_mode {
+                format!(
+                    "incremental_attention_indirect_{}_{}_{}_{}",
+                    max_len, head_dim, num_heads, num_kv_heads
+                )
+            } else {
+                format!(
+                    "incremental_attention_{}_{}_{}_{}",
+                    max_len, head_dim, num_heads, num_kv_heads
+                )
+            };
+            // Grid: num_heads blocks, Block: 32 threads (1 warp)
+            let cfg = LaunchConfig::grid_2d(num_heads as u32, 1, 32, 1);
+            (ktype, key, cfg)
+        } else {
+            // Multi-warp: 128 threads per head (4 warps), uses shared memory
+            let num_warps_per_head = 4;
+            let ktype = KernelType::MultiWarpAttention {
+                max_seq_len: max_len as u32,
+                head_dim: head_dim as u32,
+                n_heads: num_heads as u32,
+                n_kv_heads: num_kv_heads as u32,
+                num_warps_per_head,
+                indirect: use_graph_mode,
+            };
+            let key = if use_graph_mode {
+                format!(
+                    "multi_warp_attention_indirect_{}_{}_{}_{}_{}",
+                    max_len, head_dim, num_heads, num_kv_heads, num_warps_per_head
+                )
+            } else {
+                format!(
+                    "multi_warp_attention_{}_{}_{}_{}_{}",
+                    max_len, head_dim, num_heads, num_kv_heads, num_warps_per_head
+                )
+            };
+            // Grid: num_heads blocks, Block: 128 threads (4 warps)
+            let cfg = LaunchConfig::grid_2d(num_heads as u32, 1, 32 * num_warps_per_head, 1);
+            (ktype, key, cfg)
         };
+
         let kernel_name = self.kernels.kernel_name(&kernel_type);
         let ptx = self.kernels.generate_ptx(&kernel_type);
-        let module_key = if use_graph_mode {
-            format!(
-                "multi_warp_attention_indirect_{}_{}_{}_{}_{}",
-                max_len, head_dim, num_heads, num_kv_heads, num_warps_per_head
-            )
-        } else {
-            format!(
-                "multi_warp_attention_{}_{}_{}_{}_{}",
-                max_len, head_dim, num_heads, num_kv_heads, num_warps_per_head
-            )
-        };
 
         if !self.modules.contains_key(&module_key) {
             let module = CudaModule::from_ptx(&self.context, &ptx)?;
@@ -11854,10 +11889,7 @@ impl CudaExecutor {
             .get(&v_key)
             .ok_or_else(|| GpuError::InvalidLaunchConfig("V cache not found".to_string()))?;
 
-        // PAR-070: Launch with multiple warps per block for parallel position processing
-        // Grid: (num_heads, 1) - one block per head
-        // Block: (32 * num_warps_per_head, 1) - multiple warps per block
-        let config = LaunchConfig::grid_2d(num_heads as u32, 1, 32 * num_warps_per_head, 1);
+        // PAR-074: Launch config already computed above in adaptive selection
 
         let mut ptr_q = q_gpu.as_ptr();
         let mut ptr_k = k_buf.as_ptr();
