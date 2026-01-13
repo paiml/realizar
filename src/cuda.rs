@@ -1729,6 +1729,23 @@ impl WeightQuantType {
         }
     }
 
+    /// PAR-105-FIX: Check if a qtype matches the expected size for given dimensions
+    /// Returns true if the qtype would produce the given byte size
+    pub fn matches_size(&self, size_bytes: usize, n_rows: usize, n_cols: usize) -> bool {
+        match self {
+            // Super-block formats (256 elements per super-block)
+            Self::Q4K | Self::Q5K | Self::Q6K => {
+                let n_superblocks = n_rows * ((n_cols + 255) / 256);
+                size_bytes == n_superblocks * self.bytes_per_superblock()
+            },
+            // Block formats (32 elements per block)
+            Self::Q4_0 | Self::Q4_1 | Self::Q5_0 | Self::Q8_0 => {
+                let n_blocks = n_rows * ((n_cols + 31) / 32);
+                size_bytes == n_blocks * self.bytes_per_block()
+            },
+        }
+    }
+
     /// PAR-058-FIX: Detect quantization type from actual weight size
     /// Some GGUF files have incorrect type metadata, so we verify by size
     ///
@@ -8703,9 +8720,6 @@ impl CudaExecutor {
         self.stream.synchronize()?;
         logits_gpu.copy_to_host(logits)?;
 
-        // PERF-002: Debug code removed (was PAR-058-DEBUG and PAR-060-DEBUG)
-        // NaN checks, top5 sorting, and digit logits prints removed for performance
-
         Ok(())
     }
 
@@ -10720,13 +10734,27 @@ impl CudaExecutor {
 
         // 9. FFN down projection: ffn_act -> hidden_buf1 (reuse, ffn_normed no longer needed)
         // PAR-058: Use correct kernel based on FFN down quantization type
-        // PAR-058-FIX: Validate qtype against actual size - GGUF metadata can lie!
-        let ffn_down_qtype = WeightQuantType::from_size(
+        // PAR-105-FIX: Only override qtype if metadata qtype doesn't match expected size
+        // For some dimensions, Q4_0 and Q4K have IDENTICAL byte sizes (e.g., 896×4864)
+        // In such cases, TRUST the metadata qtype rather than guessing wrong
+        let metadata_qtype = layer_weights.ffn_down_qtype;
+        let metadata_matches = metadata_qtype.matches_size(
             layer_weights.ffn_down_len,
             hidden_dim as usize,
             intermediate_dim as usize,
-        )
-        .unwrap_or(layer_weights.ffn_down_qtype);
+        );
+        let ffn_down_qtype = if metadata_matches {
+            // Metadata qtype produces correct size - trust it
+            metadata_qtype
+        } else {
+            // Metadata qtype wrong, try size-based detection
+            WeightQuantType::from_size(
+                layer_weights.ffn_down_len,
+                hidden_dim as usize,
+                intermediate_dim as usize,
+            )
+            .unwrap_or(metadata_qtype)
+        };
 
         // Log if we overrode the type
         if !skip_debug && ffn_down_qtype != layer_weights.ffn_down_qtype && layer_idx == 0 {
@@ -11489,6 +11517,18 @@ impl CudaExecutor {
     pub fn reset_kv_cache_gpu(&mut self) {
         for len in self.kv_cache_lengths.values_mut() {
             *len = 0;
+        }
+    }
+
+    /// PAR-105: Rollback KV cache to a specific position (for speculative decode)
+    ///
+    /// This allows undoing speculative tokens without losing the prefill history.
+    /// Unlike reset_kv_cache_gpu, this preserves KV values up to `position`.
+    pub fn rollback_kv_cache_gpu(&mut self, position: usize) {
+        for len in self.kv_cache_lengths.values_mut() {
+            if *len > position {
+                *len = position;
+            }
         }
     }
 
