@@ -7372,7 +7372,7 @@ impl CudaExecutor {
 
         // Upload input to GPU
         let input_buf = GpuBuffer::from_host(&self.context, input)?;
-        let output_buf = GpuBuffer::alloc(&self.context, expected_output)?;
+        let output_buf = GpuBuffer::new(&self.context, expected_output)?;
 
         // Execute kernel
         self.tensor_core_q4k_gemm(weight_name, &input_buf, &output_buf, m, k, n)?;
