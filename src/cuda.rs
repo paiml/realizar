@@ -1977,6 +1977,31 @@ impl CudaExecutor {
         self.profiler.summary()
     }
 
+    /// Start timing a brick (internal use).
+    ///
+    /// When profiling is enabled, syncs the stream and starts a timer.
+    /// Returns the timer handle for use with `stop_brick_timer()`.
+    #[must_use]
+    fn start_brick_timer(&mut self, name: &str) -> Option<trueno::BrickTimer> {
+        if !self.profiler.is_enabled() {
+            return None;
+        }
+        // Sync to ensure previous work is complete
+        let _ = self.stream.synchronize();
+        Some(self.profiler.start(name))
+    }
+
+    /// Stop timing a brick and record the sample.
+    ///
+    /// When profiling is enabled, syncs the stream and records the elapsed time.
+    fn stop_brick_timer(&mut self, timer: Option<trueno::BrickTimer>, elements: u64) {
+        if let Some(t) = timer {
+            // Sync to capture real GPU time
+            let _ = self.stream.synchronize();
+            self.profiler.stop(t, elements);
+        }
+    }
+
     /// Get device name
     pub fn device_name(&self) -> Result<String, GpuError> {
         self.context.device_name()
@@ -9483,7 +9508,15 @@ impl CudaExecutor {
         // PAR-051: Attention output buffer (eliminates 28 allocations per token)
         let attn_out_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(attn_out_ptr, attn_out_len) };
 
+        // PAR-073: Check if profiling is enabled (avoid overhead when disabled)
+        let profiling = self.profiler.is_enabled();
+
         // 1. Pre-attention RMSNorm: input -> hidden_buf1 (normed)
+        let timer_rmsnorm1 = if profiling {
+            self.start_brick_timer("RmsNorm1")
+        } else {
+            None
+        };
         self.rmsnorm_ptr_into(
             input,
             layer_weights.attn_norm_ptr,
@@ -9492,6 +9525,9 @@ impl CudaExecutor {
             hidden_dim,
             epsilon,
         )?;
+        if profiling {
+            self.stop_brick_timer(timer_rmsnorm1, 1);
+        }
 
         // PAR-058-DEBUG: Check after RMSNorm (skip during graph capture)
         if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2) {
@@ -9516,6 +9552,11 @@ impl CudaExecutor {
         // 2. Q/K/V projections using indexed pointers -> workspace buffers
         // PAR-058: Use correct kernel based on weight quantization type
         // Qwen 0.5B uses Q5_0 for Q/K weights, not Q4K
+        let timer_qkv = if profiling {
+            self.start_brick_timer("QKV")
+        } else {
+            None
+        };
         match layer_weights.attn_q_qtype {
             WeightQuantType::Q5_0 => {
                 self.q5_0_gemv_into(
@@ -9712,6 +9753,9 @@ impl CudaExecutor {
                 )?;
             },
         }
+        if profiling {
+            self.stop_brick_timer(timer_qkv, 1);
+        }
 
         // PAR-058-DEBUG: Check Q/K/V after projections (skip during graph capture)
         if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2) {
@@ -9777,6 +9821,11 @@ impl CudaExecutor {
         // PAR-060: Apply RoPE to Q and K before attention using GPU kernel
         // This eliminates 28 GPU syncs + D2H/H2D copies per token
         // PAR-070: Use explicit position parameter instead of deriving from cache length
+        let timer_rope = if profiling {
+            self.start_brick_timer("RoPE")
+        } else {
+            None
+        };
         {
             // Apply RoPE on GPU - Q has num_heads, K has num_kv_heads (GQA)
             let num_heads = self.kv_num_heads as u32;
@@ -9819,10 +9868,18 @@ impl CudaExecutor {
                     layer_idx, position, theta, &q_host[..3.min(q_host.len())], &k_host[..3.min(k_host.len())]);
             }
         }
+        if profiling {
+            self.stop_brick_timer(timer_rope, 1);
+        }
 
         // 3. PAR-051: Incremental attention into pre-allocated workspace buffer
         // Eliminates 28 GPU allocations per token
         // PAR-054-FIX: Use capture-safe version during graph capture to skip debug sync
+        let timer_attn = if profiling {
+            self.start_brick_timer("Attention")
+        } else {
+            None
+        };
         let _seq_len = if skip_debug {
             self.incremental_attention_into_for_capture(
                 layer_idx,
@@ -9834,6 +9891,9 @@ impl CudaExecutor {
         } else {
             self.incremental_attention_into(layer_idx, &q_buf, &k_buf, &v_buf, &attn_out_buf)?
         };
+        if profiling {
+            self.stop_brick_timer(timer_attn, 1);
+        }
 
         // PAR-058-DEBUG: Check attention output (skip during graph capture)
         if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2) {
@@ -9892,6 +9952,11 @@ impl CudaExecutor {
 
         // 4. Output projection: attn_out_buf -> hidden_buf1 (reuse, normed no longer needed)
         // PAR-058-FIX: Use correct kernel based on output projection quantization type
+        let timer_oproj = if profiling {
+            self.start_brick_timer("OProj")
+        } else {
+            None
+        };
         match layer_weights.attn_output_qtype {
             WeightQuantType::Q4_0 => {
                 self.q4_0_gemv_into(
@@ -9911,6 +9976,9 @@ impl CudaExecutor {
                     q_dim,
                 )?;
             },
+        }
+        if profiling {
+            self.stop_brick_timer(timer_oproj, 1);
         }
 
         // PAR-058-DEBUG: Check output projection (skip during graph capture)
@@ -9936,7 +10004,15 @@ impl CudaExecutor {
         // 5. First residual: input + projected -> input_staging (PAR-044 FIX)
         // NOTE: Using input_staging instead of hidden_buf2 to avoid read/write conflict
         // when input IS hidden_buf2 (layers 1+)
+        let timer_res1 = if profiling {
+            self.start_brick_timer("Residual1")
+        } else {
+            None
+        };
         self.residual_add_into(input, &hidden_buf1, &input_staging, hidden_dim)?;
+        if profiling {
+            self.stop_brick_timer(timer_res1, 1);
+        }
 
         // PAR-058-DEBUG: Check residual1 output (skip during graph capture)
         if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2) {
@@ -9956,6 +10032,11 @@ impl CudaExecutor {
         }
 
         // 6. Pre-FFN RMSNorm: residual1 (input_staging) -> hidden_buf1 (ffn_normed)
+        let timer_rmsnorm2 = if profiling {
+            self.start_brick_timer("RmsNorm2")
+        } else {
+            None
+        };
         self.rmsnorm_ptr_into(
             &input_staging,
             layer_weights.ffn_norm_ptr,
@@ -9964,9 +10045,17 @@ impl CudaExecutor {
             hidden_dim,
             epsilon,
         )?;
+        if profiling {
+            self.stop_brick_timer(timer_rmsnorm2, 1);
+        }
 
         // 7. FFN gate/up projections -> workspace buffers
         // PAR-058-FIX: Use correct kernel based on gate/up quantization type
+        let timer_ffn_gate_up = if profiling {
+            self.start_brick_timer("FFNGateUp")
+        } else {
+            None
+        };
         match layer_weights.ffn_gate_qtype {
             WeightQuantType::Q4_0 => {
                 self.q4_0_gemv_into(
@@ -10007,6 +10096,9 @@ impl CudaExecutor {
                 )?;
             },
         }
+        if profiling {
+            self.stop_brick_timer(timer_ffn_gate_up, 1);
+        }
 
         // PAR-058-DEBUG: Check FFN gate/up outputs (skip during graph capture)
         if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2) {
@@ -10038,7 +10130,15 @@ impl CudaExecutor {
         }
 
         // 8. SwiGLU activation: gate * silu(up) -> ffn_act_buf
+        let timer_swiglu = if profiling {
+            self.start_brick_timer("SwiGLU")
+        } else {
+            None
+        };
         self.fused_swiglu_into(&ffn_gate_buf, &ffn_up_buf, &ffn_act_buf, intermediate_dim)?;
+        if profiling {
+            self.stop_brick_timer(timer_swiglu, 1);
+        }
 
         // PAR-058-DEBUG: Check SwiGLU output (skip during graph capture)
         if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2 || layer_idx == 3) {
@@ -10106,6 +10206,11 @@ impl CudaExecutor {
             );
         }
 
+        let timer_ffn_down = if profiling {
+            self.start_brick_timer("FFNDown")
+        } else {
+            None
+        };
         match ffn_down_qtype {
             WeightQuantType::Q5_0 => {
                 self.q5_0_gemv_into(
@@ -10198,6 +10303,9 @@ impl CudaExecutor {
                 )?;
             },
         }
+        if profiling {
+            self.stop_brick_timer(timer_ffn_down, 1);
+        }
 
         // PAR-058-DEBUG: Check FFN down output (skip during graph capture)
         if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2 || layer_idx == 3) {
@@ -10223,7 +10331,15 @@ impl CudaExecutor {
 
         // 10. Second residual: residual1 (input_staging) + ffn_out (hidden_buf1) -> hidden_buf2
         // PAR-044 FIX: Now safe because residual1 is in input_staging, not hidden_buf2
+        let timer_res2 = if profiling {
+            self.start_brick_timer("Residual2")
+        } else {
+            None
+        };
         self.residual_add_into(&input_staging, &hidden_buf1, &hidden_buf2, hidden_dim)?;
+        if profiling {
+            self.stop_brick_timer(timer_res2, 1);
+        }
 
         // PAR-058-DEBUG: Check layer output - check first 10 layers to find where NaN starts (skip during graph capture)
         if !skip_debug && layer_idx < 10 {
