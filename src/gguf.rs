@@ -16908,6 +16908,131 @@ impl OwnedQuantizedModelCuda {
         self.executor.reset_profiler();
     }
 
+    /// PAR-103: Pre-cache all weights for batched forward pass.
+    ///
+    /// This loads all layer weights into GPU memory with the naming convention
+    /// expected by `forward_batch_cuda_native`. Required before using batch mode.
+    ///
+    /// # Returns
+    ///
+    /// Total MB of weights uploaded to GPU.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if weight upload fails.
+    pub fn pre_cache_weights_for_batch(&mut self) -> Result<usize> {
+        let mut total_bytes = 0usize;
+        let num_layers = self.model.layers.len();
+
+        eprintln!(
+            "[PAR-103] Pre-caching {} layer weights for batch mode...",
+            num_layers
+        );
+
+        for (layer_idx, layer) in self.model.layers.iter().enumerate() {
+            let prefix = format!("layer.{}", layer_idx);
+
+            // Cache QKV weights
+            match &layer.qkv_weight {
+                OwnedQKVWeights::Separate { q, k, v } => {
+                    let q_name = format!("{}.attn_q.weight", prefix);
+                    let k_name = format!("{}.attn_k.weight", prefix);
+                    let v_name = format!("{}.attn_v.weight", prefix);
+
+                    total_bytes += self
+                        .executor
+                        .load_quantized_weights(&q_name, &q.data)
+                        .map_err(|e| RealizarError::UnsupportedOperation {
+                            operation: "pre_cache_weights_for_batch".to_string(),
+                            reason: format!("Failed to cache Q weights: {}", e),
+                        })?;
+                    total_bytes += self
+                        .executor
+                        .load_quantized_weights(&k_name, &k.data)
+                        .map_err(|e| RealizarError::UnsupportedOperation {
+                            operation: "pre_cache_weights_for_batch".to_string(),
+                            reason: format!("Failed to cache K weights: {}", e),
+                        })?;
+                    total_bytes += self
+                        .executor
+                        .load_quantized_weights(&v_name, &v.data)
+                        .map_err(|e| RealizarError::UnsupportedOperation {
+                            operation: "pre_cache_weights_for_batch".to_string(),
+                            reason: format!("Failed to cache V weights: {}", e),
+                        })?;
+                },
+                OwnedQKVWeights::Fused(qkv) => {
+                    let qkv_name = format!("{}.attn_qkv.weight", prefix);
+                    total_bytes += self
+                        .executor
+                        .load_quantized_weights(&qkv_name, &qkv.data)
+                        .map_err(|e| RealizarError::UnsupportedOperation {
+                            operation: "pre_cache_weights_for_batch".to_string(),
+                            reason: format!("Failed to cache QKV weights: {}", e),
+                        })?;
+                },
+            }
+
+            // Cache O projection
+            let o_name = format!("{}.attn_output.weight", prefix);
+            total_bytes += self
+                .executor
+                .load_quantized_weights(&o_name, &layer.attn_output_weight.data)
+                .map_err(|e| RealizarError::UnsupportedOperation {
+                    operation: "pre_cache_weights_for_batch".to_string(),
+                    reason: format!("Failed to cache O weights: {}", e),
+                })?;
+
+            // Cache FFN weights (ffn_gate is optional - only SwiGLU models have it)
+            let ffn_up_name = format!("{}.ffn_up.weight", prefix);
+            let ffn_down_name = format!("{}.ffn_down.weight", prefix);
+
+            total_bytes += self
+                .executor
+                .load_quantized_weights(&ffn_up_name, &layer.ffn_up_weight.data)
+                .map_err(|e| RealizarError::UnsupportedOperation {
+                    operation: "pre_cache_weights_for_batch".to_string(),
+                    reason: format!("Failed to cache FFN up weights: {}", e),
+                })?;
+            total_bytes += self
+                .executor
+                .load_quantized_weights(&ffn_down_name, &layer.ffn_down_weight.data)
+                .map_err(|e| RealizarError::UnsupportedOperation {
+                    operation: "pre_cache_weights_for_batch".to_string(),
+                    reason: format!("Failed to cache FFN down weights: {}", e),
+                })?;
+
+            // FFN gate is optional (SwiGLU models like LLaMA/Qwen)
+            if let Some(ref gate_weight) = layer.ffn_gate_weight {
+                let ffn_gate_name = format!("{}.ffn_gate.weight", prefix);
+                total_bytes += self
+                    .executor
+                    .load_quantized_weights(&ffn_gate_name, &gate_weight.data)
+                    .map_err(|e| RealizarError::UnsupportedOperation {
+                        operation: "pre_cache_weights_for_batch".to_string(),
+                        reason: format!("Failed to cache FFN gate weights: {}", e),
+                    })?;
+            }
+        }
+
+        // Cache LM head
+        let lm_head_name = "output.weight".to_string();
+        total_bytes += self
+            .executor
+            .load_quantized_weights(&lm_head_name, &self.model.lm_head_weight.data)
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "pre_cache_weights_for_batch".to_string(),
+                reason: format!("Failed to cache LM head weights: {}", e),
+            })?;
+
+        let total_mb = total_bytes / (1024 * 1024);
+        eprintln!(
+            "[PAR-103] Pre-cached {} MB of weights for batch mode",
+            total_mb
+        );
+        Ok(total_bytes)
+    }
+
     /// Get profiler summary report.
     #[must_use]
     pub fn profiler_summary(&self) -> String {
@@ -17087,7 +17212,8 @@ impl OwnedQuantizedModelCuda {
 
             // 2b. QKV projection using batched GEMV
             // Uses L2 cache reuse for weight data
-            let mut qkv = match &layer.qkv_weight {
+            // PAR-103: Returns (qkv_data, q_dim, k_dim, v_dim) to handle GQA correctly
+            let (mut qkv, q_dim, k_dim, v_dim) = match &layer.qkv_weight {
                 OwnedQKVWeights::Separate { q, k, v } => {
                     let q_name = format!("{}.attn_q.weight", prefix);
                     let k_name = format!("{}.attn_k.weight", prefix);
@@ -17140,18 +17266,18 @@ impl OwnedQuantizedModelCuda {
                         })?;
 
                     // Interleave Q, K, V for each position
-                    let qkv_dim = q.out_dim + k.out_dim + v.out_dim;
-                    let mut qkv = vec![0.0f32; batch_size * qkv_dim];
+                    let qkv_total_dim = q.out_dim + k.out_dim + v.out_dim;
+                    let mut qkv_data = vec![0.0f32; batch_size * qkv_total_dim];
                     for b in 0..batch_size {
-                        let out_start = b * qkv_dim;
-                        qkv[out_start..out_start + q.out_dim]
+                        let out_start = b * qkv_total_dim;
+                        qkv_data[out_start..out_start + q.out_dim]
                             .copy_from_slice(&q_out[b * q.out_dim..(b + 1) * q.out_dim]);
-                        qkv[out_start + q.out_dim..out_start + q.out_dim + k.out_dim]
+                        qkv_data[out_start + q.out_dim..out_start + q.out_dim + k.out_dim]
                             .copy_from_slice(&k_out[b * k.out_dim..(b + 1) * k.out_dim]);
-                        qkv[out_start + q.out_dim + k.out_dim..out_start + qkv_dim]
+                        qkv_data[out_start + q.out_dim + k.out_dim..out_start + qkv_total_dim]
                             .copy_from_slice(&v_out[b * v.out_dim..(b + 1) * v.out_dim]);
                     }
-                    qkv
+                    (qkv_data, q.out_dim, k.out_dim, v.out_dim)
                 },
                 OwnedQKVWeights::Fused(_) => {
                     return Err(RealizarError::UnsupportedOperation {
@@ -17161,28 +17287,31 @@ impl OwnedQuantizedModelCuda {
                 },
             };
 
-            // Add QKV bias if present
+            // 2c. Split Q, K, V and apply RoPE
+            // PAR-103: Use actual dimensions for GQA-aware splitting
+            let qkv_dim = q_dim + k_dim + v_dim;
+
+            // Add QKV bias if present (must use actual qkv_dim, not 3*hidden_dim for GQA)
             if let Some(ref bias) = layer.qkv_bias {
+                // Only add bias if dimensions match (GQA may have different sizes)
+                let bias_len = bias.len().min(qkv_dim);
                 for b in 0..batch_size {
-                    let qkv_dim = 3 * hidden_dim;
                     let start = b * qkv_dim;
-                    for (i, b_val) in bias.iter().enumerate().take(qkv_dim) {
+                    for (i, b_val) in bias.iter().enumerate().take(bias_len) {
                         qkv[start + i] += b_val;
                     }
                 }
             }
-
-            // 2c. Split Q, K, V and apply RoPE
-            let qkv_dim = qkv.len() / batch_size;
-            let mut q_all = Vec::with_capacity(batch_size * hidden_dim);
-            let mut k_all = Vec::with_capacity(batch_size * hidden_dim);
-            let mut v_all = Vec::with_capacity(batch_size * hidden_dim);
+            // PAR-103: Use actual K/V dimensions for GQA
+            let mut q_all = Vec::with_capacity(batch_size * q_dim);
+            let mut k_all = Vec::with_capacity(batch_size * k_dim);
+            let mut v_all = Vec::with_capacity(batch_size * v_dim);
 
             for s in 0..batch_size {
                 let qkv_start = s * qkv_dim;
-                let mut q = qkv[qkv_start..qkv_start + hidden_dim].to_vec();
-                let mut k = qkv[qkv_start + hidden_dim..qkv_start + 2 * hidden_dim].to_vec();
-                let v = &qkv[qkv_start + 2 * hidden_dim..qkv_start + 3 * hidden_dim];
+                let mut q = qkv[qkv_start..qkv_start + q_dim].to_vec();
+                let mut k = qkv[qkv_start + q_dim..qkv_start + q_dim + k_dim].to_vec();
+                let v = &qkv[qkv_start + q_dim + k_dim..qkv_start + qkv_dim];
 
                 self.model
                     .apply_rope(&mut q, s, self.model.config.num_heads);
