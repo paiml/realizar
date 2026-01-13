@@ -3995,7 +3995,11 @@ pub fn fused_q4k_parallel_matvec_into(
     out_dim: usize,
     output: &mut [f32],
 ) -> Result<()> {
-    const PARALLEL_THRESHOLD: usize = 4096;
+    // PAR-126: Match threshold from allocating version (was 4096, caused 25% perf loss)
+    // Analysis: For 32-core system with in_dim=8960:
+    // - Per-row time: ~1.75µs, Rayon overhead: ~10µs
+    // - Break-even: ~183 rows, so 256 is safe threshold
+    const PARALLEL_THRESHOLD: usize = 256;
 
     let super_blocks_per_row = in_dim.div_ceil(QK_K);
     let bytes_per_row = super_blocks_per_row * 144;
