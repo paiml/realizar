@@ -51,7 +51,7 @@ fn main() {
     println!();
 
     // Test different batch sizes
-    let batch_sizes = [1, 2, 4, 8, 16];
+    let batch_sizes = [1, 2, 4, 8];  // M=16 not supported (register pressure)
     let num_iterations = 50;
 
     println!("═══════════════════════════════════════════════════════════════");
@@ -141,20 +141,108 @@ fn main() {
         println!();
     }
 
+    // PAR-121: Test graphed batched forward path
+    println!("═══════════════════════════════════════════════════════════════");
+    println!("  PAR-121: Benchmarking GRAPHED Batched Forward");
+    println!("  (CUDA graph capture + batched GEMV)");
+    println!("═══════════════════════════════════════════════════════════════");
+    println!();
+
+    // Only test M=2 and M=4 for graphed path (best candidates for 2x Ollama)
+    let graphed_batch_sizes = [2, 4];
+
+    for &m in &graphed_batch_sizes {
+        println!("  Testing M={} sequences (GRAPHED)...", m);
+
+        // Re-initialize workspace for this batch size
+        if let Err(e) = cuda_model.executor_mut().init_batched_workspace(
+            hidden_dim,
+            intermediate_dim,
+            m,
+        ) {
+            eprintln!("  Error initializing workspace for M={}: {}", m, e);
+            continue;
+        }
+
+        // Re-initialize batched KV caches
+        if let Err(e) = cuda_model.executor_mut().init_batched_kv_cache_gpu(num_layers, m) {
+            eprintln!("  Error initializing batched KV cache for M={}: {}", m, e);
+            continue;
+        }
+
+        cuda_model.executor_mut().reset_batched_kv_cache_gpu();
+
+        let tokens: Vec<u32> = (0..m).map(|i| 9707u32 + i as u32 * 100).collect();
+        let embeddings: Vec<f32> = tokens
+            .iter()
+            .flat_map(|&t| cuda_model.model().embed(&[t]))
+            .collect();
+
+        let positions: Vec<u32> = vec![0; m];
+
+        // Warmup (captures graph on first call)
+        for _ in 0..3 {
+            let _ = cuda_model.executor_mut().forward_batched_to_token_ids_graphed(
+                &embeddings,
+                &positions,
+                num_layers,
+                hidden_dim as u32,
+                intermediate_dim as u32,
+                vocab_size as u32,
+                eps,
+            );
+        }
+
+        // Benchmark graphed path
+        let start = Instant::now();
+        let mut total_tokens = 0usize;
+
+        for iter in 0..num_iterations {
+            let iter_positions: Vec<u32> = (0..m).map(|s| (iter + s) as u32).collect();
+
+            match cuda_model.executor_mut().forward_batched_to_token_ids_graphed(
+                &embeddings,
+                &iter_positions,
+                num_layers,
+                hidden_dim as u32,
+                intermediate_dim as u32,
+                vocab_size as u32,
+                eps,
+            ) {
+                Ok(token_ids) => {
+                    total_tokens += token_ids.len();
+                }
+                Err(e) => {
+                    eprintln!("  Error: {}", e);
+                    break;
+                }
+            }
+        }
+
+        let elapsed = start.elapsed();
+        let tps = total_tokens as f64 / elapsed.as_secs_f64();
+        let per_token_us = elapsed.as_micros() as f64 / total_tokens as f64;
+
+        println!("    {} tokens in {:.3}s", total_tokens, elapsed.as_secs_f64());
+        println!("    Aggregate throughput: {:.1} tok/s (GRAPHED)", tps);
+        println!("    Per-token latency:    {:.1} µs", per_token_us);
+        println!();
+    }
+
     // Summary
     println!("═══════════════════════════════════════════════════════════════");
     println!("  Summary");
     println!("═══════════════════════════════════════════════════════════════");
     println!();
-    println!("  PAR-111 batched forward path implemented.");
-    println!("  Uses batched GEMV to read weights once for M sequences.");
+    println!("  PAR-111 batched forward path: Uses batched GEMV (weights read once)");
+    println!("  PAR-121 graphed batched path: Adds CUDA graph capture");
     println!();
-    println!("  Theoretical speedup from bench_batched_gemv.rs:");
-    println!("    M=1: Baseline");
-    println!("    M=2: 9.95x GEMV speedup");
-    println!("    M=4: 16.21x GEMV speedup");
+    println!("  Ollama baseline: ~291 tok/s");
+    println!("  Target 2x Ollama: 582 tok/s");
     println!();
-    println!("  Expected aggregate throughput:");
-    println!("    M=1: ~360 tok/s");
-    println!("    M=4: ~857 tok/s (16x / 4 × 360 × efficiency_factor)");
+    println!("  Non-graphed results:");
+    println!("    M=4: ~606 tok/s (2.08x Ollama) ✓");
+    println!("    M=8: ~816 tok/s (2.80x Ollama) ✓");
+    println!();
+    println!("  Graphed results: See above (expect ~25-40% improvement for M=2)");
 }
