@@ -13989,22 +13989,31 @@ impl OwnedQuantizedModel {
 
             // PAR-126: Pre-quantize normalized hidden to Q8K for VNNI-accelerated matmul
             // This allows reusing quantized activations for QKV projection
-            use crate::quantize::quantize_activations_q8k_into;
-            let hidden_sb = hidden_dim.next_multiple_of(256) / 256;
-            quantize_activations_q8k_into(
-                &scratch.normed[..hidden_dim],
-                &mut scratch.q8k_hidden_scales[..hidden_sb],
-                &mut scratch.q8k_hidden_quants[..hidden_dim.next_multiple_of(256)],
-            )?;
+            // NOTE: Q8K requires hidden_dim to be multiple of 256. For smaller models
+            // like 0.5B (hidden=896), fall back to f32 path.
+            let use_q8k_path = hidden_dim.is_multiple_of(256);
 
-            // Write directly to scratch.qkv, using Q8K-accelerated path
-            self.qkv_matmul_q8k_into(
-                &scratch.normed,
-                &layer.qkv_weight,
-                &mut scratch.qkv[..qkv_dim],
-                &scratch.q8k_hidden_scales[..hidden_sb],
-                &scratch.q8k_hidden_quants[..hidden_dim.next_multiple_of(256)],
-            )?;
+            if use_q8k_path {
+                use crate::quantize::quantize_activations_q8k_into;
+                let hidden_sb = hidden_dim / 256;
+                quantize_activations_q8k_into(
+                    &scratch.normed[..hidden_dim],
+                    &mut scratch.q8k_hidden_scales[..hidden_sb],
+                    &mut scratch.q8k_hidden_quants[..hidden_dim],
+                )?;
+
+                // Write directly to scratch.qkv, using Q8K-accelerated path
+                self.qkv_matmul_q8k_into(
+                    &scratch.normed,
+                    &layer.qkv_weight,
+                    &mut scratch.qkv[..qkv_dim],
+                    &scratch.q8k_hidden_scales[..hidden_sb],
+                    &scratch.q8k_hidden_quants[..hidden_dim],
+                )?;
+            } else {
+                // Fall back to f32 path for non-256-aligned hidden dims
+                self.qkv_matmul_into(&scratch.normed, &layer.qkv_weight, &mut scratch.qkv[..qkv_dim])?;
+            }
 
             // Copy from scratch.qkv to individual Q, K, V buffers
             scratch.q[..q_dim].copy_from_slice(&scratch.qkv[..q_dim]);
@@ -14103,46 +14112,59 @@ impl OwnedQuantizedModel {
             // 2g. FFN
             if let Some(ref gate_weight) = layer.ffn_gate_weight {
                 // SwiGLU path (LLaMA)
-                // PAR-126: Pre-quantize normed hidden to Q8K for VNNI-accelerated FFN matmul
-                // Quantize once, reuse for both up and gate matmuls
-                quantize_activations_q8k_into(
-                    &scratch.normed[..hidden_dim],
-                    &mut scratch.q8k_hidden_scales[..hidden_sb],
-                    &mut scratch.q8k_hidden_quants[..hidden_dim.next_multiple_of(256)],
-                )?;
+                // PAR-126: Use Q8K-accelerated path only if hidden_dim is 256-aligned
+                if use_q8k_path {
+                    // Pre-quantize normed hidden to Q8K for VNNI-accelerated FFN matmul
+                    // Quantize once, reuse for both up and gate matmuls
+                    use crate::quantize::quantize_activations_q8k_into;
+                    let hidden_sb = hidden_dim / 256;
+                    quantize_activations_q8k_into(
+                        &scratch.normed[..hidden_dim],
+                        &mut scratch.q8k_hidden_scales[..hidden_sb],
+                        &mut scratch.q8k_hidden_quants[..hidden_dim],
+                    )?;
 
-                // PAR-126: Use Q8K-accelerated parallel FFN up/gate computation
-                // Combines rayon::join with VNNI-accelerated matmul
-                let up_weight = &layer.ffn_up_weight;
-                let q8k_scales = &scratch.q8k_hidden_scales[..hidden_sb];
-                let q8k_quants = &scratch.q8k_hidden_quants[..hidden_dim.next_multiple_of(256)];
+                    // Use Q8K-accelerated parallel FFN up/gate computation
+                    let up_weight = &layer.ffn_up_weight;
+                    let q8k_scales = &scratch.q8k_hidden_scales[..hidden_sb];
+                    let q8k_quants = &scratch.q8k_hidden_quants[..hidden_dim];
 
-                let (up_result, gate_result) = rayon::join(
-                    || {
-                        if up_weight.qtype == GGUF_TYPE_Q4_K {
-                            use crate::quantize::fused_q4k_q8k_parallel_matvec_into;
-                            fused_q4k_q8k_parallel_matvec_into(
-                                &up_weight.data, q8k_scales, q8k_quants,
-                                up_weight.in_dim, up_weight.out_dim, &mut scratch.ffn_up,
-                            )
-                        } else {
-                            self.fused_matmul_into(&scratch.normed[..hidden_dim], up_weight, &mut scratch.ffn_up)
-                        }
-                    },
-                    || {
-                        if gate_weight.qtype == GGUF_TYPE_Q4_K {
-                            use crate::quantize::fused_q4k_q8k_parallel_matvec_into;
-                            fused_q4k_q8k_parallel_matvec_into(
-                                &gate_weight.data, q8k_scales, q8k_quants,
-                                gate_weight.in_dim, gate_weight.out_dim, &mut scratch.ffn_gate,
-                            )
-                        } else {
-                            self.fused_matmul_into(&scratch.normed[..hidden_dim], gate_weight, &mut scratch.ffn_gate)
-                        }
-                    },
-                );
-                up_result?;
-                gate_result?;
+                    let (up_result, gate_result) = rayon::join(
+                        || {
+                            if up_weight.qtype == GGUF_TYPE_Q4_K {
+                                use crate::quantize::fused_q4k_q8k_parallel_matvec_into;
+                                fused_q4k_q8k_parallel_matvec_into(
+                                    &up_weight.data, q8k_scales, q8k_quants,
+                                    up_weight.in_dim, up_weight.out_dim, &mut scratch.ffn_up,
+                                )
+                            } else {
+                                self.fused_matmul_into(&scratch.normed[..hidden_dim], up_weight, &mut scratch.ffn_up)
+                            }
+                        },
+                        || {
+                            if gate_weight.qtype == GGUF_TYPE_Q4_K {
+                                use crate::quantize::fused_q4k_q8k_parallel_matvec_into;
+                                fused_q4k_q8k_parallel_matvec_into(
+                                    &gate_weight.data, q8k_scales, q8k_quants,
+                                    gate_weight.in_dim, gate_weight.out_dim, &mut scratch.ffn_gate,
+                                )
+                            } else {
+                                self.fused_matmul_into(&scratch.normed[..hidden_dim], gate_weight, &mut scratch.ffn_gate)
+                            }
+                        },
+                    );
+                    up_result?;
+                    gate_result?;
+                } else {
+                    // Fall back to f32 path for non-256-aligned hidden dims
+                    let up_weight = &layer.ffn_up_weight;
+                    let (up_result, gate_result) = rayon::join(
+                        || self.fused_matmul_into(&scratch.normed[..hidden_dim], up_weight, &mut scratch.ffn_up),
+                        || self.fused_matmul_into(&scratch.normed[..hidden_dim], gate_weight, &mut scratch.ffn_gate),
+                    );
+                    up_result?;
+                    gate_result?;
+                }
 
                 if let Some(ref bias) = layer.ffn_up_bias {
                     for i in 0..intermediate_dim {
