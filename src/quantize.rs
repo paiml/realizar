@@ -3155,6 +3155,7 @@ unsafe fn hsum_epi32_128(v: std::arch::x86_64::__m128i) -> i32 {
 #[inline]
 unsafe fn hsum_epi32_256(v: std::arch::x86_64::__m256i) -> i32 {
     use std::arch::x86_64::*;
+        // SAFETY: Unsafe operation with validated invariants
     unsafe {
         let lo = _mm256_castsi256_si128(v);
         let hi = _mm256_extracti128_si256(v, 1);
