@@ -10482,6 +10482,77 @@ impl OwnedQuantizedModel {
         }
     }
 
+    /// PAR-126: Q8K-accelerated QKV matmul using pre-quantized activations
+    ///
+    /// Uses pre-quantized Q8K activations for VNNI-accelerated matmul.
+    /// This avoids re-quantizing for each of Q, K, V when using separate weights.
+    pub fn qkv_matmul_q8k_into(
+        &self,
+        input: &[f32],
+        qkv: &OwnedQKVWeights,
+        output: &mut [f32],
+        q8k_scales: &[f32],
+        q8k_quants: &[i8],
+    ) -> Result<()> {
+        use crate::quantize::fused_q4k_q8k_parallel_matvec_into;
+
+        match qkv {
+            OwnedQKVWeights::Fused(ref weight) => {
+                // Use Q8K path if Q4K weights, otherwise fall back to f32
+                if weight.qtype == GGUF_TYPE_Q4_K {
+                    fused_q4k_q8k_parallel_matvec_into(
+                        &weight.data,
+                        q8k_scales,
+                        q8k_quants,
+                        weight.in_dim,
+                        weight.out_dim,
+                        output,
+                    )
+                } else {
+                    self.fused_matmul_into(input, weight, output)
+                }
+            },
+            OwnedQKVWeights::Separate {
+                ref q,
+                ref k,
+                ref v,
+            } => {
+                let q_dim = q.out_dim;
+                let k_dim = k.out_dim;
+                let v_dim = v.out_dim;
+
+                // Use Q8K path for Q4K weights
+                if q.qtype == GGUF_TYPE_Q4_K {
+                    fused_q4k_q8k_parallel_matvec_into(
+                        &q.data, q8k_scales, q8k_quants, q.in_dim, q_dim, &mut output[..q_dim],
+                    )?;
+                } else {
+                    self.fused_matmul_into(input, q, &mut output[..q_dim])?;
+                }
+
+                if k.qtype == GGUF_TYPE_Q4_K {
+                    fused_q4k_q8k_parallel_matvec_into(
+                        &k.data, q8k_scales, q8k_quants, k.in_dim, k_dim,
+                        &mut output[q_dim..q_dim + k_dim],
+                    )?;
+                } else {
+                    self.fused_matmul_into(input, k, &mut output[q_dim..q_dim + k_dim])?;
+                }
+
+                if v.qtype == GGUF_TYPE_Q4_K {
+                    fused_q4k_q8k_parallel_matvec_into(
+                        &v.data, q8k_scales, q8k_quants, v.in_dim, v_dim,
+                        &mut output[q_dim + k_dim..q_dim + k_dim + v_dim],
+                    )?;
+                } else {
+                    self.fused_matmul_into(input, v, &mut output[q_dim + k_dim..q_dim + k_dim + v_dim])?;
+                }
+
+                Ok(())
+            },
+        }
+    }
+
     /// Fused RMSNorm + matmul for Q4_0 weights
     ///
     /// Combines RMSNorm normalization with quantized matmul:
@@ -13916,11 +13987,23 @@ impl OwnedQuantizedModel {
             let v_dim = kv_dim;
             let qkv_dim = q_dim + k_dim + v_dim;
 
-            // Write directly to scratch.qkv, eliminating Vec allocation
-            self.qkv_matmul_into(
+            // PAR-126: Pre-quantize normalized hidden to Q8K for VNNI-accelerated matmul
+            // This allows reusing quantized activations for QKV projection
+            use crate::quantize::quantize_activations_q8k_into;
+            let hidden_sb = hidden_dim.next_multiple_of(256) / 256;
+            quantize_activations_q8k_into(
+                &scratch.normed[..hidden_dim],
+                &mut scratch.q8k_hidden_scales[..hidden_sb],
+                &mut scratch.q8k_hidden_quants[..hidden_dim.next_multiple_of(256)],
+            )?;
+
+            // Write directly to scratch.qkv, using Q8K-accelerated path
+            self.qkv_matmul_q8k_into(
                 &scratch.normed,
                 &layer.qkv_weight,
                 &mut scratch.qkv[..qkv_dim],
+                &scratch.q8k_hidden_scales[..hidden_sb],
+                &scratch.q8k_hidden_quants[..hidden_dim.next_multiple_of(256)],
             )?;
 
             // Copy from scratch.qkv to individual Q, K, V buffers
@@ -14020,14 +14103,43 @@ impl OwnedQuantizedModel {
             // 2g. FFN
             if let Some(ref gate_weight) = layer.ffn_gate_weight {
                 // SwiGLU path (LLaMA)
-                // PAR-126: Use rayon::join for parallel FFN up/gate computation
-                // This reduces Rayon dispatch overhead from 2 par_iter calls to 1 join
-                // Saves ~57 us per layer × 28 layers = ~1.6 ms per token
-                let normed_slice = &scratch.normed[..hidden_dim];
+                // PAR-126: Pre-quantize normed hidden to Q8K for VNNI-accelerated FFN matmul
+                // Quantize once, reuse for both up and gate matmuls
+                quantize_activations_q8k_into(
+                    &scratch.normed[..hidden_dim],
+                    &mut scratch.q8k_hidden_scales[..hidden_sb],
+                    &mut scratch.q8k_hidden_quants[..hidden_dim.next_multiple_of(256)],
+                )?;
+
+                // PAR-126: Use Q8K-accelerated parallel FFN up/gate computation
+                // Combines rayon::join with VNNI-accelerated matmul
                 let up_weight = &layer.ffn_up_weight;
+                let q8k_scales = &scratch.q8k_hidden_scales[..hidden_sb];
+                let q8k_quants = &scratch.q8k_hidden_quants[..hidden_dim.next_multiple_of(256)];
+
                 let (up_result, gate_result) = rayon::join(
-                    || self.fused_matmul_into(normed_slice, up_weight, &mut scratch.ffn_up),
-                    || self.fused_matmul_into(normed_slice, gate_weight, &mut scratch.ffn_gate),
+                    || {
+                        if up_weight.qtype == GGUF_TYPE_Q4_K {
+                            use crate::quantize::fused_q4k_q8k_parallel_matvec_into;
+                            fused_q4k_q8k_parallel_matvec_into(
+                                &up_weight.data, q8k_scales, q8k_quants,
+                                up_weight.in_dim, up_weight.out_dim, &mut scratch.ffn_up,
+                            )
+                        } else {
+                            self.fused_matmul_into(&scratch.normed[..hidden_dim], up_weight, &mut scratch.ffn_up)
+                        }
+                    },
+                    || {
+                        if gate_weight.qtype == GGUF_TYPE_Q4_K {
+                            use crate::quantize::fused_q4k_q8k_parallel_matvec_into;
+                            fused_q4k_q8k_parallel_matvec_into(
+                                &gate_weight.data, q8k_scales, q8k_quants,
+                                gate_weight.in_dim, gate_weight.out_dim, &mut scratch.ffn_gate,
+                            )
+                        } else {
+                            self.fused_matmul_into(&scratch.normed[..hidden_dim], gate_weight, &mut scratch.ffn_gate)
+                        }
+                    },
                 );
                 up_result?;
                 gate_result?;
