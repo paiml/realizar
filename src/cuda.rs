@@ -3158,6 +3158,123 @@ impl CudaExecutor {
         Ok(())
     }
 
+    /// Execute GEMM with cached B (weight) matrix: C = A × B_cached
+    ///
+    /// This is the correct method for transformer inference where:
+    /// - A is the input activation (changes each forward pass)
+    /// - B is the weight matrix (constant, cached on GPU)
+    ///
+    /// # Arguments
+    ///
+    /// * `weight_name` - Name of cached weight (B matrix, k×n)
+    /// * `a` - Input matrix A (m×k elements, row-major)
+    /// * `c` - Output matrix C (m×n elements, row-major)
+    /// * `m` - Number of rows in A and C
+    /// * `n` - Number of columns in B and C
+    /// * `k` - Number of columns in A / rows in B
+    ///
+    /// Returns error if weights not found or kernel fails.
+    pub fn gemm_b_cached(
+        &mut self,
+        weight_name: &str,
+        a: &[f32],
+        c: &mut [f32],
+        m: u32,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        // Get cached weight B
+        let weight_ptr = self
+            .weight_cache
+            .get(weight_name)
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!("Weight '{}' not cached", weight_name))
+            })?
+            .as_ptr();
+
+        // Validate sizes
+        let expected_a = (m * k) as usize;
+        let expected_c = (m * n) as usize;
+
+        if a.len() != expected_a || c.len() != expected_c {
+            return Err(GpuError::InvalidLaunchConfig(format!(
+                "GEMM size mismatch: A[{}] expected {}, C[{}] expected {}",
+                a.len(),
+                expected_a,
+                c.len(),
+                expected_c
+            )));
+        }
+
+        // Generate PTX for this configuration
+        let kernel_type = KernelType::GemmTiled {
+            m,
+            n,
+            k,
+            tile_size: 32,
+        };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("gemm_{}_{}_{}_{}", m, n, k, 32);
+
+        // Load module if not cached
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // Allocate GPU buffers for input A and output C only
+        // Weight B is already on GPU (cached)
+        let buf_a = GpuBuffer::from_host(&self.context, a)?;
+        let c_zeros = vec![0.0f32; expected_c];
+        let buf_c = GpuBuffer::from_host(&self.context, &c_zeros)?;
+
+        // Launch configuration
+        let config = LaunchConfig::grid_2d(
+            (n + 31) / 32, // Grid X - columns (N dimension)
+            (m + 31) / 32, // Grid Y - rows (M dimension)
+            32,            // Block X
+            32,            // Block Y
+        );
+
+        // Get raw pointers for kernel args
+        let mut ptr_a = buf_a.as_ptr();
+        let mut ptr_b = weight_ptr; // From cache!
+        let mut ptr_c = buf_c.as_ptr();
+        let mut m_val = m as i32;
+        let mut n_val = n as i32;
+        let mut k_val = k as i32;
+
+        // Launch kernel: C = A × B where B is cached
+        // SAFETY: Buffers are valid, config matches kernel expectations
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_a) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_b) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_c) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut m_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        // Synchronize and copy result back
+        self.stream.synchronize()?;
+        buf_c.copy_to_host(c)?;
+
+        Ok(())
+    }
+
     /// Execute a tiled GEMM kernel: C = A @ B
     ///
     /// # Arguments
@@ -10654,7 +10771,7 @@ impl CudaExecutor {
         self.decode_graph = Some(graph_exec);
         self.decode_token_count = 1;
 
-        eprintln!("[PAR-054] ✓ CUDA graph captured successfully (28 layers + LM head)");
+        eprintln!("[PAR-054] ✓ CUDA graph captured successfully ({} layers + LM head)", num_layers);
 
         Ok(())
     }
