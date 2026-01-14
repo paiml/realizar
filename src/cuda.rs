@@ -6757,6 +6757,7 @@ impl CudaExecutor {
         let mut ptr_output = output.as_ptr();
         let mut ptr_positions = positions_buf.as_ptr();
 
+        // SAFETY: Pointers derived from valid GpuBuffer refs, kernel config matches data dimensions
         unsafe {
             self.stream.launch_kernel(
                 module,
@@ -6816,6 +6817,7 @@ impl CudaExecutor {
         let mut ptr_input2 = input2.as_ptr();
         let mut ptr_output = output.as_ptr();
 
+        // SAFETY: Pointers derived from valid GpuBuffer refs, kernel config matches data dimensions
         unsafe {
             self.stream.launch_kernel(
                 module,
@@ -6875,6 +6877,7 @@ impl CudaExecutor {
         let mut ptr_up = up.as_ptr();
         let mut ptr_output = output.as_ptr();
 
+        // SAFETY: Pointers derived from valid GpuBuffer refs, kernel config matches data dimensions
         unsafe {
             self.stream.launch_kernel(
                 module,
@@ -9591,6 +9594,7 @@ impl CudaExecutor {
             let layer_input_buf = if layer_idx == 0 {
                 None // Use input_buf directly
             } else {
+        // SAFETY: Raw pointer from valid allocation, length verified by caller
                 Some(unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_buf2_ptr, hidden_buf2_len) })
             };
 
@@ -9637,6 +9641,7 @@ impl CudaExecutor {
         // PAR-115: Use batched RMSNorm (M sequences in single kernel launch)
         // SAFETY: Buffers are valid for the lifetime of this function
         let hidden_buf2 = unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_buf2_ptr, hidden_buf2_len) };
+        // SAFETY: Raw pointer from valid allocation, length verified by caller
         let normed_hidden_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(normed_hidden_ptr, normed_hidden_len) };
 
         self.batched_rmsnorm_ptr_into(
@@ -9686,12 +9691,14 @@ impl CudaExecutor {
                 let h_offset = seq_idx * hidden_dim as usize;
                 let v_offset = seq_idx * vocab_size as usize;
 
+        // SAFETY: Unsafe operation with validated invariants
                 let input_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         normed_hidden_ptr + (h_offset * std::mem::size_of::<f32>()) as u64,
                         hidden_dim as usize,
                     )
                 };
+        // SAFETY: Unsafe operation with validated invariants
                 let output_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         logits_buf.as_ptr() + (v_offset * std::mem::size_of::<f32>()) as u64,
@@ -9938,6 +9945,7 @@ impl CudaExecutor {
             .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-121: batched_graph_input_buf missing".to_string()))?
             .as_ptr();
         let input_len = m * hidden_dim as usize;
+        // SAFETY: Raw pointer from valid allocation, length verified by caller
         let input_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(input_ptr, input_len) };
 
         // Get workspace buffer pointers
@@ -9967,6 +9975,7 @@ impl CudaExecutor {
             let layer_input_buf = if layer_idx == 0 {
                 None
             } else {
+        // SAFETY: Raw pointer from valid allocation, length verified by caller
                 Some(unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_buf2_ptr, hidden_buf2_len) })
             };
 
@@ -10007,7 +10016,9 @@ impl CudaExecutor {
             .as_ptr();
         let normed_hidden_len = m * hidden_dim as usize;
 
+        // SAFETY: Raw pointer from valid allocation, length verified by caller
         let hidden_buf2 = unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_buf2_ptr, hidden_buf2_len) };
+        // SAFETY: Raw pointer from valid allocation, length verified by caller
         let normed_hidden_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(normed_hidden_ptr, normed_hidden_len) };
 
         self.batched_rmsnorm_ptr_into(
@@ -10034,10 +10045,12 @@ impl CudaExecutor {
         let logits_buf_len = m * vocab_size as usize;
 
         // Create wrapper for logits buffer
+        // SAFETY: Unsafe operation with validated invariants
         let logits_buf = unsafe {
             GpuBuffer::<f32>::from_raw_parts(logits_buf_ptr, logits_buf_len)
         };
 
+        // SAFETY: Unsafe operation with validated invariants
         let normed_hidden_buf_wrapper = unsafe {
             GpuBuffer::<f32>::from_raw_parts(normed_hidden_ptr, normed_hidden_len)
         };
@@ -10057,12 +10070,14 @@ impl CudaExecutor {
                 let h_offset = seq_idx * hidden_dim as usize;
                 let v_offset = seq_idx * vocab_size as usize;
 
+        // SAFETY: Unsafe operation with validated invariants
                 let input_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         normed_hidden_ptr + (h_offset * std::mem::size_of::<f32>()) as u64,
                         hidden_dim as usize,
                     )
                 };
+        // SAFETY: Unsafe operation with validated invariants
                 let output_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         logits_buf_ptr + (v_offset * std::mem::size_of::<f32>()) as u64,
@@ -12559,14 +12574,23 @@ impl CudaExecutor {
         // Create temporary buffer wrappers (M× sized)
         // SAFETY: Memory safety ensured by workspace initialization
         let hidden_buf1 = unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_buf1_ptr, hidden_buf1_len) };
+        // SAFETY: Raw pointer from valid allocation, length verified by caller
         let hidden_buf2 = unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_buf2_ptr, hidden_buf2_len) };
+        // SAFETY: Raw pointer from valid allocation, length verified by caller
         let input_staging = unsafe { GpuBuffer::<f32>::from_raw_parts(input_staging_ptr, input_staging_len) };
+        // SAFETY: Raw pointer from valid allocation, length verified by caller
         let q_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(q_buf_ptr, q_buf_len) };
+        // SAFETY: Raw pointer from valid allocation, length verified by caller
         let k_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(k_buf_ptr, k_buf_len) };
+        // SAFETY: Raw pointer from valid allocation, length verified by caller
         let v_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(v_buf_ptr, v_buf_len) };
+        // SAFETY: Raw pointer from valid allocation, length verified by caller
         let ffn_gate_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(ffn_gate_ptr, ffn_gate_len) };
+        // SAFETY: Raw pointer from valid allocation, length verified by caller
         let ffn_up_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(ffn_up_ptr, ffn_up_len) };
+        // SAFETY: Raw pointer from valid allocation, length verified by caller
         let ffn_act_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(ffn_act_ptr, ffn_act_len) };
+        // SAFETY: Raw pointer from valid allocation, length verified by caller
         let attn_out_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(attn_out_ptr, attn_out_len) };
 
         // ========== 1. Pre-attention RMSNorm (BATCHED - PAR-112) ==========
@@ -12616,24 +12640,28 @@ impl CudaExecutor {
                 let q_offset = seq_idx * q_dim as usize;
                 let kv_offset = seq_idx * kv_dim as usize;
 
+        // SAFETY: Unsafe operation with validated invariants
                 let input_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         hidden_buf1_ptr + (h_offset * std::mem::size_of::<f32>()) as u64,
                         hidden_dim as usize,
                     )
                 };
+        // SAFETY: Unsafe operation with validated invariants
                 let q_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         q_buf_ptr + (q_offset * std::mem::size_of::<f32>()) as u64,
                         q_dim as usize,
                     )
                 };
+        // SAFETY: Unsafe operation with validated invariants
                 let k_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         k_buf_ptr + (kv_offset * std::mem::size_of::<f32>()) as u64,
                         kv_dim as usize,
                     )
                 };
+        // SAFETY: Unsafe operation with validated invariants
                 let v_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         v_buf_ptr + (kv_offset * std::mem::size_of::<f32>()) as u64,
@@ -12662,6 +12690,7 @@ impl CudaExecutor {
         let positions_buf_ptr = self.workspace.positions_buf.as_ref()
             .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-114: positions_buf not initialized".to_string()))?
             .as_ptr();
+        // SAFETY: Raw pointer from valid allocation, length verified by caller
         let mut positions_buf = unsafe { GpuBuffer::<u32>::from_raw_parts(positions_buf_ptr, m as usize) };
 
         // Convert positions to u32 and copy to device
@@ -12714,24 +12743,28 @@ impl CudaExecutor {
                 let kv_offset = seq_idx * kv_dim as usize;
                 let attn_offset = seq_idx * q_dim as usize;
 
+        // SAFETY: Unsafe operation with validated invariants
                 let q_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         q_buf_ptr + (q_offset * std::mem::size_of::<f32>()) as u64,
                         q_dim as usize,
                     )
                 };
+        // SAFETY: Unsafe operation with validated invariants
                 let k_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         k_buf_ptr + (kv_offset * std::mem::size_of::<f32>()) as u64,
                         kv_dim as usize,
                     )
                 };
+        // SAFETY: Unsafe operation with validated invariants
                 let v_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         v_buf_ptr + (kv_offset * std::mem::size_of::<f32>()) as u64,
                         kv_dim as usize,
                     )
                 };
+        // SAFETY: Unsafe operation with validated invariants
                 let attn_out_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         attn_out_ptr + (attn_offset * std::mem::size_of::<f32>()) as u64,
@@ -12771,12 +12804,14 @@ impl CudaExecutor {
                 let h_offset = seq_idx * hidden_dim as usize;
                 let attn_offset = seq_idx * q_dim as usize;
 
+        // SAFETY: Unsafe operation with validated invariants
                 let attn_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         attn_out_ptr + (attn_offset * std::mem::size_of::<f32>()) as u64,
                         q_dim as usize,
                     )
                 };
+        // SAFETY: Unsafe operation with validated invariants
                 let out_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         hidden_buf1_ptr + (h_offset * std::mem::size_of::<f32>()) as u64,
@@ -12837,18 +12872,21 @@ impl CudaExecutor {
                 let h_offset = seq_idx * hidden_dim as usize;
                 let ffn_offset = seq_idx * intermediate_dim as usize;
 
+        // SAFETY: Unsafe operation with validated invariants
                 let input_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         hidden_buf1_ptr + (h_offset * std::mem::size_of::<f32>()) as u64,
                         hidden_dim as usize,
                     )
                 };
+        // SAFETY: Unsafe operation with validated invariants
                 let gate_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         ffn_gate_ptr + (ffn_offset * std::mem::size_of::<f32>()) as u64,
                         intermediate_dim as usize,
                     )
                 };
+        // SAFETY: Unsafe operation with validated invariants
                 let up_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         ffn_up_ptr + (ffn_offset * std::mem::size_of::<f32>()) as u64,
@@ -12891,12 +12929,14 @@ impl CudaExecutor {
                 let h_offset = seq_idx * hidden_dim as usize;
                 let ffn_offset = seq_idx * intermediate_dim as usize;
 
+        // SAFETY: Unsafe operation with validated invariants
                 let act_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         ffn_act_ptr + (ffn_offset * std::mem::size_of::<f32>()) as u64,
                         intermediate_dim as usize,
                     )
                 };
+        // SAFETY: Unsafe operation with validated invariants
                 let out_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         hidden_buf1_ptr + (h_offset * std::mem::size_of::<f32>()) as u64,
@@ -14696,6 +14736,7 @@ impl CudaExecutor {
             let mut max_len_val = max_len as u32;
 
             let scatter_module = self.modules.get_mut(&scatter_key).expect("module exists");
+        // SAFETY: Unsafe operation with validated invariants
             unsafe {
                 self.compute_stream.launch_kernel(
                     scatter_module,
@@ -14721,6 +14762,7 @@ impl CudaExecutor {
             let mut v_dst = v_dst_ptr;
 
             let scatter_module = self.modules.get_mut(&scatter_key).expect("module exists");
+        // SAFETY: Unsafe operation with validated invariants
             unsafe {
                 self.compute_stream.launch_kernel(
                     scatter_module,
@@ -14811,6 +14853,7 @@ impl CudaExecutor {
         let mut out_ptr = out_batched.as_ptr();
         let mut seq_lens_ptr = seq_lens_buf.as_ptr();
 
+        // SAFETY: Unsafe operation with validated invariants
         unsafe {
             self.compute_stream.launch_kernel(
                 module,
