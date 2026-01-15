@@ -1,6 +1,6 @@
 [package]
 name = "realizar"
-version = "0.5.2"
+version = "0.6.0"
 edition = "2021"
 rust-version = "1.89"
 authors = ["Pragmatic AI Labs <contact@paiml.com>"]
@@ -265,6 +265,11 @@ name = "cuda_executor"
 harness = false
 required-features = ["cuda"]
 
+[[bench]]
+name = "cuda_batched_inference"
+harness = false
+required-features = ["cuda"]
+
 [[example]]
 name = "build_mnist_model"
 required-features = ["aprender-serve"]
@@ -352,6 +357,10 @@ required-features = ["cuda"]
 name = "test_q4k_cuda"
 required-features = ["cuda"]
 
+[[example]]
+name = "bench_flash_decoding"
+required-features = ["cuda"]
+
 [profile.release]
 opt-level = 3
 lto = "fat"           # Link-time optimization for maximum performance
@@ -361,6 +370,7 @@ strip = true          # Remove debug symbols
 
 [profile.bench]
 inherits = "release"
+panic = "unwind"  # PAR-129: Required for criterion benchmarks
 
 [profile.dev]
 opt-level = 0         # Fast compilation

@@ -8,7 +8,10 @@ fn main() {
     let iterations = 1000;
 
     println!("=== Rayon Overhead Analysis ===");
-    println!("{:>8} {:>12} {:>12} {:>12}", "Size", "Sequential", "Parallel", "Overhead");
+    println!(
+        "{:>8} {:>12} {:>12} {:>12}",
+        "Size", "Sequential", "Parallel", "Overhead"
+    );
 
     for &size in &work_sizes {
         let data: Vec<f32> = (0..size).map(|i| i as f32).collect();
@@ -26,14 +29,21 @@ fn main() {
         // Parallel (mimics our matmul structure)
         let start = Instant::now();
         for _ in 0..iterations {
-            output.par_iter_mut().enumerate().with_min_len(64).for_each(|(i, o)| {
-                *o = data[i] * 2.0;
-            });
+            output
+                .par_iter_mut()
+                .enumerate()
+                .with_min_len(64)
+                .for_each(|(i, o)| {
+                    *o = data[i] * 2.0;
+                });
         }
         let par_us = start.elapsed().as_micros() as f64 / iterations as f64;
 
         let overhead_us = par_us - seq_us;
-        println!("{:>8} {:>10.1} us {:>10.1} us {:>10.1} us", size, seq_us, par_us, overhead_us);
+        println!(
+            "{:>8} {:>10.1} us {:>10.1} us {:>10.1} us",
+            size, seq_us, par_us, overhead_us
+        );
     }
 
     // Measure pure rayon dispatch overhead (empty work)
@@ -58,8 +68,16 @@ fn main() {
 
     // Impact analysis
     println!("\n=== Impact Analysis ===");
-    let calls_per_token = 140;  // ~140 matmuls per token
+    let calls_per_token = 140; // ~140 matmuls per token
     let overhead_estimate = dispatch_us * calls_per_token as f64;
-    println!("Estimated overhead/token:  {:.1} us ({:.2} ms)", overhead_estimate, overhead_estimate / 1000.0);
-    println!("At 140 matmuls/token with {}us dispatch = {:.1}ms", dispatch_us, overhead_estimate / 1000.0);
+    println!(
+        "Estimated overhead/token:  {:.1} us ({:.2} ms)",
+        overhead_estimate,
+        overhead_estimate / 1000.0
+    );
+    println!(
+        "At 140 matmuls/token with {}us dispatch = {:.1}ms",
+        dispatch_us,
+        overhead_estimate / 1000.0
+    );
 }

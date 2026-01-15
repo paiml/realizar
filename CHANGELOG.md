@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-01-15
+
+### 🏆 MILESTONE: APR 2.71x Ollama GPU Achieved
+
+Both GGUF and APR formats now exceed 2X Ollama on GPU!
+
+| Format | M=16 | vs Ollama | Status |
+|--------|------|-----------|--------|
+| **GGUF** | 824.7 tok/s | 2.83x | ✅ EXCEEDED |
+| **APR** | 799.9 tok/s | 2.75x | ✅ EXCEEDED |
+| Target | 582 tok/s | 2.00x | - |
+
+### Added
+- **APR GPU Inference** - Full APR format support on GPU via `OwnedQuantizedModelCuda`
+  - GGUF → APR conversion with quantization preserved (Q4_K, Q6_K)
+  - `OwnedQuantizedModel::to_apr_bytes()` - Serialize with quantized weights
+  - `OwnedQuantizedModel::from_apr()` - Load APR files preserving quantization
+  - Batched inference at M=8, M=16, M=32 all exceeding 2X Ollama target
+- **`apr_gpu_benchmark.rs`** - Featured example for APR GPU showcase
+  - Side-by-side GGUF vs APR benchmarking
+  - Produces 1.9GB APR file with full model fidelity
+
+### Fixed
+- **LM Head Tensor Lookup** - Fixed `from_apr()` matching wrong tensor
+  - Bug: `.contains("output.weight")` matched `blk.0.attn_output.weight`
+  - Fix: Prioritize exact match `t.name == "output.weight"`
+
+### Performance
+- **APR M=8**: 723.8 tok/s (2.49x Ollama)
+- **APR M=16**: 799.9 tok/s (2.75x Ollama)
+- **APR M=32**: 763.9 tok/s (2.63x Ollama)
+- **GGUF M=16**: 824.7 tok/s (2.83x Ollama) - control benchmark
+
+### Quality
+- APR format now fully interoperable with GGUF on GPU path
+- Quantized weights (Q4_K, Q6_K) preserved through format conversion
+- Criterion benchmark updated with M=32 for scientific validation
+
 ## [0.3.2] - 2025-12-30
 
 ### Added

@@ -24,7 +24,7 @@ fn main() {
     // Create weight buffers for each matmul type
     let bytes_per_element = |in_dim: usize| -> usize {
         let super_blocks = in_dim.div_ceil(256);
-        super_blocks * 144  // Q4_K format
+        super_blocks * 144 // Q4_K format
     };
 
     // Pre-create all weight buffers
@@ -36,7 +36,9 @@ fn main() {
 
     // Create activation buffers
     let act_hidden: Vec<f32> = (0..hidden).map(|i| i as f32 / hidden as f32).collect();
-    let act_inter: Vec<f32> = (0..intermediate).map(|i| i as f32 / intermediate as f32).collect();
+    let act_inter: Vec<f32> = (0..intermediate)
+        .map(|i| i as f32 / intermediate as f32)
+        .collect();
 
     // Pre-quantize activations
     let (hidden_q8_scales, hidden_q8_quants) = quantize_to_q8k(&act_hidden);
@@ -51,7 +53,13 @@ fn main() {
     // Warmup
     for _ in 0..3 {
         let _ = realizar::quantize::fused_q4k_q8k_parallel_matvec_into(
-            &ffn_up_weight, &hidden_q8_scales, &hidden_q8_quants, hidden, intermediate, &mut out_inter);
+            &ffn_up_weight,
+            &hidden_q8_scales,
+            &hidden_q8_quants,
+            hidden,
+            intermediate,
+            &mut out_inter,
+        );
     }
 
     let iters = 50;
@@ -60,7 +68,13 @@ fn main() {
     let start = Instant::now();
     for _ in 0..iters {
         let _ = realizar::quantize::fused_q4k_q8k_parallel_matvec_into(
-            &qkv_weight, &hidden_q8_scales, &hidden_q8_quants, hidden, hidden * 3, &mut out_qkv);
+            &qkv_weight,
+            &hidden_q8_scales,
+            &hidden_q8_quants,
+            hidden,
+            hidden * 3,
+            &mut out_qkv,
+        );
     }
     let qkv_us = start.elapsed().as_micros() as f64 / iters as f64;
 
@@ -68,7 +82,13 @@ fn main() {
     let start = Instant::now();
     for _ in 0..iters {
         let _ = realizar::quantize::fused_q4k_q8k_parallel_matvec_into(
-            &attn_o_weight, &hidden_q8_scales, &hidden_q8_quants, hidden, hidden, &mut out_hidden);
+            &attn_o_weight,
+            &hidden_q8_scales,
+            &hidden_q8_quants,
+            hidden,
+            hidden,
+            &mut out_hidden,
+        );
     }
     let attn_o_us = start.elapsed().as_micros() as f64 / iters as f64;
 
@@ -76,7 +96,13 @@ fn main() {
     let start = Instant::now();
     for _ in 0..iters {
         let _ = realizar::quantize::fused_q4k_q8k_parallel_matvec_into(
-            &ffn_up_weight, &hidden_q8_scales, &hidden_q8_quants, hidden, intermediate, &mut out_inter);
+            &ffn_up_weight,
+            &hidden_q8_scales,
+            &hidden_q8_quants,
+            hidden,
+            intermediate,
+            &mut out_inter,
+        );
     }
     let ffn_up_us = start.elapsed().as_micros() as f64 / iters as f64;
 
@@ -87,7 +113,13 @@ fn main() {
     let start = Instant::now();
     for _ in 0..iters {
         let _ = realizar::quantize::fused_q4k_q8k_parallel_matvec_into(
-            &ffn_down_weight, &inter_q8_scales, &inter_q8_quants, intermediate, hidden, &mut out_hidden);
+            &ffn_down_weight,
+            &inter_q8_scales,
+            &inter_q8_quants,
+            intermediate,
+            hidden,
+            &mut out_hidden,
+        );
     }
     let ffn_down_us = start.elapsed().as_micros() as f64 / iters as f64;
 
@@ -95,7 +127,13 @@ fn main() {
     let start = Instant::now();
     for _ in 0..iters {
         let _ = realizar::quantize::fused_q4k_q8k_parallel_matvec_into(
-            &lm_head_weight, &hidden_q8_scales, &hidden_q8_quants, hidden, vocab, &mut out_vocab);
+            &lm_head_weight,
+            &hidden_q8_scales,
+            &hidden_q8_quants,
+            hidden,
+            vocab,
+            &mut out_vocab,
+        );
     }
     let lm_head_us = start.elapsed().as_micros() as f64 / iters as f64;
 
@@ -109,16 +147,27 @@ fn main() {
     println!("Per-layer matmul times (16 threads):");
     println!("  QKV ({}→{}): {:.1} µs", hidden, hidden * 3, qkv_us);
     println!("  Attn O ({}→{}): {:.1} µs", hidden, hidden, attn_o_us);
-    println!("  FFN up ({}→{}): {:.1} µs", hidden, intermediate, ffn_up_us);
-    println!("  FFN gate ({}→{}): {:.1} µs", hidden, intermediate, ffn_gate_us);
-    println!("  FFN down ({}→{}): {:.1} µs", intermediate, hidden, ffn_down_us);
+    println!(
+        "  FFN up ({}→{}): {:.1} µs",
+        hidden, intermediate, ffn_up_us
+    );
+    println!(
+        "  FFN gate ({}→{}): {:.1} µs",
+        hidden, intermediate, ffn_gate_us
+    );
+    println!(
+        "  FFN down ({}→{}): {:.1} µs",
+        intermediate, hidden, ffn_down_us
+    );
     println!("  Per-layer total: {:.1} µs", per_layer_us);
 
     println!("\nLM head ({}→{}): {:.1} µs", hidden, vocab, lm_head_us);
 
     println!("\n=== Total per token ===");
-    println!("{} layers × {:.1} µs + LM head {:.1} µs = {:.1} µs",
-        layers, per_layer_us, lm_head_us, total_per_token_us);
+    println!(
+        "{} layers × {:.1} µs + LM head {:.1} µs = {:.1} µs",
+        layers, per_layer_us, lm_head_us, total_per_token_us
+    );
     println!("Throughput: {:.1} tok/s", tok_s);
 
     let ollama_tok_s = 265.0;

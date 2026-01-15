@@ -13,12 +13,18 @@ fn main() {
     let iterations = 1000;
 
     println!("=== Non-Matmul Operation Profiling ===\n");
-    println!("Model config: hidden={}, heads={}, kv_heads={}, layers={}\n",
-             hidden_dim, num_heads, num_kv_heads, num_layers);
+    println!(
+        "Model config: hidden={}, heads={}, kv_heads={}, layers={}\n",
+        hidden_dim, num_heads, num_kv_heads, num_layers
+    );
 
     // 1. RMSNorm
-    let input: Vec<f32> = (0..hidden_dim).map(|i| (i as f32 / hidden_dim as f32) * 2.0 - 1.0).collect();
-    let weight: Vec<f32> = (0..hidden_dim).map(|i| 1.0 + (i as f32 / hidden_dim as f32) * 0.1).collect();
+    let input: Vec<f32> = (0..hidden_dim)
+        .map(|i| (i as f32 / hidden_dim as f32) * 2.0 - 1.0)
+        .collect();
+    let weight: Vec<f32> = (0..hidden_dim)
+        .map(|i| 1.0 + (i as f32 / hidden_dim as f32) * 0.1)
+        .collect();
     let mut output = vec![0.0f32; hidden_dim];
     let eps = 1e-5f32;
 
@@ -32,7 +38,10 @@ fn main() {
         }
     }
     let rmsnorm_us = start.elapsed().as_micros() as f64 / iterations as f64;
-    println!("RMSNorm ({} dim):           {:>6.1} us", hidden_dim, rmsnorm_us);
+    println!(
+        "RMSNorm ({} dim):           {:>6.1} us",
+        hidden_dim, rmsnorm_us
+    );
 
     // 2. RoPE
     let mut q = vec![0.1f32; hidden_dim];
@@ -55,7 +64,10 @@ fn main() {
         }
     }
     let rope_us = start.elapsed().as_micros() as f64 / iterations as f64;
-    println!("RoPE ({} heads × {} dim):     {:>6.1} us", num_heads, head_dim, rope_us);
+    println!(
+        "RoPE ({} heads × {} dim):     {:>6.1} us",
+        num_heads, head_dim, rope_us
+    );
 
     // 3. Attention scores (Q @ K^T for cache_len=50)
     let cache_len = 50usize;
@@ -73,14 +85,18 @@ fn main() {
             for pos in 0..cache_len {
                 let mut dot = 0.0f32;
                 for i in 0..head_dim {
-                    dot += q[q_head_offset + i] * k_cache[pos * num_kv_heads * head_dim + kv_head_offset + i];
+                    dot += q[q_head_offset + i]
+                        * k_cache[pos * num_kv_heads * head_dim + kv_head_offset + i];
                 }
                 scores[pos] = dot * scale;
             }
         }
     }
     let attn_scores_us = start.elapsed().as_micros() as f64 / iterations as f64;
-    println!("Attention scores ({} heads × {} pos): {:>6.1} us", num_heads, cache_len, attn_scores_us);
+    println!(
+        "Attention scores ({} heads × {} pos): {:>6.1} us",
+        num_heads, cache_len, attn_scores_us
+    );
 
     // 4. Softmax
     let start = Instant::now();
@@ -96,7 +112,11 @@ fn main() {
         }
     }
     let softmax_us = start.elapsed().as_micros() as f64 / iterations as f64;
-    println!("Softmax ({} elements):      {:>6.1} us", cache_len + 1, softmax_us);
+    println!(
+        "Softmax ({} elements):      {:>6.1} us",
+        cache_len + 1,
+        softmax_us
+    );
 
     // 5. Weighted sum (scores @ V)
     let v_cache = vec![0.1f32; cache_len * num_kv_heads * head_dim];
@@ -113,13 +133,17 @@ fn main() {
             for pos in 0..cache_len {
                 let w = scores[pos];
                 for i in 0..head_dim {
-                    attn_out[q_head_offset + i] += w * v_cache[pos * num_kv_heads * head_dim + kv_head_offset + i];
+                    attn_out[q_head_offset + i] +=
+                        w * v_cache[pos * num_kv_heads * head_dim + kv_head_offset + i];
                 }
             }
         }
     }
     let weighted_sum_us = start.elapsed().as_micros() as f64 / iterations as f64;
-    println!("Weighted sum ({} heads × {} pos): {:>6.1} us", num_heads, cache_len, weighted_sum_us);
+    println!(
+        "Weighted sum ({} heads × {} pos): {:>6.1} us",
+        num_heads, cache_len, weighted_sum_us
+    );
 
     // 6. SiLU activation
     let mut ffn = vec![0.5f32; intermediate_dim];
@@ -131,7 +155,10 @@ fn main() {
         }
     }
     let silu_us = start.elapsed().as_micros() as f64 / iterations as f64;
-    println!("SiLU ({} dim):           {:>6.1} us", intermediate_dim, silu_us);
+    println!(
+        "SiLU ({} dim):           {:>6.1} us",
+        intermediate_dim, silu_us
+    );
 
     // 7. Element-wise multiply (gate * up)
     let gate = vec![0.5f32; intermediate_dim];
@@ -145,7 +172,10 @@ fn main() {
         }
     }
     let mul_us = start.elapsed().as_micros() as f64 / iterations as f64;
-    println!("Elementwise mul ({} dim): {:>6.1} us", intermediate_dim, mul_us);
+    println!(
+        "Elementwise mul ({} dim): {:>6.1} us",
+        intermediate_dim, mul_us
+    );
 
     // 8. Residual addition
     let residual = vec![0.1f32; hidden_dim];
@@ -169,9 +199,13 @@ fn main() {
         + weighted_sum_us                 // Weighted sum
         + silu_us                         // SiLU
         + mul_us                          // Gate * up
-        + 2.0 * add_us;                   // 2 residual adds
+        + 2.0 * add_us; // 2 residual adds
 
-    println!("Total per layer: {:.0} us = {:.2} ms", layer_total, layer_total / 1000.0);
+    println!(
+        "Total per layer: {:.0} us = {:.2} ms",
+        layer_total,
+        layer_total / 1000.0
+    );
 
     let model_total = layer_total * num_layers as f64;
     println!("\n=== Full Model ({} layers) ===", num_layers);
@@ -190,5 +224,9 @@ fn main() {
     println!("\n=== Gap Analysis ===");
     println!("Actual:         {:.1} ms", actual_ms / 1000.0);
     println!("Estimated:      {:.1} ms", total_time / 1000.0);
-    println!("Unexplained:    {:.1} ms ({:.0}%)", unexplained / 1000.0, unexplained / actual_ms * 100.0);
+    println!(
+        "Unexplained:    {:.1} ms ({:.0}%)",
+        unexplained / 1000.0,
+        unexplained / actual_ms * 100.0
+    );
 }

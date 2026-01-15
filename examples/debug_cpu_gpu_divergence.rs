@@ -120,6 +120,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("CPU top 5: {:?}", &cpu_sorted[..5]);
     eprintln!("GPU top 5: {:?}", &gpu_sorted[..5]);
 
+    // Cross-comparison: what does GPU say about CPU's top tokens?
+    eprintln!("\n=== Cross-comparison ===");
+    eprintln!("What GPU says about CPU's top 5 tokens:");
+    for &(idx, cpu_val) in &cpu_sorted[..5] {
+        let gpu_val = logits_gpu[idx];
+        eprintln!(
+            "  Token {}: CPU={:.4}, GPU={:.4}, diff={:.4}",
+            idx,
+            cpu_val,
+            gpu_val,
+            cpu_val - gpu_val
+        );
+    }
+
+    eprintln!("\nWhat CPU says about GPU's top 5 tokens:");
+    for &(idx, gpu_val) in &gpu_sorted[..5] {
+        let cpu_val = logits_cpu[idx];
+        eprintln!(
+            "  Token {}: CPU={:.4}, GPU={:.4}, diff={:.4}",
+            idx,
+            cpu_val,
+            gpu_val,
+            cpu_val - gpu_val
+        );
+    }
+
     // Check if they match
     let match_count = cpu_sorted[..5]
         .iter()

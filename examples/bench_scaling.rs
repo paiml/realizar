@@ -42,7 +42,12 @@ fn main() {
             // Warmup
             for _ in 0..3 {
                 let _ = realizar::quantize::fused_q4k_q8k_parallel_matvec_into(
-                    &weights, &q8k_scales, &q8k_quants, hidden, inter, &mut output
+                    &weights,
+                    &q8k_scales,
+                    &q8k_quants,
+                    hidden,
+                    inter,
+                    &mut output,
                 );
             }
 
@@ -50,7 +55,12 @@ fn main() {
             let start = Instant::now();
             for _ in 0..iters {
                 let _ = realizar::quantize::fused_q4k_q8k_parallel_matvec_into(
-                    &weights, &q8k_scales, &q8k_quants, hidden, inter, &mut output
+                    &weights,
+                    &q8k_scales,
+                    &q8k_quants,
+                    hidden,
+                    inter,
+                    &mut output,
                 );
             }
             let elapsed = start.elapsed();
@@ -59,9 +69,13 @@ fn main() {
             let flops = 2 * hidden * inter;
             let gflops = flops as f64 / per_matmul_us / 1000.0;
 
-            println!("{:2} threads: {:6.1} µs  ({:5.1} GFLOPS, efficiency: {:5.1}%)",
-                num_threads, per_matmul_us, gflops,
-                gflops / num_threads as f64 / 25.0 * 100.0);  // 25 GFLOPS baseline per thread
+            println!(
+                "{:2} threads: {:6.1} µs  ({:5.1} GFLOPS, efficiency: {:5.1}%)",
+                num_threads,
+                per_matmul_us,
+                gflops,
+                gflops / num_threads as f64 / 25.0 * 100.0
+            ); // 25 GFLOPS baseline per thread
         });
     }
 }

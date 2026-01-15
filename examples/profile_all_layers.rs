@@ -7,7 +7,8 @@ use realizar::RealizarError;
 use std::time::Instant;
 
 fn main() -> Result<(), RealizarError> {
-    let model_path = "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf";
+    let model_path =
+        "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf";
 
     eprintln!("Loading model...");
     let mapped = MappedGGUFModel::from_path(model_path)?;
@@ -18,7 +19,10 @@ fn main() -> Result<(), RealizarError> {
     let num_layers = model.config.num_layers;
 
     println!("=== PAR-126: Profile ALL {} Layers ===\n", num_layers);
-    println!("Model: hidden={}, intermediate={}", hidden_dim, intermediate_dim);
+    println!(
+        "Model: hidden={}, intermediate={}",
+        hidden_dim, intermediate_dim
+    );
 
     // Pre-allocate all buffers
     let mut q_out = vec![0.0f32; hidden_dim];
@@ -28,9 +32,15 @@ fn main() -> Result<(), RealizarError> {
     let mut up_out = vec![0.0f32; intermediate_dim];
     let mut gate_out = vec![0.0f32; intermediate_dim];
     let mut down_out = vec![0.0f32; hidden_dim];
-    let hidden_input: Vec<f32> = (0..hidden_dim).map(|i| (i as f32 / hidden_dim as f32) * 2.0 - 1.0).collect();
-    let attn_input: Vec<f32> = (0..hidden_dim).map(|i| (i as f32 / hidden_dim as f32) * 2.0 - 1.0).collect();
-    let ffn_input: Vec<f32> = (0..intermediate_dim).map(|i| (i as f32 / intermediate_dim as f32) * 2.0 - 1.0).collect();
+    let hidden_input: Vec<f32> = (0..hidden_dim)
+        .map(|i| (i as f32 / hidden_dim as f32) * 2.0 - 1.0)
+        .collect();
+    let attn_input: Vec<f32> = (0..hidden_dim)
+        .map(|i| (i as f32 / hidden_dim as f32) * 2.0 - 1.0)
+        .collect();
+    let ffn_input: Vec<f32> = (0..intermediate_dim)
+        .map(|i| (i as f32 / intermediate_dim as f32) * 2.0 - 1.0)
+        .collect();
 
     // Warmup - run through all layers once
     println!("Warming up...");
@@ -38,35 +48,80 @@ fn main() -> Result<(), RealizarError> {
         match &layer.qkv_weight {
             realizar::gguf::OwnedQKVWeights::Separate { q, k, v } => {
                 if q.qtype == GGUF_TYPE_Q4_K {
-                    fused_q4k_parallel_matvec_into(&q.data, &hidden_input, q.in_dim, q.out_dim, &mut q_out)?;
+                    fused_q4k_parallel_matvec_into(
+                        &q.data,
+                        &hidden_input,
+                        q.in_dim,
+                        q.out_dim,
+                        &mut q_out,
+                    )?;
                 }
                 if k.qtype == GGUF_TYPE_Q4_K {
-                    fused_q4k_parallel_matvec_into(&k.data, &hidden_input, k.in_dim, k.out_dim, &mut k_out)?;
+                    fused_q4k_parallel_matvec_into(
+                        &k.data,
+                        &hidden_input,
+                        k.in_dim,
+                        k.out_dim,
+                        &mut k_out,
+                    )?;
                 } else if k.qtype == GGUF_TYPE_Q6_K {
-                    fused_q6k_parallel_matvec_into(&k.data, &hidden_input, k.in_dim, k.out_dim, &mut k_out)?;
+                    fused_q6k_parallel_matvec_into(
+                        &k.data,
+                        &hidden_input,
+                        k.in_dim,
+                        k.out_dim,
+                        &mut k_out,
+                    )?;
                 }
                 if v.qtype == GGUF_TYPE_Q6_K {
-                    fused_q6k_parallel_matvec_into(&v.data, &hidden_input, v.in_dim, v.out_dim, &mut v_out)?;
+                    fused_q6k_parallel_matvec_into(
+                        &v.data,
+                        &hidden_input,
+                        v.in_dim,
+                        v.out_dim,
+                        &mut v_out,
+                    )?;
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
         if layer.attn_output_weight.qtype == GGUF_TYPE_Q4_K {
-            fused_q4k_parallel_matvec_into(&layer.attn_output_weight.data, &attn_input,
-                layer.attn_output_weight.in_dim, layer.attn_output_weight.out_dim, &mut attn_out_buf)?;
+            fused_q4k_parallel_matvec_into(
+                &layer.attn_output_weight.data,
+                &attn_input,
+                layer.attn_output_weight.in_dim,
+                layer.attn_output_weight.out_dim,
+                &mut attn_out_buf,
+            )?;
         }
         if layer.ffn_up_weight.qtype == GGUF_TYPE_Q4_K {
-            fused_q4k_parallel_matvec_into(&layer.ffn_up_weight.data, &hidden_input,
-                layer.ffn_up_weight.in_dim, layer.ffn_up_weight.out_dim, &mut up_out)?;
+            fused_q4k_parallel_matvec_into(
+                &layer.ffn_up_weight.data,
+                &hidden_input,
+                layer.ffn_up_weight.in_dim,
+                layer.ffn_up_weight.out_dim,
+                &mut up_out,
+            )?;
         }
         if let Some(ref w) = layer.ffn_gate_weight {
             if w.qtype == GGUF_TYPE_Q4_K {
-                fused_q4k_parallel_matvec_into(&w.data, &hidden_input, w.in_dim, w.out_dim, &mut gate_out)?;
+                fused_q4k_parallel_matvec_into(
+                    &w.data,
+                    &hidden_input,
+                    w.in_dim,
+                    w.out_dim,
+                    &mut gate_out,
+                )?;
             }
         }
         if layer.ffn_down_weight.qtype == GGUF_TYPE_Q6_K {
-            fused_q6k_parallel_matvec_into(&layer.ffn_down_weight.data, &ffn_input,
-                layer.ffn_down_weight.in_dim, layer.ffn_down_weight.out_dim, &mut down_out)?;
+            fused_q6k_parallel_matvec_into(
+                &layer.ffn_down_weight.data,
+                &ffn_input,
+                layer.ffn_down_weight.in_dim,
+                layer.ffn_down_weight.out_dim,
+                &mut down_out,
+            )?;
         }
     }
 
@@ -74,7 +129,10 @@ fn main() -> Result<(), RealizarError> {
     let runs = 20;
     let mut total_us = 0.0f64;
 
-    println!("\nMeasuring {} runs through all {} layers...", runs, num_layers);
+    println!(
+        "\nMeasuring {} runs through all {} layers...",
+        runs, num_layers
+    );
     for _ in 0..runs {
         let start = Instant::now();
 
@@ -83,41 +141,86 @@ fn main() -> Result<(), RealizarError> {
             match &layer.qkv_weight {
                 realizar::gguf::OwnedQKVWeights::Separate { q, k, v } => {
                     if q.qtype == GGUF_TYPE_Q4_K {
-                        fused_q4k_parallel_matvec_into(&q.data, &hidden_input, q.in_dim, q.out_dim, &mut q_out)?;
+                        fused_q4k_parallel_matvec_into(
+                            &q.data,
+                            &hidden_input,
+                            q.in_dim,
+                            q.out_dim,
+                            &mut q_out,
+                        )?;
                     }
                     if k.qtype == GGUF_TYPE_Q4_K {
-                        fused_q4k_parallel_matvec_into(&k.data, &hidden_input, k.in_dim, k.out_dim, &mut k_out)?;
+                        fused_q4k_parallel_matvec_into(
+                            &k.data,
+                            &hidden_input,
+                            k.in_dim,
+                            k.out_dim,
+                            &mut k_out,
+                        )?;
                     } else if k.qtype == GGUF_TYPE_Q6_K {
-                        fused_q6k_parallel_matvec_into(&k.data, &hidden_input, k.in_dim, k.out_dim, &mut k_out)?;
+                        fused_q6k_parallel_matvec_into(
+                            &k.data,
+                            &hidden_input,
+                            k.in_dim,
+                            k.out_dim,
+                            &mut k_out,
+                        )?;
                     }
                     if v.qtype == GGUF_TYPE_Q6_K {
-                        fused_q6k_parallel_matvec_into(&v.data, &hidden_input, v.in_dim, v.out_dim, &mut v_out)?;
+                        fused_q6k_parallel_matvec_into(
+                            &v.data,
+                            &hidden_input,
+                            v.in_dim,
+                            v.out_dim,
+                            &mut v_out,
+                        )?;
                     }
-                }
-                _ => {}
+                },
+                _ => {},
             }
 
             // Attn out
             if layer.attn_output_weight.qtype == GGUF_TYPE_Q4_K {
-                fused_q4k_parallel_matvec_into(&layer.attn_output_weight.data, &attn_input,
-                    layer.attn_output_weight.in_dim, layer.attn_output_weight.out_dim, &mut attn_out_buf)?;
+                fused_q4k_parallel_matvec_into(
+                    &layer.attn_output_weight.data,
+                    &attn_input,
+                    layer.attn_output_weight.in_dim,
+                    layer.attn_output_weight.out_dim,
+                    &mut attn_out_buf,
+                )?;
             }
 
             // FFN up, gate
             if layer.ffn_up_weight.qtype == GGUF_TYPE_Q4_K {
-                fused_q4k_parallel_matvec_into(&layer.ffn_up_weight.data, &hidden_input,
-                    layer.ffn_up_weight.in_dim, layer.ffn_up_weight.out_dim, &mut up_out)?;
+                fused_q4k_parallel_matvec_into(
+                    &layer.ffn_up_weight.data,
+                    &hidden_input,
+                    layer.ffn_up_weight.in_dim,
+                    layer.ffn_up_weight.out_dim,
+                    &mut up_out,
+                )?;
             }
             if let Some(ref w) = layer.ffn_gate_weight {
                 if w.qtype == GGUF_TYPE_Q4_K {
-                    fused_q4k_parallel_matvec_into(&w.data, &hidden_input, w.in_dim, w.out_dim, &mut gate_out)?;
+                    fused_q4k_parallel_matvec_into(
+                        &w.data,
+                        &hidden_input,
+                        w.in_dim,
+                        w.out_dim,
+                        &mut gate_out,
+                    )?;
                 }
             }
 
             // FFN down
             if layer.ffn_down_weight.qtype == GGUF_TYPE_Q6_K {
-                fused_q6k_parallel_matvec_into(&layer.ffn_down_weight.data, &ffn_input,
-                    layer.ffn_down_weight.in_dim, layer.ffn_down_weight.out_dim, &mut down_out)?;
+                fused_q6k_parallel_matvec_into(
+                    &layer.ffn_down_weight.data,
+                    &ffn_input,
+                    layer.ffn_down_weight.in_dim,
+                    layer.ffn_down_weight.out_dim,
+                    &mut down_out,
+                )?;
             }
         }
 
@@ -135,17 +238,27 @@ fn main() -> Result<(), RealizarError> {
     let isolated_per_layer_us = 525.0;
     let isolated_full_ms = isolated_per_layer_us * num_layers as f64 / 1000.0;
     println!("\n=== Comparison ===");
-    println!("Isolated (warm, layer 0): {:.0} µs/layer ({:.1} ms/model)", isolated_per_layer_us, isolated_full_ms);
-    println!("All layers (realistic):   {:.0} µs/layer ({:.1} ms/model)", per_layer_us, per_forward_ms);
-    println!("Overhead factor:          {:.2}x", per_forward_ms / isolated_full_ms);
+    println!(
+        "Isolated (warm, layer 0): {:.0} µs/layer ({:.1} ms/model)",
+        isolated_per_layer_us, isolated_full_ms
+    );
+    println!(
+        "All layers (realistic):   {:.0} µs/layer ({:.1} ms/model)",
+        per_layer_us, per_forward_ms
+    );
+    println!(
+        "Overhead factor:          {:.2}x",
+        per_forward_ms / isolated_full_ms
+    );
 
     // Full gap analysis
     println!("\n=== Full Gap Analysis ===");
-    let attention_ms = 1.2;  // From attention profiler at cache_len=50
-    let other_ops_ms = 0.5;  // RMSNorm, RoPE, etc (from instrumented profiler)
-    let q8k_quant_ms = 0.2;  // Q8K quantization overhead
+    let attention_ms = 1.2; // From attention profiler at cache_len=50
+    let other_ops_ms = 0.5; // RMSNorm, RoPE, etc (from instrumented profiler)
+    let q8k_quant_ms = 0.2; // Q8K quantization overhead
     let rayon_overhead_ms = 2.0; // Rayon dispatch
-    let total_estimated_ms = per_forward_ms + attention_ms + other_ops_ms + q8k_quant_ms + rayon_overhead_ms;
+    let total_estimated_ms =
+        per_forward_ms + attention_ms + other_ops_ms + q8k_quant_ms + rayon_overhead_ms;
 
     println!("Matmuls (all layers): {:.1} ms", per_forward_ms);
     println!("Attention:            {:.1} ms", attention_ms);
@@ -154,22 +267,36 @@ fn main() -> Result<(), RealizarError> {
     println!("Rayon overhead:       {:.1} ms", rayon_overhead_ms);
     println!("Total estimated:      {:.1} ms", total_estimated_ms);
 
-    let actual_ms = 33.5;  // From forward pass profiler
+    let actual_ms = 33.5; // From forward pass profiler
     let unexplained_ms = actual_ms - total_estimated_ms;
     println!("\nActual:               {:.1} ms", actual_ms);
-    println!("Unexplained:          {:.1} ms ({:.0}%)", unexplained_ms, unexplained_ms / actual_ms * 100.0);
+    println!(
+        "Unexplained:          {:.1} ms ({:.0}%)",
+        unexplained_ms,
+        unexplained_ms / actual_ms * 100.0
+    );
 
     // Ollama comparison
     let ollama_ms = 14.05;
     println!("\n=== vs Ollama ===");
     println!("Ollama:    {:.2} ms/tok (71.2 tok/s)", ollama_ms);
-    println!("realizar:  {:.2} ms/tok ({:.1} tok/s)", actual_ms, 1000.0 / actual_ms);
+    println!(
+        "realizar:  {:.2} ms/tok ({:.1} tok/s)",
+        actual_ms,
+        1000.0 / actual_ms
+    );
     println!("Gap:       {:.2}x", actual_ms / ollama_ms);
 
     // What would it take to match?
     println!("\n=== Path to Parity ===");
-    println!("Our matmuls alone ({:.1} ms) exceed Ollama total ({:.1} ms)", per_forward_ms, ollama_ms);
-    println!("Root cause: Matmul kernels are {:.2}x slower than llama.cpp", per_forward_ms / ollama_ms);
+    println!(
+        "Our matmuls alone ({:.1} ms) exceed Ollama total ({:.1} ms)",
+        per_forward_ms, ollama_ms
+    );
+    println!(
+        "Root cause: Matmul kernels are {:.2}x slower than llama.cpp",
+        per_forward_ms / ollama_ms
+    );
 
     // ComputeBlocks/sec calculation
     let compute_blocks_per_token = num_layers; // One ComputeBlock per layer
@@ -177,7 +304,10 @@ fn main() -> Result<(), RealizarError> {
     println!("\n=== ComputeBlocks/sec ===");
     println!("ComputeBlocks per token: {}", compute_blocks_per_token);
     println!("Current: {:.0} CB/s", compute_blocks_per_sec);
-    println!("Target (2x Ollama): {:.0} CB/s", compute_blocks_per_token as f64 * 142.3);
+    println!(
+        "Target (2x Ollama): {:.0} CB/s",
+        compute_blocks_per_token as f64 * 142.3
+    );
 
     Ok(())
 }

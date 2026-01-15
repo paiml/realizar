@@ -339,6 +339,311 @@ impl ConversionStats {
     }
 }
 
+// =============================================================================
+// Q4K APR Converter (preserves GGUF quantization for GPU inference)
+// =============================================================================
+
+/// Raw tensor with preserved quantization
+#[derive(Debug, Clone)]
+pub struct RawTensor {
+    /// Tensor name
+    pub name: String,
+    /// Raw bytes (Q4K super-blocks or F32/F16 data)
+    pub data: Vec<u8>,
+    /// Tensor shape (logical elements, not bytes)
+    pub shape: Vec<usize>,
+    /// GGML dtype: 0=F32, 1=F16, 6=Q4_K, 7=Q5_K, 8=Q8_0, 12=Q6_K
+    pub dtype: u32,
+}
+
+/// GGUF to APR Q4K converter (preserves quantization)
+///
+/// Unlike `GgufToAprConverter` which dequantizes to F32, this converter
+/// preserves Q4K/Q6K quantization for GPU inference with batched GEMV.
+///
+/// This is essential for achieving 2X Ollama performance.
+pub struct GgufToAprQ4KConverter;
+
+impl GgufToAprQ4KConverter {
+    /// Helper to extract string from GGUF metadata
+    fn get_string(metadata: &std::collections::HashMap<String, crate::gguf::GGUFValue>, key: &str) -> Option<String> {
+        match metadata.get(key) {
+            Some(crate::gguf::GGUFValue::String(s)) => Some(s.clone()),
+            _ => None,
+        }
+    }
+
+    /// Helper to extract u32 from GGUF metadata
+    fn get_u32(metadata: &std::collections::HashMap<String, crate::gguf::GGUFValue>, key: &str) -> Option<u32> {
+        match metadata.get(key) {
+            Some(crate::gguf::GGUFValue::UInt32(v)) => Some(*v),
+            Some(crate::gguf::GGUFValue::Int32(v)) => Some(*v as u32),
+            Some(crate::gguf::GGUFValue::UInt64(v)) => Some(*v as u32),
+            _ => None,
+        }
+    }
+
+    /// Helper to extract f32 from GGUF metadata
+    fn get_f32(metadata: &std::collections::HashMap<String, crate::gguf::GGUFValue>, key: &str) -> Option<f32> {
+        match metadata.get(key) {
+            Some(crate::gguf::GGUFValue::Float32(v)) => Some(*v),
+            Some(crate::gguf::GGUFValue::Float64(v)) => Some(*v as f32),
+            _ => None,
+        }
+    }
+
+    /// Convert GGUF file to APR v2 with preserved Q4K quantization
+    ///
+    /// # Arguments
+    ///
+    /// * `gguf_path` - Path to GGUF file
+    /// * `output_path` - Path to write APR v2 file
+    ///
+    /// # Returns
+    ///
+    /// Statistics about the conversion
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn convert(gguf_path: &std::path::Path, output_path: &std::path::Path) -> Result<Q4KConversionStats> {
+        use std::io::Write;
+
+        // Load GGUF with raw quantized tensors
+        let gguf_data = std::fs::read(gguf_path).map_err(|e| RealizarError::IoError {
+            message: format!("Failed to read GGUF: {e}"),
+        })?;
+
+        let gguf_model = crate::gguf::GGUFModel::from_bytes(&gguf_data)?;
+
+        // Extract model config from metadata
+        let architecture = Self::get_string(&gguf_model.metadata, "general.architecture")
+            .unwrap_or_else(|| "unknown".to_string());
+        let hidden_size = Self::get_u32(&gguf_model.metadata, &format!("{architecture}.embedding_length"))
+            .unwrap_or(0);
+        let num_layers = Self::get_u32(&gguf_model.metadata, &format!("{architecture}.block_count"))
+            .unwrap_or(0);
+        let num_heads = Self::get_u32(&gguf_model.metadata, &format!("{architecture}.attention.head_count"))
+            .unwrap_or(0);
+        let num_kv_heads = Self::get_u32(&gguf_model.metadata, &format!("{architecture}.attention.head_count_kv"))
+            .unwrap_or(num_heads);
+        let vocab_size = Self::get_u32(&gguf_model.metadata, &format!("{architecture}.vocab_size"))
+            .or_else(|| Self::get_u32(&gguf_model.metadata, "tokenizer.ggml.vocab_size"))
+            .unwrap_or_else(|| {
+                // Infer from embedding tensor shape if metadata not available
+                gguf_model.tensors.iter()
+                    .find(|t| t.name.contains("token_embd") || t.name.contains("embed_tokens") || t.name.contains("tok_embeddings"))
+                    .and_then(|t| t.dims.first().copied().map(|d| d as u32))
+                    .unwrap_or(0)
+            }) as usize;
+        let intermediate_size = Self::get_u32(&gguf_model.metadata, &format!("{architecture}.feed_forward_length"))
+            .unwrap_or(0);
+        let context_length = Self::get_u32(&gguf_model.metadata, &format!("{architecture}.context_length"))
+            .unwrap_or(2048);
+        let rope_theta = Self::get_f32(&gguf_model.metadata, &format!("{architecture}.rope.freq_base"))
+            .unwrap_or(10000.0);
+        let eps = Self::get_f32(&gguf_model.metadata, &format!("{architecture}.attention.layer_norm_rms_epsilon"))
+            .unwrap_or(1e-5);
+
+        // Build metadata JSON
+        let metadata = serde_json::json!({
+            "model_type": "transformer_lm_q4k",
+            "architecture": architecture,
+            "hidden_size": hidden_size,
+            "num_layers": num_layers,
+            "num_heads": num_heads,
+            "num_kv_heads": num_kv_heads,
+            "vocab_size": vocab_size,
+            "intermediate_dim": intermediate_size,
+            "context_length": context_length,
+            "rope_theta": rope_theta,
+            "eps": eps,
+            "quantization": "Q4_K_M",
+        });
+        let metadata_bytes = serde_json::to_vec(&metadata).map_err(|e| RealizarError::FormatError {
+            reason: format!("Failed to serialize metadata: {e}"),
+        })?;
+        let metadata_padded_len = metadata_bytes.len().div_ceil(ALIGNMENT) * ALIGNMENT;
+
+        // Extract raw tensors from GGUF
+        let mut raw_tensors: Vec<RawTensor> = Vec::new();
+        let mut q4k_count = 0usize;
+        let mut total_bytes = 0usize;
+
+        for tensor_meta in &gguf_model.tensors {
+            let name = tensor_meta.name.clone();
+            let shape: Vec<usize> = tensor_meta.dims.iter().map(|&d| d as usize).collect();
+            let num_elements: usize = shape.iter().product();
+            let qtype = tensor_meta.qtype;
+
+            // Calculate byte size based on qtype (GGML dtype)
+            // GGML types: 0=F32, 1=F16, 8=Q8_0, 12=Q4_K, 13=Q5_K, 14=Q6_K
+            let byte_size = match qtype {
+                0 => num_elements * 4,      // F32
+                1 => num_elements * 2,      // F16
+                8 => (num_elements / 32) * 34, // Q8_0: 32 elements = 2 (scale) + 32 (quants)
+                12 => (num_elements / 256) * 144, // Q4_K: 256 elements = 144 bytes
+                13 => (num_elements / 256) * 176, // Q5_K: 256 elements = 176 bytes
+                14 => (num_elements / 256) * 210, // Q6_K: 256 elements = 210 bytes
+                _ => num_elements * 4,      // Default to F32
+            };
+
+            // Extract raw bytes
+            let tensor_start = gguf_model.tensor_data_start + tensor_meta.offset as usize;
+            if tensor_start + byte_size > gguf_data.len() {
+                return Err(RealizarError::FormatError {
+                    reason: format!("Tensor '{}' exceeds file bounds (start={}, size={}, file_len={})",
+                        name, tensor_start, byte_size, gguf_data.len()),
+                });
+            }
+
+            let data = gguf_data[tensor_start..tensor_start + byte_size].to_vec();
+
+            // Q4_K is GGML type 12
+            if qtype == 12 {
+                q4k_count += 1;
+            }
+            total_bytes += byte_size;
+
+            raw_tensors.push(RawTensor { name, data, shape, dtype: qtype });
+        }
+
+        // Build binary tensor index
+        let mut tensor_index_bytes: Vec<u8> = Vec::new();
+        let mut current_offset = 0u64;
+
+        for tensor in &raw_tensors {
+            // name_len (2 bytes) + name
+            let name_bytes = tensor.name.as_bytes();
+            tensor_index_bytes.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
+            tensor_index_bytes.extend_from_slice(name_bytes);
+
+            // dtype (1 byte) - map GGML dtype to APR dtype
+            // GGML: 0=F32, 1=F16, 8=Q8_0, 12=Q4_K, 13=Q5_K, 14=Q6_K
+            // APR:  0=F32, 1=F16, 8=Q4_K, 9=Q6_K, 10=Q8_0
+            let apr_dtype = match tensor.dtype {
+                0 => 0u8,   // F32 -> F32
+                1 => 1u8,   // F16 -> F16
+                8 => 10u8,  // Q8_0 -> APR dtype 10
+                12 => 8u8,  // Q4_K -> APR dtype 8
+                13 => 8u8,  // Q5_K -> treat as Q4_K for now
+                14 => 9u8,  // Q6_K -> APR dtype 9
+                _ => 0u8,
+            };
+            tensor_index_bytes.push(apr_dtype);
+
+            // ndim (1 byte) + dims (8 bytes each)
+            tensor_index_bytes.push(tensor.shape.len() as u8);
+            for &dim in &tensor.shape {
+                tensor_index_bytes.extend_from_slice(&(dim as u64).to_le_bytes());
+            }
+
+            // offset (8 bytes)
+            tensor_index_bytes.extend_from_slice(&current_offset.to_le_bytes());
+
+            // size (8 bytes)
+            let size = tensor.data.len() as u64;
+            tensor_index_bytes.extend_from_slice(&size.to_le_bytes());
+
+            // Align next tensor to 64 bytes
+            current_offset += size;
+            let aligned = current_offset.div_ceil(ALIGNMENT as u64) * ALIGNMENT as u64;
+            current_offset = aligned;
+        }
+
+        // Calculate offsets
+        let metadata_offset = HEADER_SIZE as u64;
+        let tensor_index_offset = metadata_offset + metadata_padded_len as u64;
+        let data_offset = tensor_index_offset + tensor_index_bytes.len() as u64;
+        // Align data offset
+        let data_offset_aligned = data_offset.div_ceil(ALIGNMENT as u64) * ALIGNMENT as u64;
+
+        // Build header (64 bytes)
+        let mut header = vec![0u8; HEADER_SIZE];
+        header[0..4].copy_from_slice(&MAGIC);
+        header[4] = 2; // version major
+        header[5] = 0; // version minor
+        header[6..8].copy_from_slice(&0x0020u16.to_le_bytes()); // flags: QUANTIZED=0x0020
+        header[8..12].copy_from_slice(&(raw_tensors.len() as u32).to_le_bytes());
+        header[12..20].copy_from_slice(&metadata_offset.to_le_bytes());
+        header[20..24].copy_from_slice(&(metadata_bytes.len() as u32).to_le_bytes());
+        header[24..32].copy_from_slice(&tensor_index_offset.to_le_bytes());
+        header[32..40].copy_from_slice(&data_offset_aligned.to_le_bytes());
+
+        // Write file
+        let mut file = std::fs::File::create(output_path).map_err(|e| RealizarError::IoError {
+            message: format!("Failed to create output file: {e}"),
+        })?;
+
+        // Header
+        file.write_all(&header).map_err(|e| RealizarError::IoError {
+            message: format!("Failed to write header: {e}"),
+        })?;
+
+        // Metadata (padded)
+        file.write_all(&metadata_bytes).map_err(|e| RealizarError::IoError {
+            message: format!("Failed to write metadata: {e}"),
+        })?;
+        let padding = metadata_padded_len - metadata_bytes.len();
+        if padding > 0 {
+            file.write_all(&vec![0u8; padding]).map_err(|e| RealizarError::IoError {
+                message: format!("Failed to write padding: {e}"),
+            })?;
+        }
+
+        // Tensor index
+        file.write_all(&tensor_index_bytes).map_err(|e| RealizarError::IoError {
+            message: format!("Failed to write tensor index: {e}"),
+        })?;
+
+        // Alignment padding before data
+        let pre_data_padding = (data_offset_aligned - data_offset) as usize;
+        if pre_data_padding > 0 {
+            file.write_all(&vec![0u8; pre_data_padding]).map_err(|e| RealizarError::IoError {
+                message: format!("Failed to write data alignment: {e}"),
+            })?;
+        }
+
+        // Tensor data (with alignment)
+        for tensor in &raw_tensors {
+            file.write_all(&tensor.data).map_err(|e| RealizarError::IoError {
+                message: format!("Failed to write tensor '{}': {e}", tensor.name),
+            })?;
+
+            // Align to 64 bytes
+            let pad = (ALIGNMENT - (tensor.data.len() % ALIGNMENT)) % ALIGNMENT;
+            if pad > 0 {
+                file.write_all(&vec![0u8; pad]).map_err(|e| RealizarError::IoError {
+                    message: format!("Failed to write tensor padding: {e}"),
+                })?;
+            }
+        }
+
+        Ok(Q4KConversionStats {
+            tensor_count: raw_tensors.len(),
+            q4k_tensor_count: q4k_count,
+            total_bytes,
+            architecture: architecture.to_string(),
+            num_layers: num_layers as usize,
+            hidden_size: hidden_size as usize,
+        })
+    }
+}
+
+/// Statistics from Q4K conversion
+#[derive(Debug, Clone)]
+pub struct Q4KConversionStats {
+    /// Total number of tensors
+    pub tensor_count: usize,
+    /// Number of Q4K quantized tensors
+    pub q4k_tensor_count: usize,
+    /// Total bytes written
+    pub total_bytes: usize,
+    /// Model architecture
+    pub architecture: String,
+    /// Number of layers
+    pub num_layers: usize,
+    /// Hidden size
+    pub hidden_size: usize,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

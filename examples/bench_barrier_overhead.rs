@@ -28,15 +28,19 @@ fn main() {
 
     let start = Instant::now();
     for _ in 0..iterations {
-        barrier.wait();  // Signal workers
-        barrier.wait();  // Wait for completion
+        barrier.wait(); // Signal workers
+        barrier.wait(); // Wait for completion
     }
     let barrier_ns = start.elapsed().as_nanos() as f64 / iterations as f64;
 
     for h in handles {
         h.join().unwrap();
     }
-    println!("std::sync::Barrier (round-trip): {:.1} ns = {:.2} us", barrier_ns, barrier_ns / 1000.0);
+    println!(
+        "std::sync::Barrier (round-trip): {:.1} ns = {:.2} us",
+        barrier_ns,
+        barrier_ns / 1000.0
+    );
 
     // 2. Rayon par_iter dispatch overhead (empty work)
     use rayon::prelude::*;
@@ -46,7 +50,11 @@ fn main() {
         dummy.par_iter().for_each(|_| {});
     }
     let rayon_ns = start.elapsed().as_nanos() as f64 / iterations as f64;
-    println!("Rayon par_iter (empty):          {:.1} ns = {:.2} us", rayon_ns, rayon_ns / 1000.0);
+    println!(
+        "Rayon par_iter (empty):          {:.1} ns = {:.2} us",
+        rayon_ns,
+        rayon_ns / 1000.0
+    );
 
     // 3. rayon::join overhead
     let start = Instant::now();
@@ -54,7 +62,11 @@ fn main() {
         rayon::join(|| {}, || {});
     }
     let join_ns = start.elapsed().as_nanos() as f64 / iterations as f64;
-    println!("Rayon::join (empty):             {:.1} ns = {:.2} us", join_ns, join_ns / 1000.0);
+    println!(
+        "Rayon::join (empty):             {:.1} ns = {:.2} us",
+        join_ns,
+        join_ns / 1000.0
+    );
 
     // 4. std::thread::scope (for reference)
     let start = Instant::now();
@@ -66,14 +78,29 @@ fn main() {
         });
     }
     let scope_ns = start.elapsed().as_nanos() as f64 / iterations as f64;
-    println!("std::thread::scope (empty):      {:.1} ns = {:.2} us", scope_ns, scope_ns / 1000.0);
+    println!(
+        "std::thread::scope (empty):      {:.1} ns = {:.2} us",
+        scope_ns,
+        scope_ns / 1000.0
+    );
 
     // Impact analysis
     println!("\n=== Impact on Forward Pass (28 layers, 5 ops/layer) ===");
     let ops = 140;
-    let barrier_total_us = ops as f64 * 2.0 * barrier_ns / 1000.0;  // 2 barriers per op
+    let barrier_total_us = ops as f64 * 2.0 * barrier_ns / 1000.0; // 2 barriers per op
     let rayon_total_us = ops as f64 * rayon_ns / 1000.0;
-    println!("Barrier-based:   {:.1} us = {:.2} ms", barrier_total_us, barrier_total_us / 1000.0);
-    println!("Rayon par_iter:  {:.1} us = {:.2} ms", rayon_total_us, rayon_total_us / 1000.0);
-    println!("Savings:         {:.1} ms per token", (rayon_total_us - barrier_total_us) / 1000.0);
+    println!(
+        "Barrier-based:   {:.1} us = {:.2} ms",
+        barrier_total_us,
+        barrier_total_us / 1000.0
+    );
+    println!(
+        "Rayon par_iter:  {:.1} us = {:.2} ms",
+        rayon_total_us,
+        rayon_total_us / 1000.0
+    );
+    println!(
+        "Savings:         {:.1} ms per token",
+        (rayon_total_us - barrier_total_us) / 1000.0
+    );
 }

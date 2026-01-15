@@ -101,7 +101,31 @@ for the sovereign AI stack:
 cargo run --example apr_loading
 ```
 
-#### 8. `observability_demo.rs` - Distributed Tracing & Metrics
+#### 8. `apr_gpu_benchmark.rs` - **APR 2.71x Ollama GPU Showcase** ⭐
+
+**MILESTONE ACHIEVED (2026-01-15)**: APR format achieves 2.71x Ollama on GPU!
+
+Demonstrates the APR format GPU inference pipeline:
+- GGUF → APR conversion with quantization preserved (Q4_K, Q6_K)
+- APR loading via `OwnedQuantizedModel::from_apr()`
+- GPU inference via `OwnedQuantizedModelCuda`
+- Side-by-side GGUF vs APR benchmarking
+
+**Results:**
+| Format | M=8 | M=16 | M=32 |
+|--------|-----|------|------|
+| GGUF | - | 816.4 tok/s (2.81x) | - |
+| APR | 723.8 tok/s (2.49x) ✅ | 799.9 tok/s (2.75x) ✅ | 763.9 tok/s (2.63x) ✅ |
+
+**Target**: 582 tok/s (2X Ollama) — ALL EXCEEDED
+
+**Run:**
+```bash
+MODEL_PATH=/path/to/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf \
+  cargo run --example apr_gpu_benchmark --release --features cuda
+```
+
+#### 9. `observability_demo.rs` - Distributed Tracing & Metrics
 
 Demonstrates the observability stack:
 - OpenTelemetry-style tracing with span creation

@@ -47,17 +47,29 @@ fn main() {
     let iters3 = 100;
     for _ in 0..iters3 {
         let _ = realizar::quantize::fused_q4k_q8k_parallel_matvec_into(
-            &weights, &q8k_scales, &q8k_quants, hidden, inter, &mut output
+            &weights,
+            &q8k_scales,
+            &q8k_quants,
+            hidden,
+            inter,
+            &mut output,
         );
     }
     let matmul_prequant_us = start.elapsed().as_micros() as f64 / iters3 as f64;
-    println!("3. Parallel matmul (pre-quantized): {:.1} µs", matmul_prequant_us);
+    println!(
+        "3. Parallel matmul (pre-quantized): {:.1} µs",
+        matmul_prequant_us
+    );
 
     // 4. Measure parallel matmul with auto-quantization (includes allocation)
     let start = Instant::now();
     for _ in 0..iters3 {
         let _ = realizar::quantize::fused_q4k_auto_matvec_into(
-            &weights, &activations, hidden, inter, &mut output
+            &weights,
+            &activations,
+            hidden,
+            inter,
+            &mut output,
         );
     }
     let matmul_auto_us = start.elapsed().as_micros() as f64 / iters3 as f64;
@@ -66,28 +78,45 @@ fn main() {
     // Analysis
     println!("\n--- Analysis ---");
     let sequential_estimate = dot_ns * inter as f64 / 1000.0;
-    println!("Sequential estimate (dot × rows): {:.1} µs", sequential_estimate);
-    println!("Parallel speedup: {:.1}x", sequential_estimate / matmul_prequant_us);
-    println!("Auto-quant overhead: {:.1} µs ({:.0}%)",
+    println!(
+        "Sequential estimate (dot × rows): {:.1} µs",
+        sequential_estimate
+    );
+    println!(
+        "Parallel speedup: {:.1}x",
+        sequential_estimate / matmul_prequant_us
+    );
+    println!(
+        "Auto-quant overhead: {:.1} µs ({:.0}%)",
         matmul_auto_us - matmul_prequant_us,
-        (matmul_auto_us - matmul_prequant_us) / matmul_prequant_us * 100.0);
+        (matmul_auto_us - matmul_prequant_us) / matmul_prequant_us * 100.0
+    );
 
     // Target comparison
     let target_tok_s = 290.0;
     let matmuls_per_token = 28 * 7;
     let target_matmul_us = 1e6 / target_tok_s / matmuls_per_token as f64;
-    println!("\nTarget: {:.1} µs per matmul ({:.0} tok/s)", target_matmul_us, target_tok_s);
-    println!("Gap (pre-quant): {:.1}x", matmul_prequant_us / target_matmul_us);
-    println!("Gap (auto-quant): {:.1}x", matmul_auto_us / target_matmul_us);
+    println!(
+        "\nTarget: {:.1} µs per matmul ({:.0} tok/s)",
+        target_matmul_us, target_tok_s
+    );
+    println!(
+        "Gap (pre-quant): {:.1}x",
+        matmul_prequant_us / target_matmul_us
+    );
+    println!(
+        "Gap (auto-quant): {:.1}x",
+        matmul_auto_us / target_matmul_us
+    );
 
     // Theoretical analysis
     println!("\n--- Theoretical Limits ---");
-    let flops_per_matmul = 2 * hidden * inter;  // mul + add
+    let flops_per_matmul = 2 * hidden * inter; // mul + add
     let gflops = flops_per_matmul as f64 / matmul_prequant_us / 1000.0;
     println!("Achieved: {:.1} GFLOPS", gflops);
 
     // Memory bandwidth limit
-    let bytes_read = weight_bytes + hidden * 4;  // weights + activations
+    let bytes_read = weight_bytes + hidden * 4; // weights + activations
     let bandwidth_gb_s = bytes_read as f64 / matmul_prequant_us / 1000.0;
     println!("Bandwidth used: {:.1} GB/s", bandwidth_gb_s);
     println!("DDR5 theoretical max: ~200 GB/s");

@@ -1,70 +1,81 @@
-//! Trace first layer to find bug
+//! Trace layer 0 in detail on CPU to compare with GPU
+
 use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let path = "/home/noah/.cache/huggingface/hub/models--Qwen--Qwen2-0.5B-Instruct-GGUF/snapshots/198f08841147e5196a6a69bd0053690fb1fd3857/qwen2-0_5b-instruct-q4_0.gguf";
-    let mapped = MappedGGUFModel::from_path(path)?;
-    let model = OwnedQuantizedModel::from_mapped(&mapped)?;
+    let model_path =
+        "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf";
+    let mapped = MappedGGUFModel::from_path(model_path)?;
+    let cpu_model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let hidden_dim = model.config.hidden_dim;
+    let hidden_dim = cpu_model.config.hidden_dim;
+    let num_heads = cpu_model.config.num_heads;
+    let num_kv_heads = cpu_model.config.num_kv_heads;
+    let head_dim = hidden_dim / num_heads;
+    let kv_dim = num_kv_heads * head_dim;
+    let q_dim = num_heads * head_dim;
+    let eps = cpu_model.config.eps;
 
-    println!("=== Layer 0 Trace ===\n");
+    let test_token: u32 = 791;
+    let embedding = cpu_model.embed(&[test_token]);
+    eprintln!("Embedding first 5: {:?}", &embedding[..5]);
 
-    // Get embedding for token 17 ("2")
-    let tok = 17u32;
-    let emb_start = tok as usize * hidden_dim;
-    let emb = model.token_embedding[emb_start..emb_start + hidden_dim].to_vec();
+    let layer = &cpu_model.layers[0];
 
-    let emb_norm: f32 = emb.iter().map(|x| x * x).sum::<f32>().sqrt();
-    println!("Initial embedding: norm={:.4}", emb_norm);
-    println!("  first 8: {:?}", &emb[..8]);
-
-    // Check layer 0 structure
-    let layer = &model.layers[0];
-
-    println!("\nLayer 0 attn_norm_weight:");
-    let norm_w_norm: f32 = layer
-        .attn_norm_weight
+    // RMSNorm
+    let ss: f32 = embedding.iter().map(|x| x * x).sum();
+    let rms = (ss / hidden_dim as f32 + eps).sqrt();
+    let normed: Vec<f32> = embedding
         .iter()
-        .map(|x| x * x)
-        .sum::<f32>()
-        .sqrt();
-    println!("  norm: {:.4}", norm_w_norm);
-    println!("  first 8: {:?}", &layer.attn_norm_weight[..8]);
+        .zip(layer.attn_norm_weight.iter())
+        .map(|(&x, &w)| (x / rms) * w)
+        .collect();
+    eprintln!("\n[CPU-L0] RMSNorm first 3: {:?}", &normed[..3]);
 
-    // Apply RMSNorm
-    let sum_sq: f32 = emb.iter().map(|x| x * x).sum();
-    let mean_sq = sum_sq / hidden_dim as f32;
-    let inv_rms = 1.0 / (mean_sq + model.config.eps).sqrt();
+    // QKV projection
+    let qkv = cpu_model.qkv_matmul(&normed, &layer.qkv_weight)?;
+    let v = &qkv[q_dim + kv_dim..];
+    eprintln!("[CPU-L0] V first 5: {:?}", &v[..5]);
 
-    let mut normed = vec![0.0f32; hidden_dim];
-    for i in 0..hidden_dim {
-        normed[i] = emb[i] * inv_rms * layer.attn_norm_weight[i];
+    // At position 0, attention output = V (expanded for GQA)
+    let q_per_kv = num_heads / num_kv_heads;
+    let mut attn_out = vec![0.0f32; hidden_dim];
+    for q_head in 0..num_heads {
+        let kv_head = q_head / q_per_kv;
+        let v_start = kv_head * head_dim;
+        let out_start = q_head * head_dim;
+        attn_out[out_start..out_start + head_dim].copy_from_slice(&v[v_start..v_start + head_dim]);
     }
+    eprintln!("[CPU-L0] Attn out first 3: {:?}", &attn_out[..3]);
 
-    let normed_norm: f32 = normed.iter().map(|x| x * x).sum::<f32>().sqrt();
-    println!(
-        "\nAfter attn RMSNorm: norm={:.4}, inv_rms={:.4}",
-        normed_norm, inv_rms
+    // Output projection
+    let out_proj = cpu_model.fused_matmul(&attn_out, &layer.attn_output_weight)?;
+    eprintln!("[CPU-L0] Output proj first 3: {:?}", &out_proj[..3]);
+
+    // Compare with GPU
+    eprintln!(
+        "\n[GPU-L0] Output proj first 3 (from debug): [-0.95968825, 0.011617601, -0.059631474]"
     );
-    println!("  first 8: {:?}", &normed[..8]);
 
-    // Check QKV bias
-    println!("\nQKV bias:");
-    if let Some(ref bias) = layer.qkv_bias {
-        println!("  length: {}", bias.len());
-        println!("  Q bias sum: {:.4}", bias[0..896].iter().sum::<f32>());
-        println!(
-            "  K bias sum: {:.4}",
-            bias[896..896 + 128].iter().sum::<f32>()
+    // Diff
+    let gpu_out_proj = [-0.95968825f32, 0.011617601, -0.059631474];
+    eprintln!("\n=== Output Projection Comparison ===");
+    for i in 0..3 {
+        let diff = out_proj[i] - gpu_out_proj[i];
+        eprintln!(
+            "  [{}]: CPU={:.6}, GPU={:.6}, diff={:.6}",
+            i, out_proj[i], gpu_out_proj[i], diff
         );
-        println!("  V bias sum: {:.4}", bias[896 + 128..].iter().sum::<f32>());
-        println!("  Q bias first 8: {:?}", &bias[..8]);
-        println!("  K bias first 8: {:?}", &bias[896..896 + 8]);
-        println!("  V bias first 8: {:?}", &bias[896 + 128..896 + 128 + 8]);
-    } else {
-        println!("  None");
     }
+
+    // Residual
+    let mut residual1: Vec<f32> = embedding
+        .iter()
+        .zip(out_proj.iter())
+        .map(|(&e, &o)| e + o)
+        .collect();
+    eprintln!("\n[CPU-L0] Residual1 first 3: {:?}", &residual1[..3]);
+    eprintln!("[GPU-L0] Residual1 first 3 (from debug): [-0.9881397, 0.023871362, -0.047377713]");
 
     Ok(())
 }

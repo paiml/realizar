@@ -7,7 +7,8 @@ use realizar::RealizarError;
 use std::time::Instant;
 
 fn main() -> Result<(), RealizarError> {
-    let model_path = "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf";
+    let model_path =
+        "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf";
 
     eprintln!("Loading model...");
     let mapped = MappedGGUFModel::from_path(model_path)?;
@@ -31,7 +32,9 @@ fn main() -> Result<(), RealizarError> {
     let layer = &model.layers[0];
 
     // Test inputs
-    let hidden: Vec<f32> = (0..hidden_dim).map(|i| (i as f32 / hidden_dim as f32) * 2.0 - 1.0).collect();
+    let hidden: Vec<f32> = (0..hidden_dim)
+        .map(|i| (i as f32 / hidden_dim as f32) * 2.0 - 1.0)
+        .collect();
     let q_dim = hidden_dim;
     let k_dim = num_kv_heads * head_dim;
     let v_dim = k_dim;
@@ -40,7 +43,10 @@ fn main() -> Result<(), RealizarError> {
     let iterations = 100;
 
     // Profile individual operations
-    println!("\n=== Operation Breakdown (avg of {} iterations) ===", iterations);
+    println!(
+        "\n=== Operation Breakdown (avg of {} iterations) ===",
+        iterations
+    );
 
     // 1. RMSNorm (inline implementation for profiling)
     let mut normed = vec![0.0f32; hidden_dim];
@@ -69,15 +75,22 @@ fn main() -> Result<(), RealizarError> {
             if weight.qtype == GGUF_TYPE_Q4_K {
                 for _ in 0..iterations {
                     fused_q4k_parallel_matvec_into(
-                        &weight.data, &normed, weight.in_dim, weight.out_dim, &mut qkv
+                        &weight.data,
+                        &normed,
+                        weight.in_dim,
+                        weight.out_dim,
+                        &mut qkv,
                     )?;
                 }
             }
-        }
-        _ => {}
+        },
+        _ => {},
     }
     let qkv_us = start.elapsed().as_micros() as f64 / iterations as f64;
-    println!("QKV matmul:     {:>8.0} us ({}x{})", qkv_us, qkv_dim, hidden_dim);
+    println!(
+        "QKV matmul:     {:>8.0} us ({}x{})",
+        qkv_us, qkv_dim, hidden_dim
+    );
 
     // 3. Attention output projection
     let mut attn_proj = vec![0.0f32; hidden_dim];
@@ -87,12 +100,19 @@ fn main() -> Result<(), RealizarError> {
     for _ in 0..iterations {
         if attn_weight.qtype == GGUF_TYPE_Q4_K {
             fused_q4k_parallel_matvec_into(
-                &attn_weight.data, &attn_out, attn_weight.in_dim, attn_weight.out_dim, &mut attn_proj
+                &attn_weight.data,
+                &attn_out,
+                attn_weight.in_dim,
+                attn_weight.out_dim,
+                &mut attn_proj,
             )?;
         }
     }
     let attn_out_us = start.elapsed().as_micros() as f64 / iterations as f64;
-    println!("Attn out:       {:>8.0} us ({}x{})", attn_out_us, attn_weight.out_dim, attn_weight.in_dim);
+    println!(
+        "Attn out:       {:>8.0} us ({}x{})",
+        attn_out_us, attn_weight.out_dim, attn_weight.in_dim
+    );
 
     // 4. FFN up
     let mut ffn_up = vec![0.0f32; intermediate_dim];
@@ -101,12 +121,19 @@ fn main() -> Result<(), RealizarError> {
     for _ in 0..iterations {
         if up_weight.qtype == GGUF_TYPE_Q4_K {
             fused_q4k_parallel_matvec_into(
-                &up_weight.data, &normed, up_weight.in_dim, up_weight.out_dim, &mut ffn_up
+                &up_weight.data,
+                &normed,
+                up_weight.in_dim,
+                up_weight.out_dim,
+                &mut ffn_up,
             )?;
         }
     }
     let ffn_up_us = start.elapsed().as_micros() as f64 / iterations as f64;
-    println!("FFN up:         {:>8.0} us ({}x{})", ffn_up_us, up_weight.out_dim, up_weight.in_dim);
+    println!(
+        "FFN up:         {:>8.0} us ({}x{})",
+        ffn_up_us, up_weight.out_dim, up_weight.in_dim
+    );
 
     // 5. FFN gate
     let mut ffn_gate = vec![0.0f32; intermediate_dim];
@@ -116,12 +143,19 @@ fn main() -> Result<(), RealizarError> {
         for _ in 0..iterations {
             if gate_weight.qtype == GGUF_TYPE_Q4_K {
                 fused_q4k_parallel_matvec_into(
-                    &gate_weight.data, &normed, gate_weight.in_dim, gate_weight.out_dim, &mut ffn_gate
+                    &gate_weight.data,
+                    &normed,
+                    gate_weight.in_dim,
+                    gate_weight.out_dim,
+                    &mut ffn_gate,
                 )?;
             }
         }
         ffn_gate_us = start.elapsed().as_micros() as f64 / iterations as f64;
-        println!("FFN gate:       {:>8.0} us ({}x{})", ffn_gate_us, gate_weight.out_dim, gate_weight.in_dim);
+        println!(
+            "FFN gate:       {:>8.0} us ({}x{})",
+            ffn_gate_us, gate_weight.out_dim, gate_weight.in_dim
+        );
     }
 
     // 6. FFN down
@@ -132,12 +166,19 @@ fn main() -> Result<(), RealizarError> {
     for _ in 0..iterations {
         if down_weight.qtype == GGUF_TYPE_Q4_K {
             fused_q4k_parallel_matvec_into(
-                &down_weight.data, &ffn_hidden, down_weight.in_dim, down_weight.out_dim, &mut ffn_down
+                &down_weight.data,
+                &ffn_hidden,
+                down_weight.in_dim,
+                down_weight.out_dim,
+                &mut ffn_down,
             )?;
         }
     }
     let ffn_down_us = start.elapsed().as_micros() as f64 / iterations as f64;
-    println!("FFN down:       {:>8.0} us ({}x{})", ffn_down_us, down_weight.out_dim, down_weight.in_dim);
+    println!(
+        "FFN down:       {:>8.0} us ({}x{})",
+        ffn_down_us, down_weight.out_dim, down_weight.in_dim
+    );
 
     // Summary
     let layer_matmul_us = qkv_us + attn_out_us + ffn_up_us + ffn_gate_us + ffn_down_us;
@@ -145,19 +186,29 @@ fn main() -> Result<(), RealizarError> {
 
     println!("\n=== Per-Layer Summary ===");
     println!("Matmuls only:   {:>8.0} us", layer_matmul_us);
-    println!("Layer total:    {:>8.0} us (estimated, excludes attention)", layer_total_us);
+    println!(
+        "Layer total:    {:>8.0} us (estimated, excludes attention)",
+        layer_total_us
+    );
 
     let full_model_ms = layer_total_us * model.config.num_layers as f64 / 1000.0;
-    println!("\n=== Full Model Estimate ({} layers) ===", model.config.num_layers);
+    println!(
+        "\n=== Full Model Estimate ({} layers) ===",
+        model.config.num_layers
+    );
     println!("Matmuls+norms:  {:>8.1} ms", full_model_ms);
 
-    let actual_ms = 55.0;  // From measurement
+    let actual_ms = 55.0; // From measurement
     let overhead_ms = actual_ms - full_model_ms;
     println!("Actual (24t):   {:>8.1} ms", actual_ms);
-    println!("Overhead:       {:>8.1} ms ({:.0}%)", overhead_ms, overhead_ms / actual_ms * 100.0);
+    println!(
+        "Overhead:       {:>8.1} ms ({:.0}%)",
+        overhead_ms,
+        overhead_ms / actual_ms * 100.0
+    );
 
     // Compare to Ollama
-    let ollama_ms = 14.2;  // 70.59 tok/s
+    let ollama_ms = 14.2; // 70.59 tok/s
     println!("\n=== vs Ollama ===");
     println!("Ollama:         {:>8.1} ms (70.59 tok/s)", ollama_ms);
     println!("realizar:       {:>8.1} ms (18.2 tok/s)", actual_ms);
@@ -171,9 +222,18 @@ fn main() -> Result<(), RealizarError> {
 
     println!("\n=== GFLOPS Analysis ===");
     println!("QKV:      {:.2} GFLOPS", qkv_flops / (qkv_us * 1000.0));
-    println!("Attn out: {:.2} GFLOPS", attn_out_flops / (attn_out_us * 1000.0));
-    println!("FFN up:   {:.2} GFLOPS", ffn_up_flops / (ffn_up_us * 1000.0));
-    println!("FFN down: {:.2} GFLOPS", ffn_down_flops / (ffn_down_us * 1000.0));
+    println!(
+        "Attn out: {:.2} GFLOPS",
+        attn_out_flops / (attn_out_us * 1000.0)
+    );
+    println!(
+        "FFN up:   {:.2} GFLOPS",
+        ffn_up_flops / (ffn_up_us * 1000.0)
+    );
+    println!(
+        "FFN down: {:.2} GFLOPS",
+        ffn_down_flops / (ffn_down_us * 1000.0)
+    );
 
     Ok(())
 }

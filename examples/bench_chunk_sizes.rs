@@ -32,7 +32,13 @@ fn main() {
         // Warmup
         for _ in 0..3 {
             bench_parallel_matmul_chunked(
-                &weights, &q8k_scales, &q8k_quants, hidden, inter, &mut output, chunk_size
+                &weights,
+                &q8k_scales,
+                &q8k_quants,
+                hidden,
+                inter,
+                &mut output,
+                chunk_size,
             );
         }
 
@@ -40,13 +46,22 @@ fn main() {
         let start = Instant::now();
         for _ in 0..iters {
             bench_parallel_matmul_chunked(
-                &weights, &q8k_scales, &q8k_quants, hidden, inter, &mut output, chunk_size
+                &weights,
+                &q8k_scales,
+                &q8k_quants,
+                hidden,
+                inter,
+                &mut output,
+                chunk_size,
             );
         }
         let us = start.elapsed().as_micros() as f64 / iters as f64;
         let gflops = 2.0 * hidden as f64 * inter as f64 / us / 1000.0;
 
-        println!("Chunk {:4}: {:6.1} µs ({:5.1} GFLOPS)", chunk_size, us, gflops);
+        println!(
+            "Chunk {:4}: {:6.1} µs ({:5.1} GFLOPS)",
+            chunk_size, us, gflops
+        );
     }
 }
 

@@ -38,8 +38,8 @@ fn main() {
 
     // Get layer 0 FFN up weight for testing (typical large GEMV in decode)
     let ffn_up_weight = &model.layers[0].ffn_up_weight;
-    let k = ffn_up_weight.in_dim;      // Hidden dim (e.g., 1536)
-    let n = ffn_up_weight.out_dim;     // Intermediate dim (e.g., 8960)
+    let k = ffn_up_weight.in_dim; // Hidden dim (e.g., 1536)
+    let n = ffn_up_weight.out_dim; // Intermediate dim (e.g., 8960)
 
     println!("  Hidden dim (K): {}", k);
     println!("  Intermediate dim (N): {}", n);
@@ -56,7 +56,9 @@ fn main() {
         .expect("upload weight");
 
     // Get weight pointer for batched version
-    let weight_ptr = executor.get_quantized_weight_ptr(weight_name).expect("get ptr");
+    let weight_ptr = executor
+        .get_quantized_weight_ptr(weight_name)
+        .expect("get ptr");
 
     // Test parameters
     let batch_sizes: [u32; 4] = [1, 2, 4, 8];
@@ -70,8 +72,14 @@ fn main() {
     println!("  Benchmark Results (per-call latency in microseconds)");
     println!("═══════════════════════════════════════════════════════════════");
     println!();
-    println!("{:>5} {:>14} {:>14} {:>10}", "M", "Sequential(µs)", "Batched(µs)", "Speedup");
-    println!("{:>5} {:>14} {:>14} {:>10}", "---", "-------------", "-----------", "-------");
+    println!(
+        "{:>5} {:>14} {:>14} {:>10}",
+        "M", "Sequential(µs)", "Batched(µs)", "Speedup"
+    );
+    println!(
+        "{:>5} {:>14} {:>14} {:>10}",
+        "---", "-------------", "-----------", "-------"
+    );
 
     for m in batch_sizes {
         // Create input/output buffers for this batch size
@@ -123,10 +131,16 @@ fn main() {
         let batched_output = vec![0.0f32; (m as usize) * n];
 
         // Upload batched input to GPU
-        let mut batched_input_buf = executor.allocate_buffer(batched_input.len()).expect("input buf");
-        batched_input_buf.copy_from_host(&batched_input).expect("copy input");
+        let mut batched_input_buf = executor
+            .allocate_buffer(batched_input.len())
+            .expect("input buf");
+        batched_input_buf
+            .copy_from_host(&batched_input)
+            .expect("copy input");
 
-        let batched_output_buf = executor.allocate_buffer(batched_output.len()).expect("output buf");
+        let batched_output_buf = executor
+            .allocate_buffer(batched_output.len())
+            .expect("output buf");
 
         // Warmup batched
         for _ in 0..warmup_iters {

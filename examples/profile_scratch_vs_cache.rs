@@ -57,10 +57,23 @@ fn main() -> Result<(), RealizarError> {
     let scratch_ms = start.elapsed().as_millis() as f64 / iterations as f64;
     let scratch_tok_per_s = gen_tokens as f64 * 1000.0 / scratch_ms;
 
-    println!("\n=== Results ({} tokens, {} iterations) ===", gen_tokens, iterations);
-    println!("Cache path (allocating):     {:.1} ms ({:.1} tok/s)", cache_ms, cache_tok_per_s);
-    println!("Scratch path (non-alloc):    {:.1} ms ({:.1} tok/s)", scratch_ms, scratch_tok_per_s);
-    println!("Overhead:                    {:.1} ms ({:.1}%)", scratch_ms - cache_ms, (scratch_ms / cache_ms - 1.0) * 100.0);
+    println!(
+        "\n=== Results ({} tokens, {} iterations) ===",
+        gen_tokens, iterations
+    );
+    println!(
+        "Cache path (allocating):     {:.1} ms ({:.1} tok/s)",
+        cache_ms, cache_tok_per_s
+    );
+    println!(
+        "Scratch path (non-alloc):    {:.1} ms ({:.1} tok/s)",
+        scratch_ms, scratch_tok_per_s
+    );
+    println!(
+        "Overhead:                    {:.1} ms ({:.1}%)",
+        scratch_ms - cache_ms,
+        (scratch_ms / cache_ms - 1.0) * 100.0
+    );
 
     // Test 3: Per-token timing derived from generation
     let per_token_cache_us = cache_ms * 1000.0 / gen_tokens as f64;
@@ -68,8 +81,14 @@ fn main() -> Result<(), RealizarError> {
 
     println!("\n=== Per-Token Timing (derived) ===");
     println!("Per token (cache):           {:.0} us", per_token_cache_us);
-    println!("Per token (scratch):         {:.0} us", per_token_scratch_us);
-    println!("Gap per token:               {:.0} us", per_token_scratch_us - per_token_cache_us);
+    println!(
+        "Per token (scratch):         {:.0} us",
+        per_token_scratch_us
+    );
+    println!(
+        "Gap per token:               {:.0} us",
+        per_token_scratch_us - per_token_cache_us
+    );
 
     // Analysis
     println!("\n=== Analysis ===");
@@ -80,7 +99,10 @@ fn main() -> Result<(), RealizarError> {
         println!("  2. Cache path has more optimized code path");
         println!("  3. Different loop structure overhead");
     } else {
-        println!("Scratch path is {:.1}% faster", (cache_ms / scratch_ms - 1.0) * 100.0);
+        println!(
+            "Scratch path is {:.1}% faster",
+            (cache_ms / scratch_ms - 1.0) * 100.0
+        );
     }
 
     Ok(())

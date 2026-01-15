@@ -37,24 +37,34 @@ fn main() {
             .unwrap_or(0.0);
     }
     let current_ns = start.elapsed().as_nanos() as f64 / iters as f64;
-    if result.abs() < 0.0001 { println!("(prevent opt)"); }
+    if result.abs() < 0.0001 {
+        println!("(prevent opt)");
+    }
 
     // Test full-sb kernel (unsafe direct call for testing)
     let start2 = Instant::now();
     result = 0.0;
     for _ in 0..iters {
-        result += unsafe {
-            full_sb_kernel(&weights, &q8k_scales, &q8k_quants).unwrap_or(0.0)
-        };
+        result += unsafe { full_sb_kernel(&weights, &q8k_scales, &q8k_quants).unwrap_or(0.0) };
     }
     let fullsb_ns = start2.elapsed().as_nanos() as f64 / iters as f64;
-    if result.abs() < 0.0001 { println!("(prevent opt)"); }
+    if result.abs() < 0.0001 {
+        println!("(prevent opt)");
+    }
 
     println!("Hidden dim: {}", hidden);
     println!("Super-blocks: {}", super_blocks);
     println!();
-    println!("Current kernel:   {:6.1} ns ({:.2} GMAC/s)", current_ns, hidden as f64 * 2.0 / current_ns);
-    println!("Full-SB kernel:   {:6.1} ns ({:.2} GMAC/s)", fullsb_ns, hidden as f64 * 2.0 / fullsb_ns);
+    println!(
+        "Current kernel:   {:6.1} ns ({:.2} GMAC/s)",
+        current_ns,
+        hidden as f64 * 2.0 / current_ns
+    );
+    println!(
+        "Full-SB kernel:   {:6.1} ns ({:.2} GMAC/s)",
+        fullsb_ns,
+        hidden as f64 * 2.0 / fullsb_ns
+    );
     println!("Speedup: {:.1}x", current_ns / fullsb_ns);
 }
 
@@ -163,9 +173,11 @@ unsafe fn full_sb_kernel(
         // So we need to sum groups of 8 -> 1
 
         // Use hadd to sum within each block
-        let sum_01 = _mm256_hadd_epi32(_mm256_add_epi32(sum_01_a, sum_01_b), _mm256_setzero_si256());
+        let sum_01 =
+            _mm256_hadd_epi32(_mm256_add_epi32(sum_01_a, sum_01_b), _mm256_setzero_si256());
         let sum_01 = _mm256_hadd_epi32(sum_01, _mm256_setzero_si256());
-        let sum_23 = _mm256_hadd_epi32(_mm256_add_epi32(sum_23_a, sum_23_b), _mm256_setzero_si256());
+        let sum_23 =
+            _mm256_hadd_epi32(_mm256_add_epi32(sum_23_a, sum_23_b), _mm256_setzero_si256());
         let sum_23 = _mm256_hadd_epi32(sum_23, _mm256_setzero_si256());
 
         // Extract block sums (simplified - just do scalar for now)
@@ -270,7 +282,10 @@ unsafe fn full_sb_kernel(
     }
 
     // Final horizontal sum
-    let sum128 = _mm_add_ps(_mm256_castps256_ps128(total_vec), _mm256_extractf128_ps(total_vec, 1));
+    let sum128 = _mm_add_ps(
+        _mm256_castps256_ps128(total_vec),
+        _mm256_extractf128_ps(total_vec, 1),
+    );
     let sum64 = _mm_add_ps(sum128, _mm_movehl_ps(sum128, sum128));
     let sum32 = _mm_add_ss(sum64, _mm_shuffle_ps(sum64, sum64, 1));
     Ok(_mm_cvtss_f32(sum32))

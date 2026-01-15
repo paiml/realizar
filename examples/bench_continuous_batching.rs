@@ -243,7 +243,10 @@ fn main() {
     );
     println!("   Throughput: {:.1} tok/s", warm_tps);
     println!("   vs Single: {:.2}x", warm_tps / single_tps);
-    println!("   vs Cold (clear each): {:.1}% speedup", ((warm_tps / batch_tps) - 1.0) * 100.0);
+    println!(
+        "   vs Cold (clear each): {:.1}% speedup",
+        ((warm_tps / batch_tps) - 1.0) * 100.0
+    );
     if warm_tps >= 400.0 {
         println!("   ✅ TARGET MET: 2x Ollama achieved!");
     }
@@ -252,7 +255,10 @@ fn main() {
     println!("═══════════════════════════════════════════════════════════════");
     println!("  Summary");
     println!("═══════════════════════════════════════════════════════════════");
-    println!("  Single-request (cold): {:.1} tok/s (baseline)", single_tps);
+    println!(
+        "  Single-request (cold): {:.1} tok/s (baseline)",
+        single_tps
+    );
     println!("  Sequential (clear graph each): {:.1} tok/s", batch_tps);
     println!("  Sequential (warm graph): {:.1} tok/s", warm_tps);
     println!("  Ollama baseline: ~200 tok/s");
@@ -261,6 +267,10 @@ fn main() {
     if warm_tps >= 400.0 {
         println!("  ✅ 2x OLLAMA TARGET ACHIEVED via warm graph persistence!");
     } else {
-        println!("  Gap to 2x: {:.1} tok/s ({:.1}%)", 400.0 - warm_tps, ((400.0 / warm_tps) - 1.0) * 100.0);
+        println!(
+            "  Gap to 2x: {:.1} tok/s ({:.1}%)",
+            400.0 - warm_tps,
+            ((400.0 / warm_tps) - 1.0) * 100.0
+        );
     }
 }

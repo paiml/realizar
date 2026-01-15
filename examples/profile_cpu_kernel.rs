@@ -34,7 +34,11 @@ fn main() {
     println!("  Output dim: {}", inter);
     println!("  Super-blocks per row: {}", super_blocks);
     println!("  Bytes per row: {} (Q4K)", bytes_per_row);
-    println!("  Total weight bytes: {} ({:.1} MB)", weight_bytes, weight_bytes as f64 / 1e6);
+    println!(
+        "  Total weight bytes: {} ({:.1} MB)",
+        weight_bytes,
+        weight_bytes as f64 / 1e6
+    );
     println!("  Threads: {}", rayon::current_num_threads());
 
     // Measure single dot product in detail
@@ -57,13 +61,15 @@ fn main() {
     let per_dot_ns = elapsed.as_nanos() as f64 / iters as f64;
 
     // Prevent optimization
-    if result.abs() < 0.0001 { println!("(prevent opt)"); }
+    if result.abs() < 0.0001 {
+        println!("(prevent opt)");
+    }
 
     println!("\n=== Single Dot Product Analysis ===");
     println!("Time: {:.1} ns", per_dot_ns);
 
     // Calculate theoretical limits
-    let macs = hidden * 2;  // mul + add per element
+    let macs = hidden * 2; // mul + add per element
     let gmacs = macs as f64 / per_dot_ns;
     println!("Throughput: {:.2} GMAC/s", gmacs);
 
@@ -75,8 +81,8 @@ fn main() {
 
     // Theoretical limits
     println!("\n=== Theoretical Limits ===");
-    let cpu_ghz = 4.2;  // Threadripper all-core
-    let avx2_macs_per_cycle = 16;  // maddubs does 32 u8*i8 -> 16 i16
+    let cpu_ghz = 4.2; // Threadripper all-core
+    let avx2_macs_per_cycle = 16; // maddubs does 32 u8*i8 -> 16 i16
     let theoretical_gmacs = cpu_ghz * avx2_macs_per_cycle as f64;
     println!("CPU frequency: {:.1} GHz", cpu_ghz);
     println!("AVX2 MACs/cycle: {}", avx2_macs_per_cycle);
@@ -112,14 +118,26 @@ fn main() {
     // Warmup
     for _ in 0..3 {
         let _ = realizar::quantize::fused_q4k_q8k_parallel_matvec_into(
-            &weights, &q8k_scales, &q8k_quants, hidden, inter, &mut output);
+            &weights,
+            &q8k_scales,
+            &q8k_quants,
+            hidden,
+            inter,
+            &mut output,
+        );
     }
 
     let iters2 = 100;
     let start2 = Instant::now();
     for _ in 0..iters2 {
         let _ = realizar::quantize::fused_q4k_q8k_parallel_matvec_into(
-            &weights, &q8k_scales, &q8k_quants, hidden, inter, &mut output);
+            &weights,
+            &q8k_scales,
+            &q8k_quants,
+            hidden,
+            inter,
+            &mut output,
+        );
     }
     let matmul_us = start2.elapsed().as_micros() as f64 / iters2 as f64;
 
@@ -131,13 +149,16 @@ fn main() {
 
     // Per-token estimate
     let layers = 28;
-    let matmuls_per_layer = 5;  // QKV, O, up, gate, down
+    let matmuls_per_layer = 5; // QKV, O, up, gate, down
     let per_layer_us = matmul_us * matmuls_per_layer as f64;
     let total_us = per_layer_us * layers as f64;
     let tok_s = 1e6 / total_us;
 
     println!("\n=== Per-Token Estimate ===");
-    println!("Per layer ({} matmuls): {:.1} µs", matmuls_per_layer, per_layer_us);
+    println!(
+        "Per layer ({} matmuls): {:.1} µs",
+        matmuls_per_layer, per_layer_us
+    );
     println!("28 layers: {:.1} ms", total_us / 1000.0);
     println!("Estimated: {:.1} tok/s", tok_s);
 
@@ -154,8 +175,15 @@ fn main() {
     let required_speedup = target_tok_s / tok_s;
     let required_matmul_us = matmul_us / required_speedup;
     println!("\nTo reach 2x:");
-    println!("  Need matmul: {:.1} µs (currently {:.1} µs)", required_matmul_us, matmul_us);
-    println!("  Need per-dot: {:.1} ns (currently {:.1} ns)", per_dot_ns / required_speedup, per_dot_ns);
+    println!(
+        "  Need matmul: {:.1} µs (currently {:.1} µs)",
+        required_matmul_us, matmul_us
+    );
+    println!(
+        "  Need per-dot: {:.1} ns (currently {:.1} ns)",
+        per_dot_ns / required_speedup,
+        per_dot_ns
+    );
 }
 
 fn quantize_to_q8k(values: &[f32]) -> (Vec<f32>, Vec<i8>) {

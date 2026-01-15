@@ -3904,27 +3904,51 @@ roadmap:
   github_issue: null
   item_type: task
   title: 'Metal GPU Inference: LLM Acceleration via Intel Mac AMD GPU'
-  status: pending
+  status: planned
   priority: medium
   assigned_to: null
   created: 2026-01-02T12:00:00+00:00
   updated: 2026-01-02T12:00:00+00:00
   spec: null
   acceptance_criteria:
-  - 'GGUF model inference works on AMD GPU via Metal'
-  - 'Metal matmul kernels integrated from trueno backend'
-  - 'tok/s performance measured on Radeon Pro W5700X'
-  - 'Cross-platform inference parity (CUDA vs Metal output match)'
-  - 'Afterburner available for video preprocessing if needed'
-  - 'CI validation via self-hosted Intel Mac runner'
+  - GGUF model inference works on AMD GPU via Metal
+  - Metal matmul kernels integrated from trueno backend
+  - tok/s performance measured on Radeon Pro W5700X
+  - Cross-platform inference parity (CUDA vs Metal output match)
+  - Afterburner available for video preprocessing if needed
+  - CI validation via self-hosted Intel Mac runner
   phases: []
   subtasks:
-  - Add Metal feature flag to Cargo.toml
-  - Integrate trueno Metal matmul when TRUENO-METAL-001 completes
-  - Implement Metal attention kernels
-  - Benchmark phi-2 inference on AMD GPU
-  - Compare tok/s with CUDA baseline
-  - Add examples/metal_inference.rs
+  - id: METAL-001a
+    github_issue: null
+    title: Add Metal feature flag to Cargo.toml
+    status: planned
+    completion: 0
+  - id: METAL-001b
+    github_issue: null
+    title: Integrate trueno Metal matmul when TRUENO-METAL-001 completes
+    status: planned
+    completion: 0
+  - id: METAL-001c
+    github_issue: null
+    title: Implement Metal attention kernels
+    status: planned
+    completion: 0
+  - id: METAL-001d
+    github_issue: null
+    title: Benchmark phi-2 inference on AMD GPU
+    status: planned
+    completion: 0
+  - id: METAL-001e
+    github_issue: null
+    title: Compare tok/s with CUDA baseline
+    status: planned
+    completion: 0
+  - id: METAL-001f
+    github_issue: null
+    title: Add examples/metal_inference.rs
+    status: planned
+    completion: 0
   estimated_effort: 2 weeks
   labels:
   - metal
@@ -3940,3 +3964,24 @@ roadmap:
     - Afterburner card available for video transcoding
     - Target: Achieve >50 tok/s for phi-2 on Metal
     - Run: cargo run --bin mac-flow (from lambda-lab-rust-development)
+- id: PMAT-802
+  github_issue: null
+  item_type: task
+  title: 'COV-001: Achieve 95% test coverage'
+  status: inprogress
+  priority: critical
+  assigned_to: null
+  created: 2026-01-14T17:38:50Z
+  updated: 2026-01-14T17:38:55.716085651+00:00
+  spec: null
+  acceptance_criteria:
+  - Increase test coverage from 33% to 95% using GPU tests (RTX 4090), SIMD tests, mocking, dependency injection, property testing, and mutation testing
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels:
+  - coverage
+  - testing
+  - gpu
+  - simd
+  notes: null

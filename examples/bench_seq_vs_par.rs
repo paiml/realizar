@@ -34,7 +34,9 @@ fn q4k_sequential_matvec_into(
             for block in 0..8 {
                 let scale_byte = scales[block + (block / 2) & !1];
                 let sc = (scale_byte & 0x3F) as f32;
-                let m = ((scale_byte >> 4) | ((scales[block / 2 + 8] >> (4 * (block % 2))) << 4) & 0x3F) as f32;
+                let m = ((scale_byte >> 4)
+                    | ((scales[block / 2 + 8] >> (4 * (block % 2))) << 4) & 0x3F)
+                    as f32;
 
                 let block_quants = &quants[block * 16..(block + 1) * 16];
                 let act_offset = sb * 256 + block * 32;
@@ -98,7 +100,11 @@ fn main() -> Result<(), realizar::RealizarError> {
 
     // Test different matmul sizes in transformer
     let test_cases = [
-        ("QKV (1536→1536+384+384)", hidden_dim, hidden_dim + 384 + 384),
+        (
+            "QKV (1536→1536+384+384)",
+            hidden_dim,
+            hidden_dim + 384 + 384,
+        ),
         ("Attn Out (1536→1536)", hidden_dim, hidden_dim),
         ("FFN Up (1536→8960)", hidden_dim, intermediate_dim),
         ("FFN Down (8960→1536)", intermediate_dim, hidden_dim),
@@ -120,7 +126,8 @@ fn main() -> Result<(), realizar::RealizarError> {
         let iterations = 50;
 
         // Warmup
-        let _ = fused_q4k_parallel_matvec_into(&weights, &activations, in_dim, out_dim, &mut output);
+        let _ =
+            fused_q4k_parallel_matvec_into(&weights, &activations, in_dim, out_dim, &mut output);
 
         // Sequential
         let start = Instant::now();
@@ -132,7 +139,13 @@ fn main() -> Result<(), realizar::RealizarError> {
         // Parallel (current)
         let start = Instant::now();
         for _ in 0..iterations {
-            let _ = fused_q4k_parallel_matvec_into(&weights, &activations, in_dim, out_dim, &mut output);
+            let _ = fused_q4k_parallel_matvec_into(
+                &weights,
+                &activations,
+                in_dim,
+                out_dim,
+                &mut output,
+            );
         }
         let par_us = start.elapsed().as_micros() as f64 / iterations as f64;
 
@@ -146,14 +159,27 @@ fn main() -> Result<(), realizar::RealizarError> {
         let start = Instant::now();
         for _ in 0..iterations {
             let _ = fused_q4k_q8k_parallel_matvec_into(
-                &weights, &q8k_scales, &q8k_quants, in_dim, out_dim, &mut output,
+                &weights,
+                &q8k_scales,
+                &q8k_quants,
+                in_dim,
+                out_dim,
+                &mut output,
             );
         }
         let q8k_us = start.elapsed().as_micros() as f64 / iterations as f64;
 
         println!("  Sequential:   {:>8.0} us", seq_us);
-        println!("  Parallel:     {:>8.0} us ({:.1}x)", par_us, seq_us / par_us);
-        println!("  Q8K Parallel: {:>8.0} us ({:.1}x)", q8k_us, seq_us / q8k_us);
+        println!(
+            "  Parallel:     {:>8.0} us ({:.1}x)",
+            par_us,
+            seq_us / par_us
+        );
+        println!(
+            "  Q8K Parallel: {:>8.0} us ({:.1}x)",
+            q8k_us,
+            seq_us / q8k_us
+        );
 
         // Which is faster?
         let best = seq_us.min(par_us).min(q8k_us);
@@ -172,7 +198,11 @@ fn main() -> Result<(), realizar::RealizarError> {
     let ops_per_layer = 5; // QKV + Attn Out + Up + Gate + Down
     let rayon_overhead_us = 133.0; // From profiling
     let total_rayon_overhead_ms = ops_per_layer as f64 * 28.0 * rayon_overhead_us / 1000.0;
-    println!("Rayon overhead: {:.1} ms ({} dispatches)", total_rayon_overhead_ms, ops_per_layer * 28);
+    println!(
+        "Rayon overhead: {:.1} ms ({} dispatches)",
+        total_rayon_overhead_ms,
+        ops_per_layer * 28
+    );
 
     Ok(())
 }

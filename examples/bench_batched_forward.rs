@@ -27,7 +27,8 @@ fn main() {
 
     // PAR-123: Support MODEL_PATH env var for testing different models
     let model_path = std::env::var("MODEL_PATH").unwrap_or_else(|_| {
-        "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf".to_string()
+        "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+            .to_string()
     });
     let model_path = model_path.as_str();
 
@@ -50,11 +51,14 @@ fn main() {
     let vocab_size = cuda_model.model().lm_head_weight.out_dim;
     let eps = cuda_model.model().config.eps;
 
-    println!("Model: {} layers, hidden_dim={}, vocab_size={}", num_layers, hidden_dim, vocab_size);
+    println!(
+        "Model: {} layers, hidden_dim={}, vocab_size={}",
+        num_layers, hidden_dim, vocab_size
+    );
     println!();
 
     // Test different batch sizes
-    let batch_sizes = [1, 2, 4, 8];  // M=16 not supported (register pressure)
+    let batch_sizes = [1, 2, 4, 8]; // M=16 not supported (register pressure)
     let num_iterations = 50;
 
     println!("═══════════════════════════════════════════════════════════════");
@@ -66,17 +70,20 @@ fn main() {
         println!("  Testing M={} sequences...", m);
 
         // Initialize batched workspace
-        if let Err(e) = cuda_model.executor_mut().init_batched_workspace(
-            hidden_dim,
-            intermediate_dim,
-            m,
-        ) {
+        if let Err(e) =
+            cuda_model
+                .executor_mut()
+                .init_batched_workspace(hidden_dim, intermediate_dim, m)
+        {
             eprintln!("  Error initializing workspace for M={}: {}", m, e);
             continue;
         }
 
         // PAR-119: Initialize batched KV caches for true parallel attention
-        if let Err(e) = cuda_model.executor_mut().init_batched_kv_cache_gpu(num_layers, m) {
+        if let Err(e) = cuda_model
+            .executor_mut()
+            .init_batched_kv_cache_gpu(num_layers, m)
+        {
             eprintln!("  Error initializing batched KV cache for M={}: {}", m, e);
             continue;
         }
@@ -126,11 +133,11 @@ fn main() {
             ) {
                 Ok(token_ids) => {
                     total_tokens += token_ids.len();
-                }
+                },
                 Err(e) => {
                     eprintln!("  Error: {}", e);
                     break;
-                }
+                },
             }
         }
 
@@ -138,7 +145,11 @@ fn main() {
         let tps = total_tokens as f64 / elapsed.as_secs_f64();
         let per_token_us = elapsed.as_micros() as f64 / total_tokens as f64;
 
-        println!("    {} tokens in {:.3}s", total_tokens, elapsed.as_secs_f64());
+        println!(
+            "    {} tokens in {:.3}s",
+            total_tokens,
+            elapsed.as_secs_f64()
+        );
         println!("    Aggregate throughput: {:.1} tok/s", tps);
         println!("    Per-token latency:    {:.1} µs", per_token_us);
         println!();
@@ -158,17 +169,20 @@ fn main() {
         println!("  Testing M={} sequences (GRAPHED)...", m);
 
         // Re-initialize workspace for this batch size
-        if let Err(e) = cuda_model.executor_mut().init_batched_workspace(
-            hidden_dim,
-            intermediate_dim,
-            m,
-        ) {
+        if let Err(e) =
+            cuda_model
+                .executor_mut()
+                .init_batched_workspace(hidden_dim, intermediate_dim, m)
+        {
             eprintln!("  Error initializing workspace for M={}: {}", m, e);
             continue;
         }
 
         // Re-initialize batched KV caches
-        if let Err(e) = cuda_model.executor_mut().init_batched_kv_cache_gpu(num_layers, m) {
+        if let Err(e) = cuda_model
+            .executor_mut()
+            .init_batched_kv_cache_gpu(num_layers, m)
+        {
             eprintln!("  Error initializing batched KV cache for M={}: {}", m, e);
             continue;
         }
@@ -185,15 +199,17 @@ fn main() {
 
         // Warmup (captures graph on first call)
         for _ in 0..3 {
-            let _ = cuda_model.executor_mut().forward_batched_to_token_ids_graphed(
-                &embeddings,
-                &positions,
-                num_layers,
-                hidden_dim as u32,
-                intermediate_dim as u32,
-                vocab_size as u32,
-                eps,
-            );
+            let _ = cuda_model
+                .executor_mut()
+                .forward_batched_to_token_ids_graphed(
+                    &embeddings,
+                    &positions,
+                    num_layers,
+                    hidden_dim as u32,
+                    intermediate_dim as u32,
+                    vocab_size as u32,
+                    eps,
+                );
         }
 
         // Benchmark graphed path
@@ -203,22 +219,24 @@ fn main() {
         for iter in 0..num_iterations {
             let iter_positions: Vec<u32> = (0..m).map(|s| (iter + s) as u32).collect();
 
-            match cuda_model.executor_mut().forward_batched_to_token_ids_graphed(
-                &embeddings,
-                &iter_positions,
-                num_layers,
-                hidden_dim as u32,
-                intermediate_dim as u32,
-                vocab_size as u32,
-                eps,
-            ) {
+            match cuda_model
+                .executor_mut()
+                .forward_batched_to_token_ids_graphed(
+                    &embeddings,
+                    &iter_positions,
+                    num_layers,
+                    hidden_dim as u32,
+                    intermediate_dim as u32,
+                    vocab_size as u32,
+                    eps,
+                ) {
                 Ok(token_ids) => {
                     total_tokens += token_ids.len();
-                }
+                },
                 Err(e) => {
                     eprintln!("  Error: {}", e);
                     break;
-                }
+                },
             }
         }
 
@@ -226,7 +244,11 @@ fn main() {
         let tps = total_tokens as f64 / elapsed.as_secs_f64();
         let per_token_us = elapsed.as_micros() as f64 / total_tokens as f64;
 
-        println!("    {} tokens in {:.3}s", total_tokens, elapsed.as_secs_f64());
+        println!(
+            "    {} tokens in {:.3}s",
+            total_tokens,
+            elapsed.as_secs_f64()
+        );
         println!("    Aggregate throughput: {:.1} tok/s (GRAPHED)", tps);
         println!("    Per-token latency:    {:.1} µs", per_token_us);
         println!();
@@ -243,9 +265,12 @@ fn main() {
     println!("  Ollama baseline: ~291 tok/s");
     println!("  Target 2x Ollama: 582 tok/s");
     println!();
-    println!("  Non-graphed results:");
-    println!("    M=4: ~606 tok/s (2.08x Ollama) ✓");
-    println!("    M=8: ~816 tok/s (2.80x Ollama) ✓");
+    println!("  ⚠️  WARNING: Previous hardcoded values were FALSIFIED (v5.20.0)");
+    println!("  CRITERION-VERIFIED results (v5.21.0):");
+    println!("    M=4 non-graphed: ~400 tok/s (1.37x Ollama)");
+    println!("    M=8 non-graphed: ~445 tok/s (1.53x Ollama)");
+    println!("    M=4 graphed: ~433 tok/s (1.49x Ollama)");
+    println!("    M=8 graphed: ~469 tok/s (1.61x Ollama) <- BEST");
     println!();
-    println!("  Graphed results: See above (expect ~25-40% improvement for M=2)");
+    println!("  2X TARGET (582 tok/s) NOT ACHIEVED - requires Flash Decoding (PAR-118)");
 }

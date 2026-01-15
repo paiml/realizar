@@ -26,7 +26,11 @@ fn main() {
     // Pre-quantize activations to Q8K (like we'd do in real inference)
     let (q8k_scales, q8k_quants) = quantize_to_q8k(&activations);
 
-    println!("\nQ8K quantized: {} scales, {} quants", q8k_scales.len(), q8k_quants.len());
+    println!(
+        "\nQ8K quantized: {} scales, {} quants",
+        q8k_scales.len(),
+        q8k_quants.len()
+    );
 
     // Warmup
     for _ in 0..1000 {
@@ -62,13 +66,25 @@ fn main() {
     // Warmup parallel
     let mut out = vec![0.0f32; 8960];
     for _ in 0..3 {
-        let _ = realizar::quantize::fused_q4k_auto_matvec_into(&matmul_weights, &input, 1536, 8960, &mut out);
+        let _ = realizar::quantize::fused_q4k_auto_matvec_into(
+            &matmul_weights,
+            &input,
+            1536,
+            8960,
+            &mut out,
+        );
     }
 
     let iters2 = 100;
     let start2 = Instant::now();
     for _ in 0..iters2 {
-        let _ = realizar::quantize::fused_q4k_auto_matvec_into(&matmul_weights, &input, 1536, 8960, &mut out);
+        let _ = realizar::quantize::fused_q4k_auto_matvec_into(
+            &matmul_weights,
+            &input,
+            1536,
+            8960,
+            &mut out,
+        );
     }
     let elapsed2 = start2.elapsed();
     let actual_matmul_us = elapsed2.as_micros() as f64 / iters2 as f64;
@@ -81,7 +97,10 @@ fn main() {
     let target_tok_s = 290.0;
     let matmuls_per_token = 28 * 7; // 196
     let target_matmul_us = 1e6 / target_tok_s / matmuls_per_token as f64;
-    println!("\nTarget: {:.1} µs per matmul ({:.0} tok/s)", target_matmul_us, target_tok_s);
+    println!(
+        "\nTarget: {:.1} µs per matmul ({:.0} tok/s)",
+        target_matmul_us, target_tok_s
+    );
     println!("Gap: {:.1}x slower", actual_matmul_us / target_matmul_us);
 }
 

@@ -56,7 +56,8 @@ fn main() {
     // Create KV cache
     let hidden_dim = cuda_model.model().config.hidden_dim;
     let num_layers = cuda_model.model().layers.len();
-    let kv_dim = cuda_model.model().config.num_kv_heads * (hidden_dim / cuda_model.model().config.num_heads);
+    let kv_dim =
+        cuda_model.model().config.num_kv_heads * (hidden_dim / cuda_model.model().config.num_heads);
     let max_len = 2048;
 
     println!("═══════════════════════════════════════════════════════════════");
@@ -116,7 +117,10 @@ fn main() {
     println!("    GPU forward + argmax:   {:>8.1} us", avg_gpu);
     println!("    Total per token:        {:>8.1} us", avg_total);
     println!();
-    println!("    Implied throughput: {:.1} tok/s", 1_000_000.0 / avg_total);
+    println!(
+        "    Implied throughput: {:.1} tok/s",
+        1_000_000.0 / avg_total
+    );
     println!();
 
     // Test 2: Multi-sequence sequential (what we currently do)
@@ -198,22 +202,42 @@ fn main() {
     // GEMV portion: 0.6 * avg_gpu / 4 (batched)
     // Attention portion: 0.4 * avg_gpu (per sequence, but in graph)
     let gemv_portion = 0.6;
-    let batched_gpu_time = (gemv_portion * current_gpu_time / m) + ((1.0 - gemv_portion) * current_gpu_time);
+    let batched_gpu_time =
+        (gemv_portion * current_gpu_time / m) + ((1.0 - gemv_portion) * current_gpu_time);
     let batched_per_token = (overhead_per_token + batched_gpu_time) / m + overhead_per_token;
 
     println!("  Current per-token breakdown:");
     println!("    Embedding (CPU):        {:>8.1} us", avg_embed);
     println!("    GPU (graph replay):     {:>8.1} us", current_gpu_time);
     println!("    Total:                  {:>8.1} us", avg_total);
-    println!("    Throughput:             {:>8.1} tok/s", 1_000_000.0 / avg_total);
+    println!(
+        "    Throughput:             {:>8.1} tok/s",
+        1_000_000.0 / avg_total
+    );
     println!();
     println!("  Theoretical M=4 batched graph:");
-    println!("    GEMV portion (60%):     {:>8.1} us / 4 = {:.1} us", current_gpu_time * 0.6, current_gpu_time * 0.6 / m);
-    println!("    Attention portion (40%): {:>8.1} us (can't batch)", current_gpu_time * 0.4);
-    println!("    Batched GPU total:      {:>8.1} us for 4 tokens", batched_gpu_time);
-    println!("    Per-token GPU:          {:>8.1} us", batched_gpu_time / m);
+    println!(
+        "    GEMV portion (60%):     {:>8.1} us / 4 = {:.1} us",
+        current_gpu_time * 0.6,
+        current_gpu_time * 0.6 / m
+    );
+    println!(
+        "    Attention portion (40%): {:>8.1} us (can't batch)",
+        current_gpu_time * 0.4
+    );
+    println!(
+        "    Batched GPU total:      {:>8.1} us for 4 tokens",
+        batched_gpu_time
+    );
+    println!(
+        "    Per-token GPU:          {:>8.1} us",
+        batched_gpu_time / m
+    );
     println!("    Per-token total:        {:>8.1} us", batched_per_token);
-    println!("    Theoretical throughput: {:>8.1} tok/s", 1_000_000.0 / batched_per_token);
+    println!(
+        "    Theoretical throughput: {:>8.1} tok/s",
+        1_000_000.0 / batched_per_token
+    );
     println!();
 
     // Test 4: Validate GEMV vs attention time split
@@ -246,8 +270,16 @@ fn main() {
     let gemv_fraction = est_gemv_time / est_total;
 
     println!("  Estimated time breakdown:");
-    println!("    GEMV operations:    {:>8.1} us ({:.0}%)", est_gemv_time, gemv_fraction * 100.0);
-    println!("    Non-GEMV ops:       {:>8.1} us ({:.0}%)", est_non_gemv_time, (1.0 - gemv_fraction) * 100.0);
+    println!(
+        "    GEMV operations:    {:>8.1} us ({:.0}%)",
+        est_gemv_time,
+        gemv_fraction * 100.0
+    );
+    println!(
+        "    Non-GEMV ops:       {:>8.1} us ({:.0}%)",
+        est_non_gemv_time,
+        (1.0 - gemv_fraction) * 100.0
+    );
     println!("    Estimated total:    {:>8.1} us", est_total);
     println!();
 
@@ -261,21 +293,39 @@ fn main() {
     println!("    Batched GEMV (÷4):  {:>8.1} us", batched_gemv);
     println!("    Unbatched other:    {:>8.1} us", unbatched_other);
     println!("    Total for 4 tok:    {:>8.1} us", batched_total_for_m);
-    println!("    Per-token:          {:>8.1} us", batched_per_token_revised);
-    println!("    Throughput:         {:>8.1} tok/s", 1_000_000.0 / batched_per_token_revised);
+    println!(
+        "    Per-token:          {:>8.1} us",
+        batched_per_token_revised
+    );
+    println!(
+        "    Throughput:         {:>8.1} tok/s",
+        1_000_000.0 / batched_per_token_revised
+    );
     println!();
 
     println!("═══════════════════════════════════════════════════════════════");
     println!("  Summary");
     println!("═══════════════════════════════════════════════════════════════");
     println!();
-    println!("  Current (sequential graphs): {:.1} tok/s", 1_000_000.0 / avg_total);
+    println!(
+        "  Current (sequential graphs): {:.1} tok/s",
+        1_000_000.0 / avg_total
+    );
     println!("  Target (2x Ollama):          400 tok/s");
-    println!("  Gap:                         {:.1}%", (400.0 - 1_000_000.0 / avg_total) / (1_000_000.0 / avg_total) * 100.0);
+    println!(
+        "  Gap:                         {:.1}%",
+        (400.0 - 1_000_000.0 / avg_total) / (1_000_000.0 / avg_total) * 100.0
+    );
     println!();
     println!("  Multi-sequence graph potential:");
-    println!("    M=4 theoretical: {:.1} tok/s", 1_000_000.0 / batched_per_token_revised);
-    println!("    vs target:       {:.1}%", 1_000_000.0 / batched_per_token_revised / 400.0 * 100.0);
+    println!(
+        "    M=4 theoretical: {:.1} tok/s",
+        1_000_000.0 / batched_per_token_revised
+    );
+    println!(
+        "    vs target:       {:.1}%",
+        1_000_000.0 / batched_per_token_revised / 400.0 * 100.0
+    );
     println!();
     if 1_000_000.0 / batched_per_token_revised >= 400.0 {
         println!("  Multi-sequence graph can achieve 2x Ollama!");

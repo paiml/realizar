@@ -6,7 +6,8 @@ use realizar::RealizarError;
 use std::time::Instant;
 
 fn main() -> Result<(), RealizarError> {
-    let model_path = "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf";
+    let model_path =
+        "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf";
 
     eprintln!("Loading model...");
     let mapped = MappedGGUFModel::from_path(model_path)?;
@@ -54,7 +55,9 @@ fn main() -> Result<(), RealizarError> {
     // Measure standalone operations using implementations matching the actual code
 
     // Test 3: Measure RMSNorm (standalone)
-    let input: Vec<f32> = (0..hidden_dim).map(|i| i as f32 / hidden_dim as f32).collect();
+    let input: Vec<f32> = (0..hidden_dim)
+        .map(|i| i as f32 / hidden_dim as f32)
+        .collect();
     let weight: Vec<f32> = vec![1.0f32; hidden_dim];
     let mut normed = vec![0.0f32; hidden_dim];
     let eps = 1e-5f32;
@@ -118,11 +121,14 @@ fn main() -> Result<(), RealizarError> {
         + rope_us                               // RoPE for Q and K
         + 3.0 * copy_us                         // Q, K, V splitting
         + 2.0 * add_us                          // 2 residual adds
-        + append_us;                            // Cache append
+        + append_us; // Cache append
 
     let per_token_overhead_ms = per_layer_overhead * num_layers as f64 / 1000.0;
     println!("Per-layer overhead: {:.1} µs", per_layer_overhead);
-    println!("Per-token overhead (28 layers): {:.2} ms", per_token_overhead_ms);
+    println!(
+        "Per-token overhead (28 layers): {:.2} ms",
+        per_token_overhead_ms
+    );
 
     // Run actual forward pass for comparison
     println!("\n=== Actual Performance ===");
@@ -148,18 +154,26 @@ fn main() -> Result<(), RealizarError> {
     let avg_ms = times.iter().sum::<f64>() / runs as f64;
     let per_token_ms = avg_ms / 20.0;
     println!("Average for 20 tokens: {:.1} ms", avg_ms);
-    println!("Per-token: {:.2} ms ({:.1} tok/s)", per_token_ms, 1000.0 / per_token_ms);
+    println!(
+        "Per-token: {:.2} ms ({:.1} tok/s)",
+        per_token_ms,
+        1000.0 / per_token_ms
+    );
 
     // Gap analysis
     println!("\n=== Gap Analysis ===");
-    let matmul_ms = 14.7;  // From profile_all_matmuls
+    let matmul_ms = 14.7; // From profile_all_matmuls
     let accounted_ms = matmul_ms + per_token_overhead_ms;
     let unexplained_ms = per_token_ms - accounted_ms;
     println!("Matmuls: {:.1} ms", matmul_ms);
     println!("Non-matmul overhead: {:.2} ms", per_token_overhead_ms);
     println!("Accounted: {:.2} ms", accounted_ms);
     println!("Actual: {:.2} ms", per_token_ms);
-    println!("Unexplained: {:.2} ms ({:.0}%)", unexplained_ms, unexplained_ms / per_token_ms * 100.0);
+    println!(
+        "Unexplained: {:.2} ms ({:.0}%)",
+        unexplained_ms,
+        unexplained_ms / per_token_ms * 100.0
+    );
 
     Ok(())
 }

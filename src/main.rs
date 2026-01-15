@@ -912,10 +912,13 @@ fn run_gguf_inference(
         logits = model.forward_cached(token_id, &mut cache, pos)?;
     }
 
-    // PAR-051: Diagnostic - show top5 logits after prefill (disabled for performance)
+    // PAR-051: Diagnostic - show top5 logits after prefill
     // Re-enable by changing `false` to `true` for debugging
     #[allow(clippy::never_loop)]
-    if false {
+    if std::env::var("CPU_DEBUG")
+        .map(|v| v == "1")
+        .unwrap_or(false)
+    {
         let mut top5: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
         top5.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         top5.truncate(5);

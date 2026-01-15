@@ -4,9 +4,10 @@ use realizar::RealizarError;
 use std::time::Instant;
 
 fn main() -> Result<(), RealizarError> {
-    let model_path = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf".to_string());
+    let model_path = std::env::args().nth(1).unwrap_or_else(|| {
+        "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+            .to_string()
+    });
 
     eprintln!("Loading model: {}", model_path);
     let mapped = MappedGGUFModel::from_path(&model_path)?;
@@ -54,13 +55,22 @@ fn main() -> Result<(), RealizarError> {
     let scratch_ms = start.elapsed().as_millis() as f64 / iterations as f64;
     let scratch_tps = gen_tokens as f64 * 1000.0 / scratch_ms;
 
-    println!("\n=== Qwen2.5-Coder-1.5B Benchmark ({} tokens, {} iterations) ===", gen_tokens, iterations);
+    println!(
+        "\n=== Qwen2.5-Coder-1.5B Benchmark ({} tokens, {} iterations) ===",
+        gen_tokens, iterations
+    );
     println!("Cache path:   {:.1} ms ({:.1} tok/s)", cache_ms, cache_tps);
-    println!("Scratch path: {:.1} ms ({:.1} tok/s)", scratch_ms, scratch_tps);
+    println!(
+        "Scratch path: {:.1} ms ({:.1} tok/s)",
+        scratch_ms, scratch_tps
+    );
     println!();
     println!("Ollama baseline: 70.59 tok/s");
     println!("Our best:        {:.1} tok/s", scratch_tps.max(cache_tps));
-    println!("Gap:             {:.1}x slower", 70.59 / scratch_tps.max(cache_tps));
+    println!(
+        "Gap:             {:.1}x slower",
+        70.59 / scratch_tps.max(cache_tps)
+    );
     println!("Target (2x):     142 tok/s");
 
     Ok(())

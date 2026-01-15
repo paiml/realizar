@@ -2419,7 +2419,7 @@ impl Default for ChunkedPrefillScheduler {
 // Tests
 // ============================================================================
 
-#[cfg(all(test, feature = "heavy-tests"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

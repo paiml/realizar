@@ -15,8 +15,10 @@ fn main() {
     let cache_lengths = [10, 50, 100, 200, 500, 1000];
 
     println!("=== Attention Profiler (PAR-126) ===\n");
-    println!("Config: hidden={}, heads={}, kv_heads={}, head_dim={}",
-             hidden_dim, num_heads, num_kv_heads, head_dim);
+    println!(
+        "Config: hidden={}, heads={}, kv_heads={}, head_dim={}",
+        hidden_dim, num_heads, num_kv_heads, head_dim
+    );
     println!("Layers: {}\n", num_layers);
 
     let scale = 1.0 / (head_dim as f32).sqrt();
@@ -36,9 +38,20 @@ fn main() {
         // Warmup
         for _ in 0..10 {
             attention_gqa(
-                &q, &k_cache, &v_cache, &current_k, &current_v,
-                num_heads, num_kv_heads, head_dim, scale, q_per_kv, kv_dim,
-                total_len, cache_len, &mut output
+                &q,
+                &k_cache,
+                &v_cache,
+                &current_k,
+                &current_v,
+                num_heads,
+                num_kv_heads,
+                head_dim,
+                scale,
+                q_per_kv,
+                kv_dim,
+                total_len,
+                cache_len,
+                &mut output,
             );
         }
 
@@ -46,16 +59,29 @@ fn main() {
         let start = Instant::now();
         for _ in 0..iterations {
             attention_gqa(
-                &q, &k_cache, &v_cache, &current_k, &current_v,
-                num_heads, num_kv_heads, head_dim, scale, q_per_kv, kv_dim,
-                total_len, cache_len, &mut output
+                &q,
+                &k_cache,
+                &v_cache,
+                &current_k,
+                &current_v,
+                num_heads,
+                num_kv_heads,
+                head_dim,
+                scale,
+                q_per_kv,
+                kv_dim,
+                total_len,
+                cache_len,
+                &mut output,
             );
         }
         let attn_us = start.elapsed().as_micros() as f64 / iterations as f64;
 
         let model_attn_ms = attn_us * num_layers as f64 / 1000.0;
-        println!("cache_len={:4}: {:.1} µs/layer, {:.2} ms/token (28 layers)",
-                 cache_len, attn_us, model_attn_ms);
+        println!(
+            "cache_len={:4}: {:.1} µs/layer, {:.2} ms/token (28 layers)",
+            cache_len, attn_us, model_attn_ms
+        );
     }
 
     println!("\n=== Memory Access Analysis ===");
@@ -77,13 +103,20 @@ fn main() {
     // - Weighted sum: head_dim × cache_len FMAs
     let flops_per_head = 2 * head_dim * total_len  // Q@K^T (dot product)
                        + 3 * total_len              // softmax (exp, sum, div)
-                       + 2 * head_dim * total_len;  // scores@V (weighted sum)
+                       + 2 * head_dim * total_len; // scores@V (weighted sum)
     let total_flops = num_heads * flops_per_head;
 
     println!("cache_len={}", cache_len);
-    println!("Memory reads: {} bytes ({} KB)", total_reads, total_reads / 1024);
+    println!(
+        "Memory reads: {} bytes ({} KB)",
+        total_reads,
+        total_reads / 1024
+    );
     println!("FLOPs: {} ({} per head)", total_flops, flops_per_head);
-    println!("Arithmetic intensity: {:.1} FLOPs/byte", total_flops as f64 / total_reads as f64);
+    println!(
+        "Arithmetic intensity: {:.1} FLOPs/byte",
+        total_flops as f64 / total_reads as f64
+    );
 }
 
 fn attention_gqa(

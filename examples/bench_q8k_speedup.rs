@@ -66,8 +66,14 @@ fn main() -> Result<(), realizar::RealizarError> {
     println!("Q8K quantization: {:.0} us", quant_us);
     println!();
     println!("Speedup (kernel only):      {:.1}x", f32_us / q8k_us);
-    println!("Speedup (with 1 quant):     {:.1}x", f32_us / (q8k_us + quant_us));
-    println!("Break-even point:           {} matmuls", (quant_us / (f32_us - q8k_us)).ceil() as i32);
+    println!(
+        "Speedup (with 1 quant):     {:.1}x",
+        f32_us / (q8k_us + quant_us)
+    );
+    println!(
+        "Break-even point:           {} matmuls",
+        (quant_us / (f32_us - q8k_us)).ceil() as i32
+    );
 
     // Per-layer analysis (5 matmuls, 2 quantizations for Q8K)
     let f32_per_layer = 5.0 * f32_us;
@@ -76,7 +82,10 @@ fn main() -> Result<(), realizar::RealizarError> {
     println!("=== Per-Layer Analysis ===");
     println!("Q4K×f32 (5 matmuls):        {:.0} us", f32_per_layer);
     println!("Q4K×Q8K (5 matmuls, 2 quant): {:.0} us", q8k_per_layer);
-    println!("Layer speedup:              {:.1}x", f32_per_layer / q8k_per_layer);
+    println!(
+        "Layer speedup:              {:.1}x",
+        f32_per_layer / q8k_per_layer
+    );
 
     // Full model (28 layers)
     let f32_full = 28.0 * f32_per_layer / 1000.0;

@@ -179,7 +179,7 @@ mod tests {
             max_locked_bytes: 100,
         };
         let data = vec![0u8; 1024]; // Exceeds limit
-        // SAFETY: Memory safety ensured by bounds checking and alignment
+                                    // SAFETY: Memory safety ensured by bounds checking and alignment
         let (region, result) = unsafe { PinnedRegion::new(data.as_ptr(), data.len(), &config) };
         assert_eq!(result, MlockResult::ResourceLimit);
         assert!(!region.is_locked());

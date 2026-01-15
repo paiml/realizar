@@ -3113,7 +3113,7 @@ impl<M: GenerativeModel> GenerationPipeline<M> {
     }
 }
 
-#[cfg(all(test, feature = "heavy-tests"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

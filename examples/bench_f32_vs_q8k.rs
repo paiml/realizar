@@ -30,9 +30,22 @@ fn main() {
     // Warmup both paths
     for _ in 0..10 {
         realizar::quantize::fused_q4k_parallel_matvec_into(
-            &weights, &activations, hidden, inter, &mut output).ok();
+            &weights,
+            &activations,
+            hidden,
+            inter,
+            &mut output,
+        )
+        .ok();
         realizar::quantize::fused_q4k_q8k_parallel_matvec_into(
-            &weights, &q8k_scales, &q8k_quants, hidden, inter, &mut output).ok();
+            &weights,
+            &q8k_scales,
+            &q8k_quants,
+            hidden,
+            inter,
+            &mut output,
+        )
+        .ok();
     }
 
     // === Q4K×f32 path (what GGUF inference uses) ===
@@ -40,7 +53,13 @@ fn main() {
     let start = Instant::now();
     for _ in 0..iters {
         realizar::quantize::fused_q4k_parallel_matvec_into(
-            &weights, &activations, hidden, inter, &mut output).ok();
+            &weights,
+            &activations,
+            hidden,
+            inter,
+            &mut output,
+        )
+        .ok();
     }
     let f32_us = start.elapsed().as_micros() as f64 / iters as f64;
     let f32_gflops = 2.0 * hidden as f64 * inter as f64 / f32_us / 1000.0;
@@ -49,7 +68,14 @@ fn main() {
     let start = Instant::now();
     for _ in 0..iters {
         realizar::quantize::fused_q4k_q8k_parallel_matvec_into(
-            &weights, &q8k_scales, &q8k_quants, hidden, inter, &mut output).ok();
+            &weights,
+            &q8k_scales,
+            &q8k_quants,
+            hidden,
+            inter,
+            &mut output,
+        )
+        .ok();
     }
     let q8k_us = start.elapsed().as_micros() as f64 / iters as f64;
     let q8k_gflops = 2.0 * hidden as f64 * inter as f64 / q8k_us / 1000.0;
@@ -58,16 +84,31 @@ fn main() {
     let start = Instant::now();
     for _ in 0..iters {
         realizar::quantize::fused_q4k_auto_matvec_into(
-            &weights, &activations, hidden, inter, &mut output).ok();
+            &weights,
+            &activations,
+            hidden,
+            inter,
+            &mut output,
+        )
+        .ok();
     }
     let auto_us = start.elapsed().as_micros() as f64 / iters as f64;
     let auto_gflops = 2.0 * hidden as f64 * inter as f64 / auto_us / 1000.0;
 
     println!("FFN up matmul ({} → {}):", hidden, inter);
     println!();
-    println!("Q4K×f32 (AVX2):     {:6.1} µs ({:5.1} GFLOPS)", f32_us, f32_gflops);
-    println!("Q4K×Q8K (VNNI):     {:6.1} µs ({:5.1} GFLOPS)", q8k_us, q8k_gflops);
-    println!("Q4K×auto (quant+VNNI): {:6.1} µs ({:5.1} GFLOPS)", auto_us, auto_gflops);
+    println!(
+        "Q4K×f32 (AVX2):     {:6.1} µs ({:5.1} GFLOPS)",
+        f32_us, f32_gflops
+    );
+    println!(
+        "Q4K×Q8K (VNNI):     {:6.1} µs ({:5.1} GFLOPS)",
+        q8k_us, q8k_gflops
+    );
+    println!(
+        "Q4K×auto (quant+VNNI): {:6.1} µs ({:5.1} GFLOPS)",
+        auto_us, auto_gflops
+    );
     println!();
     println!("Speedup VNNI/AVX2: {:.2}x", f32_us / q8k_us);
     println!("Speedup auto/AVX2: {:.2}x", f32_us / auto_us);
@@ -80,14 +121,26 @@ fn main() {
     let q8k_per_layer = q8k_us * matmuls_per_layer as f64;
     let auto_per_layer = auto_us * matmuls_per_layer as f64;
 
-    let f32_per_token = f32_per_layer * layers as f64 / 1000.0;  // ms
+    let f32_per_token = f32_per_layer * layers as f64 / 1000.0; // ms
     let q8k_per_token = q8k_per_layer * layers as f64 / 1000.0;
     let auto_per_token = auto_per_layer * layers as f64 / 1000.0;
 
     println!("\n=== Per-Token Estimate (matmuls only) ===");
-    println!("Q4K×f32:   {:.1} ms = {:.0} tok/s", f32_per_token, 1000.0 / f32_per_token);
-    println!("Q4K×Q8K:   {:.1} ms = {:.0} tok/s", q8k_per_token, 1000.0 / q8k_per_token);
-    println!("Q4K×auto:  {:.1} ms = {:.0} tok/s", auto_per_token, 1000.0 / auto_per_token);
+    println!(
+        "Q4K×f32:   {:.1} ms = {:.0} tok/s",
+        f32_per_token,
+        1000.0 / f32_per_token
+    );
+    println!(
+        "Q4K×Q8K:   {:.1} ms = {:.0} tok/s",
+        q8k_per_token,
+        1000.0 / q8k_per_token
+    );
+    println!(
+        "Q4K×auto:  {:.1} ms = {:.0} tok/s",
+        auto_per_token,
+        1000.0 / auto_per_token
+    );
 
     println!("\nOllama reference: ~270 tok/s");
 }

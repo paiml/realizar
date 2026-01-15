@@ -423,7 +423,8 @@ impl BenchmarkGrid {
         writeln!(out).expect("failed to write benchmark output");
 
         // Model & Hardware
-        writeln!(out, "MODEL: {} ({})", self.model_name, self.model_params).expect("failed to write benchmark output");
+        writeln!(out, "MODEL: {} ({})", self.model_name, self.model_params)
+            .expect("failed to write benchmark output");
         writeln!(out, "QUANT: {}", self.quantization).expect("failed to write benchmark output");
         writeln!(
             out,
@@ -548,7 +549,8 @@ impl BenchmarkGrid {
                 "───────────────────────────────────────────────────────────────────────"
             )
             .expect("failed to write benchmark output");
-            writeln!(out, "PROFILING HOTSPOTS (>5% of execution time)").expect("failed to write benchmark output");
+            writeln!(out, "PROFILING HOTSPOTS (>5% of execution time)")
+                .expect("failed to write benchmark output");
             writeln!(
                 out,
                 "───────────────────────────────────────────────────────────────────────"
@@ -558,7 +560,8 @@ impl BenchmarkGrid {
             for hotspot in &self.hotspots {
                 writeln!(out, "{}", hotspot.to_line()).expect("failed to write benchmark output");
                 if !hotspot.explanation.is_empty() {
-                    writeln!(out, "   └─ {}", hotspot.explanation).expect("failed to write benchmark output");
+                    writeln!(out, "   └─ {}", hotspot.explanation)
+                        .expect("failed to write benchmark output");
                 }
             }
             writeln!(out).expect("failed to write benchmark output");
@@ -614,10 +617,12 @@ impl BenchmarkGrid {
 
         let unexpected: Vec<_> = self.hotspots.iter().filter(|h| !h.is_expected).collect();
         if unexpected.is_empty() {
-            writeln!(out, "✓ No unexpected hotspots detected").expect("failed to write benchmark output");
+            writeln!(out, "✓ No unexpected hotspots detected")
+                .expect("failed to write benchmark output");
         } else {
             for h in unexpected {
-                writeln!(out, "⚠ {}: {}", h.component, h.explanation).expect("failed to write benchmark output");
+                writeln!(out, "⚠ {}: {}", h.component, h.explanation)
+                    .expect("failed to write benchmark output");
             }
         }
 
@@ -625,11 +630,16 @@ impl BenchmarkGrid {
         let apr_tps = self.gguf_apr.as_ref().map_or(0.0, |m| m.tokens_per_sec);
         if apr_tps < 500.0 {
             writeln!(out).expect("failed to write benchmark output");
-            writeln!(out, "Phase 2 Optimizations (projected 3.28x improvement):").expect("failed to write benchmark output");
-            writeln!(out, "  PAR-036: Persistent threads      (1.3x)").expect("failed to write benchmark output");
-            writeln!(out, "  PAR-037: CUDA graph capture      (1.5x)").expect("failed to write benchmark output");
-            writeln!(out, "  PAR-038: Multi-stream pipeline   (1.2x)").expect("failed to write benchmark output");
-            writeln!(out, "  PAR-039: Megakernel fusion       (1.4x)").expect("failed to write benchmark output");
+            writeln!(out, "Phase 2 Optimizations (projected 3.28x improvement):")
+                .expect("failed to write benchmark output");
+            writeln!(out, "  PAR-036: Persistent threads      (1.3x)")
+                .expect("failed to write benchmark output");
+            writeln!(out, "  PAR-037: CUDA graph capture      (1.5x)")
+                .expect("failed to write benchmark output");
+            writeln!(out, "  PAR-038: Multi-stream pipeline   (1.2x)")
+                .expect("failed to write benchmark output");
+            writeln!(out, "  PAR-039: Megakernel fusion       (1.4x)")
+                .expect("failed to write benchmark output");
             writeln!(
                 out,
                 "  Projected: {:.1} × 3.28 = {:.1} tok/s",
