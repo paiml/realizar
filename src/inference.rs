@@ -2680,7 +2680,7 @@ mod attention_tests {
     }
 }
 
-#[cfg(all(test, feature = "heavy-tests"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -3468,6 +3468,7 @@ mod tests {
             num_layers: 1,
             context_length: 2048,
             eps: 1e-5,
+            rope_type: 0,
             rope_theta: 10000.0,
         };
 
@@ -3535,6 +3536,7 @@ mod tests {
             num_layers: 0, // No layers for embedding test
             context_length: 2048,
             eps: 1e-5,
+            rope_type: 0,
             rope_theta: 10000.0,
         };
 
@@ -3901,5 +3903,411 @@ mod tests {
         let input = vec![1.0f32; 256];
         let output = weight.matvec(&input).expect("test");
         assert_eq!(output.len(), 4);
+    }
+
+    // =========================================================================
+    // Additional Coverage Tests
+    // =========================================================================
+
+    #[test]
+    fn test_simd_mul_basic() {
+        let mut a = vec![1.0f32, 2.0, 3.0, 4.0];
+        let b = vec![2.0f32, 3.0, 4.0, 5.0];
+        simd_mul(&mut a, &b);
+        assert!((a[0] - 2.0).abs() < 1e-5);
+        assert!((a[1] - 6.0).abs() < 1e-5);
+        assert!((a[2] - 12.0).abs() < 1e-5);
+        assert!((a[3] - 20.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_simd_mul_large() {
+        let mut a = vec![2.0f32; 256];
+        let b = vec![3.0f32; 256];
+        simd_mul(&mut a, &b);
+        for &val in &a {
+            assert!((val - 6.0).abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn test_simd_silu_basic() {
+        let mut data = vec![0.0f32, 1.0, -1.0, 2.0];
+        simd_silu(&mut data);
+        // SiLU(x) = x * sigmoid(x)
+        // SiLU(0) = 0
+        assert!((data[0] - 0.0).abs() < 1e-5);
+        // SiLU(1) ≈ 0.731
+        assert!((data[1] - 0.731).abs() < 0.01);
+        // SiLU(-1) ≈ -0.269
+        assert!((data[2] - (-0.269)).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_simd_silu_large() {
+        let mut data = vec![1.0f32; 256];
+        simd_silu(&mut data);
+        // All values should be close to SiLU(1) ≈ 0.731
+        for &val in &data {
+            assert!((val - 0.731).abs() < 0.01);
+        }
+    }
+
+    #[test]
+    fn test_inference_mode_variants() {
+        // Test that all inference modes can be created
+        let _prefill = InferenceMode::Prefill;
+        let _decode = InferenceMode::Decode;
+        // They should be different modes
+        assert_ne!(InferenceMode::Prefill, InferenceMode::Decode);
+    }
+
+    #[test]
+    fn test_attention_with_transposed_v_basic() {
+        // Test attention with transposed V format
+        let hidden_dim = 4;
+        let num_heads = 1;
+        let head_dim = 4;
+        let seq_len = 2;
+
+        // Q: [hidden_dim]
+        let q = vec![1.0f32; hidden_dim];
+        // K: [seq_len * hidden_dim] in column-major (transposed)
+        let k = vec![1.0f32; seq_len * hidden_dim];
+        // V: [hidden_dim * seq_len] in transposed format
+        let v_transposed = vec![1.0f32; hidden_dim * seq_len];
+
+        let result = attention_with_transposed_v(
+            &q, &k, &v_transposed,
+            num_heads, head_dim, seq_len
+        );
+
+        assert_eq!(result.len(), hidden_dim);
+        // All values should be finite
+        assert!(result.iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn test_kv_cache_get_k_v_slices() {
+        let mut cache = KVCache::new(1, 8, 16);
+
+        // Store values at position 0
+        let k = vec![1.0f32; 8];
+        let v = vec![2.0f32; 8];
+        cache.store(0, &k, &v);
+        cache.advance();
+
+        // Get slices for layer 0
+        let k_slice = cache.get_k(0);
+        let v_slice = cache.get_v(0);
+        // K and V slices should have 1 * hidden_dim = 8 elements
+        assert_eq!(k_slice.len(), 8);
+        assert_eq!(v_slice.len(), 8);
+    }
+
+    #[test]
+    fn test_simd_add_large() {
+        let mut a = vec![1.0f32; 256];
+        let b = vec![2.0f32; 256];
+        simd_add(&mut a, &b);
+        for &val in &a {
+            assert!((val - 3.0).abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn test_simd_dot_large() {
+        let a = vec![1.0f32; 256];
+        let b = vec![2.0f32; 256];
+        let result = simd_dot(&a, &b);
+        // 1.0 * 2.0 * 256 = 512.0
+        assert!((result - 512.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_simd_gelu_large() {
+        let mut data = vec![0.0f32; 256];
+        simd_gelu(&mut data);
+        // GELU(0) = 0
+        for &val in &data {
+            assert!(val.abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn test_simd_layer_norm_with_bias() {
+        let input = vec![1.0f32, 2.0, 3.0, 4.0];
+        let weight = vec![1.0f32; 4];
+        let bias = vec![0.5f32; 4];
+        let result = simd_layer_norm(&input, &weight, Some(&bias), 1e-5);
+        assert_eq!(result.len(), 4);
+        // All values should be finite
+        assert!(result.iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn test_apply_rope_multiple_heads() {
+        let hidden_dim = 16;
+        let num_heads = 4;
+        let mut x = vec![1.0f32; hidden_dim];
+        apply_rope(&mut x, hidden_dim, num_heads, 0, 10000.0);
+        // Values should be transformed
+        assert!(x.iter().all(|v| v.is_finite()));
+    }
+
+    // =========================================================================
+    // Additional Coverage Tests
+    // =========================================================================
+
+    /// Test simd_matmul with various dimensions
+    #[test]
+    fn test_simd_matmul_various_dims() {
+        // Small matrix
+        let input = vec![1.0f32; 8];
+        let weight = vec![1.0f32; 8 * 4]; // 4 rows x 8 cols
+        let result = simd_matmul(&input, &weight, 8, 4);
+        assert_eq!(result.len(), 4);
+        // Each output should be sum of 8 ones = 8.0
+        for v in &result {
+            assert!((v - 8.0).abs() < 1e-5);
+        }
+    }
+
+    /// Test simd_matmul with larger dimensions
+    #[test]
+    fn test_simd_matmul_large() {
+        let in_dim = 64;
+        let out_dim = 32;
+        let input = vec![0.5f32; in_dim];
+        let weight = vec![0.1f32; in_dim * out_dim];
+        let result = simd_matmul(&input, &weight, in_dim, out_dim);
+        assert_eq!(result.len(), out_dim);
+        // Each output should be 64 * 0.5 * 0.1 = 3.2
+        for v in &result {
+            assert!((v - 3.2).abs() < 0.01);
+        }
+    }
+
+    /// Test simd_dot with empty vectors
+    #[test]
+    fn test_simd_dot_empty() {
+        let a: Vec<f32> = vec![];
+        let b: Vec<f32> = vec![];
+        let result = simd_dot(&a, &b);
+        assert!(result.abs() < 1e-10);
+    }
+
+    /// Test simd_dot with single element
+    #[test]
+    fn test_simd_dot_single() {
+        let a = vec![3.0f32];
+        let b = vec![4.0f32];
+        let result = simd_dot(&a, &b);
+        assert!((result - 12.0).abs() < 1e-5);
+    }
+
+    /// Test simd_add with empty vectors
+    #[test]
+    fn test_simd_add_empty() {
+        let mut a: Vec<f32> = vec![];
+        let b: Vec<f32> = vec![];
+        simd_add(&mut a, &b);
+        assert!(a.is_empty());
+    }
+
+    /// Test simd_mul with empty vectors
+    #[test]
+    fn test_simd_mul_empty() {
+        let mut a: Vec<f32> = vec![];
+        let b: Vec<f32> = vec![];
+        simd_mul(&mut a, &b);
+        assert!(a.is_empty());
+    }
+
+    /// Test simd_silu with negative values
+    #[test]
+    fn test_simd_silu_negative() {
+        let mut data = vec![-1.0f32, -2.0, -3.0, -4.0];
+        simd_silu(&mut data);
+        // SiLU(-x) < 0 for x > 0
+        for v in &data {
+            assert!(*v < 0.0);
+            assert!(v.is_finite());
+        }
+    }
+
+    /// Test simd_gelu with negative values
+    #[test]
+    fn test_simd_gelu_negative() {
+        let mut data = vec![-1.0f32, -2.0, -3.0, -4.0];
+        simd_gelu(&mut data);
+        // GELU(-x) < 0 for x > 0
+        for v in &data {
+            assert!(v.is_finite());
+        }
+    }
+
+    /// Test simd_softmax with single element
+    #[test]
+    fn test_simd_softmax_single() {
+        let mut data = vec![1.0f32];
+        simd_softmax(&mut data);
+        assert!((data[0] - 1.0).abs() < 1e-5); // Single element softmax = 1.0
+    }
+
+    /// Test simd_softmax with equal values
+    #[test]
+    fn test_simd_softmax_equal() {
+        let mut data = vec![1.0f32; 4];
+        simd_softmax(&mut data);
+        // All equal values -> uniform distribution
+        for v in &data {
+            assert!((v - 0.25).abs() < 1e-5);
+        }
+    }
+
+    /// Test simd_layer_norm without bias
+    #[test]
+    fn test_simd_layer_norm_no_bias() {
+        let input = vec![1.0f32, 2.0, 3.0, 4.0];
+        let weight = vec![1.0f32; 4];
+        let result = simd_layer_norm(&input, &weight, None, 1e-5);
+        assert_eq!(result.len(), 4);
+        // Mean should be approximately 0 after normalization
+        let mean: f32 = result.iter().sum::<f32>() / result.len() as f32;
+        assert!(mean.abs() < 0.1);
+    }
+
+    /// Test simd_rms_norm basic
+    #[test]
+    fn test_simd_rms_norm_basic() {
+        let input = vec![1.0f32, 1.0, 1.0, 1.0];
+        let weight = vec![1.0f32; 4];
+        let result = simd_rms_norm(&input, &weight, 1e-5);
+        assert_eq!(result.len(), 4);
+        // RMS of [1,1,1,1] = 1, so output should be close to weight
+        for v in &result {
+            assert!((v - 1.0).abs() < 0.1);
+        }
+    }
+
+    /// Test simd_rms_norm with zeros
+    #[test]
+    fn test_simd_rms_norm_zeros() {
+        let input = vec![0.0f32; 4];
+        let weight = vec![1.0f32; 4];
+        let result = simd_rms_norm(&input, &weight, 1e-5);
+        assert_eq!(result.len(), 4);
+        // Output should be finite (eps prevents division by zero)
+        assert!(result.iter().all(|v| v.is_finite()));
+    }
+
+    /// Test apply_rope at different positions
+    #[test]
+    fn test_apply_rope_various_positions() {
+        let hidden_dim = 8;
+        let num_heads = 2;
+
+        // Position 0
+        let mut x0 = vec![1.0f32; hidden_dim];
+        apply_rope(&mut x0, hidden_dim, num_heads, 0, 10000.0);
+
+        // Position 10
+        let mut x10 = vec![1.0f32; hidden_dim];
+        apply_rope(&mut x10, hidden_dim, num_heads, 10, 10000.0);
+
+        // Results should be different due to position encoding
+        let different = x0.iter().zip(x10.iter()).any(|(a, b)| (a - b).abs() > 1e-5);
+        assert!(different, "RoPE should produce different results for different positions");
+    }
+
+    /// Test KVCache with multiple stores and advance
+    #[test]
+    fn test_kv_cache_multiple_stores() {
+        let mut cache = KVCache::new(2, 4, 8); // 2 layers, dim 4, max 8
+
+        // Store for layer 0 and layer 1
+        cache.store(0, &[1.0; 4], &[2.0; 4]);
+        cache.store(1, &[3.0; 4], &[4.0; 4]);
+        cache.advance();
+
+        assert_eq!(cache.len(), 1);
+        assert!(!cache.is_empty());
+
+        // Store more
+        cache.store(0, &[5.0; 4], &[6.0; 4]);
+        cache.store(1, &[7.0; 4], &[8.0; 4]);
+        cache.advance();
+
+        assert_eq!(cache.len(), 2);
+    }
+
+    /// Test OptimizedKVCache methods
+    #[test]
+    fn test_optimized_kv_cache_methods() {
+        let mut cache = OptimizedKVCache::new(1, 4, 8);
+
+        assert!(cache.is_empty());
+        assert_eq!(cache.max_seq_len(), 8);
+
+        cache.store(0, &[1.0; 4], &[2.0; 4]);
+        cache.advance();
+
+        assert!(!cache.is_empty());
+        assert_eq!(cache.len(), 1);
+
+        // Get K (slice)
+        let k = cache.get_k(0);
+        assert_eq!(k.len(), 4);
+
+        // Get V transposed (returns packed Vec)
+        let v_t = cache.get_v_transposed(0);
+        assert_eq!(v_t.len(), 4);
+
+        // Get raw V
+        let v_raw = cache.get_v_raw(0);
+        assert!(v_raw.len() >= 4);
+    }
+
+    /// Test attention_with_transposed_v with small input
+    #[test]
+    fn test_attention_with_transposed_v_small() {
+        let q = vec![1.0f32; 4];
+        let k = vec![1.0f32; 8]; // 2 positions * 4 dim
+        let v_transposed = vec![1.0f32; 8]; // [dim, seq] = [4, 2]
+
+        let result = attention_with_transposed_v(
+            &q, &k, &v_transposed,
+            1, 4, 2  // num_heads=1, head_dim=4, seq_len=2
+        );
+        assert_eq!(result.len(), 4);
+        assert!(result.iter().all(|v| v.is_finite()));
+    }
+
+    /// Test InferenceMode equality
+    #[test]
+    fn test_inference_mode_eq() {
+        let prefill1 = InferenceMode::Prefill;
+        let prefill2 = InferenceMode::Prefill;
+        let decode = InferenceMode::Decode;
+
+        assert_eq!(prefill1, prefill2);
+        assert_ne!(prefill1, decode);
+    }
+
+    /// Test QuantizedMemoryStats fields
+    #[test]
+    fn test_quantized_memory_stats_fields() {
+        let stats = QuantizedMemoryStats {
+            quantized_weight_bytes: 1000,
+            f32_equivalent_bytes: 4000,
+            embedding_bytes: 500,
+            compression_ratio: 4.0,
+        };
+
+        assert_eq!(stats.quantized_weight_bytes, 1000);
+        assert_eq!(stats.f32_equivalent_bytes, 4000);
+        assert_eq!(stats.embedding_bytes, 500);
+        assert!((stats.compression_ratio - 4.0).abs() < 1e-5);
     }
 }

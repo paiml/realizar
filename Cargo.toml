@@ -124,10 +124,10 @@ minijinja = { version = "2.14", features = ["loader"] }
 
 # Embedding model support (BERT, Nomic, all-MiniLM) via candle
 # Only enabled with "embeddings" feature - adds candle for transformer inference
-candle-core = { version = "0.8", optional = true }
-candle-nn = { version = "0.8", optional = true }
-candle-transformers = { version = "0.8", optional = true }
-tokenizers = { version = "0.20", optional = true }
+candle-core = { version = "0.9.1", optional = true }
+candle-nn = { version = "0.9.1", optional = true }
+candle-transformers = { version = "0.9.1", optional = true }
+tokenizers = { version = "0.22.2", optional = true }
 
 # Note: Core GGUF/APR inference still uses our own implementation
 # Candle is only used for dedicated embedding models (BERT, Nomic, etc.)
