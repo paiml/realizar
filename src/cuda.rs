@@ -56,7 +56,8 @@ use trueno_gpu::kernels::{
     FusedGateUpKernel, FusedGateUpQ4KGemvKernel, FusedQKVKernel, FusedResidualRmsNormKernel,
     FusedRmsNormQ4KGemvKernel, FusedSwigluKernel, GeluKernel, GemmKernel, GemvKernel,
     IncrementalAttentionKernel, Kernel, KvCacheScatterIndirectKernel, KvCacheScatterKernel,
-    LayerNormKernel, MultiWarpIncrementalAttentionKernel, PackedDp4aQ4KQ8Kernel, Q4KGemvKernel,
+    LayerNormKernel, MultiWarpBatchedQ4KGemvKernel, MultiWarpIncrementalAttentionKernel,
+    PackedDp4aQ4KQ8Kernel, Q4KGemvKernel,
     Q4KQ8DotKernel, Q4_0GemvKernel, Q4_1GemvKernel, Q5KGemvKernel, Q5KKernel, Q5_0GemvKernel,
     Q6KGemvKernel, Q6KKernel, Q8QuantizeKernel, Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel,
     RmsNormKernel, RopeIndirectKernel, RopeKernel, RopeNeoxIndirectKernel, RopeNeoxKernel,
@@ -370,6 +371,15 @@ pub enum KernelType {
     BatchedQ4KGemv {
         /// Batch size (M) - number of sequences to process in parallel
         m: u32,
+        /// Input dimension (K, must be multiple of 256)
+        k: u32,
+        /// Output dimension (N)
+        n: u32,
+    },
+    /// PAR-129: Multi-warp batched Q4_K GEMV for M=16
+    /// Uses 2 warps per block, each handling 8 batch elements
+    /// Both warps share L1-cached weights, avoiding weight re-reads
+    MultiWarpBatchedQ4KGemv {
         /// Input dimension (K, must be multiple of 256)
         k: u32,
         /// Output dimension (N)
@@ -1022,6 +1032,10 @@ impl CudaKernels {
             KernelType::BatchedQ4KGemv { m, k, n } => {
                 BatchedQ4KGemvKernel::new(*k, *n, *m).emit_ptx()
             },
+            // PAR-129: Multi-warp batched Q4K GEMV for M=16 (2 warps × 8 batch elements)
+            KernelType::MultiWarpBatchedQ4KGemv { k, n } => {
+                MultiWarpBatchedQ4KGemvKernel::new(*k, *n, 2).emit_ptx()
+            },
             // PAR-063-V4: Q8 Quantization kernel for activations (f32 → Q8_1)
             KernelType::Q8Quantize { n } => Q8QuantizeKernel { n: *n }.emit_ptx(),
             // PAR-063-V5: Q4K × Q8 dot product using integer arithmetic
@@ -1172,6 +1186,8 @@ impl CudaKernels {
             KernelType::TensorCoreQ4KGemm { .. } => "tensor_core_q4k_gemm",
             // PAR-108: Batched Q4K GEMV for 2x Ollama
             KernelType::BatchedQ4KGemv { .. } => "batched_q4k_gemv_warp_reduce",
+            // PAR-129: Multi-warp batched Q4K GEMV for M=16
+            KernelType::MultiWarpBatchedQ4KGemv { .. } => "multi_warp_batched_q4k_gemv",
             // PAR-063-V4: Q8 Quantization kernel
             KernelType::Q8Quantize { .. } => "q8_quantize",
             // PAR-063-V5: Q4K × Q8 dot product
@@ -5229,6 +5245,10 @@ impl CudaExecutor {
     /// * `m` - Batch size (number of sequences, max 8)
     /// * `n` - Output dimension (weight rows)
     /// * `k` - Input dimension (weight columns, must be multiple of 256)
+    /// PAR-129 FIX: Support M>8 via tiled execution or multi-warp kernel
+    /// - M=16: Uses MultiWarpBatchedQ4KGemvKernel (2 warps × 8, L1 cache sharing)
+    /// - M<=8: Single kernel launch with BatchedQ4KGemvKernel
+    /// - M>8 (not 16): Processes in tiles of 8
     #[inline]
     pub fn batched_q4k_gemv_into(
         &mut self,
@@ -5239,15 +5259,92 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
-        debug_assert!(m <= 8, "Batch size > 8 not supported (register pressure)");
         debug_assert!(
             k.is_multiple_of(256),
             "K must be multiple of 256 for Q4K super-blocks"
         );
 
-        let kernel_type = KernelType::BatchedQ4KGemv { m, k, n };
+        // PAR-129: Use multi-warp kernel for M=16 (optimal L1 cache sharing)
+        if m == 16 {
+            return self.batched_q4k_gemv_into_multi_warp(weight_ptr, input, output, n, k);
+        }
+
+        // Tile over M for M>8 (process 8 sequences at a time)
+        const MAX_TILE_M: u32 = 8;
+        let num_tiles = (m + MAX_TILE_M - 1) / MAX_TILE_M;
+
+        for tile_idx in 0..num_tiles {
+            let tile_start = tile_idx * MAX_TILE_M;
+            let tile_m = (m - tile_start).min(MAX_TILE_M);
+
+            let kernel_type = KernelType::BatchedQ4KGemv { m: tile_m, k, n };
+            let kernel_name = self.kernels.kernel_name(&kernel_type);
+            let cache_key = format!("batched_q4k_gemv_{}_{}_{}", tile_m, k, n);
+
+            if !self.modules.contains_key(&cache_key) {
+                let ptx = self.kernels.generate_ptx(&kernel_type);
+                let module = CudaModule::from_ptx(&self.context, &ptx)?;
+                self.modules.insert(cache_key.clone(), module);
+            }
+
+            let module = self
+                .modules
+                .get_mut(&cache_key)
+                .expect("module just inserted");
+
+            // Grid: N blocks (one per output row), 32 threads per block
+            let config = LaunchConfig::grid_2d(n, 1, 32, 1);
+
+            // Offset pointers for this tile
+            // Input: tile_start * k elements into input buffer
+            // Output: tile_start * n elements into output buffer
+            let input_offset = (tile_start * k) as usize * std::mem::size_of::<f32>();
+            let output_offset = (tile_start * n) as usize * std::mem::size_of::<f32>();
+
+            let mut ptr_output = output.as_ptr() + output_offset as u64;
+            let mut ptr_weights = weight_ptr;
+            let mut ptr_input = input.as_ptr() + input_offset as u64;
+            let mut k_val = k;
+            let mut n_val = n;
+            let mut m_val = tile_m;
+
+            // Kernel signature: batched_q4k_gemv_warp_reduce(y_ptr, w_ptr, x_ptr, k_dim, n_dim, m_dim)
+            // SAFETY: Memory safety ensured by bounds checking and alignment
+            unsafe {
+                self.stream.launch_kernel(
+                    module,
+                    kernel_name,
+                    &config,
+                    &mut [
+                        std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut m_val) as *mut std::ffi::c_void,
+                    ],
+                )?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// PAR-129: Multi-warp batched Q4K GEMV for M=16
+    /// Uses 2 warps per block, each handling 8 batch elements.
+    /// Both warps share L1-cached weights, avoiding weight re-reads.
+    #[inline]
+    fn batched_q4k_gemv_into_multi_warp(
+        &mut self,
+        weight_ptr: u64,
+        input: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        let kernel_type = KernelType::MultiWarpBatchedQ4KGemv { k, n };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
-        let cache_key = format!("batched_q4k_gemv_{}_{}_{}", m, k, n);
+        let cache_key = format!("multi_warp_batched_q4k_gemv_{}_{}", k, n);
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
@@ -5260,17 +5357,16 @@ impl CudaExecutor {
             .get_mut(&cache_key)
             .expect("module just inserted");
 
-        // Grid: N blocks (one per output row), 32 threads per block
-        let config = LaunchConfig::grid_2d(n, 1, 32, 1);
+        // Grid: N blocks (one per output row), 64 threads per block (2 warps)
+        let config = LaunchConfig::grid_2d(n, 1, 64, 1);
 
         let mut ptr_output = output.as_ptr();
         let mut ptr_weights = weight_ptr;
         let mut ptr_input = input.as_ptr();
         let mut k_val = k;
         let mut n_val = n;
-        let mut m_val = m;
 
-        // Kernel signature: batched_q4k_gemv_warp_reduce(y_ptr, w_ptr, x_ptr, k_dim, n_dim, m_dim)
+        // Kernel signature: multi_warp_batched_q4k_gemv(y_ptr, w_ptr, x_ptr, k_dim, n_dim)
         // SAFETY: Memory safety ensured by bounds checking and alignment
         unsafe {
             self.stream.launch_kernel(
@@ -5283,7 +5379,6 @@ impl CudaExecutor {
                     std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
                     std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
                     std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
-                    std::ptr::from_mut(&mut m_val) as *mut std::ffi::c_void,
                 ],
             )?;
         }
@@ -10046,9 +10141,10 @@ impl CudaExecutor {
         epsilon: f32,
     ) -> Result<Vec<u32>, GpuError> {
         let m = positions.len();
-        if m == 0 || m > 8 {
+        // PAR-129: Extended to M=16 via multi-warp kernel
+        if m == 0 || m > 16 {
             return Err(GpuError::InvalidParameter(format!(
-                "PAR-121: batch size must be 1-8, got {}",
+                "PAR-121: batch size must be 1-16, got {}",
                 m
             )));
         }
@@ -13662,8 +13758,9 @@ impl CudaExecutor {
                 .max()
                 .unwrap_or(0);
 
-            if self.flash_decode_enabled && max_seq_len > 128 {
-                // PAR-118: Flash Decoding for long sequences
+            // PAR-118: Flash Decoding for very long sequences (>1024 positions)
+            // Threshold raised from 128 to 1024 - overhead exceeds benefit for shorter sequences
+            if self.flash_decode_enabled && max_seq_len > 1024 {
                 self.flash_decoding_attention_into(
                     layer_idx,
                     &q_buf,
