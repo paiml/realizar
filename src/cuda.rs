@@ -51,7 +51,8 @@ use trueno_gpu::kernels::{
     Activation, ArgMaxFinalKernel, ArgMaxKernel, AttentionKernel,
     BatchedIncrementalAttentionKernel, BatchedQ4KGemvKernel, BatchedResidualAddKernel,
     BatchedRopeKernel, BatchedSwigluKernel, BatchedVectorizedRmsNormKernel, BiasActivationKernel,
-    ChunkedTiledQ4KGemvKernel, CoalescedGemvKernel, CoalescedQ4KGemvKernel, CoalescedQ6KGemvKernel,
+    BatchedQ6KGemvKernel, ChunkedTiledQ4KGemvKernel, CoalescedGemvKernel, CoalescedQ4KGemvKernel,
+    CoalescedQ6KGemvKernel,
     Dp4aQ4KGemvKernel, Dp4aSIMDQ4KGemvKernel, ElementwiseMulKernel, Fp16Q4KGemvKernel,
     FusedGateUpKernel, FusedGateUpQ4KGemvKernel, FusedQKVKernel, FusedResidualRmsNormKernel,
     FusedRmsNormQ4KGemvKernel, FusedSwigluKernel, GeluKernel, GemmKernel, GemvKernel,
@@ -376,14 +377,16 @@ pub enum KernelType {
         /// Output dimension (N)
         n: u32,
     },
-    /// PAR-129: Multi-warp batched Q4_K GEMV for M=16
-    /// Uses 2 warps per block, each handling 8 batch elements
-    /// Both warps share L1-cached weights, avoiding weight re-reads
+    /// PAR-129: Multi-warp batched Q4_K GEMV for M=16/32
+    /// Uses 2-4 warps per block, each handling 8 batch elements
+    /// All warps share L1-cached weights, avoiding weight re-reads
     MultiWarpBatchedQ4KGemv {
         /// Input dimension (K, must be multiple of 256)
         k: u32,
         /// Output dimension (N)
         n: u32,
+        /// Number of warps per block (2 for M=16, 4 for M=32)
+        warps: u32,
     },
     /// Q5_K quantized GEMV (fused dequantization) - PAR-003
     Q5KGemv {
@@ -407,6 +410,16 @@ pub enum KernelType {
         k: u32,
         /// Output dimension (N)
         n: u32,
+    },
+    /// PAR-130: Batched Q6_K GEMV for M>1 batch processing
+    /// Eliminates M-1 kernel launches per layer for Q6K weights
+    BatchedQ6KGemv {
+        /// Input dimension (K, must be multiple of 256)
+        k: u32,
+        /// Output dimension (N)
+        n: u32,
+        /// Batch size (M)
+        m: u32,
     },
     /// PAR-053: FP16 Q4_K GEMV - 2x bandwidth savings vs FP32
     /// Uses FP16 for input/output, FP32 for compute accumulation
@@ -873,6 +886,10 @@ impl CudaKernels {
             KernelType::Q6KGemv { k, n } => Q6KGemvKernel::new(*k, *n).emit_ptx(),
             // PAR-066: Coalesced Q6K GEMV - vectorized scale loading
             KernelType::CoalescedQ6KGemv { k, n } => CoalescedQ6KGemvKernel::new(*k, *n).emit_ptx(),
+            // PAR-130: Batched Q6K GEMV - batch decode
+            KernelType::BatchedQ6KGemv { k, n, m } => {
+                BatchedQ6KGemvKernel::new(*k, *n, *m).emit_ptx()
+            }
             // PAR-053: FP16 Q4K GEMV - 2x bandwidth savings
             KernelType::Fp16Q4KGemv { k, n } => Fp16Q4KGemvKernel::new(*k, *n).emit_ptx(),
             // PAR-058: Q8_0 GEMV - simpler quantization for FFN down in some models
@@ -1032,9 +1049,9 @@ impl CudaKernels {
             KernelType::BatchedQ4KGemv { m, k, n } => {
                 BatchedQ4KGemvKernel::new(*k, *n, *m).emit_ptx()
             },
-            // PAR-129: Multi-warp batched Q4K GEMV for M=16 (2 warps × 8 batch elements)
-            KernelType::MultiWarpBatchedQ4KGemv { k, n } => {
-                MultiWarpBatchedQ4KGemvKernel::new(*k, *n, 2).emit_ptx()
+            // PAR-129: Multi-warp batched Q4K GEMV for M=16/32 (2-4 warps × 8 batch elements)
+            KernelType::MultiWarpBatchedQ4KGemv { k, n, warps } => {
+                MultiWarpBatchedQ4KGemvKernel::new(*k, *n, *warps).emit_ptx()
             },
             // PAR-063-V4: Q8 Quantization kernel for activations (f32 → Q8_1)
             KernelType::Q8Quantize { n } => Q8QuantizeKernel { n: *n }.emit_ptx(),
@@ -1113,6 +1130,8 @@ impl CudaKernels {
             KernelType::Q6KGemv { .. } => "q6k_gemv_warp_reduce",
             // PAR-066: Coalesced Q6K GEMV
             KernelType::CoalescedQ6KGemv { .. } => "coalesced_q6k_gemv",
+            // PAR-130: Batched Q6K GEMV
+            KernelType::BatchedQ6KGemv { .. } => "batched_q6k_gemv_warp_reduce",
             // PAR-053: FP16 Q4K GEMV
             KernelType::Fp16Q4KGemv { .. } => "fp16_q4k_gemv",
             // PAR-058: Q8_0 GEMV
@@ -2801,9 +2820,10 @@ impl CudaExecutor {
         intermediate_dim: usize,
         batch_size: usize,
     ) -> Result<(), GpuError> {
-        if batch_size == 0 || batch_size > 16 {
+        // PAR-129: Extended to M=32 via 4-warp kernel
+        if batch_size == 0 || batch_size > 32 {
             return Err(GpuError::InvalidParameter(format!(
-                "PAR-111: batch_size must be 1-16, got {}",
+                "PAR-111: batch_size must be 1-32, got {}",
                 batch_size
             )));
         }
@@ -5264,9 +5284,12 @@ impl CudaExecutor {
             "K must be multiple of 256 for Q4K super-blocks"
         );
 
-        // PAR-129: Use multi-warp kernel for M=16 (optimal L1 cache sharing)
+        // PAR-129: Use multi-warp kernel for M=16 or M=32 (optimal L1 cache sharing)
         if m == 16 {
-            return self.batched_q4k_gemv_into_multi_warp(weight_ptr, input, output, n, k);
+            return self.batched_q4k_gemv_into_multi_warp(weight_ptr, input, output, n, k, 2);
+        }
+        if m == 32 {
+            return self.batched_q4k_gemv_into_multi_warp(weight_ptr, input, output, n, k, 4);
         }
 
         // Tile over M for M>8 (process 8 sequences at a time)
@@ -5330,9 +5353,9 @@ impl CudaExecutor {
         Ok(())
     }
 
-    /// PAR-129: Multi-warp batched Q4K GEMV for M=16
-    /// Uses 2 warps per block, each handling 8 batch elements.
-    /// Both warps share L1-cached weights, avoiding weight re-reads.
+    /// PAR-129: Multi-warp batched Q4K GEMV for M=16/32
+    /// Uses 2-4 warps per block, each handling 8 batch elements.
+    /// All warps share L1-cached weights, avoiding weight re-reads.
     #[inline]
     fn batched_q4k_gemv_into_multi_warp(
         &mut self,
@@ -5341,10 +5364,11 @@ impl CudaExecutor {
         output: &GpuBuffer<f32>,
         n: u32,
         k: u32,
+        warps: u32,
     ) -> Result<(), GpuError> {
-        let kernel_type = KernelType::MultiWarpBatchedQ4KGemv { k, n };
+        let kernel_type = KernelType::MultiWarpBatchedQ4KGemv { k, n, warps };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
-        let cache_key = format!("multi_warp_batched_q4k_gemv_{}_{}", k, n);
+        let cache_key = format!("multi_warp_batched_q4k_gemv_{}_{}_{}", k, n, warps);
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
@@ -5357,8 +5381,9 @@ impl CudaExecutor {
             .get_mut(&cache_key)
             .expect("module just inserted");
 
-        // Grid: N blocks (one per output row), 64 threads per block (2 warps)
-        let config = LaunchConfig::grid_2d(n, 1, 64, 1);
+        // Grid: N blocks (one per output row), warps*32 threads per block
+        let threads_per_block = warps * 32;
+        let config = LaunchConfig::grid_2d(n, 1, threads_per_block, 1);
 
         let mut ptr_output = output.as_ptr();
         let mut ptr_weights = weight_ptr;
@@ -5379,6 +5404,80 @@ impl CudaExecutor {
                     std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
                     std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
                     std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// PAR-130: Batched Q6_K GEMV for M>1 batch processing
+    ///
+    /// Processes M input vectors against Q6K weights in a single kernel launch.
+    /// Eliminates M-1 kernel launches per layer for Q6K weights (FFN down projection).
+    ///
+    /// # Arguments
+    ///
+    /// * `weight_ptr` - Raw device pointer to Q6K weight data
+    /// * `input` - GPU buffer containing M×K packed input (M sequences, K elements each)
+    /// * `output` - Pre-allocated output buffer (must be M×N elements)
+    /// * `m` - Batch size
+    /// * `n` - Output dimension
+    /// * `k` - Input dimension
+    #[inline]
+    pub fn batched_q6k_gemv_into(
+        &mut self,
+        weight_ptr: u64,
+        input: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        m: u32,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        debug_assert!(
+            k.is_multiple_of(256),
+            "K must be multiple of 256 for Q6K super-blocks"
+        );
+
+        let kernel_type = KernelType::BatchedQ6KGemv { k, n, m };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("batched_q6k_gemv_{}_{}_{}", m, k, n);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // Grid: N blocks (one per output row), 32 threads per block
+        let config = LaunchConfig::grid_2d(n, 1, 32, 1);
+
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_weights = weight_ptr;
+        let mut ptr_input = input.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
+        let mut m_val = m;
+
+        // Kernel signature: batched_q6k_gemv_warp_reduce(y_ptr, w_ptr, x_ptr, k_dim, n_dim, m_dim)
+        // SAFETY: Memory safety ensured by bounds checking and alignment
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut m_val) as *mut std::ffi::c_void,
                 ],
             )?;
         }
@@ -9897,9 +9996,10 @@ impl CudaExecutor {
         epsilon: f32,
     ) -> Result<Vec<u32>, GpuError> {
         let m = positions.len();
-        if m == 0 || m > 16 {
+        // PAR-129: Extended to M=32 via 4-warp kernel
+        if m == 0 || m > 32 {
             return Err(GpuError::InvalidParameter(format!(
-                "PAR-111: batch size must be 1-16, got {}",
+                "PAR-111: batch size must be 1-32, got {}",
                 m
             )));
         }
@@ -10141,10 +10241,10 @@ impl CudaExecutor {
         epsilon: f32,
     ) -> Result<Vec<u32>, GpuError> {
         let m = positions.len();
-        // PAR-129: Extended to M=16 via multi-warp kernel
-        if m == 0 || m > 16 {
+        // PAR-129: Extended to M=32 via 4-warp kernel
+        if m == 0 || m > 32 {
             return Err(GpuError::InvalidParameter(format!(
-                "PAR-121: batch size must be 1-16, got {}",
+                "PAR-121: batch size must be 1-32, got {}",
                 m
             )));
         }
@@ -13980,6 +14080,7 @@ impl CudaExecutor {
         )?;
 
         // ========== 10. FFN Down (BATCHED GEMV) ==========
+        // PAR-130: Use batched kernels for both Q4K and Q6K
         if layer_weights.ffn_down_qtype == WeightQuantType::Q4K {
             self.batched_q4k_gemv_into(
                 layer_weights.ffn_down_ptr,
@@ -13989,8 +14090,18 @@ impl CudaExecutor {
                 hidden_dim,
                 intermediate_dim,
             )?;
+        } else if layer_weights.ffn_down_qtype == WeightQuantType::Q6K {
+            // PAR-130: Batched Q6K GEMV - eliminates M sequential kernel launches
+            self.batched_q6k_gemv_into(
+                layer_weights.ffn_down_ptr,
+                &ffn_act_buf,
+                &hidden_buf1,
+                m,
+                hidden_dim,
+                intermediate_dim,
+            )?;
         } else {
-            // Fall back to sequential
+            // Fall back to sequential Q6K for other quantization types
             for seq_idx in 0..m as usize {
                 let h_offset = seq_idx * hidden_dim as usize;
                 let ffn_offset = seq_idx * intermediate_dim as usize;
@@ -14010,7 +14121,7 @@ impl CudaExecutor {
                     )
                 };
 
-                self.q4k_gemv_into(
+                self.q6k_gemv_into(
                     layer_weights.ffn_down_ptr,
                     &act_view,
                     &out_view,
@@ -14629,9 +14740,10 @@ impl CudaExecutor {
         num_layers: usize,
         batch_size: usize,
     ) -> Result<(), GpuError> {
-        if batch_size == 0 || batch_size > 16 {
+        // PAR-129: Extended to M=32 via 4-warp kernel
+        if batch_size == 0 || batch_size > 32 {
             return Err(GpuError::InvalidParameter(format!(
-                "PAR-119: batch_size must be 1-16, got {}",
+                "PAR-119: batch_size must be 1-32, got {}",
                 batch_size
             )));
         }
