@@ -2472,6 +2472,108 @@ impl CudaExecutor {
         self.profiler.execution_graph().to_ascii_tree()
     }
 
+    // ========================================================================
+    // TILING-SPEC-001: Tile-Level Profiling (Phase 15)
+    // ========================================================================
+
+    /// Enable tile-level profiling for hierarchical cache analysis.
+    ///
+    /// When enabled, `start_tile_timer()`/`stop_tile_timer()` record per-tile
+    /// statistics (GFLOP/s, arithmetic intensity, throughput) at Macro/Midi/Micro
+    /// levels for identifying memory-bound vs compute-bound bottlenecks.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// cuda_model.enable_tile_profiling();
+    /// cuda_model.forward_tiled_profiled(...)?;
+    /// println!("{}", cuda_model.tile_summary());
+    /// // Output:
+    /// // === Tile Profiling Summary (TILING-SPEC-001) ===
+    /// // Level       Samples   Avg µs    GFLOP/s   AI      Elements
+    /// // macro            28    5280.0      0.40  0.50    1048576
+    /// ```
+    pub fn enable_tile_profiling(&mut self) {
+        self.profiler.enable_tile_profiling();
+    }
+
+    /// Disable tile-level profiling.
+    pub fn disable_tile_profiling(&mut self) {
+        self.profiler.disable_tile_profiling();
+    }
+
+    /// Check if tile profiling is enabled.
+    #[must_use]
+    pub fn is_tile_profiling_enabled(&self) -> bool {
+        self.profiler.is_tile_profiling_enabled()
+    }
+
+    /// Start timing a tile operation.
+    ///
+    /// # Arguments
+    /// * `level` - Tile hierarchy level (Macro/Midi/Micro)
+    /// * `layer_idx` - Layer index (for Macro tiles) or head index (for Midi tiles)
+    /// * `op_idx` - Operation index within the layer (0=QKV, 1=Attn, 2=FFN)
+    ///
+    /// # Returns
+    /// Timer handle to pass to `stop_tile_timer()`.
+    #[must_use]
+    fn start_tile_timer(
+        &mut self,
+        level: trueno::TileLevel,
+        layer_idx: u32,
+        op_idx: u32,
+    ) -> Option<trueno::TileTimer> {
+        if !self.profiler.is_tile_profiling_enabled() {
+            return None;
+        }
+        // Sync to ensure previous work is complete
+        let _ = self.stream.synchronize();
+        Some(self.profiler.start_tile(level, layer_idx, op_idx))
+    }
+
+    /// Stop timing a tile operation and record statistics.
+    ///
+    /// # Arguments
+    /// * `timer` - Timer handle from `start_tile_timer()`
+    /// * `elements` - Number of elements processed (for throughput calculation)
+    /// * `flops` - Number of floating-point operations (for GFLOP/s calculation)
+    fn stop_tile_timer(
+        &mut self,
+        timer: Option<trueno::TileTimer>,
+        elements: u64,
+        flops: u64,
+    ) {
+        if let Some(t) = timer {
+            // Sync to capture real GPU time
+            let _ = self.stream.synchronize();
+            self.profiler.stop_tile(t, elements, flops);
+        }
+    }
+
+    /// Get tile statistics for a given level.
+    #[must_use]
+    pub fn tile_stats(&self, level: trueno::TileLevel) -> &trueno::TileStats {
+        self.profiler.tile_stats(level)
+    }
+
+    /// Get tile profiling summary report.
+    #[must_use]
+    pub fn tile_summary(&self) -> String {
+        self.profiler.tile_summary()
+    }
+
+    /// Get tile statistics as JSON (PMAT integration).
+    #[must_use]
+    pub fn tile_stats_json(&self) -> String {
+        self.profiler.tile_stats_to_json()
+    }
+
+    /// Reset tile statistics.
+    pub fn reset_tile_stats(&mut self) {
+        self.profiler.reset_tile_stats();
+    }
+
     /// Clear the execution graph.
     pub fn clear_execution_graph(&mut self) {
         self.profiler.execution_graph_mut().clear();
@@ -9309,6 +9411,126 @@ impl CudaExecutor {
         Ok(output)
     }
 
+    /// TILING-SPEC-001: Tile-profiled transformer layer for bottleneck identification.
+    ///
+    /// This method wraps `transformer_layer_gpu` with tile-level profiling instrumentation
+    /// to identify whether the 0.07% efficiency bottleneck is:
+    /// - Kernel launch overhead (many small kernels)
+    /// - CPU dequantization in the hot path
+    /// - Memory transfer overhead (H2D/D2H)
+    /// - Specific operation bottlenecks (QKV, attention, FFN)
+    ///
+    /// # Profiling Levels
+    ///
+    /// | Level | Operation | FLOPs Formula |
+    /// |-------|-----------|---------------|
+    /// | Macro | QKV Projections | 2 × M × K × 3 |
+    /// | Macro | Output Projection | 2 × M × K |
+    /// | Midi  | Attention | 2 × seq × head_dim × num_heads |
+    /// | Macro | FFN (SwiGLU) | 2 × M × K × 3 |
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// cuda_model.enable_tile_profiling();
+    /// let output = cuda_model.transformer_layer_gpu_tiled_profiled(...)?;
+    /// println!("{}", cuda_model.tile_summary());
+    /// // Output shows per-operation GFLOP/s and identifies bottlenecks
+    /// ```
+    #[allow(clippy::too_many_arguments)]
+    pub fn transformer_layer_gpu_tiled_profiled(
+        &mut self,
+        input: &GpuBuffer<f32>,
+        layer_idx: usize,
+        layer_prefix: &str,
+        hidden_dim: u32,
+        intermediate_dim: u32,
+        attn_norm_gamma: &GpuBuffer<f32>,
+        ffn_norm_gamma: &GpuBuffer<f32>,
+        epsilon: f32,
+    ) -> Result<GpuBuffer<f32>, GpuError> {
+        // Weight names follow GGML convention
+        let q_name = format!("{}.attn_q.weight", layer_prefix);
+        let k_name = format!("{}.attn_k.weight", layer_prefix);
+        let v_name = format!("{}.attn_v.weight", layer_prefix);
+        let o_name = format!("{}.attn_output.weight", layer_prefix);
+        let gate_name = format!("{}.ffn_gate.weight", layer_prefix);
+        let up_name = format!("{}.ffn_up.weight", layer_prefix);
+        let down_name = format!("{}.ffn_down.weight", layer_prefix);
+
+        // Q/K/V dimensions
+        let q_dim = (self.kv_num_heads * self.kv_head_dim) as u32;
+        let kv_dim = (self.kv_num_kv_heads * self.kv_head_dim) as u32;
+
+        // 1. Pre-attention RMSNorm (tracked as Micro - very fast)
+        let timer_norm1 = self.start_tile_timer(trueno::TileLevel::Micro, layer_idx as u32, 0);
+        let normed = self.rmsnorm_gpu(input, attn_norm_gamma, hidden_dim, epsilon)?;
+        // RMSNorm FLOPs: 5N (square, sum, rsqrt, multiply, multiply) per element
+        let norm_flops = (hidden_dim as u64) * 5;
+        self.stop_tile_timer(timer_norm1, hidden_dim as u64, norm_flops);
+
+        // 2. Q/K/V projections (Macro tile - largest compute block)
+        // FLOPs: 2 * M * K for each matrix-vector multiply (M=1 for single token)
+        let timer_qkv = self.start_tile_timer(trueno::TileLevel::Macro, layer_idx as u32, 1);
+
+        let q = self.q4k_gemv_cached_async(&q_name, &normed, q_dim, hidden_dim)?;
+        let k = self.q4k_gemv_cached_async(&k_name, &normed, kv_dim, hidden_dim)?;
+        let v = self.q4k_gemv_cached_async(&v_name, &normed, kv_dim, hidden_dim)?;
+
+        // QKV FLOPs: Q(hidden→q) + K(hidden→kv) + V(hidden→kv)
+        let qkv_flops =
+            2 * (hidden_dim as u64) * (q_dim as u64 + kv_dim as u64 + kv_dim as u64);
+        let qkv_elements = (q_dim + kv_dim + kv_dim) as u64;
+        self.stop_tile_timer(timer_qkv, qkv_elements, qkv_flops);
+
+        // 3. Incremental attention (Midi tile - head-level parallelism)
+        let timer_attn = self.start_tile_timer(trueno::TileLevel::Midi, layer_idx as u32, 2);
+        let (attn_out, seq_len) = self.incremental_attention_async(layer_idx, &q, &k, &v)?;
+        // Attention FLOPs: 2 * seq * head_dim * num_heads (Q×K^T + softmax×V)
+        let attn_flops =
+            2 * (seq_len as u64) * (self.kv_head_dim as u64) * (self.kv_num_heads as u64) * 2;
+        self.stop_tile_timer(timer_attn, q_dim as u64, attn_flops);
+
+        // 4. Output projection (Macro tile)
+        let timer_proj = self.start_tile_timer(trueno::TileLevel::Macro, layer_idx as u32, 3);
+        let projected = self.q4k_gemv_cached_async(&o_name, &attn_out, hidden_dim, q_dim)?;
+        let proj_flops = 2 * (q_dim as u64) * (hidden_dim as u64);
+        self.stop_tile_timer(timer_proj, hidden_dim as u64, proj_flops);
+
+        // 5. First residual add (Micro - very fast)
+        let timer_res1 = self.start_tile_timer(trueno::TileLevel::Micro, layer_idx as u32, 4);
+        let residual1 = self.residual_add_gpu(input, &projected, hidden_dim)?;
+        self.stop_tile_timer(timer_res1, hidden_dim as u64, hidden_dim as u64);
+
+        // 6. Pre-FFN RMSNorm (Micro)
+        let timer_norm2 = self.start_tile_timer(trueno::TileLevel::Micro, layer_idx as u32, 5);
+        let ffn_normed = self.rmsnorm_gpu(&residual1, ffn_norm_gamma, hidden_dim, epsilon)?;
+        self.stop_tile_timer(timer_norm2, hidden_dim as u64, norm_flops);
+
+        // 7. FFN SwiGLU (Macro tile - second largest compute block)
+        // FLOPs: gate(hidden→inter) + up(hidden→inter) + down(inter→hidden) + SiLU
+        let timer_ffn = self.start_tile_timer(trueno::TileLevel::Macro, layer_idx as u32, 6);
+        let ffn_out = self.fused_ffn_swiglu_gpu(
+            &ffn_normed,
+            &gate_name,
+            &up_name,
+            &down_name,
+            hidden_dim,
+            intermediate_dim,
+        )?;
+        // FFN FLOPs: 3 GEMV (gate+up+down) + SiLU (~3 ops per element)
+        let ffn_flops = 2 * (hidden_dim as u64) * (intermediate_dim as u64) * 3
+            + (intermediate_dim as u64) * 3;
+        self.stop_tile_timer(timer_ffn, hidden_dim as u64, ffn_flops);
+
+        // 8. Second residual add (Micro)
+        let timer_res2 = self.start_tile_timer(trueno::TileLevel::Micro, layer_idx as u32, 7);
+        let output = self.residual_add_gpu(&residual1, &ffn_out, hidden_dim)?;
+        self.stop_tile_timer(timer_res2, hidden_dim as u64, hidden_dim as u64);
+
+        Ok(output)
+    }
+
     /// PAR-063-V5: Transformer layer using TRUE DP4A kernels (async, no sync)
     ///
     /// Uses Q8 activation quantization + Q4K×Q8 integer dot product for 4x instruction reduction.
@@ -9470,6 +9692,31 @@ impl CudaExecutor {
     #[must_use]
     pub fn has_output_norm(&self) -> bool {
         self.rmsnorm_cache.contains_key("output_norm.gamma")
+    }
+
+    /// Cache a single RMSNorm gamma weight by name.
+    ///
+    /// This is used by APR model loading to cache per-layer norm weights
+    /// with arbitrary naming conventions. The gamma values are uploaded
+    /// to GPU and stored in rmsnorm_cache for O(1) lookup during forward.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Cache key name (e.g., "blk.0.attn_norm.gamma")
+    /// * `gamma` - RMSNorm scale weights [hidden_dim]
+    ///
+    /// # Returns
+    ///
+    /// Total bytes uploaded to GPU (0 if already cached)
+    pub fn cache_rmsnorm_gamma(&mut self, name: &str, gamma: &[f32]) -> Result<usize, GpuError> {
+        if !self.rmsnorm_cache.contains_key(name) {
+            let buf = GpuBuffer::from_host(&self.context, gamma)?;
+            let bytes = buf.size_bytes();
+            self.rmsnorm_cache.insert(name.to_string(), buf);
+            Ok(bytes)
+        } else {
+            Ok(0)
+        }
     }
 
     /// BIAS-FIX: Cache QKV bias vectors on GPU for all layers
@@ -14610,6 +14857,62 @@ impl CudaExecutor {
 
         // Run GPU-resident layer
         let output_gpu = self.transformer_layer_gpu(
+            &input_gpu,
+            layer_idx,
+            layer_prefix,
+            hidden_dim,
+            intermediate_dim,
+            &attn_gamma_gpu,
+            &ffn_gamma_gpu,
+            epsilon,
+        )?;
+
+        // Single sync and download
+        self.stream.synchronize()?;
+        output_gpu.copy_to_host(output)?;
+
+        Ok(())
+    }
+
+    /// TILING-SPEC-001: Tile-profiled transformer layer with host input/output.
+    ///
+    /// Convenience method for profiling single-layer execution to identify bottlenecks.
+    /// Enable tile profiling first with `enable_tile_profiling()`, then call this method,
+    /// then examine results with `tile_summary()`.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// cuda_model.enable_tile_profiling();
+    /// cuda_model.transformer_layer_host_profiled(...)?;
+    /// println!("{}", cuda_model.tile_summary());
+    /// // Output:
+    /// // === Tile Profiling Summary (TILING-SPEC-001) ===
+    /// // Level       Samples   Avg µs    GFLOP/s   AI      Elements
+    /// // macro             3    1500.0     26.67  0.50    4096
+    /// // midi              1     200.0      5.12  0.25    1024
+    /// // micro             4      10.0      2.05  4.00     512
+    /// ```
+    #[allow(clippy::too_many_arguments)]
+    pub fn transformer_layer_host_profiled(
+        &mut self,
+        input: &[f32],
+        output: &mut [f32],
+        layer_idx: usize,
+        layer_prefix: &str,
+        hidden_dim: u32,
+        intermediate_dim: u32,
+        attn_norm_gamma: &[f32],
+        ffn_norm_gamma: &[f32],
+        epsilon: f32,
+    ) -> Result<(), GpuError> {
+        // Upload inputs
+        let input_gpu = GpuBuffer::from_host(&self.context, input)?;
+        let attn_gamma_gpu = GpuBuffer::from_host(&self.context, attn_norm_gamma)?;
+        let ffn_gamma_gpu = GpuBuffer::from_host(&self.context, ffn_norm_gamma)?;
+
+        // Run GPU-resident tiled profiled layer
+        let output_gpu = self.transformer_layer_gpu_tiled_profiled(
             &input_gpu,
             layer_idx,
             layer_prefix,

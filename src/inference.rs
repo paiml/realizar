@@ -91,6 +91,36 @@ pub enum InferenceMode {
     Decode,
 }
 
+/// Configure the global rayon thread pool with optimal thread count for inference
+///
+/// Uses ~16 threads by default for optimal memory bandwidth utilization on
+/// modern multi-core CPUs. Profiling shows this avoids thread synchronization
+/// overhead that occurs with higher thread counts.
+///
+/// NOTE: This should be called once at startup. Rayon's global pool cannot
+/// be resized dynamically.
+///
+/// # Errors
+///
+/// Returns `InvalidConfiguration` if the thread pool has already been initialized.
+pub fn configure_optimal_thread_pool() -> Result<()> {
+    // Optimal thread count determined by profiling:
+    // - 48 threads: 11.9 tok/s (too much sync overhead)
+    // - 24 threads: 18.7 tok/s
+    // - 16 threads: 25.3 tok/s (optimal)
+    // - 12 threads: 25.0 tok/s
+    // - 8 threads:  21.9 tok/s
+    //
+    // Sweet spot is 10-16 threads for memory-bound quantized matmuls.
+    // This reduces thread sync overhead while maintaining parallelism.
+    let optimal_threads = std::env::var("RAYON_NUM_THREADS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(16);
+
+    configure_thread_pool(optimal_threads)
+}
+
 /// Configure the global rayon thread pool for inference
 ///
 /// NOTE: This should be called once at startup. Rayon's global pool cannot
