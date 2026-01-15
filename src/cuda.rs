@@ -2421,6 +2421,62 @@ impl CudaExecutor {
         self.profiler.sync_mode()
     }
 
+    // ========================================================================
+    // PAR-201: Execution Graph Tracking (ASCII tree visualization)
+    // ========================================================================
+
+    /// Enable execution graph tracking for brick→kernel→PTX relationships.
+    ///
+    /// When enabled, each brick operation is recorded in a hierarchical graph
+    /// that can be visualized as an ASCII tree for CI/CD and debugging.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// cuda_model.enable_graph_tracking();
+    /// cuda_model.forward_gpu_resident(token, &mut cache, pos)?;
+    /// println!("{}", cuda_model.execution_graph_ascii());
+    /// // Output:
+    /// // Layer 0
+    /// // ├── RmsNorm  50.0µs (4096 elem)
+    /// // │   └── rmsnorm_kernel  <<<16,256,1>>> smem=1024B
+    /// // └── QkvProjection  200.0µs (4096 elem)
+    /// ```
+    pub fn enable_graph_tracking(&mut self) {
+        self.profiler.enable_graph();
+    }
+
+    /// Disable execution graph tracking.
+    pub fn disable_graph_tracking(&mut self) {
+        self.profiler.disable_graph();
+    }
+
+    /// Check if execution graph tracking is enabled.
+    #[must_use]
+    pub fn is_graph_tracking_enabled(&self) -> bool {
+        self.profiler.is_graph_enabled()
+    }
+
+    /// Get the execution graph (immutable).
+    #[must_use]
+    pub fn execution_graph(&self) -> &trueno::ExecutionGraph {
+        self.profiler.execution_graph()
+    }
+
+    /// Get the execution graph as ASCII tree (headless mode for CI/CD).
+    ///
+    /// PAR-201: Zero-dependency tree visualization for snapshot tests, logging,
+    /// and CI pipelines.
+    #[must_use]
+    pub fn execution_graph_ascii(&self) -> String {
+        self.profiler.execution_graph().to_ascii_tree()
+    }
+
+    /// Clear the execution graph.
+    pub fn clear_execution_graph(&mut self) {
+        self.profiler.execution_graph_mut().clear();
+    }
+
     /// Get device name
     pub fn device_name(&self) -> Result<String, GpuError> {
         self.context.device_name()
