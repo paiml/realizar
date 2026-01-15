@@ -1828,6 +1828,18 @@ pub struct IndexedLayerWeights {
     pub ffn_norm_ptr: u64,
     /// FFN RMSNorm gamma size in elements
     pub ffn_norm_len: usize,
+    /// Q projection bias device pointer (FP32, optional - 0 if no bias)
+    pub attn_q_bias_ptr: u64,
+    /// Q projection bias size in elements (0 if no bias)
+    pub attn_q_bias_len: usize,
+    /// K projection bias device pointer (FP32, optional - 0 if no bias)
+    pub attn_k_bias_ptr: u64,
+    /// K projection bias size in elements (0 if no bias)
+    pub attn_k_bias_len: usize,
+    /// V projection bias device pointer (FP32, optional - 0 if no bias)
+    pub attn_v_bias_ptr: u64,
+    /// V projection bias size in elements (0 if no bias)
+    pub attn_v_bias_len: usize,
 }
 
 /// Weight quantization type for GGUF tensors
@@ -2024,6 +2036,10 @@ pub struct CudaExecutor {
     // Key format: "blk.{layer_idx}.{attn|ffn}_norm.gamma"
     // Pre-cached at model load to avoid per-token uploads
     rmsnorm_cache: HashMap<String, GpuBuffer<f32>>,
+    // BIAS-FIX: Cached QKV and other bias vectors on GPU (FP32)
+    // Key format: "blk.{layer_idx}.attn_{q|k|v}.bias"
+    // Qwen2.5 models have QKV bias that must be added after GEMV
+    bias_cache: HashMap<String, GpuBuffer<f32>>,
     // PAR-043: Pre-indexed layer weights for O(1) access during decode
     // Eliminates ~10ms per-token overhead from string formatting + HashMap lookups
     indexed_layer_weights: Vec<IndexedLayerWeights>,
@@ -2165,6 +2181,7 @@ impl CudaExecutor {
             quantized_weight_cache: HashMap::new(), // PAR-005: quantized weight cache
             quantized_weight_types: HashMap::new(), // PAR-058: weight quant types
             rmsnorm_cache: HashMap::new(),          // PAR-023: RMSNorm gamma cache
+            bias_cache: HashMap::new(),             // BIAS-FIX: QKV bias cache
             // PAR-043: Pre-indexed layer weights for O(1) access
             indexed_layer_weights: Vec::new(),
             output_norm_ptr: 0,
@@ -2291,7 +2308,7 @@ impl CudaExecutor {
         self.profiler.summary()
     }
 
-    /// Start timing a brick (internal use).
+    /// Start timing a brick (internal use, legacy string API).
     ///
     /// When profiling is enabled, syncs the stream and starts a timer.
     /// Returns the timer handle for use with `stop_brick_timer()`.
@@ -2300,8 +2317,10 @@ impl CudaExecutor {
         if !self.profiler.is_enabled() {
             return None;
         }
-        // Sync to ensure previous work is complete
-        let _ = self.stream.synchronize();
+        // Sync to ensure previous work is complete (immediate mode)
+        if self.profiler.sync_mode() == trueno::SyncMode::Immediate {
+            let _ = self.stream.synchronize();
+        }
         Some(self.profiler.start(name))
     }
 
@@ -2310,10 +2329,96 @@ impl CudaExecutor {
     /// When profiling is enabled, syncs the stream and records the elapsed time.
     fn stop_brick_timer(&mut self, timer: Option<trueno::BrickTimer>, elements: u64) {
         if let Some(t) = timer {
-            // Sync to capture real GPU time
-            let _ = self.stream.synchronize();
+            // Sync to capture real GPU time (immediate mode)
+            if self.profiler.sync_mode() == trueno::SyncMode::Immediate {
+                let _ = self.stream.synchronize();
+            }
             self.profiler.stop(t, elements);
         }
+    }
+
+    // ========================================================================
+    // PAR-200: BrickId-based profiling (O(1) hot path)
+    // ========================================================================
+
+    /// Start timing a brick using BrickId (PAR-200 fast path).
+    ///
+    /// This is the preferred API for known brick types.
+    #[inline]
+    #[must_use]
+    fn start_brick_id(&mut self, brick_id: trueno::BrickId) -> Option<trueno::BrickIdTimer> {
+        if !self.profiler.is_enabled() {
+            return None;
+        }
+        if self.profiler.sync_mode() == trueno::SyncMode::Immediate {
+            let _ = self.stream.synchronize();
+        }
+        Some(self.profiler.start_brick(brick_id))
+    }
+
+    /// Stop timing a brick using BrickId (PAR-200 fast path).
+    #[inline]
+    fn stop_brick_id(&mut self, timer: Option<trueno::BrickIdTimer>, elements: u64) {
+        if let Some(t) = timer {
+            if self.profiler.sync_mode() == trueno::SyncMode::Immediate {
+                let _ = self.stream.synchronize();
+            }
+            self.profiler.stop_brick(t, elements);
+        }
+    }
+
+    /// Record a deferred measurement (PAR-200, ~5% overhead).
+    ///
+    /// Use this for production profiling. Call `finalize_profiling()` after
+    /// GPU sync to apply all pending measurements.
+    #[inline]
+    fn record_brick_deferred(&mut self, brick_id: trueno::BrickId, start_ns: u64, elements: u64) {
+        self.profiler.record_deferred(brick_id, start_ns, elements);
+    }
+
+    /// Finalize all pending profiling measurements.
+    ///
+    /// Must be called after `stream.synchronize()` when using deferred mode.
+    #[inline]
+    fn finalize_profiling(&mut self) {
+        if self.profiler.has_pending() {
+            let end_ns = self.profiler.elapsed_ns();
+            self.profiler.finalize(end_ns);
+        }
+    }
+
+    /// Reset profiler epoch for deferred timing.
+    #[inline]
+    fn reset_profiler_epoch(&mut self) {
+        self.profiler.reset_epoch();
+    }
+
+    /// Get profiler category breakdown (PAR-200).
+    #[must_use]
+    pub fn profiler_category_stats(&self) -> [trueno::CategoryStats; trueno::BrickCategory::COUNT] {
+        self.profiler.category_stats()
+    }
+
+    /// Print profiler category breakdown (PAR-200).
+    pub fn print_profiler_categories(&self) {
+        self.profiler.print_category_stats();
+    }
+
+    /// Set profiler sync mode (PAR-200).
+    ///
+    /// # Modes
+    /// - `Immediate`: Sync after each kernel (accurate, ~200% overhead)
+    /// - `PerLayer`: Sync once per layer (~20% overhead)
+    /// - `Deferred`: Sync once per forward pass (~5% overhead)
+    /// - `None`: No profiling overhead
+    pub fn set_profiler_sync_mode(&mut self, mode: trueno::SyncMode) {
+        self.profiler.set_sync_mode(mode);
+    }
+
+    /// Get current profiler sync mode.
+    #[must_use]
+    pub fn profiler_sync_mode(&self) -> trueno::SyncMode {
+        self.profiler.sync_mode()
     }
 
     /// Get device name
@@ -2660,6 +2765,40 @@ impl CudaExecutor {
                 );
             }
 
+            // BIAS-FIX: Get QKV bias pointers from bias_cache (optional - 0/0 if not present)
+            let q_bias_name = format!("{}.attn_q.bias", prefix);
+            let k_bias_name = format!("{}.attn_k.bias", prefix);
+            let v_bias_name = format!("{}.attn_v.bias", prefix);
+
+            let (attn_q_bias_ptr, attn_q_bias_len) = self
+                .bias_cache
+                .get(&q_bias_name)
+                .map(|b| (b.as_ptr(), b.len()))
+                .unwrap_or((0, 0));
+            let (attn_k_bias_ptr, attn_k_bias_len) = self
+                .bias_cache
+                .get(&k_bias_name)
+                .map(|b| (b.as_ptr(), b.len()))
+                .unwrap_or((0, 0));
+            let (attn_v_bias_ptr, attn_v_bias_len) = self
+                .bias_cache
+                .get(&v_bias_name)
+                .map(|b| (b.as_ptr(), b.len()))
+                .unwrap_or((0, 0));
+
+            // Log if bias detected (for debugging)
+            if attn_q_bias_len > 0 && (layer_idx == 0 || layer_idx == 4 || layer_idx == 27) {
+                eprintln!(
+                    "[BIAS-FIX] Layer {}: Q bias len={}, K bias len={}, V bias len={}",
+                    layer_idx, attn_q_bias_len, attn_k_bias_len, attn_v_bias_len
+                );
+            } else if attn_q_bias_len == 0 && layer_idx <= 10 {
+                eprintln!(
+                    "[BIAS-FIX] Layer {}: NO BIAS (q_bias_len=0)",
+                    layer_idx
+                );
+            }
+
             indexed.push(IndexedLayerWeights {
                 attn_q_ptr,
                 attn_q_len,
@@ -2686,6 +2825,13 @@ impl CudaExecutor {
                 attn_norm_len,
                 ffn_norm_ptr,
                 ffn_norm_len,
+                // BIAS-FIX: QKV bias pointers
+                attn_q_bias_ptr,
+                attn_q_bias_len,
+                attn_k_bias_ptr,
+                attn_k_bias_len,
+                attn_v_bias_ptr,
+                attn_v_bias_len,
             });
         }
 
@@ -9270,6 +9416,83 @@ impl CudaExecutor {
         self.rmsnorm_cache.contains_key("output_norm.gamma")
     }
 
+    /// BIAS-FIX: Cache QKV bias vectors on GPU for all layers
+    ///
+    /// Pre-uploads Q, K, V bias vectors (when present) to avoid per-layer uploads.
+    /// Uses naming convention: `blk.{i}.attn_q.bias`, `blk.{i}.attn_k.bias`, `blk.{i}.attn_v.bias`
+    ///
+    /// Qwen2.5 models have QKV bias that must be added after GEMV.
+    /// Models without bias pass empty slices.
+    ///
+    /// # Arguments
+    ///
+    /// * `num_layers` - Number of transformer layers
+    /// * `q_biases` - Slice of Q bias vectors (or None for each layer)
+    /// * `k_biases` - Slice of K bias vectors (or None for each layer)
+    /// * `v_biases` - Slice of V bias vectors (or None for each layer)
+    ///
+    /// # Returns
+    ///
+    /// Total bytes uploaded to GPU
+    pub fn preload_qkv_bias(
+        &mut self,
+        num_layers: usize,
+        q_biases: &[Option<&[f32]>],
+        k_biases: &[Option<&[f32]>],
+        v_biases: &[Option<&[f32]>],
+    ) -> Result<usize, GpuError> {
+        let mut total_bytes = 0usize;
+
+        for layer_idx in 0..num_layers {
+            // Q bias
+            if let Some(q_bias) = q_biases.get(layer_idx).and_then(|b| *b) {
+                let name = format!("blk.{}.attn_q.bias", layer_idx);
+                if !self.bias_cache.contains_key(&name) {
+                    let buf = GpuBuffer::from_host(&self.context, q_bias)?;
+                    total_bytes += buf.size_bytes();
+                    self.bias_cache.insert(name, buf);
+                }
+            }
+
+            // K bias
+            if let Some(k_bias) = k_biases.get(layer_idx).and_then(|b| *b) {
+                let name = format!("blk.{}.attn_k.bias", layer_idx);
+                if !self.bias_cache.contains_key(&name) {
+                    let buf = GpuBuffer::from_host(&self.context, k_bias)?;
+                    total_bytes += buf.size_bytes();
+                    self.bias_cache.insert(name, buf);
+                }
+            }
+
+            // V bias
+            if let Some(v_bias) = v_biases.get(layer_idx).and_then(|b| *b) {
+                let name = format!("blk.{}.attn_v.bias", layer_idx);
+                if !self.bias_cache.contains_key(&name) {
+                    let buf = GpuBuffer::from_host(&self.context, v_bias)?;
+                    total_bytes += buf.size_bytes();
+                    self.bias_cache.insert(name, buf);
+                }
+            }
+        }
+
+        if total_bytes > 0 {
+            eprintln!(
+                "[BIAS-FIX] Preloaded QKV bias for {} layers ({} bytes)",
+                num_layers, total_bytes
+            );
+        }
+
+        Ok(total_bytes)
+    }
+
+    /// BIAS-FIX: Check if QKV bias is cached for a layer
+    #[must_use]
+    pub fn has_qkv_bias(&self, layer_idx: usize) -> bool {
+        // Check if at least one bias exists (Qwen2.5 has all three)
+        let q_name = format!("blk.{}.attn_q.bias", layer_idx);
+        self.bias_cache.contains_key(&q_name)
+    }
+
     /// PAR-023: Run ALL transformer layers GPU-resident (minimal syncs)
     ///
     /// Chains all layers on GPU, only syncing at the very end.
@@ -12523,7 +12746,7 @@ impl CudaExecutor {
         }
 
         // PAR-058-DEBUG: Check after RMSNorm (skip during graph capture)
-        if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2) {
+        if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2 || layer_idx == 3) {
             self.stream.synchronize()?;
             let mut rmsnorm_out = vec![0.0f32; hidden_buf1.len()];
             hidden_buf1.copy_to_host(&mut rmsnorm_out)?;
@@ -12606,6 +12829,15 @@ impl CudaExecutor {
                 )?;
             },
             WeightQuantType::Q4K => {
+                // CORRECTNESS-011: Debug Q4K GEMV parameters
+                if !skip_debug && layer_idx == 0 {
+                    self.stream.synchronize()?;
+                    let mut input_check = vec![0.0f32; hidden_buf1.len()];
+                    hidden_buf1.copy_to_host(&mut input_check)?;
+                    eprintln!("[CORRECTNESS-011-L0] Q4K GEMV params: n={}, k={}", q_dim, hidden_dim);
+                    eprintln!("[CORRECTNESS-011-L0] Input (hidden_buf1): first 5 = {:?}", &input_check[..5.min(input_check.len())]);
+                    eprintln!("[CORRECTNESS-011-L0] Weight ptr = {:#x}, len = {}", layer_weights.attn_q_ptr, layer_weights.attn_q_len);
+                }
                 self.q4k_gemv_into(
                     layer_weights.attn_q_ptr,
                     &hidden_buf1,
@@ -12613,6 +12845,13 @@ impl CudaExecutor {
                     q_dim,
                     hidden_dim,
                 )?;
+                // CORRECTNESS-011: Debug Q output
+                if !skip_debug && layer_idx == 0 {
+                    self.stream.synchronize()?;
+                    let mut q_check = vec![0.0f32; q_buf.len()];
+                    q_buf.copy_to_host(&mut q_check)?;
+                    eprintln!("[CORRECTNESS-011-L0] Q output: first 5 = {:?}", &q_check[..5.min(q_check.len())]);
+                }
             },
         }
         match layer_weights.attn_k_qtype {
@@ -12750,8 +12989,80 @@ impl CudaExecutor {
             self.stop_brick_timer(timer_qkv, 1);
         }
 
+        // BIAS-FIX: Add QKV bias after GEMV (Qwen2.5 models have QKV bias)
+        // Only add if bias exists (len > 0)
+        if layer_weights.attn_q_bias_len > 0 {
+            // Create non-owning buffer wrapper from device pointer
+            // SAFETY: bias_ptr is valid device memory owned by bias_cache
+            let q_bias_buf = unsafe {
+                GpuBuffer::<f32>::from_raw_parts(
+                    layer_weights.attn_q_bias_ptr,
+                    layer_weights.attn_q_bias_len,
+                )
+            };
+
+            // Add bias in-place: q_buf = q_buf + q_bias
+            self.residual_add_into(&q_buf, &q_bias_buf, &q_buf, q_dim)?;
+
+            // Prevent Drop from freeing borrowed memory
+            std::mem::forget(q_bias_buf);
+
+            // Debug log for layer 0, 4, 5
+            if !skip_debug && (layer_idx == 0 || layer_idx == 4 || layer_idx == 5) {
+                self.stream.synchronize()?;
+                let mut q_check = vec![0.0f32; q_buf.len()];
+                q_buf.copy_to_host(&mut q_check)?;
+                eprintln!(
+                    "[BIAS-FIX-L{}] Q after bias: first 5 = {:?}",
+                    layer_idx, &q_check[..5.min(q_check.len())]
+                );
+            }
+        }
+        if layer_weights.attn_k_bias_len > 0 {
+            let k_bias_buf = unsafe {
+                GpuBuffer::<f32>::from_raw_parts(
+                    layer_weights.attn_k_bias_ptr,
+                    layer_weights.attn_k_bias_len,
+                )
+            };
+            self.residual_add_into(&k_buf, &k_bias_buf, &k_buf, kv_dim)?;
+            std::mem::forget(k_bias_buf);
+
+            // Debug log for layer 0, 4, 5
+            if !skip_debug && (layer_idx == 0 || layer_idx == 4 || layer_idx == 5) {
+                self.stream.synchronize()?;
+                let mut k_check = vec![0.0f32; k_buf.len()];
+                k_buf.copy_to_host(&mut k_check)?;
+                eprintln!(
+                    "[BIAS-FIX-L{}] K after bias: first 5 = {:?}",
+                    layer_idx, &k_check[..5.min(k_check.len())]
+                );
+            }
+        }
+        if layer_weights.attn_v_bias_len > 0 {
+            let v_bias_buf = unsafe {
+                GpuBuffer::<f32>::from_raw_parts(
+                    layer_weights.attn_v_bias_ptr,
+                    layer_weights.attn_v_bias_len,
+                )
+            };
+            self.residual_add_into(&v_buf, &v_bias_buf, &v_buf, kv_dim)?;
+            std::mem::forget(v_bias_buf);
+
+            // Debug log for layer 0, 4, 5
+            if !skip_debug && (layer_idx == 0 || layer_idx == 4 || layer_idx == 5) {
+                self.stream.synchronize()?;
+                let mut v_check = vec![0.0f32; v_buf.len()];
+                v_buf.copy_to_host(&mut v_check)?;
+                eprintln!(
+                    "[BIAS-FIX-L{}] V after bias: first 5 = {:?}",
+                    layer_idx, &v_check[..5.min(v_check.len())]
+                );
+            }
+        }
+
         // PAR-058-DEBUG: Check Q/K/V after projections (skip during graph capture)
-        if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2) {
+        if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2 || layer_idx == 3 || layer_idx == 5) {
             self.stream.synchronize()?;
             // Print weight pointers
             eprintln!(
@@ -12895,7 +13206,7 @@ impl CudaExecutor {
                 }
             }
 
-            if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2) {
+            if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2 || layer_idx == 3) {
                 // Debug: download and print (only for layer 0/2, skip during graph capture)
                 self.stream.synchronize()?;
                 let mut q_host = vec![0.0f32; q_buf.len()];
@@ -12934,7 +13245,7 @@ impl CudaExecutor {
         }
 
         // PAR-058-DEBUG: Check attention output (skip during graph capture)
-        if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2) {
+        if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2 || layer_idx == 3) {
             // PAR-058: Must sync on compute_stream since attention kernel runs there
             self.compute_stream.synchronize()?;
             let mut attn_out = vec![0.0f32; attn_out_buf.len()];
@@ -13020,7 +13331,7 @@ impl CudaExecutor {
         }
 
         // PAR-058-DEBUG: Check output projection (skip during graph capture)
-        if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2) {
+        if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2 || layer_idx == 3) {
             self.stream.synchronize()?;
             let mut out_proj = vec![0.0f32; hidden_buf1.len()];
             hidden_buf1.copy_to_host(&mut out_proj)?;
@@ -13054,7 +13365,7 @@ impl CudaExecutor {
         }
 
         // PAR-058-DEBUG: Check residual1 output (skip during graph capture)
-        if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2) {
+        if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2 || layer_idx == 3) {
             self.stream.synchronize()?;
             let mut resid1 = vec![0.0f32; input_staging.len()];
             input_staging.copy_to_host(&mut resid1)?;
@@ -13142,7 +13453,7 @@ impl CudaExecutor {
         }
 
         // PAR-058-DEBUG: Check FFN gate/up outputs (skip during graph capture)
-        if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2) {
+        if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2 || layer_idx == 3) {
             self.stream.synchronize()?;
             let mut gate_out = vec![0.0f32; ffn_gate_buf.len()];
             ffn_gate_buf.copy_to_host(&mut gate_out)?;
