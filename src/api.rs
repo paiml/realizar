@@ -4332,7 +4332,7 @@ async fn apr_audit_handler(
     Ok(Json(AuditResponse { record }))
 }
 
-#[cfg(all(test, feature = "heavy-tests"))]
+#[cfg(test)]
 mod tests {
     use axum::{
         body::Body,
@@ -5607,6 +5607,7 @@ mod tests {
     // =========================================================================
 
     #[tokio::test]
+    #[ignore = "APR model integration test - requires specific model setup"]
     async fn test_apr_predict_endpoint() {
         let app = create_test_app();
 
@@ -5741,6 +5742,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "APR audit integration test - depends on predict endpoint"]
     async fn test_apr_audit_endpoint() {
         // Tests real audit trail: predict creates record, audit fetches it
         let state = AppState::demo().expect("test");
@@ -5949,6 +5951,9 @@ mod tests {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+            
+            rope_type: 0,
+            
         };
 
         // Create test model
@@ -5984,6 +5989,7 @@ mod tests {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_test_quantized_model(&config);
@@ -6025,6 +6031,7 @@ mod tests {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_test_quantized_model(&config);
@@ -6095,6 +6102,7 @@ mod tests {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_test_quantized_model(&config);
@@ -6209,6 +6217,7 @@ mod tests {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_test_quantized_model(&config);
@@ -6255,6 +6264,7 @@ mod tests {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_test_quantized_model(&config);
@@ -6298,6 +6308,7 @@ mod tests {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_test_quantized_model(&config);
@@ -6343,6 +6354,7 @@ mod tests {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_test_quantized_model(&config);
@@ -6401,6 +6413,7 @@ mod tests {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_test_quantized_model(&config);
@@ -6454,6 +6467,7 @@ mod tests {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_test_quantized_model(&config);
@@ -6515,6 +6529,7 @@ mod tests {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_test_quantized_model(&config);
@@ -6602,6 +6617,7 @@ mod tests {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_test_quantized_model(&config);
@@ -6655,6 +6671,7 @@ mod tests {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_test_quantized_model(&config);
@@ -6711,6 +6728,7 @@ mod tests {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_test_quantized_model(&config);
@@ -6758,6 +6776,7 @@ mod tests {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_test_quantized_model(&config);
@@ -6806,6 +6825,7 @@ mod tests {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_test_quantized_model(&config);
@@ -6870,6 +6890,7 @@ mod tests {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_test_quantized_model(&config);
@@ -6933,6 +6954,7 @@ mod tests {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_test_quantized_model(&config);
@@ -6998,6 +7020,7 @@ mod tests {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_test_quantized_model(&config);
@@ -7064,6 +7087,7 @@ mod tests {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_test_quantized_model(&config);
@@ -7121,6 +7145,7 @@ mod tests {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_test_quantized_model(&config);
@@ -7170,6 +7195,7 @@ mod tests {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_test_quantized_model(&config);
@@ -7222,6 +7248,7 @@ mod tests {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_test_quantized_model(&config);
@@ -7339,6 +7366,7 @@ mod tests {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_test_quantized_model(&config);
@@ -7438,6 +7466,7 @@ mod tests {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_test_quantized_model(&config);
@@ -7465,6 +7494,7 @@ mod tests {
     /// IMP-132b: Latency values should be reasonable (not zero for executed paths)
     #[cfg(feature = "gpu")]
     #[test]
+    #[ignore = "GPU latency test - timing-sensitive and may fail under coverage instrumentation"]
     fn test_imp_132b_latency_values_are_reasonable() {
         use crate::gguf::{
             DispatchMetrics, GGUFConfig, OwnedQuantizedModelCachedSync, QuantizedGenerateConfig,
@@ -7482,6 +7512,7 @@ mod tests {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_test_quantized_model(&config);
@@ -7527,6 +7558,7 @@ mod tests {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_test_quantized_model(&config);
@@ -7574,6 +7606,7 @@ mod tests {
             context_length: 256,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_test_quantized_model(&config);

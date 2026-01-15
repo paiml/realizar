@@ -1012,7 +1012,7 @@ impl HttpBenchmarkRunner {
     }
 }
 
-#[cfg(all(test, feature = "heavy-tests"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

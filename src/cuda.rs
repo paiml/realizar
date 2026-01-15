@@ -48,20 +48,20 @@ use trueno_gpu::driver::{
     GpuBuffer, LaunchConfig,
 };
 use trueno_gpu::kernels::{
-    Activation, ArgMaxFinalKernel, ArgMaxKernel, AttentionKernel, BatchedIncrementalAttentionKernel,
-    BatchedQ4KGemvKernel, BatchedResidualAddKernel, BatchedRopeKernel, BatchedSwigluKernel,
-    BatchedVectorizedRmsNormKernel,
-    BiasActivationKernel, ChunkedTiledQ4KGemvKernel, CoalescedGemvKernel, CoalescedQ4KGemvKernel,
-    CoalescedQ6KGemvKernel, Dp4aQ4KGemvKernel, Dp4aSIMDQ4KGemvKernel, ElementwiseMulKernel,
-    Fp16Q4KGemvKernel, FusedGateUpKernel, FusedGateUpQ4KGemvKernel, FusedQKVKernel,
-    FusedResidualRmsNormKernel, FusedRmsNormQ4KGemvKernel, FusedSwigluKernel, GeluKernel,
-    GemmKernel, GemvKernel, IncrementalAttentionKernel, Kernel, KvCacheScatterIndirectKernel,
-    KvCacheScatterKernel, LayerNormKernel, MultiWarpIncrementalAttentionKernel,
-    PackedDp4aQ4KQ8Kernel, Q4KGemvKernel, Q4KQ8DotKernel, Q4_0GemvKernel, Q4_1GemvKernel,
-    Q5KGemvKernel, Q5KKernel, Q5_0GemvKernel, Q6KGemvKernel, Q6KKernel, Q8QuantizeKernel,
-    Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel, RmsNormKernel, RopeIndirectKernel,
-    RopeKernel, SiluKernel, SoftmaxKernel, TensorCoreQ4KGemmKernel, TiledQ4KGemvKernel,
-    TrueDp4aQ4KGemvKernel, VectorizedQ4KGemvKernel, VectorizedRmsNormKernel,
+    Activation, ArgMaxFinalKernel, ArgMaxKernel, AttentionKernel,
+    BatchedIncrementalAttentionKernel, BatchedQ4KGemvKernel, BatchedResidualAddKernel,
+    BatchedRopeKernel, BatchedSwigluKernel, BatchedVectorizedRmsNormKernel, BiasActivationKernel,
+    ChunkedTiledQ4KGemvKernel, CoalescedGemvKernel, CoalescedQ4KGemvKernel, CoalescedQ6KGemvKernel,
+    Dp4aQ4KGemvKernel, Dp4aSIMDQ4KGemvKernel, ElementwiseMulKernel, Fp16Q4KGemvKernel,
+    FusedGateUpKernel, FusedGateUpQ4KGemvKernel, FusedQKVKernel, FusedResidualRmsNormKernel,
+    FusedRmsNormQ4KGemvKernel, FusedSwigluKernel, GeluKernel, GemmKernel, GemvKernel,
+    IncrementalAttentionKernel, Kernel, KvCacheScatterIndirectKernel, KvCacheScatterKernel,
+    LayerNormKernel, MultiWarpIncrementalAttentionKernel, PackedDp4aQ4KQ8Kernel, Q4KGemvKernel,
+    Q4KQ8DotKernel, Q4_0GemvKernel, Q4_1GemvKernel, Q5KGemvKernel, Q5KKernel, Q5_0GemvKernel,
+    Q6KGemvKernel, Q6KKernel, Q8QuantizeKernel, Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel,
+    RmsNormKernel, RopeIndirectKernel, RopeKernel, RopeNeoxIndirectKernel, RopeNeoxKernel,
+    SiluKernel, SoftmaxKernel, TensorCoreQ4KGemmKernel, TiledQ4KGemvKernel, TrueDp4aQ4KGemvKernel,
+    VectorizedQ4KGemvKernel, VectorizedRmsNormKernel,
 };
 use trueno_gpu::GpuError;
 
@@ -661,6 +661,25 @@ pub enum KernelType {
         /// RoPE base frequency (theta)
         theta: f32,
     },
+    /// CORRECTNESS-011: RoPE NEOX style (split halves)
+    /// Required for Qwen2.5 models (rope_type=2)
+    RopeNeox {
+        /// Number of attention heads
+        num_heads: u32,
+        /// Dimension per head (must be even)
+        head_dim: u32,
+        /// RoPE base frequency (theta)
+        theta: f32,
+    },
+    /// CORRECTNESS-011: RoPE NEOX Indirect (CUDA Graph compatible)
+    RopeNeoxIndirect {
+        /// Number of attention heads
+        num_heads: u32,
+        /// Dimension per head (must be even)
+        head_dim: u32,
+        /// RoPE base frequency (theta)
+        theta: f32,
+    },
     /// PAR-062: ArgMax block reduction kernel
     /// First pass: each block finds local max and index, outputs to temp arrays
     /// Input: f32* logits (vocab_size floats)
@@ -929,11 +948,11 @@ impl CudaKernels {
             // PAR-114: Batched Residual Add for M sequences
             KernelType::BatchedResidualAdd { n, batch_size } => {
                 BatchedResidualAddKernel::new(*n, *batch_size).emit_ptx()
-            }
+            },
             // PAR-114: Batched SwiGLU for M sequences
             KernelType::BatchedSwiglu { n, batch_size } => {
                 BatchedSwigluKernel::new(*n, *batch_size).emit_ptx()
-            }
+            },
             // PAR-023: Residual Add for async pipeline
             KernelType::ResidualAdd { n } => ResidualAddKernel::new(*n).emit_ptx(),
             // PAR-023: Fused Residual Add + RMSNorm for reduced memory bandwidth
@@ -981,6 +1000,18 @@ impl CudaKernels {
                 head_dim,
                 theta,
             } => RopeIndirectKernel::new(*num_heads, *head_dim, *theta).emit_ptx(),
+            // CORRECTNESS-011: RoPE NEOX style (split halves)
+            KernelType::RopeNeox {
+                num_heads,
+                head_dim,
+                theta,
+            } => RopeNeoxKernel::new(*num_heads, *head_dim, *theta).emit_ptx(),
+            // CORRECTNESS-011: RoPE NEOX Indirect (CUDA Graph compatible)
+            KernelType::RopeNeoxIndirect {
+                num_heads,
+                head_dim,
+                theta,
+            } => RopeNeoxIndirectKernel::new(*num_heads, *head_dim, *theta).emit_ptx(),
             // PAR-063-V3: True DP4A Q4K GEMV with proper nibble expansion
             KernelType::TrueDp4aQ4KGemv { k, n } => TrueDp4aQ4KGemvKernel::new(*k, *n).emit_ptx(),
             // PAR-094: Tensor Core Q4K GEMM for batched speculative decode
@@ -1131,6 +1162,10 @@ impl CudaKernels {
             KernelType::Rope { .. } => "rope",
             // PAR-054: RoPE Indirect for CUDA graph capture
             KernelType::RopeIndirect { .. } => "rope_indirect",
+            // CORRECTNESS-011: RoPE NEOX style (split halves)
+            KernelType::RopeNeox { .. } => "rope_neox",
+            // CORRECTNESS-011: RoPE NEOX Indirect (CUDA Graph compatible)
+            KernelType::RopeNeoxIndirect { .. } => "rope_neox_indirect",
             // PAR-063-V3: True DP4A Q4K GEMV
             KernelType::TrueDp4aQ4KGemv { .. } => "true_dp4a_q4k_gemv",
             // PAR-094: Tensor Core Q4K GEMM for batched speculative decode
@@ -1993,6 +2028,8 @@ pub struct CudaExecutor {
     kv_head_dim: usize,
     // PAR-060: RoPE theta for position embeddings
     rope_theta: f32,
+    // CORRECTNESS-011: RoPE type (0=NORM adjacent pairs, 2=NEOX split halves)
+    rope_type: u32,
     // Compute stream for kernel execution (PARITY-038)
     compute_stream: CudaStream,
     // Transfer stream for async H2D/D2H copies (PARITY-038)
@@ -2048,6 +2085,13 @@ pub struct CudaExecutor {
     argmax_result: Option<GpuBuffer<u32>>,
     // Number of blocks (based on vocab_size)
     argmax_num_blocks: u32,
+    // PAR-118: Flash Decoding buffers for split-K attention
+    // Partials buffer: [M, num_heads, max_chunks, head_dim + 2]
+    flash_decode_partials: Option<GpuBuffer<f32>>,
+    // Maximum sequence length for Flash Decoding allocation
+    flash_decode_max_seq_len: usize,
+    // Whether Flash Decoding is enabled (for sequences > threshold)
+    flash_decode_enabled: bool,
     // PAR-073: BrickProfiler for real per-brick timing
     // Uses std::time::Instant + CUDA sync for accurate GPU timing
     profiler: trueno::BrickProfiler,
@@ -2070,7 +2114,11 @@ impl CudaExecutor {
         // PARITY-038: Create multiple streams for overlapped execution
         let compute_stream = CudaStream::new(&context)?;
         let transfer_stream = CudaStream::new(&context)?;
-        let stream = CudaStream::new(&context)?; // Legacy stream for backward compatibility
+        // CORRECTNESS-011: Create a separate stream for legacy operations
+        // NOTE: Graph capture uses `stream.begin_capture()` and most kernels use `stream`
+        // BUT attention kernels use `compute_stream` - fixed in incremental_attention_into_inner
+        // to use `stream` during graph capture mode
+        let stream = CudaStream::new(&context)?;
 
         Ok(Self {
             // Initialize in struct declaration order (for clarity)
@@ -2103,6 +2151,7 @@ impl CudaExecutor {
             kv_num_kv_heads: 0, // PAR-021 GQA
             kv_head_dim: 0,
             rope_theta: 10000.0, // PAR-060: default RoPE theta
+            rope_type: 0,        // CORRECTNESS-011: default NORM style
             compute_stream,
             transfer_stream,
             stream,
@@ -2132,6 +2181,10 @@ impl CudaExecutor {
             argmax_block_idxs: None,
             argmax_result: None,
             argmax_num_blocks: 0,
+            // PAR-118: Flash Decoding (disabled by default, enable via init_flash_decoding)
+            flash_decode_partials: None,
+            flash_decode_max_seq_len: 0,
+            flash_decode_enabled: false,
             // PAR-073: BrickProfiler (disabled by default for zero overhead)
             // Enable with executor.enable_profiling() for per-brick timing
             profiler: trueno::BrickProfiler::new(),
@@ -2408,7 +2461,7 @@ impl CudaExecutor {
     pub fn get_quantized_weight_ptr(&self, name: &str) -> Result<u64, GpuError> {
         self.quantized_weight_cache
             .get(name)
-            .map(|buf| buf.as_ptr())
+            .map(trueno_gpu::driver::GpuBuffer::as_ptr)
             .ok_or_else(|| {
                 GpuError::InvalidLaunchConfig(format!("Quantized weight '{}' not cached", name))
             })
@@ -4628,19 +4681,29 @@ impl CudaExecutor {
         //
         // Requirements: k must be multiple of 256 (super-block boundary)
 
-        // CORRECTNESS-002 FIXED: VectorizedQ4KGemv now uses correct deinterleaved layout.
-        // The kernel properly handles:
-        //   - Separate scales for low nibbles (scale chunk*2) and high nibbles (scale chunk*2+1)
-        //   - Correct activation index mapping for Q4K layout
-        if k.is_multiple_of(256) {
-            return self.vectorized_q4k_gemv_into(weight_ptr, input, output, n, k);
-        }
+        // CORRECTNESS-008: Use TiledQ4KGemv for aligned K to match q4k_gemv_cached behavior
+        // The basic Q4KGemv kernel produces slightly different results due to different
+        // accumulation order. Using the same kernel as the verified working cached path.
+        let use_tiled = k.is_multiple_of(256);
+        let outputs_per_block = 4u32;
 
-        // Fallback for non-aligned dimensions (rare): basic Q4KGemv kernel
-        let kernel_type = KernelType::Q4KGemv { k, n };
+        let (kernel_type, cache_key, config) = if use_tiled {
+            let kt = KernelType::TiledQ4KGemv {
+                k,
+                n,
+                outputs_per_block,
+            };
+            let ck = format!("tiled_q4k_gemv_{}_{}_{}", k, n, outputs_per_block);
+            let num_blocks = (n + outputs_per_block - 1) / outputs_per_block;
+            let cfg = LaunchConfig::grid_2d(num_blocks, 1, 128, 1);
+            (kt, ck, cfg)
+        } else {
+            let kt = KernelType::Q4KGemv { k, n };
+            let ck = format!("q4k_gemv_{}_{}", k, n);
+            let cfg = LaunchConfig::grid_2d(n, 1, 32, 1);
+            (kt, ck, cfg)
+        };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
-        let cache_key = format!("q4k_gemv_{}_{}", k, n);
-        let config = LaunchConfig::grid_2d(n, 1, 32, 1);
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
@@ -5177,7 +5240,10 @@ impl CudaExecutor {
         k: u32,
     ) -> Result<(), GpuError> {
         debug_assert!(m <= 8, "Batch size > 8 not supported (register pressure)");
-        debug_assert!(k % 256 == 0, "K must be multiple of 256 for Q4K super-blocks");
+        debug_assert!(
+            k.is_multiple_of(256),
+            "K must be multiple of 256 for Q4K super-blocks"
+        );
 
         let kernel_type = KernelType::BatchedQ4KGemv { m, k, n };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
@@ -5248,14 +5314,7 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
-        // PAR-066: CoalescedQ6K for aligned dimensions
-        // Uses vectorized byte loads + warp shuffle for scales
-        // Re-enabled after CORRECTNESS-002 Q4K fix (Q6K uses different format, no nibble issue)
-        if k % 256 == 0 {
-            return self.coalesced_q6k_gemv_into(weight_ptr, input, output, n, k);
-        }
-
-        // Fallback: original Q6K kernel for non-aligned dimensions
+        // Original Q6K kernel (CoalescedQ6K disabled due to CORRECTNESS-006)
         let kernel_type = KernelType::Q6KGemv { k, n };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
         let cache_key = format!("q6k_gemv_{}_{}", k, n);
@@ -7819,6 +7878,117 @@ impl CudaExecutor {
         Ok(())
     }
 
+    /// CORRECTNESS-011: RoPE NEOX style (split halves)
+    ///
+    /// Same API as rope_into but uses NEOX-style element pairing (i, i + half_dim)
+    /// instead of adjacent pairs (2*i, 2*i+1). Required for Qwen2.5 models.
+    pub fn rope_neox_into(
+        &mut self,
+        input: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        position: u32,
+        num_heads: u32,
+        head_dim: u32,
+        theta: f32,
+    ) -> Result<(), GpuError> {
+        let kernel_type = KernelType::RopeNeox {
+            num_heads,
+            head_dim,
+            theta,
+        };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("rope_neox_{}_{}", num_heads, head_dim);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // Grid: num_heads blocks, each with half_dim threads
+        let config = LaunchConfig::grid_2d(num_heads, 1, head_dim / 2, 1);
+
+        let mut ptr_input = input.as_ptr();
+        let mut ptr_output = output.as_ptr();
+        let mut pos_val = position;
+
+        // SAFETY: Memory safety ensured by bounds checking and alignment
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut pos_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// CORRECTNESS-011: RoPE NEOX Indirect (CUDA Graph compatible)
+    ///
+    /// Same as rope_neox_into but reads position from device memory.
+    pub fn rope_neox_indirect_into(
+        &mut self,
+        input: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        position_buf: &GpuBuffer<u32>,
+        num_heads: u32,
+        head_dim: u32,
+        theta: f32,
+    ) -> Result<(), GpuError> {
+        let kernel_type = KernelType::RopeNeoxIndirect {
+            num_heads,
+            head_dim,
+            theta,
+        };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("rope_neox_indirect_{}_{}", num_heads, head_dim);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // Grid: num_heads blocks, each with half_dim threads
+        let config = LaunchConfig::grid_2d(num_heads, 1, head_dim / 2, 1);
+
+        let mut ptr_input = input.as_ptr();
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_position = position_buf.as_ptr();
+
+        // SAFETY: Memory safety ensured by bounds checking and alignment
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_position) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
     // =========================================================================
     // PAR-023: Host Convenience Methods for Activation Kernels
     // =========================================================================
@@ -9005,8 +9175,18 @@ impl CudaExecutor {
                 let layer_weights = self.indexed_layer_weights[layer_idx].clone();
                 // SAFETY: hidden_buf2 is initialized and remains valid throughout
                 // We get ptr/len before the mutable borrow, avoiding conflict
-                let buf_ptr = self.workspace.hidden_buf2.as_ref().expect("hidden_buf2 must be initialized").as_ptr();
-                let buf_len = self.workspace.hidden_buf2.as_ref().expect("hidden_buf2 must be initialized").len();
+                let buf_ptr = self
+                    .workspace
+                    .hidden_buf2
+                    .as_ref()
+                    .expect("hidden_buf2 must be initialized")
+                    .as_ptr();
+                let buf_len = self
+                    .workspace
+                    .hidden_buf2
+                    .as_ref()
+                    .expect("hidden_buf2 must be initialized")
+                    .len();
                 // Create temporary non-owning view of hidden_buf2
                 // SAFETY: Memory safety ensured by bounds checking and alignment
                 let input_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(buf_ptr, buf_len) };
@@ -9084,8 +9264,18 @@ impl CudaExecutor {
         self.stream.synchronize()?;
         if workspace_used {
             // Output is in hidden_buf2
-            let hidden_ptr = self.workspace.hidden_buf2.as_ref().expect("hidden_buf2 must be initialized").as_ptr();
-            let hidden_len = self.workspace.hidden_buf2.as_ref().expect("hidden_buf2 must be initialized").len();
+            let hidden_ptr = self
+                .workspace
+                .hidden_buf2
+                .as_ref()
+                .expect("hidden_buf2 must be initialized")
+                .as_ptr();
+            let hidden_len = self
+                .workspace
+                .hidden_buf2
+                .as_ref()
+                .expect("hidden_buf2 must be initialized")
+                .len();
             // SAFETY: Memory safety ensured by bounds checking and alignment
             let output_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_ptr, hidden_len) };
             output_buf.copy_to_host(output)?;
@@ -9215,8 +9405,18 @@ impl CudaExecutor {
                 let layer_weights = self.indexed_layer_weights[layer_idx].clone();
                 // SAFETY: hidden_buf2 is initialized and remains valid throughout
                 // We get ptr/len before the mutable borrow, avoiding conflict
-                let buf_ptr = self.workspace.hidden_buf2.as_ref().expect("hidden_buf2 must be initialized").as_ptr();
-                let buf_len = self.workspace.hidden_buf2.as_ref().expect("hidden_buf2 must be initialized").len();
+                let buf_ptr = self
+                    .workspace
+                    .hidden_buf2
+                    .as_ref()
+                    .expect("hidden_buf2 must be initialized")
+                    .as_ptr();
+                let buf_len = self
+                    .workspace
+                    .hidden_buf2
+                    .as_ref()
+                    .expect("hidden_buf2 must be initialized")
+                    .len();
                 // Create temporary non-owning view of hidden_buf2
                 // SAFETY: Memory safety ensured by bounds checking and alignment
                 let input_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(buf_ptr, buf_len) };
@@ -9302,8 +9502,18 @@ impl CudaExecutor {
         }) {
             self.stream.synchronize()?;
             let hidden_to_check = if workspace_used {
-                let ptr = self.workspace.hidden_buf2.as_ref().expect("hidden_buf2 must be initialized").as_ptr();
-                let len = self.workspace.hidden_buf2.as_ref().expect("hidden_buf2 must be initialized").len();
+                let ptr = self
+                    .workspace
+                    .hidden_buf2
+                    .as_ref()
+                    .expect("hidden_buf2 must be initialized")
+                    .as_ptr();
+                let len = self
+                    .workspace
+                    .hidden_buf2
+                    .as_ref()
+                    .expect("hidden_buf2 must be initialized")
+                    .len();
                 // SAFETY: Memory safety ensured by bounds checking and alignment
                 unsafe { GpuBuffer::<f32>::from_raw_parts(ptr, len) }
             } else {
@@ -9335,8 +9545,18 @@ impl CudaExecutor {
 
         let normed_hidden = if workspace_used {
             // PAR-044 FIX: Use hidden_buf2 directly (no D2D copy)
-            let hidden_ptr = self.workspace.hidden_buf2.as_ref().expect("hidden_buf2 must be initialized").as_ptr();
-            let hidden_len = self.workspace.hidden_buf2.as_ref().expect("hidden_buf2 must be initialized").len();
+            let hidden_ptr = self
+                .workspace
+                .hidden_buf2
+                .as_ref()
+                .expect("hidden_buf2 must be initialized")
+                .as_ptr();
+            let hidden_len = self
+                .workspace
+                .hidden_buf2
+                .as_ref()
+                .expect("hidden_buf2 must be initialized")
+                .len();
             // SAFETY: Memory safety ensured by bounds checking and alignment
             let hidden_input = unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_ptr, hidden_len) };
             let result = self.rmsnorm_gpu_ptr(
@@ -9446,6 +9666,43 @@ impl CudaExecutor {
                     vocab_size,
                     hidden_dim,
                 )?;
+                // CORRECTNESS-003: Debug Q6K logits
+                if *HIDDEN_DEBUG.get_or_init(|| {
+                    std::env::var("GPU_DEBUG")
+                        .map(|v| v == "1")
+                        .unwrap_or(false)
+                }) {
+                    self.stream.synchronize()?;
+                    let mut logits_debug = vec![0.0f32; 20.min(vocab_size as usize)];
+                    let debug_slice = unsafe {
+                        GpuBuffer::<f32>::from_raw_parts(logits_gpu.as_ptr(), logits_debug.len())
+                    };
+                    debug_slice.copy_to_host(&mut logits_debug)?;
+                    std::mem::forget(debug_slice);
+                    eprintln!(
+                        "[CORRECTNESS-003] Q6K LM head logits[0..20]: {:?}",
+                        logits_debug
+                    );
+                    // Check for all-zeros or all-same values (sign of kernel bug)
+                    let first = logits_debug[0];
+                    let all_same = logits_debug.iter().all(|&x| (x - first).abs() < 0.001);
+                    if all_same {
+                        eprintln!(
+                            "[CORRECTNESS-003] WARNING: All logits are identical ({})",
+                            first
+                        );
+                    }
+                    // Check argmax
+                    let (max_idx, max_val) = logits_debug
+                        .iter()
+                        .enumerate()
+                        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+                        .unwrap();
+                    eprintln!(
+                        "[CORRECTNESS-003] Q6K argmax in first 20: idx={}, val={}",
+                        max_idx, max_val
+                    );
+                }
             },
             WeightQuantType::Q5K => {
                 self.q5k_gemv_into(
@@ -9555,7 +9812,8 @@ impl CudaExecutor {
         if inputs.len() != expected_input_len {
             return Err(GpuError::InvalidParameter(format!(
                 "PAR-111: inputs.len() {} != M*hidden_dim = {}",
-                inputs.len(), expected_input_len
+                inputs.len(),
+                expected_input_len
             )));
         }
 
@@ -9571,11 +9829,21 @@ impl CudaExecutor {
         let input_buf = GpuBuffer::from_host(&self.context, inputs)?;
 
         // Get workspace buffer pointers to avoid borrow conflicts
-        let hidden_buf2_ptr = self.workspace.hidden_buf2.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-111: hidden_buf2 missing".to_string()))?
+        let hidden_buf2_ptr = self
+            .workspace
+            .hidden_buf2
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig("PAR-111: hidden_buf2 missing".to_string())
+            })?
             .as_ptr();
-        let hidden_buf2_len = self.workspace.hidden_buf2.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-111: hidden_buf2 missing".to_string()))?
+        let hidden_buf2_len = self
+            .workspace
+            .hidden_buf2
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig("PAR-111: hidden_buf2 missing".to_string())
+            })?
             .len();
 
         // 2. Process all layers with batched GEMV
@@ -9584,7 +9852,8 @@ impl CudaExecutor {
             if layer_idx >= self.indexed_layer_weights.len() {
                 return Err(GpuError::InvalidLaunchConfig(format!(
                     "PAR-111: Layer {} weights not indexed (have {})",
-                    layer_idx, self.indexed_layer_weights.len()
+                    layer_idx,
+                    self.indexed_layer_weights.len()
                 )));
             }
             let layer_weights = self.get_indexed_layer(layer_idx).clone();
@@ -9594,7 +9863,7 @@ impl CudaExecutor {
             let layer_input_buf = if layer_idx == 0 {
                 None // Use input_buf directly
             } else {
-        // SAFETY: Raw pointer from valid allocation, length verified by caller
+                // SAFETY: Raw pointer from valid allocation, length verified by caller
                 Some(unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_buf2_ptr, hidden_buf2_len) })
             };
 
@@ -9621,28 +9890,39 @@ impl CudaExecutor {
         }
 
         // 3. Output norm (PAR-115: Batched - single launch for M sequences)
-        let output_norm_buf = self.rmsnorm_cache.get("output_norm.gamma")
-            .ok_or_else(|| GpuError::InvalidLaunchConfig(
-                "PAR-111: output_norm not cached".to_string()
-            ))?;
+        let output_norm_buf = self.rmsnorm_cache.get("output_norm.gamma").ok_or_else(|| {
+            GpuError::InvalidLaunchConfig("PAR-111: output_norm not cached".to_string())
+        })?;
         let output_norm_ptr = output_norm_buf.as_ptr();
         let output_norm_len = hidden_dim as usize;
 
         // Get buffer pointers to avoid borrow conflicts
-        let hidden_buf2_ptr = self.workspace.hidden_buf2.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-111: hidden_buf2 missing".to_string()))?
+        let hidden_buf2_ptr = self
+            .workspace
+            .hidden_buf2
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig("PAR-111: hidden_buf2 missing".to_string())
+            })?
             .as_ptr();
-        let hidden_buf2_len = m as usize * hidden_dim as usize;
-        let normed_hidden_ptr = self.workspace.normed_hidden_buf.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-111: normed_hidden_buf missing".to_string()))?
+        let hidden_buf2_len = m * hidden_dim as usize;
+        let normed_hidden_ptr = self
+            .workspace
+            .normed_hidden_buf
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig("PAR-111: normed_hidden_buf missing".to_string())
+            })?
             .as_ptr();
-        let normed_hidden_len = m as usize * hidden_dim as usize;
+        let normed_hidden_len = m * hidden_dim as usize;
 
         // PAR-115: Use batched RMSNorm (M sequences in single kernel launch)
         // SAFETY: Buffers are valid for the lifetime of this function
-        let hidden_buf2 = unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_buf2_ptr, hidden_buf2_len) };
+        let hidden_buf2 =
+            unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_buf2_ptr, hidden_buf2_len) };
         // SAFETY: Raw pointer from valid allocation, length verified by caller
-        let normed_hidden_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(normed_hidden_ptr, normed_hidden_len) };
+        let normed_hidden_buf =
+            unsafe { GpuBuffer::<f32>::from_raw_parts(normed_hidden_ptr, normed_hidden_len) };
 
         self.batched_rmsnorm_ptr_into(
             &hidden_buf2,
@@ -9659,7 +9939,9 @@ impl CudaExecutor {
 
         // 4. LM head projection (BATCHED GEMV)
         if self.lm_head_ptr == 0 {
-            return Err(GpuError::InvalidLaunchConfig("PAR-111: LM head not indexed".to_string()));
+            return Err(GpuError::InvalidLaunchConfig(
+                "PAR-111: LM head not indexed".to_string(),
+            ));
         }
         let lm_head_ptr = self.lm_head_ptr;
         let lm_head_qtype = self.lm_head_qtype;
@@ -9668,13 +9950,17 @@ impl CudaExecutor {
         let logits_buf = GpuBuffer::new(&self.context, m * vocab_size as usize)?;
 
         // Get normed_hidden buffer pointer to avoid borrow conflict
-        let normed_hidden_buf_len = self.workspace.normed_hidden_buf.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-111: normed_hidden_buf missing".to_string()))?
+        let normed_hidden_buf_len = self
+            .workspace
+            .normed_hidden_buf
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig("PAR-111: normed_hidden_buf missing".to_string())
+            })?
             .len();
         // SAFETY: normed_hidden_buf is valid for the lifetime of this function
-        let normed_hidden_buf_wrapper = unsafe {
-            GpuBuffer::<f32>::from_raw_parts(normed_hidden_ptr, normed_hidden_buf_len)
-        };
+        let normed_hidden_buf_wrapper =
+            unsafe { GpuBuffer::<f32>::from_raw_parts(normed_hidden_ptr, normed_hidden_buf_len) };
 
         if lm_head_qtype == WeightQuantType::Q4K {
             self.batched_q4k_gemv_into(
@@ -9691,14 +9977,14 @@ impl CudaExecutor {
                 let h_offset = seq_idx * hidden_dim as usize;
                 let v_offset = seq_idx * vocab_size as usize;
 
-        // SAFETY: Unsafe operation with validated invariants
+                // SAFETY: Unsafe operation with validated invariants
                 let input_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         normed_hidden_ptr + (h_offset * std::mem::size_of::<f32>()) as u64,
                         hidden_dim as usize,
                     )
                 };
-        // SAFETY: Unsafe operation with validated invariants
+                // SAFETY: Unsafe operation with validated invariants
                 let output_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         logits_buf.as_ptr() + (v_offset * std::mem::size_of::<f32>()) as u64,
@@ -9706,7 +9992,13 @@ impl CudaExecutor {
                     )
                 };
 
-                self.q4k_gemv_into(lm_head_ptr, &input_view, &output_view, vocab_size, hidden_dim)?;
+                self.q4k_gemv_into(
+                    lm_head_ptr,
+                    &input_view,
+                    &output_view,
+                    vocab_size,
+                    hidden_dim,
+                )?;
 
                 std::mem::forget(input_view);
                 std::mem::forget(output_view);
@@ -9764,7 +10056,8 @@ impl CudaExecutor {
         if inputs.len() != expected_input_len {
             return Err(GpuError::InvalidParameter(format!(
                 "PAR-121: inputs.len() {} != M*hidden_dim = {}",
-                inputs.len(), expected_input_len
+                inputs.len(),
+                expected_input_len
             )));
         }
 
@@ -9787,7 +10080,12 @@ impl CudaExecutor {
         self.init_batched_graph_buffers(m, hidden_dim, vocab_size)?;
 
         // Pre-load all kernel modules before capture
-        self.preload_modules_for_batched_capture(num_layers, hidden_dim, intermediate_dim, vocab_size)?;
+        self.preload_modules_for_batched_capture(
+            num_layers,
+            hidden_dim,
+            intermediate_dim,
+            vocab_size,
+        )?;
 
         // Copy inputs to stable buffer
         if let Some(ref mut input_buf) = self.batched_graph_input_buf {
@@ -9824,10 +10122,13 @@ impl CudaExecutor {
                 // Get token IDs from logits
                 self.stream.synchronize()?;
                 self.batched_argmax_from_logits(m, vocab_size)
-            }
+            },
             Err(e) => {
                 // Graph capture failed, fall back to non-graphed path
-                eprintln!("[PAR-121] Graph capture failed for M={}: {:?}, using non-graphed path", m, e);
+                eprintln!(
+                    "[PAR-121] Graph capture failed for M={}: {:?}, using non-graphed path",
+                    m, e
+                );
                 self.forward_batched_to_token_ids(
                     inputs,
                     positions,
@@ -9837,7 +10138,7 @@ impl CudaExecutor {
                     vocab_size,
                     epsilon,
                 )
-            }
+            },
         }
     }
 
@@ -9852,21 +10153,33 @@ impl CudaExecutor {
 
         // Allocate or reallocate input buffer
         if self.batched_graph_input_buf.is_none()
-            || self.batched_graph_input_buf.as_ref().map(|b| b.len()).unwrap_or(0) != input_size
+            || self
+                .batched_graph_input_buf
+                .as_ref()
+                .map_or(0, trueno_gpu::driver::GpuBuffer::len)
+                != input_size
         {
             self.batched_graph_input_buf = Some(GpuBuffer::new(&self.context, input_size)?);
         }
 
         // Allocate or reallocate positions buffer
         if self.batched_graph_positions_buf.is_none()
-            || self.batched_graph_positions_buf.as_ref().map(|b| b.len()).unwrap_or(0) != m
+            || self
+                .batched_graph_positions_buf
+                .as_ref()
+                .map_or(0, trueno_gpu::driver::GpuBuffer::len)
+                != m
         {
             self.batched_graph_positions_buf = Some(GpuBuffer::new(&self.context, m)?);
         }
 
         // Allocate or reallocate seq_lens buffer
         if self.batched_graph_seq_lens_buf.is_none()
-            || self.batched_graph_seq_lens_buf.as_ref().map(|b| b.len()).unwrap_or(0) != m
+            || self
+                .batched_graph_seq_lens_buf
+                .as_ref()
+                .map_or(0, trueno_gpu::driver::GpuBuffer::len)
+                != m
         {
             self.batched_graph_seq_lens_buf = Some(GpuBuffer::new(&self.context, m)?);
         }
@@ -9874,7 +10187,12 @@ impl CudaExecutor {
         // Ensure workspace logits buffer is allocated for graph capture
         let logits_size = m * vocab_size as usize;
         if self.workspace.logits_buf.is_none()
-            || self.workspace.logits_buf.as_ref().map(|b| b.len()).unwrap_or(0) != logits_size
+            || self
+                .workspace
+                .logits_buf
+                .as_ref()
+                .map_or(0, trueno_gpu::driver::GpuBuffer::len)
+                != logits_size
         {
             self.workspace.logits_buf = Some(GpuBuffer::new(&self.context, logits_size)?);
         }
@@ -9941,24 +10259,46 @@ impl CudaExecutor {
         epsilon: f32,
     ) -> Result<(), GpuError> {
         // Use stable input buffer
-        let input_ptr = self.batched_graph_input_buf.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-121: batched_graph_input_buf missing".to_string()))?
+        let input_ptr = self
+            .batched_graph_input_buf
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(
+                    "PAR-121: batched_graph_input_buf missing".to_string(),
+                )
+            })?
             .as_ptr();
         let input_len = m * hidden_dim as usize;
         // SAFETY: Raw pointer from valid allocation, length verified by caller
         let input_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(input_ptr, input_len) };
 
         // Get workspace buffer pointers
-        let hidden_buf2_ptr = self.workspace.hidden_buf2.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-121: hidden_buf2 missing".to_string()))?
+        let hidden_buf2_ptr = self
+            .workspace
+            .hidden_buf2
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig("PAR-121: hidden_buf2 missing".to_string())
+            })?
             .as_ptr();
-        let hidden_buf2_len = self.workspace.hidden_buf2.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-121: hidden_buf2 missing".to_string()))?
+        let hidden_buf2_len = self
+            .workspace
+            .hidden_buf2
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig("PAR-121: hidden_buf2 missing".to_string())
+            })?
             .len();
 
         // Use stable positions buffer for RoPE and attention
-        let positions_ptr = self.batched_graph_positions_buf.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-121: batched_graph_positions_buf missing".to_string()))?
+        let positions_ptr = self
+            .batched_graph_positions_buf
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(
+                    "PAR-121: batched_graph_positions_buf missing".to_string(),
+                )
+            })?
             .as_ptr();
 
         // Process all layers with batched GEMV
@@ -9975,7 +10315,7 @@ impl CudaExecutor {
             let layer_input_buf = if layer_idx == 0 {
                 None
             } else {
-        // SAFETY: Raw pointer from valid allocation, length verified by caller
+                // SAFETY: Raw pointer from valid allocation, length verified by caller
                 Some(unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_buf2_ptr, hidden_buf2_len) })
             };
 
@@ -10002,24 +10342,37 @@ impl CudaExecutor {
         }
 
         // Output norm
-        let output_norm_buf = self.rmsnorm_cache.get("output_norm.gamma")
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-121: output_norm not cached".to_string()))?;
+        let output_norm_buf = self.rmsnorm_cache.get("output_norm.gamma").ok_or_else(|| {
+            GpuError::InvalidLaunchConfig("PAR-121: output_norm not cached".to_string())
+        })?;
         let output_norm_ptr = output_norm_buf.as_ptr();
         let output_norm_len = hidden_dim as usize;
 
-        let hidden_buf2_ptr = self.workspace.hidden_buf2.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-121: hidden_buf2 missing".to_string()))?
+        let hidden_buf2_ptr = self
+            .workspace
+            .hidden_buf2
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig("PAR-121: hidden_buf2 missing".to_string())
+            })?
             .as_ptr();
         let hidden_buf2_len = m * hidden_dim as usize;
-        let normed_hidden_ptr = self.workspace.normed_hidden_buf.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-121: normed_hidden_buf missing".to_string()))?
+        let normed_hidden_ptr = self
+            .workspace
+            .normed_hidden_buf
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig("PAR-121: normed_hidden_buf missing".to_string())
+            })?
             .as_ptr();
         let normed_hidden_len = m * hidden_dim as usize;
 
         // SAFETY: Raw pointer from valid allocation, length verified by caller
-        let hidden_buf2 = unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_buf2_ptr, hidden_buf2_len) };
+        let hidden_buf2 =
+            unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_buf2_ptr, hidden_buf2_len) };
         // SAFETY: Raw pointer from valid allocation, length verified by caller
-        let normed_hidden_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(normed_hidden_ptr, normed_hidden_len) };
+        let normed_hidden_buf =
+            unsafe { GpuBuffer::<f32>::from_raw_parts(normed_hidden_ptr, normed_hidden_len) };
 
         self.batched_rmsnorm_ptr_into(
             &hidden_buf2,
@@ -10039,21 +10392,24 @@ impl CudaExecutor {
         let lm_head_qtype = self.lm_head_qtype;
 
         // Get logits buffer pointer to avoid borrow conflict
-        let logits_buf_ptr = self.workspace.logits_buf.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-121: logits_buf missing".to_string()))?
+        let logits_buf_ptr = self
+            .workspace
+            .logits_buf
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig("PAR-121: logits_buf missing".to_string())
+            })?
             .as_ptr();
         let logits_buf_len = m * vocab_size as usize;
 
         // Create wrapper for logits buffer
         // SAFETY: Unsafe operation with validated invariants
-        let logits_buf = unsafe {
-            GpuBuffer::<f32>::from_raw_parts(logits_buf_ptr, logits_buf_len)
-        };
+        let logits_buf =
+            unsafe { GpuBuffer::<f32>::from_raw_parts(logits_buf_ptr, logits_buf_len) };
 
         // SAFETY: Unsafe operation with validated invariants
-        let normed_hidden_buf_wrapper = unsafe {
-            GpuBuffer::<f32>::from_raw_parts(normed_hidden_ptr, normed_hidden_len)
-        };
+        let normed_hidden_buf_wrapper =
+            unsafe { GpuBuffer::<f32>::from_raw_parts(normed_hidden_ptr, normed_hidden_len) };
 
         if lm_head_qtype == WeightQuantType::Q4K {
             self.batched_q4k_gemv_into(
@@ -10070,14 +10426,14 @@ impl CudaExecutor {
                 let h_offset = seq_idx * hidden_dim as usize;
                 let v_offset = seq_idx * vocab_size as usize;
 
-        // SAFETY: Unsafe operation with validated invariants
+                // SAFETY: Unsafe operation with validated invariants
                 let input_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         normed_hidden_ptr + (h_offset * std::mem::size_of::<f32>()) as u64,
                         hidden_dim as usize,
                     )
                 };
-        // SAFETY: Unsafe operation with validated invariants
+                // SAFETY: Unsafe operation with validated invariants
                 let output_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         logits_buf_ptr + (v_offset * std::mem::size_of::<f32>()) as u64,
@@ -10085,7 +10441,13 @@ impl CudaExecutor {
                     )
                 };
 
-                self.q4k_gemv_into(lm_head_ptr, &input_view, &output_view, vocab_size, hidden_dim)?;
+                self.q4k_gemv_into(
+                    lm_head_ptr,
+                    &input_view,
+                    &output_view,
+                    vocab_size,
+                    hidden_dim,
+                )?;
 
                 std::mem::forget(input_view);
                 std::mem::forget(output_view);
@@ -10107,7 +10469,7 @@ impl CudaExecutor {
         layer_idx: usize,
         layer_weights: &IndexedLayerWeights,
         m: u32,
-        positions_ptr: u64,
+        _positions_ptr: u64,
         hidden_dim: u32,
         intermediate_dim: u32,
         epsilon: f32,
@@ -10182,8 +10544,13 @@ impl CudaExecutor {
         vocab_size: u32,
     ) -> Result<Vec<u32>, GpuError> {
         // Get logits buffer pointer to avoid borrow conflict
-        let logits_base_ptr = self.workspace.logits_buf.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-121: logits_buf missing".to_string()))?
+        let logits_base_ptr = self
+            .workspace
+            .logits_buf
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig("PAR-121: logits_buf missing".to_string())
+            })?
             .as_ptr();
 
         let mut token_ids = Vec::with_capacity(m);
@@ -10324,7 +10691,12 @@ impl CudaExecutor {
         // PAR-054: Initialize stable input buffer if needed
         let hidden_size = hidden_dim as usize;
         if self.graph_input_buf.is_none()
-            || self.graph_input_buf.as_ref().expect("graph_input_buf must be initialized").len() != hidden_size
+            || self
+                .graph_input_buf
+                .as_ref()
+                .expect("graph_input_buf must be initialized")
+                .len()
+                != hidden_size
         {
             let input_buf = GpuBuffer::from_host(&self.context, input)?;
             self.graph_input_buf = Some(input_buf);
@@ -10363,7 +10735,12 @@ impl CudaExecutor {
 
         match capture_result {
             Ok(()) => {
-                // Graph captured successfully, sync and download logits
+                // CORRECTNESS-010: Graph capture defines the work but doesn't execute it.
+                // Must launch the graph once to produce actual output for first token.
+                if let Some(ref graph_exec) = self.decode_graph {
+                    self.stream.launch_graph(graph_exec)?;
+                }
+                // Graph captured and launched, sync and download logits
                 self.stream.synchronize()?;
                 if let Some(ref logits_buf) = self.workspace.logits_buf {
                     logits_buf.copy_to_host(logits)?;
@@ -10497,7 +10874,7 @@ impl CudaExecutor {
             self.modules.insert(q6k_q_key, module);
         }
         // PAR-066: CoalescedQ6K for Q (byte-wise scale loading, fixes alignment issue)
-        if hidden_dim % 256 == 0 {
+        if hidden_dim.is_multiple_of(256) {
             let coalesced_q6k_q_key = format!("coalesced_q6k_gemv_{}_{}", hidden_dim, q_dim);
             if !self.modules.contains_key(&coalesced_q6k_q_key) {
                 let kernel_type = KernelType::CoalescedQ6KGemv {
@@ -10521,7 +10898,7 @@ impl CudaExecutor {
             self.modules.insert(q6k_kv_key, module);
         }
         // PAR-066: CoalescedQ6K for KV
-        if hidden_dim % 256 == 0 {
+        if hidden_dim.is_multiple_of(256) {
             let coalesced_q6k_kv_key = format!("coalesced_q6k_gemv_{}_{}", hidden_dim, kv_dim);
             if !self.modules.contains_key(&coalesced_q6k_kv_key) {
                 let kernel_type = KernelType::CoalescedQ6KGemv {
@@ -10616,7 +10993,7 @@ impl CudaExecutor {
             self.modules.insert(q6k_down_key, module);
         }
         // PAR-066: CoalescedQ6K for FFN down (byte-wise scale loading)
-        if intermediate_dim % 256 == 0 {
+        if intermediate_dim.is_multiple_of(256) {
             let coalesced_q6k_down_key =
                 format!("coalesced_q6k_gemv_{}_{}", intermediate_dim, hidden_dim);
             if !self.modules.contains_key(&coalesced_q6k_down_key) {
@@ -10655,7 +11032,7 @@ impl CudaExecutor {
             self.modules.insert(lm_head_q6k_key, module);
         }
         // PAR-066: CoalescedQ6K for LM head
-        if hidden_dim % 256 == 0 {
+        if hidden_dim.is_multiple_of(256) {
             let coalesced_lm_head_q6k_key =
                 format!("coalesced_q6k_gemv_{}_{}", hidden_dim, vocab_size);
             if !self.modules.contains_key(&coalesced_lm_head_q6k_key) {
@@ -10695,6 +11072,82 @@ impl CudaExecutor {
             self.modules.insert(rope_k_key, module);
         }
 
+        // CORRECTNESS-010: RoPE indirect kernels for CUDA graph capture
+        // These read position from device memory instead of kernel parameter
+        let rope_q_indirect_key = format!("rope_indirect_{}_{}", num_heads, head_dim);
+        if !self.modules.contains_key(&rope_q_indirect_key) {
+            let kernel_type = KernelType::RopeIndirect {
+                num_heads,
+                head_dim,
+                theta,
+            };
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(rope_q_indirect_key, module);
+        }
+        let rope_k_indirect_key = format!("rope_indirect_{}_{}", num_kv_heads, head_dim);
+        if !self.modules.contains_key(&rope_k_indirect_key) {
+            let kernel_type = KernelType::RopeIndirect {
+                num_heads: num_kv_heads,
+                head_dim,
+                theta,
+            };
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(rope_k_indirect_key, module);
+        }
+
+        // CORRECTNESS-011: RoPE NEOX indirect kernels for Qwen2.5 (rope_type=2)
+        // Five-Whys: GPU garbage output → wrong RoPE style → NEOX kernels not loaded
+        if self.rope_type == 2 {
+            let rope_neox_q_indirect_key = format!("rope_neox_indirect_{}_{}", num_heads, head_dim);
+            if !self.modules.contains_key(&rope_neox_q_indirect_key) {
+                let kernel_type = KernelType::RopeNeoxIndirect {
+                    num_heads,
+                    head_dim,
+                    theta,
+                };
+                let ptx = self.kernels.generate_ptx(&kernel_type);
+                let module = CudaModule::from_ptx(&self.context, &ptx)?;
+                self.modules.insert(rope_neox_q_indirect_key, module);
+            }
+            let rope_neox_k_indirect_key =
+                format!("rope_neox_indirect_{}_{}", num_kv_heads, head_dim);
+            if !self.modules.contains_key(&rope_neox_k_indirect_key) {
+                let kernel_type = KernelType::RopeNeoxIndirect {
+                    num_heads: num_kv_heads,
+                    head_dim,
+                    theta,
+                };
+                let ptx = self.kernels.generate_ptx(&kernel_type);
+                let module = CudaModule::from_ptx(&self.context, &ptx)?;
+                self.modules.insert(rope_neox_k_indirect_key, module);
+            }
+            // Also preload direct NEOX kernels for non-graph-capture mode
+            let rope_neox_q_key = format!("rope_neox_{}_{}", num_heads, head_dim);
+            if !self.modules.contains_key(&rope_neox_q_key) {
+                let kernel_type = KernelType::RopeNeox {
+                    num_heads,
+                    head_dim,
+                    theta,
+                };
+                let ptx = self.kernels.generate_ptx(&kernel_type);
+                let module = CudaModule::from_ptx(&self.context, &ptx)?;
+                self.modules.insert(rope_neox_q_key, module);
+            }
+            let rope_neox_k_key = format!("rope_neox_{}_{}", num_kv_heads, head_dim);
+            if !self.modules.contains_key(&rope_neox_k_key) {
+                let kernel_type = KernelType::RopeNeox {
+                    num_heads: num_kv_heads,
+                    head_dim,
+                    theta,
+                };
+                let ptx = self.kernels.generate_ptx(&kernel_type);
+                let module = CudaModule::from_ptx(&self.context, &ptx)?;
+                self.modules.insert(rope_neox_k_key, module);
+            }
+        }
+
         // 7. SwiGLU kernel
         let swiglu_key = format!("fused_swiglu_{}", intermediate_dim);
         if !self.modules.contains_key(&swiglu_key) {
@@ -10728,7 +11181,7 @@ impl CudaExecutor {
             self.modules.insert(scatter_key, module);
         }
 
-        // 10. Incremental attention kernel
+        // 10. Incremental attention kernel (direct mode - for non-graph path)
         let attn_key = format!(
             "incremental_attention_{}_{}_{}_{}",
             max_len, head_dim, num_heads, num_kv_heads
@@ -10744,6 +11197,66 @@ impl CudaExecutor {
             let ptx = self.kernels.generate_ptx(&kernel_type);
             let module = CudaModule::from_ptx(&self.context, &ptx)?;
             self.modules.insert(attn_key, module);
+        }
+
+        // CORRECTNESS-010: Preload indirect attention kernel for CUDA graph capture
+        // The indirect version reads seq_len from device memory (position_buf)
+        let attn_indirect_key = format!(
+            "incremental_attention_indirect_{}_{}_{}_{}",
+            max_len, head_dim, num_heads, num_kv_heads
+        );
+        if !self.modules.contains_key(&attn_indirect_key) {
+            let kernel_type = KernelType::IncrementalAttention {
+                max_seq_len: max_len,
+                head_dim,
+                n_heads: num_heads,
+                n_kv_heads: num_kv_heads,
+                indirect: true,
+            };
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(attn_indirect_key, module);
+        }
+
+        // CORRECTNESS-009: Preload multi-warp attention kernels for head_dim > 64
+        // Multi-warp kernel handles 4 elements per thread (vs 2 for single-warp)
+        // Required for models like Qwen 2.5 with head_dim=128
+        let num_warps_per_head = 4u32;
+        let multi_warp_key = format!(
+            "multi_warp_attention_{}_{}_{}_{}_{}",
+            max_len, head_dim, num_heads, num_kv_heads, num_warps_per_head
+        );
+        if !self.modules.contains_key(&multi_warp_key) {
+            let kernel_type = KernelType::MultiWarpAttention {
+                max_seq_len: max_len,
+                head_dim,
+                n_heads: num_heads,
+                n_kv_heads: num_kv_heads,
+                num_warps_per_head,
+                indirect: false,
+            };
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(multi_warp_key, module);
+        }
+
+        // CORRECTNESS-010: Preload multi-warp indirect attention for graph capture
+        let multi_warp_indirect_key = format!(
+            "multi_warp_attention_indirect_{}_{}_{}_{}_{}",
+            max_len, head_dim, num_heads, num_kv_heads, num_warps_per_head
+        );
+        if !self.modules.contains_key(&multi_warp_indirect_key) {
+            let kernel_type = KernelType::MultiWarpAttention {
+                max_seq_len: max_len,
+                head_dim,
+                n_heads: num_heads,
+                n_kv_heads: num_kv_heads,
+                num_warps_per_head,
+                indirect: true,
+            };
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            self.modules.insert(multi_warp_indirect_key, module);
         }
 
         eprintln!(
@@ -10786,7 +11299,10 @@ impl CudaExecutor {
         self.decode_graph = Some(graph_exec);
         self.decode_token_count = 1;
 
-        eprintln!("[PAR-054] ✓ CUDA graph captured successfully ({} layers + LM head)", num_layers);
+        eprintln!(
+            "[PAR-054] ✓ CUDA graph captured successfully ({} layers + LM head)",
+            num_layers
+        );
 
         Ok(())
     }
@@ -10866,9 +11382,18 @@ impl CudaExecutor {
             self.argmax_num_blocks = num_blocks;
         }
 
-        let block_max_vals = self.argmax_block_vals.as_ref().expect("argmax_block_vals must be initialized");
-        let block_max_idxs = self.argmax_block_idxs.as_ref().expect("argmax_block_idxs must be initialized");
-        let result_buf = self.argmax_result.as_ref().expect("argmax_result must be initialized");
+        let block_max_vals = self
+            .argmax_block_vals
+            .as_ref()
+            .expect("argmax_block_vals must be initialized");
+        let block_max_idxs = self
+            .argmax_block_idxs
+            .as_ref()
+            .expect("argmax_block_idxs must be initialized");
+        let result_buf = self
+            .argmax_result
+            .as_ref()
+            .expect("argmax_result must be initialized");
 
         // Load first-pass kernel module (cached after first use)
         let argmax_kernel_type = KernelType::ArgMax { length: vocab_size };
@@ -10952,6 +11477,19 @@ impl CudaExecutor {
         let mut result = [0u32];
         result_buf.copy_to_host(&mut result)?;
 
+        // CORRECTNESS-005: Debug GPU argmax result
+        static ARGMAX_DEBUG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if *ARGMAX_DEBUG.get_or_init(|| {
+            std::env::var("GPU_DEBUG")
+                .map(|v| v == "1")
+                .unwrap_or(false)
+        }) {
+            eprintln!(
+                "[CORRECTNESS-005] GPU argmax: token_id={}, vocab_size={}",
+                result[0], vocab_size
+            );
+        }
+
         Ok(result[0])
     }
 
@@ -11022,7 +11560,67 @@ impl CudaExecutor {
             .ok_or_else(|| GpuError::InvalidParameter("logits_buf not allocated".into()))?
             .as_ptr();
 
-        self.gpu_argmax(logits_ptr, vocab_size)
+        // CORRECTNESS-004: Debug graph-replayed logits and compare argmax
+        static GPU_DEBUG_FLAG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let debug_enabled = *GPU_DEBUG_FLAG.get_or_init(|| {
+            std::env::var("GPU_DEBUG")
+                .map(|v| v == "1")
+                .unwrap_or(false)
+        });
+
+        if debug_enabled {
+            self.stream.synchronize()?;
+            // Download ALL logits to compute CPU argmax for comparison
+            let mut all_logits = vec![0.0f32; vocab_size as usize];
+            let debug_view =
+                unsafe { GpuBuffer::<f32>::from_raw_parts(logits_ptr, vocab_size as usize) };
+            debug_view.copy_to_host(&mut all_logits)?;
+            std::mem::forget(debug_view);
+
+            // CPU argmax
+            let (cpu_argmax_idx, cpu_argmax_val) = all_logits
+                .iter()
+                .enumerate()
+                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+                .unwrap();
+
+            eprintln!(
+                "[CORRECTNESS-004] Graph logits[0..20]: {:?}",
+                &all_logits[..20]
+            );
+            eprintln!(
+                "[CORRECTNESS-004] GPU argmax: idx={}, val={}",
+                cpu_argmax_idx, cpu_argmax_val
+            );
+
+            // Compare against CPU's expected top tokens: 19 ("4"), 17 ("2"), 785 (" The")
+            eprintln!(
+                "[CORRECTNESS-004] GPU logit for token 19 ('4'): {}",
+                all_logits.get(19).unwrap_or(&f32::NAN)
+            );
+            eprintln!(
+                "[CORRECTNESS-004] GPU logit for token 17 ('2'): {}",
+                all_logits.get(17).unwrap_or(&f32::NAN)
+            );
+            eprintln!(
+                "[CORRECTNESS-004] GPU logit for token 785: {}",
+                all_logits.get(785).unwrap_or(&f32::NAN)
+            );
+
+            // Top 5 GPU logits
+            let mut top5: Vec<(usize, f32)> = all_logits.iter().copied().enumerate().collect();
+            top5.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            top5.truncate(10);
+            eprintln!("[CORRECTNESS-004] GPU top10 logits: {:?}", top5);
+        }
+
+        let gpu_result = self.gpu_argmax(logits_ptr, vocab_size)?;
+
+        if debug_enabled {
+            eprintln!("[CORRECTNESS-004] GPU argmax result: {}", gpu_result);
+        }
+
+        Ok(gpu_result)
     }
 
     /// PAR-054: Forward pass for graph capture (uses pre-allocated workspace)
@@ -11043,8 +11641,16 @@ impl CudaExecutor {
         // PAR-070: Position is read from position_buf in indirect mode (graph capture)
         // The position parameter here is ignored since position_buf.is_some() triggers indirect mode
         if num_layers > 0 {
-            let input_ptr = self.graph_input_buf.as_ref().expect("graph_input_buf must be initialized").as_ptr();
-            let input_len = self.graph_input_buf.as_ref().expect("graph_input_buf must be initialized").len();
+            let input_ptr = self
+                .graph_input_buf
+                .as_ref()
+                .expect("graph_input_buf must be initialized")
+                .as_ptr();
+            let input_len = self
+                .graph_input_buf
+                .as_ref()
+                .expect("graph_input_buf must be initialized")
+                .len();
             // SAFETY: Memory safety ensured by bounds checking and alignment
             let input_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(input_ptr, input_len) };
             let layer_weights = self.indexed_layer_weights[0].clone();
@@ -11064,8 +11670,18 @@ impl CudaExecutor {
         // Layers 1+: input from hidden_buf2
         for layer_idx in 1..num_layers {
             let layer_weights = self.indexed_layer_weights[layer_idx].clone();
-            let buf_ptr = self.workspace.hidden_buf2.as_ref().expect("hidden_buf2 must be initialized").as_ptr();
-            let buf_len = self.workspace.hidden_buf2.as_ref().expect("hidden_buf2 must be initialized").len();
+            let buf_ptr = self
+                .workspace
+                .hidden_buf2
+                .as_ref()
+                .expect("hidden_buf2 must be initialized")
+                .as_ptr();
+            let buf_len = self
+                .workspace
+                .hidden_buf2
+                .as_ref()
+                .expect("hidden_buf2 must be initialized")
+                .len();
             // SAFETY: Memory safety ensured by bounds checking and alignment
             let input_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(buf_ptr, buf_len) };
             // PAR-054: Use capture-safe version (no debug sync/copy_to_host)
@@ -11088,14 +11704,34 @@ impl CudaExecutor {
         let output_gamma_ptr = output_norm_gamma.as_ptr();
         let output_gamma_len = output_norm_gamma.len();
 
-        let hidden_ptr = self.workspace.hidden_buf2.as_ref().expect("hidden_buf2 must be initialized").as_ptr();
-        let hidden_len = self.workspace.hidden_buf2.as_ref().expect("hidden_buf2 must be initialized").len();
+        let hidden_ptr = self
+            .workspace
+            .hidden_buf2
+            .as_ref()
+            .expect("hidden_buf2 must be initialized")
+            .as_ptr();
+        let hidden_len = self
+            .workspace
+            .hidden_buf2
+            .as_ref()
+            .expect("hidden_buf2 must be initialized")
+            .len();
         // SAFETY: Memory safety ensured by bounds checking and alignment
         let hidden_input = unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_ptr, hidden_len) };
 
         // PAR-054: Write to pre-allocated normed_hidden_buf (no allocation during capture)
-        let normed_ptr = self.workspace.normed_hidden_buf.as_ref().expect("normed_hidden_buf must be initialized").as_ptr();
-        let normed_len = self.workspace.normed_hidden_buf.as_ref().expect("normed_hidden_buf must be initialized").len();
+        let normed_ptr = self
+            .workspace
+            .normed_hidden_buf
+            .as_ref()
+            .expect("normed_hidden_buf must be initialized")
+            .as_ptr();
+        let normed_len = self
+            .workspace
+            .normed_hidden_buf
+            .as_ref()
+            .expect("normed_hidden_buf must be initialized")
+            .len();
         // SAFETY: Memory safety ensured by bounds checking and alignment
         let normed_output = unsafe { GpuBuffer::<f32>::from_raw_parts(normed_ptr, normed_len) };
 
@@ -11112,13 +11748,33 @@ impl CudaExecutor {
 
         // LM head projection - PAR-054: Use pre-allocated logits_buf
         // PAR-058-FIX: Use correct kernel based on LM head quantization type
-        let logits_ptr = self.workspace.logits_buf.as_ref().expect("logits_buf must be initialized").as_ptr();
-        let logits_len = self.workspace.logits_buf.as_ref().expect("logits_buf must be initialized").len();
+        let logits_ptr = self
+            .workspace
+            .logits_buf
+            .as_ref()
+            .expect("logits_buf must be initialized")
+            .as_ptr();
+        let logits_len = self
+            .workspace
+            .logits_buf
+            .as_ref()
+            .expect("logits_buf must be initialized")
+            .len();
         // SAFETY: Memory safety ensured by bounds checking and alignment
         let logits_output = unsafe { GpuBuffer::<f32>::from_raw_parts(logits_ptr, logits_len) };
 
-        let normed_ptr = self.workspace.normed_hidden_buf.as_ref().expect("normed_hidden_buf must be initialized").as_ptr();
-        let normed_len = self.workspace.normed_hidden_buf.as_ref().expect("normed_hidden_buf must be initialized").len();
+        let normed_ptr = self
+            .workspace
+            .normed_hidden_buf
+            .as_ref()
+            .expect("normed_hidden_buf must be initialized")
+            .as_ptr();
+        let normed_len = self
+            .workspace
+            .normed_hidden_buf
+            .as_ref()
+            .expect("normed_hidden_buf must be initialized")
+            .len();
         // SAFETY: Memory safety ensured by bounds checking and alignment
         let normed_input = unsafe { GpuBuffer::<f32>::from_raw_parts(normed_ptr, normed_len) };
 
@@ -11497,29 +12153,129 @@ impl CudaExecutor {
 
         // PAR-044: Get buffer pointers/lengths to avoid borrow conflicts
         // SAFETY: All workspace buffers are initialized (verified above) and remain valid
-        let hidden_buf1_ptr = self.workspace.hidden_buf1.as_ref().expect("hidden_buf1 must be initialized").as_ptr();
-        let hidden_buf1_len = self.workspace.hidden_buf1.as_ref().expect("hidden_buf1 must be initialized").len();
-        let hidden_buf2_ptr = self.workspace.hidden_buf2.as_ref().expect("hidden_buf2 must be initialized").as_ptr();
-        let hidden_buf2_len = self.workspace.hidden_buf2.as_ref().expect("hidden_buf2 must be initialized").len();
+        let hidden_buf1_ptr = self
+            .workspace
+            .hidden_buf1
+            .as_ref()
+            .expect("hidden_buf1 must be initialized")
+            .as_ptr();
+        let hidden_buf1_len = self
+            .workspace
+            .hidden_buf1
+            .as_ref()
+            .expect("hidden_buf1 must be initialized")
+            .len();
+        let hidden_buf2_ptr = self
+            .workspace
+            .hidden_buf2
+            .as_ref()
+            .expect("hidden_buf2 must be initialized")
+            .as_ptr();
+        let hidden_buf2_len = self
+            .workspace
+            .hidden_buf2
+            .as_ref()
+            .expect("hidden_buf2 must be initialized")
+            .len();
         // PAR-044 FIX: Use input_staging as scratch for residual1 to avoid read/write conflict
         // when input aliases hidden_buf2 (layers 1+)
-        let input_staging_ptr = self.workspace.input_staging.as_ref().expect("input_staging must be initialized").as_ptr();
-        let input_staging_len = self.workspace.input_staging.as_ref().expect("input_staging must be initialized").len();
-        let q_buf_ptr = self.workspace.q_buf.as_ref().expect("q_buf must be initialized").as_ptr();
-        let q_buf_len = self.workspace.q_buf.as_ref().expect("q_buf must be initialized").len();
-        let k_buf_ptr = self.workspace.k_buf.as_ref().expect("k_buf must be initialized").as_ptr();
-        let k_buf_len = self.workspace.k_buf.as_ref().expect("k_buf must be initialized").len();
-        let v_buf_ptr = self.workspace.v_buf.as_ref().expect("v_buf must be initialized").as_ptr();
-        let v_buf_len = self.workspace.v_buf.as_ref().expect("v_buf must be initialized").len();
-        let ffn_gate_ptr = self.workspace.ffn_gate_buf.as_ref().expect("ffn_gate_buf must be initialized").as_ptr();
-        let ffn_gate_len = self.workspace.ffn_gate_buf.as_ref().expect("ffn_gate_buf must be initialized").len();
-        let ffn_up_ptr = self.workspace.ffn_up_buf.as_ref().expect("ffn_up_buf must be initialized").as_ptr();
-        let ffn_up_len = self.workspace.ffn_up_buf.as_ref().expect("ffn_up_buf must be initialized").len();
-        let ffn_act_ptr = self.workspace.ffn_act_buf.as_ref().expect("ffn_act_buf must be initialized").as_ptr();
-        let ffn_act_len = self.workspace.ffn_act_buf.as_ref().expect("ffn_act_buf must be initialized").len();
+        let input_staging_ptr = self
+            .workspace
+            .input_staging
+            .as_ref()
+            .expect("input_staging must be initialized")
+            .as_ptr();
+        let input_staging_len = self
+            .workspace
+            .input_staging
+            .as_ref()
+            .expect("input_staging must be initialized")
+            .len();
+        let q_buf_ptr = self
+            .workspace
+            .q_buf
+            .as_ref()
+            .expect("q_buf must be initialized")
+            .as_ptr();
+        let q_buf_len = self
+            .workspace
+            .q_buf
+            .as_ref()
+            .expect("q_buf must be initialized")
+            .len();
+        let k_buf_ptr = self
+            .workspace
+            .k_buf
+            .as_ref()
+            .expect("k_buf must be initialized")
+            .as_ptr();
+        let k_buf_len = self
+            .workspace
+            .k_buf
+            .as_ref()
+            .expect("k_buf must be initialized")
+            .len();
+        let v_buf_ptr = self
+            .workspace
+            .v_buf
+            .as_ref()
+            .expect("v_buf must be initialized")
+            .as_ptr();
+        let v_buf_len = self
+            .workspace
+            .v_buf
+            .as_ref()
+            .expect("v_buf must be initialized")
+            .len();
+        let ffn_gate_ptr = self
+            .workspace
+            .ffn_gate_buf
+            .as_ref()
+            .expect("ffn_gate_buf must be initialized")
+            .as_ptr();
+        let ffn_gate_len = self
+            .workspace
+            .ffn_gate_buf
+            .as_ref()
+            .expect("ffn_gate_buf must be initialized")
+            .len();
+        let ffn_up_ptr = self
+            .workspace
+            .ffn_up_buf
+            .as_ref()
+            .expect("ffn_up_buf must be initialized")
+            .as_ptr();
+        let ffn_up_len = self
+            .workspace
+            .ffn_up_buf
+            .as_ref()
+            .expect("ffn_up_buf must be initialized")
+            .len();
+        let ffn_act_ptr = self
+            .workspace
+            .ffn_act_buf
+            .as_ref()
+            .expect("ffn_act_buf must be initialized")
+            .as_ptr();
+        let ffn_act_len = self
+            .workspace
+            .ffn_act_buf
+            .as_ref()
+            .expect("ffn_act_buf must be initialized")
+            .len();
         // PAR-051: Attention output workspace buffer
-        let attn_out_ptr = self.workspace.attn_out_buf.as_ref().expect("attn_out_buf must be initialized").as_ptr();
-        let attn_out_len = self.workspace.attn_out_buf.as_ref().expect("attn_out_buf must be initialized").len();
+        let attn_out_ptr = self
+            .workspace
+            .attn_out_buf
+            .as_ref()
+            .expect("attn_out_buf must be initialized")
+            .as_ptr();
+        let attn_out_len = self
+            .workspace
+            .attn_out_buf
+            .as_ref()
+            .expect("attn_out_buf must be initialized")
+            .len();
 
         // Create temporary non-owning buffer wrappers
         // These will be forgotten at the end to avoid freeing borrowed memory
@@ -11876,27 +12632,71 @@ impl CudaExecutor {
 
             // Apply RoPE to Q and K (in-place)
             // PAR-061: Use indirect position for CUDA graph capture to avoid baking position
+            if layer_idx == 0 {
+                eprintln!(
+                    "[CORRECTNESS-010] RoPE: skip_debug={}, position_buf={}, using {}",
+                    skip_debug,
+                    self.position_buf.is_some(),
+                    if skip_debug && self.position_buf.is_some() {
+                        "indirect"
+                    } else {
+                        "direct"
+                    }
+                );
+            }
+            // CORRECTNESS-011: Use NEOX RoPE style for rope_type == 2 (Qwen2.5, etc.)
             if skip_debug && self.position_buf.is_some() {
                 // Graph capture mode: read position from device memory (updated before replay)
                 // Clone the buffer pointer to avoid borrow conflict with &mut self
-                let pos_buf_ptr = self.position_buf.as_ref().expect("position_buf must be initialized").as_ptr();
-                let pos_buf_len = self.position_buf.as_ref().expect("position_buf must be initialized").len();
+                let pos_buf_ptr = self
+                    .position_buf
+                    .as_ref()
+                    .expect("position_buf must be initialized")
+                    .as_ptr();
+                let pos_buf_len = self
+                    .position_buf
+                    .as_ref()
+                    .expect("position_buf must be initialized")
+                    .len();
                 // SAFETY: Memory safety ensured by bounds checking and alignment
                 let pos_buf = unsafe { GpuBuffer::<u32>::from_raw_parts(pos_buf_ptr, pos_buf_len) };
-                self.rope_indirect_into(&q_buf, &q_buf, &pos_buf, num_heads, head_dim, theta)?;
-                self.rope_indirect_into(&k_buf, &k_buf, &pos_buf, num_kv_heads, head_dim, theta)?;
+                if self.rope_type == 2 {
+                    // NEOX style: split halves (i, i + half_dim)
+                    self.rope_neox_indirect_into(
+                        &q_buf, &q_buf, &pos_buf, num_heads, head_dim, theta,
+                    )?;
+                    self.rope_neox_indirect_into(
+                        &k_buf,
+                        &k_buf,
+                        &pos_buf,
+                        num_kv_heads,
+                        head_dim,
+                        theta,
+                    )?;
+                } else {
+                    // NORM style: adjacent pairs (2*i, 2*i+1)
+                    self.rope_indirect_into(&q_buf, &q_buf, &pos_buf, num_heads, head_dim, theta)?;
+                    self.rope_indirect_into(
+                        &k_buf,
+                        &k_buf,
+                        &pos_buf,
+                        num_kv_heads,
+                        head_dim,
+                        theta,
+                    )?;
+                }
                 std::mem::forget(pos_buf); // Don't drop - it's a view into self.position_buf
             } else {
                 // Normal mode: use direct position value
-                self.rope_into(&q_buf, &q_buf, position as u32, num_heads, head_dim, theta)?;
-                self.rope_into(
-                    &k_buf,
-                    &k_buf,
-                    position as u32,
-                    num_kv_heads,
-                    head_dim,
-                    theta,
-                )?;
+                if self.rope_type == 2 {
+                    // NEOX style: split halves (i, i + half_dim)
+                    self.rope_neox_into(&q_buf, &q_buf, position, num_heads, head_dim, theta)?;
+                    self.rope_neox_into(&k_buf, &k_buf, position, num_kv_heads, head_dim, theta)?;
+                } else {
+                    // NORM style: adjacent pairs (2*i, 2*i+1)
+                    self.rope_into(&q_buf, &q_buf, position, num_heads, head_dim, theta)?;
+                    self.rope_into(&k_buf, &k_buf, position, num_kv_heads, head_dim, theta)?;
+                }
             }
 
             if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2) {
@@ -12502,7 +13302,8 @@ impl CudaExecutor {
         if positions.len() != m as usize {
             return Err(GpuError::InvalidLaunchConfig(format!(
                 "PAR-111: positions.len() {} != m {}",
-                positions.len(), m
+                positions.len(),
+                m
             )));
         }
 
@@ -12510,74 +13311,177 @@ impl CudaExecutor {
         let kv_dim = (self.kv_num_kv_heads * self.kv_head_dim) as u32;
 
         // Get batched buffer pointers (M× larger buffers allocated by init_batched_workspace)
-        let hidden_buf1_ptr = self.workspace.hidden_buf1.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-111: hidden_buf1 not initialized".to_string()))?
+        let hidden_buf1_ptr = self
+            .workspace
+            .hidden_buf1
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig("PAR-111: hidden_buf1 not initialized".to_string())
+            })?
             .as_ptr();
-        let hidden_buf1_len = self.workspace.hidden_buf1.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-111: hidden_buf1 not initialized".to_string()))?
+        let hidden_buf1_len = self
+            .workspace
+            .hidden_buf1
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig("PAR-111: hidden_buf1 not initialized".to_string())
+            })?
             .len();
-        let hidden_buf2_ptr = self.workspace.hidden_buf2.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-111: hidden_buf2 not initialized".to_string()))?
+        let hidden_buf2_ptr = self
+            .workspace
+            .hidden_buf2
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig("PAR-111: hidden_buf2 not initialized".to_string())
+            })?
             .as_ptr();
-        let hidden_buf2_len = self.workspace.hidden_buf2.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-111: hidden_buf2 not initialized".to_string()))?
+        let hidden_buf2_len = self
+            .workspace
+            .hidden_buf2
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig("PAR-111: hidden_buf2 not initialized".to_string())
+            })?
             .len();
-        let input_staging_ptr = self.workspace.input_staging.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-111: input_staging not initialized".to_string()))?
+        let input_staging_ptr = self
+            .workspace
+            .input_staging
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig("PAR-111: input_staging not initialized".to_string())
+            })?
             .as_ptr();
-        let input_staging_len = self.workspace.input_staging.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-111: input_staging not initialized".to_string()))?
+        let input_staging_len = self
+            .workspace
+            .input_staging
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig("PAR-111: input_staging not initialized".to_string())
+            })?
             .len();
-        let q_buf_ptr = self.workspace.q_buf.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-111: q_buf not initialized".to_string()))?
+        let q_buf_ptr = self
+            .workspace
+            .q_buf
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig("PAR-111: q_buf not initialized".to_string())
+            })?
             .as_ptr();
-        let q_buf_len = self.workspace.q_buf.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-111: q_buf not initialized".to_string()))?
+        let q_buf_len = self
+            .workspace
+            .q_buf
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig("PAR-111: q_buf not initialized".to_string())
+            })?
             .len();
-        let k_buf_ptr = self.workspace.k_buf.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-111: k_buf not initialized".to_string()))?
+        let k_buf_ptr = self
+            .workspace
+            .k_buf
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig("PAR-111: k_buf not initialized".to_string())
+            })?
             .as_ptr();
-        let k_buf_len = self.workspace.k_buf.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-111: k_buf not initialized".to_string()))?
+        let k_buf_len = self
+            .workspace
+            .k_buf
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig("PAR-111: k_buf not initialized".to_string())
+            })?
             .len();
-        let v_buf_ptr = self.workspace.v_buf.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-111: v_buf not initialized".to_string()))?
+        let v_buf_ptr = self
+            .workspace
+            .v_buf
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig("PAR-111: v_buf not initialized".to_string())
+            })?
             .as_ptr();
-        let v_buf_len = self.workspace.v_buf.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-111: v_buf not initialized".to_string()))?
+        let v_buf_len = self
+            .workspace
+            .v_buf
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig("PAR-111: v_buf not initialized".to_string())
+            })?
             .len();
-        let ffn_gate_ptr = self.workspace.ffn_gate_buf.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-111: ffn_gate_buf not initialized".to_string()))?
+        let ffn_gate_ptr = self
+            .workspace
+            .ffn_gate_buf
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig("PAR-111: ffn_gate_buf not initialized".to_string())
+            })?
             .as_ptr();
-        let ffn_gate_len = self.workspace.ffn_gate_buf.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-111: ffn_gate_buf not initialized".to_string()))?
+        let ffn_gate_len = self
+            .workspace
+            .ffn_gate_buf
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig("PAR-111: ffn_gate_buf not initialized".to_string())
+            })?
             .len();
-        let ffn_up_ptr = self.workspace.ffn_up_buf.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-111: ffn_up_buf not initialized".to_string()))?
+        let ffn_up_ptr = self
+            .workspace
+            .ffn_up_buf
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig("PAR-111: ffn_up_buf not initialized".to_string())
+            })?
             .as_ptr();
-        let ffn_up_len = self.workspace.ffn_up_buf.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-111: ffn_up_buf not initialized".to_string()))?
+        let ffn_up_len = self
+            .workspace
+            .ffn_up_buf
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig("PAR-111: ffn_up_buf not initialized".to_string())
+            })?
             .len();
-        let ffn_act_ptr = self.workspace.ffn_act_buf.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-111: ffn_act_buf not initialized".to_string()))?
+        let ffn_act_ptr = self
+            .workspace
+            .ffn_act_buf
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig("PAR-111: ffn_act_buf not initialized".to_string())
+            })?
             .as_ptr();
-        let ffn_act_len = self.workspace.ffn_act_buf.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-111: ffn_act_buf not initialized".to_string()))?
+        let ffn_act_len = self
+            .workspace
+            .ffn_act_buf
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig("PAR-111: ffn_act_buf not initialized".to_string())
+            })?
             .len();
-        let attn_out_ptr = self.workspace.attn_out_buf.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-111: attn_out_buf not initialized".to_string()))?
+        let attn_out_ptr = self
+            .workspace
+            .attn_out_buf
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig("PAR-111: attn_out_buf not initialized".to_string())
+            })?
             .as_ptr();
-        let attn_out_len = self.workspace.attn_out_buf.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-111: attn_out_buf not initialized".to_string()))?
+        let attn_out_len = self
+            .workspace
+            .attn_out_buf
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig("PAR-111: attn_out_buf not initialized".to_string())
+            })?
             .len();
 
         // Create temporary buffer wrappers (M× sized)
         // SAFETY: Memory safety ensured by workspace initialization
-        let hidden_buf1 = unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_buf1_ptr, hidden_buf1_len) };
+        let hidden_buf1 =
+            unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_buf1_ptr, hidden_buf1_len) };
         // SAFETY: Raw pointer from valid allocation, length verified by caller
-        let hidden_buf2 = unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_buf2_ptr, hidden_buf2_len) };
+        let hidden_buf2 =
+            unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_buf2_ptr, hidden_buf2_len) };
         // SAFETY: Raw pointer from valid allocation, length verified by caller
-        let input_staging = unsafe { GpuBuffer::<f32>::from_raw_parts(input_staging_ptr, input_staging_len) };
+        let input_staging =
+            unsafe { GpuBuffer::<f32>::from_raw_parts(input_staging_ptr, input_staging_len) };
         // SAFETY: Raw pointer from valid allocation, length verified by caller
         let q_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(q_buf_ptr, q_buf_len) };
         // SAFETY: Raw pointer from valid allocation, length verified by caller
@@ -12640,28 +13544,28 @@ impl CudaExecutor {
                 let q_offset = seq_idx * q_dim as usize;
                 let kv_offset = seq_idx * kv_dim as usize;
 
-        // SAFETY: Unsafe operation with validated invariants
+                // SAFETY: Unsafe operation with validated invariants
                 let input_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         hidden_buf1_ptr + (h_offset * std::mem::size_of::<f32>()) as u64,
                         hidden_dim as usize,
                     )
                 };
-        // SAFETY: Unsafe operation with validated invariants
+                // SAFETY: Unsafe operation with validated invariants
                 let q_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         q_buf_ptr + (q_offset * std::mem::size_of::<f32>()) as u64,
                         q_dim as usize,
                     )
                 };
-        // SAFETY: Unsafe operation with validated invariants
+                // SAFETY: Unsafe operation with validated invariants
                 let k_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         k_buf_ptr + (kv_offset * std::mem::size_of::<f32>()) as u64,
                         kv_dim as usize,
                     )
                 };
-        // SAFETY: Unsafe operation with validated invariants
+                // SAFETY: Unsafe operation with validated invariants
                 let v_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         v_buf_ptr + (kv_offset * std::mem::size_of::<f32>()) as u64,
@@ -12669,9 +13573,27 @@ impl CudaExecutor {
                     )
                 };
 
-                self.q4k_gemv_into(layer_weights.attn_q_ptr, &input_view, &q_view, q_dim, hidden_dim)?;
-                self.q4k_gemv_into(layer_weights.attn_k_ptr, &input_view, &k_view, kv_dim, hidden_dim)?;
-                self.q4k_gemv_into(layer_weights.attn_v_ptr, &input_view, &v_view, kv_dim, hidden_dim)?;
+                self.q4k_gemv_into(
+                    layer_weights.attn_q_ptr,
+                    &input_view,
+                    &q_view,
+                    q_dim,
+                    hidden_dim,
+                )?;
+                self.q4k_gemv_into(
+                    layer_weights.attn_k_ptr,
+                    &input_view,
+                    &k_view,
+                    kv_dim,
+                    hidden_dim,
+                )?;
+                self.q4k_gemv_into(
+                    layer_weights.attn_v_ptr,
+                    &input_view,
+                    &v_view,
+                    kv_dim,
+                    hidden_dim,
+                )?;
 
                 std::mem::forget(input_view);
                 std::mem::forget(q_view);
@@ -12687,11 +13609,17 @@ impl CudaExecutor {
         let theta = self.rope_theta;
 
         // Upload positions to GPU for batched RoPE
-        let positions_buf_ptr = self.workspace.positions_buf.as_ref()
-            .ok_or_else(|| GpuError::InvalidLaunchConfig("PAR-114: positions_buf not initialized".to_string()))?
+        let positions_buf_ptr = self
+            .workspace
+            .positions_buf
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig("PAR-114: positions_buf not initialized".to_string())
+            })?
             .as_ptr();
         // SAFETY: Raw pointer from valid allocation, length verified by caller
-        let mut positions_buf = unsafe { GpuBuffer::<u32>::from_raw_parts(positions_buf_ptr, m as usize) };
+        let mut positions_buf =
+            unsafe { GpuBuffer::<u32>::from_raw_parts(positions_buf_ptr, m as usize) };
 
         // Convert positions to u32 and copy to device
         let positions_u32: Vec<u32> = positions.to_vec();
@@ -12724,17 +13652,40 @@ impl CudaExecutor {
         // ========== 4. Attention ==========
         // PAR-119: Use batched attention if batched KV caches are initialized
         if self.batched_kv_stride > 0 && self.batched_kv_k_caches.contains_key(&layer_idx) {
-            // PAR-119: BATCHED attention - process all M sequences in parallel
-            // Reduces M × 3 kernel launches to 2M + 1 (scatter still sequential, attention batched)
-            self.batched_incremental_attention_into(
-                layer_idx,
-                &q_buf,
-                &k_buf,
-                &v_buf,
-                &attn_out_buf,
-                m as usize,
-                positions,
-            )?;
+            // PAR-118: Use Flash Decoding for long sequences (>128 positions)
+            // Flash Decoding splits KV cache into chunks processed in parallel
+            let max_seq_len = self
+                .batched_kv_lengths
+                .iter()
+                .take(m as usize)
+                .copied()
+                .max()
+                .unwrap_or(0);
+
+            if self.flash_decode_enabled && max_seq_len > 128 {
+                // PAR-118: Flash Decoding for long sequences
+                self.flash_decoding_attention_into(
+                    layer_idx,
+                    &q_buf,
+                    &k_buf,
+                    &v_buf,
+                    &attn_out_buf,
+                    m as usize,
+                    positions,
+                )?;
+            } else {
+                // PAR-119: BATCHED attention - process all M sequences in parallel
+                // Reduces M × 3 kernel launches to 2M + 1 (scatter still sequential, attention batched)
+                self.batched_incremental_attention_into(
+                    layer_idx,
+                    &q_buf,
+                    &k_buf,
+                    &v_buf,
+                    &attn_out_buf,
+                    m as usize,
+                    positions,
+                )?;
+            }
         } else {
             // Original sequential attention (M separate calls with shared KV cache)
             // NOTE: This path is used when batched KV caches are NOT initialized
@@ -12743,28 +13694,28 @@ impl CudaExecutor {
                 let kv_offset = seq_idx * kv_dim as usize;
                 let attn_offset = seq_idx * q_dim as usize;
 
-        // SAFETY: Unsafe operation with validated invariants
+                // SAFETY: Unsafe operation with validated invariants
                 let q_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         q_buf_ptr + (q_offset * std::mem::size_of::<f32>()) as u64,
                         q_dim as usize,
                     )
                 };
-        // SAFETY: Unsafe operation with validated invariants
+                // SAFETY: Unsafe operation with validated invariants
                 let k_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         k_buf_ptr + (kv_offset * std::mem::size_of::<f32>()) as u64,
                         kv_dim as usize,
                     )
                 };
-        // SAFETY: Unsafe operation with validated invariants
+                // SAFETY: Unsafe operation with validated invariants
                 let v_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         v_buf_ptr + (kv_offset * std::mem::size_of::<f32>()) as u64,
                         kv_dim as usize,
                     )
                 };
-        // SAFETY: Unsafe operation with validated invariants
+                // SAFETY: Unsafe operation with validated invariants
                 let attn_out_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         attn_out_ptr + (attn_offset * std::mem::size_of::<f32>()) as u64,
@@ -12804,14 +13755,14 @@ impl CudaExecutor {
                 let h_offset = seq_idx * hidden_dim as usize;
                 let attn_offset = seq_idx * q_dim as usize;
 
-        // SAFETY: Unsafe operation with validated invariants
+                // SAFETY: Unsafe operation with validated invariants
                 let attn_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         attn_out_ptr + (attn_offset * std::mem::size_of::<f32>()) as u64,
                         q_dim as usize,
                     )
                 };
-        // SAFETY: Unsafe operation with validated invariants
+                // SAFETY: Unsafe operation with validated invariants
                 let out_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         hidden_buf1_ptr + (h_offset * std::mem::size_of::<f32>()) as u64,
@@ -12819,7 +13770,13 @@ impl CudaExecutor {
                     )
                 };
 
-                self.q4k_gemv_into(layer_weights.attn_output_ptr, &attn_view, &out_view, hidden_dim, q_dim)?;
+                self.q4k_gemv_into(
+                    layer_weights.attn_output_ptr,
+                    &attn_view,
+                    &out_view,
+                    hidden_dim,
+                    q_dim,
+                )?;
 
                 std::mem::forget(attn_view);
                 std::mem::forget(out_view);
@@ -12830,8 +13787,8 @@ impl CudaExecutor {
         // residual1 = input + O_projection
         self.batched_residual_add_into(
             input,
-            &hidden_buf1,  // O projection output
-            &input_staging,  // Residual output
+            &hidden_buf1,   // O projection output
+            &input_staging, // Residual output
             hidden_dim,
             m,
         )?;
@@ -12872,21 +13829,21 @@ impl CudaExecutor {
                 let h_offset = seq_idx * hidden_dim as usize;
                 let ffn_offset = seq_idx * intermediate_dim as usize;
 
-        // SAFETY: Unsafe operation with validated invariants
+                // SAFETY: Unsafe operation with validated invariants
                 let input_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         hidden_buf1_ptr + (h_offset * std::mem::size_of::<f32>()) as u64,
                         hidden_dim as usize,
                     )
                 };
-        // SAFETY: Unsafe operation with validated invariants
+                // SAFETY: Unsafe operation with validated invariants
                 let gate_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         ffn_gate_ptr + (ffn_offset * std::mem::size_of::<f32>()) as u64,
                         intermediate_dim as usize,
                     )
                 };
-        // SAFETY: Unsafe operation with validated invariants
+                // SAFETY: Unsafe operation with validated invariants
                 let up_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         ffn_up_ptr + (ffn_offset * std::mem::size_of::<f32>()) as u64,
@@ -12894,8 +13851,20 @@ impl CudaExecutor {
                     )
                 };
 
-                self.q4k_gemv_into(layer_weights.ffn_gate_ptr, &input_view, &gate_view, intermediate_dim, hidden_dim)?;
-                self.q4k_gemv_into(layer_weights.ffn_up_ptr, &input_view, &up_view, intermediate_dim, hidden_dim)?;
+                self.q4k_gemv_into(
+                    layer_weights.ffn_gate_ptr,
+                    &input_view,
+                    &gate_view,
+                    intermediate_dim,
+                    hidden_dim,
+                )?;
+                self.q4k_gemv_into(
+                    layer_weights.ffn_up_ptr,
+                    &input_view,
+                    &up_view,
+                    intermediate_dim,
+                    hidden_dim,
+                )?;
 
                 std::mem::forget(input_view);
                 std::mem::forget(gate_view);
@@ -12929,14 +13898,14 @@ impl CudaExecutor {
                 let h_offset = seq_idx * hidden_dim as usize;
                 let ffn_offset = seq_idx * intermediate_dim as usize;
 
-        // SAFETY: Unsafe operation with validated invariants
+                // SAFETY: Unsafe operation with validated invariants
                 let act_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         ffn_act_ptr + (ffn_offset * std::mem::size_of::<f32>()) as u64,
                         intermediate_dim as usize,
                     )
                 };
-        // SAFETY: Unsafe operation with validated invariants
+                // SAFETY: Unsafe operation with validated invariants
                 let out_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         hidden_buf1_ptr + (h_offset * std::mem::size_of::<f32>()) as u64,
@@ -12944,7 +13913,13 @@ impl CudaExecutor {
                     )
                 };
 
-                self.q4k_gemv_into(layer_weights.ffn_down_ptr, &act_view, &out_view, hidden_dim, intermediate_dim)?;
+                self.q4k_gemv_into(
+                    layer_weights.ffn_down_ptr,
+                    &act_view,
+                    &out_view,
+                    hidden_dim,
+                    intermediate_dim,
+                )?;
 
                 std::mem::forget(act_view);
                 std::mem::forget(out_view);
@@ -12954,9 +13929,9 @@ impl CudaExecutor {
         // ========== 11. Second Residual (PAR-114: BATCHED - 1 kernel launch) ==========
         // output = residual1 + FFN_down
         self.batched_residual_add_into(
-            &input_staging,  // residual1
-            &hidden_buf1,    // FFN down output
-            &hidden_buf2,    // Layer output
+            &input_staging, // residual1
+            &hidden_buf1,   // FFN down output
+            &hidden_buf2,   // Layer output
             hidden_dim,
             m,
         )?;
@@ -13659,6 +14634,13 @@ impl CudaExecutor {
         self.rope_theta = theta;
     }
 
+    /// CORRECTNESS-011: Set RoPE type (0=NORM adjacent pairs, 2=NEOX split halves)
+    ///
+    /// Qwen2.5 models use rope_type=2 (NEOX style).
+    pub fn set_rope_type(&mut self, rope_type: u32) {
+        self.rope_type = rope_type;
+    }
+
     /// PAR-060: Apply RoPE to Q and K vectors (CPU fallback, will be GPU-accelerated later)
     ///
     /// Rotates Q and K by position-dependent angles to inject positional information.
@@ -14327,9 +15309,10 @@ impl CudaExecutor {
                 let mut pos_ptr = pos_buf.as_ptr();
 
                 // CORRECTNESS-001 FIX: Kernel expects (src, cache, pos_ptr, head_dim, max_len)
+                // CORRECTNESS-011: Use self.stream for graph capture (graph captures on stream, not compute_stream)
                 // SAFETY: Memory safety ensured by bounds checking and alignment
                 unsafe {
-                    self.compute_stream.launch_kernel(
+                    self.stream.launch_kernel(
                         scatter_module,
                         scatter_name,
                         &config,
@@ -14356,9 +15339,10 @@ impl CudaExecutor {
                 let mut pos_ptr = pos_buf.as_ptr();
 
                 // CORRECTNESS-001 FIX: Same fix for V scatter
+                // CORRECTNESS-011: Use self.stream for graph capture
                 // SAFETY: Memory safety ensured by bounds checking and alignment
                 unsafe {
-                    self.compute_stream.launch_kernel(
+                    self.stream.launch_kernel(
                         scatter_module,
                         scatter_name,
                         &config,
@@ -14517,8 +15501,26 @@ impl CudaExecutor {
         //
         // Five-Whys Root Cause: Multi-warp has 4x warp synchronization overhead
         // that dominates at short sequences where there's not enough parallelism.
+        //
+        // CORRECTNESS-009: Single-warp kernel only handles head_dim <= 64 (2 elements/thread)
+        // For head_dim > 64 (e.g., Qwen 2.5 with head_dim=128), must use multi-warp kernel
+        // which handles 4 elements per thread (q0, q1, q2, q3 at offsets 0, 32, 64, 96)
         let use_graph_mode = self.seq_len_buf.is_some();
-        let use_single_warp = new_len < 128; // Threshold from kernel analysis
+        let use_single_warp = new_len < 128 && head_dim <= 64;
+
+        if layer_idx == 0 && new_len == 1 {
+            eprintln!(
+                "[CORRECTNESS-009] head_dim={}, using {} kernel, graph_mode={}, skip_debug={}",
+                head_dim,
+                if use_single_warp {
+                    "single-warp"
+                } else {
+                    "multi-warp"
+                },
+                use_graph_mode,
+                skip_debug
+            );
+        }
 
         let (kernel_type, module_key, config) = if use_single_warp {
             // Single-warp: 32 threads per head, no shared memory
@@ -14604,10 +15606,11 @@ impl CudaExecutor {
         // PAR-069: Use graph mode (indirect kernel) ONLY when seq_len_buf is initialized
         if let Some(ref seq_len_buf) = self.seq_len_buf {
             // Graph capture mode - pass seq_len_buf pointer
+            // CORRECTNESS-011: Use self.stream for graph capture (graph captures on stream, not compute_stream)
             let mut seq_len_ptr = seq_len_buf.as_ptr();
             // SAFETY: Memory safety ensured by bounds checking and alignment
             unsafe {
-                self.compute_stream.launch_kernel(
+                self.stream.launch_kernel(
                     module,
                     kernel_name,
                     &config,
@@ -14677,7 +15680,8 @@ impl CudaExecutor {
 
         if stride == 0 {
             return Err(GpuError::InvalidLaunchConfig(
-                "PAR-119: Batched KV cache not initialized (call init_batched_kv_cache_gpu first)".to_string(),
+                "PAR-119: Batched KV cache not initialized (call init_batched_kv_cache_gpu first)"
+                    .to_string(),
             ));
         }
 
@@ -14736,7 +15740,7 @@ impl CudaExecutor {
             let mut max_len_val = max_len as u32;
 
             let scatter_module = self.modules.get_mut(&scatter_key).expect("module exists");
-        // SAFETY: Unsafe operation with validated invariants
+            // SAFETY: Unsafe operation with validated invariants
             unsafe {
                 self.compute_stream.launch_kernel(
                     scatter_module,
@@ -14762,7 +15766,7 @@ impl CudaExecutor {
             let mut v_dst = v_dst_ptr;
 
             let scatter_module = self.modules.get_mut(&scatter_key).expect("module exists");
-        // SAFETY: Unsafe operation with validated invariants
+            // SAFETY: Unsafe operation with validated invariants
             unsafe {
                 self.compute_stream.launch_kernel(
                     scatter_module,
@@ -14838,7 +15842,10 @@ impl CudaExecutor {
             let module = CudaModule::from_ptx(&self.context, &ptx_source)?;
             self.modules.insert(module_key.clone(), module);
         }
-        let module = self.modules.get_mut(&module_key).expect("module just inserted");
+        let module = self
+            .modules
+            .get_mut(&module_key)
+            .expect("module just inserted");
 
         // Grid: (num_heads, batch_size, 1), Block: (32, 1, 1)
         let config = LaunchConfig {
@@ -14865,6 +15872,324 @@ impl CudaExecutor {
                     std::ptr::from_mut(&mut v_ptrs_ptr) as *mut std::ffi::c_void,
                     std::ptr::from_mut(&mut out_ptr) as *mut std::ffi::c_void,
                     std::ptr::from_mut(&mut seq_lens_ptr) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    // =========================================================================
+    // PAR-118: Flash Decoding - Split-K Attention for 2X Ollama Performance
+    // =========================================================================
+
+    /// Initialize Flash Decoding buffers for split-K attention.
+    ///
+    /// Flash Decoding splits the KV cache into chunks processed in parallel,
+    /// then reduces partial results. This amortizes memory bandwidth across
+    /// multiple thread blocks, achieving higher throughput for long sequences.
+    ///
+    /// # Arguments
+    /// * `num_heads` - Number of attention heads
+    /// * `head_dim` - Head dimension
+    /// * `max_seq_len` - Maximum sequence length to support
+    /// * `batch_size` - Batch size (M)
+    ///
+    /// # Performance
+    /// - Expected 1.5-2x speedup over sequential attention for seq_len > 128
+    /// - Minimal overhead for short sequences (< 128 positions)
+    pub fn init_flash_decoding(
+        &mut self,
+        num_heads: usize,
+        head_dim: usize,
+        max_seq_len: usize,
+        batch_size: usize,
+    ) -> Result<(), GpuError> {
+        use trueno_gpu::kernels::FLASH_DECODE_CHUNK_SIZE;
+
+        // Calculate partials buffer size
+        // Layout: [M, num_heads, max_chunks, head_dim + 2]
+        let max_chunks = (max_seq_len + FLASH_DECODE_CHUNK_SIZE as usize - 1)
+            / FLASH_DECODE_CHUNK_SIZE as usize;
+        let partials_per_head = max_chunks * (head_dim + 2);
+        let total_partials = batch_size * num_heads * partials_per_head;
+
+        // Allocate partials buffer
+        self.flash_decode_partials = Some(GpuBuffer::new(&self.context, total_partials)?);
+        self.flash_decode_max_seq_len = max_seq_len;
+        self.flash_decode_enabled = true;
+
+        Ok(())
+    }
+
+    /// PAR-118: Flash Decoding attention using split-K parallelism.
+    ///
+    /// Splits the KV cache into chunks and processes them in parallel,
+    /// then reduces partial results with proper softmax rescaling.
+    ///
+    /// # Arguments
+    /// * `layer_idx` - Transformer layer index
+    /// * `q_batched` - Q projections [M, num_heads, head_dim]
+    /// * `k_batched` - K projections [M, num_kv_heads, head_dim]
+    /// * `v_batched` - V projections [M, num_kv_heads, head_dim]
+    /// * `out_batched` - Output buffer [M, num_heads, head_dim]
+    /// * `m` - Batch size (number of sequences)
+    /// * `positions` - Position for each sequence [M]
+    #[allow(clippy::too_many_arguments)]
+    pub fn flash_decoding_attention_into(
+        &mut self,
+        layer_idx: usize,
+        q_batched: &GpuBuffer<f32>,
+        k_batched: &GpuBuffer<f32>,
+        v_batched: &GpuBuffer<f32>,
+        out_batched: &GpuBuffer<f32>,
+        m: usize,
+        positions: &[u32],
+    ) -> Result<(), GpuError> {
+        use trueno_gpu::kernels::{
+            FlashDecodingChunkKernel, FlashDecodingReduceKernel, Kernel, FLASH_DECODE_CHUNK_SIZE,
+        };
+
+        if !self.flash_decode_enabled {
+            return Err(GpuError::InvalidLaunchConfig(
+                "PAR-118: Flash Decoding not initialized (call init_flash_decoding first)"
+                    .to_string(),
+            ));
+        }
+
+        let num_heads = self.kv_num_heads;
+        let num_kv_heads = self.kv_num_kv_heads;
+        let head_dim = self.kv_head_dim;
+        let max_len = self.kv_cache_max_len;
+        let stride = self.batched_kv_stride;
+
+        // Step 1: Scatter K/V to caches (same as batched_incremental_attention_into)
+        let kv_dim = num_kv_heads * head_dim;
+        let scatter_config = LaunchConfig {
+            grid: (num_kv_heads as u32, 1, 1),
+            block: (head_dim as u32, 1, 1),
+            shared_mem: 0,
+        };
+
+        let scatter_type = KernelType::KvCacheScatter {
+            num_kv_heads: num_kv_heads as u32,
+            head_dim: head_dim as u32,
+            max_len: max_len as u32,
+        };
+        let scatter_name = self.kernels.kernel_name(&scatter_type);
+        let scatter_key = format!("kv_scatter_{}_{}", num_kv_heads, head_dim);
+
+        if !self.modules.contains_key(&scatter_key) {
+            let scatter_ptx = self.kernels.generate_ptx(&scatter_type);
+            let module = CudaModule::from_ptx(&self.context, &scatter_ptx)?;
+            self.modules.insert(scatter_key.clone(), module);
+        }
+
+        let k_cache = self.batched_kv_k_caches.get(&layer_idx).ok_or_else(|| {
+            GpuError::InvalidLaunchConfig(format!(
+                "PAR-118: Batched K cache not found for layer {}",
+                layer_idx
+            ))
+        })?;
+        let v_cache = self.batched_kv_v_caches.get(&layer_idx).ok_or_else(|| {
+            GpuError::InvalidLaunchConfig(format!(
+                "PAR-118: Batched V cache not found for layer {}",
+                layer_idx
+            ))
+        })?;
+
+        // Scatter K and V for each sequence
+        for seq_idx in 0..m {
+            let pos = positions[seq_idx] as usize;
+
+            let k_src_offset = seq_idx * kv_dim;
+            let k_dst_offset = seq_idx * stride;
+            let k_src_ptr = k_batched.as_ptr() + (k_src_offset * std::mem::size_of::<f32>()) as u64;
+            let k_dst_ptr = k_cache.as_ptr() + (k_dst_offset * std::mem::size_of::<f32>()) as u64;
+
+            let mut k_src = k_src_ptr;
+            let mut k_dst = k_dst_ptr;
+            let mut pos_val = pos as u32;
+            let mut head_dim_val = head_dim as u32;
+            let mut max_len_val = max_len as u32;
+
+            let scatter_module = self.modules.get_mut(&scatter_key).expect("module exists");
+            unsafe {
+                self.compute_stream.launch_kernel(
+                    scatter_module,
+                    scatter_name,
+                    &scatter_config,
+                    &mut [
+                        std::ptr::from_mut(&mut k_src) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut k_dst) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut pos_val) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut head_dim_val) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut max_len_val) as *mut std::ffi::c_void,
+                    ],
+                )?;
+            }
+
+            let v_src_offset = seq_idx * kv_dim;
+            let v_dst_offset = seq_idx * stride;
+            let v_src_ptr = v_batched.as_ptr() + (v_src_offset * std::mem::size_of::<f32>()) as u64;
+            let v_dst_ptr = v_cache.as_ptr() + (v_dst_offset * std::mem::size_of::<f32>()) as u64;
+
+            let mut v_src = v_src_ptr;
+            let mut v_dst = v_dst_ptr;
+
+            let scatter_module = self.modules.get_mut(&scatter_key).expect("module exists");
+            unsafe {
+                self.compute_stream.launch_kernel(
+                    scatter_module,
+                    scatter_name,
+                    &scatter_config,
+                    &mut [
+                        std::ptr::from_mut(&mut v_src) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut v_dst) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut pos_val) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut head_dim_val) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut max_len_val) as *mut std::ffi::c_void,
+                    ],
+                )?;
+            }
+        }
+
+        // Update cache lengths
+        for seq_idx in 0..m {
+            let pos = positions[seq_idx] as usize;
+            if seq_idx < self.batched_kv_lengths.len() {
+                self.batched_kv_lengths[seq_idx] = pos + 1;
+            }
+        }
+
+        // Step 2: Build pointer arrays
+        let k_cache_base = k_cache.as_ptr();
+        let v_cache_base = v_cache.as_ptr();
+        let stride_bytes = (stride * std::mem::size_of::<f32>()) as u64;
+
+        let k_ptrs: Vec<u64> = (0..m)
+            .map(|seq_idx| k_cache_base + seq_idx as u64 * stride_bytes)
+            .collect();
+        let v_ptrs: Vec<u64> = (0..m)
+            .map(|seq_idx| v_cache_base + seq_idx as u64 * stride_bytes)
+            .collect();
+        let seq_lens: Vec<u32> = (0..m)
+            .map(|seq_idx| self.batched_kv_lengths.get(seq_idx).copied().unwrap_or(1) as u32)
+            .collect();
+
+        let k_ptrs_buf = self.batched_k_ptrs.as_mut().ok_or_else(|| {
+            GpuError::InvalidLaunchConfig("PAR-118: batched_k_ptrs not allocated".to_string())
+        })?;
+        let v_ptrs_buf = self.batched_v_ptrs.as_mut().ok_or_else(|| {
+            GpuError::InvalidLaunchConfig("PAR-118: batched_v_ptrs not allocated".to_string())
+        })?;
+        let seq_lens_buf = self.batched_seq_lens_gpu.as_mut().ok_or_else(|| {
+            GpuError::InvalidLaunchConfig("PAR-118: batched_seq_lens_gpu not allocated".to_string())
+        })?;
+
+        k_ptrs_buf.copy_from_host(&k_ptrs)?;
+        v_ptrs_buf.copy_from_host(&v_ptrs)?;
+        seq_lens_buf.copy_from_host(&seq_lens)?;
+
+        // Step 3: Compute max chunks needed
+        let max_seq_len_actual = seq_lens.iter().copied().max().unwrap_or(1) as usize;
+        let max_chunks =
+            (max_seq_len_actual + FLASH_DECODE_CHUNK_SIZE as usize - 1) / FLASH_DECODE_CHUNK_SIZE as usize;
+
+        // Step 4: Launch Flash Decoding chunk kernel
+        let chunk_kernel = FlashDecodingChunkKernel::new(
+            max_len as u32,
+            head_dim as u32,
+            num_heads as u32,
+            num_kv_heads as u32,
+            m as u32,
+        );
+        let chunk_kernel_name = chunk_kernel.name();
+        let chunk_module_key = format!(
+            "flash_decode_chunk_{}_{}_{}_{}",
+            max_len, head_dim, num_heads, num_kv_heads
+        );
+
+        if !self.modules.contains_key(&chunk_module_key) {
+            let chunk_ptx = chunk_kernel.emit_ptx();
+            let module = CudaModule::from_ptx(&self.context, &chunk_ptx)?;
+            self.modules.insert(chunk_module_key.clone(), module);
+        }
+
+        let partials_buf = self.flash_decode_partials.as_ref().ok_or_else(|| {
+            GpuError::InvalidLaunchConfig("PAR-118: flash_decode_partials not allocated".to_string())
+        })?;
+
+        // Grid: (num_heads, batch_size, max_chunks)
+        let chunk_config = LaunchConfig {
+            grid: (num_heads as u32, m as u32, max_chunks as u32),
+            block: (32, 1, 1),
+            shared_mem: 0,
+        };
+
+        let mut q_ptr = q_batched.as_ptr();
+        let mut k_ptrs_ptr = k_ptrs_buf.as_ptr();
+        let mut v_ptrs_ptr = v_ptrs_buf.as_ptr();
+        let mut partials_ptr = partials_buf.as_ptr();
+        let mut seq_lens_ptr = seq_lens_buf.as_ptr();
+        let mut max_chunks_val = max_chunks as u32;
+
+        let chunk_module = self
+            .modules
+            .get_mut(&chunk_module_key)
+            .expect("module just inserted");
+
+        unsafe {
+            self.compute_stream.launch_kernel(
+                chunk_module,
+                chunk_kernel_name,
+                &chunk_config,
+                &mut [
+                    std::ptr::from_mut(&mut q_ptr) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_ptrs_ptr) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut v_ptrs_ptr) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut partials_ptr) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut seq_lens_ptr) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut max_chunks_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        // Step 5: Launch Flash Decoding reduce kernel
+        let reduce_kernel = FlashDecodingReduceKernel::new(head_dim as u32, num_heads as u32, m as u32);
+        let reduce_kernel_name = reduce_kernel.name();
+        let reduce_module_key = format!("flash_decode_reduce_{}_{}", head_dim, num_heads);
+
+        if !self.modules.contains_key(&reduce_module_key) {
+            let reduce_ptx = reduce_kernel.emit_ptx();
+            let module = CudaModule::from_ptx(&self.context, &reduce_ptx)?;
+            self.modules.insert(reduce_module_key.clone(), module);
+        }
+
+        // Grid: (num_heads, batch_size, 1)
+        let reduce_config = LaunchConfig {
+            grid: (num_heads as u32, m as u32, 1),
+            block: (32, 1, 1),
+            shared_mem: 0,
+        };
+
+        let mut out_ptr = out_batched.as_ptr();
+
+        let reduce_module = self
+            .modules
+            .get_mut(&reduce_module_key)
+            .expect("module just inserted");
+
+        unsafe {
+            self.compute_stream.launch_kernel(
+                reduce_module,
+                reduce_kernel_name,
+                &reduce_config,
+                &mut [
+                    std::ptr::from_mut(&mut partials_ptr) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut out_ptr) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut seq_lens_ptr) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut max_chunks_val) as *mut std::ffi::c_void,
                 ],
             )?;
         }
@@ -15580,7 +16905,7 @@ pub mod presets {
     }
 }
 
-#[cfg(all(test, feature = "heavy-tests"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use serial_test::serial;

@@ -4723,7 +4723,7 @@ impl Imp900Result {
 // Tests (EXTREME TDD)
 // ============================================================================
 
-#[cfg(all(test, feature = "heavy-tests"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

@@ -4370,4 +4370,338 @@ mod tests {
         assert_eq!(cache.num_kv_heads, 2);
         assert_eq!(cache.head_dim, 8);
     }
+
+    // ============ Additional coverage tests ============
+
+    #[test]
+    fn test_apr_quantization_type_bits_per_weight() {
+        assert_eq!(AprQuantizationType::Q4_K.bits_per_weight(), 4.5);
+        assert_eq!(AprQuantizationType::Q8_0.bits_per_weight(), 8.0);
+        assert_eq!(AprQuantizationType::F32.bits_per_weight(), 32.0);
+    }
+
+    #[test]
+    fn test_apr_quantization_type_bytes_per_block() {
+        // F32: 4 bytes per value
+        assert_eq!(AprQuantizationType::F32.bytes_per_block(), 4);
+        // Q4_K: 144 bytes per 256 values
+        assert_eq!(AprQuantizationType::Q4_K.bytes_per_block(), 144);
+        // Q8_0: 36 bytes per 32 values
+        assert_eq!(AprQuantizationType::Q8_0.bytes_per_block(), 36);
+    }
+
+    #[test]
+    fn test_apr_quantization_type_values_per_block() {
+        assert_eq!(AprQuantizationType::F32.values_per_block(), 1);
+        assert_eq!(AprQuantizationType::Q4_K.values_per_block(), 256);
+        assert_eq!(AprQuantizationType::Q8_0.values_per_block(), 32);
+    }
+
+    #[test]
+    fn test_apr_quantization_type_to_byte() {
+        assert_eq!(AprQuantizationType::F32.to_byte(), 0);
+        assert_eq!(AprQuantizationType::Q4_K.to_byte(), 1);
+        assert_eq!(AprQuantizationType::Q8_0.to_byte(), 2);
+    }
+
+    #[test]
+    fn test_apr_quantization_type_from_byte() {
+        assert_eq!(AprQuantizationType::from_byte(0), Some(AprQuantizationType::F32));
+        assert_eq!(AprQuantizationType::from_byte(1), Some(AprQuantizationType::Q4_K));
+        assert_eq!(AprQuantizationType::from_byte(2), Some(AprQuantizationType::Q8_0));
+        assert_eq!(AprQuantizationType::from_byte(255), None);
+    }
+
+    #[test]
+    fn test_quantized_transformer_new() {
+        let config = AprTransformerConfig {
+            hidden_dim: 64,
+            num_layers: 2,
+            vocab_size: 100,
+            intermediate_dim: 128,
+            ..Default::default()
+        };
+        let qt = QuantizedAprTransformer::new(config.clone(), AprQuantizationType::Q4_K);
+
+        assert_eq!(qt.quantization_type(), AprQuantizationType::Q4_K);
+        assert_eq!(qt.config(), &config);
+        assert_eq!(qt.bits_per_weight(), 4.5);
+    }
+
+    #[test]
+    fn test_quantized_transformer_from_f32() {
+        let config = AprTransformerConfig {
+            hidden_dim: 64,
+            num_layers: 2,
+            vocab_size: 100,
+            intermediate_dim: 128,
+            ..Default::default()
+        };
+        let f32_transformer = AprTransformer::new(config.clone());
+        let qt = QuantizedAprTransformer::from_f32_transformer(
+            &f32_transformer,
+            AprQuantizationType::Q8_0,
+        );
+
+        assert_eq!(qt.quantization_type(), AprQuantizationType::Q8_0);
+        assert!(qt.weight_bytes() > 0);
+        assert!(qt.f32_equivalent_bytes() > qt.weight_bytes());
+    }
+
+    #[test]
+    fn test_quantized_transformer_serialization() {
+        let config = AprTransformerConfig {
+            hidden_dim: 64,
+            num_layers: 2,
+            vocab_size: 100,
+            intermediate_dim: 128,
+            ..Default::default()
+        };
+        let qt = QuantizedAprTransformer::new(config.clone(), AprQuantizationType::Q4_K);
+
+        // Round-trip serialization
+        let bytes = qt.to_bytes().expect("serialize");
+        let qt2 = QuantizedAprTransformer::from_bytes(&bytes).expect("deserialize");
+
+        assert_eq!(qt2.quantization_type(), qt.quantization_type());
+        // Architecture may be updated during serialization
+        assert_eq!(qt2.config().hidden_dim, qt.config().hidden_dim);
+        assert_eq!(qt2.config().num_layers, qt.config().num_layers);
+        assert_eq!(qt2.config().vocab_size, qt.config().vocab_size);
+    }
+
+    #[test]
+    fn test_kv_cache_operations() {
+        let config = AprTransformerConfig {
+            hidden_dim: 64,
+            num_layers: 2,
+            num_heads: 8,
+            num_kv_heads: 8,
+            context_length: 32,
+            ..Default::default()
+        };
+        let mut cache = AprKVCache::new(&config);
+
+        assert!(cache.is_empty());
+        assert_eq!(cache.len(), 0);
+        assert_eq!(cache.capacity(), 32);
+
+        // Append KV for layer 0
+        let k = vec![1.0f32; 64];
+        let v = vec![2.0f32; 64];
+        cache.append(0, &k, &v);
+
+        // Check retrieval
+        let (k_ret, v_ret) = cache.get(0);
+        assert_eq!(k_ret.len(), 64);
+        assert_eq!(v_ret.len(), 64);
+
+        // Clear
+        cache.clear();
+        assert_eq!(cache.len(), 0);
+    }
+
+    #[test]
+    fn test_generate_config_default() {
+        let config = GenerateConfig::default();
+        assert_eq!(config.max_tokens, 32);
+        assert_eq!(config.temperature, 1.0);
+        assert_eq!(config.top_k, 0); // 0 = disabled
+        assert_eq!(config.top_p, 0.9);
+        assert_eq!(config.repetition_penalty, 1.0);
+    }
+
+    #[test]
+    fn test_transformer_embed() {
+        let config = AprTransformerConfig {
+            hidden_dim: 64,
+            num_layers: 2,
+            vocab_size: 100,
+            ..Default::default()
+        };
+        let transformer = AprTransformer::new(config);
+
+        // Single token
+        let embedded = transformer.embed(&[0]);
+        assert_eq!(embedded.len(), 64);
+
+        // Multiple tokens
+        let embedded = transformer.embed(&[0, 1, 2]);
+        assert_eq!(embedded.len(), 64 * 3);
+    }
+
+    #[test]
+    fn test_transformer_memory_size_detailed() {
+        let config = AprTransformerConfig {
+            hidden_dim: 64,
+            num_layers: 2,
+            vocab_size: 100,
+            intermediate_dim: 128,
+            ..Default::default()
+        };
+        let transformer = AprTransformer::new(config);
+
+        let mem_size = transformer.memory_size();
+        assert!(mem_size > 0);
+        // Should be at least vocab_size * hidden_dim * 4 bytes
+        assert!(mem_size >= 100 * 64 * 4);
+    }
+
+    #[test]
+    fn test_layer_empty_gqa() {
+        // GQA: 8 heads, 2 KV heads
+        let layer = AprTransformerLayer::empty_gqa(64, 128, 8, 2);
+
+        // QKV weight should account for GQA
+        // Q: hidden_dim * hidden_dim = 64 * 64
+        // K: hidden_dim * kv_dim = 64 * (64 / 8 * 2) = 64 * 16
+        // V: same as K
+        assert!(layer.qkv_weight.len() > 0);
+        assert_eq!(layer.attn_norm_weight.len(), 64);
+    }
+
+    #[test]
+    fn test_quantized_apr_tensor_q4_new() {
+        let data = vec![0u8; 64]; // Enough for small tensor
+        let tensor = QuantizedAprTensorQ4::new(data.clone(), 32, 2);
+
+        assert_eq!(tensor.in_dim, 32);
+        assert_eq!(tensor.out_dim, 2);
+        assert_eq!(tensor.data.len(), 64);
+    }
+
+    #[test]
+    fn test_quantized_apr_tensor_q4_zeros() {
+        let tensor = QuantizedAprTensorQ4::zeros(32, 2);
+
+        assert_eq!(tensor.in_dim, 32);
+        assert_eq!(tensor.out_dim, 2);
+    }
+
+    #[test]
+    fn test_quantized_apr_tensor_q4_expected_bytes() {
+        // Q4_0: 18 bytes per 32 values
+        let bytes = QuantizedAprTensorQ4::expected_bytes(64);
+        assert_eq!(bytes, (64 / 32) * 18);
+    }
+
+    #[test]
+    fn test_apr_inference_scratch() {
+        let config = AprTransformerConfig {
+            hidden_dim: 64,
+            num_layers: 2,
+            intermediate_dim: 128,
+            ..Default::default()
+        };
+        let scratch = AprInferenceScratch::from_config(&config);
+
+        assert_eq!(scratch.hidden.len(), 64);
+        assert_eq!(scratch.normed.len(), 64);
+        assert_eq!(scratch.qkv_out.len(), 64 * 3); // hidden_dim * 3
+        assert_eq!(scratch.ffn_up.len(), 128);
+        assert_eq!(scratch.ffn_gate.len(), 128);
+
+        let mut scratch = scratch;
+        scratch.clear();
+        assert!(scratch.hidden.iter().all(|&v| v == 0.0));
+        assert!(scratch.ffn_up.iter().all(|&v| v == 0.0));
+    }
+
+    #[test]
+    fn test_benchmark_result_meets_threshold() {
+        let result = AprBenchmarkResult {
+            tokens_generated: 1000,
+            total_time_ms: 10000.0,
+            tokens_per_second: 100.0,
+            throughput_p50: 100.0,
+            throughput_p99: 90.0,
+            throughput_std_dev: 5.0,
+            peak_memory_mb: 512.0,
+            model_memory_mb: 400.0,
+        };
+
+        assert!(result.meets_threshold(50.0));
+        assert!(result.meets_threshold(100.0));
+        assert!(!result.meets_threshold(150.0));
+    }
+
+    #[test]
+    fn test_benchmark_result_compare_to_baseline() {
+        let baseline = AprBenchmarkResult {
+            tokens_generated: 1000,
+            total_time_ms: 10000.0,
+            tokens_per_second: 100.0,
+            throughput_p50: 100.0,
+            throughput_p99: 90.0,
+            throughput_std_dev: 5.0,
+            peak_memory_mb: 512.0,
+            model_memory_mb: 400.0,
+        };
+
+        let result = AprBenchmarkResult {
+            tokens_generated: 1000,
+            total_time_ms: 10526.0,
+            tokens_per_second: 95.0, // Within 5%
+            throughput_p50: 95.0,
+            throughput_p99: 85.0,
+            throughput_std_dev: 5.0,
+            peak_memory_mb: 520.0,
+            model_memory_mb: 400.0,
+        };
+
+        let comparison = result.compare_to_baseline(&baseline);
+        assert!(comparison.throughput_ratio >= 0.9);
+        assert!(comparison.throughput_ratio <= 1.1);
+    }
+
+    #[test]
+    fn test_parity_comparison_is_parity() {
+        // is_parity checks if throughput_ratio >= parity_threshold_pct / 100
+        let parity = AprParityComparison {
+            throughput_ratio: 0.95,
+            memory_ratio: 1.0,
+            parity_threshold_pct: 90.0, // 90% threshold
+        };
+        assert!(parity.is_parity()); // 0.95 >= 0.90
+
+        let not_parity = AprParityComparison {
+            throughput_ratio: 0.5,
+            memory_ratio: 2.0,
+            parity_threshold_pct: 90.0, // 90% threshold
+        };
+        assert!(!not_parity.is_parity()); // 0.5 < 0.90
+    }
+
+    #[test]
+    fn test_benchmark_runner_new() {
+        let config = AprTransformerConfig {
+            hidden_dim: 64,
+            num_layers: 2,
+            vocab_size: 100,
+            ..Default::default()
+        };
+        let transformer = AprTransformer::new(config);
+        let runner = AprBenchmarkRunner::new(transformer);
+
+        assert_eq!(runner.warmup_iterations(), 3);
+        assert_eq!(runner.measure_iterations(), 10);
+    }
+
+    #[test]
+    fn test_benchmark_runner_set_iterations() {
+        let config = AprTransformerConfig {
+            hidden_dim: 64,
+            num_layers: 2,
+            vocab_size: 100,
+            ..Default::default()
+        };
+        let transformer = AprTransformer::new(config);
+        let mut runner = AprBenchmarkRunner::new(transformer);
+
+        runner.set_warmup_iterations(5);
+        runner.set_measure_iterations(10);
+
+        assert_eq!(runner.warmup_iterations(), 5);
+        assert_eq!(runner.measure_iterations(), 10);
+    }
 }

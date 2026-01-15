@@ -367,6 +367,10 @@ pub struct AprMetadata {
     /// RoPE theta for position encoding
     #[serde(default)]
     pub rope_theta: Option<f32>,
+    /// RoPE type: 0=NORM (adjacent pairs), 2=NEOX (split halves)
+    /// CORRECTNESS-011: Qwen2.5 models require rope_type=2 (NEOX style)
+    #[serde(default)]
+    pub rope_type: Option<u32>,
     /// Layer norm epsilon
     #[serde(default)]
     pub rms_norm_eps: Option<f32>,
@@ -518,7 +522,7 @@ impl AprV2Model {
             let mut result = Vec::with_capacity(HEADER_SIZE + decompressed.len());
             result.extend_from_slice(&data[..HEADER_SIZE]);
             result.extend_from_slice(&decompressed);
-            return Ok(result);
+            Ok(result)
         }
 
         #[cfg(not(feature = "apr-compression"))]
@@ -693,16 +697,13 @@ impl AprV2Model {
         let num_heads = self.metadata.num_heads.unwrap_or(1);
         let num_kv_heads = self.metadata.num_kv_heads.unwrap_or(num_heads);
         let vocab_size = self.metadata.vocab_size.unwrap_or(0);
-        let intermediate_dim = self
-            .metadata
-            .intermediate_size
-            .unwrap_or(hidden_dim * 4);
+        let intermediate_dim = self.metadata.intermediate_size.unwrap_or(hidden_dim * 4);
         let eps = self.metadata.rms_norm_eps.unwrap_or(1e-6);
 
         // 1. Token embedding lookup
         let embed_name = self.find_tensor_name(&[
             "model.embed_tokens.weight",
-            "embed_tokens.weight",           // SafeTensors (no model. prefix)
+            "embed_tokens.weight", // SafeTensors (no model. prefix)
             "transformer.wte.weight",
             "embeddings.word_embeddings.weight",
             "tok_embeddings.weight",
@@ -716,7 +717,7 @@ impl AprV2Model {
             if offset + hidden_dim <= embeddings.len() {
                 hidden.extend_from_slice(&embeddings[offset..offset + hidden_dim]);
             } else {
-                hidden.extend(std::iter::repeat(0.0).take(hidden_dim));
+                hidden.extend(std::iter::repeat_n(0.0, hidden_dim));
             }
         }
 
@@ -725,35 +726,35 @@ impl AprV2Model {
             // Try common naming patterns
             let attn_norm_name = self.find_tensor_name(&[
                 &format!("model.layers.{layer_idx}.input_layernorm.weight"),
-                &format!("layers.{layer_idx}.input_layernorm.weight"),  // SafeTensors
+                &format!("layers.{layer_idx}.input_layernorm.weight"), // SafeTensors
                 &format!("transformer.h.{layer_idx}.ln_1.weight"),
                 &format!("layers.{layer_idx}.attention_norm.weight"),
             ])?;
 
             let q_name = self.find_tensor_name(&[
                 &format!("model.layers.{layer_idx}.self_attn.q_proj.weight"),
-                &format!("layers.{layer_idx}.self_attn.q_proj.weight"),  // SafeTensors
+                &format!("layers.{layer_idx}.self_attn.q_proj.weight"), // SafeTensors
                 &format!("transformer.h.{layer_idx}.attn.q_proj.weight"),
                 &format!("layers.{layer_idx}.attention.wq.weight"),
             ])?;
 
             let k_name = self.find_tensor_name(&[
                 &format!("model.layers.{layer_idx}.self_attn.k_proj.weight"),
-                &format!("layers.{layer_idx}.self_attn.k_proj.weight"),  // SafeTensors
+                &format!("layers.{layer_idx}.self_attn.k_proj.weight"), // SafeTensors
                 &format!("transformer.h.{layer_idx}.attn.k_proj.weight"),
                 &format!("layers.{layer_idx}.attention.wk.weight"),
             ])?;
 
             let v_name = self.find_tensor_name(&[
                 &format!("model.layers.{layer_idx}.self_attn.v_proj.weight"),
-                &format!("layers.{layer_idx}.self_attn.v_proj.weight"),  // SafeTensors
+                &format!("layers.{layer_idx}.self_attn.v_proj.weight"), // SafeTensors
                 &format!("transformer.h.{layer_idx}.attn.v_proj.weight"),
                 &format!("layers.{layer_idx}.attention.wv.weight"),
             ])?;
 
             let o_name = self.find_tensor_name(&[
                 &format!("model.layers.{layer_idx}.self_attn.o_proj.weight"),
-                &format!("layers.{layer_idx}.self_attn.o_proj.weight"),  // SafeTensors
+                &format!("layers.{layer_idx}.self_attn.o_proj.weight"), // SafeTensors
                 &format!("transformer.h.{layer_idx}.attn.out_proj.weight"),
                 &format!("layers.{layer_idx}.attention.wo.weight"),
             ])?;
@@ -773,8 +774,20 @@ impl AprV2Model {
             let head_dim = hidden_dim / num_heads;
 
             let q = matmul(&normed, &q_weight, seq_len, hidden_dim, hidden_dim);
-            let k = matmul(&normed, &k_weight, seq_len, hidden_dim, num_kv_heads * head_dim);
-            let v = matmul(&normed, &v_weight, seq_len, hidden_dim, num_kv_heads * head_dim);
+            let k = matmul(
+                &normed,
+                &k_weight,
+                seq_len,
+                hidden_dim,
+                num_kv_heads * head_dim,
+            );
+            let v = matmul(
+                &normed,
+                &v_weight,
+                seq_len,
+                hidden_dim,
+                num_kv_heads * head_dim,
+            );
 
             // Simplified attention (no RoPE for now, full attention)
             let attn_out = simple_attention(&q, &k, &v, seq_len, num_heads, num_kv_heads, head_dim);
@@ -790,28 +803,28 @@ impl AprV2Model {
             // FFN
             let ffn_norm_name = self.find_tensor_name(&[
                 &format!("model.layers.{layer_idx}.post_attention_layernorm.weight"),
-                &format!("layers.{layer_idx}.post_attention_layernorm.weight"),  // SafeTensors
+                &format!("layers.{layer_idx}.post_attention_layernorm.weight"), // SafeTensors
                 &format!("transformer.h.{layer_idx}.ln_2.weight"),
                 &format!("layers.{layer_idx}.ffn_norm.weight"),
             ])?;
 
             let gate_name = self.find_tensor_name(&[
                 &format!("model.layers.{layer_idx}.mlp.gate_proj.weight"),
-                &format!("layers.{layer_idx}.mlp.gate_proj.weight"),  // SafeTensors
+                &format!("layers.{layer_idx}.mlp.gate_proj.weight"), // SafeTensors
                 &format!("transformer.h.{layer_idx}.mlp.gate_proj.weight"),
                 &format!("layers.{layer_idx}.feed_forward.w1.weight"),
             ])?;
 
             let up_name = self.find_tensor_name(&[
                 &format!("model.layers.{layer_idx}.mlp.up_proj.weight"),
-                &format!("layers.{layer_idx}.mlp.up_proj.weight"),  // SafeTensors
+                &format!("layers.{layer_idx}.mlp.up_proj.weight"), // SafeTensors
                 &format!("transformer.h.{layer_idx}.mlp.up_proj.weight"),
                 &format!("layers.{layer_idx}.feed_forward.w3.weight"),
             ])?;
 
             let down_name = self.find_tensor_name(&[
                 &format!("model.layers.{layer_idx}.mlp.down_proj.weight"),
-                &format!("layers.{layer_idx}.mlp.down_proj.weight"),  // SafeTensors
+                &format!("layers.{layer_idx}.mlp.down_proj.weight"), // SafeTensors
                 &format!("transformer.h.{layer_idx}.mlp.down_proj.weight"),
                 &format!("layers.{layer_idx}.feed_forward.w2.weight"),
             ])?;
@@ -843,7 +856,7 @@ impl AprV2Model {
         // 3. Final layer norm
         let final_norm_name = self.find_tensor_name(&[
             "model.norm.weight",
-            "norm.weight",               // SafeTensors
+            "norm.weight", // SafeTensors
             "transformer.ln_f.weight",
         ])?;
         let final_norm = self.get_tensor_f32(&final_norm_name)?;
@@ -915,10 +928,7 @@ impl AprV2Model {
         let num_heads = self.metadata.num_heads.unwrap_or(1);
         let num_kv_heads = self.metadata.num_kv_heads.unwrap_or(num_heads);
         let vocab_size = self.metadata.vocab_size.unwrap_or(0);
-        let intermediate_dim = self
-            .metadata
-            .intermediate_size
-            .unwrap_or(hidden_dim * 4);
+        let intermediate_dim = self.metadata.intermediate_size.unwrap_or(hidden_dim * 4);
         let eps = self.metadata.rms_norm_eps.unwrap_or(1e-6);
         let seq_len = token_ids.len();
 
@@ -938,7 +948,7 @@ impl AprV2Model {
             if offset + hidden_dim <= embeddings.len() {
                 hidden.extend_from_slice(&embeddings[offset..offset + hidden_dim]);
             } else {
-                hidden.extend(std::iter::repeat(0.0).take(hidden_dim));
+                hidden.extend(std::iter::repeat_n(0.0, hidden_dim));
             }
         }
         profiler.stop(timer, seq_len as u64);
@@ -992,8 +1002,20 @@ impl AprV2Model {
             let timer = profiler.start("apr.QKV");
             let head_dim = hidden_dim / num_heads;
             let q = matmul(&normed, &q_weight, seq_len, hidden_dim, hidden_dim);
-            let k = matmul(&normed, &k_weight, seq_len, hidden_dim, num_kv_heads * head_dim);
-            let v = matmul(&normed, &v_weight, seq_len, hidden_dim, num_kv_heads * head_dim);
+            let k = matmul(
+                &normed,
+                &k_weight,
+                seq_len,
+                hidden_dim,
+                num_kv_heads * head_dim,
+            );
+            let v = matmul(
+                &normed,
+                &v_weight,
+                seq_len,
+                hidden_dim,
+                num_kv_heads * head_dim,
+            );
             profiler.stop(timer, seq_len as u64);
 
             // APR.ATTENTION
@@ -1142,8 +1164,7 @@ impl AprV2Model {
                 .iter()
                 .enumerate()
                 .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .map(|(idx, _)| idx as u32)
-                .unwrap_or(0);
+                .map_or(0, |(idx, _)| idx as u32);
 
             // Check for EOS
             if let Some(eos) = eos_token_id {
@@ -1171,10 +1192,7 @@ impl AprV2Model {
             }
         }
         Err(RealizarError::FormatError {
-            reason: format!(
-                "No matching tensor found. Tried: {:?}",
-                candidates
-            ),
+            reason: format!("No matching tensor found. Tried: {:?}", candidates),
         })
     }
 
@@ -1213,7 +1231,10 @@ impl AprV2Model {
         if let Some(added_tokens) = json.get("added_tokens").and_then(|v| v.as_array()) {
             for token in added_tokens {
                 let content = token.get("content").and_then(|v| v.as_str());
-                let id = token.get("id").and_then(|v| v.as_u64()).map(|v| v as u32);
+                let id = token
+                    .get("id")
+                    .and_then(serde_json::Value::as_u64)
+                    .map(|v| v as u32);
 
                 if let (Some(content), Some(id)) = (content, id) {
                     if content == "<|endoftext|>" || content == "</s>" || content == "<eos>" {
@@ -1271,10 +1292,7 @@ impl AprV2Model {
             .collect();
 
         // Extract merges (pair rules for BPE)
-        let merges = json
-            .get("model")?
-            .get("merges")?
-            .as_array()?;
+        let merges = json.get("model")?.get("merges")?.as_array()?;
 
         let merge_rules: Vec<(String, String)> = merges
             .iter()
@@ -1350,7 +1368,10 @@ impl AprV2Model {
         if let Some(added_tokens) = json.get("added_tokens").and_then(|v| v.as_array()) {
             for token in added_tokens {
                 let content = token.get("content").and_then(|v| v.as_str());
-                let id = token.get("id").and_then(|v| v.as_u64()).map(|v| v as u32);
+                let id = token
+                    .get("id")
+                    .and_then(serde_json::Value::as_u64)
+                    .map(|v| v as u32);
 
                 if let (Some(content), Some(id)) = (content, id) {
                     if content == "<|endoftext|>" || content == "</s>" || content == "<eos>" {
@@ -1436,7 +1457,7 @@ fn bpe_encode(text: &str, vocab: &HashMap<String, u32>, merges: &[(String, Strin
             let mut i = 0;
             while i + 1 < tokens.len() {
                 if &tokens[i] == first && &tokens[i + 1] == second {
-                    tokens[i] = merged.clone();
+                    tokens[i].clone_from(&merged);
                     tokens.remove(i + 1);
                     found = true;
                 }
@@ -1551,35 +1572,41 @@ fn simd_dot(a: &[f32], b: &[f32]) -> f32 {
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn simd_dot_avx2(a: &[f32], b: &[f32]) -> f32 {
-    use std::arch::x86_64::*;
+    use std::arch::x86_64::{
+        _mm256_castps256_ps128, _mm256_extractf128_ps, _mm256_fmadd_ps, _mm256_loadu_ps,
+        _mm256_setzero_ps, _mm_add_ps, _mm_add_ss, _mm_cvtss_f32, _mm_movehl_ps, _mm_shuffle_ps,
+    };
 
     let n = a.len().min(b.len());
     let chunks = n / 8;
 
     // SAFETY: This entire fn is unsafe with target_feature(avx2, fma)
     // All intrinsics are safe to call given the target_feature guarantee
-    let mut sum = _mm256_setzero_ps();
+    // The unsafe block is required for Rust 2024 edition compliance
+    unsafe {
+        let mut sum = _mm256_setzero_ps();
 
-    for i in 0..chunks {
-        let av = _mm256_loadu_ps(a.as_ptr().add(i * 8));
-        let bv = _mm256_loadu_ps(b.as_ptr().add(i * 8));
-        sum = _mm256_fmadd_ps(av, bv, sum);
+        for i in 0..chunks {
+            let av = _mm256_loadu_ps(a.as_ptr().add(i * 8));
+            let bv = _mm256_loadu_ps(b.as_ptr().add(i * 8));
+            sum = _mm256_fmadd_ps(av, bv, sum);
+        }
+
+        // Horizontal sum
+        let hi = _mm256_extractf128_ps(sum, 1);
+        let lo = _mm256_castps256_ps128(sum);
+        let sum128 = _mm_add_ps(lo, hi);
+        let sum64 = _mm_add_ps(sum128, _mm_movehl_ps(sum128, sum128));
+        let sum32 = _mm_add_ss(sum64, _mm_shuffle_ps(sum64, sum64, 1));
+        let mut result = _mm_cvtss_f32(sum32);
+
+        // Handle remainder (scalar)
+        for i in (chunks * 8)..n {
+            result += a.get(i).copied().unwrap_or(0.0) * b.get(i).copied().unwrap_or(0.0);
+        }
+
+        result
     }
-
-    // Horizontal sum
-    let hi = _mm256_extractf128_ps(sum, 1);
-    let lo = _mm256_castps256_ps128(sum);
-    let sum128 = _mm_add_ps(lo, hi);
-    let sum64 = _mm_add_ps(sum128, _mm_movehl_ps(sum128, sum128));
-    let sum32 = _mm_add_ss(sum64, _mm_shuffle_ps(sum64, sum64, 1));
-    let mut result = _mm_cvtss_f32(sum32);
-
-    // Handle remainder (scalar)
-    for i in (chunks * 8)..n {
-        result += a.get(i).copied().unwrap_or(0.0) * b.get(i).copied().unwrap_or(0.0);
-    }
-
-    result
 }
 
 /// Simplified multi-head attention (no RoPE, causal mask)
@@ -1609,21 +1636,30 @@ fn simple_attention(
                 // Causal: only attend to past
                 let mut score = 0.0;
                 for d in 0..head_dim {
-                    let q_val = q.get(s * hidden_dim + h * head_dim + d).copied().unwrap_or(0.0);
-                    let k_val = k.get(t * kv_dim + kv_h * head_dim + d).copied().unwrap_or(0.0);
+                    let q_val = q
+                        .get(s * hidden_dim + h * head_dim + d)
+                        .copied()
+                        .unwrap_or(0.0);
+                    let k_val = k
+                        .get(t * kv_dim + kv_h * head_dim + d)
+                        .copied()
+                        .unwrap_or(0.0);
                     score += q_val * k_val;
                 }
                 scores[t] = score * scale;
             }
 
             // Softmax
-            let max_score = scores[..=s].iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+            let max_score = scores[..=s]
+                .iter()
+                .cloned()
+                .fold(f32::NEG_INFINITY, f32::max);
             let mut sum = 0.0;
-            for score in scores[..=s].iter_mut() {
+            for score in &mut scores[..=s] {
                 *score = (*score - max_score).exp();
                 sum += *score;
             }
-            for score in scores[..=s].iter_mut() {
+            for score in &mut scores[..=s] {
                 *score /= sum;
             }
 
@@ -1631,7 +1667,10 @@ fn simple_attention(
             for d in 0..head_dim {
                 let mut val = 0.0;
                 for t in 0..=s {
-                    let v_val = v.get(t * kv_dim + kv_h * head_dim + d).copied().unwrap_or(0.0);
+                    let v_val = v
+                        .get(t * kv_dim + kv_h * head_dim + d)
+                        .copied()
+                        .unwrap_or(0.0);
                     val += scores[t] * v_val;
                 }
                 output[s * hidden_dim + h * head_dim + d] = val;
@@ -1770,7 +1809,11 @@ impl AprV2ModelCuda {
         let num_heads = model.metadata.num_heads.unwrap_or(1);
         let num_kv_heads = model.metadata.num_kv_heads.unwrap_or(num_heads);
         let hidden_dim = model.metadata.hidden_size.unwrap_or(0);
-        let head_dim = if num_heads > 0 { hidden_dim / num_heads } else { 0 };
+        let head_dim = if num_heads > 0 {
+            hidden_dim / num_heads
+        } else {
+            0
+        };
 
         if num_layers > 0 && head_dim > 0 {
             executor
@@ -1784,6 +1827,11 @@ impl AprV2ModelCuda {
         // Set RoPE theta for position embeddings
         let rope_theta = model.metadata.rope_theta.unwrap_or(10000.0);
         executor.set_rope_theta(rope_theta);
+
+        // CORRECTNESS-011: Set RoPE type (0=NORM adjacent pairs, 2=NEOX split halves)
+        // Five-Whys: GPU garbage output → wrong RoPE style → rope_type not set for APR models
+        let rope_type = model.metadata.rope_type.unwrap_or(0);
+        executor.set_rope_type(rope_type);
 
         let mut apr_cuda = Self {
             model,
@@ -1884,8 +1932,16 @@ impl AprV2ModelCuda {
         let num_heads = self.model.metadata.num_heads.unwrap_or(1);
         let num_kv_heads = self.model.metadata.num_kv_heads.unwrap_or(num_heads);
         let vocab_size = self.model.metadata.vocab_size.unwrap_or(0);
-        let intermediate_dim = self.model.metadata.intermediate_size.unwrap_or(hidden_dim * 4);
-        let head_dim = if num_heads > 0 { hidden_dim / num_heads } else { 0 };
+        let intermediate_dim = self
+            .model
+            .metadata
+            .intermediate_size
+            .unwrap_or(hidden_dim * 4);
+        let head_dim = if num_heads > 0 {
+            hidden_dim / num_heads
+        } else {
+            0
+        };
         let kv_dim = num_kv_heads * head_dim;
 
         if hidden_dim == 0 || num_layers == 0 {
@@ -2045,7 +2101,11 @@ impl AprV2ModelCuda {
         let num_heads = self.model.metadata.num_heads.unwrap_or(1);
         let num_kv_heads = self.model.metadata.num_kv_heads.unwrap_or(num_heads);
         let vocab_size = self.model.metadata.vocab_size.unwrap_or(0);
-        let intermediate_dim = self.model.metadata.intermediate_size.unwrap_or(hidden_dim * 4);
+        let intermediate_dim = self
+            .model
+            .metadata
+            .intermediate_size
+            .unwrap_or(hidden_dim * 4);
         let eps = self.model.metadata.rms_norm_eps.unwrap_or(1e-6);
         let seq_len = token_ids.len();
         let head_dim = hidden_dim / num_heads;
@@ -2077,7 +2137,7 @@ impl AprV2ModelCuda {
             if offset + hidden_dim <= embeddings.len() {
                 hidden.extend_from_slice(&embeddings[offset..offset + hidden_dim]);
             } else {
-                hidden.extend(std::iter::repeat(0.0).take(hidden_dim));
+                hidden.extend(std::iter::repeat_n(0.0, hidden_dim));
             }
         }
 
@@ -2148,9 +2208,12 @@ impl AprV2ModelCuda {
             };
             let (q, k, v) = if self.has_cached_weight(&q_cache_name) {
                 // Fast path: use pre-cached transposed weights
-                let q = self.gemm_cached_gpu(&q_cache_name, &normed, seq_len, hidden_dim, hidden_dim)?;
-                let k = self.gemm_cached_gpu(&k_cache_name, &normed, seq_len, hidden_dim, kv_dim)?;
-                let v = self.gemm_cached_gpu(&v_cache_name, &normed, seq_len, hidden_dim, kv_dim)?;
+                let q =
+                    self.gemm_cached_gpu(&q_cache_name, &normed, seq_len, hidden_dim, hidden_dim)?;
+                let k =
+                    self.gemm_cached_gpu(&k_cache_name, &normed, seq_len, hidden_dim, kv_dim)?;
+                let v =
+                    self.gemm_cached_gpu(&v_cache_name, &normed, seq_len, hidden_dim, kv_dim)?;
                 (q, k, v)
             } else {
                 // Fallback: load, transpose, and upload weights each time
@@ -2264,8 +2327,20 @@ impl AprV2ModelCuda {
             };
             let (gate_out, up_out) = if self.has_cached_weight(&gate_cache_name) {
                 // Fast path: use pre-cached transposed weights
-                let gate_out = self.gemm_cached_gpu(&gate_cache_name, &normed, seq_len, hidden_dim, intermediate_dim)?;
-                let up_out = self.gemm_cached_gpu(&up_cache_name, &normed, seq_len, hidden_dim, intermediate_dim)?;
+                let gate_out = self.gemm_cached_gpu(
+                    &gate_cache_name,
+                    &normed,
+                    seq_len,
+                    hidden_dim,
+                    intermediate_dim,
+                )?;
+                let up_out = self.gemm_cached_gpu(
+                    &up_cache_name,
+                    &normed,
+                    seq_len,
+                    hidden_dim,
+                    intermediate_dim,
+                )?;
                 (gate_out, up_out)
             } else {
                 // Fallback: load, transpose, and upload each time
@@ -2273,8 +2348,10 @@ impl AprV2ModelCuda {
                 let up = self.model.get_tensor_f32(&up_name)?;
                 let gate_t = transpose_matrix(&gate, intermediate_dim, hidden_dim);
                 let up_t = transpose_matrix(&up, intermediate_dim, hidden_dim);
-                let gate_out = self.gemm_gpu(&normed, &gate_t, seq_len, hidden_dim, intermediate_dim)?;
-                let up_out = self.gemm_gpu(&normed, &up_t, seq_len, hidden_dim, intermediate_dim)?;
+                let gate_out =
+                    self.gemm_gpu(&normed, &gate_t, seq_len, hidden_dim, intermediate_dim)?;
+                let up_out =
+                    self.gemm_gpu(&normed, &up_t, seq_len, hidden_dim, intermediate_dim)?;
                 (gate_out, up_out)
             };
 
@@ -2286,7 +2363,13 @@ impl AprV2ModelCuda {
             }
 
             let ffn_out = if self.has_cached_weight(&down_cache_name) {
-                self.gemm_cached_gpu(&down_cache_name, &ffn_hidden, seq_len, intermediate_dim, hidden_dim)?
+                self.gemm_cached_gpu(
+                    &down_cache_name,
+                    &ffn_hidden,
+                    seq_len,
+                    intermediate_dim,
+                    hidden_dim,
+                )?
             } else {
                 let down = self.model.get_tensor_f32(&down_name)?;
                 let down_t = transpose_matrix(&down, hidden_dim, intermediate_dim);
@@ -2431,8 +2514,7 @@ impl AprV2ModelCuda {
                 .iter()
                 .enumerate()
                 .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .map(|(idx, _)| idx as u32)
-                .unwrap_or(eos_id);
+                .map_or(eos_id, |(idx, _)| idx as u32);
 
             if next_token == eos_id {
                 break;
@@ -2457,7 +2539,7 @@ impl AprV2ModelCuda {
     /// # Returns
     ///
     /// Logits vector of size `vocab_size` for next token prediction.
-    pub fn forward_single_cuda(&mut self, token_id: u32, position: usize) -> Result<Vec<f32>> {
+    pub fn forward_single_cuda(&mut self, token_id: u32, _position: usize) -> Result<Vec<f32>> {
         // For now, use full forward (no KV cache optimization yet)
         // TODO: Implement proper GPU KV cache path
         self.forward_cuda(&[token_id])
@@ -2487,7 +2569,7 @@ impl AprV2ModelCuda {
         let _ = self.forward_cuda(&tokens)?;
 
         // Decode: generate one token at a time
-        for i in 0..max_new_tokens {
+        for _i in 0..max_new_tokens {
             let position = tokens.len();
             let last_token = *tokens.last().unwrap_or(&1);
 
@@ -2498,8 +2580,7 @@ impl AprV2ModelCuda {
                 .iter()
                 .enumerate()
                 .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .map(|(idx, _)| idx as u32)
-                .unwrap_or(eos_id);
+                .map_or(eos_id, |(idx, _)| idx as u32);
 
             if next_token == eos_id {
                 break;
@@ -2798,5 +2879,302 @@ mod tests {
             "Error should mention feature: {}",
             err_msg
         );
+    }
+
+    // ============ Additional coverage tests ============
+
+    /// Helper to create a complete valid APR v2 model
+    fn create_test_apr_model() -> Vec<u8> {
+        let metadata = r#"{"architecture":"test","vocab_size":100,"hidden_size":64}"#;
+        let metadata_bytes = metadata.as_bytes();
+        let metadata_padded_size = ((metadata_bytes.len() + 63) / 64) * 64;
+
+        // Binary tensor index entry for "test.weight"
+        let tensor_entry = create_binary_tensor_entry("test.weight", 0, &[4, 4], 0, 64);
+
+        let tensor_index_offset = HEADER_SIZE as u64 + metadata_padded_size as u64;
+        let data_offset = tensor_index_offset + tensor_entry.len() as u64;
+        let data_size = 64usize; // 16 floats * 4 bytes
+
+        let total_size = data_offset as usize + data_size;
+        let mut data = vec![0u8; total_size];
+
+        // Header
+        data[0..4].copy_from_slice(&MAGIC);
+        data[4] = 2; // version major
+        data[5] = 0; // version minor
+        data[6..8].copy_from_slice(&0u16.to_le_bytes()); // flags = 0
+        data[8..12].copy_from_slice(&1u32.to_le_bytes()); // tensor_count = 1
+        data[12..20].copy_from_slice(&(HEADER_SIZE as u64).to_le_bytes()); // metadata_offset
+        data[20..24].copy_from_slice(&(metadata_bytes.len() as u32).to_le_bytes()); // metadata_size
+        data[24..32].copy_from_slice(&tensor_index_offset.to_le_bytes()); // tensor_index_offset
+        data[32..40].copy_from_slice(&data_offset.to_le_bytes()); // data_offset
+
+        // Metadata
+        data[HEADER_SIZE..HEADER_SIZE + metadata_bytes.len()].copy_from_slice(metadata_bytes);
+
+        // Tensor index
+        let idx_start = tensor_index_offset as usize;
+        data[idx_start..idx_start + tensor_entry.len()].copy_from_slice(&tensor_entry);
+
+        // Tensor data (16 floats)
+        let data_start = data_offset as usize;
+        for i in 0..16 {
+            let val = i as f32;
+            data[data_start + i * 4..data_start + i * 4 + 4]
+                .copy_from_slice(&val.to_le_bytes());
+        }
+
+        data
+    }
+
+    #[test]
+    fn test_apr_model_tensor_count() {
+        let data = create_test_apr_model();
+        let model = AprV2Model::from_bytes(data).expect("should load");
+        assert_eq!(model.tensor_count(), 1);
+    }
+
+    #[test]
+    fn test_apr_model_tensor_names() {
+        let data = create_test_apr_model();
+        let model = AprV2Model::from_bytes(data).expect("should load");
+        let names = model.tensor_names();
+        assert_eq!(names.len(), 1);
+        assert_eq!(names[0], "test.weight");
+    }
+
+    #[test]
+    fn test_apr_model_metadata() {
+        let data = create_test_apr_model();
+        let model = AprV2Model::from_bytes(data).expect("should load");
+        let meta = model.metadata();
+        assert_eq!(meta.vocab_size, Some(100));
+        assert_eq!(meta.hidden_size, Some(64));
+    }
+
+    #[test]
+    fn test_apr_model_get_tensor() {
+        let data = create_test_apr_model();
+        let model = AprV2Model::from_bytes(data).expect("should load");
+
+        let tensor = model.get_tensor("test.weight");
+        assert!(tensor.is_some());
+        let entry = tensor.unwrap();
+        assert_eq!(entry.shape, vec![4, 4]);
+        assert_eq!(entry.dtype, "F32");
+
+        // Non-existent tensor
+        assert!(model.get_tensor("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_apr_model_get_tensor_f32() {
+        let data = create_test_apr_model();
+        let model = AprV2Model::from_bytes(data).expect("should load");
+
+        let floats = model.get_tensor_f32("test.weight").expect("should get f32");
+        assert_eq!(floats.len(), 16);
+        assert_eq!(floats[0], 0.0);
+        assert_eq!(floats[1], 1.0);
+        assert_eq!(floats[15], 15.0);
+    }
+
+    #[test]
+    fn test_apr_model_get_tensor_f32_not_found() {
+        let data = create_test_apr_model();
+        let model = AprV2Model::from_bytes(data).expect("should load");
+
+        let result = model.get_tensor_f32("nonexistent");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_apr_model_get_tensor_bytes() {
+        let data = create_test_apr_model();
+        let model = AprV2Model::from_bytes(data).expect("should load");
+
+        let bytes = model.get_tensor_bytes("test.weight").expect("should get bytes");
+        assert_eq!(bytes.len(), 64); // 16 floats * 4 bytes
+    }
+
+    #[test]
+    fn test_apr_model_get_tensor_bytes_not_found() {
+        let data = create_test_apr_model();
+        let model = AprV2Model::from_bytes(data).expect("should load");
+
+        let result = model.get_tensor_bytes("nonexistent");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_apr_model_estimated_parameters() {
+        let data = create_test_apr_model();
+        let model = AprV2Model::from_bytes(data).expect("should load");
+
+        // 4 x 4 = 16 parameters
+        assert_eq!(model.estimated_parameters(), 16);
+    }
+
+    #[test]
+    fn test_apr_flags_lz4() {
+        let flags = AprFlags::new(AprFlags::LZ4_COMPRESSED);
+        assert!(flags.is_lz4());
+        assert!(flags.is_compressed());
+        assert!(!flags.is_zstd());
+    }
+
+    #[test]
+    fn test_apr_flags_zstd() {
+        let flags = AprFlags::new(AprFlags::ZSTD_COMPRESSED);
+        assert!(flags.is_zstd());
+        assert!(flags.is_compressed());
+        assert!(!flags.is_lz4());
+    }
+
+    #[test]
+    fn test_apr_flags_has_vocab() {
+        let flags = AprFlags::new(AprFlags::HAS_VOCAB);
+        assert!(flags.has_vocab());
+        assert!(!flags.is_quantized());
+    }
+
+    #[test]
+    fn test_apr_metadata_is_transformer() {
+        // is_transformer() requires hidden_size, num_layers, num_heads, vocab_size all Some
+        let mut meta = AprMetadata::default();
+        assert!(!meta.is_transformer()); // all None
+
+        // Set all required fields
+        meta.hidden_size = Some(1024);
+        meta.num_layers = Some(12);
+        meta.num_heads = Some(16);
+        meta.vocab_size = Some(32000);
+        assert!(meta.is_transformer());
+
+        // Missing one field
+        meta.hidden_size = None;
+        assert!(!meta.is_transformer());
+    }
+
+    #[test]
+    fn test_apr_model_unsupported_version() {
+        let mut data = vec![0u8; HEADER_SIZE + 128];
+        data[0..4].copy_from_slice(&MAGIC);
+        data[4] = 99; // version major = 99 (unsupported)
+        data[5] = 0;
+
+        let result = AprV2Model::from_bytes(data);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("not supported"));
+    }
+
+    #[test]
+    fn test_apr_model_encrypted_error() {
+        let mut data = vec![0u8; HEADER_SIZE + 128];
+        data[0..4].copy_from_slice(&MAGIC);
+        data[4] = 2;
+        data[5] = 0;
+        data[6..8].copy_from_slice(&AprFlags::ENCRYPTED.to_le_bytes()); // flags = encrypted
+
+        let result = AprV2Model::from_bytes(data);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("Encrypted"));
+    }
+
+    #[test]
+    fn test_apr_model_truncated_metadata() {
+        let mut data = vec![0u8; 100]; // Too small for metadata
+        data[0..4].copy_from_slice(&MAGIC);
+        data[4] = 2;
+        data[5] = 0;
+        data[12..20].copy_from_slice(&64u64.to_le_bytes()); // metadata_offset = 64
+        data[20..24].copy_from_slice(&1000u32.to_le_bytes()); // metadata_size = 1000 (larger than file)
+
+        let result = AprV2Model::from_bytes(data);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("truncated"));
+    }
+
+    #[test]
+    fn test_is_apr_file() {
+        // is_apr_file reads the file and checks for APR2 magic bytes
+        // Non-existent files return false
+        assert!(!is_apr_file("/nonexistent/model.apr"));
+        assert!(!is_apr_file("/nonexistent/model.gguf"));
+
+        // Create temp file with APR magic
+        use std::io::Write;
+        let dir = std::env::temp_dir();
+        let path = dir.join("test_apr_file.apr");
+        {
+            let mut f = std::fs::File::create(&path).expect("create temp file");
+            f.write_all(&MAGIC).expect("write magic");
+            f.write_all(&[0u8; 60]).expect("write padding");
+        }
+        assert!(is_apr_file(&path));
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn test_detect_format_unknown() {
+        assert_eq!(detect_format("/path/model.bin"), "unknown");
+        assert_eq!(detect_format("/path/model.pt"), "unknown");
+    }
+
+    #[test]
+    fn test_bpe_tokenizer_encode_decode() {
+        // Create vocab with ASCII characters
+        let id_to_token: Vec<String> = (0u8..128)
+            .map(|i| String::from_utf8(vec![i]).unwrap_or_default())
+            .collect();
+
+        let token_to_id: HashMap<String, u32> = id_to_token
+            .iter()
+            .enumerate()
+            .map(|(i, s)| (s.clone(), i as u32))
+            .collect();
+
+        let tokenizer = BpeTokenizer {
+            token_to_id,
+            id_to_token,
+            merge_rules: vec![],
+            bos_id: Some(1),
+            eos_id: Some(2),
+        };
+
+        // Encode simple ASCII
+        let ids = tokenizer.encode("hi");
+        assert!(!ids.is_empty());
+
+        // Decode back
+        let decoded = tokenizer.decode(&ids);
+        assert!(!decoded.is_empty());
+    }
+
+    #[test]
+    fn test_decode_tokens() {
+        let vocab: Vec<String> = vec![
+            "hello".to_string(),
+            " ".to_string(),
+            "world".to_string(),
+        ];
+
+        let result = AprV2Model::decode_tokens(&vocab, &[0, 1, 2]);
+        assert_eq!(result, "hello world");
+    }
+
+    #[test]
+    fn test_decode_tokens_with_unknown() {
+        let vocab: Vec<String> = vec!["a".to_string(), "b".to_string()];
+
+        // Token 99 is out of bounds - decode_tokens formats as [id]
+        let result = AprV2Model::decode_tokens(&vocab, &[0, 99, 1]);
+        assert!(result.contains('a'));
+        assert!(result.contains('b'));
+        assert!(result.contains("[99]")); // Unknown tokens formatted as [id]
     }
 }
