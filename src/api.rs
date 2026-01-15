@@ -1207,7 +1207,7 @@ pub fn create_router(state: AppState) -> Router {
         // APR-specific API (spec §15.1)
         .route("/v1/predict", post(apr_predict_handler))
         .route("/v1/explain", post(apr_explain_handler))
-        .route("/v1/audit/:request_id", get(apr_audit_handler))
+        .route("/v1/audit/{request_id}", get(apr_audit_handler))
         // GPU batch inference API (PARITY-022)
         .route("/v1/gpu/warmup", post(gpu_warmup_handler))
         .route("/v1/gpu/status", get(gpu_status_handler))
