@@ -1456,4 +1456,5 @@ mod tests {
         let result = GgufToAprQ4KConverter::get_f32(&metadata, "key");
         assert!(result.is_none());
     }
+
 }
