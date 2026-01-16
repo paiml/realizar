@@ -35,8 +35,8 @@ useless_vec = "allow"
 # PAR-073: Using crates.io version for reproducible builds
 trueno = { version = "0.13.0", features = ["gpu"] }
 # CUDA PTX generation and runtime for NVIDIA GPUs (optional, pure Rust, no LLVM/nvcc)
-# Using path dep for latest kernels (BatchedQ6K, MultiWarp, RopeNeox, FlashDecoding)
-trueno-gpu = { path = "../trueno/trueno-gpu", optional = true, features = ["cuda"] }
+# v0.4.7: BatchedQ6K, MultiWarp, RopeNeox, FlashDecoding kernels
+trueno-gpu = { version = "0.4.7", optional = true, features = ["cuda"] }
 # KV cache storage (for attention caching)
 trueno-db = { version = "0.3.10", optional = true }
 

@@ -240,6 +240,17 @@ pub mod http_client;
 /// Provides high-performance transformer inference competing with llama.cpp.
 /// Uses trueno's SIMD primitives for matrix operations.
 pub mod inference;
+/// Inference tracing for debugging LLM pipelines
+///
+/// Per spec APR-TRACE-001: Toyota Way Genchi Genbutsu (Go and See) + Jidoka.
+/// Provides step-by-step visualization of the inference pipeline:
+/// - ENCODE: Tokenization with OOV detection
+/// - EMBED: Token embedding lookup
+/// - TRANSFORMER: Layer-by-layer processing
+/// - LM_HEAD: Final projection to logits
+/// - SAMPLE: Token sampling
+/// - DECODE: Token to text decoding with garbage detection (APR-TOK-001)
+pub mod inference_trace;
 pub mod layers;
 pub mod memory;
 #[cfg(feature = "server")]
@@ -320,6 +331,7 @@ pub mod uri;
 
 // Re-exports for convenience
 pub use error::{RealizarError, Result};
+pub use inference_trace::{InferenceTracer, ModelInfo, TraceConfig, TraceStep};
 pub use tensor::Tensor;
 
 /// Library version
