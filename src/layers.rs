@@ -14195,4 +14195,164 @@ mod tests {
         println!("Speedup (Q4_K vs f32): {:.2}x", f32_per_op / q4k_per_op);
         println!("Effective bandwidth amplification: {:.2}x", f32_bw / q4k_bw);
     }
+
+    // =========================================================================
+    // Coverage Tests: Getter Methods
+    // =========================================================================
+
+    /// Test LayerNorm getter methods
+    #[test]
+    fn test_layer_norm_getters() {
+        let ln = LayerNorm::new(64, 1e-5).expect("test");
+        assert_eq!(ln.normalized_shape(), 64);
+        assert!((ln.eps() - 1e-5).abs() < 1e-10);
+    }
+
+    /// Test Linear getter methods
+    #[test]
+    fn test_linear_getters() {
+        let linear = Linear::new(32, 64).expect("test");
+        assert_eq!(linear.in_features(), 32);
+        assert_eq!(linear.out_features(), 64);
+    }
+
+    /// Test Linear mutable accessors
+    #[test]
+    fn test_linear_mutable_accessors() {
+        let mut linear = Linear::new(4, 2).expect("test");
+
+        // Modify weights
+        let weights = linear.weight_mut();
+        assert_eq!(weights.len(), 4 * 2);
+        weights[0] = 1.0;
+        assert_eq!(linear.weight_mut()[0], 1.0);
+
+        // Modify bias
+        let bias = linear.bias_mut();
+        assert_eq!(bias.len(), 2);
+        bias[0] = 0.5;
+        assert_eq!(linear.bias_mut()[0], 0.5);
+    }
+
+    /// Test QuantizedLinear getter methods
+    #[test]
+    fn test_quantized_linear_getters() {
+        // Create minimal Q4_K weight (144 bytes per 256 values)
+        let weight_bytes = vec![0u8; 144 * 2]; // 512 values = 2 super-blocks
+        let bias = vec![0.0f32; 2];
+        let ql = QuantizedLinear::new(256, 2, weight_bytes, bias).expect("test");
+
+        assert_eq!(ql.in_features(), 256);
+        assert_eq!(ql.out_features(), 2);
+        assert_eq!(ql.weight_bytes().len(), 144 * 2);
+        assert_eq!(ql.bias().len(), 2);
+        assert!(ql.memory_bytes() > 0);
+    }
+
+    /// Test FusedLayerNormLinear getter methods
+    #[test]
+    fn test_fused_layer_norm_linear_getters() {
+        let fused = FusedLayerNormLinear::new(8, 4, 1e-5).expect("test");
+        assert_eq!(fused.feature_dim(), 8);
+        assert_eq!(fused.out_features(), 4);
+    }
+
+    /// Test FusedLayerNormLinear mutable accessors
+    #[test]
+    fn test_fused_layer_norm_linear_mutable_accessors() {
+        let mut fused = FusedLayerNormLinear::new(4, 2, 1e-5).expect("test");
+
+        // Modify norm weights
+        let norm_w = fused.norm_weight_mut();
+        assert_eq!(norm_w.len(), 4);
+        norm_w[0] = 2.0;
+        assert_eq!(fused.norm_weight_mut()[0], 2.0);
+
+        // Modify norm bias
+        let norm_b = fused.norm_bias_mut();
+        assert_eq!(norm_b.len(), 4);
+        norm_b[0] = 0.1;
+        assert_eq!(fused.norm_bias_mut()[0], 0.1);
+
+        // Modify linear weights
+        let lin_w = fused.linear_weight_mut();
+        assert_eq!(lin_w.len(), 4 * 2);
+        lin_w[0] = 3.0;
+        assert_eq!(fused.linear_weight_mut()[0], 3.0);
+
+        // Modify linear bias
+        let lin_b = fused.linear_bias_mut();
+        assert_eq!(lin_b.len(), 2);
+        lin_b[0] = 0.2;
+        assert_eq!(fused.linear_bias_mut()[0], 0.2);
+    }
+
+    /// Test FeedForward getter methods
+    #[test]
+    fn test_ffn_getters() {
+        let ffn = FeedForward::new(8, 32).expect("test");
+        assert_eq!(ffn.hidden_dim(), 8);
+        assert_eq!(ffn.intermediate_dim(), 32);
+    }
+
+    /// Test FeedForward mutable accessors
+    #[test]
+    fn test_ffn_mutable_accessors() {
+        let mut ffn = FeedForward::new(4, 8).expect("test");
+
+        // Get mutable references to fc1 and fc2
+        let fc1 = ffn.fc1_mut();
+        assert_eq!(fc1.in_features(), 4);
+        assert_eq!(fc1.out_features(), 8);
+
+        let fc2 = ffn.fc2_mut();
+        assert_eq!(fc2.in_features(), 8);
+        assert_eq!(fc2.out_features(), 4);
+    }
+
+    /// Test Attention getter methods
+    #[test]
+    fn test_attention_getters() {
+        let attn = Attention::new(64).expect("test");
+        assert_eq!(attn.head_dim(), 64);
+        assert!((attn.scale() - 1.0 / 8.0).abs() < 1e-5); // 1/sqrt(64) = 0.125
+    }
+
+    /// Test Attention scale calculation
+    #[test]
+    fn test_attention_scale_various_dims() {
+        // head_dim=16 -> scale = 1/4 = 0.25
+        let attn16 = Attention::new(16).expect("test");
+        assert!((attn16.scale() - 0.25).abs() < 1e-5);
+
+        // head_dim=128 -> scale = 1/sqrt(128) ≈ 0.0884
+        let attn128 = Attention::new(128).expect("test");
+        assert!((attn128.scale() - 1.0 / (128.0f32).sqrt()).abs() < 1e-5);
+    }
+
+    /// Test gelu with single element
+    #[test]
+    fn test_gelu_single_cov() {
+        let single = Tensor::from_vec(vec![1], vec![0.0f32]).expect("test");
+        let result = gelu(&single).expect("test");
+        // GELU(0) = 0
+        assert!(result.data()[0].abs() < 1e-5);
+    }
+
+    /// Test softmax with single element (should return 1.0)
+    #[test]
+    fn test_softmax_single_element_cov() {
+        let single = Tensor::from_vec(vec![1], vec![5.0f32]).expect("test");
+        let result = softmax(&single).expect("test");
+        assert!((result.data()[0] - 1.0).abs() < 1e-5);
+    }
+
+    /// Test softmax probabilities sum to 1
+    #[test]
+    fn test_softmax_sum_to_one_cov() {
+        let t = Tensor::from_vec(vec![4], vec![1.0f32, 2.0, 3.0, 4.0]).expect("test");
+        let result = softmax(&t).expect("test");
+        let sum: f32 = result.data().iter().sum();
+        assert!((sum - 1.0).abs() < 1e-5);
+    }
 }
