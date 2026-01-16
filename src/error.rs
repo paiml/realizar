@@ -169,4 +169,172 @@ mod tests {
         };
         assert_eq!(err1, err2);
     }
+
+    // ========================================================================
+    // Coverage Tests: All Error Variants
+    // ========================================================================
+
+    #[test]
+    fn test_data_shape_mismatch_display() {
+        let err = RealizarError::DataShapeMismatch {
+            data_size: 10,
+            shape: vec![2, 3],
+            expected: 6,
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("10"));
+        assert!(msg.contains("6"));
+    }
+
+    #[test]
+    fn test_invalid_dimension_display() {
+        let err = RealizarError::InvalidDimension { dim: 5, ndim: 3 };
+        let msg = err.to_string();
+        assert!(msg.contains("5"));
+        assert!(msg.contains("3"));
+    }
+
+    #[test]
+    fn test_matmul_dimension_mismatch_display() {
+        let err = RealizarError::MatmulDimensionMismatch {
+            m: 2,
+            k: 3,
+            k2: 4,
+            n: 5,
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("2"));
+        assert!(msg.contains("3"));
+        assert!(msg.contains("4"));
+        assert!(msg.contains("5"));
+    }
+
+    #[test]
+    fn test_unsupported_operation_display() {
+        let err = RealizarError::UnsupportedOperation {
+            operation: "transpose".to_string(),
+            reason: "not implemented".to_string(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("transpose"));
+        assert!(msg.contains("not implemented"));
+    }
+
+    #[test]
+    fn test_trueno_error_display() {
+        let err = RealizarError::TruenoError("kernel failed".to_string());
+        assert!(err.to_string().contains("kernel failed"));
+    }
+
+    #[test]
+    fn test_index_out_of_bounds_display() {
+        let err = RealizarError::IndexOutOfBounds { index: 10, size: 5 };
+        let msg = err.to_string();
+        assert!(msg.contains("10"));
+        assert!(msg.contains("5"));
+    }
+
+    #[test]
+    fn test_registry_error_display() {
+        let err = RealizarError::RegistryError("lock failed".to_string());
+        assert!(err.to_string().contains("lock failed"));
+    }
+
+    #[test]
+    fn test_model_not_found_display() {
+        let err = RealizarError::ModelNotFound("llama-7b".to_string());
+        assert!(err.to_string().contains("llama-7b"));
+    }
+
+    #[test]
+    fn test_model_already_exists_display() {
+        let err = RealizarError::ModelAlreadyExists("phi-2".to_string());
+        assert!(err.to_string().contains("phi-2"));
+    }
+
+    #[test]
+    fn test_moe_error_display() {
+        let err = RealizarError::MoeError("routing failed".to_string());
+        assert!(err.to_string().contains("routing failed"));
+    }
+
+    #[test]
+    fn test_expert_capacity_exceeded_display() {
+        let err = RealizarError::ExpertCapacityExceeded {
+            expert_id: 3,
+            queue_depth: 10,
+            capacity: 8,
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("3"));
+        assert!(msg.contains("10"));
+        assert!(msg.contains("8"));
+    }
+
+    #[test]
+    fn test_invalid_uri_display() {
+        let err = RealizarError::InvalidUri("bad://url".to_string());
+        assert!(err.to_string().contains("bad://url"));
+    }
+
+    #[test]
+    fn test_format_error_display() {
+        let err = RealizarError::FormatError {
+            reason: "invalid header".to_string(),
+        };
+        assert!(err.to_string().contains("invalid header"));
+    }
+
+    #[test]
+    fn test_io_error_display() {
+        let err = RealizarError::IoError {
+            message: "file not found".to_string(),
+        };
+        assert!(err.to_string().contains("file not found"));
+    }
+
+    #[test]
+    fn test_connection_error_display() {
+        let err = RealizarError::ConnectionError("timeout".to_string());
+        assert!(err.to_string().contains("timeout"));
+    }
+
+    #[test]
+    fn test_gpu_error_display() {
+        let err = RealizarError::GpuError {
+            reason: "out of memory".to_string(),
+        };
+        assert!(err.to_string().contains("out of memory"));
+    }
+
+    #[test]
+    fn test_invalid_configuration_display() {
+        let err = RealizarError::InvalidConfiguration("missing field".to_string());
+        assert!(err.to_string().contains("missing field"));
+    }
+
+    #[test]
+    fn test_inference_error_display() {
+        let err = RealizarError::InferenceError("model failed".to_string());
+        assert!(err.to_string().contains("model failed"));
+    }
+
+    #[test]
+    fn test_error_debug() {
+        let err = RealizarError::ShapeMismatch {
+            expected: vec![1, 2],
+            actual: vec![3, 4],
+        };
+        let debug = format!("{:?}", err);
+        assert!(debug.contains("ShapeMismatch"));
+    }
+
+    #[test]
+    fn test_error_clone() {
+        let err = RealizarError::InvalidShape {
+            reason: "test".to_string(),
+        };
+        let cloned = err.clone();
+        assert_eq!(err, cloned);
+    }
 }
