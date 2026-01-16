@@ -9026,4 +9026,235 @@ mod tests {
             );
         }
     }
+
+    // =========================================================================
+    // Coverage Tests: API struct serialization
+    // =========================================================================
+
+    #[test]
+    fn test_health_response_serialize() {
+        let response = HealthResponse {
+            status: "healthy".to_string(),
+            version: "1.0.0".to_string(),
+        };
+        let json = serde_json::to_string(&response).expect("test");
+        assert!(json.contains("healthy"));
+        assert!(json.contains("1.0.0"));
+    }
+
+    #[test]
+    fn test_tokenize_request_deserialize() {
+        let json = r#"{"text": "hello world"}"#;
+        let req: TokenizeRequest = serde_json::from_str(json).expect("test");
+        assert_eq!(req.text, "hello world");
+        assert!(req.model_id.is_none());
+    }
+
+    #[test]
+    fn test_tokenize_request_with_model_id() {
+        let json = r#"{"text": "hello", "model_id": "phi-2"}"#;
+        let req: TokenizeRequest = serde_json::from_str(json).expect("test");
+        assert_eq!(req.model_id, Some("phi-2".to_string()));
+    }
+
+    #[test]
+    fn test_tokenize_response_serialize() {
+        let response = TokenizeResponse {
+            token_ids: vec![1, 2, 3],
+            num_tokens: 3,
+        };
+        let json = serde_json::to_string(&response).expect("test");
+        assert!(json.contains("[1,2,3]"));
+    }
+
+    #[test]
+    fn test_generate_request_defaults() {
+        let json = r#"{"prompt": "Hello"}"#;
+        let req: GenerateRequest = serde_json::from_str(json).expect("test");
+        assert_eq!(req.prompt, "Hello");
+        assert_eq!(req.max_tokens, 50); // default
+        assert!((req.temperature - 1.0).abs() < 0.001);
+        assert_eq!(req.strategy, "greedy");
+        assert_eq!(req.top_k, 50);
+        assert!((req.top_p - 0.9).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_generate_request_custom_values() {
+        let json = r#"{"prompt": "Hi", "max_tokens": 100, "temperature": 0.7, "strategy": "top_k", "top_k": 40}"#;
+        let req: GenerateRequest = serde_json::from_str(json).expect("test");
+        assert_eq!(req.max_tokens, 100);
+        assert!((req.temperature - 0.7).abs() < 0.001);
+        assert_eq!(req.strategy, "top_k");
+        assert_eq!(req.top_k, 40);
+    }
+
+    #[test]
+    fn test_generate_response_serialize() {
+        let response = GenerateResponse {
+            token_ids: vec![1, 2],
+            text: "test output".to_string(),
+            num_generated: 2,
+        };
+        let json = serde_json::to_string(&response).expect("test");
+        assert!(json.contains("test output"));
+    }
+
+    #[test]
+    fn test_error_response_serialize() {
+        let response = ErrorResponse {
+            error: "Something went wrong".to_string(),
+        };
+        let json = serde_json::to_string(&response).expect("test");
+        assert!(json.contains("Something went wrong"));
+    }
+
+    #[test]
+    fn test_batch_tokenize_request_deserialize() {
+        let json = r#"{"texts": ["hello", "world"]}"#;
+        let req: BatchTokenizeRequest = serde_json::from_str(json).expect("test");
+        assert_eq!(req.texts.len(), 2);
+    }
+
+    #[test]
+    fn test_batch_tokenize_response_serialize() {
+        let response = BatchTokenizeResponse {
+            results: vec![
+                TokenizeResponse {
+                    token_ids: vec![1],
+                    num_tokens: 1,
+                },
+                TokenizeResponse {
+                    token_ids: vec![2, 3],
+                    num_tokens: 2,
+                },
+            ],
+        };
+        let json = serde_json::to_string(&response).expect("test");
+        assert!(json.contains("results"));
+    }
+
+    #[test]
+    fn test_chat_message_roles() {
+        let system = ChatMessage {
+            role: "system".to_string(),
+            content: "You are helpful".to_string(),
+            name: None,
+        };
+        let user = ChatMessage {
+            role: "user".to_string(),
+            content: "Hello".to_string(),
+            name: Some("John".to_string()),
+        };
+        let assistant = ChatMessage {
+            role: "assistant".to_string(),
+            content: "Hi!".to_string(),
+            name: None,
+        };
+        assert_eq!(system.role, "system");
+        assert_eq!(user.role, "user");
+        assert_eq!(assistant.role, "assistant");
+        assert_eq!(user.name, Some("John".to_string()));
+    }
+
+    #[test]
+    fn test_chat_completion_request_deserialize() {
+        let json = r#"{"model": "phi-2", "messages": [{"role": "user", "content": "hi"}]}"#;
+        let req: ChatCompletionRequest = serde_json::from_str(json).expect("test");
+        assert_eq!(req.model, "phi-2");
+        assert_eq!(req.messages.len(), 1);
+    }
+
+    #[test]
+    fn test_chat_completion_response_serialize() {
+        let response = ChatCompletionResponse {
+            id: "chat-123".to_string(),
+            object: "chat.completion".to_string(),
+            created: 1234567890,
+            model: "phi-2".to_string(),
+            choices: vec![ChatChoice {
+                index: 0,
+                message: ChatMessage {
+                    role: "assistant".to_string(),
+                    content: "Hello!".to_string(),
+                    name: None,
+                },
+                finish_reason: "stop".to_string(),
+            }],
+            usage: Usage {
+                prompt_tokens: 10,
+                completion_tokens: 5,
+                total_tokens: 15,
+            },
+        };
+        let json = serde_json::to_string(&response).expect("test");
+        assert!(json.contains("chat-123"));
+        assert!(json.contains("phi-2"));
+    }
+
+    #[test]
+    fn test_usage_serialize() {
+        let usage = Usage {
+            prompt_tokens: 100,
+            completion_tokens: 50,
+            total_tokens: 150,
+        };
+        let json = serde_json::to_string(&usage).expect("test");
+        assert!(json.contains("150"));
+    }
+
+    #[test]
+    fn test_openai_model_serialize() {
+        let model = OpenAIModel {
+            id: "gpt-4".to_string(),
+            object: "model".to_string(),
+            created: 1234567890,
+            owned_by: "openai".to_string(),
+        };
+        let json = serde_json::to_string(&model).expect("test");
+        assert!(json.contains("gpt-4"));
+    }
+
+    #[test]
+    fn test_stream_token_event_serialize() {
+        let event = StreamTokenEvent {
+            token_id: 42,
+            text: "hello".to_string(),
+        };
+        let json = serde_json::to_string(&event).expect("test");
+        assert!(json.contains("42"));
+        assert!(json.contains("hello"));
+    }
+
+    #[test]
+    fn test_stream_done_event_serialize() {
+        let event = StreamDoneEvent { num_generated: 100 };
+        let json = serde_json::to_string(&event).expect("test");
+        assert!(json.contains("100"));
+    }
+
+    #[test]
+    fn test_models_response_serialize() {
+        let response = ModelsResponse {
+            models: vec![
+                ModelInfo {
+                    id: "phi-2".to_string(),
+                    name: "Phi-2".to_string(),
+                    description: "Microsoft Phi-2".to_string(),
+                    format: "gguf".to_string(),
+                    loaded: true,
+                },
+                ModelInfo {
+                    id: "llama".to_string(),
+                    name: "LLaMA".to_string(),
+                    description: "Meta LLaMA".to_string(),
+                    format: "gguf".to_string(),
+                    loaded: false,
+                },
+            ],
+        };
+        let json = serde_json::to_string(&response).expect("test");
+        assert!(json.contains("phi-2"));
+        assert!(json.contains("llama"));
+    }
 }
