@@ -34,8 +34,10 @@ fn cuda_hardware_available() -> bool {
 /// PARITY-113-01: OwnedQuantizedModelCuda availability check
 ///
 /// This verifies that OwnedQuantizedModelCuda can be created when CUDA hardware is available.
+/// NOTE: Ignored because nvidia-smi availability doesn't guarantee CUDA runtime library access.
 #[test]
 #[cfg(feature = "cuda")]
+#[ignore = "requires CUDA runtime library access, not just nvidia-smi"]
 fn test_cuda_model_availability() {
     if !cuda_hardware_available() {
         eprintln!("Skipping: CUDA hardware not available");

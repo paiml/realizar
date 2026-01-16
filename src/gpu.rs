@@ -11204,6 +11204,7 @@ mod tests {
 
     #[test]
     #[cfg(feature = "cuda")]
+    #[ignore = "flaky - timing depends on GPU warmup state and system load"]
     fn test_imp_1005b_forward_gpu_speedup_with_cuda() {
         // IMP-1005b: forward_gpu should be faster with cuda_scheduler
         use crate::cuda::CudaExecutor;

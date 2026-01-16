@@ -885,7 +885,10 @@ impl InferenceTracer {
             json.push_str("    {\n");
             json.push_str(&format!("      \"step\": {:?},\n", event.step.name()));
             json.push_str(&format!("      \"iteration\": {},\n", event.iteration));
-            json.push_str(&format!("      \"layer\": {:?},\n", event.layer));
+            json.push_str(&format!(
+                "      \"layer\": {},\n",
+                event.layer.map_or("null".to_string(), |l| l.to_string())
+            ));
             json.push_str(&format!(
                 "      \"input_shape\": {:?},\n",
                 event.input_shape

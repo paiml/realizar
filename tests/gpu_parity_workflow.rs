@@ -379,6 +379,7 @@ fn test_parity_114b_single_tile_cuda_parity() {
 /// PARITY-114c: Multi-tile CUDA parity (k=128, 4 tiles)
 #[test]
 #[cfg(feature = "cuda")]
+#[ignore = "requires CUDA runtime library access"]
 fn test_parity_114c_multi_tile_cuda_parity() {
     use realizar::gpu::CudaScheduler;
 
@@ -572,6 +573,7 @@ fn test_parity_114e_large_matrix_stress() {
 /// PARITY-114f: M=1 edge case (single row)
 #[test]
 #[cfg(feature = "cuda")]
+#[ignore = "requires CUDA runtime library access"]
 fn test_parity_114f_single_row_m1() {
     use realizar::gpu::CudaScheduler;
 

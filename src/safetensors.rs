@@ -1366,7 +1366,7 @@ mod tests {
     #[test]
     fn test_cov_json_not_object() {
         // JSON is an array, not an object
-        let json = r#"[]"#;
+        let json = r"[]";
         let json_bytes = json.as_bytes();
 
         let mut data = Vec::new();

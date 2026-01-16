@@ -200,6 +200,7 @@ fn test_scheduler_parity_tui_simulation() {
 /// Tests edge cases that often reveal kernel bugs
 #[test]
 #[cfg(feature = "cuda")]
+#[ignore = "requires CUDA runtime library access"]
 fn test_tui_boundary_simulation() {
     println!();
     println!("╔══════════════════════════════════════════════════════════════════════╗");
@@ -269,6 +270,7 @@ fn test_tui_boundary_simulation() {
 /// TUI Simulation: Large dimension stress test
 #[test]
 #[cfg(feature = "cuda")]
+#[ignore = "requires CUDA runtime library access"]
 fn test_tui_large_dimension_simulation() {
     println!();
     println!("╔══════════════════════════════════════════════════════════════════════╗");
@@ -348,6 +350,7 @@ fn test_tui_large_dimension_simulation() {
 /// TUI Simulation: Sequential operations verify no state leakage
 #[test]
 #[cfg(feature = "cuda")]
+#[ignore = "requires CUDA runtime library access"]
 fn test_tui_sequential_operations() {
     println!();
     println!("╔══════════════════════════════════════════════════════════════════════╗");

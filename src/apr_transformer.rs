@@ -120,10 +120,7 @@ impl MmapAprTransformer {
         let magic = &header_bytes[0..4];
         if magic != MAGIC {
             return Err(RealizarError::FormatError {
-                reason: format!(
-                    "Invalid APR magic: expected {:?}, got {:?}",
-                    MAGIC, magic
-                ),
+                reason: format!("Invalid APR magic: expected {:?}, got {:?}", MAGIC, magic),
             });
         }
 
