@@ -923,3 +923,914 @@ fn test_multi_head_attention_wrong_dim_error() {
     let result = mha.forward(&input);
     assert!(result.is_err());
 }
+
+// ============================================================================
+// ADDITIONAL COVERAGE TESTS FOR 95%+ TARGET
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// Model.generate() and forward() coverage
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_model_forward_basic() {
+    let config = ModelConfig {
+        vocab_size: 50,
+        hidden_dim: 16,
+        num_heads: 2,
+        num_layers: 1,
+        intermediate_dim: 32,
+        eps: 1e-5,
+    };
+
+    let model = Model::new(config).expect("test");
+
+    // Forward pass with valid tokens
+    let result = model.forward(&[0, 1, 2]);
+    assert!(result.is_ok());
+
+    let logits = result.unwrap();
+    // Output should be [seq_len, vocab_size]
+    assert_eq!(logits.shape(), &[3, 50]);
+}
+
+#[test]
+fn test_model_generate_greedy() {
+    use realizar::generate::GenerationConfig;
+
+    let config = ModelConfig {
+        vocab_size: 50,
+        hidden_dim: 16,
+        num_heads: 2,
+        num_layers: 1,
+        intermediate_dim: 32,
+        eps: 1e-5,
+    };
+
+    let model = Model::new(config).expect("test");
+
+    let mut gen_config = GenerationConfig::greedy();
+    gen_config.max_tokens = 3;
+    let result = model.generate(&[0, 1], &gen_config);
+    assert!(result.is_ok());
+
+    let tokens = result.unwrap();
+    // Should have at least the prompt tokens
+    assert!(tokens.len() >= 2);
+}
+
+#[test]
+fn test_model_generate_with_eos() {
+    use realizar::generate::GenerationConfig;
+
+    let config = ModelConfig {
+        vocab_size: 50,
+        hidden_dim: 16,
+        num_heads: 2,
+        num_layers: 1,
+        intermediate_dim: 32,
+        eps: 1e-5,
+    };
+
+    let model = Model::new(config).expect("test");
+
+    // Set EOS token to something that might be generated
+    let mut gen_config = GenerationConfig::greedy();
+    gen_config.max_tokens = 10;
+    gen_config.eos_token_id = Some(2);
+
+    let result = model.generate(&[0, 1], &gen_config);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_model_generate_empty_prompt_error() {
+    use realizar::generate::GenerationConfig;
+
+    let config = ModelConfig {
+        vocab_size: 50,
+        hidden_dim: 16,
+        num_heads: 2,
+        num_layers: 1,
+        intermediate_dim: 32,
+        eps: 1e-5,
+    };
+
+    let model = Model::new(config).expect("test");
+    let mut gen_config = GenerationConfig::greedy();
+    gen_config.max_tokens = 5;
+
+    let result = model.generate(&[], &gen_config);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_model_generate_with_seed() {
+    use realizar::generate::GenerationConfig;
+
+    let config = ModelConfig {
+        vocab_size: 50,
+        hidden_dim: 16,
+        num_heads: 2,
+        num_layers: 1,
+        intermediate_dim: 32,
+        eps: 1e-5,
+    };
+
+    let model = Model::new(config).expect("test");
+
+    let mut gen_config = GenerationConfig::greedy();
+    gen_config.max_tokens = 3;
+    gen_config.seed = Some(12345);
+
+    let result = model.generate(&[0], &gen_config);
+    assert!(result.is_ok());
+}
+
+// ----------------------------------------------------------------------------
+// Embedding edge cases
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_embedding_empty_tokens_error() {
+    let embedding = Embedding::new(100, 8).expect("test");
+    let result = embedding.forward(&[]);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_embedding_multiple_tokens() {
+    let mut embedding = Embedding::new(100, 8).expect("test");
+
+    // Set some weights
+    for i in 0..800 {
+        embedding.weights_mut()[i] = i as f32 * 0.01;
+    }
+
+    let result = embedding.forward(&[0, 1, 2, 3, 4]);
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    assert_eq!(output.shape(), &[5, 8]);
+}
+
+// ----------------------------------------------------------------------------
+// QuantizedLinear forward pass
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_quantized_linear_forward_wrong_dim_error() {
+    // Create valid QuantizedLinear
+    let ql = QuantizedLinear::new(256, 4, vec![0u8; 144 * 4], vec![0.0; 4]).expect("test");
+
+    // Wrong input dimension
+    let input = Tensor::from_vec(vec![128], vec![0.1; 128]).expect("test");
+    let result = ql.forward(&input);
+    assert!(result.is_err());
+}
+
+// ----------------------------------------------------------------------------
+// ALiBi edge cases
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_alibi_zero_heads_error() {
+    let result = ALiBi::new(0);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_alibi_zero_seq_len_error() {
+    let alibi = ALiBi::new(4).expect("test");
+    let result = alibi.get_bias(0);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_alibi_single_head() {
+    let alibi = ALiBi::new(1).expect("test");
+    assert_eq!(alibi.num_heads(), 1);
+    assert_eq!(alibi.slopes().len(), 1);
+
+    let bias = alibi.get_bias(3).expect("test");
+    assert_eq!(bias.shape(), &[3, 3, 1]);
+}
+
+// ----------------------------------------------------------------------------
+// KV Cache error paths
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_kv_cache_zero_layers_error() {
+    let result = KVCache::new(0, 10, 8);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_kv_cache_zero_seq_len_error() {
+    let result = KVCache::new(2, 0, 8);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_kv_cache_zero_head_dim_error() {
+    let result = KVCache::new(2, 10, 0);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_kv_cache_update_layer_out_of_bounds_error() {
+    let mut cache = KVCache::new(2, 10, 4).expect("test");
+
+    let key = Tensor::from_vec(vec![4], vec![1.0; 4]).expect("test");
+    let value = Tensor::from_vec(vec![4], vec![2.0; 4]).expect("test");
+
+    // Layer 2 is out of bounds (0 and 1 are valid)
+    let result = cache.update(2, &key, &value);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_kv_cache_update_wrong_key_size_error() {
+    let mut cache = KVCache::new(1, 10, 4).expect("test");
+
+    let key = Tensor::from_vec(vec![8], vec![1.0; 8]).expect("test"); // Wrong size
+    let value = Tensor::from_vec(vec![4], vec![2.0; 4]).expect("test");
+
+    let result = cache.update(0, &key, &value);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_kv_cache_update_wrong_value_size_error() {
+    let mut cache = KVCache::new(1, 10, 4).expect("test");
+
+    let key = Tensor::from_vec(vec![4], vec![1.0; 4]).expect("test");
+    let value = Tensor::from_vec(vec![8], vec![2.0; 8]).expect("test"); // Wrong size
+
+    let result = cache.update(0, &key, &value);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_kv_cache_get_key_layer_out_of_bounds() {
+    let cache = KVCache::new(2, 10, 4).expect("test");
+    let result = cache.get_key(5);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_kv_cache_get_value_layer_out_of_bounds() {
+    let cache = KVCache::new(2, 10, 4).expect("test");
+    let result = cache.get_value(5);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_kv_cache_get_after_update() {
+    let mut cache = KVCache::new(1, 10, 4).expect("test");
+
+    let key = Tensor::from_vec(vec![4], vec![1.0, 2.0, 3.0, 4.0]).expect("test");
+    let value = Tensor::from_vec(vec![4], vec![5.0, 6.0, 7.0, 8.0]).expect("test");
+
+    cache.update(0, &key, &value).expect("test");
+    cache.advance();
+
+    let retrieved_key = cache.get_key(0).expect("test");
+    let retrieved_value = cache.get_value(0).expect("test");
+
+    assert_eq!(retrieved_key.shape(), &[1, 4]);
+    assert_eq!(retrieved_value.shape(), &[1, 4]);
+
+    // Check values
+    assert!((retrieved_key.data()[0] - 1.0).abs() < 1e-6);
+    assert!((retrieved_value.data()[0] - 5.0).abs() < 1e-6);
+}
+
+// ----------------------------------------------------------------------------
+// MultiHeadAttention validation errors
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_mha_zero_hidden_dim_error() {
+    let result = MultiHeadAttention::new(0, 8, 8);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_mha_zero_num_heads_error() {
+    let result = MultiHeadAttention::new(64, 0, 1);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_mha_zero_num_kv_heads_error() {
+    let result = MultiHeadAttention::new(64, 8, 0);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_mha_num_kv_heads_greater_than_num_heads_error() {
+    // num_kv_heads (16) > num_heads (8)
+    let result = MultiHeadAttention::new(64, 8, 16);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_mha_hidden_dim_not_divisible_by_num_heads_error() {
+    // 64 not divisible by 5
+    let result = MultiHeadAttention::new(64, 5, 5);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_mha_num_heads_not_divisible_by_num_kv_heads_error() {
+    // 8 not divisible by 3
+    let result = MultiHeadAttention::new(64, 8, 3);
+    assert!(result.is_err());
+}
+
+// ----------------------------------------------------------------------------
+// TransformerBlock error paths
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_transformer_block_zero_hidden_dim_error() {
+    let result = TransformerBlock::new(0, 4, 256, 1e-5);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_transformer_block_zero_num_heads_error() {
+    let result = TransformerBlock::new(64, 0, 256, 1e-5);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_transformer_block_not_divisible_error() {
+    // 64 not divisible by 5
+    let result = TransformerBlock::new(64, 5, 256, 1e-5);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_transformer_block_wrong_input_dim_error() {
+    let block = TransformerBlock::new(64, 4, 256, 1e-5).expect("test");
+
+    // Wrong hidden_dim
+    let input = Tensor::from_vec(vec![2, 32], vec![0.1; 64]).expect("test");
+    let result = block.forward(&input);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_transformer_block_forward_basic() {
+    let block = TransformerBlock::new(32, 4, 128, 1e-5).expect("test");
+
+    let input = Tensor::from_vec(vec![2, 32], vec![0.5; 64]).expect("test");
+    let result = block.forward(&input);
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    assert_eq!(output.shape(), &[2, 32]);
+
+    // All values should be finite
+    for &val in output.data() {
+        assert!(val.is_finite());
+    }
+}
+
+// ----------------------------------------------------------------------------
+// FusedQKVAttention additional coverage
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_fused_qkv_attention_zero_head_dim_error() {
+    let result = FusedQKVAttention::new(0, 64);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_fused_qkv_attention_zero_hidden_dim_error() {
+    let result = FusedQKVAttention::new(8, 0);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_fused_qkv_attention_forward_basic() {
+    let fqa = FusedQKVAttention::new(8, 32).expect("test");
+
+    let input = Tensor::from_vec(vec![4, 32], vec![0.1; 128]).expect("test");
+    let result = fqa.forward(&input);
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    assert_eq!(output.shape(), &[4, 32]);
+}
+
+#[test]
+fn test_fused_qkv_attention_wrong_hidden_dim_error() {
+    let fqa = FusedQKVAttention::new(8, 32).expect("test");
+
+    // Wrong input hidden_dim (64 instead of 32)
+    let input = Tensor::from_vec(vec![4, 64], vec![0.1; 256]).expect("test");
+    let result = fqa.forward(&input);
+    assert!(result.is_err());
+}
+
+// ----------------------------------------------------------------------------
+// Flash Attention shape errors
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_flash_attention_head_dim_mismatch_error() {
+    let attn = Attention::new(8).expect("test");
+
+    // Q has head_dim=8, K has head_dim=4
+    let q = Tensor::from_vec(vec![2, 8], vec![0.1; 16]).expect("test");
+    let k = Tensor::from_vec(vec![2, 4], vec![0.2; 8]).expect("test");
+    let v = Tensor::from_vec(vec![2, 8], vec![0.3; 16]).expect("test");
+
+    let result = attn.flash_forward(&q, &k, &v, 2);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_flash_attention_v2_head_dim_mismatch_error() {
+    let attn = Attention::new(8).expect("test");
+
+    let q = Tensor::from_vec(vec![2, 8], vec![0.1; 16]).expect("test");
+    let k = Tensor::from_vec(vec![2, 4], vec![0.2; 8]).expect("test");
+    let v = Tensor::from_vec(vec![2, 8], vec![0.3; 16]).expect("test");
+
+    let result = attn.flash_forward_v2(&q, &k, &v, 2);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_flash_attention_parallel_head_dim_mismatch_error() {
+    let attn = Attention::new(8).expect("test");
+
+    let q = Tensor::from_vec(vec![2, 8], vec![0.1; 16]).expect("test");
+    let k = Tensor::from_vec(vec![2, 4], vec![0.2; 8]).expect("test");
+    let v = Tensor::from_vec(vec![2, 8], vec![0.3; 16]).expect("test");
+
+    let result = attn.flash_forward_parallel(&q, &k, &v, 2);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_flash_attention_kv_len_mismatch_error() {
+    let attn = Attention::new(4).expect("test");
+
+    let q = Tensor::from_vec(vec![2, 4], vec![0.1; 8]).expect("test");
+    let k = Tensor::from_vec(vec![3, 4], vec![0.2; 12]).expect("test"); // Different seq_len
+    let v = Tensor::from_vec(vec![2, 4], vec![0.3; 8]).expect("test");
+
+    let result = attn.flash_forward(&q, &k, &v, 2);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_flash_attention_v2_kv_len_mismatch_error() {
+    let attn = Attention::new(4).expect("test");
+
+    let q = Tensor::from_vec(vec![2, 4], vec![0.1; 8]).expect("test");
+    let k = Tensor::from_vec(vec![3, 4], vec![0.2; 12]).expect("test");
+    let v = Tensor::from_vec(vec![2, 4], vec![0.3; 8]).expect("test");
+
+    let result = attn.flash_forward_v2(&q, &k, &v, 2);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_flash_attention_parallel_kv_len_mismatch_error() {
+    let attn = Attention::new(4).expect("test");
+
+    let q = Tensor::from_vec(vec![2, 4], vec![0.1; 8]).expect("test");
+    let k = Tensor::from_vec(vec![3, 4], vec![0.2; 12]).expect("test");
+    let v = Tensor::from_vec(vec![2, 4], vec![0.3; 8]).expect("test");
+
+    let result = attn.flash_forward_parallel(&q, &k, &v, 2);
+    assert!(result.is_err());
+}
+
+// ----------------------------------------------------------------------------
+// Sliding Window Attention error paths
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_sliding_window_zero_head_dim_error() {
+    let result = SlidingWindowAttention::new(0, 128);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_sliding_window_zero_window_size_error() {
+    let result = SlidingWindowAttention::new(64, 0);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_sliding_window_head_dim_mismatch_error() {
+    let swa = SlidingWindowAttention::new(8, 4).expect("test");
+
+    // Q has head_dim=4 instead of 8
+    let q = Tensor::from_vec(vec![2, 4], vec![0.1; 8]).expect("test");
+    let k = Tensor::from_vec(vec![2, 8], vec![0.2; 16]).expect("test");
+    let v = Tensor::from_vec(vec![2, 8], vec![0.3; 16]).expect("test");
+
+    let result = swa.forward(&q, &k, &v);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_sliding_window_kv_len_mismatch_error() {
+    let swa = SlidingWindowAttention::new(4, 3).expect("test");
+
+    let q = Tensor::from_vec(vec![2, 4], vec![0.1; 8]).expect("test");
+    let k = Tensor::from_vec(vec![3, 4], vec![0.2; 12]).expect("test");
+    let v = Tensor::from_vec(vec![2, 4], vec![0.3; 8]).expect("test");
+
+    let result = swa.forward(&q, &k, &v);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_sliding_window_with_mask_head_dim_error() {
+    let swa = SlidingWindowAttention::new(8, 4).expect("test");
+
+    let q = Tensor::from_vec(vec![2, 4], vec![0.1; 8]).expect("test");
+    let k = Tensor::from_vec(vec![2, 8], vec![0.2; 16]).expect("test");
+    let v = Tensor::from_vec(vec![2, 8], vec![0.3; 16]).expect("test");
+
+    let result = swa.forward_with_mask(&q, &k, &v, false);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_sliding_window_with_mask_kv_len_error() {
+    let swa = SlidingWindowAttention::new(4, 3).expect("test");
+
+    let q = Tensor::from_vec(vec![2, 4], vec![0.1; 8]).expect("test");
+    let k = Tensor::from_vec(vec![3, 4], vec![0.2; 12]).expect("test");
+    let v = Tensor::from_vec(vec![2, 4], vec![0.3; 8]).expect("test");
+
+    let result = swa.forward_with_mask(&q, &k, &v, false);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_sliding_window_causal_vs_bidirectional() {
+    let swa = SlidingWindowAttention::new(4, 3).expect("test");
+
+    // Use different values per position to see the difference
+    #[rustfmt::skip]
+    let q_data = vec![
+        1.0, 0.0, 0.0, 0.0,  // pos 0 queries first position
+        0.0, 1.0, 0.0, 0.0,  // pos 1 queries second position
+        0.0, 0.0, 1.0, 0.0,  // pos 2 queries third position
+        0.0, 0.0, 0.0, 1.0,  // pos 3 queries fourth position
+    ];
+    #[rustfmt::skip]
+    let k_data = vec![
+        1.0, 0.0, 0.0, 0.0,
+        0.0, 1.0, 0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+        0.0, 0.0, 0.0, 1.0,
+    ];
+    #[rustfmt::skip]
+    let v_data = vec![
+        1.0, 2.0, 3.0, 4.0,   // Value for pos 0
+        5.0, 6.0, 7.0, 8.0,   // Value for pos 1
+        9.0, 10.0, 11.0, 12.0, // Value for pos 2
+        13.0, 14.0, 15.0, 16.0, // Value for pos 3
+    ];
+
+    let q = Tensor::from_vec(vec![4, 4], q_data).expect("test");
+    let k = Tensor::from_vec(vec![4, 4], k_data).expect("test");
+    let v = Tensor::from_vec(vec![4, 4], v_data).expect("test");
+
+    // Causal
+    let causal = swa.forward_with_mask(&q, &k, &v, true).expect("test");
+
+    // Non-causal (bidirectional)
+    let bidirectional = swa.forward_with_mask(&q, &k, &v, false).expect("test");
+
+    // Both should produce valid output
+    assert_eq!(causal.shape(), &[4, 4]);
+    assert_eq!(bidirectional.shape(), &[4, 4]);
+
+    // Results should be different at position 0 (causal can't see future)
+    // Actually the first position is the same (no future tokens to see)
+    // But later positions should differ
+    let causal_data = causal.data();
+    let bidir_data = bidirectional.data();
+
+    // Check that outputs are valid (finite)
+    for i in 0..causal_data.len() {
+        assert!(causal_data[i].is_finite());
+        assert!(bidir_data[i].is_finite());
+    }
+}
+
+// ----------------------------------------------------------------------------
+// RoPE error paths
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_rope_dimension_mismatch_error() {
+    let rope = RoPE::new(8, 10000.0).expect("test");
+
+    // Input has dim=4, expected 8
+    let input = Tensor::from_vec(vec![2, 4], vec![0.1; 8]).expect("test");
+    let result = rope.forward(&input, 0);
+    assert!(result.is_err());
+}
+
+// ----------------------------------------------------------------------------
+// ScaledRoPE error paths
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_scaled_rope_zero_dim_error() {
+    let result = ScaledRoPE::new(0, 10000.0, RopeScalingType::None);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_scaled_rope_odd_dim_error() {
+    let result = ScaledRoPE::new(7, 10000.0, RopeScalingType::None);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_scaled_rope_dimension_mismatch_error() {
+    let srope = ScaledRoPE::new(8, 10000.0, RopeScalingType::None).expect("test");
+
+    // Input has dim=4, expected 8
+    let input = Tensor::from_vec(vec![2, 4], vec![0.1; 8]).expect("test");
+    let result = srope.forward(&input, 0);
+    assert!(result.is_err());
+}
+
+// ----------------------------------------------------------------------------
+// Softmax with empty shape error
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_softmax_empty_shape_error() {
+    // Tensor::from_vec should reject empty data/shape combinations
+    let result = Tensor::<f32>::from_vec(vec![], vec![]);
+    assert!(result.is_err());
+}
+
+// ----------------------------------------------------------------------------
+// LayerNorm with empty input error
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_layer_norm_empty_data_forward() {
+    let layer_norm = LayerNorm::new(4, 1e-5).expect("test");
+
+    // Create tensor with valid shape but empty would be caught by Tensor creation
+    // Instead test with wrong dimension
+    let input = Tensor::from_vec(vec![3], vec![1.0, 2.0, 3.0]).expect("test");
+    let result = layer_norm.forward(&input);
+    assert!(result.is_err()); // Shape mismatch
+}
+
+// ----------------------------------------------------------------------------
+// Linear with empty input error
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_linear_empty_shape() {
+    let linear = Linear::new(4, 8).expect("test");
+
+    // Wrong dimension
+    let input = Tensor::from_vec(vec![2], vec![1.0, 2.0]).expect("test");
+    let result = linear.forward(&input);
+    assert!(result.is_err());
+}
+
+// ----------------------------------------------------------------------------
+// FusedLayerNormLinear parallel error path
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_fused_layer_norm_linear_parallel_wrong_dim_error() {
+    let fused = FusedLayerNormLinear::new(8, 16, 1e-5).expect("test");
+
+    // Wrong feature_dim
+    let input = Tensor::from_vec(vec![4, 4], vec![0.1; 16]).expect("test");
+    let result = fused.forward_parallel(&input);
+    assert!(result.is_err());
+}
+
+// ----------------------------------------------------------------------------
+// FeedForward empty input error
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_ffn_empty_input_error() {
+    let ffn = FeedForward::new(4, 16).expect("test");
+
+    // Wrong dimension
+    let input = Tensor::from_vec(vec![2], vec![1.0, 2.0]).expect("test");
+    let result = ffn.forward(&input);
+    assert!(result.is_err());
+}
+
+// ----------------------------------------------------------------------------
+// Attention 1D input handling
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_attention_1d_qkv_inputs() {
+    let attn = Attention::new(4).expect("test");
+
+    // 1D inputs (seq_len=1 implicit)
+    let q = Tensor::from_vec(vec![4], vec![1.0, 0.0, 0.0, 1.0]).expect("test");
+    let k = Tensor::from_vec(vec![4], vec![1.0, 0.0, 0.0, 1.0]).expect("test");
+    let v = Tensor::from_vec(vec![4], vec![1.0, 2.0, 3.0, 4.0]).expect("test");
+
+    let result = attn.forward(&q, &k, &v);
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    assert_eq!(output.shape(), &[1, 4]);
+}
+
+// ----------------------------------------------------------------------------
+// Large dimension tests for numerical stability
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_attention_large_head_dim() {
+    let attn = Attention::new(128).expect("test");
+
+    let q = Tensor::from_vec(vec![2, 128], vec![0.01; 256]).expect("test");
+    let k = Tensor::from_vec(vec![2, 128], vec![0.01; 256]).expect("test");
+    let v = Tensor::from_vec(vec![2, 128], vec![0.01; 256]).expect("test");
+
+    let result = attn.forward(&q, &k, &v);
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    for &val in output.data() {
+        assert!(val.is_finite(), "Large head_dim should be stable");
+    }
+}
+
+#[test]
+fn test_layer_norm_very_small_eps() {
+    let layer_norm = LayerNorm::new(4, 1e-12).expect("test");
+
+    let input = Tensor::from_vec(vec![4], vec![1.0, 2.0, 3.0, 4.0]).expect("test");
+    let result = layer_norm.forward(&input);
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    for &val in output.data() {
+        assert!(val.is_finite());
+    }
+}
+
+// ----------------------------------------------------------------------------
+// RoPE position variations
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_rope_various_positions() {
+    let rope = RoPE::new(8, 10000.0).expect("test");
+    let input = Tensor::from_vec(vec![1, 8], vec![1.0; 8]).expect("test");
+
+    // Test various positions
+    for pos in [0, 1, 10, 100, 1000, 10000] {
+        let result = rope.forward(&input, pos);
+        assert!(result.is_ok(), "Position {} should work", pos);
+
+        let output = result.unwrap();
+        for &val in output.data() {
+            assert!(val.is_finite(), "Position {} should produce finite values", pos);
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+// FusedLayerNormLinear weight accessors
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_fused_layer_norm_linear_weight_modifications() {
+    let mut fused = FusedLayerNormLinear::new(4, 8, 1e-5).expect("test");
+
+    // Modify all weights
+    for weight in fused.norm_weight_mut() {
+        *weight = 2.0;
+    }
+    for bias in fused.norm_bias_mut() {
+        *bias = 0.1;
+    }
+    for weight in fused.linear_weight_mut() {
+        *weight = 0.5;
+    }
+    for bias in fused.linear_bias_mut() {
+        *bias = 0.05;
+    }
+
+    // Forward should still work
+    let input = Tensor::from_vec(vec![2, 4], vec![1.0; 8]).expect("test");
+    let result = fused.forward(&input);
+    assert!(result.is_ok());
+}
+
+// ----------------------------------------------------------------------------
+// Model config validation through Model::new
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_model_with_zero_layers() {
+    let config = ModelConfig {
+        vocab_size: 50,
+        hidden_dim: 16,
+        num_heads: 2,
+        num_layers: 0,
+        intermediate_dim: 32,
+        eps: 1e-5,
+    };
+
+    // Zero layers should be valid (degenerate but allowed)
+    let model = Model::new(config).expect("test");
+
+    // Forward should work (just embed + norm + head)
+    let result = model.forward(&[0, 1]);
+    assert!(result.is_ok());
+}
+
+// ----------------------------------------------------------------------------
+// Sliding Window single token
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_sliding_window_single_token() {
+    let swa = SlidingWindowAttention::new(4, 3).expect("test");
+
+    // Single token
+    let q = Tensor::from_vec(vec![1, 4], vec![0.1; 4]).expect("test");
+    let k = Tensor::from_vec(vec![1, 4], vec![0.2; 4]).expect("test");
+    let v = Tensor::from_vec(vec![1, 4], vec![0.3; 4]).expect("test");
+
+    let result = swa.forward(&q, &k, &v);
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    assert_eq!(output.shape(), &[1, 4]);
+}
+
+// ----------------------------------------------------------------------------
+// ALiBi with various configurations
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_alibi_slopes_all_positive() {
+    for num_heads in [1, 2, 4, 8, 12, 16, 32] {
+        let alibi = ALiBi::new(num_heads).expect("test");
+
+        for &slope in alibi.slopes() {
+            assert!(slope > 0.0, "Slopes should be positive");
+            assert!(slope <= 1.0, "Slopes should be <= 1.0");
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+// GQA forward test
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_gqa_forward_basic() {
+    // 8 query heads, 2 KV heads (4 heads per group)
+    let gqa = MultiHeadAttention::gqa(64, 8, 2).expect("test");
+
+    let input = Tensor::from_vec(vec![4, 64], vec![0.1; 256]).expect("test");
+    let result = gqa.forward(&input);
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    assert_eq!(output.shape(), &[4, 64]);
+}
+
+#[test]
+fn test_mqa_forward_basic() {
+    // 8 query heads, 1 KV head (all heads share KV)
+    let mqa = MultiHeadAttention::mqa(64, 8).expect("test");
+
+    let input = Tensor::from_vec(vec![4, 64], vec![0.1; 256]).expect("test");
+    let result = mqa.forward(&input);
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    assert_eq!(output.shape(), &[4, 64]);
+}

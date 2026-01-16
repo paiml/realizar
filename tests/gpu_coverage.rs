@@ -13,11 +13,11 @@ use realizar::gpu::{
     ChunkedProcessor, ComputeBackend, ConnectionConfig, ConnectionPool, ContiguousAttentionBuffer,
     DegradationManager, DegradationMode, DoubleBuffer, ErrorClassification, ErrorRecoveryStrategy,
     FailureIsolator, ForwardArena, GpuBufferPool, GpuCompute, GpuGenerateConfig, GpuModelConfig,
-    GpuPipelineStage, HealthChecker, HybridScheduler, InferenceBatchScheduler,
-    InferenceEventNotifier, InferenceMetrics, InferencePipeline, PriorityRequest,
+    GpuPipelineStage, GpuPoolStats, HealthChecker, HybridScheduler, InferenceBatchScheduler,
+    InferenceEventNotifier, InferenceMetrics, InferencePipeline, MatmulOp, PriorityRequest,
     PriorityRequestQueue, QuantizedAccumulator, RecoveryAction, RequestOutcome, ResourceTracker,
     ScratchBuffer, SpeculativeBuffer, StreamingKVCache, StreamingKVCacheFp16, TensorPool,
-    TimeoutManager, TokenBatch, TokenRateLimiter, WeightType, LARGE_VOCAB_THRESHOLD,
+    TimeoutManager, TokenBatch, TokenRateLimiter, WeightType,
 };
 use std::time::{Duration, Instant};
 
@@ -33,11 +33,6 @@ fn test_exceeds_gpu_buffer_limit_boundary() {
     assert!(!exceeds_gpu_buffer_limit(max_elements - 1));
     assert!(!exceeds_gpu_buffer_limit(max_elements));
     assert!(exceeds_gpu_buffer_limit(max_elements + 1));
-}
-
-#[test]
-fn test_large_vocab_threshold_constant() {
-    assert_eq!(LARGE_VOCAB_THRESHOLD, 65536);
 }
 
 // ============================================================================
@@ -3570,3 +3565,608 @@ fn test_scratch_buffer_modify_and_reset() {
         assert!((scratch.get_layer(layer)[0] - 0.0).abs() < 1e-5);
     }
 }
+
+// ============================================================================
+// AttentionBuffers Coverage Tests (M17)
+// ============================================================================
+
+#[test]
+fn test_attention_buffers_creation() {
+    let config = GpuModelConfig {
+        vocab_size: 100,
+        hidden_dim: 64,
+        num_heads: 4,
+        num_kv_heads: 4,
+        num_layers: 2,
+        intermediate_dim: 256,
+        eps: 1e-5,
+    };
+
+    let buffers = realizar::gpu::AttentionBuffers::new(&config, 512);
+
+    assert_eq!(buffers.q_buffer.len(), 64); // hidden_dim
+    assert_eq!(buffers.scores_buffer.len(), 4 * 512); // num_heads * max_seq_len
+    assert_eq!(buffers.output_buffer.len(), 64); // hidden_dim
+    assert_eq!(buffers.kv_proj_buffer.len(), 64); // hidden_dim
+    assert_eq!(buffers.ffn_buffer.len(), 256); // intermediate_dim
+    assert_eq!(buffers.max_seq_len, 512);
+}
+
+#[test]
+fn test_attention_buffers_reset() {
+    let config = GpuModelConfig {
+        vocab_size: 100,
+        hidden_dim: 32,
+        num_heads: 2,
+        num_kv_heads: 2,
+        num_layers: 1,
+        intermediate_dim: 128,
+        eps: 1e-5,
+    };
+
+    let mut buffers = realizar::gpu::AttentionBuffers::new(&config, 256);
+
+    // Modify buffers
+    buffers.q_buffer[0] = 1.0;
+    buffers.scores_buffer[0] = 2.0;
+    buffers.output_buffer[0] = 3.0;
+    buffers.kv_proj_buffer[0] = 4.0;
+    buffers.ffn_buffer[0] = 5.0;
+
+    // Reset
+    buffers.reset();
+
+    // All should be zero
+    assert!((buffers.q_buffer[0] - 0.0).abs() < 1e-5);
+    assert!((buffers.scores_buffer[0] - 0.0).abs() < 1e-5);
+    assert!((buffers.output_buffer[0] - 0.0).abs() < 1e-5);
+    assert!((buffers.kv_proj_buffer[0] - 0.0).abs() < 1e-5);
+    assert!((buffers.ffn_buffer[0] - 0.0).abs() < 1e-5);
+}
+
+#[test]
+fn test_attention_buffers_debug() {
+    let config = GpuModelConfig {
+        vocab_size: 50,
+        hidden_dim: 16,
+        num_heads: 2,
+        num_kv_heads: 2,
+        num_layers: 1,
+        intermediate_dim: 64,
+        eps: 1e-5,
+    };
+
+    let buffers = realizar::gpu::AttentionBuffers::new(&config, 64);
+    let debug_str = format!("{:?}", buffers);
+    assert!(debug_str.contains("AttentionBuffers"));
+}
+
+// ============================================================================
+// GpuModel with AttentionBuffers Tests
+// ============================================================================
+
+#[test]
+fn test_gpu_model_with_attention_buffers() {
+    let config = GpuModelConfig {
+        vocab_size: 50,
+        hidden_dim: 32,
+        num_heads: 2,
+        num_kv_heads: 2,
+        num_layers: 1,
+        intermediate_dim: 64,
+        eps: 1e-5,
+    };
+
+    let model = realizar::gpu::GpuModel::with_attention_buffers(config, 128).unwrap();
+    assert!(model.has_attention_buffers());
+}
+
+#[test]
+fn test_gpu_model_without_attention_buffers() {
+    let config = GpuModelConfig {
+        vocab_size: 50,
+        hidden_dim: 32,
+        num_heads: 2,
+        num_kv_heads: 2,
+        num_layers: 1,
+        intermediate_dim: 64,
+        eps: 1e-5,
+    };
+
+    let model = realizar::gpu::GpuModel::new(config).unwrap();
+    assert!(!model.has_attention_buffers());
+}
+
+// ============================================================================
+// GpuModel Forward Operations Tests
+// ============================================================================
+
+#[test]
+fn test_gpu_model_forward_gpu_single_token() {
+    let config = GpuModelConfig {
+        vocab_size: 50,
+        hidden_dim: 32,
+        num_heads: 2,
+        num_kv_heads: 2,
+        num_layers: 1,
+        intermediate_dim: 64,
+        eps: 1e-5,
+    };
+
+    let mut model = realizar::gpu::GpuModel::new(config).unwrap();
+    let result = model.forward_gpu(&[0]);
+
+    assert!(result.is_ok());
+    let logits = result.unwrap();
+    assert_eq!(logits.len(), 50); // vocab_size
+}
+
+#[test]
+fn test_gpu_model_forward_gpu_multiple_tokens() {
+    let config = GpuModelConfig {
+        vocab_size: 50,
+        hidden_dim: 32,
+        num_heads: 2,
+        num_kv_heads: 2,
+        num_layers: 1,
+        intermediate_dim: 64,
+        eps: 1e-5,
+    };
+
+    let mut model = realizar::gpu::GpuModel::new(config).unwrap();
+    let result = model.forward_gpu(&[0, 1, 2]);
+
+    assert!(result.is_ok());
+    let logits = result.unwrap();
+    // Logits for all positions
+    assert_eq!(logits.len(), 3 * 50);
+}
+
+#[test]
+fn test_gpu_model_forward_gpu_empty_input_error() {
+    let config = GpuModelConfig {
+        vocab_size: 50,
+        hidden_dim: 32,
+        num_heads: 2,
+        num_kv_heads: 2,
+        num_layers: 1,
+        intermediate_dim: 64,
+        eps: 1e-5,
+    };
+
+    let mut model = realizar::gpu::GpuModel::new(config).unwrap();
+    let result = model.forward_gpu(&[]);
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_gpu_model_forward_gpu_out_of_bounds_token() {
+    let config = GpuModelConfig {
+        vocab_size: 50,
+        hidden_dim: 32,
+        num_heads: 2,
+        num_kv_heads: 2,
+        num_layers: 1,
+        intermediate_dim: 64,
+        eps: 1e-5,
+    };
+
+    let mut model = realizar::gpu::GpuModel::new(config).unwrap();
+    let result = model.forward_gpu(&[100]); // Out of bounds
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_gpu_model_has_gpu() {
+    let config = GpuModelConfig {
+        vocab_size: 50,
+        hidden_dim: 32,
+        num_heads: 2,
+        num_kv_heads: 2,
+        num_layers: 1,
+        intermediate_dim: 64,
+        eps: 1e-5,
+    };
+
+    let model = realizar::gpu::GpuModel::new(config).unwrap();
+    // Just check it returns a boolean without panicking
+    let _ = model.has_gpu();
+}
+
+#[test]
+fn test_gpu_model_from_gguf_config() {
+    let config = GpuModelConfig {
+        vocab_size: 100,
+        hidden_dim: 64,
+        num_heads: 4,
+        num_kv_heads: 4,
+        num_layers: 2,
+        intermediate_dim: 256,
+        eps: 1e-5,
+    };
+
+    let model = realizar::gpu::GpuModel::from_gguf_config(config);
+    assert!(model.is_ok());
+}
+
+// ============================================================================
+// GpuModel Generation Tests
+// ============================================================================
+
+#[test]
+fn test_gpu_model_generate_with_cache() {
+    let config = GpuModelConfig {
+        vocab_size: 50,
+        hidden_dim: 32,
+        num_heads: 2,
+        num_kv_heads: 2,
+        num_layers: 1,
+        intermediate_dim: 64,
+        eps: 1e-5,
+    };
+
+    let mut model = realizar::gpu::GpuModel::new(config).unwrap();
+
+    let gen_config = GpuGenerateConfig::deterministic(5);
+    let result = model.generate_with_cache(&[0, 1], &gen_config);
+
+    assert!(result.is_ok());
+    let tokens = result.unwrap();
+    assert!(tokens.len() >= 2); // At least prompt
+}
+
+#[test]
+fn test_gpu_model_generate_with_cache_empty_prompt_error() {
+    let config = GpuModelConfig {
+        vocab_size: 50,
+        hidden_dim: 32,
+        num_heads: 2,
+        num_kv_heads: 2,
+        num_layers: 1,
+        intermediate_dim: 64,
+        eps: 1e-5,
+    };
+
+    let mut model = realizar::gpu::GpuModel::new(config).unwrap();
+
+    let gen_config = GpuGenerateConfig::deterministic(5);
+    let result = model.generate_with_cache(&[], &gen_config);
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_gpu_model_generate_optimized() {
+    let config = GpuModelConfig {
+        vocab_size: 50,
+        hidden_dim: 32,
+        num_heads: 2,
+        num_kv_heads: 2,
+        num_layers: 1,
+        intermediate_dim: 64,
+        eps: 1e-5,
+    };
+
+    let mut model = realizar::gpu::GpuModel::with_attention_buffers(config, 128).unwrap();
+
+    let gen_config = GpuGenerateConfig::deterministic(3);
+    let result = model.generate_optimized(&[0, 1], &gen_config);
+
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_gpu_model_generate_optimized_empty_prompt_error() {
+    let config = GpuModelConfig {
+        vocab_size: 50,
+        hidden_dim: 32,
+        num_heads: 2,
+        num_kv_heads: 2,
+        num_layers: 1,
+        intermediate_dim: 64,
+        eps: 1e-5,
+    };
+
+    let mut model = realizar::gpu::GpuModel::with_attention_buffers(config, 128).unwrap();
+
+    let gen_config = GpuGenerateConfig::deterministic(3);
+    let result = model.generate_optimized(&[], &gen_config);
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_gpu_model_generate_with_stop_token() {
+    let config = GpuModelConfig {
+        vocab_size: 50,
+        hidden_dim: 32,
+        num_heads: 2,
+        num_kv_heads: 2,
+        num_layers: 1,
+        intermediate_dim: 64,
+        eps: 1e-5,
+    };
+
+    let mut model = realizar::gpu::GpuModel::new(config).unwrap();
+
+    // Create config with stop token
+    let gen_config = GpuGenerateConfig::deterministic(100).with_stop_tokens(vec![0]);
+    let result = model.generate_with_cache(&[1], &gen_config);
+
+    assert!(result.is_ok());
+    // With stop token, should terminate early if 0 is generated
+}
+
+// ============================================================================
+// GpuGenerateConfig Additional Tests
+// ============================================================================
+
+#[test]
+fn test_gpu_generate_config_default_values() {
+    let config: GpuGenerateConfig = Default::default();
+    assert_eq!(config.max_tokens, 64);
+    assert!((config.temperature - 0.0).abs() < 1e-5);
+    assert_eq!(config.top_k, 1);
+    assert!(config.stop_tokens.is_empty());
+}
+
+#[test]
+fn test_gpu_generate_config_debug_fmt() {
+    let config = GpuGenerateConfig::deterministic(10);
+    let debug_str = format!("{:?}", config);
+    assert!(debug_str.contains("GpuGenerateConfig"));
+}
+
+#[test]
+fn test_gpu_generate_config_clone_all_fields() {
+    let config = GpuGenerateConfig::with_sampling(100, 0.8, 40).with_stop_tokens(vec![1, 2]);
+    #[allow(clippy::redundant_clone)]
+    let cloned = config.clone();
+
+    assert_eq!(cloned.max_tokens, 100);
+    assert!((cloned.temperature - 0.8).abs() < 1e-5);
+    assert_eq!(cloned.top_k, 40);
+    assert_eq!(cloned.stop_tokens, vec![1, 2]);
+}
+
+// ============================================================================
+// Prefetch and Sum Operations Tests
+// ============================================================================
+
+#[test]
+fn test_prefetch_read_operation() {
+    let data = vec![1.0f32; 1000];
+
+    // This shouldn't panic regardless of distance
+    prefetch_read(&data, 0, 64);
+    prefetch_read(&data, 500, 64);
+}
+
+#[test]
+fn test_sequential_sum() {
+    let data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+    let sum = sequential_sum(&data);
+    assert!((sum - 15.0).abs() < 1e-5);
+}
+
+#[test]
+fn test_sequential_sum_empty() {
+    let data: Vec<f32> = vec![];
+    let sum = sequential_sum(&data);
+    assert!((sum - 0.0).abs() < 1e-5);
+}
+
+#[test]
+fn test_sum_with_prefetch() {
+    let data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+    let sum = sum_with_prefetch(&data, 16);
+    assert!((sum - 15.0).abs() < 1e-5);
+}
+
+#[test]
+fn test_sum_with_prefetch_empty() {
+    let data: Vec<f32> = vec![];
+    let sum = sum_with_prefetch(&data, 16);
+    assert!((sum - 0.0).abs() < 1e-5);
+}
+
+// ============================================================================
+// MatmulOp Type Test
+// ============================================================================
+
+#[test]
+fn test_matmul_op_type() {
+    let op: MatmulOp = (vec![1.0; 4], vec![1.0; 4], 2, 2, 2);
+    assert_eq!(op.0.len(), 4);
+    assert_eq!(op.1.len(), 4);
+    assert_eq!(op.2, 2);
+    assert_eq!(op.3, 2);
+    assert_eq!(op.4, 2);
+}
+
+// ============================================================================
+// GpuPoolStats Test
+// ============================================================================
+
+#[test]
+fn test_gpu_pool_stats_debug_clone() {
+    let stats = GpuPoolStats {
+        cached_buffers: 5,
+        cached_bytes: 1024,
+    };
+
+    let debug_str = format!("{:?}", stats);
+    assert!(debug_str.contains("5"));
+    assert!(debug_str.contains("1024"));
+
+    let cloned = stats;
+    assert_eq!(cloned.cached_buffers, 5);
+    assert_eq!(cloned.cached_bytes, 1024);
+}
+
+// ============================================================================
+// exceeds_gpu_buffer_limit Tests
+// ============================================================================
+
+#[test]
+fn test_exceeds_gpu_buffer_limit_small() {
+    assert!(!exceeds_gpu_buffer_limit(1000));
+}
+
+#[test]
+fn test_exceeds_gpu_buffer_limit_large() {
+    // Large buffer should exceed limit
+    let large = 1_000_000_000;
+    assert!(exceeds_gpu_buffer_limit(large));
+}
+
+// ============================================================================
+// InferenceBatchScheduler Additional Tests
+// ============================================================================
+
+#[test]
+fn test_inference_batch_scheduler_drain_empty() {
+    let mut scheduler = InferenceBatchScheduler::new();
+    let results = scheduler.drain();
+    assert!(results.is_empty());
+}
+
+#[test]
+fn test_inference_batch_scheduler_complete_nonexistent() {
+    let mut scheduler = InferenceBatchScheduler::new();
+    // Complete a non-existent ID - should not panic
+    // Note: The scheduler creates a pending result even if ID wasn't registered
+    scheduler.complete(999, vec![1, 2, 3]);
+    // The scheduler allows completion of any ID, so completed_count will be 1
+    assert_eq!(scheduler.completed_count(), 1);
+}
+
+// ============================================================================
+// StreamingKVCache Edge Cases
+// ============================================================================
+
+#[test]
+fn test_streaming_kv_cache_append_single_layer() {
+    let mut cache = StreamingKVCache::new(1, 10, 2, 4);
+    let kv_dim = 8;
+
+    cache.append(0, &vec![1.0; kv_dim], &vec![2.0; kv_dim]);
+
+    let (keys, values) = cache.get_valid(0);
+    assert_eq!(keys.len(), kv_dim);
+    assert_eq!(values.len(), kv_dim);
+}
+
+#[test]
+fn test_streaming_kv_cache_get_valid_empty() {
+    let cache = StreamingKVCache::new(2, 10, 2, 4);
+
+    let (keys, values) = cache.get_valid(0);
+    assert!(keys.is_empty());
+    assert!(values.is_empty());
+}
+
+// ============================================================================
+// Quantized Matvec Scaling Tests
+// ============================================================================
+
+#[test]
+fn test_quantized_matvec_q4_scaling() {
+    // Create weights for 1 row, 32 cols
+    // Each row uses: blocks_per_row = 32.div_ceil(32) = 1 block
+    // Each Q4 block: 18 bytes (2 bytes scale + 16 bytes data)
+    let mut weights = vec![0u8; 18];
+
+    // Set scale as f16 bits (approximately 1.0)
+    let scale_bits: u16 = 0x3C00; // f16 representation of 1.0
+    weights[0..2].copy_from_slice(&scale_bits.to_le_bytes());
+
+    let input = vec![1.0f32; 32];
+    // quantized_matvec_q4(weights, input, rows, cols) -> output has `rows` elements
+    let result = quantized_matvec_q4(&weights, &input, 1, 32);
+    assert_eq!(result.len(), 1);
+}
+
+#[test]
+fn test_quantized_matvec_q8_scaling() {
+    // Create weights for 1 row, 32 cols
+    // Each row uses: blocks_per_row = 32.div_ceil(32) = 1 block
+    // Each Q8 block: 34 bytes (2 bytes scale + 32 bytes data)
+    let mut weights = vec![0u8; 34];
+
+    // Set scale as f16 bits
+    let scale_bits: u16 = 0x3C00;
+    weights[0..2].copy_from_slice(&scale_bits.to_le_bytes());
+
+    let input = vec![1.0f32; 32];
+    // quantized_matvec_q8(weights, input, rows, cols) -> output has `rows` elements
+    let result = quantized_matvec_q8(&weights, &input, 1, 32);
+    assert_eq!(result.len(), 1);
+}
+
+// ============================================================================
+// GpuModelConfig Extended Tests
+// ============================================================================
+
+#[test]
+fn test_gpu_model_config_mha() {
+    let config = GpuModelConfig {
+        vocab_size: 1000,
+        hidden_dim: 512,
+        num_heads: 8,
+        num_kv_heads: 8, // Same as num_heads = MHA
+        num_layers: 4,
+        intermediate_dim: 2048,
+        eps: 1e-5,
+    };
+
+    assert!(!config.is_gqa());
+    assert_eq!(config.head_dim(), 64);
+    assert_eq!(config.kv_dim(), 512);
+    assert_eq!(config.qkv_dim(), 512 + 2 * 512); // 1536
+}
+
+#[test]
+fn test_gpu_model_config_gqa_4to1() {
+    let config = GpuModelConfig {
+        vocab_size: 1000,
+        hidden_dim: 512,
+        num_heads: 8,
+        num_kv_heads: 2, // 4:1 ratio
+        num_layers: 4,
+        intermediate_dim: 2048,
+        eps: 1e-6,
+    };
+
+    assert!(config.is_gqa());
+    assert_eq!(config.head_dim(), 64);
+    assert_eq!(config.kv_dim(), 128); // 2 * 64
+    assert_eq!(config.qkv_dim(), 512 + 2 * 128); // 768
+}
+
+// ============================================================================
+// Parallel vs Sequential FFN Tests
+// ============================================================================
+
+#[test]
+fn test_parallel_ffn_basic() {
+    let input = vec![1.0; 8];
+    let up_weight = vec![0.1; 8 * 16];
+    let down_weight = vec![0.1; 16 * 8];
+
+    let result = parallel_ffn(&input, &up_weight, &down_weight, 8, 16);
+    assert_eq!(result.len(), 8);
+}
+
+#[test]
+fn test_sequential_ffn_basic() {
+    let input = vec![1.0; 8];
+    let up_weight = vec![0.1; 8 * 16];
+    let down_weight = vec![0.1; 16 * 8];
+
+    let result = sequential_ffn(&input, &up_weight, &down_weight, 8, 16);
+    assert_eq!(result.len(), 8);
+}
+
