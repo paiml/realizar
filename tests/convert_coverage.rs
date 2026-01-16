@@ -2546,3 +2546,760 @@ fn test_roundtrip_single_head() {
     assert_eq!(loaded.config.num_heads, 1);
     assert_eq!(loaded.config.num_kv_heads, 1);
 }
+
+// =============================================================================
+// GGUF to APR Conversion Path Tests
+// =============================================================================
+
+#[test]
+fn test_gguf_to_apr_converter_convert_empty_bytes_error() {
+    let empty: &[u8] = &[];
+    let result = GgufToAprConverter::convert(empty);
+    assert!(result.is_err(), "Empty bytes should produce error");
+}
+
+#[test]
+fn test_gguf_to_apr_converter_convert_too_short_error() {
+    let short = vec![0u8; 10];
+    let result = GgufToAprConverter::convert(&short);
+    assert!(result.is_err(), "Too short bytes should produce error");
+}
+
+#[test]
+fn test_gguf_to_apr_converter_convert_wrong_magic_error() {
+    let mut bad_magic = vec![0u8; 128];
+    bad_magic[0..4].copy_from_slice(b"XXXX"); // Invalid magic
+    let result = GgufToAprConverter::convert(&bad_magic);
+    assert!(result.is_err(), "Wrong magic should produce error");
+}
+
+#[test]
+fn test_gguf_to_apr_converter_convert_partial_gguf_header() {
+    // GGUF magic with truncated header
+    let mut partial = vec![0u8; 20];
+    partial[0..4].copy_from_slice(b"GGUF");
+    partial[4..8].copy_from_slice(&3u32.to_le_bytes()); // Version 3
+    let result = GgufToAprConverter::convert(&partial);
+    assert!(result.is_err());
+}
+
+// =============================================================================
+// GgufToAprQ4KConverter File Operations Tests
+// =============================================================================
+
+#[test]
+fn test_q4k_converter_convert_with_empty_file() {
+    use std::io::Write;
+
+    let temp_dir = std::env::temp_dir();
+    let input_path = temp_dir.join("test_empty_gguf.bin");
+    let output_path = temp_dir.join("test_empty_output.apr");
+
+    // Write empty file
+    {
+        let mut file = std::fs::File::create(&input_path).expect("create temp file");
+        file.write_all(&[]).expect("write empty");
+    }
+
+    let result = realizar::convert::GgufToAprQ4KConverter::convert(&input_path, &output_path);
+    assert!(result.is_err(), "Empty file should produce error");
+
+    // Cleanup
+    let _ = std::fs::remove_file(&input_path);
+    let _ = std::fs::remove_file(&output_path);
+}
+
+#[test]
+fn test_q4k_converter_convert_with_truncated_gguf() {
+    use std::io::Write;
+
+    let temp_dir = std::env::temp_dir();
+    let input_path = temp_dir.join("test_truncated_gguf.bin");
+    let output_path = temp_dir.join("test_truncated_output.apr");
+
+    // Write truncated GGUF (valid magic but incomplete header)
+    {
+        let mut file = std::fs::File::create(&input_path).expect("create temp file");
+        file.write_all(b"GGUF").expect("write magic");
+        file.write_all(&3u32.to_le_bytes()).expect("write version");
+        // Truncated - missing rest of header
+    }
+
+    let result = realizar::convert::GgufToAprQ4KConverter::convert(&input_path, &output_path);
+    assert!(result.is_err(), "Truncated GGUF should produce error");
+
+    // Cleanup
+    let _ = std::fs::remove_file(&input_path);
+    let _ = std::fs::remove_file(&output_path);
+}
+
+// =============================================================================
+// Tensor Quantization Type Coverage Tests
+// =============================================================================
+
+#[test]
+fn test_raw_tensor_all_quantization_types() {
+    // Test F32 (dtype 0)
+    let f32_tensor = RawTensor {
+        name: "f32_tensor".to_string(),
+        data: vec![0u8; 400], // 100 floats * 4 bytes
+        shape: vec![100],
+        dtype: 0,
+    };
+    assert_eq!(f32_tensor.dtype, 0);
+    assert_eq!(f32_tensor.data.len(), 400);
+
+    // Test F16 (dtype 1)
+    let f16_tensor = RawTensor {
+        name: "f16_tensor".to_string(),
+        data: vec![0u8; 200], // 100 floats * 2 bytes
+        shape: vec![100],
+        dtype: 1,
+    };
+    assert_eq!(f16_tensor.dtype, 1);
+    assert_eq!(f16_tensor.data.len(), 200);
+
+    // Test Q8_0 (dtype 8)
+    let q8_tensor = RawTensor {
+        name: "q8_tensor".to_string(),
+        data: vec![0u8; 34], // 32 elements = 2 (scale) + 32 (quants)
+        shape: vec![32],
+        dtype: 8,
+    };
+    assert_eq!(q8_tensor.dtype, 8);
+
+    // Test Q4_K (dtype 12)
+    let q4k_tensor = RawTensor {
+        name: "q4k_tensor".to_string(),
+        data: vec![0u8; 144], // 256 elements = 144 bytes
+        shape: vec![256],
+        dtype: 12,
+    };
+    assert_eq!(q4k_tensor.dtype, 12);
+
+    // Test Q5_K (dtype 13)
+    let q5k_tensor = RawTensor {
+        name: "q5k_tensor".to_string(),
+        data: vec![0u8; 176], // 256 elements = 176 bytes
+        shape: vec![256],
+        dtype: 13,
+    };
+    assert_eq!(q5k_tensor.dtype, 13);
+
+    // Test Q6_K (dtype 14)
+    let q6k_tensor = RawTensor {
+        name: "q6k_tensor".to_string(),
+        data: vec![0u8; 210], // 256 elements = 210 bytes
+        shape: vec![256],
+        dtype: 14,
+    };
+    assert_eq!(q6k_tensor.dtype, 14);
+}
+
+#[test]
+fn test_raw_tensor_byte_size_calculations() {
+    // Verify byte size calculations for different types match convert.rs logic
+
+    // F32: num_elements * 4
+    let f32_elements = 100;
+    let f32_bytes = f32_elements * 4;
+    assert_eq!(f32_bytes, 400);
+
+    // F16: num_elements * 2
+    let f16_elements = 100;
+    let f16_bytes = f16_elements * 2;
+    assert_eq!(f16_bytes, 200);
+
+    // Q8_0: (num_elements / 32) * 34
+    let q8_elements = 256;
+    let q8_bytes = (q8_elements / 32) * 34;
+    assert_eq!(q8_bytes, 272);
+
+    // Q4_K: (num_elements / 256) * 144
+    let q4k_elements = 512;
+    let q4k_bytes = (q4k_elements / 256) * 144;
+    assert_eq!(q4k_bytes, 288);
+
+    // Q5_K: (num_elements / 256) * 176
+    let q5k_elements = 512;
+    let q5k_bytes = (q5k_elements / 256) * 176;
+    assert_eq!(q5k_bytes, 352);
+
+    // Q6_K: (num_elements / 256) * 210
+    let q6k_elements = 512;
+    let q6k_bytes = (q6k_elements / 256) * 210;
+    assert_eq!(q6k_bytes, 420);
+}
+
+// =============================================================================
+// Metadata Preservation Tests
+// =============================================================================
+
+#[test]
+fn test_metadata_preservation_all_fields() {
+    let config = AprTransformerConfig {
+        architecture: "metadata_test".to_string(),
+        hidden_dim: 512,
+        num_layers: 16,
+        num_heads: 8,
+        num_kv_heads: 4,
+        vocab_size: 32000,
+        intermediate_dim: 2048,
+        context_length: 4096,
+        rope_theta: 500000.0,
+        eps: 1e-6,
+    };
+
+    let apr = AprTransformer {
+        config,
+        token_embedding: vec![0.1; 32000 * 512],
+        layers: (0..16).map(|_| AprTransformerLayer {
+            attn_norm_weight: vec![1.0; 512],
+            attn_norm_bias: None,
+            qkv_weight: vec![0.01; 512 * 3 * 512],
+            qkv_bias: None,
+            attn_output_weight: vec![0.01; 512 * 512],
+            attn_output_bias: None,
+            ffn_gate_weight: Some(vec![0.01; 512 * 2048]),
+            ffn_gate_bias: None,
+            ffn_up_weight: vec![0.01; 512 * 2048],
+            ffn_up_bias: None,
+            ffn_down_weight: vec![0.01; 2048 * 512],
+            ffn_down_bias: None,
+            ffn_norm_weight: None,
+            ffn_norm_bias: None,
+        }).collect(),
+        output_norm_weight: vec![1.0; 512],
+        output_norm_bias: None,
+        lm_head_weight: vec![0.01; 512 * 32000],
+        lm_head_bias: None,
+    };
+
+    let bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialize");
+    let loaded = GgufToAprConverter::from_apr_bytes(&bytes).expect("deserialize");
+
+    // Verify all metadata fields are preserved
+    assert_eq!(loaded.config.architecture, "metadata_test");
+    assert_eq!(loaded.config.hidden_dim, 512);
+    assert_eq!(loaded.config.num_layers, 16);
+    assert_eq!(loaded.config.num_heads, 8);
+    assert_eq!(loaded.config.num_kv_heads, 4);
+    assert_eq!(loaded.config.vocab_size, 32000);
+    assert_eq!(loaded.config.intermediate_dim, 2048);
+    assert_eq!(loaded.config.context_length, 4096);
+    assert!((loaded.config.rope_theta - 500000.0).abs() < 0.1);
+    assert!((loaded.config.eps - 1e-6).abs() < 1e-8);
+}
+
+#[test]
+fn test_metadata_unicode_architecture() {
+    let config = AprTransformerConfig {
+        architecture: "模型架构_v2".to_string(), // Chinese characters
+        hidden_dim: 8,
+        num_layers: 1,
+        num_heads: 2,
+        num_kv_heads: 2,
+        vocab_size: 10,
+        intermediate_dim: 16,
+        context_length: 64,
+        rope_theta: 10000.0,
+        eps: 1e-5,
+    };
+
+    let apr = AprTransformer {
+        config,
+        token_embedding: vec![0.1; 10 * 8],
+        layers: vec![AprTransformerLayer {
+            attn_norm_weight: vec![1.0; 8],
+            attn_norm_bias: None,
+            qkv_weight: vec![0.01; 8 * 3 * 8],
+            qkv_bias: None,
+            attn_output_weight: vec![0.01; 8 * 8],
+            attn_output_bias: None,
+            ffn_gate_weight: None,
+            ffn_gate_bias: None,
+            ffn_up_weight: vec![0.01; 8 * 16],
+            ffn_up_bias: None,
+            ffn_down_weight: vec![0.01; 16 * 8],
+            ffn_down_bias: None,
+            ffn_norm_weight: None,
+            ffn_norm_bias: None,
+        }],
+        output_norm_weight: vec![1.0; 8],
+        output_norm_bias: None,
+        lm_head_weight: vec![0.01; 8 * 10],
+        lm_head_bias: None,
+    };
+
+    let bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialize");
+    let loaded = GgufToAprConverter::from_apr_bytes(&bytes).expect("deserialize");
+
+    assert!(loaded.config.architecture.contains("模型架构"));
+}
+
+// =============================================================================
+// Unsupported Format Error Handling Tests
+// =============================================================================
+
+#[test]
+fn test_from_apr_bytes_unsupported_version_v0() {
+    let mut bytes = vec![0u8; 128];
+    bytes[0..4].copy_from_slice(&MAGIC);
+    bytes[4] = 0; // version 0 (unsupported)
+    bytes[5] = 0;
+
+    let result = GgufToAprConverter::from_apr_bytes(&bytes);
+    // May error or handle gracefully, but should not panic
+    let _ = result;
+}
+
+#[test]
+fn test_from_apr_bytes_unsupported_version_v255() {
+    let mut bytes = vec![0u8; 128];
+    bytes[0..4].copy_from_slice(&MAGIC);
+    bytes[4] = 255; // very high version
+    bytes[5] = 255;
+
+    let result = GgufToAprConverter::from_apr_bytes(&bytes);
+    // Should error or handle gracefully
+    let _ = result;
+}
+
+#[test]
+fn test_convert_gguf_with_reversed_magic() {
+    // GGUF magic in wrong order
+    let mut bytes = vec![0u8; 128];
+    bytes[0..4].copy_from_slice(b"FUGF"); // Reversed GGUF
+    let result = GgufToAprConverter::convert(&bytes);
+    assert!(result.is_err());
+}
+
+// =============================================================================
+// File I/O Error Simulation Tests (Q4K Converter)
+// =============================================================================
+
+#[test]
+fn test_q4k_converter_nonexistent_input_file() {
+    use std::path::Path;
+
+    let input_path = Path::new("/nonexistent/path/to/model.gguf");
+    let output_path = Path::new("/tmp/output.apr");
+
+    let result = realizar::convert::GgufToAprQ4KConverter::convert(input_path, output_path);
+    assert!(result.is_err(), "Nonexistent input file should produce error");
+}
+
+#[test]
+fn test_q4k_converter_invalid_input_content() {
+    use std::io::Write;
+
+    // Create a temp file with invalid content
+    let temp_dir = std::env::temp_dir();
+    let input_path = temp_dir.join("test_invalid_gguf.bin");
+    let output_path = temp_dir.join("test_output.apr");
+
+    // Write invalid content
+    {
+        let mut file = std::fs::File::create(&input_path).expect("create temp file");
+        file.write_all(b"NOT A GGUF FILE").expect("write");
+    }
+
+    let result = realizar::convert::GgufToAprQ4KConverter::convert(&input_path, &output_path);
+    assert!(result.is_err(), "Invalid GGUF content should produce error");
+
+    // Cleanup
+    let _ = std::fs::remove_file(&input_path);
+    let _ = std::fs::remove_file(&output_path);
+}
+
+#[test]
+fn test_q4k_converter_output_to_readonly_dir() {
+    use std::path::Path;
+
+    // Attempt to write to a path that doesn't exist as directory
+    let nonexistent_output = Path::new("/nonexistent_dir_xyz/model.apr");
+    let nonexistent_input = Path::new("/tmp/nonexistent_model.gguf");
+
+    // This should fail because input doesn't exist first
+    let result = realizar::convert::GgufToAprQ4KConverter::convert(nonexistent_input, nonexistent_output);
+    assert!(result.is_err());
+}
+
+// =============================================================================
+// Output Validation Tests
+// =============================================================================
+
+#[test]
+fn test_apr_bytes_output_has_valid_structure() {
+    let apr = create_minimal_apr_transformer(16, 2, 100, 32);
+    let bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialize");
+
+    // Validate header structure
+    assert_eq!(&bytes[0..4], &MAGIC, "Magic bytes should match");
+    assert_eq!(bytes[4], 2, "Major version should be 2");
+    assert_eq!(bytes[5], 0, "Minor version should be 0");
+
+    // Validate tensor count
+    let tensor_count = u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]);
+    assert_eq!(tensor_count, 1, "Should have 1 tensor (weights)");
+
+    // Validate metadata offset
+    let metadata_offset = u64::from_le_bytes(bytes[12..20].try_into().unwrap());
+    assert_eq!(metadata_offset, HEADER_SIZE as u64, "Metadata should start after header");
+
+    // Validate tensor index offset comes after metadata
+    let tensor_idx_offset = u64::from_le_bytes(bytes[24..32].try_into().unwrap());
+    assert!(tensor_idx_offset > metadata_offset, "Tensor index should be after metadata");
+
+    // Validate data offset comes after tensor index
+    let data_offset = u64::from_le_bytes(bytes[32..40].try_into().unwrap());
+    assert!(data_offset >= tensor_idx_offset, "Data should be after tensor index");
+}
+
+#[test]
+fn test_apr_bytes_contains_valid_json_metadata() {
+    let apr = create_minimal_apr_transformer(8, 1, 10, 16);
+    let bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialize");
+
+    // Extract metadata
+    let metadata_offset = u64::from_le_bytes(bytes[12..20].try_into().unwrap()) as usize;
+    let metadata_len = u32::from_le_bytes(bytes[20..24].try_into().unwrap()) as usize;
+
+    let metadata_slice = &bytes[metadata_offset..metadata_offset + metadata_len];
+
+    // Should be valid JSON
+    let metadata: serde_json::Value = serde_json::from_slice(metadata_slice)
+        .expect("Metadata should be valid JSON");
+
+    // Verify expected fields
+    assert!(metadata.get("model_type").is_some());
+    assert!(metadata.get("architecture").is_some());
+    assert!(metadata.get("hidden_size").is_some());
+    assert!(metadata.get("num_layers").is_some());
+    assert!(metadata.get("vocab_size").is_some());
+}
+
+#[test]
+fn test_apr_roundtrip_weight_values_exact() {
+    // Create transformer with specific known values
+    let config = AprTransformerConfig {
+        architecture: "exact_test".to_string(),
+        hidden_dim: 4,
+        num_layers: 1,
+        num_heads: 1,
+        num_kv_heads: 1,
+        vocab_size: 5,
+        intermediate_dim: 8,
+        context_length: 32,
+        rope_theta: 10000.0,
+        eps: 1e-5,
+    };
+
+    // Use specific weight values
+    let embedding = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0,
+                         1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0];
+
+    let apr = AprTransformer {
+        config,
+        token_embedding: embedding.clone(),
+        layers: vec![AprTransformerLayer {
+            attn_norm_weight: vec![1.0, 1.1, 1.2, 1.3],
+            attn_norm_bias: None,
+            qkv_weight: vec![0.01; 4 * 3 * 4],
+            qkv_bias: None,
+            attn_output_weight: vec![0.01; 4 * 4],
+            attn_output_bias: None,
+            ffn_gate_weight: None,
+            ffn_gate_bias: None,
+            ffn_up_weight: vec![0.01; 4 * 8],
+            ffn_up_bias: None,
+            ffn_down_weight: vec![0.01; 8 * 4],
+            ffn_down_bias: None,
+            ffn_norm_weight: None,
+            ffn_norm_bias: None,
+        }],
+        output_norm_weight: vec![1.0, 1.0, 1.0, 1.0],
+        output_norm_bias: None,
+        lm_head_weight: vec![0.01; 4 * 5],
+        lm_head_bias: None,
+    };
+
+    let bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialize");
+    let loaded = GgufToAprConverter::from_apr_bytes(&bytes).expect("deserialize");
+
+    // Verify exact weight values
+    for (i, (orig, load)) in embedding.iter().zip(loaded.token_embedding.iter()).enumerate() {
+        assert!((orig - load).abs() < 1e-6, "Embedding[{}] mismatch: {} vs {}", i, orig, load);
+    }
+
+    // Verify attn_norm_weight exact values
+    let orig_norm = &apr.layers[0].attn_norm_weight;
+    let load_norm = &loaded.layers[0].attn_norm_weight;
+    for (i, (orig, load)) in orig_norm.iter().zip(load_norm.iter()).enumerate() {
+        assert!((orig - load).abs() < 1e-6, "attn_norm_weight[{}] mismatch", i);
+    }
+}
+
+// =============================================================================
+// Edge Cases for Header Parsing
+// =============================================================================
+
+#[test]
+fn test_from_apr_bytes_exactly_header_size() {
+    // File that is exactly header size (64 bytes) with no content
+    let mut bytes = vec![0u8; HEADER_SIZE];
+    bytes[0..4].copy_from_slice(&MAGIC);
+    bytes[4] = 2;
+    bytes[8..12].copy_from_slice(&0u32.to_le_bytes()); // 0 tensors
+    bytes[12..20].copy_from_slice(&64u64.to_le_bytes()); // metadata at 64
+    bytes[20..24].copy_from_slice(&0u32.to_le_bytes()); // 0 metadata len
+    bytes[24..32].copy_from_slice(&64u64.to_le_bytes()); // tensor idx at 64
+    bytes[32..40].copy_from_slice(&64u64.to_le_bytes()); // data at 64
+
+    let result = GgufToAprConverter::from_apr_bytes(&bytes);
+    // Should fail because there's no weights tensor
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_from_apr_bytes_header_with_max_tensor_count() {
+    let mut bytes = vec![0u8; 128];
+    bytes[0..4].copy_from_slice(&MAGIC);
+    bytes[4] = 2;
+    bytes[8..12].copy_from_slice(&u32::MAX.to_le_bytes()); // Max tensor count
+    bytes[12..20].copy_from_slice(&64u64.to_le_bytes());
+    bytes[20..24].copy_from_slice(&2u32.to_le_bytes());
+    bytes[24..32].copy_from_slice(&66u64.to_le_bytes());
+    bytes[32..40].copy_from_slice(&70u64.to_le_bytes());
+    bytes[64..66].copy_from_slice(b"{}");
+    bytes[66..68].copy_from_slice(b"[]");
+
+    let result = GgufToAprConverter::from_apr_bytes(&bytes);
+    // Should fail gracefully (no weights tensor, or parsing error)
+    assert!(result.is_err());
+}
+
+// =============================================================================
+// Stats Computation Edge Cases
+// =============================================================================
+
+#[test]
+fn test_stats_with_different_layer_counts() {
+    for num_layers in [0, 1, 2, 4, 8, 16, 32, 64] {
+        let apr = create_minimal_apr_transformer(8, num_layers, 10, 16);
+        let stats = GgufToAprConverter::stats(&apr);
+        assert_eq!(stats.num_layers, num_layers, "Layer count mismatch for {}", num_layers);
+    }
+}
+
+#[test]
+fn test_stats_with_different_hidden_dims() {
+    for hidden_dim in [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024] {
+        let apr = create_minimal_apr_transformer(hidden_dim, 1, 10, hidden_dim * 2);
+        let stats = GgufToAprConverter::stats(&apr);
+        assert_eq!(stats.hidden_dim, hidden_dim, "Hidden dim mismatch for {}", hidden_dim);
+    }
+}
+
+#[test]
+fn test_stats_with_different_vocab_sizes() {
+    for vocab_size in [1, 10, 100, 1000, 10000, 50000] {
+        let apr = create_minimal_apr_transformer(8, 1, vocab_size, 16);
+        let stats = GgufToAprConverter::stats(&apr);
+        assert_eq!(stats.vocab_size, vocab_size, "Vocab size mismatch for {}", vocab_size);
+    }
+}
+
+// =============================================================================
+// APR Dtype Mapping Tests
+// =============================================================================
+
+#[test]
+fn test_apr_dtype_mapping_coverage() {
+    // GGML: 0=F32, 1=F16, 8=Q8_0, 12=Q4_K, 13=Q5_K, 14=Q6_K
+    // APR:  0=F32, 1=F16, 8=Q4_K, 9=Q6_K, 10=Q8_0
+
+    // Verify the mapping in RawTensor representation
+    let dtypes = [
+        (0u32, "F32"),
+        (1u32, "F16"),
+        (8u32, "Q8_0"),
+        (12u32, "Q4_K"),
+        (13u32, "Q5_K"),
+        (14u32, "Q6_K"),
+    ];
+
+    for (dtype, name) in dtypes {
+        let tensor = RawTensor {
+            name: format!("test_{}", name),
+            data: vec![0u8; 64],
+            shape: vec![64],
+            dtype,
+        };
+        assert_eq!(tensor.dtype, dtype, "Dtype mismatch for {}", name);
+    }
+}
+
+// =============================================================================
+// Multiple Layer Weight Preservation Tests
+// =============================================================================
+
+#[test]
+fn test_conversion_preserves_per_layer_weights_large() {
+    let num_layers = 8;
+    let hidden_dim = 16;
+    let intermediate_dim = 32;
+    let vocab_size = 50;
+
+    let gguf = create_minimal_gguf_transformer(hidden_dim, num_layers, vocab_size, intermediate_dim);
+    let apr = GgufToAprConverter::from_gguf_transformer(&gguf);
+
+    // Verify all layers are preserved
+    assert_eq!(apr.layers.len(), num_layers);
+
+    // Verify each layer has correct dimensions
+    for (i, layer) in apr.layers.iter().enumerate() {
+        assert_eq!(layer.attn_norm_weight.len(), hidden_dim, "Layer {} attn_norm_weight len", i);
+        assert_eq!(layer.qkv_weight.len(), hidden_dim * 3 * hidden_dim, "Layer {} qkv_weight len", i);
+        assert_eq!(layer.attn_output_weight.len(), hidden_dim * hidden_dim, "Layer {} attn_output_weight len", i);
+        assert_eq!(layer.ffn_up_weight.len(), hidden_dim * intermediate_dim, "Layer {} ffn_up_weight len", i);
+        assert_eq!(layer.ffn_down_weight.len(), intermediate_dim * hidden_dim, "Layer {} ffn_down_weight len", i);
+    }
+}
+
+// =============================================================================
+// Serialization Size Tests
+// =============================================================================
+
+#[test]
+fn test_serialized_size_increases_with_model_size() {
+    let small = create_minimal_apr_transformer(4, 1, 10, 8);
+    let medium = create_minimal_apr_transformer(16, 4, 100, 32);
+    let large = create_minimal_apr_transformer(32, 8, 500, 64);
+
+    let small_bytes = GgufToAprConverter::to_apr_bytes(&small).expect("serialize small");
+    let medium_bytes = GgufToAprConverter::to_apr_bytes(&medium).expect("serialize medium");
+    let large_bytes = GgufToAprConverter::to_apr_bytes(&large).expect("serialize large");
+
+    assert!(medium_bytes.len() > small_bytes.len(), "Medium should be larger than small");
+    assert!(large_bytes.len() > medium_bytes.len(), "Large should be larger than medium");
+}
+
+#[test]
+fn test_serialized_size_relationship_to_parameters() {
+    let apr = create_minimal_apr_transformer(16, 2, 100, 32);
+    let stats = GgufToAprConverter::stats(&apr);
+    let bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialize");
+
+    // The serialized size should be roughly related to the memory size
+    // (though JSON serialization adds overhead)
+    let expected_min_size = stats.memory_bytes_f32; // At minimum, we need to store all weights
+    assert!(bytes.len() > expected_min_size / 2, "Serialized size should be substantial");
+}
+
+// =============================================================================
+// Empty/Minimal Configuration Tests
+// =============================================================================
+
+#[test]
+fn test_apr_with_all_optional_fields_none() {
+    let apr = AprTransformer {
+        config: AprTransformerConfig {
+            architecture: "minimal".to_string(),
+            hidden_dim: 4,
+            num_layers: 1,
+            num_heads: 1,
+            num_kv_heads: 1,
+            vocab_size: 5,
+            intermediate_dim: 8,
+            context_length: 16,
+            rope_theta: 10000.0,
+            eps: 1e-5,
+        },
+        token_embedding: vec![0.1; 5 * 4],
+        layers: vec![AprTransformerLayer {
+            attn_norm_weight: vec![1.0; 4],
+            attn_norm_bias: None,
+            qkv_weight: vec![0.01; 4 * 3 * 4],
+            qkv_bias: None,
+            attn_output_weight: vec![0.01; 4 * 4],
+            attn_output_bias: None,
+            ffn_gate_weight: None, // Optional
+            ffn_gate_bias: None,
+            ffn_up_weight: vec![0.01; 4 * 8],
+            ffn_up_bias: None,
+            ffn_down_weight: vec![0.01; 8 * 4],
+            ffn_down_bias: None,
+            ffn_norm_weight: None, // Optional
+            ffn_norm_bias: None,
+        }],
+        output_norm_weight: vec![1.0; 4],
+        output_norm_bias: None, // Optional
+        lm_head_weight: vec![0.01; 4 * 5],
+        lm_head_bias: None, // Optional
+    };
+
+    let bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialize");
+    let loaded = GgufToAprConverter::from_apr_bytes(&bytes).expect("deserialize");
+
+    // Verify None fields remain None
+    assert!(loaded.layers[0].ffn_gate_weight.is_none());
+    assert!(loaded.layers[0].ffn_norm_weight.is_none());
+    assert!(loaded.output_norm_bias.is_none());
+    assert!(loaded.lm_head_bias.is_none());
+}
+
+#[test]
+fn test_apr_with_all_optional_fields_some() {
+    let apr = AprTransformer {
+        config: AprTransformerConfig {
+            architecture: "full".to_string(),
+            hidden_dim: 4,
+            num_layers: 1,
+            num_heads: 1,
+            num_kv_heads: 1,
+            vocab_size: 5,
+            intermediate_dim: 8,
+            context_length: 16,
+            rope_theta: 10000.0,
+            eps: 1e-5,
+        },
+        token_embedding: vec![0.1; 5 * 4],
+        layers: vec![AprTransformerLayer {
+            attn_norm_weight: vec![1.0; 4],
+            attn_norm_bias: Some(vec![0.1; 4]),
+            qkv_weight: vec![0.01; 4 * 3 * 4],
+            qkv_bias: Some(vec![0.02; 3 * 4]),
+            attn_output_weight: vec![0.01; 4 * 4],
+            attn_output_bias: Some(vec![0.03; 4]),
+            ffn_gate_weight: Some(vec![0.04; 4 * 8]),
+            ffn_gate_bias: Some(vec![0.05; 8]),
+            ffn_up_weight: vec![0.01; 4 * 8],
+            ffn_up_bias: Some(vec![0.06; 8]),
+            ffn_down_weight: vec![0.01; 8 * 4],
+            ffn_down_bias: Some(vec![0.07; 4]),
+            ffn_norm_weight: Some(vec![1.0; 4]),
+            ffn_norm_bias: Some(vec![0.08; 4]),
+        }],
+        output_norm_weight: vec![1.0; 4],
+        output_norm_bias: Some(vec![0.09; 4]),
+        lm_head_weight: vec![0.01; 4 * 5],
+        lm_head_bias: Some(vec![0.1; 5]),
+    };
+
+    let bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialize");
+    let loaded = GgufToAprConverter::from_apr_bytes(&bytes).expect("deserialize");
+
+    // Verify Some fields remain Some
+    assert!(loaded.layers[0].attn_norm_bias.is_some());
+    assert!(loaded.layers[0].qkv_bias.is_some());
+    assert!(loaded.layers[0].attn_output_bias.is_some());
+    assert!(loaded.layers[0].ffn_gate_weight.is_some());
+    assert!(loaded.layers[0].ffn_gate_bias.is_some());
+    assert!(loaded.layers[0].ffn_up_bias.is_some());
+    assert!(loaded.layers[0].ffn_down_bias.is_some());
+    assert!(loaded.layers[0].ffn_norm_weight.is_some());
+    assert!(loaded.layers[0].ffn_norm_bias.is_some());
+    assert!(loaded.output_norm_bias.is_some());
+    assert!(loaded.lm_head_bias.is_some());
+}

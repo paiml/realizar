@@ -1831,3 +1831,876 @@ fn test_cov_simd_dot_alternating() {
     // 1 - 1 + 1 - 1 = 0
     assert!(result.abs() < 1e-5);
 }
+
+// =============================================================================
+// ADDITIONAL COVERAGE TESTS (PMAT-802)
+// =============================================================================
+//
+// These tests cover:
+// 1. ThreadConfig edge cases and validation
+// 2. SIMD dispatch paths (various sizes triggering different code paths)
+// 3. KV cache edge cases and management
+// 4. Batch inference handling
+// 5. Error handling for invalid inputs
+// 6. Q4KWeight error paths
+// =============================================================================
+
+// ===== ThreadConfig Extended Coverage =====
+
+#[test]
+fn test_cov_thread_config_large_values() {
+    // Test with very large thread counts (clamping behavior)
+    let config = ThreadConfig::new(1000, 500);
+    assert_eq!(config.n_threads_batch, 1000);
+    assert_eq!(config.n_threads_decode, 500);
+}
+
+#[test]
+fn test_cov_thread_config_asymmetric() {
+    // Test with decode threads greater than batch threads (unusual but valid)
+    let config = ThreadConfig::new(4, 16);
+    assert_eq!(config.n_threads_batch, 4);
+    assert_eq!(config.n_threads_decode, 16);
+}
+
+#[test]
+fn test_cov_thread_config_single_thread() {
+    let config = ThreadConfig::new(1, 1);
+    assert_eq!(config.n_threads_batch, 1);
+    assert_eq!(config.n_threads_decode, 1);
+    assert_eq!(config.threads_for(true), 1);
+    assert_eq!(config.threads_for(false), 1);
+}
+
+#[test]
+fn test_cov_thread_config_threads_for_both_modes() {
+    let config = ThreadConfig::new(32, 8);
+    // Verify prefill uses batch threads
+    assert_eq!(config.threads_for(true), 32);
+    // Verify decode uses decode threads
+    assert_eq!(config.threads_for(false), 8);
+}
+
+// ===== InferenceMode Extended Coverage =====
+
+#[test]
+fn test_cov_inference_mode_copy() {
+    let mode1 = InferenceMode::Prefill;
+    let mode2 = mode1; // Copy
+    assert_eq!(mode1, mode2);
+
+    let mode3 = InferenceMode::Decode;
+    let mode4 = mode3;
+    assert_eq!(mode3, mode4);
+}
+
+#[test]
+fn test_cov_inference_mode_debug_prefill() {
+    let mode = InferenceMode::Prefill;
+    let debug = format!("{mode:?}");
+    assert!(debug.contains("Prefill"));
+}
+
+#[test]
+fn test_cov_inference_mode_not_eq() {
+    // Test all inequality cases
+    assert!(InferenceMode::Prefill != InferenceMode::Decode);
+    assert!(InferenceMode::Decode != InferenceMode::Prefill);
+}
+
+// ===== KVCache Extended Coverage =====
+
+#[test]
+fn test_cov_kv_cache_deep_layer() {
+    // Test with many layers
+    let num_layers = 32;
+    let hidden_dim = 64;
+    let max_seq_len = 128;
+
+    let mut cache = KVCache::new(num_layers, hidden_dim, max_seq_len);
+
+    // Store in first and last layer
+    let k_first = vec![1.0f32; hidden_dim];
+    let v_first = vec![2.0f32; hidden_dim];
+    cache.store(0, &k_first, &v_first);
+
+    let k_last = vec![3.0f32; hidden_dim];
+    let v_last = vec![4.0f32; hidden_dim];
+    cache.store(num_layers - 1, &k_last, &v_last);
+
+    cache.advance();
+
+    // Verify first layer
+    let k0 = cache.get_k(0);
+    assert_eq!(k0.len(), hidden_dim);
+    assert!((k0[0] - 1.0).abs() < 1e-6);
+
+    // Verify last layer
+    let k_n = cache.get_k(num_layers - 1);
+    assert_eq!(k_n.len(), hidden_dim);
+    assert!((k_n[0] - 3.0).abs() < 1e-6);
+}
+
+#[test]
+fn test_cov_kv_cache_long_sequence() {
+    // Test with long sequence
+    let mut cache = KVCache::new(1, 4, 1024);
+
+    for i in 0..100 {
+        cache.store(0, &[i as f32; 4], &[(i + 100) as f32; 4]);
+        cache.advance();
+    }
+
+    assert_eq!(cache.len(), 100);
+
+    let k = cache.get_k(0);
+    assert_eq!(k.len(), 400); // 100 positions * 4 hidden_dim
+}
+
+#[test]
+fn test_cov_kv_cache_interleaved_layers() {
+    // Store to layers in non-sequential order
+    let mut cache = KVCache::new(4, 4, 8);
+
+    // Store to layers 3, 1, 2, 0
+    cache.store(3, &[30.0; 4], &[30.0; 4]);
+    cache.store(1, &[10.0; 4], &[10.0; 4]);
+    cache.store(2, &[20.0; 4], &[20.0; 4]);
+    cache.store(0, &[0.0; 4], &[0.0; 4]);
+    cache.advance();
+
+    // Verify all layers have correct values
+    assert!((cache.get_k(0)[0] - 0.0).abs() < 1e-6);
+    assert!((cache.get_k(1)[0] - 10.0).abs() < 1e-6);
+    assert!((cache.get_k(2)[0] - 20.0).abs() < 1e-6);
+    assert!((cache.get_k(3)[0] - 30.0).abs() < 1e-6);
+}
+
+#[test]
+fn test_cov_kv_cache_get_v_consistency() {
+    let mut cache = KVCache::new(1, 4, 8);
+
+    // Store K and V with different values
+    cache.store(0, &[1.0, 2.0, 3.0, 4.0], &[10.0, 20.0, 30.0, 40.0]);
+    cache.advance();
+
+    // Verify K and V are stored independently
+    let k = cache.get_k(0);
+    let v = cache.get_v(0);
+
+    assert!((k[0] - 1.0).abs() < 1e-6);
+    assert!((v[0] - 10.0).abs() < 1e-6);
+}
+
+// ===== OptimizedKVCache Extended Coverage =====
+
+#[test]
+fn test_cov_optimized_kv_cache_deep_layer() {
+    let num_layers = 16;
+    let hidden_dim = 32;
+    let max_seq_len = 64;
+
+    let mut cache = OptimizedKVCache::new(num_layers, hidden_dim, max_seq_len);
+
+    // Store in first and last layers
+    cache.store(0, &vec![1.0; hidden_dim], &vec![2.0; hidden_dim]);
+    cache.store(
+        num_layers - 1,
+        &vec![3.0; hidden_dim],
+        &vec![4.0; hidden_dim],
+    );
+    cache.advance();
+
+    // Verify layers
+    assert!((cache.get_k(0)[0] - 1.0).abs() < 1e-6);
+    assert!(
+        (cache.get_k(num_layers - 1)[0] - 3.0).abs() < 1e-6,
+        "Last layer K should be 3.0"
+    );
+}
+
+#[test]
+fn test_cov_optimized_kv_cache_transposed_layout() {
+    // Verify the transposed V layout is correct for attention
+    let mut cache = OptimizedKVCache::new(1, 4, 4);
+
+    // Store values: position 0
+    cache.store(0, &[1.0, 2.0, 3.0, 4.0], &[10.0, 20.0, 30.0, 40.0]);
+    cache.advance();
+
+    // Store values: position 1
+    cache.store(0, &[5.0, 6.0, 7.0, 8.0], &[11.0, 21.0, 31.0, 41.0]);
+    cache.advance();
+
+    // K should be sequential: [pos0, pos1]
+    let k = cache.get_k(0);
+    assert_eq!(k.len(), 8);
+    assert!((k[0] - 1.0).abs() < 1e-6); // pos 0, dim 0
+    assert!((k[4] - 5.0).abs() < 1e-6); // pos 1, dim 0
+
+    // V transposed should be [dim0_all_pos, dim1_all_pos, ...]
+    let v_t = cache.get_v_transposed(0);
+    assert_eq!(v_t.len(), 8);
+    // dim 0: [10.0 (pos0), 11.0 (pos1)]
+    assert!((v_t[0] - 10.0).abs() < 1e-6);
+    assert!((v_t[1] - 11.0).abs() < 1e-6);
+}
+
+#[test]
+fn test_cov_optimized_kv_cache_reset_multiple_times() {
+    let mut cache = OptimizedKVCache::new(1, 4, 8);
+
+    // First fill
+    cache.store(0, &[1.0; 4], &[1.0; 4]);
+    cache.advance();
+    assert_eq!(cache.len(), 1);
+
+    // First reset
+    cache.reset();
+    assert_eq!(cache.len(), 0);
+
+    // Second fill
+    cache.store(0, &[2.0; 4], &[2.0; 4]);
+    cache.advance();
+    assert_eq!(cache.len(), 1);
+
+    // Second reset
+    cache.reset();
+    assert_eq!(cache.len(), 0);
+}
+
+// ===== simd_matmul Batch Coverage =====
+
+#[test]
+fn test_cov_simd_matmul_exactly_parallel_threshold() {
+    // Test exactly at PARALLEL_THRESHOLD (256)
+    let in_dim = 16;
+    let out_dim = 256; // Exactly at threshold
+
+    let input: Vec<f32> = vec![1.0; in_dim];
+    let weight: Vec<f32> = (0..out_dim * in_dim)
+        .map(|i| (i % 10) as f32 * 0.1)
+        .collect();
+
+    let output = simd_matmul(&input, &weight, in_dim, out_dim);
+    assert_eq!(output.len(), out_dim);
+    for val in &output {
+        assert!(val.is_finite());
+    }
+}
+
+#[test]
+fn test_cov_simd_matmul_just_below_parallel_threshold() {
+    // Test just below PARALLEL_THRESHOLD
+    let in_dim = 16;
+    let out_dim = 255; // Just below threshold
+
+    let input: Vec<f32> = vec![1.0; in_dim];
+    let weight: Vec<f32> = (0..out_dim * in_dim)
+        .map(|i| (i % 10) as f32 * 0.1)
+        .collect();
+
+    let output = simd_matmul(&input, &weight, in_dim, out_dim);
+    assert_eq!(output.len(), out_dim);
+}
+
+#[test]
+fn test_cov_simd_matmul_batch_exactly_tiled_threshold() {
+    // Test batch at exactly PARALLEL_THRESHOLD * 4
+    let seq_len = 8;
+    let in_dim = 32;
+    let out_dim = 128; // seq_len * out_dim = 1024 = 256 * 4
+
+    let input: Vec<f32> = (0..seq_len * in_dim)
+        .map(|i| (i as f32).sin())
+        .collect();
+    let weight: Vec<f32> = (0..out_dim * in_dim)
+        .map(|i| (i as f32).cos() * 0.1)
+        .collect();
+
+    let output = simd_matmul(&input, &weight, in_dim, out_dim);
+    assert_eq!(output.len(), seq_len * out_dim);
+}
+
+#[test]
+fn test_cov_simd_matmul_batch_below_tiled_threshold() {
+    // Test batch just below tiled threshold (uses trueno Matrix path)
+    let seq_len = 2;
+    let in_dim = 8;
+    let out_dim = 64; // seq_len * out_dim = 128 < 1024
+
+    let input: Vec<f32> = vec![1.0; seq_len * in_dim];
+    let weight: Vec<f32> = vec![0.1; out_dim * in_dim];
+
+    let output = simd_matmul(&input, &weight, in_dim, out_dim);
+    assert_eq!(output.len(), seq_len * out_dim);
+}
+
+#[test]
+fn test_cov_simd_matmul_large_batch_tiled() {
+    // Test large batch that triggers tiled_matmul
+    let seq_len = 32;
+    let in_dim = 64;
+    let out_dim = 128; // seq_len * out_dim = 4096 >> 1024
+
+    let input: Vec<f32> = (0..seq_len * in_dim)
+        .map(|i| (i as f32 * 0.001).sin())
+        .collect();
+    let weight: Vec<f32> = (0..out_dim * in_dim)
+        .map(|i| (i as f32 * 0.001).cos())
+        .collect();
+
+    let output = simd_matmul(&input, &weight, in_dim, out_dim);
+    assert_eq!(output.len(), seq_len * out_dim);
+
+    // Verify all outputs are finite
+    for val in &output {
+        assert!(val.is_finite());
+    }
+}
+
+// ===== Q4KWeight Error Handling Coverage =====
+
+#[test]
+fn test_cov_q4k_weight_new_exact_size() {
+    // Test with exactly the right size
+    let data = create_q4k_test_data(1);
+    let weight = Q4KWeight::new(data, 256, 1);
+    assert!(weight.is_ok());
+    assert_eq!(weight.unwrap().data.len(), 144);
+}
+
+#[test]
+fn test_cov_q4k_weight_new_extra_data() {
+    // Test with extra data (should succeed)
+    let mut data = create_q4k_test_data(2); // 288 bytes
+    data.extend_from_slice(&[0u8; 100]); // Add extra 100 bytes
+    let weight = Q4KWeight::new(data, 256, 2);
+    assert!(weight.is_ok());
+}
+
+#[test]
+fn test_cov_q4k_weight_matvec_dimension_error_message() {
+    let data = create_q4k_test_data(1);
+    let weight = Q4KWeight::new(data, 256, 1).unwrap();
+
+    // Wrong input size - verify error is returned
+    let input: Vec<f32> = vec![1.0; 100]; // Should be 256
+    let result = weight.matvec(&input);
+    assert!(result.is_err());
+
+    // Check error message contains useful info
+    if let Err(e) = result {
+        let msg = format!("{e:?}");
+        assert!(msg.contains("100") || msg.contains("256"));
+    }
+}
+
+// ===== simd_softmax Extended Coverage =====
+
+#[test]
+fn test_cov_simd_softmax_identical_values() {
+    let mut data = vec![5.0, 5.0, 5.0, 5.0, 5.0];
+    simd_softmax(&mut data);
+
+    // All identical -> uniform distribution
+    for val in &data {
+        assert!((*val - 0.2).abs() < 1e-5);
+    }
+}
+
+#[test]
+fn test_cov_simd_softmax_very_large_positive() {
+    let mut data = vec![1000.0, 1001.0, 1002.0];
+    simd_softmax(&mut data);
+
+    // Should be finite and sum to 1
+    let sum: f32 = data.iter().sum();
+    assert!((sum - 1.0).abs() < 1e-5);
+    for val in &data {
+        assert!(val.is_finite());
+    }
+
+    // Largest should still dominate
+    assert!(data[2] > data[1]);
+    assert!(data[1] > data[0]);
+}
+
+#[test]
+fn test_cov_simd_softmax_all_same_negative() {
+    let mut data = vec![-5.0, -5.0, -5.0];
+    simd_softmax(&mut data);
+
+    // All same -> uniform
+    for val in &data {
+        assert!((*val - 1.0 / 3.0).abs() < 1e-5);
+    }
+}
+
+// ===== simd_silu Extended Coverage =====
+
+#[test]
+fn test_cov_simd_silu_near_zero() {
+    let mut data = vec![-0.01, 0.0, 0.01];
+    simd_silu(&mut data);
+
+    // Near zero: SiLU(x) ≈ x * sigmoid(x) ≈ x * 0.5 for small x
+    assert!(data[0] < 0.0);
+    assert!(data[1].abs() < 1e-6);
+    assert!(data[2] > 0.0);
+}
+
+#[test]
+fn test_cov_simd_silu_symmetry() {
+    // SiLU is NOT symmetric: f(-x) != -f(x)
+    let mut pos = vec![2.0];
+    let mut neg = vec![-2.0];
+
+    simd_silu(&mut pos);
+    simd_silu(&mut neg);
+
+    // SiLU(2) ≈ 2 * 0.88 ≈ 1.76
+    // SiLU(-2) ≈ -2 * 0.12 ≈ -0.24
+    assert!(pos[0] > 1.5);
+    assert!(neg[0] < 0.0);
+    assert!((pos[0] + neg[0]).abs() > 1.0); // Not symmetric
+}
+
+// ===== simd_gelu Extended Coverage =====
+
+#[test]
+fn test_cov_simd_gelu_near_zero() {
+    let mut data = vec![-0.01, 0.0, 0.01];
+    simd_gelu(&mut data);
+
+    // GELU(0) = 0
+    assert!(data[1].abs() < 1e-6);
+
+    // GELU is approximately linear near 0
+    assert!(data[0] < 0.0);
+    assert!(data[2] > 0.0);
+}
+
+#[test]
+fn test_cov_simd_gelu_comparison_to_relu() {
+    // GELU differs from ReLU: GELU has smooth transition
+    let mut gelu_data = vec![-1.0, -0.5, 0.0, 0.5, 1.0];
+    simd_gelu(&mut gelu_data);
+
+    // GELU(-1) is small negative, not 0 like ReLU
+    assert!(gelu_data[0] < 0.0);
+    assert!(gelu_data[0] > -0.2);
+
+    // GELU(1) < 1 (unlike ReLU where f(1) = 1)
+    assert!(gelu_data[4] > 0.8);
+    assert!(gelu_data[4] < 1.0);
+}
+
+// ===== simd_layer_norm Extended Coverage =====
+
+#[test]
+fn test_cov_simd_layer_norm_single_element() {
+    // Edge case: single element
+    let input = vec![5.0];
+    let weight = vec![1.0];
+
+    let output = simd_layer_norm(&input, &weight, None, 1e-5);
+
+    // Single element: mean = 5, variance = 0
+    // normalized = (5 - 5) / sqrt(0 + eps) ≈ 0
+    assert!(output[0].abs() < 0.1);
+}
+
+#[test]
+fn test_cov_simd_layer_norm_large_values() {
+    // Test with large values to check numerical stability
+    let input = vec![1000.0, 2000.0, 3000.0, 4000.0];
+    let weight = vec![1.0, 1.0, 1.0, 1.0];
+
+    let output = simd_layer_norm(&input, &weight, None, 1e-5);
+
+    // Output should be normalized (mean 0, std 1)
+    let mean: f32 = output.iter().sum::<f32>() / output.len() as f32;
+    assert!(mean.abs() < 1e-4);
+
+    // All finite
+    for val in &output {
+        assert!(val.is_finite());
+    }
+}
+
+#[test]
+fn test_cov_simd_layer_norm_negative_weight() {
+    let input = vec![1.0, 2.0, 3.0, 4.0];
+    let weight = vec![-1.0, -1.0, -1.0, -1.0]; // Negative weights
+
+    let output = simd_layer_norm(&input, &weight, None, 1e-5);
+
+    // Negative weight should flip signs
+    assert_eq!(output.len(), 4);
+}
+
+// ===== simd_rms_norm Extended Coverage =====
+
+#[test]
+fn test_cov_simd_rms_norm_single_element() {
+    let input = vec![3.0];
+    let weight = vec![2.0];
+
+    let output = simd_rms_norm(&input, &weight, 1e-5);
+
+    // RMS = sqrt(9/1) = 3, output = 3/3 * 2 = 2
+    assert!((output[0] - 2.0).abs() < 0.01);
+}
+
+#[test]
+fn test_cov_simd_rms_norm_large_values() {
+    let input = vec![1000.0, 2000.0, 3000.0, 4000.0];
+    let weight = vec![1.0, 1.0, 1.0, 1.0];
+
+    let output = simd_rms_norm(&input, &weight, 1e-5);
+
+    // All should be finite and reasonable
+    for val in &output {
+        assert!(val.is_finite());
+        assert!(val.abs() < 10.0); // Should be normalized
+    }
+}
+
+#[test]
+fn test_cov_simd_rms_norm_negative_weight() {
+    let input = vec![1.0, 2.0, 3.0, 4.0];
+    let weight = vec![-1.0, -1.0, -1.0, -1.0];
+
+    let output = simd_rms_norm(&input, &weight, 1e-5);
+
+    // Negative weight flips signs
+    for (i, val) in output.iter().enumerate() {
+        assert!(val.is_finite());
+        // Original was positive, with negative weight should be negative
+        if input[i] > 0.0 {
+            assert!(*val < 0.0);
+        }
+    }
+}
+
+// ===== apply_rope Extended Coverage =====
+
+#[test]
+fn test_cov_apply_rope_many_heads() {
+    // Test with many heads
+    let num_heads = 16;
+    let head_dim = 8;
+    let hidden_dim = num_heads * head_dim;
+
+    let mut x: Vec<f32> = (0..hidden_dim).map(|i| (i as f32).sin()).collect();
+    apply_rope(&mut x, hidden_dim, num_heads, 10, 10000.0);
+
+    // All values should be finite
+    for val in &x {
+        assert!(val.is_finite());
+    }
+}
+
+#[test]
+fn test_cov_apply_rope_very_large_position() {
+    let mut x = vec![1.0, 0.0, 0.0, 1.0];
+    apply_rope(&mut x, 4, 1, 10000, 10000.0);
+
+    // Should not overflow
+    for val in &x {
+        assert!(val.is_finite());
+    }
+}
+
+#[test]
+fn test_cov_apply_rope_very_small_theta() {
+    let mut x = vec![1.0, 0.0, 0.0, 1.0];
+    // Very small theta = faster rotation
+    apply_rope(&mut x, 4, 1, 1, 10.0);
+
+    // Should produce rotation
+    for val in &x {
+        assert!(val.is_finite());
+    }
+}
+
+// ===== attention_with_cache Extended Coverage =====
+
+#[test]
+fn test_cov_attention_with_cache_all_zero_k() {
+    let num_heads = 1;
+    let head_dim = 4;
+
+    let q = vec![1.0, 1.0, 1.0, 1.0];
+    let k_cache = vec![0.0, 0.0, 0.0, 0.0]; // All zero K
+    let v_cache = vec![1.0, 2.0, 3.0, 4.0];
+
+    let output = attention_with_cache(&q, &k_cache, &v_cache, num_heads, head_dim);
+
+    // With zero K, attention score is Q·K = 0, softmax = 1.0 (single position)
+    assert_eq!(output.len(), 4);
+    for val in &output {
+        assert!(val.is_finite());
+    }
+}
+
+#[test]
+fn test_cov_attention_with_cache_large_seq_len() {
+    let num_heads = 2;
+    let head_dim = 4;
+    let hidden_dim = num_heads * head_dim;
+    let seq_len = 64;
+
+    let q: Vec<f32> = vec![1.0; hidden_dim];
+    let k_cache: Vec<f32> = (0..hidden_dim * seq_len)
+        .map(|i| (i as f32 * 0.01).sin())
+        .collect();
+    let v_cache: Vec<f32> = (0..hidden_dim * seq_len)
+        .map(|i| (i as f32 * 0.01).cos())
+        .collect();
+
+    let output = attention_with_cache(&q, &k_cache, &v_cache, num_heads, head_dim);
+
+    assert_eq!(output.len(), hidden_dim);
+    for val in &output {
+        assert!(val.is_finite());
+    }
+}
+
+// ===== attention_with_transposed_v Extended Coverage =====
+
+#[test]
+fn test_cov_attention_transposed_v_large_seq() {
+    let num_heads = 2;
+    let head_dim = 4;
+    let hidden_dim = num_heads * head_dim;
+    let seq_len = 32;
+
+    let q: Vec<f32> = vec![1.0; hidden_dim];
+    let k_cache: Vec<f32> = (0..hidden_dim * seq_len)
+        .map(|i| (i as f32 * 0.01).sin())
+        .collect();
+    let v_transposed: Vec<f32> = (0..hidden_dim * seq_len)
+        .map(|i| (i as f32 * 0.01).cos())
+        .collect();
+
+    let output =
+        attention_with_transposed_v(&q, &k_cache, &v_transposed, num_heads, head_dim, seq_len);
+
+    assert_eq!(output.len(), hidden_dim);
+    for val in &output {
+        assert!(val.is_finite());
+    }
+}
+
+#[test]
+fn test_cov_attention_transposed_v_single_head() {
+    let num_heads = 1;
+    let head_dim = 8;
+    let seq_len = 4;
+
+    let q: Vec<f32> = vec![1.0; head_dim];
+    let k_cache: Vec<f32> = vec![1.0; head_dim * seq_len];
+    let v_transposed: Vec<f32> = (0..head_dim * seq_len)
+        .map(|i| i as f32 * 0.1)
+        .collect();
+
+    let output =
+        attention_with_transposed_v(&q, &k_cache, &v_transposed, num_heads, head_dim, seq_len);
+
+    assert_eq!(output.len(), head_dim);
+    // Uniform attention -> average
+    for val in &output {
+        assert!(val.is_finite());
+    }
+}
+
+// ===== simd_dot Extended Coverage =====
+
+#[test]
+fn test_cov_simd_dot_unaligned_length() {
+    // Test with length that's not a multiple of SIMD width
+    let a: Vec<f32> = vec![1.0; 17]; // Not multiple of 4 or 8
+    let b: Vec<f32> = vec![2.0; 17];
+    let result = simd_dot(&a, &b);
+    assert!((result - 34.0).abs() < 1e-4);
+}
+
+#[test]
+fn test_cov_simd_dot_large_values() {
+    let a: Vec<f32> = vec![1e6; 4];
+    let b: Vec<f32> = vec![1e6; 4];
+    let result = simd_dot(&a, &b);
+    // 4 * 1e12 = 4e12
+    assert!((result - 4e12).abs() < 1e8);
+}
+
+// ===== simd_add Extended Coverage =====
+
+#[test]
+fn test_cov_simd_add_unaligned_length() {
+    let mut a: Vec<f32> = vec![1.0; 17];
+    let b: Vec<f32> = vec![2.0; 17];
+    simd_add(&mut a, &b);
+    for val in &a {
+        assert!((val - 3.0).abs() < 1e-5);
+    }
+}
+
+// ===== simd_mul Extended Coverage =====
+
+#[test]
+fn test_cov_simd_mul_unaligned_length() {
+    let mut a: Vec<f32> = vec![2.0; 17];
+    let b: Vec<f32> = vec![3.0; 17];
+    simd_mul(&mut a, &b);
+    for val in &a {
+        assert!((val - 6.0).abs() < 1e-5);
+    }
+}
+
+// ===== Thread Pool Configuration Coverage =====
+
+#[test]
+fn test_cov_configure_thread_pool_double_call() {
+    // First call may succeed or fail depending on test order
+    let result1 = realizar::inference::configure_thread_pool(4);
+
+    // Second call should definitely fail (pool already initialized)
+    let result2 = realizar::inference::configure_thread_pool(8);
+
+    // At least one should fail (the second one if not both)
+    assert!(result1.is_err() || result2.is_err());
+}
+
+#[test]
+fn test_cov_configure_optimal_thread_pool_double_call() {
+    // Similar test for optimal thread pool
+    let result1 = realizar::inference::configure_optimal_thread_pool();
+    let result2 = realizar::inference::configure_optimal_thread_pool();
+
+    // At least one should fail
+    assert!(result1.is_err() || result2.is_err());
+}
+
+// ===== KVCache len and is_empty Coverage =====
+
+#[test]
+fn test_cov_kv_cache_len_progression() {
+    let mut cache = KVCache::new(1, 4, 10);
+
+    assert_eq!(cache.len(), 0);
+    assert!(cache.is_empty());
+
+    cache.store(0, &[1.0; 4], &[1.0; 4]);
+    cache.advance();
+    assert_eq!(cache.len(), 1);
+    assert!(!cache.is_empty());
+
+    cache.store(0, &[2.0; 4], &[2.0; 4]);
+    cache.advance();
+    assert_eq!(cache.len(), 2);
+
+    cache.reset();
+    assert_eq!(cache.len(), 0);
+    assert!(cache.is_empty());
+}
+
+// ===== OptimizedKVCache len and max_seq_len Coverage =====
+
+#[test]
+fn test_cov_optimized_kv_cache_len_and_max() {
+    let max_seq = 512;
+    let cache = OptimizedKVCache::new(4, 64, max_seq);
+
+    assert_eq!(cache.max_seq_len(), max_seq);
+    assert_eq!(cache.len(), 0);
+    assert!(cache.is_empty());
+}
+
+#[test]
+fn test_cov_optimized_kv_cache_get_v_raw_full() {
+    let mut cache = OptimizedKVCache::new(1, 4, 4);
+
+    // Fill to capacity
+    for i in 0..4 {
+        cache.store(0, &[i as f32; 4], &[(i + 10) as f32; 4]);
+        cache.advance();
+    }
+
+    let v_raw = cache.get_v_raw(0);
+    // Should return full allocated buffer
+    assert_eq!(v_raw.len(), 4 * 4); // hidden_dim * max_seq_len
+}
+
+// ===== Q4KWeight Accessors Coverage =====
+
+#[test]
+fn test_cov_q4k_weight_accessors_consistency() {
+    let data = create_q4k_test_data(4); // 4 super-blocks
+    let weight = Q4KWeight::new(data.clone(), 256, 4).unwrap();
+
+    // Verify dimensions
+    assert_eq!(weight.in_dim, 256);
+    assert_eq!(weight.out_dim, 4);
+
+    // Memory should match data length
+    assert_eq!(weight.memory_bytes(), data.len());
+
+    // f32 equivalent should be much larger
+    assert!(weight.f32_equivalent_bytes() > weight.memory_bytes());
+
+    // Compression ratio should be > 1
+    assert!(weight.compression_ratio() > 1.0);
+}
+
+// ===== simd_matmul Edge Cases =====
+
+#[test]
+fn test_cov_simd_matmul_single_in_single_out() {
+    // Minimal case: 1x1 matrix
+    let input = vec![2.0];
+    let weight = vec![3.0];
+
+    let output = simd_matmul(&input, &weight, 1, 1);
+    assert_eq!(output.len(), 1);
+    assert!((output[0] - 6.0).abs() < 1e-5);
+}
+
+#[test]
+fn test_cov_simd_matmul_wide_input() {
+    // Wide input (in_dim >> out_dim)
+    let in_dim = 512;
+    let out_dim = 4;
+
+    let input: Vec<f32> = vec![1.0; in_dim];
+    let weight: Vec<f32> = vec![1.0 / in_dim as f32; out_dim * in_dim];
+
+    let output = simd_matmul(&input, &weight, in_dim, out_dim);
+    assert_eq!(output.len(), out_dim);
+
+    // Each output should be approximately 1.0
+    for val in &output {
+        assert!((val - 1.0).abs() < 1e-4);
+    }
+}
+
+#[test]
+fn test_cov_simd_matmul_tall_output() {
+    // Tall output (out_dim >> in_dim)
+    let in_dim = 4;
+    let out_dim = 512;
+
+    let input: Vec<f32> = vec![1.0; in_dim];
+    let weight: Vec<f32> = (0..out_dim * in_dim)
+        .map(|i| (i % in_dim) as f32 * 0.1)
+        .collect();
+
+    let output = simd_matmul(&input, &weight, in_dim, out_dim);
+    assert_eq!(output.len(), out_dim);
+
+    for val in &output {
+        assert!(val.is_finite());
+    }
+}
