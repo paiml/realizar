@@ -1601,3 +1601,1143 @@ fn test_gpu_pool_stats() {
     assert!(stats.cached_buffers > 0);
     assert!(stats.cached_bytes > 0);
 }
+
+// ============================================================================
+// ShutdownCoordinator Tests
+// ============================================================================
+
+#[test]
+fn test_shutdown_coordinator_creation() {
+    let coord = realizar::gpu::ShutdownCoordinator::new();
+    assert!(!coord.is_shutting_down());
+    assert_eq!(coord.pending_requests(), 0);
+    assert_eq!(coord.handler_count(), 0);
+}
+
+#[test]
+fn test_shutdown_coordinator_request_tracking() {
+    let mut coord = realizar::gpu::ShutdownCoordinator::new();
+
+    coord.request_started();
+    coord.request_started();
+    assert_eq!(coord.pending_requests(), 2);
+
+    coord.request_completed();
+    assert_eq!(coord.pending_requests(), 1);
+
+    coord.request_completed();
+    assert_eq!(coord.pending_requests(), 0);
+}
+
+#[test]
+fn test_shutdown_coordinator_register_handler() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    let mut coord = realizar::gpu::ShutdownCoordinator::new();
+    let called = Arc::new(AtomicBool::new(false));
+    let called_clone = called.clone();
+
+    coord.register_handler(Box::new(move || {
+        called_clone.store(true, Ordering::SeqCst);
+    }));
+
+    assert_eq!(coord.handler_count(), 1);
+
+    coord.initiate_shutdown();
+    assert!(coord.is_shutting_down());
+    assert!(called.load(Ordering::SeqCst));
+}
+
+#[test]
+fn test_shutdown_coordinator_is_complete() {
+    let mut coord = realizar::gpu::ShutdownCoordinator::new();
+
+    // Not complete before shutdown initiated
+    assert!(!coord.is_complete());
+
+    coord.request_started();
+    coord.initiate_shutdown();
+
+    // Not complete with pending requests
+    assert!(!coord.is_complete());
+
+    coord.request_completed();
+
+    // Complete after shutdown + no pending
+    assert!(coord.is_complete());
+}
+
+#[test]
+fn test_shutdown_coordinator_double_initiate() {
+    let mut coord = realizar::gpu::ShutdownCoordinator::new();
+
+    coord.initiate_shutdown();
+    assert!(coord.is_shutting_down());
+
+    // Second call should be no-op
+    coord.initiate_shutdown();
+    assert!(coord.is_shutting_down());
+}
+
+// ============================================================================
+// StreamingKVCache (FP32) Tests
+// ============================================================================
+
+#[test]
+fn test_streaming_kv_cache_creation() {
+    let cache = StreamingKVCache::new(4, 128, 8, 64);
+    assert_eq!(cache.len(), 0);
+    assert!(cache.is_empty());
+    assert_eq!(cache.max_positions(), 128);
+}
+
+#[test]
+fn test_streaming_kv_cache_append_and_get() {
+    let mut cache = StreamingKVCache::new(2, 10, 2, 4);
+    let kv_dim = 2 * 4; // num_heads * head_dim = 8
+
+    let key = vec![1.0f32; kv_dim];
+    let value = vec![2.0f32; kv_dim];
+
+    cache.append(0, &key, &value);
+    cache.append(1, &key, &value); // Last layer updates position
+
+    assert_eq!(cache.len(), 1);
+
+    let (keys, values) = cache.get_valid(0);
+    assert_eq!(keys.len(), kv_dim);
+    assert_eq!(values.len(), kv_dim);
+}
+
+#[test]
+fn test_streaming_kv_cache_get_range() {
+    let mut cache = StreamingKVCache::new(1, 10, 2, 2);
+    let kv_dim = 4;
+
+    // Append two positions
+    cache.append(0, &vec![1.0; kv_dim], &vec![2.0; kv_dim]);
+    cache.append(0, &vec![3.0; kv_dim], &vec![4.0; kv_dim]);
+
+    let (keys, values) = cache.get_range(0, 0, 2);
+    assert_eq!(keys.len(), kv_dim * 2);
+    assert_eq!(values.len(), kv_dim * 2);
+}
+
+#[test]
+fn test_streaming_kv_cache_clear() {
+    let mut cache = StreamingKVCache::new(1, 10, 2, 2);
+    let kv_dim = 4;
+
+    cache.append(0, &vec![1.0; kv_dim], &vec![1.0; kv_dim]);
+    assert_eq!(cache.len(), 1);
+
+    cache.clear();
+    assert_eq!(cache.len(), 0);
+    assert!(cache.is_empty());
+}
+
+#[test]
+fn test_streaming_kv_cache_memory_calculation() {
+    let cache = StreamingKVCache::new(4, 1024, 8, 64);
+    // Memory = num_layers * max_positions * num_heads * head_dim * 2 (K+V) * 4 bytes
+    // = 4 * 1024 * 8 * 64 * 2 * 4 = 16777216 bytes = 16 MB
+    assert_eq!(cache.memory_bytes(), 16777216);
+    assert!((cache.memory_mb() - 16.0).abs() < 0.01);
+}
+
+// ============================================================================
+// ResourceConfig Tests
+// ============================================================================
+
+#[test]
+fn test_resource_config_builder() {
+    let config = realizar::gpu::ResourceConfig::new()
+        .with_max_memory_per_request(1024 * 1024 * 100) // 100MB
+        .with_max_total_memory(1024 * 1024 * 1024 * 2) // 2GB
+        .with_max_compute_time(Duration::from_secs(60))
+        .with_max_queue_depth(50);
+
+    // Ensure builder pattern works
+    let _ = config;
+}
+
+// ============================================================================
+// ResourceLimiter Tests
+// ============================================================================
+
+#[test]
+fn test_resource_limiter_creation() {
+    let config = realizar::gpu::ResourceConfig::new();
+    let limiter = realizar::gpu::ResourceLimiter::new(config);
+    assert_eq!(limiter.current_memory(), 0);
+}
+
+#[test]
+fn test_resource_limiter_memory_allocation() {
+    let config = realizar::gpu::ResourceConfig::new()
+        .with_max_memory_per_request(1000)
+        .with_max_total_memory(5000);
+    let limiter = realizar::gpu::ResourceLimiter::new(config);
+
+    // Should allow allocation within limits
+    assert!(matches!(
+        limiter.check_memory(500),
+        realizar::gpu::LimitResult::Allowed
+    ));
+
+    // Should deny allocation exceeding per-request limit
+    assert!(matches!(
+        limiter.check_memory(2000),
+        realizar::gpu::LimitResult::Denied { .. }
+    ));
+
+    // Allocate some memory
+    assert!(limiter.allocate(1000).is_ok());
+    assert_eq!(limiter.current_memory(), 1000);
+
+    // Deallocate
+    limiter.deallocate(500);
+    assert_eq!(limiter.current_memory(), 500);
+}
+
+#[test]
+fn test_resource_limiter_queue_management() {
+    let config = realizar::gpu::ResourceConfig::new().with_max_queue_depth(2);
+    let limiter = realizar::gpu::ResourceLimiter::new(config);
+
+    // First two enqueues should succeed
+    assert!(matches!(
+        limiter.enqueue(),
+        realizar::gpu::LimitResult::Allowed
+    ));
+    assert!(matches!(
+        limiter.enqueue(),
+        realizar::gpu::LimitResult::Allowed
+    ));
+
+    // Third should get backpressure
+    assert!(matches!(
+        limiter.enqueue(),
+        realizar::gpu::LimitResult::Backpressure
+    ));
+
+    // Dequeue one
+    limiter.dequeue();
+
+    // try_enqueue should work now
+    assert!(matches!(
+        limiter.try_enqueue(),
+        realizar::gpu::LimitResult::Allowed
+    ));
+}
+
+#[test]
+fn test_resource_limiter_start_compute() {
+    let config = realizar::gpu::ResourceConfig::new();
+    let limiter = realizar::gpu::ResourceLimiter::new(config);
+    let start = limiter.start_compute();
+    std::thread::sleep(Duration::from_millis(1));
+    assert!(start.elapsed() >= Duration::from_millis(1));
+}
+
+// ============================================================================
+// RetryConfig and RetryPolicy Tests
+// ============================================================================
+
+#[test]
+fn test_retry_config_builder() {
+    let config = realizar::gpu::RetryConfig::new()
+        .with_max_retries(5)
+        .with_base_delay(Duration::from_millis(50))
+        .with_max_delay(Duration::from_secs(60))
+        .with_jitter_factor(0.2);
+
+    let _ = config;
+}
+
+#[test]
+fn test_retry_policy_transient_error() {
+    let config = realizar::gpu::RetryConfig::new().with_max_retries(3);
+    let policy = realizar::gpu::RetryPolicy::new(config);
+
+    assert_eq!(policy.max_retries(), 3);
+
+    // Should retry on transient error
+    match policy.should_retry(1, realizar::gpu::ErrorCategory::Transient) {
+        realizar::gpu::RetryDecision::Retry { delay: _ } => (),
+        _ => panic!("Expected Retry decision"),
+    }
+}
+
+#[test]
+fn test_retry_policy_permanent_error() {
+    let config = realizar::gpu::RetryConfig::new();
+    let policy = realizar::gpu::RetryPolicy::new(config);
+
+    // Should abort on permanent error
+    match policy.should_retry(1, realizar::gpu::ErrorCategory::Permanent) {
+        realizar::gpu::RetryDecision::Abort { reason } => {
+            assert!(reason.contains("Permanent"));
+        },
+        _ => panic!("Expected Abort decision"),
+    }
+}
+
+#[test]
+fn test_retry_policy_max_retries_exceeded() {
+    let config = realizar::gpu::RetryConfig::new().with_max_retries(2);
+    let policy = realizar::gpu::RetryPolicy::new(config);
+
+    // Should abort when max retries exceeded
+    match policy.should_retry(3, realizar::gpu::ErrorCategory::Transient) {
+        realizar::gpu::RetryDecision::Abort { reason } => {
+            assert!(reason.contains("exceeded"));
+        },
+        _ => panic!("Expected Abort decision"),
+    }
+}
+
+#[test]
+fn test_retry_policy_calculate_delay() {
+    let config = realizar::gpu::RetryConfig::new()
+        .with_base_delay(Duration::from_millis(100))
+        .with_max_delay(Duration::from_secs(10));
+    let policy = realizar::gpu::RetryPolicy::new(config);
+
+    let delay0 = policy.calculate_delay(0);
+    let delay1 = policy.calculate_delay(1);
+    let delay2 = policy.calculate_delay(2);
+
+    // Exponential: 100, 200, 400
+    assert_eq!(delay0.as_millis(), 100);
+    assert_eq!(delay1.as_millis(), 200);
+    assert_eq!(delay2.as_millis(), 400);
+}
+
+// ============================================================================
+// CircuitBreaker Tests
+// ============================================================================
+
+#[test]
+fn test_circuit_breaker_creation() {
+    let config = realizar::gpu::CircuitConfig::new();
+    let breaker = realizar::gpu::CircuitBreaker::new(config);
+    assert_eq!(breaker.state(), realizar::gpu::CircuitState::Closed);
+}
+
+#[test]
+fn test_circuit_config_builder() {
+    let config = realizar::gpu::CircuitConfig::new()
+        .with_failure_threshold(3)
+        .with_success_threshold(2)
+        .with_timeout(Duration::from_secs(60));
+    let _ = config;
+}
+
+#[test]
+fn test_circuit_breaker_allows_when_closed() {
+    let config = realizar::gpu::CircuitConfig::new();
+    let breaker = realizar::gpu::CircuitBreaker::new(config);
+    assert!(breaker.allow_request());
+}
+
+#[test]
+fn test_circuit_breaker_opens_after_failures() {
+    let config = realizar::gpu::CircuitConfig::new().with_failure_threshold(3);
+    let breaker = realizar::gpu::CircuitBreaker::new(config);
+
+    breaker.record_failure();
+    breaker.record_failure();
+    assert_eq!(breaker.state(), realizar::gpu::CircuitState::Closed);
+
+    breaker.record_failure();
+    assert_eq!(breaker.state(), realizar::gpu::CircuitState::Open);
+    assert!(!breaker.allow_request());
+}
+
+#[test]
+fn test_circuit_breaker_success_resets_count() {
+    let config = realizar::gpu::CircuitConfig::new().with_failure_threshold(3);
+    let breaker = realizar::gpu::CircuitBreaker::new(config);
+
+    breaker.record_failure();
+    breaker.record_failure();
+    breaker.record_success(); // Reset failure count
+
+    breaker.record_failure();
+    breaker.record_failure();
+    // Should still be closed (only 2 consecutive failures)
+    assert_eq!(breaker.state(), realizar::gpu::CircuitState::Closed);
+}
+
+#[test]
+fn test_circuit_breaker_half_open_to_closed() {
+    let config = realizar::gpu::CircuitConfig::new()
+        .with_failure_threshold(2)
+        .with_success_threshold(2)
+        .with_timeout(Duration::from_millis(1));
+    let breaker = realizar::gpu::CircuitBreaker::new(config);
+
+    // Open the circuit
+    breaker.record_failure();
+    breaker.record_failure();
+    assert_eq!(breaker.state(), realizar::gpu::CircuitState::Open);
+
+    // Wait for timeout
+    std::thread::sleep(Duration::from_millis(10));
+
+    // Should transition to half-open
+    assert!(breaker.allow_request());
+    assert_eq!(breaker.state(), realizar::gpu::CircuitState::HalfOpen);
+
+    // Successes should close it
+    breaker.record_success();
+    breaker.record_success();
+    assert_eq!(breaker.state(), realizar::gpu::CircuitState::Closed);
+}
+
+// ============================================================================
+// BulkheadConfig and BulkheadManager Tests
+// ============================================================================
+
+#[test]
+fn test_bulkhead_config_builder() {
+    let config = realizar::gpu::BulkheadConfig::new()
+        .with_pool("inference", 20)
+        .with_pool("embedding", 10)
+        .with_pool("batch", 5);
+    let _ = config;
+}
+
+#[test]
+fn test_bulkhead_manager_creation() {
+    let config = realizar::gpu::BulkheadConfig::new()
+        .with_pool("inference", 5)
+        .with_pool("embedding", 3);
+    let manager = realizar::gpu::BulkheadManager::new(&config);
+
+    assert_eq!(manager.available(realizar::gpu::RequestType::Inference), 5);
+    assert_eq!(manager.available(realizar::gpu::RequestType::Embedding), 3);
+}
+
+#[test]
+fn test_bulkhead_manager_acquire_release() {
+    let config = realizar::gpu::BulkheadConfig::new().with_pool("inference", 2);
+    let manager = realizar::gpu::BulkheadManager::new(&config);
+
+    let permit1 = manager
+        .acquire(realizar::gpu::RequestType::Inference)
+        .unwrap();
+    assert_eq!(manager.available(realizar::gpu::RequestType::Inference), 1);
+
+    let permit2 = manager
+        .acquire(realizar::gpu::RequestType::Inference)
+        .unwrap();
+    assert_eq!(manager.available(realizar::gpu::RequestType::Inference), 0);
+
+    // Should fail - pool exhausted
+    assert!(manager
+        .acquire(realizar::gpu::RequestType::Inference)
+        .is_err());
+
+    // Release one
+    manager.release(&permit1);
+    assert_eq!(manager.available(realizar::gpu::RequestType::Inference), 1);
+
+    // Should succeed now
+    assert!(manager
+        .try_acquire(realizar::gpu::RequestType::Inference)
+        .is_ok());
+
+    manager.release(&permit2);
+}
+
+#[test]
+fn test_bulkhead_manager_stats() {
+    let config = realizar::gpu::BulkheadConfig::new()
+        .with_pool("inference", 10)
+        .with_pool("embedding", 5);
+    let manager = realizar::gpu::BulkheadManager::new(&config);
+
+    let stats = manager.stats();
+    assert_eq!(stats.pool_count, 3); // inference, embedding, batch (default)
+    assert!(stats.total_capacity > 0);
+}
+
+// ============================================================================
+// Logger, LogEntry, LogConfig Tests
+// ============================================================================
+
+#[test]
+fn test_log_entry_creation() {
+    let entry = realizar::gpu::LogEntry::new(realizar::gpu::LogLevel::Info, "Test message");
+    assert_eq!(entry.level(), realizar::gpu::LogLevel::Info);
+    assert!(entry.timestamp() > 0);
+    assert!(entry.correlation_id().is_none());
+}
+
+#[test]
+fn test_log_entry_with_correlation_id() {
+    let entry = realizar::gpu::LogEntry::new(realizar::gpu::LogLevel::Debug, "Test")
+        .with_correlation_id("req-123");
+    assert_eq!(entry.correlation_id(), Some("req-123"));
+}
+
+#[test]
+fn test_log_entry_with_field() {
+    let entry = realizar::gpu::LogEntry::new(realizar::gpu::LogLevel::Warn, "Warning")
+        .with_field("user_id", "42")
+        .with_field("action", "login");
+
+    let json = entry.to_json();
+    assert!(json.contains("\"user_id\":\"42\""));
+    assert!(json.contains("\"action\":\"login\""));
+}
+
+#[test]
+fn test_log_entry_to_json() {
+    let entry = realizar::gpu::LogEntry::new(realizar::gpu::LogLevel::Error, "Failed")
+        .with_correlation_id("abc");
+
+    let json = entry.to_json();
+    assert!(json.contains("\"level\":\"ERROR\""));
+    assert!(json.contains("\"message\":\"Failed\""));
+    assert!(json.contains("\"correlation_id\":\"abc\""));
+}
+
+#[test]
+fn test_log_config_builder() {
+    let config = realizar::gpu::LogConfig::new()
+        .with_level(realizar::gpu::LogLevel::Debug)
+        .with_json_format(true)
+        .with_module_level("gpu", realizar::gpu::LogLevel::Trace);
+
+    let _ = config;
+}
+
+#[test]
+fn test_logger_is_enabled() {
+    let config = realizar::gpu::LogConfig::new()
+        .with_level(realizar::gpu::LogLevel::Warn)
+        .with_module_level("gpu", realizar::gpu::LogLevel::Debug);
+    let logger = realizar::gpu::Logger::new(config);
+
+    // Default level is Warn
+    assert!(logger.is_enabled(realizar::gpu::LogLevel::Error, "other"));
+    assert!(logger.is_enabled(realizar::gpu::LogLevel::Warn, "other"));
+    assert!(!logger.is_enabled(realizar::gpu::LogLevel::Info, "other"));
+
+    // Module-specific level is Debug
+    assert!(logger.is_enabled(realizar::gpu::LogLevel::Debug, "gpu"));
+    assert!(!logger.is_enabled(realizar::gpu::LogLevel::Trace, "gpu"));
+}
+
+// ============================================================================
+// PhaseTimer Tests
+// ============================================================================
+
+#[test]
+fn test_phase_timer_creation() {
+    let timer = realizar::gpu::PhaseTimer::new();
+    let breakdown = timer.breakdown();
+    assert!(breakdown.is_empty());
+}
+
+#[test]
+fn test_phase_timer_timing() {
+    let timer = realizar::gpu::PhaseTimer::new();
+
+    timer.start_phase("embed");
+    std::thread::sleep(Duration::from_millis(5));
+    timer.end_phase("embed");
+
+    timer.start_phase("attention");
+    std::thread::sleep(Duration::from_millis(5));
+    timer.end_phase("attention");
+
+    let breakdown = timer.breakdown();
+    assert!(breakdown.contains_key("embed"));
+    assert!(breakdown.contains_key("attention"));
+    assert!(breakdown["embed"] > 0);
+}
+
+// ============================================================================
+// MemoryTracker Tests
+// ============================================================================
+
+#[test]
+fn test_memory_tracker_creation() {
+    let tracker = realizar::gpu::MemoryTracker::new();
+    let report = tracker.report();
+    assert_eq!(report.current_bytes, 0);
+    assert_eq!(report.peak_bytes, 0);
+    assert_eq!(report.allocation_count, 0);
+}
+
+#[test]
+fn test_memory_tracker_allocation_deallocation() {
+    let tracker = realizar::gpu::MemoryTracker::new();
+
+    tracker.record_allocation("tensor_a", 1000);
+    tracker.record_allocation("tensor_b", 2000);
+
+    let report = tracker.report();
+    assert_eq!(report.current_bytes, 3000);
+    assert_eq!(report.peak_bytes, 3000);
+    assert_eq!(report.allocation_count, 2);
+
+    tracker.record_deallocation("tensor_a", 1000);
+
+    let report = tracker.report();
+    assert_eq!(report.current_bytes, 2000);
+    assert_eq!(report.peak_bytes, 3000); // Peak unchanged
+}
+
+#[test]
+fn test_memory_tracker_peak_tracking() {
+    let tracker = realizar::gpu::MemoryTracker::new();
+
+    tracker.record_allocation("a", 5000);
+    tracker.record_deallocation("a", 5000);
+    tracker.record_allocation("b", 3000);
+
+    let report = tracker.report();
+    assert_eq!(report.current_bytes, 3000);
+    assert_eq!(report.peak_bytes, 5000); // Peak was 5000
+}
+
+// ============================================================================
+// DiagnosticsCollector Tests
+// ============================================================================
+
+#[test]
+fn test_diagnostics_collector_creation() {
+    let collector = realizar::gpu::DiagnosticsCollector::new();
+    let summary = collector.summary();
+    assert_eq!(summary.request_count, 0);
+}
+
+#[test]
+fn test_diagnostics_collector_record_request() {
+    let collector = realizar::gpu::DiagnosticsCollector::new();
+
+    let mut timing = std::collections::HashMap::new();
+    timing.insert("embed".to_string(), 100u64);
+    timing.insert("attention".to_string(), 200u64);
+
+    collector.record_request_timing("req-1", timing);
+
+    let summary = collector.summary();
+    assert_eq!(summary.request_count, 1);
+}
+
+#[test]
+fn test_diagnostics_collector_record_memory_snapshot() {
+    let collector = realizar::gpu::DiagnosticsCollector::new();
+
+    let report = realizar::gpu::MemoryReport {
+        peak_bytes: 1000,
+        current_bytes: 500,
+        allocation_count: 5,
+    };
+
+    collector.record_memory_snapshot(report);
+    // Just verify no panic
+}
+
+// ============================================================================
+// DebugMode Tests
+// ============================================================================
+
+#[test]
+fn test_debug_mode_creation() {
+    let debug = realizar::gpu::DebugMode::new();
+    assert!(!debug.is_enabled());
+}
+
+#[test]
+fn test_debug_mode_enable() {
+    let debug = realizar::gpu::DebugMode::new();
+    debug.enable();
+    assert!(debug.is_enabled());
+}
+
+// ============================================================================
+// RequestCapture Tests
+// ============================================================================
+
+#[test]
+fn test_request_capture_creation() {
+    let capture = realizar::gpu::RequestCapture::new();
+    assert!(capture.input().is_empty());
+    assert!(capture.params().is_empty());
+}
+
+#[test]
+fn test_request_capture_builder() {
+    let capture = realizar::gpu::RequestCapture::new()
+        .with_input("Hello, world!")
+        .with_params("temperature", "0.7")
+        .with_params("max_tokens", "100");
+
+    assert_eq!(capture.input(), "Hello, world!");
+    assert_eq!(
+        capture.params().get("temperature"),
+        Some(&"0.7".to_string())
+    );
+    assert_eq!(capture.params().get("max_tokens"), Some(&"100".to_string()));
+}
+
+#[test]
+fn test_request_capture_to_json() {
+    let capture = realizar::gpu::RequestCapture::new()
+        .with_input("test")
+        .with_params("key", "value");
+
+    let json = capture.to_json();
+    assert!(json.contains("\"input\":\"test\""));
+    assert!(json.contains("\"key\":\"value\""));
+}
+
+#[test]
+fn test_request_capture_from_json() {
+    let json = r#"{"input":"hello","params":{}}"#;
+    let capture = realizar::gpu::RequestCapture::from_json(json).unwrap();
+    assert_eq!(capture.input(), "hello");
+}
+
+#[test]
+fn test_request_capture_from_json_error() {
+    let invalid = r#"{"no_input":true}"#;
+    assert!(realizar::gpu::RequestCapture::from_json(invalid).is_err());
+}
+
+// ============================================================================
+// StateDump Tests
+// ============================================================================
+
+#[test]
+fn test_state_dump_creation() {
+    let dump = realizar::gpu::StateDump::new();
+    assert!(dump.error().is_empty());
+    assert!(dump.stack_trace().is_empty());
+    assert!(dump.state().is_empty());
+}
+
+#[test]
+fn test_state_dump_builder() {
+    let dump = realizar::gpu::StateDump::new()
+        .with_error("OutOfMemory")
+        .with_stack_trace("at gpu.rs:100\nat main.rs:50")
+        .with_state("buffer_size", "1024")
+        .with_state("position", "42");
+
+    assert_eq!(dump.error(), "OutOfMemory");
+    assert!(dump.stack_trace().contains("gpu.rs"));
+    assert_eq!(dump.state().get("buffer_size"), Some(&"1024".to_string()));
+}
+
+#[test]
+fn test_state_dump_to_json() {
+    let dump = realizar::gpu::StateDump::new()
+        .with_error("TestError")
+        .with_state("key", "value");
+
+    let json = dump.to_json();
+    assert!(json.contains("\"error\":\"TestError\""));
+    assert!(json.contains("\"key\":\"value\""));
+}
+
+// ============================================================================
+// GgufModelState Tests
+// ============================================================================
+
+#[test]
+fn test_gguf_model_state_empty() {
+    let state = realizar::gpu::GgufModelState::new();
+    assert!(!state.is_loaded());
+    assert!(!state.is_ready());
+    assert!(state.model_name().is_none());
+    assert_eq!(state.vocab_size(), 0);
+    assert!(state.model().is_none());
+}
+
+// ============================================================================
+// AsyncGpuResult Tests
+// ============================================================================
+
+#[test]
+fn test_async_gpu_result_ready() {
+    let result = realizar::gpu::AsyncGpuResult::ready(vec![1.0, 2.0, 3.0]);
+    assert!(result.is_ready());
+    assert_eq!(result.try_get(), Some(&vec![1.0, 2.0, 3.0]));
+}
+
+#[test]
+fn test_async_gpu_result_pending() {
+    let mut result = realizar::gpu::AsyncGpuResult::pending();
+    assert!(!result.is_ready());
+    assert!(result.try_get().is_none());
+
+    result.set_result(vec![4.0, 5.0]);
+    assert!(result.is_ready());
+    assert_eq!(result.try_get(), Some(&vec![4.0, 5.0]));
+}
+
+#[test]
+fn test_async_gpu_result_wait() {
+    let result = realizar::gpu::AsyncGpuResult::ready(vec![1.0, 2.0]);
+    let data = result.wait();
+    assert_eq!(data, vec![1.0, 2.0]);
+}
+
+// ============================================================================
+// GpuCompute Additional Tests
+// ============================================================================
+
+#[test]
+fn test_gpu_compute_cpu_backend() {
+    let compute = GpuCompute::new(ComputeBackend::Cpu).unwrap();
+    assert!(!compute.is_gpu());
+    assert_eq!(compute.backend(), ComputeBackend::Cpu);
+}
+
+#[test]
+fn test_gpu_compute_cpu_relu() {
+    let mut compute = GpuCompute::new(ComputeBackend::Cpu).unwrap();
+    let input = vec![-2.0, -1.0, 0.0, 1.0, 2.0];
+    let result = compute.relu(&input).unwrap();
+    assert_eq!(result, vec![0.0, 0.0, 0.0, 1.0, 2.0]);
+}
+
+#[test]
+fn test_gpu_compute_cpu_sigmoid() {
+    let mut compute = GpuCompute::new(ComputeBackend::Cpu).unwrap();
+    let input = vec![0.0];
+    let result = compute.sigmoid(&input).unwrap();
+    assert!((result[0] - 0.5).abs() < 1e-5);
+}
+
+#[test]
+fn test_gpu_compute_cpu_dot() {
+    let mut compute = GpuCompute::new(ComputeBackend::Cpu).unwrap();
+    let a = vec![1.0, 2.0, 3.0];
+    let b = vec![4.0, 5.0, 6.0];
+    let result = compute.dot(&a, &b).unwrap();
+    assert!((result - 32.0).abs() < 1e-5); // 1*4 + 2*5 + 3*6 = 32
+}
+
+#[test]
+fn test_gpu_compute_dot_length_mismatch() {
+    let mut compute = GpuCompute::new(ComputeBackend::Cpu).unwrap();
+    let a = vec![1.0, 2.0];
+    let b = vec![1.0, 2.0, 3.0];
+    assert!(compute.dot(&a, &b).is_err());
+}
+
+#[test]
+fn test_gpu_compute_matmul_dimension_error() {
+    let mut compute = GpuCompute::new(ComputeBackend::Cpu).unwrap();
+    let a = vec![1.0; 6]; // Should be 2x3
+    let b = vec![1.0; 9]; // 3x3
+
+    // Wrong size for a
+    assert!(compute.matmul(&a, &b, 2, 4, 3).is_err()); // m*k != a.len()
+
+    // Wrong size for b
+    assert!(compute.matmul(&a, &b, 2, 3, 4).is_err()); // k*n != b.len()
+}
+
+// ============================================================================
+// InferenceMetrics Additional Tests
+// ============================================================================
+
+#[test]
+fn test_inference_metrics_throughput() {
+    let mut metrics = InferenceMetrics::new();
+
+    // Record some tokens
+    metrics.record_inference(Duration::from_millis(100), 50);
+    metrics.record_inference(Duration::from_millis(100), 50);
+
+    // Throughput should be positive
+    let throughput = metrics.throughput();
+    assert!(throughput > 0.0);
+}
+
+#[test]
+fn test_inference_metrics_default() {
+    let metrics: InferenceMetrics = Default::default();
+    assert_eq!(metrics.total_inferences(), 0);
+    assert_eq!(metrics.total_tokens(), 0);
+}
+
+// ============================================================================
+// ConnectionPool Additional Tests
+// ============================================================================
+
+#[test]
+fn test_connection_pool_acquire_release() {
+    let config = ConnectionConfig::new().with_max_connections(2);
+    let pool = ConnectionPool::new(config);
+
+    let conn1 = pool.acquire().unwrap();
+    assert_eq!(pool.active_connections(), 1);
+
+    let conn2 = pool.acquire().unwrap();
+    assert_eq!(pool.active_connections(), 2);
+
+    // Should fail - at max
+    assert!(pool.try_acquire().is_err());
+
+    pool.release(conn1);
+    assert_eq!(pool.active_connections(), 1);
+    assert_eq!(pool.idle_connections(), 1);
+
+    // Should succeed now (reuse from idle)
+    let conn3 = pool.acquire().unwrap();
+    assert_eq!(pool.active_connections(), 2);
+    assert_eq!(pool.idle_connections(), 0);
+
+    pool.release(conn2);
+    pool.release(conn3);
+}
+
+#[test]
+fn test_connection_pool_warm() {
+    let config = ConnectionConfig::new().with_min_connections(3);
+    let pool = ConnectionPool::new(config);
+
+    pool.warm();
+    assert_eq!(pool.idle_connections(), 3);
+}
+
+#[test]
+fn test_connection_pool_health_check() {
+    let config = ConnectionConfig::new().with_idle_timeout(Duration::from_millis(1));
+    let pool = ConnectionPool::new(config);
+
+    let conn = pool.acquire().unwrap();
+    assert_eq!(
+        pool.check_health(&conn),
+        realizar::gpu::ConnectionState::Healthy
+    );
+
+    // Wait for timeout
+    std::thread::sleep(Duration::from_millis(5));
+    assert_eq!(
+        pool.check_health(&conn),
+        realizar::gpu::ConnectionState::Stale
+    );
+
+    pool.release(conn);
+}
+
+// ============================================================================
+// ResourceMonitor Tests
+// ============================================================================
+
+#[test]
+fn test_resource_monitor_creation() {
+    let monitor = realizar::gpu::ResourceMonitor::new();
+    let metrics = monitor.current_metrics();
+    assert_eq!(metrics.memory_bytes, 0);
+    assert!((metrics.gpu_utilization - 0.0).abs() < 1e-5);
+    assert_eq!(metrics.queue_depth, 0);
+    assert_eq!(metrics.last_latency_ms, 0);
+}
+
+#[test]
+fn test_resource_monitor_record_metrics() {
+    let monitor = realizar::gpu::ResourceMonitor::new();
+
+    monitor.record_memory_usage(1024 * 1024);
+    monitor.record_gpu_utilization(75.5);
+    monitor.record_queue_depth(10);
+    monitor.record_latency(Duration::from_millis(50));
+
+    let metrics = monitor.current_metrics();
+    assert_eq!(metrics.memory_bytes, 1024 * 1024);
+    assert!((metrics.gpu_utilization - 75.5).abs() < 1e-5);
+    assert_eq!(metrics.queue_depth, 10);
+    assert_eq!(metrics.last_latency_ms, 50);
+}
+
+#[test]
+fn test_resource_monitor_latency_stats() {
+    let monitor = realizar::gpu::ResourceMonitor::new();
+
+    // Empty stats
+    let stats = monitor.latency_stats();
+    assert_eq!(stats.min_ms, 0);
+    assert_eq!(stats.max_ms, 0);
+    assert_eq!(stats.avg_ms, 0);
+
+    // Add some latencies
+    monitor.record_latency(Duration::from_millis(10));
+    monitor.record_latency(Duration::from_millis(20));
+    monitor.record_latency(Duration::from_millis(30));
+
+    let stats = monitor.latency_stats();
+    assert_eq!(stats.min_ms, 10);
+    assert_eq!(stats.max_ms, 30);
+    assert_eq!(stats.avg_ms, 20);
+}
+
+#[test]
+fn test_resource_monitor_snapshot() {
+    let monitor = realizar::gpu::ResourceMonitor::new();
+    monitor.record_memory_usage(5000);
+    monitor.record_gpu_utilization(50.0);
+    monitor.record_queue_depth(5);
+
+    let snapshot = monitor.snapshot();
+    assert!(snapshot.timestamp > 0);
+    assert_eq!(snapshot.memory_bytes, 5000);
+    assert!((snapshot.gpu_utilization - 50.0).abs() < 1e-5);
+    assert_eq!(snapshot.queue_depth, 5);
+}
+
+// ============================================================================
+// HybridScheduler Additional Tests
+// ============================================================================
+
+#[test]
+fn test_hybrid_scheduler_with_threshold() {
+    let scheduler = HybridScheduler::with_threshold(1000).unwrap();
+    assert_eq!(scheduler.gpu_threshold(), 1000);
+}
+
+#[test]
+fn test_hybrid_scheduler_should_use_gpu_m1() {
+    let scheduler = HybridScheduler::new().unwrap();
+    // m=1 should always use CPU (IMP-097)
+    assert!(!scheduler.should_use_gpu(1, 100, 100));
+}
+
+#[test]
+fn test_hybrid_scheduler_matmul_pooled() {
+    let mut scheduler = HybridScheduler::new().unwrap();
+
+    let a = vec![1.0, 2.0, 3.0, 4.0];
+    let b = vec![1.0, 0.0, 0.0, 1.0];
+
+    let result = scheduler.matmul_pooled(&a, &b, 2, 2, 2).unwrap();
+    assert_eq!(result.len(), 4);
+
+    // Release buffer back to pool
+    scheduler.release_buffer(result);
+
+    let stats = scheduler.pool_stats();
+    assert!(stats.cached_buffers > 0);
+}
+
+#[test]
+fn test_hybrid_scheduler_matmul_async() {
+    let mut scheduler = HybridScheduler::new().unwrap();
+
+    let a = vec![1.0; 4];
+    let b = vec![1.0; 4];
+
+    let result = scheduler.matmul_async(&a, &b, 2, 2, 2).unwrap();
+    assert!(result.is_ready());
+
+    let data = result.wait();
+    assert_eq!(data.len(), 4);
+}
+
+#[test]
+fn test_hybrid_scheduler_matmul_batch() {
+    let mut scheduler = HybridScheduler::new().unwrap();
+
+    let ops: Vec<realizar::gpu::MatmulOp> = vec![
+        (vec![1.0; 4], vec![1.0; 4], 2, 2, 2),
+        (vec![2.0; 4], vec![2.0; 4], 2, 2, 2),
+    ];
+
+    let results = scheduler.matmul_batch(&ops).unwrap();
+    assert_eq!(results.len(), 2);
+}
+
+// ============================================================================
+// GpuBufferPool Additional Tests
+// ============================================================================
+
+#[test]
+fn test_gpu_buffer_pool_clear() {
+    let mut pool = GpuBufferPool::new();
+
+    let buf1 = pool.acquire(100);
+    let buf2 = pool.acquire(200);
+    pool.release(buf1);
+    pool.release(buf2);
+
+    let stats = pool.stats();
+    assert!(stats.cached_buffers > 0);
+
+    pool.clear();
+    let stats = pool.stats();
+    assert_eq!(stats.cached_buffers, 0);
+    assert_eq!(stats.cached_bytes, 0);
+}
+
+// ============================================================================
+// DegradationMode Tests
+// ============================================================================
+
+#[test]
+fn test_degradation_mode_high_throughput() {
+    let mut manager = DegradationManager::new();
+
+    // High throughput mode via system load
+    manager.update_system_load(realizar::gpu::SystemLoad {
+        cpu_percent: 50.0,
+        memory_percent: 50.0,
+        queue_depth: 10,
+    });
+
+    // Should still be normal under these conditions
+    assert_eq!(manager.current_mode(), DegradationMode::Normal);
+}
+
+// ============================================================================
+// ErrorRecoveryStrategy Additional Tests
+// ============================================================================
+
+#[test]
+fn test_error_recovery_determine_action_with_fallback() {
+    let strategy = ErrorRecoveryStrategy::new();
+
+    let gpu_err = std::io::Error::other("GPU unavailable");
+    let action = strategy.determine_action_with_fallback(&gpu_err, 0);
+
+    match action {
+        RecoveryAction::FallbackToCpu => (),
+        _ => panic!("Expected FallbackToCpu"),
+    }
+}
+
+// ============================================================================
+// FailureIsolator Additional Tests
+// ============================================================================
+
+#[test]
+fn test_failure_isolator_register_cleanup() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    let isolator = FailureIsolator::new();
+    let cleaned = Arc::new(AtomicBool::new(false));
+    let cleaned_clone = cleaned.clone();
+
+    let id = isolator.start_request();
+    isolator.register_cleanup(id, move || {
+        cleaned_clone.store(true, Ordering::SeqCst);
+    });
+
+    // Complete with failure to trigger cleanup
+    isolator.complete_request(id, &RequestOutcome::Failed("test".to_string()));
+
+    assert!(cleaned.load(Ordering::SeqCst));
+}

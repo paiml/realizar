@@ -1110,3 +1110,962 @@ fn test_qk_k_constant() {
     // QK_K should be 256 (super-block size for K-quants)
     assert_eq!(QK_K, 256);
 }
+
+// ============================================================================
+// Q8_0Block Method Tests
+// ============================================================================
+
+use realizar::quantize::{
+    apply_rope_rotation_simd, dequantize_f16, dequantize_q4_0_parallel, dequantize_q4_0_simd,
+    dequantize_q4_1, dequantize_q4_k_parallel, dequantize_q4_k_simd, dequantize_q5_0,
+    dequantize_q5_1, dequantize_q8_0_parallel, dequantize_q8_0_simd,
+    dequantize_q8_0_simd_optimized, dequantize_q8_blocks, detect_simd_backend, f16_to_f32,
+    fused_q4_0_q8_0_parallel_matvec, fused_q4_0_q8_0_parallel_matvec_into,
+    fused_q4_0_q8_0_parallel_matvec_prequant, fused_q4k_q8_dot, fused_q4k_q8_dot_simd,
+    fused_q4k_q8k_dot, fused_q4k_q8k_dot_simd, fused_q4k_q8k_ffn_up_gate_into,
+    fused_q8_0_q8_0_parallel_matvec, fused_q8_0_q8_0_parallel_matvec_into, quantize_to_q8_blocks,
+    DequantStats, Q8KSuperBlock, Q8_0Block, SimdBackend,
+};
+
+#[test]
+fn test_q8_0_block_quantize_basic() {
+    let values: [f32; 32] = core::array::from_fn(|i| (i as f32 - 16.0) / 16.0);
+    let block = Q8_0Block::quantize(&values);
+
+    assert!(block.scale > 0.0);
+    assert_eq!(block.quants.len(), 32);
+}
+
+#[test]
+fn test_q8_0_block_dequantize() {
+    let values: [f32; 32] = [1.0f32; 32];
+    let block = Q8_0Block::quantize(&values);
+    let dequant = block.dequantize();
+
+    assert_eq!(dequant.len(), 32);
+    for val in &dequant {
+        assert!((*val - 1.0).abs() < 0.02);
+    }
+}
+
+#[test]
+fn test_q8_0_block_quantization_error() {
+    let values: [f32; 32] = core::array::from_fn(|i| i as f32 * 0.1);
+    let block = Q8_0Block::quantize(&values);
+    let error = block.quantization_error(&values);
+
+    // Error should be small for well-distributed values
+    assert!(error < 0.1);
+}
+
+#[test]
+fn test_q8_0_block_relative_error() {
+    let values: [f32; 32] = core::array::from_fn(|i| (i as f32 + 1.0) * 0.5);
+    let block = Q8_0Block::quantize(&values);
+    let rel_error = block.relative_error(&values);
+
+    // Relative error should be small
+    assert!(rel_error < 0.05);
+}
+
+#[test]
+fn test_q8_0_block_relative_error_near_zero() {
+    let values: [f32; 32] = [1e-15f32; 32];
+    let block = Q8_0Block::quantize(&values);
+    let rel_error = block.relative_error(&values);
+
+    // When all values are near zero, relative error should be 0
+    assert!((rel_error - 0.0).abs() < 1e-6);
+}
+
+// ============================================================================
+// Q8KSuperBlock Tests
+// ============================================================================
+
+#[test]
+fn test_q8k_superblock_quantize() {
+    let values: [f32; 256] = core::array::from_fn(|i| (i as f32 - 128.0) / 128.0);
+    let block = Q8KSuperBlock::quantize(&values);
+
+    assert!(block.scale > 0.0);
+    assert_eq!(block.quants.len(), 256);
+}
+
+#[test]
+fn test_q8k_superblock_quantize_into() {
+    let values: Vec<f32> = (0..256).map(|i| (i as f32 - 128.0) / 128.0).collect();
+    let mut scale = 0.0f32;
+    let mut quants = vec![0i8; 256];
+
+    Q8KSuperBlock::quantize_into(&values, &mut scale, &mut quants);
+
+    assert!(scale > 0.0);
+}
+
+#[test]
+fn test_q8k_superblock_dequantize() {
+    let values: [f32; 256] = [0.5f32; 256];
+    let block = Q8KSuperBlock::quantize(&values);
+    let dequant = block.dequantize();
+
+    assert_eq!(dequant.len(), 256);
+    for val in &dequant {
+        assert!((*val - 0.5).abs() < 0.02);
+    }
+}
+
+#[test]
+fn test_q8k_superblock_all_zeros() {
+    let values: [f32; 256] = [0.0f32; 256];
+    let block = Q8KSuperBlock::quantize(&values);
+
+    // Scale should be minimal but non-zero
+    assert!(block.scale > 0.0);
+    // All quants should be zero
+    for q in &block.quants {
+        assert_eq!(*q, 0);
+    }
+}
+
+// ============================================================================
+// quantize_to_q8_blocks and dequantize_q8_blocks Tests
+// ============================================================================
+
+#[test]
+fn test_quantize_to_q8_blocks_basic() {
+    let values: Vec<f32> = (0..64).map(|i| (i as f32 - 32.0) / 32.0).collect();
+    let blocks = quantize_to_q8_blocks(&values).expect("valid");
+
+    assert_eq!(blocks.len(), 2); // 64 / 32 = 2 blocks
+}
+
+#[test]
+fn test_quantize_to_q8_blocks_error_not_multiple() {
+    let values: Vec<f32> = (0..50).map(|i| i as f32).collect();
+    let result = quantize_to_q8_blocks(&values);
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_dequantize_q8_blocks_roundtrip() {
+    let original: Vec<f32> = (0..64).map(|i| (i as f32 - 32.0) / 32.0).collect();
+    let blocks = quantize_to_q8_blocks(&original).expect("valid");
+    let recovered = dequantize_q8_blocks(&blocks);
+
+    assert_eq!(recovered.len(), 64);
+    // Check round-trip error is small
+    for (o, r) in original.iter().zip(recovered.iter()) {
+        assert!((o - r).abs() < 0.02);
+    }
+}
+
+// ============================================================================
+// f16_to_f32 and dequantize_f16 Tests
+// ============================================================================
+
+#[test]
+fn test_f16_to_f32_basic_values() {
+    // Test f16 representation of 1.0
+    let one_f16 = half::f16::from_f32(1.0).to_bits();
+    let result = f16_to_f32(one_f16);
+    assert!((result - 1.0).abs() < 1e-6);
+
+    // Test f16 representation of -1.0
+    let neg_one_f16 = half::f16::from_f32(-1.0).to_bits();
+    let result = f16_to_f32(neg_one_f16);
+    assert!((result - (-1.0)).abs() < 1e-6);
+
+    // Test zero
+    let zero_f16 = half::f16::from_f32(0.0).to_bits();
+    let result = f16_to_f32(zero_f16);
+    assert!(result.abs() < 1e-10);
+}
+
+#[test]
+fn test_dequantize_f16_basic() {
+    // Create f16 data for [1.0, 2.0, 3.0]
+    let mut data = Vec::new();
+    for val in [1.0f32, 2.0, 3.0] {
+        data.extend_from_slice(&half::f16::from_f32(val).to_le_bytes());
+    }
+
+    let result = dequantize_f16(&data).expect("valid");
+    assert_eq!(result.len(), 3);
+    assert!((result[0] - 1.0).abs() < 1e-3);
+    assert!((result[1] - 2.0).abs() < 1e-3);
+    assert!((result[2] - 3.0).abs() < 1e-3);
+}
+
+#[test]
+fn test_dequantize_f16_error_odd_bytes() {
+    let data = vec![0u8; 5]; // Not multiple of 2
+    let result = dequantize_f16(&data);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_dequantize_f16_empty() {
+    let result = dequantize_f16(&[]).expect("valid");
+    assert!(result.is_empty());
+}
+
+// ============================================================================
+// Q4_1 Dequantization Tests
+// ============================================================================
+
+#[test]
+fn test_dequantize_q4_1_basic() {
+    // Q4_1 block: 2 (d) + 2 (min) + 16 (quants) = 20 bytes
+    let mut data = vec![0u8; 20];
+
+    // d = 1.0
+    data[0..2].copy_from_slice(&half::f16::from_f32(1.0).to_le_bytes());
+    // min = 0.0
+    data[2..4].copy_from_slice(&half::f16::from_f32(0.0).to_le_bytes());
+    // quants all 0x00 (low=0, high=0)
+    // value = d * q + min = 1.0 * 0 + 0 = 0
+
+    let result = dequantize_q4_1(&data).expect("valid");
+    assert_eq!(result.len(), 32);
+}
+
+#[test]
+fn test_dequantize_q4_1_with_min() {
+    let mut data = vec![0u8; 20];
+
+    // d = 0.1
+    data[0..2].copy_from_slice(&half::f16::from_f32(0.1).to_le_bytes());
+    // min = 5.0
+    data[2..4].copy_from_slice(&half::f16::from_f32(5.0).to_le_bytes());
+    // quants all 0x00
+
+    let result = dequantize_q4_1(&data).expect("valid");
+    assert_eq!(result.len(), 32);
+    // All values should be ~5.0 (d * 0 + min)
+    for val in &result {
+        assert!((*val - 5.0).abs() < 0.1);
+    }
+}
+
+#[test]
+fn test_dequantize_q4_1_error_invalid_length() {
+    let data = vec![0u8; 19]; // Not multiple of 20
+    let result = dequantize_q4_1(&data);
+    assert!(result.is_err());
+}
+
+// ============================================================================
+// Q5_0 Dequantization Tests
+// ============================================================================
+
+#[test]
+fn test_dequantize_q5_0_basic() {
+    // Q5_0 block: 2 (d) + 4 (qh) + 16 (qs) = 22 bytes
+    let mut data = vec![0u8; 22];
+
+    // d = 1.0
+    data[0..2].copy_from_slice(&half::f16::from_f32(1.0).to_le_bytes());
+    // qh = 0 (no high bits)
+    // qs = 0 (all zeros)
+    // value = d * (q - 16) = 1.0 * (-16) = -16.0
+
+    let result = dequantize_q5_0(&data).expect("valid");
+    assert_eq!(result.len(), 32);
+}
+
+#[test]
+fn test_dequantize_q5_0_with_high_bits() {
+    let mut data = vec![0u8; 22];
+
+    // d = 0.5
+    data[0..2].copy_from_slice(&half::f16::from_f32(0.5).to_le_bytes());
+    // qh = all 1s (high bits set)
+    data[2..6].copy_from_slice(&[0xFF, 0xFF, 0xFF, 0xFF]);
+    // qs = all 0xF (max low nibble)
+    for byte in &mut data[6..22] {
+        *byte = 0xFF;
+    }
+
+    let result = dequantize_q5_0(&data).expect("valid");
+    assert_eq!(result.len(), 32);
+    for val in &result {
+        assert!(val.is_finite());
+    }
+}
+
+#[test]
+fn test_dequantize_q5_0_error_invalid_length() {
+    let data = vec![0u8; 21]; // Not multiple of 22
+    let result = dequantize_q5_0(&data);
+    assert!(result.is_err());
+}
+
+// ============================================================================
+// Q5_1 Dequantization Tests
+// ============================================================================
+
+#[test]
+fn test_dequantize_q5_1_basic() {
+    // Q5_1 block: 2 (d) + 2 (min) + 4 (qh) + 16 (qs) = 24 bytes
+    let mut data = vec![0u8; 24];
+
+    // d = 1.0
+    data[0..2].copy_from_slice(&half::f16::from_f32(1.0).to_le_bytes());
+    // min = 2.0
+    data[2..4].copy_from_slice(&half::f16::from_f32(2.0).to_le_bytes());
+    // qh = 0
+    // qs = 0
+    // value = d * q + min = 1.0 * 0 + 2.0 = 2.0
+
+    let result = dequantize_q5_1(&data).expect("valid");
+    assert_eq!(result.len(), 32);
+    for val in &result {
+        assert!((*val - 2.0).abs() < 0.1);
+    }
+}
+
+#[test]
+fn test_dequantize_q5_1_with_high_bits() {
+    let mut data = vec![0u8; 24];
+
+    // d = 0.1
+    data[0..2].copy_from_slice(&half::f16::from_f32(0.1).to_le_bytes());
+    // min = 0.0
+    data[2..4].copy_from_slice(&half::f16::from_f32(0.0).to_le_bytes());
+    // qh = all 1s
+    data[4..8].copy_from_slice(&[0xFF, 0xFF, 0xFF, 0xFF]);
+    // qs = varied
+    for (i, byte) in data[8..24].iter_mut().enumerate() {
+        *byte = (i % 16) as u8;
+    }
+
+    let result = dequantize_q5_1(&data).expect("valid");
+    assert_eq!(result.len(), 32);
+}
+
+#[test]
+fn test_dequantize_q5_1_error_invalid_length() {
+    let data = vec![0u8; 23]; // Not multiple of 24
+    let result = dequantize_q5_1(&data);
+    assert!(result.is_err());
+}
+
+// ============================================================================
+// Fused Q4_K x Q8_0 Dot Product Tests
+// ============================================================================
+
+#[test]
+fn test_fused_q4k_q8_dot_basic() {
+    // Q4_K: 144 bytes per super-block (256 values)
+    let q4k_data = vec![0u8; 144];
+    // Q8_0: 8 blocks per super-block (256/32)
+    let q8_blocks: Vec<Q8_0Block> = (0..8)
+        .map(|_| Q8_0Block {
+            scale: 1.0,
+            quants: [1i8; 32],
+        })
+        .collect();
+
+    let result = fused_q4k_q8_dot(&q4k_data, &q8_blocks).expect("valid");
+    assert!(result.is_finite());
+}
+
+#[test]
+fn test_fused_q4k_q8_dot_error_invalid_q4k_length() {
+    let q4k_data = vec![0u8; 143]; // Not multiple of 144
+    let q8_blocks: Vec<Q8_0Block> = vec![];
+
+    let result = fused_q4k_q8_dot(&q4k_data, &q8_blocks);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_fused_q4k_q8_dot_error_block_count_mismatch() {
+    let q4k_data = vec![0u8; 144];
+    let q8_blocks: Vec<Q8_0Block> = (0..4)
+        .map(|_| Q8_0Block {
+            scale: 1.0,
+            quants: [1i8; 32],
+        })
+        .collect(); // Need 8, have 4
+
+    let result = fused_q4k_q8_dot(&q4k_data, &q8_blocks);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_fused_q4k_q8_dot_simd_basic() {
+    let q4k_data = vec![0u8; 144];
+    let q8_blocks: Vec<Q8_0Block> = (0..8)
+        .map(|_| Q8_0Block {
+            scale: 0.5,
+            quants: [2i8; 32],
+        })
+        .collect();
+
+    let result = fused_q4k_q8_dot_simd(&q4k_data, &q8_blocks).expect("valid");
+    assert!(result.is_finite());
+}
+
+// ============================================================================
+// Fused Q4_K x Q8_K Dot Product Tests
+// ============================================================================
+
+#[test]
+fn test_fused_q4k_q8k_dot_basic() {
+    let q4k_data = vec![0u8; 144];
+    let q8k_scales = vec![1.0f32; 1];
+    let q8k_quants = vec![1i8; 256];
+
+    let result = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).expect("valid");
+    assert!(result.is_finite());
+}
+
+#[test]
+fn test_fused_q4k_q8k_dot_error_invalid_q4k_length() {
+    let q4k_data = vec![0u8; 143];
+    let q8k_scales = vec![1.0f32; 1];
+    let q8k_quants = vec![1i8; 256];
+
+    let result = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_fused_q4k_q8k_dot_error_scales_too_small() {
+    let q4k_data = vec![0u8; 144];
+    let q8k_scales: Vec<f32> = vec![]; // empty
+    let q8k_quants = vec![1i8; 256];
+
+    let result = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_fused_q4k_q8k_dot_error_quants_too_small() {
+    let q4k_data = vec![0u8; 144];
+    let q8k_scales = vec![1.0f32; 1];
+    let q8k_quants = vec![1i8; 128]; // Need 256
+
+    let result = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_fused_q4k_q8k_dot_simd_basic() {
+    let q4k_data = vec![0u8; 144];
+    let q8k_scales = vec![0.5f32; 1];
+    let q8k_quants = vec![2i8; 256];
+
+    let result = fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants).expect("valid");
+    assert!(result.is_finite());
+}
+
+// ============================================================================
+// Fused Q4_K x Q8_K FFN Up/Gate Tests
+// ============================================================================
+
+#[test]
+fn test_fused_q4k_q8k_ffn_up_gate_into_basic() {
+    let up_weight = vec![0u8; 144 * 4]; // 4 output rows
+    let gate_weight = vec![0u8; 144 * 4];
+    let q8k_scales = vec![1.0f32; 1];
+    let q8k_quants = vec![1i8; 256];
+    let mut up_output = vec![0.0f32; 4];
+    let mut gate_output = vec![0.0f32; 4];
+
+    let result = fused_q4k_q8k_ffn_up_gate_into(
+        &up_weight,
+        &gate_weight,
+        &q8k_scales,
+        &q8k_quants,
+        256,
+        4,
+        &mut up_output,
+        &mut gate_output,
+    );
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_fused_q4k_q8k_ffn_up_gate_into_error_weight_too_small() {
+    let up_weight = vec![0u8; 100]; // Too small
+    let gate_weight = vec![0u8; 144 * 4];
+    let q8k_scales = vec![1.0f32; 1];
+    let q8k_quants = vec![1i8; 256];
+    let mut up_output = vec![0.0f32; 4];
+    let mut gate_output = vec![0.0f32; 4];
+
+    let result = fused_q4k_q8k_ffn_up_gate_into(
+        &up_weight,
+        &gate_weight,
+        &q8k_scales,
+        &q8k_quants,
+        256,
+        4,
+        &mut up_output,
+        &mut gate_output,
+    );
+    assert!(result.is_err());
+}
+
+// ============================================================================
+// Parallel Q4_K Dequantization Tests
+// ============================================================================
+
+#[test]
+fn test_dequantize_q4_k_parallel_basic() {
+    let data = vec![0u8; 144]; // 1 super-block
+    let result = dequantize_q4_k_parallel(&data).expect("valid");
+    assert_eq!(result.len(), 256);
+}
+
+#[test]
+fn test_dequantize_q4_k_parallel_multiple_blocks() {
+    let data = vec![0u8; 144 * 4]; // 4 super-blocks
+    let result = dequantize_q4_k_parallel(&data).expect("valid");
+    assert_eq!(result.len(), 256 * 4);
+}
+
+#[test]
+fn test_dequantize_q4_k_parallel_error_invalid_length() {
+    let data = vec![0u8; 143];
+    let result = dequantize_q4_k_parallel(&data);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_dequantize_q4_k_simd_basic() {
+    let data = vec![0u8; 144];
+    let result = dequantize_q4_k_simd(&data).expect("valid");
+    assert_eq!(result.len(), 256);
+}
+
+#[test]
+fn test_dequantize_q4_k_simd_large() {
+    // Test with many super-blocks to trigger parallel path
+    let data = vec![0u8; 144 * 200];
+    let result = dequantize_q4_k_simd(&data).expect("valid");
+    assert_eq!(result.len(), 256 * 200);
+}
+
+// ============================================================================
+// Parallel Q8_0 Dequantization Tests
+// ============================================================================
+
+#[test]
+fn test_dequantize_q8_0_parallel_basic() {
+    // Q8_0 block: 2 (f16 scale) + 32 (i8 quants) = 34 bytes
+    let data = vec![0u8; 34];
+    let result = dequantize_q8_0_parallel(&data).expect("valid");
+    assert_eq!(result.len(), 32);
+}
+
+#[test]
+fn test_dequantize_q8_0_parallel_multiple_blocks() {
+    let data = vec![0u8; 34 * 4];
+    let result = dequantize_q8_0_parallel(&data).expect("valid");
+    assert_eq!(result.len(), 32 * 4);
+}
+
+#[test]
+fn test_dequantize_q8_0_parallel_error_invalid_length() {
+    let data = vec![0u8; 33];
+    let result = dequantize_q8_0_parallel(&data);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_dequantize_q8_0_simd_basic() {
+    let data = vec![0u8; 34];
+    let result = dequantize_q8_0_simd(&data).expect("valid");
+    assert_eq!(result.len(), 32);
+}
+
+#[test]
+fn test_dequantize_q8_0_simd_optimized_basic() {
+    let data = vec![0u8; 34];
+    let result = dequantize_q8_0_simd_optimized(&data).expect("valid");
+    assert_eq!(result.len(), 32);
+}
+
+#[test]
+fn test_dequantize_q8_0_simd_optimized_error_invalid_length() {
+    let data = vec![0u8; 33];
+    let result = dequantize_q8_0_simd_optimized(&data);
+    assert!(result.is_err());
+}
+
+// ============================================================================
+// Parallel Q4_0 Dequantization Tests
+// ============================================================================
+
+#[test]
+fn test_dequantize_q4_0_parallel_basic() {
+    // Q4_0 block: 2 (f16 scale) + 16 (quants) = 18 bytes
+    let data = vec![0u8; 18];
+    let result = dequantize_q4_0_parallel(&data).expect("valid");
+    assert_eq!(result.len(), 32);
+}
+
+#[test]
+fn test_dequantize_q4_0_parallel_multiple_blocks() {
+    let data = vec![0u8; 18 * 4];
+    let result = dequantize_q4_0_parallel(&data).expect("valid");
+    assert_eq!(result.len(), 32 * 4);
+}
+
+#[test]
+fn test_dequantize_q4_0_parallel_error_invalid_length() {
+    let data = vec![0u8; 17];
+    let result = dequantize_q4_0_parallel(&data);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_dequantize_q4_0_simd_basic() {
+    let data = vec![0u8; 18];
+    let result = dequantize_q4_0_simd(&data).expect("valid");
+    assert_eq!(result.len(), 32);
+}
+
+// ============================================================================
+// Q4_0 x Q8_0 Parallel Matvec Tests
+// ============================================================================
+
+#[test]
+fn test_fused_q4_0_q8_0_parallel_matvec_basic() {
+    // Q4_0: 18 bytes per 32 values
+    // 4 rows x 32 columns = 4 * 18 bytes
+    let weight_data = vec![0u8; 18 * 4];
+    let activations = vec![1.0f32; 32];
+
+    let result = fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, 32, 4).expect("valid");
+    assert_eq!(result.len(), 4);
+}
+
+#[test]
+fn test_fused_q4_0_q8_0_parallel_matvec_large() {
+    // Test with large out_dim to trigger parallel path (>1024)
+    let weight_data = vec![0u8; 18 * 1500];
+    let activations = vec![1.0f32; 32];
+
+    let result =
+        fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, 32, 1500).expect("valid");
+    assert_eq!(result.len(), 1500);
+}
+
+#[test]
+fn test_fused_q4_0_q8_0_parallel_matvec_error_weight_too_small() {
+    let weight_data = vec![0u8; 10];
+    let activations = vec![1.0f32; 32];
+
+    let result = fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, 32, 4);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_fused_q4_0_q8_0_parallel_matvec_error_activation_mismatch() {
+    let weight_data = vec![0u8; 18 * 4];
+    let activations = vec![1.0f32; 16]; // Wrong length
+
+    let result = fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, 32, 4);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_fused_q4_0_q8_0_parallel_matvec_prequant_basic() {
+    let weight_data = vec![0u8; 18 * 4];
+    let (q8_scales, q8_quants) = quantize_activations_q8_0(&vec![1.0f32; 32]);
+
+    let result =
+        fused_q4_0_q8_0_parallel_matvec_prequant(&weight_data, &q8_scales, &q8_quants, 32, 4)
+            .expect("valid");
+    assert_eq!(result.len(), 4);
+}
+
+#[test]
+fn test_fused_q4_0_q8_0_parallel_matvec_prequant_error_weight_too_small() {
+    let weight_data = vec![0u8; 10];
+    let q8_scales = vec![1.0f32; 1];
+    let q8_quants = vec![1i8; 32];
+
+    let result =
+        fused_q4_0_q8_0_parallel_matvec_prequant(&weight_data, &q8_scales, &q8_quants, 32, 4);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_fused_q4_0_q8_0_parallel_matvec_into_basic() {
+    let weight_data = vec![0u8; 18 * 4];
+    let activations = vec![1.0f32; 32];
+    let mut output = vec![0.0f32; 4];
+
+    let result = fused_q4_0_q8_0_parallel_matvec_into(&weight_data, &activations, 32, &mut output);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_fused_q4_0_q8_0_parallel_matvec_into_error_weight_too_small() {
+    let weight_data = vec![0u8; 10];
+    let activations = vec![1.0f32; 32];
+    let mut output = vec![0.0f32; 4];
+
+    let result = fused_q4_0_q8_0_parallel_matvec_into(&weight_data, &activations, 32, &mut output);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_fused_q4_0_q8_0_parallel_matvec_into_error_activation_mismatch() {
+    let weight_data = vec![0u8; 18 * 4];
+    let activations = vec![1.0f32; 16]; // Wrong
+    let mut output = vec![0.0f32; 4];
+
+    let result = fused_q4_0_q8_0_parallel_matvec_into(&weight_data, &activations, 32, &mut output);
+    assert!(result.is_err());
+}
+
+// ============================================================================
+// Q8_0 x Q8_0 Parallel Matvec Tests
+// ============================================================================
+
+#[test]
+fn test_fused_q8_0_q8_0_parallel_matvec_basic() {
+    // Q8_0 weight: 34 bytes per 32 values
+    let weight_data = vec![0u8; 34 * 4];
+    let activations = vec![1.0f32; 32];
+
+    let result = fused_q8_0_q8_0_parallel_matvec(&weight_data, &activations, 32, 4).expect("valid");
+    assert_eq!(result.len(), 4);
+}
+
+#[test]
+fn test_fused_q8_0_q8_0_parallel_matvec_error_weight_too_small() {
+    let weight_data = vec![0u8; 10];
+    let activations = vec![1.0f32; 32];
+
+    let result = fused_q8_0_q8_0_parallel_matvec(&weight_data, &activations, 32, 4);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_fused_q8_0_q8_0_parallel_matvec_error_activation_mismatch() {
+    let weight_data = vec![0u8; 34 * 4];
+    let activations = vec![1.0f32; 16]; // Wrong
+
+    let result = fused_q8_0_q8_0_parallel_matvec(&weight_data, &activations, 32, 4);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_fused_q8_0_q8_0_parallel_matvec_into_basic() {
+    let weight_data = vec![0u8; 34 * 4];
+    let activations = vec![1.0f32; 32];
+    let mut output = vec![0.0f32; 4];
+
+    let result =
+        fused_q8_0_q8_0_parallel_matvec_into(&weight_data, &activations, 32, 4, &mut output);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_fused_q8_0_q8_0_parallel_matvec_into_error_weight_too_small() {
+    let weight_data = vec![0u8; 10];
+    let activations = vec![1.0f32; 32];
+    let mut output = vec![0.0f32; 4];
+
+    let result =
+        fused_q8_0_q8_0_parallel_matvec_into(&weight_data, &activations, 32, 4, &mut output);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_fused_q8_0_q8_0_parallel_matvec_into_error_activation_mismatch() {
+    let weight_data = vec![0u8; 34 * 4];
+    let activations = vec![1.0f32; 16]; // Wrong
+    let mut output = vec![0.0f32; 4];
+
+    let result =
+        fused_q8_0_q8_0_parallel_matvec_into(&weight_data, &activations, 32, 4, &mut output);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_fused_q8_0_q8_0_parallel_matvec_into_error_output_too_small() {
+    let weight_data = vec![0u8; 34 * 4];
+    let activations = vec![1.0f32; 32];
+    let mut output = vec![0.0f32; 2]; // Too small
+
+    let result =
+        fused_q8_0_q8_0_parallel_matvec_into(&weight_data, &activations, 32, 4, &mut output);
+    assert!(result.is_err());
+}
+
+// ============================================================================
+// RoPE Rotation Tests
+// ============================================================================
+
+#[test]
+fn test_apply_rope_rotation_simd_basic() {
+    let mut x1 = vec![1.0f32, 0.0, 1.0, 0.0];
+    let mut x2 = vec![0.0f32, 1.0, 0.0, 1.0];
+    let cos_vals = vec![1.0f32; 4]; // cos(0) = 1
+    let sin_vals = vec![0.0f32; 4]; // sin(0) = 0
+
+    apply_rope_rotation_simd(&mut x1, &mut x2, &cos_vals, &sin_vals);
+
+    // With cos=1, sin=0: x1' = x1*1 - x2*0 = x1, x2' = x1*0 + x2*1 = x2
+    assert!((x1[0] - 1.0).abs() < 1e-6);
+    assert!((x2[1] - 1.0).abs() < 1e-6);
+}
+
+#[test]
+fn test_apply_rope_rotation_simd_90_degrees() {
+    let mut x1 = vec![1.0f32; 8];
+    let mut x2 = vec![0.0f32; 8];
+    let cos_vals = vec![0.0f32; 8]; // cos(90) = 0
+    let sin_vals = vec![1.0f32; 8]; // sin(90) = 1
+
+    apply_rope_rotation_simd(&mut x1, &mut x2, &cos_vals, &sin_vals);
+
+    // With cos=0, sin=1: x1' = 1*0 - 0*1 = 0, x2' = 1*1 + 0*0 = 1
+    for val in &x1 {
+        assert!(val.abs() < 1e-6);
+    }
+    for val in &x2 {
+        assert!((*val - 1.0).abs() < 1e-6);
+    }
+}
+
+#[test]
+fn test_apply_rope_rotation_simd_large() {
+    // Test with large vectors to exercise SIMD path
+    let mut x1 = vec![1.0f32; 64];
+    let mut x2 = vec![0.5f32; 64];
+    let cos_vals: Vec<f32> = (0..64).map(|i| (i as f32 * 0.01).cos()).collect();
+    let sin_vals: Vec<f32> = (0..64).map(|i| (i as f32 * 0.01).sin()).collect();
+
+    apply_rope_rotation_simd(&mut x1, &mut x2, &cos_vals, &sin_vals);
+
+    // Just verify all values are finite
+    for val in &x1 {
+        assert!(val.is_finite());
+    }
+    for val in &x2 {
+        assert!(val.is_finite());
+    }
+}
+
+// ============================================================================
+// DequantStats and SimdBackend Tests
+// ============================================================================
+
+#[test]
+fn test_dequant_stats_default() {
+    let stats = DequantStats::default();
+    assert_eq!(stats.blocks_processed, 0);
+    assert_eq!(stats.bytes_processed, 0);
+}
+
+#[test]
+fn test_simd_backend_display() {
+    assert_eq!(format!("{}", SimdBackend::Avx2), "AVX2");
+    assert_eq!(format!("{}", SimdBackend::Sse2), "SSE2");
+    assert_eq!(format!("{}", SimdBackend::Neon), "NEON");
+    assert_eq!(format!("{}", SimdBackend::Scalar), "Scalar");
+}
+
+#[test]
+fn test_simd_backend_default() {
+    let backend = SimdBackend::default();
+    assert_eq!(backend, SimdBackend::Scalar);
+}
+
+#[test]
+fn test_detect_simd_backend() {
+    let backend = detect_simd_backend();
+    // Just verify it returns a valid backend
+    match backend {
+        SimdBackend::Avx2 | SimdBackend::Sse2 | SimdBackend::Neon | SimdBackend::Scalar => {},
+    }
+}
+
+// ============================================================================
+// Multiple Blocks Dequantization Tests
+// ============================================================================
+
+#[test]
+fn test_dequantize_q4_1_multiple_blocks() {
+    let data = vec![0u8; 20 * 3]; // 3 blocks
+    let result = dequantize_q4_1(&data).expect("valid");
+    assert_eq!(result.len(), 32 * 3);
+}
+
+#[test]
+fn test_dequantize_q5_0_multiple_blocks() {
+    let data = vec![0u8; 22 * 3]; // 3 blocks
+    let result = dequantize_q5_0(&data).expect("valid");
+    assert_eq!(result.len(), 32 * 3);
+}
+
+#[test]
+fn test_dequantize_q5_1_multiple_blocks() {
+    let data = vec![0u8; 24 * 3]; // 3 blocks
+    let result = dequantize_q5_1(&data).expect("valid");
+    assert_eq!(result.len(), 32 * 3);
+}
+
+// ============================================================================
+// Edge Cases and Numerical Stability Tests
+// ============================================================================
+
+#[test]
+fn test_q8_0_block_extreme_values() {
+    let values: [f32; 32] = [127.0f32; 32];
+    let block = Q8_0Block::quantize(&values);
+    let dequant = block.dequantize();
+
+    for val in &dequant {
+        assert!((*val - 127.0).abs() < 1.0);
+    }
+}
+
+#[test]
+fn test_q8_0_block_mixed_sign_values() {
+    let mut values = [0.0f32; 32];
+    for (i, val) in values.iter_mut().enumerate() {
+        *val = if i % 2 == 0 { 50.0 } else { -50.0 };
+    }
+    let block = Q8_0Block::quantize(&values);
+    let dequant = block.dequantize();
+
+    for (i, val) in dequant.iter().enumerate() {
+        let expected = if i % 2 == 0 { 50.0 } else { -50.0 };
+        assert!((val - expected).abs() < 1.0);
+    }
+}
+
+#[test]
+fn test_fused_q4k_q8_dot_multiple_superblocks() {
+    let q4k_data = vec![0u8; 144 * 3]; // 3 super-blocks
+    let q8_blocks: Vec<Q8_0Block> = (0..24)
+        .map(|_| Q8_0Block {
+            scale: 1.0,
+            quants: [1i8; 32],
+        })
+        .collect();
+
+    let result = fused_q4k_q8_dot(&q4k_data, &q8_blocks).expect("valid");
+    assert!(result.is_finite());
+}
+
+#[test]
+fn test_fused_q4k_q8k_dot_multiple_superblocks() {
+    let q4k_data = vec![0u8; 144 * 3];
+    let q8k_scales = vec![1.0f32; 3];
+    let q8k_quants = vec![1i8; 256 * 3];
+
+    let result = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).expect("valid");
+    assert!(result.is_finite());
+}
