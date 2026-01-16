@@ -8870,4 +8870,446 @@ mod tests {
         assert!(result.is_ok());
     }
 
+    // =========================================================================
+    // Coverage Tests: AprTransformerConfig Debug/Clone/Default
+    // =========================================================================
+
+    #[test]
+    fn test_apr_transformer_config_debug_cov() {
+        let config = AprTransformerConfig::default();
+        let debug = format!("{:?}", config);
+        assert!(debug.contains("AprTransformerConfig"));
+        assert!(debug.contains("hidden_dim"));
+    }
+
+    #[test]
+    fn test_apr_transformer_config_clone_cov() {
+        let config = AprTransformerConfig {
+            architecture: "llama".to_string(),
+            hidden_dim: 4096,
+            num_layers: 32,
+            num_heads: 32,
+            num_kv_heads: 8,
+            vocab_size: 32000,
+            intermediate_dim: 11008,
+            context_length: 4096,
+            rope_theta: 10000.0,
+            eps: 1e-5,
+        };
+        let cloned = config.clone();
+        assert_eq!(config.hidden_dim, cloned.hidden_dim);
+        assert_eq!(config.architecture, cloned.architecture);
+    }
+
+    #[test]
+    fn test_apr_transformer_config_eq_cov() {
+        let config1 = AprTransformerConfig::default();
+        let config2 = AprTransformerConfig::default();
+        assert_eq!(config1, config2);
+    }
+
+    #[test]
+    fn test_apr_transformer_config_default_values_cov() {
+        let config = AprTransformerConfig::default();
+        assert_eq!(config.architecture, "unknown");
+        assert_eq!(config.hidden_dim, 512);
+        assert_eq!(config.num_layers, 6);
+        assert_eq!(config.eps, 1e-5);
+    }
+
+    // =========================================================================
+    // Coverage Tests: GenerateConfig Default
+    // =========================================================================
+
+    #[test]
+    fn test_generate_config_default_cov() {
+        let config = GenerateConfig::default();
+        assert_eq!(config.max_tokens, 32);
+        assert_eq!(config.temperature, 1.0);
+        assert_eq!(config.top_p, 0.9);
+        assert_eq!(config.top_k, 0);
+        assert_eq!(config.repetition_penalty, 1.0);
+    }
+
+    #[test]
+    fn test_generate_config_custom_cov() {
+        let config = GenerateConfig {
+            max_tokens: 100,
+            temperature: 0.7,
+            top_p: 0.95,
+            top_k: 50,
+            repetition_penalty: 1.1,
+        };
+        assert_eq!(config.max_tokens, 100);
+        assert_eq!(config.top_k, 50);
+    }
+
+    // =========================================================================
+    // Coverage Tests: AprQuantizationType
+    // =========================================================================
+
+    #[test]
+    fn test_apr_quantization_type_variants_cov() {
+        let f32_type = AprQuantizationType::F32;
+        let q4_k = AprQuantizationType::Q4_K;
+        let q8_0 = AprQuantizationType::Q8_0;
+
+        assert!(matches!(f32_type, AprQuantizationType::F32));
+        assert!(matches!(q4_k, AprQuantizationType::Q4_K));
+        assert!(matches!(q8_0, AprQuantizationType::Q8_0));
+    }
+
+    #[test]
+    fn test_apr_quantization_type_debug_cov() {
+        let q8_0 = AprQuantizationType::Q8_0;
+        let debug = format!("{:?}", q8_0);
+        assert!(debug.contains("Q8_0"));
+    }
+
+    #[test]
+    fn test_apr_quantization_type_clone_cov() {
+        let q8_0 = AprQuantizationType::Q8_0;
+        let cloned = q8_0.clone();
+        assert!(matches!(cloned, AprQuantizationType::Q8_0));
+    }
+
+    #[test]
+    fn test_apr_quantization_type_bits_per_weight_cov() {
+        assert!((AprQuantizationType::F32.bits_per_weight() - 32.0).abs() < 0.01);
+        assert!((AprQuantizationType::Q4_K.bits_per_weight() - 4.5).abs() < 0.01);
+        assert!((AprQuantizationType::Q8_0.bits_per_weight() - 8.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_apr_quantization_type_default_cov() {
+        let default = AprQuantizationType::default();
+        assert!(matches!(default, AprQuantizationType::F32));
+    }
+
+    // =========================================================================
+    // Coverage Tests: AprKVCache
+    // =========================================================================
+
+    #[test]
+    fn test_apr_kv_cache_new_cov() {
+        let config = AprTransformerConfig {
+            hidden_dim: 64,
+            num_layers: 4,
+            num_heads: 8,
+            num_kv_heads: 8,
+            context_length: 512,
+            ..Default::default()
+        };
+        let cache = AprKVCache::new(&config);
+        assert!(cache.is_empty());
+        assert_eq!(cache.len(), 0);
+        assert_eq!(cache.capacity(), 512);
+    }
+
+    #[test]
+    fn test_apr_kv_cache_capacity_cov() {
+        let config = AprTransformerConfig {
+            hidden_dim: 64,
+            num_layers: 2,
+            num_heads: 8,
+            num_kv_heads: 4,
+            context_length: 256,
+            ..Default::default()
+        };
+        let cache = AprKVCache::new(&config);
+        assert_eq!(cache.capacity(), 256);
+        assert!(cache.is_empty());
+    }
+
+    // =========================================================================
+    // Coverage Tests: AprTransformerLayer
+    // =========================================================================
+
+    #[test]
+    fn test_apr_transformer_layer_empty_cov() {
+        let layer = AprTransformerLayer::empty(64, 256);
+        assert_eq!(layer.attn_norm_weight.len(), 64);
+        assert!(!layer.ffn_up_weight.is_empty());
+        assert!(!layer.ffn_down_weight.is_empty());
+        assert!(layer.attn_norm_bias.is_none());
+    }
+
+    #[test]
+    fn test_apr_transformer_layer_empty_gqa_cov() {
+        // empty_gqa(hidden_dim, num_heads, num_kv_heads, intermediate_dim)
+        let layer = AprTransformerLayer::empty_gqa(64, 8, 4, 256);
+        assert_eq!(layer.attn_norm_weight.len(), 64);
+        // GQA: QKV has different dimensions
+        assert!(!layer.qkv_weight.is_empty());
+        assert!(!layer.ffn_up_weight.is_empty());
+    }
+
+    #[test]
+    fn test_apr_transformer_layer_debug_cov() {
+        let layer = AprTransformerLayer::empty(32, 64);
+        let debug = format!("{:?}", layer);
+        assert!(debug.contains("AprTransformerLayer"));
+    }
+
+    #[test]
+    fn test_apr_transformer_layer_clone_cov() {
+        let layer = AprTransformerLayer::empty(32, 64);
+        let cloned = layer.clone();
+        assert_eq!(layer.attn_norm_weight.len(), cloned.attn_norm_weight.len());
+    }
+
+    #[test]
+    fn test_apr_transformer_layer_fields_cov() {
+        let layer = AprTransformerLayer::empty(128, 512);
+        // Check all non-optional fields
+        assert_eq!(layer.attn_norm_weight.len(), 128);
+        assert!(!layer.qkv_weight.is_empty());
+        assert!(!layer.attn_output_weight.is_empty());
+        assert!(!layer.ffn_up_weight.is_empty());
+        assert!(!layer.ffn_down_weight.is_empty());
+        // Check optional fields are None
+        assert!(layer.attn_norm_bias.is_none());
+        assert!(layer.qkv_bias.is_none());
+        assert!(layer.ffn_gate_weight.is_none());
+    }
+
+    // =========================================================================
+    // Coverage Tests: AprTransformer
+    // =========================================================================
+
+    #[test]
+    fn test_apr_transformer_new_cov() {
+        let config = AprTransformerConfig {
+            hidden_dim: 32,
+            num_layers: 2,
+            num_heads: 4,
+            num_kv_heads: 4,
+            vocab_size: 100,
+            intermediate_dim: 64,
+            context_length: 128,
+            ..Default::default()
+        };
+        let transformer = AprTransformer::new(config);
+        assert_eq!(transformer.config().num_layers, 2);
+    }
+
+    #[test]
+    fn test_apr_transformer_config_accessor_cov() {
+        let config = AprTransformerConfig::default();
+        let transformer = AprTransformer::new(config.clone());
+        assert_eq!(transformer.config().hidden_dim, config.hidden_dim);
+    }
+
+    // =========================================================================
+    // Coverage Tests: AprBenchmarkResult
+    // =========================================================================
+
+    #[test]
+    fn test_apr_benchmark_result_debug_cov() {
+        let result = AprBenchmarkResult {
+            tokens_generated: 100,
+            total_time_ms: 1000.0,
+            tokens_per_second: 100.0,
+            throughput_p50: 95.0,
+            throughput_p99: 80.0,
+            throughput_std_dev: 5.0,
+            peak_memory_mb: 512.0,
+            model_memory_mb: 256.0,
+        };
+        let debug = format!("{:?}", result);
+        assert!(debug.contains("AprBenchmarkResult"));
+    }
+
+    #[test]
+    fn test_apr_benchmark_result_clone_cov() {
+        let result = AprBenchmarkResult {
+            tokens_generated: 100,
+            total_time_ms: 1000.0,
+            tokens_per_second: 100.0,
+            throughput_p50: 95.0,
+            throughput_p99: 80.0,
+            throughput_std_dev: 5.0,
+            peak_memory_mb: 512.0,
+            model_memory_mb: 256.0,
+        };
+        let cloned = result.clone();
+        assert_eq!(result.tokens_generated, cloned.tokens_generated);
+        assert_eq!(result.tokens_per_second, cloned.tokens_per_second);
+    }
+
+    #[test]
+    fn test_apr_benchmark_result_default_cov() {
+        let result = AprBenchmarkResult::default();
+        assert_eq!(result.tokens_generated, 0);
+        assert_eq!(result.total_time_ms, 0.0);
+    }
+
+    // =========================================================================
+    // Coverage Tests: AprPrefillResult
+    // =========================================================================
+
+    #[test]
+    fn test_apr_prefill_result_debug_cov() {
+        let result = AprPrefillResult {
+            prompt_tokens: 100,
+            prefill_time_ms: 10.0,
+            prefill_tok_s: 10000.0,
+        };
+        let debug = format!("{:?}", result);
+        assert!(debug.contains("AprPrefillResult"));
+    }
+
+    #[test]
+    fn test_apr_prefill_result_clone_cov() {
+        let result = AprPrefillResult {
+            prompt_tokens: 50,
+            prefill_time_ms: 5.0,
+            prefill_tok_s: 10000.0,
+        };
+        let cloned = result.clone();
+        assert_eq!(result.prompt_tokens, cloned.prompt_tokens);
+        assert_eq!(result.prefill_time_ms, cloned.prefill_time_ms);
+    }
+
+    #[test]
+    fn test_apr_prefill_result_default_cov() {
+        let result = AprPrefillResult::default();
+        assert_eq!(result.prompt_tokens, 0);
+        assert_eq!(result.prefill_time_ms, 0.0);
+    }
+
+    // =========================================================================
+    // Coverage Tests: AprLoadResult
+    // =========================================================================
+
+    #[test]
+    fn test_apr_load_result_debug_cov() {
+        let result = AprLoadResult {
+            load_time_ms: 100.0,
+        };
+        let debug = format!("{:?}", result);
+        assert!(debug.contains("AprLoadResult"));
+    }
+
+    #[test]
+    fn test_apr_load_result_clone_cov() {
+        let result = AprLoadResult {
+            load_time_ms: 100.0,
+        };
+        let cloned = result.clone();
+        assert_eq!(result.load_time_ms, cloned.load_time_ms);
+    }
+
+    #[test]
+    fn test_apr_load_result_default_cov() {
+        let result = AprLoadResult::default();
+        assert_eq!(result.load_time_ms, 0.0);
+    }
+
+    // =========================================================================
+    // Coverage Tests: AprParityComparison
+    // =========================================================================
+
+    #[test]
+    fn test_apr_parity_comparison_debug_cov() {
+        let comparison = AprParityComparison {
+            throughput_ratio: 1.05,
+            memory_ratio: 0.95,
+            parity_threshold_pct: 90.0,
+        };
+        let debug = format!("{:?}", comparison);
+        assert!(debug.contains("AprParityComparison"));
+    }
+
+    #[test]
+    fn test_apr_parity_comparison_clone_cov() {
+        let comparison = AprParityComparison {
+            throughput_ratio: 1.1,
+            memory_ratio: 0.9,
+            parity_threshold_pct: 95.0,
+        };
+        let cloned = comparison.clone();
+        assert_eq!(comparison.throughput_ratio, cloned.throughput_ratio);
+        assert_eq!(comparison.memory_ratio, cloned.memory_ratio);
+    }
+
+    #[test]
+    fn test_apr_parity_comparison_is_parity_cov() {
+        // 1.0 ratio >= 90% threshold
+        let parity = AprParityComparison {
+            throughput_ratio: 1.0,
+            memory_ratio: 1.0,
+            parity_threshold_pct: 90.0,
+        };
+        assert!(parity.is_parity());
+
+        // 0.8 ratio < 90% threshold
+        let not_parity = AprParityComparison {
+            throughput_ratio: 0.8,
+            memory_ratio: 0.8,
+            parity_threshold_pct: 90.0,
+        };
+        assert!(!not_parity.is_parity());
+    }
+
+    // =========================================================================
+    // Coverage Tests: AprInferenceScratch
+    // =========================================================================
+
+    #[test]
+    fn test_apr_inference_scratch_from_config_cov() {
+        let config = AprTransformerConfig {
+            hidden_dim: 64,
+            intermediate_dim: 256,
+            ..Default::default()
+        };
+        let scratch = AprInferenceScratch::from_config(&config);
+        assert_eq!(scratch.hidden.len(), 64);
+        assert_eq!(scratch.ffn_up.len(), 256);
+    }
+
+    #[test]
+    fn test_apr_inference_scratch_fields_cov() {
+        let config = AprTransformerConfig {
+            hidden_dim: 32,
+            intermediate_dim: 64,
+            ..Default::default()
+        };
+        let scratch = AprInferenceScratch::from_config(&config);
+        assert_eq!(scratch.hidden.len(), 32);
+        assert_eq!(scratch.normed.len(), 32);
+        assert_eq!(scratch.attn_out.len(), 32);
+        assert_eq!(scratch.ffn_input.len(), 32);
+        assert_eq!(scratch.ffn_up.len(), 64);
+        assert_eq!(scratch.ffn_gate.len(), 64);
+    }
+
+    #[test]
+    fn test_apr_inference_scratch_clear_cov() {
+        let config = AprTransformerConfig {
+            hidden_dim: 32,
+            intermediate_dim: 64,
+            ..Default::default()
+        };
+        let mut scratch = AprInferenceScratch::from_config(&config);
+        // Fill with non-zero values
+        scratch.hidden.fill(1.0);
+        scratch.normed.fill(1.0);
+        // Clear
+        scratch.clear();
+        assert!(scratch.hidden.iter().all(|&x| x == 0.0));
+        assert!(scratch.normed.iter().all(|&x| x == 0.0));
+    }
+
+    // =========================================================================
+    // Coverage Tests: Constants
+    // =========================================================================
+
+    #[test]
+    fn test_apr_transformer_constants_cov() {
+        assert_eq!(&APR_TRANSFORMER_MAGIC, b"APRT");
+        assert_eq!(APR_TRANSFORMER_VERSION, 1);
+        assert_eq!(APR_TRANSFORMER_HEADER_SIZE, 64);
+    }
+
 }
