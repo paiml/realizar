@@ -1285,3 +1285,549 @@ fn test_cov_attention_with_cache_numerical_stability() {
         assert!(val.is_finite(), "Output should be finite, got {}", val);
     }
 }
+
+// ===== Q4KWeight Extended Tests =====
+
+#[test]
+fn test_cov_q4k_weight_memory_bytes() {
+    let data = create_q4k_test_data(2);
+    let weight = Q4KWeight::new(data.clone(), 256, 2).expect("test");
+
+    assert_eq!(weight.memory_bytes(), data.len());
+    assert_eq!(weight.memory_bytes(), 288); // 2 super-blocks * 144 bytes
+}
+
+#[test]
+fn test_cov_q4k_weight_f32_equivalent_bytes() {
+    let data = create_q4k_test_data(1);
+    let weight = Q4KWeight::new(data, 256, 1).expect("test");
+
+    // f32 equivalent: 256 * 1 * 4 bytes = 1024 bytes
+    assert_eq!(weight.f32_equivalent_bytes(), 1024);
+}
+
+#[test]
+fn test_cov_q4k_weight_matvec_basic() {
+    let data = create_q4k_test_data(1);
+    let weight = Q4KWeight::new(data, 256, 1).expect("test");
+
+    let input: Vec<f32> = vec![1.0; 256];
+    let result = weight.matvec(&input);
+
+    assert!(result.is_ok());
+    let output = result.unwrap();
+    assert_eq!(output.len(), 1);
+    // Just verify it produces finite output
+    assert!(output[0].is_finite());
+}
+
+#[test]
+fn test_cov_q4k_weight_matvec_wrong_size() {
+    let data = create_q4k_test_data(1);
+    let weight = Q4KWeight::new(data, 256, 1).expect("test");
+
+    // Wrong input size
+    let input: Vec<f32> = vec![1.0; 128]; // Should be 256
+    let result = weight.matvec(&input);
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_cov_q4k_weight_new_too_small() {
+    // Create data that's too small for the dimensions
+    let data = create_q4k_test_data(1); // 144 bytes
+    let result = Q4KWeight::new(data, 256, 2); // Needs 288 bytes
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_cov_q4k_weight_matvec_multi_row() {
+    // 2 output rows
+    let data = create_q4k_test_data(2);
+    let weight = Q4KWeight::new(data, 256, 2).expect("test");
+
+    let input: Vec<f32> = vec![0.5; 256];
+    let result = weight.matvec(&input);
+
+    assert!(result.is_ok());
+    let output = result.unwrap();
+    assert_eq!(output.len(), 2);
+    // Both outputs should be finite
+    assert!(output[0].is_finite());
+    assert!(output[1].is_finite());
+}
+
+// ===== simd_layer_norm Extended Tests =====
+
+#[test]
+fn test_cov_simd_layer_norm_large_input() {
+    // Large hidden_dim to trigger more SIMD paths
+    let hidden_dim = 512;
+    let input: Vec<f32> = (0..hidden_dim).map(|i| (i as f32 - 256.0) * 0.01).collect();
+    let weight: Vec<f32> = vec![1.0; hidden_dim];
+    let bias: Vec<f32> = vec![0.1; hidden_dim];
+
+    let output = simd_layer_norm(&input, &weight, Some(&bias), 1e-5);
+
+    assert_eq!(output.len(), hidden_dim);
+    // All outputs should be finite
+    for val in &output {
+        assert!(val.is_finite());
+    }
+}
+
+#[test]
+fn test_cov_simd_layer_norm_zero_variance() {
+    // All same values - variance is 0
+    let input = vec![5.0, 5.0, 5.0, 5.0];
+    let weight = vec![1.0, 1.0, 1.0, 1.0];
+
+    let output = simd_layer_norm(&input, &weight, None, 1e-5);
+
+    // All values same means output should be ~0 after mean subtraction
+    for val in &output {
+        assert!(
+            val.abs() < 1e-3,
+            "Expected ~0 for zero variance, got {}",
+            val
+        );
+    }
+}
+
+#[test]
+fn test_cov_simd_layer_norm_negative_values() {
+    let input = vec![-10.0, -5.0, 5.0, 10.0];
+    let weight = vec![2.0, 2.0, 2.0, 2.0];
+
+    let output = simd_layer_norm(&input, &weight, None, 1e-5);
+
+    assert_eq!(output.len(), 4);
+    // Mean is 0, so signs should be preserved after normalization
+    assert!(output[0] < 0.0);
+    assert!(output[1] < 0.0);
+    assert!(output[2] > 0.0);
+    assert!(output[3] > 0.0);
+}
+
+// ===== simd_rms_norm Extended Tests =====
+
+#[test]
+fn test_cov_simd_rms_norm_large_input() {
+    let hidden_dim = 512;
+    let input: Vec<f32> = (0..hidden_dim).map(|i| (i as f32).sin()).collect();
+    let weight: Vec<f32> = vec![1.0; hidden_dim];
+
+    let output = simd_rms_norm(&input, &weight, 1e-5);
+
+    assert_eq!(output.len(), hidden_dim);
+    for val in &output {
+        assert!(val.is_finite());
+    }
+}
+
+#[test]
+fn test_cov_simd_rms_norm_negative_values() {
+    let input = vec![-1.0, -2.0, -3.0, -4.0];
+    let weight = vec![1.0, 1.0, 1.0, 1.0];
+
+    let output = simd_rms_norm(&input, &weight, 1e-5);
+
+    // RMS doesn't subtract mean, so signs are preserved
+    assert!(output[0] < 0.0);
+    assert!(output[1] < 0.0);
+    assert!(output[2] < 0.0);
+    assert!(output[3] < 0.0);
+}
+
+#[test]
+fn test_cov_simd_rms_norm_unit_values() {
+    // Input with unit RMS
+    let input = vec![1.0, 0.0, 0.0, 0.0];
+    let weight = vec![1.0, 1.0, 1.0, 1.0];
+
+    let output = simd_rms_norm(&input, &weight, 1e-5);
+
+    // RMS = sqrt(1/4) = 0.5, so first element should be 1.0/0.5 = 2.0
+    assert!((output[0] - 2.0).abs() < 0.01);
+    assert!(output[1].abs() < 0.01);
+}
+
+// ===== apply_rope Extended Tests =====
+
+#[test]
+fn test_cov_apply_rope_zero_position() {
+    let mut x = vec![1.0, 1.0, 1.0, 1.0];
+    apply_rope(&mut x, 4, 1, 0, 10000.0);
+
+    // Position 0: angle = 0 for all frequencies, cos(0)=1, sin(0)=0
+    // So rotation should be identity-like
+    for val in &x {
+        assert!(
+            (val - 1.0).abs() < 0.01,
+            "Position 0 should have minimal rotation"
+        );
+    }
+}
+
+#[test]
+fn test_cov_apply_rope_preserves_norm() {
+    let mut x = vec![3.0, 4.0, 0.0, 0.0]; // Norm = 5
+    let original_norm: f32 = x.iter().map(|v| v * v).sum::<f32>().sqrt();
+
+    apply_rope(&mut x, 4, 1, 100, 10000.0);
+
+    let new_norm: f32 = x.iter().map(|v| v * v).sum::<f32>().sqrt();
+    // RoPE is a rotation, should preserve norm
+    assert!(
+        (new_norm - original_norm).abs() < 0.01,
+        "RoPE should preserve norm: {} vs {}",
+        new_norm,
+        original_norm
+    );
+}
+
+#[test]
+fn test_cov_apply_rope_multi_head_different() {
+    // 2 heads with different Q values
+    let mut x = vec![1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0]; // 2 heads, dim 4 each
+    apply_rope(&mut x, 8, 2, 50, 10000.0);
+
+    // Verify all values are finite after rotation
+    for val in &x {
+        assert!(val.is_finite());
+    }
+}
+
+#[test]
+fn test_cov_apply_rope_small_theta() {
+    let mut x = vec![1.0, 0.0, 0.0, 1.0];
+    // Small theta means faster rotation
+    apply_rope(&mut x, 4, 1, 10, 100.0);
+
+    // Should produce noticeable rotation
+    let rotated = (x[0] - 1.0).abs() > 0.1 || x[1].abs() > 0.1;
+    assert!(rotated, "Small theta should produce noticeable rotation");
+}
+
+// ===== simd_matmul Extended Tests =====
+
+#[test]
+fn test_cov_simd_matmul_single_output() {
+    // Test with out_dim = 1
+    let input = vec![1.0, 2.0, 3.0];
+    let weight = vec![1.0, 1.0, 1.0]; // Single output row
+
+    let output = simd_matmul(&input, &weight, 3, 1);
+
+    assert_eq!(output.len(), 1);
+    assert!((output[0] - 6.0).abs() < 1e-5); // 1+2+3 = 6
+}
+
+#[test]
+fn test_cov_simd_matmul_parallel_threshold() {
+    // Test near the parallel threshold (256)
+    let in_dim = 32;
+    let out_dim = 256; // Exactly at threshold
+
+    let input: Vec<f32> = vec![1.0; in_dim];
+    let weight: Vec<f32> = vec![1.0 / in_dim as f32; out_dim * in_dim];
+
+    let output = simd_matmul(&input, &weight, in_dim, out_dim);
+
+    assert_eq!(output.len(), out_dim);
+    // Each output should be 1.0 (32 * 1/32 = 1)
+    for val in &output {
+        assert!((val - 1.0).abs() < 1e-4);
+    }
+}
+
+#[test]
+fn test_cov_simd_matmul_batch_small() {
+    // Batch size 2, small enough to not trigger tiled path
+    let seq_len = 2;
+    let in_dim = 4;
+    let out_dim = 2;
+
+    let input: Vec<f32> = vec![
+        1.0, 0.0, 0.0, 0.0, // Token 0
+        0.0, 1.0, 0.0, 0.0, // Token 1
+    ];
+    let weight = vec![
+        1.0, 2.0, 3.0, 4.0, // Output 0
+        5.0, 6.0, 7.0, 8.0, // Output 1
+    ];
+
+    let output = simd_matmul(&input, &weight, in_dim, out_dim);
+
+    assert_eq!(output.len(), seq_len * out_dim);
+    // Token 0: [1,0,0,0] -> [1, 5]
+    assert!((output[0] - 1.0).abs() < 1e-5);
+    assert!((output[1] - 5.0).abs() < 1e-5);
+    // Token 1: [0,1,0,0] -> [2, 6]
+    assert!((output[2] - 2.0).abs() < 1e-5);
+    assert!((output[3] - 6.0).abs() < 1e-5);
+}
+
+// ===== simd_silu Extended Tests =====
+
+#[test]
+fn test_cov_simd_silu_boundary() {
+    // Test boundary values
+    let mut data = vec![-100.0, -10.0, -0.1, 0.1, 10.0, 100.0];
+    simd_silu(&mut data);
+
+    // Large negative -> ~0
+    assert!(data[0].abs() < 0.01);
+    // Large positive -> ~x
+    assert!((data[5] - 100.0).abs() < 0.1);
+}
+
+// ===== simd_gelu Extended Tests =====
+
+#[test]
+fn test_cov_simd_gelu_boundary() {
+    let mut data = vec![-100.0, -3.0, -0.5, 0.5, 3.0, 100.0];
+    simd_gelu(&mut data);
+
+    // Large negative -> ~0
+    assert!(data[0].abs() < 0.01);
+    // Large positive -> ~x
+    assert!((data[5] - 100.0).abs() < 0.1);
+}
+
+// ===== simd_softmax Extended Tests =====
+
+#[test]
+fn test_cov_simd_softmax_large_range() {
+    let mut data = vec![-100.0, 0.0, 100.0];
+    simd_softmax(&mut data);
+
+    // Sum should be 1.0
+    let sum: f32 = data.iter().sum();
+    assert!((sum - 1.0).abs() < 1e-5);
+
+    // Largest should dominate
+    assert!(data[2] > 0.999);
+}
+
+#[test]
+fn test_cov_simd_softmax_two_elements() {
+    let mut data = vec![0.0, 0.0];
+    simd_softmax(&mut data);
+
+    // Equal inputs -> equal probabilities
+    assert!((data[0] - 0.5).abs() < 1e-5);
+    assert!((data[1] - 0.5).abs() < 1e-5);
+}
+
+// ===== attention_with_transposed_v Extended Tests =====
+
+#[test]
+fn test_cov_attention_transposed_v_long_sequence() {
+    let num_heads = 2;
+    let head_dim = 4;
+    let hidden_dim = num_heads * head_dim;
+    let seq_len = 16;
+
+    let q: Vec<f32> = (0..hidden_dim).map(|i| (i as f32).sin()).collect();
+    let k_cache: Vec<f32> = (0..hidden_dim * seq_len)
+        .map(|i| (i as f32).cos() * 0.1)
+        .collect();
+    let v_transposed: Vec<f32> = (0..hidden_dim * seq_len)
+        .map(|i| (i as f32 % 10.0) * 0.1)
+        .collect();
+
+    let output =
+        attention_with_transposed_v(&q, &k_cache, &v_transposed, num_heads, head_dim, seq_len);
+
+    assert_eq!(output.len(), hidden_dim);
+    for val in &output {
+        assert!(val.is_finite());
+    }
+}
+
+// ===== KVCache Extended Tests =====
+
+#[test]
+fn test_cov_kv_cache_boundary_layer() {
+    let mut cache = KVCache::new(2, 4, 8);
+
+    // Store at layer 0 and layer 1 (boundary)
+    cache.store(0, &[1.0; 4], &[2.0; 4]);
+    cache.store(1, &[3.0; 4], &[4.0; 4]);
+    cache.advance();
+
+    // Verify both layers work
+    let k0 = cache.get_k(0);
+    let k1 = cache.get_k(1);
+    assert!((k0[0] - 1.0).abs() < 1e-6);
+    assert!((k1[0] - 3.0).abs() < 1e-6);
+}
+
+#[test]
+fn test_cov_kv_cache_advance_multiple() {
+    let mut cache = KVCache::new(1, 2, 4);
+
+    for i in 0..3 {
+        cache.store(0, &[i as f32; 2], &[i as f32 + 10.0; 2]);
+        cache.advance();
+    }
+
+    assert_eq!(cache.len(), 3);
+
+    // Get all cached values
+    let k = cache.get_k(0);
+    assert_eq!(k.len(), 6); // 3 positions * 2 dims
+}
+
+// ===== OptimizedKVCache Extended Tests =====
+
+#[test]
+fn test_cov_optimized_kv_cache_boundary() {
+    let mut cache = OptimizedKVCache::new(2, 4, 8);
+
+    cache.store(0, &[1.0; 4], &[1.0; 4]);
+    cache.store(1, &[2.0; 4], &[2.0; 4]);
+    cache.advance();
+
+    let k0 = cache.get_k(0);
+    let k1 = cache.get_k(1);
+    assert!((k0[0] - 1.0).abs() < 1e-6);
+    assert!((k1[0] - 2.0).abs() < 1e-6);
+}
+
+#[test]
+fn test_cov_optimized_kv_cache_v_transposed_multi_pos() {
+    let mut cache = OptimizedKVCache::new(1, 2, 8);
+
+    // Store 3 positions
+    cache.store(0, &[1.0, 2.0], &[10.0, 20.0]);
+    cache.advance();
+    cache.store(0, &[3.0, 4.0], &[30.0, 40.0]);
+    cache.advance();
+    cache.store(0, &[5.0, 6.0], &[50.0, 60.0]);
+    cache.advance();
+
+    let v_t = cache.get_v_transposed(0);
+    assert_eq!(v_t.len(), 6); // 2 dims * 3 positions
+
+    // Transposed layout: dim 0 values then dim 1 values
+    // Dim 0: [10, 30, 50], Dim 1: [20, 40, 60]
+    assert!((v_t[0] - 10.0).abs() < 1e-6);
+    assert!((v_t[1] - 30.0).abs() < 1e-6);
+    assert!((v_t[2] - 50.0).abs() < 1e-6);
+    assert!((v_t[3] - 20.0).abs() < 1e-6);
+    assert!((v_t[4] - 40.0).abs() < 1e-6);
+    assert!((v_t[5] - 60.0).abs() < 1e-6);
+}
+
+// ===== simd_add Extended Tests =====
+
+#[test]
+fn test_cov_simd_add_empty() {
+    let mut a: Vec<f32> = vec![];
+    let b: Vec<f32> = vec![];
+    simd_add(&mut a, &b);
+    assert!(a.is_empty());
+}
+
+#[test]
+fn test_cov_simd_add_single() {
+    let mut a = vec![1.0];
+    let b = vec![2.0];
+    simd_add(&mut a, &b);
+    assert!((a[0] - 3.0).abs() < 1e-5);
+}
+
+// ===== simd_mul Extended Tests =====
+
+#[test]
+fn test_cov_simd_mul_empty() {
+    let mut a: Vec<f32> = vec![];
+    let b: Vec<f32> = vec![];
+    simd_mul(&mut a, &b);
+    assert!(a.is_empty());
+}
+
+#[test]
+fn test_cov_simd_mul_single() {
+    let mut a = vec![3.0];
+    let b = vec![4.0];
+    simd_mul(&mut a, &b);
+    assert!((a[0] - 12.0).abs() < 1e-5);
+}
+
+// ===== attention_with_cache Extended Tests =====
+
+#[test]
+fn test_cov_attention_with_cache_many_heads() {
+    let num_heads = 8;
+    let head_dim = 16;
+    let hidden_dim = num_heads * head_dim;
+    let seq_len = 4;
+
+    let q: Vec<f32> = (0..hidden_dim).map(|i| (i as f32 * 0.01).sin()).collect();
+    let k_cache: Vec<f32> = (0..hidden_dim * seq_len)
+        .map(|i| (i as f32 * 0.01).cos())
+        .collect();
+    let v_cache: Vec<f32> = (0..hidden_dim * seq_len)
+        .map(|i| (i as f32 * 0.01).tanh())
+        .collect();
+
+    let output = attention_with_cache(&q, &k_cache, &v_cache, num_heads, head_dim);
+
+    assert_eq!(output.len(), hidden_dim);
+    for val in &output {
+        assert!(val.is_finite());
+    }
+}
+
+#[test]
+fn test_cov_attention_with_cache_focused() {
+    // One position has very high similarity, should dominate
+    let num_heads = 1;
+    let head_dim = 4;
+
+    let q = vec![1.0, 0.0, 0.0, 0.0];
+    let k_cache = vec![
+        1.0, 0.0, 0.0, 0.0, // Position 0: perfect match
+        0.0, 1.0, 0.0, 0.0, // Position 1: orthogonal
+    ];
+    let v_cache = vec![
+        100.0, 100.0, 100.0, 100.0, // Position 0: high values
+        0.0, 0.0, 0.0, 0.0, // Position 1: zeros
+    ];
+
+    let output = attention_with_cache(&q, &k_cache, &v_cache, num_heads, head_dim);
+
+    // Should mostly attend to position 0
+    for val in &output {
+        assert!(
+            *val > 50.0,
+            "Should attend mostly to position 0, got {}",
+            val
+        );
+    }
+}
+
+// ===== simd_dot Extended Tests =====
+
+#[test]
+fn test_cov_simd_dot_very_large() {
+    let n = 4096;
+    let a: Vec<f32> = vec![1.0; n];
+    let b: Vec<f32> = vec![1.0; n];
+    let result = simd_dot(&a, &b);
+    assert!((result - n as f32).abs() < 1.0);
+}
+
+#[test]
+fn test_cov_simd_dot_alternating() {
+    let a = vec![1.0, -1.0, 1.0, -1.0];
+    let b = vec![1.0, 1.0, 1.0, 1.0];
+    let result = simd_dot(&a, &b);
+    // 1 - 1 + 1 - 1 = 0
+    assert!(result.abs() < 1e-5);
+}

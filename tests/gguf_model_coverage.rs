@@ -1953,3 +1953,965 @@ fn test_cov_gguf_config_head_dim_calculation() {
     let head_dim = config.hidden_dim / config.num_heads;
     assert_eq!(head_dim, 128);
 }
+
+// ============================================================================
+// GGUF CONFIG CLONE AND DEBUG TESTS
+// ============================================================================
+
+#[test]
+fn test_cov_gguf_config_clone() {
+    let config = GGUFConfig {
+        architecture: "llama".to_string(),
+        hidden_dim: 2048,
+        num_layers: 22,
+        num_heads: 32,
+        num_kv_heads: 4,
+        vocab_size: 32000,
+        intermediate_dim: 5632,
+        context_length: 2048,
+        rope_theta: 10000.0,
+        eps: 1e-5,
+        rope_type: 0,
+    };
+
+    let cloned = config.clone();
+    assert_eq!(cloned.architecture, config.architecture);
+    assert_eq!(cloned.hidden_dim, config.hidden_dim);
+    assert_eq!(cloned.num_layers, config.num_layers);
+}
+
+#[test]
+fn test_cov_gguf_config_debug() {
+    let config = GGUFConfig {
+        architecture: "phi2".to_string(),
+        hidden_dim: 2560,
+        num_layers: 32,
+        num_heads: 32,
+        num_kv_heads: 32,
+        vocab_size: 51200,
+        intermediate_dim: 10240,
+        context_length: 2048,
+        rope_theta: 10000.0,
+        eps: 1e-5,
+        rope_type: 2,
+    };
+
+    let debug_str = format!("{config:?}");
+    assert!(debug_str.contains("GGUFConfig"));
+}
+
+// ============================================================================
+// GGUF MODEL ENCODE TESTS
+// ============================================================================
+
+#[test]
+fn test_cov_gguf_model_encode_with_vocab() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&1u64.to_le_bytes());
+
+    add_string_array_meta(
+        &mut data,
+        "tokenizer.ggml.tokens",
+        &["hello", "world", "test"],
+    );
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    // encode should return Some when vocabulary is present
+    let encoded = model.encode("hello");
+    assert!(encoded.is_some());
+    let tokens = encoded.unwrap();
+    assert!(!tokens.is_empty());
+}
+
+#[test]
+fn test_cov_gguf_model_encode_no_vocab() {
+    let data = build_minimal_gguf_header();
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    // Without vocabulary, encode returns None
+    let encoded = model.encode("test");
+    assert!(encoded.is_none());
+}
+
+// ============================================================================
+// OWNED QUANTIZED KV CACHE TESTS
+// ============================================================================
+
+use realizar::gguf::{OwnedQuantizedKVCache, QuantizedGenerateConfig};
+
+#[test]
+fn test_cov_kv_cache_new() {
+    let cache = OwnedQuantizedKVCache::new(4, 512, 128);
+
+    assert!(cache.is_empty());
+    assert_eq!(cache.len(), 0);
+    assert_eq!(cache.max_len(), 128);
+}
+
+#[test]
+fn test_cov_kv_cache_from_config() {
+    let config = GGUFConfig {
+        architecture: "test".to_string(),
+        hidden_dim: 256,
+        num_layers: 4,
+        num_heads: 4,
+        num_kv_heads: 4,
+        vocab_size: 1000,
+        intermediate_dim: 1024,
+        context_length: 512,
+        rope_theta: 10000.0,
+        eps: 1e-5,
+        rope_type: 0,
+    };
+
+    let cache = OwnedQuantizedKVCache::from_config(&config, 64);
+    assert!(cache.is_empty());
+    assert_eq!(cache.max_len(), 64);
+}
+
+#[test]
+fn test_cov_kv_cache_append_and_advance() {
+    let mut cache = OwnedQuantizedKVCache::new(2, 64, 10);
+
+    let k = vec![1.0f32; 64];
+    let v = vec![2.0f32; 64];
+
+    cache.append(0, &k, &v);
+    cache.advance();
+
+    assert_eq!(cache.len(), 1);
+    assert!(!cache.is_empty());
+
+    let cached_k = cache.get_k(0);
+    assert_eq!(cached_k.len(), 64);
+    assert_eq!(cached_k[0], 1.0);
+
+    let cached_v = cache.get_v(0);
+    assert_eq!(cached_v.len(), 64);
+    assert_eq!(cached_v[0], 2.0);
+}
+
+#[test]
+fn test_cov_kv_cache_append_kv_batch() {
+    let mut cache = OwnedQuantizedKVCache::new(2, 64, 10);
+
+    let k_batch = vec![1.0f32; 64 * 3];
+    let v_batch = vec![2.0f32; 64 * 3];
+
+    cache.append_kv(0, &k_batch, &v_batch);
+    cache.advance_by(3);
+
+    assert_eq!(cache.len(), 3);
+    let cached_k = cache.get_k(0);
+    assert_eq!(cached_k.len(), 64 * 3);
+}
+
+#[test]
+fn test_cov_kv_cache_rollback() {
+    let mut cache = OwnedQuantizedKVCache::new(2, 64, 10);
+
+    for _ in 0..5 {
+        let k = vec![1.0f32; 64];
+        let v = vec![2.0f32; 64];
+        cache.append(0, &k, &v);
+        cache.append(1, &k, &v);
+        cache.advance();
+    }
+    assert_eq!(cache.len(), 5);
+
+    cache.rollback_to(3, 64);
+    assert_eq!(cache.len(), 3);
+    assert_eq!(cache.get_k(0).len(), 64 * 3);
+}
+
+#[test]
+fn test_cov_kv_cache_rollback_no_op() {
+    let mut cache = OwnedQuantizedKVCache::new(2, 64, 10);
+
+    for _ in 0..3 {
+        let k = vec![1.0f32; 64];
+        let v = vec![2.0f32; 64];
+        cache.append(0, &k, &v);
+        cache.advance();
+    }
+
+    let orig_len = cache.len();
+    cache.rollback_to(5, 64);
+    assert_eq!(cache.len(), orig_len);
+}
+
+#[test]
+fn test_cov_kv_cache_snapshot_len() {
+    let mut cache = OwnedQuantizedKVCache::new(2, 64, 10);
+
+    for _ in 0..4 {
+        let k = vec![1.0f32; 64];
+        let v = vec![2.0f32; 64];
+        cache.append(0, &k, &v);
+        cache.advance();
+    }
+
+    assert_eq!(cache.snapshot_len(), 4);
+}
+
+#[test]
+fn test_cov_kv_cache_reset() {
+    let mut cache = OwnedQuantizedKVCache::new(2, 64, 10);
+
+    let k = vec![1.0f32; 64];
+    let v = vec![2.0f32; 64];
+    cache.append(0, &k, &v);
+    cache.advance();
+
+    assert!(!cache.is_empty());
+
+    cache.reset();
+
+    assert!(cache.is_empty());
+    assert_eq!(cache.len(), 0);
+}
+
+#[test]
+fn test_cov_kv_cache_get_invalid_layer() {
+    let cache = OwnedQuantizedKVCache::new(2, 64, 10);
+
+    let k = cache.get_k(100);
+    assert!(k.is_empty());
+
+    let v = cache.get_v(100);
+    assert!(v.is_empty());
+}
+
+#[test]
+fn test_cov_kv_cache_default() {
+    let cache = OwnedQuantizedKVCache::default();
+
+    assert!(cache.is_empty());
+    assert_eq!(cache.len(), 0);
+    assert_eq!(cache.max_len(), 0);
+}
+
+#[test]
+fn test_cov_kv_cache_clone() {
+    let mut cache = OwnedQuantizedKVCache::new(2, 64, 10);
+
+    let k = vec![1.0f32; 64];
+    let v = vec![2.0f32; 64];
+    cache.append(0, &k, &v);
+    cache.advance();
+
+    let cloned = cache.clone();
+    assert_eq!(cloned.len(), cache.len());
+    assert_eq!(cloned.max_len(), cache.max_len());
+}
+
+#[test]
+fn test_cov_kv_cache_debug() {
+    let cache = OwnedQuantizedKVCache::new(2, 64, 10);
+    let debug_str = format!("{cache:?}");
+    assert!(debug_str.contains("OwnedQuantizedKVCache"));
+}
+
+// ============================================================================
+// QUANTIZED GENERATE CONFIG TESTS
+// ============================================================================
+
+#[test]
+fn test_cov_generate_config_default() {
+    let config = QuantizedGenerateConfig::default();
+
+    assert_eq!(config.max_tokens, 64);
+    assert_eq!(config.temperature, 0.0);
+    assert_eq!(config.top_k, 1);
+    assert!(config.stop_tokens.is_empty());
+}
+
+#[test]
+fn test_cov_generate_config_deterministic() {
+    let config = QuantizedGenerateConfig::deterministic(128);
+
+    assert_eq!(config.max_tokens, 128);
+    assert_eq!(config.temperature, 0.0);
+    assert_eq!(config.top_k, 1);
+    assert!(config.stop_tokens.is_empty());
+}
+
+#[test]
+fn test_cov_generate_config_custom() {
+    let config = QuantizedGenerateConfig {
+        max_tokens: 256,
+        temperature: 0.8,
+        top_k: 50,
+        stop_tokens: vec![1, 2],
+    };
+
+    assert_eq!(config.max_tokens, 256);
+    assert!((config.temperature - 0.8).abs() < 0.001);
+    assert_eq!(config.top_k, 50);
+    assert_eq!(config.stop_tokens, vec![1, 2]);
+}
+
+#[test]
+fn test_cov_generate_config_clone() {
+    let config = QuantizedGenerateConfig {
+        max_tokens: 100,
+        temperature: 0.5,
+        top_k: 40,
+        stop_tokens: vec![1, 2, 3],
+    };
+
+    let cloned = config.clone();
+    assert_eq!(cloned.max_tokens, config.max_tokens);
+    assert_eq!(cloned.temperature, config.temperature);
+}
+
+#[test]
+fn test_cov_generate_config_debug() {
+    let config = QuantizedGenerateConfig::default();
+    let debug_str = format!("{config:?}");
+    assert!(debug_str.contains("QuantizedGenerateConfig"));
+}
+
+// ============================================================================
+// CONTIGUOUS KV CACHE TESTS
+// ============================================================================
+
+use realizar::gguf::ContiguousKVCache;
+
+#[test]
+fn test_cov_contiguous_cache_new() {
+    let cache = ContiguousKVCache::new(4, 128, 64);
+
+    assert!(cache.is_empty());
+    assert_eq!(cache.len(), 0);
+    assert_eq!(cache.max_len(), 64);
+    assert!(cache.is_contiguous());
+    assert!(cache.is_cache_aligned());
+}
+
+#[test]
+fn test_cov_contiguous_cache_from_config() {
+    let config = GGUFConfig {
+        architecture: "test".to_string(),
+        hidden_dim: 256,
+        num_layers: 8,
+        num_heads: 4,
+        num_kv_heads: 4,
+        vocab_size: 1000,
+        intermediate_dim: 1024,
+        context_length: 512,
+        rope_theta: 10000.0,
+        eps: 1e-5,
+        rope_type: 0,
+    };
+
+    let cache = ContiguousKVCache::from_config(&config, 32);
+    assert!(cache.is_empty());
+    assert_eq!(cache.max_len(), 32);
+}
+
+#[test]
+fn test_cov_contiguous_cache_append_and_advance() {
+    let mut cache = ContiguousKVCache::new(2, 64, 10);
+
+    let k = vec![1.0f32; 64];
+    let v = vec![2.0f32; 64];
+
+    cache.append(0, &k, &v);
+    cache.advance();
+
+    assert_eq!(cache.len(), 1);
+    assert!(!cache.is_empty());
+
+    let cached_k = cache.get_k(0);
+    assert_eq!(cached_k.len(), 64);
+    assert_eq!(cached_k[0], 1.0);
+}
+
+#[test]
+fn test_cov_contiguous_cache_get_k_mut() {
+    let mut cache = ContiguousKVCache::new(2, 64, 10);
+
+    let k = vec![1.0f32; 64];
+    let v = vec![2.0f32; 64];
+    cache.append(0, &k, &v);
+    cache.advance();
+
+    let k_mut = cache.get_k_mut(0);
+    assert_eq!(k_mut.len(), 64);
+    k_mut[0] = 99.0;
+
+    let k_read = cache.get_k(0);
+    assert_eq!(k_read[0], 99.0);
+}
+
+#[test]
+fn test_cov_contiguous_cache_get_v_mut() {
+    let mut cache = ContiguousKVCache::new(2, 64, 10);
+
+    let k = vec![1.0f32; 64];
+    let v = vec![2.0f32; 64];
+    cache.append(0, &k, &v);
+    cache.advance();
+
+    let v_mut = cache.get_v_mut(0);
+    assert_eq!(v_mut.len(), 64);
+    v_mut[0] = 88.0;
+
+    let v_read = cache.get_v(0);
+    assert_eq!(v_read[0], 88.0);
+}
+
+#[test]
+fn test_cov_contiguous_cache_reset() {
+    let mut cache = ContiguousKVCache::new(2, 64, 10);
+
+    let k = vec![1.0f32; 64];
+    let v = vec![2.0f32; 64];
+    cache.append(0, &k, &v);
+    cache.advance();
+
+    cache.reset();
+
+    assert!(cache.is_empty());
+    assert_eq!(cache.len(), 0);
+}
+
+#[test]
+fn test_cov_contiguous_cache_reset_and_zero() {
+    let mut cache = ContiguousKVCache::new(2, 64, 10);
+
+    let k = vec![1.0f32; 64];
+    let v = vec![2.0f32; 64];
+    cache.append(0, &k, &v);
+    cache.advance();
+
+    cache.reset_and_zero();
+
+    assert!(cache.is_empty());
+    assert_eq!(cache.len(), 0);
+}
+
+#[test]
+fn test_cov_contiguous_cache_memory_bytes() {
+    let cache = ContiguousKVCache::new(4, 128, 64);
+    let bytes = cache.memory_bytes();
+
+    assert!(bytes > 0);
+    assert_eq!(bytes % 4, 0);
+}
+
+#[test]
+fn test_cov_contiguous_cache_layer_stride() {
+    let cache = ContiguousKVCache::new(4, 128, 64);
+    let stride = cache.layer_stride();
+
+    assert!(stride >= 64 * 128);
+    assert_eq!(stride % 16, 0);
+}
+
+#[test]
+fn test_cov_contiguous_cache_prefetch() {
+    let mut cache = ContiguousKVCache::new(2, 64, 10);
+
+    let k = vec![1.0f32; 64];
+    let v = vec![2.0f32; 64];
+    cache.append(0, &k, &v);
+    cache.advance();
+
+    cache.prefetch_k(0);
+    cache.prefetch_v(0);
+    cache.prefetch_k(100);
+    cache.prefetch_v(100);
+}
+
+#[test]
+fn test_cov_contiguous_cache_get_invalid_layer() {
+    let cache = ContiguousKVCache::new(2, 64, 10);
+
+    let k = cache.get_k(100);
+    assert!(k.is_empty());
+
+    let v = cache.get_v(100);
+    assert!(v.is_empty());
+}
+
+#[test]
+fn test_cov_contiguous_cache_get_mut_invalid_layer() {
+    let mut cache = ContiguousKVCache::new(2, 64, 10);
+
+    let k = cache.get_k_mut(100);
+    assert!(k.is_empty());
+
+    let v = cache.get_v_mut(100);
+    assert!(v.is_empty());
+}
+
+// ============================================================================
+// DISPATCH METRICS TESTS
+// ============================================================================
+
+use realizar::gguf::DispatchMetrics;
+use std::time::Duration;
+
+#[test]
+fn test_cov_dispatch_metrics_new() {
+    let metrics = DispatchMetrics::new();
+
+    assert_eq!(metrics.cpu_dispatches(), 0);
+    assert_eq!(metrics.gpu_dispatches(), 0);
+    assert_eq!(metrics.total_dispatches(), 0);
+}
+
+#[test]
+fn test_cov_dispatch_metrics_record_cpu_dispatch() {
+    let metrics = DispatchMetrics::new();
+
+    metrics.record_cpu_dispatch();
+    metrics.record_cpu_dispatch();
+    metrics.record_cpu_dispatch();
+
+    assert_eq!(metrics.cpu_dispatches(), 3);
+    assert_eq!(metrics.gpu_dispatches(), 0);
+    assert_eq!(metrics.total_dispatches(), 3);
+}
+
+#[test]
+fn test_cov_dispatch_metrics_record_gpu_dispatch() {
+    let metrics = DispatchMetrics::new();
+
+    metrics.record_gpu_dispatch();
+    metrics.record_gpu_dispatch();
+
+    assert_eq!(metrics.cpu_dispatches(), 0);
+    assert_eq!(metrics.gpu_dispatches(), 2);
+    assert_eq!(metrics.total_dispatches(), 2);
+}
+
+#[test]
+fn test_cov_dispatch_metrics_gpu_ratio_zero() {
+    let metrics = DispatchMetrics::new();
+    assert_eq!(metrics.gpu_ratio(), 0.0);
+}
+
+#[test]
+fn test_cov_dispatch_metrics_gpu_ratio_half() {
+    let metrics = DispatchMetrics::new();
+
+    metrics.record_cpu_dispatch();
+    metrics.record_gpu_dispatch();
+
+    assert!((metrics.gpu_ratio() - 0.5).abs() < 0.001);
+}
+
+#[test]
+fn test_cov_dispatch_metrics_gpu_ratio_all_gpu() {
+    let metrics = DispatchMetrics::new();
+
+    metrics.record_gpu_dispatch();
+    metrics.record_gpu_dispatch();
+    metrics.record_gpu_dispatch();
+
+    assert!((metrics.gpu_ratio() - 1.0).abs() < 0.001);
+}
+
+#[test]
+fn test_cov_dispatch_metrics_record_cpu_latency() {
+    let metrics = DispatchMetrics::new();
+
+    metrics.record_cpu_latency(Duration::from_micros(100));
+    metrics.record_cpu_latency(Duration::from_micros(200));
+    metrics.record_cpu_latency(Duration::from_micros(300));
+
+    assert!((metrics.cpu_latency_mean_us() - 200.0).abs() < 1.0);
+}
+
+#[test]
+fn test_cov_dispatch_metrics_record_gpu_latency() {
+    let metrics = DispatchMetrics::new();
+
+    metrics.record_gpu_latency(Duration::from_micros(50));
+    metrics.record_gpu_latency(Duration::from_micros(150));
+
+    assert!((metrics.gpu_latency_mean_us() - 100.0).abs() < 1.0);
+}
+
+#[test]
+fn test_cov_dispatch_metrics_mean_latency_zero() {
+    let metrics = DispatchMetrics::new();
+
+    assert_eq!(metrics.cpu_latency_mean_us(), 0.0);
+    assert_eq!(metrics.gpu_latency_mean_us(), 0.0);
+}
+
+#[test]
+fn test_cov_dispatch_metrics_histogram_buckets() {
+    let metrics = DispatchMetrics::new();
+
+    metrics.record_cpu_latency(Duration::from_micros(50));
+    metrics.record_cpu_latency(Duration::from_micros(250));
+    metrics.record_cpu_latency(Duration::from_micros(750));
+    metrics.record_cpu_latency(Duration::from_micros(2000));
+    metrics.record_cpu_latency(Duration::from_micros(10000));
+
+    let buckets = metrics.cpu_latency_buckets();
+    assert_eq!(buckets[0], 1);
+    assert_eq!(buckets[1], 1);
+    assert_eq!(buckets[2], 1);
+    assert_eq!(buckets[3], 1);
+    assert_eq!(buckets[4], 1);
+}
+
+#[test]
+fn test_cov_dispatch_metrics_gpu_histogram() {
+    let metrics = DispatchMetrics::new();
+
+    metrics.record_gpu_latency(Duration::from_micros(50));
+    metrics.record_gpu_latency(Duration::from_micros(250));
+
+    let buckets = metrics.gpu_latency_buckets();
+    assert_eq!(buckets[0], 1);
+    assert_eq!(buckets[1], 1);
+}
+
+#[test]
+fn test_cov_dispatch_metrics_min_max_cpu() {
+    let metrics = DispatchMetrics::new();
+
+    metrics.record_cpu_latency(Duration::from_micros(100));
+    metrics.record_cpu_latency(Duration::from_micros(500));
+    metrics.record_cpu_latency(Duration::from_micros(200));
+
+    assert_eq!(metrics.cpu_latency_min_us(), 100);
+    assert_eq!(metrics.cpu_latency_max_us(), 500);
+}
+
+#[test]
+fn test_cov_dispatch_metrics_min_max_gpu() {
+    let metrics = DispatchMetrics::new();
+
+    metrics.record_gpu_latency(Duration::from_micros(50));
+    metrics.record_gpu_latency(Duration::from_micros(300));
+    metrics.record_gpu_latency(Duration::from_micros(100));
+
+    assert_eq!(metrics.gpu_latency_min_us(), 50);
+    assert_eq!(metrics.gpu_latency_max_us(), 300);
+}
+
+#[test]
+fn test_cov_dispatch_metrics_variance() {
+    let metrics = DispatchMetrics::new();
+
+    metrics.record_cpu_latency(Duration::from_micros(100));
+    metrics.record_cpu_latency(Duration::from_micros(100));
+    metrics.record_cpu_latency(Duration::from_micros(100));
+
+    assert_eq!(metrics.cpu_latency_variance_us(), 0.0);
+}
+
+#[test]
+fn test_cov_dispatch_metrics_stddev() {
+    let metrics = DispatchMetrics::new();
+
+    metrics.record_cpu_latency(Duration::from_micros(100));
+    metrics.record_cpu_latency(Duration::from_micros(100));
+
+    assert_eq!(metrics.cpu_latency_stddev_us(), 0.0);
+}
+
+#[test]
+fn test_cov_dispatch_metrics_bucket_boundaries() {
+    let boundaries = DispatchMetrics::BUCKET_BOUNDARIES;
+    assert_eq!(boundaries.len(), 4);
+    assert_eq!(boundaries[0], 100);
+    assert_eq!(boundaries[1], 500);
+    assert_eq!(boundaries[2], 1000);
+    assert_eq!(boundaries[3], 5000);
+}
+
+#[test]
+fn test_cov_dispatch_metrics_debug() {
+    let metrics = DispatchMetrics::new();
+    let debug_str = format!("{metrics:?}");
+    assert!(debug_str.contains("DispatchMetrics"));
+}
+
+#[test]
+fn test_cov_dispatch_metrics_default() {
+    let metrics = DispatchMetrics::default();
+
+    assert_eq!(metrics.cpu_dispatches(), 0);
+    assert_eq!(metrics.gpu_dispatches(), 0);
+}
+
+#[test]
+fn test_cov_dispatch_metrics_latency_count() {
+    let metrics = DispatchMetrics::new();
+
+    metrics.record_cpu_latency(Duration::from_micros(100));
+    metrics.record_cpu_latency(Duration::from_micros(200));
+    metrics.record_gpu_latency(Duration::from_micros(300));
+
+    assert_eq!(metrics.cpu_latency_count(), 2);
+    assert_eq!(metrics.gpu_latency_count(), 1);
+}
+
+#[test]
+fn test_cov_dispatch_metrics_sum_latency() {
+    let metrics = DispatchMetrics::new();
+
+    metrics.record_cpu_latency(Duration::from_micros(100));
+    metrics.record_cpu_latency(Duration::from_micros(200));
+
+    assert_eq!(metrics.cpu_latency_sum_us(), 300);
+}
+
+#[test]
+fn test_cov_dispatch_metrics_gpu_variance() {
+    let metrics = DispatchMetrics::new();
+
+    metrics.record_gpu_latency(Duration::from_micros(100));
+    metrics.record_gpu_latency(Duration::from_micros(100));
+    metrics.record_gpu_latency(Duration::from_micros(100));
+
+    assert_eq!(metrics.gpu_latency_variance_us(), 0.0);
+}
+
+#[test]
+fn test_cov_dispatch_metrics_gpu_stddev() {
+    let metrics = DispatchMetrics::new();
+
+    metrics.record_gpu_latency(Duration::from_micros(100));
+    metrics.record_gpu_latency(Duration::from_micros(100));
+
+    assert_eq!(metrics.gpu_latency_stddev_us(), 0.0);
+}
+
+#[test]
+fn test_cov_dispatch_metrics_percentiles() {
+    let metrics = DispatchMetrics::new();
+
+    for _ in 0..10 {
+        metrics.record_cpu_latency(Duration::from_micros(50));
+    }
+
+    let p50 = metrics.cpu_latency_p50_us();
+    let p95 = metrics.cpu_latency_p95_us();
+    let p99 = metrics.cpu_latency_p99_us();
+
+    assert!((0.0..=100.0).contains(&p50));
+    assert!((0.0..=100.0).contains(&p95));
+    assert!((0.0..=100.0).contains(&p99));
+}
+
+#[test]
+fn test_cov_dispatch_metrics_gpu_percentiles() {
+    let metrics = DispatchMetrics::new();
+
+    for _ in 0..10 {
+        metrics.record_gpu_latency(Duration::from_micros(50));
+    }
+
+    let p50 = metrics.gpu_latency_p50_us();
+    let p95 = metrics.gpu_latency_p95_us();
+    let p99 = metrics.gpu_latency_p99_us();
+
+    assert!((0.0..=100.0).contains(&p50));
+    assert!((0.0..=100.0).contains(&p95));
+    assert!((0.0..=100.0).contains(&p99));
+}
+
+#[test]
+fn test_cov_dispatch_metrics_bucket_boundaries_strings() {
+    let metrics = DispatchMetrics::new();
+    let boundaries = metrics.bucket_boundaries_us();
+
+    assert_eq!(boundaries.len(), 5);
+    assert_eq!(boundaries[0], "0-100");
+    assert_eq!(boundaries[4], "5000+");
+}
+
+// ============================================================================
+// OWNED INFERENCE SCRATCH BUFFER TESTS
+// ============================================================================
+
+use realizar::gguf::OwnedInferenceScratchBuffer;
+
+#[test]
+fn test_cov_scratch_buffer_from_config() {
+    let config = GGUFConfig {
+        architecture: "test".to_string(),
+        hidden_dim: 256,
+        num_layers: 4,
+        num_heads: 4,
+        num_kv_heads: 4,
+        vocab_size: 1000,
+        intermediate_dim: 1024,
+        context_length: 512,
+        rope_theta: 10000.0,
+        eps: 1e-5,
+        rope_type: 0,
+    };
+
+    let scratch = OwnedInferenceScratchBuffer::from_config(&config);
+
+    assert!(!scratch.qkv.is_empty());
+    assert!(!scratch.attn_out.is_empty());
+    assert!(!scratch.ffn_up.is_empty());
+    assert!(!scratch.ffn_gate.is_empty());
+    assert!(!scratch.ffn_down.is_empty());
+    assert!(!scratch.logits.is_empty());
+}
+
+#[test]
+fn test_cov_scratch_buffer_reset() {
+    let config = GGUFConfig {
+        architecture: "test".to_string(),
+        hidden_dim: 256,
+        num_layers: 4,
+        num_heads: 4,
+        num_kv_heads: 4,
+        vocab_size: 1000,
+        intermediate_dim: 1024,
+        context_length: 512,
+        rope_theta: 10000.0,
+        eps: 1e-5,
+        rope_type: 0,
+    };
+
+    let mut scratch = OwnedInferenceScratchBuffer::from_config(&config);
+    scratch.reset();
+
+    assert!(scratch.qkv.is_empty());
+    assert!(scratch.attn_out.is_empty());
+    assert!(scratch.ffn_up.is_empty());
+}
+
+#[test]
+fn test_cov_scratch_buffer_debug() {
+    let config = GGUFConfig {
+        architecture: "test".to_string(),
+        hidden_dim: 128,
+        num_layers: 2,
+        num_heads: 2,
+        num_kv_heads: 2,
+        vocab_size: 500,
+        intermediate_dim: 512,
+        context_length: 256,
+        rope_theta: 10000.0,
+        eps: 1e-5,
+        rope_type: 0,
+    };
+
+    let scratch = OwnedInferenceScratchBuffer::from_config(&config);
+    let debug_str = format!("{scratch:?}");
+    assert!(debug_str.contains("OwnedInferenceScratchBuffer"));
+}
+
+// ============================================================================
+// GGUF VALUE TESTS
+// ============================================================================
+
+#[test]
+fn test_cov_gguf_value_clone() {
+    let val = GGUFValue::String("test".to_string());
+    let cloned = val;
+
+    if let GGUFValue::String(s) = cloned {
+        assert_eq!(s, "test");
+    } else {
+        panic!("Clone should preserve type");
+    }
+}
+
+#[test]
+fn test_cov_gguf_value_partial_eq() {
+    let val1 = GGUFValue::UInt32(42);
+    let val2 = GGUFValue::UInt32(42);
+    let val3 = GGUFValue::UInt32(99);
+
+    assert_eq!(val1, val2);
+    assert_ne!(val1, val3);
+}
+
+#[test]
+fn test_cov_gguf_value_debug_all_variants() {
+    let values = vec![
+        GGUFValue::UInt8(1),
+        GGUFValue::Int8(-1),
+        GGUFValue::UInt16(1),
+        GGUFValue::Int16(-1),
+        GGUFValue::UInt32(1),
+        GGUFValue::Int32(-1),
+        GGUFValue::Float32(1.0),
+        GGUFValue::Bool(true),
+        GGUFValue::String("test".to_string()),
+        GGUFValue::UInt64(1),
+        GGUFValue::Int64(-1),
+        GGUFValue::Float64(1.0),
+        GGUFValue::Array(vec![GGUFValue::UInt32(1)]),
+    ];
+
+    for val in values {
+        let debug_str = format!("{val:?}");
+        assert!(!debug_str.is_empty());
+    }
+}
+
+// ============================================================================
+// SMALL BUFFER TYPE TESTS
+// ============================================================================
+
+use realizar::gguf::{
+    AttentionBuffer, HiddenBuffer, TokenBuffer, ATTENTION_BUFFER_INLINE_CAP, BUFFER_HW_SIZE,
+    BUFFER_LW_SIZE, BUFFER_MAX_SIZE, HIDDEN_BUFFER_INLINE_CAP, TOKEN_BUFFER_INLINE_CAP,
+};
+
+#[test]
+fn test_cov_token_buffer_inline_cap() {
+    assert_eq!(TOKEN_BUFFER_INLINE_CAP, 32);
+
+    let mut buffer: TokenBuffer = smallvec::SmallVec::new();
+    for i in 0..TOKEN_BUFFER_INLINE_CAP {
+        buffer.push(i as u32);
+    }
+
+    assert_eq!(buffer.len(), TOKEN_BUFFER_INLINE_CAP);
+}
+
+#[test]
+fn test_cov_attention_buffer_inline_cap() {
+    assert_eq!(ATTENTION_BUFFER_INLINE_CAP, 64);
+
+    let mut buffer: AttentionBuffer = smallvec::SmallVec::new();
+    for i in 0..ATTENTION_BUFFER_INLINE_CAP {
+        buffer.push(i as f32);
+    }
+
+    assert_eq!(buffer.len(), ATTENTION_BUFFER_INLINE_CAP);
+}
+
+#[test]
+fn test_cov_hidden_buffer_inline_cap() {
+    assert_eq!(HIDDEN_BUFFER_INLINE_CAP, 128);
+
+    let mut buffer: HiddenBuffer = smallvec::SmallVec::new();
+    for i in 0..HIDDEN_BUFFER_INLINE_CAP {
+        buffer.push(i as f32);
+    }
+
+    assert_eq!(buffer.len(), HIDDEN_BUFFER_INLINE_CAP);
+}
+
+#[test]
+fn test_cov_buffer_watermarks() {
+    assert_eq!(BUFFER_LW_SIZE, 1024);
+    assert_eq!(BUFFER_HW_SIZE, 8 * 1024);
+    assert_eq!(BUFFER_MAX_SIZE, 32 * 1024);
+
+    // Constants are validated by the eq assertions above
+}
