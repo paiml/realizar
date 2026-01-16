@@ -8018,4 +8018,856 @@ mod tests {
         assert!(result.is_err());
     }
 
+    // ==========================================================================
+    // AprTransformer.generate_with_cache success path
+    // ==========================================================================
+
+    #[test]
+    fn test_generate_with_cache_success() {
+        let config = AprTransformerConfig {
+            hidden_dim: 32,
+            num_layers: 1,
+            vocab_size: 50,
+            intermediate_dim: 64,
+            num_heads: 4,
+            num_kv_heads: 4,
+            context_length: 128,
+            ..Default::default()
+        };
+        let transformer = AprTransformer::new(config);
+        let gen_config = GenerateConfig {
+            max_tokens: 3,
+            temperature: 0.0, // Greedy
+            ..Default::default()
+        };
+
+        let result = transformer.generate_with_cache(&[1, 2], &gen_config);
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert!(output.len() >= 2); // At least the prompt
+    }
+
+    #[test]
+    fn test_generate_with_cache_temperature_sampling() {
+        let config = AprTransformerConfig {
+            hidden_dim: 32,
+            num_layers: 1,
+            vocab_size: 50,
+            intermediate_dim: 64,
+            num_heads: 4,
+            num_kv_heads: 4,
+            context_length: 128,
+            ..Default::default()
+        };
+        let transformer = AprTransformer::new(config);
+        let gen_config = GenerateConfig {
+            max_tokens: 2,
+            temperature: 1.0, // Temperature sampling
+            ..Default::default()
+        };
+
+        let result = transformer.generate_with_cache(&[1], &gen_config);
+        assert!(result.is_ok());
+    }
+
+    // ==========================================================================
+    // AprTransformer.forward_with_cache tests
+    // ==========================================================================
+
+    #[test]
+    fn test_forward_with_cache_single_token() {
+        let config = AprTransformerConfig {
+            hidden_dim: 32,
+            num_layers: 2,
+            vocab_size: 50,
+            intermediate_dim: 64,
+            num_heads: 4,
+            num_kv_heads: 4,
+            context_length: 128,
+            ..Default::default()
+        };
+        let transformer = AprTransformer::new(config.clone());
+        let mut cache = AprKVCache::new(&config);
+
+        let result = transformer.forward_with_cache(1, &mut cache, 0);
+        assert!(result.is_ok());
+        let logits = result.unwrap();
+        assert_eq!(logits.len(), 50);
+    }
+
+    #[test]
+    fn test_forward_with_cache_multiple_tokens() {
+        let config = AprTransformerConfig {
+            hidden_dim: 32,
+            num_layers: 2,
+            vocab_size: 50,
+            intermediate_dim: 64,
+            num_heads: 4,
+            num_kv_heads: 4,
+            context_length: 128,
+            ..Default::default()
+        };
+        let transformer = AprTransformer::new(config.clone());
+        let mut cache = AprKVCache::new(&config);
+
+        // Process multiple tokens sequentially
+        for (i, &token) in [1, 2, 3].iter().enumerate() {
+            let result = transformer.forward_with_cache(token, &mut cache, i);
+            assert!(result.is_ok());
+        }
+        assert_eq!(cache.len(), 3);
+    }
+
+    #[test]
+    fn test_forward_with_cache_gqa() {
+        // Test GQA model (num_kv_heads < num_heads)
+        let config = AprTransformerConfig {
+            hidden_dim: 32,
+            num_layers: 1,
+            vocab_size: 50,
+            intermediate_dim: 64,
+            num_heads: 8,
+            num_kv_heads: 2, // GQA
+            context_length: 128,
+            ..Default::default()
+        };
+
+        // Create GQA-sized layers
+        let layers: Vec<AprTransformerLayer> = (0..config.num_layers)
+            .map(|_| {
+                AprTransformerLayer::empty_gqa(
+                    config.hidden_dim,
+                    config.num_heads,
+                    config.num_kv_heads,
+                    config.intermediate_dim,
+                )
+            })
+            .collect();
+
+        let transformer = AprTransformer {
+            config: config.clone(),
+            token_embedding: vec![0.1; config.vocab_size * config.hidden_dim],
+            layers,
+            output_norm_weight: vec![1.0; config.hidden_dim],
+            output_norm_bias: None,
+            lm_head_weight: vec![0.0; config.hidden_dim * config.vocab_size],
+            lm_head_bias: None,
+        };
+
+        let mut cache = AprKVCache::new(&config);
+        let result = transformer.forward_with_cache(1, &mut cache, 0);
+        assert!(result.is_ok());
+    }
+
+    // ==========================================================================
+    // AprTransformer add_bias helper
+    // ==========================================================================
+
+    #[test]
+    fn test_add_bias_single_element() {
+        let config = AprTransformerConfig::default();
+        let transformer = AprTransformer::new(config);
+
+        let mut data = vec![1.0, 2.0, 3.0, 4.0];
+        let bias = vec![0.5, 1.0, 1.5, 2.0];
+        transformer.add_bias(&mut data, &bias);
+
+        assert_eq!(data, vec![1.5, 3.0, 4.5, 6.0]);
+    }
+
+    #[test]
+    fn test_add_bias_multiple_elements() {
+        let config = AprTransformerConfig::default();
+        let transformer = AprTransformer::new(config);
+
+        // Data with 8 elements, bias with 4 (wraps around)
+        let mut data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+        let bias = vec![0.1, 0.2, 0.3, 0.4];
+        transformer.add_bias(&mut data, &bias);
+
+        assert!((data[0] - 1.1).abs() < 0.001);
+        assert!((data[4] - 5.1).abs() < 0.001);
+        assert!((data[7] - 8.4).abs() < 0.001);
+    }
+
+    // ==========================================================================
+    // MmapAprTransformer tests
+    // ==========================================================================
+
+    #[test]
+    fn test_mmap_from_file_invalid_short() {
+        // Create a temporary file that's too short
+        use std::io::Write;
+        let dir = std::env::temp_dir();
+        let path = dir.join("test_short.apr");
+        let mut file = std::fs::File::create(&path).expect("create file");
+        file.write_all(b"APRT").expect("write magic");
+        drop(file);
+
+        let result = MmapAprTransformer::from_file(&path);
+        assert!(result.is_err());
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn test_mmap_from_file_invalid_magic() {
+        use std::io::Write;
+        let dir = std::env::temp_dir();
+        let path = dir.join("test_bad_magic.apr");
+        let mut file = std::fs::File::create(&path).expect("create file");
+        // Write 64 bytes with invalid magic
+        let data = vec![0u8; 64];
+        file.write_all(&data).expect("write data");
+        drop(file);
+
+        let result = MmapAprTransformer::from_file(&path);
+        assert!(result.is_err());
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn test_mmap_from_file_invalid_version() {
+        use std::io::Write;
+        let dir = std::env::temp_dir();
+        let path = dir.join("test_bad_version.apr");
+        let mut file = std::fs::File::create(&path).expect("create file");
+
+        // Write APRT magic
+        file.write_all(b"APRT").expect("write magic");
+        // Write very high version number
+        file.write_all(&100u32.to_le_bytes()).expect("write version");
+        // Pad to 64 bytes
+        let padding = vec![0u8; 56];
+        file.write_all(&padding).expect("write padding");
+        drop(file);
+
+        let result = MmapAprTransformer::from_file(&path);
+        assert!(result.is_err());
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn test_mmap_valid_file() {
+        use std::io::Write;
+        let dir = std::env::temp_dir();
+        let path = dir.join("test_valid.apr");
+        let mut file = std::fs::File::create(&path).expect("create file");
+
+        // Header layout (64 bytes):
+        // 0-3: Magic (APRT)
+        // 4-7: Version (u32)
+        // 8-11: hidden_dim (u32)
+        // 12-15: num_layers (u32)
+        // 16-19: num_heads (u32)
+        // 20-23: num_kv_heads (u32)
+        // 24-27: vocab_size (u32)
+        // 28-31: intermediate_dim (u32)
+        // 32-35: context_length (u32)
+        // 36-39: rope_theta (f32)
+        // 40-43: eps (f32)
+        // 44-47: tensor_data_offset (u32)
+        // 48-63: padding
+
+        file.write_all(b"APRT").expect("magic");            // 0-3
+        file.write_all(&1u32.to_le_bytes()).expect("version");        // 4-7
+        file.write_all(&64u32.to_le_bytes()).expect("hidden_dim");    // 8-11
+        file.write_all(&2u32.to_le_bytes()).expect("num_layers");     // 12-15
+        file.write_all(&8u32.to_le_bytes()).expect("num_heads");      // 16-19
+        file.write_all(&8u32.to_le_bytes()).expect("num_kv_heads");   // 20-23
+        file.write_all(&100u32.to_le_bytes()).expect("vocab_size");   // 24-27
+        file.write_all(&128u32.to_le_bytes()).expect("intermediate"); // 28-31
+        file.write_all(&2048u32.to_le_bytes()).expect("context_len"); // 32-35
+        file.write_all(&10000.0f32.to_le_bytes()).expect("rope");     // 36-39
+        file.write_all(&1e-5f32.to_le_bytes()).expect("eps");         // 40-43
+        file.write_all(&64u32.to_le_bytes()).expect("tensor_offset"); // 44-47
+        file.write_all(&[0u8; 16]).expect("padding");                 // 48-63
+
+        drop(file);
+
+        let result = MmapAprTransformer::from_file(&path);
+        assert!(result.is_ok(), "Failed to load mmap file: {:?}", result);
+
+        let model = result.unwrap();
+        assert!(model.is_mmap());
+        assert_eq!(model.config.hidden_dim, 64);
+        assert_eq!(model.config.num_layers, 2);
+        assert_eq!(model.file_size(), 64);
+        assert!(model.num_parameters() > 0);
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn test_mmap_get_tensor_bytes() {
+        use std::io::Write;
+        let dir = std::env::temp_dir();
+        let path = dir.join("test_tensor_bytes.apr");
+        let mut file = std::fs::File::create(&path).expect("create file");
+
+        // Write valid header (64 bytes) with tensor_data_offset = 64
+        file.write_all(b"APRT").expect("magic");                      // 0-3
+        file.write_all(&1u32.to_le_bytes()).expect("version");        // 4-7
+        file.write_all(&64u32.to_le_bytes()).expect("hidden_dim");    // 8-11
+        file.write_all(&2u32.to_le_bytes()).expect("num_layers");     // 12-15
+        file.write_all(&8u32.to_le_bytes()).expect("num_heads");      // 16-19
+        file.write_all(&8u32.to_le_bytes()).expect("num_kv_heads");   // 20-23
+        file.write_all(&100u32.to_le_bytes()).expect("vocab_size");   // 24-27
+        file.write_all(&128u32.to_le_bytes()).expect("intermediate"); // 28-31
+        file.write_all(&2048u32.to_le_bytes()).expect("context_len"); // 32-35
+        file.write_all(&10000.0f32.to_le_bytes()).expect("rope");     // 36-39
+        file.write_all(&1e-5f32.to_le_bytes()).expect("eps");         // 40-43
+        file.write_all(&64u32.to_le_bytes()).expect("tensor_offset"); // 44-47
+        file.write_all(&[0u8; 16]).expect("padding");                 // 48-63
+
+        // Write tensor data at offset 64 (immediately after header)
+        let tensor_data = [1.0f32, 2.0, 3.0, 4.0];
+        for v in &tensor_data {
+            file.write_all(&v.to_le_bytes()).expect("tensor");
+        }
+        drop(file);
+
+        let model = MmapAprTransformer::from_file(&path).expect("load");
+
+        // Test get_tensor_bytes - offset is relative to tensor_data_offset (64)
+        let bytes = model.get_tensor_bytes(0, 8).expect("get bytes");
+        assert_eq!(bytes.len(), 8);
+
+        // Test get_tensor_bytes out of bounds
+        let result = model.get_tensor_bytes(0, 1000);
+        assert!(result.is_err());
+
+        // Test get_tensor_f32 - reads from tensor data section
+        let floats = model.get_tensor_f32(0, 2).expect("get floats");
+        assert_eq!(floats.len(), 2);
+        assert!((floats[0] - 1.0).abs() < 0.001, "Expected 1.0, got {}", floats[0]);
+        assert!((floats[1] - 2.0).abs() < 0.001, "Expected 2.0, got {}", floats[1]);
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    // ==========================================================================
+    // from_apr_bytes valid data tests
+    // ==========================================================================
+
+    #[test]
+    fn test_from_apr_bytes_valid_apr2() {
+        // Create minimal valid APR2 data
+        let mut data = vec![0u8; 128];
+
+        // APR2 magic
+        data[0..4].copy_from_slice(b"APR2");
+
+        // Version 1.0
+        data[4] = 1;
+        data[5] = 0;
+
+        // Flags
+        data[6..8].copy_from_slice(&0u16.to_le_bytes());
+
+        // Tensor count = 0
+        data[8..12].copy_from_slice(&0u32.to_le_bytes());
+
+        // Metadata offset = 64, size = 32
+        data[12..20].copy_from_slice(&64u64.to_le_bytes());
+        data[20..24].copy_from_slice(&32u32.to_le_bytes());
+
+        // Tensor index offset = 96
+        data[24..32].copy_from_slice(&96u64.to_le_bytes());
+
+        // Data offset = 96
+        data[32..40].copy_from_slice(&96u64.to_le_bytes());
+
+        // Checksum
+        data[40..44].copy_from_slice(&0u32.to_le_bytes());
+
+        // Metadata JSON at offset 64 (minimal)
+        let metadata = b"{}";
+        data[64..64 + metadata.len()].copy_from_slice(metadata);
+
+        let result = AprTransformer::from_apr_bytes(&data);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_from_apr_bytes_valid_aprn() {
+        // Create minimal valid APRN data
+        let mut data = vec![0u8; 128];
+
+        // APRN magic
+        data[0..4].copy_from_slice(b"APRN");
+
+        // Version 1.0
+        data[4] = 1;
+        data[5] = 0;
+
+        // Tensor count = 0
+        data[8..12].copy_from_slice(&0u32.to_le_bytes());
+
+        // Metadata offset = 64, size = 2
+        data[12..20].copy_from_slice(&64u64.to_le_bytes());
+        data[20..24].copy_from_slice(&2u32.to_le_bytes());
+
+        // Tensor index offset = 66
+        data[24..32].copy_from_slice(&66u64.to_le_bytes());
+
+        // Data offset = 66
+        data[32..40].copy_from_slice(&66u64.to_le_bytes());
+
+        // Metadata JSON at offset 64
+        data[64..66].copy_from_slice(b"{}");
+
+        let result = AprTransformer::from_apr_bytes(&data);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_from_apr_bytes_metadata_out_of_bounds() {
+        let mut data = vec![0u8; 64];
+        data[0..4].copy_from_slice(b"APR2");
+
+        // Set metadata offset beyond file size
+        data[12..20].copy_from_slice(&1000u64.to_le_bytes());
+        data[20..24].copy_from_slice(&100u32.to_le_bytes());
+
+        let result = AprTransformer::from_apr_bytes(&data);
+        assert!(result.is_err());
+    }
+
+    // ==========================================================================
+    // QuantizedAprTransformer.forward error paths
+    // ==========================================================================
+
+    #[test]
+    fn test_quantized_forward_empty_tokens() {
+        let config = AprTransformerConfig {
+            hidden_dim: 32,
+            num_layers: 1,
+            vocab_size: 50,
+            ..Default::default()
+        };
+        let qt = QuantizedAprTransformer::new(config, AprQuantizationType::F32);
+        let result = qt.forward(&[]);
+        assert!(result.is_err());
+    }
+
+    // ==========================================================================
+    // AprTransformer matmul_scalar fallback
+    // ==========================================================================
+
+    #[test]
+    fn test_matmul_scalar_direct() {
+        let config = AprTransformerConfig {
+            hidden_dim: 4,
+            ..Default::default()
+        };
+        let transformer = AprTransformer::new(config);
+
+        let input = vec![1.0, 2.0];
+        let weight = vec![1.0, 2.0, 3.0, 4.0]; // 2x2
+        let output = transformer.matmul_scalar(&input, &weight, 2, 2);
+
+        // [1, 2] x [[1, 2], [3, 4]] = [1*1+2*3, 1*2+2*4] = [7, 10]
+        assert_eq!(output.len(), 2);
+        assert!((output[0] - 7.0).abs() < 0.001);
+        assert!((output[1] - 10.0).abs() < 0.001);
+    }
+
+    // ==========================================================================
+    // QuantizedAprLayerQ4 tests
+    // ==========================================================================
+
+    #[test]
+    fn test_quantized_layer_q4_construction() {
+        let layer = QuantizedAprLayerQ4 {
+            attn_norm_weight: vec![1.0; 64],
+            qkv_weight: QuantizedAprTensorQ4::zeros(64, 192),
+            attn_output_weight: QuantizedAprTensorQ4::zeros(64, 64),
+            ffn_up_weight: QuantizedAprTensorQ4::zeros(64, 256),
+            ffn_down_weight: QuantizedAprTensorQ4::zeros(256, 64),
+            ffn_gate_weight: Some(QuantizedAprTensorQ4::zeros(64, 256)),
+            ffn_norm_weight: Some(vec![1.0; 64]),
+        };
+
+        assert_eq!(layer.attn_norm_weight.len(), 64);
+        assert!(layer.ffn_gate_weight.is_some());
+        assert!(layer.ffn_norm_weight.is_some());
+    }
+
+    // ==========================================================================
+    // AprTransformer.generate tests
+    // ==========================================================================
+
+    #[test]
+    fn test_generate_stops_at_eos() {
+        let config = AprTransformerConfig {
+            hidden_dim: 32,
+            num_layers: 1,
+            vocab_size: 50,
+            intermediate_dim: 64,
+            num_heads: 4,
+            num_kv_heads: 4,
+            ..Default::default()
+        };
+        let transformer = AprTransformer::new(config);
+
+        // Generate should work (may stop early at EOS)
+        let result = transformer.generate(&[1], 5);
+        assert!(result.is_ok());
+    }
+
+    // ==========================================================================
+    // Layer with biases tests
+    // ==========================================================================
+
+    #[test]
+    fn test_layer_with_all_biases() {
+        // Layer without biases but with ffn_gate (SwiGLU)
+        let layer_no_bias = AprTransformerLayer {
+            attn_norm_weight: vec![1.0; 32],
+            attn_norm_bias: None,
+            qkv_weight: vec![0.0; 32 * 96],
+            qkv_bias: None,
+            attn_output_weight: vec![0.0; 32 * 32],
+            attn_output_bias: None,
+            ffn_gate_weight: Some(vec![0.0; 32 * 64]),
+            ffn_gate_bias: None,
+            ffn_up_weight: vec![0.0; 32 * 64],
+            ffn_up_bias: None,
+            ffn_down_weight: vec![0.0; 64 * 32],
+            ffn_down_bias: None,
+            ffn_norm_weight: Some(vec![1.0; 32]),
+            ffn_norm_bias: None,
+        };
+
+        // Same layer but with all biases added
+        let layer_with_bias = AprTransformerLayer {
+            attn_norm_weight: vec![1.0; 32],
+            attn_norm_bias: Some(vec![0.1; 32]),
+            qkv_weight: vec![0.0; 32 * 96],
+            qkv_bias: Some(vec![0.1; 96]),
+            attn_output_weight: vec![0.0; 32 * 32],
+            attn_output_bias: Some(vec![0.1; 32]),
+            ffn_gate_weight: Some(vec![0.0; 32 * 64]),
+            ffn_gate_bias: Some(vec![0.1; 64]),
+            ffn_up_weight: vec![0.0; 32 * 64],
+            ffn_up_bias: Some(vec![0.1; 64]),
+            ffn_down_weight: vec![0.0; 64 * 32],
+            ffn_down_bias: Some(vec![0.1; 32]),
+            ffn_norm_weight: Some(vec![1.0; 32]),
+            ffn_norm_bias: Some(vec![0.1; 32]),
+        };
+
+        let params_no_bias = layer_no_bias.num_parameters();
+        let params_with_bias = layer_with_bias.num_parameters();
+
+        // Biases add: 32 + 96 + 32 + 64 + 64 + 32 + 32 = 352 parameters
+        let expected_extra = 32 + 96 + 32 + 64 + 64 + 32 + 32;
+        assert!(params_with_bias > params_no_bias);
+        assert_eq!(params_with_bias - params_no_bias, expected_extra);
+    }
+
+    // ==========================================================================
+    // AprParityComparison tests
+    // ==========================================================================
+
+    #[test]
+    fn test_parity_comparison_clone_and_debug() {
+        let comp = AprParityComparison {
+            throughput_ratio: 0.95,
+            memory_ratio: 1.1,
+            parity_threshold_pct: 90.0,
+        };
+        let cloned = comp.clone();
+        assert_eq!(cloned.throughput_ratio, 0.95);
+
+        let debug_str = format!("{:?}", comp);
+        assert!(debug_str.contains("AprParityComparison"));
+    }
+
+    // ==========================================================================
+    // AprTransformer forward with layer biases
+    // ==========================================================================
+
+    #[test]
+    fn test_forward_with_layer_biases() {
+        let config = AprTransformerConfig {
+            hidden_dim: 32,
+            num_layers: 1,
+            vocab_size: 50,
+            intermediate_dim: 64,
+            num_heads: 4,
+            num_kv_heads: 4,
+            ..Default::default()
+        };
+
+        let layers = vec![AprTransformerLayer {
+            attn_norm_weight: vec![1.0; 32],
+            attn_norm_bias: Some(vec![0.0; 32]),
+            qkv_weight: vec![0.0; 32 * 96],
+            qkv_bias: Some(vec![0.0; 96]),
+            attn_output_weight: vec![0.0; 32 * 32],
+            attn_output_bias: Some(vec![0.0; 32]),
+            ffn_gate_weight: None,
+            ffn_gate_bias: None,
+            ffn_up_weight: vec![0.0; 32 * 64],
+            ffn_up_bias: Some(vec![0.0; 64]),
+            ffn_down_weight: vec![0.0; 64 * 32],
+            ffn_down_bias: Some(vec![0.0; 32]),
+            ffn_norm_weight: None,
+            ffn_norm_bias: None,
+        }];
+
+        let transformer = AprTransformer {
+            config: config.clone(),
+            token_embedding: vec![0.1; config.vocab_size * config.hidden_dim],
+            layers,
+            output_norm_weight: vec![1.0; 32],
+            output_norm_bias: Some(vec![0.0; 32]),
+            lm_head_weight: vec![0.0; 32 * 50],
+            lm_head_bias: Some(vec![0.0; 50]),
+        };
+
+        let result = transformer.forward(&[1, 2]);
+        assert!(result.is_ok());
+        let logits = result.unwrap();
+        assert_eq!(logits.len(), 50);
+    }
+
+    // ==========================================================================
+    // QuantizedAprTransformer extended tests
+    // ==========================================================================
+
+    #[test]
+    fn test_quantized_from_f32_transformer() {
+        let config = AprTransformerConfig {
+            hidden_dim: 32,
+            num_layers: 1,
+            vocab_size: 50,
+            intermediate_dim: 64,
+            ..Default::default()
+        };
+        let f32_model = AprTransformer::new(config);
+        let qt = QuantizedAprTransformer::from_f32_transformer(&f32_model, AprQuantizationType::Q8_0);
+
+        assert_eq!(qt.quantization_type(), AprQuantizationType::Q8_0);
+        assert_eq!(qt.config().hidden_dim, 32);
+    }
+
+    #[test]
+    fn test_quantized_bits_per_weight() {
+        let config = AprTransformerConfig {
+            hidden_dim: 32,
+            num_layers: 1,
+            vocab_size: 50,
+            ..Default::default()
+        };
+
+        let qt_f32 = QuantizedAprTransformer::new(config.clone(), AprQuantizationType::F32);
+        assert_eq!(qt_f32.bits_per_weight(), 32.0);
+
+        let qt_q4 = QuantizedAprTransformer::new(config.clone(), AprQuantizationType::Q4_K);
+        assert!((qt_q4.bits_per_weight() - 4.5).abs() < 0.1);
+
+        let qt_q8 = QuantizedAprTransformer::new(config, AprQuantizationType::Q8_0);
+        assert!((qt_q8.bits_per_weight() - 8.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_quantized_roundtrip_q8() {
+        let config = AprTransformerConfig {
+            hidden_dim: 32,
+            num_layers: 1,
+            vocab_size: 64,
+            intermediate_dim: 64,
+            num_heads: 4,
+            num_kv_heads: 4,
+            ..Default::default()
+        };
+        let qt = QuantizedAprTransformer::new(config.clone(), AprQuantizationType::Q8_0);
+
+        let bytes = qt.to_bytes().expect("serialize");
+        let restored = QuantizedAprTransformer::from_bytes(&bytes).expect("deserialize");
+
+        assert_eq!(restored.config().hidden_dim, config.hidden_dim);
+        assert_eq!(restored.quantization_type(), AprQuantizationType::Q8_0);
+    }
+
+    #[test]
+    fn test_quantized_forward_multiple_tokens() {
+        let config = AprTransformerConfig {
+            hidden_dim: 32,
+            num_layers: 1,
+            vocab_size: 50,
+            intermediate_dim: 64,
+            num_heads: 4,
+            num_kv_heads: 4,
+            ..Default::default()
+        };
+        let qt = QuantizedAprTransformer::new(config, AprQuantizationType::F32);
+
+        let result = qt.forward(&[1, 2, 3, 4, 5]);
+        assert!(result.is_ok());
+        let logits = result.unwrap();
+        assert_eq!(logits.len(), 50);
+    }
+
+    #[test]
+    fn test_quantized_forward_oov_token() {
+        let config = AprTransformerConfig {
+            hidden_dim: 32,
+            num_layers: 1,
+            vocab_size: 50,
+            ..Default::default()
+        };
+        let qt = QuantizedAprTransformer::new(config, AprQuantizationType::F32);
+
+        // Token 999 is out of vocabulary
+        let result = qt.forward(&[999]);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_quantized_forward_with_cache_oov() {
+        let config = AprTransformerConfig {
+            hidden_dim: 32,
+            num_layers: 2,
+            vocab_size: 50,
+            intermediate_dim: 64,
+            num_heads: 4,
+            num_kv_heads: 4,
+            context_length: 128,
+            ..Default::default()
+        };
+        let qt = QuantizedAprTransformer::new(config.clone(), AprQuantizationType::F32);
+        let mut cache = AprKVCache::new(&config);
+
+        // OOV token should be handled (fills with zeros)
+        let result = qt.forward_with_cache(99999, &mut cache, 0);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_quantized_num_parameters() {
+        let config = AprTransformerConfig {
+            hidden_dim: 64,
+            num_layers: 2,
+            vocab_size: 100,
+            intermediate_dim: 256,
+            ..Default::default()
+        };
+        let qt = QuantizedAprTransformer::new(config, AprQuantizationType::F32);
+
+        let params = qt.num_parameters();
+        assert!(params > 0);
+    }
+
+    // ==========================================================================
+    // AprTransformer generate and cache tests
+    // ==========================================================================
+
+    #[test]
+    fn test_generate_basic() {
+        let config = AprTransformerConfig {
+            hidden_dim: 32,
+            num_layers: 1,
+            vocab_size: 50,
+            intermediate_dim: 64,
+            num_heads: 4,
+            num_kv_heads: 4,
+            ..Default::default()
+        };
+        let transformer = AprTransformer::new(config);
+
+        let result = transformer.generate(&[1, 2, 3], 3);
+        assert!(result.is_ok());
+        let tokens = result.unwrap();
+        assert!(tokens.len() >= 3); // At least prompt length
+    }
+
+    #[test]
+    fn test_generate_empty_prompt() {
+        let config = AprTransformerConfig {
+            hidden_dim: 32,
+            num_layers: 1,
+            vocab_size: 50,
+            ..Default::default()
+        };
+        let transformer = AprTransformer::new(config);
+
+        let result = transformer.generate(&[], 5);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_generate_with_cache_repetition_penalty() {
+        let config = AprTransformerConfig {
+            hidden_dim: 32,
+            num_layers: 1,
+            vocab_size: 50,
+            intermediate_dim: 64,
+            num_heads: 4,
+            num_kv_heads: 4,
+            context_length: 128,
+            ..Default::default()
+        };
+        let transformer = AprTransformer::new(config);
+        let gen_config = GenerateConfig {
+            max_tokens: 3,
+            repetition_penalty: 1.5,
+            ..Default::default()
+        };
+
+        let result = transformer.generate_with_cache(&[1, 2], &gen_config);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_generate_with_cache_top_k() {
+        let config = AprTransformerConfig {
+            hidden_dim: 32,
+            num_layers: 1,
+            vocab_size: 50,
+            intermediate_dim: 64,
+            num_heads: 4,
+            num_kv_heads: 4,
+            context_length: 128,
+            ..Default::default()
+        };
+        let transformer = AprTransformer::new(config);
+        let gen_config = GenerateConfig {
+            max_tokens: 2,
+            top_k: 10,
+            ..Default::default()
+        };
+
+        let result = transformer.generate_with_cache(&[1], &gen_config);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_generate_with_cache_top_p() {
+        let config = AprTransformerConfig {
+            hidden_dim: 32,
+            num_layers: 1,
+            vocab_size: 50,
+            intermediate_dim: 64,
+            num_heads: 4,
+            num_kv_heads: 4,
+            context_length: 128,
+            ..Default::default()
+        };
+        let transformer = AprTransformer::new(config);
+        let gen_config = GenerateConfig {
+            max_tokens: 2,
+            top_p: 0.9,
+            ..Default::default()
+        };
+
+        let result = transformer.generate_with_cache(&[1], &gen_config);
+        assert!(result.is_ok());
+    }
+
 }
