@@ -784,7 +784,11 @@ mod gpu_batch_tests {
         // Second borrow should allocate (only 1 in pool)
         let _b2 = pool.borrow_hidden();
 
-        assert!(pool.post_warmup_allocs.load(std::sync::atomic::Ordering::Relaxed) >= 1);
+        assert!(
+            pool.post_warmup_allocs
+                .load(std::sync::atomic::Ordering::Relaxed)
+                >= 1
+        );
     }
 
     #[test]

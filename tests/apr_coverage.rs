@@ -161,7 +161,9 @@ fn test_mapped_apr_model_find_tensor_not_exists() {
 fn test_mapped_apr_model_get_tensor_data_valid() {
     let temp = create_apr_file();
     let model = MappedAprModel::from_path(temp.path()).expect("should load");
-    let data = model.get_tensor_data("test.weight").expect("should get data");
+    let data = model
+        .get_tensor_data("test.weight")
+        .expect("should get data");
     assert_eq!(data.len(), 64);
 }
 
@@ -437,8 +439,7 @@ fn test_apr_flags_has_vocab() {
 
 #[test]
 fn test_apr_flags_combined() {
-    let flags =
-        AprFlags::new(AprFlags::LZ4_COMPRESSED | AprFlags::QUANTIZED | AprFlags::HAS_VOCAB);
+    let flags = AprFlags::new(AprFlags::LZ4_COMPRESSED | AprFlags::QUANTIZED | AprFlags::HAS_VOCAB);
     assert!(flags.is_lz4());
     assert!(flags.is_quantized());
     assert!(flags.has_vocab());
@@ -516,7 +517,11 @@ fn test_tensor_entry_dtypes() {
     for (dtype_byte, expected) in dtypes {
         let data = create_binary_tensor_entry("test", dtype_byte, &[1], 0, 4);
         let (entry, _) = TensorEntry::from_binary(&data).expect("should parse");
-        assert_eq!(entry.dtype, expected, "dtype byte {} should be {}", dtype_byte, expected);
+        assert_eq!(
+            entry.dtype, expected,
+            "dtype byte {} should be {}",
+            dtype_byte, expected
+        );
     }
 }
 
@@ -839,7 +844,9 @@ fn test_apr_v2_model_get_tensor_f32_not_found() {
 fn test_apr_v2_model_get_tensor_bytes() {
     let data = create_minimal_apr_model();
     let model = AprV2Model::from_bytes(data).expect("should load");
-    let bytes = model.get_tensor_bytes("test.weight").expect("should get bytes");
+    let bytes = model
+        .get_tensor_bytes("test.weight")
+        .expect("should get bytes");
     assert_eq!(bytes.len(), 64);
 }
 

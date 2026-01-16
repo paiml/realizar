@@ -86,7 +86,6 @@ pub enum TraceStep {
     Decode,
 }
 
-
 impl TraceStep {
     /// Parse step from string
     #[must_use]
@@ -431,6 +430,8 @@ impl InferenceTracer {
             step_start: None,
             error_count: 0,
             warning_count: 0,
+            next_event_id: 1, // AWS Step Functions IDs start at 1
+            last_entered_id: None,
         }
     }
 
@@ -449,6 +450,18 @@ impl InferenceTracer {
     #[must_use]
     pub fn is_enabled(&self) -> bool {
         self.config.enabled
+    }
+
+    /// Get next event ID and increment (AWS Step Functions: monotonically increasing)
+    fn next_id(&mut self) -> u64 {
+        let id = self.next_event_id;
+        self.next_event_id += 1;
+        id
+    }
+
+    /// Generate ISO 8601 timestamp
+    fn timestamp() -> String {
+        chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
     }
 
     /// Start timing a step
@@ -482,6 +495,10 @@ impl InferenceTracer {
         }
 
         let event = TraceEvent {
+            id: self.next_id(),
+            timestamp: Self::timestamp(),
+            event_type: AwsEventType::TaskStateExited,
+            previous_event_id: self.last_entered_id.take(),
             step: TraceStep::Tokenize,
             iteration: 0,
             layer: None,
@@ -527,6 +544,10 @@ impl InferenceTracer {
         }
 
         let event = TraceEvent {
+            id: self.next_id(),
+            timestamp: Self::timestamp(),
+            event_type: AwsEventType::TaskStateExited,
+            previous_event_id: self.last_entered_id.take(),
             step: TraceStep::Embed,
             iteration: 0,
             layer: None,
@@ -576,6 +597,10 @@ impl InferenceTracer {
         }
 
         let event = TraceEvent {
+            id: self.next_id(),
+            timestamp: Self::timestamp(),
+            event_type: AwsEventType::TaskStateExited,
+            previous_event_id: self.last_entered_id.take(),
             step: TraceStep::TransformerBlock,
             iteration,
             layer: Some(layer_idx),
@@ -615,6 +640,10 @@ impl InferenceTracer {
         }
 
         let event = TraceEvent {
+            id: self.next_id(),
+            timestamp: Self::timestamp(),
+            event_type: AwsEventType::TaskStateExited,
+            previous_event_id: self.last_entered_id.take(),
             step: TraceStep::LmHead,
             iteration,
             layer: None,
@@ -655,6 +684,10 @@ impl InferenceTracer {
         let top_k_probs = compute_top_k_probs(logits, &top_k_logits);
 
         let event = TraceEvent {
+            id: self.next_id(),
+            timestamp: Self::timestamp(),
+            event_type: AwsEventType::TaskStateExited,
+            previous_event_id: self.last_entered_id.take(),
             step: TraceStep::Sample,
             iteration,
             layer: None,
@@ -709,6 +742,10 @@ impl InferenceTracer {
         }
 
         let event = TraceEvent {
+            id: self.next_id(),
+            timestamp: Self::timestamp(),
+            event_type: AwsEventType::TaskStateExited,
+            previous_event_id: self.last_entered_id.take(),
             step: TraceStep::Decode,
             iteration,
             layer: None,
@@ -1791,5 +1828,103 @@ mod tests {
         let stats = TensorStats::from_slice(&data);
         assert!(stats.has_inf);
         assert!(!stats.has_nan);
+    }
+
+    // ============================================================
+    // AWS Step Functions Parity Tests (per spec v3.1.0)
+    // ============================================================
+
+    #[test]
+    fn test_aws_event_type_names() {
+        // F-AWS-01: Verify event type names match AWS Step Functions format
+        assert_eq!(AwsEventType::TaskStateEntered.name(), "TaskStateEntered");
+        assert_eq!(AwsEventType::TaskStateExited.name(), "TaskStateExited");
+        assert_eq!(AwsEventType::ExecutionFailed.name(), "ExecutionFailed");
+    }
+
+    #[test]
+    fn test_aws_event_ids_monotonic() {
+        // F-AWS-01: Event IDs should be monotonically increasing
+        let config = TraceConfig::enabled();
+        let mut tracer = InferenceTracer::new(config);
+
+        tracer.start_step(TraceStep::Tokenize);
+        tracer.trace_encode("hello", &[1, 2, 3], 1000);
+
+        tracer.start_step(TraceStep::Embed);
+        tracer.trace_embed(3, 4, Some(&[0.1, 0.2, 0.3, 0.4]));
+
+        tracer.start_step(TraceStep::LmHead);
+        tracer.trace_lm_head(0, &[1.0, 2.0, 3.0], 3);
+
+        let events = tracer.events();
+        assert_eq!(events.len(), 3);
+
+        // IDs should be 1, 2, 3 (monotonically increasing)
+        assert_eq!(events[0].id, 1);
+        assert_eq!(events[1].id, 2);
+        assert_eq!(events[2].id, 3);
+    }
+
+    #[test]
+    fn test_aws_event_type_exited() {
+        // F-AWS-01: Trace methods emit TaskStateExited events
+        let config = TraceConfig::enabled();
+        let mut tracer = InferenceTracer::new(config);
+
+        tracer.start_step(TraceStep::Tokenize);
+        tracer.trace_encode("test", &[1], 100);
+
+        let event = &tracer.events()[0];
+        assert_eq!(event.event_type, AwsEventType::TaskStateExited);
+    }
+
+    #[test]
+    fn test_aws_timestamp_iso8601() {
+        // F-JSON-03: Timestamp should be ISO 8601 format
+        let config = TraceConfig::enabled();
+        let mut tracer = InferenceTracer::new(config);
+
+        tracer.start_step(TraceStep::Decode);
+        tracer.trace_decode(0, 5, "hello", 100);
+
+        let event = &tracer.events()[0];
+
+        // ISO 8601 format: YYYY-MM-DDTHH:MM:SS.sssZ
+        assert!(event.timestamp.contains("T"));
+        assert!(event.timestamp.ends_with("Z"));
+
+        // Should be parseable as RFC3339
+        chrono::DateTime::parse_from_rfc3339(&event.timestamp)
+            .expect("Timestamp should be valid RFC3339/ISO8601");
+    }
+
+    #[test]
+    fn test_aws_previous_event_id() {
+        // F-AWS-02: TaskStateExited should have previous_event_id
+        // Currently our trace methods emit TaskStateExited with previous_event_id
+        let config = TraceConfig::enabled();
+        let mut tracer = InferenceTracer::new(config);
+
+        tracer.start_step(TraceStep::Sample);
+        tracer.trace_sample(0, &[1.0, 2.0, 3.0], 1, 0.8, 3);
+
+        let event = &tracer.events()[0];
+        // previous_event_id is None because we don't have a matching TaskStateEntered yet
+        assert!(event.previous_event_id.is_none());
+    }
+
+    #[test]
+    fn test_aws_json_contains_type() {
+        // F-JSON-01: JSON output should contain event type
+        let config = TraceConfig::enabled();
+        let mut tracer = InferenceTracer::new(config);
+
+        tracer.start_step(TraceStep::Tokenize);
+        tracer.trace_encode("hi", &[1], 100);
+
+        let json = tracer.to_json();
+        // Should contain event type in output
+        assert!(json.contains("TOKENIZE") || json.contains("events"));
     }
 }

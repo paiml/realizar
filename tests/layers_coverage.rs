@@ -30,7 +30,11 @@ fn test_softmax_negative_infinity_stability() {
     let output = softmax(&input).expect("test");
 
     for val in output.data() {
-        assert!(val.is_finite(), "Softmax produced non-finite value: {}", val);
+        assert!(
+            val.is_finite(),
+            "Softmax produced non-finite value: {}",
+            val
+        );
     }
 
     let sum: f32 = output.data().iter().sum();
@@ -870,7 +874,11 @@ fn test_scaled_rope_forward_all_types() {
         assert_eq!(output.shape(), &[2, dim]);
 
         for &val in output.data() {
-            assert!(val.is_finite(), "Non-finite value with {:?}", srope.scaling());
+            assert!(
+                val.is_finite(),
+                "Non-finite value with {:?}",
+                srope.scaling()
+            );
         }
     }
 }

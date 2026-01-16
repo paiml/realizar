@@ -5,9 +5,9 @@
 
 use realizar::quantize::{
     dequantize_f16, dequantize_q4_0, dequantize_q4_1, dequantize_q4_k, dequantize_q5_0,
-    dequantize_q5_1, dequantize_q5_k, dequantize_q6_k, dequantize_q8_0, f16_to_f32,
-    fused_q4k_dot, fused_q4k_dot_simd, quantize_to_q8_blocks, InterleavedQ4K, Q8KSuperBlock,
-    Q8_0Block, BLOCK_SIZE, QK_K,
+    dequantize_q5_1, dequantize_q5_k, dequantize_q6_k, dequantize_q8_0, f16_to_f32, fused_q4k_dot,
+    fused_q4k_dot_simd, quantize_to_q8_blocks, InterleavedQ4K, Q8KSuperBlock, Q8_0Block,
+    BLOCK_SIZE, QK_K,
 };
 
 // ============================================================================
@@ -29,11 +29,7 @@ fn test_q4_0_scale_one_quants_zero() {
     // Low nibbles (0-15): q=0, value = 1.0 * (0-8) = -8.0
     // High nibbles (16-31): q=0, value = 1.0 * (0-8) = -8.0
     for val in &result {
-        assert!(
-            (*val - (-8.0)).abs() < 0.01,
-            "Expected -8.0, got {}",
-            val
-        );
+        assert!((*val - (-8.0)).abs() < 0.01, "Expected -8.0, got {}", val);
     }
 }
 
@@ -64,11 +60,7 @@ fn test_q4_0_max_values() {
 
     // Q4_0: value = 1.0 * (15 - 8) = 7.0
     for val in &result {
-        assert!(
-            (*val - 7.0).abs() < 0.01,
-            "Expected 7.0, got {}",
-            val
-        );
+        assert!((*val - 7.0).abs() < 0.01, "Expected 7.0, got {}", val);
     }
 }
 
@@ -141,11 +133,7 @@ fn test_q8_0_positive_quants() {
 
     // 2.0 * 10 = 20.0
     for val in &result {
-        assert!(
-            (*val - 20.0).abs() < 0.01,
-            "Expected 20.0, got {}",
-            val
-        );
+        assert!((*val - 20.0).abs() < 0.01, "Expected 20.0, got {}", val);
     }
 }
 
@@ -161,11 +149,7 @@ fn test_q8_0_negative_quants() {
 
     // 1.0 * (-10) = -10.0
     for val in &result {
-        assert!(
-            (*val - (-10.0)).abs() < 0.01,
-            "Expected -10.0, got {}",
-            val
-        );
+        assert!((*val - (-10.0)).abs() < 0.01, "Expected -10.0, got {}", val);
     }
 }
 
@@ -182,11 +166,7 @@ fn test_q8_0_extremes() {
 
     // First 16: 1.0 * 127 = 127.0
     for val in &result[0..16] {
-        assert!(
-            (*val - 127.0).abs() < 0.1,
-            "Expected 127.0, got {}",
-            val
-        );
+        assert!((*val - 127.0).abs() < 0.1, "Expected 127.0, got {}", val);
     }
     // Second 16: 1.0 * (-128) = -128.0
     for val in &result[16..32] {

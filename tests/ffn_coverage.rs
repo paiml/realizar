@@ -6,8 +6,8 @@
 //! 3. GELU path (line 13720): no ffn_gate
 
 use realizar::gguf::{
-    GGUFConfig, OwnedQuantizedKVCache, OwnedQuantizedLayer, OwnedQuantizedModel,
-    OwnedQuantizedTensor, OwnedQKVWeights,
+    GGUFConfig, OwnedQKVWeights, OwnedQuantizedKVCache, OwnedQuantizedLayer, OwnedQuantizedModel,
+    OwnedQuantizedTensor,
 };
 
 const GGUF_TYPE_Q4_0: u32 = 2;
@@ -34,7 +34,7 @@ fn create_q4_0_data(in_dim: usize, out_dim: usize) -> Vec<u8> {
             for i in 2..18 {
                 // Create pattern: low nibble and high nibble with varying values
                 let idx = (row + block + i) % 16;
-                let low = (idx % 8) as u8;        // 0-7
+                let low = (idx % 8) as u8; // 0-7
                 let high = ((idx + 4) % 8) as u8; // 4-7, 0-3
                 data[offset + i] = (high << 4) | low;
             }
@@ -116,7 +116,7 @@ fn create_fused_swiglu_layer(config: &GGUFConfig) -> OwnedQuantizedLayer {
         ffn_gate_weight: Some(create_test_tensor(hidden_dim, intermediate_dim)), // SwiGLU
         ffn_gate_bias: None,
         ffn_norm_weight: Some(vec![1.0f32; hidden_dim]), // FFN norm for RMSNorm path
-        ffn_norm_bias: None, // No bias = RMSNorm
+        ffn_norm_bias: None,                             // No bias = RMSNorm
     }
 }
 
@@ -175,17 +175,15 @@ fn create_model(config: &GGUFConfig, layer: OwnedQuantizedLayer) -> OwnedQuantiz
     let hidden_dim = config.hidden_dim;
     let vocab_size = config.vocab_size;
 
-    OwnedQuantizedModel {
-        config: config.clone(),
-        token_embedding: vec![0.1f32; vocab_size * hidden_dim],
-        layers: vec![layer],
-        output_norm_weight: vec![1.0f32; hidden_dim],
-        output_norm_bias: None,
-        lm_head_weight: create_test_tensor(hidden_dim, vocab_size),
-        lm_head_bias: None,
-        #[cfg(feature = "cuda")]
-        cuda_model: None,
-    }
+    OwnedQuantizedModel::new_for_test(
+        config.clone(),
+        vec![0.1f32; vocab_size * hidden_dim],
+        vec![layer],
+        vec![1.0f32; hidden_dim],
+        None,
+        create_test_tensor(hidden_dim, vocab_size),
+        None,
+    )
 }
 
 // =============================================================================
@@ -200,11 +198,15 @@ fn test_ffn_path1_gelu_forward() {
     let mut cache = OwnedQuantizedKVCache::from_config(&config, 64);
 
     // Forward pass should succeed
-    let logits = model.forward_single_with_cache(1, &mut cache, 0)
+    let logits = model
+        .forward_single_with_cache(1, &mut cache, 0)
         .expect("GELU path forward should succeed");
 
     assert_eq!(logits.len(), config.vocab_size);
-    assert!(logits.iter().all(|x| x.is_finite()), "All logits should be finite");
+    assert!(
+        logits.iter().all(|x| x.is_finite()),
+        "All logits should be finite"
+    );
 }
 
 #[test]
@@ -216,7 +218,8 @@ fn test_ffn_path1_gelu_generates_tokens() {
 
     // Multiple forward passes (simulating generation)
     for pos in 0..5 {
-        let logits = model.forward_single_with_cache(pos as u32 + 1, &mut cache, pos)
+        let logits = model
+            .forward_single_with_cache(pos as u32 + 1, &mut cache, pos)
             .expect("Forward should succeed");
         assert_eq!(logits.len(), config.vocab_size);
     }
@@ -234,11 +237,15 @@ fn test_ffn_path2_fused_swiglu_forward() {
     let mut cache = OwnedQuantizedKVCache::from_config(&config, 64);
 
     // Forward pass should succeed
-    let logits = model.forward_single_with_cache(1, &mut cache, 0)
+    let logits = model
+        .forward_single_with_cache(1, &mut cache, 0)
         .expect("Fused SwiGLU path forward should succeed");
 
     assert_eq!(logits.len(), config.vocab_size);
-    assert!(logits.iter().all(|x| x.is_finite()), "All logits should be finite");
+    assert!(
+        logits.iter().all(|x| x.is_finite()),
+        "All logits should be finite"
+    );
 }
 
 #[test]
@@ -250,7 +257,8 @@ fn test_ffn_path2_fused_swiglu_generates_tokens() {
 
     // Multiple forward passes
     for pos in 0..5 {
-        let logits = model.forward_single_with_cache(pos as u32 + 1, &mut cache, pos)
+        let logits = model
+            .forward_single_with_cache(pos as u32 + 1, &mut cache, pos)
             .expect("Forward should succeed");
         assert_eq!(logits.len(), config.vocab_size);
     }
@@ -268,7 +276,8 @@ fn test_ffn_path2_fused_swiglu_with_bias() {
     let model = create_model(&config, layer);
     let mut cache = OwnedQuantizedKVCache::from_config(&config, 64);
 
-    let logits = model.forward_single_with_cache(1, &mut cache, 0)
+    let logits = model
+        .forward_single_with_cache(1, &mut cache, 0)
         .expect("Fused SwiGLU with bias should succeed");
 
     assert_eq!(logits.len(), config.vocab_size);
@@ -286,7 +295,8 @@ fn test_ffn_path3_nonfused_swiglu_forward() {
     let model = create_model(&config, layer);
     let mut cache = OwnedQuantizedKVCache::from_config(&config, 64);
 
-    let logits = model.forward_single_with_cache(1, &mut cache, 0)
+    let logits = model
+        .forward_single_with_cache(1, &mut cache, 0)
         .expect("Non-fused SwiGLU path forward should succeed");
 
     assert_eq!(logits.len(), config.vocab_size);
@@ -301,7 +311,8 @@ fn test_ffn_path3_nonfused_swiglu_generates_tokens() {
     let mut cache = OwnedQuantizedKVCache::from_config(&config, 64);
 
     for pos in 0..5 {
-        let logits = model.forward_single_with_cache(pos as u32 + 1, &mut cache, pos)
+        let logits = model
+            .forward_single_with_cache(pos as u32 + 1, &mut cache, pos)
             .expect("Forward should succeed");
         assert_eq!(logits.len(), config.vocab_size);
     }
@@ -319,7 +330,8 @@ fn test_ffn_path3_nonfused_swiglu_with_bias() {
     let model = create_model(&config, layer);
     let mut cache = OwnedQuantizedKVCache::from_config(&config, 64);
 
-    let logits = model.forward_single_with_cache(1, &mut cache, 0)
+    let logits = model
+        .forward_single_with_cache(1, &mut cache, 0)
         .expect("Non-fused SwiGLU with bias should succeed");
 
     assert_eq!(logits.len(), config.vocab_size);
@@ -336,7 +348,8 @@ fn test_ffn_path4_layernorm_swiglu_forward() {
     let model = create_model(&config, layer);
     let mut cache = OwnedQuantizedKVCache::from_config(&config, 64);
 
-    let logits = model.forward_single_with_cache(1, &mut cache, 0)
+    let logits = model
+        .forward_single_with_cache(1, &mut cache, 0)
         .expect("LayerNorm SwiGLU path forward should succeed");
 
     assert_eq!(logits.len(), config.vocab_size);
@@ -351,7 +364,8 @@ fn test_ffn_path4_layernorm_swiglu_generates_tokens() {
     let mut cache = OwnedQuantizedKVCache::from_config(&config, 64);
 
     for pos in 0..5 {
-        let logits = model.forward_single_with_cache(pos as u32 + 1, &mut cache, pos)
+        let logits = model
+            .forward_single_with_cache(pos as u32 + 1, &mut cache, pos)
             .expect("Forward should succeed");
         assert_eq!(logits.len(), config.vocab_size);
     }
@@ -373,7 +387,8 @@ fn test_ffn_gelu_with_ffn_norm_rmsnorm() {
     let model = create_model(&config, layer);
     let mut cache = OwnedQuantizedKVCache::from_config(&config, 64);
 
-    let logits = model.forward_single_with_cache(1, &mut cache, 0)
+    let logits = model
+        .forward_single_with_cache(1, &mut cache, 0)
         .expect("GELU with RMSNorm should succeed");
 
     assert_eq!(logits.len(), config.vocab_size);
@@ -391,7 +406,8 @@ fn test_ffn_gelu_with_ffn_norm_layernorm() {
     let model = create_model(&config, layer);
     let mut cache = OwnedQuantizedKVCache::from_config(&config, 64);
 
-    let logits = model.forward_single_with_cache(1, &mut cache, 0)
+    let logits = model
+        .forward_single_with_cache(1, &mut cache, 0)
         .expect("GELU with LayerNorm should succeed");
 
     assert_eq!(logits.len(), config.vocab_size);
@@ -406,7 +422,8 @@ fn test_ffn_gelu_with_up_bias() {
     let model = create_model(&config, layer);
     let mut cache = OwnedQuantizedKVCache::from_config(&config, 64);
 
-    let logits = model.forward_single_with_cache(1, &mut cache, 0)
+    let logits = model
+        .forward_single_with_cache(1, &mut cache, 0)
         .expect("GELU with up bias should succeed");
 
     assert_eq!(logits.len(), config.vocab_size);
@@ -425,7 +442,8 @@ fn test_ffn_down_with_bias() {
     let model = create_model(&config, layer);
     let mut cache = OwnedQuantizedKVCache::from_config(&config, 64);
 
-    let logits = model.forward_single_with_cache(1, &mut cache, 0)
+    let logits = model
+        .forward_single_with_cache(1, &mut cache, 0)
         .expect("FFN down with bias should succeed");
 
     assert_eq!(logits.len(), config.vocab_size);
@@ -444,8 +462,12 @@ fn test_ffn_gelu_deterministic() {
     let mut cache1 = OwnedQuantizedKVCache::from_config(&config, 64);
     let mut cache2 = OwnedQuantizedKVCache::from_config(&config, 64);
 
-    let logits1 = model.forward_single_with_cache(1, &mut cache1, 0).expect("test");
-    let logits2 = model.forward_single_with_cache(1, &mut cache2, 0).expect("test");
+    let logits1 = model
+        .forward_single_with_cache(1, &mut cache1, 0)
+        .expect("test");
+    let logits2 = model
+        .forward_single_with_cache(1, &mut cache2, 0)
+        .expect("test");
 
     assert_eq!(logits1, logits2, "GELU path should be deterministic");
 }
@@ -459,8 +481,12 @@ fn test_ffn_swiglu_deterministic() {
     let mut cache1 = OwnedQuantizedKVCache::from_config(&config, 64);
     let mut cache2 = OwnedQuantizedKVCache::from_config(&config, 64);
 
-    let logits1 = model.forward_single_with_cache(1, &mut cache1, 0).expect("test");
-    let logits2 = model.forward_single_with_cache(1, &mut cache2, 0).expect("test");
+    let logits1 = model
+        .forward_single_with_cache(1, &mut cache1, 0)
+        .expect("test");
+    let logits2 = model
+        .forward_single_with_cache(1, &mut cache2, 0)
+        .expect("test");
 
     assert_eq!(logits1, logits2, "SwiGLU path should be deterministic");
 }
@@ -483,16 +509,25 @@ fn test_ffn_paths_differ() {
     let mut cache1 = OwnedQuantizedKVCache::from_config(&config, 64);
     let mut cache2 = OwnedQuantizedKVCache::from_config(&config, 64);
 
-    let gelu_logits = gelu_model.forward_single_with_cache(1, &mut cache1, 0).expect("test");
-    let swiglu_logits = swiglu_model.forward_single_with_cache(1, &mut cache2, 0).expect("test");
+    let gelu_logits = gelu_model
+        .forward_single_with_cache(1, &mut cache1, 0)
+        .expect("test");
+    let swiglu_logits = swiglu_model
+        .forward_single_with_cache(1, &mut cache2, 0)
+        .expect("test");
 
     // GELU and SwiGLU should produce different outputs (verifies different paths)
-    let diff: f32 = gelu_logits.iter()
+    let diff: f32 = gelu_logits
+        .iter()
         .zip(swiglu_logits.iter())
         .map(|(a, b)| (a - b).abs())
         .sum();
 
-    assert!(diff > 0.001, "GELU and SwiGLU paths should produce different logits (diff={})", diff);
+    assert!(
+        diff > 0.001,
+        "GELU and SwiGLU paths should produce different logits (diff={})",
+        diff
+    );
 }
 
 #[test]
@@ -508,17 +543,26 @@ fn test_ffn_fused_vs_nonfused_swiglu() {
     let mut cache1 = OwnedQuantizedKVCache::from_config(&config, 64);
     let mut cache2 = OwnedQuantizedKVCache::from_config(&config, 64);
 
-    let fused_logits = fused_model.forward_single_with_cache(1, &mut cache1, 0).expect("test");
-    let nonfused_logits = nonfused_model.forward_single_with_cache(1, &mut cache2, 0).expect("test");
+    let fused_logits = fused_model
+        .forward_single_with_cache(1, &mut cache1, 0)
+        .expect("test");
+    let nonfused_logits = nonfused_model
+        .forward_single_with_cache(1, &mut cache2, 0)
+        .expect("test");
 
     // Fused and non-fused should produce different outputs due to norm presence
-    let diff: f32 = fused_logits.iter()
+    let diff: f32 = fused_logits
+        .iter()
         .zip(nonfused_logits.iter())
         .map(|(a, b)| (a - b).abs())
         .sum();
 
     // Fused and non-fused should produce very similar outputs (small numerical differences)
-    assert!(diff < 1.0, "Fused and non-fused SwiGLU should be similar (diff={})", diff);
+    assert!(
+        diff < 1.0,
+        "Fused and non-fused SwiGLU should be similar (diff={})",
+        diff
+    );
 }
 
 // =============================================================================
@@ -585,7 +629,11 @@ fn test_swiglu_formula() {
 
     // silu(2) ≈ 1.76 (2 * sigmoid(2) ≈ 2 * 0.88)
     // swiglu ≈ 1.76 * 1.5 ≈ 2.64
-    assert!((swiglu_output - 2.64).abs() < 0.1, "SwiGLU formula incorrect: {}", swiglu_output);
+    assert!(
+        (swiglu_output - 2.64).abs() < 0.1,
+        "SwiGLU formula incorrect: {}",
+        swiglu_output
+    );
 }
 
 // =============================================================================
@@ -603,20 +651,19 @@ fn test_ffn_multilayer_gelu() {
         create_gelu_layer(&config),
     ];
 
-    let model = OwnedQuantizedModel {
-        config: config.clone(),
-        token_embedding: vec![0.1f32; config.vocab_size * config.hidden_dim],
+    let model = OwnedQuantizedModel::new_for_test(
+        config.clone(),
+        vec![0.1f32; config.vocab_size * config.hidden_dim],
         layers,
-        output_norm_weight: vec![1.0f32; config.hidden_dim],
-        output_norm_bias: None,
-        lm_head_weight: create_test_tensor(config.hidden_dim, config.vocab_size),
-        lm_head_bias: None,
-        #[cfg(feature = "cuda")]
-        cuda_model: None,
-    };
+        vec![1.0f32; config.hidden_dim],
+        None,
+        create_test_tensor(config.hidden_dim, config.vocab_size),
+        None,
+    );
 
     let mut cache = OwnedQuantizedKVCache::from_config(&config, 64);
-    let logits = model.forward_single_with_cache(1, &mut cache, 0)
+    let logits = model
+        .forward_single_with_cache(1, &mut cache, 0)
         .expect("Multi-layer GELU should succeed");
 
     assert_eq!(logits.len(), config.vocab_size);
@@ -633,20 +680,19 @@ fn test_ffn_multilayer_swiglu() {
         create_fused_swiglu_layer(&config),
     ];
 
-    let model = OwnedQuantizedModel {
-        config: config.clone(),
-        token_embedding: vec![0.1f32; config.vocab_size * config.hidden_dim],
+    let model = OwnedQuantizedModel::new_for_test(
+        config.clone(),
+        vec![0.1f32; config.vocab_size * config.hidden_dim],
         layers,
-        output_norm_weight: vec![1.0f32; config.hidden_dim],
-        output_norm_bias: None,
-        lm_head_weight: create_test_tensor(config.hidden_dim, config.vocab_size),
-        lm_head_bias: None,
-        #[cfg(feature = "cuda")]
-        cuda_model: None,
-    };
+        vec![1.0f32; config.hidden_dim],
+        None,
+        create_test_tensor(config.hidden_dim, config.vocab_size),
+        None,
+    );
 
     let mut cache = OwnedQuantizedKVCache::from_config(&config, 64);
-    let logits = model.forward_single_with_cache(1, &mut cache, 0)
+    let logits = model
+        .forward_single_with_cache(1, &mut cache, 0)
         .expect("Multi-layer SwiGLU should succeed");
 
     assert_eq!(logits.len(), config.vocab_size);

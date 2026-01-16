@@ -95,7 +95,7 @@ fn test_from_apr_bytes_valid_magic_minimal() {
     data[20..24].copy_from_slice(&2u32.to_le_bytes()); // metadata_size
     data[24..32].copy_from_slice(&66u64.to_le_bytes()); // tensor_index_offset
     data[32..40].copy_from_slice(&128u64.to_le_bytes()); // data_offset
-    // Metadata (empty JSON object)
+                                                         // Metadata (empty JSON object)
     data[64..66].copy_from_slice(b"{}");
     let result = AprTransformer::from_apr_bytes(&data);
     // Should succeed with default config values

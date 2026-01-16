@@ -16,9 +16,9 @@
 #![cfg(feature = "cuda")]
 
 use realizar::cuda::{
-    CudaKernels, GpuMemoryPool, IndexedLayerWeights, KernelType, PinnedHostBuffer, PoolStats,
-    SizeClass, StagingBufferPool, StagingPoolStats, TransferMode, TransformerWorkspace,
-    WeightQuantType, presets,
+    presets, CudaKernels, GpuMemoryPool, IndexedLayerWeights, KernelType, PinnedHostBuffer,
+    PoolStats, SizeClass, StagingBufferPool, StagingPoolStats, TransferMode, TransformerWorkspace,
+    WeightQuantType,
 };
 
 // ============================================================================
@@ -37,7 +37,7 @@ fn test_kernel_type_gemm_naive_construction() {
             assert_eq!(m, 64);
             assert_eq!(n, 128);
             assert_eq!(k, 256);
-        }
+        },
         _ => panic!("Expected GemmNaive"),
     }
 }
@@ -51,17 +51,12 @@ fn test_kernel_type_gemm_tiled_construction() {
         tile_size: 16,
     };
     match kernel {
-        KernelType::GemmTiled {
-            m,
-            n,
-            k,
-            tile_size,
-        } => {
+        KernelType::GemmTiled { m, n, k, tile_size } => {
             assert_eq!(m, 32);
             assert_eq!(n, 64);
             assert_eq!(k, 128);
             assert_eq!(tile_size, 16);
-        }
+        },
         _ => panic!("Expected GemmTiled"),
     }
 }
@@ -78,7 +73,7 @@ fn test_kernel_type_gemm_tensor_core_construction() {
             assert_eq!(m, 16);
             assert_eq!(n, 16);
             assert_eq!(k, 16);
-        }
+        },
         _ => panic!("Expected GemmTensorCore"),
     }
 }
@@ -90,7 +85,7 @@ fn test_kernel_type_gemv_construction() {
         KernelType::Gemv { k, n } => {
             assert_eq!(k, 4096);
             assert_eq!(n, 2048);
-        }
+        },
         _ => panic!("Expected Gemv"),
     }
 }
@@ -102,7 +97,7 @@ fn test_kernel_type_coalesced_gemv_construction() {
         KernelType::CoalescedGemv { k, n } => {
             assert_eq!(k, 2048);
             assert_eq!(n, 1024);
-        }
+        },
         _ => panic!("Expected CoalescedGemv"),
     }
 }
@@ -113,7 +108,7 @@ fn test_kernel_type_softmax_construction() {
     match kernel {
         KernelType::Softmax { dim } => {
             assert_eq!(dim, 32000);
-        }
+        },
         _ => panic!("Expected Softmax"),
     }
 }
@@ -134,7 +129,7 @@ fn test_kernel_type_layer_norm_construction() {
             assert_eq!(hidden_size, 4096);
             assert!((epsilon - 1e-5).abs() < 1e-10);
             assert!(affine);
-        }
+        },
         _ => panic!("Expected LayerNorm"),
     }
 }
@@ -155,7 +150,7 @@ fn test_kernel_type_attention_construction() {
             assert_eq!(seq_len, 2048);
             assert_eq!(head_dim, 64);
             assert!(causal);
-        }
+        },
         _ => panic!("Expected Attention"),
     }
 }
@@ -179,7 +174,7 @@ fn test_kernel_type_multi_head_attention_construction() {
             assert_eq!(head_dim, 64);
             assert_eq!(n_heads, 32);
             assert!(!causal);
-        }
+        },
         _ => panic!("Expected MultiHeadAttention"),
     }
 }
@@ -203,7 +198,7 @@ fn test_kernel_type_attention_tensor_core_construction() {
             assert_eq!(head_dim, 128);
             assert_eq!(n_heads, 16);
             assert!(causal);
-        }
+        },
         _ => panic!("Expected AttentionTensorCore"),
     }
 }
@@ -220,7 +215,7 @@ fn test_kernel_type_quantized_gemm_construction() {
             assert_eq!(m, 1);
             assert_eq!(n, 4096);
             assert_eq!(k, 4096);
-        }
+        },
         _ => panic!("Expected QuantizedGemm"),
     }
 }
@@ -237,7 +232,7 @@ fn test_kernel_type_quantized_gemm_ggml_construction() {
             assert_eq!(m, 1);
             assert_eq!(n, 2560);
             assert_eq!(k, 2560);
-        }
+        },
         _ => panic!("Expected QuantizedGemmGgml"),
     }
 }
@@ -254,7 +249,7 @@ fn test_kernel_type_q5k_quantized_gemm_construction() {
             assert_eq!(m, 1);
             assert_eq!(n, 4096);
             assert_eq!(k, 4096);
-        }
+        },
         _ => panic!("Expected Q5KQuantizedGemm"),
     }
 }
@@ -271,7 +266,7 @@ fn test_kernel_type_q6k_quantized_gemm_construction() {
             assert_eq!(m, 1);
             assert_eq!(n, 4096);
             assert_eq!(k, 4096);
-        }
+        },
         _ => panic!("Expected Q6KQuantizedGemm"),
     }
 }
@@ -298,7 +293,7 @@ fn test_kernel_type_incremental_attention_construction() {
             assert_eq!(n_heads, 32);
             assert_eq!(n_kv_heads, 4);
             assert!(indirect);
-        }
+        },
         _ => panic!("Expected IncrementalAttention"),
     }
 }
@@ -316,7 +311,7 @@ fn test_kernel_type_rms_norm_construction() {
         } => {
             assert_eq!(hidden_size, 2048);
             assert!((epsilon - 1e-6).abs() < 1e-10);
-        }
+        },
         _ => panic!("Expected RmsNorm"),
     }
 }
@@ -337,7 +332,7 @@ fn test_kernel_type_rope_construction() {
             assert_eq!(num_heads, 32);
             assert_eq!(head_dim, 64);
             assert!((theta - 10000.0).abs() < 0.01);
-        }
+        },
         _ => panic!("Expected Rope"),
     }
 }
@@ -348,7 +343,7 @@ fn test_kernel_type_silu_construction() {
     match kernel {
         KernelType::Silu { n } => {
             assert_eq!(n, 4096);
-        }
+        },
         _ => panic!("Expected Silu"),
     }
 }
@@ -359,7 +354,7 @@ fn test_kernel_type_gelu_construction() {
     match kernel {
         KernelType::Gelu { n } => {
             assert_eq!(n, 4096);
-        }
+        },
         _ => panic!("Expected Gelu"),
     }
 }
@@ -655,7 +650,10 @@ fn test_ptx_batched_rope() {
 #[test]
 fn test_ptx_batched_residual_add() {
     let kernels = CudaKernels::new();
-    let kernel = KernelType::BatchedResidualAdd { n: 4096, batch_size: 8 };
+    let kernel = KernelType::BatchedResidualAdd {
+        n: 4096,
+        batch_size: 8,
+    };
     let ptx = kernels.generate_ptx(&kernel);
     assert!(ptx.contains(".version"));
 }
@@ -663,7 +661,10 @@ fn test_ptx_batched_residual_add() {
 #[test]
 fn test_ptx_batched_swiglu() {
     let kernels = CudaKernels::new();
-    let kernel = KernelType::BatchedSwiglu { n: 11008, batch_size: 8 };
+    let kernel = KernelType::BatchedSwiglu {
+        n: 11008,
+        batch_size: 8,
+    };
     let ptx = kernels.generate_ptx(&kernel);
     assert!(ptx.contains(".version"));
 }
@@ -918,7 +919,10 @@ fn test_kernel_name_incremental_attention_indirect() {
         n_kv_heads: 4,
         indirect: true,
     };
-    assert_eq!(kernels.kernel_name(&kernel), "incremental_attention_indirect");
+    assert_eq!(
+        kernels.kernel_name(&kernel),
+        "incremental_attention_indirect"
+    );
 }
 
 #[test]
@@ -946,7 +950,10 @@ fn test_kernel_name_multi_warp_attention_indirect() {
         num_warps_per_head: 4,
         indirect: true,
     };
-    assert_eq!(kernels.kernel_name(&kernel), "multi_warp_attention_indirect");
+    assert_eq!(
+        kernels.kernel_name(&kernel),
+        "multi_warp_attention_indirect"
+    );
 }
 
 #[test]
@@ -1484,7 +1491,7 @@ fn test_presets_llama_attention() {
             assert_eq!(seq_len, 2048);
             assert_eq!(head_dim, 64);
             assert!(causal);
-        }
+        },
         _ => panic!("Expected Attention"),
     }
 }
@@ -1493,17 +1500,12 @@ fn test_presets_llama_attention() {
 fn test_presets_ffn_gemm() {
     let kernel = presets::ffn_gemm(1, 4096, 11008);
     match kernel {
-        KernelType::GemmTiled {
-            m,
-            n,
-            k,
-            tile_size,
-        } => {
+        KernelType::GemmTiled { m, n, k, tile_size } => {
             assert_eq!(m, 1);
             assert_eq!(n, 11008);
             assert_eq!(k, 4096);
             assert_eq!(tile_size, 32);
-        }
+        },
         _ => panic!("Expected GemmTiled"),
     }
 }
@@ -1516,7 +1518,7 @@ fn test_presets_q4k_inference() {
             assert_eq!(m, 1);
             assert_eq!(n, 4096);
             assert_eq!(k, 4096);
-        }
+        },
         _ => panic!("Expected QuantizedGemm"),
     }
 }
@@ -1529,7 +1531,7 @@ fn test_presets_q4k_ggml_inference() {
             assert_eq!(m, 1);
             assert_eq!(n, 2560);
             assert_eq!(k, 2560);
-        }
+        },
         _ => panic!("Expected QuantizedGemmGgml"),
     }
 }
@@ -1546,7 +1548,7 @@ fn test_presets_rmsnorm() {
             assert_eq!(hidden_size, 4096);
             assert!((epsilon - 1e-6).abs() < 1e-10);
             assert!(!affine);
-        }
+        },
         _ => panic!("Expected LayerNorm"),
     }
 }
@@ -1565,7 +1567,7 @@ fn test_presets_multi_head_attention() {
             assert_eq!(head_dim, 64);
             assert_eq!(n_heads, 32);
             assert!(causal);
-        }
+        },
         _ => panic!("Expected MultiHeadAttention"),
     }
 }
@@ -1584,7 +1586,7 @@ fn test_presets_phi2_multi_head_attention() {
             assert_eq!(head_dim, 80);
             assert_eq!(n_heads, 32);
             assert!(causal);
-        }
+        },
         _ => panic!("Expected MultiHeadAttention"),
     }
 }
@@ -1603,7 +1605,7 @@ fn test_presets_tensor_core_attention() {
             assert_eq!(head_dim, 64);
             assert_eq!(n_heads, 16);
             assert!(causal);
-        }
+        },
         _ => panic!("Expected AttentionTensorCore"),
     }
 }
@@ -1622,7 +1624,7 @@ fn test_presets_llama_tensor_core_attention() {
             assert_eq!(head_dim, 128);
             assert_eq!(n_heads, 32);
             assert!(causal);
-        }
+        },
         _ => panic!("Expected AttentionTensorCore"),
     }
 }
@@ -1656,11 +1658,22 @@ fn test_kernel_type_clone() {
     let cloned = kernel.clone();
     // Verify cloned value matches original by using both
     match (&kernel, &cloned) {
-        (KernelType::GemmNaive { m: m1, n: n1, k: k1 }, KernelType::GemmNaive { m: m2, n: n2, k: k2 }) => {
+        (
+            KernelType::GemmNaive {
+                m: m1,
+                n: n1,
+                k: k1,
+            },
+            KernelType::GemmNaive {
+                m: m2,
+                n: n2,
+                k: k2,
+            },
+        ) => {
             assert_eq!(m1, m2);
             assert_eq!(n1, n2);
             assert_eq!(k1, k2);
-        }
+        },
         _ => panic!("Clone failed"),
     }
 }

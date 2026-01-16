@@ -2,7 +2,7 @@
 //!
 //! Actually trace through a forward pass to find where the bug is.
 
-use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel, OwnedQuantizedKVCache};
+use realizar::gguf::{MappedGGUFModel, OwnedQuantizedKVCache, OwnedQuantizedModel};
 
 fn print_stats(name: &str, data: &[f32]) {
     let sum: f32 = data.iter().sum();
@@ -10,14 +10,18 @@ fn print_stats(name: &str, data: &[f32]) {
     let max: f32 = data.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
     let min: f32 = data.iter().cloned().fold(f32::INFINITY, f32::min);
     let mean = sum / data.len() as f32;
-    eprintln!("{}: sum={:.4}, norm={:.4}, mean={:.6}, range=[{:.4}, {:.4}]",
-              name, sum, norm, mean, min, max);
+    eprintln!(
+        "{}: sum={:.4}, norm={:.4}, mean={:.6}, range=[{:.4}, {:.4}]",
+        name, sum, norm, mean, min, max
+    );
 }
 
 #[test]
 fn test_debug_forward_pass() {
-    let model_path = std::env::var("GGUF_MODEL")
-        .unwrap_or_else(|_| "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf".to_string());
+    let model_path = std::env::var("GGUF_MODEL").unwrap_or_else(|_| {
+        "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf"
+            .to_string()
+    });
 
     let path = std::path::Path::new(&model_path);
     if !path.exists() {
@@ -63,19 +67,21 @@ fn test_debug_forward_pass() {
         eprintln!("ffn_norm_weight: None");
     }
 
-    eprintln!("ffn_up_weight: in_dim={}, out_dim={}, qtype={}",
-              layer0.ffn_up_weight.in_dim,
-              layer0.ffn_up_weight.out_dim,
-              layer0.ffn_up_weight.qtype);
+    eprintln!(
+        "ffn_up_weight: in_dim={}, out_dim={}, qtype={}",
+        layer0.ffn_up_weight.in_dim, layer0.ffn_up_weight.out_dim, layer0.ffn_up_weight.qtype
+    );
 
-    eprintln!("ffn_down_weight: in_dim={}, out_dim={}, qtype={}",
-              layer0.ffn_down_weight.in_dim,
-              layer0.ffn_down_weight.out_dim,
-              layer0.ffn_down_weight.qtype);
+    eprintln!(
+        "ffn_down_weight: in_dim={}, out_dim={}, qtype={}",
+        layer0.ffn_down_weight.in_dim, layer0.ffn_down_weight.out_dim, layer0.ffn_down_weight.qtype
+    );
 
     if let Some(ref gate) = layer0.ffn_gate_weight {
-        eprintln!("ffn_gate_weight: in_dim={}, out_dim={}, qtype={}",
-                  gate.in_dim, gate.out_dim, gate.qtype);
+        eprintln!(
+            "ffn_gate_weight: in_dim={}, out_dim={}, qtype={}",
+            gate.in_dim, gate.out_dim, gate.qtype
+        );
     } else {
         eprintln!("ffn_gate_weight: None (GELU model)");
     }
@@ -83,7 +89,8 @@ fn test_debug_forward_pass() {
     // Run forward pass
     eprintln!("\n=== Running Forward Pass ===");
     let mut cache = OwnedQuantizedKVCache::from_config(&model.config, 64);
-    let logits = model.forward_single_with_cache(token_id, &mut cache, 0)
+    let logits = model
+        .forward_single_with_cache(token_id, &mut cache, 0)
         .expect("Forward failed");
 
     eprintln!("\n=== Logits ===");
@@ -104,7 +111,10 @@ fn test_debug_forward_pass() {
         eprintln!("\n=== Expected tokens for 'Hello' ===");
         for tok in &hello_tokens {
             let text = mapped.model.decode(&[*tok]);
-            let logit = logits.get(*tok as usize).copied().unwrap_or(f32::NEG_INFINITY);
+            let logit = logits
+                .get(*tok as usize)
+                .copied()
+                .unwrap_or(f32::NEG_INFINITY);
             eprintln!("  {:6} ({:8.4}): {:?}", tok, logit, text);
         }
     } else {
@@ -119,7 +129,10 @@ fn test_debug_forward_pass() {
     if top_text.contains("Hello") || top_text.contains("Hi") || top_text.contains("!") {
         eprintln!("PASS: Top token is a reasonable greeting response");
     } else {
-        eprintln!("FAIL: Top token '{}' is NOT a reasonable response to 'Hi'", top_text);
+        eprintln!(
+            "FAIL: Top token '{}' is NOT a reasonable response to 'Hi'",
+            top_text
+        );
         eprintln!("Expected something like 'Hello', '!', 'Hey', etc.");
     }
 }
@@ -127,8 +140,10 @@ fn test_debug_forward_pass() {
 /// Compare our forward pass with what we'd expect from correct weights
 #[test]
 fn test_weight_sanity() {
-    let model_path = std::env::var("GGUF_MODEL")
-        .unwrap_or_else(|_| "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf".to_string());
+    let model_path = std::env::var("GGUF_MODEL").unwrap_or_else(|_| {
+        "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf"
+            .to_string()
+    });
 
     let path = std::path::Path::new(&model_path);
     if !path.exists() {
@@ -147,9 +162,16 @@ fn test_weight_sanity() {
     let expected_embed_size = vocab_size * hidden_dim;
 
     eprintln!("Token embedding:");
-    eprintln!("  Expected size: {} x {} = {}", vocab_size, hidden_dim, expected_embed_size);
+    eprintln!(
+        "  Expected size: {} x {} = {}",
+        vocab_size, hidden_dim, expected_embed_size
+    );
     eprintln!("  Actual size: {}", model.token_embedding.len());
-    assert_eq!(model.token_embedding.len(), expected_embed_size, "Embedding size mismatch");
+    assert_eq!(
+        model.token_embedding.len(),
+        expected_embed_size,
+        "Embedding size mismatch"
+    );
 
     // Check if embedding values are reasonable
     let embed_sum: f32 = model.token_embedding.iter().sum();
@@ -179,8 +201,14 @@ fn test_weight_sanity() {
     eprintln!("  out_dim: {}", model.lm_head_weight.out_dim);
     eprintln!("  qtype: {}", model.lm_head_weight.qtype);
 
-    assert_eq!(model.lm_head_weight.in_dim, hidden_dim, "LM head in_dim should match hidden_dim");
-    assert_eq!(model.lm_head_weight.out_dim, vocab_size, "LM head out_dim should match vocab_size");
+    assert_eq!(
+        model.lm_head_weight.in_dim, hidden_dim,
+        "LM head in_dim should match hidden_dim"
+    );
+    assert_eq!(
+        model.lm_head_weight.out_dim, vocab_size,
+        "LM head out_dim should match vocab_size"
+    );
 
     eprintln!("\nAll weight sanity checks passed!");
 }

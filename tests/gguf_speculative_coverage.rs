@@ -566,8 +566,7 @@ mod speculative_tests {
     fn test_verify_draft_single_token_match() {
         let decoder = SpeculativeDecoder::new();
 
-        let result =
-            decoder.verify_draft(&[42], &[create_logits_with_top(42, 100)], 0.0);
+        let result = decoder.verify_draft(&[42], &[create_logits_with_top(42, 100)], 0.0);
 
         assert_eq!(result.accepted_count, 1);
         assert_eq!(result.draft_count, 1);
@@ -579,8 +578,7 @@ mod speculative_tests {
     fn test_verify_draft_single_token_mismatch() {
         let decoder = SpeculativeDecoder::new();
 
-        let result =
-            decoder.verify_draft(&[42], &[create_logits_with_top(99, 100)], 0.0);
+        let result = decoder.verify_draft(&[42], &[create_logits_with_top(99, 100)], 0.0);
 
         // Mismatch: draft was 42 but target top was 99
         // We use target's token (99) and count it as accepted

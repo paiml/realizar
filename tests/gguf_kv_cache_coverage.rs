@@ -47,7 +47,11 @@ mod owned_quantized_kv_cache {
 
         assert_eq!(cache.len(), 0, "New cache should have length 0");
         assert!(cache.is_empty(), "New cache should be empty");
-        assert_eq!(cache.max_len(), 128, "Max length should match constructor arg");
+        assert_eq!(
+            cache.max_len(),
+            128,
+            "Max length should match constructor arg"
+        );
     }
 
     #[test]
@@ -108,13 +112,27 @@ mod owned_quantized_kv_cache {
 
         // Verify K cache contains the appended data
         let k_cache = cache.get_k(0);
-        assert_eq!(k_cache.len(), 64, "K cache should have 64 elements after append");
-        assert!(k_cache.iter().all(|&x| (x - 1.0).abs() < 1e-6), "K values should be 1.0");
+        assert_eq!(
+            k_cache.len(),
+            64,
+            "K cache should have 64 elements after append"
+        );
+        assert!(
+            k_cache.iter().all(|&x| (x - 1.0).abs() < 1e-6),
+            "K values should be 1.0"
+        );
 
         // Verify V cache contains the appended data
         let v_cache = cache.get_v(0);
-        assert_eq!(v_cache.len(), 64, "V cache should have 64 elements after append");
-        assert!(v_cache.iter().all(|&x| (x - 2.0).abs() < 1e-6), "V values should be 2.0");
+        assert_eq!(
+            v_cache.len(),
+            64,
+            "V cache should have 64 elements after append"
+        );
+        assert!(
+            v_cache.iter().all(|&x| (x - 2.0).abs() < 1e-6),
+            "V values should be 2.0"
+        );
     }
 
     #[test]
@@ -211,7 +229,11 @@ mod owned_quantized_kv_cache {
 
         // Should not have added the new values
         let k_cache = cache.get_k(0);
-        assert_eq!(k_cache.len(), 32, "Should still only have 2 positions worth of data");
+        assert_eq!(
+            k_cache.len(),
+            32,
+            "Should still only have 2 positions worth of data"
+        );
     }
 
     // ------------------------------------------------------------------------
@@ -393,7 +415,11 @@ mod owned_quantized_kv_cache {
         // Try to rollback to future position
         cache.rollback_to(10, kv_dim);
 
-        assert_eq!(cache.len(), original_len, "Should not change when rolling back to future");
+        assert_eq!(
+            cache.len(),
+            original_len,
+            "Should not change when rolling back to future"
+        );
     }
 
     // ------------------------------------------------------------------------
@@ -437,14 +463,20 @@ mod owned_quantized_kv_cache {
     fn test_get_k_invalid_layer_returns_empty() {
         let cache = OwnedQuantizedKVCache::new(2, 32, 8);
 
-        assert!(cache.get_k(10).is_empty(), "Invalid layer should return empty slice");
+        assert!(
+            cache.get_k(10).is_empty(),
+            "Invalid layer should return empty slice"
+        );
     }
 
     #[test]
     fn test_get_v_invalid_layer_returns_empty() {
         let cache = OwnedQuantizedKVCache::new(2, 32, 8);
 
-        assert!(cache.get_v(10).is_empty(), "Invalid layer should return empty slice");
+        assert!(
+            cache.get_v(10).is_empty(),
+            "Invalid layer should return empty slice"
+        );
     }
 
     // ------------------------------------------------------------------------
@@ -575,7 +607,11 @@ mod contiguous_kv_cache {
 
         assert_eq!(cache.len(), 0, "New cache should have length 0");
         assert!(cache.is_empty(), "New cache should be empty");
-        assert_eq!(cache.max_len(), 128, "Max length should match constructor arg");
+        assert_eq!(
+            cache.max_len(),
+            128,
+            "Max length should match constructor arg"
+        );
     }
 
     #[test]
@@ -619,7 +655,10 @@ mod contiguous_kv_cache {
     #[test]
     fn test_is_contiguous_always_true() {
         let cache = ContiguousKVCache::new(4, 256, 128);
-        assert!(cache.is_contiguous(), "ContiguousKVCache should always report contiguous");
+        assert!(
+            cache.is_contiguous(),
+            "ContiguousKVCache should always report contiguous"
+        );
     }
 
     #[test]
@@ -757,7 +796,11 @@ mod contiguous_kv_cache {
         let k0 = cache.get_k(0);
         // After advance, get_k returns slice of length seq_len * hidden_dim
         // Since we only advanced but didn't append to layer 0, it will have zeros
-        assert_eq!(k0.len(), 32, "Layer 0 should have seq_len * hidden_dim zeros");
+        assert_eq!(
+            k0.len(),
+            32,
+            "Layer 0 should have seq_len * hidden_dim zeros"
+        );
     }
 
     #[test]
@@ -1273,7 +1316,9 @@ mod interoperability_tests {
         // Fill with same data
         for pos in 0..4 {
             for layer in 0..num_layers {
-                let k: Vec<f32> = (0..hidden_dim).map(|i| (pos * 100 + layer * 10 + i) as f32).collect();
+                let k: Vec<f32> = (0..hidden_dim)
+                    .map(|i| (pos * 100 + layer * 10 + i) as f32)
+                    .collect();
                 let v: Vec<f32> = (0..hidden_dim)
                     .map(|i| (pos * 100 + layer * 10 + i + 1000) as f32)
                     .collect();

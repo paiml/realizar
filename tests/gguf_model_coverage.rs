@@ -176,7 +176,11 @@ fn build_gguf_with_arch(arch: &str, hidden: usize, layers: usize, heads: usize) 
     data.extend_from_slice(&4u64.to_le_bytes()); // metadata_count
 
     add_string_meta(&mut data, "general.architecture", arch);
-    add_u32_meta(&mut data, &format!("{arch}.embedding_length"), hidden as u32);
+    add_u32_meta(
+        &mut data,
+        &format!("{arch}.embedding_length"),
+        hidden as u32,
+    );
     add_u32_meta(&mut data, &format!("{arch}.block_count"), layers as u32);
     add_u32_meta(
         &mut data,
@@ -802,7 +806,11 @@ fn test_cov_gguf_model_vocabulary_some() {
     data.extend_from_slice(&0u64.to_le_bytes());
     data.extend_from_slice(&1u64.to_le_bytes());
 
-    add_string_array_meta(&mut data, "tokenizer.ggml.tokens", &["<s>", "</s>", "hello"]);
+    add_string_array_meta(
+        &mut data,
+        "tokenizer.ggml.tokens",
+        &["<s>", "</s>", "hello"],
+    );
 
     let model = GGUFModel::from_bytes(&data).expect("parse");
     let vocab = model.vocabulary().expect("vocabulary");
@@ -1126,7 +1134,13 @@ fn test_cov_gguf_config_vocab_from_tensor() {
 
     // token_embd.weight tensor - dims in GGML order (reversed)
     // We want [50000, 512] after reversal, so we provide [512, 50000]
-    add_tensor_info(&mut data, "token_embd.weight", &[50000, 512], GGUF_TYPE_F32, 0);
+    add_tensor_info(
+        &mut data,
+        "token_embd.weight",
+        &[50000, 512],
+        GGUF_TYPE_F32,
+        0,
+    );
 
     let model = GGUFModel::from_bytes(&data).expect("parse");
     let config = GGUFConfig::from_gguf(&model).expect("config");

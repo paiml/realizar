@@ -76,7 +76,10 @@ fn test_dispatch_metrics_gpu_ratio_empty() {
     let metrics = DispatchMetrics::new();
 
     let ratio = metrics.gpu_ratio();
-    assert!((ratio - 0.0).abs() < 1e-5, "Empty metrics should have 0 ratio");
+    assert!(
+        (ratio - 0.0).abs() < 1e-5,
+        "Empty metrics should have 0 ratio"
+    );
 }
 
 #[test]
@@ -111,7 +114,11 @@ fn test_dispatch_metrics_gpu_ratio_mixed() {
     metrics.record_gpu_dispatch();
 
     let ratio = metrics.gpu_ratio();
-    assert!((ratio - 0.25).abs() < 0.01, "Should be ~0.25, got {}", ratio);
+    assert!(
+        (ratio - 0.25).abs() < 0.01,
+        "Should be ~0.25, got {}",
+        ratio
+    );
 }
 
 #[test]
@@ -134,7 +141,11 @@ fn test_dispatch_metrics_cpu_latency_recording() {
     assert_eq!(metrics.cpu_latency_count(), 3);
 
     let mean = metrics.cpu_latency_mean_us();
-    assert!((mean - 200.0).abs() < 1.0, "Mean should be ~200us, got {}", mean);
+    assert!(
+        (mean - 200.0).abs() < 1.0,
+        "Mean should be ~200us, got {}",
+        mean
+    );
 }
 
 #[test]
@@ -156,7 +167,11 @@ fn test_dispatch_metrics_gpu_latency_recording() {
     assert_eq!(metrics.gpu_latency_count(), 2);
 
     let mean = metrics.gpu_latency_mean_us();
-    assert!((mean - 1500.0).abs() < 1.0, "Mean should be ~1500us, got {}", mean);
+    assert!(
+        (mean - 1500.0).abs() < 1.0,
+        "Mean should be ~1500us, got {}",
+        mean
+    );
 }
 
 #[test]
@@ -238,7 +253,10 @@ fn test_dispatch_metrics_gpu_latency_variance_one_sample() {
     metrics.record_gpu_latency(Duration::from_micros(100));
 
     let variance = metrics.gpu_latency_variance_us();
-    assert!((variance - 0.0).abs() < 0.001, "Single sample variance should be 0");
+    assert!(
+        (variance - 0.0).abs() < 0.001,
+        "Single sample variance should be 0"
+    );
 }
 
 #[test]
@@ -250,7 +268,11 @@ fn test_dispatch_metrics_gpu_latency_variance_same_values() {
     metrics.record_gpu_latency(Duration::from_micros(100));
 
     let variance = metrics.gpu_latency_variance_us();
-    assert!(variance < 1.0, "Same values should have ~0 variance, got {}", variance);
+    assert!(
+        variance < 1.0,
+        "Same values should have ~0 variance, got {}",
+        variance
+    );
 }
 
 #[test]
@@ -261,7 +283,11 @@ fn test_dispatch_metrics_cpu_latency_variance() {
     metrics.record_cpu_latency(Duration::from_micros(200));
 
     let variance = metrics.cpu_latency_variance_us();
-    assert!(variance < 1.0, "Same values should have ~0 variance, got {}", variance);
+    assert!(
+        variance < 1.0,
+        "Same values should have ~0 variance, got {}",
+        variance
+    );
 }
 
 #[test]
@@ -408,7 +434,11 @@ fn test_dispatch_metrics_cpu_gpu_speedup() {
     metrics.record_gpu_latency(Duration::from_micros(500));
 
     let speedup = metrics.cpu_gpu_speedup();
-    assert!((speedup - 2.0).abs() < 0.1, "Speedup should be ~2.0, got {}", speedup);
+    assert!(
+        (speedup - 2.0).abs() < 0.1,
+        "Speedup should be ~2.0, got {}",
+        speedup
+    );
 }
 
 #[test]
@@ -418,7 +448,10 @@ fn test_dispatch_metrics_cpu_gpu_speedup_no_gpu() {
     metrics.record_cpu_latency(Duration::from_micros(1000));
 
     let speedup = metrics.cpu_gpu_speedup();
-    assert!((speedup - 0.0).abs() < 0.001, "No GPU should return 0 speedup");
+    assert!(
+        (speedup - 0.0).abs() < 0.001,
+        "No GPU should return 0 speedup"
+    );
 }
 
 #[test]
@@ -428,8 +461,14 @@ fn test_dispatch_metrics_bucket_boundaries() {
     let boundaries = metrics.bucket_boundaries_us();
 
     assert_eq!(boundaries.len(), 5, "Should have 5 bucket boundary strings");
-    assert!(boundaries[0].contains("0-"), "First bucket should start with 0");
-    assert!(boundaries[4].ends_with('+'), "Last bucket should end with +");
+    assert!(
+        boundaries[0].contains("0-"),
+        "First bucket should start with 0"
+    );
+    assert!(
+        boundaries[4].ends_with('+'),
+        "Last bucket should end with +"
+    );
 }
 
 #[test]
@@ -448,7 +487,11 @@ fn test_dispatch_metrics_elapsed_seconds() {
     std::thread::sleep(Duration::from_millis(10));
 
     let elapsed = metrics.elapsed_seconds();
-    assert!(elapsed >= 0.01, "Elapsed should be >= 0.01s, got {}", elapsed);
+    assert!(
+        elapsed >= 0.01,
+        "Elapsed should be >= 0.01s, got {}",
+        elapsed
+    );
 }
 
 #[test]
@@ -473,7 +516,11 @@ fn test_dispatch_metrics_throughput() {
     std::thread::sleep(Duration::from_millis(5));
 
     let throughput = metrics.throughput_rps();
-    assert!(throughput > 0.0, "Throughput should be > 0, got {}", throughput);
+    assert!(
+        throughput > 0.0,
+        "Throughput should be > 0, got {}",
+        throughput
+    );
 }
 
 #[test]
@@ -553,8 +600,7 @@ fn test_cuda_backend_creation() {
 fn test_cuda_backend_with_num_heads() {
     use realizar::gguf::CudaBackend;
 
-    let backend = CudaBackend::new(512, 512, 2048, 128)
-        .with_num_heads(16);
+    let backend = CudaBackend::new(512, 512, 2048, 128).with_num_heads(16);
 
     assert_eq!(backend.num_heads, 16);
 }
@@ -564,8 +610,7 @@ fn test_cuda_backend_with_num_heads() {
 fn test_cuda_backend_with_max_seq_len() {
     use realizar::gguf::CudaBackend;
 
-    let backend = CudaBackend::new(256, 256, 1024, 64)
-        .with_max_seq_len(4096);
+    let backend = CudaBackend::new(256, 256, 1024, 64).with_max_seq_len(4096);
 
     assert_eq!(backend.max_seq_len, 4096);
 }
@@ -657,8 +702,7 @@ fn test_cuda_backend_q4k_gemm_launch_config() {
 fn test_cuda_backend_flash_attention_launch_config() {
     use realizar::gguf::CudaBackend;
 
-    let backend = CudaBackend::new(100, 100, 1024, 64)
-        .with_num_heads(8);
+    let backend = CudaBackend::new(100, 100, 1024, 64).with_num_heads(8);
 
     let (grid, block) = backend.flash_attention_launch_config(256);
 
@@ -745,8 +789,14 @@ fn test_cuda_backend_flash_attention_kernel_name() {
 
     let backend = CudaBackend::new(100, 100, 128, 64);
 
-    assert_eq!(backend.flash_attention_kernel_name(true), "flash_attention_causal");
-    assert_eq!(backend.flash_attention_kernel_name(false), "flash_attention");
+    assert_eq!(
+        backend.flash_attention_kernel_name(true),
+        "flash_attention_causal"
+    );
+    assert_eq!(
+        backend.flash_attention_kernel_name(false),
+        "flash_attention"
+    );
 }
 
 #[test]
@@ -759,7 +809,10 @@ fn test_cuda_backend_q4k_gemm_ptx_generation() {
     let ptx = backend.q4k_gemm_ptx();
 
     assert!(!ptx.is_empty(), "PTX should not be empty");
-    assert!(ptx.contains(".version"), "PTX should contain .version directive");
+    assert!(
+        ptx.contains(".version"),
+        "PTX should contain .version directive"
+    );
 }
 
 #[test]

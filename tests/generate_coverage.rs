@@ -11,10 +11,9 @@ use realizar::generate::{
     sample_top_k, sample_top_p, sample_typical, AdvancedGenerationConfig, BeamHypothesis,
     BeamSearchConfig, BeamSearchState, CfgConfig, DryConfig, DynTempConfig, EtaConfig,
     GenerationConfig, InfillConfig, LogitBias, LogitProcessor, LogitProcessorChain,
-    LogitProcessorContext, MirostatState, PresenceFrequencyPenalty, PromptCache,
-    RepetitionPenalty, RepetitionPenaltyConfig, SamplerChain, SamplerContext, SamplingStrategy,
-    StopSequenceDetector, StreamingGenerator, TemperatureScaler, TokenHealingConfig,
-    TokenSuppressor, XtcConfig,
+    LogitProcessorContext, MirostatState, PresenceFrequencyPenalty, PromptCache, RepetitionPenalty,
+    RepetitionPenaltyConfig, SamplerChain, SamplerContext, SamplingStrategy, StopSequenceDetector,
+    StreamingGenerator, TemperatureScaler, TokenHealingConfig, TokenSuppressor, XtcConfig,
 };
 use realizar::tensor::Tensor;
 
@@ -150,7 +149,7 @@ fn test_stop_sequence_detector_empty_sequences_ignored() {
     let detector = StopSequenceDetector::new()
         .with_token_sequence(vec![]) // Empty - should be ignored
         .with_string_pattern(""); // Empty - should be ignored
-    // Empty sequences should not be added
+                                  // Empty sequences should not be added
     assert!(!detector.has_conditions());
 }
 

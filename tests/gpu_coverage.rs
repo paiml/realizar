@@ -8,17 +8,16 @@
 use realizar::gpu::{
     batch_embed, blocked_matmul, exceeds_gpu_buffer_limit, fused_layernorm, naive_matmul,
     parallel_ffn, prefetch_read, quantized_dot_q4, quantized_dot_q8, quantized_matvec_q4,
-    quantized_matvec_q8, scalar_rope, scalar_softmax, sequential_ffn, sequential_sum,
-    simd_rope, simd_softmax, standard_layernorm, sum_with_prefetch,
-    CacheAlignedBuffer, ChunkedProcessor, ComputeBackend, ConnectionConfig, ConnectionPool,
-    ContiguousAttentionBuffer, DegradationManager, DegradationMode,
-    DoubleBuffer, ErrorClassification, ErrorRecoveryStrategy, FailureIsolator, ForwardArena,
-    GpuBufferPool, GpuCompute, GpuGenerateConfig, GpuModelConfig, GpuPipelineStage,
-    HealthChecker, HybridScheduler, InferenceBatchScheduler, InferenceEventNotifier,
-    InferenceMetrics, InferencePipeline, PriorityRequest, PriorityRequestQueue, QuantizedAccumulator,
-    RecoveryAction, RequestOutcome, ResourceTracker, ScratchBuffer, SpeculativeBuffer,
-    StreamingKVCache, StreamingKVCacheFp16, TensorPool, TimeoutManager, TokenBatch,
-    TokenRateLimiter, WeightType, LARGE_VOCAB_THRESHOLD, AsyncRequestQueue,
+    quantized_matvec_q8, scalar_rope, scalar_softmax, sequential_ffn, sequential_sum, simd_rope,
+    simd_softmax, standard_layernorm, sum_with_prefetch, AsyncRequestQueue, CacheAlignedBuffer,
+    ChunkedProcessor, ComputeBackend, ConnectionConfig, ConnectionPool, ContiguousAttentionBuffer,
+    DegradationManager, DegradationMode, DoubleBuffer, ErrorClassification, ErrorRecoveryStrategy,
+    FailureIsolator, ForwardArena, GpuBufferPool, GpuCompute, GpuGenerateConfig, GpuModelConfig,
+    GpuPipelineStage, HealthChecker, HybridScheduler, InferenceBatchScheduler,
+    InferenceEventNotifier, InferenceMetrics, InferencePipeline, PriorityRequest,
+    PriorityRequestQueue, QuantizedAccumulator, RecoveryAction, RequestOutcome, ResourceTracker,
+    ScratchBuffer, SpeculativeBuffer, StreamingKVCache, StreamingKVCacheFp16, TensorPool,
+    TimeoutManager, TokenBatch, TokenRateLimiter, WeightType, LARGE_VOCAB_THRESHOLD,
 };
 use std::time::{Duration, Instant};
 
@@ -341,8 +340,8 @@ fn test_blocked_matmul_equals_naive() {
     let m = 16;
     let k = 16;
     let n = 16;
-    let a: Vec<f32> = (0..m*k).map(|i| (i % 7) as f32 * 0.1).collect();
-    let b: Vec<f32> = (0..k*n).map(|i| (i % 11) as f32 * 0.1).collect();
+    let a: Vec<f32> = (0..m * k).map(|i| (i % 7) as f32 * 0.1).collect();
+    let b: Vec<f32> = (0..k * n).map(|i| (i % 11) as f32 * 0.1).collect();
 
     let naive = naive_matmul(&a, &b, m, k, n);
     let blocked = blocked_matmul(&a, &b, m, k, n, 4);
@@ -1185,10 +1184,16 @@ fn test_error_recovery_classify_transient() {
     let strategy = ErrorRecoveryStrategy::new();
 
     let timeout_err = std::io::Error::new(std::io::ErrorKind::TimedOut, "timeout");
-    assert_eq!(strategy.classify_error(&timeout_err), ErrorClassification::Transient);
+    assert_eq!(
+        strategy.classify_error(&timeout_err),
+        ErrorClassification::Transient
+    );
 
     let interrupted_err = std::io::Error::new(std::io::ErrorKind::Interrupted, "interrupted");
-    assert_eq!(strategy.classify_error(&interrupted_err), ErrorClassification::Transient);
+    assert_eq!(
+        strategy.classify_error(&interrupted_err),
+        ErrorClassification::Transient
+    );
 }
 
 #[test]
@@ -1196,7 +1201,10 @@ fn test_error_recovery_classify_fatal() {
     let strategy = ErrorRecoveryStrategy::new();
 
     let not_found_err = std::io::Error::new(std::io::ErrorKind::NotFound, "not found");
-    assert_eq!(strategy.classify_error(&not_found_err), ErrorClassification::Fatal);
+    assert_eq!(
+        strategy.classify_error(&not_found_err),
+        ErrorClassification::Fatal
+    );
 }
 
 #[test]
@@ -1204,7 +1212,10 @@ fn test_error_recovery_classify_gpu() {
     let strategy = ErrorRecoveryStrategy::new();
 
     let gpu_err = std::io::Error::other("GPU unavailable");
-    assert_eq!(strategy.classify_error(&gpu_err), ErrorClassification::GpuFailure);
+    assert_eq!(
+        strategy.classify_error(&gpu_err),
+        ErrorClassification::GpuFailure
+    );
 }
 
 #[test]
@@ -1447,8 +1458,7 @@ fn test_gpu_generate_config_with_sampling() {
 
 #[test]
 fn test_gpu_generate_config_with_stop_tokens() {
-    let config = GpuGenerateConfig::default()
-        .with_stop_tokens(vec![0, 1, 2]);
+    let config = GpuGenerateConfig::default().with_stop_tokens(vec![0, 1, 2]);
 
     assert_eq!(config.stop_tokens, vec![0, 1, 2]);
 }

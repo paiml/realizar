@@ -11,8 +11,7 @@ use realizar::scheduler::{
     ChunkedPrefillScheduler, ChunkedPrefillState, ChunkedPrefillStats, Deadline,
     DynamicPriorityConfig, DynamicPriorityScheduler, DynamicRequest, DynamicSchedulerStats,
     MicroBatch, Priority, Scheduler, SchedulerError, SchedulerOutput, SchedulerRequest,
-    SchedulerStats, SequenceBatch, SequenceBatchEntry, SequenceState, Slot, SlotManager,
-    SlotState,
+    SchedulerStats, SequenceBatch, SequenceBatchEntry, SequenceState, Slot, SlotManager, SlotState,
 };
 use std::collections::HashMap;
 use std::thread;
@@ -71,7 +70,9 @@ fn test_scheduler_zero_max_tokens() {
     let mut scheduler = Scheduler::new(32, 1000);
 
     // Zero max tokens - should be immediately complete
-    let request_id = scheduler.add_request(vec![1, 2, 3], 0).expect("zero max tokens");
+    let request_id = scheduler
+        .add_request(vec![1, 2, 3], 0)
+        .expect("zero max tokens");
     let request = scheduler.get_request(request_id).expect("get request");
 
     // With 0 max_tokens and no generated tokens, remaining_tokens = 0
@@ -139,7 +140,9 @@ fn test_scheduler_preemption_critical_over_low() {
     let low_id = scheduler
         .add_request_with_priority(vec![1], 10, Priority::Low)
         .expect("low priority");
-    let _ = scheduler.schedule(&mut kv_cache, 0).expect("first schedule");
+    let _ = scheduler
+        .schedule(&mut kv_cache, 0)
+        .expect("first schedule");
 
     // Verify low priority is running
     assert_eq!(scheduler.running_count(), 1);
@@ -150,7 +153,9 @@ fn test_scheduler_preemption_critical_over_low() {
         .expect("critical priority");
 
     // Schedule again - critical should preempt low
-    let output = scheduler.schedule(&mut kv_cache, 0).expect("second schedule");
+    let output = scheduler
+        .schedule(&mut kv_cache, 0)
+        .expect("second schedule");
 
     // Low priority should be preempted
     let low_request = scheduler.get_request(low_id).expect("get low request");
@@ -170,7 +175,9 @@ fn test_scheduler_no_preemption_same_priority() {
     let _first_id = scheduler
         .add_request_with_priority(vec![1], 10, Priority::Normal)
         .expect("first");
-    let _ = scheduler.schedule(&mut kv_cache, 0).expect("first schedule");
+    let _ = scheduler
+        .schedule(&mut kv_cache, 0)
+        .expect("first schedule");
 
     // Add second normal priority
     let _second_id = scheduler
@@ -178,7 +185,9 @@ fn test_scheduler_no_preemption_same_priority() {
         .expect("second");
 
     // Schedule - no preemption should occur for same priority
-    let output = scheduler.schedule(&mut kv_cache, 0).expect("second schedule");
+    let output = scheduler
+        .schedule(&mut kv_cache, 0)
+        .expect("second schedule");
     assert_eq!(output.preempted_seq_ids.len(), 0);
 }
 
@@ -197,7 +206,7 @@ fn test_scheduler_queue_full_error_message() {
     match result {
         Err(SchedulerError::QueueFull { capacity }) => {
             assert_eq!(capacity, 2);
-        }
+        },
         _ => panic!("Expected QueueFull error"),
     }
 }
@@ -334,7 +343,10 @@ fn test_slot_manager_generating_slots() {
     manager.assign_request(vec![2], 10);
 
     // Start generating on slot 0 only
-    manager.get_slot_mut(0).expect("slot 0").start_generation(1.0);
+    manager
+        .get_slot_mut(0)
+        .expect("slot 0")
+        .start_generation(1.0);
 
     let generating: Vec<_> = manager.generating_slots().collect();
     assert_eq!(generating.len(), 1);

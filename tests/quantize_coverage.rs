@@ -10,18 +10,16 @@
 
 use realizar::quantize::{
     dequantize_q4_0, dequantize_q4_k, dequantize_q5_k, dequantize_q6_k, dequantize_q8_0,
-    fused_q4_0_parallel_matvec, fused_q4k_auto_matvec_into,
-    fused_q4k_dot, fused_q4k_dot_simd, fused_q4k_parallel_matvec,
-    fused_q4k_parallel_matvec_into, fused_q4k_q8k_parallel_matvec_into,
+    fused_q4_0_parallel_matvec, fused_q4k_auto_matvec_into, fused_q4k_dot, fused_q4k_dot_simd,
+    fused_q4k_parallel_matvec, fused_q4k_parallel_matvec_into, fused_q4k_q8k_parallel_matvec_into,
     fused_q4k_tiled_matvec, fused_q5k_dot, fused_q5k_dot_simd, fused_q5k_parallel_matvec,
     fused_q5k_parallel_matvec_into, fused_q5k_tiled_matvec, fused_q6k_colmajor_matvec,
-    fused_q6k_dot, fused_q6k_dot_simd, fused_q6k_parallel_matvec,
-    fused_q6k_parallel_matvec_into, fused_q6k_q8k_dot_simd,
-    fused_q6k_q8k_parallel_matvec_into, fused_q6k_tiled_matvec,
+    fused_q6k_dot, fused_q6k_dot_simd, fused_q6k_parallel_matvec, fused_q6k_parallel_matvec_into,
+    fused_q6k_q8k_dot_simd, fused_q6k_q8k_parallel_matvec_into, fused_q6k_tiled_matvec,
     fused_rmsnorm_ffn_up_gate, fused_rmsnorm_ffn_up_gate_into, fused_rmsnorm_q4_0_matmul,
-    fused_swiglu_simd, int8_matvec, int8_matvec_parallel,
-    quantize_activations_q8_0, quantize_activations_q8k_into, quantize_rmsnorm_q8_0,
-    quantize_rmsnorm_q8_0_into, softmax_simd, Int8Row, QK_K,
+    fused_swiglu_simd, int8_matvec, int8_matvec_parallel, quantize_activations_q8_0,
+    quantize_activations_q8k_into, quantize_rmsnorm_q8_0, quantize_rmsnorm_q8_0_into, softmax_simd,
+    Int8Row, QK_K,
 };
 
 // ============================================================================
@@ -562,8 +560,7 @@ fn test_fused_q4k_parallel_matvec_into_errors() {
     let activations = vec![1.0f32; 256];
     let mut output = vec![0.0f32; 2]; // too small
 
-    let result =
-        fused_q4k_parallel_matvec_into(&weight_data, &activations, 256, 4, &mut output);
+    let result = fused_q4k_parallel_matvec_into(&weight_data, &activations, 256, 4, &mut output);
     assert!(result.is_err());
 }
 
@@ -582,8 +579,7 @@ fn test_fused_q5k_parallel_matvec_into_errors() {
     let activations = vec![1.0f32; 256];
     let mut output = vec![0.0f32; 2]; // too small
 
-    let result =
-        fused_q5k_parallel_matvec_into(&weight_data, &activations, 256, 4, &mut output);
+    let result = fused_q5k_parallel_matvec_into(&weight_data, &activations, 256, 4, &mut output);
     assert!(result.is_err());
 }
 
@@ -603,8 +599,7 @@ fn test_fused_q6k_parallel_matvec_into_errors() {
     let activations = vec![1.0f32; 256];
     let mut output = vec![0.0f32; 4];
 
-    let result =
-        fused_q6k_parallel_matvec_into(&weight_data, &activations, 256, 4, &mut output);
+    let result = fused_q6k_parallel_matvec_into(&weight_data, &activations, 256, 4, &mut output);
     assert!(result.is_err());
 }
 
@@ -877,16 +872,9 @@ fn test_fused_rmsnorm_ffn_up_gate_basic() {
     let up_weight = vec![0u8; 18 * 8];
     let gate_weight = vec![0u8; 18 * 8];
 
-    let (up, gate) = fused_rmsnorm_ffn_up_gate(
-        &input,
-        &norm_weight,
-        1e-6,
-        &up_weight,
-        &gate_weight,
-        32,
-        8,
-    )
-    .expect("valid");
+    let (up, gate) =
+        fused_rmsnorm_ffn_up_gate(&input, &norm_weight, 1e-6, &up_weight, &gate_weight, 32, 8)
+            .expect("valid");
 
     assert_eq!(up.len(), 8);
     assert_eq!(gate.len(), 8);
@@ -899,15 +887,8 @@ fn test_fused_rmsnorm_ffn_up_gate_error_input_mismatch() {
     let up_weight = vec![0u8; 18 * 8];
     let gate_weight = vec![0u8; 18 * 8];
 
-    let result = fused_rmsnorm_ffn_up_gate(
-        &input,
-        &norm_weight,
-        1e-6,
-        &up_weight,
-        &gate_weight,
-        32,
-        8,
-    );
+    let result =
+        fused_rmsnorm_ffn_up_gate(&input, &norm_weight, 1e-6, &up_weight, &gate_weight, 32, 8);
     assert!(result.is_err());
 }
 
@@ -918,15 +899,8 @@ fn test_fused_rmsnorm_ffn_up_gate_error_up_weight_small() {
     let up_weight = vec![0u8; 10]; // too small
     let gate_weight = vec![0u8; 18 * 8];
 
-    let result = fused_rmsnorm_ffn_up_gate(
-        &input,
-        &norm_weight,
-        1e-6,
-        &up_weight,
-        &gate_weight,
-        32,
-        8,
-    );
+    let result =
+        fused_rmsnorm_ffn_up_gate(&input, &norm_weight, 1e-6, &up_weight, &gate_weight, 32, 8);
     assert!(result.is_err());
 }
 
@@ -937,15 +911,8 @@ fn test_fused_rmsnorm_ffn_up_gate_error_gate_weight_small() {
     let up_weight = vec![0u8; 18 * 8];
     let gate_weight = vec![0u8; 10]; // too small
 
-    let result = fused_rmsnorm_ffn_up_gate(
-        &input,
-        &norm_weight,
-        1e-6,
-        &up_weight,
-        &gate_weight,
-        32,
-        8,
-    );
+    let result =
+        fused_rmsnorm_ffn_up_gate(&input, &norm_weight, 1e-6, &up_weight, &gate_weight, 32, 8);
     assert!(result.is_err());
 }
 

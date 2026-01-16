@@ -8,15 +8,13 @@
 
 use realizar::gguf::{
     GGUFConfig, GGUFModel, GGUFTransformer, GGUFValue, InferenceScratchBuffer,
-    OwnedQuantizedKVCache, QuantizedGenerateConfig, QuantizedTensorRef, QKVWeights,
-    GGUF_ALIGNMENT, GGUF_MAGIC, GGUF_TYPE_F32, GGUF_TYPE_Q4_0, GGUF_TYPE_Q4_K, GGUF_TYPE_Q8_0,
-    GGUF_VERSION_V3,
+    OwnedQuantizedKVCache, QKVWeights, QuantizedGenerateConfig, QuantizedTensorRef, GGUF_ALIGNMENT,
+    GGUF_MAGIC, GGUF_TYPE_F32, GGUF_TYPE_Q4_0, GGUF_TYPE_Q4_K, GGUF_TYPE_Q8_0, GGUF_VERSION_V3,
 };
 
 // ============================================================================
 // HELPER FUNCTIONS FOR BUILDING TEST GGUF DATA
 // ============================================================================
-
 
 /// Add string metadata to GGUF data
 fn add_string_meta(data: &mut Vec<u8>, key: &str, value: &str) {
@@ -34,7 +32,6 @@ fn add_u32_meta(data: &mut Vec<u8>, key: &str, value: u32) {
     data.extend_from_slice(&4u32.to_le_bytes()); // UInt32 type
     data.extend_from_slice(&value.to_le_bytes());
 }
-
 
 /// Add tensor info to GGUF data
 fn add_tensor_info(data: &mut Vec<u8>, name: &str, dims: &[u64], qtype: u32, offset: u64) {
@@ -54,7 +51,11 @@ fn add_tensor_info(data: &mut Vec<u8>, name: &str, dims: &[u64], qtype: u32, off
 }
 
 /// Build a minimal transformer GGUF with F32 weights
-fn build_minimal_transformer_gguf(hidden_dim: usize, vocab_size: usize, num_layers: usize) -> Vec<u8> {
+fn build_minimal_transformer_gguf(
+    hidden_dim: usize,
+    vocab_size: usize,
+    num_layers: usize,
+) -> Vec<u8> {
     let mut data = Vec::new();
 
     // Count tensors: token_embd + output_norm + output + per-layer weights
@@ -71,7 +72,11 @@ fn build_minimal_transformer_gguf(hidden_dim: usize, vocab_size: usize, num_laye
     add_string_meta(&mut data, "general.architecture", "test");
     add_u32_meta(&mut data, "test.embedding_length", hidden_dim as u32);
     add_u32_meta(&mut data, "test.block_count", num_layers as u32);
-    add_u32_meta(&mut data, "test.attention.head_count", (hidden_dim / 64) as u32);
+    add_u32_meta(
+        &mut data,
+        "test.attention.head_count",
+        (hidden_dim / 64) as u32,
+    );
 
     // Calculate sizes
     let embed_size = vocab_size * hidden_dim;
@@ -84,30 +89,78 @@ fn build_minimal_transformer_gguf(hidden_dim: usize, vocab_size: usize, num_laye
     let mut offset = 0u64;
 
     // Add tensor info
-    add_tensor_info(&mut data, "token_embd.weight", &[vocab_size as u64, hidden_dim as u64], GGUF_TYPE_F32, offset);
+    add_tensor_info(
+        &mut data,
+        "token_embd.weight",
+        &[vocab_size as u64, hidden_dim as u64],
+        GGUF_TYPE_F32,
+        offset,
+    );
     offset += (embed_size * 4) as u64;
 
     for layer_idx in 0..num_layers {
-        add_tensor_info(&mut data, &format!("blk.{}.attn_norm.weight", layer_idx), &[hidden_dim as u64], GGUF_TYPE_F32, offset);
+        add_tensor_info(
+            &mut data,
+            &format!("blk.{}.attn_norm.weight", layer_idx),
+            &[hidden_dim as u64],
+            GGUF_TYPE_F32,
+            offset,
+        );
         offset += (hidden_dim * 4) as u64;
 
-        add_tensor_info(&mut data, &format!("blk.{}.attn_qkv.weight", layer_idx), &[hidden_dim as u64 * 3, hidden_dim as u64], GGUF_TYPE_F32, offset);
+        add_tensor_info(
+            &mut data,
+            &format!("blk.{}.attn_qkv.weight", layer_idx),
+            &[hidden_dim as u64 * 3, hidden_dim as u64],
+            GGUF_TYPE_F32,
+            offset,
+        );
         offset += (qkv_size * 4) as u64;
 
-        add_tensor_info(&mut data, &format!("blk.{}.attn_output.weight", layer_idx), &[hidden_dim as u64, hidden_dim as u64], GGUF_TYPE_F32, offset);
+        add_tensor_info(
+            &mut data,
+            &format!("blk.{}.attn_output.weight", layer_idx),
+            &[hidden_dim as u64, hidden_dim as u64],
+            GGUF_TYPE_F32,
+            offset,
+        );
         offset += (attn_out_size * 4) as u64;
 
-        add_tensor_info(&mut data, &format!("blk.{}.ffn_up.weight", layer_idx), &[hidden_dim as u64 * 4, hidden_dim as u64], GGUF_TYPE_F32, offset);
+        add_tensor_info(
+            &mut data,
+            &format!("blk.{}.ffn_up.weight", layer_idx),
+            &[hidden_dim as u64 * 4, hidden_dim as u64],
+            GGUF_TYPE_F32,
+            offset,
+        );
         offset += (ffn_up_size * 4) as u64;
 
-        add_tensor_info(&mut data, &format!("blk.{}.ffn_down.weight", layer_idx), &[hidden_dim as u64, hidden_dim as u64 * 4], GGUF_TYPE_F32, offset);
+        add_tensor_info(
+            &mut data,
+            &format!("blk.{}.ffn_down.weight", layer_idx),
+            &[hidden_dim as u64, hidden_dim as u64 * 4],
+            GGUF_TYPE_F32,
+            offset,
+        );
         offset += (ffn_down_size * 4) as u64;
     }
 
-    add_tensor_info(&mut data, "output_norm.weight", &[hidden_dim as u64], GGUF_TYPE_F32, offset);
+    add_tensor_info(
+        &mut data,
+        "output_norm.weight",
+        &[hidden_dim as u64],
+        GGUF_TYPE_F32,
+        offset,
+    );
     offset += (hidden_dim * 4) as u64;
 
-    add_tensor_info(&mut data, "output.weight", &[vocab_size as u64, hidden_dim as u64], GGUF_TYPE_F32, offset);
+    add_tensor_info(
+        &mut data,
+        "output.weight",
+        &[vocab_size as u64, hidden_dim as u64],
+        GGUF_TYPE_F32,
+        offset,
+    );
 
     // Pad to alignment
     while data.len() % GGUF_ALIGNMENT != 0 {
@@ -116,7 +169,12 @@ fn build_minimal_transformer_gguf(hidden_dim: usize, vocab_size: usize, num_laye
 
     // Add tensor data (initialized to small values for numerical stability)
     let total_tensor_bytes = embed_size * 4
-        + num_layers * (hidden_dim * 4 + qkv_size * 4 + attn_out_size * 4 + ffn_up_size * 4 + ffn_down_size * 4)
+        + num_layers
+            * (hidden_dim * 4
+                + qkv_size * 4
+                + attn_out_size * 4
+                + ffn_up_size * 4
+                + ffn_down_size * 4)
         + hidden_dim * 4
         + embed_size * 4;
 
@@ -406,7 +464,11 @@ fn test_cov_qkv_weights_separate_out_dim() {
         qtype: GGUF_TYPE_F32,
     };
 
-    let qkv = QKVWeights::Separate { q: q_ref, k: k_ref, v: v_ref };
+    let qkv = QKVWeights::Separate {
+        q: q_ref,
+        k: k_ref,
+        v: v_ref,
+    };
     assert_eq!(qkv.out_dim(64), 64 + 32 + 32); // q_dim + k_dim + v_dim
 }
 
@@ -431,7 +493,11 @@ fn test_cov_qkv_weights_separate_q_dim() {
         qtype: GGUF_TYPE_F32,
     };
 
-    let qkv = QKVWeights::Separate { q: q_ref, k: k_ref, v: v_ref };
+    let qkv = QKVWeights::Separate {
+        q: q_ref,
+        k: k_ref,
+        v: v_ref,
+    };
     assert_eq!(qkv.q_dim(64), 64); // q projection output dim
 }
 
