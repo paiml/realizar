@@ -10071,6 +10071,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "allocates 100GB+ memory - run with --ignored"]
     fn test_streaming_kv_cache_fp16_memory_half() {
         // Verify FP16 uses half the memory of FP32
         let num_layers = 32;
@@ -10102,6 +10103,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "allocates large memory for 65536 positions - run with --ignored"]
     fn test_streaming_kv_cache_fp16_65536_positions() {
         // Test that FP16 cache handles 65536 positions
         let num_layers = 4;
@@ -10132,6 +10134,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "allocates 34GB+ memory - run with --ignored"]
     fn test_fp16_kv_cache_memory_bound_65536() {
         // Verify 65536 context FP16 memory stays bounded
         let num_layers = 32;
@@ -10156,6 +10159,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "allocates large memory for 65536 positions - run with --ignored"]
     fn test_fp16_kv_cache_fill_performance_65536() {
         use std::time::Instant;
 
