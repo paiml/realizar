@@ -3669,4 +3669,303 @@ mod tests {
             );
         }
     }
+
+    // ========================================================================
+    // Coverage Tests: TokenBudget
+    // ========================================================================
+
+    #[test]
+    fn test_token_budget_debug() {
+        let budget = TokenBudget::from_latency(100.0);
+        let debug = format!("{:?}", budget);
+        assert!(debug.contains("TokenBudget"));
+    }
+
+    #[test]
+    fn test_token_budget_clone() {
+        let budget = TokenBudget::from_latency(100.0).with_batch_size(32);
+        let cloned = budget.clone();
+        assert_eq!(budget.us_per_token, cloned.us_per_token);
+        assert_eq!(budget.batch_size, cloned.batch_size);
+    }
+
+    #[test]
+    fn test_token_budget_default() {
+        let budget = TokenBudget::default();
+        assert!(budget.us_per_token > 0.0);
+        assert_eq!(budget.batch_size, 1);
+    }
+
+    // ========================================================================
+    // Coverage Tests: TokenResult
+    // ========================================================================
+
+    #[test]
+    fn test_token_result_debug() {
+        let budget = TokenBudget::from_latency(100.0);
+        let result: TokenResult<Vec<f32>> = TokenResult::new(vec![1.0, 2.0], 2, 100.0, &budget);
+        let debug = format!("{:?}", result);
+        assert!(debug.contains("TokenResult"));
+    }
+
+    #[test]
+    fn test_token_result_clone() {
+        let budget = TokenBudget::from_latency(100.0);
+        let result: TokenResult<Vec<f32>> = TokenResult::new(vec![1.0, 2.0], 2, 100.0, &budget);
+        let cloned = result.clone();
+        assert_eq!(result.tokens_processed, cloned.tokens_processed);
+        assert_eq!(result.output, cloned.output);
+    }
+
+    #[test]
+    fn test_token_result_zero_tokens() {
+        let budget = TokenBudget::from_latency(100.0);
+        let result: TokenResult<Vec<f32>> = TokenResult::new(vec![], 0, 100.0, &budget);
+        assert_eq!(result.tokens_processed, 0);
+        // With zero tokens, us_per_token could be NaN (0/0) or infinity, depending on implementation
+        // Just ensure the result is created without panic
+    }
+
+    // ========================================================================
+    // Coverage Tests: BrickError
+    // ========================================================================
+
+    #[test]
+    fn test_brick_error_display() {
+        let err = BrickError::InvalidInput("test error".to_string());
+        assert!(err.to_string().contains("test error"));
+
+        let err2 = BrickError::BudgetExceeded {
+            limit_us: 100.0,
+            actual_us: 150.0,
+        };
+        assert!(err2.to_string().contains("150"));
+
+        let err3 = BrickError::ComputeError("failed".to_string());
+        assert!(err3.to_string().contains("failed"));
+
+        let err4 = BrickError::AssertionFailed {
+            name: "test".to_string(),
+            expected: "expected".to_string(),
+            actual: "actual".to_string(),
+        };
+        assert!(err4.to_string().contains("test"));
+    }
+
+    #[test]
+    fn test_brick_error_debug() {
+        let err = BrickError::InvalidInput("debug test".to_string());
+        let debug = format!("{:?}", err);
+        assert!(debug.contains("InvalidInput"));
+    }
+
+    // ========================================================================
+    // Coverage Tests: BrickAssertion
+    // ========================================================================
+
+    #[test]
+    fn test_assertion_check_bounds() {
+        let assertion = BrickAssertion::bounds(-1.0, 1.0);
+        let data = vec![0.0, 0.5, -0.5, 0.9];
+        assert!(assertion.check_f32(&data, true).is_ok());
+
+        let bad_data = vec![0.0, 1.5, -0.5];
+        assert!(assertion.check_f32(&bad_data, true).is_err());
+    }
+
+    #[test]
+    fn test_assertion_check_equiv_scalar() {
+        let assertion = BrickAssertion::equiv_scalar(0.01);
+        let data = vec![1.0, 1.005, 1.003, 0.997];
+        assert!(assertion.check_f32(&data, true).is_ok());
+    }
+
+    #[test]
+    fn test_assertion_kind_debug() {
+        let kind = AssertionKind::NoNaN;
+        let debug = format!("{:?}", kind);
+        assert!(debug.contains("NoNaN"));
+
+        let kind2 = AssertionKind::Bounds { min: 0.0, max: 1.0 };
+        let debug2 = format!("{:?}", kind2);
+        assert!(debug2.contains("Bounds"));
+    }
+
+    // ========================================================================
+    // Coverage Tests: BrickVerification
+    // ========================================================================
+
+    #[test]
+    fn test_brick_verification_pass() {
+        let v = BrickVerification::pass();
+        assert!(v.is_valid);
+        assert!(v.results.is_empty());
+    }
+
+    #[test]
+    fn test_brick_verification_fail() {
+        let v = BrickVerification::fail("test", "failed reason");
+        assert!(!v.is_valid);
+        assert_eq!(v.results.len(), 1);
+    }
+
+    #[test]
+    fn test_brick_verification_add() {
+        let mut v = BrickVerification::pass();
+        v.add("check1", true, "passed");
+        v.add("check2", false, "failed");
+        assert!(!v.is_valid); // Should be false after failed check
+        assert_eq!(v.results.len(), 2);
+    }
+
+    // ========================================================================
+    // Coverage Tests: FlashAttentionBrick
+    // ========================================================================
+
+    #[test]
+    fn test_flash_attention_group_size() {
+        let brick = FlashAttentionBrick::new(8, 2, 64);
+        assert_eq!(brick.group_size(), 4); // 8 heads / 2 kv heads
+    }
+
+    #[test]
+    fn test_flash_attention_flops() {
+        let brick = FlashAttentionBrick::new(8, 2, 64);
+        let flops = brick.flops(512);
+        assert!(flops > 0);
+    }
+
+    #[test]
+    fn test_flash_attention_memory_bytes() {
+        let brick = FlashAttentionBrick::new(8, 2, 64);
+        let (naive, flash) = brick.memory_bytes(512);
+        assert!(flash < naive);
+    }
+
+    // ========================================================================
+    // Coverage Tests: QkvBrick
+    // ========================================================================
+
+    #[test]
+    fn test_qkv_brick_with_bias() {
+        let brick = QkvBrick::new(64, 64, 64, 64).with_bias();
+        assert!(brick.has_bias);
+    }
+
+    #[test]
+    fn test_qkv_brick_total_out_dim() {
+        let brick = QkvBrick::new(64, 64, 32, 32);
+        assert_eq!(brick.total_out_dim(), 128); // 64 + 32 + 32
+    }
+
+    // ========================================================================
+    // Coverage Tests: BenchmarkConfig
+    // ========================================================================
+
+    #[test]
+    fn test_benchmark_config_debug() {
+        let config = BenchmarkConfig::default();
+        let debug = format!("{:?}", config);
+        assert!(debug.contains("BenchmarkConfig"));
+    }
+
+    #[test]
+    fn test_benchmark_config_clone() {
+        let config = BenchmarkConfig::default();
+        let cloned = config.clone();
+        assert_eq!(config.samples, cloned.samples);
+    }
+
+    // ========================================================================
+    // Coverage Tests: BenchmarkReport
+    // ========================================================================
+
+    #[test]
+    fn test_benchmark_report_debug() {
+        let report = BenchmarkReport {
+            brick_name: "test".to_string(),
+            mean_us: 50.0,
+            std_us: 5.0,
+            cv: 10.0,
+            p50_us: 50.0,
+            p99_us: 58.0,
+            tokens_per_sec: 20000.0,
+            budget_us: 100.0,
+            budget_met: true,
+            statistically_valid: true,
+        };
+        let debug = format!("{:?}", report);
+        assert!(debug.contains("BenchmarkReport"));
+    }
+
+    #[test]
+    fn test_benchmark_report_clone() {
+        let report = BenchmarkReport {
+            brick_name: "test".to_string(),
+            mean_us: 50.0,
+            std_us: 5.0,
+            cv: 10.0,
+            p50_us: 50.0,
+            p99_us: 58.0,
+            tokens_per_sec: 20000.0,
+            budget_us: 100.0,
+            budget_met: true,
+            statistically_valid: true,
+        };
+        let cloned = report.clone();
+        assert_eq!(report.brick_name, cloned.brick_name);
+        assert_eq!(report.mean_us, cloned.mean_us);
+    }
+
+    // ========================================================================
+    // Coverage Tests: LayerTiming
+    // ========================================================================
+
+    #[test]
+    fn test_layer_timing_default() {
+        let timing = LayerTiming::default();
+        assert_eq!(timing.attn_norm_us, 0.0);
+        assert_eq!(timing.qkv_us, 0.0);
+    }
+
+    #[test]
+    fn test_layer_timing_debug() {
+        let timing = LayerTiming::default();
+        let debug = format!("{:?}", timing);
+        assert!(debug.contains("LayerTiming"));
+    }
+
+    #[test]
+    fn test_layer_timing_clone() {
+        let timing = LayerTiming {
+            attn_norm_us: 1.0,
+            qkv_us: 2.0,
+            rope_us: 3.0,
+            attention_us: 4.0,
+            o_proj_us: 5.0,
+            ffn_norm_us: 6.0,
+            ffn_us: 7.0,
+            total_us: 8.0,
+        };
+        let cloned = timing.clone();
+        assert_eq!(timing.attn_norm_us, cloned.attn_norm_us);
+        assert_eq!(timing.qkv_us, cloned.qkv_us);
+    }
+
+    #[test]
+    fn test_layer_timing_bottleneck() {
+        let timing = LayerTiming {
+            attn_norm_us: 1.0,
+            qkv_us: 10.0, // This should be the bottleneck
+            rope_us: 2.0,
+            attention_us: 5.0,
+            o_proj_us: 3.0,
+            ffn_norm_us: 1.0,
+            ffn_us: 8.0,
+            total_us: 30.0,
+        };
+        let (name, time) = timing.bottleneck();
+        assert_eq!(name, "qkv");
+        assert_eq!(time, 10.0);
+    }
 }
