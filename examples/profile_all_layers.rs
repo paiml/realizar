@@ -45,45 +45,42 @@ fn main() -> Result<(), RealizarError> {
     // Warmup - run through all layers once
     println!("Warming up...");
     for layer in &model.layers {
-        match &layer.qkv_weight {
-            realizar::gguf::OwnedQKVWeights::Separate { q, k, v } => {
-                if q.qtype == GGUF_TYPE_Q4_K {
-                    fused_q4k_parallel_matvec_into(
-                        &q.data,
-                        &hidden_input,
-                        q.in_dim,
-                        q.out_dim,
-                        &mut q_out,
-                    )?;
-                }
-                if k.qtype == GGUF_TYPE_Q4_K {
-                    fused_q4k_parallel_matvec_into(
-                        &k.data,
-                        &hidden_input,
-                        k.in_dim,
-                        k.out_dim,
-                        &mut k_out,
-                    )?;
-                } else if k.qtype == GGUF_TYPE_Q6_K {
-                    fused_q6k_parallel_matvec_into(
-                        &k.data,
-                        &hidden_input,
-                        k.in_dim,
-                        k.out_dim,
-                        &mut k_out,
-                    )?;
-                }
-                if v.qtype == GGUF_TYPE_Q6_K {
-                    fused_q6k_parallel_matvec_into(
-                        &v.data,
-                        &hidden_input,
-                        v.in_dim,
-                        v.out_dim,
-                        &mut v_out,
-                    )?;
-                }
-            },
-            _ => {},
+        if let realizar::gguf::OwnedQKVWeights::Separate { q, k, v } = &layer.qkv_weight {
+            if q.qtype == GGUF_TYPE_Q4_K {
+                fused_q4k_parallel_matvec_into(
+                    &q.data,
+                    &hidden_input,
+                    q.in_dim,
+                    q.out_dim,
+                    &mut q_out,
+                )?;
+            }
+            if k.qtype == GGUF_TYPE_Q4_K {
+                fused_q4k_parallel_matvec_into(
+                    &k.data,
+                    &hidden_input,
+                    k.in_dim,
+                    k.out_dim,
+                    &mut k_out,
+                )?;
+            } else if k.qtype == GGUF_TYPE_Q6_K {
+                fused_q6k_parallel_matvec_into(
+                    &k.data,
+                    &hidden_input,
+                    k.in_dim,
+                    k.out_dim,
+                    &mut k_out,
+                )?;
+            }
+            if v.qtype == GGUF_TYPE_Q6_K {
+                fused_q6k_parallel_matvec_into(
+                    &v.data,
+                    &hidden_input,
+                    v.in_dim,
+                    v.out_dim,
+                    &mut v_out,
+                )?;
+            }
         }
         if layer.attn_output_weight.qtype == GGUF_TYPE_Q4_K {
             fused_q4k_parallel_matvec_into(
@@ -138,45 +135,42 @@ fn main() -> Result<(), RealizarError> {
 
         for layer in &model.layers {
             // QKV
-            match &layer.qkv_weight {
-                realizar::gguf::OwnedQKVWeights::Separate { q, k, v } => {
-                    if q.qtype == GGUF_TYPE_Q4_K {
-                        fused_q4k_parallel_matvec_into(
-                            &q.data,
-                            &hidden_input,
-                            q.in_dim,
-                            q.out_dim,
-                            &mut q_out,
-                        )?;
-                    }
-                    if k.qtype == GGUF_TYPE_Q4_K {
-                        fused_q4k_parallel_matvec_into(
-                            &k.data,
-                            &hidden_input,
-                            k.in_dim,
-                            k.out_dim,
-                            &mut k_out,
-                        )?;
-                    } else if k.qtype == GGUF_TYPE_Q6_K {
-                        fused_q6k_parallel_matvec_into(
-                            &k.data,
-                            &hidden_input,
-                            k.in_dim,
-                            k.out_dim,
-                            &mut k_out,
-                        )?;
-                    }
-                    if v.qtype == GGUF_TYPE_Q6_K {
-                        fused_q6k_parallel_matvec_into(
-                            &v.data,
-                            &hidden_input,
-                            v.in_dim,
-                            v.out_dim,
-                            &mut v_out,
-                        )?;
-                    }
-                },
-                _ => {},
+            if let realizar::gguf::OwnedQKVWeights::Separate { q, k, v } = &layer.qkv_weight {
+                if q.qtype == GGUF_TYPE_Q4_K {
+                    fused_q4k_parallel_matvec_into(
+                        &q.data,
+                        &hidden_input,
+                        q.in_dim,
+                        q.out_dim,
+                        &mut q_out,
+                    )?;
+                }
+                if k.qtype == GGUF_TYPE_Q4_K {
+                    fused_q4k_parallel_matvec_into(
+                        &k.data,
+                        &hidden_input,
+                        k.in_dim,
+                        k.out_dim,
+                        &mut k_out,
+                    )?;
+                } else if k.qtype == GGUF_TYPE_Q6_K {
+                    fused_q6k_parallel_matvec_into(
+                        &k.data,
+                        &hidden_input,
+                        k.in_dim,
+                        k.out_dim,
+                        &mut k_out,
+                    )?;
+                }
+                if v.qtype == GGUF_TYPE_Q6_K {
+                    fused_q6k_parallel_matvec_into(
+                        &v.data,
+                        &hidden_input,
+                        v.in_dim,
+                        v.out_dim,
+                        &mut v_out,
+                    )?;
+                }
             }
 
             // Attn out

@@ -65,7 +65,7 @@ fn setup_cuda_model() -> Option<BenchContext> {
             eprintln!("      cargo bench --bench cuda_batched_inference --features cuda");
             eprintln!("═══════════════════════════════════════════════════════════════");
             return None;
-        }
+        },
     };
 
     if !std::path::Path::new(&model_path).exists() {
@@ -126,7 +126,11 @@ fn setup_cuda_model() -> Option<BenchContext> {
 }
 
 #[cfg(feature = "cuda")]
-fn bench_batched_forward_impl(group: &mut BenchmarkGroup<WallTime>, ctx: &mut BenchContext, m: usize) {
+fn bench_batched_forward_impl(
+    group: &mut BenchmarkGroup<WallTime>,
+    ctx: &mut BenchContext,
+    m: usize,
+) {
     // Initialize batched workspace
     if ctx
         .cuda_model
@@ -190,7 +194,11 @@ fn bench_batched_forward_impl(group: &mut BenchmarkGroup<WallTime>, ctx: &mut Be
 }
 
 #[cfg(feature = "cuda")]
-fn bench_batched_forward_graphed_impl(group: &mut BenchmarkGroup<WallTime>, ctx: &mut BenchContext, m: usize) {
+fn bench_batched_forward_graphed_impl(
+    group: &mut BenchmarkGroup<WallTime>,
+    ctx: &mut BenchContext,
+    m: usize,
+) {
     // Initialize batched workspace
     if ctx
         .cuda_model
@@ -231,33 +239,44 @@ fn bench_batched_forward_graphed_impl(group: &mut BenchmarkGroup<WallTime>, ctx:
 
     // Warm up: capture the CUDA graph on first call
     let warmup_positions: Vec<u32> = (0..m).map(|s| s as u32).collect();
-    let _ = ctx.cuda_model.executor_mut().forward_batched_to_token_ids_graphed(
-        &embeddings,
-        &warmup_positions,
-        ctx.num_layers,
-        ctx.hidden_dim as u32,
-        ctx.intermediate_dim as u32,
-        ctx.vocab_size as u32,
-        ctx.eps,
-    );
+    let _ = ctx
+        .cuda_model
+        .executor_mut()
+        .forward_batched_to_token_ids_graphed(
+            &embeddings,
+            &warmup_positions,
+            ctx.num_layers,
+            ctx.hidden_dim as u32,
+            ctx.intermediate_dim as u32,
+            ctx.vocab_size as u32,
+            ctx.eps,
+        );
 
-    group.bench_with_input(BenchmarkId::new("forward_graphed", &bench_id), &m, |b, _| {
-        b.iter(|| {
-            // Run forward passes with CUDA graphs (sustained throughput)
-            for iter in 0..TOKENS_PER_ITERATION {
-                let positions: Vec<u32> = (0..m).map(|s| (iter + s) as u32).collect();
-                let _ = black_box(ctx.cuda_model.executor_mut().forward_batched_to_token_ids_graphed(
-                    &embeddings,
-                    &positions,
-                    ctx.num_layers,
-                    ctx.hidden_dim as u32,
-                    ctx.intermediate_dim as u32,
-                    ctx.vocab_size as u32,
-                    ctx.eps,
-                ));
-            }
-        })
-    });
+    group.bench_with_input(
+        BenchmarkId::new("forward_graphed", &bench_id),
+        &m,
+        |b, _| {
+            b.iter(|| {
+                // Run forward passes with CUDA graphs (sustained throughput)
+                for iter in 0..TOKENS_PER_ITERATION {
+                    let positions: Vec<u32> = (0..m).map(|s| (iter + s) as u32).collect();
+                    let _ = black_box(
+                        ctx.cuda_model
+                            .executor_mut()
+                            .forward_batched_to_token_ids_graphed(
+                                &embeddings,
+                                &positions,
+                                ctx.num_layers,
+                                ctx.hidden_dim as u32,
+                                ctx.intermediate_dim as u32,
+                                ctx.vocab_size as u32,
+                                ctx.eps,
+                            ),
+                    );
+                }
+            })
+        },
+    );
 
     // Reset after benchmark for next batch size
     ctx.cuda_model.executor_mut().reset_batched_kv_cache_gpu();
@@ -270,7 +289,7 @@ fn bench_cuda_batched_inference(c: &mut Criterion) {
         None => {
             eprintln!("Skipping benchmark: model setup failed");
             return;
-        }
+        },
     };
 
     let mut group = c.benchmark_group("cuda_batched_inference");

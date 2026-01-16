@@ -41,7 +41,7 @@ fn run_q6k_test() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("Test input sum: {:.6}", input_sum);
 
     // Q6K: 210 bytes per 256 values
-    let sb_per_row = (hidden_dim + 255) / 256;
+    let sb_per_row = hidden_dim.div_ceil(256);
     let bytes_per_row = sb_per_row * 210;
     eprintln!("Q6K: {} bytes per row", bytes_per_row);
 
@@ -107,6 +107,7 @@ fn run_q6k_test() -> Result<(), Box<dyn std::error::Error>> {
     // Overall statistics
     let mut sum_diff = 0.0f64;
     let mut sum_abs_diff = 0.0f64;
+    #[allow(clippy::needless_range_loop)] // row used in offset calculations
     for row in 0..vocab_size.min(10000) {
         // Sample first 10k rows
         let row_start = row * bytes_per_row;
@@ -135,7 +136,7 @@ fn run_q6k_test() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(feature = "cuda")]
 fn q6k_dot_cpu(row_data: &[u8], input: &[f32], k: usize) -> f32 {
     let mut result = 0.0f32;
-    let num_sb = (k + 255) / 256;
+    let num_sb = k.div_ceil(256);
 
     for sb_idx in 0..num_sb {
         let sb_offset = sb_idx * 210;

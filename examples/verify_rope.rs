@@ -21,7 +21,7 @@ fn main() {
     println!("  rope_type: {} (NEOX)", rope_type);
 
     // Test vector: simple values to track transformations
-    let mut x: Vec<f32> = (0..head_dim).map(|i| i as f32 / 10.0).collect();
+    let x: Vec<f32> = (0..head_dim).map(|i| i as f32 / 10.0).collect();
     println!("\nOriginal x[0..8]: {:?}", &x[..8]);
     println!("Original x[32..40]: {:?}", &x[32..40]);
 

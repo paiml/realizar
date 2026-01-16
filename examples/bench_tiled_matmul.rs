@@ -39,7 +39,7 @@ fn main() -> Result<(), RealizarError> {
             weight.out_dim,
             &mut output_orig,
         )?;
-        realizar::quantize::fused_q4k_tiled_matvec_into(
+        realizar::quantize::fused_q4k_auto_matvec_into(
             &weight.data,
             &activations,
             weight.in_dim,
@@ -68,7 +68,7 @@ fn main() -> Result<(), RealizarError> {
     println!("Benchmarking L2-tiled...");
     let start = Instant::now();
     for _ in 0..iterations {
-        realizar::quantize::fused_q4k_tiled_matvec_into(
+        realizar::quantize::fused_q4k_auto_matvec_into(
             &weight.data,
             &activations,
             weight.in_dim,
@@ -112,7 +112,7 @@ fn main() -> Result<(), RealizarError> {
             weight_up.out_dim,
             &mut out_up_orig,
         )?;
-        realizar::quantize::fused_q4k_tiled_matvec_into(
+        realizar::quantize::fused_q4k_auto_matvec_into(
             &weight_up.data,
             &act_up,
             weight_up.in_dim,
@@ -135,7 +135,7 @@ fn main() -> Result<(), RealizarError> {
 
     let start = Instant::now();
     for _ in 0..iterations {
-        realizar::quantize::fused_q4k_tiled_matvec_into(
+        realizar::quantize::fused_q4k_auto_matvec_into(
             &weight_up.data,
             &act_up,
             weight_up.in_dim,

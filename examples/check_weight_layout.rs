@@ -18,7 +18,7 @@ fn main() -> Result<(), RealizarError> {
     println!("  qtype:   {}", weight.qtype);
     println!("  data.len(): {} bytes", weight.data.len());
 
-    let expected_sb = (weight.out_dim * weight.in_dim + 255) / 256;
+    let expected_sb = (weight.out_dim * weight.in_dim).div_ceil(256);
     let expected_bytes = expected_sb * 144;
     println!("  Expected super-blocks: {}", expected_sb);
     println!("  Expected bytes: {}", expected_bytes);
@@ -46,7 +46,7 @@ fn main() -> Result<(), RealizarError> {
 
     let rows = weight.out_dim;
     let cols = weight.in_dim;
-    let sb_per_row = (cols + 255) / 256;
+    let sb_per_row = cols.div_ceil(256);
     println!("\nExpected layout (row-major):");
     println!("  Rows: {}", rows);
     println!("  Cols: {}", cols);
@@ -55,7 +55,7 @@ fn main() -> Result<(), RealizarError> {
     println!("  Total bytes: {}", rows * sb_per_row * 144);
 
     // What if it's stored as (in_dim, out_dim) transposed?
-    let sb_per_row_t = (rows + 255) / 256;
+    let sb_per_row_t = rows.div_ceil(256);
     println!("\nAlternative layout (transposed):");
     println!("  Rows: {}", cols);
     println!("  Cols: {}", rows);

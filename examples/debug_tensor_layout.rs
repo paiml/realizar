@@ -94,28 +94,28 @@ fn analyze_model(path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
             );
 
             // Check if this looks like [hidden, vocab] or [vocab, hidden]
-            if tensor.name == "token_embd.weight" || tensor.name == "output.weight" {
-                if tensor.dims.len() == 2 {
-                    let (d0, d1) = (tensor.dims[0] as usize, tensor.dims[1] as usize);
-                    if d0 == config.hidden_dim {
-                        println!(
-                            "      -> Layout: [hidden_dim, vocab_size] = [{}×{}]",
-                            d0, d1
-                        );
-                        println!("      -> This suggests TRANSPOSED for embedding lookup!");
-                        println!("      -> Row 0 has {} elements (vocab tokens)", d1);
-                    } else if d1 == config.hidden_dim {
-                        println!(
-                            "      -> Layout: [vocab_size, hidden_dim] = [{}×{}]",
-                            d0, d1
-                        );
-                        println!("      -> This is CORRECT for embedding lookup");
-                        println!("      -> Row 0 has {} elements (hidden state)", d1);
-                    } else if d0 == config.vocab_size {
-                        println!("      -> Layout: [vocab_size, ?] = [{}×{}]", d0, d1);
-                    } else if d1 == config.vocab_size {
-                        println!("      -> Layout: [?, vocab_size] = [{}×{}]", d0, d1);
-                    }
+            if (tensor.name == "token_embd.weight" || tensor.name == "output.weight")
+                && tensor.dims.len() == 2
+            {
+                let (d0, d1) = (tensor.dims[0] as usize, tensor.dims[1] as usize);
+                if d0 == config.hidden_dim {
+                    println!(
+                        "      -> Layout: [hidden_dim, vocab_size] = [{}×{}]",
+                        d0, d1
+                    );
+                    println!("      -> This suggests TRANSPOSED for embedding lookup!");
+                    println!("      -> Row 0 has {} elements (vocab tokens)", d1);
+                } else if d1 == config.hidden_dim {
+                    println!(
+                        "      -> Layout: [vocab_size, hidden_dim] = [{}×{}]",
+                        d0, d1
+                    );
+                    println!("      -> This is CORRECT for embedding lookup");
+                    println!("      -> Row 0 has {} elements (hidden state)", d1);
+                } else if d0 == config.vocab_size {
+                    println!("      -> Layout: [vocab_size, ?] = [{}×{}]", d0, d1);
+                } else if d1 == config.vocab_size {
+                    println!("      -> Layout: [?, vocab_size] = [{}×{}]", d0, d1);
                 }
             }
         }

@@ -1,9 +1,7 @@
 //! Q6K×Q8K micro-benchmark
 use realizar::quantize::{
-    fused_q6k_q8k_parallel_matvec_into,
-    fused_q6k_parallel_matvec_into,
-    quantize_activations_q8k_into,
-    QK_K,
+    fused_q6k_parallel_matvec_into, fused_q6k_q8k_parallel_matvec_into,
+    quantize_activations_q8k_into, QK_K,
 };
 use std::time::Instant;
 
@@ -11,30 +9,30 @@ fn main() {
     // Qwen2.5-1.5B FFN down dimensions
     let in_dim: usize = 8960; // intermediate_dim
     let out_dim: usize = 1536; // hidden_dim
-    
+
     const Q6K_SUPER_BLOCK_BYTES: usize = 210;
     let super_blocks_per_row = in_dim.div_ceil(QK_K);
     let bytes_per_row = super_blocks_per_row * Q6K_SUPER_BLOCK_BYTES;
-    
+
     // Create random Q6K weights
     let weight_data: Vec<u8> = (0..out_dim * bytes_per_row)
         .map(|i| (i % 256) as u8)
         .collect();
-    
+
     // Create random activations
     let activations: Vec<f32> = (0..in_dim)
-        .map(|i| ((i as f32 * 0.001).sin() * 2.0))
+        .map(|i| (i as f32 * 0.001).sin() * 2.0)
         .collect();
-    
+
     // Quantize to Q8K
     let padded_len = in_dim.next_multiple_of(256);
     let num_superblocks = padded_len / 256;
     let mut q8k_scales = vec![0.0f32; num_superblocks];
     let mut q8k_quants = vec![0i8; padded_len];
     quantize_activations_q8k_into(&activations, &mut q8k_scales, &mut q8k_quants).unwrap();
-    
+
     let mut output = vec![0.0f32; out_dim];
-    
+
     // Warmup
     for _ in 0..3 {
         fused_q6k_q8k_parallel_matvec_into(
@@ -44,9 +42,10 @@ fn main() {
             in_dim,
             out_dim,
             &mut output,
-        ).unwrap();
+        )
+        .unwrap();
     }
-    
+
     // Benchmark Q6K×Q8K
     let iters = 100;
     let start = Instant::now();
@@ -58,25 +57,21 @@ fn main() {
             in_dim,
             out_dim,
             &mut output,
-        ).unwrap();
+        )
+        .unwrap();
     }
     let q8k_time = start.elapsed();
     let q8k_avg = q8k_time.as_micros() as f64 / iters as f64;
-    
+
     // Benchmark Q6K×f32 (old path)
     let start = Instant::now();
     for _ in 0..iters {
-        fused_q6k_parallel_matvec_into(
-            &weight_data,
-            &activations,
-            in_dim,
-            out_dim,
-            &mut output,
-        ).unwrap();
+        fused_q6k_parallel_matvec_into(&weight_data, &activations, in_dim, out_dim, &mut output)
+            .unwrap();
     }
     let f32_time = start.elapsed();
     let f32_avg = f32_time.as_micros() as f64 / iters as f64;
-    
+
     println!("Q6K×Q8K Benchmark Results");
     println!("=========================");
     println!("Matrix: {}x{} (Q6K weights)", out_dim, in_dim);
@@ -85,7 +80,7 @@ fn main() {
     println!("Q6K×Q8K (new):  {:>8.1} µs/matmul", q8k_avg);
     println!();
     println!("Speedup: {:.2}x", f32_avg / q8k_avg);
-    
+
     // GFLOPS
     let flops = 2.0 * out_dim as f64 * in_dim as f64;
     let f32_gflops = flops / (f32_avg * 1000.0);

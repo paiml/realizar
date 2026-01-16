@@ -1040,7 +1040,9 @@ mod tests {
 
     #[test]
     fn test_bench_measurement_clone() {
-        let m = BenchMeasurement::new("APR", "GGUF").with_throughput(100.0).with_gpu(90.0, 1024.0);
+        let m = BenchMeasurement::new("APR", "GGUF")
+            .with_throughput(100.0)
+            .with_gpu(90.0, 1024.0);
         let cloned = m.clone();
         assert_eq!(cloned.engine, m.engine);
         assert_eq!(cloned.tokens_per_sec, m.tokens_per_sec);
@@ -1098,8 +1100,7 @@ mod tests {
 
     #[test]
     fn test_benchmark_grid_with_model() {
-        let grid = BenchmarkGrid::new()
-            .with_model("Llama-7B", "7B", "Q4_K_M");
+        let grid = BenchmarkGrid::new().with_model("Llama-7B", "7B", "Q4_K_M");
         assert_eq!(grid.model_name, "Llama-7B");
         assert_eq!(grid.model_params, "7B");
         assert_eq!(grid.quantization, "Q4_K_M");
@@ -1107,8 +1108,7 @@ mod tests {
 
     #[test]
     fn test_benchmark_grid_with_gpu() {
-        let grid = BenchmarkGrid::new()
-            .with_gpu("RTX 3090", 24.0);
+        let grid = BenchmarkGrid::new().with_gpu("RTX 3090", 24.0);
         assert_eq!(grid.gpu_name, "RTX 3090");
         assert_eq!(grid.gpu_vram_gb, 24.0);
     }

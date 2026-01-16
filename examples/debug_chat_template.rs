@@ -28,7 +28,6 @@ Hello<|im_end|>
         temperature: 0.0,
         top_k: 1,
         stop_tokens: vec![151645], // <|im_end|>
-        ..Default::default()
     };
 
     eprintln!("\nGenerating...");

@@ -24,8 +24,8 @@ fn main() {
         return;
     }
 
-    let apr_path = std::env::var("APR_PATH")
-        .unwrap_or_else(|_| "/tmp/qwen2.5-coder-1.5b-q4k.apr".to_string());
+    let apr_path =
+        std::env::var("APR_PATH").unwrap_or_else(|_| "/tmp/qwen2.5-coder-1.5b-q4k.apr".to_string());
 
     if !std::path::Path::new(&apr_path).exists() {
         eprintln!("APR file not found: {}", apr_path);
@@ -40,11 +40,14 @@ fn main() {
         Err(e) => {
             eprintln!("Failed to load APR: {e}");
             return;
-        }
+        },
     };
     let load_time = start.elapsed();
 
-    println!("  File size: {:.2} MB", apr.file_size() as f64 / 1_000_000.0);
+    println!(
+        "  File size: {:.2} MB",
+        apr.file_size() as f64 / 1_000_000.0
+    );
     println!("  Tensors: {}", apr.tensor_count());
     println!("  Load time (mmap): {:.3}s", load_time.as_secs_f64());
     println!();
@@ -57,7 +60,7 @@ fn main() {
         Err(e) => {
             eprintln!("Failed to convert APR: {e}");
             return;
-        }
+        },
     };
     let convert_time = start.elapsed();
     println!("  Convert time: {:.3}s", convert_time.as_secs_f64());
@@ -74,7 +77,7 @@ fn main() {
         Err(e) => {
             eprintln!("Failed to create CUDA model: {e}");
             return;
-        }
+        },
     };
     let cuda_init_time = start.elapsed();
     println!("  CUDA init: {:.3}s", cuda_init_time.as_secs_f64());
@@ -85,12 +88,16 @@ fn main() {
     match cuda_model.preload_weights_gpu() {
         Ok(bytes) => {
             let preload_time = start.elapsed();
-            println!("  Uploaded: {:.2} MB in {:.3}s", bytes as f64 / 1_000_000.0, preload_time.as_secs_f64());
-        }
+            println!(
+                "  Uploaded: {:.2} MB in {:.3}s",
+                bytes as f64 / 1_000_000.0,
+                preload_time.as_secs_f64()
+            );
+        },
         Err(e) => {
             eprintln!("Failed to preload weights: {e}");
             return;
-        }
+        },
     }
     println!();
 
@@ -113,12 +120,19 @@ fn main() {
     println!();
 
     // Initialize batched workspace
-    if let Err(e) = cuda_model.executor_mut().init_batched_workspace(hidden_dim, intermediate_dim, batch_size) {
+    if let Err(e) =
+        cuda_model
+            .executor_mut()
+            .init_batched_workspace(hidden_dim, intermediate_dim, batch_size)
+    {
         eprintln!("Failed to init workspace: {e}");
         return;
     }
 
-    if let Err(e) = cuda_model.executor_mut().init_batched_kv_cache_gpu(num_layers, batch_size) {
+    if let Err(e) = cuda_model
+        .executor_mut()
+        .init_batched_kv_cache_gpu(num_layers, batch_size)
+    {
         eprintln!("Failed to init KV cache: {e}");
         return;
     }
@@ -165,14 +179,19 @@ fn main() {
             Err(e) => {
                 eprintln!("  Error: {}", e);
                 break;
-            }
+            },
         }
     }
 
     let elapsed = start.elapsed();
     let tps = total_tokens as f64 / elapsed.as_secs_f64();
 
-    println!("  {} tokens in {:.3}s = {:.1} tok/s", total_tokens, elapsed.as_secs_f64(), tps);
+    println!(
+        "  {} tokens in {:.3}s = {:.1} tok/s",
+        total_tokens,
+        elapsed.as_secs_f64(),
+        tps
+    );
     println!("  vs Ollama (291): {:.2}x", tps / 291.0);
     println!();
 
@@ -188,42 +207,51 @@ fn main() {
 
     // Warmup and capture graph
     let warmup_pos: Vec<u32> = (0..batch_size).map(|s| s as u32).collect();
-    let _ = cuda_model.executor_mut().forward_batched_to_token_ids_graphed(
-        &embeddings,
-        &warmup_pos,
-        num_layers,
-        hidden_dim as u32,
-        intermediate_dim as u32,
-        vocab_size,
-        eps,
-    );
+    let _ = cuda_model
+        .executor_mut()
+        .forward_batched_to_token_ids_graphed(
+            &embeddings,
+            &warmup_pos,
+            num_layers,
+            hidden_dim as u32,
+            intermediate_dim as u32,
+            vocab_size,
+            eps,
+        );
 
     let start = Instant::now();
     let mut total_tokens = 0usize;
 
     for iter in 0..num_iterations {
         let positions: Vec<u32> = (0..batch_size).map(|s| ((iter % 50) + s) as u32).collect();
-        match cuda_model.executor_mut().forward_batched_to_token_ids_graphed(
-            &embeddings,
-            &positions,
-            num_layers,
-            hidden_dim as u32,
-            intermediate_dim as u32,
-            vocab_size,
-            eps,
-        ) {
+        match cuda_model
+            .executor_mut()
+            .forward_batched_to_token_ids_graphed(
+                &embeddings,
+                &positions,
+                num_layers,
+                hidden_dim as u32,
+                intermediate_dim as u32,
+                vocab_size,
+                eps,
+            ) {
             Ok(ids) => total_tokens += ids.len(),
             Err(e) => {
                 eprintln!("  Error: {}", e);
                 break;
-            }
+            },
         }
     }
 
     let elapsed = start.elapsed();
     let graphed_tps = total_tokens as f64 / elapsed.as_secs_f64();
 
-    println!("  {} tokens in {:.3}s = {:.1} tok/s (GRAPHED)", total_tokens, elapsed.as_secs_f64(), graphed_tps);
+    println!(
+        "  {} tokens in {:.3}s = {:.1} tok/s (GRAPHED)",
+        total_tokens,
+        elapsed.as_secs_f64(),
+        graphed_tps
+    );
     println!("  vs Ollama (291): {:.2}x", graphed_tps / 291.0);
     println!();
 
@@ -232,8 +260,18 @@ fn main() {
     println!("  APR GPU Summary");
     println!("═══════════════════════════════════════════════════════════════");
     println!();
-    println!("  Non-graphed M={}: {:.1} tok/s ({:.2}x Ollama)", batch_size, non_graphed_tps, non_graphed_tps / 291.0);
-    println!("  Graphed M={}:     {:.1} tok/s ({:.2}x Ollama)", batch_size, graphed_tps, graphed_tps / 291.0);
+    println!(
+        "  Non-graphed M={}: {:.1} tok/s ({:.2}x Ollama)",
+        batch_size,
+        non_graphed_tps,
+        non_graphed_tps / 291.0
+    );
+    println!(
+        "  Graphed M={}:     {:.1} tok/s ({:.2}x Ollama)",
+        batch_size,
+        graphed_tps,
+        graphed_tps / 291.0
+    );
     println!();
 
     let best_tps = non_graphed_tps.max(graphed_tps);

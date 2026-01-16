@@ -20,7 +20,7 @@ fn main() {
     eprintln!(
         "0: '{}'",
         vocab
-            .get(0)
+            .first()
             .map(|s| s.escape_debug().to_string())
             .unwrap_or("?".to_string())
     );

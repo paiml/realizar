@@ -1,6 +1,5 @@
 //! PAR-126: Compare kernel variants
 
-use std::arch::x86_64::*;
 use std::time::Instant;
 
 fn main() {

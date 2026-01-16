@@ -90,7 +90,6 @@ fn fkr_cuda_f064_graph_replay_stub() {
     // Skip if CUDA not available
     if !cuda_available() {
         eprintln!("F064: CUDA not available, skipping graph replay test");
-        return;
     }
 
     // With hardware, we'd test:
@@ -108,7 +107,6 @@ fn fkr_cuda_f065_indirect_kernels_stub() {
     // This requires CUDA hardware to fully test
     if !cuda_available() {
         eprintln!("F065: CUDA not available, skipping indirect kernel test");
-        return;
     }
     // With hardware: test position buffer updates work correctly
 }
@@ -198,7 +196,6 @@ fn fkr_cuda_f074_context_cleanup_stub() {
     // This prevents memory leaks from context accumulation
     if !cuda_available() {
         eprintln!("F074: CUDA not available, skipping context test");
-        return;
     }
     // With hardware: create/destroy contexts and verify cleanup
 }
@@ -221,7 +218,6 @@ fn fkr_cuda_f076_stream_sync_stub() {
     // Stream synchronization ensures kernel completion before readback
     if !cuda_available() {
         eprintln!("F076: CUDA not available, skipping stream test");
-        return;
     }
     // With hardware: test stream sync behavior
 }
@@ -232,7 +228,6 @@ fn fkr_cuda_f077_memory_bounds_stub() {
     // Verify memory allocation respects device limits
     if !cuda_available() {
         eprintln!("F077: CUDA not available, skipping memory test");
-        return;
     }
     // With hardware: test allocation near memory limits
 }
@@ -265,7 +260,6 @@ fn fkr_cuda_f080_async_copy_stub() {
     // Async memory copies overlap compute and transfer
     if !cuda_available() {
         eprintln!("F080: CUDA not available, skipping async copy test");
-        return;
     }
     // With hardware: test async H2D and D2H transfers
 }

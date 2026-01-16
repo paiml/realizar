@@ -3510,10 +3510,14 @@ unsafe fn fused_q4k_q8k_dot_4rows_avx512vnni(
 
         // Pre-compute Q8 sums for dmin correction (same for all rows)
         let q8_sums = compute_q8_sums_8blocks(
-            q8_chunk0_lo, q8_chunk0_hi,
-            q8_chunk1_lo, q8_chunk1_hi,
-            q8_chunk2_lo, q8_chunk2_hi,
-            q8_chunk3_lo, q8_chunk3_hi,
+            q8_chunk0_lo,
+            q8_chunk0_hi,
+            q8_chunk1_lo,
+            q8_chunk1_hi,
+            q8_chunk2_lo,
+            q8_chunk2_hi,
+            q8_chunk3_lo,
+            q8_chunk3_hi,
             ones_16,
         );
 
@@ -3536,11 +3540,16 @@ unsafe fn fused_q4k_q8k_dot_4rows_avx512vnni(
             // Compute Q4×Q8 dot products for all 8 blocks using pre-loaded Q8K
             let block_dots = compute_q4_q8_dots_8blocks(
                 qs_ptr,
-                q8_chunk0_lo, q8_chunk0_hi,
-                q8_chunk1_lo, q8_chunk1_hi,
-                q8_chunk2_lo, q8_chunk2_hi,
-                q8_chunk3_lo, q8_chunk3_hi,
-                nibble_mask, ones_16,
+                q8_chunk0_lo,
+                q8_chunk0_hi,
+                q8_chunk1_lo,
+                q8_chunk1_hi,
+                q8_chunk2_lo,
+                q8_chunk2_hi,
+                q8_chunk3_lo,
+                q8_chunk3_hi,
+                nibble_mask,
+                ones_16,
             );
 
             // Extract 6-bit scales and mins
@@ -3603,27 +3612,30 @@ unsafe fn compute_q8_sums_8blocks(
     #[allow(clippy::wildcard_imports)]
     use std::arch::x86_64::*;
 
+    // SAFETY: All calls are to unsafe intrinsics, within already-unsafe fn
     // Sum Q8 values for each of the 8 blocks (32 values each)
-    let sum0 = sum_i8_to_i32(c0_lo, ones_16);
-    let sum1 = sum_i8_to_i32(c0_hi, ones_16);
-    let sum2 = sum_i8_to_i32(c1_lo, ones_16);
-    let sum3 = sum_i8_to_i32(c1_hi, ones_16);
-    let sum4 = sum_i8_to_i32(c2_lo, ones_16);
-    let sum5 = sum_i8_to_i32(c2_hi, ones_16);
-    let sum6 = sum_i8_to_i32(c3_lo, ones_16);
-    let sum7 = sum_i8_to_i32(c3_hi, ones_16);
+    unsafe {
+        let sum0 = sum_i8_to_i32(c0_lo, ones_16);
+        let sum1 = sum_i8_to_i32(c0_hi, ones_16);
+        let sum2 = sum_i8_to_i32(c1_lo, ones_16);
+        let sum3 = sum_i8_to_i32(c1_hi, ones_16);
+        let sum4 = sum_i8_to_i32(c2_lo, ones_16);
+        let sum5 = sum_i8_to_i32(c2_hi, ones_16);
+        let sum6 = sum_i8_to_i32(c3_lo, ones_16);
+        let sum7 = sum_i8_to_i32(c3_hi, ones_16);
 
-    // Pack 8 sums into a single __m256i
-    let mut result = _mm256_setzero_si256();
-    result = _mm256_insert_epi32(result, sum0, 0);
-    result = _mm256_insert_epi32(result, sum1, 1);
-    result = _mm256_insert_epi32(result, sum2, 2);
-    result = _mm256_insert_epi32(result, sum3, 3);
-    result = _mm256_insert_epi32(result, sum4, 4);
-    result = _mm256_insert_epi32(result, sum5, 5);
-    result = _mm256_insert_epi32(result, sum6, 6);
-    result = _mm256_insert_epi32(result, sum7, 7);
-    result
+        // Pack 8 sums into a single __m256i
+        let mut result = _mm256_setzero_si256();
+        result = _mm256_insert_epi32(result, sum0, 0);
+        result = _mm256_insert_epi32(result, sum1, 1);
+        result = _mm256_insert_epi32(result, sum2, 2);
+        result = _mm256_insert_epi32(result, sum3, 3);
+        result = _mm256_insert_epi32(result, sum4, 4);
+        result = _mm256_insert_epi32(result, sum5, 5);
+        result = _mm256_insert_epi32(result, sum6, 6);
+        result = _mm256_insert_epi32(result, sum7, 7);
+        result
+    }
 }
 
 /// Helper: Sum 32 i8 values to i32
@@ -3641,7 +3653,10 @@ unsafe fn sum_i8_to_i32(v: std::arch::x86_64::__m256i, ones: std::arch::x86_64::
     let sum = _mm256_add_epi32(sum_lo, sum_hi);
 
     // Horizontal sum of 8 i32 -> 1 i32
-    let sum128 = _mm_add_epi32(_mm256_castsi256_si128(sum), _mm256_extracti128_si256(sum, 1));
+    let sum128 = _mm_add_epi32(
+        _mm256_castsi256_si128(sum),
+        _mm256_extracti128_si256(sum, 1),
+    );
     let sum64 = _mm_add_epi32(sum128, _mm_shuffle_epi32(sum128, 0b10_11_00_01));
     let sum32 = _mm_add_epi32(sum64, _mm_shuffle_epi32(sum64, 0b00_00_10_10));
     _mm_cvtsi128_si32(sum32)
@@ -3668,29 +3683,48 @@ unsafe fn compute_q4_q8_dots_8blocks(
     #[allow(clippy::wildcard_imports)]
     use std::arch::x86_64::*;
 
-    // Load Q4K data (128 bytes total for 256 values)
-    let q4_c0 = _mm256_loadu_si256(qs_ptr.cast::<__m256i>());
-    let q4_c1 = _mm256_loadu_si256(qs_ptr.add(32).cast::<__m256i>());
-    let q4_c2 = _mm256_loadu_si256(qs_ptr.add(64).cast::<__m256i>());
-    let q4_c3 = _mm256_loadu_si256(qs_ptr.add(96).cast::<__m256i>());
+    // SAFETY: All intrinsics and pointer ops are unsafe, within already-unsafe fn
+    unsafe {
+        // Load Q4K data (128 bytes total for 256 values)
+        let q4_c0 = _mm256_loadu_si256(qs_ptr.cast::<__m256i>());
+        let q4_c1 = _mm256_loadu_si256(qs_ptr.add(32).cast::<__m256i>());
+        let q4_c2 = _mm256_loadu_si256(qs_ptr.add(64).cast::<__m256i>());
+        let q4_c3 = _mm256_loadu_si256(qs_ptr.add(96).cast::<__m256i>());
 
-    // Extract nibbles and compute Q4×Q8 for each chunk
-    let dot0 = q4_q8_chunk_dot(q4_c0, q8_c0_lo, q8_c0_hi, nibble_mask, ones_16);
-    let dot1 = q4_q8_chunk_dot(q4_c1, q8_c1_lo, q8_c1_hi, nibble_mask, ones_16);
-    let dot2 = q4_q8_chunk_dot(q4_c2, q8_c2_lo, q8_c2_hi, nibble_mask, ones_16);
-    let dot3 = q4_q8_chunk_dot(q4_c3, q8_c3_lo, q8_c3_hi, nibble_mask, ones_16);
+        // Extract nibbles and compute Q4×Q8 for each chunk
+        let dot0 = q4_q8_chunk_dot(q4_c0, q8_c0_lo, q8_c0_hi, nibble_mask, ones_16);
+        let dot1 = q4_q8_chunk_dot(q4_c1, q8_c1_lo, q8_c1_hi, nibble_mask, ones_16);
+        let dot2 = q4_q8_chunk_dot(q4_c2, q8_c2_lo, q8_c2_hi, nibble_mask, ones_16);
+        let dot3 = q4_q8_chunk_dot(q4_c3, q8_c3_lo, q8_c3_hi, nibble_mask, ones_16);
 
-    // Pack 8 dot products into result (2 per chunk: lo nibble block, hi nibble block)
-    let mut result = _mm256_setzero_si256();
-    result = _mm256_insert_epi32(result, _mm_cvtsi128_si32(_mm256_castsi256_si128(dot0)), 0);
-    result = _mm256_insert_epi32(result, _mm_extract_epi32(_mm256_castsi256_si128(dot0), 1), 1);
-    result = _mm256_insert_epi32(result, _mm_cvtsi128_si32(_mm256_castsi256_si128(dot1)), 2);
-    result = _mm256_insert_epi32(result, _mm_extract_epi32(_mm256_castsi256_si128(dot1), 1), 3);
-    result = _mm256_insert_epi32(result, _mm_cvtsi128_si32(_mm256_castsi256_si128(dot2)), 4);
-    result = _mm256_insert_epi32(result, _mm_extract_epi32(_mm256_castsi256_si128(dot2), 1), 5);
-    result = _mm256_insert_epi32(result, _mm_cvtsi128_si32(_mm256_castsi256_si128(dot3)), 6);
-    result = _mm256_insert_epi32(result, _mm_extract_epi32(_mm256_castsi256_si128(dot3), 1), 7);
-    result
+        // Pack 8 dot products into result (2 per chunk: lo nibble block, hi nibble block)
+        let mut result = _mm256_setzero_si256();
+        result = _mm256_insert_epi32(result, _mm_cvtsi128_si32(_mm256_castsi256_si128(dot0)), 0);
+        result = _mm256_insert_epi32(
+            result,
+            _mm_extract_epi32(_mm256_castsi256_si128(dot0), 1),
+            1,
+        );
+        result = _mm256_insert_epi32(result, _mm_cvtsi128_si32(_mm256_castsi256_si128(dot1)), 2);
+        result = _mm256_insert_epi32(
+            result,
+            _mm_extract_epi32(_mm256_castsi256_si128(dot1), 1),
+            3,
+        );
+        result = _mm256_insert_epi32(result, _mm_cvtsi128_si32(_mm256_castsi256_si128(dot2)), 4);
+        result = _mm256_insert_epi32(
+            result,
+            _mm_extract_epi32(_mm256_castsi256_si128(dot2), 1),
+            5,
+        );
+        result = _mm256_insert_epi32(result, _mm_cvtsi128_si32(_mm256_castsi256_si128(dot3)), 6);
+        result = _mm256_insert_epi32(
+            result,
+            _mm_extract_epi32(_mm256_castsi256_si128(dot3), 1),
+            7,
+        );
+        result
+    }
 }
 
 /// Helper: Q4×Q8 dot product for one 64-value chunk (32 lo nibbles + 32 hi nibbles)
@@ -3707,25 +3741,28 @@ unsafe fn q4_q8_chunk_dot(
     #[allow(clippy::wildcard_imports)]
     use std::arch::x86_64::*;
 
-    // Extract nibbles
-    let q4_lo = _mm256_and_si256(q4_packed, nibble_mask);
-    let q4_hi = _mm256_and_si256(_mm256_srli_epi16(q4_packed, 4), nibble_mask);
+    // SAFETY: All intrinsics are unsafe, within already-unsafe fn
+    unsafe {
+        // Extract nibbles
+        let q4_lo = _mm256_and_si256(q4_packed, nibble_mask);
+        let q4_hi = _mm256_and_si256(_mm256_srli_epi16(q4_packed, 4), nibble_mask);
 
-    // Q4 × Q8 products
-    let prod_lo_i16 = _mm256_maddubs_epi16(q4_lo, q8_lo);
-    let prod_hi_i16 = _mm256_maddubs_epi16(q4_hi, q8_hi);
-    let prod_lo_i32 = _mm256_madd_epi16(prod_lo_i16, ones_16);
-    let prod_hi_i32 = _mm256_madd_epi16(prod_hi_i16, ones_16);
+        // Q4 × Q8 products
+        let prod_lo_i16 = _mm256_maddubs_epi16(q4_lo, q8_lo);
+        let prod_hi_i16 = _mm256_maddubs_epi16(q4_hi, q8_hi);
+        let prod_lo_i32 = _mm256_madd_epi16(prod_lo_i16, ones_16);
+        let prod_hi_i32 = _mm256_madd_epi16(prod_hi_i16, ones_16);
 
-    // Reduce each to single sum
-    let sum_lo = hsum_epi32(prod_lo_i32);
-    let sum_hi = hsum_epi32(prod_hi_i32);
+        // Reduce each to single sum
+        let sum_lo = hsum_epi32(prod_lo_i32);
+        let sum_hi = hsum_epi32(prod_hi_i32);
 
-    // Return [sum_lo, sum_hi, 0, 0, 0, 0, 0, 0]
-    let mut result = _mm256_setzero_si256();
-    result = _mm256_insert_epi32(result, sum_lo, 0);
-    result = _mm256_insert_epi32(result, sum_hi, 1);
-    result
+        // Return [sum_lo, sum_hi, 0, 0, 0, 0, 0, 0]
+        let mut result = _mm256_setzero_si256();
+        result = _mm256_insert_epi32(result, sum_lo, 0);
+        result = _mm256_insert_epi32(result, sum_hi, 1);
+        result
+    }
 }
 
 /// Helper: Horizontal sum of 8 i32 values to single i32
@@ -3736,6 +3773,7 @@ unsafe fn hsum_epi32(v: std::arch::x86_64::__m256i) -> i32 {
     #[allow(clippy::wildcard_imports)]
     use std::arch::x86_64::*;
 
+    // All intrinsics are unsafe and we're in an unsafe fn with target_feature
     let sum128 = _mm_add_epi32(_mm256_castsi256_si128(v), _mm256_extracti128_si256(v, 1));
     let sum64 = _mm_add_epi32(sum128, _mm_shuffle_epi32(sum128, 0b10_11_00_01));
     let sum32 = _mm_add_epi32(sum64, _mm_shuffle_epi32(sum64, 0b00_00_10_10));
@@ -3964,8 +4002,7 @@ pub fn fused_q4k_q8k_ffn_up_gate_into(
 
                 // Compute gate projection for this row
                 let gate_row = &gate_weight[row_start..row_start + bytes_per_row];
-                *gate_out =
-                    fused_q4k_q8k_dot_simd(gate_row, q8k_scales, q8k_quants).unwrap_or(0.0);
+                *gate_out = fused_q4k_q8k_dot_simd(gate_row, q8k_scales, q8k_quants).unwrap_or(0.0);
             }
         });
 
@@ -5248,11 +5285,7 @@ pub fn fused_q6k_parallel_matvec_into(
 ///
 /// Dot product result as f32
 #[allow(clippy::similar_names)]
-pub fn fused_q6k_q8k_dot(
-    q6k_data: &[u8],
-    q8k_scales: &[f32],
-    q8k_quants: &[i8],
-) -> Result<f32> {
+pub fn fused_q6k_q8k_dot(q6k_data: &[u8], q8k_scales: &[f32], q8k_quants: &[i8]) -> Result<f32> {
     const SUPER_BLOCK_BYTES: usize = 210;
 
     if !q6k_data.len().is_multiple_of(SUPER_BLOCK_BYTES) {
@@ -5306,9 +5339,9 @@ pub fn fused_q6k_q8k_dot(
             let in_half = base_n % 128;
 
             for i in 0..16 {
-                let l = in_half / 4 + i / 4;
+                let _l = in_half / 4 + i / 4;
                 let shift = (i % 4) * 2;
-                let ql_idx = half * 64 + (in_half + i) / 2;
+                let ql_idx = half * 64 + usize::midpoint(in_half, i);
                 let qh_idx = (in_half + i) / 4;
 
                 // Extract 6-bit value
@@ -5406,7 +5439,10 @@ unsafe fn fused_q6k_q8k_dot_avx2(
         // Prefetch next superblock
         if sb_idx + 1 < num_super_blocks {
             _mm_prefetch(
-                q6k_data.as_ptr().add((sb_idx + 1) * SUPER_BLOCK_BYTES).cast::<i8>(),
+                q6k_data
+                    .as_ptr()
+                    .add((sb_idx + 1) * SUPER_BLOCK_BYTES)
+                    .cast::<i8>(),
                 _MM_HINT_T0,
             );
             _mm_prefetch(
@@ -5490,14 +5526,18 @@ unsafe fn fused_q6k_q8k_dot_avx2(
                 let dequant4 = _mm256_mul_ps(_mm256_mul_ps(d_vec, _mm256_set1_ps(sc4)), q4_f32);
 
                 // Load Q8K values and convert to f32 (replacing f32 activation loads)
-                let q8_1 = _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(
-                    _mm_loadl_epi64(q8_base.add(l_base).cast())));
-                let q8_2 = _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(
-                    _mm_loadl_epi64(q8_base.add(l_base + 32).cast())));
-                let q8_3 = _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(
-                    _mm_loadl_epi64(q8_base.add(l_base + 64).cast())));
-                let q8_4 = _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(
-                    _mm_loadl_epi64(q8_base.add(l_base + 96).cast())));
+                let q8_1 = _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(_mm_loadl_epi64(
+                    q8_base.add(l_base).cast(),
+                )));
+                let q8_2 = _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(_mm_loadl_epi64(
+                    q8_base.add(l_base + 32).cast(),
+                )));
+                let q8_3 = _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(_mm_loadl_epi64(
+                    q8_base.add(l_base + 64).cast(),
+                )));
+                let q8_4 = _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(_mm_loadl_epi64(
+                    q8_base.add(l_base + 96).cast(),
+                )));
 
                 // FMA: acc += dequant * q8 (same pattern as fused_q6k_dot_avx2)
                 acc0 = _mm256_fmadd_ps(dequant1, q8_1, acc0);
@@ -5544,7 +5584,10 @@ pub fn fused_q6k_q8k_parallel_matvec_into(
         return Err(RealizarError::InvalidShape {
             reason: format!(
                 "Q6_K weight data too small: need {} bytes for {}x{}, have {}",
-                expected_weight_bytes, out_dim, in_dim, weight_data.len()
+                expected_weight_bytes,
+                out_dim,
+                in_dim,
+                weight_data.len()
             ),
         });
     }
@@ -5562,7 +5605,11 @@ pub fn fused_q6k_q8k_parallel_matvec_into(
 
     if output.len() < out_dim {
         return Err(RealizarError::InvalidShape {
-            reason: format!("Output buffer too small: need {}, have {}", out_dim, output.len()),
+            reason: format!(
+                "Output buffer too small: need {}, have {}",
+                out_dim,
+                output.len()
+            ),
         });
     }
 
@@ -11766,7 +11813,8 @@ mod tests {
         // Set varied scales
         for block in 0..1000 {
             let scale = 0.001 * (block as f32);
-            data[block * 34..block * 34 + 2].copy_from_slice(&half::f16::from_f32(scale).to_le_bytes());
+            data[block * 34..block * 34 + 2]
+                .copy_from_slice(&half::f16::from_f32(scale).to_le_bytes());
         }
 
         let result = dequantize_q8_0_parallel(&data).expect("test");
@@ -12846,7 +12894,10 @@ mod tests {
         // Expected: 256/64 = 4x work, but overhead makes it <4x time
         // Coverage instrumentation adds extreme overhead, so we only print the ratio
         // Performance assertions are meaningless under coverage instrumentation
-        println!("Scaling ratio: {:.2}x (expected <4x in release builds)", scaling_ratio);
+        println!(
+            "Scaling ratio: {:.2}x (expected <4x in release builds)",
+            scaling_ratio
+        );
     }
 
     /// IMP-149d: Verify memory bandwidth improvement from fused kernel
@@ -13118,9 +13169,17 @@ mod tests {
         let result = dequantize_q4_1(&data).expect("test");
         assert_eq!(result.len(), 32);
         // value = d * q + min = 1.0 * 0 + 0.5 = 0.5
-        assert!((result[0] - 0.5).abs() < 1e-3, "Expected 0.5, got {}", result[0]);
+        assert!(
+            (result[0] - 0.5).abs() < 1e-3,
+            "Expected 0.5, got {}",
+            result[0]
+        );
         // value = d * q + min = 1.0 * 1 + 0.5 = 1.5
-        assert!((result[1] - 1.5).abs() < 1e-3, "Expected 1.5, got {}", result[1]);
+        assert!(
+            (result[1] - 1.5).abs() < 1e-3,
+            "Expected 1.5, got {}",
+            result[1]
+        );
     }
 
     /// Test Q5_0 dequantization correctness
@@ -13138,7 +13197,11 @@ mod tests {
         let result = dequantize_q5_0(&data).expect("test");
         assert_eq!(result.len(), 32);
         // With 5-bit value 0: value = d * (0 - 16) = 1.0 * -16 = -16.0
-        assert!((result[0] - (-16.0)).abs() < 1e-3, "Expected -16.0, got {}", result[0]);
+        assert!(
+            (result[0] - (-16.0)).abs() < 1e-3,
+            "Expected -16.0, got {}",
+            result[0]
+        );
     }
 
     /// Test Q5_1 dequantization correctness
@@ -13158,7 +13221,11 @@ mod tests {
         let result = dequantize_q5_1(&data).expect("test");
         assert_eq!(result.len(), 32);
         // 5-bit value 8: value = d * 8 + min = 1.0 * 8 + 0.0 = 8.0
-        assert!((result[0] - 8.0).abs() < 1e-3, "Expected 8.0, got {}", result[0]);
+        assert!(
+            (result[0] - 8.0).abs() < 1e-3,
+            "Expected 8.0, got {}",
+            result[0]
+        );
     }
 
     /// Test Q4_K dequantization basic
@@ -13212,15 +13279,23 @@ mod tests {
     fn test_dequantize_f16_basic() {
         // F16: 2 bytes per value
         let mut data = vec![0u8; 4]; // 2 values
-        // First value: 1.0 (f16 = 0x3C00)
+                                     // First value: 1.0 (f16 = 0x3C00)
         data[0..2].copy_from_slice(&0x3C00_u16.to_le_bytes());
         // Second value: 0.5 (f16 = 0x3800)
         data[2..4].copy_from_slice(&0x3800_u16.to_le_bytes());
 
         let result = dequantize_f16(&data).expect("test");
         assert_eq!(result.len(), 2);
-        assert!((result[0] - 1.0).abs() < 1e-3, "Expected 1.0, got {}", result[0]);
-        assert!((result[1] - 0.5).abs() < 1e-3, "Expected 0.5, got {}", result[1]);
+        assert!(
+            (result[0] - 1.0).abs() < 1e-3,
+            "Expected 1.0, got {}",
+            result[0]
+        );
+        assert!(
+            (result[1] - 0.5).abs() < 1e-3,
+            "Expected 0.5, got {}",
+            result[1]
+        );
     }
 
     /// Test fused Q4K dot dimension mismatch
@@ -13268,7 +13343,13 @@ mod tests {
         assert_eq!(dequant.len(), 32);
         // Values should be close to original (within quantization error)
         for i in 0..32 {
-            assert!((dequant[i] - values[i]).abs() < 0.1, "Mismatch at {}: {} vs {}", i, dequant[i], values[i]);
+            assert!(
+                (dequant[i] - values[i]).abs() < 0.1,
+                "Mismatch at {}: {} vs {}",
+                i,
+                dequant[i],
+                values[i]
+            );
         }
     }
 
@@ -13292,8 +13373,14 @@ mod tests {
     #[test]
     fn test_int8_matvec_basic() {
         let rows = vec![
-            Int8Row { scale: 1.0, weights: vec![1i8; 4] },
-            Int8Row { scale: 1.0, weights: vec![2i8; 4] },
+            Int8Row {
+                scale: 1.0,
+                weights: vec![1i8; 4],
+            },
+            Int8Row {
+                scale: 1.0,
+                weights: vec![2i8; 4],
+            },
         ];
         let activations = vec![1.0f32; 4];
         let result = int8_matvec(&rows, &activations);
@@ -13306,8 +13393,14 @@ mod tests {
     #[test]
     fn test_int8_matvec_parallel_basic() {
         let rows = vec![
-            Int8Row { scale: 1.0, weights: vec![1i8; 4] },
-            Int8Row { scale: 1.0, weights: vec![2i8; 4] },
+            Int8Row {
+                scale: 1.0,
+                weights: vec![1i8; 4],
+            },
+            Int8Row {
+                scale: 1.0,
+                weights: vec![2i8; 4],
+            },
         ];
         let activations = vec![1.0f32; 4];
         let result = int8_matvec_parallel(&rows, &activations);
@@ -13379,7 +13472,9 @@ mod tests {
         // Create Q4_0 weight data: 1 block per row (32 values = 1 block), 2 rows
         let weight_data = vec![0u8; 18 * 2]; // 2 rows of Q4_0 blocks
 
-        let result = fused_rmsnorm_q4_0_matmul(&input, &norm_weight, 1e-5, &weight_data, hidden_dim, 2).expect("test");
+        let result =
+            fused_rmsnorm_q4_0_matmul(&input, &norm_weight, 1e-5, &weight_data, hidden_dim, 2)
+                .expect("test");
         assert_eq!(result.len(), 2);
         assert!(result.iter().all(|v| v.is_finite()));
     }
@@ -13466,15 +13561,14 @@ mod tests {
     #[test]
     fn test_fused_q6k_colmajor_matvec_coverage() {
         // Q6_K: column-major format, in_dim columns each with one super-block (256 values)
-        let in_dim = 2;  // Number of input activations
+        let in_dim = 2; // Number of input activations
         let out_dim = 256; // Output dimension (Q6_K super-block size)
-        // Weight data: in_dim * 210 bytes
+                           // Weight data: in_dim * 210 bytes
         let data = vec![0u8; 210 * in_dim];
         let activations = vec![1.0f32; in_dim];
         let result = fused_q6k_colmajor_matvec(&data, &activations, in_dim, out_dim).expect("test");
         assert_eq!(result.len(), out_dim);
     }
-
 
     /// Test fused_q4_0_q8_0_parallel_matvec
     #[test]
@@ -13485,7 +13579,8 @@ mod tests {
         let weight_data = vec![0u8; 18 * num_rows];
         // Float activations
         let activations = vec![1.0f32; k];
-        let result = fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, k, num_rows).expect("test");
+        let result =
+            fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, k, num_rows).expect("test");
         assert_eq!(result.len(), num_rows);
     }
 
@@ -13501,7 +13596,8 @@ mod tests {
         weight_data[34..36].copy_from_slice(&0x3C00_u16.to_le_bytes());
         // Float activations (the function quantizes them internally)
         let activations = vec![1.0f32; k];
-        let result = fused_q8_0_q8_0_parallel_matvec(&weight_data, &activations, k, num_rows).expect("test");
+        let result =
+            fused_q8_0_q8_0_parallel_matvec(&weight_data, &activations, k, num_rows).expect("test");
         assert_eq!(result.len(), num_rows);
     }
 
@@ -13511,7 +13607,7 @@ mod tests {
         let activations = vec![1.0f32; 256];
         let mut scales = vec![0.0f32; 1];
         let mut quants = vec![0i8; 256];
-        quantize_activations_q8k_into(&activations, &mut scales, &mut quants);
+        let _ = quantize_activations_q8k_into(&activations, &mut scales, &mut quants);
         assert!(scales[0] > 0.0);
         assert!(quants.iter().any(|&q| q != 0));
     }
@@ -13519,12 +13615,10 @@ mod tests {
     /// Test dequantize_q8_blocks
     #[test]
     fn test_dequantize_q8_blocks_basic() {
-        let blocks = vec![
-            Q8_0Block {
-                scale: 1.0,
-                quants: [64i8; 32],
-            },
-        ];
+        let blocks = vec![Q8_0Block {
+            scale: 1.0,
+            quants: [64i8; 32],
+        }];
         let result = dequantize_q8_blocks(&blocks);
         assert_eq!(result.len(), 32);
         for v in &result {
@@ -13551,7 +13645,8 @@ mod tests {
             &gate_weight,
             hidden_dim,
             intermediate_dim,
-        ).expect("test");
+        )
+        .expect("test");
         assert_eq!(up_result.len(), intermediate_dim);
         assert_eq!(gate_result.len(), intermediate_dim);
     }
@@ -13610,7 +13705,7 @@ mod tests {
     #[test]
     fn test_fused_q4k_q8_dot_mismatched_blocks() {
         let q4k_data = vec![0u8; 144]; // 1 super-block = 256 values
-        // Only provide 4 Q8 blocks instead of 8
+                                       // Only provide 4 Q8 blocks instead of 8
         let q8_blocks: Vec<Q8_0Block> = (0..4)
             .map(|_| Q8_0Block {
                 scale: 1.0,
@@ -13734,7 +13829,7 @@ mod tests {
     fn test_fused_q4k_q8k_parallel_matvec_into_basic() {
         let out_dim = 2;
         let in_dim = 256; // One Q4_K super-block per row
-        // 144 bytes per row
+                          // 144 bytes per row
         let weight_data = vec![0u8; 144 * out_dim];
         let q8k_scales = vec![1.0f32; 8]; // 8 scales for 256 values
         let q8k_quants = vec![1i8; in_dim];
@@ -13761,7 +13856,7 @@ mod tests {
     fn test_fused_q4k_q8k_ffn_up_gate_into_basic() {
         let hidden_dim: usize = 256;
         let intermediate_dim: usize = 256; // 1 super-block
-        // Weight size: intermediate_dim rows * ceil(hidden_dim/256) super-blocks * 144 bytes
+                                           // Weight size: intermediate_dim rows * ceil(hidden_dim/256) super-blocks * 144 bytes
         let super_blocks_per_row = hidden_dim.div_ceil(256);
         let weight_size = intermediate_dim * super_blocks_per_row * 144;
         let up_weight = vec![0u8; weight_size];
@@ -14086,13 +14181,8 @@ mod tests {
         let activations = vec![1.0f32; in_dim];
         let mut output = vec![0.0f32; out_dim];
 
-        fused_q4_0_q8_0_parallel_matvec_into(
-            &weight_data,
-            &activations,
-            in_dim,
-            &mut output,
-        )
-        .expect("should succeed");
+        fused_q4_0_q8_0_parallel_matvec_into(&weight_data, &activations, in_dim, &mut output)
+            .expect("should succeed");
         assert_eq!(output.len(), out_dim);
     }
 
@@ -14339,15 +14429,8 @@ mod tests {
         let norm_weight = vec![1.0f32; 32];
         let up_weight = vec![0u8; 36];
         let gate_weight = vec![0u8; 36];
-        let result = fused_rmsnorm_ffn_up_gate(
-            &input,
-            &norm_weight,
-            1e-5,
-            &up_weight,
-            &gate_weight,
-            32,
-            1,
-        );
+        let result =
+            fused_rmsnorm_ffn_up_gate(&input, &norm_weight, 1e-5, &up_weight, &gate_weight, 32, 1);
         assert!(result.is_err());
     }
 
@@ -14358,15 +14441,8 @@ mod tests {
         let norm_weight = vec![1.0f32; 32];
         let up_weight = vec![0u8; 10]; // Too small
         let gate_weight = vec![0u8; 36];
-        let result = fused_rmsnorm_ffn_up_gate(
-            &input,
-            &norm_weight,
-            1e-5,
-            &up_weight,
-            &gate_weight,
-            32,
-            2,
-        );
+        let result =
+            fused_rmsnorm_ffn_up_gate(&input, &norm_weight, 1e-5, &up_weight, &gate_weight, 32, 2);
         assert!(result.is_err());
     }
 
@@ -14377,15 +14453,8 @@ mod tests {
         let norm_weight = vec![1.0f32; 32];
         let up_weight = vec![0u8; 36];
         let gate_weight = vec![0u8; 10]; // Too small
-        let result = fused_rmsnorm_ffn_up_gate(
-            &input,
-            &norm_weight,
-            1e-5,
-            &up_weight,
-            &gate_weight,
-            32,
-            2,
-        );
+        let result =
+            fused_rmsnorm_ffn_up_gate(&input, &norm_weight, 1e-5, &up_weight, &gate_weight, 32, 2);
         assert!(result.is_err());
     }
 
@@ -14627,10 +14696,10 @@ mod tests {
         let (scales, quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, 1e-5);
         assert_eq!(scales.len(), 8);
         assert_eq!(quants.len(), 256);
-        // Verify values are valid
-        for &q in &quants {
-            assert!(q >= -128 && q <= 127);
-        }
+        // Verify quants array is populated (values in i8 range by type)
+        assert!(!quants.is_empty());
+        // Ensure we have some non-zero values
+        assert!(quants.iter().any(|&q| q != 0));
     }
 
     /// Test quantize_rmsnorm_q8_0 with near-zero max abs
@@ -14938,7 +15007,7 @@ mod tests {
         let backend = detect_simd_backend();
         // Backend should be one of the valid variants
         match backend {
-            SimdBackend::Scalar | SimdBackend::Avx2 | SimdBackend::Sse2 | SimdBackend::Neon => {}
+            SimdBackend::Scalar | SimdBackend::Avx2 | SimdBackend::Sse2 | SimdBackend::Neon => {},
         }
     }
 
@@ -15538,7 +15607,10 @@ mod tests {
         let original = [1.0f32; 32];
         let block = Q8_0Block::quantize(&original);
         let rel_err = block.relative_error(&original);
-        assert!(rel_err < 0.01, "Relative error should be small for uniform values");
+        assert!(
+            rel_err < 0.01,
+            "Relative error should be small for uniform values"
+        );
 
         // Test with zeros
         let zeros = [0.0f32; 32];
@@ -15855,7 +15927,7 @@ mod tests {
         let debug = format!("{:?}", backend);
         assert!(debug.contains("Avx2"));
 
-        let cloned = backend.clone();
+        let cloned = backend;
         assert_eq!(cloned, backend);
 
         // Test equality
@@ -15900,7 +15972,12 @@ mod tests {
 
         // Check that dequantization is reasonably close
         for (o, d) in original.iter().zip(dequant.iter()) {
-            assert!((o - d).abs() < 0.05, "Dequant error too large: {} vs {}", o, d);
+            assert!(
+                (o - d).abs() < 0.05,
+                "Dequant error too large: {} vs {}",
+                o,
+                d
+            );
         }
     }
 

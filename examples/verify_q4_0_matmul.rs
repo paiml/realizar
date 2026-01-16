@@ -109,6 +109,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Try column-major interpretation
         // In column-major, first row would be elements [0, out_dim, 2*out_dim, ...]
         let mut col_major_row = vec![0.0f32; hidden_dim];
+        #[allow(clippy::needless_range_loop)] // col used in complex indexing calculations
         for col in 0..hidden_dim {
             let row_in_col_major = 0; // We want first row
             let linear_idx = col * q_weight.out_dim + row_in_col_major;
@@ -127,7 +128,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let byte_idx = idx_in_block / 2;
             let byte = block[2 + byte_idx];
 
-            let val = if idx_in_block % 2 == 0 {
+            let val = if idx_in_block.is_multiple_of(2) {
                 (byte & 0x0F) as i8 - 8
             } else {
                 ((byte >> 4) & 0x0F) as i8 - 8

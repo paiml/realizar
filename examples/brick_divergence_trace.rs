@@ -14,8 +14,9 @@ fn main() {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel, OwnedQuantizedModelCuda};
 
-    let path = std::env::var("MODEL_PATH")
-        .unwrap_or_else(|_| "/home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf".to_string());
+    let path = std::env::var("MODEL_PATH").unwrap_or_else(|_| {
+        "/home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf".to_string()
+    });
 
     println!("CORRECTNESS-011: BrickProfiler Divergence Detection");
     println!("====================================================");
@@ -54,7 +55,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("CPU argmax: {:?}", cpu_argmax);
     println!(
         "CPU logits checksum: {:016x}",
-        cpu_profiler.get_checksums().first().map(|c| c.checksum).unwrap_or(0)
+        cpu_profiler
+            .get_checksums()
+            .first()
+            .map(|c| c.checksum)
+            .unwrap_or(0)
     );
 
     // ========================================================================
@@ -95,7 +100,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("GPU argmax: {:?}", gpu_argmax);
     println!(
         "GPU logits checksum: {:016x}",
-        gpu_profiler.get_checksums().first().map(|c| c.checksum).unwrap_or(0)
+        gpu_profiler
+            .get_checksums()
+            .first()
+            .map(|c| c.checksum)
+            .unwrap_or(0)
     );
 
     // ========================================================================

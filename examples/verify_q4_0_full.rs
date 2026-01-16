@@ -57,7 +57,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let block_size = 32;
     let bytes_per_block = 18; // Q4_0: 2 (scale) + 16 (data)
-    let num_blocks = (q_weight.in_dim + block_size - 1) / block_size;
+    let num_blocks = q_weight.in_dim.div_ceil(block_size);
 
     println!("\nQ4_0 format:");
     println!("  block_size: {}", block_size);
@@ -72,6 +72,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Manually compute first few output values
     let mut manual_output = vec![0.0f32; q_weight.out_dim];
 
+    #[allow(clippy::needless_range_loop)] // row used in complex offset calculations
     for row in 0..q_weight.out_dim.min(4) {
         let mut dot = 0.0f32;
         for block_idx in 0..num_blocks {
@@ -127,7 +128,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("  Scale f32: {:.6}", scale_f16.to_f32());
 
         // Show first few nibbles
-        for i in 0..8 {
+        for (i, &inp) in input.iter().enumerate().take(8) {
             let byte_idx = block_offset + 2 + i / 2;
             let byte = q_weight.data[byte_idx];
             let nibble = if i % 2 == 0 { byte & 0xF } else { byte >> 4 };
@@ -137,8 +138,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 i,
                 nibble,
                 dequant,
-                input[i],
-                dequant * input[i]
+                inp,
+                dequant * inp
             );
         }
     } else {

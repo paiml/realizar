@@ -53,7 +53,7 @@ fn run_test() -> Result<(), Box<dyn std::error::Error>> {
 
     // === CPU Q4K ===
     let cpu_output = fused_q4k_parallel_matvec(&q_weight.data, &normed, hidden_dim, q_dim)?;
-    
+
     // === GPU Tiled Q4K ===
     let mapped_gpu = MappedGGUFModel::from_path(model_path)?;
     let gpu_model = OwnedQuantizedModel::from_mapped(&mapped_gpu)?;
@@ -73,10 +73,10 @@ fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     // Compare
     println!("=== Tiled Q4K GEMV: GPU vs CPU ===");
     println!("Dimensions: {}x{}", q_dim, hidden_dim);
-    
+
     let mut max_diff = 0.0f32;
     let mut max_diff_idx = 0;
-    
+
     for i in 0..10 {
         let diff = (gpu_tiled[i] - cpu_output[i]).abs();
         if diff > max_diff {
@@ -99,9 +99,10 @@ fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!("\nMax diff: {:.6} at index {}", max_diff, max_diff_idx);
-    println!("CPU[{}]={:.6}, GPU[{}]={:.6}", 
-             max_diff_idx, cpu_output[max_diff_idx],
-             max_diff_idx, gpu_tiled[max_diff_idx]);
+    println!(
+        "CPU[{}]={:.6}, GPU[{}]={:.6}",
+        max_diff_idx, cpu_output[max_diff_idx], max_diff_idx, gpu_tiled[max_diff_idx]
+    );
 
     if max_diff < 0.01 {
         println!("\nRESULT: PASS");

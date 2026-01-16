@@ -16,8 +16,8 @@ fn main() -> Result<(), RealizarError> {
     let hidden_dim = model.config.hidden_dim;
     let intermediate_dim = model.config.intermediate_dim;
     let num_heads = model.config.num_heads;
-    let num_kv_heads = model.config.num_kv_heads;
-    let head_dim = hidden_dim / num_heads;
+    let _num_kv_heads = model.config.num_kv_heads;
+    let _head_dim = hidden_dim / num_heads;
 
     println!(
         "Model: {} layers, hidden={}, intermediate={}",

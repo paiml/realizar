@@ -67,7 +67,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Extract Q, K, V and apply RoPE
     let mut q_all = vec![0.0f32; seq_len * q_dim];
     let mut k_all = vec![0.0f32; seq_len * kv_dim];
-    let v_all_start = q_dim + kv_dim;
+    let _v_all_start = q_dim + kv_dim;
 
     for pos in 0..seq_len {
         let qkv_start = pos * qkv_dim;

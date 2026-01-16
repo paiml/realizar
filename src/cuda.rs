@@ -49,21 +49,21 @@ use trueno_gpu::driver::{
 };
 use trueno_gpu::kernels::{
     Activation, ArgMaxFinalKernel, ArgMaxKernel, AttentionKernel,
-    BatchedIncrementalAttentionKernel, BatchedQ4KGemvKernel, BatchedResidualAddKernel,
-    BatchedRopeKernel, BatchedSwigluKernel, BatchedVectorizedRmsNormKernel, BiasActivationKernel,
-    BatchedQ6KGemvKernel, ChunkedTiledQ4KGemvKernel, CoalescedGemvKernel, CoalescedQ4KGemvKernel,
-    CoalescedQ6KGemvKernel,
-    Dp4aQ4KGemvKernel, Dp4aSIMDQ4KGemvKernel, ElementwiseMulKernel, Fp16Q4KGemvKernel,
-    FusedGateUpKernel, FusedGateUpQ4KGemvKernel, FusedQKVKernel, FusedResidualRmsNormKernel,
+    BatchedIncrementalAttentionKernel, BatchedQ4KGemvKernel, BatchedQ6KGemvKernel,
+    BatchedResidualAddKernel, BatchedRopeKernel, BatchedSwigluKernel,
+    BatchedVectorizedRmsNormKernel, BiasActivationKernel, ChunkedTiledQ4KGemvKernel,
+    CoalescedGemvKernel, CoalescedQ4KGemvKernel, CoalescedQ6KGemvKernel, Dp4aQ4KGemvKernel,
+    Dp4aSIMDQ4KGemvKernel, ElementwiseMulKernel, Fp16Q4KGemvKernel, FusedGateUpKernel,
+    FusedGateUpQ4KGemvKernel, FusedQKVKernel, FusedResidualRmsNormKernel,
     FusedRmsNormQ4KGemvKernel, FusedSwigluKernel, GeluKernel, GemmKernel, GemvKernel,
     IncrementalAttentionKernel, Kernel, KvCacheScatterIndirectKernel, KvCacheScatterKernel,
     LayerNormKernel, MultiWarpBatchedQ4KGemvKernel, MultiWarpIncrementalAttentionKernel,
-    PackedDp4aQ4KQ8Kernel, Q4KGemvKernel,
-    Q4KQ8DotKernel, Q4_0GemvKernel, Q4_1GemvKernel, Q5KGemvKernel, Q5KKernel, Q5_0GemvKernel,
-    Q6KGemvKernel, Q6KKernel, Q8QuantizeKernel, Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel,
-    RmsNormKernel, RopeIndirectKernel, RopeKernel, RopeNeoxIndirectKernel, RopeNeoxKernel,
-    SiluKernel, SoftmaxKernel, TensorCoreQ4KGemmKernel, TiledQ4KGemvKernel, TrueDp4aQ4KGemvKernel,
-    VectorizedQ4KGemvKernel, VectorizedRmsNormKernel,
+    PackedDp4aQ4KQ8Kernel, Q4KGemvKernel, Q4KQ8DotKernel, Q4_0GemvKernel, Q4_1GemvKernel,
+    Q5KGemvKernel, Q5KKernel, Q5_0GemvKernel, Q6KGemvKernel, Q6KKernel, Q8QuantizeKernel,
+    Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel, RmsNormKernel, RopeIndirectKernel,
+    RopeKernel, RopeNeoxIndirectKernel, RopeNeoxKernel, SiluKernel, SoftmaxKernel,
+    TensorCoreQ4KGemmKernel, TiledQ4KGemvKernel, TrueDp4aQ4KGemvKernel, VectorizedQ4KGemvKernel,
+    VectorizedRmsNormKernel,
 };
 use trueno_gpu::GpuError;
 
@@ -889,7 +889,7 @@ impl CudaKernels {
             // PAR-130: Batched Q6K GEMV - batch decode
             KernelType::BatchedQ6KGemv { k, n, m } => {
                 BatchedQ6KGemvKernel::new(*k, *n, *m).emit_ptx()
-            }
+            },
             // PAR-053: FP16 Q4K GEMV - 2x bandwidth savings
             KernelType::Fp16Q4KGemv { k, n } => Fp16Q4KGemvKernel::new(*k, *n).emit_ptx(),
             // PAR-058: Q8_0 GEMV - simpler quantization for FFN down in some models
@@ -2538,12 +2538,7 @@ impl CudaExecutor {
     /// * `timer` - Timer handle from `start_tile_timer()`
     /// * `elements` - Number of elements processed (for throughput calculation)
     /// * `flops` - Number of floating-point operations (for GFLOP/s calculation)
-    fn stop_tile_timer(
-        &mut self,
-        timer: Option<trueno::TileTimer>,
-        elements: u64,
-        flops: u64,
-    ) {
+    fn stop_tile_timer(&mut self, timer: Option<trueno::TileTimer>, elements: u64, flops: u64) {
         if let Some(t) = timer {
             // Sync to capture real GPU time
             let _ = self.stream.synchronize();
@@ -2931,18 +2926,15 @@ impl CudaExecutor {
             let (attn_q_bias_ptr, attn_q_bias_len) = self
                 .bias_cache
                 .get(&q_bias_name)
-                .map(|b| (b.as_ptr(), b.len()))
-                .unwrap_or((0, 0));
+                .map_or((0, 0), |b| (b.as_ptr(), b.len()));
             let (attn_k_bias_ptr, attn_k_bias_len) = self
                 .bias_cache
                 .get(&k_bias_name)
-                .map(|b| (b.as_ptr(), b.len()))
-                .unwrap_or((0, 0));
+                .map_or((0, 0), |b| (b.as_ptr(), b.len()));
             let (attn_v_bias_ptr, attn_v_bias_len) = self
                 .bias_cache
                 .get(&v_bias_name)
-                .map(|b| (b.as_ptr(), b.len()))
-                .unwrap_or((0, 0));
+                .map_or((0, 0), |b| (b.as_ptr(), b.len()));
 
             // Log if bias detected (for debugging)
             if attn_q_bias_len > 0 && (layer_idx == 0 || layer_idx == 4 || layer_idx == 27) {
@@ -2951,10 +2943,7 @@ impl CudaExecutor {
                     layer_idx, attn_q_bias_len, attn_k_bias_len, attn_v_bias_len
                 );
             } else if attn_q_bias_len == 0 && layer_idx <= 10 {
-                eprintln!(
-                    "[BIAS-FIX] Layer {}: NO BIAS (q_bias_len=0)",
-                    layer_idx
-                );
+                eprintln!("[BIAS-FIX] Layer {}: NO BIAS (q_bias_len=0)", layer_idx);
             }
 
             indexed.push(IndexedLayerWeights {
@@ -5569,6 +5558,7 @@ impl CudaExecutor {
     /// * `m` - Batch size (number of sequences, max 8)
     /// * `n` - Output dimension (weight rows)
     /// * `k` - Input dimension (weight columns, must be multiple of 256)
+    ///
     /// PAR-129 FIX: Support M>8 via tiled execution or multi-warp kernel
     /// - M=16: Uses MultiWarpBatchedQ4KGemvKernel (2 warps × 8, L1 cache sharing)
     /// - M<=8: Single kernel launch with BatchedQ4KGemvKernel
@@ -9478,8 +9468,7 @@ impl CudaExecutor {
         let v = self.q4k_gemv_cached_async(&v_name, &normed, kv_dim, hidden_dim)?;
 
         // QKV FLOPs: Q(hidden→q) + K(hidden→kv) + V(hidden→kv)
-        let qkv_flops =
-            2 * (hidden_dim as u64) * (q_dim as u64 + kv_dim as u64 + kv_dim as u64);
+        let qkv_flops = 2 * (hidden_dim as u64) * (q_dim as u64 + kv_dim as u64 + kv_dim as u64);
         let qkv_elements = (q_dim + kv_dim + kv_dim) as u64;
         self.stop_tile_timer(timer_qkv, qkv_elements, qkv_flops);
 
@@ -9519,8 +9508,8 @@ impl CudaExecutor {
             intermediate_dim,
         )?;
         // FFN FLOPs: 3 GEMV (gate+up+down) + SiLU (~3 ops per element)
-        let ffn_flops = 2 * (hidden_dim as u64) * (intermediate_dim as u64) * 3
-            + (intermediate_dim as u64) * 3;
+        let ffn_flops =
+            2 * (hidden_dim as u64) * (intermediate_dim as u64) * 3 + (intermediate_dim as u64) * 3;
         self.stop_tile_timer(timer_ffn, hidden_dim as u64, ffn_flops);
 
         // 8. Second residual add (Micro)
@@ -13137,9 +13126,18 @@ impl CudaExecutor {
                     self.stream.synchronize()?;
                     let mut input_check = vec![0.0f32; hidden_buf1.len()];
                     hidden_buf1.copy_to_host(&mut input_check)?;
-                    eprintln!("[CORRECTNESS-011-L0] Q4K GEMV params: n={}, k={}", q_dim, hidden_dim);
-                    eprintln!("[CORRECTNESS-011-L0] Input (hidden_buf1): first 5 = {:?}", &input_check[..5.min(input_check.len())]);
-                    eprintln!("[CORRECTNESS-011-L0] Weight ptr = {:#x}, len = {}", layer_weights.attn_q_ptr, layer_weights.attn_q_len);
+                    eprintln!(
+                        "[CORRECTNESS-011-L0] Q4K GEMV params: n={}, k={}",
+                        q_dim, hidden_dim
+                    );
+                    eprintln!(
+                        "[CORRECTNESS-011-L0] Input (hidden_buf1): first 5 = {:?}",
+                        &input_check[..5.min(input_check.len())]
+                    );
+                    eprintln!(
+                        "[CORRECTNESS-011-L0] Weight ptr = {:#x}, len = {}",
+                        layer_weights.attn_q_ptr, layer_weights.attn_q_len
+                    );
                 }
                 self.q4k_gemv_into(
                     layer_weights.attn_q_ptr,
@@ -13153,7 +13151,10 @@ impl CudaExecutor {
                     self.stream.synchronize()?;
                     let mut q_check = vec![0.0f32; q_buf.len()];
                     q_buf.copy_to_host(&mut q_check)?;
-                    eprintln!("[CORRECTNESS-011-L0] Q output: first 5 = {:?}", &q_check[..5.min(q_check.len())]);
+                    eprintln!(
+                        "[CORRECTNESS-011-L0] Q output: first 5 = {:?}",
+                        &q_check[..5.min(q_check.len())]
+                    );
                 }
             },
         }
@@ -13317,7 +13318,8 @@ impl CudaExecutor {
                 q_buf.copy_to_host(&mut q_check)?;
                 eprintln!(
                     "[BIAS-FIX-L{}] Q after bias: first 5 = {:?}",
-                    layer_idx, &q_check[..5.min(q_check.len())]
+                    layer_idx,
+                    &q_check[..5.min(q_check.len())]
                 );
             }
         }
@@ -13338,7 +13340,8 @@ impl CudaExecutor {
                 k_buf.copy_to_host(&mut k_check)?;
                 eprintln!(
                     "[BIAS-FIX-L{}] K after bias: first 5 = {:?}",
-                    layer_idx, &k_check[..5.min(k_check.len())]
+                    layer_idx,
+                    &k_check[..5.min(k_check.len())]
                 );
             }
         }
@@ -13359,13 +13362,20 @@ impl CudaExecutor {
                 v_buf.copy_to_host(&mut v_check)?;
                 eprintln!(
                     "[BIAS-FIX-L{}] V after bias: first 5 = {:?}",
-                    layer_idx, &v_check[..5.min(v_check.len())]
+                    layer_idx,
+                    &v_check[..5.min(v_check.len())]
                 );
             }
         }
 
         // PAR-058-DEBUG: Check Q/K/V after projections (skip during graph capture)
-        if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2 || layer_idx == 3 || layer_idx == 5) {
+        if !skip_debug
+            && (layer_idx == 0
+                || layer_idx == 1
+                || layer_idx == 2
+                || layer_idx == 3
+                || layer_idx == 5)
+        {
             self.stream.synchronize()?;
             // Print weight pointers
             eprintln!(
@@ -13509,7 +13519,8 @@ impl CudaExecutor {
                 }
             }
 
-            if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2 || layer_idx == 3) {
+            if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2 || layer_idx == 3)
+            {
                 // Debug: download and print (only for layer 0/2, skip during graph capture)
                 self.stream.synchronize()?;
                 let mut q_host = vec![0.0f32; q_buf.len()];
@@ -16788,8 +16799,8 @@ impl CudaExecutor {
 
         // Calculate partials buffer size
         // Layout: [M, num_heads, max_chunks, head_dim + 2]
-        let max_chunks = (max_seq_len + FLASH_DECODE_CHUNK_SIZE as usize - 1)
-            / FLASH_DECODE_CHUNK_SIZE as usize;
+        let max_chunks =
+            (max_seq_len + FLASH_DECODE_CHUNK_SIZE as usize - 1) / FLASH_DECODE_CHUNK_SIZE as usize;
         let partials_per_head = max_chunks * (head_dim + 2);
         let total_partials = batch_size * num_heads * partials_per_head;
 
@@ -16972,8 +16983,8 @@ impl CudaExecutor {
 
         // Step 3: Compute max chunks needed
         let max_seq_len_actual = seq_lens.iter().copied().max().unwrap_or(1) as usize;
-        let max_chunks =
-            (max_seq_len_actual + FLASH_DECODE_CHUNK_SIZE as usize - 1) / FLASH_DECODE_CHUNK_SIZE as usize;
+        let max_chunks = (max_seq_len_actual + FLASH_DECODE_CHUNK_SIZE as usize - 1)
+            / FLASH_DECODE_CHUNK_SIZE as usize;
 
         // Step 4: Launch Flash Decoding chunk kernel
         let chunk_kernel = FlashDecodingChunkKernel::new(
@@ -16996,7 +17007,9 @@ impl CudaExecutor {
         }
 
         let partials_buf = self.flash_decode_partials.as_ref().ok_or_else(|| {
-            GpuError::InvalidLaunchConfig("PAR-118: flash_decode_partials not allocated".to_string())
+            GpuError::InvalidLaunchConfig(
+                "PAR-118: flash_decode_partials not allocated".to_string(),
+            )
         })?;
 
         // Grid: (num_heads, batch_size, max_chunks)
@@ -17035,7 +17048,8 @@ impl CudaExecutor {
         }
 
         // Step 5: Launch Flash Decoding reduce kernel
-        let reduce_kernel = FlashDecodingReduceKernel::new(head_dim as u32, num_heads as u32, m as u32);
+        let reduce_kernel =
+            FlashDecodingReduceKernel::new(head_dim as u32, num_heads as u32, m as u32);
         let reduce_kernel_name = reduce_kernel.name();
         let reduce_module_key = format!("flash_decode_reduce_{}_{}", head_dim, num_heads);
 

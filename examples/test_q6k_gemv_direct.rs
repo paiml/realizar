@@ -58,7 +58,7 @@ fn run_direct_test() -> Result<(), Box<dyn std::error::Error>> {
 
     // CPU: Compute Q6K GEMV for all inputs
     let lm_head_data = &cpu_model.lm_head_weight.data;
-    let sb_per_row = (hidden_dim + 255) / 256;
+    let sb_per_row = hidden_dim.div_ceil(256);
     let bytes_per_row = sb_per_row * 210;
 
     // Test just a few rows for detailed analysis
@@ -153,7 +153,7 @@ fn run_direct_test() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(feature = "cuda")]
 fn q6k_dot_cpu(row_data: &[u8], input: &[f32], k: usize) -> f32 {
     let mut result = 0.0f32;
-    let num_sb = (k + 255) / 256;
+    let num_sb = k.div_ceil(256);
 
     for sb_idx in 0..num_sb {
         let sb_offset = sb_idx * 210;

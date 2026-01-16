@@ -4007,10 +4007,8 @@ mod tests {
         // V: [hidden_dim * seq_len] in transposed format
         let v_transposed = vec![1.0f32; hidden_dim * seq_len];
 
-        let result = attention_with_transposed_v(
-            &q, &k, &v_transposed,
-            num_heads, head_dim, seq_len
-        );
+        let result =
+            attention_with_transposed_v(&q, &k, &v_transposed, num_heads, head_dim, seq_len);
 
         assert_eq!(result.len(), hidden_dim);
         // All values should be finite
@@ -4248,7 +4246,10 @@ mod tests {
 
         // Results should be different due to position encoding
         let different = x0.iter().zip(x10.iter()).any(|(a, b)| (a - b).abs() > 1e-5);
-        assert!(different, "RoPE should produce different results for different positions");
+        assert!(
+            different,
+            "RoPE should produce different results for different positions"
+        );
     }
 
     /// Test KVCache with multiple stores and advance
@@ -4307,8 +4308,12 @@ mod tests {
         let v_transposed = vec![1.0f32; 8]; // [dim, seq] = [4, 2]
 
         let result = attention_with_transposed_v(
-            &q, &k, &v_transposed,
-            1, 4, 2  // num_heads=1, head_dim=4, seq_len=2
+            &q,
+            &k,
+            &v_transposed,
+            1,
+            4,
+            2, // num_heads=1, head_dim=4, seq_len=2
         );
         assert_eq!(result.len(), 4);
         assert!(result.iter().all(|v| v.is_finite()));
@@ -4393,18 +4398,20 @@ mod tests {
     fn test_simd_matmul_small_batch_trueno() {
         // seq_len=2, in_dim=4, out_dim=3
         // This should hit the trueno Matrix path (not tiled)
-        let input = vec![1.0, 0.0, 0.0, 0.0,  // token 0
-                        0.0, 1.0, 0.0, 0.0]; // token 1
+        let input = vec![
+            1.0, 0.0, 0.0, 0.0, // token 0
+            0.0, 1.0, 0.0, 0.0,
+        ]; // token 1
         let weight = vec![
-            1.0, 2.0, 0.0, 0.0,  // out 0
-            0.0, 0.0, 3.0, 0.0,  // out 1
-            0.0, 0.0, 0.0, 4.0,  // out 2
+            1.0, 2.0, 0.0, 0.0, // out 0
+            0.0, 0.0, 3.0, 0.0, // out 1
+            0.0, 0.0, 0.0, 4.0, // out 2
         ];
 
         let output = simd_matmul(&input, &weight, 4, 3);
 
         assert_eq!(output.len(), 6); // 2 tokens * 3 outputs
-        // Token 0: [1,0,0,0] → [1*1+2*0, 0, 0] = [1, 0, 0]
+                                     // Token 0: [1,0,0,0] → [1*1+2*0, 0, 0] = [1, 0, 0]
         assert!((output[0] - 1.0).abs() < 1e-4);
         // Token 1: [0,1,0,0] → [1*0+2*1, 0, 0] = [2, 0, 0]
         assert!((output[3] - 2.0).abs() < 1e-4);
@@ -4475,8 +4482,8 @@ mod tests {
         cache.advance();
         let v_raw = cache.get_v_raw(0);
         assert_eq!(v_raw.len(), 4 * 8); // hidden_dim * max_seq_len
-        // V is stored transposed: v[dim, seq] at offset dim*max_seq_len + seq
-        // So v_raw[0] = 5.0 (dim=0, seq=0), v_raw[8] = 6.0 (dim=1, seq=0)
+                                        // V is stored transposed: v[dim, seq] at offset dim*max_seq_len + seq
+                                        // So v_raw[0] = 5.0 (dim=0, seq=0), v_raw[8] = 6.0 (dim=1, seq=0)
         assert!((v_raw[0] - 5.0).abs() < 1e-5);
         assert!((v_raw[8] - 6.0).abs() < 1e-5);
         assert!((v_raw[16] - 7.0).abs() < 1e-5);
@@ -5640,7 +5647,7 @@ mod tests {
             n_threads_batch: 4,
             n_threads_decode: 2,
         };
-        let cloned = config.clone();
+        let cloned = config;
         assert_eq!(cloned.n_threads_batch, config.n_threads_batch);
         assert_eq!(cloned.n_threads_decode, config.n_threads_decode);
     }
@@ -5670,7 +5677,7 @@ mod tests {
     #[test]
     fn test_inference_mode_clone_variants_cov() {
         let mode = InferenceMode::Prefill;
-        let cloned = mode.clone();
+        let cloned = mode;
         assert_eq!(mode, cloned);
     }
 

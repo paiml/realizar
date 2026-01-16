@@ -366,7 +366,10 @@ pub struct GgufToAprQ4KConverter;
 
 impl GgufToAprQ4KConverter {
     /// Helper to extract string from GGUF metadata
-    fn get_string(metadata: &std::collections::HashMap<String, crate::gguf::GGUFValue>, key: &str) -> Option<String> {
+    fn get_string(
+        metadata: &std::collections::HashMap<String, crate::gguf::GGUFValue>,
+        key: &str,
+    ) -> Option<String> {
         match metadata.get(key) {
             Some(crate::gguf::GGUFValue::String(s)) => Some(s.clone()),
             _ => None,
@@ -374,7 +377,10 @@ impl GgufToAprQ4KConverter {
     }
 
     /// Helper to extract u32 from GGUF metadata
-    fn get_u32(metadata: &std::collections::HashMap<String, crate::gguf::GGUFValue>, key: &str) -> Option<u32> {
+    fn get_u32(
+        metadata: &std::collections::HashMap<String, crate::gguf::GGUFValue>,
+        key: &str,
+    ) -> Option<u32> {
         match metadata.get(key) {
             Some(crate::gguf::GGUFValue::UInt32(v)) => Some(*v),
             Some(crate::gguf::GGUFValue::Int32(v)) => Some(*v as u32),
@@ -384,7 +390,10 @@ impl GgufToAprQ4KConverter {
     }
 
     /// Helper to extract f32 from GGUF metadata
-    fn get_f32(metadata: &std::collections::HashMap<String, crate::gguf::GGUFValue>, key: &str) -> Option<f32> {
+    fn get_f32(
+        metadata: &std::collections::HashMap<String, crate::gguf::GGUFValue>,
+        key: &str,
+    ) -> Option<f32> {
         match metadata.get(key) {
             Some(crate::gguf::GGUFValue::Float32(v)) => Some(*v),
             Some(crate::gguf::GGUFValue::Float64(v)) => Some(*v as f32),
@@ -403,7 +412,10 @@ impl GgufToAprQ4KConverter {
     ///
     /// Statistics about the conversion
     #[allow(clippy::cast_possible_truncation)]
-    pub fn convert(gguf_path: &std::path::Path, output_path: &std::path::Path) -> Result<Q4KConversionStats> {
+    pub fn convert(
+        gguf_path: &std::path::Path,
+        output_path: &std::path::Path,
+    ) -> Result<Q4KConversionStats> {
         use std::io::Write;
 
         // Load GGUF with raw quantized tensors
@@ -416,31 +428,59 @@ impl GgufToAprQ4KConverter {
         // Extract model config from metadata
         let architecture = Self::get_string(&gguf_model.metadata, "general.architecture")
             .unwrap_or_else(|| "unknown".to_string());
-        let hidden_size = Self::get_u32(&gguf_model.metadata, &format!("{architecture}.embedding_length"))
-            .unwrap_or(0);
-        let num_layers = Self::get_u32(&gguf_model.metadata, &format!("{architecture}.block_count"))
-            .unwrap_or(0);
-        let num_heads = Self::get_u32(&gguf_model.metadata, &format!("{architecture}.attention.head_count"))
-            .unwrap_or(0);
-        let num_kv_heads = Self::get_u32(&gguf_model.metadata, &format!("{architecture}.attention.head_count_kv"))
-            .unwrap_or(num_heads);
+        let hidden_size = Self::get_u32(
+            &gguf_model.metadata,
+            &format!("{architecture}.embedding_length"),
+        )
+        .unwrap_or(0);
+        let num_layers =
+            Self::get_u32(&gguf_model.metadata, &format!("{architecture}.block_count"))
+                .unwrap_or(0);
+        let num_heads = Self::get_u32(
+            &gguf_model.metadata,
+            &format!("{architecture}.attention.head_count"),
+        )
+        .unwrap_or(0);
+        let num_kv_heads = Self::get_u32(
+            &gguf_model.metadata,
+            &format!("{architecture}.attention.head_count_kv"),
+        )
+        .unwrap_or(num_heads);
         let vocab_size = Self::get_u32(&gguf_model.metadata, &format!("{architecture}.vocab_size"))
             .or_else(|| Self::get_u32(&gguf_model.metadata, "tokenizer.ggml.vocab_size"))
             .unwrap_or_else(|| {
                 // Infer from embedding tensor shape if metadata not available
-                gguf_model.tensors.iter()
-                    .find(|t| t.name.contains("token_embd") || t.name.contains("embed_tokens") || t.name.contains("tok_embeddings"))
+                gguf_model
+                    .tensors
+                    .iter()
+                    .find(|t| {
+                        t.name.contains("token_embd")
+                            || t.name.contains("embed_tokens")
+                            || t.name.contains("tok_embeddings")
+                    })
                     .and_then(|t| t.dims.first().copied().map(|d| d as u32))
                     .unwrap_or(0)
             }) as usize;
-        let intermediate_size = Self::get_u32(&gguf_model.metadata, &format!("{architecture}.feed_forward_length"))
-            .unwrap_or(0);
-        let context_length = Self::get_u32(&gguf_model.metadata, &format!("{architecture}.context_length"))
-            .unwrap_or(2048);
-        let rope_theta = Self::get_f32(&gguf_model.metadata, &format!("{architecture}.rope.freq_base"))
-            .unwrap_or(10000.0);
-        let eps = Self::get_f32(&gguf_model.metadata, &format!("{architecture}.attention.layer_norm_rms_epsilon"))
-            .unwrap_or(1e-5);
+        let intermediate_size = Self::get_u32(
+            &gguf_model.metadata,
+            &format!("{architecture}.feed_forward_length"),
+        )
+        .unwrap_or(0);
+        let context_length = Self::get_u32(
+            &gguf_model.metadata,
+            &format!("{architecture}.context_length"),
+        )
+        .unwrap_or(2048);
+        let rope_theta = Self::get_f32(
+            &gguf_model.metadata,
+            &format!("{architecture}.rope.freq_base"),
+        )
+        .unwrap_or(10000.0);
+        let eps = Self::get_f32(
+            &gguf_model.metadata,
+            &format!("{architecture}.attention.layer_norm_rms_epsilon"),
+        )
+        .unwrap_or(1e-5);
 
         // Build metadata JSON
         let metadata = serde_json::json!({
@@ -457,9 +497,10 @@ impl GgufToAprQ4KConverter {
             "eps": eps,
             "quantization": "Q4_K_M",
         });
-        let metadata_bytes = serde_json::to_vec(&metadata).map_err(|e| RealizarError::FormatError {
-            reason: format!("Failed to serialize metadata: {e}"),
-        })?;
+        let metadata_bytes =
+            serde_json::to_vec(&metadata).map_err(|e| RealizarError::FormatError {
+                reason: format!("Failed to serialize metadata: {e}"),
+            })?;
         let metadata_padded_len = metadata_bytes.len().div_ceil(ALIGNMENT) * ALIGNMENT;
 
         // Extract raw tensors from GGUF
@@ -476,21 +517,26 @@ impl GgufToAprQ4KConverter {
             // Calculate byte size based on qtype (GGML dtype)
             // GGML types: 0=F32, 1=F16, 8=Q8_0, 12=Q4_K, 13=Q5_K, 14=Q6_K
             let byte_size = match qtype {
-                0 => num_elements * 4,      // F32
-                1 => num_elements * 2,      // F16
-                8 => (num_elements / 32) * 34, // Q8_0: 32 elements = 2 (scale) + 32 (quants)
+                0 => num_elements * 4,            // F32
+                1 => num_elements * 2,            // F16
+                8 => (num_elements / 32) * 34,    // Q8_0: 32 elements = 2 (scale) + 32 (quants)
                 12 => (num_elements / 256) * 144, // Q4_K: 256 elements = 144 bytes
                 13 => (num_elements / 256) * 176, // Q5_K: 256 elements = 176 bytes
                 14 => (num_elements / 256) * 210, // Q6_K: 256 elements = 210 bytes
-                _ => num_elements * 4,      // Default to F32
+                _ => num_elements * 4,            // Default to F32
             };
 
             // Extract raw bytes
             let tensor_start = gguf_model.tensor_data_start + tensor_meta.offset as usize;
             if tensor_start + byte_size > gguf_data.len() {
                 return Err(RealizarError::FormatError {
-                    reason: format!("Tensor '{}' exceeds file bounds (start={}, size={}, file_len={})",
-                        name, tensor_start, byte_size, gguf_data.len()),
+                    reason: format!(
+                        "Tensor '{}' exceeds file bounds (start={}, size={}, file_len={})",
+                        name,
+                        tensor_start,
+                        byte_size,
+                        gguf_data.len()
+                    ),
                 });
             }
 
@@ -502,7 +548,12 @@ impl GgufToAprQ4KConverter {
             }
             total_bytes += byte_size;
 
-            raw_tensors.push(RawTensor { name, data, shape, dtype: qtype });
+            raw_tensors.push(RawTensor {
+                name,
+                data,
+                shape,
+                dtype: qtype,
+            });
         }
 
         // Build binary tensor index
@@ -519,12 +570,12 @@ impl GgufToAprQ4KConverter {
             // GGML: 0=F32, 1=F16, 8=Q8_0, 12=Q4_K, 13=Q5_K, 14=Q6_K
             // APR:  0=F32, 1=F16, 8=Q4_K, 9=Q6_K, 10=Q8_0
             let apr_dtype = match tensor.dtype {
-                0 => 0u8,   // F32 -> F32
-                1 => 1u8,   // F16 -> F16
-                8 => 10u8,  // Q8_0 -> APR dtype 10
-                12 => 8u8,  // Q4_K -> APR dtype 8
-                13 => 8u8,  // Q5_K -> treat as Q4_K for now
-                14 => 9u8,  // Q6_K -> APR dtype 9
+                0 => 0u8,  // F32 -> F32
+                1 => 1u8,  // F16 -> F16
+                8 => 10u8, // Q8_0 -> APR dtype 10
+                12 => 8u8, // Q4_K -> APR dtype 8
+                13 => 8u8, // Q5_K -> treat as Q4_K for now
+                14 => 9u8, // Q6_K -> APR dtype 9
                 _ => 0u8,
             };
             tensor_index_bytes.push(apr_dtype);
@@ -573,46 +624,53 @@ impl GgufToAprQ4KConverter {
         })?;
 
         // Header
-        file.write_all(&header).map_err(|e| RealizarError::IoError {
-            message: format!("Failed to write header: {e}"),
-        })?;
+        file.write_all(&header)
+            .map_err(|e| RealizarError::IoError {
+                message: format!("Failed to write header: {e}"),
+            })?;
 
         // Metadata (padded)
-        file.write_all(&metadata_bytes).map_err(|e| RealizarError::IoError {
-            message: format!("Failed to write metadata: {e}"),
-        })?;
+        file.write_all(&metadata_bytes)
+            .map_err(|e| RealizarError::IoError {
+                message: format!("Failed to write metadata: {e}"),
+            })?;
         let padding = metadata_padded_len - metadata_bytes.len();
         if padding > 0 {
-            file.write_all(&vec![0u8; padding]).map_err(|e| RealizarError::IoError {
-                message: format!("Failed to write padding: {e}"),
-            })?;
+            file.write_all(&vec![0u8; padding])
+                .map_err(|e| RealizarError::IoError {
+                    message: format!("Failed to write padding: {e}"),
+                })?;
         }
 
         // Tensor index
-        file.write_all(&tensor_index_bytes).map_err(|e| RealizarError::IoError {
-            message: format!("Failed to write tensor index: {e}"),
-        })?;
+        file.write_all(&tensor_index_bytes)
+            .map_err(|e| RealizarError::IoError {
+                message: format!("Failed to write tensor index: {e}"),
+            })?;
 
         // Alignment padding before data
         let pre_data_padding = (data_offset_aligned - data_offset) as usize;
         if pre_data_padding > 0 {
-            file.write_all(&vec![0u8; pre_data_padding]).map_err(|e| RealizarError::IoError {
-                message: format!("Failed to write data alignment: {e}"),
-            })?;
+            file.write_all(&vec![0u8; pre_data_padding])
+                .map_err(|e| RealizarError::IoError {
+                    message: format!("Failed to write data alignment: {e}"),
+                })?;
         }
 
         // Tensor data (with alignment)
         for tensor in &raw_tensors {
-            file.write_all(&tensor.data).map_err(|e| RealizarError::IoError {
-                message: format!("Failed to write tensor '{}': {e}", tensor.name),
-            })?;
+            file.write_all(&tensor.data)
+                .map_err(|e| RealizarError::IoError {
+                    message: format!("Failed to write tensor '{}': {e}", tensor.name),
+                })?;
 
             // Align to 64 bytes
             let pad = (ALIGNMENT - (tensor.data.len() % ALIGNMENT)) % ALIGNMENT;
             if pad > 0 {
-                file.write_all(&vec![0u8; pad]).map_err(|e| RealizarError::IoError {
-                    message: format!("Failed to write tensor padding: {e}"),
-                })?;
+                file.write_all(&vec![0u8; pad])
+                    .map_err(|e| RealizarError::IoError {
+                        message: format!("Failed to write tensor padding: {e}"),
+                    })?;
             }
         }
 
@@ -620,7 +678,7 @@ impl GgufToAprQ4KConverter {
             tensor_count: raw_tensors.len(),
             q4k_tensor_count: q4k_count,
             total_bytes,
-            architecture: architecture.to_string(),
+            architecture: architecture.clone(),
             num_layers: num_layers as usize,
             hidden_size: hidden_size as usize,
         })
@@ -927,7 +985,7 @@ mod tests {
     #[test]
     fn test_stats_parameters_b() {
         let stats = ConversionStats {
-            total_parameters: 7_000_000_000, // 7B params
+            total_parameters: 7_000_000_000,  // 7B params
             memory_bytes_f32: 28_000_000_000, // 28GB
             num_layers: 32,
             hidden_dim: 4096,
@@ -1006,7 +1064,8 @@ mod tests {
         bytes[64..66].copy_from_slice(b"{}");
 
         // Add a tensor index entry pointing to data beyond file end
-        let index_json = r#"[{"name":"weights","dtype":"json","shape":[1000],"offset":0,"size":1000}]"#;
+        let index_json =
+            r#"[{"name":"weights","dtype":"json","shape":[1000],"offset":0,"size":1000}]"#;
         let index_bytes = index_json.as_bytes();
         let index_end = 66 + index_bytes.len();
         bytes.resize(index_end + 10, 0); // Only add 10 bytes, not 1000
@@ -1075,11 +1134,14 @@ mod tests {
 
     #[test]
     fn test_get_string_helper() {
-        use std::collections::HashMap;
         use crate::gguf::GGUFValue;
+        use std::collections::HashMap;
 
         let mut metadata = HashMap::new();
-        metadata.insert("name".to_string(), GGUFValue::String("test_model".to_string()));
+        metadata.insert(
+            "name".to_string(),
+            GGUFValue::String("test_model".to_string()),
+        );
         metadata.insert("count".to_string(), GGUFValue::UInt32(42));
 
         let result = GgufToAprQ4KConverter::get_string(&metadata, "name");
@@ -1095,8 +1157,8 @@ mod tests {
 
     #[test]
     fn test_get_u32_helper() {
-        use std::collections::HashMap;
         use crate::gguf::GGUFValue;
+        use std::collections::HashMap;
 
         let mut metadata = HashMap::new();
         metadata.insert("count".to_string(), GGUFValue::UInt32(42));
@@ -1122,8 +1184,8 @@ mod tests {
 
     #[test]
     fn test_get_f32_helper() {
-        use std::collections::HashMap;
         use crate::gguf::GGUFValue;
+        use std::collections::HashMap;
 
         let mut metadata = HashMap::new();
         metadata.insert("scale".to_string(), GGUFValue::Float32(3.14));
@@ -1353,7 +1415,7 @@ mod tests {
         bytes[24..32].copy_from_slice(&66u64.to_le_bytes()); // tensor index offset
         bytes[32..40].copy_from_slice(&100u64.to_le_bytes()); // data offset
         bytes[64..66].copy_from_slice(b"{}"); // metadata
-        // Invalid JSON for tensor index (length must match exactly)
+                                              // Invalid JSON for tensor index (length must match exactly)
         let invalid_json = b"not valid json{{{";
         bytes[66..66 + invalid_json.len()].copy_from_slice(invalid_json);
 
@@ -1441,7 +1503,10 @@ mod tests {
     fn test_q4k_converter_get_u32_wrong_type() {
         use crate::gguf::GGUFValue;
         let mut metadata = std::collections::HashMap::new();
-        metadata.insert("key".to_string(), GGUFValue::String("not a number".to_string()));
+        metadata.insert(
+            "key".to_string(),
+            GGUFValue::String("not a number".to_string()),
+        );
 
         let result = GgufToAprQ4KConverter::get_u32(&metadata, "key");
         assert!(result.is_none());
@@ -1451,10 +1516,12 @@ mod tests {
     fn test_q4k_converter_get_f32_wrong_type() {
         use crate::gguf::GGUFValue;
         let mut metadata = std::collections::HashMap::new();
-        metadata.insert("key".to_string(), GGUFValue::String("not a float".to_string()));
+        metadata.insert(
+            "key".to_string(),
+            GGUFValue::String("not a float".to_string()),
+        );
 
         let result = GgufToAprQ4KConverter::get_f32(&metadata, "key");
         assert!(result.is_none());
     }
-
 }

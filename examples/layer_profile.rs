@@ -5,9 +5,10 @@ use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel, QuantizedGenerateConf
 use std::time::Instant;
 
 fn main() {
-    let model_path = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf".to_string());
+    let model_path = std::env::args().nth(1).unwrap_or_else(|| {
+        "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+            .to_string()
+    });
 
     println!("Loading model: {model_path}");
     let mapped = MappedGGUFModel::from_path(&model_path).expect("load");
@@ -40,12 +41,17 @@ fn main() {
 
     // Profile token generation (uses optimized Q8K path)
     let iters = 5;
-    println!("\nProfiling {} generation runs ({} tokens each)...", iters, gen_config.max_tokens);
+    println!(
+        "\nProfiling {} generation runs ({} tokens each)...",
+        iters, gen_config.max_tokens
+    );
 
     let start = Instant::now();
     let mut total_generated = 0;
     for _ in 0..iters {
-        let output = model.generate_with_cache(&tokens, &gen_config).expect("gen");
+        let output = model
+            .generate_with_cache(&tokens, &gen_config)
+            .expect("gen");
         total_generated += output.len() - tokens.len();
     }
     let total = start.elapsed();
@@ -55,7 +61,11 @@ fn main() {
     println!("\n=== Generation Timing ===");
     println!("Total time: {} ms", total.as_millis());
     println!("Tokens generated: {}", total_generated);
-    println!("Per token: {:.1} µs ({:.2} ms)", per_token_us, per_token_us / 1000.0);
+    println!(
+        "Per token: {:.1} µs ({:.2} ms)",
+        per_token_us,
+        per_token_us / 1000.0
+    );
     println!("Throughput: {:.1} tok/s", tok_s);
 
     // Calculate theoretical matmul time
@@ -69,7 +79,7 @@ fn main() {
     // FFN gate: h * i * 2
     // FFN up: h * i * 2
     // FFN down: i * h * 2
-    let qkv_flops = 3.0 * h * h * 2.0;  // simplified - actual is GQA
+    let qkv_flops = 3.0 * h * h * 2.0; // simplified - actual is GQA
     let attn_out_flops = h * h * 2.0;
     let ffn_gate_flops = h * i * 2.0;
     let ffn_up_flops = h * i * 2.0;
@@ -87,9 +97,18 @@ fn main() {
     println!("FLOPs per token: {:.2}B", total_flops / 1e9);
     println!("Theoretical matmul time: {:.1} µs", theoretical_time_us);
     println!("Actual per token: {:.1} µs", per_token_us);
-    println!("Overhead factor: {:.2}x", per_token_us / theoretical_time_us);
-    println!("Achieved: {:.1} GFLOP/s (of {:.1} kernel)", achieved_gflops, matmul_gflops);
-    println!("Efficiency: {:.1}%", 100.0 * achieved_gflops / matmul_gflops);
+    println!(
+        "Overhead factor: {:.2}x",
+        per_token_us / theoretical_time_us
+    );
+    println!(
+        "Achieved: {:.1} GFLOP/s (of {:.1} kernel)",
+        achieved_gflops, matmul_gflops
+    );
+    println!(
+        "Efficiency: {:.1}%",
+        100.0 * achieved_gflops / matmul_gflops
+    );
 
     // Memory bandwidth analysis
     // Weight bytes per token (Q4K = 4.5 bits/weight)
@@ -102,9 +121,15 @@ fn main() {
 
     println!("\n=== Memory Bandwidth ===");
     println!("Weight bytes per token: {:.1} MB", weight_bytes / 1e6);
-    println!("Memory bandwidth achieved: {:.1} GB/s", mem_bandwidth_achieved);
+    println!(
+        "Memory bandwidth achieved: {:.1} GB/s",
+        mem_bandwidth_achieved
+    );
     println!("DDR5-4800 4-channel peak: ~154 GB/s");
-    println!("Bandwidth efficiency: {:.1}%", 100.0 * mem_bandwidth_achieved / 154.0);
+    println!(
+        "Bandwidth efficiency: {:.1}%",
+        100.0 * mem_bandwidth_achieved / 154.0
+    );
 
     // Target analysis
     let target_tok_s = 42.0;
@@ -113,5 +138,8 @@ fn main() {
     println!("Current: {:.1} tok/s", tok_s);
     println!("Target: {:.1} tok/s (2x Ollama)", target_tok_s);
     println!("Gap: {:.1}x slower", target_tok_s / tok_s);
-    println!("Need to reduce per-token from {:.1} µs to {:.1} µs", per_token_us, target_us_per_tok);
+    println!(
+        "Need to reduce per-token from {:.1} µs to {:.1} µs",
+        per_token_us, target_us_per_tok
+    );
 }

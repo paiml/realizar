@@ -43,7 +43,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let im_end = 151645u32;
     let assistant = 77091u32; // "assistant"
     let newline = 198u32; // "\n"
-    let system = 9125u32;
+    let _system = 9125u32;
 
     // Test: <|im_start|>assistant\n
     let tokens = vec![im_start, assistant, newline];
@@ -70,7 +70,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let space = 220u32; // " "
     let two = 17u32; // "2"
     let plus = 10u32; // "+"
-    let eq = 28u32; // "="
+    let _eq = 28u32; // "="
     let qmark = 30u32; // "?"
 
     let chat_tokens = vec![

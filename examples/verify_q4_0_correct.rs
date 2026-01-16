@@ -43,9 +43,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     const BLOCK_SIZE: usize = 32;
     const BYTES_PER_BLOCK: usize = 18;
 
-    let num_blocks = (q_weight.in_dim + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    let num_blocks = q_weight.in_dim.div_ceil(BLOCK_SIZE);
     let mut manual_output = vec![0.0f32; q_weight.out_dim];
 
+    #[allow(clippy::needless_range_loop)] // row used in complex offset calculations
     for row in 0..q_weight.out_dim.min(10) {
         let mut total_sum = 0.0f32;
 

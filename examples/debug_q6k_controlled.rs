@@ -203,8 +203,8 @@ fn run_test(
         let mut gpu_output = vec![0.0f32; out_dim];
         output_buf.copy_to_host(&mut gpu_output)?;
 
-        let cpu_match = (cpu_results[0] - expected).abs() < 1.0;
-        let gpu_match = (gpu_output[0] - expected).abs() < 1.0;
+        let _cpu_match = (cpu_results[0] - expected).abs() < 1.0;
+        let _gpu_match = (gpu_output[0] - expected).abs() < 1.0;
         let cpu_gpu_match = (cpu_results[0] - gpu_output[0]).abs() < 0.01;
 
         eprintln!(

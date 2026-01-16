@@ -22,7 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // - 32 bytes int8 quantized values
     // Total: 34 bytes per block
 
-    let num_blocks_per_row = (model.lm_head_weight.in_dim + 31) / 32;
+    let num_blocks_per_row = model.lm_head_weight.in_dim.div_ceil(32);
     let bytes_per_row = num_blocks_per_row * 34;
 
     println!("  Q8_0 blocks per row: {}", num_blocks_per_row);

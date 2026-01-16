@@ -48,7 +48,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Q bias statistics
         let q_bias = &bias[0..q_dim];
         let k_bias = &bias[q_dim..q_dim + k_dim];
-        let v_bias = &bias[q_dim + k_dim..];
+        let _v_bias = &bias[q_dim + k_dim..];
 
         println!("\n  Q bias ({} values):", q_bias.len());
         println!(

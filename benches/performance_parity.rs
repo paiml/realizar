@@ -789,6 +789,7 @@ fn benchmark_e2e_generation(c: &mut Criterion) {
         context_length: 2048,
         eps: 1e-5,
         rope_theta: 10000.0,
+        rope_type: 0,
     };
 
     // Create Q4_K quantized weights (144 bytes per 256 values)
@@ -1440,6 +1441,7 @@ fn benchmark_batch_prefill(c: &mut Criterion) {
             context_length: 2048,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         // Create test model
@@ -1654,6 +1656,7 @@ fn benchmark_batched_causal_attention(c: &mut Criterion) {
             context_length: 2048,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_bench_model_with_config(&config);
@@ -1807,6 +1810,7 @@ fn benchmark_fused_batch_matmul(c: &mut Criterion) {
             context_length: 1024,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_bench_model_with_config(&config);
@@ -1940,6 +1944,7 @@ fn benchmark_parallel_multihead_attention(c: &mut Criterion) {
             context_length: 1024,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_bench_model_with_config(&config);
@@ -2038,6 +2043,7 @@ fn benchmark_tiled_attention(c: &mut Criterion) {
             context_length: 1024,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_bench_model_with_config(&config);
@@ -2150,6 +2156,7 @@ fn benchmark_scheduler_caching(c: &mut Criterion) {
         context_length: 256,
         rope_theta: 10000.0,
         eps: 1e-5,
+        rope_type: 0,
     };
 
     let model = create_bench_model_with_config(&config);
@@ -2232,6 +2239,7 @@ fn benchmark_single_dispatch_attention(c: &mut Criterion) {
             context_length: 1024,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_bench_model_with_config(&config);
@@ -2329,6 +2337,7 @@ fn benchmark_flattened_batched_gemm(c: &mut Criterion) {
             context_length: 1024,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_bench_model_with_config(&config);
@@ -2417,6 +2426,7 @@ fn benchmark_fused_kernel_attention(c: &mut Criterion) {
             context_length: 1024,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let model = create_bench_model_with_config(&config);
@@ -2516,6 +2526,7 @@ fn benchmark_gpu_cpu_crossover(c: &mut Criterion) {
         context_length: 1024,
         rope_theta: 10000.0,
         eps: 1e-5,
+        rope_type: 0,
     };
 
     let model = create_bench_model_with_config(&config);

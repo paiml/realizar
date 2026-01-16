@@ -119,6 +119,7 @@ fn main() {
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 fn attention_gqa(
     q: &[f32],
     k_cache: &[f32],
@@ -126,7 +127,7 @@ fn attention_gqa(
     current_k: &[f32],
     current_v: &[f32],
     num_heads: usize,
-    num_kv_heads: usize,
+    _num_kv_heads: usize,
     head_dim: usize,
     scale: f32,
     q_per_kv: usize,
@@ -148,10 +149,10 @@ fn attention_gqa(
         let kv_head_offset = kv_head * head_dim;
 
         // Compute attention scores
-        for pos in 0..cache_len {
+        for (pos, score) in scores.iter_mut().enumerate().take(cache_len) {
             let k_start = pos * kv_dim + kv_head_offset;
             let cached_key = &k_cache[k_start..k_start + head_dim];
-            scores[pos] = dot_product(q_head_data, cached_key) * scale;
+            *score = dot_product(q_head_data, cached_key) * scale;
         }
         let curr_key = &current_k[kv_head_offset..kv_head_offset + head_dim];
         scores[cache_len] = dot_product(q_head_data, curr_key) * scale;

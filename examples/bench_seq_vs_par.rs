@@ -32,7 +32,7 @@ fn q4k_sequential_matvec_into(
 
             // Process 8 blocks of 32 elements each
             for block in 0..8 {
-                let scale_byte = scales[block + (block / 2) & !1];
+                let scale_byte = scales[(block + (block / 2)) & !1];
                 let sc = (scale_byte & 0x3F) as f32;
                 let m = ((scale_byte >> 4)
                     | ((scales[block / 2 + 8] >> (4 * (block % 2))) << 4) & 0x3F)
@@ -86,7 +86,7 @@ fn f16_to_f32(bits: u16) -> f32 {
         }
     } else {
         let exp32 = exp + 127 - 15;
-        let mant32 = (mant as u32) << 13;
+        let mant32 = mant << 13;
         f32::from_bits((sign << 31) | (exp32 << 23) | mant32)
     }
 }

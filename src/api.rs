@@ -5951,9 +5951,8 @@ mod tests {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
-            
+
             rope_type: 0,
-            
         };
 
         // Create test model
@@ -9574,7 +9573,6 @@ mod tests {
         assert!(json.contains("Something went wrong"));
     }
 
-
     // =========================================================================
     // Coverage Tests: OpenAI Compatibility Structs
     // =========================================================================
@@ -9688,7 +9686,7 @@ mod tests {
         };
         let json = serde_json::to_string(&delta).expect("serialize");
         // Empty delta should have null fields
-        assert!(json.contains("null") || json.len() > 0);
+        assert!(json.contains("null") || !json.is_empty());
     }
 
     // =========================================================================
@@ -9712,9 +9710,7 @@ mod tests {
 
     #[test]
     fn test_stream_done_event_serialize_cov() {
-        let event = StreamDoneEvent {
-            num_generated: 100,
-        };
+        let event = StreamDoneEvent { num_generated: 100 };
         let json = serde_json::to_string(&event).expect("serialize");
         assert!(json.contains("100"));
     }
@@ -9737,8 +9733,14 @@ mod tests {
     fn test_batch_tokenize_response_serialize_cov() {
         let resp = BatchTokenizeResponse {
             results: vec![
-                TokenizeResponse { token_ids: vec![1, 2, 3], num_tokens: 3 },
-                TokenizeResponse { token_ids: vec![4, 5], num_tokens: 2 },
+                TokenizeResponse {
+                    token_ids: vec![1, 2, 3],
+                    num_tokens: 3,
+                },
+                TokenizeResponse {
+                    token_ids: vec![4, 5],
+                    num_tokens: 2,
+                },
             ],
         };
         let json = serde_json::to_string(&resp).expect("serialize");

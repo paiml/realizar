@@ -1,5 +1,5 @@
 //! Trace hidden state flow through transformer for multi-token
-use realizar::gguf::{MappedGGUFModel, OwnedQKVWeights, OwnedQuantizedModel};
+use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = "/home/noah/.cache/huggingface/hub/models--Qwen--Qwen2-0.5B-Instruct-GGUF/snapshots/198f08841147e5196a6a69bd0053690fb1fd3857/qwen2-0_5b-instruct-q4_0.gguf";

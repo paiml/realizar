@@ -87,6 +87,11 @@ fn main() {
         }
         let elapsed = start.elapsed();
         let tps = (iters * m) as f64 / elapsed.as_secs_f64();
-        println!("M={} (graphed): {:.1} tok/s ({:.2}x Ollama)", m, tps, tps / 291.0);
+        println!(
+            "M={} (graphed): {:.1} tok/s ({:.2}x Ollama)",
+            m,
+            tps,
+            tps / 291.0
+        );
     }
 }

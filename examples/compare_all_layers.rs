@@ -24,7 +24,7 @@ fn fused_matmul(input: &[f32], data: &[u8], qtype: u32, in_dim: usize, out_dim: 
 }
 
 fn process_layer(
-    hidden: &mut Vec<f32>,
+    hidden: &mut [f32],
     layer: &realizar::gguf::OwnedQuantizedLayer,
     num_heads: usize,
     num_kv_heads: usize,

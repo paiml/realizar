@@ -11,7 +11,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let hidden_dim = model.config.hidden_dim;
     let num_layers = model.layers.len();
-    let eps = model.config.eps;
+    let _eps = model.config.eps;
 
     println!("Model: {} layers, {} hidden_dim", num_layers, hidden_dim);
 

@@ -22,7 +22,7 @@ fn main() {
     let mapped = MappedGGUFModel::from_path(path).expect("load");
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("model");
 
-    let hidden_dim = model.config.hidden_dim;
+    let _hidden_dim = model.config.hidden_dim;
 
     // Create test input: embedding for token 151644 (<|im_start|>)
     let token_id = 151644u32;
