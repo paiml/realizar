@@ -1351,7 +1351,7 @@ mod tests {
         // Create minimal APR data with magic header + model type
         // APR header: APRN (4 bytes) + type_id (2 bytes) + version (2 bytes)
         let mut data = vec![0u8; 16];
-        data[0..4].copy_from_slice(b"APRN");
+        data[0..4].copy_from_slice(b"APR\0");
         data[4..6].copy_from_slice(&0x0001u16.to_le_bytes()); // LinearRegression
         data[6..8].copy_from_slice(&1u16.to_le_bytes()); // version 1
         let result = display_model_info("test.apr", &data);
@@ -1362,7 +1362,7 @@ mod tests {
     fn test_display_model_info_apr_magic() {
         // Test detection via magic bytes, not extension
         let mut data = vec![0u8; 16];
-        data[0..4].copy_from_slice(b"APRN");
+        data[0..4].copy_from_slice(b"APR\0");
         data[4..6].copy_from_slice(&0x0002u16.to_le_bytes()); // LogisticRegression
         data[6..8].copy_from_slice(&1u16.to_le_bytes()); // version 1
         let result = display_model_info("model.bin", &data); // Unknown extension
@@ -1386,7 +1386,7 @@ mod tests {
         // Valid APR data with magic and model type
         // APR header: APRN (4 bytes) + type_id (2 bytes) + version (2 bytes)
         let mut data = vec![0u8; 16];
-        data[0..4].copy_from_slice(b"APRN");
+        data[0..4].copy_from_slice(b"APR\0");
         data[4..6].copy_from_slice(&0x0003u16.to_le_bytes()); // DecisionTree
         data[6..8].copy_from_slice(&1u16.to_le_bytes()); // version 1
         let result = load_apr_model(&data);
@@ -1419,7 +1419,7 @@ mod tests {
 
         for type_code in type_codes {
             let mut data = vec![0u8; 16];
-            data[0..4].copy_from_slice(b"APRN");
+            data[0..4].copy_from_slice(b"APR\0");
             data[4..6].copy_from_slice(&type_code.to_le_bytes());
             data[6..8].copy_from_slice(&1u16.to_le_bytes());
             let result = load_apr_model(&data);
@@ -1450,7 +1450,7 @@ mod tests {
         // Valid magic but unknown model type
         // APR header: APRN (4 bytes) + type_id (2 bytes) + version (2 bytes)
         let mut data = vec![0u8; 16];
-        data[0..4].copy_from_slice(b"APRN");
+        data[0..4].copy_from_slice(b"APR\0");
         data[4..6].copy_from_slice(&0xFFFEu16.to_le_bytes()); // Unknown type (not 0x00FF)
         data[6..8].copy_from_slice(&1u16.to_le_bytes()); // version 1
         let result = load_apr_model(&data);

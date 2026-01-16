@@ -1381,4 +1381,356 @@ mod tests {
 
         assert_eq!(tracer.error_count(), 1);
     }
+
+    // Coverage tests for helper functions
+    #[test]
+    fn test_cov_get_top_k_indices() {
+        let logits = vec![1.0, 5.0, 2.0, 10.0, 3.0];
+        let top_k = get_top_k_indices(&logits, 3);
+        // Should return indices sorted by value descending: 10.0 (idx 3), 5.0 (idx 1), 3.0 (idx 4)
+        assert_eq!(top_k.len(), 3);
+        assert_eq!(top_k[0].0, 3); // index 3 has value 10.0
+        assert_eq!(top_k[1].0, 1); // index 1 has value 5.0
+        assert_eq!(top_k[2].0, 4); // index 4 has value 3.0
+    }
+
+    #[test]
+    fn test_cov_get_top_k_indices_with_nan() {
+        let logits = vec![1.0, f32::NAN, 2.0];
+        let top_k = get_top_k_indices(&logits, 2);
+        assert_eq!(top_k.len(), 2);
+    }
+
+    #[test]
+    fn test_cov_compute_top_k_probs() {
+        let logits = vec![1.0, 2.0, 3.0];
+        let top_k = vec![(2u32, 3.0f32), (1, 2.0)];
+        let probs = compute_top_k_probs(&logits, &top_k);
+        assert_eq!(probs.len(), 2);
+        // Probabilities should sum to less than 1 since we only have top-2
+        let sum: f32 = probs.iter().map(|(_, p)| p).sum();
+        assert!(sum > 0.5 && sum <= 1.0);
+    }
+
+    #[test]
+    fn test_cov_get_error_hint() {
+        let hint1 = get_error_hint(&TraceError::VocabOverflow {
+            token_id: 0,
+            vocab_size: 0,
+        });
+        assert!(hint1.contains("vocab"));
+
+        let hint2 = get_error_hint(&TraceError::NaNDetected { layer: None });
+        assert!(hint2.contains("overflow") || hint2.contains("softmax"));
+
+        let hint3 = get_error_hint(&TraceError::InfDetected { layer: None });
+        assert!(hint3.contains("division") || hint3.contains("zero"));
+
+        let hint4 = get_error_hint(&TraceError::GarbageOutput {
+            sample: String::new(),
+        });
+        assert!(hint4.contains("vocab"));
+
+        let hint5 = get_error_hint(&TraceError::UnknownToken { token_id: 0 });
+        assert!(hint5.contains("vocabulary"));
+
+        let hint6 = get_error_hint(&TraceError::ShapeMismatch {
+            expected: vec![],
+            actual: vec![],
+        });
+        assert!(hint6.contains("dimensions") || hint6.contains("architecture"));
+    }
+
+    #[test]
+    fn test_cov_format_json_float() {
+        assert_eq!(format_json_float(1.5), "1.500000");
+        assert_eq!(format_json_float(f32::NAN), "null");
+        assert_eq!(format_json_float(f32::INFINITY), "\"Infinity\"");
+        assert_eq!(format_json_float(f32::NEG_INFINITY), "\"-Infinity\"");
+    }
+
+    #[test]
+    fn test_cov_format_text_long_input() {
+        let config = TraceConfig::enabled();
+        let mut tracer = InferenceTracer::new(config);
+
+        tracer.set_model_info(ModelInfo {
+            name: "test".to_string(),
+            num_layers: 2,
+            hidden_dim: 4,
+            vocab_size: 100,
+            num_heads: 2,
+            quant_type: None,
+        });
+
+        // Long input text (>50 chars) should be truncated
+        let long_text = "A".repeat(100);
+        tracer.start_step(TraceStep::Encode);
+        tracer.trace_encode(&long_text, &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], 100);
+
+        let text = tracer.format_text();
+        assert!(text.contains("...")); // truncation indicator
+    }
+
+    #[test]
+    fn test_cov_format_text_many_layers() {
+        let mut config = TraceConfig::enabled();
+        config.verbose = false;
+        let mut tracer = InferenceTracer::new(config);
+
+        tracer.set_model_info(ModelInfo {
+            name: "test".to_string(),
+            num_layers: 10,
+            hidden_dim: 4,
+            vocab_size: 100,
+            num_heads: 2,
+            quant_type: None,
+        });
+
+        // Add multiple transformer layer events followed by a different step
+        // The "layers total" message only shows when transitioning away from transformer layers
+        for i in 0..5 {
+            tracer.start_step(TraceStep::Transformer);
+            tracer.trace_layer(i, 0, Some(&[0.1, 0.2, 0.3, 0.4]), 1, 4);
+        }
+
+        // Add a different step to trigger the layer count summary
+        tracer.start_step(TraceStep::LmHead);
+        tracer.trace_lm_head(0, &[1.0, 2.0, 3.0, 4.0], 4);
+
+        let text = tracer.format_text();
+        assert!(text.contains("TRANSFORMER")); // layers were traced
+        assert!(text.contains("LM_HEAD")); // next step was traced
+    }
+
+    #[test]
+    fn test_cov_format_text_sample_step() {
+        let config = TraceConfig::enabled();
+        let mut tracer = InferenceTracer::new(config);
+
+        tracer.start_step(TraceStep::Sample);
+        tracer.trace_sample(0, &[1.0, 5.0, 2.0], 1, 0.8, 3);
+
+        let text = tracer.format_text();
+        assert!(text.contains("SAMPLE"));
+        assert!(text.contains("Sampled"));
+    }
+
+    #[test]
+    fn test_cov_format_text_decode_step() {
+        let config = TraceConfig::enabled();
+        let mut tracer = InferenceTracer::new(config);
+
+        tracer.start_step(TraceStep::Decode);
+        tracer.trace_decode(0, 5, "hello", 100);
+
+        let text = tracer.format_text();
+        assert!(text.contains("DECODE"));
+        assert!(text.contains("Token ID"));
+        assert!(text.contains("Decoded"));
+    }
+
+    #[test]
+    fn test_cov_format_text_lm_head_step() {
+        let config = TraceConfig::enabled();
+        let mut tracer = InferenceTracer::new(config);
+
+        tracer.set_model_info(ModelInfo {
+            name: "test".to_string(),
+            num_layers: 1,
+            hidden_dim: 4,
+            vocab_size: 5,
+            num_heads: 1,
+            quant_type: None,
+        });
+
+        tracer.start_step(TraceStep::LmHead);
+        tracer.trace_lm_head(0, &[1.0, 2.0, 10.0, 3.0, 4.0], 5);
+
+        let text = tracer.format_text();
+        assert!(text.contains("LM_HEAD"));
+        assert!(text.contains("logits"));
+    }
+
+    #[test]
+    fn test_cov_format_text_embed_step() {
+        let config = TraceConfig::enabled();
+        let mut tracer = InferenceTracer::new(config);
+
+        tracer.start_step(TraceStep::Embed);
+        tracer.trace_embed(2, 4, Some(&[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]));
+
+        let text = tracer.format_text();
+        assert!(text.contains("EMBED"));
+        assert!(text.contains("Range"));
+    }
+
+    #[test]
+    fn test_cov_format_text_with_error() {
+        let config = TraceConfig::enabled();
+        let mut tracer = InferenceTracer::new(config);
+
+        tracer.start_step(TraceStep::Decode);
+        tracer.trace_decode(0, 50000, "garbage", 32000); // OOV
+
+        let text = tracer.format_text();
+        assert!(text.contains("ERROR"));
+        assert!(text.contains("Hint"));
+        assert!(text.contains("errors"));
+    }
+
+    #[test]
+    fn test_cov_trace_inf_detected_no_layer() {
+        let err = TraceError::InfDetected { layer: None };
+        let display = err.to_string();
+        assert!(display.contains("Inf"));
+        assert!(!display.contains("layer"));
+    }
+
+    #[test]
+    fn test_cov_tracer_lm_head_with_nan() {
+        let config = TraceConfig::enabled();
+        let mut tracer = InferenceTracer::new(config);
+
+        tracer.start_step(TraceStep::LmHead);
+        let logits = vec![1.0, f32::NAN, 3.0];
+        tracer.trace_lm_head(0, &logits, 3);
+
+        assert_eq!(tracer.error_count(), 1);
+    }
+
+    #[test]
+    fn test_cov_tracer_lm_head_with_inf() {
+        let config = TraceConfig::enabled();
+        let mut tracer = InferenceTracer::new(config);
+
+        tracer.start_step(TraceStep::LmHead);
+        let logits = vec![1.0, f32::INFINITY, 3.0];
+        tracer.trace_lm_head(0, &logits, 3);
+
+        assert_eq!(tracer.error_count(), 1);
+    }
+
+    #[test]
+    fn test_cov_tracer_layer_with_nan() {
+        let config = TraceConfig::enabled();
+        let mut tracer = InferenceTracer::new(config);
+
+        tracer.start_step(TraceStep::Transformer);
+        let hidden = vec![0.1, f32::NAN, 0.3];
+        tracer.trace_layer(5, 0, Some(&hidden), 1, 3);
+
+        assert_eq!(tracer.error_count(), 1);
+        let event = &tracer.events()[0];
+        if let Some(TraceError::NaNDetected { layer }) = &event.error {
+            assert_eq!(*layer, Some(5));
+        }
+    }
+
+    #[test]
+    fn test_cov_tracer_embed_with_inf() {
+        let config = TraceConfig::enabled();
+        let mut tracer = InferenceTracer::new(config);
+
+        tracer.start_step(TraceStep::Embed);
+        let embeddings = vec![0.1, f32::INFINITY, 0.3];
+        tracer.trace_embed(1, 3, Some(&embeddings));
+
+        assert_eq!(tracer.error_count(), 1);
+    }
+
+    #[test]
+    fn test_cov_disabled_tracer_no_events() {
+        let config = TraceConfig::default(); // disabled
+        let mut tracer = InferenceTracer::new(config);
+
+        tracer.start_step(TraceStep::Encode);
+        tracer.trace_encode("Hello", &[1, 2], 100);
+
+        assert_eq!(tracer.events().len(), 0);
+    }
+
+    #[test]
+    fn test_cov_to_json_with_error() {
+        let config = TraceConfig::enabled();
+        let mut tracer = InferenceTracer::new(config);
+
+        tracer.set_model_info(ModelInfo {
+            name: "json-err".to_string(),
+            num_layers: 1,
+            hidden_dim: 4,
+            vocab_size: 100,
+            num_heads: 1,
+            quant_type: None,
+        });
+
+        tracer.start_step(TraceStep::Decode);
+        tracer.trace_decode(0, 50000, "bad", 100);
+
+        let json = tracer.to_json();
+        assert!(json.contains("error_count"));
+        assert!(json.contains("50000"));
+    }
+
+    #[test]
+    fn test_cov_to_json_with_special_floats() {
+        let config = TraceConfig::enabled();
+        let mut tracer = InferenceTracer::new(config);
+
+        tracer.set_model_info(ModelInfo {
+            name: "float-test".to_string(),
+            num_layers: 1,
+            hidden_dim: 4,
+            vocab_size: 100,
+            num_heads: 1,
+            quant_type: None,
+        });
+
+        // Add event with NaN stats
+        tracer.start_step(TraceStep::Embed);
+        tracer.trace_embed(1, 4, Some(&[f32::NAN, f32::INFINITY, 0.5, -0.5]));
+
+        let json = tracer.to_json();
+        // Stats contain NaN/Inf, but the min/max/mean/std might be computed excluding those
+        // The JSON contains has_nan and has_inf fields
+        assert!(json.contains("\"has_nan\": true") || json.contains("\"has_inf\": true"));
+    }
+
+    #[test]
+    fn test_cov_garbage_detection_private_use_area() {
+        // Test Private Use Area characters
+        let pua = "\u{E000}\u{E001}\u{E002}";
+        assert!(is_garbage_output(pua));
+    }
+
+    #[test]
+    fn test_cov_garbage_detection_cjk_extension() {
+        // Test CJK Extension B characters
+        let cjk = "\u{20000}\u{20001}\u{20002}";
+        assert!(is_garbage_output(cjk));
+    }
+
+    #[test]
+    fn test_cov_garbage_detection_normal_cjk() {
+        // Normal CJK should NOT be flagged as garbage
+        let normal_cjk = "你好世界"; // Hello World in Chinese
+        assert!(!is_garbage_output(normal_cjk));
+    }
+
+    #[test]
+    fn test_cov_tensor_stats_std_calculation() {
+        let data = vec![2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0];
+        let stats = TensorStats::from_slice(&data);
+        // Mean should be 5.0, std should be 2.0
+        assert!((stats.mean - 5.0).abs() < 0.1);
+        assert!((stats.std - 2.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_cov_tensor_stats_neg_inf() {
+        let data = vec![1.0, f32::NEG_INFINITY, 3.0];
+        let stats = TensorStats::from_slice(&data);
+        assert!(stats.has_inf);
+        assert!(!stats.has_nan);
+    }
 }

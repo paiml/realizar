@@ -282,6 +282,233 @@ impl SafetensorsModel {
 
         Ok(tensors)
     }
+
+    /// Get tensor data as F16 values (converts to F32)
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Tensor name to extract
+    ///
+    /// # Errors
+    ///
+    /// Returns error if tensor not found or dtype is not F16
+    pub fn get_tensor_f16_as_f32(&self, name: &str) -> Result<Vec<f32>> {
+        let tensor = self
+            .tensors
+            .get(name)
+            .ok_or_else(|| RealizarError::UnsupportedOperation {
+                operation: "get_tensor_f16_as_f32".to_string(),
+                reason: format!("Tensor '{name}' not found"),
+            })?;
+
+        if tensor.dtype != SafetensorsDtype::F16 {
+            let dtype = &tensor.dtype;
+            return Err(RealizarError::UnsupportedOperation {
+                operation: "get_tensor_f16_as_f32".to_string(),
+                reason: format!("Tensor '{name}' has dtype {dtype:?}, expected F16"),
+            });
+        }
+
+        let [start, end] = tensor.data_offsets;
+        if end > self.data.len() {
+            let data_len = self.data.len();
+            return Err(RealizarError::UnsupportedOperation {
+                operation: "get_tensor_f16_as_f32".to_string(),
+                reason: format!("Data offset {end} exceeds data size {data_len}"),
+            });
+        }
+
+        let bytes = &self.data[start..end];
+
+        // Convert F16 bytes to F32
+        let values: Vec<f32> = bytes
+            .chunks_exact(2)
+            .map(|chunk| {
+                let bits = u16::from_le_bytes([chunk[0], chunk[1]]);
+                half::f16::from_bits(bits).to_f32()
+            })
+            .collect();
+
+        Ok(values)
+    }
+
+    /// Get tensor data as BF16 values (converts to F32)
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Tensor name to extract
+    ///
+    /// # Errors
+    ///
+    /// Returns error if tensor not found or dtype is not BF16
+    pub fn get_tensor_bf16_as_f32(&self, name: &str) -> Result<Vec<f32>> {
+        let tensor = self
+            .tensors
+            .get(name)
+            .ok_or_else(|| RealizarError::UnsupportedOperation {
+                operation: "get_tensor_bf16_as_f32".to_string(),
+                reason: format!("Tensor '{name}' not found"),
+            })?;
+
+        if tensor.dtype != SafetensorsDtype::BF16 {
+            let dtype = &tensor.dtype;
+            return Err(RealizarError::UnsupportedOperation {
+                operation: "get_tensor_bf16_as_f32".to_string(),
+                reason: format!("Tensor '{name}' has dtype {dtype:?}, expected BF16"),
+            });
+        }
+
+        let [start, end] = tensor.data_offsets;
+        if end > self.data.len() {
+            let data_len = self.data.len();
+            return Err(RealizarError::UnsupportedOperation {
+                operation: "get_tensor_bf16_as_f32".to_string(),
+                reason: format!("Data offset {end} exceeds data size {data_len}"),
+            });
+        }
+
+        let bytes = &self.data[start..end];
+
+        // Convert BF16 bytes to F32
+        let values: Vec<f32> = bytes
+            .chunks_exact(2)
+            .map(|chunk| {
+                let bits = u16::from_le_bytes([chunk[0], chunk[1]]);
+                half::bf16::from_bits(bits).to_f32()
+            })
+            .collect();
+
+        Ok(values)
+    }
+
+    /// Get tensor as F32 with automatic dtype conversion
+    ///
+    /// Supports F32, F16, and BF16 dtypes with automatic conversion to F32.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Tensor name to extract
+    ///
+    /// # Errors
+    ///
+    /// Returns error if tensor not found or dtype is not supported
+    pub fn get_tensor_auto(&self, name: &str) -> Result<Vec<f32>> {
+        let tensor = self
+            .tensors
+            .get(name)
+            .ok_or_else(|| RealizarError::UnsupportedOperation {
+                operation: "get_tensor_auto".to_string(),
+                reason: format!("Tensor '{name}' not found"),
+            })?;
+
+        match tensor.dtype {
+            SafetensorsDtype::F32 => self.get_tensor_f32(name),
+            SafetensorsDtype::F16 => self.get_tensor_f16_as_f32(name),
+            SafetensorsDtype::BF16 => self.get_tensor_bf16_as_f32(name),
+            _ => Err(RealizarError::UnsupportedOperation {
+                operation: "get_tensor_auto".to_string(),
+                reason: format!("Unsupported dtype {:?} for tensor '{name}'", tensor.dtype),
+            }),
+        }
+    }
+
+    /// Get list of tensor names
+    #[must_use]
+    pub fn tensor_names(&self) -> Vec<&str> {
+        self.tensors.keys().map(String::as_str).collect()
+    }
+
+    /// Get tensor info by name
+    #[must_use]
+    pub fn get_tensor_info(&self, name: &str) -> Option<&SafetensorsTensorInfo> {
+        self.tensors.get(name)
+    }
+
+    /// Check if model has a tensor with given name
+    #[must_use]
+    pub fn has_tensor(&self, name: &str) -> bool {
+        self.tensors.contains_key(name)
+    }
+}
+
+// ============================================================================
+// SafeTensors Config loader (for sibling config.json)
+// ============================================================================
+
+/// Model configuration from config.json
+#[derive(Debug, Clone, Deserialize)]
+pub struct SafetensorsConfig {
+    /// Hidden dimension
+    #[serde(alias = "n_embd", alias = "d_model")]
+    pub hidden_size: Option<usize>,
+    /// Number of transformer layers
+    #[serde(alias = "n_layer", alias = "num_layers")]
+    pub num_hidden_layers: Option<usize>,
+    /// Number of attention heads
+    #[serde(alias = "n_head")]
+    pub num_attention_heads: Option<usize>,
+    /// Number of key-value heads (for GQA)
+    pub num_key_value_heads: Option<usize>,
+    /// Vocabulary size
+    pub vocab_size: Option<usize>,
+    /// Intermediate/FFN dimension
+    #[serde(alias = "n_inner")]
+    pub intermediate_size: Option<usize>,
+    /// Maximum sequence length
+    #[serde(alias = "n_positions", alias = "n_ctx")]
+    pub max_position_embeddings: Option<usize>,
+    /// RMSNorm epsilon
+    pub rms_norm_eps: Option<f32>,
+    /// RoPE theta
+    pub rope_theta: Option<f32>,
+    /// Model architecture name
+    pub architectures: Option<Vec<String>>,
+    /// Model type
+    pub model_type: Option<String>,
+    /// BOS token ID
+    pub bos_token_id: Option<u32>,
+    /// EOS token ID
+    pub eos_token_id: Option<u32>,
+}
+
+impl SafetensorsConfig {
+    /// Load config from sibling config.json file
+    ///
+    /// # Arguments
+    ///
+    /// * `model_path` - Path to the model file (config.json will be loaded from same directory)
+    ///
+    /// # Returns
+    ///
+    /// Config if found and parsed, None otherwise
+    pub fn load_from_sibling(model_path: &std::path::Path) -> Option<Self> {
+        let config_path = model_path.with_file_name("config.json");
+        if !config_path.exists() {
+            return None;
+        }
+
+        let content = std::fs::read_to_string(&config_path).ok()?;
+        serde_json::from_str(&content).ok()
+    }
+
+    /// Get number of key-value heads (defaults to num_attention_heads for MHA)
+    #[must_use]
+    pub fn num_kv_heads(&self) -> usize {
+        self.num_key_value_heads
+            .or(self.num_attention_heads)
+            .unwrap_or(1)
+    }
+
+    /// Get model architecture string
+    #[must_use]
+    pub fn architecture(&self) -> String {
+        self.architectures
+            .as_ref()
+            .and_then(|a| a.first())
+            .cloned()
+            .or_else(|| self.model_type.clone())
+            .unwrap_or_else(|| "unknown".to_string())
+    }
 }
 
 #[cfg(test)]

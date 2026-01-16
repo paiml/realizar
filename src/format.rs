@@ -12,7 +12,7 @@
 //!
 //! | Format | Magic | Extension |
 //! |--------|-------|-----------|
-//! | APR    | `APRN` | `.apr` |
+//! | APR    | `APR\0` | `.apr` |
 //! | GGUF   | `GGUF` | `.gguf` |
 //! | SafeTensors | (u64 header size) | `.safetensors` |
 
@@ -92,11 +92,10 @@ impl std::fmt::Display for FormatError {
 
 impl std::error::Error for FormatError {}
 
-/// APR v1 format magic bytes
-pub const APR_MAGIC: &[u8; 4] = b"APRN";
-
-/// APR v2 format magic bytes
-pub const APR_V2_MAGIC: &[u8; 4] = b"APR2";
+/// APR format magic bytes
+///
+/// ONE format. No versioning. Period.
+pub const APR_MAGIC: &[u8; 4] = b"APR\0";
 
 /// GGUF format magic bytes
 pub const GGUF_MAGIC: &[u8; 4] = b"GGUF";
@@ -129,7 +128,7 @@ pub const MAX_SAFETENSORS_HEADER: u64 = 100_000_000;
 /// use realizar::format::{detect_format, ModelFormat};
 ///
 /// // APR format
-/// let apr_data = b"APRNxxxxxxxxxxxx";
+/// let apr_data = b"APR\0xxxxxxxxxxxx";
 /// assert_eq!(detect_format(apr_data).expect("test"), ModelFormat::Apr);
 ///
 /// // GGUF format
@@ -141,8 +140,8 @@ pub fn detect_format(data: &[u8]) -> Result<ModelFormat, FormatError> {
         return Err(FormatError::TooShort { len: data.len() });
     }
 
-    // Check APR magic (APRN for v1, APR2 for v2)
-    if &data[0..4] == APR_MAGIC || &data[0..4] == APR_V2_MAGIC {
+    // Check APR magic - ONE format, no versioning
+    if &data[0..4] == APR_MAGIC {
         return Ok(ModelFormat::Apr);
     }
 
@@ -253,7 +252,7 @@ mod tests {
 
     #[test]
     fn test_detect_apr_format() {
-        let data = b"APRNxxxxxxxxxxxxxxxx";
+        let data = b"APR\0xxxxxxxxxxxxxxxx";
         assert_eq!(detect_format(data).expect("test"), ModelFormat::Apr);
     }
 
@@ -359,7 +358,7 @@ mod tests {
     #[test]
     fn test_detect_and_verify_format_match() {
         let path = Path::new("model.apr");
-        let data = b"APRNxxxxxxxxxxxxxxxx";
+        let data = b"APR\0xxxxxxxxxxxxxxxx";
         assert_eq!(
             detect_and_verify_format(path, data).expect("test"),
             ModelFormat::Apr
@@ -384,7 +383,7 @@ mod tests {
     fn test_detect_and_verify_unknown_extension_ok() {
         // Unknown extension but valid magic should work
         let path = Path::new("model.bin");
-        let data = b"APRNxxxxxxxxxxxxxxxx";
+        let data = b"APR\0xxxxxxxxxxxxxxxx";
         assert_eq!(
             detect_and_verify_format(path, data).expect("test"),
             ModelFormat::Apr
@@ -419,7 +418,7 @@ mod tests {
 
     #[test]
     fn test_magic_constants() {
-        assert_eq!(APR_MAGIC, b"APRN");
+        assert_eq!(APR_MAGIC, b"APR\0");
         assert_eq!(GGUF_MAGIC, b"GGUF");
         assert_eq!(MAX_SAFETENSORS_HEADER, 100_000_000);
     }
@@ -440,7 +439,7 @@ mod tests {
     #[test]
     fn test_apr_with_trailing_data() {
         // APR magic followed by lots of other data
-        let mut data = b"APRN".to_vec();
+        let mut data = b"APR\0".to_vec();
         data.extend_from_slice(&[0u8; 1000]);
         assert_eq!(detect_format(&data).expect("test"), ModelFormat::Apr);
     }

@@ -16484,4 +16484,129 @@ mod tests {
         let f32_val = f16_to_f32(neg_inf);
         assert!(f32_val.is_infinite() && f32_val < 0.0);
     }
+
+    // ============================================================================
+    // Coverage Tests for Dequantize Functions (Refs PMAT-802)
+    // ============================================================================
+
+    #[test]
+    fn test_cov_dequantize_f16_valid() {
+        // Create F16 bytes for values: 1.0, 2.0
+        let f16_one = half::f16::from_f32(1.0).to_le_bytes();
+        let f16_two = half::f16::from_f32(2.0).to_le_bytes();
+        let data = [f16_one[0], f16_one[1], f16_two[0], f16_two[1]];
+
+        let result = dequantize_f16(&data).expect("should succeed");
+        assert_eq!(result.len(), 2);
+        assert!((result[0] - 1.0).abs() < 0.001);
+        assert!((result[1] - 2.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_cov_dequantize_f16_invalid_odd() {
+        let data = [0u8; 3]; // Odd length
+        let result = dequantize_f16(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_cov_dequantize_f16_empty() {
+        let data: [u8; 0] = [];
+        let result = dequantize_f16(&data).expect("empty should succeed");
+        assert_eq!(result.len(), 0);
+    }
+
+    #[test]
+    fn test_cov_dequantize_q4_1_invalid() {
+        // Q4_1 block is 20 bytes, test with 19
+        let data = vec![0u8; 19];
+        let result = dequantize_q4_1(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_cov_dequantize_q4_1_one_block() {
+        // Q4_1 block: 2 bytes scale + 2 bytes min + 16 bytes data = 20 bytes
+        let mut data = Vec::new();
+        // Scale = 1.0 as f16
+        data.extend_from_slice(&half::f16::from_f32(1.0).to_le_bytes());
+        // Min = 0.0 as f16
+        data.extend_from_slice(&half::f16::from_f32(0.0).to_le_bytes());
+        // 16 bytes of zeros (32 4-bit values)
+        data.extend_from_slice(&[0u8; 16]);
+
+        let result = dequantize_q4_1(&data).expect("should succeed");
+        assert_eq!(result.len(), 32);
+    }
+
+    #[test]
+    fn test_cov_dequantize_q4_1_two_blocks() {
+        let mut data = Vec::new();
+        // Two blocks of 20 bytes each
+        for _ in 0..2 {
+            data.extend_from_slice(&half::f16::from_f32(1.0).to_le_bytes());
+            data.extend_from_slice(&half::f16::from_f32(0.0).to_le_bytes());
+            data.extend_from_slice(&[0u8; 16]);
+        }
+
+        let result = dequantize_q4_1(&data).expect("should succeed");
+        assert_eq!(result.len(), 64);
+    }
+
+    #[test]
+    fn test_cov_dequantize_q5_0_invalid() {
+        // Q5_0 block is 22 bytes, test with 21
+        let data = vec![0u8; 21];
+        let result = dequantize_q5_0(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_cov_dequantize_q5_0_one_block() {
+        // Q5_0 block: 2 bytes scale + 4 bytes high bits + 16 bytes low bits = 22 bytes
+        let mut data = Vec::new();
+        data.extend_from_slice(&half::f16::from_f32(1.0).to_le_bytes());
+        data.extend_from_slice(&[0u8; 4]); // qh (high bits)
+        data.extend_from_slice(&[0u8; 16]); // qs (low bits)
+
+        let result = dequantize_q5_0(&data).expect("should succeed");
+        assert_eq!(result.len(), 32);
+    }
+
+    #[test]
+    fn test_cov_dequantize_q5_0_two_blocks() {
+        // Two blocks = 44 bytes -> 64 floats
+        let data = vec![0u8; 44];
+        let result = dequantize_q5_0(&data).expect("should succeed");
+        assert_eq!(result.len(), 64);
+    }
+
+    #[test]
+    fn test_cov_dequantize_q5_1_invalid() {
+        // Q5_1 block is 24 bytes, test with 23
+        let data = vec![0u8; 23];
+        let result = dequantize_q5_1(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_cov_dequantize_q5_1_one_block() {
+        // Q5_1 block: 2 bytes scale + 2 bytes min + 4 bytes high + 16 bytes low = 24 bytes
+        let mut data = Vec::new();
+        data.extend_from_slice(&half::f16::from_f32(1.0).to_le_bytes());
+        data.extend_from_slice(&half::f16::from_f32(0.0).to_le_bytes());
+        data.extend_from_slice(&[0u8; 4]); // qh
+        data.extend_from_slice(&[0u8; 16]); // qs
+
+        let result = dequantize_q5_1(&data).expect("should succeed");
+        assert_eq!(result.len(), 32);
+    }
+
+    #[test]
+    fn test_cov_dequantize_q5_1_two_blocks() {
+        // Two blocks = 48 bytes -> 64 floats
+        let data = vec![0u8; 48];
+        let result = dequantize_q5_1(&data).expect("should succeed");
+        assert_eq!(result.len(), 64);
+    }
 }

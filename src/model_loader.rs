@@ -443,7 +443,7 @@ mod tests {
 
     #[test]
     fn test_detect_model_from_bytes_apr() {
-        let mut data = b"APRN".to_vec();
+        let mut data = b"APR\0".to_vec();
         data.extend_from_slice(&[0x02, 0x00, 0x01, 0x00]); // LogisticRegression type
         data.extend_from_slice(&[0u8; 100]); // Padding
 
@@ -483,7 +483,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_linear_regression() {
-        let mut data = b"APRN".to_vec();
+        let mut data = b"APR\0".to_vec();
         data.extend_from_slice(&0x0001u16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -495,7 +495,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_logistic_regression() {
-        let mut data = b"APRN".to_vec();
+        let mut data = b"APR\0".to_vec();
         data.extend_from_slice(&0x0002u16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -507,7 +507,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_decision_tree() {
-        let mut data = b"APRN".to_vec();
+        let mut data = b"APR\0".to_vec();
         data.extend_from_slice(&0x0003u16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -516,7 +516,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_random_forest() {
-        let mut data = b"APRN".to_vec();
+        let mut data = b"APR\0".to_vec();
         data.extend_from_slice(&0x0004u16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -525,7 +525,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_gradient_boosting() {
-        let mut data = b"APRN".to_vec();
+        let mut data = b"APR\0".to_vec();
         data.extend_from_slice(&0x0005u16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -537,7 +537,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_kmeans() {
-        let mut data = b"APRN".to_vec();
+        let mut data = b"APR\0".to_vec();
         data.extend_from_slice(&0x0006u16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -546,7 +546,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_pca() {
-        let mut data = b"APRN".to_vec();
+        let mut data = b"APR\0".to_vec();
         data.extend_from_slice(&0x0007u16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -555,7 +555,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_naive_bayes() {
-        let mut data = b"APRN".to_vec();
+        let mut data = b"APR\0".to_vec();
         data.extend_from_slice(&0x0008u16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -564,7 +564,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_knn() {
-        let mut data = b"APRN".to_vec();
+        let mut data = b"APR\0".to_vec();
         data.extend_from_slice(&0x0009u16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -573,7 +573,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_svm() {
-        let mut data = b"APRN".to_vec();
+        let mut data = b"APR\0".to_vec();
         data.extend_from_slice(&0x000Au16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -582,7 +582,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_ngram_lm() {
-        let mut data = b"APRN".to_vec();
+        let mut data = b"APR\0".to_vec();
         data.extend_from_slice(&0x0010u16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -591,7 +591,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_tfidf() {
-        let mut data = b"APRN".to_vec();
+        let mut data = b"APR\0".to_vec();
         data.extend_from_slice(&0x0011u16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -600,7 +600,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_count_vectorizer() {
-        let mut data = b"APRN".to_vec();
+        let mut data = b"APR\0".to_vec();
         data.extend_from_slice(&0x0012u16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -612,7 +612,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_neural_sequential() {
-        let mut data = b"APRN".to_vec();
+        let mut data = b"APR\0".to_vec();
         data.extend_from_slice(&0x0020u16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -624,7 +624,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_neural_custom() {
-        let mut data = b"APRN".to_vec();
+        let mut data = b"APR\0".to_vec();
         data.extend_from_slice(&0x0021u16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -633,7 +633,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_content_recommender() {
-        let mut data = b"APRN".to_vec();
+        let mut data = b"APR\0".to_vec();
         data.extend_from_slice(&0x0030u16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -645,7 +645,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_mixture_of_experts() {
-        let mut data = b"APRN".to_vec();
+        let mut data = b"APR\0".to_vec();
         data.extend_from_slice(&0x0040u16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -657,7 +657,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_custom() {
-        let mut data = b"APRN".to_vec();
+        let mut data = b"APR\0".to_vec();
         data.extend_from_slice(&0x00FFu16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -666,7 +666,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_unknown() {
-        let mut data = b"APRN".to_vec();
+        let mut data = b"APR\0".to_vec();
         data.extend_from_slice(&0xFFFFu16.to_le_bytes()); // Unknown type
         data.extend_from_slice(&[0, 0]);
 
@@ -675,7 +675,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_too_short() {
-        let data = b"APRN"; // Only 4 bytes
+        let data = b"APR\0"; // Only 4 bytes
         assert_eq!(read_apr_model_type(data), None);
     }
 
@@ -712,7 +712,7 @@ mod tests {
     #[test]
     fn test_detect_and_extract_apr_type() {
         // Simulate APR file with LogisticRegression type
-        let mut data = b"APRN".to_vec();
+        let mut data = b"APR\0".to_vec();
         data.extend_from_slice(&0x0002u16.to_le_bytes()); // LogisticRegression
         data.extend_from_slice(&[0, 0]); // version placeholder
         data.extend_from_slice(&[0u8; 100]); // Padding
@@ -726,7 +726,7 @@ mod tests {
 
     #[test]
     fn test_full_metadata_extraction() {
-        let mut data = b"APRN".to_vec();
+        let mut data = b"APR\0".to_vec();
         data.extend_from_slice(&0x0004u16.to_le_bytes()); // RandomForest
         data.extend_from_slice(&[0, 0]);
         data.extend_from_slice(&[0u8; 500]);

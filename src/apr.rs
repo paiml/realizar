@@ -1,14 +1,14 @@
 //! Aprender .apr format support for realizar (APR v2 only)
 //!
 //! This module provides loading and inference for models in Aprender's native
-//! .apr v2 format (Magic: `APR2` = 0x41505232).
+//! .apr v2 format (Magic: `APR\0` = 0x41505232).
 //!
 //! ## Format Structure (APR v2, 64-byte header)
 //!
 //! ```text
 //! ┌─────────────────────────────────────────────────────────────┐
 //! │ Header (64 bytes)                                           │
-//! │   - Magic: "APR2" (4 bytes)                                 │
+//! │   - Magic: "APR\0" (4 bytes)                                 │
 //! │   - Version: major.minor (2 bytes)                          │
 //! │   - Flags (2 bytes)                                         │
 //! │   - Tensor count (4 bytes)                                  │
@@ -226,11 +226,8 @@ impl ModelData {
     }
 }
 
-/// Magic number: "APR2" in ASCII (0x41505232)
-pub const MAGIC: [u8; 4] = [0x41, 0x50, 0x52, 0x32];
-
-/// Format version for .apr v2 files
-pub const FORMAT_VERSION: (u8, u8) = (2, 0);
+/// Magic number: "APR\0" - ONE format, no versioning
+pub const MAGIC: [u8; 4] = [0x41, 0x50, 0x52, 0x00];
 
 /// Header size in bytes (64-byte aligned)
 pub const HEADER_SIZE: usize = 64;
@@ -528,7 +525,7 @@ impl AprFlags {
 /// APR v2 file header (64 bytes)
 #[derive(Debug, Clone)]
 pub struct AprHeader {
-    /// Magic number ("APR2")
+    /// Magic number ("APR\0")
     pub magic: [u8; 4],
     /// Format version (major, minor)
     pub version: (u8, u8),
@@ -571,7 +568,7 @@ impl AprHeader {
         if magic != MAGIC {
             return Err(RealizarError::FormatError {
                 reason: format!(
-                    "Invalid .apr magic: expected APR2 {:?}, got {:?}",
+                    "Invalid .apr magic: expected APR {:?}, got {:?}",
                     MAGIC, magic
                 ),
             });
@@ -859,16 +856,6 @@ impl AprV2Model {
 
         let header = AprHeader::from_bytes(&header_buf)?;
 
-        // Validate version
-        if header.version.0 > FORMAT_VERSION.0 {
-            return Err(RealizarError::FormatError {
-                reason: format!(
-                    ".apr version {}.{} not supported (max {}.{})",
-                    header.version.0, header.version.1, FORMAT_VERSION.0, FORMAT_VERSION.1
-                ),
-            });
-        }
-
         // Check for unsupported features
         if header.flags.is_encrypted() {
             return Err(RealizarError::FormatError {
@@ -918,16 +905,6 @@ impl AprV2Model {
     pub fn from_bytes(data: Vec<u8>) -> Result<Self> {
         // Parse header
         let header = AprHeader::from_bytes(&data)?;
-
-        // Validate version
-        if header.version.0 > FORMAT_VERSION.0 {
-            return Err(RealizarError::FormatError {
-                reason: format!(
-                    ".apr version {}.{} not supported (max {}.{})",
-                    header.version.0, header.version.1, FORMAT_VERSION.0, FORMAT_VERSION.1
-                ),
-            });
-        }
 
         // Check for unsupported features
         if header.flags.is_encrypted() {
@@ -3570,19 +3547,10 @@ impl MappedAprModel {
         // Parse header
         let header = AprHeader::from_bytes(data)?;
 
-        // Validate magic and version
+        // Validate magic
         if header.magic != MAGIC {
             return Err(RealizarError::FormatError {
                 reason: "Invalid APR magic bytes".to_string(),
-            });
-        }
-
-        if header.version.0 > FORMAT_VERSION.0 {
-            return Err(RealizarError::FormatError {
-                reason: format!(
-                    "APR version {}.{} not supported (max {}.{})",
-                    header.version.0, header.version.1, FORMAT_VERSION.0, FORMAT_VERSION.1
-                ),
             });
         }
 
@@ -3711,8 +3679,9 @@ mod tests {
 
     #[test]
     fn test_magic_constant() {
-        assert_eq!(MAGIC, [0x41, 0x50, 0x52, 0x32]);
-        assert_eq!(&MAGIC, b"APR2");
+        // ONE format: APR\0
+        assert_eq!(MAGIC, [0x41, 0x50, 0x52, 0x00]);
+        assert_eq!(&MAGIC, b"APR\0");
     }
 
     #[test]
@@ -4170,18 +4139,7 @@ mod tests {
         assert!(!meta.is_transformer());
     }
 
-    #[test]
-    fn test_apr_model_unsupported_version() {
-        let mut data = vec![0u8; HEADER_SIZE + 128];
-        data[0..4].copy_from_slice(&MAGIC);
-        data[4] = 99; // version major = 99 (unsupported)
-        data[5] = 0;
-
-        let result = AprV2Model::from_bytes(data);
-        assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
-        assert!(err.contains("not supported"));
-    }
+    // Version test removed - ONE format, no versioning
 
     #[test]
     fn test_apr_model_encrypted_error() {
@@ -4214,7 +4172,7 @@ mod tests {
 
     #[test]
     fn test_is_apr_file() {
-        // is_apr_file reads the file and checks for APR2 magic bytes
+        // is_apr_file reads the file and checks for APR\0 magic bytes
         // Non-existent files return false
         assert!(!is_apr_file("/nonexistent/model.apr"));
         assert!(!is_apr_file("/nonexistent/model.gguf"));
@@ -4949,7 +4907,7 @@ mod tests {
     #[test]
     fn test_apr_header_from_bytes_valid() {
         let mut data = Vec::new();
-        data.extend_from_slice(&MAGIC); // APR2
+        data.extend_from_slice(&MAGIC); // APR\0
         data.extend_from_slice(&[2, 0]); // version 2.0
         data.extend_from_slice(&[0, 0]); // flags
         data.extend_from_slice(&5u32.to_le_bytes()); // tensor_count = 5
@@ -5642,15 +5600,7 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[test]
-    fn test_apr_v2_model_from_bytes_unsupported_version() {
-        let mut data = vec![0u8; 100];
-        data[0..4].copy_from_slice(&MAGIC);
-        data[4] = 99; // Future version
-        data[5] = 0;
-        let result = AprV2Model::from_bytes(data);
-        assert!(result.is_err());
-    }
+    // Version test removed - ONE format, no versioning
 
     #[test]
     fn test_apr_v2_model_get_tensor_bytes_existing() {
