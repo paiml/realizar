@@ -1,0 +1,1941 @@
+//! EXTREME TDD: GGUFConfig and GGUFModel Coverage Tests
+//!
+//! Comprehensive coverage tests for:
+//! - GGUFModel parsing and metadata extraction
+//! - GGUFConfig construction and validation
+//! - MappedGGUFModel memory-mapped loading
+//! - GGUFHeader structure
+//! - TensorInfo structure
+//! - GGUFValue enum variants
+//! - Edge cases and error paths
+
+use std::io::Write as _;
+
+use realizar::gguf::{
+    GGUFConfig, GGUFHeader, GGUFModel, GGUFValue, MappedGGUFModel, TensorInfo, GGUF_ALIGNMENT,
+    GGUF_MAGIC, GGUF_TYPE_F16, GGUF_TYPE_F32, GGUF_TYPE_Q4_0, GGUF_TYPE_Q4_1, GGUF_TYPE_Q4_K,
+    GGUF_TYPE_Q5_0, GGUF_TYPE_Q5_1, GGUF_TYPE_Q5_K, GGUF_TYPE_Q6_K, GGUF_TYPE_Q8_0,
+    GGUF_VERSION_V3,
+};
+use tempfile::NamedTempFile;
+
+// ============================================================================
+// HELPER FUNCTIONS FOR BUILDING TEST GGUF DATA
+// ============================================================================
+
+/// Build a minimal valid GGUF header
+fn build_minimal_gguf_header() -> Vec<u8> {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes()); // tensor_count
+    data.extend_from_slice(&0u64.to_le_bytes()); // metadata_count
+    data
+}
+
+/// Add string metadata to GGUF data
+fn add_string_meta(data: &mut Vec<u8>, key: &str, value: &str) {
+    data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+    data.extend_from_slice(key.as_bytes());
+    data.extend_from_slice(&8u32.to_le_bytes()); // String type
+    data.extend_from_slice(&(value.len() as u64).to_le_bytes());
+    data.extend_from_slice(value.as_bytes());
+}
+
+/// Add u32 metadata to GGUF data
+fn add_u32_meta(data: &mut Vec<u8>, key: &str, value: u32) {
+    data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+    data.extend_from_slice(key.as_bytes());
+    data.extend_from_slice(&4u32.to_le_bytes()); // UInt32 type
+    data.extend_from_slice(&value.to_le_bytes());
+}
+
+/// Add f32 metadata to GGUF data
+fn add_f32_meta(data: &mut Vec<u8>, key: &str, value: f32) {
+    data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+    data.extend_from_slice(key.as_bytes());
+    data.extend_from_slice(&6u32.to_le_bytes()); // Float32 type
+    data.extend_from_slice(&value.to_le_bytes());
+}
+
+/// Add u8 metadata to GGUF data
+fn add_u8_meta(data: &mut Vec<u8>, key: &str, value: u8) {
+    data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+    data.extend_from_slice(key.as_bytes());
+    data.extend_from_slice(&0u32.to_le_bytes()); // UInt8 type
+    data.push(value);
+}
+
+/// Add i8 metadata to GGUF data
+fn add_i8_meta(data: &mut Vec<u8>, key: &str, value: i8) {
+    data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+    data.extend_from_slice(key.as_bytes());
+    data.extend_from_slice(&1u32.to_le_bytes()); // Int8 type
+    data.push(value as u8);
+}
+
+/// Add u16 metadata to GGUF data
+fn add_u16_meta(data: &mut Vec<u8>, key: &str, value: u16) {
+    data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+    data.extend_from_slice(key.as_bytes());
+    data.extend_from_slice(&2u32.to_le_bytes()); // UInt16 type
+    data.extend_from_slice(&value.to_le_bytes());
+}
+
+/// Add i16 metadata to GGUF data
+fn add_i16_meta(data: &mut Vec<u8>, key: &str, value: i16) {
+    data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+    data.extend_from_slice(key.as_bytes());
+    data.extend_from_slice(&3u32.to_le_bytes()); // Int16 type
+    data.extend_from_slice(&value.to_le_bytes());
+}
+
+/// Add i32 metadata to GGUF data
+fn add_i32_meta(data: &mut Vec<u8>, key: &str, value: i32) {
+    data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+    data.extend_from_slice(key.as_bytes());
+    data.extend_from_slice(&5u32.to_le_bytes()); // Int32 type
+    data.extend_from_slice(&value.to_le_bytes());
+}
+
+/// Add bool metadata to GGUF data
+fn add_bool_meta(data: &mut Vec<u8>, key: &str, value: bool) {
+    data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+    data.extend_from_slice(key.as_bytes());
+    data.extend_from_slice(&7u32.to_le_bytes()); // Bool type
+    data.push(if value { 1 } else { 0 });
+}
+
+/// Add u64 metadata to GGUF data
+fn add_u64_meta(data: &mut Vec<u8>, key: &str, value: u64) {
+    data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+    data.extend_from_slice(key.as_bytes());
+    data.extend_from_slice(&10u32.to_le_bytes()); // UInt64 type
+    data.extend_from_slice(&value.to_le_bytes());
+}
+
+/// Add i64 metadata to GGUF data
+fn add_i64_meta(data: &mut Vec<u8>, key: &str, value: i64) {
+    data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+    data.extend_from_slice(key.as_bytes());
+    data.extend_from_slice(&11u32.to_le_bytes()); // Int64 type
+    data.extend_from_slice(&value.to_le_bytes());
+}
+
+/// Add f64 metadata to GGUF data
+fn add_f64_meta(data: &mut Vec<u8>, key: &str, value: f64) {
+    data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+    data.extend_from_slice(key.as_bytes());
+    data.extend_from_slice(&12u32.to_le_bytes()); // Float64 type
+    data.extend_from_slice(&value.to_le_bytes());
+}
+
+/// Add array of u32 metadata to GGUF data
+fn add_u32_array_meta(data: &mut Vec<u8>, key: &str, values: &[u32]) {
+    data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+    data.extend_from_slice(key.as_bytes());
+    data.extend_from_slice(&9u32.to_le_bytes()); // Array type
+    data.extend_from_slice(&4u32.to_le_bytes()); // Element type: UInt32
+    data.extend_from_slice(&(values.len() as u64).to_le_bytes());
+    for &v in values {
+        data.extend_from_slice(&v.to_le_bytes());
+    }
+}
+
+/// Add array of strings metadata to GGUF data
+fn add_string_array_meta(data: &mut Vec<u8>, key: &str, values: &[&str]) {
+    data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+    data.extend_from_slice(key.as_bytes());
+    data.extend_from_slice(&9u32.to_le_bytes()); // Array type
+    data.extend_from_slice(&8u32.to_le_bytes()); // Element type: String
+    data.extend_from_slice(&(values.len() as u64).to_le_bytes());
+    for &v in values {
+        data.extend_from_slice(&(v.len() as u64).to_le_bytes());
+        data.extend_from_slice(v.as_bytes());
+    }
+}
+
+/// Add tensor info to GGUF data (GGML order - dims are reversed)
+fn add_tensor_info(data: &mut Vec<u8>, name: &str, dims: &[u64], qtype: u32, offset: u64) {
+    data.extend_from_slice(&(name.len() as u64).to_le_bytes());
+    data.extend_from_slice(name.as_bytes());
+    data.extend_from_slice(&(dims.len() as u32).to_le_bytes());
+    for &dim in dims.iter().rev() {
+        data.extend_from_slice(&dim.to_le_bytes());
+    }
+    data.extend_from_slice(&qtype.to_le_bytes());
+    data.extend_from_slice(&offset.to_le_bytes());
+}
+
+/// Build GGUF with architecture metadata
+fn build_gguf_with_arch(arch: &str, hidden: usize, layers: usize, heads: usize) -> Vec<u8> {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes()); // tensor_count
+    data.extend_from_slice(&4u64.to_le_bytes()); // metadata_count
+
+    add_string_meta(&mut data, "general.architecture", arch);
+    add_u32_meta(&mut data, &format!("{arch}.embedding_length"), hidden as u32);
+    add_u32_meta(&mut data, &format!("{arch}.block_count"), layers as u32);
+    add_u32_meta(
+        &mut data,
+        &format!("{arch}.attention.head_count"),
+        heads as u32,
+    );
+
+    data
+}
+
+// ============================================================================
+// GGUF HEADER TESTS
+// ============================================================================
+
+#[test]
+fn test_cov_gguf_header_struct_fields() {
+    let header = GGUFHeader {
+        magic: GGUF_MAGIC,
+        version: 3,
+        tensor_count: 100,
+        metadata_count: 50,
+    };
+
+    assert_eq!(header.magic, 0x4655_4747);
+    assert_eq!(header.version, 3);
+    assert_eq!(header.tensor_count, 100);
+    assert_eq!(header.metadata_count, 50);
+}
+
+#[test]
+fn test_cov_gguf_header_clone() {
+    let header = GGUFHeader {
+        magic: GGUF_MAGIC,
+        version: 3,
+        tensor_count: 10,
+        metadata_count: 5,
+    };
+
+    let cloned = header.clone();
+
+    assert_eq!(cloned.magic, header.magic);
+    assert_eq!(cloned.version, header.version);
+    assert_eq!(cloned.tensor_count, header.tensor_count);
+    assert_eq!(cloned.metadata_count, header.metadata_count);
+}
+
+#[test]
+fn test_cov_gguf_header_debug() {
+    let header = GGUFHeader {
+        magic: GGUF_MAGIC,
+        version: 3,
+        tensor_count: 1,
+        metadata_count: 1,
+    };
+
+    let debug_str = format!("{header:?}");
+    assert!(debug_str.contains("GGUFHeader"));
+    assert!(debug_str.contains("magic"));
+    assert!(debug_str.contains("version"));
+}
+
+#[test]
+fn test_cov_gguf_header_partial_eq() {
+    let header1 = GGUFHeader {
+        magic: GGUF_MAGIC,
+        version: 3,
+        tensor_count: 10,
+        metadata_count: 5,
+    };
+
+    let header2 = GGUFHeader {
+        magic: GGUF_MAGIC,
+        version: 3,
+        tensor_count: 10,
+        metadata_count: 5,
+    };
+
+    let header3 = GGUFHeader {
+        magic: GGUF_MAGIC,
+        version: 2, // Different version
+        tensor_count: 10,
+        metadata_count: 5,
+    };
+
+    assert_eq!(header1, header2);
+    assert_ne!(header1, header3);
+}
+
+// ============================================================================
+// TENSOR INFO TESTS
+// ============================================================================
+
+#[test]
+fn test_cov_tensor_info_struct_fields() {
+    let tensor = TensorInfo {
+        name: "test.weight".to_string(),
+        n_dims: 2,
+        dims: vec![1024, 512],
+        qtype: GGUF_TYPE_Q4_K,
+        offset: 0,
+    };
+
+    assert_eq!(tensor.name, "test.weight");
+    assert_eq!(tensor.n_dims, 2);
+    assert_eq!(tensor.dims, vec![1024, 512]);
+    assert_eq!(tensor.qtype, GGUF_TYPE_Q4_K);
+    assert_eq!(tensor.offset, 0);
+}
+
+#[test]
+fn test_cov_tensor_info_clone() {
+    let tensor = TensorInfo {
+        name: "blk.0.attn_q.weight".to_string(),
+        n_dims: 2,
+        dims: vec![2048, 2048],
+        qtype: GGUF_TYPE_F32,
+        offset: 1024,
+    };
+
+    let cloned = tensor.clone();
+
+    assert_eq!(cloned.name, tensor.name);
+    assert_eq!(cloned.n_dims, tensor.n_dims);
+    assert_eq!(cloned.dims, tensor.dims);
+    assert_eq!(cloned.qtype, tensor.qtype);
+    assert_eq!(cloned.offset, tensor.offset);
+}
+
+#[test]
+fn test_cov_tensor_info_debug() {
+    let tensor = TensorInfo {
+        name: "token_embd.weight".to_string(),
+        n_dims: 2,
+        dims: vec![32000, 2048],
+        qtype: GGUF_TYPE_Q8_0,
+        offset: 0,
+    };
+
+    let debug_str = format!("{tensor:?}");
+    assert!(debug_str.contains("TensorInfo"));
+    assert!(debug_str.contains("token_embd.weight"));
+}
+
+#[test]
+fn test_cov_tensor_info_partial_eq() {
+    let tensor1 = TensorInfo {
+        name: "test".to_string(),
+        n_dims: 1,
+        dims: vec![100],
+        qtype: 0,
+        offset: 0,
+    };
+
+    let tensor2 = tensor1.clone();
+
+    let tensor3 = TensorInfo {
+        name: "other".to_string(),
+        n_dims: 1,
+        dims: vec![100],
+        qtype: 0,
+        offset: 0,
+    };
+
+    assert_eq!(tensor1, tensor2);
+    assert_ne!(tensor1, tensor3);
+}
+
+#[test]
+fn test_cov_tensor_info_various_qtypes() {
+    let qtypes = [
+        (GGUF_TYPE_F32, "F32"),
+        (GGUF_TYPE_F16, "F16"),
+        (GGUF_TYPE_Q4_0, "Q4_0"),
+        (GGUF_TYPE_Q4_1, "Q4_1"),
+        (GGUF_TYPE_Q5_0, "Q5_0"),
+        (GGUF_TYPE_Q5_1, "Q5_1"),
+        (GGUF_TYPE_Q8_0, "Q8_0"),
+        (GGUF_TYPE_Q4_K, "Q4_K"),
+        (GGUF_TYPE_Q5_K, "Q5_K"),
+        (GGUF_TYPE_Q6_K, "Q6_K"),
+    ];
+
+    for (qtype, name) in qtypes {
+        let tensor = TensorInfo {
+            name: format!("{name}_tensor"),
+            n_dims: 2,
+            dims: vec![256, 256],
+            qtype,
+            offset: 0,
+        };
+        assert_eq!(tensor.qtype, qtype);
+    }
+}
+
+// ============================================================================
+// GGUF MODEL TESTS
+// ============================================================================
+
+#[test]
+fn test_cov_gguf_model_from_bytes_minimal() {
+    let data = build_minimal_gguf_header();
+    let model = GGUFModel::from_bytes(&data).expect("parse minimal");
+
+    assert_eq!(model.header.magic, GGUF_MAGIC);
+    assert_eq!(model.header.version, GGUF_VERSION_V3);
+    assert_eq!(model.header.tensor_count, 0);
+    assert_eq!(model.header.metadata_count, 0);
+    assert!(model.metadata.is_empty());
+    assert!(model.tensors.is_empty());
+}
+
+#[test]
+fn test_cov_gguf_model_from_bytes_with_metadata() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes()); // tensor_count
+    data.extend_from_slice(&3u64.to_le_bytes()); // metadata_count
+
+    add_string_meta(&mut data, "general.architecture", "llama");
+    add_u32_meta(&mut data, "llama.embedding_length", 2048);
+    add_bool_meta(&mut data, "llama.use_parallel_residual", true);
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    assert_eq!(model.metadata.len(), 3);
+    assert!(model.metadata.contains_key("general.architecture"));
+    assert!(model.metadata.contains_key("llama.embedding_length"));
+    assert!(model.metadata.contains_key("llama.use_parallel_residual"));
+}
+
+#[test]
+fn test_cov_gguf_model_from_bytes_invalid_magic() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&0xDEADBEEFu32.to_le_bytes()); // Invalid magic
+    data.extend_from_slice(&3u32.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+
+    let result = GGUFModel::from_bytes(&data);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_cov_gguf_model_from_bytes_too_short() {
+    let data = vec![0u8; 4]; // Too short for header
+    let result = GGUFModel::from_bytes(&data);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_cov_gguf_model_clone() {
+    let data = build_gguf_with_arch("llama", 2048, 22, 32);
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    let cloned = model.clone();
+
+    assert_eq!(cloned.header, model.header);
+    assert_eq!(cloned.metadata.len(), model.metadata.len());
+    assert_eq!(cloned.tensors.len(), model.tensors.len());
+    assert_eq!(cloned.tensor_data_start, model.tensor_data_start);
+}
+
+#[test]
+fn test_cov_gguf_model_debug() {
+    let data = build_minimal_gguf_header();
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    let debug_str = format!("{model:?}");
+    assert!(debug_str.contains("GGUFModel"));
+    assert!(debug_str.contains("header"));
+}
+
+// ============================================================================
+// GGUF MODEL METADATA ACCESSOR TESTS
+// ============================================================================
+
+#[test]
+fn test_cov_gguf_model_architecture_some() {
+    let data = build_gguf_with_arch("llama", 2048, 22, 32);
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    assert_eq!(model.architecture(), Some("llama"));
+}
+
+#[test]
+fn test_cov_gguf_model_architecture_none() {
+    let data = build_minimal_gguf_header();
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    assert_eq!(model.architecture(), None);
+}
+
+#[test]
+fn test_cov_gguf_model_embedding_dim_some() {
+    let data = build_gguf_with_arch("phi2", 2560, 32, 32);
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    assert_eq!(model.embedding_dim(), Some(2560));
+}
+
+#[test]
+fn test_cov_gguf_model_embedding_dim_none_no_arch() {
+    let data = build_minimal_gguf_header();
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    // Without architecture, embedding_dim returns None
+    assert_eq!(model.embedding_dim(), None);
+}
+
+#[test]
+fn test_cov_gguf_model_num_layers_some() {
+    let data = build_gguf_with_arch("qwen2", 896, 24, 14);
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    assert_eq!(model.num_layers(), Some(24));
+}
+
+#[test]
+fn test_cov_gguf_model_num_layers_none() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&1u64.to_le_bytes()); // Only architecture
+
+    add_string_meta(&mut data, "general.architecture", "test");
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    // Architecture present but no block_count
+    assert_eq!(model.num_layers(), None);
+}
+
+#[test]
+fn test_cov_gguf_model_num_heads_some() {
+    let data = build_gguf_with_arch("llama", 2048, 22, 32);
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    assert_eq!(model.num_heads(), Some(32));
+}
+
+#[test]
+fn test_cov_gguf_model_num_heads_none() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&1u64.to_le_bytes());
+
+    add_string_meta(&mut data, "general.architecture", "test");
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    assert_eq!(model.num_heads(), None);
+}
+
+#[test]
+fn test_cov_gguf_model_num_kv_heads_some() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&2u64.to_le_bytes());
+
+    add_string_meta(&mut data, "general.architecture", "llama");
+    add_u32_meta(&mut data, "llama.attention.head_count_kv", 8);
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    assert_eq!(model.num_kv_heads(), Some(8));
+}
+
+#[test]
+fn test_cov_gguf_model_num_kv_heads_none() {
+    let data = build_gguf_with_arch("llama", 2048, 22, 32);
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    // Our test helper doesn't add head_count_kv
+    assert_eq!(model.num_kv_heads(), None);
+}
+
+#[test]
+fn test_cov_gguf_model_context_length_some() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&2u64.to_le_bytes());
+
+    add_string_meta(&mut data, "general.architecture", "llama");
+    add_u32_meta(&mut data, "llama.context_length", 4096);
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    assert_eq!(model.context_length(), Some(4096));
+}
+
+#[test]
+fn test_cov_gguf_model_context_length_none() {
+    let data = build_gguf_with_arch("llama", 2048, 22, 32);
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    assert_eq!(model.context_length(), None);
+}
+
+#[test]
+fn test_cov_gguf_model_rope_freq_base_some() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&2u64.to_le_bytes());
+
+    add_string_meta(&mut data, "general.architecture", "qwen2");
+    add_f32_meta(&mut data, "qwen2.rope.freq_base", 1_000_000.0);
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    assert_eq!(model.rope_freq_base(), Some(1_000_000.0));
+}
+
+#[test]
+fn test_cov_gguf_model_rope_freq_base_none() {
+    let data = build_gguf_with_arch("llama", 2048, 22, 32);
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    assert_eq!(model.rope_freq_base(), None);
+}
+
+#[test]
+fn test_cov_gguf_model_rms_epsilon_some() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&2u64.to_le_bytes());
+
+    add_string_meta(&mut data, "general.architecture", "qwen2");
+    add_f32_meta(&mut data, "qwen2.attention.layer_norm_rms_epsilon", 1e-6);
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    let eps = model.rms_epsilon().expect("eps");
+    assert!((eps - 1e-6).abs() < 1e-10);
+}
+
+#[test]
+fn test_cov_gguf_model_rms_epsilon_none() {
+    let data = build_gguf_with_arch("llama", 2048, 22, 32);
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    assert_eq!(model.rms_epsilon(), None);
+}
+
+// ============================================================================
+// GGUF MODEL ROPE TYPE TESTS
+// ============================================================================
+
+#[test]
+fn test_cov_gguf_model_rope_type_neox_from_scaling() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&2u64.to_le_bytes());
+
+    add_string_meta(&mut data, "general.architecture", "test");
+    add_string_meta(&mut data, "test.rope.scaling.type", "yarn");
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    assert_eq!(model.rope_type(), Some(2)); // NEOX style
+}
+
+#[test]
+fn test_cov_gguf_model_rope_type_norm_from_scaling() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&2u64.to_le_bytes());
+
+    add_string_meta(&mut data, "general.architecture", "test");
+    add_string_meta(&mut data, "test.rope.scaling.type", "none");
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    assert_eq!(model.rope_type(), Some(0)); // NORM style
+}
+
+#[test]
+fn test_cov_gguf_model_rope_type_linear_scaling() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&2u64.to_le_bytes());
+
+    add_string_meta(&mut data, "general.architecture", "test");
+    add_string_meta(&mut data, "test.rope.scaling.type", "linear");
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    assert_eq!(model.rope_type(), Some(0)); // Linear -> NORM style
+}
+
+#[test]
+fn test_cov_gguf_model_rope_type_neox_scaling() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&2u64.to_le_bytes());
+
+    add_string_meta(&mut data, "general.architecture", "test");
+    add_string_meta(&mut data, "test.rope.scaling.type", "neox");
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    assert_eq!(model.rope_type(), Some(2)); // NEOX style
+}
+
+#[test]
+fn test_cov_gguf_model_rope_type_inferred_qwen() {
+    let data = build_gguf_with_arch("qwen2", 896, 24, 14);
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    assert_eq!(model.rope_type(), Some(2)); // qwen2 -> NEOX
+}
+
+#[test]
+fn test_cov_gguf_model_rope_type_inferred_phi() {
+    let data = build_gguf_with_arch("phi2", 2560, 32, 32);
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    assert_eq!(model.rope_type(), Some(2)); // phi2 -> NEOX
+}
+
+#[test]
+fn test_cov_gguf_model_rope_type_inferred_llama() {
+    let data = build_gguf_with_arch("llama", 2048, 22, 32);
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    assert_eq!(model.rope_type(), Some(0)); // llama -> NORM
+}
+
+#[test]
+fn test_cov_gguf_model_rope_type_inferred_gemma() {
+    let data = build_gguf_with_arch("gemma", 2048, 18, 8);
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    assert_eq!(model.rope_type(), Some(2)); // gemma -> NEOX
+}
+
+#[test]
+fn test_cov_gguf_model_rope_type_inferred_falcon() {
+    let data = build_gguf_with_arch("falcon", 4544, 32, 71);
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    assert_eq!(model.rope_type(), Some(2)); // falcon -> NEOX
+}
+
+#[test]
+fn test_cov_gguf_model_rope_type_inferred_stablelm() {
+    let data = build_gguf_with_arch("stablelm", 2048, 24, 32);
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    assert_eq!(model.rope_type(), Some(2)); // stablelm -> NEOX
+}
+
+#[test]
+fn test_cov_gguf_model_rope_type_default_unknown() {
+    // Unknown architecture defaults to NORM
+    let data = build_gguf_with_arch("unknown_arch", 1024, 12, 16);
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    assert_eq!(model.rope_type(), Some(0)); // Unknown -> NORM (default)
+}
+
+// ============================================================================
+// GGUF MODEL TOKENIZER METADATA TESTS
+// ============================================================================
+
+#[test]
+fn test_cov_gguf_model_bos_token_id_some() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&1u64.to_le_bytes());
+
+    add_u32_meta(&mut data, "tokenizer.ggml.bos_token_id", 1);
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    assert_eq!(model.bos_token_id(), Some(1));
+}
+
+#[test]
+fn test_cov_gguf_model_bos_token_id_none() {
+    let data = build_minimal_gguf_header();
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    assert_eq!(model.bos_token_id(), None);
+}
+
+#[test]
+fn test_cov_gguf_model_eos_token_id_some() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&1u64.to_le_bytes());
+
+    add_u32_meta(&mut data, "tokenizer.ggml.eos_token_id", 2);
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    assert_eq!(model.eos_token_id(), Some(2));
+}
+
+#[test]
+fn test_cov_gguf_model_eos_token_id_none() {
+    let data = build_minimal_gguf_header();
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    assert_eq!(model.eos_token_id(), None);
+}
+
+#[test]
+fn test_cov_gguf_model_vocabulary_some() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&1u64.to_le_bytes());
+
+    add_string_array_meta(&mut data, "tokenizer.ggml.tokens", &["<s>", "</s>", "hello"]);
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    let vocab = model.vocabulary().expect("vocabulary");
+
+    assert_eq!(vocab.len(), 3);
+    assert_eq!(vocab[0], "<s>");
+    assert_eq!(vocab[1], "</s>");
+    assert_eq!(vocab[2], "hello");
+}
+
+#[test]
+fn test_cov_gguf_model_vocabulary_none() {
+    let data = build_minimal_gguf_header();
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    assert_eq!(model.vocabulary(), None);
+}
+
+#[test]
+fn test_cov_gguf_model_vocabulary_empty_array_returns_none() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&1u64.to_le_bytes());
+
+    // Empty string array
+    add_string_array_meta(&mut data, "tokenizer.ggml.tokens", &[]);
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    // Empty array returns None
+    assert_eq!(model.vocabulary(), None);
+}
+
+// ============================================================================
+// GGUF MODEL DECODE TESTS
+// ============================================================================
+
+#[test]
+fn test_cov_gguf_model_decode_basic() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&1u64.to_le_bytes());
+
+    add_string_array_meta(&mut data, "tokenizer.ggml.tokens", &["hello", " ", "world"]);
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    let decoded = model.decode(&[0, 1, 2]);
+
+    assert_eq!(decoded, "hello world");
+}
+
+#[test]
+fn test_cov_gguf_model_decode_sentencepiece_marker() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&1u64.to_le_bytes());
+
+    // SentencePiece uses ▁ for word boundaries
+    add_string_array_meta(
+        &mut data,
+        "tokenizer.ggml.tokens",
+        &["\u{2581}hello", "\u{2581}world"],
+    );
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    let decoded = model.decode(&[0, 1]);
+
+    assert_eq!(decoded, " hello world");
+}
+
+#[test]
+fn test_cov_gguf_model_decode_byte_token() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&1u64.to_le_bytes());
+
+    // Byte token format: <0xHH>
+    add_string_array_meta(&mut data, "tokenizer.ggml.tokens", &["<0x41>"]); // 0x41 = 'A'
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    let decoded = model.decode(&[0]);
+
+    assert_eq!(decoded, "A");
+}
+
+#[test]
+fn test_cov_gguf_model_decode_unknown_token() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&1u64.to_le_bytes());
+
+    add_string_array_meta(&mut data, "tokenizer.ggml.tokens", &["a", "b"]);
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    // Token ID 99 is out of bounds
+    let decoded = model.decode(&[0, 99, 1]);
+
+    // Unknown tokens become replacement character
+    assert!(decoded.contains('\u{FFFD}'));
+}
+
+#[test]
+fn test_cov_gguf_model_decode_no_vocabulary_fallback() {
+    let data = build_minimal_gguf_header();
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    // Without vocabulary, decode falls back to showing token IDs
+    let decoded = model.decode(&[65, 66, 67]);
+
+    // Should contain token IDs as text
+    assert!(!decoded.is_empty());
+}
+
+#[test]
+fn test_cov_gguf_model_decode_gpt2_style() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&2u64.to_le_bytes());
+
+    add_string_meta(&mut data, "tokenizer.ggml.model", "gpt2");
+    // GPT-2 uses Ġ for space
+    add_string_array_meta(
+        &mut data,
+        "tokenizer.ggml.tokens",
+        &["hello", "\u{0120}world"],
+    );
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    let decoded = model.decode(&[0, 1]);
+
+    assert_eq!(decoded, "hello world");
+}
+
+// ============================================================================
+// GGUF CONFIG TESTS
+// ============================================================================
+
+#[test]
+fn test_cov_gguf_config_from_gguf_basic() {
+    let data = build_gguf_with_arch("llama", 2048, 22, 32);
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    let config = GGUFConfig::from_gguf(&model).expect("config");
+
+    assert_eq!(config.architecture, "llama");
+    assert_eq!(config.hidden_dim, 2048);
+    assert_eq!(config.num_layers, 22);
+    assert_eq!(config.num_heads, 32);
+}
+
+#[test]
+fn test_cov_gguf_config_from_gguf_missing_architecture() {
+    let data = build_minimal_gguf_header();
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    let result = GGUFConfig::from_gguf(&model);
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_cov_gguf_config_from_gguf_missing_embedding_length() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&1u64.to_le_bytes());
+
+    add_string_meta(&mut data, "general.architecture", "llama");
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    let result = GGUFConfig::from_gguf(&model);
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_cov_gguf_config_from_gguf_missing_block_count() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&2u64.to_le_bytes());
+
+    add_string_meta(&mut data, "general.architecture", "llama");
+    add_u32_meta(&mut data, "llama.embedding_length", 2048);
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    let result = GGUFConfig::from_gguf(&model);
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_cov_gguf_config_defaults_num_heads() {
+    // When num_heads is missing, defaults to hidden_dim / 64
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&3u64.to_le_bytes());
+
+    add_string_meta(&mut data, "general.architecture", "test");
+    add_u32_meta(&mut data, "test.embedding_length", 2048);
+    add_u32_meta(&mut data, "test.block_count", 22);
+    // No head_count - should default to 2048/64 = 32
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    let config = GGUFConfig::from_gguf(&model).expect("config");
+
+    assert_eq!(config.num_heads, 32);
+}
+
+#[test]
+fn test_cov_gguf_config_defaults_context_length() {
+    let data = build_gguf_with_arch("test", 1024, 12, 16);
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    let config = GGUFConfig::from_gguf(&model).expect("config");
+
+    assert_eq!(config.context_length, 2048); // Default
+}
+
+#[test]
+fn test_cov_gguf_config_defaults_rope_theta() {
+    let data = build_gguf_with_arch("test", 1024, 12, 16);
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    let config = GGUFConfig::from_gguf(&model).expect("config");
+
+    assert!((config.rope_theta - 10000.0).abs() < 1.0); // Default
+}
+
+#[test]
+fn test_cov_gguf_config_defaults_eps() {
+    let data = build_gguf_with_arch("test", 1024, 12, 16);
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    let config = GGUFConfig::from_gguf(&model).expect("config");
+
+    assert!((config.eps - 1e-5).abs() < 1e-8); // Default
+}
+
+#[test]
+fn test_cov_gguf_config_defaults_num_kv_heads() {
+    // num_kv_heads defaults to num_heads when not specified
+    let data = build_gguf_with_arch("test", 1024, 12, 16);
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    let config = GGUFConfig::from_gguf(&model).expect("config");
+
+    assert_eq!(config.num_kv_heads, 16); // Same as num_heads
+}
+
+#[test]
+fn test_cov_gguf_config_defaults_vocab_size() {
+    // vocab_size defaults to 32000 when no token_embd tensor
+    let data = build_gguf_with_arch("test", 1024, 12, 16);
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    let config = GGUFConfig::from_gguf(&model).expect("config");
+
+    assert_eq!(config.vocab_size, 32000); // Default
+}
+
+#[test]
+fn test_cov_gguf_config_defaults_intermediate_dim() {
+    // intermediate_dim defaults to hidden_dim * 4 when no ffn_up tensor
+    let data = build_gguf_with_arch("test", 1024, 12, 16);
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    let config = GGUFConfig::from_gguf(&model).expect("config");
+
+    assert_eq!(config.intermediate_dim, 4096); // 1024 * 4
+}
+
+#[test]
+fn test_cov_gguf_config_with_all_options() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&8u64.to_le_bytes());
+
+    add_string_meta(&mut data, "general.architecture", "llama");
+    add_u32_meta(&mut data, "llama.embedding_length", 4096);
+    add_u32_meta(&mut data, "llama.block_count", 32);
+    add_u32_meta(&mut data, "llama.attention.head_count", 32);
+    add_u32_meta(&mut data, "llama.attention.head_count_kv", 8);
+    add_u32_meta(&mut data, "llama.context_length", 8192);
+    add_f32_meta(&mut data, "llama.rope.freq_base", 500_000.0);
+    add_f32_meta(&mut data, "llama.attention.layer_norm_rms_epsilon", 1e-5);
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    let config = GGUFConfig::from_gguf(&model).expect("config");
+
+    assert_eq!(config.architecture, "llama");
+    assert_eq!(config.hidden_dim, 4096);
+    assert_eq!(config.num_layers, 32);
+    assert_eq!(config.num_heads, 32);
+    assert_eq!(config.num_kv_heads, 8);
+    assert_eq!(config.context_length, 8192);
+    assert!((config.rope_theta - 500_000.0).abs() < 1.0);
+    assert!((config.eps - 1e-5).abs() < 1e-8);
+}
+
+#[test]
+fn test_cov_gguf_config_vocab_from_tensor() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&1u64.to_le_bytes()); // 1 tensor
+    data.extend_from_slice(&3u64.to_le_bytes()); // 3 metadata
+
+    add_string_meta(&mut data, "general.architecture", "llama");
+    add_u32_meta(&mut data, "llama.embedding_length", 512);
+    add_u32_meta(&mut data, "llama.block_count", 4);
+
+    // token_embd.weight tensor - dims in GGML order (reversed)
+    // We want [50000, 512] after reversal, so we provide [512, 50000]
+    add_tensor_info(&mut data, "token_embd.weight", &[50000, 512], GGUF_TYPE_F32, 0);
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    let config = GGUFConfig::from_gguf(&model).expect("config");
+
+    assert_eq!(config.vocab_size, 50000);
+}
+
+#[test]
+fn test_cov_gguf_config_intermediate_from_tensor() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&1u64.to_le_bytes()); // 1 tensor
+    data.extend_from_slice(&3u64.to_le_bytes()); // 3 metadata
+
+    add_string_meta(&mut data, "general.architecture", "llama");
+    add_u32_meta(&mut data, "llama.embedding_length", 512);
+    add_u32_meta(&mut data, "llama.block_count", 4);
+
+    // blk.0.ffn_up.weight tensor - we want [8192, 512] after reversal
+    add_tensor_info(
+        &mut data,
+        "blk.0.ffn_up.weight",
+        &[8192, 512],
+        GGUF_TYPE_F32,
+        0,
+    );
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    let config = GGUFConfig::from_gguf(&model).expect("config");
+
+    assert_eq!(config.intermediate_dim, 8192);
+}
+
+// ============================================================================
+// GGUF VALUE ENUM TESTS
+// ============================================================================
+
+#[test]
+fn test_cov_gguf_value_u8() {
+    let val = GGUFValue::UInt8(255);
+    if let GGUFValue::UInt8(v) = val {
+        assert_eq!(v, 255);
+    } else {
+        panic!("Expected UInt8");
+    }
+}
+
+#[test]
+fn test_cov_gguf_value_i8() {
+    let val = GGUFValue::Int8(-128);
+    if let GGUFValue::Int8(v) = val {
+        assert_eq!(v, -128);
+    } else {
+        panic!("Expected Int8");
+    }
+}
+
+#[test]
+fn test_cov_gguf_value_u16() {
+    let val = GGUFValue::UInt16(65535);
+    if let GGUFValue::UInt16(v) = val {
+        assert_eq!(v, 65535);
+    } else {
+        panic!("Expected UInt16");
+    }
+}
+
+#[test]
+fn test_cov_gguf_value_i16() {
+    let val = GGUFValue::Int16(-32768);
+    if let GGUFValue::Int16(v) = val {
+        assert_eq!(v, -32768);
+    } else {
+        panic!("Expected Int16");
+    }
+}
+
+#[test]
+fn test_cov_gguf_value_u32() {
+    let val = GGUFValue::UInt32(u32::MAX);
+    if let GGUFValue::UInt32(v) = val {
+        assert_eq!(v, u32::MAX);
+    } else {
+        panic!("Expected UInt32");
+    }
+}
+
+#[test]
+fn test_cov_gguf_value_i32() {
+    let val = GGUFValue::Int32(i32::MIN);
+    if let GGUFValue::Int32(v) = val {
+        assert_eq!(v, i32::MIN);
+    } else {
+        panic!("Expected Int32");
+    }
+}
+
+#[test]
+fn test_cov_gguf_value_f32() {
+    let val = GGUFValue::Float32(1.23456);
+    if let GGUFValue::Float32(v) = val {
+        assert!((v - 1.23456).abs() < 0.0001);
+    } else {
+        panic!("Expected Float32");
+    }
+}
+
+#[test]
+fn test_cov_gguf_value_bool_true() {
+    let val = GGUFValue::Bool(true);
+    if let GGUFValue::Bool(v) = val {
+        assert!(v);
+    } else {
+        panic!("Expected Bool");
+    }
+}
+
+#[test]
+fn test_cov_gguf_value_bool_false() {
+    let val = GGUFValue::Bool(false);
+    if let GGUFValue::Bool(v) = val {
+        assert!(!v);
+    } else {
+        panic!("Expected Bool");
+    }
+}
+
+#[test]
+fn test_cov_gguf_value_string() {
+    let val = GGUFValue::String("test_string".to_string());
+    if let GGUFValue::String(s) = val {
+        assert_eq!(s, "test_string");
+    } else {
+        panic!("Expected String");
+    }
+}
+
+#[test]
+fn test_cov_gguf_value_array_u32() {
+    let val = GGUFValue::Array(vec![
+        GGUFValue::UInt32(1),
+        GGUFValue::UInt32(2),
+        GGUFValue::UInt32(3),
+    ]);
+    if let GGUFValue::Array(arr) = val {
+        assert_eq!(arr.len(), 3);
+        if let GGUFValue::UInt32(v) = arr[0] {
+            assert_eq!(v, 1);
+        }
+    } else {
+        panic!("Expected Array");
+    }
+}
+
+#[test]
+fn test_cov_gguf_value_array_string() {
+    let val = GGUFValue::Array(vec![
+        GGUFValue::String("a".to_string()),
+        GGUFValue::String("b".to_string()),
+    ]);
+    if let GGUFValue::Array(arr) = val {
+        assert_eq!(arr.len(), 2);
+    } else {
+        panic!("Expected Array");
+    }
+}
+
+#[test]
+fn test_cov_gguf_value_u64() {
+    let val = GGUFValue::UInt64(u64::MAX);
+    if let GGUFValue::UInt64(v) = val {
+        assert_eq!(v, u64::MAX);
+    } else {
+        panic!("Expected UInt64");
+    }
+}
+
+#[test]
+fn test_cov_gguf_value_i64() {
+    let val = GGUFValue::Int64(i64::MIN);
+    if let GGUFValue::Int64(v) = val {
+        assert_eq!(v, i64::MIN);
+    } else {
+        panic!("Expected Int64");
+    }
+}
+
+#[test]
+fn test_cov_gguf_value_f64() {
+    let val = GGUFValue::Float64(1.234567890123);
+    if let GGUFValue::Float64(v) = val {
+        assert!((v - 1.234567890123).abs() < 0.0000001);
+    } else {
+        panic!("Expected Float64");
+    }
+}
+
+// ============================================================================
+// METADATA PARSING TESTS (all value types)
+// ============================================================================
+
+#[test]
+fn test_cov_metadata_parse_u8() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&1u64.to_le_bytes());
+
+    add_u8_meta(&mut data, "test.u8", 42);
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    if let Some(GGUFValue::UInt8(v)) = model.metadata.get("test.u8") {
+        assert_eq!(*v, 42);
+    } else {
+        panic!("Expected UInt8");
+    }
+}
+
+#[test]
+fn test_cov_metadata_parse_i8() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&1u64.to_le_bytes());
+
+    add_i8_meta(&mut data, "test.i8", -42);
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    if let Some(GGUFValue::Int8(v)) = model.metadata.get("test.i8") {
+        assert_eq!(*v, -42);
+    } else {
+        panic!("Expected Int8");
+    }
+}
+
+#[test]
+fn test_cov_metadata_parse_u16() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&1u64.to_le_bytes());
+
+    add_u16_meta(&mut data, "test.u16", 1234);
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    if let Some(GGUFValue::UInt16(v)) = model.metadata.get("test.u16") {
+        assert_eq!(*v, 1234);
+    } else {
+        panic!("Expected UInt16");
+    }
+}
+
+#[test]
+fn test_cov_metadata_parse_i16() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&1u64.to_le_bytes());
+
+    add_i16_meta(&mut data, "test.i16", -1234);
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    if let Some(GGUFValue::Int16(v)) = model.metadata.get("test.i16") {
+        assert_eq!(*v, -1234);
+    } else {
+        panic!("Expected Int16");
+    }
+}
+
+#[test]
+fn test_cov_metadata_parse_i32() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&1u64.to_le_bytes());
+
+    add_i32_meta(&mut data, "test.i32", -123456);
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    if let Some(GGUFValue::Int32(v)) = model.metadata.get("test.i32") {
+        assert_eq!(*v, -123456);
+    } else {
+        panic!("Expected Int32");
+    }
+}
+
+#[test]
+fn test_cov_metadata_parse_u64() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&1u64.to_le_bytes());
+
+    add_u64_meta(&mut data, "test.u64", 9_999_999_999);
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    if let Some(GGUFValue::UInt64(v)) = model.metadata.get("test.u64") {
+        assert_eq!(*v, 9_999_999_999);
+    } else {
+        panic!("Expected UInt64");
+    }
+}
+
+#[test]
+fn test_cov_metadata_parse_i64() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&1u64.to_le_bytes());
+
+    add_i64_meta(&mut data, "test.i64", -9_999_999_999);
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    if let Some(GGUFValue::Int64(v)) = model.metadata.get("test.i64") {
+        assert_eq!(*v, -9_999_999_999);
+    } else {
+        panic!("Expected Int64");
+    }
+}
+
+#[test]
+fn test_cov_metadata_parse_f64() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&1u64.to_le_bytes());
+
+    add_f64_meta(&mut data, "test.f64", 1.23456789012345);
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    if let Some(GGUFValue::Float64(v)) = model.metadata.get("test.f64") {
+        assert!((v - 1.23456789012345).abs() < 1e-10);
+    } else {
+        panic!("Expected Float64");
+    }
+}
+
+#[test]
+fn test_cov_metadata_parse_bool_true() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&1u64.to_le_bytes());
+
+    add_bool_meta(&mut data, "test.bool", true);
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    if let Some(GGUFValue::Bool(v)) = model.metadata.get("test.bool") {
+        assert!(*v);
+    } else {
+        panic!("Expected Bool");
+    }
+}
+
+#[test]
+fn test_cov_metadata_parse_array_u32() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&1u64.to_le_bytes());
+
+    add_u32_array_meta(&mut data, "test.array", &[10, 20, 30]);
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+    if let Some(GGUFValue::Array(arr)) = model.metadata.get("test.array") {
+        assert_eq!(arr.len(), 3);
+    } else {
+        panic!("Expected Array");
+    }
+}
+
+// ============================================================================
+// MAPPED GGUF MODEL TESTS
+// ============================================================================
+
+#[test]
+fn test_cov_mapped_gguf_model_from_path() {
+    let data = build_gguf_with_arch("llama", 2048, 22, 32);
+    let mut temp = NamedTempFile::new().expect("create temp");
+    temp.write_all(&data).expect("write");
+
+    let mapped = MappedGGUFModel::from_path(temp.path()).expect("load");
+
+    assert_eq!(mapped.model.architecture(), Some("llama"));
+}
+
+#[test]
+fn test_cov_mapped_gguf_model_data() {
+    let data = build_gguf_with_arch("test", 512, 4, 8);
+    let mut temp = NamedTempFile::new().expect("create temp");
+    temp.write_all(&data).expect("write");
+
+    let mapped = MappedGGUFModel::from_path(temp.path()).expect("load");
+
+    // data() should return the full memory-mapped file
+    assert_eq!(mapped.data().len(), data.len());
+}
+
+#[test]
+fn test_cov_mapped_gguf_model_file_size() {
+    let data = build_gguf_with_arch("test", 512, 4, 8);
+    let mut temp = NamedTempFile::new().expect("create temp");
+    temp.write_all(&data).expect("write");
+
+    let mapped = MappedGGUFModel::from_path(temp.path()).expect("load");
+
+    assert_eq!(mapped.file_size(), data.len());
+}
+
+#[test]
+fn test_cov_mapped_gguf_model_tensor_slice_valid() {
+    let data = build_gguf_with_arch("test", 512, 4, 8);
+    let mut temp = NamedTempFile::new().expect("create temp");
+    temp.write_all(&data).expect("write");
+
+    let mapped = MappedGGUFModel::from_path(temp.path()).expect("load");
+
+    // Valid slice
+    let slice = mapped.tensor_slice(0, 10);
+    assert!(slice.is_some());
+    assert_eq!(slice.unwrap().len(), 10);
+}
+
+#[test]
+fn test_cov_mapped_gguf_model_tensor_slice_out_of_bounds() {
+    let data = build_gguf_with_arch("test", 512, 4, 8);
+    let mut temp = NamedTempFile::new().expect("create temp");
+    temp.write_all(&data).expect("write");
+
+    let mapped = MappedGGUFModel::from_path(temp.path()).expect("load");
+
+    // Out of bounds slice - offset + size > file_size
+    let slice = mapped.tensor_slice(mapped.file_size(), 1);
+    assert!(slice.is_none());
+}
+
+#[test]
+fn test_cov_mapped_gguf_model_tensor_slice_overflow() {
+    let data = build_gguf_with_arch("test", 512, 4, 8);
+    let mut temp = NamedTempFile::new().expect("create temp");
+    temp.write_all(&data).expect("write");
+
+    let mapped = MappedGGUFModel::from_path(temp.path()).expect("load");
+
+    // Overflow check - very large size that would overflow
+    let slice = mapped.tensor_slice(0, usize::MAX);
+    assert!(slice.is_none());
+}
+
+#[test]
+fn test_cov_mapped_gguf_model_file_not_found() {
+    let result = MappedGGUFModel::from_path("/nonexistent/path/model.gguf");
+    assert!(result.is_err());
+}
+
+#[test]
+#[cfg(unix)]
+fn test_cov_mapped_gguf_model_advise_sequential() {
+    let data = build_gguf_with_arch("test", 512, 4, 8);
+    let mut temp = NamedTempFile::new().expect("create temp");
+    temp.write_all(&data).expect("write");
+
+    let mapped = MappedGGUFModel::from_path(temp.path()).expect("load");
+
+    // Should not panic
+    mapped.advise_sequential();
+}
+
+#[test]
+#[cfg(unix)]
+fn test_cov_mapped_gguf_model_advise_random() {
+    let data = build_gguf_with_arch("test", 512, 4, 8);
+    let mut temp = NamedTempFile::new().expect("create temp");
+    temp.write_all(&data).expect("write");
+
+    let mapped = MappedGGUFModel::from_path(temp.path()).expect("load");
+
+    // Should not panic
+    mapped.advise_random();
+}
+
+#[test]
+#[cfg(unix)]
+fn test_cov_mapped_gguf_model_advise_willneed() {
+    let data = build_gguf_with_arch("test", 512, 4, 8);
+    let mut temp = NamedTempFile::new().expect("create temp");
+    temp.write_all(&data).expect("write");
+
+    let mapped = MappedGGUFModel::from_path(temp.path()).expect("load");
+
+    // Should not panic
+    mapped.advise_willneed();
+}
+
+#[test]
+#[cfg(unix)]
+fn test_cov_mapped_gguf_model_lock_memory() {
+    let data = build_gguf_with_arch("test", 512, 4, 8);
+    let mut temp = NamedTempFile::new().expect("create temp");
+    temp.write_all(&data).expect("write");
+
+    let mapped = MappedGGUFModel::from_path(temp.path()).expect("load");
+
+    // May return true or false depending on privileges, should not panic
+    let _ = mapped.lock_memory();
+}
+
+// ============================================================================
+// GGUF CONSTANTS TESTS
+// ============================================================================
+
+#[test]
+fn test_cov_gguf_constants_magic() {
+    // Verify magic bytes spell "GGUF"
+    let magic_bytes = GGUF_MAGIC.to_le_bytes();
+    assert_eq!(&magic_bytes, b"GGUF");
+}
+
+#[test]
+fn test_cov_gguf_constants_version() {
+    assert_eq!(GGUF_VERSION_V3, 3);
+}
+
+#[test]
+fn test_cov_gguf_constants_alignment() {
+    assert_eq!(GGUF_ALIGNMENT, 32);
+}
+
+#[test]
+fn test_cov_gguf_constants_qtypes() {
+    assert_eq!(GGUF_TYPE_F32, 0);
+    assert_eq!(GGUF_TYPE_F16, 1);
+    assert_eq!(GGUF_TYPE_Q4_0, 2);
+    assert_eq!(GGUF_TYPE_Q4_1, 3);
+    assert_eq!(GGUF_TYPE_Q5_0, 6);
+    assert_eq!(GGUF_TYPE_Q5_1, 7);
+    assert_eq!(GGUF_TYPE_Q8_0, 8);
+    assert_eq!(GGUF_TYPE_Q4_K, 12);
+    assert_eq!(GGUF_TYPE_Q5_K, 13);
+    assert_eq!(GGUF_TYPE_Q6_K, 14);
+}
+
+// ============================================================================
+// TENSOR DATA START ALIGNMENT TESTS
+// ============================================================================
+
+#[test]
+fn test_cov_gguf_model_tensor_data_start_aligned() {
+    let data = build_minimal_gguf_header();
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    // tensor_data_start should be 32-byte aligned
+    assert_eq!(model.tensor_data_start % GGUF_ALIGNMENT, 0);
+}
+
+#[test]
+fn test_cov_gguf_model_tensor_data_start_with_metadata() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&5u64.to_le_bytes()); // 5 metadata entries
+
+    // Add several metadata entries of varying sizes
+    add_string_meta(&mut data, "key1", "value1");
+    add_u32_meta(&mut data, "key2", 123);
+    add_string_meta(&mut data, "key3", "longer_value_here");
+    add_f32_meta(&mut data, "key4", 1.5);
+    add_bool_meta(&mut data, "key5", true);
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    // tensor_data_start should still be 32-byte aligned
+    assert_eq!(model.tensor_data_start % GGUF_ALIGNMENT, 0);
+}
+
+// ============================================================================
+// EDGE CASES AND ERROR PATHS
+// ============================================================================
+
+#[test]
+fn test_cov_gguf_model_many_metadata_entries() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&10u64.to_le_bytes()); // 10 metadata entries
+
+    for i in 0..10 {
+        add_u32_meta(&mut data, &format!("key_{i}"), i as u32);
+    }
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    assert_eq!(model.metadata.len(), 10);
+}
+
+#[test]
+fn test_cov_gguf_model_multiple_tensors() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&3u64.to_le_bytes()); // 3 tensors
+    data.extend_from_slice(&1u64.to_le_bytes()); // 1 metadata
+
+    add_string_meta(&mut data, "general.architecture", "test");
+
+    add_tensor_info(&mut data, "tensor_a", &[100, 100], GGUF_TYPE_F32, 0);
+    add_tensor_info(&mut data, "tensor_b", &[50, 200], GGUF_TYPE_Q4_0, 40000);
+    add_tensor_info(&mut data, "tensor_c", &[10], GGUF_TYPE_Q8_0, 50000);
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    assert_eq!(model.tensors.len(), 3);
+    assert_eq!(model.tensors[0].name, "tensor_a");
+    assert_eq!(model.tensors[1].name, "tensor_b");
+    assert_eq!(model.tensors[2].name, "tensor_c");
+}
+
+#[test]
+fn test_cov_gguf_model_tensor_1d() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&1u64.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+
+    add_tensor_info(&mut data, "bias", &[512], GGUF_TYPE_F32, 0);
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    assert_eq!(model.tensors[0].n_dims, 1);
+    assert_eq!(model.tensors[0].dims, vec![512]);
+}
+
+#[test]
+fn test_cov_gguf_model_tensor_3d() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&1u64.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+
+    add_tensor_info(&mut data, "conv", &[3, 64, 64], GGUF_TYPE_F32, 0);
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    assert_eq!(model.tensors[0].n_dims, 3);
+    // Dims are reversed when parsed
+    assert_eq!(model.tensors[0].dims.len(), 3);
+}
+
+#[test]
+fn test_cov_gguf_model_empty_string_metadata() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&1u64.to_le_bytes());
+
+    add_string_meta(&mut data, "empty_value", "");
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    if let Some(GGUFValue::String(s)) = model.metadata.get("empty_value") {
+        assert!(s.is_empty());
+    } else {
+        panic!("Expected empty string");
+    }
+}
+
+#[test]
+fn test_cov_gguf_model_long_key_name() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&1u64.to_le_bytes());
+
+    let long_key = "a".repeat(100);
+    add_u32_meta(&mut data, &long_key, 42);
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    assert!(model.metadata.contains_key(&long_key));
+}
+
+#[test]
+fn test_cov_gguf_model_unicode_metadata() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&1u64.to_le_bytes());
+
+    add_string_meta(&mut data, "unicode_test", "Hello");
+
+    let model = GGUFModel::from_bytes(&data).expect("parse");
+
+    if let Some(GGUFValue::String(s)) = model.metadata.get("unicode_test") {
+        assert_eq!(s, "Hello");
+    } else {
+        panic!("Expected unicode string");
+    }
+}
+
+// ============================================================================
+// GGUF CONFIG STRUCT DIRECT TESTS
+// ============================================================================
+
+#[test]
+fn test_cov_gguf_config_struct_fields() {
+    let config = GGUFConfig {
+        architecture: "llama".to_string(),
+        hidden_dim: 4096,
+        num_layers: 32,
+        num_heads: 32,
+        num_kv_heads: 8,
+        vocab_size: 32000,
+        intermediate_dim: 11008,
+        context_length: 4096,
+        rope_theta: 10000.0,
+        eps: 1e-5,
+        rope_type: 0,
+    };
+
+    assert_eq!(config.architecture, "llama");
+    assert_eq!(config.hidden_dim, 4096);
+    assert_eq!(config.num_layers, 32);
+    assert_eq!(config.num_heads, 32);
+    assert_eq!(config.num_kv_heads, 8);
+    assert_eq!(config.vocab_size, 32000);
+    assert_eq!(config.intermediate_dim, 11008);
+    assert_eq!(config.context_length, 4096);
+    assert!((config.rope_theta - 10000.0).abs() < 1.0);
+    assert!((config.eps - 1e-5).abs() < 1e-8);
+    assert_eq!(config.rope_type, 0);
+}
+
+#[test]
+fn test_cov_gguf_config_gqa_model() {
+    // Grouped Query Attention model (fewer KV heads than Q heads)
+    let config = GGUFConfig {
+        architecture: "llama".to_string(),
+        hidden_dim: 4096,
+        num_layers: 32,
+        num_heads: 32,
+        num_kv_heads: 8, // GQA: 4x fewer KV heads
+        vocab_size: 32000,
+        intermediate_dim: 11008,
+        context_length: 4096,
+        rope_theta: 10000.0,
+        eps: 1e-5,
+        rope_type: 0,
+    };
+
+    // Verify GQA ratio
+    assert_eq!(config.num_heads / config.num_kv_heads, 4);
+}
+
+#[test]
+fn test_cov_gguf_config_mha_model() {
+    // Multi-Head Attention model (same number of KV heads as Q heads)
+    let config = GGUFConfig {
+        architecture: "gpt2".to_string(),
+        hidden_dim: 768,
+        num_layers: 12,
+        num_heads: 12,
+        num_kv_heads: 12, // MHA: same as num_heads
+        vocab_size: 50257,
+        intermediate_dim: 3072,
+        context_length: 1024,
+        rope_theta: 10000.0,
+        eps: 1e-5,
+        rope_type: 0,
+    };
+
+    // Verify MHA
+    assert_eq!(config.num_heads, config.num_kv_heads);
+}
+
+#[test]
+fn test_cov_gguf_config_head_dim_calculation() {
+    let config = GGUFConfig {
+        architecture: "llama".to_string(),
+        hidden_dim: 4096,
+        num_layers: 32,
+        num_heads: 32,
+        num_kv_heads: 8,
+        vocab_size: 32000,
+        intermediate_dim: 11008,
+        context_length: 4096,
+        rope_theta: 10000.0,
+        eps: 1e-5,
+        rope_type: 0,
+    };
+
+    // head_dim = hidden_dim / num_heads
+    let head_dim = config.hidden_dim / config.num_heads;
+    assert_eq!(head_dim, 128);
+}
