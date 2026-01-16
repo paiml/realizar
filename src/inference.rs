@@ -5284,4 +5284,205 @@ mod tests {
         let output = simd_matmul(&input, &weight, in_dim, out_dim);
         assert_eq!(output.len(), seq_len * out_dim);
     }
+
+    // =========================================================================
+    // Coverage Tests: Debug/Clone implementations
+    // =========================================================================
+
+    #[test]
+    fn test_thread_config_debug_clone_copy_cov() {
+        let config = ThreadConfig {
+            n_threads_batch: 4,
+            n_threads_decode: 2,
+        };
+        let debug = format!("{:?}", config);
+        assert!(debug.contains("ThreadConfig"));
+        assert!(debug.contains("4"));
+
+        let cloned = config;
+        assert_eq!(cloned.n_threads_batch, config.n_threads_batch);
+        assert_eq!(cloned.n_threads_decode, config.n_threads_decode);
+    }
+
+    #[test]
+    fn test_inference_mode_debug_clone_copy_eq() {
+        let prefill = InferenceMode::Prefill;
+        let decode = InferenceMode::Decode;
+
+        let debug_prefill = format!("{:?}", prefill);
+        assert!(debug_prefill.contains("Prefill"));
+
+        let debug_decode = format!("{:?}", decode);
+        assert!(debug_decode.contains("Decode"));
+
+        // Test Copy
+        let copied = prefill;
+        assert_eq!(copied, InferenceMode::Prefill);
+
+        // Test PartialEq
+        assert_eq!(prefill, prefill);
+        assert_ne!(prefill, decode);
+    }
+
+    #[test]
+    fn test_kv_cache_debug_clone() {
+        let cache = KVCache::new(2, 64, 512);
+        let debug = format!("{:?}", cache);
+        assert!(debug.contains("KVCache"));
+
+        let cloned = cache.clone();
+        assert_eq!(cloned.num_layers, cache.num_layers);
+    }
+
+    #[test]
+    fn test_optimized_kv_cache_debug_clone() {
+        let cache = OptimizedKVCache::new(2, 64, 512);
+        let debug = format!("{:?}", cache);
+        assert!(debug.contains("OptimizedKVCache"));
+
+        let cloned = cache.clone();
+        assert_eq!(cloned.num_layers, cache.num_layers);
+    }
+
+    #[test]
+    fn test_quantized_memory_stats_debug_clone() {
+        let stats = QuantizedMemoryStats {
+            quantized_weight_bytes: 800,
+            f32_equivalent_bytes: 3200,
+            embedding_bytes: 1000,
+            compression_ratio: 4.0,
+        };
+        let debug = format!("{:?}", stats);
+        assert!(debug.contains("QuantizedMemoryStats"));
+        assert!(debug.contains("800"));
+
+        let cloned = stats.clone();
+        assert_eq!(cloned.quantized_weight_bytes, stats.quantized_weight_bytes);
+        assert_eq!(cloned.embedding_bytes, stats.embedding_bytes);
+    }
+
+    // =========================================================================
+    // Coverage Tests: SIMD operations
+    // =========================================================================
+
+    #[test]
+    fn test_simd_dot_empty_cov2() {
+        let result = simd_dot(&[], &[]);
+        assert_eq!(result, 0.0);
+    }
+
+    #[test]
+    fn test_simd_dot_single_cov2() {
+        let result = simd_dot(&[2.0], &[3.0]);
+        assert!((result - 6.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_simd_add_inplace_cov() {
+        let mut a = vec![1.0f32, 2.0, 3.0, 4.0];
+        let b = vec![10.0f32, 20.0, 30.0, 40.0];
+        simd_add(&mut a, &b);
+        assert!((a[0] - 11.0).abs() < 1e-6);
+        assert!((a[1] - 22.0).abs() < 1e-6);
+        assert!((a[2] - 33.0).abs() < 1e-6);
+        assert!((a[3] - 44.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_simd_mul_inplace() {
+        let mut a = vec![1.0f32, 2.0, 3.0, 4.0];
+        let b = vec![2.0f32, 2.0, 2.0, 2.0];
+        simd_mul(&mut a, &b);
+        assert!((a[0] - 2.0).abs() < 1e-6);
+        assert!((a[1] - 4.0).abs() < 1e-6);
+        assert!((a[2] - 6.0).abs() < 1e-6);
+        assert!((a[3] - 8.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_simd_silu_values() {
+        let mut data = vec![0.0f32, 1.0, -1.0, 2.0];
+        simd_silu(&mut data);
+        // SiLU(x) = x * sigmoid(x)
+        // SiLU(0) = 0 * 0.5 = 0
+        assert!(data[0].abs() < 1e-5);
+        // SiLU(1) = 1 * sigmoid(1) ≈ 0.731
+        assert!((data[1] - 0.731).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_simd_gelu_values() {
+        let mut data = vec![0.0f32, 1.0, -1.0];
+        simd_gelu(&mut data);
+        // GELU(0) ≈ 0
+        assert!(data[0].abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_simd_softmax_single_value() {
+        let mut data = vec![5.0f32];
+        simd_softmax(&mut data);
+        // Single value softmax should be 1.0
+        assert!((data[0] - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_simd_softmax_sum_to_one() {
+        let mut data = vec![1.0f32, 2.0, 3.0, 4.0];
+        simd_softmax(&mut data);
+        let sum: f32 = data.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-5);
+    }
+
+    // =========================================================================
+    // Coverage Tests: Layer normalization
+    // =========================================================================
+
+    #[test]
+    fn test_simd_layer_norm_basic() {
+        let input = vec![1.0f32, 2.0, 3.0, 4.0];
+        let weight = vec![1.0f32; 4];
+        let bias = vec![0.0f32; 4];
+        let output = simd_layer_norm(&input, &weight, Some(&bias), 1e-5);
+        assert_eq!(output.len(), 4);
+        // Output should have mean near 0 and variance near 1
+        let mean: f32 = output.iter().sum::<f32>() / 4.0;
+        assert!(mean.abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_simd_layer_norm_no_bias_cov2() {
+        let input = vec![1.0f32, 2.0, 3.0, 4.0];
+        let weight = vec![1.0f32; 4];
+        let output = simd_layer_norm(&input, &weight, None, 1e-5);
+        assert_eq!(output.len(), 4);
+    }
+
+    #[test]
+    fn test_simd_rms_norm_basic_cov2() {
+        let input = vec![1.0f32, 2.0, 3.0, 4.0];
+        let weight = vec![1.0f32; 4];
+        let output = simd_rms_norm(&input, &weight, 1e-5);
+        assert_eq!(output.len(), 4);
+    }
+
+    // =========================================================================
+    // Coverage Tests: RoPE
+    // =========================================================================
+
+    #[test]
+    fn test_apply_rope_basic() {
+        let mut x = vec![1.0f32; 64];
+        apply_rope(&mut x, 64, 1, 0, 10000.0);
+        // Position 0 should not change much (cos(0) = 1, sin(0) = 0)
+        assert_eq!(x.len(), 64);
+    }
+
+    #[test]
+    fn test_apply_rope_position_1() {
+        let mut x = vec![1.0f32; 64];
+        apply_rope(&mut x, 64, 1, 1, 10000.0);
+        // Non-zero position should apply rotation
+        assert_eq!(x.len(), 64);
+    }
 }
