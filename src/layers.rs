@@ -14355,4 +14355,260 @@ mod tests {
         let sum: f32 = result.data().iter().sum();
         assert!((sum - 1.0).abs() < 1e-5);
     }
+
+    // =========================================================================
+    // Coverage Tests: Debug/Clone implementations
+    // =========================================================================
+
+    #[test]
+    fn test_layer_norm_debug_clone() {
+        let layer_norm = LayerNorm::new(64, 1e-5).expect("test");
+        let debug = format!("{:?}", layer_norm);
+        assert!(debug.contains("LayerNorm"));
+
+        let cloned = layer_norm.clone();
+        assert_eq!(cloned.normalized_shape(), layer_norm.normalized_shape());
+    }
+
+    #[test]
+    fn test_linear_debug_clone() {
+        let linear = Linear::new(32, 64).expect("test");
+        let debug = format!("{:?}", linear);
+        assert!(debug.contains("Linear"));
+
+        let cloned = linear.clone();
+        assert_eq!(cloned.in_features(), linear.in_features());
+        assert_eq!(cloned.out_features(), linear.out_features());
+    }
+
+    #[test]
+    fn test_rope_debug_clone() {
+        let rope = RoPE::new(64, 10000.0).expect("test");
+        let debug = format!("{:?}", rope);
+        assert!(debug.contains("RoPE"));
+
+        let cloned = rope.clone();
+        assert_eq!(cloned.dim(), rope.dim());
+    }
+
+    #[test]
+    fn test_rope_scaling_type_debug_clone_copy() {
+        // Test None variant
+        let none = RopeScalingType::None;
+        let debug_none = format!("{:?}", none);
+        assert!(debug_none.contains("None"));
+        let cloned_none = none;
+        assert_eq!(cloned_none, RopeScalingType::None);
+
+        // Test Linear variant
+        let linear = RopeScalingType::Linear { scale: 2.0 };
+        let debug_linear = format!("{:?}", linear);
+        assert!(debug_linear.contains("Linear"));
+        assert!(debug_linear.contains("2.0"));
+        let cloned_linear = linear;
+        assert_eq!(cloned_linear, linear);
+
+        // Test Ntk variant
+        let ntk = RopeScalingType::Ntk { scale: 1.5 };
+        let debug_ntk = format!("{:?}", ntk);
+        assert!(debug_ntk.contains("Ntk"));
+        assert_eq!(ntk, RopeScalingType::Ntk { scale: 1.5 });
+
+        // Test DynamicNtk variant
+        let dynamic = RopeScalingType::DynamicNtk {
+            original_max_len: 2048,
+            target_max_len: 4096,
+        };
+        let debug_dynamic = format!("{:?}", dynamic);
+        assert!(debug_dynamic.contains("DynamicNtk"));
+        assert!(debug_dynamic.contains("2048"));
+
+        // Test Yarn variant
+        let yarn = RopeScalingType::Yarn {
+            original_max_len: 2048,
+            target_max_len: 8192,
+            attn_factor: 1.0,
+            beta_fast: 32.0,
+            beta_slow: 1.0,
+        };
+        let debug_yarn = format!("{:?}", yarn);
+        assert!(debug_yarn.contains("Yarn"));
+        assert!(debug_yarn.contains("8192"));
+
+        // Test Default
+        let default = RopeScalingType::default();
+        assert_eq!(default, RopeScalingType::None);
+    }
+
+    #[test]
+    fn test_scaled_rope_debug_clone() {
+        let scaled = ScaledRoPE::new(64, 10000.0, RopeScalingType::None).expect("test");
+        let debug = format!("{:?}", scaled);
+        assert!(debug.contains("ScaledRoPE"));
+
+        let cloned = scaled.clone();
+        assert_eq!(cloned.dim(), scaled.dim());
+    }
+
+    #[test]
+    fn test_alibi_debug_clone() {
+        let alibi = ALiBi::new(8).expect("test");
+        let debug = format!("{:?}", alibi);
+        assert!(debug.contains("ALiBi"));
+
+        let cloned = alibi.clone();
+        assert_eq!(cloned.num_heads(), alibi.num_heads());
+    }
+
+    #[test]
+    fn test_kv_cache_debug_clone() {
+        let cache = KVCache::new(2, 512, 64).expect("test");
+        let debug = format!("{:?}", cache);
+        assert!(debug.contains("KVCache"));
+
+        let cloned = cache.clone();
+        assert_eq!(cloned.num_layers(), cache.num_layers());
+    }
+
+    #[test]
+    fn test_attention_debug_clone() {
+        let attn = Attention::new(64).expect("test");
+        let debug = format!("{:?}", attn);
+        assert!(debug.contains("Attention"));
+
+        let cloned = attn.clone();
+        assert!((cloned.scale() - attn.scale()).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_feed_forward_debug_clone() {
+        let ffn = FeedForward::new(64, 256).expect("test");
+        let debug = format!("{:?}", ffn);
+        assert!(debug.contains("FeedForward"));
+
+        let cloned = ffn.clone();
+        assert_eq!(cloned.hidden_dim(), ffn.hidden_dim());
+    }
+
+    #[test]
+    fn test_multi_head_attention_debug_clone() {
+        let mha = MultiHeadAttention::new(256, 4, 4).expect("test");
+        let debug = format!("{:?}", mha);
+        assert!(debug.contains("MultiHeadAttention"));
+
+        let cloned = mha.clone();
+        assert_eq!(cloned.num_heads(), mha.num_heads());
+    }
+
+    #[test]
+    fn test_embedding_debug_clone() {
+        let emb = Embedding::new(1000, 256).expect("test");
+        let debug = format!("{:?}", emb);
+        assert!(debug.contains("Embedding"));
+
+        let cloned = emb.clone();
+        assert_eq!(cloned.vocab_size(), emb.vocab_size());
+        assert_eq!(cloned.embed_dim(), emb.embed_dim());
+    }
+
+    #[test]
+    fn test_model_config_debug_clone() {
+        let config = ModelConfig {
+            vocab_size: 50000,
+            hidden_dim: 1024,
+            num_layers: 12,
+            num_heads: 8,
+            intermediate_dim: 4096,
+            eps: 1e-5,
+        };
+        let debug = format!("{:?}", config);
+        assert!(debug.contains("ModelConfig"));
+        assert!(debug.contains("50000"));
+
+        let cloned = config.clone();
+        assert_eq!(cloned.vocab_size, config.vocab_size);
+        assert_eq!(cloned.hidden_dim, config.hidden_dim);
+        assert_eq!(cloned.num_layers, config.num_layers);
+    }
+
+    #[test]
+    fn test_model_debug_clone() {
+        let config = ModelConfig {
+            vocab_size: 1000,
+            hidden_dim: 64,
+            num_layers: 1,
+            num_heads: 2,
+            intermediate_dim: 256,
+            eps: 1e-5,
+        };
+        let model = Model::new(config.clone()).expect("test");
+        let debug = format!("{:?}", model);
+        assert!(debug.contains("Model"));
+
+        let cloned = model.clone();
+        // Verify the cloned model has the same config
+        assert_eq!(cloned.config().num_layers, model.config().num_layers);
+    }
+
+    #[test]
+    fn test_transformer_block_debug_clone() {
+        let block = TransformerBlock::new(256, 4, 1024, 1e-5).expect("test");
+        let debug = format!("{:?}", block);
+        assert!(debug.contains("TransformerBlock"));
+
+        let cloned = block.clone();
+        assert_eq!(cloned.hidden_dim(), block.hidden_dim());
+    }
+
+    #[test]
+    fn test_sliding_window_attention_debug_clone() {
+        let swa = SlidingWindowAttention::new(64, 1024).expect("test");
+        let debug = format!("{:?}", swa);
+        assert!(debug.contains("SlidingWindowAttention"));
+
+        let cloned = swa.clone();
+        assert_eq!(cloned.window_size(), swa.window_size());
+    }
+
+    #[test]
+    fn test_fused_qkv_attention_debug_clone() {
+        // FusedQKVAttention::new(head_dim, hidden_dim)
+        // hidden_dim must be divisible by head_dim
+        // For head_dim 64, hidden_dim 256: num_heads = 256/64 = 4
+        let fused = FusedQKVAttention::new(64, 256).expect("test");
+        let debug = format!("{:?}", fused);
+        assert!(debug.contains("FusedQKVAttention"));
+
+        let cloned = fused.clone();
+        assert_eq!(cloned.num_heads(), fused.num_heads());
+    }
+
+    #[test]
+    fn test_quantized_linear_debug_clone() {
+        // Q4_K: 144 bytes per super-block of 256 values
+        // For 256 in_features: 1 super-block per row = 144 bytes
+        // For 128 out_features: 128 rows = 128 * 144 = 18,432 bytes
+        let in_features = 256;
+        let out_features = 128;
+        let weight_bytes = vec![0u8; out_features * 144]; // 144 bytes per row
+        let bias = vec![0.0f32; out_features];
+
+        let ql = QuantizedLinear::new(in_features, out_features, weight_bytes, bias).expect("test");
+        let debug = format!("{:?}", ql);
+        assert!(debug.contains("QuantizedLinear"));
+
+        let cloned = ql.clone();
+        assert_eq!(cloned.in_features(), ql.in_features());
+        assert_eq!(cloned.out_features(), ql.out_features());
+    }
+
+    #[test]
+    fn test_fused_layer_norm_linear_debug_clone() {
+        let fused = FusedLayerNormLinear::new(64, 128, 1e-5).expect("test");
+        let debug = format!("{:?}", fused);
+        assert!(debug.contains("FusedLayerNormLinear"));
+
+        let cloned = fused.clone();
+        assert_eq!(cloned.feature_dim(), fused.feature_dim());
+    }
 }
