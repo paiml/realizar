@@ -66,8 +66,8 @@ fn main() -> Result<(), RealizarError> {
 
     // Calculate expected breakdown
     let num_layers = model.config.num_layers;
-    let hidden_dim = model.config.hidden_dim;
-    let intermediate_dim = model.config.intermediate_dim;
+    let _hidden_dim = model.config.hidden_dim;
+    let _intermediate_dim = model.config.intermediate_dim;
 
     // Based on profiling data from v4.94.0:
     // - Per-layer matmul: 577 µs (Q4_K + Q6_K SIMD)

@@ -79,7 +79,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Check Q6K super-block boundaries near token 74403
     // Q6K: 256 values per super-block, 1260 bytes per row
     // Token 74403 is row 74403 in the LM head matrix
-    let sb_per_row = (hidden_dim + 255) / 256; // = 6
+    let sb_per_row = hidden_dim.div_ceil(256); // = 6
     let bytes_per_row = sb_per_row * 210; // Q6K bytes
     let row_offset = 74403 * bytes_per_row;
     eprintln!("\n=== Q6K Layout Analysis ===");

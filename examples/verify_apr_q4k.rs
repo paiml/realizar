@@ -15,8 +15,8 @@ fn main() {
     println!("====================");
     println!();
 
-    let apr_path = std::env::var("APR_PATH")
-        .unwrap_or_else(|_| "/tmp/qwen2.5-coder-1.5b-q4k.apr".to_string());
+    let apr_path =
+        std::env::var("APR_PATH").unwrap_or_else(|_| "/tmp/qwen2.5-coder-1.5b-q4k.apr".to_string());
 
     if !Path::new(&apr_path).exists() {
         eprintln!("APR file not found: {}", apr_path);
@@ -58,11 +58,36 @@ fn main() {
         serde_json::from_slice(&data[metadata_start..metadata_end]).expect("parse metadata");
 
     println!("Metadata:");
-    println!("  Model type: {}", metadata_json.get("model_type").unwrap_or(&serde_json::Value::Null));
-    println!("  Architecture: {}", metadata_json.get("architecture").unwrap_or(&serde_json::Value::Null));
-    println!("  Hidden size: {}", metadata_json.get("hidden_size").unwrap_or(&serde_json::Value::Null));
-    println!("  Num layers: {}", metadata_json.get("num_layers").unwrap_or(&serde_json::Value::Null));
-    println!("  Quantization: {}", metadata_json.get("quantization").unwrap_or(&serde_json::Value::Null));
+    println!(
+        "  Model type: {}",
+        metadata_json
+            .get("model_type")
+            .unwrap_or(&serde_json::Value::Null)
+    );
+    println!(
+        "  Architecture: {}",
+        metadata_json
+            .get("architecture")
+            .unwrap_or(&serde_json::Value::Null)
+    );
+    println!(
+        "  Hidden size: {}",
+        metadata_json
+            .get("hidden_size")
+            .unwrap_or(&serde_json::Value::Null)
+    );
+    println!(
+        "  Num layers: {}",
+        metadata_json
+            .get("num_layers")
+            .unwrap_or(&serde_json::Value::Null)
+    );
+    println!(
+        "  Quantization: {}",
+        metadata_json
+            .get("quantization")
+            .unwrap_or(&serde_json::Value::Null)
+    );
     println!();
 
     // Parse tensor index
@@ -80,8 +105,10 @@ fn main() {
         pos += bytes_read;
 
         if tensor_count < 10 {
-            println!("  {}: dtype={} shape={:?} size={} bytes",
-                entry.name, entry.dtype, entry.shape, entry.size);
+            println!(
+                "  {}: dtype={} shape={:?} size={} bytes",
+                entry.name, entry.dtype, entry.shape, entry.size
+            );
         }
 
         // Count Q4K tensors (APR dtype 8)
@@ -96,8 +123,15 @@ fn main() {
 
     println!("Summary:");
     println!("  Total tensors: {}", tensor_count);
-    println!("  Q4K tensors: {} ({:.1}%)", q4k_count, q4k_count as f64 / tensor_count as f64 * 100.0);
-    println!("  Total tensor bytes: {:.2} MB", total_bytes as f64 / 1_000_000.0);
+    println!(
+        "  Q4K tensors: {} ({:.1}%)",
+        q4k_count,
+        q4k_count as f64 / tensor_count as f64 * 100.0
+    );
+    println!(
+        "  Total tensor bytes: {:.2} MB",
+        total_bytes as f64 / 1_000_000.0
+    );
     println!();
 
     // Verify we can access tensor data

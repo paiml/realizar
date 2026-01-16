@@ -9,7 +9,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("=== Position-Specific Trace ===\n");
 
-    let hidden_dim = model.config.hidden_dim;
+    let _hidden_dim = model.config.hidden_dim;
 
     // Compare: what happens if we run token 17 at position 0 vs position 1?
     // For fair comparison, we should see similar patterns

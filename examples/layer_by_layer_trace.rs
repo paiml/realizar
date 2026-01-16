@@ -13,8 +13,9 @@ fn main() {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel, OwnedQuantizedModelCuda};
 
-    let path = std::env::var("MODEL_PATH")
-        .unwrap_or_else(|_| "/home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf".to_string());
+    let path = std::env::var("MODEL_PATH").unwrap_or_else(|_| {
+        "/home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf".to_string()
+    });
 
     println!("CORRECTNESS-011: Per-Layer Divergence Trace");
     println!("============================================");
@@ -42,8 +43,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cpu_embed_sqsum: f32 = cpu_embedding.iter().map(|x| x * x).sum();
     let cpu_embed_rms = (cpu_embed_sqsum / cpu_embedding.len() as f32).sqrt();
 
-    println!("CPU embedding: first 5 = {:?}", &cpu_embedding[..5.min(cpu_embedding.len())]);
-    println!("CPU embedding: sum={:.6}, rms={:.6}", cpu_embed_sum, cpu_embed_rms);
+    println!(
+        "CPU embedding: first 5 = {:?}",
+        &cpu_embedding[..5.min(cpu_embedding.len())]
+    );
+    println!(
+        "CPU embedding: sum={:.6}, rms={:.6}",
+        cpu_embed_sum, cpu_embed_rms
+    );
 
     // ========================================================================
     // Phase 2: Get GPU embedding
@@ -134,9 +141,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // What would CPU argmax value be under linear transform?
             let transformed_cpu_argmax = slope * cv + intercept;
             println!("\nLinear transform analysis:");
-            println!("  Expected GPU[{}] under linear transform: {:.6}", ci, transformed_cpu_argmax);
-            println!("  Actual GPU[{}]: {:.6}", ci, gpu_logits.get(ci).unwrap_or(&0.0));
-            println!("  Residual: {:.6}", (gpu_logits.get(ci).unwrap_or(&0.0) - transformed_cpu_argmax).abs());
+            println!(
+                "  Expected GPU[{}] under linear transform: {:.6}",
+                ci, transformed_cpu_argmax
+            );
+            println!(
+                "  Actual GPU[{}]: {:.6}",
+                ci,
+                gpu_logits.get(ci).unwrap_or(&0.0)
+            );
+            println!(
+                "  Residual: {:.6}",
+                (gpu_logits.get(ci).unwrap_or(&0.0) - transformed_cpu_argmax).abs()
+            );
         }
 
         // Find largest residuals (positions where GPU deviates most from linear transform)
@@ -153,8 +170,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         println!("\nTop 10 largest residuals (deviations from linear fit):");
         for (i, (idx, residual)) in residuals.iter().take(10).enumerate() {
-            println!("  {}: pos={}, residual={:.4}, CPU={:.4}, GPU={:.4}",
-                i+1, idx, residual,
+            println!(
+                "  {}: pos={}, residual={:.4}, CPU={:.4}, GPU={:.4}",
+                i + 1,
+                idx,
+                residual,
                 cpu_logits.get(*idx).unwrap_or(&0.0),
                 gpu_logits.get(*idx).unwrap_or(&0.0)
             );

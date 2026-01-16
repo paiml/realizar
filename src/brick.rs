@@ -2964,6 +2964,7 @@ mod tests {
 
     // F094: Graceful degradation infrastructure
     #[test]
+    #[allow(deprecated)] // Testing legacy execute() method
     fn f094_graceful_degradation_ready() {
         // Bricks return Result for error handling
         let brick = ActivationQuantBrick::new(0);
@@ -3396,8 +3397,8 @@ mod tests {
     fn f048_rmsnorm_epsilon() {
         // With near-zero input, epsilon prevents division by zero
         // Use a relaxed budget since this test is about correctness, not performance
-        let brick = RmsNormBrick::new(vec![1.0; 4], 1e-5)
-            .with_budget(TokenBudget::from_latency(1000.0)); // 1ms budget for test
+        let brick =
+            RmsNormBrick::new(vec![1.0; 4], 1e-5).with_budget(TokenBudget::from_latency(1000.0)); // 1ms budget for test
         let input = vec![1e-10f32; 4]; // Very small values
 
         let result = brick.run(&input).unwrap();
@@ -3432,7 +3433,10 @@ mod tests {
         // Coalesced DP4A processes in groups (warp-aligned)
         let brick = CoalescedDp4aBrick::new(256, 4);
         // K must be multiple of 256 for warp-aligned access
-        assert!(brick.k % 256 == 0, "K should be warp-aligned (256)");
+        assert!(
+            brick.k.is_multiple_of(256),
+            "K should be warp-aligned (256)"
+        );
     }
 
     // F071: Kernel launch overhead tracking
@@ -3485,6 +3489,7 @@ mod tests {
 
     // F080: Graceful handling of edge cases
     #[test]
+    #[allow(deprecated)] // Testing legacy execute() methods
     fn f080_edge_cases() {
         // Empty/zero dimension handling
         let brick = ActivationQuantBrick::new(0);
@@ -3684,7 +3689,7 @@ mod tests {
     #[test]
     fn test_token_budget_clone() {
         let budget = TokenBudget::from_latency(100.0).with_batch_size(32);
-        let cloned = budget.clone();
+        let cloned = budget;
         assert_eq!(budget.us_per_token, cloned.us_per_token);
         assert_eq!(budget.batch_size, cloned.batch_size);
     }

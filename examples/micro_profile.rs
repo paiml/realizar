@@ -1,7 +1,7 @@
 //! Micro-profiling: measure individual operations in forward pass
 
 use realizar::quantize::{
-    fused_q4k_q8k_parallel_matvec_into, fused_q4k_parallel_matvec_into,
+    fused_q4k_parallel_matvec_into, fused_q4k_q8k_parallel_matvec_into,
     quantize_activations_q8k_into, QK_K,
 };
 use std::time::Instant;
@@ -14,14 +14,16 @@ fn main() {
     // Create test data
     const Q4K_SUPER_BLOCK_BYTES: usize = 144;
     let super_blocks = hidden_dim.div_ceil(QK_K);
-    let q4k_bytes = super_blocks * Q4K_SUPER_BLOCK_BYTES;
+    let _q4k_bytes = super_blocks * Q4K_SUPER_BLOCK_BYTES;
 
     // Q4K weight matrix for FFN down (intermediate_dim × hidden_dim)
-    let ffn_down_bytes = intermediate_dim.div_ceil(QK_K) * QK_K / QK_K * intermediate_dim.div_ceil(QK_K);
+    let _ffn_down_bytes =
+        intermediate_dim.div_ceil(QK_K) * QK_K / QK_K * intermediate_dim.div_ceil(QK_K);
     let ffn_down_rows = hidden_dim;
     let ffn_down_cols = intermediate_dim;
     let ffn_down_super_blocks = ffn_down_cols.div_ceil(QK_K);
-    let ffn_down_weight: Vec<u8> = vec![0x55; ffn_down_rows * ffn_down_super_blocks * Q4K_SUPER_BLOCK_BYTES];
+    let ffn_down_weight: Vec<u8> =
+        vec![0x55; ffn_down_rows * ffn_down_super_blocks * Q4K_SUPER_BLOCK_BYTES];
 
     // Activations
     let activations_f32: Vec<f32> = (0..intermediate_dim)
@@ -39,7 +41,10 @@ fn main() {
 
     let iters = 100;
 
-    println!("=== Micro-profiling FFN Down ({}x{}) ===\n", hidden_dim, intermediate_dim);
+    println!(
+        "=== Micro-profiling FFN Down ({}x{}) ===\n",
+        hidden_dim, intermediate_dim
+    );
 
     // 1. Measure Q8K quantization time
     let start = Instant::now();
@@ -47,9 +52,11 @@ fn main() {
         quantize_activations_q8k_into(&activations_f32, &mut q8k_scales, &mut q8k_quants).unwrap();
     }
     let q8k_time = start.elapsed();
-    println!("Q8K quantization: {:>7.1} µs/iter ({:.2}%)",
+    println!(
+        "Q8K quantization: {:>7.1} µs/iter ({:.2}%)",
         q8k_time.as_micros() as f64 / iters as f64,
-        0.0);
+        0.0
+    );
 
     // 2. Measure Q4K×Q8K matmul time
     let start = Instant::now();
@@ -61,7 +68,8 @@ fn main() {
             intermediate_dim,
             hidden_dim,
             &mut output,
-        ).unwrap();
+        )
+        .unwrap();
     }
     let q4k_q8k_time = start.elapsed();
     let q4k_q8k_us = q4k_q8k_time.as_micros() as f64 / iters as f64;
@@ -76,7 +84,8 @@ fn main() {
             intermediate_dim,
             hidden_dim,
             &mut output,
-        ).unwrap();
+        )
+        .unwrap();
     }
     let q4k_f32_time = start.elapsed();
     let q4k_f32_us = q4k_f32_time.as_micros() as f64 / iters as f64;
@@ -133,8 +142,14 @@ fn main() {
 
     println!("\n=== Estimated Full Forward Pass ===");
     println!("Total FLOPs per token: {:.2}B", total_flops / 1e9);
-    println!("If all matmuls at Q4K×Q8K speed: {:.1} µs", estimated_time_us);
+    println!(
+        "If all matmuls at Q4K×Q8K speed: {:.1} µs",
+        estimated_time_us
+    );
     println!("Estimated throughput: {:.0} tok/s", estimated_tok_s);
     println!("\nActual measured: ~15-19 tok/s");
-    println!("Gap: {:.1}x slower than matmul-limited", estimated_tok_s / 17.0);
+    println!(
+        "Gap: {:.1}x slower than matmul-limited",
+        estimated_tok_s / 17.0
+    );
 }

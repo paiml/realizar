@@ -5,9 +5,10 @@ use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel, QuantizedGenerateConf
 use std::time::Instant;
 
 fn main() {
-    let model_path = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf".to_string());
+    let model_path = std::env::args().nth(1).unwrap_or_else(|| {
+        "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+            .to_string()
+    });
 
     println!("Loading model: {model_path}");
     let mapped = MappedGGUFModel::from_path(&model_path).expect("load");
@@ -24,7 +25,8 @@ fn main() {
     println!();
 
     // Generate tokens and measure time
-    let prompt = "<|im_start|>user\nWrite a hello world program.<|im_end|>\n<|im_start|>assistant\n";
+    let prompt =
+        "<|im_start|>user\nWrite a hello world program.<|im_end|>\n<|im_start|>assistant\n";
     let tokens = mapped.model.encode(prompt).unwrap();
     println!("Prompt: {} tokens", tokens.len());
 
@@ -63,8 +65,8 @@ fn main() {
     // - FFN gate/up: 2 * hidden_dim * intermediate_dim * 2
     // - FFN down: intermediate_dim * hidden_dim * 2
     // - Per layer: ~10 * hidden_dim^2 + 6 * hidden_dim * intermediate_dim
-    let flops_per_layer = 10.0 * (hidden_dim as f64).powi(2)
-        + 6.0 * hidden_dim as f64 * intermediate_dim as f64;
+    let flops_per_layer =
+        10.0 * (hidden_dim as f64).powi(2) + 6.0 * hidden_dim as f64 * intermediate_dim as f64;
     let flops_per_token = flops_per_layer * num_layers as f64;
     let gflops_per_token = flops_per_token / 1e9;
 
@@ -97,11 +99,17 @@ fn main() {
     let compute_peak = 200.0; // Assume ~200 GFLOP/s for AVX2 FMA
 
     println!("=== Roofline Model ===");
-    println!("Memory bandwidth: {:.0} GB/s (DDR4 dual)", mem_bandwidth_gbs);
+    println!(
+        "Memory bandwidth: {:.0} GB/s (DDR4 dual)",
+        mem_bandwidth_gbs
+    );
     println!("Memory-bound peak: {:.2} GFLOP/s", mem_bound_peak);
     println!("Compute peak: {:.0} GFLOP/s (AVX2 FMA)", compute_peak);
     println!("Achieved: {:.2} GFLOP/s", achieved_gflops);
-    println!("Efficiency: {:.1}% of memory-bound peak", 100.0 * achieved_gflops / mem_bound_peak);
+    println!(
+        "Efficiency: {:.1}% of memory-bound peak",
+        100.0 * achieved_gflops / mem_bound_peak
+    );
 
     let decoded = mapped.model.decode(&output[tokens.len()..]);
     println!("\n=== Output ===\n{decoded}");

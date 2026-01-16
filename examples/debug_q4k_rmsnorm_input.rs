@@ -48,7 +48,7 @@ fn main() {
     let rms = (rms_sum / hidden_dim as f32 + eps).sqrt();
     let rms_inv = 1.0 / rms;
 
-    let mut normed: Vec<f32> = embedding
+    let normed: Vec<f32> = embedding
         .iter()
         .zip(attn_norm.iter())
         .map(|(&x, &g)| x * rms_inv * g)

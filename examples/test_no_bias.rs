@@ -35,7 +35,7 @@ fn main() {
         }
     }
 
-    let (q_dim, k_dim, _v_dim) = match &layer.qkv_weight {
+    let (q_dim, _k_dim, _v_dim) = match &layer.qkv_weight {
         OwnedQKVWeights::Separate { q, k, v } => (q.out_dim, k.out_dim, v.out_dim),
         _ => panic!("Expected separate"),
     };

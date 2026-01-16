@@ -15,7 +15,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== TinyLlama Single Token Survey ===\n");
 
     // What's token 0 in TinyLlama?
-    let tok0_name = vocab.get(0).map(|s| s.as_str()).unwrap_or("?");
+    let tok0_name = vocab.first().map(|s| s.as_str()).unwrap_or("?");
     println!("Token 0: {:?}", tok0_name);
 
     // Test tokens 0-50

@@ -336,7 +336,7 @@ fn main() {
 
         // CPU Benchmark
         println!("\n  [CPU] Running APR CPU benchmark...");
-        match benchmark_apr_cpu(tier.gguf_path, &tier.prompt_tokens, max_tokens) {
+        match benchmark_apr_cpu(tier.gguf_path, tier.prompt_tokens, max_tokens) {
             Ok(tok_s) => {
                 let speedup = tok_s / tier.llama_cpp_cpu_baseline;
                 let meets_2x = speedup >= 2.0;
@@ -366,7 +366,7 @@ fn main() {
         // GPU Benchmark
         if cuda_available {
             println!("\n  [GPU] Running APR GPU benchmark...");
-            match benchmark_apr_gpu(tier.gguf_path, &tier.prompt_tokens, max_tokens) {
+            match benchmark_apr_gpu(tier.gguf_path, tier.prompt_tokens, max_tokens) {
                 Ok(tok_s) => {
                     let speedup = tok_s / tier.llama_cpp_gpu_baseline;
                     let meets_2x = speedup >= 2.0;

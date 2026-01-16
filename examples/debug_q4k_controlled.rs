@@ -243,7 +243,7 @@ fn test_real_q_weight() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Compute expected bytes per row for Q4K
-    let sb_per_row = (q_in_dim + 255) / 256;
+    let sb_per_row = q_in_dim.div_ceil(256);
     let bytes_per_row = sb_per_row * 144;
     eprintln!(
         "sb_per_row={}, expected_bytes_per_row={}, actual_bytes_per_row={}",

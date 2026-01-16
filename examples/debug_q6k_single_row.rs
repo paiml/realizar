@@ -28,18 +28,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // - d = 1.0
 
     // ql[0..128] = 0x11 (value 1 for both nibbles)
-    for i in 0..128 {
-        q6k_data[i] = 0x11; // low nibble = 1, high nibble = 1
+    for byte in q6k_data.iter_mut().take(128) {
+        *byte = 0x11; // low nibble = 1, high nibble = 1
     }
 
     // qh[128..192] = 0x00 (no high bits)
-    for i in 128..192 {
-        q6k_data[i] = 0x00;
+    for byte in q6k_data.iter_mut().take(192).skip(128) {
+        *byte = 0x00;
     }
 
     // scales[192..208] = 1 (positive scale)
-    for i in 192..208 {
-        q6k_data[i] = 1;
+    for byte in q6k_data.iter_mut().take(208).skip(192) {
+        *byte = 1;
     }
 
     // d = 1.0 in f16
@@ -135,7 +135,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let hidden_dim = model.config.hidden_dim;
         let vocab_size = model.config.vocab_size;
-        let sb_per_row = (hidden_dim + 255) / 256;
+        let sb_per_row = hidden_dim.div_ceil(256);
         let bytes_per_row = sb_per_row * 210;
 
         eprintln!(

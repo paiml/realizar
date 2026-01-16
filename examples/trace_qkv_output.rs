@@ -101,7 +101,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let eps = model.config.eps;
     let ss: f32 = token_17_emb.iter().map(|x| x * x).sum::<f32>() / hidden_dim as f32;
     let scale = 1.0 / (ss + eps).sqrt();
-    let mut normed: Vec<f32> = token_17_emb
+    let normed: Vec<f32> = token_17_emb
         .iter()
         .zip(layer0.attn_norm_weight.iter())
         .map(|(x, w)| x * scale * w)

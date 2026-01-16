@@ -395,6 +395,7 @@ fn run_benchmark() {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct BenchResult {
     tokens: usize,
     duration: Duration,
@@ -403,6 +404,7 @@ struct BenchResult {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct Stats {
     mean_throughput: f64,
     std_throughput: f64,

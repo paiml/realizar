@@ -24,7 +24,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // CPU layer 0 debug
     eprintln!("=== CPU Layer 0 ===");
-    let mut cpu_cache = OwnedQuantizedKVCache::new(num_layers, kv_dim, 64);
+    let _cpu_cache = OwnedQuantizedKVCache::new(num_layers, kv_dim, 64);
 
     // Get embedding
     let embed = cpu_model.embed(&[test_token]);

@@ -67,8 +67,8 @@ fn main() -> Result<(), RealizarError> {
     let n_layers = 22;
     let hidden_dim = 2048;
     let intermediate_dim = 5632;
-    let n_heads = 32;
-    let head_dim = 64;
+    let _n_heads = 32;
+    let _head_dim = 64;
     let vocab_size = 32000;
 
     // Q4_K: ~0.5625 bytes per element (4.5 bits per weight)

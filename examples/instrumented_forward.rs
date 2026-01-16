@@ -16,9 +16,10 @@ fn main() {
     if let Err(e) = realizar::inference::configure_thread_pool(num_physical_cores) {
         eprintln!("Note: Thread pool already configured: {e}");
     }
-    let model_path = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf".to_string());
+    let model_path = std::env::args().nth(1).unwrap_or_else(|| {
+        "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+            .to_string()
+    });
 
     println!("Loading model: {model_path}");
     let mapped = MappedGGUFModel::from_path(&model_path).expect("load");
@@ -55,7 +56,9 @@ fn main() {
     let overall_start = Instant::now();
     let mut total_tokens = 0;
     for _ in 0..iters {
-        let output = model.generate_with_cache(&tokens, &gen_config).expect("gen");
+        let output = model
+            .generate_with_cache(&tokens, &gen_config)
+            .expect("gen");
         total_tokens += output.len() - tokens.len();
     }
     let overall_elapsed = overall_start.elapsed();
@@ -74,12 +77,12 @@ fn main() {
     let l = config.num_layers as f64;
 
     // Per-token FLOPs by operation category
-    let qkv_flops = 3.0 * h * h * 2.0 * l;  // QKV projection (simplified, ignores GQA)
-    let attn_flops = 0.0; // ~O(seq) for decode, negligible
-    let proj_flops = h * h * 2.0 * l;  // Attention output projection
+    let qkv_flops = 3.0 * h * h * 2.0 * l; // QKV projection (simplified, ignores GQA)
+    let _attn_flops = 0.0; // ~O(seq) for decode, negligible
+    let proj_flops = h * h * 2.0 * l; // Attention output projection
     let ffn_up_gate_flops = 2.0 * h * i * 2.0 * l; // FFN up + gate
     let ffn_down_flops = i * h * 2.0 * l; // FFN down
-    let total_flops = qkv_flops + proj_flops + ffn_up_gate_flops + ffn_down_flops;
+    let _total_flops = qkv_flops + proj_flops + ffn_up_gate_flops + ffn_down_flops;
 
     // Theoretical time at 123.4 GFLOP/s kernel throughput
     let kernel_gflops = 123.4;
@@ -90,13 +93,32 @@ fn main() {
     let total_theoretical_us = qkv_us + proj_us + ffn_up_gate_us + ffn_down_us;
 
     println!("\n=== Theoretical Breakdown (at kernel speed) ===");
-    println!("QKV projection:     {:>8.1} µs  ({:.1}%)", qkv_us, 100.0 * qkv_us / total_theoretical_us);
-    println!("Attn output proj:   {:>8.1} µs  ({:.1}%)", proj_us, 100.0 * proj_us / total_theoretical_us);
-    println!("FFN up+gate:        {:>8.1} µs  ({:.1}%)", ffn_up_gate_us, 100.0 * ffn_up_gate_us / total_theoretical_us);
-    println!("FFN down:           {:>8.1} µs  ({:.1}%)", ffn_down_us, 100.0 * ffn_down_us / total_theoretical_us);
+    println!(
+        "QKV projection:     {:>8.1} µs  ({:.1}%)",
+        qkv_us,
+        100.0 * qkv_us / total_theoretical_us
+    );
+    println!(
+        "Attn output proj:   {:>8.1} µs  ({:.1}%)",
+        proj_us,
+        100.0 * proj_us / total_theoretical_us
+    );
+    println!(
+        "FFN up+gate:        {:>8.1} µs  ({:.1}%)",
+        ffn_up_gate_us,
+        100.0 * ffn_up_gate_us / total_theoretical_us
+    );
+    println!(
+        "FFN down:           {:>8.1} µs  ({:.1}%)",
+        ffn_down_us,
+        100.0 * ffn_down_us / total_theoretical_us
+    );
     println!("Total theoretical:  {:>8.1} µs", total_theoretical_us);
     println!("Actual:             {:>8.1} µs", per_token_us);
-    println!("Overhead:           {:>8.1}x", per_token_us / total_theoretical_us);
+    println!(
+        "Overhead:           {:>8.1}x",
+        per_token_us / total_theoretical_us
+    );
 
     // Estimate where overhead comes from
     // - RMSNorm: 28 layers × 2 norms × (5 FLOPs/elem × 1536) = ~430K FLOPs
@@ -107,18 +129,30 @@ fn main() {
     let norm_flops = 2.0 * l * 5.0 * h; // 5 FLOPs per element for RMSNorm
     let silu_flops = l * i; // SiLU: x * sigmoid(x)
     let overhead_flops = norm_flops + silu_flops;
-    let overhead_us = (overhead_flops / 1e9) / kernel_gflops * 1e6;
+    let _overhead_us = (overhead_flops / 1e9) / kernel_gflops * 1e6;
 
     println!("\n=== Non-Matmul Operations ===");
-    println!("RMSNorm FLOPs:      {:>8.1}K ({:.1} µs at kernel speed)", norm_flops / 1e3, (norm_flops / 1e9) / kernel_gflops * 1e6);
-    println!("SiLU FLOPs:         {:>8.1}K ({:.1} µs at kernel speed)", silu_flops / 1e3, (silu_flops / 1e9) / kernel_gflops * 1e6);
+    println!(
+        "RMSNorm FLOPs:      {:>8.1}K ({:.1} µs at kernel speed)",
+        norm_flops / 1e3,
+        (norm_flops / 1e9) / kernel_gflops * 1e6
+    );
+    println!(
+        "SiLU FLOPs:         {:>8.1}K ({:.1} µs at kernel speed)",
+        silu_flops / 1e3,
+        (silu_flops / 1e9) / kernel_gflops * 1e6
+    );
 
     // Gap analysis
     let gap_us = per_token_us - total_theoretical_us;
     println!("\n=== Gap Analysis ===");
     println!("Matmul theoretical: {:>8.1} µs", total_theoretical_us);
     println!("Actual:             {:>8.1} µs", per_token_us);
-    println!("Gap:                {:>8.1} µs ({:.1}%)", gap_us, 100.0 * gap_us / per_token_us);
+    println!(
+        "Gap:                {:>8.1} µs ({:.1}%)",
+        gap_us,
+        100.0 * gap_us / per_token_us
+    );
     println!();
     println!("If gap is mostly in:");
     println!("  - RMSNorm/SiLU:   Scalar ops need SIMD optimization");

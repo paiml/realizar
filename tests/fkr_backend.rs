@@ -22,8 +22,7 @@ fn fkr_backend_f041_cpu_baseline() {
     // where rms = sqrt(mean(x^2) + eps)
     let weight = vec![1.0_f32; 4];
     let eps = 1e-5_f32;
-    let brick =
-        RmsNormBrick::new(weight.clone(), eps).with_budget(TokenBudget::from_latency(1_000_000.0));
+    let brick = RmsNormBrick::new(weight, eps).with_budget(TokenBudget::from_latency(1_000_000.0));
 
     let input = vec![1.0_f32, 2.0, 3.0, 4.0];
     let result = brick.run(&input).expect("should succeed");
@@ -437,7 +436,7 @@ fn fkr_backend_f060_equiv_tolerance() {
     );
 
     // Should fail when budget not met
-    let result = assertion.check_f32(data, false);
+    let _result = assertion.check_f32(data, false);
     // Note: equiv_scalar checks budget_met, so it should fail
     // Actually, looking at implementation, equiv_scalar may not check budget
     // This tests the assertion exists and is callable

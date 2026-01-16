@@ -1319,8 +1319,8 @@ impl GGUFModel {
 
             // Post-process BPE markers
             if is_gpt2_style {
-                raw.replace('\u{0120}', " ")  // Ġ → space
-                   .replace('\u{010A}', "\n") // Ċ → newline
+                raw.replace('\u{0120}', " ") // Ġ → space
+                    .replace('\u{010A}', "\n") // Ċ → newline
             } else {
                 raw.replace('▁', " ") // SentencePiece word boundary
             }
@@ -9848,15 +9848,24 @@ impl OwnedQuantizedModel {
             Some(v) if v > 0 => v,
             _ => {
                 // Try to infer from embedding tensor shape
-                apr.tensors.iter()
-                    .find(|t| t.name.contains("embed_tokens") || t.name.contains("tok_embeddings") || t.name.contains("token_embd"))
+                apr.tensors
+                    .iter()
+                    .find(|t| {
+                        t.name.contains("embed_tokens")
+                            || t.name.contains("tok_embeddings")
+                            || t.name.contains("token_embd")
+                    })
                     .and_then(|t| t.shape.first().copied())
                     .unwrap_or(151936)
-            }
+            },
         };
 
         let config = GGUFConfig {
-            architecture: apr.metadata.architecture.clone().unwrap_or_else(|| "qwen2".to_string()),
+            architecture: apr
+                .metadata
+                .architecture
+                .clone()
+                .unwrap_or_else(|| "qwen2".to_string()),
             vocab_size,
             hidden_dim,
             num_layers,
@@ -9871,9 +9880,11 @@ impl OwnedQuantizedModel {
 
         // Helper to get tensor data
         let get_tensor = |name: &str| -> Result<&[u8]> {
-            let tensor = apr.find_tensor(name).ok_or_else(|| RealizarError::FormatError {
-                reason: format!("APR: tensor not found: {name}"),
-            })?;
+            let tensor = apr
+                .find_tensor(name)
+                .ok_or_else(|| RealizarError::FormatError {
+                    reason: format!("APR: tensor not found: {name}"),
+                })?;
             let start = data_offset + tensor.offset as usize;
             let end = start + tensor.size as usize;
             if end > data.len() {
@@ -9887,25 +9898,31 @@ impl OwnedQuantizedModel {
         // Helper to get tensor qtype
         let get_qtype = |name: &str| -> u32 {
             apr.find_tensor(name)
-                .map(|t| MappedAprModel::dtype_to_qtype(&t.dtype))
-                .unwrap_or(0)
+                .map_or(0, |t| MappedAprModel::dtype_to_qtype(&t.dtype))
         };
 
         // Helper to make OwnedQuantizedTensor
-        let make_tensor = |name: &str, in_dim: usize, out_dim: usize| -> Result<OwnedQuantizedTensor> {
-            let tensor_data = get_tensor(name)?;
-            let qtype = get_qtype(name);
-            Ok(OwnedQuantizedTensor {
-                data: tensor_data.to_vec(),
-                in_dim,
-                out_dim,
-                qtype,
-            })
-        };
+        let make_tensor =
+            |name: &str, in_dim: usize, out_dim: usize| -> Result<OwnedQuantizedTensor> {
+                let tensor_data = get_tensor(name)?;
+                let qtype = get_qtype(name);
+                Ok(OwnedQuantizedTensor {
+                    data: tensor_data.to_vec(),
+                    in_dim,
+                    out_dim,
+                    qtype,
+                })
+            };
 
         // Load token embeddings (F32)
-        let embed_name = apr.tensors.iter()
-            .find(|t| t.name.contains("embed_tokens") || t.name.contains("tok_embeddings") || t.name.contains("token_embd"))
+        let embed_name = apr
+            .tensors
+            .iter()
+            .find(|t| {
+                t.name.contains("embed_tokens")
+                    || t.name.contains("tok_embeddings")
+                    || t.name.contains("token_embd")
+            })
             .map(|t| t.name.as_str())
             .ok_or_else(|| RealizarError::FormatError {
                 reason: "APR: embedding tensor not found".to_string(),
@@ -9914,25 +9931,24 @@ impl OwnedQuantizedModel {
         let embed_data = get_tensor(embed_name)?;
         let embed_dtype = apr.find_tensor(embed_name).map(|t| t.dtype.as_str());
         let token_embedding: Vec<f32> = match embed_dtype {
-            Some("F32") => {
-                embed_data.chunks_exact(4)
-                    .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                    .collect()
-            }
+            Some("F32") => embed_data
+                .chunks_exact(4)
+                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .collect(),
             Some("Q4_K") => {
                 // Dequantize Q4_K embeddings
                 crate::quantize::dequantize_q4_k(embed_data)?
-            }
+            },
             Some(dtype) => {
                 return Err(RealizarError::FormatError {
                     reason: format!("APR: unsupported embedding dtype: {dtype}"),
                 });
-            }
+            },
             None => {
                 return Err(RealizarError::FormatError {
                     reason: "APR: embedding tensor dtype not found".to_string(),
                 });
-            }
+            },
         };
 
         // Build layers
@@ -9977,10 +9993,12 @@ impl OwnedQuantizedModel {
             let attn_norm_data = get_tensor(&attn_norm_name)?;
             let ffn_norm_data = get_tensor(&ffn_norm_name)?;
 
-            let attn_norm_weight: Vec<f32> = attn_norm_data.chunks_exact(4)
+            let attn_norm_weight: Vec<f32> = attn_norm_data
+                .chunks_exact(4)
                 .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
                 .collect();
-            let ffn_norm_weight: Vec<f32> = ffn_norm_data.chunks_exact(4)
+            let ffn_norm_weight: Vec<f32> = ffn_norm_data
+                .chunks_exact(4)
                 .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
                 .collect();
 
@@ -10003,24 +10021,30 @@ impl OwnedQuantizedModel {
         }
 
         // Output norm
-        let output_norm_name = apr.tensors.iter()
+        let output_norm_name = apr
+            .tensors
+            .iter()
             .find(|t| t.name.contains("output_norm") || t.name.contains("norm.weight"))
-            .map(|t| t.name.as_str())
-            .unwrap_or("output_norm.weight");
+            .map_or("output_norm.weight", |t| t.name.as_str());
 
         let output_norm_data = get_tensor(output_norm_name)?;
-        let output_norm_weight: Vec<f32> = output_norm_data.chunks_exact(4)
+        let output_norm_weight: Vec<f32> = output_norm_data
+            .chunks_exact(4)
             .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
             .collect();
 
         // LM head - prioritize exact match, then contains (excluding layer tensors)
-        let lm_head_name = apr.tensors.iter()
+        let lm_head_name = apr
+            .tensors
+            .iter()
             .find(|t| t.name == "output.weight" || t.name == "lm_head.weight")
-            .or_else(|| apr.tensors.iter().find(|t|
-                !t.name.starts_with("blk.") &&
-                (t.name.contains("output.weight") || t.name.contains("lm_head"))))
-            .map(|t| t.name.as_str())
-            .unwrap_or("output.weight");
+            .or_else(|| {
+                apr.tensors.iter().find(|t| {
+                    !t.name.starts_with("blk.")
+                        && (t.name.contains("output.weight") || t.name.contains("lm_head"))
+                })
+            })
+            .map_or("output.weight", |t| t.name.as_str());
 
         let lm_head_weight = make_tensor(lm_head_name, hidden_dim, vocab_size)?;
 
@@ -10133,7 +10157,13 @@ impl OwnedQuantizedModel {
         }
 
         // Helper to write tensor entry to binary format
-        fn write_tensor_entry(name: &str, dtype: &str, shape: &[usize], offset: u64, size: u64) -> Vec<u8> {
+        fn write_tensor_entry(
+            name: &str,
+            dtype: &str,
+            shape: &[usize],
+            offset: u64,
+            size: u64,
+        ) -> Vec<u8> {
             let mut entry = Vec::new();
 
             // Name: 2-byte length + bytes
@@ -10168,7 +10198,9 @@ impl OwnedQuantizedModel {
         let mut tensors: Vec<TensorInfo> = Vec::new();
 
         // Token embedding (F32)
-        let embed_bytes: Vec<u8> = self.token_embedding.iter()
+        let embed_bytes: Vec<u8> = self
+            .token_embedding
+            .iter()
             .flat_map(|f| f.to_le_bytes())
             .collect();
         tensors.push(TensorInfo {
@@ -10184,7 +10216,9 @@ impl OwnedQuantizedModel {
 
         for (layer_idx, layer) in self.layers.iter().enumerate() {
             // Attention norm (F32)
-            let norm_bytes: Vec<u8> = layer.attn_norm_weight.iter()
+            let norm_bytes: Vec<u8> = layer
+                .attn_norm_weight
+                .iter()
                 .flat_map(|f| f.to_le_bytes())
                 .collect();
             tensors.push(TensorInfo {
@@ -10215,7 +10249,7 @@ impl OwnedQuantizedModel {
                         shape: vec![kv_dim, self.config.hidden_dim],
                         data: v.data.clone(),
                     });
-                }
+                },
                 OwnedQKVWeights::Fused(t) => {
                     // Store as fused QKV tensor
                     tensors.push(TensorInfo {
@@ -10224,7 +10258,7 @@ impl OwnedQuantizedModel {
                         shape: vec![t.out_dim, t.in_dim],
                         data: t.data.clone(),
                     });
-                }
+                },
             }
 
             // Output projection (quantized)
@@ -10237,9 +10271,7 @@ impl OwnedQuantizedModel {
 
             // FFN norm (F32)
             if let Some(ref ffn_norm) = layer.ffn_norm_weight {
-                let norm_bytes: Vec<u8> = ffn_norm.iter()
-                    .flat_map(|f| f.to_le_bytes())
-                    .collect();
+                let norm_bytes: Vec<u8> = ffn_norm.iter().flat_map(|f| f.to_le_bytes()).collect();
                 tensors.push(TensorInfo {
                     name: format!("blk.{layer_idx}.ffn_norm.weight"),
                     dtype: "F32".to_string(),
@@ -10274,7 +10306,9 @@ impl OwnedQuantizedModel {
         }
 
         // Output norm (F32)
-        let output_norm_bytes: Vec<u8> = self.output_norm_weight.iter()
+        let output_norm_bytes: Vec<u8> = self
+            .output_norm_weight
+            .iter()
             .flat_map(|f| f.to_le_bytes())
             .collect();
         tensors.push(TensorInfo {
@@ -10306,9 +10340,10 @@ impl OwnedQuantizedModel {
             "rope_theta": self.config.rope_theta,
             "context_length": self.config.context_length,
         });
-        let metadata_bytes = serde_json::to_vec(&metadata).map_err(|e| RealizarError::FormatError {
-            reason: format!("Failed to serialize metadata: {e}"),
-        })?;
+        let metadata_bytes =
+            serde_json::to_vec(&metadata).map_err(|e| RealizarError::FormatError {
+                reason: format!("Failed to serialize metadata: {e}"),
+            })?;
         let metadata_padded_len = metadata_bytes.len().div_ceil(ALIGNMENT) * ALIGNMENT;
 
         // Build tensor index and data
@@ -10353,7 +10388,8 @@ impl OwnedQuantizedModel {
         // checksum at 40-43 (leave as 0 for now)
 
         // Combine all parts
-        let total_size = HEADER_SIZE + metadata_padded_len + tensor_index_bytes.len() + tensor_data_bytes.len();
+        let total_size =
+            HEADER_SIZE + metadata_padded_len + tensor_index_bytes.len() + tensor_data_bytes.len();
         let mut result = Vec::with_capacity(total_size);
         result.extend_from_slice(&header);
         result.extend_from_slice(&metadata_bytes);
@@ -10985,19 +11021,28 @@ impl OwnedQuantizedModel {
 
                 // DIVERGENCE-DEBUG: Trace Q projection inputs
                 if std::env::var("QKV_DEBUG").is_ok() {
-                    eprintln!("[QKV_DEBUG] Q weight: in_dim={}, out_dim={}, qtype={}, data_len={}",
-                        q.in_dim, q.out_dim, q.qtype, q.data.len());
+                    eprintln!(
+                        "[QKV_DEBUG] Q weight: in_dim={}, out_dim={}, qtype={}, data_len={}",
+                        q.in_dim,
+                        q.out_dim,
+                        q.qtype,
+                        q.data.len()
+                    );
                     eprintln!("[QKV_DEBUG] Q weight first 16 bytes: {:?}", &q.data[..16]);
-                    eprintln!("[QKV_DEBUG] Input first 5: [{:.6}, {:.6}, {:.6}, {:.6}, {:.6}]",
-                        input[0], input[1], input[2], input[3], input[4]);
+                    eprintln!(
+                        "[QKV_DEBUG] Input first 5: [{:.6}, {:.6}, {:.6}, {:.6}, {:.6}]",
+                        input[0], input[1], input[2], input[3], input[4]
+                    );
                 }
 
                 let q_out = self.fused_matmul(input, q)?;
 
                 // DIVERGENCE-DEBUG: Trace Q projection output
                 if std::env::var("QKV_DEBUG").is_ok() {
-                    eprintln!("[QKV_DEBUG] Q output first 5: [{:.6}, {:.6}, {:.6}, {:.6}, {:.6}]",
-                        q_out[0], q_out[1], q_out[2], q_out[3], q_out[4]);
+                    eprintln!(
+                        "[QKV_DEBUG] Q output first 5: [{:.6}, {:.6}, {:.6}, {:.6}, {:.6}]",
+                        q_out[0], q_out[1], q_out[2], q_out[3], q_out[4]
+                    );
                 }
                 let k_out = self.fused_matmul(input, k)?;
                 let v_out = self.fused_matmul(input, v)?;
@@ -11868,8 +11913,10 @@ impl OwnedQuantizedModel {
 
             // CORRECTNESS-011: CPU intermediate debug at L0
             if cpu_debug_layers && layer_idx < 2 {
-                eprintln!("[CPU-L{}] RMSNorm: first 3 = [{:.4}, {:.4}, {:.4}]",
-                    layer_idx, normed[0], normed[1], normed[2]);
+                eprintln!(
+                    "[CPU-L{}] RMSNorm: first 3 = [{:.4}, {:.4}, {:.4}]",
+                    layer_idx, normed[0], normed[1], normed[2]
+                );
             }
 
             // 2b. QKV projection with FUSED dequant+dot (1.37x faster)
@@ -11892,15 +11939,31 @@ impl OwnedQuantizedModel {
 
             // CORRECTNESS-011: Q, K, V before RoPE (after bias)
             if cpu_debug_layers && (layer_idx < 2 || layer_idx == 4 || layer_idx == 5) {
-                eprintln!("[CPU-L{}] Q (before RoPE): first 5 = [{:.4}, {:.4}, {:.4}, {:.4}, {:.4}]",
-                    layer_idx, qkv[0], qkv[1], qkv[2], qkv[3], qkv[4]);
+                eprintln!(
+                    "[CPU-L{}] Q (before RoPE): first 5 = [{:.4}, {:.4}, {:.4}, {:.4}, {:.4}]",
+                    layer_idx, qkv[0], qkv[1], qkv[2], qkv[3], qkv[4]
+                );
                 // K starts at q_dim offset
-                eprintln!("[CPU-L{}] K (before RoPE): first 5 = [{:.4}, {:.4}, {:.4}, {:.4}, {:.4}]",
-                    layer_idx, qkv[q_dim], qkv[q_dim+1], qkv[q_dim+2], qkv[q_dim+3], qkv[q_dim+4]);
+                eprintln!(
+                    "[CPU-L{}] K (before RoPE): first 5 = [{:.4}, {:.4}, {:.4}, {:.4}, {:.4}]",
+                    layer_idx,
+                    qkv[q_dim],
+                    qkv[q_dim + 1],
+                    qkv[q_dim + 2],
+                    qkv[q_dim + 3],
+                    qkv[q_dim + 4]
+                );
                 // V starts at q_dim + k_dim offset
                 let v_offset = q_dim + k_dim;
-                eprintln!("[CPU-L{}] V (before RoPE): first 5 = [{:.4}, {:.4}, {:.4}, {:.4}, {:.4}]",
-                    layer_idx, qkv[v_offset], qkv[v_offset+1], qkv[v_offset+2], qkv[v_offset+3], qkv[v_offset+4]);
+                eprintln!(
+                    "[CPU-L{}] V (before RoPE): first 5 = [{:.4}, {:.4}, {:.4}, {:.4}, {:.4}]",
+                    layer_idx,
+                    qkv[v_offset],
+                    qkv[v_offset + 1],
+                    qkv[v_offset + 2],
+                    qkv[v_offset + 3],
+                    qkv[v_offset + 4]
+                );
             }
 
             // 2c. Proper attention with RoPE and causal mask (IMP-101)
@@ -11926,12 +11989,18 @@ impl OwnedQuantizedModel {
 
                 // CORRECTNESS-011: Q after RoPE at position 0
                 if cpu_debug_layers && layer_idx < 2 && s == 0 {
-                    eprintln!("[CPU-L{}] Q (after RoPE): first 3 = [{:.4}, {:.4}, {:.4}]",
-                        layer_idx, q[0], q[1], q[2]);
-                    eprintln!("[CPU-L{}] K (after RoPE): first 5 = [{:.4}, {:.4}, {:.4}, {:.4}, {:.4}]",
-                        layer_idx, k[0], k[1], k[2], k[3], k[4]);
-                    eprintln!("[CPU-L{}] V: first 5 = [{:.4}, {:.4}, {:.4}, {:.4}, {:.4}]",
-                        layer_idx, v[0], v[1], v[2], v[3], v[4]);
+                    eprintln!(
+                        "[CPU-L{}] Q (after RoPE): first 3 = [{:.4}, {:.4}, {:.4}]",
+                        layer_idx, q[0], q[1], q[2]
+                    );
+                    eprintln!(
+                        "[CPU-L{}] K (after RoPE): first 5 = [{:.4}, {:.4}, {:.4}, {:.4}, {:.4}]",
+                        layer_idx, k[0], k[1], k[2], k[3], k[4]
+                    );
+                    eprintln!(
+                        "[CPU-L{}] V: first 5 = [{:.4}, {:.4}, {:.4}, {:.4}, {:.4}]",
+                        layer_idx, v[0], v[1], v[2], v[3], v[4]
+                    );
                 }
 
                 q_all.extend_from_slice(&q);
@@ -11944,8 +12013,10 @@ impl OwnedQuantizedModel {
 
             // CORRECTNESS-011: Attention output
             if cpu_debug_layers && layer_idx < 2 {
-                eprintln!("[CPU-L{}] Attn output: first 3 = [{:.4}, {:.4}, {:.4}]",
-                    layer_idx, attn_out[0], attn_out[1], attn_out[2]);
+                eprintln!(
+                    "[CPU-L{}] Attn output: first 3 = [{:.4}, {:.4}, {:.4}]",
+                    layer_idx, attn_out[0], attn_out[1], attn_out[2]
+                );
             }
 
             // 2d. Attention output projection with FUSED ops
@@ -12050,7 +12121,10 @@ impl OwnedQuantizedModel {
             let rms = (sq_sum / last_hidden_raw.len() as f32).sqrt();
 
             eprintln!("[CORRECTNESS-011] CPU Hidden before output_norm:");
-            eprintln!("  first 5 = {:?}", &last_hidden_raw[..5.min(last_hidden_raw.len())]);
+            eprintln!(
+                "  first 5 = {:?}",
+                &last_hidden_raw[..5.min(last_hidden_raw.len())]
+            );
             eprintln!("  sum = {:.4}, rms = {:.4}", sum, rms);
             eprintln!("  (GPU shows: sum=466.2486, rms=39.4793)");
         }
@@ -14668,7 +14742,6 @@ impl OwnedQuantizedModel {
             // like 0.5B (hidden=896), fall back to f32 path.
             let use_q8k_path = hidden_dim.is_multiple_of(256);
 
-
             if use_q8k_path {
                 use crate::quantize::quantize_activations_q8k_into;
                 let hidden_sb = hidden_dim / 256;
@@ -14753,11 +14826,12 @@ impl OwnedQuantizedModel {
             // 2d. Attention output projection → scratch.attn_proj
             // PAR-128: Use Q8K-accelerated path for attention output projection
             // attn_out is hidden_dim sized, reuse hidden Q8K buffers
-            let use_q8k_attn_out = use_q8k_path
-                && layer.attn_output_weight.qtype == GGUF_TYPE_Q4_K;
+            let use_q8k_attn_out = use_q8k_path && layer.attn_output_weight.qtype == GGUF_TYPE_Q4_K;
 
             if use_q8k_attn_out {
-                use crate::quantize::{fused_q4k_q8k_parallel_matvec_into, quantize_activations_q8k_into};
+                use crate::quantize::{
+                    fused_q4k_q8k_parallel_matvec_into, quantize_activations_q8k_into,
+                };
                 let hidden_sb = hidden_dim / 256;
                 // Quantize attention output to Q8K (reuse hidden Q8K buffers)
                 quantize_activations_q8k_into(
@@ -14937,7 +15011,9 @@ impl OwnedQuantizedModel {
                     && layer.ffn_down_weight.qtype == GGUF_TYPE_Q4_K;
 
                 if use_q8k_down {
-                    use crate::quantize::{fused_q4k_q8k_parallel_matvec_into, quantize_activations_q8k_into};
+                    use crate::quantize::{
+                        fused_q4k_q8k_parallel_matvec_into, quantize_activations_q8k_into,
+                    };
                     let inter_sb = intermediate_dim / 256;
                     quantize_activations_q8k_into(
                         &scratch.ffn_gate[..intermediate_dim],
@@ -14967,8 +15043,7 @@ impl OwnedQuantizedModel {
             } else {
                 // GELU path (phi-2)
                 // PAR-129: Use Q8K-accelerated FFN for GELU models (Q4K only)
-                let use_q8k_gelu_up = use_q8k_path
-                    && layer.ffn_up_weight.qtype == GGUF_TYPE_Q4_K;
+                let use_q8k_gelu_up = use_q8k_path && layer.ffn_up_weight.qtype == GGUF_TYPE_Q4_K;
                 let use_q8k_gelu_down = intermediate_dim.is_multiple_of(256)
                     && layer.ffn_down_weight.qtype == GGUF_TYPE_Q4_K;
 
@@ -14999,7 +15074,9 @@ impl OwnedQuantizedModel {
                 self.gelu(&mut scratch.ffn_up[..intermediate_dim]);
 
                 if use_q8k_gelu_down {
-                    use crate::quantize::{fused_q4k_q8k_parallel_matvec_into, quantize_activations_q8k_into};
+                    use crate::quantize::{
+                        fused_q4k_q8k_parallel_matvec_into, quantize_activations_q8k_into,
+                    };
                     let inter_sb = intermediate_dim / 256;
                     quantize_activations_q8k_into(
                         &scratch.ffn_up[..intermediate_dim],
@@ -21666,7 +21743,7 @@ impl OwnedQuantizedModelCuda {
                         OwnedQKVWeights::Fused(w) => {
                             let dim = w.out_dim / 3;
                             (dim, dim)
-                        }
+                        },
                     };
                     &b[q_dim..q_dim + k_dim]
                 })
@@ -21683,7 +21760,7 @@ impl OwnedQuantizedModelCuda {
                         OwnedQKVWeights::Fused(w) => {
                             let dim = w.out_dim / 3;
                             (dim, dim, dim)
-                        }
+                        },
                     };
                     &b[q_dim + k_dim..q_dim + k_dim + v_dim]
                 })
@@ -54104,15 +54181,25 @@ mod tests {
     #[test]
     fn test_dispatch_metrics_new_cov() {
         let metrics = DispatchMetrics::new();
-        // Metrics created with atomic counters
-        drop(metrics);
+        // Metrics created with atomic counters - verify cpu_dispatches is zero
+        assert_eq!(
+            metrics
+                .cpu_dispatches
+                .load(std::sync::atomic::Ordering::Relaxed),
+            0
+        );
     }
 
     #[test]
     fn test_dispatch_metrics_default_cov() {
         let metrics = DispatchMetrics::default();
-        // Default metrics created
-        drop(metrics);
+        // Default metrics created - verify cpu_dispatches is zero
+        assert_eq!(
+            metrics
+                .cpu_dispatches
+                .load(std::sync::atomic::Ordering::Relaxed),
+            0
+        );
     }
 
     // =========================================================================

@@ -10,8 +10,7 @@
 
 use realizar::cuda::CudaExecutor;
 use realizar::gguf::{
-    MappedGGUFModel, OwnedQuantizedKVCache, OwnedQuantizedModel, OwnedQuantizedModelCuda,
-    QuantizedGenerateConfig,
+    MappedGGUFModel, OwnedQuantizedModel, OwnedQuantizedModelCuda, QuantizedGenerateConfig,
 };
 use std::path::Path;
 use std::time::Instant;

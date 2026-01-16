@@ -108,7 +108,7 @@ fn run_cuda_test() -> Result<(), Box<dyn std::error::Error>> {
 
     // Bin rows into groups and compute average divergence
     let bin_size = 10000;
-    let num_bins = (vocab_size + bin_size - 1) / bin_size;
+    let num_bins = vocab_size.div_ceil(bin_size);
     eprintln!(
         "\n=== Average divergence by row range (bin size = {}) ===",
         bin_size

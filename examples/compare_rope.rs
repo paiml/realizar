@@ -21,8 +21,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Test data: single head, simple values
     let position = 5usize;
     let mut test_data = vec![0.0f32; head_dim];
-    for i in 0..head_dim {
-        test_data[i] = (i + 1) as f32;
+    for (i, val) in test_data.iter_mut().enumerate() {
+        *val = (i + 1) as f32;
     }
 
     // CPU RoPE (NEOX style for rope_type == 2)

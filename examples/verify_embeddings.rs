@@ -51,7 +51,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Check token embedding vs LM head weight for token 0
     // Since weights are tied, they should be identical (or very similar after quantization)
     println!("\nComparing token_embd vs lm_head for token 0:");
-    let tok0_emb = &model.token_embedding[0..hidden_dim];
+    let _tok0_emb = &model.token_embedding[0..hidden_dim];
 
     // Note: lm_head is quantized, so we can't easily compare
     // But we can verify by checking forward pass behavior

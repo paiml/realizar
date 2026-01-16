@@ -70,21 +70,18 @@ fn main() -> Result<(), RealizarError> {
     // Handle different QKV weight formats
     let mut qkv = vec![0.0f32; qkv_dim];
     let start = Instant::now();
-    match &layer.qkv_weight {
-        realizar::gguf::OwnedQKVWeights::Fused(ref weight) => {
-            if weight.qtype == GGUF_TYPE_Q4_K {
-                for _ in 0..iterations {
-                    fused_q4k_parallel_matvec_into(
-                        &weight.data,
-                        &normed,
-                        weight.in_dim,
-                        weight.out_dim,
-                        &mut qkv,
-                    )?;
-                }
+    if let realizar::gguf::OwnedQKVWeights::Fused(ref weight) = &layer.qkv_weight {
+        if weight.qtype == GGUF_TYPE_Q4_K {
+            for _ in 0..iterations {
+                fused_q4k_parallel_matvec_into(
+                    &weight.data,
+                    &normed,
+                    weight.in_dim,
+                    weight.out_dim,
+                    &mut qkv,
+                )?;
             }
-        },
-        _ => {},
+        }
     }
     let qkv_us = start.elapsed().as_micros() as f64 / iterations as f64;
     println!(

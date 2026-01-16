@@ -17,7 +17,6 @@ use realizar::brick::{
     AttentionBrick, BrickError, ComputeBrick, FfnBrick, OProjBrick, QkvBrick, RmsNormBrick,
     RopeBrick, TokenBudget, TransformerLayerBrick,
 };
-use std::time::Instant;
 
 // ============================================================================
 // F021-F040: Token Budget Compliance (20 points)

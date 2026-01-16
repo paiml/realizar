@@ -25,8 +25,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Compare first 20 logits in detail
     eprintln!("=== CPU Logits first 20 ===");
-    for i in 0..20 {
-        eprint!("{:.4} ", cpu_logits[i]);
+    for logit in cpu_logits.iter().take(20) {
+        eprint!("{:.4} ", logit);
     }
     eprintln!();
 
@@ -41,8 +41,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let gpu_logits = cuda_model.forward_gpu_resident(test_token, &mut gpu_cache, 0)?;
 
     eprintln!("\n=== GPU Logits first 20 ===");
-    for i in 0..20 {
-        eprint!("{:.4} ", gpu_logits[i]);
+    for logit in gpu_logits.iter().take(20) {
+        eprint!("{:.4} ", logit);
     }
     eprintln!();
 

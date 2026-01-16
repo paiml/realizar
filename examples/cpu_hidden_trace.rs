@@ -8,8 +8,9 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
 
-    let path = std::env::var("MODEL_PATH")
-        .unwrap_or_else(|_| "/home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf".to_string());
+    let path = std::env::var("MODEL_PATH").unwrap_or_else(|_| {
+        "/home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf".to_string()
+    });
 
     println!("CORRECTNESS-011: CPU Hidden State Trace");
     println!("=======================================");
@@ -26,8 +27,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Get embedding
     let embedding = model.embed(&[token_id]);
     let embed_sum: f32 = embedding.iter().sum();
-    let embed_rms: f32 = (embedding.iter().map(|x| x * x).sum::<f32>() / embedding.len() as f32).sqrt();
-    println!("\nEmbedding: first 5 = {:?}", &embedding[..5.min(embedding.len())]);
+    let embed_rms: f32 =
+        (embedding.iter().map(|x| x * x).sum::<f32>() / embedding.len() as f32).sqrt();
+    println!(
+        "\nEmbedding: first 5 = {:?}",
+        &embedding[..5.min(embedding.len())]
+    );
     println!("Embedding: sum={:.6}, rms={:.6}", embed_sum, embed_rms);
 
     // We need to run forward and capture hidden state before output_norm
@@ -65,7 +70,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("{:?}", &logits[..20.min(logits.len())]);
 
     // Compute correlation with GPU logits (from debug output)
-    let gpu_first_20: [f32; 20] = [0.39, -1.77, -2.05, -2.57, -1.96, -1.06, 0.03, 1.09, 0.57, -2.89, 1.11, 0.82, 0.61, 0.01, 2.30, -5.00, 0.87, -0.49, -0.80, -1.76];
+    let gpu_first_20: [f32; 20] = [
+        0.39, -1.77, -2.05, -2.57, -1.96, -1.06, 0.03, 1.09, 0.57, -2.89, 1.11, 0.82, 0.61, 0.01,
+        2.30, -5.00, 0.87, -0.49, -0.80, -1.76,
+    ];
 
     println!("\n=== First 20 position comparison ===");
     println!("{:<5} {:>10} {:>10} {:>10}", "pos", "CPU", "GPU", "diff");
@@ -73,16 +81,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let cpu_val = logits[i];
         let gpu_val = gpu_first_20[i];
         let diff = cpu_val - gpu_val;
-        println!("{:<5} {:>10.4} {:>10.4} {:>10.4}", i, cpu_val, gpu_val, diff);
+        println!(
+            "{:<5} {:>10.4} {:>10.4} {:>10.4}",
+            i, cpu_val, gpu_val, diff
+        );
     }
 
     // Key positions analysis
     println!("\n=== Key Position Analysis ===");
-    println!("pos=16 (CPU argmax): CPU={:.4}, GPU=0.87, diff={:.4}", logits[16], logits[16] - 0.87);
-    println!("pos=13: CPU={:.4}, GPU=0.01, diff={:.4}", logits[13], logits[13] - 0.01);
-    println!("pos=15: CPU={:.4}, GPU=-5.00, diff={:.4}", logits[15], logits[15] - (-5.00));
+    println!(
+        "pos=16 (CPU argmax): CPU={:.4}, GPU=0.87, diff={:.4}",
+        logits[16],
+        logits[16] - 0.87
+    );
+    println!(
+        "pos=13: CPU={:.4}, GPU=0.01, diff={:.4}",
+        logits[13],
+        logits[13] - 0.01
+    );
+    println!(
+        "pos=15: CPU={:.4}, GPU=-5.00, diff={:.4}",
+        logits[15],
+        logits[15] - (-5.00)
+    );
     if logits.len() > 74403 {
-        println!("pos=74403 (GPU argmax): CPU={:.4}, GPU=10.53, diff={:.4}", logits[74403], logits[74403] - 10.53);
+        println!(
+            "pos=74403 (GPU argmax): CPU={:.4}, GPU=10.53, diff={:.4}",
+            logits[74403],
+            logits[74403] - 10.53
+        );
     }
 
     println!("\n=== Diagnosis ===");

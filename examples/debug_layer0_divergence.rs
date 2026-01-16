@@ -21,12 +21,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Get embedding (should be identical for both paths)
     let embedding = model.embed(&[token_id]);
-    println!("Embedding (first 5): {:?}", &embedding[..5.min(embedding.len())]);
+    println!(
+        "Embedding (first 5): {:?}",
+        &embedding[..5.min(embedding.len())]
+    );
     println!("Embedding sum: {:.6}", embedding.iter().sum::<f32>());
 
     // CPU forward first for baseline
     let cpu_logits = model.forward(&[token_id])?;
-    let cpu_argmax = cpu_logits.iter().enumerate()
+    let cpu_argmax = cpu_logits
+        .iter()
+        .enumerate()
         .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
         .map(|(i, v)| (i, *v));
     println!("CPU argmax: {:?}", cpu_argmax);
@@ -55,7 +60,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let gpu_logits = cuda_model.forward_gpu_resident(token_id, &mut dummy_cache, 0)?;
 
     println!("\n=== Final Comparison ===");
-    let gpu_argmax = gpu_logits.iter().enumerate()
+    let gpu_argmax = gpu_logits
+        .iter()
+        .enumerate()
         .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
         .map(|(i, v)| (i, *v));
 
@@ -87,8 +94,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Show first 20 logits
-    println!("\nCPU logits[0..20]: {:?}", &cpu_logits[..20.min(cpu_logits.len())]);
-    println!("GPU logits[0..20]: {:?}", &gpu_logits[..20.min(gpu_logits.len())]);
+    println!(
+        "\nCPU logits[0..20]: {:?}",
+        &cpu_logits[..20.min(cpu_logits.len())]
+    );
+    println!(
+        "GPU logits[0..20]: {:?}",
+        &gpu_logits[..20.min(gpu_logits.len())]
+    );
 
     if cpu_argmax.map(|(i, _)| i) == gpu_argmax.map(|(i, _)| i) {
         println!("\n✓ CPU and GPU argmax MATCH!");

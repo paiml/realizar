@@ -18,9 +18,8 @@ fn main() {
             .to_string()
     });
 
-    let output_path = std::env::var("OUTPUT_PATH").unwrap_or_else(|_| {
-        "/tmp/qwen2.5-coder-1.5b-q4k.apr".to_string()
-    });
+    let output_path = std::env::var("OUTPUT_PATH")
+        .unwrap_or_else(|_| "/tmp/qwen2.5-coder-1.5b-q4k.apr".to_string());
 
     if !Path::new(&gguf_path).exists() {
         eprintln!("GGUF file not found: {}", gguf_path);
@@ -46,10 +45,10 @@ fn main() {
             if let Ok(metadata) = std::fs::metadata(&output_path) {
                 println!("Output size: {:.2} MB", metadata.len() as f64 / 1_000_000.0);
             }
-        }
+        },
         Err(e) => {
             eprintln!("Conversion failed: {}", e);
-        }
+        },
     }
 }
 
@@ -59,8 +58,13 @@ fn print_stats(stats: &Q4KConversionStats) {
     println!("  Hidden size:     {}", stats.hidden_size);
     println!("  Num layers:      {}", stats.num_layers);
     println!("  Total tensors:   {}", stats.tensor_count);
-    println!("  Q4K tensors:     {} ({:.1}%)",
+    println!(
+        "  Q4K tensors:     {} ({:.1}%)",
         stats.q4k_tensor_count,
-        stats.q4k_tensor_count as f64 / stats.tensor_count as f64 * 100.0);
-    println!("  Total bytes:     {:.2} MB", stats.total_bytes as f64 / 1_000_000.0);
+        stats.q4k_tensor_count as f64 / stats.tensor_count as f64 * 100.0
+    );
+    println!(
+        "  Total bytes:     {:.2} MB",
+        stats.total_bytes as f64 / 1_000_000.0
+    );
 }

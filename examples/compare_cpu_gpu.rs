@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("CPU generated tokens: {:?}", cpu_tokens);
 
     // GPU generate
-    let mut cuda_model = OwnedQuantizedModelCuda::new(model.clone(), 0)?;
+    let mut cuda_model = OwnedQuantizedModelCuda::new(model, 0)?;
     let gpu_tokens = cuda_model.generate_gpu_resident(&prompt_tokens, &gen_config)?;
     println!("GPU generated tokens: {:?}", gpu_tokens);
 

@@ -25,7 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("hidden_dim={}, vocab_size={}", hidden_dim, vocab_size);
 
     // Compute bytes per row for Q6K
-    let super_blocks_per_row = (hidden_dim + 255) / 256;
+    let super_blocks_per_row = hidden_dim.div_ceil(256);
     let bytes_per_row = super_blocks_per_row * 210;
     eprintln!(
         "Super-blocks per row: {}, bytes per row: {}",
@@ -141,13 +141,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut gpu_sq = 0.0f64;
         let mut count = 0;
 
-        for i in 0..vocab_size.min(10000) {
+        for (i, &g_val) in gpu_logits.iter().enumerate().take(vocab_size.min(10000)) {
             let j = i as i64 + offset;
             if j < 0 || j >= vocab_size as i64 {
                 continue;
             }
             let c = cpu_logits[j as usize] as f64;
-            let g = gpu_logits[i] as f64;
+            let g = g_val as f64;
             dot += c * g;
             cpu_sq += c * c;
             gpu_sq += g * g;

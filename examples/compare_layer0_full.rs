@@ -18,7 +18,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let num_layers = cpu_model.config.num_layers;
     let head_dim = hidden_dim / num_heads;
     let kv_dim = num_kv_heads * head_dim;
-    let q_dim = num_heads * head_dim;
+    let _q_dim = num_heads * head_dim;
 
     eprintln!(
         "Config: hidden={}, heads={}, kv_heads={}, head_dim={}",

@@ -1,6 +1,6 @@
 //! Trace CPU forward step by step to find divergence
 
-use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel, OwnedQKVWeights};
+use realizar::gguf::{MappedGGUFModel, OwnedQKVWeights, OwnedQuantizedModel};
 use realizar::quantize::fused_q4k_parallel_matvec;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -21,8 +21,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Step 1: Embedding
     let embedding = model.embed(&[test_token]);
-    println!("\n1. Embedding (first 5): [{:.6}, {:.6}, {:.6}, {:.6}, {:.6}]",
-        embedding[0], embedding[1], embedding[2], embedding[3], embedding[4]);
+    println!(
+        "\n1. Embedding (first 5): [{:.6}, {:.6}, {:.6}, {:.6}, {:.6}]",
+        embedding[0], embedding[1], embedding[2], embedding[3], embedding[4]
+    );
     let emb_sum: f32 = embedding.iter().sum();
     println!("   sum = {:.6}", emb_sum);
 
@@ -31,12 +33,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sum_sq: f32 = embedding.iter().map(|x| x * x).sum();
     let mean_sq = sum_sq / hidden_dim as f32;
     let inv_rms = 1.0 / (mean_sq + eps).sqrt();
-    let normed_manual: Vec<f32> = embedding.iter()
+    let normed_manual: Vec<f32> = embedding
+        .iter()
         .zip(gamma.iter())
         .map(|(x, g)| x * inv_rms * g)
         .collect();
-    println!("\n2. Manual RMSNorm (first 5): [{:.6}, {:.6}, {:.6}, {:.6}, {:.6}]",
-        normed_manual[0], normed_manual[1], normed_manual[2], normed_manual[3], normed_manual[4]);
+    println!(
+        "\n2. Manual RMSNorm (first 5): [{:.6}, {:.6}, {:.6}, {:.6}, {:.6}]",
+        normed_manual[0], normed_manual[1], normed_manual[2], normed_manual[3], normed_manual[4]
+    );
     let norm_sum: f32 = normed_manual.iter().sum();
     println!("   sum = {:.6}, inv_rms = {:.8}", norm_sum, inv_rms);
 
@@ -46,7 +51,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         _ => panic!("Expected separate QKV"),
     };
     println!("\n3. Q weight info:");
-    println!("   in_dim = {}, out_dim = {}, qtype = {}", q_weight.in_dim, q_weight.out_dim, q_weight.qtype);
+    println!(
+        "   in_dim = {}, out_dim = {}, qtype = {}",
+        q_weight.in_dim, q_weight.out_dim, q_weight.qtype
+    );
     println!("   data len = {} bytes", q_weight.data.len());
     println!("   first 16 bytes: {:?}", &q_weight.data[..16]);
 
@@ -54,10 +62,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &q_weight.data,
         &normed_manual,
         q_weight.in_dim,
-        q_weight.out_dim
+        q_weight.out_dim,
     )?;
-    println!("\n4. Standalone Q4K GEMV (first 5): [{:.6}, {:.6}, {:.6}, {:.6}, {:.6}]",
-        q_standalone[0], q_standalone[1], q_standalone[2], q_standalone[3], q_standalone[4]);
+    println!(
+        "\n4. Standalone Q4K GEMV (first 5): [{:.6}, {:.6}, {:.6}, {:.6}, {:.6}]",
+        q_standalone[0], q_standalone[1], q_standalone[2], q_standalone[3], q_standalone[4]
+    );
     let q_sum: f32 = q_standalone.iter().sum();
     println!("   sum = {:.6}", q_sum);
 

@@ -23,8 +23,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let logits = model.forward(&[bos])?;
 
     println!("\nLogits (first 20 tokens):");
-    for i in 0..20 {
-        println!("  token {}: {:.4}", i, logits[i]);
+    for (i, logit) in logits.iter().enumerate().take(20) {
+        println!("  token {}: {:.4}", i, logit);
     }
 
     // Find max logit

@@ -48,7 +48,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     };
 
-    let sb_per_row = (q_in_dim + 255) / 256;
+    let sb_per_row = q_in_dim.div_ceil(256);
     let bytes_per_row = sb_per_row * 144;
 
     eprintln!(

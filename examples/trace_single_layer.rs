@@ -12,7 +12,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let head_dim = hidden_dim / num_heads; // 64
     let q_dim = num_heads * head_dim; // 896
     let k_dim = num_kv_heads * head_dim; // 128
-    let v_dim = k_dim; // 128
+    let _v_dim = k_dim; // 128
 
     println!("=== Single Layer Trace ===\n");
 

@@ -58,7 +58,10 @@ fn main() {
     let max_seq_len = 2048;
 
     println!("═══════════════════════════════════════════════════════════════");
-    println!("  Testing with M={} sequences, {} iterations", batch_size, num_iterations);
+    println!(
+        "  Testing with M={} sequences, {} iterations",
+        batch_size, num_iterations
+    );
     println!("═══════════════════════════════════════════════════════════════");
     println!();
 
@@ -124,7 +127,7 @@ fn main() {
             Err(e) => {
                 eprintln!("  Error: {}", e);
                 break;
-            }
+            },
         }
     }
 
@@ -179,7 +182,7 @@ fn main() {
             Err(e) => {
                 eprintln!("  Error: {}", e);
                 break;
-            }
+            },
         }
     }
 
@@ -231,7 +234,7 @@ fn main() {
             Err(e) => {
                 eprintln!("  Error: {}", e);
                 break;
-            }
+            },
         }
     }
 
@@ -251,9 +254,21 @@ fn main() {
     println!("  Summary");
     println!("═══════════════════════════════════════════════════════════════");
     println!();
-    println!("  SHORT (pos<128):      {:.1} tok/s ({:.2}x Ollama)", tps_short, tps_short / 291.0);
-    println!("  LONG (pos 256-306):   {:.1} tok/s ({:.2}x Ollama)", tps_long, tps_long / 291.0);
-    println!("  VLONG (pos 512-562):  {:.1} tok/s ({:.2}x Ollama)", tps_vlong, tps_vlong / 291.0);
+    println!(
+        "  SHORT (pos<128):      {:.1} tok/s ({:.2}x Ollama)",
+        tps_short,
+        tps_short / 291.0
+    );
+    println!(
+        "  LONG (pos 256-306):   {:.1} tok/s ({:.2}x Ollama)",
+        tps_long,
+        tps_long / 291.0
+    );
+    println!(
+        "  VLONG (pos 512-562):  {:.1} tok/s ({:.2}x Ollama)",
+        tps_vlong,
+        tps_vlong / 291.0
+    );
     println!();
     println!("  Ollama baseline:      291 tok/s");
     println!("  2X target:            582 tok/s");
@@ -263,7 +278,12 @@ fn main() {
     } else {
         let best = tps_short.max(tps_long).max(tps_vlong);
         let gap = (582.0 - best) / best * 100.0;
-        println!("  Best: {:.1} tok/s ({:.2}x) - {:.1}% to 2X target", best, best / 291.0, gap);
+        println!(
+            "  Best: {:.1} tok/s ({:.2}x) - {:.1}% to 2X target",
+            best,
+            best / 291.0,
+            gap
+        );
     }
     println!();
 }

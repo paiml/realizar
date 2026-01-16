@@ -1494,11 +1494,11 @@ mod tests {
 
         // Test 2: When explicitly providing ChatML tokens in a HF template,
         // the template should use those tokens regardless of name
-        let chatml_template = r#"{% for message in messages %}
+        let chatml_template = r"{% for message in messages %}
 <|im_start|>{{ message.role }}
 {{ message.content }}<|im_end|>
 {% endfor %}<|im_start|>assistant
-"#;
+";
 
         let tokens = SpecialTokens {
             im_start_token: Some("<|im_start|>".to_string()),

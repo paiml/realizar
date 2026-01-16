@@ -34,7 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  expected_bytes (34 per block): {}", expected_bytes);
 
     // Get actual tensor data size
-    let actual_start = mapped.model.tensor_data_start + tensor.offset as usize;
+    let _actual_start = mapped.model.tensor_data_start + tensor.offset as usize;
 
     // Try to dequantize the first few blocks
     let token_emb = mapped

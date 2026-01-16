@@ -96,7 +96,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Compute expected bytes per row for Q6K
-    let super_blocks_per_row = (hidden_dim + 255) / 256;
+    let super_blocks_per_row = hidden_dim.div_ceil(256);
     let bytes_per_row = super_blocks_per_row * 210;
     eprintln!(
         "Super-blocks per row: {}, bytes per row: {}",

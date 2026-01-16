@@ -10,11 +10,11 @@
 use std::time::Instant;
 
 #[cfg(feature = "cuda")]
+use realizar::apr::MappedAprModel;
+#[cfg(feature = "cuda")]
 use realizar::cuda::CudaExecutor;
 #[cfg(feature = "cuda")]
 use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel, OwnedQuantizedModelCuda};
-#[cfg(feature = "cuda")]
-use realizar::apr::MappedAprModel;
 
 fn main() {
     #[cfg(not(feature = "cuda"))]
@@ -62,9 +62,15 @@ fn run_benchmark() {
     // 2. Test GGUF GPU directly first (control)
     println!("\n2. Testing GGUF GPU directly (control)...");
     let start = Instant::now();
-    let mut gguf_cuda = OwnedQuantizedModelCuda::new(gguf_model.clone(), 0).expect("create GGUF CUDA");
-    gguf_cuda.preload_weights_gpu().expect("preload GGUF weights");
-    println!("   GGUF GPU initialized in {:.2}s", start.elapsed().as_secs_f32());
+    let mut gguf_cuda =
+        OwnedQuantizedModelCuda::new(gguf_model.clone(), 0).expect("create GGUF CUDA");
+    gguf_cuda
+        .preload_weights_gpu()
+        .expect("preload GGUF weights");
+    println!(
+        "   GGUF GPU initialized in {:.2}s",
+        start.elapsed().as_secs_f32()
+    );
 
     // Run GGUF GPU benchmark
     {
@@ -75,18 +81,33 @@ fn run_benchmark() {
         let eps = gguf_cuda.model().config.eps;
 
         let m = 16;
-        gguf_cuda.executor_mut().init_batched_workspace(hidden_dim, intermediate_dim, m).expect("init");
-        gguf_cuda.executor_mut().init_batched_kv_cache_gpu(num_layers, m).expect("init kv");
+        gguf_cuda
+            .executor_mut()
+            .init_batched_workspace(hidden_dim, intermediate_dim, m)
+            .expect("init");
+        gguf_cuda
+            .executor_mut()
+            .init_batched_kv_cache_gpu(num_layers, m)
+            .expect("init kv");
 
         let tokens: Vec<u32> = (0..m).map(|i| 9707u32 + i as u32 * 100).collect();
-        let embeddings: Vec<f32> = tokens.iter().flat_map(|&t| gguf_cuda.model().embed(&[t])).collect();
+        let embeddings: Vec<f32> = tokens
+            .iter()
+            .flat_map(|&t| gguf_cuda.model().embed(&[t]))
+            .collect();
 
         // Warmup
         gguf_cuda.executor_mut().reset_batched_kv_cache_gpu();
         for _ in 0..3 {
             let positions: Vec<u32> = vec![0; m];
             let _ = gguf_cuda.executor_mut().forward_batched_to_token_ids(
-                &embeddings, &positions, num_layers, hidden_dim as u32, intermediate_dim as u32, vocab_size, eps,
+                &embeddings,
+                &positions,
+                num_layers,
+                hidden_dim as u32,
+                intermediate_dim as u32,
+                vocab_size,
+                eps,
             );
         }
 
@@ -96,13 +117,23 @@ fn run_benchmark() {
         for iter in 0..50 {
             let positions: Vec<u32> = (0..m).map(|s| (iter % 50 + s) as u32).collect();
             let _ = gguf_cuda.executor_mut().forward_batched_to_token_ids(
-                &embeddings, &positions, num_layers, hidden_dim as u32, intermediate_dim as u32, vocab_size, eps,
+                &embeddings,
+                &positions,
+                num_layers,
+                hidden_dim as u32,
+                intermediate_dim as u32,
+                vocab_size,
+                eps,
             );
         }
         gguf_cuda.executor_mut().synchronize().ok();
         let elapsed = start.elapsed();
         let tps = (50 * m) as f64 / elapsed.as_secs_f64();
-        println!("   GGUF GPU M=16: {:.1} tok/s ({:.2}x Ollama)", tps, tps / 291.0);
+        println!(
+            "   GGUF GPU M=16: {:.1} tok/s ({:.2}x Ollama)",
+            tps,
+            tps / 291.0
+        );
     }
 
     // 3. Convert to APR format
@@ -145,7 +176,10 @@ fn run_benchmark() {
     let start = Instant::now();
     let mut apr_cuda = OwnedQuantizedModelCuda::new(apr_model, 0).expect("create APR CUDA");
     apr_cuda.preload_weights_gpu().expect("preload APR weights");
-    println!("   GPU initialized in {:.2}s", start.elapsed().as_secs_f32());
+    println!(
+        "   GPU initialized in {:.2}s",
+        start.elapsed().as_secs_f32()
+    );
 
     // Get model config
     let hidden_dim = apr_cuda.model().config.hidden_dim;
@@ -179,10 +213,18 @@ fn run_benchmark() {
         // Debug: check embeddings
         let expected_len = m * hidden_dim;
         if embeddings.len() != expected_len {
-            eprintln!("   WARNING: embeddings len={} expected={}", embeddings.len(), expected_len);
+            eprintln!(
+                "   WARNING: embeddings len={} expected={}",
+                embeddings.len(),
+                expected_len
+            );
         }
         let embed_sum: f32 = embeddings.iter().take(100).sum();
-        println!("   Debug: embeddings len={}, first 100 sum={:.2}", embeddings.len(), embed_sum);
+        println!(
+            "   Debug: embeddings len={}, first 100 sum={:.2}",
+            embeddings.len(),
+            embed_sum
+        );
 
         // Warmup
         apr_cuda.executor_mut().reset_batched_kv_cache_gpu();
@@ -242,7 +284,11 @@ fn run_benchmark() {
     println!("═══════════════════════════════════════════════════════════════");
     println!("  BENCHMARK COMPLETE");
     println!("═══════════════════════════════════════════════════════════════");
-    println!("  APR file: {} ({:.1} MB)", apr_path, apr_bytes.len() as f64 / 1e6);
+    println!(
+        "  APR file: {} ({:.1} MB)",
+        apr_path,
+        apr_bytes.len() as f64 / 1e6
+    );
     println!("  Target: 582 tok/s (2X Ollama)");
     println!("═══════════════════════════════════════════════════════════════");
 }

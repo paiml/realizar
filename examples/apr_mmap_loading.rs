@@ -89,7 +89,7 @@ fn demo_real_model(path: &str) -> Result<()> {
 
     for name in model.tensor_names() {
         // In real code: cuda::memcpy_htod(gpu_ptr, bytes)
-        let _bytes = model.get_tensor_bytes(&name)?;
+        let _bytes = model.get_tensor_bytes(name)?;
     }
 
     let transfer_time = transfer_start.elapsed();
@@ -133,7 +133,10 @@ fn demo_synthetic_model() -> Result<()> {
 
     println!("Synthetic Model Info:");
     println!("  Tensors: {}", model.tensor_count());
-    println!("  Using mmap: {} (from_bytes always uses heap)", model.is_mmap());
+    println!(
+        "  Using mmap: {} (from_bytes always uses heap)",
+        model.is_mmap()
+    );
     println!();
 
     // Demonstrate mmap detection

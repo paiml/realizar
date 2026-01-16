@@ -14,8 +14,9 @@ fn main() {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel, OwnedQuantizedModelCuda};
 
-    let path = std::env::var("MODEL_PATH")
-        .unwrap_or_else(|_| "/home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf".to_string());
+    let path = std::env::var("MODEL_PATH").unwrap_or_else(|_| {
+        "/home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf".to_string()
+    });
 
     println!("CORRECTNESS-011: Hidden State Comparison Before Output Norm");
     println!("============================================================");
@@ -132,17 +133,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Check specific positions
         println!("\n=== Key Position Analysis ===");
-        for pos in [16, 13, 15, 74403].iter().filter(|&&p| p < cpu_logits.len()) {
+        for pos in [16, 13, 15, 74403]
+            .iter()
+            .filter(|&&p| p < cpu_logits.len())
+        {
             let cpu_val = cpu_logits[*pos];
             let gpu_val = gpu_logits[*pos];
             let predicted = slope * cpu_val + intercept;
             let residual = (gpu_val - predicted).abs();
 
-            println!("pos={}: CPU={:.4}, GPU={:.4}, predicted={:.4}, residual={:.4}",
-                pos, cpu_val, gpu_val, predicted, residual);
+            println!(
+                "pos={}: CPU={:.4}, GPU={:.4}, predicted={:.4}, residual={:.4}",
+                pos, cpu_val, gpu_val, predicted, residual
+            );
 
             if residual > 5.0 {
-                println!("  ^^ LARGE RESIDUAL - this position deviates significantly from linear fit!");
+                println!(
+                    "  ^^ LARGE RESIDUAL - this position deviates significantly from linear fit!"
+                );
             }
         }
     }

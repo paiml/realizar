@@ -70,7 +70,7 @@ fn run_q4k_gemv_debug() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("\nQ weight len: {} bytes", q_weight.data.len());
 
     // Calculate expected size: Q4K = 144 bytes per 256 values
-    let sb_per_row = (hidden_dim + 255) / 256;
+    let sb_per_row = hidden_dim.div_ceil(256);
     let bytes_per_row = sb_per_row * 144;
     let expected_bytes = q_dim * bytes_per_row;
     eprintln!(
@@ -172,15 +172,15 @@ fn run_q4k_gemv_debug() -> Result<(), Box<dyn std::error::Error>> {
 /// CPU Q4K GEMV (manual implementation matching llama.cpp)
 #[cfg(feature = "cuda")]
 fn cpu_q4k_gemv(input: &[f32], weight: &[u8], k: usize, n: usize) -> Vec<f32> {
-    let sb_per_row = (k + 255) / 256;
+    let sb_per_row = k.div_ceil(256);
     let bytes_per_row = sb_per_row * 144; // Q4K: 144 bytes per super-block
 
     let mut output = vec![0.0f32; n];
 
-    for row in 0..n {
+    for (row, out_val) in output.iter_mut().enumerate().take(n) {
         let row_start = row * bytes_per_row;
         let row_data = &weight[row_start..row_start + bytes_per_row];
-        output[row] = q4k_dot_cpu(row_data, input, k);
+        *out_val = q4k_dot_cpu(row_data, input, k);
     }
 
     output
@@ -191,7 +191,7 @@ fn cpu_q4k_gemv(input: &[f32], weight: &[u8], k: usize, n: usize) -> Vec<f32> {
 #[cfg(feature = "cuda")]
 fn q4k_dot_cpu(row_data: &[u8], input: &[f32], k: usize) -> f32 {
     let mut result = 0.0f32;
-    let num_sb = (k + 255) / 256;
+    let num_sb = k.div_ceil(256);
 
     for sb_idx in 0..num_sb {
         let sb_offset = sb_idx * 144;

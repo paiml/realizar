@@ -23,8 +23,8 @@ fn main() {
             .to_string()
     });
 
-    let apr_path = std::env::var("APR_PATH")
-        .unwrap_or_else(|_| "/tmp/qwen2.5-coder-1.5b-q4k.apr".to_string());
+    let apr_path =
+        std::env::var("APR_PATH").unwrap_or_else(|_| "/tmp/qwen2.5-coder-1.5b-q4k.apr".to_string());
 
     // Check files exist
     if !Path::new(&gguf_path).exists() {
@@ -53,7 +53,10 @@ fn main() {
         let elapsed = start.elapsed();
 
         if i == 0 {
-            println!("  File size: {:.2} MB", mapped.file_size() as f64 / 1_000_000.0);
+            println!(
+                "  File size: {:.2} MB",
+                mapped.file_size() as f64 / 1_000_000.0
+            );
             println!("  Tensors: {}", mapped.model.tensors.len());
         }
         println!("  Iter {}: {:.3}s", i + 1, elapsed.as_secs_f64());
@@ -110,8 +113,14 @@ fn main() {
     println!("  Summary");
     println!("═══════════════════════════════════════════════════════════════");
     println!();
-    println!("  GGUF (mmap): {:.3}s average, {:.3}s min", gguf_avg, gguf_min);
-    println!("  APR (read):  {:.3}s average, {:.3}s min", apr_avg, apr_min);
+    println!(
+        "  GGUF (mmap): {:.3}s average, {:.3}s min",
+        gguf_avg, gguf_min
+    );
+    println!(
+        "  APR (read):  {:.3}s average, {:.3}s min",
+        apr_avg, apr_min
+    );
     println!();
 
     let ratio = apr_avg / gguf_avg;
@@ -156,10 +165,12 @@ fn main() {
             let intermediate_dim = cuda_model.model().layers[0].ffn_up_weight.out_dim;
             let num_layers = cuda_model.model().layers.len();
 
-            cuda_model.executor_mut()
+            cuda_model
+                .executor_mut()
                 .init_batched_workspace(hidden_dim, intermediate_dim, batch_size)
                 .expect("workspace");
-            cuda_model.executor_mut()
+            cuda_model
+                .executor_mut()
                 .init_batched_kv_cache_gpu(num_layers, batch_size)
                 .expect("kv cache");
 
@@ -168,7 +179,8 @@ fn main() {
             let eps = cuda_model.model().config.eps;
 
             // Prepare batched tokens
-            let batch_tokens: Vec<u32> = (0..batch_size).map(|i| 9707u32 + i as u32 * 100).collect();
+            let batch_tokens: Vec<u32> =
+                (0..batch_size).map(|i| 9707u32 + i as u32 * 100).collect();
             let embeddings: Vec<f32> = batch_tokens
                 .iter()
                 .flat_map(|&t| cuda_model.model().embed(&[t]))
@@ -194,7 +206,7 @@ fn main() {
                     Err(e) => {
                         eprintln!("  Error: {}", e);
                         break;
-                    }
+                    },
                 }
             }
 
@@ -202,7 +214,12 @@ fn main() {
             let tps = total_tokens as f64 / elapsed.as_secs_f64();
 
             println!("  GGUF GPU batched (M={}):", batch_size);
-            println!("    {} tokens in {:.3}s = {:.1} tok/s", total_tokens, elapsed.as_secs_f64(), tps);
+            println!(
+                "    {} tokens in {:.3}s = {:.1} tok/s",
+                total_tokens,
+                elapsed.as_secs_f64(),
+                tps
+            );
             println!("    vs Ollama (291): {:.2}x", tps / 291.0);
             println!();
 

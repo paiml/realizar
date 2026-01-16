@@ -39,5 +39,5 @@ fn main() {
 
     // Check what token 0 decodes to
     println!();
-    println!("Token 0 value: {:?}", vocab.get(0));
+    println!("Token 0 value: {:?}", vocab.first());
 }

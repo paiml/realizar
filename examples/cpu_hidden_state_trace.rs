@@ -7,8 +7,9 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
 
-    let path = std::env::var("MODEL_PATH")
-        .unwrap_or_else(|_| "/home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf".to_string());
+    let path = std::env::var("MODEL_PATH").unwrap_or_else(|_| {
+        "/home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf".to_string()
+    });
 
     println!("CORRECTNESS-011: CPU Hidden State Before Output Norm");
     println!("=====================================================");
@@ -70,13 +71,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // For n=1536: sum_sq = mean_sq * n = 1559 * 1536 = 2,394,624
 
     println!("\n=== Analysis ===");
-    println!("GPU hidden RMS = 39.48 suggests mean_sq = {:.2}", 39.48_f32.powi(2));
-    println!("For hidden_dim=1536, sum_sq ≈ {:.2}", 39.48_f32.powi(2) * 1536.0);
+    println!(
+        "GPU hidden RMS = 39.48 suggests mean_sq = {:.2}",
+        39.48_f32.powi(2)
+    );
+    println!(
+        "For hidden_dim=1536, sum_sq ≈ {:.2}",
+        39.48_f32.powi(2) * 1536.0
+    );
 
     // Check if rms_norm is applied correctly
     // rms_inv = rsqrt(mean_sq + eps) = rsqrt(1559 + 1e-5) ≈ 0.0253
     let rms_inv = 1.0 / (39.48_f32.powi(2) + 1e-5).sqrt();
-    println!("Expected rms_inv = 1/sqrt({:.2} + 1e-5) = {:.6}", 39.48_f32.powi(2), rms_inv);
+    println!(
+        "Expected rms_inv = 1/sqrt({:.2} + 1e-5) = {:.6}",
+        39.48_f32.powi(2),
+        rms_inv
+    );
 
     // The normed values should be: normed = hidden * rms_inv * weight
     // If we assume weight ≈ 1 (on average), then:
@@ -84,8 +95,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // But GPU shows normed_rms = 4.66, which is ~4.66x larger
     // This suggests the output_norm weights have average value ≈ 4.66
 
-    println!("\nGPU normed_rms = 4.66, expected if weight=1: {:.4}", 39.48 * rms_inv);
-    println!("This implies output_norm weights have mean ≈ {:.2}", 4.66 / (39.48 * rms_inv));
+    println!(
+        "\nGPU normed_rms = 4.66, expected if weight=1: {:.4}",
+        39.48 * rms_inv
+    );
+    println!(
+        "This implies output_norm weights have mean ≈ {:.2}",
+        4.66 / (39.48 * rms_inv)
+    );
 
     // The key question is whether CPU hidden state matches GPU hidden state
     // If they match, the bug is in the GPU output_norm or LM head

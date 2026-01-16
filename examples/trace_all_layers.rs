@@ -19,7 +19,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Get CPU forward result
     let cpu_logits = model.forward(&[token_id])?;
-    let cpu_argmax = cpu_logits.iter().enumerate()
+    let cpu_argmax = cpu_logits
+        .iter()
+        .enumerate()
         .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
         .map(|(i, _)| i);
 
@@ -41,7 +43,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let gpu_logits = cuda_model.forward_gpu_resident(token_id, &mut dummy_cache, 0)?;
 
-    let gpu_argmax = gpu_logits.iter().enumerate()
+    let gpu_argmax = gpu_logits
+        .iter()
+        .enumerate()
         .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
         .map(|(i, _)| i);
 
@@ -50,7 +54,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Compare specific logit positions
     println!("\nLogit comparison at key positions:");
     for pos in [0, 16, 74403].iter().filter(|&&p| p < gpu_logits.len()) {
-        println!("  pos {}: CPU={:.4}, GPU={:.4}, diff={:.4}",
+        println!(
+            "  pos {}: CPU={:.4}, GPU={:.4}, diff={:.4}",
             pos,
             cpu_logits.get(*pos).unwrap_or(&0.0),
             gpu_logits.get(*pos).unwrap_or(&0.0),
@@ -61,8 +66,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Compute statistics
     let cpu_mean: f32 = cpu_logits.iter().sum::<f32>() / cpu_logits.len() as f32;
     let gpu_mean: f32 = gpu_logits.iter().sum::<f32>() / gpu_logits.len() as f32;
-    let cpu_var: f32 = cpu_logits.iter().map(|x| (x - cpu_mean).powi(2)).sum::<f32>() / cpu_logits.len() as f32;
-    let gpu_var: f32 = gpu_logits.iter().map(|x| (x - gpu_mean).powi(2)).sum::<f32>() / gpu_logits.len() as f32;
+    let cpu_var: f32 = cpu_logits
+        .iter()
+        .map(|x| (x - cpu_mean).powi(2))
+        .sum::<f32>()
+        / cpu_logits.len() as f32;
+    let gpu_var: f32 = gpu_logits
+        .iter()
+        .map(|x| (x - gpu_mean).powi(2))
+        .sum::<f32>()
+        / gpu_logits.len() as f32;
 
     println!("\nLogit statistics:");
     println!("  CPU: mean={:.4}, std={:.4}", cpu_mean, cpu_var.sqrt());
@@ -82,7 +95,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let slope = sum_xy / sum_xx;
     let intercept = gpu_mean - slope * cpu_mean;
 
-    println!("\nLinear regression GPU ≈ {:.4}*CPU + {:.4}", slope, intercept);
+    println!(
+        "\nLinear regression GPU ≈ {:.4}*CPU + {:.4}",
+        slope, intercept
+    );
 
     // Check residuals after linear correction
     let mut max_residual = 0.0f32;
@@ -95,7 +111,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             residual_idx = i;
         }
     }
-    println!("Max residual: {:.4} at index {}", max_residual, residual_idx);
+    println!(
+        "Max residual: {:.4} at index {}",
+        max_residual, residual_idx
+    );
 
     Ok(())
 }

@@ -40,7 +40,7 @@ fn run_q6k_row_test() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("vocab_size: {}", vocab_size);
 
     // Q6K: 210 bytes per 256 values
-    let sb_per_row = (hidden_dim + 255) / 256;
+    let sb_per_row = hidden_dim.div_ceil(256);
     let bytes_per_row = sb_per_row * 210;
     eprintln!("Super-blocks per row: {}", sb_per_row);
     eprintln!("Bytes per row: {}", bytes_per_row);
@@ -196,7 +196,7 @@ fn q6k_dot_cpu(
     k: usize,
 ) -> Result<f32, Box<dyn std::error::Error>> {
     let mut result = 0.0f32;
-    let num_sb = (k + 255) / 256;
+    let num_sb = k.div_ceil(256);
 
     for sb_idx in 0..num_sb {
         let sb_offset = sb_idx * 210;

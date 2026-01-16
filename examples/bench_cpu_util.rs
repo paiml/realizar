@@ -3,7 +3,7 @@
 use rayon::prelude::*;
 use realizar::quantize::{fused_q4k_q8k_dot_simd, quantize_activations_q8k_into};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 fn main() {
     let in_dim: usize = 1536;

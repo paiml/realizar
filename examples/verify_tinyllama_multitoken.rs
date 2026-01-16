@@ -37,7 +37,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  '=' -> {:?}", tok_eq);
     println!("  '2' -> {:?}", tok_2);
 
-    if let (Some(t1), Some(tp), Some(te), Some(t2)) = (tok_1, tok_plus, tok_eq, tok_2) {
+    if let (Some(t1), Some(tp), Some(te), Some(_t2)) = (tok_1, tok_plus, tok_eq, tok_2) {
         let tokens = vec![t1, tp, t1, te]; // "1+1="
         println!("\nInput tokens: {:?}", tokens);
 

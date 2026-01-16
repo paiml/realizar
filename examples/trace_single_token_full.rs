@@ -91,7 +91,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Embedding
     let emb_start = tok as usize * hidden_dim;
-    let mut hidden = model.token_embedding[emb_start..emb_start + hidden_dim].to_vec();
+    let hidden = model.token_embedding[emb_start..emb_start + hidden_dim].to_vec();
     println!(
         "After embedding: norm={:.4}",
         hidden.iter().map(|x| x * x).sum::<f32>().sqrt()
@@ -123,8 +123,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        let q = &qkv[0..q_dim];
-        let k = &qkv[q_dim..q_dim + k_dim];
+        let _q = &qkv[0..q_dim];
+        let _k = &qkv[q_dim..q_dim + k_dim];
         let v = &qkv[q_dim + k_dim..];
 
         // At position 0, RoPE is identity (cos=1, sin=0)

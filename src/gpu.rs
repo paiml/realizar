@@ -12399,7 +12399,13 @@ mod tests {
         let up_weight = vec![0.1; hidden_dim * intermediate_dim];
         let down_weight = vec![0.1; intermediate_dim * hidden_dim];
 
-        let output = sequential_ffn(&input, &up_weight, &down_weight, hidden_dim, intermediate_dim);
+        let output = sequential_ffn(
+            &input,
+            &up_weight,
+            &down_weight,
+            hidden_dim,
+            intermediate_dim,
+        );
 
         assert_eq!(output.len(), hidden_dim);
         assert!(output.iter().all(|v| v.is_finite()));
@@ -12413,7 +12419,13 @@ mod tests {
         let up_weight = vec![0.1; hidden_dim * intermediate_dim];
         let down_weight = vec![0.1; intermediate_dim * hidden_dim];
 
-        let output = parallel_ffn(&input, &up_weight, &down_weight, hidden_dim, intermediate_dim);
+        let output = parallel_ffn(
+            &input,
+            &up_weight,
+            &down_weight,
+            hidden_dim,
+            intermediate_dim,
+        );
 
         assert_eq!(output.len(), hidden_dim);
         assert!(output.iter().all(|v| v.is_finite()));
@@ -12816,22 +12828,28 @@ mod tests {
     #[test]
     fn test_memory_tracker_new_cov() {
         let tracker = MemoryTracker::new();
-        // Basic construction succeeds
-        drop(tracker);
+        // Basic construction succeeds - verify initial state via allocation
+        tracker.record_allocation("test", 100);
+        tracker.record_deallocation("test", 100);
     }
 
     #[test]
     fn test_diagnostics_collector_new_cov() {
         let collector = DiagnosticsCollector::new();
-        // Basic construction succeeds
-        drop(collector);
+        // Basic construction succeeds - verify request_count is zero
+        assert_eq!(
+            collector
+                .request_count
+                .load(std::sync::atomic::Ordering::Relaxed),
+            0
+        );
     }
 
     #[test]
     fn test_debug_mode_new_cov() {
         let mode = DebugMode::new();
-        // Basic construction succeeds
-        drop(mode);
+        // Basic construction succeeds - verify debug mode is off by default
+        assert!(!mode.is_enabled());
     }
 
     #[test]
@@ -12900,7 +12918,7 @@ mod tests {
 
     #[test]
     fn test_batch_embed_basic_cov() {
-        let embedding_table = vec![1.0f32; 100 * 8];  // 100 tokens, dim 8
+        let embedding_table = vec![1.0f32; 100 * 8]; // 100 tokens, dim 8
         let tokens = vec![0usize, 1, 2];
         let result = batch_embed(&embedding_table, &tokens, 8);
         assert_eq!(result.len(), 3 * 8);
@@ -12956,7 +12974,7 @@ mod tests {
 
     #[test]
     fn test_quantized_dot_q4_basic_cov() {
-        let block_a = vec![0u8; 18];  // Q4 block: 2 bytes scale + 16 bytes data
+        let block_a = vec![0u8; 18]; // Q4 block: 2 bytes scale + 16 bytes data
         let block_b = vec![0u8; 18];
         let result = quantized_dot_q4(&block_a, &block_b);
         assert!(result.is_finite());
@@ -12964,7 +12982,7 @@ mod tests {
 
     #[test]
     fn test_quantized_dot_q8_basic_cov() {
-        let block_a = vec![0u8; 34];  // Q8 block: 2 bytes scale + 32 bytes data
+        let block_a = vec![0u8; 34]; // Q8 block: 2 bytes scale + 32 bytes data
         let block_b = vec![0u8; 34];
         let result = quantized_dot_q8(&block_a, &block_b);
         assert!(result.is_finite());
@@ -12974,7 +12992,7 @@ mod tests {
     fn test_quantized_matvec_q4_basic_cov() {
         let rows = 4;
         let cols = 32;
-        let weights = vec![0u8; rows * 18];  // Q4 blocks
+        let weights = vec![0u8; rows * 18]; // Q4 blocks
         let input = vec![1.0f32; cols];
         let result = quantized_matvec_q4(&weights, &input, rows, cols);
         assert_eq!(result.len(), rows);
@@ -12984,7 +13002,7 @@ mod tests {
     fn test_quantized_matvec_q8_basic_cov() {
         let rows = 4;
         let cols = 32;
-        let weights = vec![0u8; rows * 34];  // Q8 blocks
+        let weights = vec![0u8; rows * 34]; // Q8 blocks
         let input = vec![1.0f32; cols];
         let result = quantized_matvec_q8(&weights, &input, rows, cols);
         assert_eq!(result.len(), rows);

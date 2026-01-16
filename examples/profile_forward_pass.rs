@@ -40,7 +40,7 @@ fn main() -> Result<(), RealizarError> {
     println!("\n=== Profiling with growing KV cache ===");
 
     let max_tokens = 32;
-    let config = QuantizedGenerateConfig {
+    let _config = QuantizedGenerateConfig {
         max_tokens,
         temperature: 0.0,
         top_k: 1,

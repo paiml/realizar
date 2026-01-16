@@ -1713,7 +1713,11 @@ test benchmark_bar ... bench:         750 ns/iter (+/- 30)
 
     #[test]
     fn test_run_bench_regression_missing_files() {
-        let result = run_bench_regression("/nonexistent/baseline.json", "/nonexistent/current.json", false);
+        let result = run_bench_regression(
+            "/nonexistent/baseline.json",
+            "/nonexistent/current.json",
+            false,
+        );
         assert!(result.is_err());
     }
 
