@@ -12224,4 +12224,340 @@ mod tests {
             "IMP-1009b: Main generate() should be within 1.5x of RefCell throughput"
         );
     }
+
+    // ============================================================================
+    // Coverage Improvement Tests - Scalar/SIMD Operations
+    // ============================================================================
+
+    #[test]
+    fn test_exceeds_gpu_buffer_limit() {
+        // Within limit
+        assert!(!exceeds_gpu_buffer_limit(1000));
+        // At limit
+        assert!(!exceeds_gpu_buffer_limit(MAX_GPU_BUFFER_BYTES / 4));
+        // Exceeds limit
+        assert!(exceeds_gpu_buffer_limit(MAX_GPU_BUFFER_BYTES / 4 + 1));
+    }
+
+    #[test]
+    fn test_scalar_softmax_basic() {
+        let input = vec![1.0, 2.0, 3.0];
+        let output = scalar_softmax(&input);
+
+        assert_eq!(output.len(), 3);
+        // Sum should be 1
+        let sum: f32 = output.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-5);
+        // Largest input should have largest output
+        assert!(output[2] > output[1] && output[1] > output[0]);
+    }
+
+    #[test]
+    fn test_scalar_softmax_empty() {
+        let input: Vec<f32> = vec![];
+        let output = scalar_softmax(&input);
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn test_scalar_softmax_single() {
+        let input = vec![5.0];
+        let output = scalar_softmax(&input);
+        assert_eq!(output.len(), 1);
+        assert!((output[0] - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_simd_softmax_basic() {
+        let input = vec![1.0, 2.0, 3.0, 4.0];
+        let output = simd_softmax(&input);
+
+        assert_eq!(output.len(), 4);
+        let sum: f32 = output.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_simd_softmax_empty() {
+        let input: Vec<f32> = vec![];
+        let output = simd_softmax(&input);
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn test_simd_softmax_matches_scalar() {
+        let input = vec![0.5, 1.5, 2.5, 0.0];
+        let scalar_out = scalar_softmax(&input);
+        let simd_out = simd_softmax(&input);
+
+        for (s, si) in scalar_out.iter().zip(simd_out.iter()) {
+            assert!((s - si).abs() < 1e-5, "SIMD softmax should match scalar");
+        }
+    }
+
+    #[test]
+    fn test_scalar_rope_basic() {
+        let seq_len = 2;
+        let head_dim = 4;
+        let hidden_dim = head_dim;
+        let input = vec![1.0; seq_len * hidden_dim];
+        let theta = 10000.0;
+
+        let output = scalar_rope(&input, seq_len, head_dim, theta);
+
+        assert_eq!(output.len(), input.len());
+        // Should have rotated values
+    }
+
+    #[test]
+    fn test_scalar_rope_empty() {
+        let output = scalar_rope(&[], 0, 4, 10000.0);
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn test_scalar_rope_zero_head_dim() {
+        let input = vec![1.0, 2.0, 3.0, 4.0];
+        let output = scalar_rope(&input, 2, 0, 10000.0);
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn test_simd_rope_basic() {
+        let seq_len = 2;
+        let head_dim = 4;
+        let hidden_dim = head_dim;
+        let input = vec![1.0; seq_len * hidden_dim];
+        let theta = 10000.0;
+
+        let output = simd_rope(&input, seq_len, head_dim, theta);
+
+        assert_eq!(output.len(), input.len());
+    }
+
+    #[test]
+    fn test_simd_rope_empty() {
+        let output = simd_rope(&[], 0, 4, 10000.0);
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn test_simd_rope_matches_scalar() {
+        let seq_len = 2;
+        let head_dim = 4;
+        let input = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+        let theta = 10000.0;
+
+        let scalar_out = scalar_rope(&input, seq_len, head_dim, theta);
+        let simd_out = simd_rope(&input, seq_len, head_dim, theta);
+
+        for (s, si) in scalar_out.iter().zip(simd_out.iter()) {
+            assert!((s - si).abs() < 1e-4, "SIMD rope should match scalar");
+        }
+    }
+
+    // ============================================================================
+    // Coverage Tests - Batch/FFN Operations
+    // ============================================================================
+
+    #[test]
+    fn test_batch_embed_basic() {
+        let vocab_size = 10;
+        let hidden_dim = 4;
+        let embedding_table: Vec<f32> = (0..vocab_size * hidden_dim)
+            .map(|i| i as f32 * 0.1)
+            .collect();
+        let tokens = vec![0, 2, 5];
+
+        let output = batch_embed(&embedding_table, &tokens, hidden_dim);
+
+        assert_eq!(output.len(), 3 * hidden_dim);
+        // Token 0 should have embedding [0.0, 0.1, 0.2, 0.3]
+        assert!((output[0] - 0.0).abs() < 1e-5);
+        assert!((output[1] - 0.1).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_batch_embed_single_token() {
+        let embedding_table = vec![1.0, 2.0, 3.0, 4.0]; // vocab_size=1, hidden_dim=4
+        let tokens = vec![0];
+
+        let output = batch_embed(&embedding_table, &tokens, 4);
+
+        assert_eq!(output, vec![1.0, 2.0, 3.0, 4.0]);
+    }
+
+    #[test]
+    fn test_sequential_ffn_basic() {
+        let hidden_dim = 4;
+        let intermediate_dim = 8;
+        let input = vec![1.0; hidden_dim];
+        let up_weight = vec![0.1; hidden_dim * intermediate_dim];
+        let down_weight = vec![0.1; intermediate_dim * hidden_dim];
+
+        let output = sequential_ffn(&input, &up_weight, &down_weight, hidden_dim, intermediate_dim);
+
+        assert_eq!(output.len(), hidden_dim);
+        assert!(output.iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn test_parallel_ffn_basic() {
+        let hidden_dim = 4;
+        let intermediate_dim = 8;
+        let input = vec![1.0; hidden_dim];
+        let up_weight = vec![0.1; hidden_dim * intermediate_dim];
+        let down_weight = vec![0.1; intermediate_dim * hidden_dim];
+
+        let output = parallel_ffn(&input, &up_weight, &down_weight, hidden_dim, intermediate_dim);
+
+        assert_eq!(output.len(), hidden_dim);
+        assert!(output.iter().all(|v| v.is_finite()));
+    }
+
+    // ============================================================================
+    // Coverage Tests - LayerNorm
+    // ============================================================================
+
+    #[test]
+    fn test_standard_layernorm_basic() {
+        let input = vec![1.0, 2.0, 3.0, 4.0];
+        let gamma = vec![1.0; 4];
+        let beta = vec![0.0; 4];
+        let eps = 1e-5;
+
+        let output = standard_layernorm(&input, &gamma, &beta, eps);
+
+        assert_eq!(output.len(), 4);
+        // Should be normalized (mean ~0, std ~1)
+        let mean: f32 = output.iter().sum::<f32>() / output.len() as f32;
+        assert!(mean.abs() < 1e-4, "Mean should be ~0 after layernorm");
+    }
+
+    #[test]
+    fn test_fused_layernorm_basic() {
+        let input = vec![1.0, 2.0, 3.0, 4.0];
+        let gamma = vec![1.0; 4];
+        let beta = vec![0.0; 4];
+        let eps = 1e-5;
+
+        let output = fused_layernorm(&input, &gamma, &beta, eps);
+
+        assert_eq!(output.len(), 4);
+        let mean: f32 = output.iter().sum::<f32>() / output.len() as f32;
+        assert!(mean.abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_layernorm_fused_matches_standard() {
+        let input = vec![0.5, 1.5, 2.5, 3.5];
+        let gamma = vec![1.0, 2.0, 1.0, 2.0];
+        let beta = vec![0.1, 0.2, 0.3, 0.4];
+        let eps = 1e-5;
+
+        let standard = standard_layernorm(&input, &gamma, &beta, eps);
+        let fused = fused_layernorm(&input, &gamma, &beta, eps);
+
+        for (s, f) in standard.iter().zip(fused.iter()) {
+            assert!((s - f).abs() < 1e-4, "Fused should match standard");
+        }
+    }
+
+    // ============================================================================
+    // Coverage Tests - Quantized Operations
+    // ============================================================================
+
+    #[test]
+    fn test_quantized_dot_q4_basic() {
+        // Q4 block: 18 bytes (2 scales + 16 nibbles)
+        let block_a = vec![0u8; 18];
+        let block_b = vec![0u8; 18];
+
+        let result = quantized_dot_q4(&block_a, &block_b);
+        // Zero blocks should give zero result
+        assert!((result - 0.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_quantized_dot_q8_basic() {
+        // Q8 block: 34 bytes (2 bytes scale + 32 bytes quants)
+        let block_a = vec![0u8; 34];
+        let block_b = vec![0u8; 34];
+
+        let result = quantized_dot_q8(&block_a, &block_b);
+        assert!((result - 0.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_prefetch_read_no_panic() {
+        let data = vec![1.0f32; 100];
+        // Should not panic
+        prefetch_read(&data, 0, 10);
+        prefetch_read(&data, 50, 20);
+    }
+
+    #[test]
+    fn test_sequential_sum_basic() {
+        let data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let result = sequential_sum(&data);
+        assert!((result - 15.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_sum_with_prefetch_basic() {
+        let data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let result = sum_with_prefetch(&data, 2);
+        assert!((result - 15.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_sum_with_prefetch_matches_sequential() {
+        let data: Vec<f32> = (0..100).map(|i| i as f32).collect();
+        let seq = sequential_sum(&data);
+        let prefetch = sum_with_prefetch(&data, 8);
+        assert!((seq - prefetch).abs() < 1e-3);
+    }
+
+    // ============================================================================
+    // Coverage Tests - Matmul Operations
+    // ============================================================================
+
+    #[test]
+    fn test_naive_matmul_2x2() {
+        // A = [[1, 2], [3, 4]], B = [[5, 6], [7, 8]]
+        let a = vec![1.0f32, 2.0, 3.0, 4.0];
+        let b = vec![5.0f32, 6.0, 7.0, 8.0];
+
+        let c = naive_matmul(&a, &b, 2, 2, 2);
+
+        // C = [[19, 22], [43, 50]]
+        assert!((c[0] - 19.0).abs() < 1e-5);
+        assert!((c[1] - 22.0).abs() < 1e-5);
+        assert!((c[2] - 43.0).abs() < 1e-5);
+        assert!((c[3] - 50.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_blocked_matmul_2x2() {
+        let a = vec![1.0f32, 2.0, 3.0, 4.0];
+        let b = vec![5.0f32, 6.0, 7.0, 8.0];
+
+        let c = blocked_matmul(&a, &b, 2, 2, 2, 2);
+
+        assert!((c[0] - 19.0).abs() < 1e-5);
+        assert!((c[3] - 50.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_blocked_matmul_matches_naive() {
+        let a: Vec<f32> = (0..16).map(|i| i as f32 * 0.1).collect();
+        let b: Vec<f32> = (0..16).map(|i| i as f32 * 0.2).collect();
+
+        let c_naive = naive_matmul(&a, &b, 4, 4, 4);
+        let c_blocked = blocked_matmul(&a, &b, 4, 4, 4, 2);
+
+        for (n, bl) in c_naive.iter().zip(c_blocked.iter()) {
+            assert!((*n - *bl).abs() < 1e-4, "Blocked should match naive");
+        }
+    }
 }
