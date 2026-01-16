@@ -4340,4 +4340,73 @@ mod tests {
         assert_eq!(stats.embedding_bytes, 500);
         assert!((stats.compression_ratio - 4.0).abs() < 1e-5);
     }
+
+    // ===== Additional coverage tests =====
+
+    /// Test OptimizedKVCache full cache behavior
+    #[test]
+    fn test_optimized_kv_cache_full_capacity() {
+        let mut cache = OptimizedKVCache::new(1, 2, 2); // max 2 positions
+
+        cache.store(0, &[1.0, 1.0], &[1.0, 1.0]);
+        cache.advance();
+        cache.store(0, &[2.0, 2.0], &[2.0, 2.0]);
+        cache.advance();
+
+        // Cache is full
+        assert_eq!(cache.len(), 2);
+
+        // Try to store when full
+        cache.store(0, &[3.0, 3.0], &[3.0, 3.0]);
+        cache.advance();
+
+        // Should still be 2 (capped)
+        assert_eq!(cache.len(), 2);
+    }
+
+    /// Test InferenceMode Debug and Clone
+    #[test]
+    fn test_inference_mode_traits() {
+        let mode = InferenceMode::Prefill;
+        let cloned = mode;
+        assert_eq!(mode, cloned);
+
+        // Debug
+        let debug_str = format!("{:?}", mode);
+        assert!(debug_str.contains("Prefill"));
+    }
+
+    /// Test ThreadConfig Debug and Clone
+    #[test]
+    fn test_thread_config_traits() {
+        let config = ThreadConfig::new(4, 2);
+        let cloned = config;
+        assert_eq!(cloned.n_threads_batch, 4);
+
+        // Debug
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("ThreadConfig"));
+    }
+
+    /// Test small batch matmul (uses trueno matrix path)
+    #[test]
+    fn test_simd_matmul_small_batch_trueno() {
+        // seq_len=2, in_dim=4, out_dim=3
+        // This should hit the trueno Matrix path (not tiled)
+        let input = vec![1.0, 0.0, 0.0, 0.0,  // token 0
+                        0.0, 1.0, 0.0, 0.0]; // token 1
+        let weight = vec![
+            1.0, 2.0, 0.0, 0.0,  // out 0
+            0.0, 0.0, 3.0, 0.0,  // out 1
+            0.0, 0.0, 0.0, 4.0,  // out 2
+        ];
+
+        let output = simd_matmul(&input, &weight, 4, 3);
+
+        assert_eq!(output.len(), 6); // 2 tokens * 3 outputs
+        // Token 0: [1,0,0,0] → [1*1+2*0, 0, 0] = [1, 0, 0]
+        assert!((output[0] - 1.0).abs() < 1e-4);
+        // Token 1: [0,1,0,0] → [1*0+2*1, 0, 0] = [2, 0, 0]
+        assert!((output[3] - 2.0).abs() < 1e-4);
+    }
 }

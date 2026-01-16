@@ -3395,7 +3395,9 @@ mod tests {
     #[test]
     fn f048_rmsnorm_epsilon() {
         // With near-zero input, epsilon prevents division by zero
-        let brick = RmsNormBrick::new(vec![1.0; 4], 1e-5);
+        // Use a relaxed budget since this test is about correctness, not performance
+        let brick = RmsNormBrick::new(vec![1.0; 4], 1e-5)
+            .with_budget(TokenBudget::from_latency(1000.0)); // 1ms budget for test
         let input = vec![1e-10f32; 4]; // Very small values
 
         let result = brick.run(&input).unwrap();
