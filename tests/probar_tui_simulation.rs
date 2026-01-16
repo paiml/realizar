@@ -15,6 +15,7 @@ struct ValueTracker {
     values: Vec<f32>,
 }
 
+#[allow(dead_code)]
 impl ValueTracker {
     fn new(name: &str) -> Self {
         Self {

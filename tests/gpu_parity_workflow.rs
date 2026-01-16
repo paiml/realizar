@@ -23,6 +23,7 @@
 //! - **Jidoka**: Stop when numerical parity fails
 //! - **Poka-Yoke**: Catch scheduler bugs before inference runs
 
+#[allow(unused_imports)]
 use std::time::Instant;
 
 /// Tolerance for floating-point comparison
@@ -42,6 +43,7 @@ pub struct WorkflowConfig {
 }
 
 impl WorkflowConfig {
+    #[allow(dead_code)]
     fn small() -> Self {
         Self {
             m: 4,
@@ -51,6 +53,7 @@ impl WorkflowConfig {
         }
     }
 
+    #[allow(dead_code)]
     fn single_tile() -> Self {
         Self {
             m: 4,
@@ -62,6 +65,7 @@ impl WorkflowConfig {
 }
 
 /// Result of a scheduler matmul operation
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct MatmulResult {
     /// Output matrix
@@ -79,6 +83,7 @@ pub struct MatmulResult {
 }
 
 impl MatmulResult {
+    #[allow(dead_code)]
     fn new(output: Vec<f32>, duration: std::time::Duration, scheduler: &str) -> Self {
         let output_sum: f32 = output.iter().sum();
         let output_min = output.iter().cloned().fold(f32::INFINITY, f32::min);
@@ -94,6 +99,7 @@ impl MatmulResult {
         }
     }
 
+    #[allow(dead_code)]
     fn print_summary(&self) {
         println!("  {} Results:", self.scheduler);
         println!("    Duration: {:?}", self.duration);
@@ -108,6 +114,7 @@ impl MatmulResult {
 }
 
 /// Compare two matmul results for parity
+#[allow(dead_code)]
 fn check_parity(result_a: &MatmulResult, result_b: &MatmulResult) -> ParityResult {
     let max_diff = result_a
         .output
@@ -142,6 +149,7 @@ fn check_parity(result_a: &MatmulResult, result_b: &MatmulResult) -> ParityResul
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 struct ParityResult {
     passed: bool,
@@ -153,6 +161,7 @@ struct ParityResult {
 }
 
 impl ParityResult {
+    #[allow(dead_code)]
     fn print_summary(&self) {
         let status = if self.passed { "PASS" } else { "FAIL" };
         println!("\n  Parity Check [{status}]:");
@@ -171,6 +180,7 @@ impl ParityResult {
 // ============================================================================
 
 /// CPU reference matmul for ground truth comparison
+#[allow(dead_code)]
 fn cpu_matmul_reference(a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> Vec<f32> {
     let mut c = vec![0.0f32; m * n];
     for i in 0..m {
