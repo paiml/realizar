@@ -19511,6 +19511,7 @@ mod tests {
             context_length: 512,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         // Create layers with properly sized weights
@@ -19626,6 +19627,7 @@ mod tests {
             context_length: 2048,
             rope_theta: 10000.0,
             eps: 1e-5,
+            rope_type: 0,
         };
 
         let layers: Vec<GGUFTransformerLayer> = (0..num_layers)
