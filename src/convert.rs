@@ -1144,4 +1144,147 @@ mod tests {
         let wrong_type = GgufToAprQ4KConverter::get_f32(&metadata, "count");
         assert_eq!(wrong_type, None);
     }
+
+    // ==========================================================================
+    // Q4KConversionStats Coverage Tests
+    // ==========================================================================
+
+    #[test]
+    fn test_q4k_conversion_stats_debug() {
+        let stats = Q4KConversionStats {
+            tensor_count: 100,
+            q4k_tensor_count: 80,
+            total_bytes: 1_000_000,
+            architecture: "llama".to_string(),
+            num_layers: 32,
+            hidden_size: 4096,
+        };
+
+        let debug_str = format!("{stats:?}");
+        assert!(debug_str.contains("llama"));
+        assert!(debug_str.contains("100"));
+        assert!(debug_str.contains("32"));
+    }
+
+    #[test]
+    fn test_q4k_conversion_stats_clone() {
+        let stats = Q4KConversionStats {
+            tensor_count: 50,
+            q4k_tensor_count: 40,
+            total_bytes: 500_000,
+            architecture: "qwen".to_string(),
+            num_layers: 16,
+            hidden_size: 2048,
+        };
+
+        let cloned = stats.clone();
+        assert_eq!(cloned.tensor_count, stats.tensor_count);
+        assert_eq!(cloned.architecture, stats.architecture);
+        assert_eq!(cloned.num_layers, stats.num_layers);
+    }
+
+    // ==========================================================================
+    // Additional From APR Bytes Error Tests
+    // ==========================================================================
+
+    #[test]
+    fn test_from_apr_bytes_v1_format() {
+        // Create APR v1 format header (should be handled or error gracefully)
+        let mut bytes = vec![0u8; 128];
+        bytes[0..4].copy_from_slice(&MAGIC);
+        bytes[4] = 1; // v1 (not v2)
+        bytes[5] = 0;
+
+        let result = GgufToAprConverter::from_apr_bytes(&bytes);
+        // May succeed with v1 fallback or fail, but shouldn't panic
+        let _ = result;
+    }
+
+    #[test]
+    fn test_from_apr_bytes_wrong_magic() {
+        let mut bytes = vec![0u8; 128];
+        bytes[0..4].copy_from_slice(b"XXXX"); // Wrong magic
+        bytes[4] = 2;
+
+        let result = GgufToAprConverter::from_apr_bytes(&bytes);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_apr_bytes_too_short() {
+        // Only 4 bytes (magic only)
+        let bytes = vec![0x41, 0x50, 0x52, 0x32]; // APR2
+
+        let result = GgufToAprConverter::from_apr_bytes(&bytes);
+        assert!(result.is_err());
+    }
+
+    // ==========================================================================
+    // Stats Edge Cases
+    // ==========================================================================
+
+    #[test]
+    fn test_stats_zero_params() {
+        let stats = ConversionStats {
+            total_parameters: 0,
+            memory_bytes_f32: 0,
+            num_layers: 0,
+            hidden_dim: 0,
+            vocab_size: 0,
+            architecture: "empty".to_string(),
+        };
+
+        assert_eq!(stats.memory_mb(), 0.0);
+        assert_eq!(stats.memory_gb(), 0.0);
+        assert_eq!(stats.parameters_m(), 0.0);
+        assert_eq!(stats.parameters_b(), 0.0);
+    }
+
+    #[test]
+    fn test_stats_small_model() {
+        let stats = ConversionStats {
+            total_parameters: 1000,
+            memory_bytes_f32: 4000,
+            num_layers: 1,
+            hidden_dim: 16,
+            vocab_size: 100,
+            architecture: "tiny".to_string(),
+        };
+
+        assert!(stats.memory_mb() > 0.0);
+        assert!(stats.parameters_m() > 0.0);
+        assert!(stats.parameters_b() < 0.001);
+    }
+
+    // ==========================================================================
+    // APR Bytes Serialization Additional Tests
+    // ==========================================================================
+
+    #[test]
+    fn test_to_apr_bytes_multiple_layers() {
+        let apr = create_test_apr_transformer(64, 4, 1000, 256);
+        let bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialize");
+
+        // Should have valid header
+        assert_eq!(&bytes[0..4], &MAGIC);
+        assert!(bytes.len() > HEADER_SIZE);
+    }
+
+    #[test]
+    fn test_to_apr_bytes_single_layer() {
+        let apr = create_test_apr_transformer(32, 1, 100, 64);
+        let bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialize");
+
+        assert_eq!(&bytes[0..4], &MAGIC);
+    }
+
+    #[test]
+    fn test_apr_roundtrip_multiple_layers() {
+        let original = create_test_apr_transformer(32, 3, 500, 128);
+        let bytes = GgufToAprConverter::to_apr_bytes(&original).expect("serialize");
+        let loaded = GgufToAprConverter::from_apr_bytes(&bytes).expect("deserialize");
+
+        assert_eq!(original.config.num_layers, loaded.config.num_layers);
+        assert_eq!(original.layers.len(), loaded.layers.len());
+    }
 }
