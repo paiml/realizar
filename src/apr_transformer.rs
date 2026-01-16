@@ -40,12 +40,7 @@ use crate::error::{RealizarError, Result};
 // ============================================================================
 // APR Transformer Binary Format (Y1-Y5 Format Parity)
 // ============================================================================
-
-/// APR Transformer binary format magic: "APRT" (APR Transformer)
-pub const APR_TRANSFORMER_MAGIC: [u8; 4] = [0x41, 0x50, 0x52, 0x54];
-
-/// APR Transformer format version
-pub const APR_TRANSFORMER_VERSION: u32 = 1;
+// Uses unified APR magic from apr.rs - ONE format, no versioning
 
 /// Binary header size for APR Transformer (64 bytes)
 pub const APR_TRANSFORMER_HEADER_SIZE: usize = 64;
@@ -121,13 +116,13 @@ impl MmapAprTransformer {
         // Parse header
         let header_bytes = &mmap[..APR_TRANSFORMER_HEADER_SIZE];
 
-        // Verify magic (can be either APRN or APRT)
+        // Verify APR magic
         let magic = &header_bytes[0..4];
-        if magic != MAGIC && magic != APR_TRANSFORMER_MAGIC {
+        if magic != MAGIC {
             return Err(RealizarError::FormatError {
                 reason: format!(
-                    "Invalid APR magic: expected {:?} or {:?}, got {:?}",
-                    MAGIC, APR_TRANSFORMER_MAGIC, magic
+                    "Invalid APR magic: expected {:?}, got {:?}",
+                    MAGIC, magic
                 ),
             });
         }
@@ -139,7 +134,7 @@ impl MmapAprTransformer {
             header_bytes[6],
             header_bytes[7],
         ]);
-        if version > APR_TRANSFORMER_VERSION {
+        if version > 1 {
             return Err(RealizarError::FormatError {
                 reason: format!("Unsupported APR version: {version}"),
             });
@@ -635,8 +630,8 @@ impl QuantizedAprTransformer {
         let mut bytes = Vec::new();
 
         // Header (64 bytes)
-        bytes.extend_from_slice(&APR_TRANSFORMER_MAGIC);
-        bytes.extend_from_slice(&APR_TRANSFORMER_VERSION.to_le_bytes());
+        bytes.extend_from_slice(&MAGIC);
+        bytes.extend_from_slice(&1u32.to_le_bytes());
         bytes.extend_from_slice(&(self.config.hidden_dim as u32).to_le_bytes());
         bytes.extend_from_slice(&(self.config.num_layers as u32).to_le_bytes());
         bytes.extend_from_slice(&(self.config.num_heads as u32).to_le_bytes());
@@ -689,7 +684,7 @@ impl QuantizedAprTransformer {
         }
 
         // Verify magic
-        if data[0..4] != APR_TRANSFORMER_MAGIC {
+        if data[0..4] != MAGIC {
             return Err(RealizarError::FormatError {
                 reason: "Invalid APR magic".to_string(),
             });
@@ -1191,18 +1186,18 @@ impl AprTransformer {
 
         // Check magic
         let magic = &data[0..4];
-        if magic != b"APR2" && magic != b"APRN" {
+        if magic != b"APR\0" {
             return Err(RealizarError::FormatError {
                 reason: format!(
-                    "Invalid APR magic: {:?}, expected APR2 or APRN",
+                    "Invalid APR magic: {:?}, expected APR",
                     String::from_utf8_lossy(magic)
                 ),
             });
         }
 
         // Parse header
-        // APR v2 header layout:
-        //   0-3: Magic "APR2"
+        // APR header layout:
+        //   0-3: Magic "APR\0"
         //   4-5: Version major.minor
         //   6-7: Flags
         //   8-11: Tensor count
@@ -5495,7 +5490,7 @@ mod tests {
     fn test_from_apr_bytes_truncated_apr2_magic() {
         // Valid APR2 magic but truncated
         let mut data = vec![0u8; 10];
-        data[0..4].copy_from_slice(b"APR2");
+        data[0..4].copy_from_slice(b"APR\0");
         let result = AprTransformer::from_apr_bytes(&data);
         assert!(result.is_err());
     }
@@ -6068,17 +6063,12 @@ mod tests {
     }
 
     #[test]
-    fn test_apr_transformer_magic() {
-        // APRT in ASCII
-        assert_eq!(APR_TRANSFORMER_MAGIC[0], 0x41); // 'A'
-        assert_eq!(APR_TRANSFORMER_MAGIC[1], 0x50); // 'P'
-        assert_eq!(APR_TRANSFORMER_MAGIC[2], 0x52); // 'R'
-        assert_eq!(APR_TRANSFORMER_MAGIC[3], 0x54); // 'T'
-    }
-
-    #[test]
-    fn test_apr_transformer_version() {
-        assert_eq!(APR_TRANSFORMER_VERSION, 1);
+    fn test_apr_magic() {
+        // APR\0 - ONE format, no versioning
+        assert_eq!(MAGIC[0], 0x41); // 'A'
+        assert_eq!(MAGIC[1], 0x50); // 'P'
+        assert_eq!(MAGIC[2], 0x52); // 'R'
+        assert_eq!(MAGIC[3], 0x00); // '\0'
     }
 
     #[test]
@@ -6943,7 +6933,7 @@ mod tests {
     fn test_from_apr_bytes_aprn_magic() {
         // APRN magic - may succeed or fail depending on structure
         let mut data = vec![0u8; 100];
-        data[0..4].copy_from_slice(b"APRN");
+        data[0..4].copy_from_slice(b"APR\0");
         let result = AprTransformer::from_apr_bytes(&data);
         // Result varies based on implementation - just verify it doesn't panic
         let _ = result;
@@ -6971,7 +6961,7 @@ mod tests {
     #[test]
     fn test_quantized_from_bytes_invalid_quant_type() {
         let mut data = vec![0u8; 100];
-        data[0..4].copy_from_slice(&APR_TRANSFORMER_MAGIC);
+        data[0..4].copy_from_slice(&MAGIC);
         data[48] = 99; // Invalid quantization type
         let result = QuantizedAprTransformer::from_bytes(&data);
         assert!(result.is_err());
@@ -8234,7 +8224,7 @@ mod tests {
         let dir = std::env::temp_dir();
         let path = dir.join("test_short.apr");
         let mut file = std::fs::File::create(&path).expect("create file");
-        file.write_all(b"APRT").expect("write magic");
+        file.write_all(b"APR\0").expect("write magic");
         drop(file);
 
         let result = MmapAprTransformer::from_file(&path);
@@ -8267,8 +8257,8 @@ mod tests {
         let path = dir.join("test_bad_version.apr");
         let mut file = std::fs::File::create(&path).expect("create file");
 
-        // Write APRT magic
-        file.write_all(b"APRT").expect("write magic");
+        // Write APR magic
+        file.write_all(b"APR\0").expect("write magic");
         // Write very high version number
         file.write_all(&100u32.to_le_bytes())
             .expect("write version");
@@ -8291,7 +8281,7 @@ mod tests {
         let mut file = std::fs::File::create(&path).expect("create file");
 
         // Header layout (64 bytes):
-        // 0-3: Magic (APRT)
+        // 0-3: Magic (APR)
         // 4-7: Version (u32)
         // 8-11: hidden_dim (u32)
         // 12-15: num_layers (u32)
@@ -8305,7 +8295,7 @@ mod tests {
         // 44-47: tensor_data_offset (u32)
         // 48-63: padding
 
-        file.write_all(b"APRT").expect("magic"); // 0-3
+        file.write_all(b"APR\0").expect("magic"); // 0-3
         file.write_all(&1u32.to_le_bytes()).expect("version"); // 4-7
         file.write_all(&64u32.to_le_bytes()).expect("hidden_dim"); // 8-11
         file.write_all(&2u32.to_le_bytes()).expect("num_layers"); // 12-15
@@ -8342,7 +8332,7 @@ mod tests {
         let mut file = std::fs::File::create(&path).expect("create file");
 
         // Write valid header (64 bytes) with tensor_data_offset = 64
-        file.write_all(b"APRT").expect("magic"); // 0-3
+        file.write_all(b"APR\0").expect("magic"); // 0-3
         file.write_all(&1u32.to_le_bytes()).expect("version"); // 4-7
         file.write_all(&64u32.to_le_bytes()).expect("hidden_dim"); // 8-11
         file.write_all(&2u32.to_le_bytes()).expect("num_layers"); // 12-15
@@ -8400,7 +8390,7 @@ mod tests {
         let mut data = vec![0u8; 128];
 
         // APR2 magic
-        data[0..4].copy_from_slice(b"APR2");
+        data[0..4].copy_from_slice(b"APR\0");
 
         // Version 1.0
         data[4] = 1;
@@ -8439,7 +8429,7 @@ mod tests {
         let mut data = vec![0u8; 128];
 
         // APRN magic
-        data[0..4].copy_from_slice(b"APRN");
+        data[0..4].copy_from_slice(b"APR\0");
 
         // Version 1.0
         data[4] = 1;
@@ -8468,7 +8458,7 @@ mod tests {
     #[test]
     fn test_from_apr_bytes_metadata_out_of_bounds() {
         let mut data = vec![0u8; 64];
-        data[0..4].copy_from_slice(b"APR2");
+        data[0..4].copy_from_slice(b"APR\0");
 
         // Set metadata offset beyond file size
         data[12..20].copy_from_slice(&1000u64.to_le_bytes());
@@ -9350,8 +9340,8 @@ mod tests {
 
     #[test]
     fn test_apr_transformer_constants_cov() {
-        assert_eq!(&APR_TRANSFORMER_MAGIC, b"APRT");
-        assert_eq!(APR_TRANSFORMER_VERSION, 1);
+        assert_eq!(&MAGIC, b"APR\0");
+        assert_eq!(1, 1);
         assert_eq!(APR_TRANSFORMER_HEADER_SIZE, 64);
     }
 }

@@ -241,12 +241,12 @@ impl LambdaHandler {
             return Err(LambdaError::EmptyModel);
         }
 
-        // Validate .apr magic bytes (APR v2: "APR2" = 0x41505232)
+        // Validate .apr magic bytes
         if model_bytes.len() >= 4 {
             let magic = &model_bytes[0..4];
             if magic != APR_MAGIC {
                 return Err(LambdaError::InvalidMagic {
-                    expected: "APR2".to_string(),
+                    expected: "APR".to_string(),
                     found: format!("{:?}", &model_bytes[0..4.min(model_bytes.len())]),
                 });
             }
@@ -663,13 +663,13 @@ mod tests {
 
     #[test]
     fn test_lambda_handler_rejects_invalid_magic() {
-        // Invalid magic bytes (GGUF instead of APRN)
+        // Invalid magic bytes (GGUF instead of APR)
         let model_bytes: &'static [u8] = b"GGUF\x01\x00\x00\x00testmodel";
         let result = LambdaHandler::from_bytes(model_bytes);
         assert!(result.is_err());
         match result.unwrap_err() {
             LambdaError::InvalidMagic { expected, found } => {
-                assert_eq!(expected, "APRN");
+                assert_eq!(expected, "APR");
                 assert!(!found.is_empty());
                 assert!(found.contains("71")); // 'G' = 71 in ASCII
             },

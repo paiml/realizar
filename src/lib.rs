@@ -332,6 +332,7 @@ pub mod uri;
 // Re-exports for convenience
 pub use error::{RealizarError, Result};
 pub use inference_trace::{InferenceTracer, ModelInfo, TraceConfig, TraceStep};
+pub use safetensors::SafetensorsConfig;
 pub use tensor::Tensor;
 
 /// Library version
