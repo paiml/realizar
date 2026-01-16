@@ -14202,4 +14202,1045 @@ mod tests {
         let result = f16_to_f32_lut(zero_bits);
         assert_eq!(result, 0.0);
     }
+
+    // =========================================================================
+    // Coverage Tests: Q8KSuperBlock
+    // =========================================================================
+
+    /// Test Q8KSuperBlock quantize basic
+    #[test]
+    fn test_q8k_superblock_quantize_basic() {
+        let values = [1.0f32; 256];
+        let block = Q8KSuperBlock::quantize(&values);
+        assert!(block.scale > 0.0);
+        assert_eq!(block.quants.len(), 256);
+    }
+
+    /// Test Q8KSuperBlock quantize with varying values
+    #[test]
+    fn test_q8k_superblock_quantize_varying() {
+        let mut values = [0.0f32; 256];
+        for i in 0..256 {
+            values[i] = (i as f32 - 128.0) / 128.0;
+        }
+        let block = Q8KSuperBlock::quantize(&values);
+        assert!(block.scale > 0.0);
+        // Check that extreme values are captured
+        assert_ne!(block.quants[0], 0);
+        assert_ne!(block.quants[255], 0);
+    }
+
+    /// Test Q8KSuperBlock quantize with near-zero values (edge case)
+    #[test]
+    fn test_q8k_superblock_quantize_near_zero() {
+        let values = [1e-12f32; 256];
+        let block = Q8KSuperBlock::quantize(&values);
+        // Should use fallback scale
+        assert!((block.scale - 1.0 / 127.0).abs() < 1e-6);
+    }
+
+    /// Test Q8KSuperBlock quantize_into
+    #[test]
+    fn test_q8k_superblock_quantize_into() {
+        let values = [2.0f32; 256];
+        let mut scale = 0.0f32;
+        let mut quants = [0i8; 256];
+        Q8KSuperBlock::quantize_into(&values, &mut scale, &mut quants);
+        assert!(scale > 0.0);
+        // All values should be quantized to max (127)
+        for &q in &quants {
+            assert_eq!(q, 127);
+        }
+    }
+
+    /// Test Q8KSuperBlock dequantize round-trip
+    #[test]
+    fn test_q8k_superblock_dequantize_roundtrip() {
+        let mut original = [0.0f32; 256];
+        for i in 0..256 {
+            original[i] = (i as f32 - 128.0) / 10.0;
+        }
+        let block = Q8KSuperBlock::quantize(&original);
+        let recovered = block.dequantize();
+
+        // Check round-trip error is reasonable
+        let max_error: f32 = original
+            .iter()
+            .zip(recovered.iter())
+            .map(|(o, r)| (o - r).abs())
+            .fold(0.0f32, f32::max);
+        assert!(max_error < 0.2); // Q8 has ~1% error
+    }
+
+    /// Test Q8KSuperBlock Debug and Clone traits
+    #[test]
+    fn test_q8k_superblock_traits() {
+        let values = [1.0f32; 256];
+        let block = Q8KSuperBlock::quantize(&values);
+        let debug_str = format!("{:?}", block);
+        assert!(debug_str.contains("scale"));
+        let cloned = block.clone();
+        assert_eq!(cloned.scale, block.scale);
+    }
+
+    // =========================================================================
+    // Coverage Tests: quantize_activations_q8k_into error paths
+    // =========================================================================
+
+    /// Test quantize_activations_q8k_into with invalid length
+    #[test]
+    fn test_quantize_activations_q8k_into_invalid_length() {
+        let activations = vec![1.0f32; 100]; // Not multiple of 256
+        let mut scales = vec![0.0f32; 1];
+        let mut quants = vec![0i8; 256];
+        let result = quantize_activations_q8k_into(&activations, &mut scales, &mut quants);
+        assert!(result.is_err());
+    }
+
+    /// Test quantize_activations_q8k_into with too small scales buffer
+    #[test]
+    fn test_quantize_activations_q8k_into_small_scales() {
+        let activations = vec![1.0f32; 512]; // 2 super-blocks
+        let mut scales = vec![0.0f32; 1]; // Need 2
+        let mut quants = vec![0i8; 512];
+        let result = quantize_activations_q8k_into(&activations, &mut scales, &mut quants);
+        assert!(result.is_err());
+    }
+
+    /// Test quantize_activations_q8k_into with too small quants buffer
+    #[test]
+    fn test_quantize_activations_q8k_into_small_quants() {
+        let activations = vec![1.0f32; 256];
+        let mut scales = vec![0.0f32; 1];
+        let mut quants = vec![0i8; 100]; // Need 256
+        let result = quantize_activations_q8k_into(&activations, &mut scales, &mut quants);
+        assert!(result.is_err());
+    }
+
+    /// Test quantize_activations_q8k_into success case
+    #[test]
+    fn test_quantize_activations_q8k_into_success() {
+        let activations = vec![1.0f32; 256];
+        let mut scales = vec![0.0f32; 1];
+        let mut quants = vec![0i8; 256];
+        let result = quantize_activations_q8k_into(&activations, &mut scales, &mut quants);
+        assert!(result.is_ok());
+        assert!(scales[0] > 0.0);
+    }
+
+    // =========================================================================
+    // Coverage Tests: fused_rmsnorm_ffn_up_gate error paths
+    // =========================================================================
+
+    /// Test fused_rmsnorm_ffn_up_gate input dimension error
+    #[test]
+    fn test_fused_rmsnorm_ffn_up_gate_input_dim_error() {
+        let input = vec![1.0f32; 16]; // Wrong size
+        let norm_weight = vec![1.0f32; 32];
+        let up_weight = vec![0u8; 36];
+        let gate_weight = vec![0u8; 36];
+        let result = fused_rmsnorm_ffn_up_gate(
+            &input,
+            &norm_weight,
+            1e-5,
+            &up_weight,
+            &gate_weight,
+            32,
+            1,
+        );
+        assert!(result.is_err());
+    }
+
+    /// Test fused_rmsnorm_ffn_up_gate up_weight too small
+    #[test]
+    fn test_fused_rmsnorm_ffn_up_gate_up_weight_error() {
+        let input = vec![1.0f32; 32];
+        let norm_weight = vec![1.0f32; 32];
+        let up_weight = vec![0u8; 10]; // Too small
+        let gate_weight = vec![0u8; 36];
+        let result = fused_rmsnorm_ffn_up_gate(
+            &input,
+            &norm_weight,
+            1e-5,
+            &up_weight,
+            &gate_weight,
+            32,
+            2,
+        );
+        assert!(result.is_err());
+    }
+
+    /// Test fused_rmsnorm_ffn_up_gate gate_weight too small
+    #[test]
+    fn test_fused_rmsnorm_ffn_up_gate_gate_weight_error() {
+        let input = vec![1.0f32; 32];
+        let norm_weight = vec![1.0f32; 32];
+        let up_weight = vec![0u8; 36];
+        let gate_weight = vec![0u8; 10]; // Too small
+        let result = fused_rmsnorm_ffn_up_gate(
+            &input,
+            &norm_weight,
+            1e-5,
+            &up_weight,
+            &gate_weight,
+            32,
+            2,
+        );
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Coverage Tests: fused_rmsnorm_ffn_up_gate_into error paths
+    // =========================================================================
+
+    /// Test fused_rmsnorm_ffn_up_gate_into input dimension error
+    #[test]
+    fn test_fused_rmsnorm_ffn_up_gate_into_input_dim_error() {
+        let input = vec![1.0f32; 16]; // Wrong size
+        let norm_weight = vec![1.0f32; 32];
+        let up_weight = vec![0u8; 36];
+        let gate_weight = vec![0u8; 36];
+        let mut up_output = vec![0.0f32; 1];
+        let mut gate_output = vec![0.0f32; 1];
+        let mut q8_scales = vec![0.0f32; 1];
+        let mut q8_quants = vec![0i8; 32];
+        let result = fused_rmsnorm_ffn_up_gate_into(
+            &input,
+            &norm_weight,
+            1e-5,
+            &up_weight,
+            &gate_weight,
+            32,
+            1,
+            &mut up_output,
+            &mut gate_output,
+            &mut q8_scales,
+            &mut q8_quants,
+        );
+        assert!(result.is_err());
+    }
+
+    /// Test fused_rmsnorm_ffn_up_gate_into up_weight too small
+    #[test]
+    fn test_fused_rmsnorm_ffn_up_gate_into_up_weight_error() {
+        let input = vec![1.0f32; 32];
+        let norm_weight = vec![1.0f32; 32];
+        let up_weight = vec![0u8; 10]; // Too small
+        let gate_weight = vec![0u8; 36];
+        let mut up_output = vec![0.0f32; 2];
+        let mut gate_output = vec![0.0f32; 2];
+        let mut q8_scales = vec![0.0f32; 1];
+        let mut q8_quants = vec![0i8; 32];
+        let result = fused_rmsnorm_ffn_up_gate_into(
+            &input,
+            &norm_weight,
+            1e-5,
+            &up_weight,
+            &gate_weight,
+            32,
+            2,
+            &mut up_output,
+            &mut gate_output,
+            &mut q8_scales,
+            &mut q8_quants,
+        );
+        assert!(result.is_err());
+    }
+
+    /// Test fused_rmsnorm_ffn_up_gate_into gate_weight too small
+    #[test]
+    fn test_fused_rmsnorm_ffn_up_gate_into_gate_weight_error() {
+        let input = vec![1.0f32; 32];
+        let norm_weight = vec![1.0f32; 32];
+        let up_weight = vec![0u8; 36];
+        let gate_weight = vec![0u8; 10]; // Too small
+        let mut up_output = vec![0.0f32; 2];
+        let mut gate_output = vec![0.0f32; 2];
+        let mut q8_scales = vec![0.0f32; 1];
+        let mut q8_quants = vec![0i8; 32];
+        let result = fused_rmsnorm_ffn_up_gate_into(
+            &input,
+            &norm_weight,
+            1e-5,
+            &up_weight,
+            &gate_weight,
+            32,
+            2,
+            &mut up_output,
+            &mut gate_output,
+            &mut q8_scales,
+            &mut q8_quants,
+        );
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Coverage Tests: fused_rmsnorm_q4_0_matmul error paths
+    // =========================================================================
+
+    /// Test fused_rmsnorm_q4_0_matmul input dimension error
+    #[test]
+    fn test_fused_rmsnorm_q4_0_matmul_input_dim_error() {
+        let input = vec![1.0f32; 16]; // Wrong size
+        let norm_weight = vec![1.0f32; 32];
+        let weight_data = vec![0u8; 36];
+        let result = fused_rmsnorm_q4_0_matmul(&input, &norm_weight, 1e-5, &weight_data, 32, 1);
+        assert!(result.is_err());
+    }
+
+    /// Test fused_rmsnorm_q4_0_matmul weight data too small
+    #[test]
+    fn test_fused_rmsnorm_q4_0_matmul_weight_data_error() {
+        let input = vec![1.0f32; 32];
+        let norm_weight = vec![1.0f32; 32];
+        let weight_data = vec![0u8; 10]; // Too small
+        let result = fused_rmsnorm_q4_0_matmul(&input, &norm_weight, 1e-5, &weight_data, 32, 2);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Coverage Tests: Q8_0Block methods
+    // =========================================================================
+
+    /// Test Q8_0Block quantize basic
+    #[test]
+    fn test_q8_0_block_quantize_basic() {
+        let values = [1.0f32; 32];
+        let block = Q8_0Block::quantize(&values);
+        assert!(block.scale > 0.0);
+        for &q in &block.quants {
+            assert_eq!(q, 127);
+        }
+    }
+
+    /// Test Q8_0Block quantize near-zero
+    #[test]
+    fn test_q8_0_block_quantize_near_zero() {
+        let values = [1e-12f32; 32];
+        let block = Q8_0Block::quantize(&values);
+        assert!((block.scale - 1.0 / 127.0).abs() < 1e-6);
+    }
+
+    /// Test Q8_0Block dequantize
+    #[test]
+    fn test_q8_0_block_dequantize() {
+        let mut original = [0.0f32; 32];
+        for i in 0..32 {
+            original[i] = (i as f32 - 16.0) / 10.0;
+        }
+        let block = Q8_0Block::quantize(&original);
+        let recovered = block.dequantize();
+
+        let max_error: f32 = original
+            .iter()
+            .zip(recovered.iter())
+            .map(|(o, r)| (o - r).abs())
+            .fold(0.0f32, f32::max);
+        assert!(max_error < 0.1);
+    }
+
+    /// Test Q8_0Block quantization_error
+    #[test]
+    fn test_q8_0_block_quantization_error() {
+        let values = [1.5f32; 32];
+        let block = Q8_0Block::quantize(&values);
+        let error = block.quantization_error(&values);
+        assert!(error >= 0.0);
+        assert!(error < 0.1);
+    }
+
+    /// Test Q8_0Block relative_error
+    #[test]
+    fn test_q8_0_block_relative_error() {
+        let values = [2.0f32; 32];
+        let block = Q8_0Block::quantize(&values);
+        let error = block.relative_error(&values);
+        assert!(error >= 0.0);
+        assert!(error < 0.05);
+    }
+
+    // =========================================================================
+    // Coverage Tests: fused_q5k_dot_simd
+    // =========================================================================
+
+    /// Test fused_q5k_dot_simd basic
+    #[test]
+    fn test_fused_q5k_dot_simd_basic() {
+        // Q5_K super-block is 176 bytes for 256 values
+        let mut q5k_data = vec![0u8; 176];
+        q5k_data[0..2].copy_from_slice(&half::f16::from_f32(1.0).to_le_bytes());
+        let activations = vec![1.0f32; 256];
+        let result = fused_q5k_dot_simd(&q5k_data, &activations);
+        assert!(result.is_ok());
+    }
+
+    /// Test fused_q5k_dot_simd invalid length
+    #[test]
+    fn test_fused_q5k_dot_simd_invalid_length() {
+        let q5k_data = vec![0u8; 100]; // Not multiple of 176
+        let activations = vec![1.0f32; 256];
+        let result = fused_q5k_dot_simd(&q5k_data, &activations);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Coverage Tests: fused_q6k_dot_simd error handling
+    // =========================================================================
+
+    /// Test fused_q6k_dot_simd invalid length
+    #[test]
+    fn test_fused_q6k_dot_simd_invalid_length() {
+        let q6k_data = vec![0u8; 100]; // Not multiple of 210
+        let activations = vec![1.0f32; 256];
+        let result = fused_q6k_dot_simd(&q6k_data, &activations);
+        assert!(result.is_err());
+    }
+
+    /// Test fused_q6k_dot_simd dimension mismatch
+    #[test]
+    fn test_fused_q6k_dot_simd_dim_mismatch() {
+        let q6k_data = vec![0u8; 210];
+        let activations = vec![1.0f32; 128]; // Should be 256
+        let result = fused_q6k_dot_simd(&q6k_data, &activations);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Coverage Tests: quantize_rmsnorm_q8_0 with various sizes
+    // =========================================================================
+
+    /// Test quantize_rmsnorm_q8_0 with partial block
+    #[test]
+    fn test_quantize_rmsnorm_q8_0_partial_block() {
+        let input = vec![1.0f32; 48]; // 1 full block + 16 partial
+        let norm_weight = vec![1.0f32; 48];
+        let (scales, quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, 1e-5);
+        assert_eq!(scales.len(), 2);
+        assert_eq!(quants.len(), 64); // Padded to 32-element blocks
+    }
+
+    /// Test quantize_rmsnorm_q8_0 with large input
+    #[test]
+    fn test_quantize_rmsnorm_q8_0_large() {
+        let input: Vec<f32> = (0..256).map(|i| (i as f32 - 128.0) / 64.0).collect();
+        let norm_weight = vec![1.0f32; 256];
+        let (scales, quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, 1e-5);
+        assert_eq!(scales.len(), 8);
+        assert_eq!(quants.len(), 256);
+        // Verify values are valid
+        for &q in &quants {
+            assert!(q >= -128 && q <= 127);
+        }
+    }
+
+    /// Test quantize_rmsnorm_q8_0 with near-zero max abs
+    #[test]
+    fn test_quantize_rmsnorm_q8_0_near_zero_max() {
+        let input = vec![1e-12f32; 32];
+        let norm_weight = vec![1.0f32; 32];
+        let (scales, _quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, 1e-5);
+        // Should use fallback scale
+        assert!(scales[0] > 0.0);
+    }
+
+    // =========================================================================
+    // Coverage Tests: dequantize_q8_blocks
+    // =========================================================================
+
+    /// Test dequantize_q8_blocks with multiple blocks
+    #[test]
+    fn test_dequantize_q8_blocks_multiple() {
+        let blocks = vec![
+            Q8_0Block {
+                scale: 1.0,
+                quants: [64i8; 32],
+            },
+            Q8_0Block {
+                scale: 2.0,
+                quants: [32i8; 32],
+            },
+        ];
+        let result = dequantize_q8_blocks(&blocks);
+        assert_eq!(result.len(), 64);
+        assert!((result[0] - 64.0).abs() < 1e-5);
+        assert!((result[32] - 64.0).abs() < 1e-5); // 32 * 2.0
+    }
+
+    // =========================================================================
+    // Coverage Tests: fused_q6k_q8k_dot
+    // =========================================================================
+
+    /// Test fused_q6k_q8k_dot invalid data length
+    #[test]
+    fn test_fused_q6k_q8k_dot_invalid_data() {
+        let q6k_data = vec![0u8; 100]; // Not multiple of 210
+        let q8k_scales = vec![1.0f32; 1];
+        let q8k_quants = vec![1i8; 256];
+        let result = fused_q6k_q8k_dot(&q6k_data, &q8k_scales, &q8k_quants);
+        assert!(result.is_err());
+    }
+
+    /// Test fused_q6k_q8k_dot buffer too small
+    #[test]
+    fn test_fused_q6k_q8k_dot_buffer_small() {
+        let q6k_data = vec![0u8; 210];
+        let q8k_scales = vec![]; // Empty scales
+        let q8k_quants = vec![1i8; 256];
+        let result = fused_q6k_q8k_dot(&q6k_data, &q8k_scales, &q8k_quants);
+        assert!(result.is_err());
+    }
+
+    /// Test fused_q6k_q8k_dot_simd invalid data
+    #[test]
+    fn test_fused_q6k_q8k_dot_simd_invalid() {
+        let q6k_data = vec![0u8; 100]; // Not multiple of 210
+        let q8k_scales = vec![1.0f32; 1];
+        let q8k_quants = vec![1i8; 256];
+        let result = fused_q6k_q8k_dot_simd(&q6k_data, &q8k_scales, &q8k_quants);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Coverage Tests: fused_q5k_dot scalar
+    // =========================================================================
+
+    /// Test fused_q5k_dot basic
+    #[test]
+    fn test_fused_q5k_dot_basic() {
+        let mut q5k_data = vec![0u8; 176];
+        q5k_data[0..2].copy_from_slice(&half::f16::from_f32(1.0).to_le_bytes());
+        let activations = vec![1.0f32; 256];
+        let result = fused_q5k_dot(&q5k_data, &activations);
+        assert!(result.is_ok());
+    }
+
+    /// Test fused_q5k_dot invalid length
+    #[test]
+    fn test_fused_q5k_dot_invalid_length() {
+        let q5k_data = vec![0u8; 100];
+        let activations = vec![1.0f32; 256];
+        let result = fused_q5k_dot(&q5k_data, &activations);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Coverage Tests: fused_q6k_dot scalar
+    // =========================================================================
+
+    /// Test fused_q6k_dot dimension mismatch
+    #[test]
+    fn test_fused_q6k_dot_dim_mismatch() {
+        let q6k_data = vec![0u8; 210];
+        let activations = vec![1.0f32; 128]; // Should be 256
+        let result = fused_q6k_dot(&q6k_data, &activations);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Coverage Tests: Tiled matvec error handling
+    // =========================================================================
+
+    /// Test fused_q4k_tiled_matvec dimension mismatch
+    #[test]
+    fn test_fused_q4k_tiled_matvec_dim_mismatch() {
+        let q4k_data = vec![0u8; 144]; // 1 super-block
+        let activations = vec![1.0f32; 128]; // Should be 256
+        let result = fused_q4k_tiled_matvec(&q4k_data, &activations, 256, 1, Some(64));
+        assert!(result.is_err());
+    }
+
+    /// Test fused_q5k_tiled_matvec dimension mismatch
+    #[test]
+    fn test_fused_q5k_tiled_matvec_dim_mismatch() {
+        let q5k_data = vec![0u8; 176];
+        let activations = vec![1.0f32; 128];
+        let result = fused_q5k_tiled_matvec(&q5k_data, &activations, 256, 1, Some(64));
+        assert!(result.is_err());
+    }
+
+    /// Test fused_q6k_tiled_matvec dimension mismatch
+    #[test]
+    fn test_fused_q6k_tiled_matvec_dim_mismatch() {
+        let q6k_data = vec![0u8; 210];
+        let activations = vec![1.0f32; 128];
+        let result = fused_q6k_tiled_matvec(&q6k_data, &activations, 256, 1, Some(64));
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Coverage Tests: Parallel matvec into variants
+    // =========================================================================
+
+    /// Test fused_q4k_parallel_matvec_into dimension validation
+    #[test]
+    fn test_fused_q4k_parallel_matvec_into_dim_error() {
+        let q4k_data = vec![0u8; 144];
+        let activations = vec![1.0f32; 128]; // Wrong size
+        let mut output = vec![0.0f32; 1];
+        let result = fused_q4k_parallel_matvec_into(&q4k_data, &activations, 256, 1, &mut output);
+        assert!(result.is_err());
+    }
+
+    /// Test fused_q5k_parallel_matvec_into dimension validation
+    #[test]
+    fn test_fused_q5k_parallel_matvec_into_dim_error() {
+        let q5k_data = vec![0u8; 176];
+        let activations = vec![1.0f32; 128];
+        let mut output = vec![0.0f32; 1];
+        let result = fused_q5k_parallel_matvec_into(&q5k_data, &activations, 256, 1, &mut output);
+        assert!(result.is_err());
+    }
+
+    /// Test fused_q6k_parallel_matvec_into dimension validation
+    #[test]
+    fn test_fused_q6k_parallel_matvec_into_dim_error() {
+        let q6k_data = vec![0u8; 210];
+        let activations = vec![1.0f32; 128];
+        let mut output = vec![0.0f32; 1];
+        let result = fused_q6k_parallel_matvec_into(&q6k_data, &activations, 256, 1, &mut output);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Coverage Tests: fused_q4k_auto_matvec_into
+    // =========================================================================
+
+    /// Test fused_q4k_auto_matvec_into weight data too small
+    #[test]
+    fn test_fused_q4k_auto_matvec_into_weight_error() {
+        let q4k_data = vec![0u8; 10]; // Too small for 256x1 matrix
+        let activations = vec![1.0f32; 256];
+        let mut output = vec![0.0f32; 1];
+        let result = fused_q4k_auto_matvec_into(&q4k_data, &activations, 256, 1, &mut output);
+        assert!(result.is_err());
+    }
+
+    /// Test fused_q4k_auto_matvec_into success
+    #[test]
+    fn test_fused_q4k_auto_matvec_into_success() {
+        // 1 row of 256 values = 1 super-block = 144 bytes
+        let q4k_data = vec![0u8; 144];
+        let activations = vec![1.0f32; 256];
+        let mut output = vec![0.0f32; 1];
+        let result = fused_q4k_auto_matvec_into(&q4k_data, &activations, 256, 1, &mut output);
+        assert!(result.is_ok());
+    }
+
+    /// Test fused_q4k_auto_matvec_into with padding
+    #[test]
+    fn test_fused_q4k_auto_matvec_into_with_padding() {
+        // Function should pad activations to 256 internally
+        let q4k_data = vec![0u8; 144];
+        let activations = vec![1.0f32; 128]; // Will be padded to 256
+        let mut output = vec![0.0f32; 1];
+        let result = fused_q4k_auto_matvec_into(&q4k_data, &activations, 256, 1, &mut output);
+        assert!(result.is_ok());
+    }
+
+    // =========================================================================
+    // Coverage Tests: InterleavedQ4K
+    // =========================================================================
+
+    /// Test InterleavedQ4K from_q4k invalid length
+    #[test]
+    fn test_interleaved_q4k_invalid_length() {
+        let data = vec![0u8; 100]; // Not multiple of 144
+        let result = InterleavedQ4K::from_q4k(&data);
+        assert!(result.is_err());
+    }
+
+    /// Test InterleavedQ4K from_q4k success
+    #[test]
+    fn test_interleaved_q4k_success() {
+        let mut data = vec![0u8; 144];
+        // Set d = 1.0 (f16)
+        data[0..2].copy_from_slice(&half::f16::from_f32(1.0).to_le_bytes());
+        let result = InterleavedQ4K::from_q4k(&data);
+        assert!(result.is_ok());
+        let interleaved = result.unwrap();
+        assert_eq!(interleaved.num_values(), 256);
+    }
+
+    /// Test InterleavedQ4K dot product
+    #[test]
+    fn test_interleaved_q4k_dot() {
+        let data = vec![0u8; 144];
+        let interleaved = InterleavedQ4K::from_q4k(&data).unwrap();
+        let activations = vec![1.0f32; 256];
+        let result = interleaved.dot(&activations);
+        assert!(result.is_ok());
+    }
+
+    // =========================================================================
+    // Coverage Tests: Int8Row
+    // =========================================================================
+
+    /// Test Int8Row quantize basic
+    #[test]
+    fn test_int8_row_quantize_basic() {
+        let weights = vec![1.0f32; 32];
+        let row = Int8Row::quantize(&weights);
+        assert!(row.scale > 0.0);
+        assert_eq!(row.weights.len(), 32);
+    }
+
+    /// Test Int8Row quantize near-zero
+    #[test]
+    fn test_int8_row_quantize_near_zero() {
+        let weights = vec![1e-12f32; 32];
+        let row = Int8Row::quantize(&weights);
+        assert!((row.scale - 1.0 / 127.0).abs() < 1e-6);
+    }
+
+    /// Test Int8Row dequantize round-trip
+    #[test]
+    fn test_int8_row_dequantize_roundtrip() {
+        let original: Vec<f32> = (0..32).map(|i| (i as f32 - 16.0) / 10.0).collect();
+        let row = Int8Row::quantize(&original);
+        let recovered = row.dequantize();
+        let max_error: f32 = original
+            .iter()
+            .zip(recovered.iter())
+            .map(|(o, r)| (o - r).abs())
+            .fold(0.0f32, f32::max);
+        assert!(max_error < 0.1);
+    }
+
+    // =========================================================================
+    // Coverage Tests: int8_matvec functions
+    // =========================================================================
+
+    /// Test int8_matvec with near-zero activations
+    #[test]
+    fn test_int8_matvec_near_zero_activations() {
+        let weights = vec![Int8Row::quantize(&vec![1.0f32; 4]); 2];
+        let activations = vec![1e-12f32; 4];
+        let result = int8_matvec(&weights, &activations);
+        assert_eq!(result.len(), 2);
+    }
+
+    /// Test int8_matvec_parallel with near-zero activations
+    #[test]
+    fn test_int8_matvec_parallel_near_zero_activations() {
+        let weights = vec![Int8Row::quantize(&vec![1.0f32; 4]); 2];
+        let activations = vec![1e-12f32; 4];
+        let result = int8_matvec_parallel(&weights, &activations);
+        assert_eq!(result.len(), 2);
+    }
+
+    // =========================================================================
+    // Coverage Tests: detect_simd_backend
+    // =========================================================================
+
+    /// Test detect_simd_backend returns valid backend
+    #[test]
+    fn test_detect_simd_backend_returns_valid() {
+        let backend = detect_simd_backend();
+        // Backend should be one of the valid variants
+        match backend {
+            SimdBackend::Scalar | SimdBackend::Avx2 | SimdBackend::Sse2 | SimdBackend::Neon => {}
+        }
+    }
+
+    // =========================================================================
+    // Coverage Tests: apply_rope_rotation_simd
+    // =========================================================================
+
+    /// Test apply_rope_rotation_simd basic
+    #[test]
+    fn test_apply_rope_rotation_simd_basic_coverage() {
+        // x1, x2, cos, sin must all have same length
+        let mut x1 = vec![1.0f32; 32];
+        let mut x2 = vec![1.0f32; 32];
+        let cos = vec![1.0f32; 32];
+        let sin = vec![0.0f32; 32];
+        apply_rope_rotation_simd(&mut x1, &mut x2, &cos, &sin);
+        // With cos=1, sin=0, values should be unchanged
+        for &v in &x1 {
+            assert!((v - 1.0).abs() < 1e-5);
+        }
+    }
+
+    /// Test apply_rope_rotation_simd with rotation
+    #[test]
+    fn test_apply_rope_rotation_simd_with_rotation() {
+        let mut x1 = vec![1.0f32; 32];
+        let mut x2 = vec![0.0f32; 32];
+        let cos = vec![0.0f32; 32]; // cos(90 degrees)
+        let sin = vec![1.0f32; 32]; // sin(90 degrees)
+        apply_rope_rotation_simd(&mut x1, &mut x2, &cos, &sin);
+        // x1_new = x1 * cos - x2 * sin = 1.0 * 0 - 0 * 1 = 0
+        // x2_new = x1 * sin + x2 * cos = 1.0 * 1 + 0 * 0 = 1
+        assert!(x1[0].abs() < 1e-4);
+        assert!((x2[0] - 1.0).abs() < 1e-4);
+    }
+
+    // =========================================================================
+    // Coverage Tests: fused_swiglu_simd
+    // =========================================================================
+
+    /// Test fused_swiglu_simd various sizes
+    #[test]
+    fn test_fused_swiglu_simd_various_sizes() {
+        for size in [16, 32, 64, 100] {
+            let mut gate = vec![1.0f32; size];
+            let up = vec![2.0f32; size];
+            fused_swiglu_simd(&mut gate, &up);
+            // Check all values are modified
+            for &v in &gate {
+                assert!(v.is_finite());
+            }
+        }
+    }
+
+    /// Test fused_swiglu_simd negative values
+    #[test]
+    fn test_fused_swiglu_simd_negative_values() {
+        let mut gate = vec![-1.0f32; 32];
+        let up = vec![2.0f32; 32];
+        fused_swiglu_simd(&mut gate, &up);
+        // Check SiLU(-1) * 2.0 is computed
+        for &v in &gate {
+            assert!(v.is_finite());
+        }
+    }
+
+    // =========================================================================
+    // Coverage Tests: softmax_simd
+    // =========================================================================
+
+    /// Test softmax_simd with negative values
+    #[test]
+    fn test_softmax_simd_negative_values() {
+        let mut x = vec![-1.0f32, -2.0, -3.0, -4.0];
+        softmax_simd(&mut x);
+        let sum: f32 = x.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-5);
+    }
+
+    /// Test softmax_simd with large values
+    #[test]
+    fn test_softmax_simd_large_values() {
+        let mut x = vec![100.0f32, 200.0, 300.0, 400.0];
+        softmax_simd(&mut x);
+        let sum: f32 = x.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-5);
+    }
+
+    /// Test softmax_simd with mixed values
+    #[test]
+    fn test_softmax_simd_mixed_values() {
+        let mut x = vec![-10.0f32, 0.0, 10.0, 20.0];
+        softmax_simd(&mut x);
+        let sum: f32 = x.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-5);
+        // Largest input should have largest probability
+        assert!(x[3] > x[2]);
+        assert!(x[2] > x[1]);
+        assert!(x[1] > x[0]);
+    }
+
+    // =========================================================================
+    // Coverage Tests: quantize_activations_q8_0
+    // =========================================================================
+
+    /// Test quantize_activations_q8_0 various sizes
+    #[test]
+    fn test_quantize_activations_q8_0_various_sizes() {
+        for size in [32, 64, 128, 256] {
+            let activations: Vec<f32> = (0..size).map(|i| i as f32 / 10.0).collect();
+            let (scales, quants) = quantize_activations_q8_0(&activations);
+            assert_eq!(scales.len(), size / 32);
+            assert_eq!(quants.len(), size);
+        }
+    }
+
+    /// Test quantize_activations_q8_0 negative values
+    #[test]
+    fn test_quantize_activations_q8_0_negative_values() {
+        let activations: Vec<f32> = (0..32).map(|i| -i as f32 / 10.0).collect();
+        let (scales, quants) = quantize_activations_q8_0(&activations);
+        assert_eq!(scales.len(), 1);
+        assert!(scales[0] > 0.0);
+        // First value should be 0, others negative
+        for &q in &quants[1..] {
+            assert!(q <= 0);
+        }
+    }
+
+    // =========================================================================
+    // Coverage Tests: fused_q4_0_parallel_matvec
+    // =========================================================================
+
+    /// Test fused_q4_0_parallel_matvec weight too small
+    #[test]
+    fn test_fused_q4_0_parallel_matvec_weight_error() {
+        let weight_data = vec![0u8; 10]; // Too small
+        let activations = vec![1.0f32; 32];
+        let result = fused_q4_0_parallel_matvec(&weight_data, &activations, 32, 2);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Coverage Tests: fused_q4_0_q8_0_parallel_matvec
+    // =========================================================================
+
+    /// Test fused_q4_0_q8_0_parallel_matvec weight too small
+    #[test]
+    fn test_fused_q4_0_q8_0_parallel_matvec_weight_error() {
+        let weight_data = vec![0u8; 10]; // Too small
+        let activations = vec![1.0f32; 32];
+        let result = fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, 32, 2);
+        assert!(result.is_err());
+    }
+
+    /// Test fused_q4_0_q8_0_parallel_matvec_prequant weight error
+    #[test]
+    fn test_fused_q4_0_q8_0_parallel_matvec_prequant_weight_error() {
+        let weight_data = vec![0u8; 10]; // Too small
+        let q8_scales = vec![1.0f32; 1];
+        let q8_quants = vec![1i8; 32];
+        let result =
+            fused_q4_0_q8_0_parallel_matvec_prequant(&weight_data, &q8_scales, &q8_quants, 32, 2);
+        assert!(result.is_err());
+    }
+
+    /// Test fused_q4_0_q8_0_parallel_matvec_into weight error
+    #[test]
+    fn test_fused_q4_0_q8_0_parallel_matvec_into_weight_error() {
+        let weight_data = vec![0u8; 10]; // Too small
+        let activations = vec![1.0f32; 32];
+        let mut output = vec![0.0f32; 2];
+        let result =
+            fused_q4_0_q8_0_parallel_matvec_into(&weight_data, &activations, 32, &mut output);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Coverage Tests: fused_q8_0_q8_0_parallel_matvec
+    // =========================================================================
+
+    /// Test fused_q8_0_q8_0_parallel_matvec weight error
+    #[test]
+    fn test_fused_q8_0_q8_0_parallel_matvec_weight_error() {
+        let weight_data = vec![0u8; 10]; // Too small
+        let activations = vec![1.0f32; 32];
+        let result = fused_q8_0_q8_0_parallel_matvec(&weight_data, &activations, 32, 2);
+        assert!(result.is_err());
+    }
+
+    /// Test fused_q8_0_q8_0_parallel_matvec_into weight error
+    #[test]
+    fn test_fused_q8_0_q8_0_parallel_matvec_into_weight_error() {
+        let weight_data = vec![0u8; 10]; // Too small
+        let activations = vec![1.0f32; 32];
+        let mut output = vec![0.0f32; 2];
+        let result =
+            fused_q8_0_q8_0_parallel_matvec_into(&weight_data, &activations, 32, 2, &mut output);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Coverage Tests: fused_q6k_colmajor_matvec
+    // =========================================================================
+
+    /// Test fused_q6k_colmajor_matvec weight error
+    #[test]
+    fn test_fused_q6k_colmajor_matvec_weight_error() {
+        let weight_data = vec![0u8; 100]; // Too small
+        let activations = vec![1.0f32; 256];
+        let result = fused_q6k_colmajor_matvec(&weight_data, &activations, 256, 2);
+        assert!(result.is_err());
+    }
+
+    /// Test fused_q6k_colmajor_matvec activation error
+    #[test]
+    fn test_fused_q6k_colmajor_matvec_activation_error() {
+        let weight_data = vec![0u8; 420]; // Valid for 2 super-blocks
+        let activations = vec![1.0f32; 128]; // Too small
+        let result = fused_q6k_colmajor_matvec(&weight_data, &activations, 256, 1);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Coverage Tests: fused_q6k_q8k_parallel_matvec_into
+    // =========================================================================
+
+    /// Test fused_q6k_q8k_parallel_matvec_into weight error
+    #[test]
+    fn test_fused_q6k_q8k_parallel_matvec_into_weight_error() {
+        let weight_data = vec![0u8; 100]; // Too small
+        let q8k_scales = vec![1.0f32; 1];
+        let q8k_quants = vec![1i8; 256];
+        let mut output = vec![0.0f32; 1];
+        let result = fused_q6k_q8k_parallel_matvec_into(
+            &weight_data,
+            &q8k_scales,
+            &q8k_quants,
+            256,
+            1,
+            &mut output,
+        );
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Coverage Tests: dequantize parallel/simd variants
+    // =========================================================================
+
+    /// Test dequantize_q4_k_parallel invalid length
+    #[test]
+    fn test_dequantize_q4_k_parallel_invalid() {
+        let data = vec![0u8; 100]; // Not multiple of 144
+        let result = dequantize_q4_k_parallel(&data);
+        assert!(result.is_err());
+    }
+
+    /// Test dequantize_q4_k_simd invalid length
+    #[test]
+    fn test_dequantize_q4_k_simd_invalid() {
+        let data = vec![0u8; 100];
+        let result = dequantize_q4_k_simd(&data);
+        assert!(result.is_err());
+    }
+
+    /// Test dequantize_q8_0_parallel invalid length
+    #[test]
+    fn test_dequantize_q8_0_parallel_invalid() {
+        let data = vec![0u8; 10]; // Not multiple of 34
+        let result = dequantize_q8_0_parallel(&data);
+        assert!(result.is_err());
+    }
+
+    /// Test dequantize_q8_0_simd invalid length
+    #[test]
+    fn test_dequantize_q8_0_simd_invalid() {
+        let data = vec![0u8; 10];
+        let result = dequantize_q8_0_simd(&data);
+        assert!(result.is_err());
+    }
+
+    /// Test dequantize_q4_0_simd invalid length
+    #[test]
+    fn test_dequantize_q4_0_simd_invalid() {
+        let data = vec![0u8; 10]; // Not multiple of 18
+        let result = dequantize_q4_0_simd(&data);
+        assert!(result.is_err());
+    }
+
+    /// Test dequantize_q4_0_parallel invalid length
+    #[test]
+    fn test_dequantize_q4_0_parallel_invalid() {
+        let data = vec![0u8; 10];
+        let result = dequantize_q4_0_parallel(&data);
+        assert!(result.is_err());
+    }
+
+    /// Test dequantize_q8_0_simd_optimized invalid length
+    #[test]
+    fn test_dequantize_q8_0_simd_optimized_invalid() {
+        let data = vec![0u8; 10];
+        let result = dequantize_q8_0_simd_optimized(&data);
+        assert!(result.is_err());
+    }
 }
