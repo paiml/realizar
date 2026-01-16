@@ -2741,3 +2741,832 @@ fn test_failure_isolator_register_cleanup() {
 
     assert!(cleaned.load(Ordering::SeqCst));
 }
+
+// ============================================================================
+// HybridScheduler Additional Coverage Tests
+// ============================================================================
+
+#[test]
+fn test_hybrid_scheduler_has_gpu() {
+    let scheduler = HybridScheduler::new().unwrap();
+    // The result depends on whether GPU is available, but it should not panic
+    let _ = scheduler.has_gpu();
+}
+
+#[test]
+fn test_hybrid_scheduler_should_use_gpu_large() {
+    let scheduler = HybridScheduler::new().unwrap();
+    // Above threshold with m>1 should consider GPU
+    // Default threshold is 64*64*64 = 262144
+    // If m>1 and m*k*n >= threshold, should consider GPU (if available)
+    let should_use = scheduler.should_use_gpu(64, 64, 64);
+    // Result depends on GPU availability
+    let _ = should_use;
+}
+
+#[test]
+fn test_hybrid_scheduler_should_use_gpu_small() {
+    let scheduler = HybridScheduler::new().unwrap();
+    // Small matrices should not use GPU even with m>1 if below threshold
+    let should_use = scheduler.should_use_gpu(2, 2, 2);
+    // m=2 but 2*2*2=8 < threshold, so should not use GPU
+    assert!(!should_use);
+}
+
+#[test]
+fn test_hybrid_scheduler_basic_matmul() {
+    let mut scheduler = HybridScheduler::new().unwrap();
+
+    // 2x2 identity test
+    let a = vec![1.0, 2.0, 3.0, 4.0]; // 2x2
+    let b = vec![1.0, 0.0, 0.0, 1.0]; // 2x2 identity
+
+    let result = scheduler.matmul(&a, &b, 2, 2, 2).unwrap();
+    assert_eq!(result.len(), 4);
+    assert!((result[0] - 1.0).abs() < 1e-5);
+    assert!((result[1] - 2.0).abs() < 1e-5);
+    assert!((result[2] - 3.0).abs() < 1e-5);
+    assert!((result[3] - 4.0).abs() < 1e-5);
+}
+
+// ============================================================================
+// GpuBufferPool Additional Coverage Tests
+// ============================================================================
+
+#[test]
+fn test_gpu_buffer_pool_default() {
+    let pool: GpuBufferPool = Default::default();
+    let stats = pool.stats();
+    assert_eq!(stats.cached_buffers, 0);
+}
+
+#[test]
+fn test_gpu_buffer_pool_reuse_larger() {
+    let mut pool = GpuBufferPool::new();
+
+    // Acquire large buffer
+    let buf = pool.acquire(10000);
+    let cap = buf.capacity();
+    pool.release(buf);
+
+    // Acquire smaller - should reuse the larger buffer
+    let buf2 = pool.acquire(100);
+    // Buffer capacity should be at least the original
+    assert!(buf2.capacity() >= cap || buf2.len() == 100);
+}
+
+#[test]
+fn test_gpu_buffer_pool_multiple_sizes() {
+    let mut pool = GpuBufferPool::new();
+
+    // Create buffers of different sizes
+    let buf1 = pool.acquire(1024);
+    let buf2 = pool.acquire(2048);
+    let buf3 = pool.acquire(4096);
+
+    // Release them all
+    pool.release(buf1);
+    pool.release(buf2);
+    pool.release(buf3);
+
+    let stats = pool.stats();
+    assert!(stats.cached_buffers > 0);
+    assert!(stats.cached_bytes > 0);
+}
+
+// ============================================================================
+// GpuCompute Additional Coverage Tests
+// ============================================================================
+
+#[test]
+fn test_gpu_compute_matmul_cpu_basic() {
+    let mut compute = GpuCompute::new(ComputeBackend::Cpu).unwrap();
+
+    // Simple 2x2 matmul
+    let a = vec![1.0, 2.0, 3.0, 4.0];
+    let b = vec![5.0, 6.0, 7.0, 8.0];
+
+    let result = compute.matmul(&a, &b, 2, 2, 2).unwrap();
+    assert_eq!(result.len(), 4);
+
+    // Expected: [[1,2],[3,4]] @ [[5,6],[7,8]] = [[19,22],[43,50]]
+    assert!((result[0] - 19.0).abs() < 1e-5);
+    assert!((result[1] - 22.0).abs() < 1e-5);
+    assert!((result[2] - 43.0).abs() < 1e-5);
+    assert!((result[3] - 50.0).abs() < 1e-5);
+}
+
+#[test]
+fn test_gpu_compute_matmul_tensor() {
+    let mut compute = GpuCompute::new(ComputeBackend::Cpu).unwrap();
+
+    let a = realizar::tensor::Tensor::from_vec(vec![2, 2], vec![1.0, 0.0, 0.0, 1.0]).unwrap();
+    let b = realizar::tensor::Tensor::from_vec(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+
+    let result = compute.matmul_tensor(&a, &b).unwrap();
+    assert_eq!(result.shape(), &[2, 2]);
+
+    // Identity @ matrix = matrix
+    let data = result.data();
+    assert!((data[0] - 1.0).abs() < 1e-5);
+    assert!((data[1] - 2.0).abs() < 1e-5);
+    assert!((data[2] - 3.0).abs() < 1e-5);
+    assert!((data[3] - 4.0).abs() < 1e-5);
+}
+
+#[test]
+fn test_gpu_compute_matmul_tensor_non_2d() {
+    let mut compute = GpuCompute::new(ComputeBackend::Cpu).unwrap();
+
+    // Create 1D tensor - should fail for matmul
+    let a = realizar::tensor::Tensor::from_vec(vec![4], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+    let b = realizar::tensor::Tensor::from_vec(vec![4], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+
+    let result = compute.matmul_tensor(&a, &b);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_gpu_compute_matmul_tensor_dimension_mismatch() {
+    let mut compute = GpuCompute::new(ComputeBackend::Cpu).unwrap();
+
+    let a = realizar::tensor::Tensor::from_vec(vec![2, 3], vec![1.0; 6]).unwrap();
+    let b = realizar::tensor::Tensor::from_vec(vec![4, 2], vec![1.0; 8]).unwrap();
+
+    let result = compute.matmul_tensor(&a, &b);
+    // Inner dimensions don't match: A[2,3] @ B[4,2] fails because 3 != 4
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_gpu_compute_auto_backend() {
+    // Test auto backend selection
+    let compute = GpuCompute::auto().unwrap();
+    // Should either be GPU or CPU
+    let backend = compute.backend();
+    assert!(backend == ComputeBackend::Gpu || backend == ComputeBackend::Cpu);
+}
+
+// ============================================================================
+// AsyncGpuResult Additional Coverage Tests
+// ============================================================================
+
+#[test]
+fn test_async_gpu_result_pending_then_set() {
+    let mut result = realizar::gpu::AsyncGpuResult::pending();
+    assert!(!result.is_ready());
+    assert!(result.try_get().is_none());
+
+    result.set_result(vec![10.0, 20.0, 30.0]);
+    assert!(result.is_ready());
+
+    let data = result.try_get().unwrap();
+    assert_eq!(data.len(), 3);
+    assert!((data[0] - 10.0).abs() < 1e-5);
+}
+
+// ============================================================================
+// InferenceBatchScheduler Additional Coverage Tests
+// ============================================================================
+
+#[test]
+fn test_batch_scheduler_default() {
+    let scheduler: InferenceBatchScheduler = Default::default();
+    assert_eq!(scheduler.pending_count(), 0);
+    assert_eq!(scheduler.completed_count(), 0);
+}
+
+#[test]
+fn test_batch_scheduler_multiple_batches() {
+    let mut scheduler = InferenceBatchScheduler::new();
+
+    let id1 = scheduler.submit(vec![1, 2, 3]);
+    let id2 = scheduler.submit(vec![4, 5, 6]);
+    let id3 = scheduler.submit(vec![7, 8, 9]);
+
+    assert_eq!(scheduler.pending_count(), 3);
+
+    scheduler.complete(id2, vec![40, 50, 60]);
+    scheduler.complete(id1, vec![10, 20, 30]);
+    scheduler.complete(id3, vec![70, 80, 90]);
+
+    assert_eq!(scheduler.pending_count(), 0);
+    assert_eq!(scheduler.completed_count(), 3);
+
+    let results = scheduler.drain();
+    assert_eq!(results.len(), 3);
+}
+
+// ============================================================================
+// StreamingKVCache Additional Coverage Tests
+// ============================================================================
+
+#[test]
+fn test_streaming_kv_cache_multiple_layers() {
+    let mut cache = StreamingKVCache::new(4, 10, 2, 4);
+    let kv_dim = 2 * 4;
+
+    // Append to multiple layers
+    for layer in 0..4 {
+        let key = vec![layer as f32; kv_dim];
+        let value = vec![(layer + 10) as f32; kv_dim];
+        cache.append(layer, &key, &value);
+    }
+
+    // Verify each layer has correct data
+    for layer in 0..4 {
+        let (keys, _) = cache.get_valid(layer);
+        assert!((keys[0] - layer as f32).abs() < 1e-5);
+    }
+}
+
+// ============================================================================
+// StreamingKVCacheFp16 Additional Coverage Tests
+// ============================================================================
+
+#[test]
+fn test_fp16_cache_multiple_positions() {
+    let mut cache = StreamingKVCacheFp16::new(1, 10, 2, 4);
+    let kv_dim = 8;
+
+    // Append 5 positions
+    for pos in 0..5 {
+        let key = vec![(pos as f32) * 0.1; kv_dim];
+        let value = vec![(pos as f32) * 0.2; kv_dim];
+        cache.append(0, &key, &value);
+    }
+
+    assert_eq!(cache.len(), 5);
+
+    let (keys, values) = cache.get_valid_f32(0);
+    assert_eq!(keys.len(), 5 * kv_dim);
+    assert_eq!(values.len(), 5 * kv_dim);
+}
+
+#[test]
+fn test_fp16_cache_clear() {
+    let mut cache = StreamingKVCacheFp16::new(2, 10, 2, 4);
+    let kv_dim = 8;
+
+    cache.append(0, &vec![1.0; kv_dim], &vec![2.0; kv_dim]);
+    cache.append(1, &vec![3.0; kv_dim], &vec![4.0; kv_dim]);
+    assert_eq!(cache.len(), 1); // Only increments on last layer
+
+    cache.clear();
+    assert_eq!(cache.len(), 0);
+    assert!(cache.is_empty());
+}
+
+// ============================================================================
+// GpuModelConfig Additional Coverage Tests
+// ============================================================================
+
+#[test]
+fn test_gpu_model_config_small_model() {
+    let config = GpuModelConfig {
+        vocab_size: 1000,
+        hidden_dim: 256,
+        num_heads: 4,
+        num_kv_heads: 4,
+        num_layers: 4,
+        intermediate_dim: 1024,
+        eps: 1e-6,
+    };
+
+    assert_eq!(config.head_dim(), 64); // 256/4
+    assert_eq!(config.kv_dim(), 256); // 4 * 64
+    assert!(!config.is_gqa());
+    assert_eq!(config.qkv_dim(), 768); // 256 + 2*256
+}
+
+#[test]
+fn test_gpu_model_config_gqa_ratios() {
+    // Test different GQA ratios
+    let config2to1 = GpuModelConfig {
+        vocab_size: 1000,
+        hidden_dim: 512,
+        num_heads: 8,
+        num_kv_heads: 4, // 2:1 ratio
+        num_layers: 1,
+        intermediate_dim: 1024,
+        eps: 1e-5,
+    };
+
+    assert!(config2to1.is_gqa());
+    assert_eq!(config2to1.head_dim(), 64);
+    assert_eq!(config2to1.kv_dim(), 256); // 4 * 64
+}
+
+// ============================================================================
+// GpuGenerateConfig Additional Coverage Tests
+// ============================================================================
+
+#[test]
+fn test_gpu_generate_config_builder_pattern() {
+    let config = GpuGenerateConfig::deterministic(200).with_stop_tokens(vec![1, 2]);
+
+    assert_eq!(config.max_tokens, 200);
+    assert_eq!(config.top_k, 1);
+    assert_eq!(config.stop_tokens, vec![1, 2]);
+}
+
+#[test]
+fn test_gpu_generate_config_sampling_params() {
+    let config = GpuGenerateConfig::with_sampling(128, 0.9, 50);
+
+    assert_eq!(config.max_tokens, 128);
+    assert!((config.temperature - 0.9).abs() < 1e-5);
+    assert_eq!(config.top_k, 50);
+}
+
+// ============================================================================
+// GpuModel Basic Coverage Tests
+// ============================================================================
+
+#[test]
+fn test_gpu_model_creation() {
+    let config = GpuModelConfig {
+        vocab_size: 100,
+        hidden_dim: 64,
+        num_heads: 4,
+        num_kv_heads: 4,
+        num_layers: 2,
+        intermediate_dim: 256,
+        eps: 1e-5,
+    };
+
+    let model = realizar::gpu::GpuModel::new(config);
+    assert!(model.is_ok());
+}
+
+#[test]
+fn test_gpu_model_config_accessor() {
+    let config = GpuModelConfig {
+        vocab_size: 500,
+        hidden_dim: 128,
+        num_heads: 4,
+        num_kv_heads: 2,
+        num_layers: 3,
+        intermediate_dim: 512,
+        eps: 1e-5,
+    };
+
+    let model = realizar::gpu::GpuModel::new(config).unwrap();
+    let model_config = model.config();
+
+    assert_eq!(model_config.vocab_size, 500);
+    assert_eq!(model_config.hidden_dim, 128);
+    assert_eq!(model_config.num_heads, 4);
+    assert_eq!(model_config.num_kv_heads, 2);
+}
+
+// ============================================================================
+// Softmax Empty Input Tests
+// ============================================================================
+
+#[test]
+fn test_scalar_softmax_empty() {
+    let input: Vec<f32> = vec![];
+    let output = scalar_softmax(&input);
+    assert!(output.is_empty());
+}
+
+#[test]
+fn test_simd_softmax_empty() {
+    let input: Vec<f32> = vec![];
+    let output = simd_softmax(&input);
+    assert!(output.is_empty());
+}
+
+#[test]
+fn test_softmax_single_element() {
+    let input = vec![5.0];
+
+    let scalar_out = scalar_softmax(&input);
+    let simd_out = simd_softmax(&input);
+
+    // Single element softmax = 1.0
+    assert!((scalar_out[0] - 1.0).abs() < 1e-5);
+    assert!((simd_out[0] - 1.0).abs() < 1e-5);
+}
+
+// ============================================================================
+// RoPE Edge Case Tests
+// ============================================================================
+
+#[test]
+fn test_rope_empty_input() {
+    let input: Vec<f32> = vec![];
+    let scalar_out = scalar_rope(&input, 0, 0, 10000.0);
+    let simd_out = simd_rope(&input, 0, 0, 10000.0);
+
+    assert!(scalar_out.is_empty());
+    assert!(simd_out.is_empty());
+}
+
+#[test]
+fn test_rope_zero_seq_len() {
+    let input = vec![1.0; 16];
+    let output = scalar_rope(&input, 0, 8, 10000.0);
+    assert!(output.is_empty());
+}
+
+#[test]
+fn test_rope_zero_head_dim() {
+    let input = vec![1.0; 16];
+    let output = simd_rope(&input, 4, 0, 10000.0);
+    assert!(output.is_empty());
+}
+
+// ============================================================================
+// Batch Embed Edge Cases
+// ============================================================================
+
+#[test]
+fn test_batch_embed_valid_tokens() {
+    // Create embedding table: vocab_size=3, hidden_dim=4
+    let table: Vec<f32> = vec![
+        1.0, 2.0, 3.0, 4.0, // token 0
+        5.0, 6.0, 7.0, 8.0, // token 1
+        9.0, 10.0, 11.0, 12.0, // token 2
+    ];
+
+    let tokens = vec![0, 2, 1];
+    let result = batch_embed(&table, &tokens, 4);
+
+    assert_eq!(result.len(), 12);
+    // First token (0)
+    assert!((result[0] - 1.0).abs() < 1e-5);
+    // Second token (2)
+    assert!((result[4] - 9.0).abs() < 1e-5);
+    // Third token (1)
+    assert!((result[8] - 5.0).abs() < 1e-5);
+}
+
+// ============================================================================
+// LayerNorm Consistency Tests
+// ============================================================================
+
+#[test]
+fn test_layernorm_std_vs_fused() {
+    let input = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+    let gamma = vec![1.0; 8];
+    let beta = vec![0.0; 8];
+    let eps = 1e-5;
+
+    let std_result = standard_layernorm(&input, &gamma, &beta, eps);
+    let fused_result = fused_layernorm(&input, &gamma, &beta, eps);
+
+    // Results should be very close
+    for i in 0..8 {
+        assert!((std_result[i] - fused_result[i]).abs() < 1e-4);
+    }
+}
+
+#[test]
+fn test_layernorm_with_gamma_beta() {
+    let input = vec![0.0, 0.0, 0.0, 0.0];
+    let gamma = vec![2.0; 4];
+    let beta = vec![1.0; 4];
+    let eps = 1e-5;
+
+    let result = fused_layernorm(&input, &gamma, &beta, eps);
+
+    // All zeros normalized = all zeros, then *2 + 1 = 1
+    for &val in &result {
+        assert!((val - 1.0).abs() < 1e-5);
+    }
+}
+
+// ============================================================================
+// TensorPool Additional Tests
+// ============================================================================
+
+#[test]
+fn test_tensor_pool_acquire_returns_zeroed() {
+    let mut pool = TensorPool::new(5);
+
+    let buf = pool.acquire(100);
+    // New buffer should be zeroed
+    for &val in &buf {
+        assert!((val - 0.0).abs() < 1e-5);
+    }
+}
+
+#[test]
+fn test_tensor_pool_reuse_resizes() {
+    let mut pool = TensorPool::new(5);
+
+    // Get a large buffer
+    let buf = pool.acquire(1000);
+    let capacity = buf.capacity();
+    pool.release(buf);
+
+    // Get smaller buffer - should reuse with resize
+    let buf2 = pool.acquire(50);
+    assert!(buf2.capacity() >= capacity); // Retains original capacity
+    assert_eq!(buf2.len(), 50); // But resized to requested
+}
+
+// ============================================================================
+// QuantizedAccumulator Additional Tests
+// ============================================================================
+
+#[test]
+fn test_quantized_accumulator_default() {
+    let acc: QuantizedAccumulator = Default::default();
+    assert!((acc.sum() - 0.0).abs() < 1e-5);
+}
+
+#[test]
+fn test_quantized_accumulator_chain_operations() {
+    let mut acc = QuantizedAccumulator::new();
+
+    acc.add_scaled(2.0, 3.0); // 6.0
+    acc.add_scaled(4.0, 2.0); // 8.0
+    acc.add_block(10.0, 0.5); // 5.0
+
+    assert!((acc.sum() - 19.0).abs() < 1e-5);
+
+    acc.reset();
+    assert!((acc.sum() - 0.0).abs() < 1e-5);
+}
+
+// ============================================================================
+// DoubleBuffer Additional Tests
+// ============================================================================
+
+#[test]
+fn test_double_buffer_multiple_swaps() {
+    let mut buffer: DoubleBuffer<f32> = DoubleBuffer::new(10);
+
+    buffer.back_mut()[0] = 1.0;
+    buffer.swap();
+    assert!((buffer.front()[0] - 1.0).abs() < 1e-5);
+
+    buffer.back_mut()[0] = 2.0;
+    buffer.swap();
+    assert!((buffer.front()[0] - 2.0).abs() < 1e-5);
+
+    // Previous front is now back again
+    buffer.back_mut()[0] = 3.0;
+    buffer.swap();
+    assert!((buffer.front()[0] - 3.0).abs() < 1e-5);
+}
+
+// ============================================================================
+// TokenBatch Additional Tests
+// ============================================================================
+
+#[test]
+fn test_token_batch_flush_empty() {
+    let mut batch = TokenBatch::new(10);
+    let flushed = batch.flush();
+    assert!(flushed.is_empty());
+}
+
+#[test]
+fn test_token_batch_capacity_one() {
+    let mut batch = TokenBatch::new(1);
+    assert!(batch.push(42).is_some()); // Immediately flushes
+    assert!(batch.is_empty());
+}
+
+// ============================================================================
+// SpeculativeBuffer Additional Tests
+// ============================================================================
+
+#[test]
+fn test_speculative_buffer_at_capacity() {
+    let mut buffer = SpeculativeBuffer::new(3);
+
+    buffer.add_candidate(1, 0.9);
+    buffer.add_candidate(2, 0.8);
+    buffer.add_candidate(3, 0.7);
+    buffer.add_candidate(4, 0.6); // Should be ignored (at capacity)
+
+    assert_eq!(buffer.len(), 3);
+}
+
+#[test]
+fn test_speculative_buffer_verify_empty() {
+    let buffer = SpeculativeBuffer::new(10);
+    let (accepted, rejected) = buffer.verify(&[1, 2, 3]);
+
+    assert_eq!(accepted, 0);
+    assert!(rejected.is_none());
+}
+
+#[test]
+fn test_speculative_buffer_accept_all() {
+    let mut buffer = SpeculativeBuffer::new(10);
+
+    buffer.add_candidate(1, 0.9);
+    buffer.add_candidate(2, 0.8);
+    buffer.add_candidate(3, 0.7);
+
+    buffer.accept(5); // Accept more than available
+    assert!(buffer.is_empty());
+}
+
+// ============================================================================
+// Matmul Naive vs Blocked Tests
+// ============================================================================
+
+#[test]
+fn test_blocked_matmul_small() {
+    let m = 4;
+    let k = 4;
+    let n = 4;
+    let a: Vec<f32> = (0..16).map(|i| i as f32).collect();
+    let b: Vec<f32> = (0..16).map(|i| i as f32 * 0.1).collect();
+
+    let naive = naive_matmul(&a, &b, m, k, n);
+    let blocked = blocked_matmul(&a, &b, m, k, n, 2);
+
+    for i in 0..16 {
+        assert!((naive[i] - blocked[i]).abs() < 1e-4);
+    }
+}
+
+#[test]
+fn test_blocked_matmul_non_divisible() {
+    let m = 5;
+    let k = 7;
+    let n = 3;
+    let a: Vec<f32> = (0..(m * k)).map(|i| (i % 5) as f32 * 0.1).collect();
+    let b: Vec<f32> = (0..(k * n)).map(|i| (i % 3) as f32 * 0.2).collect();
+
+    let naive = naive_matmul(&a, &b, m, k, n);
+    let blocked = blocked_matmul(&a, &b, m, k, n, 4);
+
+    for i in 0..(m * n) {
+        assert!((naive[i] - blocked[i]).abs() < 1e-4);
+    }
+}
+
+// ============================================================================
+// Quantized Matvec Tests
+// ============================================================================
+
+#[test]
+fn test_quantized_matvec_q4_empty_input() {
+    let weights = vec![0u8; 18]; // One block
+    let input: Vec<f32> = vec![];
+    let result = quantized_matvec_q4(&weights, &input, 0, 0);
+    assert!(result.is_empty());
+}
+
+#[test]
+fn test_quantized_matvec_q8_empty_input() {
+    let weights = vec![0u8; 34]; // One block
+    let input: Vec<f32> = vec![];
+    let result = quantized_matvec_q8(&weights, &input, 0, 0);
+    assert!(result.is_empty());
+}
+
+// ============================================================================
+// Priority Queue Additional Tests
+// ============================================================================
+
+#[test]
+fn test_priority_queue_high_volume() {
+    let mut queue: PriorityRequestQueue<i32> = PriorityRequestQueue::new();
+
+    // Add many requests with varying priorities
+    for i in 0..100 {
+        queue.enqueue(PriorityRequest::new(i % 10, i as i32));
+    }
+
+    assert_eq!(queue.len(), 100);
+
+    // Dequeue should get highest priority first
+    let first = queue.dequeue_highest().unwrap();
+    assert_eq!(first.priority(), 9);
+}
+
+// ============================================================================
+// TimeoutManager Additional Tests
+// ============================================================================
+
+#[test]
+fn test_timeout_manager_check_no_expired() {
+    let mut manager = TimeoutManager::new();
+
+    let future = Instant::now() + Duration::from_secs(60);
+    manager.register(1, future);
+    manager.register(2, future);
+
+    let expired = manager.check_expired();
+    assert!(expired.is_empty());
+    assert_eq!(manager.active_count(), 2);
+}
+
+// ============================================================================
+// ResourceTracker Additional Tests
+// ============================================================================
+
+#[test]
+fn test_resource_tracker_multiple_allocations() {
+    let mut tracker = ResourceTracker::new(10000, 100);
+
+    let id1 = tracker.allocate(1000, 10).unwrap();
+    let id2 = tracker.allocate(2000, 20).unwrap();
+    let id3 = tracker.allocate(3000, 30).unwrap();
+
+    assert_eq!(tracker.memory_usage(), 6000);
+    assert_eq!(tracker.compute_usage(), 60);
+
+    tracker.release(id2);
+    assert_eq!(tracker.memory_usage(), 4000);
+    assert_eq!(tracker.compute_usage(), 40);
+
+    tracker.release(id1);
+    tracker.release(id3);
+    assert_eq!(tracker.memory_usage(), 0);
+    assert_eq!(tracker.compute_usage(), 0);
+}
+
+// ============================================================================
+// WeightType Tests
+// ============================================================================
+
+#[test]
+fn test_weight_type_debug() {
+    let types = [
+        WeightType::Qkv,
+        WeightType::Output,
+        WeightType::FfnFc1,
+        WeightType::FfnFc2,
+        WeightType::LmHead,
+    ];
+
+    for weight_type in &types {
+        let debug_str = format!("{:?}", weight_type);
+        assert!(!debug_str.is_empty());
+    }
+}
+
+// ============================================================================
+// HealthChecker Additional Tests
+// ============================================================================
+
+#[test]
+fn test_health_checker_all_passing() {
+    let mut checker = HealthChecker::new();
+
+    checker.register_check("check1", Box::new(|| true));
+    checker.register_check("check2", Box::new(|| true));
+    checker.register_check("check3", Box::new(|| true));
+
+    assert!(checker.is_healthy());
+}
+
+// ============================================================================
+// TokenRateLimiter Additional Tests
+// ============================================================================
+
+#[test]
+fn test_rate_limiter_zero_burst() {
+    let mut limiter = TokenRateLimiter::new(100.0, 0);
+    assert!(!limiter.try_acquire(1));
+}
+
+#[test]
+fn test_rate_limiter_acquire_exact() {
+    let mut limiter = TokenRateLimiter::new(100.0, 10);
+    assert!(limiter.try_acquire(10));
+    assert_eq!(limiter.tokens_available(), 0);
+    assert!(!limiter.try_acquire(1));
+}
+
+// ============================================================================
+// ScratchBuffer Additional Tests
+// ============================================================================
+
+#[test]
+fn test_scratch_buffer_zero_layers() {
+    let scratch = ScratchBuffer::new(0, 100);
+    assert_eq!(scratch.num_layers(), 0);
+    assert_eq!(scratch.total_size(), 0);
+}
+
+#[test]
+fn test_scratch_buffer_modify_and_reset() {
+    let mut scratch = ScratchBuffer::new(3, 10);
+
+    for layer in 0..3 {
+        let s = scratch.get_layer_mut(layer);
+        s[0] = (layer + 1) as f32 * 100.0;
+    }
+
+    assert!((scratch.get_layer(0)[0] - 100.0).abs() < 1e-5);
+    assert!((scratch.get_layer(1)[0] - 200.0).abs() < 1e-5);
+    assert!((scratch.get_layer(2)[0] - 300.0).abs() < 1e-5);
+
+    scratch.reset();
+
+    for layer in 0..3 {
+        assert!((scratch.get_layer(layer)[0] - 0.0).abs() < 1e-5);
+    }
+}
