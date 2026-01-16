@@ -376,4 +376,80 @@ mod tests {
         assert!(!lineage.verified);
         assert!(lineage.captured_at > 0);
     }
+
+    // =========================================================================
+    // Coverage Tests
+    // =========================================================================
+
+    #[test]
+    fn test_pacha_uri_clone_and_eq() {
+        let uri1 = PachaUri::parse("pacha://model:1.0").expect("test");
+        let uri2 = uri1.clone();
+        assert_eq!(uri1, uri2);
+    }
+
+    #[test]
+    fn test_lineage_from_uri_no_version() {
+        let uri = PachaUri::parse("pacha://model-name").expect("test");
+        let lineage = ModelLineage::from_uri(&uri);
+        assert_eq!(lineage.version, "unknown");
+    }
+
+    #[test]
+    fn test_parse_empty_model_error_msg() {
+        let result = PachaUri::parse("pacha://");
+        match result {
+            Err(e) => assert!(e.to_string().contains("required")),
+            Ok(_) => panic!("Expected error"),
+        }
+    }
+
+    #[test]
+    fn test_parse_empty_model_name_before_colon() {
+        let result = PachaUri::parse("pacha://:1.0");
+        match result {
+            Err(e) => assert!(e.to_string().contains("empty")),
+            Ok(_) => panic!("Expected error"),
+        }
+    }
+
+    #[test]
+    fn test_lineage_content_hash_empty() {
+        let uri = PachaUri::parse("pacha://test").expect("test");
+        let lineage = ModelLineage::from_uri(&uri);
+        assert!(lineage.content_hash.is_empty());
+    }
+
+    #[test]
+    fn test_model_lineage_serialize() {
+        let uri = PachaUri::parse("pacha://model:1.0").expect("test");
+        let lineage = ModelLineage::from_uri(&uri);
+        let json = serde_json::to_string(&lineage).expect("test");
+        assert!(json.contains("model"));
+        assert!(json.contains("1.0"));
+    }
+
+    #[test]
+    fn test_model_lineage_deserialize() {
+        let json = r#"{"uri":"pacha://test:1.0","model":"test","version":"1.0","content_hash":"","verified":false,"captured_at":12345}"#;
+        let lineage: ModelLineage = serde_json::from_str(json).expect("test");
+        assert_eq!(lineage.model, "test");
+        assert_eq!(lineage.version, "1.0");
+    }
+
+    #[test]
+    fn test_pacha_uri_debug() {
+        let uri = PachaUri::parse("pacha://model:1.0").expect("test");
+        let debug = format!("{:?}", uri);
+        assert!(debug.contains("PachaUri"));
+        assert!(debug.contains("model"));
+    }
+
+    #[test]
+    fn test_model_lineage_debug() {
+        let uri = PachaUri::parse("pacha://model:1.0").expect("test");
+        let lineage = ModelLineage::from_uri(&uri);
+        let debug = format!("{:?}", lineage);
+        assert!(debug.contains("ModelLineage"));
+    }
 }
