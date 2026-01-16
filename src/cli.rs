@@ -1631,4 +1631,130 @@ test benchmark_bar ... bench:         750 ns/iter (+/- 30)
         assert!(!validate_suite_name("Tensor_Ops"));
         assert!(!validate_suite_name("TenSor_OpS"));
     }
+
+    // -------------------------------------------------------------------------
+    // Coverage Tests: home_dir
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_home_dir_returns_value() {
+        // home_dir should return Some on most systems
+        let result = home_dir();
+        // Don't assert it's Some since CI may not have HOME set
+        // Just ensure it doesn't panic
+        let _ = result;
+    }
+
+    #[test]
+    fn test_home_dir_path_is_absolute() {
+        if let Some(path) = home_dir() {
+            // If HOME is set, the path should be absolute
+            assert!(
+                path.is_absolute() || path.to_string_lossy().starts_with('/'),
+                "Home dir should be absolute path"
+            );
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Coverage Tests: print_info
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_print_info_no_panic() {
+        // Just verify print_info doesn't panic
+        print_info();
+    }
+
+    // -------------------------------------------------------------------------
+    // Coverage Tests: display_model_info
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_display_model_info_random_bytes() {
+        // Random bytes should print "Unknown" format
+        let data = vec![0x00, 0x01, 0x02, 0x03];
+        let result = display_model_info("model.bin", &data);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_display_model_info_empty_data() {
+        let data: Vec<u8> = vec![];
+        let result = display_model_info("empty.bin", &data);
+        assert!(result.is_ok());
+    }
+
+    // -------------------------------------------------------------------------
+    // Coverage Tests: load_apr_model error paths
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_load_apr_model_wrong_format() {
+        // GGUF magic instead of APR
+        let data = vec![0x47, 0x47, 0x55, 0x46, 0x03, 0x00, 0x00, 0x00]; // GGUF magic
+        let result = load_apr_model(&data);
+        assert!(result.is_err());
+    }
+
+    // -------------------------------------------------------------------------
+    // Coverage Tests: run_bench_compare
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_run_bench_compare_missing_files() {
+        let result = run_bench_compare("/nonexistent/file1.json", "/nonexistent/file2.json", 0.1);
+        assert!(result.is_err());
+    }
+
+    // -------------------------------------------------------------------------
+    // Coverage Tests: run_bench_regression
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_run_bench_regression_missing_files() {
+        let result = run_bench_regression("/nonexistent/baseline.json", "/nonexistent/current.json", false);
+        assert!(result.is_err());
+    }
+
+    // -------------------------------------------------------------------------
+    // Coverage Tests: is_local_file_path edge cases
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_is_local_file_path_apr_extension() {
+        assert!(is_local_file_path("model.apr"));
+        assert!(is_local_file_path("path/to/model.apr"));
+    }
+
+    #[test]
+    fn test_is_local_file_path_safetensors_extension() {
+        assert!(is_local_file_path("model.safetensors"));
+        assert!(is_local_file_path("/absolute/path/model.safetensors"));
+    }
+
+    #[test]
+    fn test_is_local_file_path_gguf_extension() {
+        assert!(is_local_file_path("model.gguf"));
+        assert!(is_local_file_path("./relative/model.gguf"));
+    }
+
+    #[test]
+    fn test_is_local_file_path_absolute() {
+        assert!(is_local_file_path("/usr/local/models/test"));
+        assert!(is_local_file_path("/home/user/model"));
+    }
+
+    #[test]
+    fn test_is_local_file_path_relative_dot() {
+        assert!(is_local_file_path("./model"));
+        assert!(is_local_file_path("./subdir/model"));
+    }
+
+    #[test]
+    fn test_is_local_file_path_hf_style() {
+        // HuggingFace style refs should NOT be local
+        assert!(!is_local_file_path("meta-llama/Llama-2-7b"));
+        assert!(!is_local_file_path("openai/whisper-tiny"));
+    }
 }
