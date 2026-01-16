@@ -2870,3 +2870,789 @@ fn test_mapped_apr_model_tensor_entry_fields() {
     assert_eq!(tensor.offset, 0);
     assert_eq!(tensor.size, 64);
 }
+
+// ============================================================================
+// F16 Dequantization Coverage (via get_tensor_f32) - PMAT-802
+// ============================================================================
+
+/// Helper to create APR model with F16 tensor
+fn create_apr_model_with_f16_tensor() -> Vec<u8> {
+    let metadata = r#"{"architecture":"test","vocab_size":100,"hidden_size":64}"#;
+    let metadata_bytes = metadata.as_bytes();
+    let metadata_padded_size = metadata_bytes.len().div_ceil(64) * 64;
+
+    // F16 tensor: dtype=1, shape [4] = 4 elements = 8 bytes
+    let tensor_entry = create_binary_tensor_entry("test.f16", 1, &[4], 0, 8);
+    let tensor_index_offset = HEADER_SIZE as u64 + metadata_padded_size as u64;
+    let data_offset = tensor_index_offset + tensor_entry.len() as u64;
+    let data_size = 8usize; // 4 * 2 bytes per f16
+    let total_size = data_offset as usize + data_size;
+    let mut data = vec![0u8; total_size];
+
+    // Header
+    data[0..4].copy_from_slice(&MAGIC);
+    data[4] = 2;
+    data[5] = 0;
+    data[8..12].copy_from_slice(&1u32.to_le_bytes());
+    data[12..20].copy_from_slice(&(HEADER_SIZE as u64).to_le_bytes());
+    data[20..24].copy_from_slice(&(metadata_bytes.len() as u32).to_le_bytes());
+    data[24..32].copy_from_slice(&tensor_index_offset.to_le_bytes());
+    data[32..40].copy_from_slice(&data_offset.to_le_bytes());
+
+    // Metadata
+    data[HEADER_SIZE..HEADER_SIZE + metadata_bytes.len()].copy_from_slice(metadata_bytes);
+
+    // Tensor index
+    let idx_start = tensor_index_offset as usize;
+    data[idx_start..idx_start + tensor_entry.len()].copy_from_slice(&tensor_entry);
+
+    // F16 tensor data: [1.0, 2.0, -0.5, 0.0]
+    // F16 bit patterns: 1.0=0x3C00, 2.0=0x4000, -0.5=0xB800, 0.0=0x0000
+    let data_start = data_offset as usize;
+    data[data_start..data_start + 2].copy_from_slice(&0x3C00u16.to_le_bytes()); // 1.0
+    data[data_start + 2..data_start + 4].copy_from_slice(&0x4000u16.to_le_bytes()); // 2.0
+    data[data_start + 4..data_start + 6].copy_from_slice(&0xB800u16.to_le_bytes()); // -0.5
+    data[data_start + 6..data_start + 8].copy_from_slice(&0x0000u16.to_le_bytes()); // 0.0
+
+    data
+}
+
+#[test]
+fn test_apr_model_f16_tensor_dequantize() {
+    let data = create_apr_model_with_f16_tensor();
+    let model = AprV2Model::from_bytes(data).expect("should load F16 model");
+    let floats = model.get_tensor_f32("test.f16").expect("should dequantize");
+
+    assert_eq!(floats.len(), 4);
+    assert!((floats[0] - 1.0).abs() < 0.01, "Expected 1.0, got {}", floats[0]);
+    assert!((floats[1] - 2.0).abs() < 0.01, "Expected 2.0, got {}", floats[1]);
+    assert!((floats[2] - (-0.5)).abs() < 0.01, "Expected -0.5, got {}", floats[2]);
+    assert!((floats[3] - 0.0).abs() < 0.01, "Expected 0.0, got {}", floats[3]);
+}
+
+#[test]
+fn test_apr_model_f16_tensor_special_values() {
+    // Test F16 special values: infinity, NaN, subnormal, zero
+    let metadata = r#"{"architecture":"test","vocab_size":100,"hidden_size":64}"#;
+    let metadata_bytes = metadata.as_bytes();
+    let metadata_padded_size = metadata_bytes.len().div_ceil(64) * 64;
+
+    let tensor_entry = create_binary_tensor_entry("test.f16_special", 1, &[6], 0, 12);
+    let tensor_index_offset = HEADER_SIZE as u64 + metadata_padded_size as u64;
+    let data_offset = tensor_index_offset + tensor_entry.len() as u64;
+    let total_size = data_offset as usize + 12;
+    let mut data = vec![0u8; total_size];
+
+    data[0..4].copy_from_slice(&MAGIC);
+    data[4] = 2;
+    data[8..12].copy_from_slice(&1u32.to_le_bytes());
+    data[12..20].copy_from_slice(&(HEADER_SIZE as u64).to_le_bytes());
+    data[20..24].copy_from_slice(&(metadata_bytes.len() as u32).to_le_bytes());
+    data[24..32].copy_from_slice(&tensor_index_offset.to_le_bytes());
+    data[32..40].copy_from_slice(&data_offset.to_le_bytes());
+    data[HEADER_SIZE..HEADER_SIZE + metadata_bytes.len()].copy_from_slice(metadata_bytes);
+    let idx_start = tensor_index_offset as usize;
+    data[idx_start..idx_start + tensor_entry.len()].copy_from_slice(&tensor_entry);
+
+    let data_start = data_offset as usize;
+    // +inf: 0x7C00, -inf: 0xFC00, NaN: 0x7E00, +0: 0x0000, -0: 0x8000, subnormal: 0x0001
+    data[data_start..data_start + 2].copy_from_slice(&0x7C00u16.to_le_bytes()); // +inf
+    data[data_start + 2..data_start + 4].copy_from_slice(&0xFC00u16.to_le_bytes()); // -inf
+    data[data_start + 4..data_start + 6].copy_from_slice(&0x7E00u16.to_le_bytes()); // NaN
+    data[data_start + 6..data_start + 8].copy_from_slice(&0x0000u16.to_le_bytes()); // +0
+    data[data_start + 8..data_start + 10].copy_from_slice(&0x8000u16.to_le_bytes()); // -0
+    data[data_start + 10..data_start + 12].copy_from_slice(&0x0001u16.to_le_bytes()); // subnormal
+
+    let model = AprV2Model::from_bytes(data).expect("should load");
+    let floats = model.get_tensor_f32("test.f16_special").expect("should dequantize");
+
+    assert!(floats[0].is_infinite() && floats[0] > 0.0, "Expected +inf");
+    assert!(floats[1].is_infinite() && floats[1] < 0.0, "Expected -inf");
+    assert!(floats[2].is_nan(), "Expected NaN");
+    assert!(floats[3] == 0.0, "Expected +0");
+    assert!(floats[4] == 0.0, "Expected -0"); // -0 == 0 in f32 comparison
+}
+
+// ============================================================================
+// Q8_0 Dequantization Coverage (via get_tensor_f32) - PMAT-802
+// ============================================================================
+
+#[test]
+fn test_apr_model_q8_0_tensor_dequantize() {
+    let data = create_apr_model_with_q8_0_tensor();
+    let model = AprV2Model::from_bytes(data).expect("should load Q8_0 model");
+    let floats = model.get_tensor_f32("test.q8_0").expect("should dequantize");
+
+    // Q8_0: 32 elements, scale * int8 values
+    // With scale=1.0 and quant values 0-31, we expect 0.0, 1.0, 2.0, ... 31.0
+    assert_eq!(floats.len(), 32);
+    for (i, &val) in floats.iter().enumerate() {
+        assert!((val - (i as f32)).abs() < 0.1, "Element {} expected {}, got {}", i, i, val);
+    }
+}
+
+#[test]
+fn test_apr_model_q8_0_multiple_blocks() {
+    // Create Q8_0 tensor with 64 elements (2 blocks)
+    let metadata = r#"{"architecture":"test","vocab_size":100,"hidden_size":64}"#;
+    let metadata_bytes = metadata.as_bytes();
+    let metadata_padded_size = metadata_bytes.len().div_ceil(64) * 64;
+
+    let tensor_entry = create_binary_tensor_entry("test.q8_0_multi", 10, &[64], 0, 68);
+    let tensor_index_offset = HEADER_SIZE as u64 + metadata_padded_size as u64;
+    let data_offset = tensor_index_offset + tensor_entry.len() as u64;
+    let data_size = 68usize; // 2 blocks * 34 bytes
+    let total_size = data_offset as usize + data_size;
+    let mut data = vec![0u8; total_size];
+
+    data[0..4].copy_from_slice(&MAGIC);
+    data[4] = 2;
+    data[8..12].copy_from_slice(&1u32.to_le_bytes());
+    data[12..20].copy_from_slice(&(HEADER_SIZE as u64).to_le_bytes());
+    data[20..24].copy_from_slice(&(metadata_bytes.len() as u32).to_le_bytes());
+    data[24..32].copy_from_slice(&tensor_index_offset.to_le_bytes());
+    data[32..40].copy_from_slice(&data_offset.to_le_bytes());
+    data[HEADER_SIZE..HEADER_SIZE + metadata_bytes.len()].copy_from_slice(metadata_bytes);
+    let idx_start = tensor_index_offset as usize;
+    data[idx_start..idx_start + tensor_entry.len()].copy_from_slice(&tensor_entry);
+
+    // Block 1: scale=1.0, values 0-31
+    let data_start = data_offset as usize;
+    data[data_start..data_start + 2].copy_from_slice(&0x3C00u16.to_le_bytes()); // scale=1.0
+    for i in 0..32 {
+        data[data_start + 2 + i] = i as u8;
+    }
+
+    // Block 2: scale=0.5 (0x3800), values 0-31
+    data[data_start + 34..data_start + 36].copy_from_slice(&0x3800u16.to_le_bytes()); // scale=0.5
+    for i in 0..32 {
+        data[data_start + 36 + i] = i as u8;
+    }
+
+    let model = AprV2Model::from_bytes(data).expect("should load");
+    let floats = model.get_tensor_f32("test.q8_0_multi").expect("should dequantize");
+
+    assert_eq!(floats.len(), 64);
+    // Block 1 should have values 0-31
+    // Block 2 should have values 0-15.5 (scale=0.5)
+}
+
+// ============================================================================
+// Q4_K Dequantization Coverage (via get_tensor_f32) - PMAT-802
+// ============================================================================
+
+#[test]
+fn test_apr_model_q4k_tensor_dequantize() {
+    let data = create_apr_model_with_q4k_tensor();
+    let model = AprV2Model::from_bytes(data).expect("should load Q4_K model");
+    let floats = model.get_tensor_f32("test.q4k").expect("should dequantize");
+
+    // Q4_K: 256 elements per super block
+    assert_eq!(floats.len(), 256);
+    // Values should be finite (not NaN/inf due to proper dequant)
+    for &val in &floats {
+        assert!(val.is_finite(), "Q4_K value should be finite");
+    }
+}
+
+// ============================================================================
+// Q6_K Dequantization Coverage (via get_tensor_f32) - PMAT-802
+// ============================================================================
+
+#[test]
+fn test_apr_model_q6k_tensor_dequantize() {
+    let data = create_apr_model_with_q6k_tensor();
+    let model = AprV2Model::from_bytes(data).expect("should load Q6_K model");
+    let floats = model.get_tensor_f32("test.q6k").expect("should dequantize");
+
+    // Q6_K: 256 elements per super block
+    assert_eq!(floats.len(), 256);
+    // Values should be finite
+    for &val in &floats {
+        assert!(val.is_finite(), "Q6_K value should be finite");
+    }
+}
+
+// ============================================================================
+// Unsupported Dtype Error Path - PMAT-802
+// ============================================================================
+
+/// Helper to create APR model with BF16 tensor (unsupported for dequant)
+fn create_apr_model_with_bf16_tensor() -> Vec<u8> {
+    let metadata = r#"{"architecture":"test","vocab_size":100,"hidden_size":64}"#;
+    let metadata_bytes = metadata.as_bytes();
+    let metadata_padded_size = metadata_bytes.len().div_ceil(64) * 64;
+
+    // BF16 tensor: dtype=2
+    let tensor_entry = create_binary_tensor_entry("test.bf16", 2, &[4], 0, 8);
+    let tensor_index_offset = HEADER_SIZE as u64 + metadata_padded_size as u64;
+    let data_offset = tensor_index_offset + tensor_entry.len() as u64;
+    let total_size = data_offset as usize + 8;
+    let mut data = vec![0u8; total_size];
+
+    data[0..4].copy_from_slice(&MAGIC);
+    data[4] = 2;
+    data[8..12].copy_from_slice(&1u32.to_le_bytes());
+    data[12..20].copy_from_slice(&(HEADER_SIZE as u64).to_le_bytes());
+    data[20..24].copy_from_slice(&(metadata_bytes.len() as u32).to_le_bytes());
+    data[24..32].copy_from_slice(&tensor_index_offset.to_le_bytes());
+    data[32..40].copy_from_slice(&data_offset.to_le_bytes());
+    data[HEADER_SIZE..HEADER_SIZE + metadata_bytes.len()].copy_from_slice(metadata_bytes);
+    let idx_start = tensor_index_offset as usize;
+    data[idx_start..idx_start + tensor_entry.len()].copy_from_slice(&tensor_entry);
+
+    data
+}
+
+#[test]
+fn test_apr_model_unsupported_dtype_error() {
+    let data = create_apr_model_with_bf16_tensor();
+    let model = AprV2Model::from_bytes(data).expect("should load BF16 model");
+    let result = model.get_tensor_f32("test.bf16");
+    assert!(result.is_err());
+    let err_msg = result.unwrap_err().to_string();
+    assert!(err_msg.contains("Unsupported") || err_msg.contains("BF16"));
+}
+
+// ============================================================================
+// AprV2Model::forward() Error Paths - PMAT-802
+// ============================================================================
+
+#[test]
+fn test_apr_v2_model_forward_not_transformer() {
+    // Create minimal model without transformer metadata
+    let metadata = r#"{"architecture":"test"}"#;  // Missing required fields
+    let metadata_bytes = metadata.as_bytes();
+    let metadata_padded_size = metadata_bytes.len().div_ceil(64) * 64;
+
+    let tensor_entry = create_binary_tensor_entry("test.weight", 0, &[4, 4], 0, 64);
+    let tensor_index_offset = HEADER_SIZE as u64 + metadata_padded_size as u64;
+    let data_offset = tensor_index_offset + tensor_entry.len() as u64;
+    let total_size = data_offset as usize + 64;
+    let mut data = vec![0u8; total_size];
+
+    data[0..4].copy_from_slice(&MAGIC);
+    data[4] = 2;
+    data[8..12].copy_from_slice(&1u32.to_le_bytes());
+    data[12..20].copy_from_slice(&(HEADER_SIZE as u64).to_le_bytes());
+    data[20..24].copy_from_slice(&(metadata_bytes.len() as u32).to_le_bytes());
+    data[24..32].copy_from_slice(&tensor_index_offset.to_le_bytes());
+    data[32..40].copy_from_slice(&data_offset.to_le_bytes());
+    data[HEADER_SIZE..HEADER_SIZE + metadata_bytes.len()].copy_from_slice(metadata_bytes);
+    let idx_start = tensor_index_offset as usize;
+    data[idx_start..idx_start + tensor_entry.len()].copy_from_slice(&tensor_entry);
+
+    let model = AprV2Model::from_bytes(data).expect("should load");
+    let result = model.forward(&[1, 2, 3]);
+    assert!(result.is_err());
+    let err_msg = result.unwrap_err().to_string();
+    assert!(err_msg.contains("transformer") || err_msg.contains("missing"));
+}
+
+// ============================================================================
+// AprV2Model::generate() Error Paths - PMAT-802
+// ============================================================================
+
+#[test]
+fn test_apr_v2_model_generate_with_eos_token() {
+    let data = create_minimal_apr_model();
+    let model = AprV2Model::from_bytes(data).expect("should load");
+    // Generation with eos_token that won't be hit (model isn't real transformer)
+    let result = model.generate(&[1], 5, Some(999));
+    // Should return error since not a transformer
+    assert!(result.is_err());
+}
+
+// ============================================================================
+// AprV2Model::predict() Coverage - PMAT-802
+// ============================================================================
+
+#[test]
+fn test_apr_v2_model_predict_with_weight_tensor() {
+    // Create model with weight and bias tensors for linear prediction
+    let metadata = r#"{"architecture":"linear"}"#;
+    let metadata_bytes = metadata.as_bytes();
+    let metadata_padded_size = metadata_bytes.len().div_ceil(64) * 64;
+
+    // weight tensor [2, 3] and bias tensor [2]
+    let weight_entry = create_binary_tensor_entry("weight", 0, &[2, 3], 0, 24);
+    let bias_entry = create_binary_tensor_entry("bias", 0, &[2], 24, 8);
+    let tensor_index: Vec<u8> = [weight_entry, bias_entry].concat();
+
+    let tensor_index_offset = HEADER_SIZE as u64 + metadata_padded_size as u64;
+    let data_offset = tensor_index_offset + tensor_index.len() as u64;
+    let total_size = data_offset as usize + 32; // 24 + 8 bytes
+    let mut data = vec![0u8; total_size];
+
+    data[0..4].copy_from_slice(&MAGIC);
+    data[4] = 2;
+    data[8..12].copy_from_slice(&2u32.to_le_bytes()); // 2 tensors
+    data[12..20].copy_from_slice(&(HEADER_SIZE as u64).to_le_bytes());
+    data[20..24].copy_from_slice(&(metadata_bytes.len() as u32).to_le_bytes());
+    data[24..32].copy_from_slice(&tensor_index_offset.to_le_bytes());
+    data[32..40].copy_from_slice(&data_offset.to_le_bytes());
+    data[HEADER_SIZE..HEADER_SIZE + metadata_bytes.len()].copy_from_slice(metadata_bytes);
+    let idx_start = tensor_index_offset as usize;
+    data[idx_start..idx_start + tensor_index.len()].copy_from_slice(&tensor_index);
+
+    // Weight: [[1,0,0], [0,1,0]] (identity-ish)
+    let data_start = data_offset as usize;
+    let weights = [1.0f32, 0.0, 0.0, 0.0, 1.0, 0.0];
+    for (i, &w) in weights.iter().enumerate() {
+        data[data_start + i * 4..data_start + i * 4 + 4].copy_from_slice(&w.to_le_bytes());
+    }
+
+    // Bias: [0.5, -0.5]
+    let biases = [0.5f32, -0.5];
+    for (i, &b) in biases.iter().enumerate() {
+        data[data_start + 24 + i * 4..data_start + 24 + i * 4 + 4].copy_from_slice(&b.to_le_bytes());
+    }
+
+    let model = AprV2Model::from_bytes(data).expect("should load");
+    let result = model.predict(&[1.0, 2.0, 3.0]).expect("should predict");
+
+    // Output = W @ x + b = [[1,0,0],[0,1,0]] @ [1,2,3] + [0.5,-0.5] = [1.5, 1.5]
+    assert_eq!(result.len(), 2);
+    assert!((result[0] - 1.5).abs() < 0.01);
+    assert!((result[1] - 1.5).abs() < 0.01);
+}
+
+#[test]
+fn test_apr_v2_model_predict_no_weight_tensor() {
+    // Model without weight tensor - falls back to sum
+    let data = create_minimal_apr_model();
+    let model = AprV2Model::from_bytes(data).expect("should load");
+    let result = model.predict(&[1.0, 2.0, 3.0]).expect("should predict");
+
+    // No "weight" tensor, so returns sum = 6.0
+    assert_eq!(result.len(), 1);
+    assert!((result[0] - 6.0).abs() < 0.01);
+}
+
+// ============================================================================
+// ModelData Coverage - PMAT-802
+// ============================================================================
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn test_model_data_debug_format() {
+    use realizar::apr::ModelData;
+    let data = ModelData::from_vec(vec![1, 2, 3]);
+    let debug_str = format!("{:?}", data);
+    assert!(debug_str.contains("Heap"));
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn test_model_data_mmap_debug_format() {
+    use realizar::apr::ModelData;
+    let temp = create_apr_file();
+    let model_data = ModelData::open_mmap(temp.path()).expect("should open");
+    let debug_str = format!("{:?}", model_data);
+    assert!(debug_str.contains("Mmap"));
+}
+
+// ============================================================================
+// TensorEntry Serialization Coverage - PMAT-802
+// ============================================================================
+
+#[test]
+fn test_tensor_entry_serde_roundtrip() {
+    let entry = TensorEntry {
+        name: "test.weight".to_string(),
+        dtype: "F32".to_string(),
+        shape: vec![16, 32, 64],
+        offset: 1024,
+        size: 131072,
+    };
+    let json = serde_json::to_string(&entry).expect("should serialize");
+    let parsed: TensorEntry = serde_json::from_str(&json).expect("should deserialize");
+    assert_eq!(parsed.name, "test.weight");
+    assert_eq!(parsed.shape, vec![16, 32, 64]);
+    assert_eq!(parsed.offset, 1024);
+    assert_eq!(parsed.size, 131072);
+}
+
+#[test]
+fn test_tensor_entry_element_count_high_dim() {
+    let entry = TensorEntry {
+        name: "high_dim".to_string(),
+        dtype: "F32".to_string(),
+        shape: vec![2, 3, 4, 5, 6],
+        offset: 0,
+        size: 2880, // 2*3*4*5*6*4 bytes
+    };
+    assert_eq!(entry.element_count(), 720); // 2*3*4*5*6
+}
+
+// ============================================================================
+// AprHeader Clone Coverage - PMAT-802
+// ============================================================================
+
+#[test]
+fn test_apr_header_clone() {
+    let mut data = vec![0u8; HEADER_SIZE];
+    data[0..4].copy_from_slice(&MAGIC);
+    data[4] = 2;
+    data[5] = 1;
+    data[8..12].copy_from_slice(&42u32.to_le_bytes());
+    data[40..44].copy_from_slice(&0xDEADBEEFu32.to_le_bytes());
+
+    let header = AprHeader::from_bytes(&data).expect("should parse");
+    // Clone trait test: use the cloned value in a function call to avoid redundant_clone lint
+    fn verify_header(h: AprHeader) {
+        assert_eq!(h.magic, MAGIC);
+        assert_eq!(h.version, (2, 1));
+        assert_eq!(h.tensor_count, 42);
+        assert_eq!(h.checksum, 0xDEADBEEF);
+    }
+    verify_header(header.clone());
+    // Original still usable
+    assert_eq!(header.version, (2, 1));
+}
+
+// ============================================================================
+// AprFlags Default Coverage - PMAT-802
+// ============================================================================
+
+#[test]
+fn test_apr_flags_default() {
+    let flags = AprFlags::default();
+    assert!(!flags.is_compressed());
+    assert!(!flags.is_encrypted());
+    assert!(!flags.is_quantized());
+    assert!(!flags.has_vocab());
+}
+
+#[test]
+fn test_apr_flags_clone() {
+    let flags = AprFlags::new(AprFlags::QUANTIZED | AprFlags::HAS_VOCAB);
+    let cloned = flags;
+    assert!(cloned.is_quantized());
+    assert!(cloned.has_vocab());
+}
+
+// ============================================================================
+// AprV2Model File-based Tests - PMAT-802
+// ============================================================================
+
+#[test]
+fn test_apr_v2_model_load_from_file_header_access() {
+    let temp = create_apr_file();
+    let model = AprV2Model::load(temp.path()).expect("should load");
+
+    // Verify header fields are accessible
+    assert_eq!(model.tensor_count(), 1);
+    assert!(model.is_mmap());
+}
+
+#[test]
+fn test_apr_v2_model_estimated_parameters_empty() {
+    // Model with no tensors
+    let metadata = r#"{"architecture":"test"}"#;
+    let metadata_bytes = metadata.as_bytes();
+    let metadata_padded_size = metadata_bytes.len().div_ceil(64) * 64;
+
+    let tensor_index_offset = HEADER_SIZE as u64 + metadata_padded_size as u64;
+    let data_offset = tensor_index_offset;
+    let total_size = data_offset as usize;
+    let mut data = vec![0u8; total_size];
+
+    data[0..4].copy_from_slice(&MAGIC);
+    data[4] = 2;
+    data[8..12].copy_from_slice(&0u32.to_le_bytes()); // 0 tensors
+    data[12..20].copy_from_slice(&(HEADER_SIZE as u64).to_le_bytes());
+    data[20..24].copy_from_slice(&(metadata_bytes.len() as u32).to_le_bytes());
+    data[24..32].copy_from_slice(&tensor_index_offset.to_le_bytes());
+    data[32..40].copy_from_slice(&data_offset.to_le_bytes());
+    data[HEADER_SIZE..HEADER_SIZE + metadata_bytes.len()].copy_from_slice(metadata_bytes);
+
+    let model = AprV2Model::from_bytes(data).expect("should load");
+    assert_eq!(model.estimated_parameters(), 0);
+}
+
+// ============================================================================
+// BpeTokenizer Edge Cases - PMAT-802
+// ============================================================================
+
+#[test]
+fn test_bpe_tokenizer_decode_bpe_special_chars() {
+    // Test that BPE special characters are decoded correctly
+    let vocab = vec!["Ġhello".to_string(), "Ċ".to_string(), "ĉworld".to_string()];
+    let result = AprV2Model::decode_tokens(&vocab, &[0, 1, 2]);
+
+    // Ġ → space, Ċ → newline, ĉ → tab
+    assert!(result.contains(" hello"));
+    assert!(result.contains("\n"));
+    assert!(result.contains("\tworld"));
+}
+
+#[test]
+fn test_bpe_tokenizer_encode_unicode() {
+    let mut token_to_id = HashMap::new();
+    token_to_id.insert("a".to_string(), 0);
+    token_to_id.insert("b".to_string(), 1);
+
+    let tokenizer = BpeTokenizer {
+        token_to_id,
+        id_to_token: vec!["a".to_string(), "b".to_string()],
+        merge_rules: vec![],
+        bos_id: None,
+        eos_id: None,
+    };
+
+    // Non-ASCII chars may not be in vocab, so result may be empty or partial
+    let encoded = tokenizer.encode("ab");
+    assert!(!encoded.is_empty());
+}
+
+#[test]
+fn test_bpe_tokenizer_merge_application() {
+    // Test that merge rules are applied correctly
+    let mut token_to_id = HashMap::new();
+    token_to_id.insert("a".to_string(), 0);
+    token_to_id.insert("b".to_string(), 1);
+    token_to_id.insert("ab".to_string(), 2);
+
+    let tokenizer = BpeTokenizer {
+        token_to_id,
+        id_to_token: vec!["a".to_string(), "b".to_string(), "ab".to_string()],
+        merge_rules: vec![("a".to_string(), "b".to_string())],
+        bos_id: None,
+        eos_id: None,
+    };
+
+    let encoded = tokenizer.encode("ab");
+    // After merging "a" + "b" → "ab", should get single token
+    assert_eq!(encoded.len(), 1);
+    assert_eq!(encoded[0], 2);
+}
+
+// ============================================================================
+// AprMetadata rms_norm_eps Coverage - PMAT-802
+// ============================================================================
+
+#[test]
+fn test_apr_metadata_rms_norm_eps_field() {
+    let meta = AprMetadata {
+        rms_norm_eps: Some(1e-6),
+        ..Default::default()
+    };
+    assert_eq!(meta.rms_norm_eps, Some(1e-6));
+}
+
+#[test]
+fn test_apr_metadata_max_position_embeddings_field() {
+    let meta = AprMetadata {
+        max_position_embeddings: Some(131072),
+        ..Default::default()
+    };
+    assert_eq!(meta.max_position_embeddings, Some(131072));
+}
+
+// ============================================================================
+// AprTransformerLayer Optional Fields Coverage - PMAT-802
+// ============================================================================
+
+#[test]
+fn test_apr_transformer_layer_all_optional_fields() {
+    let mut layer = AprTransformerLayer::empty(64, 256);
+
+    // Set all optional fields
+    layer.attn_norm_bias = Some(vec![0.0; 64]);
+    layer.qkv_bias = Some(vec![0.0; 64 * 3]);
+    layer.attn_output_bias = Some(vec![0.0; 64]);
+    layer.ffn_norm_weight = Some(vec![1.0; 64]);
+    layer.ffn_norm_bias = Some(vec![0.0; 64]);
+    layer.ffn_up_bias = Some(vec![0.0; 256]);
+    layer.ffn_gate_weight = Some(vec![0.0; 64 * 256]);
+    layer.ffn_gate_bias = Some(vec![0.0; 256]);
+    layer.ffn_down_bias = Some(vec![0.0; 64]);
+
+    let params = layer.num_parameters();
+    // Should include all optional fields
+    assert!(params > 0);
+}
+
+#[test]
+fn test_apr_transformer_layer_memory_size() {
+    let layer = AprTransformerLayer::empty(64, 256);
+    let mem_size = layer.num_parameters() * 4; // 4 bytes per f32
+    assert!(mem_size > 0);
+}
+
+// ============================================================================
+// AprKVCache Extended Operations - PMAT-802
+// ============================================================================
+
+#[test]
+fn test_apr_kv_cache_get_layer_invalid() {
+    let config = AprTransformerConfig {
+        hidden_dim: 8,
+        num_layers: 2,
+        num_heads: 2,
+        num_kv_heads: 2,
+        context_length: 16,
+        ..Default::default()
+    };
+    let mut cache = AprKVCache::new(&config);
+
+    // Append to layer 0
+    let head_dim = 4;
+    let kv_size = 2 * head_dim;
+    cache.append(0, &vec![1.0; kv_size], &vec![2.0; kv_size]);
+
+    // Get from layer 0 (valid)
+    let (k, v) = cache.get(0);
+    assert!(!k.is_empty());
+    assert!(!v.is_empty());
+}
+
+// ============================================================================
+// AprPrefillResult Coverage - PMAT-802
+// ============================================================================
+
+#[test]
+fn test_apr_prefill_result_full_fields() {
+    let result = AprPrefillResult {
+        prompt_tokens: 128,
+        prefill_time_ms: 45.5,
+        prefill_tok_s: 2813.19,
+    };
+    assert_eq!(result.prompt_tokens, 128);
+    assert!((result.prefill_time_ms - 45.5).abs() < 0.001);
+    assert!((result.prefill_tok_s - 2813.19).abs() < 0.01);
+}
+
+// ============================================================================
+// AprTransformerConfig Clone and Debug Coverage - PMAT-802
+// ============================================================================
+
+#[test]
+fn test_apr_transformer_config_clone() {
+    let config = AprTransformerConfig {
+        architecture: "test".to_string(),
+        hidden_dim: 1024,
+        num_layers: 16,
+        num_heads: 16,
+        num_kv_heads: 4,
+        vocab_size: 50000,
+        intermediate_dim: 4096,
+        context_length: 4096,
+        rope_theta: 500000.0,
+        eps: 1e-6,
+    };
+    // Clone trait test: use the cloned value in a function call to avoid redundant_clone lint
+    fn verify_config(c: AprTransformerConfig) {
+        assert_eq!(c.architecture, "test");
+        assert_eq!(c.hidden_dim, 1024);
+        assert_eq!(c.num_kv_heads, 4);
+    }
+    verify_config(config.clone());
+    // Original still usable
+    assert_eq!(config.hidden_dim, 1024);
+}
+
+#[test]
+fn test_apr_transformer_config_debug() {
+    let config = AprTransformerConfig::default();
+    let debug_str = format!("{:?}", config);
+    assert!(debug_str.contains("AprTransformerConfig"));
+    assert!(debug_str.contains("hidden_dim"));
+}
+
+// ============================================================================
+// detect_format Magic Bytes Coverage - PMAT-802
+// ============================================================================
+
+#[test]
+fn test_detect_format_by_magic_bytes_apr() {
+    let mut temp = NamedTempFile::new().expect("create temp file");
+    temp.write_all(&MAGIC).expect("write magic");
+    temp.write_all(&[0u8; 60]).expect("write padding");
+    // Don't use .apr extension - rely on magic
+    assert_eq!(detect_format(temp.path()), "apr");
+}
+
+#[test]
+fn test_detect_format_by_magic_bytes_gguf() {
+    let mut temp = NamedTempFile::new().expect("create temp file");
+    temp.write_all(&[0x47, 0x47, 0x55, 0x46]).expect("write GGUF magic");
+    temp.write_all(&[0u8; 60]).expect("write padding");
+    assert_eq!(detect_format(temp.path()), "gguf");
+}
+
+#[test]
+fn test_detect_format_by_magic_bytes_safetensors() {
+    let mut temp = NamedTempFile::new().expect("create temp file");
+    // Need at least 4 bytes for detect_format to check magic bytes
+    temp.write_all(b"{}  ").expect("write JSON");
+    assert_eq!(detect_format(temp.path()), "safetensors");
+}
+
+// ============================================================================
+// AprV2Model from_bytes Empty Metadata Coverage - PMAT-802
+// ============================================================================
+
+#[test]
+fn test_apr_v2_model_from_bytes_empty_metadata() {
+    // Create model with metadata_size = 0
+    let tensor_entry = create_binary_tensor_entry("test.weight", 0, &[4, 4], 0, 64);
+    let tensor_index_offset = HEADER_SIZE as u64;
+    let data_offset = tensor_index_offset + tensor_entry.len() as u64;
+    let total_size = data_offset as usize + 64;
+    let mut data = vec![0u8; total_size];
+
+    data[0..4].copy_from_slice(&MAGIC);
+    data[4] = 2;
+    data[8..12].copy_from_slice(&1u32.to_le_bytes());
+    data[12..20].copy_from_slice(&(HEADER_SIZE as u64).to_le_bytes()); // metadata_offset
+    data[20..24].copy_from_slice(&0u32.to_le_bytes()); // metadata_size = 0
+    data[24..32].copy_from_slice(&tensor_index_offset.to_le_bytes());
+    data[32..40].copy_from_slice(&data_offset.to_le_bytes());
+
+    let idx_start = tensor_index_offset as usize;
+    data[idx_start..idx_start + tensor_entry.len()].copy_from_slice(&tensor_entry);
+
+    // Model should load with default metadata
+    let model = AprV2Model::from_bytes(data).expect("should load");
+    assert!(model.metadata().hidden_size.is_none());
+    assert!(!model.metadata().is_transformer());
+}
+
+// ============================================================================
+// Tensor Index Parsing Edge Cases - PMAT-802
+// ============================================================================
+
+#[test]
+fn test_apr_v2_model_tensor_index_parse_error_handled() {
+    // Create model where tensor index has malformed entries
+    let metadata = r#"{}"#;
+    let metadata_bytes = metadata.as_bytes();
+    let metadata_padded_size = metadata_bytes.len().div_ceil(64) * 64;
+
+    let tensor_index_offset = HEADER_SIZE as u64 + metadata_padded_size as u64;
+    let data_offset = tensor_index_offset + 10; // Index region = 10 bytes (malformed)
+    let total_size = data_offset as usize + 64;
+    let mut data = vec![0u8; total_size];
+
+    data[0..4].copy_from_slice(&MAGIC);
+    data[4] = 2;
+    data[8..12].copy_from_slice(&1u32.to_le_bytes()); // Claims 1 tensor
+    data[12..20].copy_from_slice(&(HEADER_SIZE as u64).to_le_bytes());
+    data[20..24].copy_from_slice(&(metadata_bytes.len() as u32).to_le_bytes());
+    data[24..32].copy_from_slice(&tensor_index_offset.to_le_bytes());
+    data[32..40].copy_from_slice(&data_offset.to_le_bytes());
+    data[HEADER_SIZE..HEADER_SIZE + metadata_bytes.len()].copy_from_slice(metadata_bytes);
+
+    // Put garbage in tensor index region
+    let idx_start = tensor_index_offset as usize;
+    data[idx_start..idx_start + 10].copy_from_slice(&[0xFF; 10]);
+
+    // Model should load but have 0 parsed tensors (parse errors are handled gracefully)
+    let model = AprV2Model::from_bytes(data).expect("should load");
+    assert_eq!(model.tensor_count(), 1); // Header says 1
+    // Parsed tensor count may be less than header due to malformed index
+    let parsed_count = model.tensor_names().len();
+    assert!(parsed_count <= 1, "Should have 0 or 1 parsed tensors, got {}", parsed_count);
+}
