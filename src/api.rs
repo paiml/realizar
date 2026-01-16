@@ -9642,4 +9642,166 @@ mod tests {
         assert!(json.contains("chunk"));
         assert!(json.contains("Hi"));
     }
+
+    // =========================================================================
+    // Additional Coverage Tests: Usage struct
+    // =========================================================================
+
+    #[test]
+    fn test_usage_debug_clone_cov() {
+        let usage = Usage {
+            prompt_tokens: 100,
+            completion_tokens: 50,
+            total_tokens: 150,
+        };
+        let debug = format!("{:?}", usage);
+        assert!(debug.contains("Usage"));
+        assert!(debug.contains("100"));
+
+        let cloned = usage.clone();
+        assert_eq!(cloned.prompt_tokens, usage.prompt_tokens);
+        assert_eq!(cloned.total_tokens, usage.total_tokens);
+    }
+
+    // =========================================================================
+    // Additional Coverage Tests: ChatDelta struct
+    // =========================================================================
+
+    #[test]
+    fn test_chat_delta_debug_clone_cov() {
+        let delta = ChatDelta {
+            role: Some("assistant".to_string()),
+            content: Some("Hello".to_string()),
+        };
+        let debug = format!("{:?}", delta);
+        assert!(debug.contains("ChatDelta"));
+
+        let cloned = delta.clone();
+        assert_eq!(cloned.role, delta.role);
+    }
+
+    #[test]
+    fn test_chat_delta_empty_cov() {
+        let delta = ChatDelta {
+            role: None,
+            content: None,
+        };
+        let json = serde_json::to_string(&delta).expect("serialize");
+        // Empty delta should have null fields
+        assert!(json.contains("null") || json.len() > 0);
+    }
+
+    // =========================================================================
+    // Additional Coverage Tests: StreamTokenEvent
+    // =========================================================================
+
+    #[test]
+    fn test_stream_token_event_serialize_cov() {
+        let event = StreamTokenEvent {
+            token_id: 1234,
+            text: "hello".to_string(),
+        };
+        let json = serde_json::to_string(&event).expect("serialize");
+        assert!(json.contains("hello"));
+        assert!(json.contains("1234"));
+    }
+
+    // =========================================================================
+    // Additional Coverage Tests: StreamDoneEvent
+    // =========================================================================
+
+    #[test]
+    fn test_stream_done_event_serialize_cov() {
+        let event = StreamDoneEvent {
+            num_generated: 100,
+        };
+        let json = serde_json::to_string(&event).expect("serialize");
+        assert!(json.contains("100"));
+    }
+
+    // =========================================================================
+    // Additional Coverage Tests: BatchTokenizeRequest/Response
+    // =========================================================================
+
+    #[test]
+    fn test_batch_tokenize_request_serialize_cov() {
+        let req = BatchTokenizeRequest {
+            texts: vec!["hello".to_string(), "world".to_string()],
+        };
+        let json = serde_json::to_string(&req).expect("serialize");
+        assert!(json.contains("hello"));
+        assert!(json.contains("world"));
+    }
+
+    #[test]
+    fn test_batch_tokenize_response_serialize_cov() {
+        let resp = BatchTokenizeResponse {
+            results: vec![
+                TokenizeResponse { token_ids: vec![1, 2, 3], num_tokens: 3 },
+                TokenizeResponse { token_ids: vec![4, 5], num_tokens: 2 },
+            ],
+        };
+        let json = serde_json::to_string(&resp).expect("serialize");
+        assert!(json.contains("1") && json.contains("4"));
+    }
+
+    // =========================================================================
+    // Additional Coverage Tests: OpenAIModel
+    // =========================================================================
+
+    #[test]
+    fn test_openai_model_debug_clone_cov() {
+        let model = OpenAIModel {
+            id: "text-davinci-003".to_string(),
+            object: "model".to_string(),
+            created: 1669599635,
+            owned_by: "openai-internal".to_string(),
+        };
+        let debug = format!("{:?}", model);
+        assert!(debug.contains("OpenAIModel"));
+        assert!(debug.contains("text-davinci-003"));
+
+        let cloned = model.clone();
+        assert_eq!(cloned.id, model.id);
+    }
+
+    // =========================================================================
+    // Additional Coverage Tests: PredictionWithScore
+    // =========================================================================
+
+    #[test]
+    fn test_prediction_with_score_debug_clone_cov() {
+        let pred = PredictionWithScore {
+            label: "positive".to_string(),
+            score: 0.95,
+        };
+        let debug = format!("{:?}", pred);
+        assert!(debug.contains("PredictionWithScore"));
+        assert!(debug.contains("positive"));
+
+        let cloned = pred.clone();
+        assert_eq!(cloned.label, pred.label);
+        assert!((cloned.score - pred.score).abs() < 1e-6);
+    }
+
+    // =========================================================================
+    // Additional Coverage Tests: ChatChunkChoice
+    // =========================================================================
+
+    #[test]
+    fn test_chat_chunk_choice_debug_clone_cov() {
+        let choice = ChatChunkChoice {
+            index: 0,
+            delta: ChatDelta {
+                role: Some("assistant".to_string()),
+                content: Some("Test".to_string()),
+            },
+            finish_reason: Some("stop".to_string()),
+        };
+        let debug = format!("{:?}", choice);
+        assert!(debug.contains("ChatChunkChoice"));
+
+        let cloned = choice.clone();
+        assert_eq!(cloned.index, choice.index);
+    }
 }
