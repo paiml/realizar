@@ -5096,4 +5096,192 @@ mod tests {
             assert!((v - 0.4).abs() < 1e-5);
         }
     }
+
+    // =========================================================================
+    // Coverage Tests: ThreadConfig (cov suffix to avoid duplicates)
+    // =========================================================================
+
+    #[test]
+    fn test_thread_config_new_cov() {
+        let config = ThreadConfig::new(8, 4);
+        assert_eq!(config.n_threads_batch, 8);
+        assert_eq!(config.n_threads_decode, 4);
+    }
+
+    #[test]
+    fn test_thread_config_new_clamps_to_min_cov() {
+        let config = ThreadConfig::new(0, 0);
+        assert_eq!(config.n_threads_batch, 1);
+        assert_eq!(config.n_threads_decode, 1);
+    }
+
+    #[test]
+    fn test_thread_config_threads_for_prefill_cov() {
+        let config = ThreadConfig::new(16, 8);
+        assert_eq!(config.threads_for(true), 16);
+    }
+
+    #[test]
+    fn test_thread_config_threads_for_decode_cov() {
+        let config = ThreadConfig::new(16, 8);
+        assert_eq!(config.threads_for(false), 8);
+    }
+
+    #[test]
+    fn test_thread_config_default_cov() {
+        let config = ThreadConfig::default();
+        assert!(config.n_threads_batch >= 1);
+        assert!(config.n_threads_decode >= 1);
+    }
+
+    #[test]
+    fn test_thread_config_auto_cov() {
+        let config = ThreadConfig::auto();
+        // Batch should use all threads
+        assert!(config.n_threads_batch >= 1);
+        // Decode should use at least 1 thread
+        assert!(config.n_threads_decode >= 1);
+        // Batch should have >= decode threads
+        assert!(config.n_threads_batch >= config.n_threads_decode);
+    }
+
+    #[test]
+    fn test_thread_config_debug_cov() {
+        let config = ThreadConfig::new(4, 2);
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("ThreadConfig"));
+        assert!(debug_str.contains("n_threads_batch"));
+    }
+
+    #[test]
+    fn test_thread_config_clone_cov() {
+        let config = ThreadConfig::new(8, 4);
+        let cloned = config;
+        assert_eq!(cloned.n_threads_batch, 8);
+        assert_eq!(cloned.n_threads_decode, 4);
+    }
+
+    // =========================================================================
+    // Coverage Tests: InferenceMode (cov suffix)
+    // =========================================================================
+
+    #[test]
+    fn test_inference_mode_eq_cov() {
+        assert_eq!(InferenceMode::Prefill, InferenceMode::Prefill);
+        assert_eq!(InferenceMode::Decode, InferenceMode::Decode);
+        assert_ne!(InferenceMode::Prefill, InferenceMode::Decode);
+    }
+
+    #[test]
+    fn test_inference_mode_debug_cov() {
+        let prefill = InferenceMode::Prefill;
+        let decode = InferenceMode::Decode;
+        assert_eq!(format!("{:?}", prefill), "Prefill");
+        assert_eq!(format!("{:?}", decode), "Decode");
+    }
+
+    #[test]
+    fn test_inference_mode_clone_cov() {
+        let mode = InferenceMode::Prefill;
+        let cloned = mode;
+        assert_eq!(cloned, InferenceMode::Prefill);
+    }
+
+    // =========================================================================
+    // Coverage Tests: Q4KWeight helper methods (cov suffix)
+    // =========================================================================
+
+    #[test]
+    fn test_q4k_weight_memory_bytes_cov() {
+        // Q4K: 144 bytes per 256 values (super-block)
+        let in_dim = 256;
+        let out_dim = 1;
+        let data = vec![0u8; 144]; // One super-block
+        let weight = Q4KWeight::new(data, in_dim, out_dim).expect("test");
+        assert_eq!(weight.memory_bytes(), 144);
+    }
+
+    #[test]
+    fn test_q4k_weight_f32_equivalent_bytes_cov() {
+        let in_dim = 256;
+        let out_dim = 1;
+        let data = vec![0u8; 144];
+        let weight = Q4KWeight::new(data, in_dim, out_dim).expect("test");
+        // f32 equivalent: 256 * 1 * 4 bytes = 1024
+        assert_eq!(weight.f32_equivalent_bytes(), 1024);
+    }
+
+    #[test]
+    fn test_q4k_weight_compression_ratio_cov() {
+        let in_dim = 256;
+        let out_dim = 1;
+        let data = vec![0u8; 144];
+        let weight = Q4KWeight::new(data, in_dim, out_dim).expect("test");
+        // Compression: 1024 / 144 ≈ 7.1
+        let ratio = weight.compression_ratio();
+        assert!(ratio > 7.0 && ratio < 7.2);
+    }
+
+    #[test]
+    fn test_q4k_weight_new_invalid_size_cov() {
+        let in_dim = 256;
+        let out_dim = 1;
+        let data = vec![0u8; 10]; // Too small
+        let result = Q4KWeight::new(data, in_dim, out_dim);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_q4k_weight_matvec_invalid_input_cov() {
+        let in_dim = 256;
+        let out_dim = 1;
+        let data = vec![0u8; 144];
+        let weight = Q4KWeight::new(data, in_dim, out_dim).expect("test");
+        let input = vec![1.0f32; 100]; // Wrong size
+        let result = weight.matvec(&input);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Coverage Tests: simd_matmul above parallel threshold (cov suffix)
+    // =========================================================================
+
+    #[test]
+    fn test_simd_matmul_above_parallel_threshold_cov() {
+        // PARALLEL_THRESHOLD is 256, test above it
+        let in_dim = 64;
+        let out_dim = 300;
+        let input = vec![1.0f32; in_dim];
+        let weight = vec![0.01f32; in_dim * out_dim];
+        let output = simd_matmul(&input, &weight, in_dim, out_dim);
+        assert_eq!(output.len(), out_dim);
+        // Each output is 64 * 0.01 = 0.64
+        for &v in &output {
+            assert!((v - 0.64).abs() < 1e-4);
+        }
+    }
+
+    #[test]
+    fn test_simd_matmul_batch_above_threshold_cov() {
+        // Test batch with large output triggering tiled_matmul
+        let seq_len = 4;
+        let in_dim = 64;
+        let out_dim = 300;
+        let input = vec![1.0f32; seq_len * in_dim];
+        let weight = vec![0.01f32; in_dim * out_dim];
+        let output = simd_matmul(&input, &weight, in_dim, out_dim);
+        assert_eq!(output.len(), seq_len * out_dim);
+    }
+
+    #[test]
+    fn test_simd_matmul_small_batch_below_tiled_threshold_cov() {
+        // Small batch that uses trueno matmul (not tiled)
+        let seq_len = 2;
+        let in_dim = 4;
+        let out_dim = 4;
+        let input = vec![1.0f32; seq_len * in_dim];
+        let weight = vec![0.5f32; in_dim * out_dim];
+        let output = simd_matmul(&input, &weight, in_dim, out_dim);
+        assert_eq!(output.len(), seq_len * out_dim);
+    }
 }
