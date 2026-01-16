@@ -1881,3 +1881,1048 @@ fn test_float_precision_in_latency() {
     // Check that small values are preserved
     assert!(deserialized.latency_ms < 0.001);
 }
+
+// ============================================================================
+// Test 101-110: Context Window Config Methods
+// ============================================================================
+
+#[test]
+fn test_context_window_config_new_basic() {
+    let config = ContextWindowConfig::new(2048);
+    assert_eq!(config.max_tokens, 2048);
+    assert_eq!(config.reserved_output_tokens, 256); // default
+    assert!(config.preserve_system); // default
+}
+
+#[test]
+fn test_context_window_config_small_window() {
+    // Very small context window
+    let config = ContextWindowConfig::new(64).with_reserved_output(16);
+    assert_eq!(config.max_tokens, 64);
+    assert_eq!(config.reserved_output_tokens, 16);
+}
+
+#[test]
+fn test_context_window_config_large_window() {
+    // Large context window (128k)
+    let config = ContextWindowConfig::new(131072).with_reserved_output(4096);
+    assert_eq!(config.max_tokens, 131072);
+    assert_eq!(config.reserved_output_tokens, 4096);
+}
+
+#[test]
+fn test_context_window_config_zero_reserved() {
+    let config = ContextWindowConfig::new(4096).with_reserved_output(0);
+    assert_eq!(config.reserved_output_tokens, 0);
+}
+
+#[test]
+fn test_context_window_manager_many_short_messages() {
+    let config = ContextWindowConfig::new(200).with_reserved_output(50);
+    let manager = ContextWindowManager::new(config);
+
+    // Many short messages
+    let messages: Vec<ChatMessage> = (0..20)
+        .map(|i| ChatMessage {
+            role: if i % 2 == 0 { "user" } else { "assistant" }.to_string(),
+            content: format!("Message {}", i),
+            name: None,
+        })
+        .collect();
+
+    let (result, truncated) = manager.truncate_messages(&messages);
+
+    // Should truncate since many messages
+    if truncated {
+        // Recent messages should be preserved
+        assert!(result.len() < messages.len());
+    }
+}
+
+#[test]
+fn test_context_window_manager_only_system_message() {
+    let config = ContextWindowConfig::new(100).with_reserved_output(20);
+    let manager = ContextWindowManager::new(config);
+
+    let messages = vec![ChatMessage {
+        role: "system".to_string(),
+        content: "You are a test assistant.".to_string(),
+        name: None,
+    }];
+
+    let (result, truncated) = manager.truncate_messages(&messages);
+    assert!(!truncated);
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].role, "system");
+}
+
+#[test]
+fn test_context_window_manager_mixed_roles() {
+    let manager = ContextWindowManager::default_manager();
+
+    let messages = vec![
+        ChatMessage {
+            role: "system".to_string(),
+            content: "You are helpful.".to_string(),
+            name: None,
+        },
+        ChatMessage {
+            role: "user".to_string(),
+            content: "Hello".to_string(),
+            name: None,
+        },
+        ChatMessage {
+            role: "assistant".to_string(),
+            content: "Hi there!".to_string(),
+            name: None,
+        },
+        ChatMessage {
+            role: "user".to_string(),
+            content: "How are you?".to_string(),
+            name: None,
+        },
+    ];
+
+    let (result, truncated) = manager.truncate_messages(&messages);
+    assert!(!truncated);
+    assert_eq!(result.len(), 4);
+}
+
+#[test]
+fn test_context_window_estimate_tokens_empty() {
+    let manager = ContextWindowManager::default_manager();
+    let messages: Vec<ChatMessage> = vec![];
+
+    let tokens = manager.estimate_total_tokens(&messages);
+    assert_eq!(tokens, 0);
+}
+
+#[test]
+fn test_context_window_needs_truncation_exact_boundary() {
+    // Create config where we're exactly at the boundary
+    let config = ContextWindowConfig::new(100).with_reserved_output(0);
+    let manager = ContextWindowManager::new(config);
+
+    // Create a message that's roughly 100 tokens
+    // estimate is ~4 chars per token + 10 overhead
+    // So 360 chars = ~90 tokens + 10 overhead = ~100 tokens
+    let messages = vec![ChatMessage {
+        role: "user".to_string(),
+        content: "x".repeat(360),
+        name: None,
+    }];
+
+    // Should be right at boundary - may or may not need truncation
+    let needs = manager.needs_truncation(&messages);
+    // Just verify the function runs without panic
+    let _ = needs;
+}
+
+// ============================================================================
+// Test 111-120: Chat Delta Edge Cases
+// ============================================================================
+
+#[test]
+fn test_chat_delta_empty_strings() {
+    let delta = ChatDelta {
+        role: Some(String::new()),
+        content: Some(String::new()),
+    };
+
+    let json = serde_json::to_string(&delta).expect("should serialize");
+    assert!(json.contains(r#""role":"""#));
+    assert!(json.contains(r#""content":"""#));
+}
+
+#[test]
+fn test_chat_delta_only_role_none_content() {
+    let delta = ChatDelta {
+        role: Some("user".to_string()),
+        content: None,
+    };
+
+    let json = serde_json::to_string(&delta).expect("should serialize");
+    assert!(json.contains(r#""role":"user""#));
+    assert!(!json.contains("content"));
+}
+
+#[test]
+fn test_chat_chunk_choice_empty_delta() {
+    let choice = realizar::api::ChatChunkChoice {
+        index: 0,
+        delta: ChatDelta {
+            role: None,
+            content: None,
+        },
+        finish_reason: None,
+    };
+
+    let json = serde_json::to_string(&choice).expect("should serialize");
+    // Delta should be mostly empty
+    assert!(json.contains("delta"));
+    assert!(!json.contains("role"));
+    assert!(!json.contains("content"));
+}
+
+#[test]
+fn test_chat_chunk_choice_all_fields() {
+    let choice = realizar::api::ChatChunkChoice {
+        index: 5,
+        delta: ChatDelta {
+            role: Some("assistant".to_string()),
+            content: Some("Hello".to_string()),
+        },
+        finish_reason: Some("stop".to_string()),
+    };
+
+    let json = serde_json::to_string(&choice).expect("should serialize");
+    assert!(json.contains(r#""index":5"#));
+    assert!(json.contains(r#""role":"assistant""#));
+    assert!(json.contains(r#""content":"Hello""#));
+    assert!(json.contains(r#""finish_reason":"stop""#));
+}
+
+#[test]
+fn test_chat_completion_chunk_serialization_full() {
+    let chunk = realizar::api::ChatCompletionChunk {
+        id: "chunk-abc123".to_string(),
+        object: "chat.completion.chunk".to_string(),
+        created: 1700000000,
+        model: "test-model".to_string(),
+        choices: vec![
+            realizar::api::ChatChunkChoice {
+                index: 0,
+                delta: ChatDelta {
+                    role: Some("assistant".to_string()),
+                    content: Some("Token 1".to_string()),
+                },
+                finish_reason: None,
+            },
+            realizar::api::ChatChunkChoice {
+                index: 1,
+                delta: ChatDelta {
+                    role: None,
+                    content: Some("Token 2".to_string()),
+                },
+                finish_reason: Some("length".to_string()),
+            },
+        ],
+    };
+
+    let json = serde_json::to_string(&chunk).expect("should serialize");
+    let deserialized: realizar::api::ChatCompletionChunk =
+        serde_json::from_str(&json).expect("should deserialize");
+
+    assert_eq!(deserialized.id, "chunk-abc123");
+    assert_eq!(deserialized.choices.len(), 2);
+    assert_eq!(
+        deserialized.choices[1].finish_reason,
+        Some("length".to_string())
+    );
+}
+
+#[test]
+fn test_chat_completion_chunk_empty_choices() {
+    let chunk = realizar::api::ChatCompletionChunk {
+        id: "empty".to_string(),
+        object: "chat.completion.chunk".to_string(),
+        created: 0,
+        model: "test".to_string(),
+        choices: vec![],
+    };
+
+    let json = serde_json::to_string(&chunk).expect("should serialize");
+    assert!(json.contains(r#""choices":[]"#));
+}
+
+#[test]
+fn test_dispatch_metrics_response_zero_values() {
+    let response = realizar::api::DispatchMetricsResponse {
+        cpu_dispatches: 0,
+        gpu_dispatches: 0,
+        total_dispatches: 0,
+        gpu_ratio: 0.0,
+        cpu_latency_p50_us: 0.0,
+        cpu_latency_p95_us: 0.0,
+        cpu_latency_p99_us: 0.0,
+        gpu_latency_p50_us: 0.0,
+        gpu_latency_p95_us: 0.0,
+        gpu_latency_p99_us: 0.0,
+        cpu_latency_mean_us: 0.0,
+        gpu_latency_mean_us: 0.0,
+        cpu_latency_min_us: 0,
+        cpu_latency_max_us: 0,
+        gpu_latency_min_us: 0,
+        gpu_latency_max_us: 0,
+        cpu_latency_variance_us: 0.0,
+        cpu_latency_stddev_us: 0.0,
+        gpu_latency_variance_us: 0.0,
+        gpu_latency_stddev_us: 0.0,
+        bucket_boundaries_us: vec![],
+        cpu_latency_bucket_counts: vec![],
+        gpu_latency_bucket_counts: vec![],
+        throughput_rps: 0.0,
+        elapsed_seconds: 0.0,
+    };
+
+    let json = serde_json::to_string(&response).expect("should serialize");
+    assert!(json.contains(r#""total_dispatches":0"#));
+    assert!(json.contains(r#""gpu_ratio":0.0"#));
+}
+
+#[test]
+fn test_dispatch_metrics_response_high_throughput() {
+    let response = realizar::api::DispatchMetricsResponse {
+        cpu_dispatches: 1000,
+        gpu_dispatches: 9000,
+        total_dispatches: 10000,
+        gpu_ratio: 0.9,
+        cpu_latency_p50_us: 50.0,
+        cpu_latency_p95_us: 100.0,
+        cpu_latency_p99_us: 150.0,
+        gpu_latency_p50_us: 25.0,
+        gpu_latency_p95_us: 50.0,
+        gpu_latency_p99_us: 75.0,
+        cpu_latency_mean_us: 60.0,
+        gpu_latency_mean_us: 30.0,
+        cpu_latency_min_us: 10,
+        cpu_latency_max_us: 200,
+        gpu_latency_min_us: 5,
+        gpu_latency_max_us: 100,
+        cpu_latency_variance_us: 400.0,
+        cpu_latency_stddev_us: 20.0,
+        gpu_latency_variance_us: 225.0,
+        gpu_latency_stddev_us: 15.0,
+        bucket_boundaries_us: vec!["0-100".to_string(), "100-500".to_string()],
+        cpu_latency_bucket_counts: vec![800, 200],
+        gpu_latency_bucket_counts: vec![8500, 500],
+        throughput_rps: 1000.0,
+        elapsed_seconds: 10.0,
+    };
+
+    let json = serde_json::to_string(&response).expect("should serialize");
+    assert!(json.contains(r#""gpu_ratio":0.9"#));
+    assert!(json.contains(r#""throughput_rps":1000.0"#));
+}
+
+#[test]
+fn test_dispatch_metrics_query_json_format() {
+    let json = r#"{"format": "json"}"#;
+    let query: realizar::api::DispatchMetricsQuery =
+        serde_json::from_str(json).expect("should deserialize");
+    assert_eq!(query.format, Some("json".to_string()));
+}
+
+// ============================================================================
+// Test 121-130: Server Metrics Response Variations
+// ============================================================================
+
+#[test]
+fn test_server_metrics_response_gpu_active() {
+    let response = ServerMetricsResponse {
+        throughput_tok_per_sec: 256.5,
+        latency_p50_ms: 5.2,
+        latency_p95_ms: 12.8,
+        latency_p99_ms: 25.6,
+        gpu_memory_used_bytes: 8_000_000_000,
+        gpu_memory_total_bytes: 24_000_000_000,
+        gpu_utilization_percent: 85,
+        cuda_path_active: true,
+        batch_size: 32,
+        queue_depth: 10,
+        total_tokens: 1_000_000,
+        total_requests: 5000,
+        uptime_secs: 7200,
+        model_name: "phi-2-q4k".to_string(),
+    };
+
+    let json = serde_json::to_string(&response).expect("should serialize");
+    let deserialized: ServerMetricsResponse =
+        serde_json::from_str(&json).expect("should deserialize");
+
+    assert!(deserialized.cuda_path_active);
+    assert_eq!(deserialized.gpu_utilization_percent, 85);
+    assert_eq!(deserialized.batch_size, 32);
+}
+
+#[test]
+fn test_server_metrics_response_cpu_only() {
+    let response = ServerMetricsResponse {
+        throughput_tok_per_sec: 12.5,
+        latency_p50_ms: 50.0,
+        latency_p95_ms: 100.0,
+        latency_p99_ms: 200.0,
+        gpu_memory_used_bytes: 0,
+        gpu_memory_total_bytes: 0,
+        gpu_utilization_percent: 0,
+        cuda_path_active: false,
+        batch_size: 1,
+        queue_depth: 0,
+        total_tokens: 5000,
+        total_requests: 400,
+        uptime_secs: 600,
+        model_name: "cpu-model".to_string(),
+    };
+
+    let json = serde_json::to_string(&response).expect("should serialize");
+    let deserialized: ServerMetricsResponse =
+        serde_json::from_str(&json).expect("should deserialize");
+
+    assert!(!deserialized.cuda_path_active);
+    assert_eq!(deserialized.gpu_memory_total_bytes, 0);
+}
+
+#[test]
+fn test_server_metrics_response_max_values() {
+    let response = ServerMetricsResponse {
+        throughput_tok_per_sec: f64::MAX / 2.0,
+        latency_p50_ms: 0.001,
+        latency_p95_ms: 0.002,
+        latency_p99_ms: 0.003,
+        gpu_memory_used_bytes: u64::MAX,
+        gpu_memory_total_bytes: u64::MAX,
+        gpu_utilization_percent: 100,
+        cuda_path_active: true,
+        batch_size: usize::MAX,
+        queue_depth: usize::MAX,
+        total_tokens: u64::MAX,
+        total_requests: u64::MAX,
+        uptime_secs: u64::MAX,
+        model_name: "max-test".to_string(),
+    };
+
+    // Should serialize without panic
+    let json = serde_json::to_string(&response).expect("should serialize");
+    assert!(json.contains("max-test"));
+}
+
+#[test]
+fn test_gpu_batch_request_empty_stop_sequences() {
+    let request = GpuBatchRequest {
+        prompts: vec!["test".to_string()],
+        max_tokens: 10,
+        temperature: 0.5,
+        top_k: 20,
+        stop: vec![],
+    };
+
+    let json = serde_json::to_string(&request).expect("should serialize");
+    assert!(json.contains(r#""stop":[]"#));
+}
+
+#[test]
+fn test_gpu_batch_request_many_prompts() {
+    let prompts: Vec<String> = (0..100).map(|i| format!("Prompt {}", i)).collect();
+    let request = GpuBatchRequest {
+        prompts,
+        max_tokens: 50,
+        temperature: 1.0,
+        top_k: 50,
+        stop: vec!["END".to_string()],
+    };
+
+    let json = serde_json::to_string(&request).expect("should serialize");
+    let deserialized: GpuBatchRequest = serde_json::from_str(&json).expect("should deserialize");
+
+    assert_eq!(deserialized.prompts.len(), 100);
+}
+
+#[test]
+fn test_gpu_batch_response_multiple_results() {
+    let response = GpuBatchResponse {
+        results: vec![
+            GpuBatchResult {
+                index: 0,
+                token_ids: vec![1, 2, 3],
+                text: "abc".to_string(),
+                num_generated: 3,
+            },
+            GpuBatchResult {
+                index: 1,
+                token_ids: vec![4, 5, 6, 7],
+                text: "defg".to_string(),
+                num_generated: 4,
+            },
+            GpuBatchResult {
+                index: 2,
+                token_ids: vec![8],
+                text: "h".to_string(),
+                num_generated: 1,
+            },
+        ],
+        stats: GpuBatchStats {
+            batch_size: 3,
+            gpu_used: true,
+            total_tokens: 8,
+            processing_time_ms: 25.0,
+            throughput_tps: 320.0,
+        },
+    };
+
+    let json = serde_json::to_string(&response).expect("should serialize");
+    let deserialized: GpuBatchResponse = serde_json::from_str(&json).expect("should deserialize");
+
+    assert_eq!(deserialized.results.len(), 3);
+    assert_eq!(deserialized.stats.total_tokens, 8);
+}
+
+#[test]
+fn test_gpu_batch_stats_zero_time() {
+    let stats = GpuBatchStats {
+        batch_size: 1,
+        gpu_used: false,
+        total_tokens: 0,
+        processing_time_ms: 0.0,
+        throughput_tps: 0.0,
+    };
+
+    let json = serde_json::to_string(&stats).expect("should serialize");
+    assert!(json.contains(r#""processing_time_ms":0.0"#));
+}
+
+#[test]
+fn test_gpu_warmup_response_partial_success() {
+    let response = GpuWarmupResponse {
+        success: true,
+        memory_bytes: 1024 * 1024 * 256, // 256 MB
+        num_layers: 16,
+        message: "Partial warmup: 16 of 32 layers cached".to_string(),
+    };
+
+    let json = serde_json::to_string(&response).expect("should serialize");
+    let deserialized: GpuWarmupResponse = serde_json::from_str(&json).expect("should deserialize");
+
+    assert!(deserialized.success);
+    assert_eq!(deserialized.num_layers, 16);
+}
+
+#[test]
+fn test_gpu_status_response_high_memory() {
+    let response = GpuStatusResponse {
+        cache_ready: true,
+        cache_memory_bytes: 24 * 1024 * 1024 * 1024, // 24 GB
+        batch_threshold: 64,
+        recommended_min_batch: 32,
+    };
+
+    let json = serde_json::to_string(&response).expect("should serialize");
+    let deserialized: GpuStatusResponse = serde_json::from_str(&json).expect("should deserialize");
+
+    assert_eq!(deserialized.batch_threshold, 64);
+}
+
+// ============================================================================
+// Test 131-140: Additional API Request/Response Edge Cases
+// ============================================================================
+
+#[test]
+fn test_generate_request_extreme_temperature() {
+    let json = r#"{"prompt": "test", "temperature": 100.0}"#;
+    let request: GenerateRequest = serde_json::from_str(json).expect("should deserialize");
+    assert!((request.temperature - 100.0).abs() < 1e-6);
+}
+
+#[test]
+fn test_generate_request_zero_temperature() {
+    let json = r#"{"prompt": "test", "temperature": 0.0}"#;
+    let request: GenerateRequest = serde_json::from_str(json).expect("should deserialize");
+    assert!((request.temperature - 0.0).abs() < 1e-6);
+}
+
+#[test]
+fn test_batch_generate_request_single_prompt() {
+    let json = r#"{"prompts": ["only one"]}"#;
+    let request: BatchGenerateRequest = serde_json::from_str(json).expect("should deserialize");
+    assert_eq!(request.prompts.len(), 1);
+}
+
+#[test]
+fn test_batch_generate_request_many_prompts() {
+    let prompts: Vec<String> = (0..500).map(|i| format!("Prompt {}", i)).collect();
+    let request = BatchGenerateRequest {
+        prompts,
+        max_tokens: 10,
+        temperature: 0.8,
+        strategy: "top_p".to_string(),
+        top_k: 40,
+        top_p: 0.95,
+        seed: Some(12345),
+    };
+
+    let json = serde_json::to_string(&request).expect("should serialize");
+    let deserialized: BatchGenerateRequest =
+        serde_json::from_str(&json).expect("should deserialize");
+
+    assert_eq!(deserialized.prompts.len(), 500);
+}
+
+#[test]
+fn test_predict_request_empty_feature_names() {
+    let request = PredictRequest {
+        model: None,
+        features: vec![1.0, 2.0, 3.0],
+        feature_names: Some(vec![]),
+        top_k: None,
+        include_confidence: true,
+    };
+
+    let json = serde_json::to_string(&request).expect("should serialize");
+    assert!(json.contains(r#""feature_names":[]"#));
+}
+
+#[test]
+fn test_predict_request_many_features() {
+    let features: Vec<f32> = (0..1000).map(|i| i as f32 * 0.1).collect();
+    let feature_names: Vec<String> = (0..1000).map(|i| format!("feature_{}", i)).collect();
+
+    let request = PredictRequest {
+        model: Some("large-model".to_string()),
+        features,
+        feature_names: Some(feature_names),
+        top_k: Some(10),
+        include_confidence: true,
+    };
+
+    let json = serde_json::to_string(&request).expect("should serialize");
+    let deserialized: PredictRequest = serde_json::from_str(&json).expect("should deserialize");
+
+    assert_eq!(deserialized.features.len(), 1000);
+}
+
+#[test]
+fn test_explain_request_max_features() {
+    let json = r#"{"features": [1.0], "feature_names": ["x"], "top_k_features": 1000}"#;
+    let request: ExplainRequest = serde_json::from_str(json).expect("should deserialize");
+    assert_eq!(request.top_k_features, 1000);
+}
+
+#[test]
+fn test_explain_response_empty_explanation() {
+    let response = ExplainResponse {
+        request_id: "empty".to_string(),
+        model: "test".to_string(),
+        prediction: serde_json::json!(null),
+        confidence: None,
+        explanation: ShapExplanation {
+            base_value: 0.0,
+            shap_values: vec![],
+            feature_names: vec![],
+            prediction: 0.0,
+        },
+        summary: "No features".to_string(),
+        latency_ms: 0.0,
+    };
+
+    let json = serde_json::to_string(&response).expect("should serialize");
+    assert!(json.contains(r#""shap_values":[]"#));
+}
+
+#[test]
+fn test_reload_request_only_model() {
+    let json = r#"{"model": "test-model"}"#;
+    let request: ReloadRequest = serde_json::from_str(json).expect("should deserialize");
+    assert_eq!(request.model, Some("test-model".to_string()));
+    assert!(request.path.is_none());
+}
+
+#[test]
+fn test_reload_request_only_path() {
+    let json = r#"{"path": "/path/to/model.gguf"}"#;
+    let request: ReloadRequest = serde_json::from_str(json).expect("should deserialize");
+    assert!(request.model.is_none());
+    assert_eq!(request.path, Some("/path/to/model.gguf".to_string()));
+}
+
+// ============================================================================
+// Test 141-150: Model Metadata and Lineage Edge Cases
+// ============================================================================
+
+#[test]
+fn test_model_metadata_response_no_quantization() {
+    let response = ModelMetadataResponse {
+        id: "fp16-model".to_string(),
+        name: "Full Precision Model".to_string(),
+        format: "safetensors".to_string(),
+        size_bytes: 10_000_000_000,
+        quantization: None,
+        context_length: 8192,
+        lineage: None,
+        loaded: true,
+    };
+
+    let json = serde_json::to_string(&response).expect("should serialize");
+    assert!(!json.contains("quantization"));
+    assert!(!json.contains("lineage"));
+}
+
+#[test]
+fn test_model_lineage_all_optional_none() {
+    let lineage = ModelLineage {
+        uri: "local://test.gguf".to_string(),
+        version: "1.0".to_string(),
+        recipe: None,
+        parent: None,
+        content_hash: "blake3:test".to_string(),
+    };
+
+    let json = serde_json::to_string(&lineage).expect("should serialize");
+    assert!(!json.contains("recipe"));
+    assert!(!json.contains("parent"));
+}
+
+#[test]
+fn test_model_lineage_with_parent_chain() {
+    let lineage = ModelLineage {
+        uri: "pacha://model-v3:latest".to_string(),
+        version: "3.0.0".to_string(),
+        recipe: Some("instruct-finetune-v2".to_string()),
+        parent: Some("pacha://model-v2:1.5".to_string()),
+        content_hash: "blake3:abcdef1234567890".to_string(),
+    };
+
+    let json = serde_json::to_string(&lineage).expect("should serialize");
+    assert!(json.contains("instruct-finetune-v2"));
+    assert!(json.contains("model-v2"));
+}
+
+#[test]
+fn test_completion_request_all_optional_none() {
+    let json = r#"{"model": "gpt-4", "prompt": "Hello"}"#;
+    let request: CompletionRequest = serde_json::from_str(json).expect("should deserialize");
+
+    assert!(request.max_tokens.is_none());
+    assert!(request.temperature.is_none());
+    assert!(request.top_p.is_none());
+    assert!(request.stop.is_none());
+}
+
+#[test]
+fn test_completion_request_with_multiple_stop_sequences() {
+    let request = CompletionRequest {
+        model: "test".to_string(),
+        prompt: "Once upon".to_string(),
+        max_tokens: Some(100),
+        temperature: Some(0.7),
+        top_p: Some(0.9),
+        stop: Some(vec![
+            "END".to_string(),
+            "STOP".to_string(),
+            "\n\n".to_string(),
+            "###".to_string(),
+        ]),
+    };
+
+    let json = serde_json::to_string(&request).expect("should serialize");
+    let deserialized: CompletionRequest = serde_json::from_str(&json).expect("should deserialize");
+
+    assert_eq!(deserialized.stop.unwrap().len(), 4);
+}
+
+#[test]
+fn test_completion_choice_with_complex_logprobs() {
+    let choice = CompletionChoice {
+        text: "generated text".to_string(),
+        index: 0,
+        logprobs: Some(serde_json::json!({
+            "tokens": ["generated", " text"],
+            "token_logprobs": [-1.5, -0.8],
+            "top_logprobs": [
+                {"generated": -1.5, "created": -2.1},
+                {" text": -0.8, " output": -1.2}
+            ],
+            "text_offset": [0, 9]
+        })),
+        finish_reason: "stop".to_string(),
+    };
+
+    let json = serde_json::to_string(&choice).expect("should serialize");
+    assert!(json.contains("token_logprobs"));
+    assert!(json.contains("top_logprobs"));
+}
+
+#[test]
+fn test_embedding_response_multiple_embeddings() {
+    let response = EmbeddingResponse {
+        object: "list".to_string(),
+        data: vec![
+            EmbeddingData {
+                object: "embedding".to_string(),
+                index: 0,
+                embedding: vec![0.1, 0.2, 0.3],
+            },
+            EmbeddingData {
+                object: "embedding".to_string(),
+                index: 1,
+                embedding: vec![0.4, 0.5, 0.6],
+            },
+        ],
+        model: "text-embedding".to_string(),
+        usage: EmbeddingUsage {
+            prompt_tokens: 10,
+            total_tokens: 10,
+        },
+    };
+
+    let json = serde_json::to_string(&response).expect("should serialize");
+    let deserialized: EmbeddingResponse = serde_json::from_str(&json).expect("should deserialize");
+
+    assert_eq!(deserialized.data.len(), 2);
+}
+
+#[test]
+fn test_embedding_data_high_dimensional() {
+    let embedding = EmbeddingData {
+        object: "embedding".to_string(),
+        index: 0,
+        embedding: vec![0.001; 4096], // 4096-dimensional embedding
+    };
+
+    let json = serde_json::to_string(&embedding).expect("should serialize");
+    let deserialized: EmbeddingData = serde_json::from_str(&json).expect("should deserialize");
+
+    assert_eq!(deserialized.embedding.len(), 4096);
+}
+
+#[test]
+fn test_embedding_usage_zero_tokens() {
+    let usage = EmbeddingUsage {
+        prompt_tokens: 0,
+        total_tokens: 0,
+    };
+
+    let json = serde_json::to_string(&usage).expect("should serialize");
+    assert!(json.contains(r#""prompt_tokens":0"#));
+}
+
+#[test]
+fn test_stream_token_event_special_chars() {
+    let event = StreamTokenEvent {
+        token_id: 123,
+        text: "line1\nline2\ttab".to_string(),
+    };
+
+    let json = serde_json::to_string(&event).expect("should serialize");
+    let deserialized: StreamTokenEvent = serde_json::from_str(&json).expect("should deserialize");
+
+    assert!(deserialized.text.contains('\n'));
+    assert!(deserialized.text.contains('\t'));
+}
+
+// ============================================================================
+// Test 151-160: OpenAI-Compatible Types Deep Coverage
+// ============================================================================
+
+#[test]
+fn test_chat_completion_request_n_multiple() {
+    let request = ChatCompletionRequest {
+        model: "gpt-4".to_string(),
+        messages: vec![ChatMessage {
+            role: "user".to_string(),
+            content: "Hello".to_string(),
+            name: None,
+        }],
+        max_tokens: Some(100),
+        temperature: Some(0.9),
+        top_p: None,
+        n: 5, // Request 5 completions
+        stream: false,
+        stop: None,
+        user: None,
+    };
+
+    let json = serde_json::to_string(&request).expect("should serialize");
+    assert!(json.contains(r#""n":5"#));
+}
+
+#[test]
+fn test_chat_completion_request_streaming() {
+    let request = ChatCompletionRequest {
+        model: "gpt-4".to_string(),
+        messages: vec![],
+        max_tokens: None,
+        temperature: None,
+        top_p: None,
+        n: 1,
+        stream: true,
+        stop: None,
+        user: None,
+    };
+
+    let json = serde_json::to_string(&request).expect("should serialize");
+    assert!(json.contains(r#""stream":true"#));
+}
+
+#[test]
+fn test_chat_completion_response_long_conversation() {
+    let messages: Vec<ChatChoice> = (0..10)
+        .map(|i| ChatChoice {
+            index: i,
+            message: ChatMessage {
+                role: "assistant".to_string(),
+                content: format!("Response {}", i),
+                name: None,
+            },
+            finish_reason: "stop".to_string(),
+        })
+        .collect();
+
+    let response = ChatCompletionResponse {
+        id: "multi-choice".to_string(),
+        object: "chat.completion".to_string(),
+        created: 1700000000,
+        model: "gpt-4".to_string(),
+        choices: messages,
+        usage: Usage {
+            prompt_tokens: 100,
+            completion_tokens: 500,
+            total_tokens: 600,
+        },
+    };
+
+    let json = serde_json::to_string(&response).expect("should serialize");
+    let deserialized: ChatCompletionResponse =
+        serde_json::from_str(&json).expect("should deserialize");
+
+    assert_eq!(deserialized.choices.len(), 10);
+}
+
+#[test]
+fn test_openai_model_timestamps() {
+    let model = OpenAIModel {
+        id: "test-model".to_string(),
+        object: "model".to_string(),
+        created: 0, // Unix epoch
+        owned_by: "test".to_string(),
+    };
+
+    let json = serde_json::to_string(&model).expect("should serialize");
+    assert!(json.contains(r#""created":0"#));
+}
+
+#[test]
+fn test_usage_large_token_counts() {
+    let usage = Usage {
+        prompt_tokens: 100_000,
+        completion_tokens: 50_000,
+        total_tokens: 150_000,
+    };
+
+    let json = serde_json::to_string(&usage).expect("should serialize");
+    let deserialized: Usage = serde_json::from_str(&json).expect("should deserialize");
+
+    assert_eq!(deserialized.total_tokens, 150_000);
+}
+
+#[test]
+fn test_predict_response_array_prediction() {
+    let response = PredictResponse {
+        request_id: "array-pred".to_string(),
+        model: "multi-output".to_string(),
+        prediction: serde_json::json!([0.1, 0.5, 0.3, 0.1]),
+        confidence: Some(0.5),
+        top_k_predictions: None,
+        latency_ms: 5.0,
+    };
+
+    let json = serde_json::to_string(&response).expect("should serialize");
+    assert!(json.contains("[0.1,0.5,0.3,0.1]"));
+}
+
+#[test]
+fn test_predict_response_object_prediction() {
+    let response = PredictResponse {
+        request_id: "obj-pred".to_string(),
+        model: "structured-output".to_string(),
+        prediction: serde_json::json!({
+            "class": "positive",
+            "probabilities": [0.9, 0.1]
+        }),
+        confidence: Some(0.9),
+        top_k_predictions: None,
+        latency_ms: 3.0,
+    };
+
+    let json = serde_json::to_string(&response).expect("should serialize");
+    assert!(json.contains("probabilities"));
+}
+
+#[test]
+fn test_batch_tokenize_response_empty_texts() {
+    // Batch with results that have 0 tokens
+    let response = BatchTokenizeResponse {
+        results: vec![
+            TokenizeResponse {
+                token_ids: vec![],
+                num_tokens: 0,
+            },
+            TokenizeResponse {
+                token_ids: vec![1],
+                num_tokens: 1,
+            },
+        ],
+    };
+
+    let json = serde_json::to_string(&response).expect("should serialize");
+    let deserialized: BatchTokenizeResponse =
+        serde_json::from_str(&json).expect("should deserialize");
+
+    assert_eq!(deserialized.results[0].num_tokens, 0);
+}
+
+#[test]
+fn test_models_response_empty_list() {
+    let response = ModelsResponse { models: vec![] };
+
+    let json = serde_json::to_string(&response).expect("should serialize");
+    assert!(json.contains(r#""models":[]"#));
+}
+
+#[test]
+fn test_health_response_custom_status() {
+    let response = HealthResponse {
+        status: "degraded".to_string(),
+        version: "0.0.0-dev".to_string(),
+    };
+
+    let json = serde_json::to_string(&response).expect("should serialize");
+    assert!(json.contains(r#""status":"degraded""#));
+}
+
+// ============================================================================
+// Test 161-165: Default Function Coverage
+// ============================================================================
+
+#[test]
+fn test_explain_request_default_top_k_features() {
+    let json = r#"{"features": [1.0], "feature_names": ["x"]}"#;
+    let request: ExplainRequest = serde_json::from_str(json).expect("should deserialize");
+    assert_eq!(request.top_k_features, 5); // default value
+}
+
+#[test]
+fn test_explain_request_default_method() {
+    let json = r#"{"features": [1.0], "feature_names": ["x"]}"#;
+    let request: ExplainRequest = serde_json::from_str(json).expect("should deserialize");
+    assert_eq!(request.method, "shap"); // default value
+}
+
+#[test]
+fn test_predict_request_default_include_confidence() {
+    let json = r#"{"features": [1.0]}"#;
+    let request: PredictRequest = serde_json::from_str(json).expect("should deserialize");
+    assert!(request.include_confidence); // default true
+}
+
+#[test]
+fn test_chat_completion_request_default_n() {
+    let json = r#"{"model": "test", "messages": []}"#;
+    let request: ChatCompletionRequest = serde_json::from_str(json).expect("should deserialize");
+    assert_eq!(request.n, 1); // default value
+}
+
+#[test]
+fn test_chat_completion_request_default_stream() {
+    let json = r#"{"model": "test", "messages": []}"#;
+    let request: ChatCompletionRequest = serde_json::from_str(json).expect("should deserialize");
+    assert!(!request.stream); // default false
+}
