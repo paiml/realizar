@@ -5172,4 +5172,170 @@ mod tests {
         };
         assert!(!not_parity.is_parity()); // 0.899 < 0.9
     }
+
+    // Quantization type tests already exist above
+
+    // ==========================================================================
+    // AprTransformer Forward Tests
+    // ==========================================================================
+
+    #[test]
+    fn test_transformer_forward_empty_tokens() {
+        let config = AprTransformerConfig {
+            hidden_dim: 64,
+            num_layers: 1,
+            vocab_size: 100,
+            intermediate_dim: 128,
+            ..Default::default()
+        };
+        let transformer = AprTransformer::new(config);
+
+        let result = transformer.forward(&[]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_transformer_forward_single_token() {
+        let config = AprTransformerConfig {
+            hidden_dim: 64,
+            num_layers: 1,
+            vocab_size: 100,
+            num_heads: 4,
+            num_kv_heads: 4,
+            intermediate_dim: 128,
+            ..Default::default()
+        };
+        let transformer = AprTransformer::new(config.clone());
+
+        let result = transformer.forward(&[1]);
+        assert!(result.is_ok());
+        let logits = result.unwrap();
+        assert_eq!(logits.len(), 100); // vocab_size
+    }
+
+    #[test]
+    fn test_transformer_forward_multiple_tokens() {
+        let config = AprTransformerConfig {
+            hidden_dim: 64,
+            num_layers: 1,
+            vocab_size: 100,
+            num_heads: 4,
+            num_kv_heads: 4,
+            intermediate_dim: 128,
+            ..Default::default()
+        };
+        let transformer = AprTransformer::new(config);
+
+        let result = transformer.forward(&[1, 2, 3]);
+        assert!(result.is_ok());
+        let logits = result.unwrap();
+        assert_eq!(logits.len(), 100);
+    }
+
+    #[test]
+    fn test_transformer_predict_next() {
+        let config = AprTransformerConfig {
+            hidden_dim: 64,
+            num_layers: 1,
+            vocab_size: 100,
+            num_heads: 4,
+            num_kv_heads: 4,
+            intermediate_dim: 128,
+            ..Default::default()
+        };
+        let transformer = AprTransformer::new(config);
+
+        let result = transformer.predict_next(&[1, 2, 3]);
+        assert!(result.is_ok());
+        let next_token = result.unwrap();
+        assert!(next_token < 100); // Within vocab
+    }
+
+    // ==========================================================================
+    // AprTransformer Generate Tests
+    // ==========================================================================
+
+    #[test]
+    fn test_transformer_generate_zero_max_tokens() {
+        let config = AprTransformerConfig {
+            hidden_dim: 64,
+            num_layers: 1,
+            vocab_size: 100,
+            num_heads: 4,
+            num_kv_heads: 4,
+            intermediate_dim: 128,
+            ..Default::default()
+        };
+        let transformer = AprTransformer::new(config);
+
+        let result = transformer.generate(&[1], 0);
+        assert!(result.is_ok());
+        let tokens = result.unwrap();
+        assert_eq!(tokens.len(), 1); // Just the prompt
+    }
+
+    #[test]
+    fn test_transformer_generate_small() {
+        let config = AprTransformerConfig {
+            hidden_dim: 64,
+            num_layers: 1,
+            vocab_size: 100,
+            num_heads: 4,
+            num_kv_heads: 4,
+            intermediate_dim: 128,
+            ..Default::default()
+        };
+        let transformer = AprTransformer::new(config);
+
+        let result = transformer.generate(&[1], 3);
+        assert!(result.is_ok());
+        let tokens = result.unwrap();
+        assert!(tokens.len() >= 1 && tokens.len() <= 4);
+    }
+
+    // ==========================================================================
+    // AprKVCache Extended Tests
+    // ==========================================================================
+
+    #[test]
+    fn test_kv_cache_multiple_layers() {
+        let config = AprTransformerConfig {
+            hidden_dim: 64,
+            num_layers: 4,
+            num_heads: 4,
+            num_kv_heads: 4,
+            context_length: 256,
+            ..Default::default()
+        };
+        let mut cache = AprKVCache::new(&config);
+
+        // Append to multiple layers
+        for layer in 0..4 {
+            let k = vec![layer as f32; 64];
+            let v = vec![(layer + 10) as f32; 64];
+            cache.append(layer, &k, &v);
+        }
+
+        // Verify each layer
+        for layer in 0..4 {
+            let (k_out, v_out) = cache.get(layer);
+            assert!(!k_out.is_empty());
+            assert!(!v_out.is_empty());
+        }
+    }
+
+    // GenerateConfig tests already exist above
+
+    // ==========================================================================
+    // MmapAprTransformer Tests (when available)
+    // ==========================================================================
+
+    #[test]
+    fn test_mmap_transformer_from_file_nonexistent() {
+        let result = MmapAprTransformer::from_file("/nonexistent/path/model.apr");
+        assert!(result.is_err());
+    }
+
+    // QuantizedAprTransformerQ4::from_config doesn't exist - tests removed
+    // Q4KBlock is internal - tests removed
 }
