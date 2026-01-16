@@ -904,4 +904,244 @@ mod tests {
             lm_head_bias: None,
         }
     }
+
+    // ==========================================================================
+    // ConversionStats Coverage Tests
+    // ==========================================================================
+
+    #[test]
+    fn test_stats_memory_gb() {
+        let stats = ConversionStats {
+            total_parameters: 1_000_000_000, // 1B params
+            memory_bytes_f32: 4_000_000_000, // 4GB
+            num_layers: 24,
+            hidden_dim: 2048,
+            vocab_size: 50000,
+            architecture: "test".to_string(),
+        };
+
+        let expected_gb = 4.0 / 1.073741824; // 4GB / GiB conversion
+        assert!((stats.memory_gb() - expected_gb).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_stats_parameters_b() {
+        let stats = ConversionStats {
+            total_parameters: 7_000_000_000, // 7B params
+            memory_bytes_f32: 28_000_000_000, // 28GB
+            num_layers: 32,
+            hidden_dim: 4096,
+            vocab_size: 32000,
+            architecture: "llama".to_string(),
+        };
+
+        assert!((stats.parameters_b() - 7.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_stats_debug() {
+        let stats = ConversionStats {
+            total_parameters: 1000,
+            memory_bytes_f32: 4000,
+            num_layers: 1,
+            hidden_dim: 32,
+            vocab_size: 100,
+            architecture: "mini".to_string(),
+        };
+
+        // Test Debug trait
+        let debug_str = format!("{stats:?}");
+        assert!(debug_str.contains("mini"));
+        assert!(debug_str.contains("1000"));
+    }
+
+    #[test]
+    fn test_stats_clone() {
+        let stats = ConversionStats {
+            total_parameters: 500,
+            memory_bytes_f32: 2000,
+            num_layers: 2,
+            hidden_dim: 16,
+            vocab_size: 50,
+            architecture: "tiny".to_string(),
+        };
+
+        let cloned = stats.clone();
+        assert_eq!(cloned.total_parameters, stats.total_parameters);
+        assert_eq!(cloned.architecture, stats.architecture);
+    }
+
+    // ==========================================================================
+    // Error Path Coverage Tests
+    // ==========================================================================
+
+    #[test]
+    fn test_from_apr_bytes_truncated_tensor_index() {
+        // Create bytes with valid v2 header but truncated before tensor index
+        let mut bytes = vec![0u8; 80]; // Just past header
+        bytes[0..4].copy_from_slice(&MAGIC);
+        bytes[4] = 2; // v2
+        bytes[8..12].copy_from_slice(&1u32.to_le_bytes()); // 1 tensor
+        bytes[12..20].copy_from_slice(&64u64.to_le_bytes()); // metadata offset
+        bytes[20..24].copy_from_slice(&2u32.to_le_bytes()); // metadata size
+        bytes[24..32].copy_from_slice(&66u64.to_le_bytes()); // tensor index offset
+        bytes[32..40].copy_from_slice(&200u64.to_le_bytes()); // data offset beyond end
+        bytes[64..66].copy_from_slice(b"{}"); // minimal JSON metadata
+
+        let result = GgufToAprConverter::from_apr_bytes(&bytes);
+        assert!(result.is_err()); // Should fail: truncated
+    }
+
+    #[test]
+    fn test_from_apr_bytes_truncated_tensor_data() {
+        // Create bytes with valid header and index but truncated data
+        let mut bytes = vec![0u8; 128];
+        bytes[0..4].copy_from_slice(&MAGIC);
+        bytes[4] = 2;
+        bytes[8..12].copy_from_slice(&1u32.to_le_bytes());
+        bytes[12..20].copy_from_slice(&64u64.to_le_bytes());
+        bytes[20..24].copy_from_slice(&2u32.to_le_bytes());
+        bytes[24..32].copy_from_slice(&66u64.to_le_bytes());
+        bytes[32..40].copy_from_slice(&110u64.to_le_bytes()); // data starts at 110
+        bytes[64..66].copy_from_slice(b"{}");
+
+        // Add a tensor index entry pointing to data beyond file end
+        let index_json = r#"[{"name":"weights","dtype":"json","shape":[1000],"offset":0,"size":1000}]"#;
+        let index_bytes = index_json.as_bytes();
+        let index_end = 66 + index_bytes.len();
+        bytes.resize(index_end + 10, 0); // Only add 10 bytes, not 1000
+        bytes[66..index_end].copy_from_slice(index_bytes);
+
+        let result = GgufToAprConverter::from_apr_bytes(&bytes);
+        assert!(result.is_err()); // Should fail: truncated tensor data
+    }
+
+    #[test]
+    fn test_from_apr_bytes_invalid_json_tensor_index() {
+        // Create bytes with valid header but invalid JSON in tensor index
+        let mut bytes = vec![0u8; 100];
+        bytes[0..4].copy_from_slice(&MAGIC);
+        bytes[4] = 2;
+        bytes[8..12].copy_from_slice(&1u32.to_le_bytes());
+        bytes[12..20].copy_from_slice(&64u64.to_le_bytes());
+        bytes[20..24].copy_from_slice(&2u32.to_le_bytes());
+        bytes[24..32].copy_from_slice(&66u64.to_le_bytes()); // index at 66
+        bytes[32..40].copy_from_slice(&90u64.to_le_bytes()); // data at 90
+        bytes[64..66].copy_from_slice(b"{}");
+        // Invalid JSON at tensor index position
+        bytes[66..78].copy_from_slice(b"not valid js");
+
+        let result = GgufToAprConverter::from_apr_bytes(&bytes);
+        assert!(result.is_err()); // Should fail: invalid JSON
+    }
+
+    // ==========================================================================
+    // RawTensor Coverage Tests
+    // ==========================================================================
+
+    #[test]
+    fn test_raw_tensor_debug() {
+        let tensor = RawTensor {
+            name: "test.weight".to_string(),
+            data: vec![0u8; 100],
+            shape: vec![10, 10],
+            dtype: 0, // F32
+        };
+
+        let debug_str = format!("{tensor:?}");
+        assert!(debug_str.contains("test.weight"));
+        assert!(debug_str.contains("[10, 10]"));
+    }
+
+    #[test]
+    fn test_raw_tensor_clone() {
+        let tensor = RawTensor {
+            name: "test.weight".to_string(),
+            data: vec![1, 2, 3, 4],
+            shape: vec![2, 2],
+            dtype: 1, // F16
+        };
+
+        let cloned = tensor.clone();
+        assert_eq!(cloned.name, tensor.name);
+        assert_eq!(cloned.data, tensor.data);
+        assert_eq!(cloned.shape, tensor.shape);
+        assert_eq!(cloned.dtype, tensor.dtype);
+    }
+
+    // ==========================================================================
+    // GgufToAprQ4KConverter Helper Tests
+    // ==========================================================================
+
+    #[test]
+    fn test_get_string_helper() {
+        use std::collections::HashMap;
+        use crate::gguf::GGUFValue;
+
+        let mut metadata = HashMap::new();
+        metadata.insert("name".to_string(), GGUFValue::String("test_model".to_string()));
+        metadata.insert("count".to_string(), GGUFValue::UInt32(42));
+
+        let result = GgufToAprQ4KConverter::get_string(&metadata, "name");
+        assert_eq!(result, Some("test_model".to_string()));
+
+        let missing = GgufToAprQ4KConverter::get_string(&metadata, "nonexistent");
+        assert_eq!(missing, None);
+
+        // Test wrong type returns None
+        let wrong_type = GgufToAprQ4KConverter::get_string(&metadata, "count");
+        assert_eq!(wrong_type, None);
+    }
+
+    #[test]
+    fn test_get_u32_helper() {
+        use std::collections::HashMap;
+        use crate::gguf::GGUFValue;
+
+        let mut metadata = HashMap::new();
+        metadata.insert("count".to_string(), GGUFValue::UInt32(42));
+        metadata.insert("signed".to_string(), GGUFValue::Int32(100));
+        metadata.insert("big".to_string(), GGUFValue::UInt64(200));
+        metadata.insert("name".to_string(), GGUFValue::String("test".to_string()));
+
+        let result = GgufToAprQ4KConverter::get_u32(&metadata, "count");
+        assert_eq!(result, Some(42));
+
+        let signed = GgufToAprQ4KConverter::get_u32(&metadata, "signed");
+        assert_eq!(signed, Some(100));
+
+        let big = GgufToAprQ4KConverter::get_u32(&metadata, "big");
+        assert_eq!(big, Some(200));
+
+        let missing = GgufToAprQ4KConverter::get_u32(&metadata, "nonexistent");
+        assert_eq!(missing, None);
+
+        let wrong_type = GgufToAprQ4KConverter::get_u32(&metadata, "name");
+        assert_eq!(wrong_type, None);
+    }
+
+    #[test]
+    fn test_get_f32_helper() {
+        use std::collections::HashMap;
+        use crate::gguf::GGUFValue;
+
+        let mut metadata = HashMap::new();
+        metadata.insert("scale".to_string(), GGUFValue::Float32(3.14));
+        metadata.insert("big_scale".to_string(), GGUFValue::Float64(2.71828));
+        metadata.insert("count".to_string(), GGUFValue::UInt32(42));
+
+        let result = GgufToAprQ4KConverter::get_f32(&metadata, "scale");
+        assert!(result.is_some());
+        assert!((result.unwrap() - 3.14).abs() < 0.001);
+
+        let big = GgufToAprQ4KConverter::get_f32(&metadata, "big_scale");
+        assert!(big.is_some());
+        assert!((big.unwrap() - 2.71828).abs() < 0.001);
+
+        let missing = GgufToAprQ4KConverter::get_f32(&metadata, "nonexistent");
+        assert_eq!(missing, None);
+
+        let wrong_type = GgufToAprQ4KConverter::get_f32(&metadata, "count");
+        assert_eq!(wrong_type, None);
+    }
 }
