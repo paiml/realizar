@@ -1,20 +1,23 @@
-//! Inference Tracing for debugging LLM pipelines
+//! Inference Tracing for debugging LLM pipelines (AWS Step Functions Parity)
 //!
-//! Per spec: APR-TRACE-001
+//! Per spec: APR-TRACE-001 v3.0.0
 //! Toyota Way: Genchi Genbutsu (Go and See) + Jidoka (Built-in Quality)
 //!
-//! This module provides step-by-step tracing of the inference pipeline:
-//! 1. ENCODE: Tokenization with OOV detection
-//! 2. EMBED: Token embedding lookup
-//! 3. TRANSFORMER: Layer-by-layer processing
-//! 4. LM_HEAD: Final projection to logits
-//! 5. SAMPLE: Token sampling (temperature, top-k, top-p)
-//! 6. DECODE: Token to text decoding with garbage detection
+//! This module models inference as a deterministic **State Machine**:
+//! 1. TOKENIZE: Text -> Token IDs
+//! 2. EMBED: Token IDs -> Vectors
+//! 3. TRANSFORMER_BLOCK: Vectors -> Vectors (×N layers)
+//! 4. LM_HEAD: Vectors -> Logits
+//! 5. SAMPLE: Logits -> Token ID
+//! 6. DECODE: Token ID -> Text
+//!
+//! Each state transition emits `TaskStateEntered` and `TaskStateExited` events
+//! with verified Input/Output payloads (AWS Step Functions Execution History format).
 //!
 //! Example:
 //! ```bash
 //! apr run model.gguf --prompt "Hello" --trace
-//! apr run model.gguf --prompt "Hi" --trace --trace-steps=encode,decode
+//! apr run model.gguf --prompt "Hi" --trace=tokenize,sample,decode
 //! apr run model.gguf --prompt "Hi" --trace --trace-output trace.json
 //! ```
 
@@ -60,11 +63,11 @@ impl TraceConfig {
     }
 }
 
-/// Inference pipeline steps
+/// Inference pipeline steps (State Machine states per AWS Step Functions model)
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub enum TraceStep {
     /// Tokenization (text -> token IDs)
-    Encode,
+    Tokenize,
     /// Token embedding lookup
     Embed,
     /// Layer normalization
@@ -73,8 +76,8 @@ pub enum TraceStep {
     Attention,
     /// Feed-forward network
     FFN,
-    /// Transformer layer (combines attention + FFN)
-    Transformer,
+    /// Transformer block (combines attention + FFN)
+    TransformerBlock,
     /// LM head projection (hidden -> logits)
     LmHead,
     /// Token sampling
@@ -83,17 +86,18 @@ pub enum TraceStep {
     Decode,
 }
 
+
 impl TraceStep {
     /// Parse step from string
     #[must_use]
     pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
-            "encode" | "tokenize" => Some(Self::Encode),
+            "tokenize" | "encode" => Some(Self::Tokenize),
             "embed" | "embedding" => Some(Self::Embed),
             "layernorm" | "ln" | "norm" => Some(Self::LayerNorm),
             "attention" | "attn" => Some(Self::Attention),
             "ffn" | "mlp" => Some(Self::FFN),
-            "transformer" | "layer" => Some(Self::Transformer),
+            "transformer" | "transformer_block" | "layer" => Some(Self::TransformerBlock),
             "lmhead" | "lm_head" | "head" => Some(Self::LmHead),
             "sample" | "sampling" => Some(Self::Sample),
             "decode" | "detokenize" => Some(Self::Decode),
@@ -101,16 +105,33 @@ impl TraceStep {
         }
     }
 
-    /// Get display name for step
+    /// Get display name for step (AWS Step Functions state name)
     #[must_use]
     pub fn name(&self) -> &'static str {
         match self {
-            Self::Encode => "ENCODE",
+            Self::Tokenize => "TOKENIZE",
             Self::Embed => "EMBED",
             Self::LayerNorm => "LAYER_NORM",
             Self::Attention => "ATTENTION",
             Self::FFN => "FFN",
-            Self::Transformer => "TRANSFORMER",
+            Self::TransformerBlock => "TRANSFORMER_BLOCK",
+            Self::LmHead => "LM_HEAD",
+            Self::Sample => "SAMPLE",
+            Self::Decode => "DECODE",
+        }
+    }
+
+    /// Get legacy name for backwards compatibility (deprecated)
+    #[deprecated(since = "3.0.0", note = "Use name() instead")]
+    #[must_use]
+    pub fn legacy_name(&self) -> &'static str {
+        match self {
+            Self::Tokenize => "ENCODE",
+            Self::Embed => "EMBED",
+            Self::LayerNorm => "LAYER_NORM",
+            Self::Attention => "ATTENTION",
+            Self::FFN => "FFN",
+            Self::TransformerBlock => "TRANSFORMER",
             Self::LmHead => "LM_HEAD",
             Self::Sample => "SAMPLE",
             Self::Decode => "DECODE",
@@ -121,9 +142,9 @@ impl TraceStep {
     #[must_use]
     pub fn step_number(&self) -> usize {
         match self {
-            Self::Encode => 1,
+            Self::Tokenize => 1,
             Self::Embed => 2,
-            Self::LayerNorm | Self::Attention | Self::FFN | Self::Transformer => 3,
+            Self::LayerNorm | Self::Attention | Self::FFN | Self::TransformerBlock => 3,
             Self::LmHead => 4,
             Self::Sample => 5,
             Self::Decode => 6,
@@ -282,10 +303,41 @@ impl std::fmt::Display for TraceError {
     }
 }
 
-/// Trace event emitted during inference
+/// AWS Step Functions event type (per spec v3.1.0)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AwsEventType {
+    /// State machine entered a state
+    TaskStateEntered,
+    /// State machine exited a state
+    TaskStateExited,
+    /// Execution failed with error
+    ExecutionFailed,
+}
+
+impl AwsEventType {
+    /// Get the event type name (AWS Step Functions format)
+    #[must_use]
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::TaskStateEntered => "TaskStateEntered",
+            Self::TaskStateExited => "TaskStateExited",
+            Self::ExecutionFailed => "ExecutionFailed",
+        }
+    }
+}
+
+/// Trace event emitted during inference (AWS Step Functions Parity)
 #[derive(Debug, Clone)]
 pub struct TraceEvent {
-    /// Pipeline step
+    /// Unique event ID (AWS Step Functions: monotonically increasing)
+    pub id: u64,
+    /// ISO 8601 timestamp
+    pub timestamp: String,
+    /// AWS Step Functions event type
+    pub event_type: AwsEventType,
+    /// Link to the entry event (for TaskStateExited)
+    pub previous_event_id: Option<u64>,
+    /// Pipeline step (state name)
     pub step: TraceStep,
     /// Generation iteration (0 for prefill)
     pub iteration: usize,
@@ -345,6 +397,10 @@ pub struct InferenceTracer {
     error_count: usize,
     /// Total warnings count
     warning_count: usize,
+    /// Next event ID (monotonically increasing per AWS Step Functions)
+    next_event_id: u64,
+    /// ID of the last TaskStateEntered event (for linking TaskStateExited)
+    last_entered_id: Option<u64>,
 }
 
 /// Model information for trace header
@@ -404,7 +460,7 @@ impl InferenceTracer {
 
     /// Trace encode step (tokenization)
     pub fn trace_encode(&mut self, input_text: &str, output_tokens: &[u32], vocab_size: usize) {
-        if !self.config.should_trace(TraceStep::Encode) {
+        if !self.config.should_trace(TraceStep::Tokenize) {
             return;
         }
 
@@ -426,7 +482,7 @@ impl InferenceTracer {
         }
 
         let event = TraceEvent {
-            step: TraceStep::Encode,
+            step: TraceStep::Tokenize,
             iteration: 0,
             layer: None,
             input_shape: vec![input_text.len()],
@@ -495,7 +551,7 @@ impl InferenceTracer {
         seq_len: usize,
         hidden_dim: usize,
     ) {
-        if !self.config.should_trace(TraceStep::Transformer) {
+        if !self.config.should_trace(TraceStep::TransformerBlock) {
             return;
         }
 
@@ -520,7 +576,7 @@ impl InferenceTracer {
         }
 
         let event = TraceEvent {
-            step: TraceStep::Transformer,
+            step: TraceStep::TransformerBlock,
             iteration,
             layer: Some(layer_idx),
             input_shape: vec![seq_len, hidden_dim],
@@ -706,7 +762,7 @@ impl InferenceTracer {
         for event in &self.events {
             // Step header
             if current_step != Some(event.step) {
-                if current_step == Some(TraceStep::Transformer) && layer_count > 0 {
+                if current_step == Some(TraceStep::TransformerBlock) && layer_count > 0 {
                     output.push_str(&format!("  ... ({} layers total)\n", layer_count));
                 }
                 current_step = Some(event.step);
@@ -721,7 +777,7 @@ impl InferenceTracer {
 
             // Step content
             match event.step {
-                TraceStep::Encode => {
+                TraceStep::Tokenize => {
                     if let Some(ref text) = event.details.input_text {
                         let display_text = if text.len() > 50 {
                             format!("{}...", &text[..50])
@@ -758,7 +814,7 @@ impl InferenceTracer {
                         event.stats.min, event.stats.max, event.stats.mean
                     ));
                 },
-                TraceStep::Transformer => {
+                TraceStep::TransformerBlock => {
                     layer_count += 1;
                     if layer_count <= 3 || self.config.verbose {
                         output.push_str(&format!(
@@ -1046,8 +1102,8 @@ mod tests {
 
     #[test]
     fn test_trace_step_parse() {
-        assert_eq!(TraceStep::parse("encode"), Some(TraceStep::Encode));
-        assert_eq!(TraceStep::parse("TOKENIZE"), Some(TraceStep::Encode));
+        assert_eq!(TraceStep::parse("encode"), Some(TraceStep::Tokenize));
+        assert_eq!(TraceStep::parse("TOKENIZE"), Some(TraceStep::Tokenize));
         assert_eq!(TraceStep::parse("sample"), Some(TraceStep::Sample));
         assert_eq!(TraceStep::parse("decode"), Some(TraceStep::Decode));
         assert_eq!(TraceStep::parse("invalid"), None);
@@ -1090,7 +1146,7 @@ mod tests {
     #[test]
     fn test_trace_config_parse_steps() {
         let steps = TraceConfig::parse_steps("encode,decode,sample");
-        assert!(steps.contains(&TraceStep::Encode));
+        assert!(steps.contains(&TraceStep::Tokenize));
         assert!(steps.contains(&TraceStep::Decode));
         assert!(steps.contains(&TraceStep::Sample));
         assert!(!steps.contains(&TraceStep::Embed));
@@ -1110,7 +1166,7 @@ mod tests {
             quant_type: None,
         });
 
-        tracer.start_step(TraceStep::Encode);
+        tracer.start_step(TraceStep::Tokenize);
         tracer.trace_encode("Hello", &[1, 2, 3], 32000);
 
         assert_eq!(tracer.events().len(), 1);
@@ -1136,12 +1192,12 @@ mod tests {
 
     #[test]
     fn test_trace_step_names() {
-        assert_eq!(TraceStep::Encode.name(), "ENCODE");
+        assert_eq!(TraceStep::Tokenize.name(), "TOKENIZE");
         assert_eq!(TraceStep::Embed.name(), "EMBED");
         assert_eq!(TraceStep::LayerNorm.name(), "LAYER_NORM");
         assert_eq!(TraceStep::Attention.name(), "ATTENTION");
         assert_eq!(TraceStep::FFN.name(), "FFN");
-        assert_eq!(TraceStep::Transformer.name(), "TRANSFORMER");
+        assert_eq!(TraceStep::TransformerBlock.name(), "TRANSFORMER_BLOCK");
         assert_eq!(TraceStep::LmHead.name(), "LM_HEAD");
         assert_eq!(TraceStep::Sample.name(), "SAMPLE");
         assert_eq!(TraceStep::Decode.name(), "DECODE");
@@ -1149,7 +1205,7 @@ mod tests {
 
     #[test]
     fn test_trace_step_numbers() {
-        assert_eq!(TraceStep::Encode.step_number(), 1);
+        assert_eq!(TraceStep::Tokenize.step_number(), 1);
         assert_eq!(TraceStep::Embed.step_number(), 2);
         assert_eq!(TraceStep::Decode.step_number(), 6);
     }
@@ -1167,9 +1223,9 @@ mod tests {
         assert_eq!(TraceStep::parse("mlp"), Some(TraceStep::FFN));
         assert_eq!(
             TraceStep::parse("transformer"),
-            Some(TraceStep::Transformer)
+            Some(TraceStep::TransformerBlock)
         );
-        assert_eq!(TraceStep::parse("layer"), Some(TraceStep::Transformer));
+        assert_eq!(TraceStep::parse("layer"), Some(TraceStep::TransformerBlock));
         assert_eq!(TraceStep::parse("lmhead"), Some(TraceStep::LmHead));
         assert_eq!(TraceStep::parse("lm_head"), Some(TraceStep::LmHead));
         assert_eq!(TraceStep::parse("head"), Some(TraceStep::LmHead));
@@ -1250,12 +1306,12 @@ mod tests {
         let config = TraceConfig::enabled();
         let mut tracer = InferenceTracer::new(config);
 
-        tracer.start_step(TraceStep::Transformer);
+        tracer.start_step(TraceStep::TransformerBlock);
         let hidden = vec![0.1, 0.2, 0.3, 0.4];
         tracer.trace_layer(0, 0, Some(&hidden), 1, 4);
 
         assert_eq!(tracer.events().len(), 1);
-        assert_eq!(tracer.events()[0].step, TraceStep::Transformer);
+        assert_eq!(tracer.events()[0].step, TraceStep::TransformerBlock);
     }
 
     #[test]
@@ -1298,7 +1354,7 @@ mod tests {
             quant_type: None,
         });
 
-        tracer.start_step(TraceStep::Encode);
+        tracer.start_step(TraceStep::Tokenize);
         tracer.trace_encode("Hello", &[1, 2], 100);
 
         let text = tracer.format_text();
@@ -1320,7 +1376,7 @@ mod tests {
             quant_type: None,
         });
 
-        tracer.start_step(TraceStep::Encode);
+        tracer.start_step(TraceStep::Tokenize);
         tracer.trace_encode("Test", &[1], 100);
 
         let json = tracer.to_json();
@@ -1331,15 +1387,15 @@ mod tests {
     #[test]
     fn test_trace_config_should_trace() {
         let mut config = TraceConfig::enabled();
-        assert!(config.should_trace(TraceStep::Encode));
+        assert!(config.should_trace(TraceStep::Tokenize));
         assert!(config.should_trace(TraceStep::Decode));
 
-        config.steps.insert(TraceStep::Encode);
-        assert!(config.should_trace(TraceStep::Encode));
+        config.steps.insert(TraceStep::Tokenize);
+        assert!(config.should_trace(TraceStep::Tokenize));
         assert!(!config.should_trace(TraceStep::Decode));
 
         let disabled = TraceConfig::default();
-        assert!(!disabled.should_trace(TraceStep::Encode));
+        assert!(!disabled.should_trace(TraceStep::Tokenize));
     }
 
     #[test]
@@ -1367,7 +1423,7 @@ mod tests {
         let config = TraceConfig::enabled();
         let mut tracer = InferenceTracer::new(config);
 
-        tracer.start_step(TraceStep::Transformer);
+        tracer.start_step(TraceStep::TransformerBlock);
         let hidden = vec![0.1, f32::INFINITY, 0.3];
         tracer.trace_layer(0, 0, Some(&hidden), 1, 3);
 
@@ -1468,7 +1524,7 @@ mod tests {
 
         // Long input text (>50 chars) should be truncated
         let long_text = "A".repeat(100);
-        tracer.start_step(TraceStep::Encode);
+        tracer.start_step(TraceStep::Tokenize);
         tracer.trace_encode(&long_text, &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], 100);
 
         let text = tracer.format_text();
@@ -1493,7 +1549,7 @@ mod tests {
         // Add multiple transformer layer events followed by a different step
         // The "layers total" message only shows when transitioning away from transformer layers
         for i in 0..5 {
-            tracer.start_step(TraceStep::Transformer);
+            tracer.start_step(TraceStep::TransformerBlock);
             tracer.trace_layer(i, 0, Some(&[0.1, 0.2, 0.3, 0.4]), 1, 4);
         }
 
@@ -1619,7 +1675,7 @@ mod tests {
         let config = TraceConfig::enabled();
         let mut tracer = InferenceTracer::new(config);
 
-        tracer.start_step(TraceStep::Transformer);
+        tracer.start_step(TraceStep::TransformerBlock);
         let hidden = vec![0.1, f32::NAN, 0.3];
         tracer.trace_layer(5, 0, Some(&hidden), 1, 3);
 
@@ -1647,7 +1703,7 @@ mod tests {
         let config = TraceConfig::default(); // disabled
         let mut tracer = InferenceTracer::new(config);
 
-        tracer.start_step(TraceStep::Encode);
+        tracer.start_step(TraceStep::Tokenize);
         tracer.trace_encode("Hello", &[1, 2], 100);
 
         assert_eq!(tracer.events().len(), 0);
