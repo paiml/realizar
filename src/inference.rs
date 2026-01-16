@@ -5485,4 +5485,201 @@ mod tests {
         // Non-zero position should apply rotation
         assert_eq!(x.len(), 64);
     }
+
+    // =========================================================================
+    // Additional Coverage Tests: simd_matmul
+    // =========================================================================
+
+    #[test]
+    fn test_simd_matmul_small_cov() {
+        let input = vec![1.0f32; 4];
+        let weight = vec![1.0f32; 8]; // 4x2 matrix (row-major)
+        let output = simd_matmul(&input, &weight, 4, 2);
+        assert_eq!(output.len(), 2);
+        // Each output should be sum of 4 ones = 4.0
+        assert!((output[0] - 4.0).abs() < 1e-5);
+        assert!((output[1] - 4.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_simd_matmul_identity_cov() {
+        // Identity matrix [1,0; 0,1]
+        let input = vec![3.0f32, 5.0];
+        let weight = vec![1.0, 0.0, 0.0, 1.0]; // 2x2 identity
+        let output = simd_matmul(&input, &weight, 2, 2);
+        assert!((output[0] - 3.0).abs() < 1e-5);
+        assert!((output[1] - 5.0).abs() < 1e-5);
+    }
+
+    // =========================================================================
+    // Additional Coverage Tests: simd_dot
+    // =========================================================================
+
+    #[test]
+    fn test_simd_dot_zeros_cov() {
+        let a = vec![0.0f32; 16];
+        let b = vec![1.0f32; 16];
+        let dot = simd_dot(&a, &b);
+        assert!(dot.abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_simd_dot_ones_cov() {
+        let a = vec![1.0f32; 8];
+        let b = vec![1.0f32; 8];
+        let dot = simd_dot(&a, &b);
+        assert!((dot - 8.0).abs() < 1e-5);
+    }
+
+    // =========================================================================
+    // Additional Coverage Tests: simd_add
+    // =========================================================================
+
+    #[test]
+    fn test_simd_add_zeros_cov() {
+        let mut a = vec![1.0f32, 2.0, 3.0, 4.0];
+        let b = vec![0.0f32; 4];
+        simd_add(&mut a, &b);
+        assert!((a[0] - 1.0).abs() < 1e-6);
+        assert!((a[3] - 4.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_simd_add_negatives_cov() {
+        let mut a = vec![5.0f32, 5.0, 5.0, 5.0];
+        let b = vec![-3.0f32, -2.0, -1.0, 0.0];
+        simd_add(&mut a, &b);
+        assert!((a[0] - 2.0).abs() < 1e-6);
+        assert!((a[1] - 3.0).abs() < 1e-6);
+        assert!((a[2] - 4.0).abs() < 1e-6);
+        assert!((a[3] - 5.0).abs() < 1e-6);
+    }
+
+    // =========================================================================
+    // Additional Coverage Tests: simd_silu
+    // =========================================================================
+
+    #[test]
+    fn test_simd_silu_large_positive_cov() {
+        let mut data = vec![10.0f32];
+        simd_silu(&mut data);
+        // SiLU(10) ≈ 10 (sigmoid approaches 1)
+        assert!(data[0] > 9.0);
+    }
+
+    #[test]
+    fn test_simd_silu_large_negative_cov() {
+        let mut data = vec![-10.0f32];
+        simd_silu(&mut data);
+        // SiLU(-10) ≈ 0 (sigmoid approaches 0)
+        assert!(data[0].abs() < 0.1);
+    }
+
+    // =========================================================================
+    // Additional Coverage Tests: simd_gelu
+    // =========================================================================
+
+    #[test]
+    fn test_simd_gelu_large_positive_cov() {
+        let mut data = vec![10.0f32];
+        simd_gelu(&mut data);
+        // GELU(10) ≈ 10
+        assert!(data[0] > 9.0);
+    }
+
+    #[test]
+    fn test_simd_gelu_large_negative_cov() {
+        let mut data = vec![-10.0f32];
+        simd_gelu(&mut data);
+        // GELU(-10) ≈ 0
+        assert!(data[0].abs() < 0.1);
+    }
+
+    // =========================================================================
+    // Additional Coverage Tests: simd_softmax
+    // =========================================================================
+
+    #[test]
+    fn test_simd_softmax_large_values_cov() {
+        let mut data = vec![100.0f32, 101.0, 102.0];
+        simd_softmax(&mut data);
+        // Largest value should dominate
+        assert!(data[2] > 0.5);
+        let sum: f32 = data.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_simd_softmax_equal_values_cov() {
+        let mut data = vec![1.0f32; 4];
+        simd_softmax(&mut data);
+        // Equal inputs -> equal outputs (0.25 each)
+        for val in &data {
+            assert!((val - 0.25).abs() < 1e-5);
+        }
+    }
+
+    // =========================================================================
+    // Additional Coverage Tests: ThreadConfig
+    // =========================================================================
+
+    #[test]
+    fn test_thread_config_debug_batch_decode_cov() {
+        let config = ThreadConfig {
+            n_threads_batch: 8,
+            n_threads_decode: 4,
+        };
+        let debug = format!("{:?}", config);
+        assert!(debug.contains("ThreadConfig"));
+        assert!(debug.contains("8"));
+    }
+
+    #[test]
+    fn test_thread_config_clone_batch_decode_cov() {
+        let config = ThreadConfig {
+            n_threads_batch: 4,
+            n_threads_decode: 2,
+        };
+        let cloned = config.clone();
+        assert_eq!(cloned.n_threads_batch, config.n_threads_batch);
+        assert_eq!(cloned.n_threads_decode, config.n_threads_decode);
+    }
+
+    #[test]
+    fn test_thread_config_auto_nonzero_cov() {
+        let config = ThreadConfig::auto();
+        assert!(config.n_threads_batch > 0);
+        assert!(config.n_threads_decode > 0);
+    }
+
+    // =========================================================================
+    // Additional Coverage Tests: InferenceMode
+    // =========================================================================
+
+    #[test]
+    fn test_inference_mode_debug_prefill_decode_cov() {
+        let mode = InferenceMode::Prefill;
+        let debug = format!("{:?}", mode);
+        assert!(debug.contains("Prefill"));
+
+        let mode2 = InferenceMode::Decode;
+        let debug2 = format!("{:?}", mode2);
+        assert!(debug2.contains("Decode"));
+    }
+
+    #[test]
+    fn test_inference_mode_clone_variants_cov() {
+        let mode = InferenceMode::Prefill;
+        let cloned = mode.clone();
+        assert_eq!(mode, cloned);
+    }
+
+    #[test]
+    fn test_inference_mode_eq_variants_cov() {
+        let mode1 = InferenceMode::Prefill;
+        let mode2 = InferenceMode::Prefill;
+        let mode3 = InferenceMode::Decode;
+        assert_eq!(mode1, mode2);
+        assert_ne!(mode1, mode3);
+    }
 }
