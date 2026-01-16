@@ -16199,4 +16199,212 @@ mod tests {
         assert!(result.is_ok());
         assert!(scales[0] > 0.0);
     }
+
+    // =========================================================================
+    // Coverage Tests: dequantize_q4_1 error paths
+    // =========================================================================
+
+    #[test]
+    fn test_dequantize_q4_1_invalid_size_cov() {
+        // Q4_1 block is 20 bytes (4 bytes min + 4 bytes max + 16 nibbles) for 32 values
+        let data = vec![0u8; 19]; // Invalid - not a multiple of 20
+        let result = dequantize_q4_1(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_dequantize_q4_1_empty_cov() {
+        let data: Vec<u8> = vec![];
+        let result = dequantize_q4_1(&data);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    // =========================================================================
+    // Coverage Tests: dequantize_q5_0 error paths
+    // =========================================================================
+
+    #[test]
+    fn test_dequantize_q5_0_invalid_size_cov() {
+        // Q5_0 block is 22 bytes (2 scale + 4 high bits + 16 nibbles) for 32 values
+        let data = vec![0u8; 21]; // Invalid
+        let result = dequantize_q5_0(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_dequantize_q5_0_empty_cov() {
+        let data: Vec<u8> = vec![];
+        let result = dequantize_q5_0(&data);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    // =========================================================================
+    // Coverage Tests: dequantize_q5_1 error paths
+    // =========================================================================
+
+    #[test]
+    fn test_dequantize_q5_1_invalid_size_cov() {
+        // Q5_1 block is 24 bytes
+        let data = vec![0u8; 23]; // Invalid
+        let result = dequantize_q5_1(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_dequantize_q5_1_empty_cov() {
+        let data: Vec<u8> = vec![];
+        let result = dequantize_q5_1(&data);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    // =========================================================================
+    // Coverage Tests: fused_q4k_q8_dot error paths
+    // =========================================================================
+
+    #[test]
+    fn test_fused_q4k_q8_dot_invalid_q4k_size_cov() {
+        let q4k_data = vec![0u8; 100]; // Invalid - not a multiple of 144
+        let values: [f32; 32] = [0.0; 32];
+        let q8_blocks = vec![Q8_0Block::quantize(&values); 8];
+        let result = fused_q4k_q8_dot(&q4k_data, &q8_blocks);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_fused_q4k_q8_dot_block_mismatch_cov() {
+        let q4k_data = vec![0u8; 144]; // 1 super-block = 256 values
+        let values: [f32; 32] = [0.0; 32];
+        let q8_blocks = vec![Q8_0Block::quantize(&values); 4]; // 4 * 32 = 128 values - mismatch
+        let result = fused_q4k_q8_dot(&q4k_data, &q8_blocks);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Coverage Tests: fused_q4k_q8k_dot error paths
+    // =========================================================================
+
+    #[test]
+    fn test_fused_q4k_q8k_dot_invalid_q4k_size_cov() {
+        let q4k_data = vec![0u8; 100]; // Invalid
+        let scales = vec![1.0f32; 1];
+        let quants = vec![0i8; 256];
+        let result = fused_q4k_q8k_dot(&q4k_data, &scales, &quants);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_fused_q4k_q8k_dot_scale_too_few_cov() {
+        let q4k_data = vec![0u8; 288]; // 2 super-blocks = 512 values
+        let scales = vec![1.0f32; 1]; // Only 1 scale but need 2
+        let quants = vec![0i8; 512];
+        let result = fused_q4k_q8k_dot(&q4k_data, &scales, &quants);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Coverage Tests: quantize_to_q8_blocks error paths
+    // =========================================================================
+
+    #[test]
+    fn test_quantize_to_q8_blocks_not_multiple_cov() {
+        let values = vec![1.0f32; 30]; // Not a multiple of 32
+        let result = quantize_to_q8_blocks(&values);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_quantize_to_q8_blocks_empty_cov() {
+        let values: Vec<f32> = vec![];
+        let result = quantize_to_q8_blocks(&values);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_quantize_to_q8_blocks_one_block_cov() {
+        let values: Vec<f32> = (0..32).map(|i| i as f32 * 0.1).collect();
+        let result = quantize_to_q8_blocks(&values);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().len(), 1);
+    }
+
+    // =========================================================================
+    // Coverage Tests: dequantize_q8_blocks
+    // =========================================================================
+
+    #[test]
+    fn test_dequantize_q8_blocks_roundtrip_cov() {
+        let original: Vec<f32> = (0..64).map(|i| (i as f32 - 32.0) * 0.1).collect();
+        let blocks = quantize_to_q8_blocks(&original).unwrap();
+        let restored = dequantize_q8_blocks(&blocks);
+        assert_eq!(restored.len(), 64);
+        // Should be close to original
+        for (o, r) in original.iter().zip(restored.iter()) {
+            assert!((o - r).abs() < 0.1);
+        }
+    }
+
+    // =========================================================================
+    // Coverage Tests: Q8KSuperBlock quantize_into
+    // =========================================================================
+
+    #[test]
+    fn test_q8ksuperblock_quantize_into_cov() {
+        let values: Vec<f32> = (0..256).map(|i| (i as f32 - 128.0) * 0.01).collect();
+        let mut scale = 0.0f32;
+        let mut quants = vec![0i8; 256];
+        Q8KSuperBlock::quantize_into(&values, &mut scale, &mut quants);
+        assert!(scale > 0.0);
+    }
+
+    // =========================================================================
+    // Coverage Tests: dequantize_f16 additional error paths
+    // =========================================================================
+
+    #[test]
+    fn test_dequantize_f16_size_3_cov() {
+        let data = vec![0u8; 3]; // Odd size - invalid
+        let result = dequantize_f16(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_dequantize_f16_vec_empty_cov() {
+        let data: Vec<u8> = vec![];
+        let result = dequantize_f16(&data);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    // =========================================================================
+    // Coverage Tests: f16_to_f32 edge cases
+    // =========================================================================
+
+    #[test]
+    fn test_f16_to_f32_subnormal_cov() {
+        // Subnormal f16 value (exponent 0, non-zero mantissa)
+        let subnormal = 0x0001u16; // Smallest positive subnormal
+        let f32_val = f16_to_f32(subnormal);
+        assert!(f32_val > 0.0);
+        assert!(f32_val < 1e-5);
+    }
+
+    #[test]
+    fn test_f16_to_f32_infinity_cov() {
+        // Positive infinity (exponent all 1s, mantissa 0)
+        let pos_inf = 0x7C00u16;
+        let f32_val = f16_to_f32(pos_inf);
+        assert!(f32_val.is_infinite() && f32_val > 0.0);
+    }
+
+    #[test]
+    fn test_f16_to_f32_neg_infinity_cov() {
+        // Negative infinity
+        let neg_inf = 0xFC00u16;
+        let f32_val = f16_to_f32(neg_inf);
+        assert!(f32_val.is_infinite() && f32_val < 0.0);
+    }
 }
