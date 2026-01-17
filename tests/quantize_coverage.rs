@@ -2242,7 +2242,9 @@ fn test_q4_0_max_quant_values() {
     let result = dequantize_q4_0(&data).expect("valid block");
     assert_eq!(result.len(), 32);
     // Values should be around 7 (15 - 8 = 7)
-    result.iter().for_each(|val| assert!((*val - 7.0).abs() < 0.1));
+    result
+        .iter()
+        .for_each(|val| assert!((*val - 7.0).abs() < 0.1));
 }
 
 #[test]
@@ -2254,7 +2256,9 @@ fn test_q4_0_min_quant_values() {
     let result = dequantize_q4_0(&data).expect("valid block");
     assert_eq!(result.len(), 32);
     // Values should be -8 (0 - 8 = -8)
-    result.iter().for_each(|val| assert!((*val - (-8.0)).abs() < 0.1));
+    result
+        .iter()
+        .for_each(|val| assert!((*val - (-8.0)).abs() < 0.1));
 }
 
 #[test]
@@ -2947,12 +2951,18 @@ fn test_fused_q4k_dot_nonzero_weights() {
     q4k_data[2..4].copy_from_slice(&half::f16::from_f32(0.1).to_le_bytes());
 
     // Set some non-zero scales and quants
-    q4k_data[4..16].iter_mut().enumerate().for_each(|(i, byte)| {
-        *byte = ((i + 1) * 3) as u8;
-    });
-    q4k_data[16..144].iter_mut().enumerate().for_each(|(i, byte)| {
-        *byte = ((i * 7) % 256) as u8;
-    });
+    q4k_data[4..16]
+        .iter_mut()
+        .enumerate()
+        .for_each(|(i, byte)| {
+            *byte = ((i + 1) * 3) as u8;
+        });
+    q4k_data[16..144]
+        .iter_mut()
+        .enumerate()
+        .for_each(|(i, byte)| {
+            *byte = ((i * 7) % 256) as u8;
+        });
 
     let activations: Vec<f32> = (0..256).map(|i| (i as f32) / 256.0).collect();
 
@@ -2987,19 +2997,28 @@ fn test_fused_q6k_dot_nonzero_weights() {
     let mut q6k_data = vec![0u8; 210];
 
     // Set varied ql values
-    q6k_data[0..128].iter_mut().enumerate().for_each(|(i, byte)| {
-        *byte = ((i * 5) % 256) as u8;
-    });
+    q6k_data[0..128]
+        .iter_mut()
+        .enumerate()
+        .for_each(|(i, byte)| {
+            *byte = ((i * 5) % 256) as u8;
+        });
 
     // Set varied qh values
-    q6k_data[128..192].iter_mut().enumerate().for_each(|(i, byte)| {
-        *byte = ((i * 3) % 256) as u8;
-    });
+    q6k_data[128..192]
+        .iter_mut()
+        .enumerate()
+        .for_each(|(i, byte)| {
+            *byte = ((i * 3) % 256) as u8;
+        });
 
     // Set positive scales
-    q6k_data[192..208].iter_mut().enumerate().for_each(|(i, byte)| {
-        *byte = (i + 1) as u8;
-    });
+    q6k_data[192..208]
+        .iter_mut()
+        .enumerate()
+        .for_each(|(i, byte)| {
+            *byte = (i + 1) as u8;
+        });
 
     // d = 0.5
     q6k_data[208..210].copy_from_slice(&half::f16::from_f32(0.5).to_le_bytes());

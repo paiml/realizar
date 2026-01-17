@@ -13630,6 +13630,16 @@ impl CudaExecutor {
                     q_dim,
                 )?;
             },
+            // PAR-058-FIX: Add Q5_0 support for output projection (Qwen 0.5B)
+            WeightQuantType::Q5_0 => {
+                self.q5_0_gemv_into(
+                    layer_weights.attn_output_ptr,
+                    &attn_out_buf,
+                    &hidden_buf1,
+                    hidden_dim,
+                    q_dim,
+                )?;
+            },
             _ => {
                 self.q4k_gemv_into(
                     layer_weights.attn_output_ptr,
@@ -13732,6 +13742,16 @@ impl CudaExecutor {
                     hidden_dim,
                 )?;
             },
+            // PAR-058-FIX: Add Q5_0 support for FFN gate (Qwen 0.5B)
+            WeightQuantType::Q5_0 => {
+                self.q5_0_gemv_into(
+                    layer_weights.ffn_gate_ptr,
+                    &hidden_buf1,
+                    &ffn_gate_buf,
+                    intermediate_dim,
+                    hidden_dim,
+                )?;
+            },
             _ => {
                 self.q4k_gemv_into(
                     layer_weights.ffn_gate_ptr,
@@ -13745,6 +13765,16 @@ impl CudaExecutor {
         match layer_weights.ffn_up_qtype {
             WeightQuantType::Q4_0 => {
                 self.q4_0_gemv_into(
+                    layer_weights.ffn_up_ptr,
+                    &hidden_buf1,
+                    &ffn_up_buf,
+                    intermediate_dim,
+                    hidden_dim,
+                )?;
+            },
+            // PAR-058-FIX: Add Q5_0 support for FFN up (Qwen 0.5B)
+            WeightQuantType::Q5_0 => {
+                self.q5_0_gemv_into(
                     layer_weights.ffn_up_ptr,
                     &hidden_buf1,
                     &ffn_up_buf,
@@ -14064,6 +14094,27 @@ impl CudaExecutor {
     #[must_use]
     pub fn workspace_output(&self) -> Option<&GpuBuffer<f32>> {
         self.workspace.hidden_buf2.as_ref()
+    }
+
+    /// APR-TRACE-001: Read final hidden state from GPU to CPU for verbose tracing
+    ///
+    /// This performs a D2H sync which is expensive (~50µs) but necessary for
+    /// Genchi Genbutsu (go and see) observability during debugging.
+    ///
+    /// ONLY call this when verbose tracing is enabled.
+    pub fn read_hidden_state_to_cpu(&mut self) -> Result<Vec<f32>, GpuError> {
+        let hidden_buf = self.workspace.hidden_buf2.as_ref().ok_or_else(|| {
+            GpuError::InvalidLaunchConfig("APR-TRACE-001: workspace not initialized".to_string())
+        })?;
+
+        // Sync stream to ensure all GPU ops complete
+        self.stream.synchronize()?;
+
+        // D2H copy
+        let mut hidden_cpu = vec![0.0f32; hidden_buf.len()];
+        hidden_buf.copy_to_host(&mut hidden_cpu)?;
+
+        Ok(hidden_cpu)
     }
 
     /// PAR-111: Batched forward pass for M sequences through all layers

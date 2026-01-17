@@ -34,10 +34,6 @@ use rand::Rng;
 use memmap2::Mmap;
 use trueno::{Matrix as TruenoMatrix, Vector as TruenoVector};
 
-// GPU backend for accelerated attention computation (PARITY-002)
-#[cfg(feature = "gpu")]
-use trueno::backends::gpu::GpuBackend;
-
 // CUDA PTX generation for NVIDIA GPUs (IMP-311)
 #[cfg(feature = "cuda")]
 use trueno_gpu::kernels::{AttentionKernel, Kernel, QuantizeKernel};
@@ -4051,256 +4047,6 @@ impl<'a> QuantizedGGUFTransformer<'a> {
     #[must_use]
     pub fn config(&self) -> &GGUFConfig {
         &self.config
-    }
-
-    /// Single-token forward pass with pre-allocated scratch buffers
-    ///
-    /// IMP-131: Arena allocator for inference buffers.
-    /// Uses InferenceScratchBuffer to eliminate per-token allocations.
-    pub fn forward_cached_with_scratch(
-        &self,
-        token_id: u32,
-        cache: &mut OwnedQuantizedKVCache,
-        position: usize,
-        scratch: &mut InferenceScratchBuffer,
-    ) -> Result<Vec<f32>> {
-        let hidden_dim = self.config.hidden_dim;
-
-        // Detect architecture: LLaMA uses RMSNorm and SwiGLU
-        let use_rmsnorm = self
-            .layers
-            .first()
-            .is_some_and(|l| l.ffn_gate_weight.is_some() && l.attn_norm_bias.is_none());
-
-        // 1. Token embedding lookup (reuse hidden buffer)
-        self.embed_into(token_id, &mut scratch.hidden);
-
-        // 2. Process through transformer layers
-        for (layer_idx, layer) in self.layers.iter().enumerate() {
-            // 2a. Attention layer norm (reuse normed buffer)
-            if use_rmsnorm {
-                self.rms_norm_into(
-                    &scratch.hidden,
-                    &layer.attn_norm_weight,
-                    self.config.eps,
-                    &mut scratch.normed,
-                );
-            } else {
-                self.layer_norm_into(
-                    &scratch.hidden,
-                    &layer.attn_norm_weight,
-                    layer.attn_norm_bias.as_deref(),
-                    self.config.eps,
-                    &mut scratch.normed,
-                );
-            }
-
-            // 2b. QKV projection
-            let q_dim = layer.qkv_weight.q_dim(hidden_dim);
-            let k_dim = match &layer.qkv_weight {
-                QKVWeights::Fused(_) => q_dim,
-                QKVWeights::Separate { k, .. } => k.num_elements / hidden_dim,
-            };
-            let v_dim = match &layer.qkv_weight {
-                QKVWeights::Fused(_) => q_dim,
-                QKVWeights::Separate { v, .. } => v.num_elements / hidden_dim,
-            };
-
-            let qkv = self.qkv_matmul(&scratch.normed, &layer.qkv_weight, hidden_dim)?;
-            let mut qkv = qkv;
-            if let Some(ref bias) = layer.qkv_bias {
-                self.add_bias(&mut qkv, bias);
-            }
-
-            // 2c. Extract Q, K, V and apply RoPE (reuse q, k, v scratch)
-            scratch.q.clear();
-            scratch.q.extend_from_slice(&qkv[0..q_dim]);
-            scratch.k.clear();
-            scratch.k.extend_from_slice(&qkv[q_dim..q_dim + k_dim]);
-            scratch.v.clear();
-            scratch
-                .v
-                .extend_from_slice(&qkv[q_dim + k_dim..q_dim + k_dim + v_dim]);
-
-            self.apply_rope(&mut scratch.q, position, self.config.num_heads);
-            self.apply_rope(&mut scratch.k, position, self.config.num_kv_heads);
-
-            // 2d. Compute attention using cached K/V (reuse attn_out buffer)
-            let k_cache = cache.get_k(layer_idx);
-            let v_cache = cache.get_v(layer_idx);
-
-            if k_cache.is_empty() {
-                // First token - expand V if GQA
-                scratch.attn_out.clear();
-                if self.config.num_kv_heads < self.config.num_heads {
-                    let head_dim = hidden_dim / self.config.num_heads;
-                    let group_size = self.config.num_heads / self.config.num_kv_heads;
-                    for h in 0..self.config.num_heads {
-                        let kv_head = h / group_size;
-                        let start = kv_head * head_dim;
-                        scratch
-                            .attn_out
-                            .extend_from_slice(&scratch.v[start..start + head_dim]);
-                    }
-                } else {
-                    scratch.attn_out.extend_from_slice(&scratch.v);
-                }
-            } else {
-                self.attention_with_cache_gqa_into(
-                    &scratch.q,
-                    k_cache,
-                    v_cache,
-                    &scratch.k,
-                    &scratch.v,
-                    &mut scratch.attn_out,
-                );
-            }
-
-            // 2e. Store K and V in cache
-            cache.append(layer_idx, &scratch.k, &scratch.v);
-
-            // 2f. Attention output projection (reuse ffn_input as temp)
-            let attn_output = self.fused_matmul(
-                &scratch.attn_out,
-                &layer.attn_output_weight,
-                hidden_dim,
-                hidden_dim,
-            )?;
-            let mut attn_output = attn_output;
-            if let Some(ref bias) = layer.attn_output_bias {
-                self.add_bias(&mut attn_output, bias);
-            }
-
-            // 2g. Residual connection
-            for i in 0..hidden_dim {
-                scratch.hidden[i] += attn_output[i];
-            }
-
-            // 2h. Pre-FFN layer norm
-            if let Some(ref ffn_norm) = layer.ffn_norm_weight {
-                if use_rmsnorm {
-                    self.rms_norm_into(
-                        &scratch.hidden,
-                        ffn_norm,
-                        self.config.eps,
-                        &mut scratch.normed,
-                    );
-                } else {
-                    self.layer_norm_into(
-                        &scratch.hidden,
-                        ffn_norm,
-                        layer.ffn_norm_bias.as_deref(),
-                        self.config.eps,
-                        &mut scratch.normed,
-                    );
-                }
-            } else {
-                scratch.normed.clear();
-                scratch.normed.extend_from_slice(&scratch.hidden);
-            }
-
-            // 2i. FFN with SwiGLU or GELU
-            let ffn_output = if let Some(ref gate_weight) = layer.ffn_gate_weight {
-                // SwiGLU path (LLaMA)
-                let mut ffn_up = self.fused_matmul(
-                    &scratch.normed,
-                    &layer.ffn_up_weight,
-                    hidden_dim,
-                    self.config.intermediate_dim,
-                )?;
-                if let Some(ref bias) = layer.ffn_up_bias {
-                    self.add_bias(&mut ffn_up, bias);
-                }
-
-                let mut ffn_gate = self.fused_matmul(
-                    &scratch.normed,
-                    gate_weight,
-                    hidden_dim,
-                    self.config.intermediate_dim,
-                )?;
-                if let Some(ref bias) = layer.ffn_gate_bias {
-                    self.add_bias(&mut ffn_gate, bias);
-                }
-
-                self.silu(&mut ffn_gate);
-                for i in 0..ffn_gate.len() {
-                    ffn_gate[i] *= ffn_up[i];
-                }
-
-                let mut output = self.fused_matmul(
-                    &ffn_gate,
-                    &layer.ffn_down_weight,
-                    self.config.intermediate_dim,
-                    hidden_dim,
-                )?;
-                if let Some(ref bias) = layer.ffn_down_bias {
-                    self.add_bias(&mut output, bias);
-                }
-                output
-            } else {
-                // GELU path (phi-2)
-                let mut ffn_hidden = self.fused_matmul(
-                    &scratch.normed,
-                    &layer.ffn_up_weight,
-                    hidden_dim,
-                    self.config.intermediate_dim,
-                )?;
-                if let Some(ref bias) = layer.ffn_up_bias {
-                    self.add_bias(&mut ffn_hidden, bias);
-                }
-                self.gelu(&mut ffn_hidden);
-
-                let mut output = self.fused_matmul(
-                    &ffn_hidden,
-                    &layer.ffn_down_weight,
-                    self.config.intermediate_dim,
-                    hidden_dim,
-                )?;
-                if let Some(ref bias) = layer.ffn_down_bias {
-                    self.add_bias(&mut output, bias);
-                }
-                output
-            };
-
-            // 2j. Residual connection
-            for i in 0..hidden_dim {
-                scratch.hidden[i] += ffn_output[i];
-            }
-        }
-
-        // Advance cache position
-        cache.advance();
-
-        // 3. Final layer norm
-        if use_rmsnorm {
-            self.rms_norm_into(
-                &scratch.hidden,
-                &self.output_norm_weight,
-                self.config.eps,
-                &mut scratch.normed,
-            );
-        } else {
-            self.layer_norm_into(
-                &scratch.hidden,
-                &self.output_norm_weight,
-                self.output_norm_bias.as_deref(),
-                self.config.eps,
-                &mut scratch.normed,
-            );
-        }
-
-        // 4. LM head projection
-        let mut logits = self.fused_matmul(
-            &scratch.normed,
-            &self.lm_head_weight,
-            hidden_dim,
-            self.config.vocab_size,
-        )?;
-        if let Some(ref bias) = self.lm_head_bias {
-            self.add_bias(&mut logits, bias);
-        }
-
-        Ok(logits)
     }
 
     /// Embed token into pre-allocated buffer
@@ -8992,15 +8738,6 @@ impl AsyncCommandQueue {
         }
     }
 
-    /// Check if a slot is ready for new commands
-    pub fn is_slot_ready(&self, slot_idx: usize) -> bool {
-        let slot = self.slots[slot_idx].lock().expect("mutex poisoned");
-        matches!(
-            slot.state,
-            CommandSlotState::Empty | CommandSlotState::Complete
-        )
-    }
-
     /// Get queue statistics
     pub fn stats(&self) -> AsyncQueueStats {
         let submitted = self
@@ -10103,36 +9840,6 @@ impl OwnedQuantizedModel {
             #[cfg(feature = "cuda")]
             cached_weight_names: std::sync::Mutex::new(std::collections::HashSet::new()),
         })
-    }
-
-    /// Create a new model for testing/benchmarking without loading from file
-    ///
-    /// This constructor handles the CUDA feature conditional fields automatically.
-    #[must_use]
-    pub fn new_for_benchmark(
-        config: GGUFConfig,
-        token_embedding: Vec<f32>,
-        layers: Vec<OwnedQuantizedLayer>,
-        output_norm_weight: Vec<f32>,
-        output_norm_bias: Option<Vec<f32>>,
-        lm_head_weight: OwnedQuantizedTensor,
-        lm_head_bias: Option<Vec<f32>>,
-    ) -> Self {
-        Self {
-            config,
-            token_embedding,
-            layers,
-            output_norm_weight,
-            output_norm_bias,
-            lm_head_weight,
-            lm_head_bias,
-            #[cfg(feature = "cuda")]
-            cuda_executor: None,
-            #[cfg(feature = "cuda")]
-            cuda_kernel_count: std::sync::atomic::AtomicU64::new(0),
-            #[cfg(feature = "cuda")]
-            cached_weight_names: std::sync::Mutex::new(std::collections::HashSet::new()),
-        }
     }
 
     /// Serialize model to APR format with quantized weights preserved
@@ -13921,279 +13628,6 @@ impl OwnedQuantizedModel {
     /// # Arguments
     /// * `token_id` - Token to process
     /// * `cache` - KV cache for incremental decoding
-    /// * `position` - Position in sequence
-    /// * `scratch` - Pre-allocated scratch buffers
-    ///
-    /// # Returns
-    /// Logits slice from the scratch buffer
-    pub fn forward_single_with_cache_scratch<'a>(
-        &self,
-        token_id: u32,
-        cache: &mut OwnedQuantizedKVCache,
-        position: usize,
-        scratch: &'a mut OwnedInferenceScratchBuffer,
-    ) -> Result<&'a [f32]> {
-        let hidden_dim = self.config.hidden_dim;
-
-        // 1. Token embedding lookup
-        let hidden = self.embed(&[token_id]);
-
-        // Detect if model uses RMSNorm (LLaMA-style) or LayerNorm (phi-2 style)
-        let use_rmsnorm = self
-            .layers
-            .first()
-            .is_some_and(|l| l.ffn_gate_weight.is_some() && l.attn_norm_bias.is_none());
-
-        // Working hidden state (can't avoid this allocation easily)
-        let mut working_hidden = hidden;
-
-        // 2. Process through transformer layers
-        for (layer_idx, layer) in self.layers.iter().enumerate() {
-            // 2a+2b. Fused attention layer norm + QKV projection
-            let mut qkv = if use_rmsnorm {
-                self.fused_rmsnorm_qkv_matmul(
-                    &working_hidden,
-                    &layer.attn_norm_weight,
-                    self.config.eps,
-                    &layer.qkv_weight,
-                )?
-            } else {
-                let normed = self.layer_norm(
-                    &working_hidden,
-                    &layer.attn_norm_weight,
-                    layer.attn_norm_bias.as_deref(),
-                    self.config.eps,
-                );
-                self.qkv_matmul(&normed, &layer.qkv_weight)?
-            };
-            if let Some(ref bias) = layer.qkv_bias {
-                self.add_bias(&mut qkv, bias);
-            }
-
-            // 2c. Extract Q, K, V with GQA-aware sizes and apply RoPE
-            let num_kv_heads = self.config.num_kv_heads;
-            let head_dim = hidden_dim / self.config.num_heads;
-            let kv_dim = num_kv_heads * head_dim;
-
-            // Apply RoPE in-place to Q and K within QKV buffer
-            self.apply_rope(&mut qkv[0..hidden_dim], position, self.config.num_heads);
-            self.apply_rope(
-                &mut qkv[hidden_dim..hidden_dim + kv_dim],
-                position,
-                num_kv_heads,
-            );
-
-            // Use slices to avoid copies
-            let q = &qkv[0..hidden_dim];
-            let k = &qkv[hidden_dim..hidden_dim + kv_dim];
-            let v = &qkv[hidden_dim + kv_dim..hidden_dim + 2 * kv_dim];
-
-            // 2d. Get cached K/V and compute attention
-            let k_cache = cache.get_k(layer_idx);
-            let v_cache = cache.get_v(layer_idx);
-
-            // Reuse scratch.attn_out for attention output
-            scratch.attn_out.clear();
-            scratch.attn_out.resize(hidden_dim, 0.0);
-
-            if k_cache.is_empty() {
-                // First token - expand V if GQA
-                let q_per_kv = self.config.num_heads / num_kv_heads;
-                for q_head in 0..self.config.num_heads {
-                    let kv_head = q_head / q_per_kv;
-                    let v_start = kv_head * head_dim;
-                    let out_start = q_head * head_dim;
-                    scratch.attn_out[out_start..out_start + head_dim]
-                        .copy_from_slice(&v[v_start..v_start + head_dim]);
-                }
-            } else {
-                // Use cached K/V for attention with GQA
-                // Use pre-allocated buffer to avoid 704 Vec allocations per token
-                self.attention_with_cache_gqa_into(
-                    q,
-                    k_cache,
-                    v_cache,
-                    k,
-                    v,
-                    &mut scratch.attn_out,
-                );
-            }
-
-            // 2e. Store K and V in cache
-            cache.append(layer_idx, k, v);
-
-            // 2f. Attention output projection
-            let mut attn_output =
-                self.fused_matmul(&scratch.attn_out, &layer.attn_output_weight)?;
-            if let Some(ref bias) = layer.attn_output_bias {
-                self.add_bias(&mut attn_output, bias);
-            }
-
-            // 2g. Residual connection
-            for i in 0..hidden_dim {
-                working_hidden[i] += attn_output[i];
-            }
-
-            // 2h+2i. FFN with SwiGLU/GELU
-            // For RMSNorm+SwiGLU: use zero-allocation path with scratch buffers
-            // For other paths: use allocating path
-            let ffn_output = if use_rmsnorm
-                && layer.ffn_norm_weight.is_some()
-                && layer.ffn_gate_weight.is_some()
-            {
-                // SAFETY: is_some() checked above in the if condition
-                let ffn_norm = layer
-                    .ffn_norm_weight
-                    .as_ref()
-                    .expect("ffn_norm_weight checked above");
-                let gate_weight = layer
-                    .ffn_gate_weight
-                    .as_ref()
-                    .expect("ffn_gate_weight checked above");
-
-                // Get FFN dimensions for this layer
-                let ffn_out_dim = layer.ffn_up_weight.out_dim;
-
-                // Resize scratch buffers to match layer dimensions
-                scratch.ffn_up.resize(ffn_out_dim, 0.0);
-                scratch.ffn_gate.resize(ffn_out_dim, 0.0);
-
-                // Zero-allocation FFN using scratch buffers
-                crate::quantize::fused_rmsnorm_ffn_up_gate_into(
-                    &working_hidden,
-                    ffn_norm,
-                    self.config.eps,
-                    &layer.ffn_up_weight.data,
-                    &gate_weight.data,
-                    hidden_dim,
-                    ffn_out_dim,
-                    &mut scratch.ffn_up,
-                    &mut scratch.ffn_gate,
-                    &mut scratch.q8_scales,
-                    &mut scratch.q8_quants,
-                )?;
-
-                if let Some(ref bias) = layer.ffn_up_bias {
-                    self.add_bias(&mut scratch.ffn_up, bias);
-                }
-                if let Some(ref bias) = layer.ffn_gate_bias {
-                    self.add_bias(&mut scratch.ffn_gate, bias);
-                }
-
-                // SwiGLU: silu(gate) * up, result in ffn_gate
-                self.silu(&mut scratch.ffn_gate);
-                for i in 0..scratch.ffn_gate.len() {
-                    scratch.ffn_gate[i] *= scratch.ffn_up[i];
-                }
-
-                // FFN down projection using scratch buffer directly
-                let mut result = self.fused_matmul(&scratch.ffn_gate, &layer.ffn_down_weight)?;
-                if let Some(ref bias) = layer.ffn_down_bias {
-                    self.add_bias(&mut result, bias);
-                }
-                result
-            } else {
-                // Non-optimized paths
-                let ffn_activated = match (&layer.ffn_norm_weight, &layer.ffn_gate_weight) {
-                    // Non-fused SwiGLU
-                    (ffn_norm_opt, Some(ref gate_weight)) => {
-                        let ffn_input = if let Some(ref ffn_norm) = ffn_norm_opt {
-                            self.layer_norm(
-                                &working_hidden,
-                                ffn_norm,
-                                layer.ffn_norm_bias.as_deref(),
-                                self.config.eps,
-                            )
-                        } else {
-                            working_hidden.clone()
-                        };
-
-                        let mut ffn_up = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
-                        if let Some(ref bias) = layer.ffn_up_bias {
-                            self.add_bias(&mut ffn_up, bias);
-                        }
-
-                        let mut ffn_gate = self.fused_matmul(&ffn_input, gate_weight)?;
-                        if let Some(ref bias) = layer.ffn_gate_bias {
-                            self.add_bias(&mut ffn_gate, bias);
-                        }
-
-                        // SwiGLU: silu(gate) * up
-                        self.silu(&mut ffn_gate);
-                        for i in 0..ffn_gate.len() {
-                            ffn_gate[i] *= ffn_up[i];
-                        }
-                        ffn_gate
-                    },
-
-                    // GELU path
-                    (ffn_norm_opt, None) => {
-                        let ffn_input = if let Some(ref ffn_norm) = ffn_norm_opt {
-                            if use_rmsnorm {
-                                self.rms_norm(&working_hidden, ffn_norm, self.config.eps)
-                            } else {
-                                self.layer_norm(
-                                    &working_hidden,
-                                    ffn_norm,
-                                    layer.ffn_norm_bias.as_deref(),
-                                    self.config.eps,
-                                )
-                            }
-                        } else {
-                            working_hidden.clone()
-                        };
-
-                        let mut ffn_hidden = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
-                        if let Some(ref bias) = layer.ffn_up_bias {
-                            self.add_bias(&mut ffn_hidden, bias);
-                        }
-                        self.gelu(&mut ffn_hidden);
-                        ffn_hidden
-                    },
-                };
-
-                // FFN down projection
-                let mut result = self.fused_matmul(&ffn_activated, &layer.ffn_down_weight)?;
-                if let Some(ref bias) = layer.ffn_down_bias {
-                    self.add_bias(&mut result, bias);
-                }
-                result
-            };
-
-            // Residual
-            for i in 0..hidden_dim {
-                working_hidden[i] += ffn_output[i];
-            }
-        }
-
-        // Advance cache position
-        cache.advance();
-
-        // 3+4. Fused final layer norm + LM head projection
-        // Reuse scratch.logits for output
-        let logits_vec = if use_rmsnorm {
-            self.fused_rmsnorm_lm_head(&working_hidden)?
-        } else {
-            let normed = self.layer_norm(
-                &working_hidden,
-                &self.output_norm_weight,
-                self.output_norm_bias.as_deref(),
-                self.config.eps,
-            );
-            self.fused_matmul(&normed, &self.lm_head_weight)?
-        };
-
-        // Copy to scratch buffer (this is the output)
-        scratch.logits.clear();
-        scratch.logits.extend_from_slice(&logits_vec);
-
-        if let Some(ref bias) = self.lm_head_bias {
-            self.add_bias(&mut scratch.logits, bias);
-        }
-
-        Ok(&scratch.logits)
-    }
-
     /// Forward pass with adaptive CPU/GPU attention selection (IMP-124)
     ///
     /// This variant of `forward_single_with_cache` uses `adaptive_attention_with_cache`
@@ -14647,139 +14081,6 @@ impl OwnedQuantizedModel {
 
         Ok(tokens)
     }
-
-    /// Generate tokens with tracing for debugging (APR-TRACE-001)
-    ///
-    /// Toyota Way: Genchi Genbutsu (Go and See) + Jidoka (Built-in Quality)
-    /// Provides step-by-step visualization of the inference pipeline.
-    ///
-    /// # Arguments
-    /// * `prompt` - Input token IDs
-    /// * `config` - Generation configuration
-    /// * `tracer` - Inference tracer to record events
-    /// * `decode_fn` - Optional function to decode token IDs to text (for DECODE step)
-    ///
-    /// # Returns
-    /// Generated token sequence including prompt
-    ///
-    /// # Errors
-    /// Returns error if forward pass fails
-    pub fn generate_with_cache_traced<F>(
-        &self,
-        prompt: &[u32],
-        config: &QuantizedGenerateConfig,
-        tracer: &mut crate::inference_trace::InferenceTracer,
-        decode_fn: Option<F>,
-    ) -> Result<Vec<u32>>
-    where
-        F: Fn(u32) -> String,
-    {
-        use crate::inference_trace::TraceStep;
-
-        if prompt.is_empty() {
-            return Err(RealizarError::InvalidShape {
-                reason: "Prompt cannot be empty".to_string(),
-            });
-        }
-
-        let max_seq_len = prompt.len() + config.max_tokens;
-        let mut cache = OwnedQuantizedKVCache::from_config(&self.config, max_seq_len);
-        let mut tokens = prompt.to_vec();
-
-        // Trace EMBED step
-        tracer.start_step(TraceStep::Embed);
-        let embed_data: Vec<f32> = prompt
-            .iter()
-            .flat_map(|&t| {
-                let start = t as usize * self.config.hidden_dim;
-                let end = start + self.config.hidden_dim;
-                if end <= self.token_embedding.len() {
-                    self.token_embedding[start..end].to_vec()
-                } else {
-                    vec![0.0; self.config.hidden_dim]
-                }
-            })
-            .collect();
-        tracer.trace_embed(prompt.len(), self.config.hidden_dim, Some(&embed_data));
-
-        // Process prompt tokens (prefill), keeping the logits from the last position
-        let mut logits = Vec::new();
-        for (pos, &token_id) in prompt.iter().enumerate() {
-            tracer.start_step(TraceStep::TransformerBlock);
-            logits = self.forward_single_with_cache(token_id, &mut cache, pos)?;
-
-            // Only trace last layer for prefill to avoid noise
-            if pos == prompt.len() - 1 {
-                tracer.trace_layer(
-                    self.config.num_layers - 1,
-                    0,
-                    None, // Don't capture full hidden state for performance
-                    1,
-                    self.config.hidden_dim,
-                );
-            }
-        }
-
-        // Trace LM_HEAD after prefill
-        tracer.start_step(TraceStep::LmHead);
-        tracer.trace_lm_head(0, &logits, self.config.vocab_size);
-
-        // Generate new tokens
-        for gen_idx in 0..config.max_tokens {
-            // Trace SAMPLE step
-            tracer.start_step(TraceStep::Sample);
-            let next_token = if config.temperature == 0.0 || config.top_k == 1 {
-                Self::argmax(&logits)
-            } else {
-                Self::sample_topk(&logits, config.temperature, config.top_k)
-            };
-            tracer.trace_sample(
-                gen_idx + 1,
-                &logits,
-                next_token,
-                config.temperature,
-                config.top_k,
-            );
-
-            // Check stop condition
-            if config.stop_tokens.contains(&next_token) {
-                break;
-            }
-
-            // Trace DECODE step
-            tracer.start_step(TraceStep::Decode);
-            let decoded = decode_fn
-                .as_ref()
-                .map_or_else(|| format!("<token_{}>", next_token), |f| f(next_token));
-            tracer.trace_decode(gen_idx + 1, next_token, &decoded, self.config.vocab_size);
-
-            tokens.push(next_token);
-
-            // Check max length
-            if tokens.len() >= max_seq_len {
-                break;
-            }
-
-            // Forward pass for next token
-            tracer.start_step(TraceStep::TransformerBlock);
-            let position = prompt.len() + gen_idx;
-            logits = self.forward_single_with_cache(next_token, &mut cache, position)?;
-            tracer.trace_layer(
-                self.config.num_layers - 1,
-                gen_idx + 1,
-                None,
-                1,
-                self.config.hidden_dim,
-            );
-
-            // Trace LM_HEAD
-            tracer.start_step(TraceStep::LmHead);
-            tracer.trace_lm_head(gen_idx + 1, &logits, self.config.vocab_size);
-        }
-
-        Ok(tokens)
-    }
-
     /// Generate tokens with zero-allocation inference (IMP-131)
     ///
     /// This is the highest-performance generation path. Uses pre-allocated
@@ -15761,114 +15062,6 @@ impl OwnedQuantizedModel {
         )
     }
 
-    /// GPU-accelerated batched attention using trueno GpuBackend::matmul (PARITY-002)
-    ///
-    /// This uses actual GPU matrix multiplication for Q @ K^T, which is the
-    /// computationally expensive part of attention.
-    ///
-    /// NOTE: Currently disabled because GPU is 6.6x SLOWER than CPU for attention.
-    /// Reason: Attention = per-head MATVEC, GPU overhead dominates for small matrices.
-    /// See batched_attention_with_cache() for details on why CPU path is used.
-    ///
-    /// Kept for future use with FlashAttention or batched multi-request inference.
-    #[cfg(feature = "gpu")]
-    #[allow(dead_code)] // Intentionally unused - CPU path is faster for attention MATVEC
-    #[allow(clippy::too_many_arguments)] // Attention requires all these parameters
-    fn gpu_batched_attention(
-        &self,
-        all_q: &[Vec<f32>],
-        all_k: &[Vec<f32>],
-        all_v: &[Vec<f32>],
-        cached_k: &[f32],
-        cached_v: &[f32],
-        cache_len: usize,
-        hidden_dim: usize,
-        num_heads: usize,
-        head_dim: usize,
-    ) -> Result<Vec<Vec<f32>>> {
-        let seq_len = all_q.len();
-        let total_len = cache_len + seq_len;
-
-        // Initialize GPU backend (lazy)
-        let mut gpu = GpuBackend::new();
-
-        // Build flattened K and V matrices: [total_len, hidden_dim]
-        let mut k_flat = Vec::with_capacity(total_len * hidden_dim);
-        let mut v_flat = Vec::with_capacity(total_len * hidden_dim);
-
-        // Add cached K/V first
-        k_flat.extend_from_slice(cached_k);
-        v_flat.extend_from_slice(cached_v);
-
-        // Add current sequence K/V
-        for k in all_k {
-            k_flat.extend_from_slice(k);
-        }
-        for v in all_v {
-            v_flat.extend_from_slice(v);
-        }
-
-        let scale = 1.0 / (head_dim as f32).sqrt();
-        let mut outputs = Vec::with_capacity(seq_len);
-
-        // Process each query position with causal masking
-        for (q_pos, q) in all_q.iter().enumerate() {
-            // For causal attention, only attend to positions <= q_pos
-            let attend_len = cache_len + q_pos + 1;
-            let mut output = vec![0.0; hidden_dim];
-
-            // Process each head using GPU matmul for Q @ K^T
-            for head in 0..num_heads {
-                let head_start = head * head_dim;
-
-                // Extract Q for this head: [1, head_dim]
-                let q_head: Vec<f32> = q[head_start..head_start + head_dim].to_vec();
-
-                // Extract K for this head: [attend_len, head_dim] -> transpose to [head_dim, attend_len]
-                let mut k_head_t = vec![0.0f32; head_dim * attend_len];
-                for (pos, k_pos) in (0..attend_len).enumerate() {
-                    let k_offset = k_pos * hidden_dim + head_start;
-                    for d in 0..head_dim {
-                        // K^T: [head_dim, attend_len] = K transposed
-                        k_head_t[d * attend_len + pos] = k_flat[k_offset + d];
-                    }
-                }
-
-                // GPU matmul: Q[1, head_dim] @ K^T[head_dim, attend_len] = scores[1, attend_len]
-                let scores_raw = gpu
-                    .matmul(&q_head, &k_head_t, 1, head_dim, attend_len)
-                    .map_err(|e| RealizarError::GpuError { reason: e })?;
-
-                // Scale scores
-                let mut scores: Vec<f32> = scores_raw.iter().map(|&s| s * scale).collect();
-
-                // Softmax (SIMD-optimized, in-place)
-                crate::quantize::softmax_simd(&mut scores);
-
-                // Weighted sum of values using GPU matmul
-                // scores[1, attend_len] @ V[attend_len, head_dim] = output[1, head_dim]
-                let mut v_head = vec![0.0f32; attend_len * head_dim];
-                for (pos, v_pos) in (0..attend_len).enumerate() {
-                    let v_offset = v_pos * hidden_dim + head_start;
-                    for d in 0..head_dim {
-                        v_head[pos * head_dim + d] = v_flat[v_offset + d];
-                    }
-                }
-
-                let head_output = gpu
-                    .matmul(&scores, &v_head, 1, attend_len, head_dim)
-                    .map_err(|e| RealizarError::GpuError { reason: e })?;
-
-                // Copy to output
-                output[head_start..head_start + head_dim].copy_from_slice(&head_output);
-            }
-
-            outputs.push(output);
-        }
-
-        Ok(outputs)
-    }
-
     /// CPU-based batched attention (fallback for small workloads)
     #[cfg(feature = "gpu")]
     #[allow(clippy::too_many_arguments)] // Attention requires all these parameters
@@ -16220,146 +15413,6 @@ impl OwnedQuantizedModel {
         }
 
         Ok(all_tokens)
-    }
-
-    /// Batched forward pass for multiple requests (PARITY-006)
-    ///
-    /// Processes the same position across multiple requests in parallel.
-    /// This enables GPU GEMM acceleration for the matmul operations.
-    ///
-    /// # Arguments
-    /// * `token_ids` - Token IDs for each request at the current position
-    /// * `caches` - KV caches for each request (mutable)
-    /// * `positions` - Position in sequence for each request
-    ///
-    /// # Returns
-    /// Logits for each request [batch_size, vocab_size]
-    ///
-    /// # Errors
-    /// Returns error if forward pass fails
-    #[allow(dead_code)] // Will be used when batched matmul is fully integrated
-    fn forward_batch_multi_request(
-        &self,
-        token_ids: &[u32],
-        caches: &mut [ContiguousKVCache],
-        positions: &[usize],
-    ) -> Result<Vec<Vec<f32>>> {
-        let batch_size = token_ids.len();
-        if batch_size != caches.len() || batch_size != positions.len() {
-            return Err(RealizarError::InvalidShape {
-                reason: format!(
-                    "Batch size mismatch: tokens={}, caches={}, positions={}",
-                    batch_size,
-                    caches.len(),
-                    positions.len()
-                ),
-            });
-        }
-
-        let hidden_dim = self.config.hidden_dim;
-
-        // 1. Embed all tokens: [batch_size, hidden_dim]
-        let mut hidden_batch: Vec<Vec<f32>> = token_ids
-            .iter()
-            .map(|&token_id| self.embed(&[token_id]))
-            .collect();
-
-        // 2. Process through transformer layers
-        for (layer_idx, layer) in self.layers.iter().enumerate() {
-            // Process each request in batch
-            for (req_idx, hidden) in hidden_batch.iter_mut().enumerate() {
-                let position = positions[req_idx];
-
-                // 2a. Attention layer norm
-                let normed = self.layer_norm(
-                    hidden,
-                    &layer.attn_norm_weight,
-                    layer.attn_norm_bias.as_deref(),
-                    self.config.eps,
-                );
-
-                // 2b. QKV projection
-                let mut qkv = self.qkv_matmul(&normed, &layer.qkv_weight)?;
-                if let Some(ref bias) = layer.qkv_bias {
-                    self.add_bias(&mut qkv, bias);
-                }
-
-                // 2c. Extract Q, K, V and apply RoPE
-                // Note: This uses hidden_dim for all (assumes non-GQA or fused QKV)
-                let mut q = qkv[0..hidden_dim].to_vec();
-                let mut k = qkv[hidden_dim..2 * hidden_dim].to_vec();
-                let v = qkv[2 * hidden_dim..3 * hidden_dim].to_vec();
-
-                self.apply_rope(&mut q, position, self.config.num_heads);
-                self.apply_rope(&mut k, position, self.config.num_heads); // Same as Q for non-GQA
-
-                // 2d. Get cached K/V and compute attention
-                let k_cache = caches[req_idx].get_k(layer_idx);
-                let v_cache = caches[req_idx].get_v(layer_idx);
-
-                let attn_out = if k_cache.is_empty() {
-                    v.clone()
-                } else {
-                    self.attention_with_cache(&q, k_cache, v_cache, &k, &v)
-                };
-
-                // 2e. Store K and V in cache
-                caches[req_idx].append(layer_idx, &k, &v);
-
-                // 2f. Attention output projection
-                let mut attn_output = self.fused_matmul(&attn_out, &layer.attn_output_weight)?;
-                if let Some(ref bias) = layer.attn_output_bias {
-                    self.add_bias(&mut attn_output, bias);
-                }
-
-                // 2g. Residual connection
-                for i in 0..hidden_dim {
-                    hidden[i] += attn_output[i];
-                }
-
-                // 2h. FFN
-                let mut ffn_hidden = self.fused_matmul(hidden, &layer.ffn_up_weight)?;
-                if let Some(ref bias) = layer.ffn_up_bias {
-                    self.add_bias(&mut ffn_hidden, bias);
-                }
-                self.gelu(&mut ffn_hidden);
-
-                let mut ffn_output = self.fused_matmul(&ffn_hidden, &layer.ffn_down_weight)?;
-                if let Some(ref bias) = layer.ffn_down_bias {
-                    self.add_bias(&mut ffn_output, bias);
-                }
-
-                // Residual
-                for i in 0..hidden_dim {
-                    hidden[i] += ffn_output[i];
-                }
-            }
-
-            // Advance all caches after processing layer
-            for cache in caches.iter_mut() {
-                cache.advance();
-            }
-        }
-
-        // 3. Final layer norm and LM head for each request
-        let mut all_logits = Vec::with_capacity(batch_size);
-        for hidden in &hidden_batch {
-            let normed = self.layer_norm(
-                hidden,
-                &self.output_norm_weight,
-                self.output_norm_bias.as_deref(),
-                self.config.eps,
-            );
-
-            let mut logits = self.fused_matmul(&normed, &self.lm_head_weight)?;
-            if let Some(ref bias) = self.lm_head_bias {
-                self.add_bias(&mut logits, bias);
-            }
-
-            all_logits.push(logits);
-        }
-
-        Ok(all_logits)
     }
 
     /// Get the batch throughput improvement factor (PARITY-006)
@@ -17131,87 +16184,6 @@ impl OwnedQuantizedModel {
             // Copy head output to final output
             for pos in 0..seq_len {
                 let out_start = pos * hidden_dim + head_offset;
-                let head_start = pos * head_dim;
-                output[out_start..out_start + head_dim]
-                    .copy_from_slice(&head_output[head_start..head_start + head_dim]);
-            }
-        }
-
-        Ok(output)
-    }
-
-    /// PAR-104: GQA-aware batched causal attention with GPU acceleration
-    ///
-    /// Unlike `batched_causal_attention_gpu`, this handles Grouped Query Attention
-    /// where Q has more heads than K and V:
-    /// - Q: [seq_len, q_dim] where q_dim = num_heads * head_dim
-    /// - K: [seq_len, kv_dim] where kv_dim = num_kv_heads * head_dim
-    /// - V: [seq_len, kv_dim] where kv_dim = num_kv_heads * head_dim
-    ///
-    /// Each K/V head is shared by (num_heads / num_kv_heads) Q heads.
-    #[cfg(feature = "gpu")]
-    pub fn batched_causal_attention_gpu_gqa(
-        &self,
-        q: &[f32],
-        k: &[f32],
-        v: &[f32],
-        seq_len: usize,
-        q_dim: usize,
-        kv_dim: usize,
-    ) -> Result<Vec<f32>> {
-        use crate::gpu::HybridScheduler;
-
-        let num_heads = self.config.num_heads;
-        let head_dim = q_dim / num_heads;
-        let num_kv_heads = kv_dim / head_dim;
-        let groups = num_heads / num_kv_heads; // Q heads per KV head
-        let scale = 1.0 / (head_dim as f32).sqrt();
-
-        let mut scheduler = HybridScheduler::with_threshold(1000).map_err(|e| {
-            RealizarError::UnsupportedOperation {
-                operation: "HybridScheduler::with_threshold".to_string(),
-                reason: format!("GPU scheduler initialization failed: {e}"),
-            }
-        })?;
-
-        let mut output = vec![0.0f32; seq_len * q_dim];
-
-        // Process each Q head
-        for q_head in 0..num_heads {
-            let q_head_offset = q_head * head_dim;
-            let kv_head = q_head / groups; // Which KV head this Q head uses
-            let kv_head_offset = kv_head * head_dim;
-
-            // Extract Q_h: [seq_len, head_dim] from Q
-            let mut q_h = Vec::with_capacity(seq_len * head_dim);
-            for pos in 0..seq_len {
-                let start = pos * q_dim + q_head_offset;
-                q_h.extend_from_slice(&q[start..start + head_dim]);
-            }
-
-            // Extract K_h, V_h: [seq_len, head_dim] from K, V using KV head index
-            let mut k_h = Vec::with_capacity(seq_len * head_dim);
-            let mut v_h = Vec::with_capacity(seq_len * head_dim);
-            for pos in 0..seq_len {
-                let start = pos * kv_dim + kv_head_offset;
-                k_h.extend_from_slice(&k[start..start + head_dim]);
-                v_h.extend_from_slice(&v[start..start + head_dim]);
-            }
-
-            // Compute attention scores: Q_h @ K_h^T -> [seq_len, seq_len]
-            let scores =
-                self.batched_qk_scores(&q_h, &k_h, seq_len, head_dim, scale, &mut scheduler)?;
-
-            // Apply causal mask and softmax
-            let attn_weights = self.apply_causal_mask_softmax(&scores, seq_len);
-
-            // Compute output: attn_weights @ V_h -> [seq_len, head_dim]
-            let head_output =
-                self.batched_attn_v(&attn_weights, &v_h, seq_len, head_dim, &mut scheduler)?;
-
-            // Copy head output to final output
-            for pos in 0..seq_len {
-                let out_start = pos * q_dim + q_head_offset;
                 let head_start = pos * head_dim;
                 output[out_start..out_start + head_dim]
                     .copy_from_slice(&head_output[head_start..head_start + head_dim]);
@@ -22443,16 +21415,29 @@ impl OwnedQuantizedModelCuda {
         let mut tokens = prompt.to_vec();
 
         // Process prompt tokens (prefill) with tracing
+        // F-AWS-04: Only emit Entry/Exit pair for last prefill token to avoid orphaned states
         for (pos, &token_id) in prompt.iter().enumerate() {
             if pos < prompt.len() - 1 {
-                tracer.start_step(TraceStep::TransformerBlock);
+                let is_last_prefill = pos == prompt.len() - 2;
+                // Only start tracing for the last prefill token (F-AWS-01 Entry/Exit pairing)
+                if is_last_prefill {
+                    tracer.start_step(TraceStep::TransformerBlock);
+                }
                 let _ = self.forward_gpu_resident(token_id, &mut cache, pos)?;
-                // Trace last layer for prefill
-                if pos == prompt.len() - 2 {
+                // Trace last layer for prefill - this emits the Exit event
+                if is_last_prefill {
+                    // APR-TRACE-001: D2H sync for verbose tracing (Genchi Genbutsu)
+                    let hidden_state = if tracer.is_verbose() {
+                        self.executor
+                            .read_hidden_state_to_cpu()
+                            .ok()
+                    } else {
+                        None
+                    };
                     tracer.trace_layer(
                         self.model.config.num_layers - 1,
                         0,
-                        None,
+                        hidden_state.as_deref(),
                         1,
                         self.model.config.hidden_dim,
                     );
@@ -22475,6 +21460,24 @@ impl OwnedQuantizedModelCuda {
                 let token =
                     self.forward_gpu_resident_to_token_id(last_token, &mut cache, position)?;
 
+                // APR-TRACE-001: D2H sync for verbose tracing (Genchi Genbutsu)
+                let hidden_state = if tracer.is_verbose() {
+                    self.executor
+                        .read_hidden_state_to_cpu()
+                        .ok()
+                } else {
+                    None
+                };
+
+                // F-AWS-04: Emit TransformerBlock Exit before starting LmHead Entry
+                tracer.trace_layer(
+                    self.model.config.num_layers - 1,
+                    gen_idx,
+                    hidden_state.as_deref(),
+                    1,
+                    self.model.config.hidden_dim,
+                );
+
                 // Trace LM_HEAD (no logits available in argmax path)
                 tracer.start_step(TraceStep::LmHead);
                 // Create placeholder logits with peak at selected token
@@ -22493,11 +21496,20 @@ impl OwnedQuantizedModelCuda {
                 // Non-greedy: get full logits
                 let logits = self.forward_gpu_resident(last_token, &mut cache, position)?;
 
+                // APR-TRACE-001: D2H sync for verbose tracing (Genchi Genbutsu)
+                let hidden_state = if tracer.is_verbose() {
+                    self.executor
+                        .read_hidden_state_to_cpu()
+                        .ok()
+                } else {
+                    None
+                };
+
                 // Trace transformer layer
                 tracer.trace_layer(
                     self.model.config.num_layers - 1,
                     gen_idx,
-                    None,
+                    hidden_state.as_deref(),
                     1,
                     self.model.config.hidden_dim,
                 );
@@ -54589,5 +53601,843 @@ mod tests {
     #[test]
     fn test_gguf_alignment_constant_cov() {
         assert_eq!(GGUF_ALIGNMENT, 32);
+    }
+
+    // =========================================================================
+    // Coverage Tests: MappedGGUFModel (file-based)
+    // =========================================================================
+
+    #[test]
+    fn test_mapped_gguf_model_from_path() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        // Create a minimal valid GGUF file
+        let mut temp = NamedTempFile::new().unwrap();
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF"); // magic
+        data.extend_from_slice(&3u32.to_le_bytes()); // version 3
+        data.extend_from_slice(&0u64.to_le_bytes()); // tensor_count = 0
+        data.extend_from_slice(&0u64.to_le_bytes()); // metadata_count = 0
+        temp.write_all(&data).unwrap();
+        temp.flush().unwrap();
+
+        let mapped = MappedGGUFModel::from_path(temp.path()).expect("from_path");
+        assert_eq!(mapped.model.header.magic, GGUF_MAGIC);
+        assert_eq!(mapped.model.header.version, 3);
+    }
+
+    #[test]
+    fn test_mapped_gguf_model_data() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        let mut temp = NamedTempFile::new().unwrap();
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        temp.write_all(&data).unwrap();
+        temp.flush().unwrap();
+
+        let mapped = MappedGGUFModel::from_path(temp.path()).unwrap();
+        let mmap_data = mapped.data();
+        assert!(!mmap_data.is_empty());
+        assert_eq!(&mmap_data[0..4], b"GGUF");
+    }
+
+    #[test]
+    fn test_mapped_gguf_model_tensor_slice() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        let mut temp = NamedTempFile::new().unwrap();
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        temp.write_all(&data).unwrap();
+        temp.flush().unwrap();
+
+        let mapped = MappedGGUFModel::from_path(temp.path()).unwrap();
+
+        // Valid slice
+        let slice = mapped.tensor_slice(0, 4);
+        assert!(slice.is_some());
+        assert_eq!(slice.unwrap(), b"GGUF");
+
+        // Out of bounds
+        let oob = mapped.tensor_slice(100, 100);
+        assert!(oob.is_none());
+
+        // Overflow
+        let overflow = mapped.tensor_slice(usize::MAX, 10);
+        assert!(overflow.is_none());
+    }
+
+    #[test]
+    fn test_mapped_gguf_model_file_size() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        let mut temp = NamedTempFile::new().unwrap();
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        let len = data.len();
+        temp.write_all(&data).unwrap();
+        temp.flush().unwrap();
+
+        let mapped = MappedGGUFModel::from_path(temp.path()).unwrap();
+        assert_eq!(mapped.file_size(), len);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_mapped_gguf_model_advise_methods() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        let mut temp = NamedTempFile::new().unwrap();
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        temp.write_all(&data).unwrap();
+        temp.flush().unwrap();
+
+        let mapped = MappedGGUFModel::from_path(temp.path()).unwrap();
+        // These just call madvise, shouldn't panic
+        mapped.advise_sequential();
+        mapped.advise_random();
+        mapped.advise_willneed();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_mapped_gguf_model_lock_memory() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        let mut temp = NamedTempFile::new().unwrap();
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        temp.write_all(&data).unwrap();
+        temp.flush().unwrap();
+
+        let mapped = MappedGGUFModel::from_path(temp.path()).unwrap();
+        // May succeed or fail depending on ulimit
+        let _ = mapped.lock_memory();
+    }
+
+    #[test]
+    fn test_mapped_gguf_model_from_path_nonexistent() {
+        let result = MappedGGUFModel::from_path("/nonexistent/path/to/model.gguf");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_mapped_gguf_model_from_path_string() {
+        let result = MappedGGUFModel::from_path(String::from("/nonexistent/model.gguf"));
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Coverage Tests: Parsing error paths
+    // =========================================================================
+
+    #[test]
+    fn test_parse_truncated_tensor_count() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        // Missing tensor_count and metadata_count
+        let result = GGUFModel::from_bytes(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_truncated_metadata_key() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes()); // tensor_count
+        data.extend_from_slice(&1u64.to_le_bytes()); // metadata_count = 1
+        // Truncated key length
+        data.extend_from_slice(&100u64.to_le_bytes()); // key_len but no key data
+        let result = GGUFModel::from_bytes(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_truncated_metadata_type() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+        let key = "test";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+        // Missing value_type
+        let result = GGUFModel::from_bytes(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_truncated_string_value() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+        let key = "test";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+        data.extend_from_slice(&8u32.to_le_bytes()); // String type
+        data.extend_from_slice(&100u64.to_le_bytes()); // string len but no data
+        let result = GGUFModel::from_bytes(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_invalid_utf8_string() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+        let key = "test";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+        data.extend_from_slice(&8u32.to_le_bytes()); // String type
+        data.extend_from_slice(&4u64.to_le_bytes()); // string len
+        data.extend_from_slice(&[0xff, 0xfe, 0xff, 0xfe]); // Invalid UTF-8
+        let result = GGUFModel::from_bytes(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_truncated_u8_value() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+        let key = "test";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+        data.extend_from_slice(&0u32.to_le_bytes()); // UInt8 type
+        // Missing value
+        let result = GGUFModel::from_bytes(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_truncated_i8_value() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+        let key = "test";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+        data.extend_from_slice(&1u32.to_le_bytes()); // Int8 type
+        // Missing value
+        let result = GGUFModel::from_bytes(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_truncated_u16_value() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+        let key = "test";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+        data.extend_from_slice(&2u32.to_le_bytes()); // UInt16 type
+        // Missing value
+        let result = GGUFModel::from_bytes(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_truncated_i16_value() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+        let key = "test";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+        data.extend_from_slice(&3u32.to_le_bytes()); // Int16 type
+        // Missing value
+        let result = GGUFModel::from_bytes(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_truncated_u32_value() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+        let key = "test";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+        data.extend_from_slice(&4u32.to_le_bytes()); // UInt32 type
+        // Missing value
+        let result = GGUFModel::from_bytes(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_truncated_i32_value() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+        let key = "test";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+        data.extend_from_slice(&5u32.to_le_bytes()); // Int32 type
+        // Missing value
+        let result = GGUFModel::from_bytes(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_truncated_f32_value() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+        let key = "test";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+        data.extend_from_slice(&6u32.to_le_bytes()); // Float32 type
+        // Missing value
+        let result = GGUFModel::from_bytes(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_truncated_bool_value() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+        let key = "test";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+        data.extend_from_slice(&7u32.to_le_bytes()); // Bool type
+        // Missing value
+        let result = GGUFModel::from_bytes(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_truncated_u64_value() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+        let key = "test";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+        data.extend_from_slice(&10u32.to_le_bytes()); // UInt64 type
+        // Missing value
+        let result = GGUFModel::from_bytes(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_truncated_i64_value() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+        let key = "test";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+        data.extend_from_slice(&11u32.to_le_bytes()); // Int64 type
+        // Missing value
+        let result = GGUFModel::from_bytes(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_truncated_f64_value() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+        let key = "test";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+        data.extend_from_slice(&12u32.to_le_bytes()); // Float64 type
+        // Missing value
+        let result = GGUFModel::from_bytes(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_array_truncated_elements() {
+        // Test array with claimed length but missing element data
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+        let key = "test";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+        data.extend_from_slice(&9u32.to_le_bytes()); // Array type
+        data.extend_from_slice(&4u32.to_le_bytes()); // Element type = UInt32
+        data.extend_from_slice(&5u64.to_le_bytes()); // 5 elements claimed
+        // Only provide 1 element worth of data
+        data.extend_from_slice(&42u32.to_le_bytes());
+        let result = GGUFModel::from_bytes(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_bos_eos_token_id() {
+        // Test bos_token_id and eos_token_id metadata parsing
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes()); // no tensors
+        data.extend_from_slice(&2u64.to_le_bytes()); // 2 metadata
+
+        // Add bos_token_id
+        let key = "tokenizer.ggml.bos_token_id";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+        data.extend_from_slice(&4u32.to_le_bytes()); // UInt32 type
+        data.extend_from_slice(&1u32.to_le_bytes()); // value = 1
+
+        // Add eos_token_id
+        let key2 = "tokenizer.ggml.eos_token_id";
+        data.extend_from_slice(&(key2.len() as u64).to_le_bytes());
+        data.extend_from_slice(key2.as_bytes());
+        data.extend_from_slice(&4u32.to_le_bytes()); // UInt32 type
+        data.extend_from_slice(&2u32.to_le_bytes()); // value = 2
+
+        let model = GGUFModel::from_bytes(&data).expect("valid GGUF");
+        assert_eq!(model.bos_token_id(), Some(1));
+        assert_eq!(model.eos_token_id(), Some(2));
+    }
+
+    #[test]
+    fn test_bos_eos_token_id_missing() {
+        // Test bos_token_id and eos_token_id when missing
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+
+        let model = GGUFModel::from_bytes(&data).expect("valid GGUF");
+        assert_eq!(model.bos_token_id(), None);
+        assert_eq!(model.eos_token_id(), None);
+    }
+
+    // =========================================================================
+    // Coverage Tests: get_tensor_f32 error paths
+    // =========================================================================
+
+    #[test]
+    fn test_get_tensor_f32_truncated_f32_data() {
+        // Build GGUF with F32 tensor but truncated data
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes()); // version
+        data.extend_from_slice(&1u64.to_le_bytes()); // tensor_count = 1
+        data.extend_from_slice(&0u64.to_le_bytes()); // metadata_count = 0
+
+        // Tensor info
+        let name = "test.weight";
+        data.extend_from_slice(&(name.len() as u64).to_le_bytes());
+        data.extend_from_slice(name.as_bytes());
+        data.extend_from_slice(&1u32.to_le_bytes()); // 1 dimension
+        data.extend_from_slice(&16u64.to_le_bytes()); // dim[0] = 16 (needs 64 bytes)
+        data.extend_from_slice(&GGUF_TYPE_F32.to_le_bytes()); // F32 type
+        data.extend_from_slice(&0u64.to_le_bytes()); // offset = 0
+
+        // Align to 32 bytes
+        while data.len() % 32 != 0 {
+            data.push(0);
+        }
+        // Only provide 4 bytes of tensor data (needs 64)
+        data.extend_from_slice(&[1.0f32.to_le_bytes()].concat());
+
+        let model = GGUFModel::from_bytes(&data).expect("valid header");
+        let result = model.get_tensor_f32("test.weight", &data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_tensor_f32_truncated_q4_0_data() {
+        // Build GGUF with Q4_0 tensor but truncated data
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes()); // tensor_count = 1
+        data.extend_from_slice(&0u64.to_le_bytes()); // metadata_count = 0
+
+        let name = "test.weight";
+        data.extend_from_slice(&(name.len() as u64).to_le_bytes());
+        data.extend_from_slice(name.as_bytes());
+        data.extend_from_slice(&1u32.to_le_bytes()); // 1 dimension
+        data.extend_from_slice(&64u64.to_le_bytes()); // dim[0] = 64 (needs 36 bytes for Q4_0)
+        data.extend_from_slice(&GGUF_TYPE_Q4_0.to_le_bytes()); // Q4_0 type
+        data.extend_from_slice(&0u64.to_le_bytes()); // offset = 0
+
+        while data.len() % 32 != 0 {
+            data.push(0);
+        }
+        // Only provide 4 bytes (needs 36)
+        data.extend_from_slice(&[0u8; 4]);
+
+        let model = GGUFModel::from_bytes(&data).expect("valid header");
+        let result = model.get_tensor_f32("test.weight", &data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_tensor_f32_truncated_q8_0_data() {
+        // Build GGUF with Q8_0 tensor but truncated data
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+
+        let name = "test.weight";
+        data.extend_from_slice(&(name.len() as u64).to_le_bytes());
+        data.extend_from_slice(name.as_bytes());
+        data.extend_from_slice(&1u32.to_le_bytes());
+        data.extend_from_slice(&64u64.to_le_bytes()); // dim = 64 (needs 68 bytes for Q8_0)
+        data.extend_from_slice(&GGUF_TYPE_Q8_0.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+
+        while data.len() % 32 != 0 {
+            data.push(0);
+        }
+        data.extend_from_slice(&[0u8; 4]); // Only 4 bytes
+
+        let model = GGUFModel::from_bytes(&data).expect("valid header");
+        let result = model.get_tensor_f32("test.weight", &data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_tensor_f32_truncated_q4_k_data() {
+        // Build GGUF with Q4_K tensor but truncated data
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+
+        let name = "test.weight";
+        data.extend_from_slice(&(name.len() as u64).to_le_bytes());
+        data.extend_from_slice(name.as_bytes());
+        data.extend_from_slice(&1u32.to_le_bytes());
+        data.extend_from_slice(&256u64.to_le_bytes()); // Q4_K needs 144 bytes for 256 elements
+        data.extend_from_slice(&GGUF_TYPE_Q4_K.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+
+        while data.len() % 32 != 0 {
+            data.push(0);
+        }
+        data.extend_from_slice(&[0u8; 4]); // Only 4 bytes
+
+        let model = GGUFModel::from_bytes(&data).expect("valid header");
+        let result = model.get_tensor_f32("test.weight", &data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_tensor_f32_truncated_q5_k_data() {
+        // Build GGUF with Q5_K tensor but truncated data
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+
+        let name = "test.weight";
+        data.extend_from_slice(&(name.len() as u64).to_le_bytes());
+        data.extend_from_slice(name.as_bytes());
+        data.extend_from_slice(&1u32.to_le_bytes());
+        data.extend_from_slice(&256u64.to_le_bytes()); // Q5_K needs 176 bytes for 256 elements
+        data.extend_from_slice(&GGUF_TYPE_Q5_K.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+
+        while data.len() % 32 != 0 {
+            data.push(0);
+        }
+        data.extend_from_slice(&[0u8; 4]); // Only 4 bytes
+
+        let model = GGUFModel::from_bytes(&data).expect("valid header");
+        let result = model.get_tensor_f32("test.weight", &data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_tensor_f32_truncated_q6_k_data() {
+        // Build GGUF with Q6_K tensor but truncated data
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+
+        let name = "test.weight";
+        data.extend_from_slice(&(name.len() as u64).to_le_bytes());
+        data.extend_from_slice(name.as_bytes());
+        data.extend_from_slice(&1u32.to_le_bytes());
+        data.extend_from_slice(&256u64.to_le_bytes()); // Q6_K needs 210 bytes for 256 elements
+        data.extend_from_slice(&GGUF_TYPE_Q6_K.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+
+        while data.len() % 32 != 0 {
+            data.push(0);
+        }
+        data.extend_from_slice(&[0u8; 4]); // Only 4 bytes
+
+        let model = GGUFModel::from_bytes(&data).expect("valid header");
+        let result = model.get_tensor_f32("test.weight", &data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_tensor_f32_dimension_overflow() {
+        // Build GGUF with tensor dimensions that overflow
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+
+        let name = "test.weight";
+        data.extend_from_slice(&(name.len() as u64).to_le_bytes());
+        data.extend_from_slice(name.as_bytes());
+        data.extend_from_slice(&2u32.to_le_bytes()); // 2 dimensions
+        data.extend_from_slice(&0x7FFF_FFFF_FFFF_FFFFu64.to_le_bytes()); // huge dim
+        data.extend_from_slice(&0x7FFF_FFFF_FFFF_FFFFu64.to_le_bytes()); // huge dim
+        data.extend_from_slice(&GGUF_TYPE_F32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+
+        while data.len() % 32 != 0 {
+            data.push(0);
+        }
+
+        let model = GGUFModel::from_bytes(&data).expect("valid header");
+        let result = model.get_tensor_f32("test.weight", &data);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Coverage Tests: Metadata accessor methods
+    // =========================================================================
+
+    fn build_gguf_with_metadata(metadata: Vec<(&str, GGUFValue)>) -> Vec<u8> {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes()); // tensor_count
+        data.extend_from_slice(&(metadata.len() as u64).to_le_bytes());
+
+        for (key, value) in metadata {
+            data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+            data.extend_from_slice(key.as_bytes());
+            match value {
+                GGUFValue::UInt32(v) => {
+                    data.extend_from_slice(&4u32.to_le_bytes());
+                    data.extend_from_slice(&v.to_le_bytes());
+                },
+                GGUFValue::Float32(v) => {
+                    data.extend_from_slice(&6u32.to_le_bytes());
+                    data.extend_from_slice(&v.to_le_bytes());
+                },
+                GGUFValue::String(ref s) => {
+                    data.extend_from_slice(&8u32.to_le_bytes());
+                    data.extend_from_slice(&(s.len() as u64).to_le_bytes());
+                    data.extend_from_slice(s.as_bytes());
+                },
+                _ => {},
+            }
+        }
+        data
+    }
+
+    #[test]
+    fn test_embedding_dim_present() {
+        let data = build_gguf_with_metadata(vec![
+            ("general.architecture", GGUFValue::String("llama".to_string())),
+            ("llama.embedding_length", GGUFValue::UInt32(4096)),
+        ]);
+        let model = GGUFModel::from_bytes(&data).expect("valid");
+        assert_eq!(model.embedding_dim(), Some(4096));
+    }
+
+    #[test]
+    fn test_embedding_dim_missing() {
+        let data = build_gguf_with_metadata(vec![
+            ("general.architecture", GGUFValue::String("llama".to_string())),
+        ]);
+        let model = GGUFModel::from_bytes(&data).expect("valid");
+        assert_eq!(model.embedding_dim(), None);
+    }
+
+    #[test]
+    fn test_num_layers_present() {
+        let data = build_gguf_with_metadata(vec![
+            ("general.architecture", GGUFValue::String("llama".to_string())),
+            ("llama.block_count", GGUFValue::UInt32(32)),
+        ]);
+        let model = GGUFModel::from_bytes(&data).expect("valid");
+        assert_eq!(model.num_layers(), Some(32));
+    }
+
+    #[test]
+    fn test_num_heads_present() {
+        let data = build_gguf_with_metadata(vec![
+            ("general.architecture", GGUFValue::String("llama".to_string())),
+            ("llama.attention.head_count", GGUFValue::UInt32(32)),
+        ]);
+        let model = GGUFModel::from_bytes(&data).expect("valid");
+        assert_eq!(model.num_heads(), Some(32));
+    }
+
+    #[test]
+    fn test_context_length_present() {
+        let data = build_gguf_with_metadata(vec![
+            ("general.architecture", GGUFValue::String("llama".to_string())),
+            ("llama.context_length", GGUFValue::UInt32(4096)),
+        ]);
+        let model = GGUFModel::from_bytes(&data).expect("valid");
+        assert_eq!(model.context_length(), Some(4096));
+    }
+
+    #[test]
+    fn test_num_kv_heads_present() {
+        let data = build_gguf_with_metadata(vec![
+            ("general.architecture", GGUFValue::String("llama".to_string())),
+            ("llama.attention.head_count_kv", GGUFValue::UInt32(8)),
+        ]);
+        let model = GGUFModel::from_bytes(&data).expect("valid");
+        assert_eq!(model.num_kv_heads(), Some(8));
+    }
+
+    #[test]
+    fn test_rope_freq_base_present() {
+        let data = build_gguf_with_metadata(vec![
+            ("general.architecture", GGUFValue::String("llama".to_string())),
+            ("llama.rope.freq_base", GGUFValue::Float32(10000.0)),
+        ]);
+        let model = GGUFModel::from_bytes(&data).expect("valid");
+        assert_eq!(model.rope_freq_base(), Some(10000.0));
+    }
+
+    #[test]
+    fn test_rms_epsilon_present() {
+        let data = build_gguf_with_metadata(vec![
+            ("general.architecture", GGUFValue::String("llama".to_string())),
+            ("llama.attention.layer_norm_rms_epsilon", GGUFValue::Float32(1e-5)),
+        ]);
+        let model = GGUFModel::from_bytes(&data).expect("valid");
+        assert_eq!(model.rms_epsilon(), Some(1e-5));
+    }
+
+    #[test]
+    fn test_rope_type_from_scaling_type_none() {
+        let data = build_gguf_with_metadata(vec![
+            ("general.architecture", GGUFValue::String("llama".to_string())),
+            ("llama.rope.scaling.type", GGUFValue::String("none".to_string())),
+        ]);
+        let model = GGUFModel::from_bytes(&data).expect("valid");
+        assert_eq!(model.rope_type(), Some(0));
+    }
+
+    #[test]
+    fn test_rope_type_from_scaling_type_linear() {
+        let data = build_gguf_with_metadata(vec![
+            ("general.architecture", GGUFValue::String("llama".to_string())),
+            ("llama.rope.scaling.type", GGUFValue::String("linear".to_string())),
+        ]);
+        let model = GGUFModel::from_bytes(&data).expect("valid");
+        assert_eq!(model.rope_type(), Some(0));
+    }
+
+    #[test]
+    fn test_rope_type_from_scaling_type_yarn() {
+        let data = build_gguf_with_metadata(vec![
+            ("general.architecture", GGUFValue::String("llama".to_string())),
+            ("llama.rope.scaling.type", GGUFValue::String("yarn".to_string())),
+        ]);
+        let model = GGUFModel::from_bytes(&data).expect("valid");
+        assert_eq!(model.rope_type(), Some(2));
+    }
+
+    #[test]
+    fn test_rope_type_from_scaling_type_neox() {
+        let data = build_gguf_with_metadata(vec![
+            ("general.architecture", GGUFValue::String("llama".to_string())),
+            ("llama.rope.scaling.type", GGUFValue::String("neox".to_string())),
+        ]);
+        let model = GGUFModel::from_bytes(&data).expect("valid");
+        assert_eq!(model.rope_type(), Some(2));
+    }
+
+    #[test]
+    fn test_all_metadata_accessors_missing_architecture() {
+        let data = build_gguf_with_metadata(vec![]);
+        let model = GGUFModel::from_bytes(&data).expect("valid");
+        assert_eq!(model.architecture(), None);
+        assert_eq!(model.embedding_dim(), None);
+        assert_eq!(model.num_layers(), None);
+        assert_eq!(model.num_heads(), None);
+        assert_eq!(model.context_length(), None);
+        assert_eq!(model.num_kv_heads(), None);
+        assert_eq!(model.rope_freq_base(), None);
+        assert_eq!(model.rms_epsilon(), None);
+        assert_eq!(model.rope_type(), None);
+    }
+
+    #[test]
+    fn test_metadata_with_qwen_architecture() {
+        let data = build_gguf_with_metadata(vec![
+            ("general.architecture", GGUFValue::String("qwen2".to_string())),
+            ("qwen2.embedding_length", GGUFValue::UInt32(3584)),
+            ("qwen2.block_count", GGUFValue::UInt32(28)),
+        ]);
+        let model = GGUFModel::from_bytes(&data).expect("valid");
+        assert_eq!(model.architecture(), Some("qwen2"));
+        assert_eq!(model.embedding_dim(), Some(3584));
+        assert_eq!(model.num_layers(), Some(28));
     }
 }

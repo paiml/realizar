@@ -260,6 +260,11 @@ pub enum TraceError {
         /// Actual shape
         actual: Vec<usize>,
     },
+    /// Execution failed (F-JID-01: Jidoka)
+    ExecutionFailed {
+        /// Cause of failure
+        cause: String,
+    },
 }
 
 impl std::fmt::Display for TraceError {
@@ -297,6 +302,9 @@ impl std::fmt::Display for TraceError {
                     "Shape mismatch: expected {:?}, got {:?}",
                     expected, actual
                 )
+            },
+            Self::ExecutionFailed { cause } => {
+                write!(f, "Execution failed: {}", cause)
             },
         }
     }
@@ -352,6 +360,8 @@ pub struct TraceEvent {
     pub duration_us: u64,
     /// Error if any (Jidoka)
     pub error: Option<TraceError>,
+    /// Cause of failure (F-AWS-05: required for ExecutionFailed events)
+    pub cause: Option<String>,
     /// Additional details (step-specific)
     pub details: TraceDetails,
 }
@@ -452,6 +462,12 @@ impl InferenceTracer {
         self.config.enabled
     }
 
+    /// Check if verbose tracing is enabled (requires D2H sync for stats)
+    #[must_use]
+    pub fn is_verbose(&self) -> bool {
+        self.config.enabled && self.config.verbose
+    }
+
     /// Get next event ID and increment (AWS Step Functions: monotonically increasing)
     fn next_id(&mut self) -> u64 {
         let id = self.next_event_id;
@@ -464,10 +480,32 @@ impl InferenceTracer {
         chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
     }
 
-    /// Start timing a step
+    /// Start timing a step and emit TaskStateEntered event (AWS Step Functions F-AWS-01)
     pub fn start_step(&mut self, step: TraceStep) {
         if self.config.should_trace(step) {
             self.step_start = Some(Instant::now());
+
+            // Emit TaskStateEntered event (F-AWS-01: Entry/Exit pairing)
+            let entry_id = self.next_id();
+            let event = TraceEvent {
+                id: entry_id,
+                timestamp: Self::timestamp(),
+                event_type: AwsEventType::TaskStateEntered,
+                previous_event_id: None, // Entry events have no predecessor
+                step,
+                iteration: 0,
+                layer: None,
+                input_shape: vec![],
+                output_shape: vec![],
+                stats: TensorStats::default(),
+                duration_us: 0,
+                error: None,
+                cause: None,
+                details: TraceDetails::default(),
+            };
+            self.events.push(event);
+            // Store entry ID for the corresponding Exit event (F-AWS-02)
+            self.last_entered_id = Some(entry_id);
         }
     }
 
@@ -507,6 +545,7 @@ impl InferenceTracer {
             stats: TensorStats::default(),
             duration_us: duration,
             error,
+            cause: None,
             details: TraceDetails {
                 input_text: Some(input_text.to_string()),
                 output_tokens: Some(output_tokens.to_vec()),
@@ -556,6 +595,7 @@ impl InferenceTracer {
             stats,
             duration_us: duration,
             error,
+            cause: None,
             details: TraceDetails::default(),
         };
 
@@ -609,6 +649,7 @@ impl InferenceTracer {
             stats,
             duration_us: duration,
             error,
+            cause: None,
             details: TraceDetails::default(),
         };
 
@@ -652,6 +693,7 @@ impl InferenceTracer {
             stats,
             duration_us: duration,
             error,
+            cause: None,
             details: TraceDetails {
                 top_k_logits: Some(top_k),
                 ..Default::default()
@@ -696,6 +738,7 @@ impl InferenceTracer {
             stats: TensorStats::from_slice(logits),
             duration_us: duration,
             error: None,
+            cause: None,
             details: TraceDetails {
                 top_k_logits: Some(top_k_logits),
                 top_k_probs: Some(top_k_probs),
@@ -754,6 +797,7 @@ impl InferenceTracer {
             stats: TensorStats::default(),
             duration_us: duration,
             error,
+            cause: None,
             details: TraceDetails {
                 sampled_token: Some(token_id),
                 decoded_text: Some(decoded_text.to_string()),
@@ -775,6 +819,40 @@ impl InferenceTracer {
     #[must_use]
     pub fn error_count(&self) -> usize {
         self.error_count
+    }
+
+    /// Record an execution failure (F-JID-01: Jidoka error handling)
+    ///
+    /// Emits an `ExecutionFailed` event per AWS Step Functions parity (F-AWS-05).
+    /// Use this when the inference cannot proceed due to missing config,
+    /// invalid model format, or other fatal errors.
+    ///
+    /// # Arguments
+    /// * `error` - High-level error category (e.g., "Initialization Failure")
+    /// * `cause` - Specific cause of failure (e.g., "Missing config.json")
+    pub fn record_execution_failed(&mut self, error: &str, cause: &str) {
+        if !self.config.enabled {
+            return;
+        }
+
+        let event = TraceEvent {
+            id: self.next_id(),
+            timestamp: Self::timestamp(),
+            event_type: AwsEventType::ExecutionFailed,
+            previous_event_id: None,
+            step: TraceStep::Tokenize, // Use first step as placeholder
+            iteration: 0,
+            layer: None,
+            input_shape: vec![],
+            output_shape: vec![],
+            stats: TensorStats::default(),
+            duration_us: 0,
+            error: Some(TraceError::ExecutionFailed { cause: error.to_string() }),
+            cause: Some(cause.to_string()),
+            details: TraceDetails::default(),
+        };
+        self.events.push(event);
+        self.error_count += 1;
     }
 
     /// Format trace output as text
@@ -976,6 +1054,17 @@ impl InferenceTracer {
                 json.push_str(",\n");
             }
             json.push_str("    {\n");
+            // AWS Step Functions parity fields (F-AWS-01, F-AWS-02)
+            json.push_str(&format!("      \"id\": {},\n", event.id));
+            json.push_str(&format!("      \"timestamp\": {:?},\n", event.timestamp));
+            json.push_str(&format!("      \"type\": {:?},\n", event.event_type.name()));
+            json.push_str(&format!(
+                "      \"previous_event_id\": {},\n",
+                event
+                    .previous_event_id
+                    .map_or("null".to_string(), |id| id.to_string())
+            ));
+            // State details
             json.push_str(&format!("      \"step\": {:?},\n", event.step.name()));
             json.push_str(&format!("      \"iteration\": {},\n", event.iteration));
             json.push_str(&format!(
@@ -1012,11 +1101,19 @@ impl InferenceTracer {
             json.push_str(&format!("        \"has_inf\": {}\n", event.stats.has_inf));
             json.push_str("      },\n");
             json.push_str(&format!(
-                "      \"error\": {}\n",
+                "      \"error\": {},\n",
                 event
                     .error
                     .as_ref()
                     .map_or("null".to_string(), |e| format!("{:?}", e.to_string()))
+            ));
+            // F-AWS-05: cause field required for ExecutionFailed events
+            json.push_str(&format!(
+                "      \"cause\": {}\n",
+                event
+                    .cause
+                    .as_ref()
+                    .map_or("null".to_string(), |c| format!("{:?}", c))
             ));
             json.push_str("    }");
         }
@@ -1115,6 +1212,9 @@ fn get_error_hint(error: &TraceError) -> &'static str {
         TraceError::ShapeMismatch { .. } => {
             "Tensor dimensions don't match. Check model architecture"
         },
+        TraceError::ExecutionFailed { .. } => {
+            "Execution failed. Check model config and dependencies"
+        },
     }
 }
 
@@ -1206,7 +1306,7 @@ mod tests {
         tracer.start_step(TraceStep::Tokenize);
         tracer.trace_encode("Hello", &[1, 2, 3], 32000);
 
-        assert_eq!(tracer.events().len(), 1);
+        assert_eq!(tracer.events().len(), 2); // Entry + Exit (AWS F-AWS-01)
         assert_eq!(tracer.error_count(), 0);
     }
 
@@ -1334,8 +1434,9 @@ mod tests {
         let embeddings = vec![0.1, 0.2, 0.3, 0.4];
         tracer.trace_embed(1, 4, Some(&embeddings));
 
-        assert_eq!(tracer.events().len(), 1);
-        assert_eq!(tracer.events()[0].step, TraceStep::Embed);
+        // 2 events: Entry + Exit (AWS F-AWS-01)
+        assert_eq!(tracer.events().len(), 2);
+        assert_eq!(tracer.events()[1].step, TraceStep::Embed); // [1] = Exit
     }
 
     #[test]
@@ -1347,8 +1448,9 @@ mod tests {
         let hidden = vec![0.1, 0.2, 0.3, 0.4];
         tracer.trace_layer(0, 0, Some(&hidden), 1, 4);
 
-        assert_eq!(tracer.events().len(), 1);
-        assert_eq!(tracer.events()[0].step, TraceStep::TransformerBlock);
+        // 2 events: Entry + Exit (AWS F-AWS-01)
+        assert_eq!(tracer.events().len(), 2);
+        assert_eq!(tracer.events()[1].step, TraceStep::TransformerBlock); // [1] = Exit
     }
 
     #[test]
@@ -1360,8 +1462,9 @@ mod tests {
         let logits = vec![1.0, 2.0, 10.0, 3.0, 4.0];
         tracer.trace_lm_head(0, &logits, 5);
 
-        assert_eq!(tracer.events().len(), 1);
-        assert_eq!(tracer.events()[0].step, TraceStep::LmHead);
+        // 2 events: Entry + Exit (AWS F-AWS-01)
+        assert_eq!(tracer.events().len(), 2);
+        assert_eq!(tracer.events()[1].step, TraceStep::LmHead); // [1] = Exit
     }
 
     #[test]
@@ -1373,8 +1476,9 @@ mod tests {
         let logits = vec![1.0, 2.0, 10.0, 3.0, 4.0];
         tracer.trace_sample(0, &logits, 2, 1.0, 5);
 
-        assert_eq!(tracer.events().len(), 1);
-        assert_eq!(tracer.events()[0].step, TraceStep::Sample);
+        // 2 events: Entry + Exit (AWS F-AWS-01)
+        assert_eq!(tracer.events().len(), 2);
+        assert_eq!(tracer.events()[1].step, TraceStep::Sample); // [1] = Exit
     }
 
     #[test]
@@ -1858,25 +1962,29 @@ mod tests {
         tracer.trace_lm_head(0, &[1.0, 2.0, 3.0], 3);
 
         let events = tracer.events();
-        assert_eq!(events.len(), 3);
+        // 6 events: 3 Entry + 3 Exit (AWS F-AWS-01)
+        assert_eq!(events.len(), 6);
 
-        // IDs should be 1, 2, 3 (monotonically increasing)
-        assert_eq!(events[0].id, 1);
-        assert_eq!(events[1].id, 2);
-        assert_eq!(events[2].id, 3);
+        // IDs should be 1..6 (monotonically increasing)
+        for (i, event) in events.iter().enumerate() {
+            assert_eq!(event.id, (i + 1) as u64);
+        }
     }
 
     #[test]
     fn test_aws_event_type_exited() {
-        // F-AWS-01: Trace methods emit TaskStateExited events
+        // F-AWS-01: Trace methods emit paired TaskStateEntered/TaskStateExited events
         let config = TraceConfig::enabled();
         let mut tracer = InferenceTracer::new(config);
 
         tracer.start_step(TraceStep::Tokenize);
         tracer.trace_encode("test", &[1], 100);
 
-        let event = &tracer.events()[0];
-        assert_eq!(event.event_type, AwsEventType::TaskStateExited);
+        // [0] = Entry, [1] = Exit
+        let entry = &tracer.events()[0];
+        let exit = &tracer.events()[1];
+        assert_eq!(entry.event_type, AwsEventType::TaskStateEntered);
+        assert_eq!(exit.event_type, AwsEventType::TaskStateExited);
     }
 
     #[test]
@@ -1888,30 +1996,36 @@ mod tests {
         tracer.start_step(TraceStep::Decode);
         tracer.trace_decode(0, 5, "hello", 100);
 
-        let event = &tracer.events()[0];
+        // Check both Entry and Exit have valid timestamps
+        for event in tracer.events() {
+            // ISO 8601 format: YYYY-MM-DDTHH:MM:SS.sssZ
+            assert!(event.timestamp.contains("T"));
+            assert!(event.timestamp.ends_with("Z"));
 
-        // ISO 8601 format: YYYY-MM-DDTHH:MM:SS.sssZ
-        assert!(event.timestamp.contains("T"));
-        assert!(event.timestamp.ends_with("Z"));
-
-        // Should be parseable as RFC3339
-        chrono::DateTime::parse_from_rfc3339(&event.timestamp)
-            .expect("Timestamp should be valid RFC3339/ISO8601");
+            // Should be parseable as RFC3339
+            chrono::DateTime::parse_from_rfc3339(&event.timestamp)
+                .expect("Timestamp should be valid RFC3339/ISO8601");
+        }
     }
 
     #[test]
     fn test_aws_previous_event_id() {
-        // F-AWS-02: TaskStateExited should have previous_event_id
-        // Currently our trace methods emit TaskStateExited with previous_event_id
+        // F-AWS-02: TaskStateExited MUST have previous_event_id linking to Entry
         let config = TraceConfig::enabled();
         let mut tracer = InferenceTracer::new(config);
 
         tracer.start_step(TraceStep::Sample);
         tracer.trace_sample(0, &[1.0, 2.0, 3.0], 1, 0.8, 3);
 
-        let event = &tracer.events()[0];
-        // previous_event_id is None because we don't have a matching TaskStateEntered yet
-        assert!(event.previous_event_id.is_none());
+        let events = tracer.events();
+        let entry = &events[0];
+        let exit = &events[1];
+
+        // Entry has no predecessor
+        assert!(entry.previous_event_id.is_none());
+
+        // Exit MUST link back to Entry (F-AWS-02 CRITICAL)
+        assert_eq!(exit.previous_event_id, Some(entry.id));
     }
 
     #[test]

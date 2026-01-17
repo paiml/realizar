@@ -2111,9 +2111,7 @@ fn test_cov_simd_matmul_batch_exactly_tiled_threshold() {
     let in_dim = 32;
     let out_dim = 128; // seq_len * out_dim = 1024 = 256 * 4
 
-    let input: Vec<f32> = (0..seq_len * in_dim)
-        .map(|i| (i as f32).sin())
-        .collect();
+    let input: Vec<f32> = (0..seq_len * in_dim).map(|i| (i as f32).sin()).collect();
     let weight: Vec<f32> = (0..out_dim * in_dim)
         .map(|i| (i as f32).cos() * 0.1)
         .collect();
@@ -2502,9 +2500,7 @@ fn test_cov_attention_transposed_v_single_head() {
 
     let q: Vec<f32> = vec![1.0; head_dim];
     let k_cache: Vec<f32> = vec![1.0; head_dim * seq_len];
-    let v_transposed: Vec<f32> = (0..head_dim * seq_len)
-        .map(|i| i as f32 * 0.1)
-        .collect();
+    let v_transposed: Vec<f32> = (0..head_dim * seq_len).map(|i| i as f32 * 0.1).collect();
 
     let output =
         attention_with_transposed_v(&q, &k_cache, &v_transposed, num_heads, head_dim, seq_len);
@@ -2899,7 +2895,9 @@ fn test_cov_simd_matmul_below_parallel_threshold_sequential() {
     let out_dim = 128; // Below threshold
 
     let input: Vec<f32> = (0..in_dim).map(|i| (i as f32).sin()).collect();
-    let weight: Vec<f32> = (0..out_dim * in_dim).map(|i| (i as f32).cos() * 0.01).collect();
+    let weight: Vec<f32> = (0..out_dim * in_dim)
+        .map(|i| (i as f32).cos() * 0.01)
+        .collect();
 
     let output = simd_matmul(&input, &weight, in_dim, out_dim);
     assert_eq!(output.len(), out_dim);
@@ -2916,7 +2914,9 @@ fn test_cov_simd_matmul_above_parallel_threshold() {
     let out_dim = 512; // Well above threshold
 
     let input: Vec<f32> = (0..in_dim).map(|i| (i as f32 * 0.1).sin()).collect();
-    let weight: Vec<f32> = (0..out_dim * in_dim).map(|i| (i as f32 * 0.001).cos()).collect();
+    let weight: Vec<f32> = (0..out_dim * in_dim)
+        .map(|i| (i as f32 * 0.001).cos())
+        .collect();
 
     let output = simd_matmul(&input, &weight, in_dim, out_dim);
     assert_eq!(output.len(), out_dim);
@@ -2934,8 +2934,12 @@ fn test_cov_simd_matmul_batch_tiled_path() {
     let in_dim = 64;
     let out_dim = 128; // 16 * 128 = 2048 >= 1024
 
-    let input: Vec<f32> = (0..seq_len * in_dim).map(|i| (i as f32 * 0.01).tanh()).collect();
-    let weight: Vec<f32> = (0..out_dim * in_dim).map(|i| (i as f32 * 0.001).sin()).collect();
+    let input: Vec<f32> = (0..seq_len * in_dim)
+        .map(|i| (i as f32 * 0.01).tanh())
+        .collect();
+    let weight: Vec<f32> = (0..out_dim * in_dim)
+        .map(|i| (i as f32 * 0.001).sin())
+        .collect();
 
     let output = simd_matmul(&input, &weight, in_dim, out_dim);
     assert_eq!(output.len(), seq_len * out_dim);
@@ -3161,8 +3165,12 @@ fn test_cov_attention_with_cache_very_small_head_dim() {
     let seq_len = 8;
 
     let q: Vec<f32> = vec![1.0; hidden_dim];
-    let k_cache: Vec<f32> = (0..hidden_dim * seq_len).map(|i| (i as f32).sin()).collect();
-    let v_cache: Vec<f32> = (0..hidden_dim * seq_len).map(|i| (i as f32).cos()).collect();
+    let k_cache: Vec<f32> = (0..hidden_dim * seq_len)
+        .map(|i| (i as f32).sin())
+        .collect();
+    let v_cache: Vec<f32> = (0..hidden_dim * seq_len)
+        .map(|i| (i as f32).cos())
+        .collect();
 
     let output = attention_with_cache(&q, &k_cache, &v_cache, num_heads, head_dim);
 
@@ -3181,8 +3189,12 @@ fn test_cov_attention_with_cache_gpt_style_head_dim() {
     let seq_len = 4;
 
     let q: Vec<f32> = (0..hidden_dim).map(|i| (i as f32 * 0.01).sin()).collect();
-    let k_cache: Vec<f32> = (0..hidden_dim * seq_len).map(|i| (i as f32 * 0.01).cos()).collect();
-    let v_cache: Vec<f32> = (0..hidden_dim * seq_len).map(|i| (i as f32 * 0.01).tanh()).collect();
+    let k_cache: Vec<f32> = (0..hidden_dim * seq_len)
+        .map(|i| (i as f32 * 0.01).cos())
+        .collect();
+    let v_cache: Vec<f32> = (0..hidden_dim * seq_len)
+        .map(|i| (i as f32 * 0.01).tanh())
+        .collect();
 
     let output = attention_with_cache(&q, &k_cache, &v_cache, num_heads, head_dim);
 
@@ -3200,10 +3212,15 @@ fn test_cov_attention_transposed_v_many_heads() {
     let seq_len = 4;
 
     let q: Vec<f32> = (0..hidden_dim).map(|i| (i as f32 * 0.1).sin()).collect();
-    let k_cache: Vec<f32> = (0..hidden_dim * seq_len).map(|i| (i as f32 * 0.01).cos()).collect();
-    let v_transposed: Vec<f32> = (0..hidden_dim * seq_len).map(|i| (i % 10) as f32 * 0.1).collect();
+    let k_cache: Vec<f32> = (0..hidden_dim * seq_len)
+        .map(|i| (i as f32 * 0.01).cos())
+        .collect();
+    let v_transposed: Vec<f32> = (0..hidden_dim * seq_len)
+        .map(|i| (i % 10) as f32 * 0.1)
+        .collect();
 
-    let output = attention_with_transposed_v(&q, &k_cache, &v_transposed, num_heads, head_dim, seq_len);
+    let output =
+        attention_with_transposed_v(&q, &k_cache, &v_transposed, num_heads, head_dim, seq_len);
 
     assert_eq!(output.len(), hidden_dim);
     for val in &output {
@@ -3334,7 +3351,9 @@ fn test_cov_simd_operations_large_vectors() {
 fn test_cov_simd_layer_norm_large_hidden_dim() {
     // Large hidden dimension like in real models
     let hidden_dim = 2048;
-    let input: Vec<f32> = (0..hidden_dim).map(|i| (i as f32 - 1024.0) * 0.001).collect();
+    let input: Vec<f32> = (0..hidden_dim)
+        .map(|i| (i as f32 - 1024.0) * 0.001)
+        .collect();
     let weight: Vec<f32> = vec![1.0; hidden_dim];
 
     let output = simd_layer_norm(&input, &weight, None, 1e-5);
@@ -3502,8 +3521,16 @@ fn test_cov_q4k_weight_compression_ratio_validation() {
 
     let ratio = weight.compression_ratio();
     // Q4_K should give ~7-8x compression
-    assert!(ratio >= 7.0, "Compression ratio should be >= 7, got {}", ratio);
-    assert!(ratio <= 8.0, "Compression ratio should be <= 8, got {}", ratio);
+    assert!(
+        ratio >= 7.0,
+        "Compression ratio should be >= 7, got {}",
+        ratio
+    );
+    assert!(
+        ratio <= 8.0,
+        "Compression ratio should be <= 8, got {}",
+        ratio
+    );
 }
 
 #[test]
@@ -3526,7 +3553,9 @@ fn test_cov_q4k_weight_matvec_mixed_input() {
     let weight = Q4KWeight::new(data, 256, 2).unwrap();
 
     // Mixed positive/negative input
-    let input: Vec<f32> = (0..256).map(|i| if i % 2 == 0 { 1.0 } else { -1.0 }).collect();
+    let input: Vec<f32> = (0..256)
+        .map(|i| if i % 2 == 0 { 1.0 } else { -1.0 })
+        .collect();
     let result = weight.matvec(&input);
 
     assert!(result.is_ok());

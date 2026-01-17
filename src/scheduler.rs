@@ -1601,53 +1601,6 @@ impl DynamicRequest {
     }
 }
 
-/// Priority-aware entry for dynamic scheduling (reserved for heap-based scheduling)
-#[derive(Debug)]
-#[allow(dead_code)]
-struct DynamicPriorityEntry {
-    request_id: u64,
-    effective_priority: Priority,
-    urgency_score: f64,
-    arrival_time: Instant,
-}
-
-impl PartialEq for DynamicPriorityEntry {
-    fn eq(&self, other: &Self) -> bool {
-        self.request_id == other.request_id
-    }
-}
-
-impl Eq for DynamicPriorityEntry {}
-
-impl PartialOrd for DynamicPriorityEntry {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for DynamicPriorityEntry {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        // Compare by: priority > urgency > arrival time (FIFO within same)
-        match self.effective_priority.cmp(&other.effective_priority) {
-            std::cmp::Ordering::Equal => {
-                // Higher urgency first
-                match self
-                    .urgency_score
-                    .partial_cmp(&other.urgency_score)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-                {
-                    std::cmp::Ordering::Equal => {
-                        // Earlier arrival first (FIFO)
-                        other.arrival_time.cmp(&self.arrival_time)
-                    },
-                    ord => ord,
-                }
-            },
-            ord => ord,
-        }
-    }
-}
-
 /// Statistics for dynamic priority scheduling
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DynamicSchedulerStats {
