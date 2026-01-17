@@ -196,6 +196,7 @@ pub mod convert;
     clippy::manual_div_ceil
 )]
 pub mod cuda;
+pub mod engine;
 pub mod error;
 /// Model explainability (SHAP, Attention)
 ///
