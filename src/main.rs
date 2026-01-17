@@ -798,8 +798,8 @@ async fn run_model(
 /// Run GGUF inference with performance timing
 ///
 /// IMP-130: Zero-copy model loading for <500ms startup time.
-/// Uses QuantizedGGUFTransformer with borrowed refs to mmap data.
-/// When `force_gpu` is true, uses OwnedQuantizedModel with CUDA acceleration.
+/// Uses OwnedQuantizedModel for fast CPU inference.
+/// When `force_gpu` is true, uses OwnedQuantizedModelCuda with CUDA acceleration.
 fn run_gguf_inference(
     model_ref: &str,
     _file_data: &[u8],
@@ -809,7 +809,7 @@ fn run_gguf_inference(
     format: &str,
     force_gpu: bool,
 ) -> Result<()> {
-    use realizar::gguf::{MappedGGUFModel, OwnedQuantizedKVCache, QuantizedGGUFTransformer};
+    use realizar::gguf::{MappedGGUFModel, OwnedQuantizedKVCache, OwnedQuantizedModel};
     use std::time::Instant;
 
     // Handle --gpu flag warning when CUDA not available
@@ -849,7 +849,7 @@ fn run_gguf_inference(
     // PAR-126: Five-Whys fix - use OwnedQuantizedModel for fast CPU inference
     // Root cause analysis:
     //   Why-1: CPU path was 14 tok/s vs Ollama's 200 tok/s
-    //   Why-2: QuantizedGGUFTransformer uses mmap with per-matmul allocations
+    //   Why-2: Old mmap-based transformers use per-matmul allocations
     //   Why-3: Each of 196 matmuls per token allocates/frees Vec
     //   Why-4: Vec allocation overhead + cache pollution from mmap page faults
     //   Why-5: OwnedQuantizedModel copies weights to RAM but uses _into methods
@@ -980,7 +980,7 @@ fn run_gguf_inference(
                 .map_or(0, |(idx, _)| idx as u32)
         } else {
             // Temperature sampling
-            QuantizedGGUFTransformer::sample_topk(&logits, temperature, 40)
+            OwnedQuantizedModel::sample_topk(&logits, temperature, 40)
         };
 
         // PERF-002: Debug code removed (was PAR-058-DEBUG and PAR-060)
