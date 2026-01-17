@@ -4169,4 +4169,3 @@ fn test_sequential_ffn_basic() {
     let result = sequential_ffn(&input, &up_weight, &down_weight, 8, 16);
     assert_eq!(result.len(), 8);
 }
-

@@ -446,7 +446,10 @@ fn test_cov_metadata_u32_boundary() {
         model.metadata.get("mid"),
         Some(&GGUFValue::UInt32(2_147_483_648))
     );
-    assert_eq!(model.metadata.get("max"), Some(&GGUFValue::UInt32(u32::MAX)));
+    assert_eq!(
+        model.metadata.get("max"),
+        Some(&GGUFValue::UInt32(u32::MAX))
+    );
 }
 
 #[test]
@@ -479,7 +482,10 @@ fn test_cov_metadata_u64_boundary() {
         model.metadata.get("big"),
         Some(&GGUFValue::UInt64(9_223_372_036_854_775_808))
     );
-    assert_eq!(model.metadata.get("max"), Some(&GGUFValue::UInt64(u64::MAX)));
+    assert_eq!(
+        model.metadata.get("max"),
+        Some(&GGUFValue::UInt64(u64::MAX))
+    );
 }
 
 #[test]
@@ -617,10 +623,7 @@ fn test_cov_metadata_array_empty() {
     add_u32_array_meta(&mut data, "empty", &[]);
 
     let model = GGUFModel::from_bytes(&data).expect("parse");
-    assert_eq!(
-        model.metadata.get("empty"),
-        Some(&GGUFValue::Array(vec![]))
-    );
+    assert_eq!(model.metadata.get("empty"), Some(&GGUFValue::Array(vec![])));
 }
 
 #[test]
@@ -734,7 +737,13 @@ fn test_cov_tensor_info_all_qtypes() {
     data[8..16].copy_from_slice(&(qtypes.len() as u64).to_le_bytes());
 
     for (i, &qtype) in qtypes.iter().enumerate() {
-        add_tensor_info(&mut data, &format!("t{i}"), &[64, 64], qtype, (i * 4096) as u64);
+        add_tensor_info(
+            &mut data,
+            &format!("t{i}"),
+            &[64, 64],
+            qtype,
+            (i * 4096) as u64,
+        );
     }
 
     let model = GGUFModel::from_bytes(&data).expect("parse");
@@ -868,10 +877,10 @@ fn test_cov_owned_model_new_for_test_basic() {
         config,
         vec![0.0; vocab_size * hidden_dim], // token_embedding
         layers,
-        vec![1.0; hidden_dim],                        // output_norm_weight
-        None,                                         // output_norm_bias
-        create_test_tensor(hidden_dim, vocab_size),   // lm_head_weight
-        None,                                         // lm_head_bias
+        vec![1.0; hidden_dim],                      // output_norm_weight
+        None,                                       // output_norm_bias
+        create_test_tensor(hidden_dim, vocab_size), // lm_head_weight
+        None,                                       // lm_head_bias
     );
 
     assert_eq!(model.config.architecture, "test");
@@ -892,9 +901,9 @@ fn test_cov_owned_model_new_for_test_with_biases() {
         vec![0.0; vocab_size * hidden_dim],
         layers,
         vec![1.0; hidden_dim],
-        Some(vec![0.0; hidden_dim]),                // output_norm_bias
+        Some(vec![0.0; hidden_dim]), // output_norm_bias
         create_test_tensor(hidden_dim, vocab_size),
-        Some(vec![0.0; vocab_size]),                // lm_head_bias
+        Some(vec![0.0; vocab_size]), // lm_head_bias
     );
 
     assert!(model.output_norm_bias.is_some());
@@ -1677,7 +1686,7 @@ fn test_cov_qkv_fused_weight_access() {
         OwnedQKVWeights::Fused(tensor) => {
             assert_eq!(tensor.in_dim, config.hidden_dim);
             assert_eq!(tensor.out_dim, config.hidden_dim * 3);
-        }
+        },
         OwnedQKVWeights::Separate { .. } => panic!("Expected Fused QKV weights"),
     }
 }
@@ -2066,7 +2075,13 @@ fn test_cov_large_tensor_count() {
 
     // Add 5 tensors
     for i in 0..5 {
-        add_tensor_info(&mut data, &format!("tensor_{i}"), &[32, 32], GGUF_TYPE_F32, (i * 4096) as u64);
+        add_tensor_info(
+            &mut data,
+            &format!("tensor_{i}"),
+            &[32, 32],
+            GGUF_TYPE_F32,
+            (i * 4096) as u64,
+        );
     }
 
     let result = GGUFModel::from_bytes(&data);
@@ -2202,11 +2217,15 @@ fn test_cov_layer_separate_qkv() {
     };
 
     match layer.qkv_weight {
-        OwnedQKVWeights::Separate { ref q, ref k, ref v } => {
+        OwnedQKVWeights::Separate {
+            ref q,
+            ref k,
+            ref v,
+        } => {
             assert_eq!(q.out_dim, config.num_heads * head_dim);
             assert_eq!(k.out_dim, config.num_kv_heads * head_dim);
             assert_eq!(v.out_dim, config.num_kv_heads * head_dim);
-        }
+        },
         _ => panic!("Expected Separate QKV weights"),
     }
 }
@@ -2422,10 +2441,22 @@ fn test_cov_metadata_mixed_types() {
     assert_eq!(model.metadata.len(), 13);
 
     // Verify types
-    assert!(matches!(model.metadata.get("type_u8"), Some(GGUFValue::UInt8(_))));
-    assert!(matches!(model.metadata.get("type_i8"), Some(GGUFValue::Int8(_))));
-    assert!(matches!(model.metadata.get("type_f32"), Some(GGUFValue::Float32(_))));
-    assert!(matches!(model.metadata.get("type_array"), Some(GGUFValue::Array(_))));
+    assert!(matches!(
+        model.metadata.get("type_u8"),
+        Some(GGUFValue::UInt8(_))
+    ));
+    assert!(matches!(
+        model.metadata.get("type_i8"),
+        Some(GGUFValue::Int8(_))
+    ));
+    assert!(matches!(
+        model.metadata.get("type_f32"),
+        Some(GGUFValue::Float32(_))
+    ));
+    assert!(matches!(
+        model.metadata.get("type_array"),
+        Some(GGUFValue::Array(_))
+    ));
 }
 
 #[test]

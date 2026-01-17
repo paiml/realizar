@@ -1296,7 +1296,9 @@ mod benchmark_json_schema_tests {
         let json = serde_json::to_string(&quality).expect("serialization");
         let parsed: QualityValidation = serde_json::from_str(&json).expect("deserialization");
 
-        assert!((parsed.kl_divergence_vs_fp32 - quality.kl_divergence_vs_fp32).abs() < f64::EPSILON);
+        assert!(
+            (parsed.kl_divergence_vs_fp32 - quality.kl_divergence_vs_fp32).abs() < f64::EPSILON
+        );
         assert_eq!(parsed.perplexity_wikitext2, quality.perplexity_wikitext2);
     }
 
@@ -1623,8 +1625,11 @@ mod cli_error_handling_tests {
 
     #[test]
     fn test_bench_regression_missing_files() {
-        let result =
-            run_bench_regression("/nonexistent/baseline.json", "/nonexistent/current.json", true);
+        let result = run_bench_regression(
+            "/nonexistent/baseline.json",
+            "/nonexistent/current.json",
+            true,
+        );
         assert!(result.is_err());
     }
 
@@ -1641,7 +1646,8 @@ mod cli_error_handling_tests {
             .expect("write file1");
 
         let mut f2 = std::fs::File::create(&file2).expect("create file2");
-        f2.write_all(b"{\"also\": \"invalid\"}").expect("write file2");
+        f2.write_all(b"{\"also\": \"invalid\"}")
+            .expect("write file2");
 
         let result = run_bench_compare(
             file1.to_str().expect("path1"),
@@ -1665,7 +1671,7 @@ mod benchmark_function_tests {
     fn test_run_benchmarks_list_mode_all_params() {
         let result = run_benchmarks(
             Some("tensor_ops".to_string()),
-            true,  // list mode
+            true, // list mode
             Some("realizar".to_string()),
             Some("model.gguf".to_string()),
             Some("http://localhost:8080".to_string()),

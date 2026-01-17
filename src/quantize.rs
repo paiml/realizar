@@ -6943,19 +6943,6 @@ pub fn quantize_activations_q8_0(activations: &[f32]) -> (Vec<f32>, Vec<i8>) {
     (scales, quants)
 }
 
-/// Check for AVX-VNNI support using CPUID
-/// Bit 4 of EAX from CPUID(EAX=7, ECX=1) indicates AVX-VNNI
-#[cfg(target_arch = "x86_64")]
-#[allow(dead_code)]
-fn has_avx_vnni() -> bool {
-    use std::arch::x86_64::__cpuid_count;
-
-    // Check for AVX-VNNI: CPUID(7, 1).EAX bit 4
-    // SAFETY: CPUID is safe on all x86_64 processors
-    let result = unsafe { __cpuid_count(7, 1) };
-    (result.eax & (1 << 4)) != 0
-}
-
 /// SIMD-accelerated Q4_0 × Q8_0 integer dot product
 ///
 /// Uses _mm256_maddubs_epi16 for efficient integer multiply-accumulate.

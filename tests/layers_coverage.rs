@@ -1713,7 +1713,11 @@ fn test_rope_various_positions() {
 
         let output = result.unwrap();
         for &val in output.data() {
-            assert!(val.is_finite(), "Position {} should produce finite values", pos);
+            assert!(
+                val.is_finite(),
+                "Position {} should produce finite values",
+                pos
+            );
         }
     }
 }

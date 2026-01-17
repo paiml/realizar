@@ -2753,22 +2753,24 @@ fn test_metadata_preservation_all_fields() {
     let apr = AprTransformer {
         config,
         token_embedding: vec![0.1; 32000 * 512],
-        layers: (0..16).map(|_| AprTransformerLayer {
-            attn_norm_weight: vec![1.0; 512],
-            attn_norm_bias: None,
-            qkv_weight: vec![0.01; 512 * 3 * 512],
-            qkv_bias: None,
-            attn_output_weight: vec![0.01; 512 * 512],
-            attn_output_bias: None,
-            ffn_gate_weight: Some(vec![0.01; 512 * 2048]),
-            ffn_gate_bias: None,
-            ffn_up_weight: vec![0.01; 512 * 2048],
-            ffn_up_bias: None,
-            ffn_down_weight: vec![0.01; 2048 * 512],
-            ffn_down_bias: None,
-            ffn_norm_weight: None,
-            ffn_norm_bias: None,
-        }).collect(),
+        layers: (0..16)
+            .map(|_| AprTransformerLayer {
+                attn_norm_weight: vec![1.0; 512],
+                attn_norm_bias: None,
+                qkv_weight: vec![0.01; 512 * 3 * 512],
+                qkv_bias: None,
+                attn_output_weight: vec![0.01; 512 * 512],
+                attn_output_bias: None,
+                ffn_gate_weight: Some(vec![0.01; 512 * 2048]),
+                ffn_gate_bias: None,
+                ffn_up_weight: vec![0.01; 512 * 2048],
+                ffn_up_bias: None,
+                ffn_down_weight: vec![0.01; 2048 * 512],
+                ffn_down_bias: None,
+                ffn_norm_weight: None,
+                ffn_norm_bias: None,
+            })
+            .collect(),
         output_norm_weight: vec![1.0; 512],
         output_norm_bias: None,
         lm_head_weight: vec![0.01; 512 * 32000],
@@ -2886,7 +2888,10 @@ fn test_q4k_converter_nonexistent_input_file() {
     let output_path = Path::new("/tmp/output.apr");
 
     let result = realizar::convert::GgufToAprQ4KConverter::convert(input_path, output_path);
-    assert!(result.is_err(), "Nonexistent input file should produce error");
+    assert!(
+        result.is_err(),
+        "Nonexistent input file should produce error"
+    );
 }
 
 #[test]
@@ -2921,7 +2926,8 @@ fn test_q4k_converter_output_to_readonly_dir() {
     let nonexistent_input = Path::new("/tmp/nonexistent_model.gguf");
 
     // This should fail because input doesn't exist first
-    let result = realizar::convert::GgufToAprQ4KConverter::convert(nonexistent_input, nonexistent_output);
+    let result =
+        realizar::convert::GgufToAprQ4KConverter::convert(nonexistent_input, nonexistent_output);
     assert!(result.is_err());
 }
 
@@ -2945,15 +2951,24 @@ fn test_apr_bytes_output_has_valid_structure() {
 
     // Validate metadata offset
     let metadata_offset = u64::from_le_bytes(bytes[12..20].try_into().unwrap());
-    assert_eq!(metadata_offset, HEADER_SIZE as u64, "Metadata should start after header");
+    assert_eq!(
+        metadata_offset, HEADER_SIZE as u64,
+        "Metadata should start after header"
+    );
 
     // Validate tensor index offset comes after metadata
     let tensor_idx_offset = u64::from_le_bytes(bytes[24..32].try_into().unwrap());
-    assert!(tensor_idx_offset > metadata_offset, "Tensor index should be after metadata");
+    assert!(
+        tensor_idx_offset > metadata_offset,
+        "Tensor index should be after metadata"
+    );
 
     // Validate data offset comes after tensor index
     let data_offset = u64::from_le_bytes(bytes[32..40].try_into().unwrap());
-    assert!(data_offset >= tensor_idx_offset, "Data should be after tensor index");
+    assert!(
+        data_offset >= tensor_idx_offset,
+        "Data should be after tensor index"
+    );
 }
 
 #[test]
@@ -2968,8 +2983,8 @@ fn test_apr_bytes_contains_valid_json_metadata() {
     let metadata_slice = &bytes[metadata_offset..metadata_offset + metadata_len];
 
     // Should be valid JSON
-    let metadata: serde_json::Value = serde_json::from_slice(metadata_slice)
-        .expect("Metadata should be valid JSON");
+    let metadata: serde_json::Value =
+        serde_json::from_slice(metadata_slice).expect("Metadata should be valid JSON");
 
     // Verify expected fields
     assert!(metadata.get("model_type").is_some());
@@ -2996,8 +3011,10 @@ fn test_apr_roundtrip_weight_values_exact() {
     };
 
     // Use specific weight values
-    let embedding = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0,
-                         1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0];
+    let embedding = vec![
+        0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8,
+        1.9, 2.0,
+    ];
 
     let apr = AprTransformer {
         config,
@@ -3028,15 +3045,29 @@ fn test_apr_roundtrip_weight_values_exact() {
     let loaded = GgufToAprConverter::from_apr_bytes(&bytes).expect("deserialize");
 
     // Verify exact weight values
-    for (i, (orig, load)) in embedding.iter().zip(loaded.token_embedding.iter()).enumerate() {
-        assert!((orig - load).abs() < 1e-6, "Embedding[{}] mismatch: {} vs {}", i, orig, load);
+    for (i, (orig, load)) in embedding
+        .iter()
+        .zip(loaded.token_embedding.iter())
+        .enumerate()
+    {
+        assert!(
+            (orig - load).abs() < 1e-6,
+            "Embedding[{}] mismatch: {} vs {}",
+            i,
+            orig,
+            load
+        );
     }
 
     // Verify attn_norm_weight exact values
     let orig_norm = &apr.layers[0].attn_norm_weight;
     let load_norm = &loaded.layers[0].attn_norm_weight;
     for (i, (orig, load)) in orig_norm.iter().zip(load_norm.iter()).enumerate() {
-        assert!((orig - load).abs() < 1e-6, "attn_norm_weight[{}] mismatch", i);
+        assert!(
+            (orig - load).abs() < 1e-6,
+            "attn_norm_weight[{}] mismatch",
+            i
+        );
     }
 }
 
@@ -3088,7 +3119,11 @@ fn test_stats_with_different_layer_counts() {
     for num_layers in [0, 1, 2, 4, 8, 16, 32, 64] {
         let apr = create_minimal_apr_transformer(8, num_layers, 10, 16);
         let stats = GgufToAprConverter::stats(&apr);
-        assert_eq!(stats.num_layers, num_layers, "Layer count mismatch for {}", num_layers);
+        assert_eq!(
+            stats.num_layers, num_layers,
+            "Layer count mismatch for {}",
+            num_layers
+        );
     }
 }
 
@@ -3097,7 +3132,11 @@ fn test_stats_with_different_hidden_dims() {
     for hidden_dim in [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024] {
         let apr = create_minimal_apr_transformer(hidden_dim, 1, 10, hidden_dim * 2);
         let stats = GgufToAprConverter::stats(&apr);
-        assert_eq!(stats.hidden_dim, hidden_dim, "Hidden dim mismatch for {}", hidden_dim);
+        assert_eq!(
+            stats.hidden_dim, hidden_dim,
+            "Hidden dim mismatch for {}",
+            hidden_dim
+        );
     }
 }
 
@@ -3106,7 +3145,11 @@ fn test_stats_with_different_vocab_sizes() {
     for vocab_size in [1, 10, 100, 1000, 10000, 50000] {
         let apr = create_minimal_apr_transformer(8, 1, vocab_size, 16);
         let stats = GgufToAprConverter::stats(&apr);
-        assert_eq!(stats.vocab_size, vocab_size, "Vocab size mismatch for {}", vocab_size);
+        assert_eq!(
+            stats.vocab_size, vocab_size,
+            "Vocab size mismatch for {}",
+            vocab_size
+        );
     }
 }
 
@@ -3151,7 +3194,8 @@ fn test_conversion_preserves_per_layer_weights_large() {
     let intermediate_dim = 32;
     let vocab_size = 50;
 
-    let gguf = create_minimal_gguf_transformer(hidden_dim, num_layers, vocab_size, intermediate_dim);
+    let gguf =
+        create_minimal_gguf_transformer(hidden_dim, num_layers, vocab_size, intermediate_dim);
     let apr = GgufToAprConverter::from_gguf_transformer(&gguf);
 
     // Verify all layers are preserved
@@ -3159,11 +3203,36 @@ fn test_conversion_preserves_per_layer_weights_large() {
 
     // Verify each layer has correct dimensions
     for (i, layer) in apr.layers.iter().enumerate() {
-        assert_eq!(layer.attn_norm_weight.len(), hidden_dim, "Layer {} attn_norm_weight len", i);
-        assert_eq!(layer.qkv_weight.len(), hidden_dim * 3 * hidden_dim, "Layer {} qkv_weight len", i);
-        assert_eq!(layer.attn_output_weight.len(), hidden_dim * hidden_dim, "Layer {} attn_output_weight len", i);
-        assert_eq!(layer.ffn_up_weight.len(), hidden_dim * intermediate_dim, "Layer {} ffn_up_weight len", i);
-        assert_eq!(layer.ffn_down_weight.len(), intermediate_dim * hidden_dim, "Layer {} ffn_down_weight len", i);
+        assert_eq!(
+            layer.attn_norm_weight.len(),
+            hidden_dim,
+            "Layer {} attn_norm_weight len",
+            i
+        );
+        assert_eq!(
+            layer.qkv_weight.len(),
+            hidden_dim * 3 * hidden_dim,
+            "Layer {} qkv_weight len",
+            i
+        );
+        assert_eq!(
+            layer.attn_output_weight.len(),
+            hidden_dim * hidden_dim,
+            "Layer {} attn_output_weight len",
+            i
+        );
+        assert_eq!(
+            layer.ffn_up_weight.len(),
+            hidden_dim * intermediate_dim,
+            "Layer {} ffn_up_weight len",
+            i
+        );
+        assert_eq!(
+            layer.ffn_down_weight.len(),
+            intermediate_dim * hidden_dim,
+            "Layer {} ffn_down_weight len",
+            i
+        );
     }
 }
 
@@ -3181,8 +3250,14 @@ fn test_serialized_size_increases_with_model_size() {
     let medium_bytes = GgufToAprConverter::to_apr_bytes(&medium).expect("serialize medium");
     let large_bytes = GgufToAprConverter::to_apr_bytes(&large).expect("serialize large");
 
-    assert!(medium_bytes.len() > small_bytes.len(), "Medium should be larger than small");
-    assert!(large_bytes.len() > medium_bytes.len(), "Large should be larger than medium");
+    assert!(
+        medium_bytes.len() > small_bytes.len(),
+        "Medium should be larger than small"
+    );
+    assert!(
+        large_bytes.len() > medium_bytes.len(),
+        "Large should be larger than medium"
+    );
 }
 
 #[test]
@@ -3194,7 +3269,10 @@ fn test_serialized_size_relationship_to_parameters() {
     // The serialized size should be roughly related to the memory size
     // (though JSON serialization adds overhead)
     let expected_min_size = stats.memory_bytes_f32; // At minimum, we need to store all weights
-    assert!(bytes.len() > expected_min_size / 2, "Serialized size should be substantial");
+    assert!(
+        bytes.len() > expected_min_size / 2,
+        "Serialized size should be substantial"
+    );
 }
 
 // =============================================================================

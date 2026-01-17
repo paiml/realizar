@@ -16,13 +16,13 @@ use realizar::api::{
     AuditResponse, BatchGenerateRequest, BatchGenerateResponse, BatchTokenizeRequest,
     BatchTokenizeResponse, ChatChoice, ChatCompletionRequest, ChatCompletionResponse, ChatDelta,
     ChatMessage, CompletionChoice, CompletionRequest, CompletionResponse, ContextWindowConfig,
-    ContextWindowManager, DispatchResetResponse, EmbeddingData, EmbeddingRequest, EmbeddingResponse,
-    EmbeddingUsage, ErrorResponse, ExplainRequest, ExplainResponse, GenerateRequest,
-    GenerateResponse, GpuBatchRequest, GpuBatchResponse, GpuBatchResult, GpuBatchStats,
-    GpuStatusResponse, GpuWarmupResponse, HealthResponse, ModelLineage, ModelMetadataResponse,
-    ModelsResponse, OpenAIModel, OpenAIModelsResponse, PredictRequest, PredictResponse,
-    PredictionWithScore, ReloadRequest, ReloadResponse, ServerMetricsResponse, StreamDoneEvent,
-    StreamTokenEvent, TokenizeRequest, TokenizeResponse, Usage,
+    ContextWindowManager, DispatchResetResponse, EmbeddingData, EmbeddingRequest,
+    EmbeddingResponse, EmbeddingUsage, ErrorResponse, ExplainRequest, ExplainResponse,
+    GenerateRequest, GenerateResponse, GpuBatchRequest, GpuBatchResponse, GpuBatchResult,
+    GpuBatchStats, GpuStatusResponse, GpuWarmupResponse, HealthResponse, ModelLineage,
+    ModelMetadataResponse, ModelsResponse, OpenAIModel, OpenAIModelsResponse, PredictRequest,
+    PredictResponse, PredictionWithScore, ReloadRequest, ReloadResponse, ServerMetricsResponse,
+    StreamDoneEvent, StreamTokenEvent, TokenizeRequest, TokenizeResponse, Usage,
 };
 use realizar::explain::ShapExplanation;
 use realizar::registry::ModelInfo;
@@ -2934,7 +2934,9 @@ fn test_chat_completion_request_default_stream() {
 
 #[cfg(feature = "gpu")]
 mod gpu_coverage_tests {
-    use realizar::api::{BatchConfig, BatchProcessResult, BatchQueueStats, ContinuousBatchResponse};
+    use realizar::api::{
+        BatchConfig, BatchProcessResult, BatchQueueStats, ContinuousBatchResponse,
+    };
 
     #[test]
     fn test_batch_config_default() {
@@ -3171,7 +3173,8 @@ fn test_openai_models_response_many_models() {
     };
 
     let json = serde_json::to_string(&response).expect("should serialize");
-    let deserialized: OpenAIModelsResponse = serde_json::from_str(&json).expect("should deserialize");
+    let deserialized: OpenAIModelsResponse =
+        serde_json::from_str(&json).expect("should deserialize");
 
     assert_eq!(deserialized.data.len(), 100);
 }
@@ -3256,7 +3259,8 @@ fn test_dispatch_reset_response_success_roundtrip() {
     };
 
     let json = serde_json::to_string(&response).expect("should serialize");
-    let deserialized: DispatchResetResponse = serde_json::from_str(&json).expect("should deserialize");
+    let deserialized: DispatchResetResponse =
+        serde_json::from_str(&json).expect("should deserialize");
 
     assert!(deserialized.success);
     assert_eq!(deserialized.message, "Reset complete");
@@ -3270,7 +3274,8 @@ fn test_dispatch_reset_response_failure_roundtrip() {
     };
 
     let json = serde_json::to_string(&response).expect("should serialize");
-    let deserialized: DispatchResetResponse = serde_json::from_str(&json).expect("should deserialize");
+    let deserialized: DispatchResetResponse =
+        serde_json::from_str(&json).expect("should deserialize");
 
     assert!(!deserialized.success);
     assert_eq!(deserialized.message, "No metrics available");
@@ -3406,7 +3411,8 @@ fn test_model_metadata_full_with_all_fields() {
     };
 
     let json = serde_json::to_string(&response).expect("should serialize");
-    let deserialized: ModelMetadataResponse = serde_json::from_str(&json).expect("should deserialize");
+    let deserialized: ModelMetadataResponse =
+        serde_json::from_str(&json).expect("should deserialize");
 
     assert_eq!(deserialized.context_length, 32768);
     assert!(deserialized.lineage.is_some());
@@ -3484,7 +3490,14 @@ fn test_context_window_manager_truncation_behavior() {
     // Create messages that exceed the limit
     let messages: Vec<ChatMessage> = (0..10)
         .map(|i| ChatMessage {
-            role: if i == 0 { "system" } else if i % 2 == 1 { "user" } else { "assistant" }.to_string(),
+            role: if i == 0 {
+                "system"
+            } else if i % 2 == 1 {
+                "user"
+            } else {
+                "assistant"
+            }
+            .to_string(),
             content: format!("This is message {} with some content", i),
             name: None,
         })
@@ -3701,7 +3714,11 @@ fn test_dispatch_metrics_response_histogram_data() {
         cpu_latency_stddev_us: 31.62,
         gpu_latency_variance_us: 400.0,
         gpu_latency_stddev_us: 20.0,
-        bucket_boundaries_us: vec!["0-50".to_string(), "50-100".to_string(), "100-500".to_string()],
+        bucket_boundaries_us: vec![
+            "0-50".to_string(),
+            "50-100".to_string(),
+            "100-500".to_string(),
+        ],
         cpu_latency_bucket_counts: vec![100, 200, 200],
         gpu_latency_bucket_counts: vec![1000, 400, 100],
         throughput_rps: 500.0,
@@ -3928,7 +3945,10 @@ fn test_context_window_config_clone() {
     let config1 = ContextWindowConfig::new(4096).with_reserved_output(256);
     let config2 = config1.clone();
     assert_eq!(config1.max_tokens, config2.max_tokens);
-    assert_eq!(config1.reserved_output_tokens, config2.reserved_output_tokens);
+    assert_eq!(
+        config1.reserved_output_tokens,
+        config2.reserved_output_tokens
+    );
 }
 
 #[test]
@@ -3984,17 +4004,12 @@ fn test_context_window_manager_truncation_preserves_order() {
         // User messages and assistant messages should alternate or follow original order
         for i in 0..result.len() - 1 {
             // Messages should maintain relative order from original
-            let orig_idx_curr = messages
-                .iter()
-                .position(|m| m.content == result[i].content);
+            let orig_idx_curr = messages.iter().position(|m| m.content == result[i].content);
             let orig_idx_next = messages
                 .iter()
                 .position(|m| m.content == result[i + 1].content);
             if let (Some(curr), Some(next)) = (orig_idx_curr, orig_idx_next) {
-                assert!(
-                    curr < next,
-                    "Messages should maintain chronological order"
-                );
+                assert!(curr < next, "Messages should maintain chronological order");
             }
         }
     }
@@ -4071,13 +4086,16 @@ fn test_chat_completion_request_all_optional_fields() {
         top_p: Some(0.9),
         n: 3,
         stream: true,
-        stop: Some(vec!["END".to_string(), "STOP".to_string(), "###".to_string()]),
+        stop: Some(vec![
+            "END".to_string(),
+            "STOP".to_string(),
+            "###".to_string(),
+        ]),
         user: Some("user-abc123".to_string()),
     };
 
     let json = serde_json::to_string(&request).expect("serialize");
-    let deserialized: ChatCompletionRequest =
-        serde_json::from_str(&json).expect("deserialize");
+    let deserialized: ChatCompletionRequest = serde_json::from_str(&json).expect("deserialize");
 
     assert_eq!(deserialized.n, 3);
     assert!(deserialized.stream);
@@ -4107,8 +4125,7 @@ fn test_predict_request_variations() {
 
     // Minimal request
     let minimal_json = r#"{"features": [1.0, 2.0]}"#;
-    let minimal: PredictRequest =
-        serde_json::from_str(minimal_json).expect("deserialize");
+    let minimal: PredictRequest = serde_json::from_str(minimal_json).expect("deserialize");
     assert!(minimal.model.is_none());
     assert!(minimal.feature_names.is_none());
     assert!(minimal.include_confidence); // default true
@@ -4127,10 +4144,8 @@ fn test_explain_request_method_variations() {
     assert_eq!(lime.method, "lime");
 
     // Attention method
-    let attention_json =
-        r#"{"features": [1.0], "feature_names": ["x"], "method": "attention"}"#;
-    let attention: ExplainRequest =
-        serde_json::from_str(attention_json).expect("deserialize");
+    let attention_json = r#"{"features": [1.0], "feature_names": ["x"], "method": "attention"}"#;
+    let attention: ExplainRequest = serde_json::from_str(attention_json).expect("deserialize");
     assert_eq!(attention.method, "attention");
 }
 
@@ -4971,7 +4986,10 @@ fn test_embedding_response_roundtrip() {
     let json = serde_json::to_string(&original).expect("serialize");
     let restored: EmbeddingResponse = serde_json::from_str(&json).expect("deserialize");
     assert_eq!(original.data.len(), restored.data.len());
-    assert_eq!(original.data[0].embedding.len(), restored.data[0].embedding.len());
+    assert_eq!(
+        original.data[0].embedding.len(),
+        restored.data[0].embedding.len()
+    );
 }
 
 #[test]

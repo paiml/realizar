@@ -2351,7 +2351,10 @@ fn test_apr_transformer_mha_config() {
         eps: 1e-5,
     };
     let transformer = AprTransformer::new(config);
-    assert_eq!(transformer.config().num_heads, transformer.config().num_kv_heads);
+    assert_eq!(
+        transformer.config().num_heads,
+        transformer.config().num_kv_heads
+    );
 }
 
 #[test]
@@ -2362,7 +2365,8 @@ fn test_apr_transformer_layer_gqa_dimensions() {
     let num_kv_heads = 2;
     let intermediate_dim = 1024;
 
-    let layer = AprTransformerLayer::empty_gqa(hidden_dim, num_heads, num_kv_heads, intermediate_dim);
+    let layer =
+        AprTransformerLayer::empty_gqa(hidden_dim, num_heads, num_kv_heads, intermediate_dim);
 
     let head_dim = hidden_dim / num_heads; // 32
     let kv_dim = num_kv_heads * head_dim; // 64
@@ -2453,10 +2457,25 @@ fn test_apr_quantization_type_all_types() {
             "{:?} bits_per_weight",
             qtype
         );
-        assert_eq!(qtype.bytes_per_block(), bytes_per_block, "{:?} bytes_per_block", qtype);
-        assert_eq!(qtype.values_per_block(), values_per_block, "{:?} values_per_block", qtype);
+        assert_eq!(
+            qtype.bytes_per_block(),
+            bytes_per_block,
+            "{:?} bytes_per_block",
+            qtype
+        );
+        assert_eq!(
+            qtype.values_per_block(),
+            values_per_block,
+            "{:?} values_per_block",
+            qtype
+        );
         assert_eq!(qtype.to_byte(), byte_id, "{:?} to_byte", qtype);
-        assert_eq!(AprQuantizationType::from_byte(byte_id), Some(qtype), "{:?} from_byte", qtype);
+        assert_eq!(
+            AprQuantizationType::from_byte(byte_id),
+            Some(qtype),
+            "{:?} from_byte",
+            qtype
+        );
     }
 }
 
@@ -2478,7 +2497,7 @@ fn test_apr_v2_model_truncated_tensor_index() {
     // Model should load, header says 5 tensors but index may be truncated/empty
     let model = AprV2Model::from_bytes(data).expect("should load");
     assert_eq!(model.tensor_count(), 5); // Header says 5
-    // Parsed tensor count may be less than header due to truncated index
+                                         // Parsed tensor count may be less than header due to truncated index
     assert!(model.tensor_names().len() <= 5);
 }
 
@@ -2531,7 +2550,7 @@ fn test_tensor_entry_truncated_at_shape() {
     data.extend_from_slice(b"test"); // name
     data.push(0); // dtype = F32
     data.push(3); // ndim = 3
-    // Only 8 bytes of shape (should be 24 for 3 dims + 16 for offset+size)
+                  // Only 8 bytes of shape (should be 24 for 3 dims + 16 for offset+size)
     data.extend_from_slice(&[0u8; 8]);
 
     let result = TensorEntry::from_binary(&data);
@@ -2713,7 +2732,12 @@ fn test_bpe_tokenizer_known_token_handling() {
 
     let tokenizer = BpeTokenizer {
         token_to_id,
-        id_to_token: vec!["h".to_string(), "e".to_string(), "l".to_string(), "o".to_string()],
+        id_to_token: vec![
+            "h".to_string(),
+            "e".to_string(),
+            "l".to_string(),
+            "o".to_string(),
+        ],
         merge_rules: vec![],
         bos_id: None,
         eos_id: None,
@@ -2924,10 +2948,26 @@ fn test_apr_model_f16_tensor_dequantize() {
     let floats = model.get_tensor_f32("test.f16").expect("should dequantize");
 
     assert_eq!(floats.len(), 4);
-    assert!((floats[0] - 1.0).abs() < 0.01, "Expected 1.0, got {}", floats[0]);
-    assert!((floats[1] - 2.0).abs() < 0.01, "Expected 2.0, got {}", floats[1]);
-    assert!((floats[2] - (-0.5)).abs() < 0.01, "Expected -0.5, got {}", floats[2]);
-    assert!((floats[3] - 0.0).abs() < 0.01, "Expected 0.0, got {}", floats[3]);
+    assert!(
+        (floats[0] - 1.0).abs() < 0.01,
+        "Expected 1.0, got {}",
+        floats[0]
+    );
+    assert!(
+        (floats[1] - 2.0).abs() < 0.01,
+        "Expected 2.0, got {}",
+        floats[1]
+    );
+    assert!(
+        (floats[2] - (-0.5)).abs() < 0.01,
+        "Expected -0.5, got {}",
+        floats[2]
+    );
+    assert!(
+        (floats[3] - 0.0).abs() < 0.01,
+        "Expected 0.0, got {}",
+        floats[3]
+    );
 }
 
 #[test]
@@ -2964,7 +3004,9 @@ fn test_apr_model_f16_tensor_special_values() {
     data[data_start + 10..data_start + 12].copy_from_slice(&0x0001u16.to_le_bytes()); // subnormal
 
     let model = AprV2Model::from_bytes(data).expect("should load");
-    let floats = model.get_tensor_f32("test.f16_special").expect("should dequantize");
+    let floats = model
+        .get_tensor_f32("test.f16_special")
+        .expect("should dequantize");
 
     assert!(floats[0].is_infinite() && floats[0] > 0.0, "Expected +inf");
     assert!(floats[1].is_infinite() && floats[1] < 0.0, "Expected -inf");
@@ -2981,13 +3023,21 @@ fn test_apr_model_f16_tensor_special_values() {
 fn test_apr_model_q8_0_tensor_dequantize() {
     let data = create_apr_model_with_q8_0_tensor();
     let model = AprV2Model::from_bytes(data).expect("should load Q8_0 model");
-    let floats = model.get_tensor_f32("test.q8_0").expect("should dequantize");
+    let floats = model
+        .get_tensor_f32("test.q8_0")
+        .expect("should dequantize");
 
     // Q8_0: 32 elements, scale * int8 values
     // With scale=1.0 and quant values 0-31, we expect 0.0, 1.0, 2.0, ... 31.0
     assert_eq!(floats.len(), 32);
     for (i, &val) in floats.iter().enumerate() {
-        assert!((val - (i as f32)).abs() < 0.1, "Element {} expected {}, got {}", i, i, val);
+        assert!(
+            (val - (i as f32)).abs() < 0.1,
+            "Element {} expected {}, got {}",
+            i,
+            i,
+            val
+        );
     }
 }
 
@@ -3030,7 +3080,9 @@ fn test_apr_model_q8_0_multiple_blocks() {
     }
 
     let model = AprV2Model::from_bytes(data).expect("should load");
-    let floats = model.get_tensor_f32("test.q8_0_multi").expect("should dequantize");
+    let floats = model
+        .get_tensor_f32("test.q8_0_multi")
+        .expect("should dequantize");
 
     assert_eq!(floats.len(), 64);
     // Block 1 should have values 0-31
@@ -3121,7 +3173,7 @@ fn test_apr_model_unsupported_dtype_error() {
 #[test]
 fn test_apr_v2_model_forward_not_transformer() {
     // Create minimal model without transformer metadata
-    let metadata = r#"{"architecture":"test"}"#;  // Missing required fields
+    let metadata = r#"{"architecture":"test"}"#; // Missing required fields
     let metadata_bytes = metadata.as_bytes();
     let metadata_padded_size = metadata_bytes.len().div_ceil(64) * 64;
 
@@ -3205,7 +3257,8 @@ fn test_apr_v2_model_predict_with_weight_tensor() {
     // Bias: [0.5, -0.5]
     let biases = [0.5f32, -0.5];
     for (i, &b) in biases.iter().enumerate() {
-        data[data_start + 24 + i * 4..data_start + 24 + i * 4 + 4].copy_from_slice(&b.to_le_bytes());
+        data[data_start + 24 + i * 4..data_start + 24 + i * 4 + 4]
+            .copy_from_slice(&b.to_le_bytes());
     }
 
     let model = AprV2Model::from_bytes(data).expect("should load");
@@ -3577,7 +3630,8 @@ fn test_detect_format_by_magic_bytes_apr() {
 #[test]
 fn test_detect_format_by_magic_bytes_gguf() {
     let mut temp = NamedTempFile::new().expect("create temp file");
-    temp.write_all(&[0x47, 0x47, 0x55, 0x46]).expect("write GGUF magic");
+    temp.write_all(&[0x47, 0x47, 0x55, 0x46])
+        .expect("write GGUF magic");
     temp.write_all(&[0u8; 60]).expect("write padding");
     assert_eq!(detect_format(temp.path()), "gguf");
 }
@@ -3652,7 +3706,11 @@ fn test_apr_v2_model_tensor_index_parse_error_handled() {
     // Model should load but have 0 parsed tensors (parse errors are handled gracefully)
     let model = AprV2Model::from_bytes(data).expect("should load");
     assert_eq!(model.tensor_count(), 1); // Header says 1
-    // Parsed tensor count may be less than header due to malformed index
+                                         // Parsed tensor count may be less than header due to malformed index
     let parsed_count = model.tensor_names().len();
-    assert!(parsed_count <= 1, "Should have 0 or 1 parsed tensors, got {}", parsed_count);
+    assert!(
+        parsed_count <= 1,
+        "Should have 0 or 1 parsed tensors, got {}",
+        parsed_count
+    );
 }
