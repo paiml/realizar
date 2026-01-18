@@ -16914,6 +16914,16 @@ impl OwnedQuantizedModelCuda {
                 reason: format!("Failed to upload QKV bias: {}", e),
             })?;
 
+        // PAR-064-FIX: Pre-cache LM head bias (output.bias) for models that have it
+        // Without this bias, GPU inference produces incorrect token predictions
+        total_bytes += self
+            .executor
+            .preload_lm_head_bias(self.model.lm_head_bias.as_deref())
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "preload_weights_gpu".to_string(),
+                reason: format!("Failed to upload LM head bias: {}", e),
+            })?;
+
         // PAR-043: Build indexed weight lookup table for O(1) access during decode
         // This eliminates ~10ms constant CPU overhead per token from string formatting + HashMap lookups
         // PAR-107: Skip if already indexed to preserve CUDA graph (graph captures buffer addresses)
