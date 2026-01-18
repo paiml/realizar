@@ -178,7 +178,7 @@ pub fn simd_silu(data: &mut [f32]) {
 #[inline]
 pub fn simd_gelu(data: &mut [f32]) {
     // Approximate GELU: 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
-    const SQRT_2_OVER_PI: f32 = 0.7978845608; // sqrt(2/π)
+    const SQRT_2_OVER_PI: f32 = 0.797_884_6; // sqrt(2/π)
     const COEF: f32 = 0.044715;
 
     for x in data.iter_mut() {

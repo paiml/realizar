@@ -41,7 +41,6 @@ use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use trueno::brick::BrickProfiler;
 
 use crate::error::{RealizarError, Result};
 
@@ -1425,28 +1424,6 @@ impl AprV2Model {
 
         Ok(logits)
     }
-
-    /// Forward pass with BrickProfiler instrumentation.
-    ///
-    /// Instruments 11 timing points:
-    /// - apr.Embed: Token embedding lookup
-    /// - apr.RmsNorm: RMS normalization (called 2x per layer + 1 final)
-    /// - apr.QKV: Q, K, V projections
-    /// - apr.Attention: Scaled dot-product attention
-    /// - apr.OProj: Output projection
-    /// - apr.FFN: Gate + Up + Down MLPs
-    /// - apr.Residual: Residual connection adds (2x per layer)
-    /// - apr.FinalNorm: Final layer norm
-    /// - apr.LmHead: LM head projection
-    ///
-    /// # Arguments
-    ///
-    /// * `token_ids` - Input token sequence
-    /// * `profiler` - BrickProfiler instance (must be enabled)
-    ///
-    /// # Returns
-    ///
-    /// Logits vector of size `vocab_size`
 
     /// Autoregressive text generation.
     ///
