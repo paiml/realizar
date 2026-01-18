@@ -13704,4 +13704,365 @@ mod tests {
             assert!(min.abs() < 0.001, "Block {} min should be 0, got {}", block_idx, min);
         }
     }
+
+    // =========================================================================
+    // Dequantization Edge Cases (Coverage: error paths)
+    // =========================================================================
+
+    #[test]
+    fn test_dequantize_f16_empty_edge() {
+        let data: &[u8] = &[];
+        let result = dequantize_f16(data);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_dequantize_f16_odd_length_edge() {
+        // Odd number of bytes (not valid for f16)
+        let data = [0u8; 3];
+        let result = dequantize_f16(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_dequantize_q4_0_empty_edge() {
+        let data: &[u8] = &[];
+        let result = dequantize_q4_0(data);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_dequantize_q8_0_empty_edge() {
+        let data: &[u8] = &[];
+        let result = dequantize_q8_0(data);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_dequantize_q4_k_empty_edge() {
+        let data: &[u8] = &[];
+        let result = dequantize_q4_k(data);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_dequantize_q5_k_empty_edge() {
+        let data: &[u8] = &[];
+        let result = dequantize_q5_k(data);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_dequantize_q6_k_empty_edge() {
+        let data: &[u8] = &[];
+        let result = dequantize_q6_k(data);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    // =========================================================================
+    // Dequantize Q4_1 Tests (Coverage: Q4_1 format)
+    // =========================================================================
+
+    #[test]
+    fn test_dequantize_q4_1_empty_edge() {
+        let data: &[u8] = &[];
+        let result = dequantize_q4_1(data);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    // =========================================================================
+    // Dequantize Q5_0 Tests (Coverage: Q5_0 format)
+    // =========================================================================
+
+    #[test]
+    fn test_dequantize_q5_0_empty_edge() {
+        let data: &[u8] = &[];
+        let result = dequantize_q5_0(data);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    // =========================================================================
+    // Dequantize Q5_1 Tests (Coverage: Q5_1 format)
+    // =========================================================================
+
+    #[test]
+    fn test_dequantize_q5_1_empty_edge() {
+        let data: &[u8] = &[];
+        let result = dequantize_q5_1(data);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    // =========================================================================
+    // Block Size Constants Tests (Coverage: constants)
+    // =========================================================================
+
+    #[test]
+    fn test_block_size_constant_check() {
+        assert_eq!(BLOCK_SIZE, 32);
+    }
+
+    #[test]
+    fn test_qk_k_constant_check() {
+        assert_eq!(QK_K, 256);
+    }
+
+    // =========================================================================
+    // Q4_0Block Tests (Coverage: Q4_0Block struct)
+    // =========================================================================
+
+    #[test]
+    fn test_q4_0_block_struct_fields_check() {
+        let block = Q4_0Block {
+            scale: 2.5,
+            quants: [0x12; 16],
+        };
+        assert!((block.scale - 2.5).abs() < 1e-6);
+        assert_eq!(block.quants[0], 0x12);
+    }
+
+    #[test]
+    fn test_q4_0_block_clone_check() {
+        let block = Q4_0Block {
+            scale: 1.5,
+            quants: [0xAB; 16],
+        };
+        let cloned = block.clone();
+        assert!((cloned.scale - block.scale).abs() < 1e-6);
+        assert_eq!(cloned.quants, block.quants);
+    }
+
+    #[test]
+    fn test_q4_0_block_debug_check() {
+        let block = Q4_0Block {
+            scale: 0.5,
+            quants: [0; 16],
+        };
+        let debug = format!("{:?}", block);
+        assert!(debug.contains("Q4_0Block"));
+        assert!(debug.contains("scale"));
+    }
+
+    // =========================================================================
+    // Q8_0Block Tests (Coverage: Q8_0Block struct)
+    // =========================================================================
+
+    #[test]
+    fn test_q8_0_block_struct_fields_check() {
+        let block = Q8_0Block {
+            scale: 0.125,
+            quants: [64i8; 32],
+        };
+        assert!((block.scale - 0.125).abs() < 1e-6);
+        assert_eq!(block.quants[0], 64);
+    }
+
+    #[test]
+    fn test_q8_0_block_clone_check() {
+        let block = Q8_0Block {
+            scale: 0.25,
+            quants: [-10i8; 32],
+        };
+        let cloned = block.clone();
+        assert!((cloned.scale - block.scale).abs() < 1e-6);
+        assert_eq!(cloned.quants, block.quants);
+    }
+
+    #[test]
+    fn test_q8_0_block_debug_check() {
+        let block = Q8_0Block {
+            scale: 1.0,
+            quants: [0; 32],
+        };
+        let debug = format!("{:?}", block);
+        assert!(debug.contains("Q8_0Block"));
+        assert!(debug.contains("scale"));
+    }
+
+    // =========================================================================
+    // f16_to_f32_lut Additional Tests (Coverage: LUT edge cases)
+    // =========================================================================
+
+    #[test]
+    fn test_f16_to_f32_lut_max_positive_check() {
+        // f16 max positive = 0x7BFF = ~65504
+        let result = f16_to_f32_lut(0x7BFF);
+        assert!(result > 60000.0);
+    }
+
+    #[test]
+    fn test_f16_to_f32_lut_max_negative_check() {
+        // f16 max negative = 0xFBFF = ~-65504
+        let result = f16_to_f32_lut(0xFBFF);
+        assert!(result < -60000.0);
+    }
+
+    #[test]
+    fn test_f16_to_f32_lut_infinity_check() {
+        // f16 positive infinity = 0x7C00
+        let result = f16_to_f32_lut(0x7C00);
+        assert!(result.is_infinite());
+        assert!(result > 0.0);
+    }
+
+    #[test]
+    fn test_f16_to_f32_lut_neg_infinity_check() {
+        // f16 negative infinity = 0xFC00
+        let result = f16_to_f32_lut(0xFC00);
+        assert!(result.is_infinite());
+        assert!(result < 0.0);
+    }
+
+    #[test]
+    fn test_f16_to_f32_lut_nan_check() {
+        // f16 NaN = 0x7C01 (exponent all 1s, nonzero mantissa)
+        let result = f16_to_f32_lut(0x7C01);
+        assert!(result.is_nan());
+    }
+
+    #[test]
+    fn test_f16_to_f32_lut_subnormal_check() {
+        // f16 smallest subnormal = 0x0001
+        let result = f16_to_f32_lut(0x0001);
+        assert!(result > 0.0);
+        assert!(result < 1e-6);
+    }
+
+    // =========================================================================
+    // Softmax SIMD Tests (Coverage: softmax_simd function - extended)
+    // =========================================================================
+
+    #[test]
+    fn test_softmax_simd_single_element_extended() {
+        let mut values = [1.0f32];
+        softmax_simd(&mut values);
+        assert!((values[0] - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_softmax_simd_two_equal_elements_extended() {
+        let mut values = [1.0f32, 1.0];
+        softmax_simd(&mut values);
+        assert!((values[0] - 0.5).abs() < 1e-6);
+        assert!((values[1] - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_softmax_simd_dominant_element_extended() {
+        let mut values = [100.0f32, 0.0, 0.0];
+        softmax_simd(&mut values);
+        assert!(values[0] > 0.99); // Dominant
+        assert!(values[1] < 0.01);
+        assert!(values[2] < 0.01);
+    }
+
+    #[test]
+    fn test_softmax_simd_negative_values_extended() {
+        let mut values = [-1.0f32, -2.0, -3.0];
+        softmax_simd(&mut values);
+        // Sum should be 1
+        let sum: f32 = values.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-5);
+        // First element should be largest
+        assert!(values[0] > values[1]);
+        assert!(values[1] > values[2]);
+    }
+
+    #[test]
+    fn test_softmax_simd_large_values_extended() {
+        let mut values = [1000.0f32, 1000.0, 1000.0];
+        softmax_simd(&mut values);
+        // Should still sum to 1 despite large inputs
+        let sum: f32 = values.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_softmax_simd_empty_extended() {
+        let mut values: [f32; 0] = [];
+        softmax_simd(&mut values);
+        // Should not panic
+    }
+
+    // =========================================================================
+    // Fused Q4_0 Q8_0 Parallel Matvec Tests (Coverage: fused operations)
+    // =========================================================================
+
+    #[test]
+    fn test_fused_q4_0_q8_0_parallel_matvec_empty_input_check() {
+        let result = fused_q4_0_q8_0_parallel_matvec(&[], &[], 0, 0);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_fused_q4_0_q8_0_parallel_matvec_into_empty_check() {
+        let mut output: Vec<f32> = vec![];
+        let result = fused_q4_0_q8_0_parallel_matvec_into(&[], &[], 0, &mut output);
+        assert!(result.is_ok());
+    }
+
+    // =========================================================================
+    // Quantize Activations Tests (Coverage: activation quantization)
+    // =========================================================================
+
+    #[test]
+    fn test_quantize_activations_q8_0_returns_tuple() {
+        let (scales, quants) = quantize_activations_q8_0(&[1.0, 2.0, 3.0, 4.0]);
+        assert!(!scales.is_empty());
+        assert!(!quants.is_empty());
+    }
+
+    #[test]
+    fn test_quantize_activations_q8_0_empty_returns_tuple() {
+        let (scales, quants) = quantize_activations_q8_0(&[]);
+        assert!(scales.is_empty());
+        assert!(quants.is_empty());
+    }
+
+    #[test]
+    fn test_quantize_activations_q8_0_uniform_values() {
+        let input = vec![2.0f32; 64];
+        let (scales, quants) = quantize_activations_q8_0(&input);
+        assert!(!scales.is_empty());
+        assert_eq!(quants.len(), 64);
+    }
+
+    #[test]
+    fn test_quantize_activations_q8_0_zeros_values() {
+        let input = vec![0.0f32; 32];
+        let (scales, quants) = quantize_activations_q8_0(&input);
+        // Should handle zeros gracefully
+        let _ = (scales, quants);
+    }
+
+    // =========================================================================
+    // Extract Scale Min from Slice Tests (Coverage: scale extraction helpers)
+    // =========================================================================
+
+    #[test]
+    fn test_extract_scale_min_from_slice_all_max_check() {
+        let scales: [u8; 8] = [0x3F; 8];
+        let (scale, _min) = extract_scale_min_from_slice(&scales, 0);
+        assert!((scale - 63.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_extract_scale_min_from_slice_alternating_check() {
+        let scales: [u8; 8] = [0x15, 0x2A, 0x15, 0x2A, 0x15, 0x2A, 0x15, 0x2A];
+        let (scale0, _min0) = extract_scale_min_from_slice(&scales, 0);
+        let (scale2, _min2) = extract_scale_min_from_slice(&scales, 2);
+        // Should be consistent
+        assert!((scale0 - 21.0).abs() < 0.001);
+        assert!((scale2 - 42.0).abs() < 0.001);
+    }
+
 }
