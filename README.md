@@ -23,8 +23,11 @@ curl -X POST http://localhost:8080/generate -d '{"prompt": "Hello", "max_tokens"
 | Formats | GGUF, SafeTensors, APR (native) |
 | Quantization | Q4_0, Q8_0, Q4_K, Q5_K, Q6_K |
 | Inference | Transformer, RoPE, KV cache, Flash Attention |
-| Chat Templates | ChatML, LLaMA2, Mistral, Phi, Alpaca (auto-detect) |
-| API | REST, streaming, Prometheus metrics |
+| Chat Templates | ChatML, LLaMA2, Llama3, Mistral, Phi, Alpaca, Groq (auto-detect) |
+| Tool Calling | Multi-turn agent loop, streaming, OpenAI/Hermes/Anthropic formats |
+| Embeddings | BERT, MiniLM, Nomic, BGE models with pooling strategies |
+| JSON Grammar | Grammar-constrained generation, LogitProcessor chain |
+| API | REST, streaming, OpenAI-compatible (`/v1/chat/completions`, `/v1/embeddings`) |
 | GPU | CUDA via [trueno-gpu](https://crates.io/crates/trueno-gpu) (pure Rust PTX) |
 | Quality | 2,400+ tests, 95% function coverage |
 
@@ -271,19 +274,166 @@ let formatted = template.format_conversation(&messages)?;
 
 See [`examples/chat_template.rs`](examples/chat_template.rs) for complete usage.
 
+## Tool Calling
+
+Enable LLMs to call functions with automatic multi-turn conversation handling:
+
+```rust
+use realizar::agent::{AgentConfig, AgentExecutor};
+use realizar::grammar::{ToolDefinition, ToolParameter, ToolResult};
+use realizar::tools::DispatchingToolHandler;
+
+// Define tools
+let tools = vec![
+    ToolDefinition::new(
+        "get_weather",
+        "Get weather for a location",
+        vec![ToolParameter::required_string("location", "City and state")],
+    ),
+];
+
+// Create handler with tool implementations
+let mut handler = DispatchingToolHandler::new();
+handler.register("get_weather", |call| {
+    Ok(ToolResult::success(call.id.clone(), r#"{"temp": 72}"#.to_string()))
+});
+
+// Run agent loop
+let config = AgentConfig::default().with_max_iterations(5);
+let mut agent = AgentExecutor::new(config, handler, tools);
+
+let result = agent.run_simple("What's the weather?", |prompt| {
+    // Your LLM generation function here
+    Ok("The weather is sunny!".to_string())
+})?;
+```
+
+**Supported Formats:**
+
+| Format | Models | Detection |
+|--------|--------|-----------|
+| OpenAI | GPT-4, GPT-3.5 | `{"name": ..., "arguments": ...}` |
+| Hermes/Groq | Llama-3-Groq-8B-Tool-Use | `<tool_call>...</tool_call>` |
+| Anthropic | Claude | `<tool_use>...</tool_use>` |
+
+**Streaming Support:**
+
+```rust
+use realizar::agent::{StreamingAgentExecutor, StreamingAgentEvent};
+
+let mut agent = StreamingAgentExecutor::new(config, handler, tools);
+agent.run_streaming("Query", generator, |event| {
+    match event {
+        StreamingAgentEvent::Token(tok) => print!("{}", tok.text),
+        StreamingAgentEvent::ToolCallExecuting { tool_call } => {
+            println!("[Calling {}]", tool_call.name);
+        }
+        _ => {}
+    }
+});
+```
+
+See [`examples/tool_calling.rs`](examples/tool_calling.rs) and [`examples/tool_calling_streaming.rs`](examples/tool_calling_streaming.rs).
+
+## Embeddings
+
+Generate semantic embeddings with BERT-style models:
+
+```rust
+use realizar::embeddings::{EmbeddingConfig, EmbeddingEngine, PoolingStrategy};
+
+let config = EmbeddingConfig {
+    model_type: EmbeddingModelType::AllMiniLM,
+    hidden_size: 384,
+    pooling: PoolingStrategy::Mean,
+    normalize: true,
+    ..Default::default()
+};
+
+let engine = EmbeddingEngine::load("/path/to/model", config)?;
+
+let texts = vec!["Hello world", "Semantic search"];
+let embeddings = engine.embed(&texts)?;
+
+// Calculate similarity
+let similarity = realizar::embeddings::cosine_similarity(&embeddings[0], &embeddings[1]);
+```
+
+**Supported Models:**
+
+| Model | Dimensions | Context | Use Case |
+|-------|------------|---------|----------|
+| all-MiniLM-L6-v2 | 384 | 256 | Fast, lightweight |
+| nomic-embed-text-v1.5 | 768 | 8192 | High quality, long context |
+| bge-small-en-v1.5 | 384 | 512 | Balanced |
+| BERT-base | 768 | 512 | General purpose |
+
+**Pooling Strategies:**
+
+- `Mean`: Average all token embeddings (recommended)
+- `Cls`: Use [CLS] token (BERT-style)
+- `LastToken`: Use last token (causal models)
+
+See [`examples/embeddings.rs`](examples/embeddings.rs) for complete usage.
+
+## JSON Grammar
+
+Constrain LLM output to valid JSON using grammar-based generation:
+
+```rust
+use realizar::grammar::{generate_tool_grammar, ToolDefinition};
+use realizar::sampling::{HybridSampler, LogitProcessorChain, ToolCallDetector};
+
+// Generate grammar from tool definitions
+let grammar = generate_tool_grammar(&tools);
+
+// Create hybrid sampler for automatic mode switching
+let sampler = HybridSampler::new(tools, vocab, eos_token_id, ToolCallFormat::OpenAI);
+
+// Build logit processor chain
+let mut chain = LogitProcessorChain::new();
+chain.push(Box::new(TemperatureProcessor::new(0.7)));
+chain.push(Box::new(TopPProcessor::new(0.9)));
+chain.push(Box::new(RepetitionPenaltyProcessor::new(1.1)));
+```
+
+**Key Components:**
+
+- `JsonGrammarProcessor`: Enforces valid JSON token sequences
+- `ToolCallDetector`: Detects tool call patterns in generation
+- `HybridSampler`: Switches between free-form and JSON-constrained modes
+- `LogitProcessorChain`: Composable logit manipulation
+
+See [`examples/json_grammar.rs`](examples/json_grammar.rs) for complete usage.
+
 ## Examples
 
 ```bash
-# All examples
-cargo run --example inference          # Basic inference demo
-cargo run --example api_server         # HTTP server demo
-cargo run --example chat_template      # Chat template formatting
-cargo run --example gguf_loading       # Load GGUF models
-cargo run --example apr_loading        # Load APR models
-cargo run --example tokenization       # Tokenizer demo
-cargo run --example safetensors_loading # SafeTensors demo
-cargo run --example observability_demo  # Metrics demo
-cargo run --example model_cache        # Caching demo
+# Core Examples
+cargo run --example inference              # Basic inference demo
+cargo run --example api_server             # HTTP server demo
+cargo run --example chat_template          # Chat template formatting
+
+# Tool Calling
+cargo run --example tool_calling           # Multi-turn tool calling
+cargo run --example tool_calling_streaming # Streaming with tools
+
+# Embeddings
+cargo run --example embeddings             # Semantic embeddings
+cargo run --example embeddings --features embeddings  # With real models
+
+# JSON Grammar
+cargo run --example json_grammar           # Grammar-constrained generation
+
+# Model Loading
+cargo run --example gguf_loading           # Load GGUF models
+cargo run --example apr_loading            # Load APR models
+cargo run --example safetensors_loading    # SafeTensors demo
+
+# Utilities
+cargo run --example tokenization           # Tokenizer demo
+cargo run --example observability_demo     # Metrics demo
+cargo run --example model_cache            # Caching demo
 ```
 
 ## Usage
@@ -305,6 +455,7 @@ cargo install --path .                # From source
 
 - `default` = server + cli + gpu
 - `cuda` = NVIDIA CUDA support (pure Rust PTX, no nvcc)
+- `embeddings` = Embedding models (BERT, MiniLM, Nomic, BGE)
 - `minimal` = Core inference only
 - `bench-http` = External server benchmarking
 
@@ -313,19 +464,30 @@ cargo install --path .                # From source
 ```
 realizar/
 ├── src/
-│   ├── gguf.rs         # GGUF parser + transformer inference
-│   ├── safetensors.rs  # SafeTensors parser
-│   ├── apr.rs          # APR format (native)
-│   ├── quantize.rs     # Q4_K, Q8_0 dequantization
-│   ├── layers.rs       # Transformer layers
-│   ├── tokenizer.rs    # BPE, SentencePiece
-│   ├── chat_template.rs # Chat templates (ChatML, LLaMA2, Mistral, etc.)
-│   ├── api.rs          # REST endpoints
+│   ├── gguf.rs          # GGUF parser + transformer inference
+│   ├── safetensors.rs   # SafeTensors parser
+│   ├── apr.rs           # APR format (native)
+│   ├── quantize.rs      # Q4_K, Q8_0 dequantization
+│   ├── layers.rs        # Transformer layers
+│   ├── tokenizer.rs     # BPE, SentencePiece
+│   ├── chat_template.rs # Chat templates (ChatML, LLaMA2, Llama3, Groq, etc.)
+│   ├── tools.rs         # Tool calling templates and handlers
+│   ├── agent.rs         # AgentExecutor for multi-turn tool calling
+│   ├── sampling.rs      # LogitProcessor, HybridSampler, JSON grammar
+│   ├── grammar.rs       # JSON schema grammar generation
+│   ├── embeddings.rs    # BERT/MiniLM embedding models
+│   ├── api.rs           # REST endpoints (OpenAI-compatible)
 │   └── bench_preflight.rs # Deterministic benchmarking
+├── examples/
+│   ├── tool_calling.rs           # Tool calling demo
+│   ├── tool_calling_streaming.rs # Streaming tool calling
+│   ├── embeddings.rs             # Embedding generation
+│   ├── json_grammar.rs           # Grammar-constrained generation
+│   └── ...
 └── benches/
-    ├── apr_real.rs     # APR benchmarks
-    ├── gguf_real.rs    # GGUF benchmarks
-    ├── comparative.rs  # Format comparison
+    ├── apr_real.rs      # APR benchmarks
+    ├── gguf_real.rs     # GGUF benchmarks
+    ├── comparative.rs   # Format comparison
     └── external_matrix.rs # External server benchmarks
 ```
 

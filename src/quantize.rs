@@ -629,6 +629,9 @@ impl InterleavedQ4K {
         self.dot_scalar(activations)
     }
 
+    /// Benchmark: compute dot product using interleaved layout (non-x86_64)
+    ///
+    /// This uses scalar computation as SIMD optimizations are not available.
     #[cfg(not(target_arch = "x86_64"))]
     pub fn dot(&self, activations: &[f32]) -> Result<f32> {
         self.dot_scalar(activations)
