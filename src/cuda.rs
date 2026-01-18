@@ -10382,16 +10382,49 @@ impl CudaExecutor {
                         .unwrap_or(false)
                 }) {
                     self.stream.synchronize()?;
-                    let mut logits_debug = vec![0.0f32; 20.min(vocab_size as usize)];
-                    let debug_slice = unsafe {
-                        GpuBuffer::<f32>::from_raw_parts(logits_gpu.as_ptr(), logits_debug.len())
-                    };
-                    debug_slice.copy_to_host(&mut logits_debug)?;
-                    std::mem::forget(debug_slice);
+                    // Download ALL logits for full analysis
+                    let mut all_logits = vec![0.0f32; vocab_size as usize];
+                    logits_gpu.copy_to_host(&mut all_logits)?;
+
                     eprintln!(
                         "[CORRECTNESS-003] Q6K LM head logits[0..20]: {:?}",
-                        logits_debug
+                        &all_logits[..20]
                     );
+
+                    // Find global argmax
+                    let (global_max_idx, global_max_val) = all_logits
+                        .iter()
+                        .enumerate()
+                        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                        .map(|(i, v)| (i, *v))
+                        .unwrap();
+                    eprintln!(
+                        "[CORRECTNESS-007] Global argmax: idx={}, val={:.4}",
+                        global_max_idx, global_max_val
+                    );
+
+                    // Check for outliers: tokens with logit > 10
+                    let outliers: Vec<(usize, f32)> = all_logits
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, v)| **v > 10.0)
+                        .map(|(i, v)| (i, *v))
+                        .collect();
+                    if !outliers.is_empty() {
+                        eprintln!(
+                            "[CORRECTNESS-007] Logits > 10.0 ({} tokens): {:?}",
+                            outliers.len(),
+                            &outliers[..10.min(outliers.len())]
+                        );
+                    }
+
+                    // Check expected tokens (15='0', 16='1', 17='2', 18='3', 19='4')
+                    eprintln!(
+                        "[CORRECTNESS-007] Digit logits: 0={:.4}, 1={:.4}, 2={:.4}, 3={:.4}, 4={:.4}",
+                        all_logits[15], all_logits[16], all_logits[17], all_logits[18], all_logits[19]
+                    );
+
+                    let mut logits_debug = all_logits[..20].to_vec();
                     // Check for all-zeros or all-same values (sign of kernel bug)
                     let first = logits_debug[0];
                     let all_same = logits_debug.iter().all(|&x| (x - first).abs() < 0.001);
@@ -10411,6 +10444,85 @@ impl CudaExecutor {
                         "[CORRECTNESS-003] Q6K argmax in first 20: idx={}, val={}",
                         max_idx, max_val
                     );
+
+                    // CORRECTNESS-004: Compare GPU vs CPU logits for same input
+                    // Download normed_hidden and compute CPU logits for comparison
+                    let mut normed_host = vec![0.0f32; hidden_dim as usize];
+                    normed_hidden.copy_to_host(&mut normed_host)?;
+
+                    // Get LM head weight data from cache
+                    if let Some(lm_head_buf) = self.quantized_weight_cache.get(&lm_head_name) {
+                        let mut weight_bytes = vec![0u8; lm_head_buf.size_bytes()];
+                        lm_head_buf.copy_to_host(&mut weight_bytes)?;
+
+                        // CPU dequant + matmul for first 20 vocab entries
+                        let super_blocks_per_row = (hidden_dim as usize + 255) / 256;
+                        let bytes_per_row = super_blocks_per_row * 210; // Q6K: 210 bytes per superblock
+                        let mut cpu_logits = vec![0.0f32; 20];
+
+                        for vocab_idx in 0..20 {
+                            let row_start = vocab_idx * bytes_per_row;
+                            if row_start + bytes_per_row <= weight_bytes.len() {
+                                // Dequantize row and dot with normed_hidden
+                                let row_data = &weight_bytes[row_start..row_start + bytes_per_row];
+                                let mut dot_sum = 0.0f32;
+
+                                // Q6K layout: 256 elements per superblock
+                                // Each superblock: 128 ql (low 4 bits), 64 qh (high 2 bits), 16 scales, 1 d (f16)
+                                for sb in 0..super_blocks_per_row {
+                                    let sb_offset = sb * 210;
+                                    if sb_offset + 210 > row_data.len() { break; }
+
+                                    // Extract d scale (f16 at offset 0)
+                                    let d_bytes = [row_data[sb_offset], row_data[sb_offset + 1]];
+                                    let d = half::f16::from_le_bytes(d_bytes).to_f32();
+
+                                    // Extract ql (low 4 bits): 128 bytes at offset 2
+                                    let ql = &row_data[sb_offset + 2..sb_offset + 2 + 128];
+
+                                    // Extract qh (high 2 bits): 64 bytes at offset 130
+                                    let qh = &row_data[sb_offset + 130..sb_offset + 130 + 64];
+
+                                    // Extract scales: 16 bytes at offset 194
+                                    let scales = &row_data[sb_offset + 194..sb_offset + 194 + 16];
+
+                                    // Dequantize and dot product
+                                    for i in 0..256 {
+                                        let hidden_idx = sb * 256 + i;
+                                        if hidden_idx >= hidden_dim as usize { break; }
+
+                                        // Extract 6-bit quantized value
+                                        let ql_idx = i / 2;
+                                        let ql_shift = (i % 2) * 4;
+                                        let ql_val = ((ql[ql_idx] >> ql_shift) & 0xF) as i8;
+
+                                        let qh_idx = i / 4;
+                                        let qh_shift = (i % 4) * 2;
+                                        let qh_val = ((qh[qh_idx] >> qh_shift) & 0x3) as i8;
+
+                                        let q_val = ql_val | (qh_val << 4);
+                                        let q_centered = q_val - 32; // Q6K uses offset 32
+
+                                        // Get scale for this 16-element group
+                                        let scale_idx = i / 16;
+                                        let scale = (scales[scale_idx] as i8) as f32;
+
+                                        let weight = d * scale * (q_centered as f32);
+                                        dot_sum += weight * normed_host[hidden_idx];
+                                    }
+                                }
+                                cpu_logits[vocab_idx] = dot_sum;
+                            }
+                        }
+
+                        eprintln!("[CORRECTNESS-004] CPU logits[0..20]: {:?}", cpu_logits);
+
+                        // Compare
+                        let max_diff = logits_debug.iter().zip(cpu_logits.iter())
+                            .map(|(g, c)| (g - c).abs())
+                            .fold(0.0f32, f32::max);
+                        eprintln!("[CORRECTNESS-004] Max GPU-CPU diff: {:.6}", max_diff);
+                    }
                 }
             },
             WeightQuantType::Q5K => {
@@ -16317,9 +16429,10 @@ impl CudaExecutor {
 
                 // CORRECTNESS-001 FIX: Kernel expects (src, cache, pos, head_dim, max_len)
                 // Fixed parameter order: pos is 3rd, removed extra num_heads_val
+                // CORRECTNESS-012: Use self.stream to match attention kernel stream
                 // SAFETY: Memory safety ensured by bounds checking and alignment
                 unsafe {
-                    self.compute_stream.launch_kernel(
+                    self.stream.launch_kernel(
                         scatter_module,
                         scatter_name,
                         &config,
@@ -16345,9 +16458,10 @@ impl CudaExecutor {
                 let mut v_dst_ptr = v_buf.as_ptr();
 
                 // CORRECTNESS-001 FIX: Same fix for V scatter
+                // CORRECTNESS-012: Use self.stream to match attention kernel stream
                 // SAFETY: Memory safety ensured by bounds checking and alignment
                 unsafe {
-                    self.compute_stream.launch_kernel(
+                    self.stream.launch_kernel(
                         scatter_module,
                         scatter_name,
                         &config,
@@ -16566,10 +16680,14 @@ impl CudaExecutor {
             }
         } else {
             // Normal mode - pass seq_len value directly
+            // CORRECTNESS-012: Use self.stream (NOT compute_stream) to ensure synchronization
+            // with subsequent GEMV operations which also use self.stream.
+            // Five-Whys: GPU garbage output → race condition → attention on compute_stream,
+            // output projection on stream → no sync → data corruption
             let mut seq_len_val = new_len as u32;
             // SAFETY: Memory safety ensured by bounds checking and alignment
             unsafe {
-                self.compute_stream.launch_kernel(
+                self.stream.launch_kernel(
                     module,
                     kernel_name,
                     &config,
