@@ -86,9 +86,7 @@ fn y6_apr_decode_parity_with_gguf() {
     }
 
     use realizar::apr_transformer::{AprBenchmarkRunner, AprTransformer};
-    use realizar::gguf::{GGUFModel, QuantizedGGUFTransformer, QuantizedGenerateConfig};
-    use std::fs::File;
-    use std::io::Read;
+    use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel, QuantizedGenerateConfig};
 
     // Benchmark APR
     let apr_transformer = AprTransformer::from_apr_file(APR_MODEL).expect("Failed to load APR");
@@ -101,16 +99,9 @@ fn y6_apr_decode_parity_with_gguf() {
         .benchmark_decode(&prompt, 20)
         .expect("APR benchmark failed");
 
-    // Benchmark GGUF
-    let mut gguf_file = File::open(GGUF_MODEL).expect("Failed to open GGUF");
-    let mut gguf_bytes = Vec::new();
-    gguf_file
-        .read_to_end(&mut gguf_bytes)
-        .expect("Failed to read GGUF");
-
-    let gguf_model = GGUFModel::from_bytes(&gguf_bytes).expect("Failed to parse GGUF");
-    let gguf_transformer = QuantizedGGUFTransformer::from_gguf(&gguf_model, &gguf_bytes)
-        .expect("Failed to create GGUF transformer");
+    // Benchmark GGUF using OwnedQuantizedModel (production path)
+    let mapped = MappedGGUFModel::from_path(GGUF_MODEL).expect("Failed to mmap GGUF");
+    let gguf_model = OwnedQuantizedModel::from_mapped(&mapped).expect("Failed to load GGUF model");
 
     // Simple GGUF benchmark (manual timing)
     let gen_config = QuantizedGenerateConfig {
@@ -124,7 +115,7 @@ fn y6_apr_decode_parity_with_gguf() {
     let mut total_tokens = 0;
     for _ in 0..10 {
         let start = Instant::now();
-        let output = gguf_transformer
+        let output = gguf_model
             .generate(&prompt, &gen_config)
             .expect("GGUF generate failed");
         total_time += start.elapsed().as_secs_f64();

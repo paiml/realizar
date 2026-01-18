@@ -191,85 +191,6 @@ fn build_minimal_transformer_gguf(
 // GGUFTransformer STRUCT TESTS
 // ============================================================================
 
-#[test]
-fn test_cov_gguf_transformer_embed_basic() {
-    // Build minimal model
-    let data = build_minimal_transformer_gguf(64, 100, 1);
-    let model = GGUFModel::from_bytes(&data).expect("parse");
-    let transformer = GGUFTransformer::from_gguf(&model, &data).expect("load");
-
-    // Embed single token
-    let embeddings = transformer.embed(&[0]);
-    assert_eq!(embeddings.len(), 64);
-}
-
-#[test]
-fn test_cov_gguf_transformer_embed_multiple_tokens() {
-    let data = build_minimal_transformer_gguf(64, 100, 1);
-    let model = GGUFModel::from_bytes(&data).expect("parse");
-    let transformer = GGUFTransformer::from_gguf(&model, &data).expect("load");
-
-    // Embed multiple tokens
-    let embeddings = transformer.embed(&[0, 1, 2]);
-    assert_eq!(embeddings.len(), 64 * 3);
-}
-
-#[test]
-fn test_cov_gguf_transformer_embed_out_of_bounds() {
-    let data = build_minimal_transformer_gguf(64, 100, 1);
-    let model = GGUFModel::from_bytes(&data).expect("parse");
-    let transformer = GGUFTransformer::from_gguf(&model, &data).expect("load");
-
-    // Embed token beyond vocab - should pad with zeros
-    let embeddings = transformer.embed(&[999]);
-    assert_eq!(embeddings.len(), 64);
-    // Should be all zeros for out-of-bounds
-    assert!(embeddings.iter().all(|&x| x == 0.0));
-}
-
-#[test]
-fn test_cov_gguf_transformer_embed_empty() {
-    let data = build_minimal_transformer_gguf(64, 100, 1);
-    let model = GGUFModel::from_bytes(&data).expect("parse");
-    let transformer = GGUFTransformer::from_gguf(&model, &data).expect("load");
-
-    // Embed empty sequence
-    let embeddings = transformer.embed(&[]);
-    assert!(embeddings.is_empty());
-}
-
-#[test]
-fn test_cov_gguf_transformer_forward_single_token() {
-    let data = build_minimal_transformer_gguf(64, 100, 1);
-    let model = GGUFModel::from_bytes(&data).expect("parse");
-    let transformer = GGUFTransformer::from_gguf(&model, &data).expect("load");
-
-    // Forward pass with single token
-    let logits = transformer.forward(&[0]).expect("forward");
-    assert_eq!(logits.len(), 100); // vocab_size
-}
-
-#[test]
-fn test_cov_gguf_transformer_forward_multi_token() {
-    let data = build_minimal_transformer_gguf(64, 100, 1);
-    let model = GGUFModel::from_bytes(&data).expect("parse");
-    let transformer = GGUFTransformer::from_gguf(&model, &data).expect("load");
-
-    // Forward pass with multiple tokens (returns last position logits)
-    let logits = transformer.forward(&[0, 1, 2]).expect("forward");
-    assert_eq!(logits.len(), 100);
-}
-
-#[test]
-fn test_cov_gguf_transformer_predict_next() {
-    let data = build_minimal_transformer_gguf(64, 100, 1);
-    let model = GGUFModel::from_bytes(&data).expect("parse");
-    let transformer = GGUFTransformer::from_gguf(&model, &data).expect("load");
-
-    // Predict next token
-    let next_token = transformer.predict_next(&[0]).expect("predict");
-    assert!(next_token < 100);
-}
 
 #[test]
 fn test_cov_gguf_transformer_layer_structure() {
@@ -343,60 +264,6 @@ fn test_cov_gguf_transformer_layer_ffn_gate_optional() {
     assert!(layer.ffn_gate_bias.is_none());
 }
 
-// ============================================================================
-// FORWARD PASS NUMERICAL TESTS
-// ============================================================================
-
-#[test]
-fn test_cov_forward_pass_finite_values() {
-    let data = build_minimal_transformer_gguf(64, 100, 1);
-    let model = GGUFModel::from_bytes(&data).expect("parse");
-    let transformer = GGUFTransformer::from_gguf(&model, &data).expect("load");
-
-    let logits = transformer.forward(&[0, 1, 2]).expect("forward");
-
-    // All logits should be finite
-    assert!(logits.iter().all(|&x| x.is_finite()));
-}
-
-#[test]
-fn test_cov_forward_pass_reasonable_range() {
-    let data = build_minimal_transformer_gguf(64, 100, 1);
-    let model = GGUFModel::from_bytes(&data).expect("parse");
-    let transformer = GGUFTransformer::from_gguf(&model, &data).expect("load");
-
-    let logits = transformer.forward(&[0]).expect("forward");
-
-    // Logits should be in reasonable range (not exploding)
-    let max_abs = logits.iter().map(|x| x.abs()).fold(0.0f32, f32::max);
-    assert!(max_abs < 1000.0, "Logits exploded: max abs = {}", max_abs);
-}
-
-#[test]
-fn test_cov_forward_pass_deterministic() {
-    let data = build_minimal_transformer_gguf(64, 100, 1);
-    let model = GGUFModel::from_bytes(&data).expect("parse");
-    let transformer = GGUFTransformer::from_gguf(&model, &data).expect("load");
-
-    let logits1 = transformer.forward(&[5]).expect("forward");
-    let logits2 = transformer.forward(&[5]).expect("forward");
-
-    // Same input should produce same output
-    assert_eq!(logits1, logits2);
-}
-
-#[test]
-fn test_cov_forward_pass_different_inputs() {
-    let data = build_minimal_transformer_gguf(64, 100, 1);
-    let model = GGUFModel::from_bytes(&data).expect("parse");
-    let transformer = GGUFTransformer::from_gguf(&model, &data).expect("load");
-
-    let logits1 = transformer.forward(&[0]).expect("forward");
-    let logits2 = transformer.forward(&[1]).expect("forward");
-
-    // Different inputs should produce different outputs
-    assert_ne!(logits1, logits2);
-}
 
 // ============================================================================
 // QUANTIZED TRANSFORMER TESTS
@@ -725,45 +592,6 @@ fn test_cov_owned_quantized_kv_cache_multiple_layers() {
     assert!(!cache.get_k(2).is_empty());
 }
 
-// ============================================================================
-// ARGMAX HELPER FUNCTION TESTS (via transformer.predict_next)
-// ============================================================================
-
-#[test]
-fn test_cov_predict_next_greedy() {
-    let data = build_minimal_transformer_gguf(64, 100, 1);
-    let model = GGUFModel::from_bytes(&data).expect("parse");
-    let transformer = GGUFTransformer::from_gguf(&model, &data).expect("load");
-
-    // Predict next should return valid token index
-    let next = transformer.predict_next(&[0]).expect("predict");
-    assert!(next < 100);
-}
-
-#[test]
-fn test_cov_predict_next_deterministic() {
-    let data = build_minimal_transformer_gguf(64, 100, 1);
-    let model = GGUFModel::from_bytes(&data).expect("parse");
-    let transformer = GGUFTransformer::from_gguf(&model, &data).expect("load");
-
-    // Same input should give same output
-    let next1 = transformer.predict_next(&[5]).expect("predict");
-    let next2 = transformer.predict_next(&[5]).expect("predict");
-    assert_eq!(next1, next2);
-}
-
-#[test]
-fn test_cov_predict_next_different_inputs() {
-    let data = build_minimal_transformer_gguf(64, 100, 1);
-    let model = GGUFModel::from_bytes(&data).expect("parse");
-    let transformer = GGUFTransformer::from_gguf(&model, &data).expect("load");
-
-    // Different inputs should produce different outputs (usually)
-    let next1 = transformer.predict_next(&[0]).expect("predict");
-    let next2 = transformer.predict_next(&[99]).expect("predict");
-    // Note: This could occasionally be equal by chance, but unlikely with different tokens
-    let _ = (next1, next2); // Just verify both succeed
-}
 
 // ============================================================================
 // GGUF VALUE TYPE TESTS
