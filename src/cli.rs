@@ -1761,4 +1761,265 @@ test benchmark_bar ... bench:         750 ns/iter (+/- 30)
         assert!(!is_local_file_path("meta-llama/Llama-2-7b"));
         assert!(!is_local_file_path("openai/whisper-tiny"));
     }
+
+    // -------------------------------------------------------------------------
+    // Coverage Tests: parse_cargo_bench_output
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_cargo_bench_output_empty_cov() {
+        let results = parse_cargo_bench_output("", None);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_parse_cargo_bench_output_no_bench_lines_cov() {
+        let output = "Running tests...\nAll tests passed\n";
+        let results = parse_cargo_bench_output(output, None);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_parse_cargo_bench_output_single_bench_cov() {
+        let output = "test tensor_add ... bench: 1,234 ns/iter (+/- 56)";
+        let results = parse_cargo_bench_output(output, Some("tensor_ops"));
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["name"], "tensor_add");
+        assert_eq!(results[0]["time_ns"], 1234);
+        assert_eq!(results[0]["suite"], "tensor_ops");
+    }
+
+    #[test]
+    fn test_parse_cargo_bench_output_multiple_bench_cov() {
+        let output = "test bench_add ... bench: 100 ns/iter (+/- 5)\n\
+                      test bench_mul ... bench: 200 ns/iter (+/- 10)";
+        let results = parse_cargo_bench_output(output, None);
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_cargo_bench_output_malformed_line_cov() {
+        // Line that contains bench: but is malformed
+        let output = "bench: broken line";
+        let results = parse_cargo_bench_output(output, None);
+        assert!(results.is_empty());
+    }
+
+    // -------------------------------------------------------------------------
+    // Coverage Tests: run_visualization
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_run_visualization_color_cov() {
+        // Run visualization with color enabled
+        run_visualization(true, 10);
+    }
+
+    #[test]
+    fn test_run_visualization_no_color_cov() {
+        // Run visualization without color
+        run_visualization(false, 10);
+    }
+
+    #[test]
+    fn test_run_visualization_many_samples_cov() {
+        run_visualization(false, 100);
+    }
+
+    // -------------------------------------------------------------------------
+    // Coverage Tests: run_convoy_test
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_run_convoy_test_default_runtime_cov() {
+        let result = run_convoy_test(None, None, None);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_run_convoy_test_with_model_cov() {
+        let result = run_convoy_test(
+            Some("custom_runtime".to_string()),
+            Some("custom_model.gguf".to_string()),
+            None,
+        );
+        assert!(result.is_ok());
+    }
+
+    // -------------------------------------------------------------------------
+    // Coverage Tests: run_saturation_test
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_run_saturation_test_default_runtime_cov() {
+        let result = run_saturation_test(None, None, None);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_run_saturation_test_with_model_cov() {
+        let result = run_saturation_test(
+            Some("custom_runtime".to_string()),
+            Some("model.gguf".to_string()),
+            None,
+        );
+        assert!(result.is_ok());
+    }
+
+    // -------------------------------------------------------------------------
+    // Coverage Tests: format_size boundary cases
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_format_size_boundary_kb_cov() {
+        // Exactly at KB boundary
+        assert_eq!(format_size(1024 - 1), "1023 B");
+        assert_eq!(format_size(1024), "1.0 KB");
+    }
+
+    #[test]
+    fn test_format_size_boundary_mb_cov() {
+        // Just below MB boundary
+        let just_under_mb = 1024 * 1024 - 1;
+        assert!(format_size(just_under_mb).contains("KB"));
+    }
+
+    #[test]
+    fn test_format_size_boundary_gb_cov() {
+        // Just below GB boundary
+        let just_under_gb = 1024 * 1024 * 1024 - 1;
+        assert!(format_size(just_under_gb).contains("MB"));
+    }
+
+    #[test]
+    fn test_format_size_large_gb_cov() {
+        let size = 100 * 1024 * 1024 * 1024; // 100 GB
+        assert!(format_size(size).contains("GB"));
+    }
+
+    // -------------------------------------------------------------------------
+    // Coverage Tests: BENCHMARK_SUITES constants
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_benchmark_suites_tensor_ops_exists_cov() {
+        let found = BENCHMARK_SUITES.iter().any(|(name, _)| *name == "tensor_ops");
+        assert!(found);
+    }
+
+    #[test]
+    fn test_benchmark_suites_inference_exists_cov() {
+        let found = BENCHMARK_SUITES.iter().any(|(name, _)| *name == "inference");
+        assert!(found);
+    }
+
+    #[test]
+    fn test_benchmark_suites_cache_exists_cov() {
+        let found = BENCHMARK_SUITES.iter().any(|(name, _)| *name == "cache");
+        assert!(found);
+    }
+
+    #[test]
+    fn test_benchmark_suites_lambda_exists_cov() {
+        let found = BENCHMARK_SUITES.iter().any(|(name, _)| *name == "lambda");
+        assert!(found);
+    }
+
+    #[test]
+    fn test_benchmark_suites_comparative_exists_cov() {
+        let found = BENCHMARK_SUITES.iter().any(|(name, _)| *name == "comparative");
+        assert!(found);
+    }
+
+    // -------------------------------------------------------------------------
+    // Coverage Tests: display_model_info edge cases
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_display_model_info_unknown_format_cov() {
+        let result = display_model_info("unknown.bin", &[1, 2, 3, 4, 5]);
+        // Unknown format just prints info and succeeds
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_display_model_info_empty_data_cov() {
+        let result = display_model_info("empty.bin", &[]);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_display_model_info_apr_extension_cov() {
+        // APR extension without magic triggers APR path
+        let result = display_model_info("model.apr", &[0; 10]);
+        // Will succeed (shows unknown model type)
+        assert!(result.is_ok());
+    }
+
+    // -------------------------------------------------------------------------
+    // Coverage Tests: run_benchmarks edge cases
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_run_benchmarks_with_all_options_cov() {
+        let result = run_benchmarks(
+            Some("tensor_ops".to_string()),
+            true, // list mode
+            Some("realizar".to_string()),
+            Some("model.gguf".to_string()),
+            Some("http://localhost:8080".to_string()),
+            Some("output.json".to_string()),
+        );
+        assert!(result.is_ok());
+    }
+
+    // -------------------------------------------------------------------------
+    // Coverage Tests: is_local_file_path edge cases
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_is_local_file_path_empty_cov() {
+        assert!(!is_local_file_path(""));
+    }
+
+    #[test]
+    fn test_is_local_file_path_url_without_extension_cov() {
+        // URLs without model extensions are not local
+        assert!(!is_local_file_path("http://example.com/model"));
+        assert!(!is_local_file_path("pacha://registry/model"));
+        // Note: URLs with .gguf extension are still considered local by extension check
+        assert!(is_local_file_path("https://example.com/model.gguf"));
+    }
+
+    #[test]
+    fn test_is_local_file_path_parent_dir_cov() {
+        assert!(is_local_file_path("../model.gguf"));
+        assert!(is_local_file_path("../../models/file.safetensors"));
+    }
+
+    #[test]
+    fn test_is_local_file_path_windows_style_cov() {
+        // Windows-style paths
+        assert!(is_local_file_path("C:\\models\\model.gguf"));
+    }
+
+    // -------------------------------------------------------------------------
+    // Coverage Tests: validate_suite_name edge cases
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_validate_suite_name_case_sensitive_cov() {
+        // Suite names are case-sensitive
+        assert!(!validate_suite_name("TENSOR_OPS"));
+        assert!(!validate_suite_name("Inference"));
+        assert!(validate_suite_name("tensor_ops"));
+    }
+
+    #[test]
+    fn test_validate_suite_name_partial_match_cov() {
+        // Partial matches should fail
+        assert!(!validate_suite_name("tensor"));
+        assert!(!validate_suite_name("ops"));
+        assert!(!validate_suite_name("infer"));
+    }
 }
