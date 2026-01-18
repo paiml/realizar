@@ -14590,4 +14590,291 @@ mod tests {
     fn test_qk_k_constant_cov() {
         assert_eq!(QK_K, 256);
     }
+
+    // =========================================================================
+    // Extended Coverage Tests for Q8_0Block methods
+    // =========================================================================
+
+    #[test]
+    fn test_q8_0_block_quantization_error_ext_cov() {
+        let values = [1.0f32; 32];
+        let block = Q8_0Block::quantize(&values);
+        let error = block.quantization_error(&values);
+        // Error should be small for uniform values
+        assert!(error < 0.1);
+    }
+
+    #[test]
+    fn test_q8_0_block_quantization_error_zeros_ext_cov() {
+        let values = [0.0f32; 32];
+        let block = Q8_0Block::quantize(&values);
+        let error = block.quantization_error(&values);
+        assert!(error < 1e-5);
+    }
+
+    #[test]
+    fn test_q8_0_block_relative_error_ext_cov() {
+        let values = [10.0f32; 32];
+        let block = Q8_0Block::quantize(&values);
+        let rel_error = block.relative_error(&values);
+        // Relative error should be small
+        assert!(rel_error < 0.01);
+    }
+
+    #[test]
+    fn test_q8_0_block_relative_error_zeros_ext_cov() {
+        let values = [0.0f32; 32];
+        let block = Q8_0Block::quantize(&values);
+        let rel_error = block.relative_error(&values);
+        // For zeros, relative error should be 0
+        assert!(rel_error.abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_q8_0_block_relative_error_varied_ext_cov() {
+        let mut values = [0.0f32; 32];
+        for (i, v) in values.iter_mut().enumerate() {
+            *v = (i as f32 - 16.0) * 2.0;
+        }
+        let block = Q8_0Block::quantize(&values);
+        let rel_error = block.relative_error(&values);
+        assert!(rel_error < 0.05);
+    }
+
+    #[test]
+    fn test_q8_0_block_dequantize_roundtrip_ext_cov() {
+        let mut values = [0.0f32; 32];
+        for (i, v) in values.iter_mut().enumerate() {
+            *v = (i as f32) * 0.5 - 8.0;
+        }
+        let block = Q8_0Block::quantize(&values);
+        let deq = block.dequantize();
+        for (orig, d) in values.iter().zip(deq.iter()) {
+            let diff = (orig - d).abs();
+            assert!(diff < 0.5); // Quantization tolerance
+        }
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests for f16_to_f32_lut
+    // =========================================================================
+
+    #[test]
+    fn test_f16_to_f32_lut_zero_cov() {
+        let result = f16_to_f32_lut(0);
+        assert!(result.abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_f16_to_f32_lut_negative_zero_cov() {
+        // Negative zero in f16 is 0x8000
+        let result = f16_to_f32_lut(0x8000);
+        assert!(result.abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_f16_to_f32_lut_infinity_cov() {
+        // Positive infinity in f16 is 0x7C00
+        let result = f16_to_f32_lut(0x7C00);
+        assert!(result.is_infinite() && result > 0.0);
+    }
+
+    #[test]
+    fn test_f16_to_f32_lut_negative_infinity_cov() {
+        // Negative infinity in f16 is 0xFC00
+        let result = f16_to_f32_lut(0xFC00);
+        assert!(result.is_infinite() && result < 0.0);
+    }
+
+    #[test]
+    fn test_f16_to_f32_lut_small_positive_cov() {
+        // f16 smallest positive normal: 0x0400
+        let result = f16_to_f32_lut(0x0400);
+        assert!(result > 0.0 && result < 1.0);
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests for Q4_0Block
+    // =========================================================================
+
+    #[test]
+    fn test_q4_0_block_debug_ext_cov() {
+        let block = Q4_0Block {
+            scale: 1.0,
+            quants: [0u8; 16],
+        };
+        let debug_str = format!("{:?}", block);
+        assert!(debug_str.contains("Q4_0Block"));
+    }
+
+    #[test]
+    fn test_q4_0_block_clone_ext_cov() {
+        let block = Q4_0Block {
+            scale: 2.5,
+            quants: [0xFF; 16],
+        };
+        let cloned = block.clone();
+        assert!((cloned.scale - block.scale).abs() < 1e-6);
+        assert_eq!(cloned.quants, block.quants);
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests for dequantize_q4_0 success path
+    // =========================================================================
+
+    #[test]
+    fn test_dequantize_q4_0_one_block_ext_cov() {
+        // Q4_0 block = 2 byte f16 scale + 16 byte quants = 18 bytes
+        let mut data = vec![0u8; 18];
+        // Scale = 1.0 in f16 little-endian: 0x3C00
+        data[0..2].copy_from_slice(&half::f16::from_f32(1.0).to_le_bytes());
+        // All quants zero = all zeros out
+        let result = dequantize_q4_0(&data);
+        assert!(result.is_ok());
+        let vals = result.unwrap();
+        assert_eq!(vals.len(), 32);
+    }
+
+    #[test]
+    fn test_dequantize_q4_0_two_blocks_ext_cov() {
+        let mut data = vec![0u8; 36]; // 2 blocks at 18 bytes each
+        // First block scale = 1.0
+        data[0..2].copy_from_slice(&half::f16::from_f32(1.0).to_le_bytes());
+        // Second block scale = 2.0
+        data[18..20].copy_from_slice(&half::f16::from_f32(2.0).to_le_bytes());
+        let result = dequantize_q4_0(&data);
+        assert!(result.is_ok());
+        let vals = result.unwrap();
+        assert_eq!(vals.len(), 64);
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests for dequantize_q8_0 success path
+    // =========================================================================
+
+    #[test]
+    fn test_dequantize_q8_0_one_block_ext_cov() {
+        // Q8_0 block = 2 byte f16 scale + 32 byte quants = 34 bytes
+        let mut data = vec![0u8; 34];
+        data[0..2].copy_from_slice(&half::f16::from_f32(1.0).to_le_bytes());
+        // All zero quants
+        let result = dequantize_q8_0(&data);
+        assert!(result.is_ok());
+        let vals = result.unwrap();
+        assert_eq!(vals.len(), 32);
+    }
+
+    #[test]
+    fn test_dequantize_q8_0_with_values_ext_cov() {
+        let mut data = vec![0u8; 34];
+        data[0..2].copy_from_slice(&half::f16::from_f32(0.1).to_le_bytes());
+        // Set some quants (as signed i8 but stored as u8)
+        for i in 0..32 {
+            data[2 + i] = 10; // int8 value 10
+        }
+        let result = dequantize_q8_0(&data);
+        assert!(result.is_ok());
+        let vals = result.unwrap();
+        assert_eq!(vals.len(), 32);
+        // Each value should be approximately 10 * 0.1 = 1.0
+        for v in &vals {
+            assert!((v - 1.0).abs() < 0.05);
+        }
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests for dequantize_q4_k success path
+    // =========================================================================
+
+    #[test]
+    fn test_dequantize_q4_k_one_superblock_cov() {
+        // Q4_K super-block = 144 bytes
+        let data = vec![0u8; 144];
+        let result = dequantize_q4_k(&data);
+        assert!(result.is_ok());
+        let vals = result.unwrap();
+        assert_eq!(vals.len(), 256);
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests for dequantize_q5_k success path
+    // =========================================================================
+
+    #[test]
+    fn test_dequantize_q5_k_one_superblock_cov() {
+        // Q5_K super-block = 176 bytes
+        let data = vec![0u8; 176];
+        let result = dequantize_q5_k(&data);
+        assert!(result.is_ok());
+        let vals = result.unwrap();
+        assert_eq!(vals.len(), 256);
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests for dequantize_q6_k success path
+    // =========================================================================
+
+    #[test]
+    fn test_dequantize_q6_k_one_superblock_cov() {
+        // Q6_K super-block = 210 bytes
+        let data = vec![0u8; 210];
+        let result = dequantize_q6_k(&data);
+        assert!(result.is_ok());
+        let vals = result.unwrap();
+        assert_eq!(vals.len(), 256);
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests for Q4_KBlock struct
+    // =========================================================================
+
+    #[test]
+    fn test_q4_k_block_full_init_cov() {
+        let block = Q4_KBlock {
+            d: 1.0,
+            dmin: 0.5,
+            scales: [0u8; 12],
+            qs: [0u8; 128],
+        };
+        assert!((block.d - 1.0).abs() < 1e-6);
+        assert!((block.dmin - 0.5).abs() < 1e-6);
+        assert_eq!(block.scales.len(), 12);
+        assert_eq!(block.qs.len(), 128);
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests for Q5_KBlock struct
+    // =========================================================================
+
+    #[test]
+    fn test_q5_k_block_full_init_cov() {
+        let block = Q5_KBlock {
+            d: 2.0,
+            dmin: 1.0,
+            scales: [0u8; 12],
+            qh: [0u8; 32],
+            qs: [0u8; 128],
+        };
+        assert!((block.d - 2.0).abs() < 1e-6);
+        assert!((block.dmin - 1.0).abs() < 1e-6);
+        assert_eq!(block.qh.len(), 32);
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests for Q6_KBlock struct
+    // =========================================================================
+
+    #[test]
+    fn test_q6_k_block_full_init_cov() {
+        let block = Q6_KBlock {
+            d: 3.0,
+            scales: [0i8; 16],
+            qh: [0u8; 64],
+            qs: [0u8; 128],
+        };
+        assert!((block.d - 3.0).abs() < 1e-6);
+        assert_eq!(block.scales.len(), 16);
+        assert_eq!(block.qh.len(), 64);
+        assert_eq!(block.qs.len(), 128);
+    }
 }
