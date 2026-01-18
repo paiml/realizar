@@ -131,7 +131,7 @@ impl Q4KWeight {
         }
 
         // Use tiled Q4_K matmul for cache efficiency
-        fused_q4k_tiled_matvec(&self.data, input, self.out_dim, self.in_dim, None)
+        fused_q4k_tiled_matvec(&self.data, input, self.in_dim, self.out_dim, None)
     }
 
     /// Get memory usage in bytes
