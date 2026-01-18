@@ -78,7 +78,7 @@ static F16_TO_F32_LUT: std::sync::LazyLock<Box<[f32; 65536]>> = std::sync::LazyL
 /// Takes raw u16 bits (little-endian) and returns f32 value.
 /// ~3x faster than half::f16::from_bits().to_f32() for hot paths.
 #[inline]
-fn f16_to_f32_lut(bits: u16) -> f32 {
+pub(crate) fn f16_to_f32_lut(bits: u16) -> f32 {
     F16_TO_F32_LUT[bits as usize]
 }
 
@@ -818,7 +818,7 @@ impl InterleavedQ4K {
 }
 
 /// Extract scale and min from packed 6-bit scales (helper for InterleavedQ4K)
-fn extract_scale_min_from_slice(scales: &[u8], idx: usize) -> (f32, f32) {
+pub(crate) fn extract_scale_min_from_slice(scales: &[u8], idx: usize) -> (f32, f32) {
     // Same logic as extract_scale_min but works with slice
     let scale_idx = idx / 2;
     let min_idx = idx / 2 + 4;
@@ -1548,7 +1548,7 @@ pub fn dequantize_q6_k(data: &[u8]) -> Result<Vec<f32>> {
 
 /// Helper: Read f16 from bytes and convert to f32
 #[inline]
-fn read_f16(bytes: &[u8]) -> f32 {
+pub(crate) fn read_f16(bytes: &[u8]) -> f32 {
     let bits = u16::from_le_bytes([bytes[0], bytes[1]]);
     half::f16::from_bits(bits).to_f32()
 }
@@ -2245,185 +2245,6 @@ pub fn fused_q4k_q8_dot(q4k_data: &[u8], q8_blocks: &[Q8_0Block]) -> Result<f32>
     }
 
     Ok(acc)
-}
-
-/// SIMD-accelerated Q4_K × Q8_0 fused dot product (llama.cpp-style)
-///
-/// Uses AVX2 integer operations (`_mm256_maddubs_epi16`) for maximum throughput.
-/// This is the key optimization used by llama.cpp for CPU inference.
-///
-/// # Performance
-///
-/// - ~10x faster than scalar Q4_K × f32 due to integer SIMD
-/// - Avoids f32 conversion until final reduction
-/// - Matches llama.cpp `ggml_vec_dot_q4_K_q8_K` pattern
-pub fn fused_q4k_q8_dot_simd(q4k_data: &[u8], q8_blocks: &[Q8_0Block]) -> Result<f32> {
-    // Runtime feature detection with fallback
-    #[cfg(target_arch = "x86_64")]
-    {
-        if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
-            // SAFETY: Memory safety ensured by bounds checking and alignment
-            return unsafe { fused_q4k_q8_dot_avx2(q4k_data, q8_blocks) };
-        }
-    }
-
-    // Fallback to scalar
-    fused_q4k_q8_dot(q4k_data, q8_blocks)
-}
-
-/// AVX2-optimized Q4_K × Q8_0 dot product using integer SIMD
-///
-/// # Safety
-///
-/// Caller must ensure AVX2 and FMA are available via runtime detection.
-///
-/// # Layout Note
-///
-/// Q4_K nibbles are interleaved within each byte:
-/// - byte[i] low nibble → position 2*i
-/// - byte[i] high nibble → position 2*i+1
-///
-/// We handle this by processing in two passes: first odd Q8 indices with high nibbles,
-/// then even Q8 indices with low nibbles, and combining.
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2", enable = "fma")]
-#[allow(unsafe_op_in_unsafe_fn)]
-unsafe fn fused_q4k_q8_dot_avx2(q4k_data: &[u8], q8_blocks: &[Q8_0Block]) -> Result<f32> {
-    #[allow(clippy::wildcard_imports)]
-    use std::arch::x86_64::*;
-
-    const SUPER_BLOCK_BYTES: usize = 144;
-
-    if !q4k_data.len().is_multiple_of(SUPER_BLOCK_BYTES) {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Q4_K data length {} is not a multiple of super-block size {}",
-                q4k_data.len(),
-                SUPER_BLOCK_BYTES
-            ),
-        });
-    }
-
-    let num_super_blocks = q4k_data.len() / SUPER_BLOCK_BYTES;
-    let expected_values = num_super_blocks * QK_K;
-    let expected_q8_blocks = expected_values / 32;
-
-    if q8_blocks.len() != expected_q8_blocks {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Q8_0 block count {} doesn't match expected {}",
-                q8_blocks.len(),
-                expected_q8_blocks
-            ),
-        });
-    }
-
-    // Nibble mask
-    let nibble_mask = _mm_set1_epi8(0x0F_i8);
-
-    // f32 accumulator
-    let mut total_acc = 0.0f32;
-
-    let mut q8_block_idx = 0;
-
-    for sb_idx in 0..num_super_blocks {
-        let sb_start = sb_idx * SUPER_BLOCK_BYTES;
-
-        // Prefetch next super-block
-        if sb_idx + 1 < num_super_blocks {
-            let next_sb = (sb_idx + 1) * SUPER_BLOCK_BYTES;
-            _mm_prefetch(q4k_data.as_ptr().add(next_sb).cast::<i8>(), _MM_HINT_T0);
-        }
-
-        // Read d and dmin (f16 -> f32)
-        let d = read_f16(&q4k_data[sb_start..sb_start + 2]);
-        let dmin = read_f16(&q4k_data[sb_start + 2..sb_start + 4]);
-
-        // Read scales (12 bytes)
-        let mut scales = [0u8; 12];
-        scales.copy_from_slice(&q4k_data[sb_start + 4..sb_start + 16]);
-
-        // Pointer to quantized data
-        let qs_ptr = q4k_data.as_ptr().add(sb_start + 16);
-
-        // Process 8 blocks of 32 values each within the super-block
-        for block_idx in 0..8 {
-            // Get Q8_0 block
-            let q8_block = &q8_blocks[q8_block_idx];
-            let q8_scale = q8_block.scale;
-            q8_block_idx += 1;
-
-            // Extract 6-bit scale and min
-            let (scale, min) = extract_scale_min(&scales, block_idx);
-
-            // Combined scale factor: d * scale * q8_scale
-            let combined_scale = d * scale * q8_scale;
-            let min_contrib = dmin * min * q8_scale;
-
-            // Load 16 bytes of Q4_K data (32 nibbles)
-            let block_start = block_idx * 16;
-            let q4_bytes = _mm_loadu_si128(qs_ptr.add(block_start).cast::<__m128i>());
-
-            // Extract nibbles
-            let q4_lo = _mm_and_si128(q4_bytes, nibble_mask);
-            let q4_hi = _mm_and_si128(_mm_srli_epi16(q4_bytes, 4), nibble_mask);
-
-            // Load Q8 data (32 bytes)
-            let q8_data = _mm256_loadu_si256(q8_block.quants.as_ptr().cast::<__m256i>());
-            let q8_lo_half = _mm256_castsi256_si128(q8_data); // Q8[0..16]
-            let q8_hi_half = _mm256_extracti128_si256(q8_data, 1); // Q8[16..32]
-
-            // Q8 even indices: Q8[0,2,4,...,30]
-            // Q8 odd indices:  Q8[1,3,5,...,31]
-            // We need to deinterleave Q8 to match Q4 lo/hi nibble layout
-
-            // Shuffle to extract even bytes: positions 0,2,4,6,8,10,12,14 → low 8 bytes
-            let shuffle_even =
-                _mm_setr_epi8(0, 2, 4, 6, 8, 10, 12, 14, -1, -1, -1, -1, -1, -1, -1, -1);
-            let shuffle_odd =
-                _mm_setr_epi8(1, 3, 5, 7, 9, 11, 13, 15, -1, -1, -1, -1, -1, -1, -1, -1);
-
-            // Extract even/odd bytes from Q8 lower half
-            let q8_even_lo = _mm_shuffle_epi8(q8_lo_half, shuffle_even); // Q8[0,2,4,6,8,10,12,14]
-            let q8_odd_lo = _mm_shuffle_epi8(q8_lo_half, shuffle_odd); // Q8[1,3,5,7,9,11,13,15]
-
-            // Extract even/odd bytes from Q8 upper half
-            let q8_even_hi = _mm_shuffle_epi8(q8_hi_half, shuffle_even); // Q8[16,18,20,22,24,26,28,30]
-            let q8_odd_hi = _mm_shuffle_epi8(q8_hi_half, shuffle_odd); // Q8[17,19,21,23,25,27,29,31]
-
-            // Combine to get all even and odd Q8 values
-            // q8_even: Q8[0,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30] - matches Q4 low nibbles
-            // q8_odd:  Q8[1,3,5,7,9,11,13,15,17,19,21,23,25,27,29,31] - matches Q4 high nibbles
-            let q8_even = _mm_unpacklo_epi64(q8_even_lo, q8_even_hi);
-            let q8_odd = _mm_unpacklo_epi64(q8_odd_lo, q8_odd_hi);
-
-            // Now multiply: Q4_lo × Q8_even, Q4_hi × Q8_odd
-            // Using maddubs: unsigned × signed, horizontal add to i16
-            let prod_lo = _mm_maddubs_epi16(q4_lo, q8_even); // 8 × i16 results
-            let prod_hi = _mm_maddubs_epi16(q4_hi, q8_odd); // 8 × i16 results
-
-            // Horizontal add i16 to i32
-            let sum_lo = _mm_madd_epi16(prod_lo, _mm_set1_epi16(1)); // 4 × i32
-            let sum_hi = _mm_madd_epi16(prod_hi, _mm_set1_epi16(1)); // 4 × i32
-
-            // Sum all i32 lanes
-            let sum_all = _mm_add_epi32(sum_lo, sum_hi);
-            let sum_hi_lanes = _mm_shuffle_epi32(sum_all, 0b00_01_10_11);
-            let sum_reduce = _mm_add_epi32(sum_all, sum_hi_lanes);
-            let sum_hi2 = _mm_shuffle_epi32(sum_reduce, 0b00_00_00_01);
-            let sum_final = _mm_add_epi32(sum_reduce, sum_hi2);
-
-            let block_sum = _mm_cvtsi128_si32(sum_final);
-
-            // Sum Q8 values for min contribution (scalar for signed values)
-            let q8_sum: i32 = q8_block.quants.iter().map(|&x| i32::from(x)).sum();
-
-            // Apply scales and accumulate
-            total_acc += combined_scale * (block_sum as f32) - min_contrib * (q8_sum as f32);
-        }
-    }
-
-    Ok(total_acc)
 }
 
 // ============================================================================
@@ -4008,50 +3829,6 @@ pub fn fused_q4k_q8k_ffn_up_gate_into(
 
     Ok(())
 }
-
-/// High-level Q4_K × f32 matmul with automatic Q8_K quantization
-///
-/// Convenience function that handles activation quantization internally.
-/// For repeated matmuls with the same activations (e.g., multi-head attention),
-/// pre-quantize once and use `fused_q4k_q8k_parallel_matvec_into` directly.
-pub fn fused_q4k_auto_matvec_into(
-    weight_data: &[u8],
-    activations: &[f32],
-    in_dim: usize,
-    out_dim: usize,
-    output: &mut [f32],
-) -> Result<()> {
-    // Pad activations to multiple of 256 if needed
-    let padded_len = in_dim.next_multiple_of(256);
-    let num_superblocks = padded_len / 256;
-
-    // Allocate Q8_K buffers
-    let mut q8k_scales = vec![0.0f32; num_superblocks];
-    let mut q8k_quants = vec![0i8; padded_len];
-
-    // Handle padding
-    if activations.len() < padded_len {
-        let mut padded = vec![0.0f32; padded_len];
-        padded[..activations.len()].copy_from_slice(activations);
-        quantize_activations_q8k_into(&padded, &mut q8k_scales, &mut q8k_quants)?;
-    } else {
-        quantize_activations_q8k_into(
-            &activations[..padded_len],
-            &mut q8k_scales,
-            &mut q8k_quants,
-        )?;
-    }
-
-    fused_q4k_q8k_parallel_matvec_into(
-        weight_data,
-        &q8k_scales,
-        &q8k_quants,
-        in_dim,
-        out_dim,
-        output,
-    )
-}
-
 /// Fused Q6_K dequantize + dot product
 ///
 /// Computes the dot product of Q6_K quantized weights with f32 activations
@@ -4631,178 +4408,6 @@ pub fn fused_q4k_tiled_matvec(
     Ok(output)
 }
 
-/// Fused Q5_K matrix-vector multiply with L2-aware tiling
-///
-/// Same as `fused_q4k_tiled_matvec` but for Q5_K format.
-///
-/// # Errors
-///
-/// Returns error if:
-/// - Weight data is too small for the given dimensions
-/// - Activation length doesn't match input dimension
-#[allow(clippy::similar_names)]
-pub fn fused_q5k_tiled_matvec(
-    weight_data: &[u8],
-    activations: &[f32],
-    in_dim: usize,
-    out_dim: usize,
-    tile_size: Option<usize>,
-) -> Result<Vec<f32>> {
-    let tile_size = tile_size.unwrap_or(DEFAULT_OUTPUT_TILE_SIZE);
-
-    // Calculate bytes per output row
-    let super_blocks_per_row = in_dim.div_ceil(QK_K);
-    let bytes_per_row = super_blocks_per_row * 176; // Q5_K: 176 bytes per super-block
-
-    // Validate dimensions
-    let expected_weight_bytes = out_dim * bytes_per_row;
-    if weight_data.len() < expected_weight_bytes {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Q5_K weight data too small: need {} bytes for {}x{}, have {}",
-                expected_weight_bytes,
-                out_dim,
-                in_dim,
-                weight_data.len()
-            ),
-        });
-    }
-
-    if activations.len() != in_dim {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Activation length {} doesn't match in_dim {}",
-                activations.len(),
-                in_dim
-            ),
-        });
-    }
-
-    let mut output = vec![0.0f32; out_dim];
-
-    // Process outputs in tiles
-    let num_tiles = out_dim.div_ceil(tile_size);
-
-    for tile_idx in 0..num_tiles {
-        let tile_start = tile_idx * tile_size;
-        let tile_end = (tile_start + tile_size).min(out_dim);
-
-        // Prefetch next tile
-        #[cfg(target_arch = "x86_64")]
-        if tile_idx + 1 < num_tiles {
-            let next_tile_start = (tile_idx + 1) * tile_size;
-            let next_row_start = next_tile_start * bytes_per_row;
-            if next_row_start < weight_data.len() {
-                // SAFETY: Memory safety ensured by bounds checking and alignment
-                unsafe {
-                    use std::arch::x86_64::_mm_prefetch;
-                    use std::arch::x86_64::_MM_HINT_T0;
-                    let ptr = weight_data.as_ptr().add(next_row_start);
-                    _mm_prefetch(ptr.cast::<i8>(), _MM_HINT_T0);
-                }
-            }
-        }
-
-        // Process tile
-        for (idx, out_slot) in output[tile_start..tile_end].iter_mut().enumerate() {
-            let o = tile_start + idx;
-            let row_start = o * bytes_per_row;
-            let row_end = row_start + bytes_per_row;
-            let row_data = &weight_data[row_start..row_end];
-
-            *out_slot = fused_q5k_dot_simd(row_data, activations)?;
-        }
-    }
-
-    Ok(output)
-}
-
-/// Fused Q6_K matrix-vector multiply with L2-aware tiling
-///
-/// Same as `fused_q4k_tiled_matvec` but for Q6_K format.
-///
-/// # Errors
-///
-/// Returns error if:
-/// - Weight data is too small for the given dimensions
-/// - Activation length doesn't match input dimension
-#[allow(clippy::similar_names)]
-pub fn fused_q6k_tiled_matvec(
-    weight_data: &[u8],
-    activations: &[f32],
-    in_dim: usize,
-    out_dim: usize,
-    tile_size: Option<usize>,
-) -> Result<Vec<f32>> {
-    let tile_size = tile_size.unwrap_or(DEFAULT_OUTPUT_TILE_SIZE);
-
-    // Calculate bytes per output row
-    let super_blocks_per_row = in_dim.div_ceil(QK_K);
-    let bytes_per_row = super_blocks_per_row * 210; // Q6_K: 210 bytes per super-block
-
-    // Validate dimensions
-    let expected_weight_bytes = out_dim * bytes_per_row;
-    if weight_data.len() < expected_weight_bytes {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Q6_K weight data too small: need {} bytes for {}x{}, have {}",
-                expected_weight_bytes,
-                out_dim,
-                in_dim,
-                weight_data.len()
-            ),
-        });
-    }
-
-    if activations.len() != in_dim {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Activation length {} doesn't match in_dim {}",
-                activations.len(),
-                in_dim
-            ),
-        });
-    }
-
-    let mut output = vec![0.0f32; out_dim];
-
-    // Process outputs in tiles
-    let num_tiles = out_dim.div_ceil(tile_size);
-
-    for tile_idx in 0..num_tiles {
-        let tile_start = tile_idx * tile_size;
-        let tile_end = (tile_start + tile_size).min(out_dim);
-
-        // Prefetch next tile
-        #[cfg(target_arch = "x86_64")]
-        if tile_idx + 1 < num_tiles {
-            let next_tile_start = (tile_idx + 1) * tile_size;
-            let next_row_start = next_tile_start * bytes_per_row;
-            if next_row_start < weight_data.len() {
-                // SAFETY: Memory safety ensured by bounds checking and alignment
-                unsafe {
-                    use std::arch::x86_64::_mm_prefetch;
-                    use std::arch::x86_64::_MM_HINT_T0;
-                    let ptr = weight_data.as_ptr().add(next_row_start);
-                    _mm_prefetch(ptr.cast::<i8>(), _MM_HINT_T0);
-                }
-            }
-        }
-
-        // Process tile
-        for (idx, out_slot) in output[tile_start..tile_end].iter_mut().enumerate() {
-            let o = tile_start + idx;
-            let row_start = o * bytes_per_row;
-            let row_end = row_start + bytes_per_row;
-            let row_data = &weight_data[row_start..row_end];
-
-            *out_slot = fused_q6k_dot_simd(row_data, activations)?;
-        }
-    }
-
-    Ok(output)
-}
-
 // ============================================================================
 // PARALLEL TILED MATRIX-VECTOR MULTIPLICATION (Phase 2 + 3)
 // ============================================================================
@@ -5264,721 +4869,6 @@ pub fn fused_q6k_parallel_matvec_into(
 }
 
 // ============================================================================
-// Q6K × Q8K Fused Kernels (IMP-145: 6-bit weights × 8-bit quantized activations)
-// ============================================================================
-
-/// Fused Q6_K × Q8_K dot product
-///
-/// Computes dot product between Q6_K quantized weights and Q8_K quantized activations.
-/// This is the integer-path equivalent to `fused_q6k_dot` but ~2-3x faster because:
-/// 1. Q8_K activations are pre-quantized once, shared across many rows
-/// 2. Integer arithmetic is faster than f32 on most CPUs
-/// 3. Better cache utilization (Q8_K is 33% smaller than f32)
-///
-/// # Arguments
-///
-/// * `q6k_data` - Q6_K quantized weights (210 bytes per superblock)
-/// * `q8k_scales` - Q8_K superblock scales (one f32 per 256 values)
-/// * `q8k_quants` - Q8_K quantized activation values (i8)
-///
-/// # Returns
-///
-/// Dot product result as f32
-#[allow(clippy::similar_names)]
-pub fn fused_q6k_q8k_dot(q6k_data: &[u8], q8k_scales: &[f32], q8k_quants: &[i8]) -> Result<f32> {
-    const SUPER_BLOCK_BYTES: usize = 210;
-
-    if !q6k_data.len().is_multiple_of(SUPER_BLOCK_BYTES) {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Q6_K data length {} is not a multiple of {}",
-                q6k_data.len(),
-                SUPER_BLOCK_BYTES
-            ),
-        });
-    }
-
-    let num_super_blocks = q6k_data.len() / SUPER_BLOCK_BYTES;
-    let expected_values = num_super_blocks * QK_K;
-
-    if q8k_scales.len() < num_super_blocks || q8k_quants.len() < expected_values {
-        return Err(RealizarError::InvalidShape {
-            reason: "Q8_K buffer too small".to_string(),
-        });
-    }
-
-    let mut total_acc = 0.0f32;
-
-    for sb_idx in 0..num_super_blocks {
-        let sb_start = sb_idx * SUPER_BLOCK_BYTES;
-        let q8_start = sb_idx * QK_K;
-
-        // Q6_K layout: ql (128) + qh (64) + scales (16) + d (2)
-        let ql = &q6k_data[sb_start..sb_start + 128];
-        let qh = &q6k_data[sb_start + 128..sb_start + 192];
-        let scales = &q6k_data[sb_start + 192..sb_start + 208];
-        let d = read_f16(&q6k_data[sb_start + 208..sb_start + 210]);
-
-        let q8_scale = q8k_scales[sb_idx];
-        let d_q8 = d * q8_scale;
-
-        // Process 16 blocks of 16 values each (256 total)
-        // Each block uses its own scale from scales[block_idx]
-        for block_idx in 0..16 {
-            #[allow(clippy::cast_possible_wrap)]
-            let scale = scales[block_idx] as i8 as f32;
-            let mut block_acc = 0i32;
-
-            // Process 16 values in this block
-            // Q6K layout follows candle's pattern:
-            // - ql[0..64] contains lower 4 bits of first 128 values
-            // - ql[64..128] contains lower 4 bits of second 128 values
-            // - qh[0..64] contains upper 2 bits of all 256 values
-            let base_n = block_idx * 16;
-            let half = base_n / 128; // 0 for blocks 0-7, 1 for blocks 8-15
-            let in_half = base_n % 128;
-
-            for i in 0..16 {
-                let _l = in_half / 4 + i / 4;
-                let shift = (i % 4) * 2;
-                let ql_idx = half * 64 + usize::midpoint(in_half, i);
-                let qh_idx = (in_half + i) / 4;
-
-                // Extract 6-bit value
-                let q6_val = if (in_half + i) % 2 == 0 {
-                    let low = ql[ql_idx] & 0x0F;
-                    let high = (qh[half * 32 + qh_idx] >> shift) & 0x03;
-                    (low | (high << 4)) as i32 - 32
-                } else {
-                    let low = (ql[ql_idx] >> 4) & 0x0F;
-                    let high = (qh[half * 32 + qh_idx] >> (shift + 2)) & 0x03;
-                    (low | (high << 4)) as i32 - 32
-                };
-
-                let q8_val = q8k_quants[q8_start + base_n + i] as i32;
-                block_acc += q6_val * q8_val;
-            }
-
-            total_acc += d_q8 * scale * (block_acc as f32);
-        }
-    }
-
-    Ok(total_acc)
-}
-
-/// SIMD-accelerated Q6_K × Q8_K dot product
-///
-/// Uses AVX2 to accelerate Q6K×Q8K dot product computation.
-pub fn fused_q6k_q8k_dot_simd(
-    q6k_data: &[u8],
-    q8k_scales: &[f32],
-    q8k_quants: &[i8],
-) -> Result<f32> {
-    #[cfg(target_arch = "x86_64")]
-    {
-        if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
-            // SAFETY: AVX2 and FMA verified at runtime
-            return unsafe { fused_q6k_q8k_dot_avx2(q6k_data, q8k_scales, q8k_quants) };
-        }
-    }
-    fused_q6k_q8k_dot(q6k_data, q8k_scales, q8k_quants)
-}
-
-/// AVX2 Q6_K × Q8_K dot product
-///
-/// This version uses the same structure as fused_q6k_dot_avx2 but replaces
-/// f32 activation loads with Q8K i8→f32 conversion. This provides:
-/// 1. 4x smaller activation memory footprint
-/// 2. Same efficient f32 FMA path
-/// 3. Q8K scale applied per-superblock
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2", enable = "fma")]
-#[allow(unsafe_op_in_unsafe_fn)]
-#[allow(clippy::similar_names)]
-#[allow(clippy::too_many_lines)]
-unsafe fn fused_q6k_q8k_dot_avx2(
-    q6k_data: &[u8],
-    q8k_scales: &[f32],
-    q8k_quants: &[i8],
-) -> Result<f32> {
-    #[allow(clippy::wildcard_imports)]
-    use std::arch::x86_64::*;
-
-    const SUPER_BLOCK_BYTES: usize = 210;
-
-    if !q6k_data.len().is_multiple_of(SUPER_BLOCK_BYTES) {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Q6_K data length {} is not a multiple of {}",
-                q6k_data.len(),
-                SUPER_BLOCK_BYTES
-            ),
-        });
-    }
-
-    let num_super_blocks = q6k_data.len() / SUPER_BLOCK_BYTES;
-    let expected_values = num_super_blocks * QK_K;
-
-    if q8k_scales.len() < num_super_blocks || q8k_quants.len() < expected_values {
-        return Err(RealizarError::InvalidShape {
-            reason: "Q8_K buffer too small".to_string(),
-        });
-    }
-
-    // Use 4 accumulators like fused_q6k_dot_avx2
-    let mut acc0 = _mm256_setzero_ps();
-    let mut acc1 = _mm256_setzero_ps();
-    let mut acc2 = _mm256_setzero_ps();
-    let mut acc3 = _mm256_setzero_ps();
-    let offset_32 = _mm256_set1_epi32(32);
-
-    for sb_idx in 0..num_super_blocks {
-        let sb_start = sb_idx * SUPER_BLOCK_BYTES;
-        let q8_start = sb_idx * QK_K;
-
-        // Prefetch next superblock
-        if sb_idx + 1 < num_super_blocks {
-            _mm_prefetch(
-                q6k_data
-                    .as_ptr()
-                    .add((sb_idx + 1) * SUPER_BLOCK_BYTES)
-                    .cast::<i8>(),
-                _MM_HINT_T0,
-            );
-            _mm_prefetch(
-                q8k_quants.as_ptr().add((sb_idx + 1) * QK_K).cast::<i8>(),
-                _MM_HINT_T0,
-            );
-        }
-
-        let ql_ptr = q6k_data.as_ptr().add(sb_start);
-        let qh_ptr = q6k_data.as_ptr().add(sb_start + 128);
-        let scales_ptr = q6k_data.as_ptr().add(sb_start + 192);
-        let d = read_f16(&q6k_data[sb_start + 208..sb_start + 210]);
-        let q8_scale = q8k_scales[sb_idx];
-        let d_vec = _mm256_set1_ps(d * q8_scale);
-
-        let q8_ptr = q8k_quants.as_ptr().add(q8_start);
-
-        // Read all 16 scales (as i8)
-        let mut scales = [0i8; 16];
-        std::ptr::copy_nonoverlapping(scales_ptr, scales.as_mut_ptr().cast::<u8>(), 16);
-
-        // Process 128 values at a time (n=0, n=128) - same as fused_q6k_dot_avx2
-        for n in (0..QK_K).step_by(128) {
-            let idx = n / 128;
-            let sc = &scales[8 * idx..];
-            let ql_slice = ql_ptr.add(64 * idx);
-            let qh_slice = qh_ptr.add(32 * idx);
-            let q8_base = q8_ptr.add(n);
-
-            // Process 32 values at a time using AVX2
-            for l_base in (0..32).step_by(8) {
-                // Load 8 bytes of ql[l], ql[l+32], qh[l]
-                let ql_lo_64 = std::ptr::read_unaligned(ql_slice.add(l_base).cast::<u64>());
-                let ql_hi_64 = std::ptr::read_unaligned(ql_slice.add(l_base + 32).cast::<u64>());
-                let qh_64 = std::ptr::read_unaligned(qh_slice.add(l_base).cast::<u64>());
-
-                // Convert to SIMD vectors (expand u8 to i32)
-                let ql_lo = _mm256_cvtepu8_epi32(_mm_set_epi64x(0, ql_lo_64 as i64));
-                let ql_hi = _mm256_cvtepu8_epi32(_mm_set_epi64x(0, ql_hi_64 as i64));
-                let qh = _mm256_cvtepu8_epi32(_mm_set_epi64x(0, qh_64 as i64));
-
-                // Extract 6-bit values (same bit manipulation as fused_q6k_dot_avx2)
-                let q1_lo = _mm256_and_si256(ql_lo, _mm256_set1_epi32(0x0F));
-                let q1_hi = _mm256_slli_epi32(_mm256_and_si256(qh, _mm256_set1_epi32(0x03)), 4);
-                let q1 = _mm256_sub_epi32(_mm256_or_si256(q1_lo, q1_hi), offset_32);
-
-                let q2_lo = _mm256_and_si256(ql_hi, _mm256_set1_epi32(0x0F));
-                let q2_hi = _mm256_slli_epi32(
-                    _mm256_and_si256(_mm256_srli_epi32(qh, 2), _mm256_set1_epi32(0x03)),
-                    4,
-                );
-                let q2 = _mm256_sub_epi32(_mm256_or_si256(q2_lo, q2_hi), offset_32);
-
-                let q3_lo = _mm256_srli_epi32(ql_lo, 4);
-                let q3_hi = _mm256_slli_epi32(
-                    _mm256_and_si256(_mm256_srli_epi32(qh, 4), _mm256_set1_epi32(0x03)),
-                    4,
-                );
-                let q3 = _mm256_sub_epi32(_mm256_or_si256(q3_lo, q3_hi), offset_32);
-
-                let q4_lo = _mm256_srli_epi32(ql_hi, 4);
-                let q4_hi = _mm256_slli_epi32(_mm256_srli_epi32(qh, 6), 4);
-                let q4 = _mm256_sub_epi32(_mm256_or_si256(q4_lo, q4_hi), offset_32);
-
-                // Scale index
-                let is = l_base / 16;
-                let sc1 = sc[is] as f32;
-                let sc2 = sc[is + 2] as f32;
-                let sc3 = sc[is + 4] as f32;
-                let sc4 = sc[is + 6] as f32;
-
-                // Convert Q6 values to f32 and multiply by d*scale (same as fused_q6k_dot_avx2)
-                let q1_f32 = _mm256_cvtepi32_ps(q1);
-                let q2_f32 = _mm256_cvtepi32_ps(q2);
-                let q3_f32 = _mm256_cvtepi32_ps(q3);
-                let q4_f32 = _mm256_cvtepi32_ps(q4);
-
-                let dequant1 = _mm256_mul_ps(_mm256_mul_ps(d_vec, _mm256_set1_ps(sc1)), q1_f32);
-                let dequant2 = _mm256_mul_ps(_mm256_mul_ps(d_vec, _mm256_set1_ps(sc2)), q2_f32);
-                let dequant3 = _mm256_mul_ps(_mm256_mul_ps(d_vec, _mm256_set1_ps(sc3)), q3_f32);
-                let dequant4 = _mm256_mul_ps(_mm256_mul_ps(d_vec, _mm256_set1_ps(sc4)), q4_f32);
-
-                // Load Q8K values and convert to f32 (replacing f32 activation loads)
-                let q8_1 = _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(_mm_loadl_epi64(
-                    q8_base.add(l_base).cast(),
-                )));
-                let q8_2 = _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(_mm_loadl_epi64(
-                    q8_base.add(l_base + 32).cast(),
-                )));
-                let q8_3 = _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(_mm_loadl_epi64(
-                    q8_base.add(l_base + 64).cast(),
-                )));
-                let q8_4 = _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(_mm_loadl_epi64(
-                    q8_base.add(l_base + 96).cast(),
-                )));
-
-                // FMA: acc += dequant * q8 (same pattern as fused_q6k_dot_avx2)
-                acc0 = _mm256_fmadd_ps(dequant1, q8_1, acc0);
-                acc1 = _mm256_fmadd_ps(dequant2, q8_2, acc1);
-                acc2 = _mm256_fmadd_ps(dequant3, q8_3, acc2);
-                acc3 = _mm256_fmadd_ps(dequant4, q8_4, acc3);
-            }
-        }
-    }
-
-    // Combine 4 accumulators (same as fused_q6k_dot_avx2)
-    let acc_01 = _mm256_add_ps(acc0, acc1);
-    let acc_23 = _mm256_add_ps(acc2, acc3);
-    let acc = _mm256_add_ps(acc_01, acc_23);
-
-    // Horizontal sum
-    let sum_halves = _mm_add_ps(_mm256_castps256_ps128(acc), _mm256_extractf128_ps(acc, 1));
-    let temp = _mm_add_ps(sum_halves, _mm_movehl_ps(sum_halves, sum_halves));
-    let temp = _mm_add_ss(temp, _mm_shuffle_ps(temp, temp, 1));
-    Ok(_mm_cvtss_f32(temp))
-}
-
-/// Parallel Q6_K × Q8_K matrix-vector multiply (writes to buffer)
-///
-/// IMP-145: Uses pre-quantized Q8_K activations for faster computation.
-/// Achieves ~2-3x speedup over f32 activation path.
-#[allow(clippy::similar_names)]
-pub fn fused_q6k_q8k_parallel_matvec_into(
-    weight_data: &[u8],
-    q8k_scales: &[f32],
-    q8k_quants: &[i8],
-    in_dim: usize,
-    out_dim: usize,
-    output: &mut [f32],
-) -> Result<()> {
-    use rayon::prelude::*;
-
-    const SUPER_BLOCK_BYTES: usize = 210;
-    let super_blocks_per_row = in_dim.div_ceil(QK_K);
-    let bytes_per_row = super_blocks_per_row * SUPER_BLOCK_BYTES;
-
-    let expected_weight_bytes = out_dim * bytes_per_row;
-    if weight_data.len() < expected_weight_bytes {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Q6_K weight data too small: need {} bytes for {}x{}, have {}",
-                expected_weight_bytes,
-                out_dim,
-                in_dim,
-                weight_data.len()
-            ),
-        });
-    }
-
-    let num_sb = super_blocks_per_row;
-    let padded_len = num_sb * QK_K;
-    if q8k_scales.len() < num_sb || q8k_quants.len() < padded_len {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Q8_K buffers too small: need {} scales and {} quants",
-                num_sb, padded_len
-            ),
-        });
-    }
-
-    if output.len() < out_dim {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Output buffer too small: need {}, have {}",
-                out_dim,
-                output.len()
-            ),
-        });
-    }
-
-    // TCB Tiling: Process midi-tiles (64 rows) for cache efficiency
-    const MIDI_TILE_M: usize = 64;
-
-    output[..out_dim]
-        .par_chunks_mut(MIDI_TILE_M)
-        .enumerate()
-        .for_each(|(midi_idx, midi_chunk)| {
-            let midi_start = midi_idx * MIDI_TILE_M;
-
-            for (local_idx, out) in midi_chunk.iter_mut().enumerate() {
-                let row = midi_start + local_idx;
-                let row_start = row * bytes_per_row;
-                let row_data = &weight_data[row_start..row_start + bytes_per_row];
-                *out = fused_q6k_q8k_dot_simd(row_data, q8k_scales, q8k_quants).unwrap_or(0.0);
-            }
-        });
-
-    Ok(())
-}
-
-/// Column-major fused Q6_K matrix-vector multiply
-///
-/// GGML stores Q6_K tensors in column-major order: each superblock contains
-/// 256 values for one COLUMN (i.e., one value per output row).
-///
-/// Storage layout:
-/// - Superblock k contains column k's values for all 256 output rows
-/// - V[row, col] = dequantized[col * 256 + row]
-///
-/// This is more memory-efficient than transposing first since we only
-/// dequantize each superblock once.
-///
-/// # Errors
-///
-/// Returns error if:
-/// - Weight data is too small for the given dimensions
-/// - Activation length doesn't match input dimension
-#[allow(clippy::similar_names)]
-pub fn fused_q6k_colmajor_matvec(
-    weight_data: &[u8],
-    activations: &[f32],
-    in_dim: usize,
-    out_dim: usize,
-) -> Result<Vec<f32>> {
-    const SUPER_BLOCK_BYTES: usize = 210; // Q6_K: 210 bytes per super-block (256 values)
-
-    // Column-major: each of in_dim columns has one superblock
-    // (assuming out_dim == 256, which is the Q6_K super-block size)
-    let expected_weight_bytes = in_dim * SUPER_BLOCK_BYTES;
-    if weight_data.len() < expected_weight_bytes {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Q6_K colmajor weight data too small: need {} bytes for {}x{}, have {}",
-                expected_weight_bytes,
-                out_dim,
-                in_dim,
-                weight_data.len()
-            ),
-        });
-    }
-
-    if activations.len() != in_dim {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Activation length {} doesn't match in_dim {}",
-                activations.len(),
-                in_dim
-            ),
-        });
-    }
-
-    // Initialize output accumulator
-    let mut output = vec![0.0f32; out_dim];
-
-    // Iterate over columns (superblocks)
-    // Each superblock contains 256 values for one column
-    for col in 0..in_dim {
-        let sb_start = col * SUPER_BLOCK_BYTES;
-        let sb_end = sb_start + SUPER_BLOCK_BYTES;
-        let sb_data = &weight_data[sb_start..sb_end];
-
-        // Dequantize this column's superblock (256 values)
-        let column_vals = dequantize_q6_k(sb_data)?;
-
-        // Multiply by activation and accumulate into output
-        let act = activations[col];
-        for (row, &w) in column_vals.iter().enumerate().take(out_dim) {
-            output[row] += w * act;
-        }
-    }
-
-    Ok(output)
-}
-
-/// Parallel fused Q4_0 matrix-vector multiply with SIMD acceleration
-///
-/// Computes dot products directly on quantized data without full dequantization.
-/// Q4_0: 18 bytes per block (2 f16 scale + 16 quants for 32 values)
-///
-/// # Errors
-///
-/// Returns error if:
-/// - Weight data is too small for the given dimensions
-/// - Activation length doesn't match input dimension
-#[allow(clippy::similar_names)]
-pub fn fused_q4_0_parallel_matvec(
-    weight_data: &[u8],
-    activations: &[f32],
-    in_dim: usize,
-    out_dim: usize,
-) -> Result<Vec<f32>> {
-    use rayon::prelude::*;
-
-    // Q4_0 block: 18 bytes (2 f16 scale + 16 quants for 32 values)
-    const Q4_0_BLOCK_BYTES: usize = 18;
-    const Q4_0_BLOCK_SIZE: usize = 32;
-
-    let blocks_per_row = in_dim.div_ceil(Q4_0_BLOCK_SIZE);
-    let bytes_per_row = blocks_per_row * Q4_0_BLOCK_BYTES;
-
-    let expected_weight_bytes = out_dim * bytes_per_row;
-    if weight_data.len() < expected_weight_bytes {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Q4_0 weight data too small: need {} bytes for {}x{}, have {}",
-                expected_weight_bytes,
-                out_dim,
-                in_dim,
-                weight_data.len()
-            ),
-        });
-    }
-
-    if activations.len() != in_dim {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Activation length {} doesn't match in_dim {}",
-                activations.len(),
-                in_dim
-            ),
-        });
-    }
-
-    // Parallelization threshold: rayon overhead ~100µs, single row ~100ns
-    // For small matrices, sequential is faster
-    const PARALLEL_THRESHOLD: usize = 4096;
-
-    let output: Vec<f32> = if out_dim < PARALLEL_THRESHOLD {
-        // Sequential path: avoids rayon overhead for small matrices
-        (0..out_dim)
-            .map(|o| {
-                let row_start = o * bytes_per_row;
-                let row_end = row_start + bytes_per_row;
-                let row_data = &weight_data[row_start..row_end];
-                fused_q4_0_dot_simd(row_data, activations, in_dim)
-            })
-            .collect()
-    } else {
-        // Parallel path: benefits larger matrices
-        (0..out_dim)
-            .into_par_iter()
-            .map(|o| {
-                let row_start = o * bytes_per_row;
-                let row_end = row_start + bytes_per_row;
-                let row_data = &weight_data[row_start..row_end];
-                fused_q4_0_dot_simd(row_data, activations, in_dim)
-            })
-            .collect()
-    };
-
-    Ok(output)
-}
-
-/// SIMD-accelerated fused Q4_0 dot product
-///
-/// Computes dot product directly on Q4_0 quantized weights without full dequantization.
-/// Uses AVX2 SIMD for 8x vectorization within each block.
-#[inline]
-fn fused_q4_0_dot_simd(q4_data: &[u8], activations: &[f32], in_dim: usize) -> f32 {
-    #[cfg(target_arch = "x86_64")]
-    {
-        if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
-            // SAFETY: AVX2+FMA verified at runtime
-            return unsafe { fused_q4_0_dot_avx2(q4_data, activations, in_dim) };
-        }
-    }
-
-    // Scalar fallback
-    fused_q4_0_dot_scalar(q4_data, activations, in_dim)
-}
-
-/// AVX2+FMA accelerated Q4_0 dot product
-///
-/// Processes 8 floats at a time using 256-bit SIMD registers.
-/// Uses SIMD bit operations for efficient nibble extraction.
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2", enable = "fma")]
-#[inline]
-unsafe fn fused_q4_0_dot_avx2(q4_data: &[u8], activations: &[f32], in_dim: usize) -> f32 {
-    // SAFETY: Memory safety ensured by bounds checking and alignment
-    unsafe {
-        use std::arch::x86_64::{
-            _mm256_add_ps, _mm256_castps256_ps128, _mm256_cvtepi32_ps, _mm256_cvtepu8_epi32,
-            _mm256_extractf128_ps, _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_mul_ps, _mm256_set1_ps,
-            _mm256_setzero_ps, _mm_add_ps, _mm_add_ss, _mm_and_si128, _mm_cvtss_f32,
-            _mm_loadl_epi64, _mm_movehl_ps, _mm_set1_epi8, _mm_shuffle_ps, _mm_srli_epi16,
-        };
-
-        const Q4_0_BLOCK_BYTES: usize = 18;
-        const Q4_0_BLOCK_SIZE: usize = 32;
-
-        let num_blocks = in_dim.div_ceil(Q4_0_BLOCK_SIZE);
-
-        // Accumulator for total sum (8 parallel sums)
-        let mut acc = _mm256_setzero_ps();
-        // Offset: Q4_0 values are 0-15, we subtract 8 to get -8 to 7
-        let offset = _mm256_set1_ps(-8.0);
-        // Mask for extracting low nibbles (0x0F per byte)
-        let nibble_mask = _mm_set1_epi8(0x0F);
-
-        for block_idx in 0..num_blocks {
-            let block_start = block_idx * Q4_0_BLOCK_BYTES;
-            if block_start + Q4_0_BLOCK_BYTES > q4_data.len() {
-                break;
-            }
-            let block_ptr = q4_data.as_ptr().add(block_start);
-            let act_start = block_idx * Q4_0_BLOCK_SIZE;
-
-            // Bounds check for partial block
-            if act_start + Q4_0_BLOCK_SIZE > in_dim {
-                // Scalar fallback for partial block
-                // Use LUT for fast f16->f32 conversion (spec §4.1)
-                let scale_bits = u16::from_le_bytes([*block_ptr, *block_ptr.add(1)]);
-                let scale = f16_to_f32_lut(scale_bits);
-                let act_end = in_dim;
-                let mut block_sum = 0.0f32;
-                for j in 0..16 {
-                    let byte = *block_ptr.add(2 + j);
-                    let low_idx = act_start + j;
-                    let high_idx = act_start + j + 16;
-                    #[allow(clippy::cast_possible_wrap)]
-                    let low_quant = (byte & 0x0F) as i8 - 8;
-                    if low_idx < act_end {
-                        block_sum += (low_quant as f32) * activations[low_idx];
-                    }
-                    #[allow(clippy::cast_possible_wrap)]
-                    let high_quant = (byte >> 4) as i8 - 8;
-                    if high_idx < act_end {
-                        block_sum += (high_quant as f32) * activations[high_idx];
-                    }
-                }
-                acc = _mm256_add_ps(acc, _mm256_set1_ps(scale * block_sum));
-                continue;
-            }
-
-            // Read f16 scale using LUT (spec §4.1: 1.1x speedup target)
-            let scale_bits = u16::from_le_bytes([*block_ptr, *block_ptr.add(1)]);
-            let scale = f16_to_f32_lut(scale_bits);
-            let scale_vec = _mm256_set1_ps(scale);
-
-            // SIMD nibble extraction (per spec §4.1: P1 fix for 1.3x speedup)
-            // Load 8 bytes at a time, extract low/high nibbles via SIMD ops
-            let quants = block_ptr.add(2);
-
-            // === Process bytes 0-7 ===
-            // Load 8 bytes into lower 64 bits of 128-bit register
-            let bytes_0 = _mm_loadl_epi64(quants.cast());
-
-            // Extract low nibbles: bytes & 0x0F (1 SIMD instruction)
-            let low_nibbles_0 = _mm_and_si128(bytes_0, nibble_mask);
-            // Extract high nibbles: (bytes >> 4) & 0x0F (2 SIMD instructions)
-            // Note: _mm_srli_epi16 shifts 16-bit lanes, mask removes cross-byte bleed
-            let high_nibbles_0 = _mm_and_si128(_mm_srli_epi16(bytes_0, 4), nibble_mask);
-
-            // Convert 8 u8 to 8 f32: u8 -> i32 -> f32, then add offset
-            let q_low_0 = _mm256_add_ps(
-                _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(low_nibbles_0)),
-                offset,
-            );
-            let q_high_0 = _mm256_add_ps(
-                _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(high_nibbles_0)),
-                offset,
-            );
-
-            // FMA with activations
-            let act_low_0 = _mm256_loadu_ps(activations.as_ptr().add(act_start));
-            acc = _mm256_fmadd_ps(_mm256_mul_ps(scale_vec, q_low_0), act_low_0, acc);
-
-            let act_high_0 = _mm256_loadu_ps(activations.as_ptr().add(act_start + 16));
-            acc = _mm256_fmadd_ps(_mm256_mul_ps(scale_vec, q_high_0), act_high_0, acc);
-
-            // === Process bytes 8-15 ===
-            let bytes_1 = _mm_loadl_epi64(quants.add(8).cast());
-
-            let low_nibbles_1 = _mm_and_si128(bytes_1, nibble_mask);
-            let high_nibbles_1 = _mm_and_si128(_mm_srli_epi16(bytes_1, 4), nibble_mask);
-
-            let q_low_1 = _mm256_add_ps(
-                _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(low_nibbles_1)),
-                offset,
-            );
-            let q_high_1 = _mm256_add_ps(
-                _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(high_nibbles_1)),
-                offset,
-            );
-
-            let act_low_1 = _mm256_loadu_ps(activations.as_ptr().add(act_start + 8));
-            acc = _mm256_fmadd_ps(_mm256_mul_ps(scale_vec, q_low_1), act_low_1, acc);
-
-            let act_high_1 = _mm256_loadu_ps(activations.as_ptr().add(act_start + 24));
-            acc = _mm256_fmadd_ps(_mm256_mul_ps(scale_vec, q_high_1), act_high_1, acc);
-        }
-
-        // Horizontal sum of 8 floats
-        let sum128 = _mm_add_ps(_mm256_castps256_ps128(acc), _mm256_extractf128_ps(acc, 1));
-        let sum64 = _mm_add_ps(sum128, _mm_movehl_ps(sum128, sum128));
-        let sum32 = _mm_add_ss(sum64, _mm_shuffle_ps(sum64, sum64, 1));
-        _mm_cvtss_f32(sum32)
-    }
-}
-
-/// Scalar fallback for Q4_0 dot product
-#[inline]
-fn fused_q4_0_dot_scalar(q4_data: &[u8], activations: &[f32], in_dim: usize) -> f32 {
-    const Q4_0_BLOCK_BYTES: usize = 18;
-    const Q4_0_BLOCK_SIZE: usize = 32;
-
-    let num_blocks = in_dim.div_ceil(Q4_0_BLOCK_SIZE);
-    let mut total_sum = 0.0f32;
-
-    for block_idx in 0..num_blocks {
-        let block_start = block_idx * Q4_0_BLOCK_BYTES;
-        if block_start + Q4_0_BLOCK_BYTES > q4_data.len() {
-            break;
-        }
-        let block = &q4_data[block_start..block_start + Q4_0_BLOCK_BYTES];
-
-        let scale = half::f16::from_le_bytes([block[0], block[1]]).to_f32();
-        let act_start = block_idx * Q4_0_BLOCK_SIZE;
-        let act_end = (act_start + Q4_0_BLOCK_SIZE).min(in_dim);
-
-        let mut block_sum = 0.0f32;
-        for (j, &byte) in block[2..18].iter().enumerate() {
-            let low_idx = act_start + j;
-            let high_idx = act_start + j + 16;
-
-            #[allow(clippy::cast_possible_wrap)]
-            let low_quant = (byte & 0x0F) as i8 - 8;
-            if low_idx < act_end {
-                block_sum += (low_quant as f32) * activations[low_idx];
-            }
-
-            #[allow(clippy::cast_possible_wrap)]
-            let high_quant = (byte >> 4) as i8 - 8;
-            if high_idx < act_end {
-                block_sum += (high_quant as f32) * activations[high_idx];
-            }
-        }
-
-        total_sum += scale * block_sum;
-    }
-
-    total_sum
-}
-
-// ============================================================================
 // Q4_0 × Q8_0 Integer SIMD Matmul (llama.cpp parity)
 // ============================================================================
 // Key insight: llama.cpp quantizes activations to Q8_0 and uses integer
@@ -6004,7 +4894,11 @@ pub fn quantize_rmsnorm_q8_0(input: &[f32], norm_weight: &[f32], eps: f32) -> (V
 }
 
 /// Scalar implementation of fused RMSNorm + Q8_0 quantization
-fn quantize_rmsnorm_q8_0_scalar(
+///
+/// This is exposed as `pub(crate)` for direct testing. The production code
+/// uses the public `quantize_rmsnorm_q8_0` wrapper which dispatches to AVX2
+/// when available.
+pub(crate) fn quantize_rmsnorm_q8_0_scalar(
     input: &[f32],
     norm_weight: &[f32],
     eps: f32,
@@ -6387,111 +5281,6 @@ pub fn fused_rmsnorm_ffn_up_gate(
     Ok((up_output, gate_output))
 }
 
-/// Zero-allocation variant of fused_rmsnorm_ffn_up_gate
-///
-/// Writes results directly into pre-allocated output buffers.
-/// Eliminates per-token Vec allocations for the FFN output.
-///
-/// # Arguments
-/// * `input` - Input hidden states [in_dim]
-/// * `norm_weight` - RMSNorm weight [in_dim]
-/// * `eps` - RMSNorm epsilon
-/// * `up_weight_data` - Q4_0 quantized up projection weights
-/// * `gate_weight_data` - Q4_0 quantized gate projection weights
-/// * `in_dim` - Input dimension
-/// * `out_dim` - Output dimension (intermediate size)
-/// * `up_output` - Pre-allocated output buffer for up projection [out_dim]
-/// * `gate_output` - Pre-allocated output buffer for gate projection [out_dim]
-/// * `q8_scales` - Pre-allocated scratch for Q8 scales [num_blocks]
-/// * `q8_quants` - Pre-allocated scratch for Q8 quants [num_blocks * 32]
-#[allow(clippy::too_many_arguments)]
-pub fn fused_rmsnorm_ffn_up_gate_into(
-    input: &[f32],
-    norm_weight: &[f32],
-    eps: f32,
-    up_weight_data: &[u8],
-    gate_weight_data: &[u8],
-    in_dim: usize,
-    out_dim: usize,
-    up_output: &mut [f32],
-    gate_output: &mut [f32],
-    q8_scales: &mut [f32],
-    q8_quants: &mut [i8],
-) -> Result<()> {
-    use rayon::prelude::*;
-
-    const Q4_0_BLOCK_BYTES: usize = 18;
-    const Q4_0_BLOCK_SIZE: usize = 32;
-
-    if input.len() != in_dim {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Input length {} doesn't match in_dim {}",
-                input.len(),
-                in_dim
-            ),
-        });
-    }
-
-    let blocks_per_row = in_dim.div_ceil(Q4_0_BLOCK_SIZE);
-    let bytes_per_row = blocks_per_row * Q4_0_BLOCK_BYTES;
-    let expected_weight_bytes = out_dim * bytes_per_row;
-
-    if up_weight_data.len() < expected_weight_bytes {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "FFN up weight data too small: need {} bytes, have {}",
-                expected_weight_bytes,
-                up_weight_data.len()
-            ),
-        });
-    }
-    if gate_weight_data.len() < expected_weight_bytes {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "FFN gate weight data too small: need {} bytes, have {}",
-                expected_weight_bytes,
-                gate_weight_data.len()
-            ),
-        });
-    }
-
-    // Fused RMSNorm + Q8_0 quantization into scratch buffers
-    quantize_rmsnorm_q8_0_into(input, norm_weight, eps, q8_scales, q8_quants);
-
-    // Run both matmuls in parallel using rayon::join
-    rayon::join(
-        || {
-            const CHUNK_SIZE: usize = 64;
-            up_output
-                .par_iter_mut()
-                .enumerate()
-                .with_min_len(CHUNK_SIZE)
-                .for_each(|(o, out)| {
-                    let row_start = o * bytes_per_row;
-                    let row_end = row_start + bytes_per_row;
-                    let row_data = &up_weight_data[row_start..row_end];
-                    *out = fused_q4_0_q8_0_dot_simd(row_data, q8_scales, q8_quants, in_dim);
-                });
-        },
-        || {
-            const CHUNK_SIZE: usize = 64;
-            gate_output
-                .par_iter_mut()
-                .enumerate()
-                .with_min_len(CHUNK_SIZE)
-                .for_each(|(o, out)| {
-                    let row_start = o * bytes_per_row;
-                    let row_end = row_start + bytes_per_row;
-                    let row_data = &gate_weight_data[row_start..row_end];
-                    *out = fused_q4_0_q8_0_dot_simd(row_data, q8_scales, q8_quants, in_dim);
-                });
-        },
-    );
-
-    Ok(())
-}
-
 /// Zero-allocation variant of quantize_rmsnorm_q8_0
 ///
 /// Writes results directly into pre-allocated output buffers.
@@ -6576,8 +5365,10 @@ pub fn fused_swiglu_simd(gate: &mut [f32], up: &[f32]) {
 }
 
 /// Scalar fused SwiGLU: silu(gate) * up
+///
+/// Exposed as `pub(crate)` for direct testing on AVX2 machines.
 #[inline]
-fn fused_swiglu_scalar(gate: &mut [f32], up: &[f32]) {
+pub(crate) fn fused_swiglu_scalar(gate: &mut [f32], up: &[f32]) {
     for (g, &u) in gate.iter_mut().zip(up.iter()) {
         // silu(x) = x * sigmoid(x) = x / (1 + exp(-x))
         let silu_g = *g / (1.0 + (-*g).exp());
@@ -6718,8 +5509,10 @@ pub fn softmax_simd(x: &mut [f32]) {
 }
 
 /// Scalar softmax
+///
+/// Exposed as `pub(crate)` for direct testing on AVX2 machines.
 #[inline]
-fn softmax_scalar(x: &mut [f32]) {
+pub(crate) fn softmax_scalar(x: &mut [f32]) {
     // Find max for numerical stability
     let max = x.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
 
@@ -7712,8 +6505,10 @@ unsafe fn fused_q4_0_q8_0_dot_avx2_4block(
 }
 
 /// Scalar fallback for Q4_0 × Q8_0 dot product
+///
+/// Exposed as `pub(crate)` for direct testing on AVX2 machines.
 #[inline]
-fn fused_q4_0_q8_0_dot_scalar(
+pub(crate) fn fused_q4_0_q8_0_dot_scalar(
     q4_data: &[u8],
     q8_scales: &[f32],
     q8_quants: &[i8],
@@ -7838,63 +6633,6 @@ pub fn fused_q4_0_q8_0_parallel_matvec(
             let row_end = row_start + bytes_per_row;
             let row_data = &weight_data[row_start..row_end];
             fused_q4_0_q8_0_dot_simd(row_data, &q8_scales, &q8_quants, in_dim)
-        })
-        .collect();
-
-    Ok(output)
-}
-
-/// Pre-quantized Q4_0 × Q8_0 matrix-vector multiply.
-///
-/// Use this variant when the same activations will be used for multiple matmuls
-/// (e.g., Q, K, V projections in attention). Call `quantize_activations_q8_0` once
-/// and pass the result to this function for each weight matrix.
-///
-/// # Arguments
-/// * `weight_data` - Q4_0 quantized weight matrix (row-major)
-/// * `q8_scales` - Pre-computed Q8_0 scales (one per 32-element block)
-/// * `q8_quants` - Pre-computed Q8_0 quantized values (i8)
-/// * `in_dim` - Input dimension (columns)
-/// * `out_dim` - Output dimension (rows)
-#[allow(clippy::similar_names)]
-pub fn fused_q4_0_q8_0_parallel_matvec_prequant(
-    weight_data: &[u8],
-    q8_scales: &[f32],
-    q8_quants: &[i8],
-    in_dim: usize,
-    out_dim: usize,
-) -> Result<Vec<f32>> {
-    use rayon::prelude::*;
-
-    const Q4_0_BLOCK_BYTES: usize = 18;
-    const Q4_0_BLOCK_SIZE: usize = 32;
-
-    let blocks_per_row = in_dim.div_ceil(Q4_0_BLOCK_SIZE);
-    let bytes_per_row = blocks_per_row * Q4_0_BLOCK_BYTES;
-
-    let expected_weight_bytes = out_dim * bytes_per_row;
-    if weight_data.len() < expected_weight_bytes {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Q4_0 weight data too small: need {} bytes for {}x{}, have {}",
-                expected_weight_bytes,
-                out_dim,
-                in_dim,
-                weight_data.len()
-            ),
-        });
-    }
-
-    // Use chunked parallel iteration to reduce Rayon scheduling overhead
-    const CHUNK_SIZE: usize = 64;
-    let output: Vec<f32> = (0..out_dim)
-        .into_par_iter()
-        .with_min_len(CHUNK_SIZE)
-        .map(|o| {
-            let row_start = o * bytes_per_row;
-            let row_end = row_start + bytes_per_row;
-            let row_data = &weight_data[row_start..row_end];
-            fused_q4_0_q8_0_dot_simd(row_data, q8_scales, q8_quants, in_dim)
         })
         .collect();
 
@@ -8122,8 +6860,10 @@ unsafe fn fused_q8_0_q8_0_dot_avx2(
 }
 
 /// Scalar fallback for Q8_0 × Q8_0 dot product
+///
+/// Exposed as `pub(crate)` for direct testing on AVX2 machines.
 #[inline]
-fn fused_q8_0_q8_0_dot_scalar(
+pub(crate) fn fused_q8_0_q8_0_dot_scalar(
     q8_weight_data: &[u8],
     q8_act_scales: &[f32],
     q8_act_quants: &[i8],
@@ -8337,7 +7077,7 @@ pub fn fused_q8_0_q8_0_parallel_matvec_into(
 /// - Blocks 4-7: scale = (q[j+4] & 0xF) | ((q[j-4] >> 6) << 4)
 ///   min = (q[j+4] >> 4) | ((q[j] >> 6) << 4)
 #[inline]
-fn extract_scale_min(scales: &[u8; 12], block_idx: usize) -> (f32, f32) {
+pub(crate) fn extract_scale_min(scales: &[u8; 12], block_idx: usize) -> (f32, f32) {
     let j = block_idx;
     let (scale_bits, min_bits) = if j < 4 {
         // First 4 blocks: simple layout
@@ -8423,8 +7163,10 @@ pub fn dequantize_q4_k_parallel(data: &[u8]) -> Result<Vec<f32>> {
 /// Dequantize a single Q4_K super-block (256 values)
 ///
 /// Internal helper for parallel processing.
+///
+/// Exposed as `pub(crate)` for direct testing.
 #[inline]
-fn dequantize_q4_k_superblock(sb_data: &[u8]) -> Vec<f32> {
+pub(crate) fn dequantize_q4_k_superblock(sb_data: &[u8]) -> Vec<f32> {
     let mut result = vec![0.0f32; QK_K];
 
     // Read d (f16 -> f32)
@@ -8700,8 +7442,10 @@ pub fn dequantize_q8_0_parallel(data: &[u8]) -> Result<Vec<f32>> {
 }
 
 /// Dequantize a single Q8_0 block (32 values)
+///
+/// Exposed as `pub(crate)` for direct testing.
 #[inline]
-fn dequantize_q8_0_block(block_data: &[u8]) -> Vec<f32> {
+pub(crate) fn dequantize_q8_0_block(block_data: &[u8]) -> Vec<f32> {
     let mut result = Vec::with_capacity(32);
 
     // Read scale (f16 -> f32)
@@ -8815,562 +7559,6 @@ unsafe fn dequantize_q8_0_block_avx2(block_data: &[u8]) -> Vec<f32> {
     result
 }
 
-// =============================================================================
-// OPTIMIZED SIMD DEQUANTIZATION KERNELS
-// =============================================================================
-
-/// SIMD-accelerated Q4_0 dequantization
-///
-/// Uses AVX2 when available, with parallel block processing.
-/// Q4_0: 18 bytes per block (2 f16 scale + 16 quants for 32 values)
-///
-/// # Errors
-///
-/// Returns error if data length is not a multiple of block size (18 bytes)
-pub fn dequantize_q4_0_simd(data: &[u8]) -> Result<Vec<f32>> {
-    #[cfg(target_arch = "x86_64")]
-    {
-        if is_x86_feature_detected!("avx2") {
-            // SAFETY: AVX2 verified at runtime
-            return unsafe { dequantize_q4_0_avx2_parallel(data) };
-        }
-        if is_x86_feature_detected!("sse2") {
-            // SAFETY: SSE2 verified at runtime
-            return unsafe { dequantize_q4_0_sse2_parallel(data) };
-        }
-    }
-
-    #[cfg(target_arch = "aarch64")]
-    {
-        // SAFETY: NEON is always available on aarch64
-        return unsafe { dequantize_q4_0_neon_parallel(data) };
-    }
-
-    // Fallback to parallel scalar
-    dequantize_q4_0_parallel(data)
-}
-
-/// Parallel scalar Q4_0 dequantization
-///
-/// # Errors
-///
-/// Returns error if data length is not a multiple of block size (18 bytes)
-pub fn dequantize_q4_0_parallel(data: &[u8]) -> Result<Vec<f32>> {
-    use rayon::prelude::*;
-
-    // Q4_0 block: 2 bytes (f16 scale) + 16 bytes (quants) = 18 bytes
-    const BLOCK_BYTES: usize = 18;
-
-    if !data.len().is_multiple_of(BLOCK_BYTES) {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Q4_0 data length {} is not a multiple of block size {}",
-                data.len(),
-                BLOCK_BYTES
-            ),
-        });
-    }
-
-    let num_blocks = data.len() / BLOCK_BYTES;
-
-    let result: Vec<f32> = (0..num_blocks)
-        .into_par_iter()
-        .flat_map(|block_idx| {
-            let block_start = block_idx * BLOCK_BYTES;
-            let block_data = &data[block_start..block_start + BLOCK_BYTES];
-            dequantize_q4_0_block_scalar(block_data)
-        })
-        .collect();
-
-    Ok(result)
-}
-
-/// Scalar Q4_0 block dequantization (18-byte block: 2 f16 scale + 16 quants)
-#[inline]
-fn dequantize_q4_0_block_scalar(block_data: &[u8]) -> Vec<f32> {
-    let mut result = vec![0.0f32; 32];
-
-    // Read f16 scale (2 bytes) per GGML spec
-    let scale = half::f16::from_le_bytes([block_data[0], block_data[1]]).to_f32();
-
-    // Quants start at byte 2, 16 bytes total
-    // Candle layout: positions 0-15 = low nibbles, 16-31 = high nibbles
-    for (j, &byte) in block_data[2..18].iter().enumerate() {
-        #[allow(clippy::cast_possible_wrap)]
-        let low = (byte & 0x0F) as i16 - 8;
-        result[j] = scale * (low as f32);
-
-        #[allow(clippy::cast_possible_wrap)]
-        let high = (byte >> 4) as i16 - 8;
-        result[j + 16] = scale * (high as f32);
-    }
-
-    result
-}
-
-/// AVX2-accelerated parallel Q4_0 dequantization
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
-unsafe fn dequantize_q4_0_avx2_parallel(data: &[u8]) -> Result<Vec<f32>> {
-    use rayon::prelude::*;
-
-    // Q4_0 block: 2 bytes (f16 scale) + 16 bytes (quants) = 18 bytes
-    const BLOCK_BYTES: usize = 18;
-
-    if !data.len().is_multiple_of(BLOCK_BYTES) {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Q4_0 data length {} is not a multiple of block size {}",
-                data.len(),
-                BLOCK_BYTES
-            ),
-        });
-    }
-
-    let num_blocks = data.len() / BLOCK_BYTES;
-
-    let result: Vec<f32> = (0..num_blocks)
-        .into_par_iter()
-        .flat_map(|block_idx| {
-            let block_start = block_idx * BLOCK_BYTES;
-            let block_data = &data[block_start..block_start + BLOCK_BYTES];
-            // SAFETY: AVX2 availability verified by caller
-            unsafe { dequantize_q4_0_block_avx2(block_data) }
-        })
-        .collect();
-
-    Ok(result)
-}
-
-/// AVX2 SIMD dequantization for a single Q4_0 block (32 values, 18 bytes)
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
-unsafe fn dequantize_q4_0_block_avx2(block_data: &[u8]) -> Vec<f32> {
-    #[allow(clippy::wildcard_imports)]
-    use std::arch::x86_64::*;
-
-    let mut result = vec![0.0f32; 32];
-
-    // Read f16 scale (2 bytes) per GGML spec
-    let scale = half::f16::from_le_bytes([block_data[0], block_data[1]]).to_f32();
-
-    // SAFETY: AVX2 availability verified by caller's target_feature
-    unsafe {
-        let scale_vec = _mm256_set1_ps(scale);
-        let offset_vec = _mm256_set1_ps(-8.0); // Q4_0 offset
-
-        // Candle layout: low nibbles in positions 0-15, high nibbles in 16-31
-        // Process low nibbles (16 values) in 2 iterations of 8
-        for chunk in 0..2 {
-            let byte_start = 2 + chunk * 8;
-
-            // Extract 8 low nibbles from 8 bytes
-            let q0 = (block_data[byte_start] & 0x0F) as i32;
-            let q1 = (block_data[byte_start + 1] & 0x0F) as i32;
-            let q2 = (block_data[byte_start + 2] & 0x0F) as i32;
-            let q3 = (block_data[byte_start + 3] & 0x0F) as i32;
-            let q4 = (block_data[byte_start + 4] & 0x0F) as i32;
-            let q5 = (block_data[byte_start + 5] & 0x0F) as i32;
-            let q6 = (block_data[byte_start + 6] & 0x0F) as i32;
-            let q7 = (block_data[byte_start + 7] & 0x0F) as i32;
-
-            let q_vec = _mm256_setr_epi32(q0, q1, q2, q3, q4, q5, q6, q7);
-            let q_f32 = _mm256_cvtepi32_ps(q_vec);
-            let centered = _mm256_add_ps(q_f32, offset_vec);
-            let dequant = _mm256_mul_ps(centered, scale_vec);
-
-            _mm256_storeu_ps(result.as_mut_ptr().add(chunk * 8), dequant);
-        }
-
-        // Process high nibbles (16 values) in 2 iterations of 8
-        for chunk in 0..2 {
-            let byte_start = 2 + chunk * 8;
-
-            // Extract 8 high nibbles from 8 bytes
-            let q0 = (block_data[byte_start] >> 4) as i32;
-            let q1 = (block_data[byte_start + 1] >> 4) as i32;
-            let q2 = (block_data[byte_start + 2] >> 4) as i32;
-            let q3 = (block_data[byte_start + 3] >> 4) as i32;
-            let q4 = (block_data[byte_start + 4] >> 4) as i32;
-            let q5 = (block_data[byte_start + 5] >> 4) as i32;
-            let q6 = (block_data[byte_start + 6] >> 4) as i32;
-            let q7 = (block_data[byte_start + 7] >> 4) as i32;
-
-            let q_vec = _mm256_setr_epi32(q0, q1, q2, q3, q4, q5, q6, q7);
-            let q_f32 = _mm256_cvtepi32_ps(q_vec);
-            let centered = _mm256_add_ps(q_f32, offset_vec);
-            let dequant = _mm256_mul_ps(centered, scale_vec);
-
-            _mm256_storeu_ps(result.as_mut_ptr().add(16 + chunk * 8), dequant);
-        }
-    }
-
-    result
-}
-
-/// SSE2-accelerated parallel Q4_0 dequantization (fallback for older CPUs)
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "sse2")]
-unsafe fn dequantize_q4_0_sse2_parallel(data: &[u8]) -> Result<Vec<f32>> {
-    use rayon::prelude::*;
-
-    // Q4_0 block: 2 bytes (f16 scale) + 16 bytes (quants) = 18 bytes
-    const BLOCK_BYTES: usize = 18;
-
-    if !data.len().is_multiple_of(BLOCK_BYTES) {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Q4_0 data length {} is not a multiple of block size {}",
-                data.len(),
-                BLOCK_BYTES
-            ),
-        });
-    }
-
-    let num_blocks = data.len() / BLOCK_BYTES;
-
-    let result: Vec<f32> = (0..num_blocks)
-        .into_par_iter()
-        .flat_map(|block_idx| {
-            let block_start = block_idx * BLOCK_BYTES;
-            let block_data = &data[block_start..block_start + BLOCK_BYTES];
-            // SAFETY: SSE2 availability verified by caller
-            unsafe { dequantize_q4_0_block_sse2(block_data) }
-        })
-        .collect();
-
-    Ok(result)
-}
-
-/// SSE2 SIMD dequantization for a single Q4_0 block (32 values, 18 bytes)
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "sse2")]
-unsafe fn dequantize_q4_0_block_sse2(block_data: &[u8]) -> Vec<f32> {
-    #[allow(clippy::wildcard_imports)]
-    use std::arch::x86_64::*;
-
-    let mut result = vec![0.0f32; 32];
-
-    // Read f16 scale (2 bytes) per GGML spec
-    let scale = half::f16::from_le_bytes([block_data[0], block_data[1]]).to_f32();
-
-    // SAFETY: SSE2 availability verified by caller's target_feature
-    unsafe {
-        let scale_vec = _mm_set1_ps(scale);
-        let offset_vec = _mm_set1_ps(-8.0);
-
-        // Candle layout: low nibbles in positions 0-15, high nibbles in 16-31
-        // Process low nibbles (16 values) in 4 iterations of 4 (SSE2 = 128-bit = 4 floats)
-        for chunk in 0..4 {
-            let byte_start = 2 + chunk * 4;
-
-            // Extract 4 low nibbles from 4 bytes
-            let q0 = (block_data[byte_start] & 0x0F) as i32;
-            let q1 = (block_data[byte_start + 1] & 0x0F) as i32;
-            let q2 = (block_data[byte_start + 2] & 0x0F) as i32;
-            let q3 = (block_data[byte_start + 3] & 0x0F) as i32;
-
-            let q_vec = _mm_setr_epi32(q0, q1, q2, q3);
-            let q_f32 = _mm_cvtepi32_ps(q_vec);
-            let centered = _mm_add_ps(q_f32, offset_vec);
-            let dequant = _mm_mul_ps(centered, scale_vec);
-
-            _mm_storeu_ps(result.as_mut_ptr().add(chunk * 4), dequant);
-        }
-
-        // Process high nibbles (16 values) in 4 iterations of 4
-        for chunk in 0..4 {
-            let byte_start = 2 + chunk * 4;
-
-            // Extract 4 high nibbles from 4 bytes
-            let q0 = (block_data[byte_start] >> 4) as i32;
-            let q1 = (block_data[byte_start + 1] >> 4) as i32;
-            let q2 = (block_data[byte_start + 2] >> 4) as i32;
-            let q3 = (block_data[byte_start + 3] >> 4) as i32;
-
-            let q_vec = _mm_setr_epi32(q0, q1, q2, q3);
-            let q_f32 = _mm_cvtepi32_ps(q_vec);
-            let centered = _mm_add_ps(q_f32, offset_vec);
-            let dequant = _mm_mul_ps(centered, scale_vec);
-
-            _mm_storeu_ps(result.as_mut_ptr().add(16 + chunk * 4), dequant);
-        }
-    }
-
-    result
-}
-
-/// NEON-accelerated parallel Q4_0 dequantization (ARM64)
-#[cfg(target_arch = "aarch64")]
-unsafe fn dequantize_q4_0_neon_parallel(data: &[u8]) -> Result<Vec<f32>> {
-    use rayon::prelude::*;
-
-    // Q4_0 block: 2 bytes (f16 scale) + 16 bytes (quants) = 18 bytes
-    const BLOCK_BYTES: usize = 18;
-
-    if data.len() % BLOCK_BYTES != 0 {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Q4_0 data length {} is not a multiple of block size {}",
-                data.len(),
-                BLOCK_BYTES
-            ),
-        });
-    }
-
-    let num_blocks = data.len() / BLOCK_BYTES;
-
-    let result: Vec<f32> = (0..num_blocks)
-        .into_par_iter()
-        .flat_map(|block_idx| {
-            let block_start = block_idx * BLOCK_BYTES;
-            let block_data = &data[block_start..block_start + BLOCK_BYTES];
-            // SAFETY: NEON always available on aarch64
-            unsafe { dequantize_q4_0_block_neon(block_data) }
-        })
-        .collect();
-
-    Ok(result)
-}
-
-/// NEON SIMD dequantization for a single Q4_0 block (32 values, 18 bytes)
-#[cfg(target_arch = "aarch64")]
-unsafe fn dequantize_q4_0_block_neon(block_data: &[u8]) -> Vec<f32> {
-    use std::arch::aarch64::*;
-
-    let mut result = vec![0.0f32; 32];
-
-    // Read f16 scale (2 bytes) per GGML spec
-    let scale = half::f16::from_le_bytes([block_data[0], block_data[1]]).to_f32();
-
-    // SAFETY: NEON always available on aarch64
-    unsafe {
-        let scale_vec = vdupq_n_f32(scale);
-        let offset_vec = vdupq_n_f32(-8.0);
-
-        // Candle layout: low nibbles in positions 0-15, high nibbles in 16-31
-        // Process low nibbles (16 values) in 4 iterations of 4 (NEON = 128-bit = 4 floats)
-        for chunk in 0..4 {
-            let byte_start = 2 + chunk * 4;
-
-            // Extract 4 low nibbles from 4 bytes
-            let q0 = (block_data[byte_start] & 0x0F) as i32;
-            let q1 = (block_data[byte_start + 1] & 0x0F) as i32;
-            let q2 = (block_data[byte_start + 2] & 0x0F) as i32;
-            let q3 = (block_data[byte_start + 3] & 0x0F) as i32;
-
-            let q_arr: [i32; 4] = [q0, q1, q2, q3];
-            let q_vec = vld1q_s32(q_arr.as_ptr());
-            let q_f32 = vcvtq_f32_s32(q_vec);
-            let centered = vaddq_f32(q_f32, offset_vec);
-            let dequant = vmulq_f32(centered, scale_vec);
-
-            vst1q_f32(result.as_mut_ptr().add(chunk * 4), dequant);
-        }
-
-        // Process high nibbles (16 values) in 4 iterations of 4
-        for chunk in 0..4 {
-            let byte_start = 2 + chunk * 4;
-
-            // Extract 4 high nibbles from 4 bytes
-            let q0 = (block_data[byte_start] >> 4) as i32;
-            let q1 = (block_data[byte_start + 1] >> 4) as i32;
-            let q2 = (block_data[byte_start + 2] >> 4) as i32;
-            let q3 = (block_data[byte_start + 3] >> 4) as i32;
-
-            let q_arr: [i32; 4] = [q0, q1, q2, q3];
-            let q_vec = vld1q_s32(q_arr.as_ptr());
-            let q_f32 = vcvtq_f32_s32(q_vec);
-            let centered = vaddq_f32(q_f32, offset_vec);
-            let dequant = vmulq_f32(centered, scale_vec);
-
-            vst1q_f32(result.as_mut_ptr().add(16 + chunk * 4), dequant);
-        }
-    }
-
-    result
-}
-
-/// Optimized Q8_0 SIMD with improved memory access pattern
-///
-/// Uses aligned loads where possible and processes blocks more efficiently.
-///
-/// # Errors
-///
-/// Returns error if data length is not a multiple of block size (36 bytes)
-pub fn dequantize_q8_0_simd_optimized(data: &[u8]) -> Result<Vec<f32>> {
-    #[cfg(target_arch = "x86_64")]
-    {
-        if is_x86_feature_detected!("avx2") {
-            // SAFETY: AVX2 verified at runtime
-            return unsafe { dequantize_q8_0_avx2_optimized(data) };
-        }
-    }
-
-    #[cfg(target_arch = "aarch64")]
-    {
-        // SAFETY: NEON is always available on aarch64
-        return unsafe { dequantize_q8_0_neon_parallel(data) };
-    }
-
-    // Fallback to parallel scalar
-    dequantize_q8_0_parallel(data)
-}
-
-/// Optimized AVX2 Q8_0 with better SIMD loads
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
-unsafe fn dequantize_q8_0_avx2_optimized(data: &[u8]) -> Result<Vec<f32>> {
-    use rayon::prelude::*;
-
-    const BLOCK_BYTES: usize = 34; // 2 (f16 scale) + 32 (i8 quants)
-
-    if !data.len().is_multiple_of(BLOCK_BYTES) {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Q8_0 data length {} is not a multiple of block size {}",
-                data.len(),
-                BLOCK_BYTES
-            ),
-        });
-    }
-
-    let num_blocks = data.len() / BLOCK_BYTES;
-
-    let result: Vec<f32> = (0..num_blocks)
-        .into_par_iter()
-        .flat_map(|block_idx| {
-            let block_start = block_idx * BLOCK_BYTES;
-            let block_data = &data[block_start..block_start + BLOCK_BYTES];
-            // SAFETY: AVX2 availability verified by caller
-            unsafe { dequantize_q8_0_block_avx2_optimized(block_data) }
-        })
-        .collect();
-
-    Ok(result)
-}
-
-/// Optimized AVX2 Q8_0 block with vectorized loads
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
-#[allow(clippy::cast_ptr_alignment, clippy::ptr_as_ptr)]
-unsafe fn dequantize_q8_0_block_avx2_optimized(block_data: &[u8]) -> Vec<f32> {
-    #[allow(clippy::wildcard_imports)]
-    use std::arch::x86_64::*;
-
-    let mut result = vec![0.0f32; 32];
-
-    // Read scale (f16 -> f32)
-    let scale_bits = u16::from_le_bytes([block_data[0], block_data[1]]);
-    let scale = f16_to_f32(scale_bits);
-
-    // SAFETY: AVX2 availability verified by caller's target_feature
-    unsafe {
-        let scale_vec = _mm256_set1_ps(scale);
-
-        // Process 32 i8 values in 4 iterations of 8
-        // Use direct pointer casting for better vectorization
-        let quants_ptr = block_data.as_ptr().add(2); // Start after f16 scale
-
-        for chunk in 0..4 {
-            let byte_offset = chunk * 8;
-
-            // Load 8 bytes (i8 values)
-            // Use _mm_loadl_epi64 to load 8 bytes into low 64 bits
-            let bytes_ptr = quants_ptr.add(byte_offset) as *const __m128i;
-            let bytes = _mm_loadl_epi64(bytes_ptr);
-
-            // Sign-extend i8 to i16 (8 values)
-            let i16_vals = _mm_cvtepi8_epi16(bytes);
-
-            // Sign-extend i16 to i32 (need two ops: low 4 and high 4)
-            let i32_low = _mm_cvtepi16_epi32(i16_vals);
-            let i32_high = _mm_cvtepi16_epi32(_mm_srli_si128(i16_vals, 8));
-
-            // Combine into 256-bit register
-            let i32_vec = _mm256_setr_m128i(i32_low, i32_high);
-
-            // Convert to float and multiply by scale
-            let f32_vec = _mm256_cvtepi32_ps(i32_vec);
-            let dequant = _mm256_mul_ps(f32_vec, scale_vec);
-
-            _mm256_storeu_ps(result.as_mut_ptr().add(chunk * 8), dequant);
-        }
-    }
-
-    result
-}
-
-/// NEON-accelerated parallel Q8_0 dequantization (ARM64)
-#[cfg(target_arch = "aarch64")]
-unsafe fn dequantize_q8_0_neon_parallel(data: &[u8]) -> Result<Vec<f32>> {
-    use rayon::prelude::*;
-
-    const BLOCK_BYTES: usize = 34; // 2 (f16 scale) + 32 (i8 quants)
-
-    if data.len() % BLOCK_BYTES != 0 {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Q8_0 data length {} is not a multiple of block size {}",
-                data.len(),
-                BLOCK_BYTES
-            ),
-        });
-    }
-
-    let num_blocks = data.len() / BLOCK_BYTES;
-
-    let result: Vec<f32> = (0..num_blocks)
-        .into_par_iter()
-        .flat_map(|block_idx| {
-            let block_start = block_idx * BLOCK_BYTES;
-            let block_data = &data[block_start..block_start + BLOCK_BYTES];
-            // SAFETY: NEON always available on aarch64
-            unsafe { dequantize_q8_0_block_neon(block_data) }
-        })
-        .collect();
-
-    Ok(result)
-}
-
-/// NEON Q8_0 block dequantization
-#[cfg(target_arch = "aarch64")]
-unsafe fn dequantize_q8_0_block_neon(block_data: &[u8]) -> Vec<f32> {
-    use std::arch::aarch64::*;
-
-    let mut result = vec![0.0f32; 32];
-
-    // Read scale (f16 -> f32)
-    let scale_bits = u16::from_le_bytes([block_data[0], block_data[1]]);
-    let scale = f16_to_f32(scale_bits);
-
-    // SAFETY: NEON always available on aarch64
-    unsafe {
-        let scale_vec = vdupq_n_f32(scale);
-
-        // Process 32 i8 values in 8 iterations of 4
-        for chunk in 0..8 {
-            let byte_start = 2 + chunk * 4; // Start at offset 2 (after f16 scale)
-
-            // Load 4 i8 values
-            let q0 = block_data[byte_start] as i8 as i32;
-            let q1 = block_data[byte_start + 1] as i8 as i32;
-            let q2 = block_data[byte_start + 2] as i8 as i32;
-            let q3 = block_data[byte_start + 3] as i8 as i32;
-
-            let q_arr: [i32; 4] = [q0, q1, q2, q3];
-            let q_vec = vld1q_s32(q_arr.as_ptr());
-            let q_f32 = vcvtq_f32_s32(q_vec);
-
-            let dequant = vmulq_f32(q_f32, scale_vec);
-
-            vst1q_f32(result.as_mut_ptr().add(chunk * 4), dequant);
-        }
-    }
-
-    result
-}
-
 /// Batch dequantization stats for performance tracking
 #[derive(Debug, Clone, Default)]
 pub struct DequantStats {
@@ -9427,158 +7615,6 @@ pub fn detect_simd_backend() -> SimdBackend {
     SimdBackend::Scalar
 }
 
-// ============================================================================
-// INT8 MATRIX-VECTOR MULTIPLICATION (IMP-013)
-// ============================================================================
-//
-// Implements integer-only matrix multiplication per LLM.int8() [9]
-// - Weights stored as i8 with per-row scale
-// - Activations quantized dynamically to i8
-// - Dot product computed in i32 accumulators
-// - Final result dequantized to f32
-//
-// Benefits:
-// - 2x throughput vs F32 (smaller data type)
-// - Better cache utilization
-// - Foundation for INT8 tensor core acceleration
-// ============================================================================
-
-/// INT8 quantized weights for a matrix row
-///
-/// Per-row symmetric quantization: w_i8 = round(w_f32 / scale)
-/// where scale = max(abs(w_f32)) / 127.0
-#[derive(Debug, Clone)]
-pub struct Int8Row {
-    /// Per-row scale factor for dequantization
-    pub scale: f32,
-    /// INT8 quantized weights
-    pub weights: Vec<i8>,
-}
-
-impl Int8Row {
-    /// Quantize f32 weights to INT8 with symmetric quantization
-    ///
-    /// # Arguments
-    /// * `weights` - F32 weights to quantize
-    ///
-    /// # Returns
-    /// Int8Row with scale and quantized weights
-    #[must_use]
-    pub fn quantize(weights: &[f32]) -> Self {
-        let max_abs = weights.iter().map(|x| x.abs()).fold(0.0f32, f32::max);
-        let scale = if max_abs > 1e-10 {
-            max_abs / 127.0
-        } else {
-            1.0 / 127.0
-        };
-
-        let weights_i8: Vec<i8> = weights
-            .iter()
-            .map(|&x| (x / scale).round().clamp(-128.0, 127.0) as i8)
-            .collect();
-
-        Self {
-            scale,
-            weights: weights_i8,
-        }
-    }
-
-    /// Dequantize back to f32
-    #[must_use]
-    pub fn dequantize(&self) -> Vec<f32> {
-        self.weights
-            .iter()
-            .map(|&x| x as f32 * self.scale)
-            .collect()
-    }
-}
-
-/// INT8 matrix-vector multiply
-///
-/// Computes y = W @ x where W is quantized to INT8 and x is f32.
-/// Uses integer arithmetic for the dot product (i32 accumulator).
-///
-/// # Arguments
-/// * `weights` - INT8 quantized weight matrix (row-major, out_dim x in_dim)
-/// * `activations` - F32 activation vector (in_dim)
-///
-/// # Returns
-/// F32 output vector (out_dim)
-///
-/// # Performance
-/// - 2x throughput vs F32 matmul (INT8 vs F32 = 4x smaller data)
-/// - i32 accumulation is fast on modern CPUs
-/// - Foundation for INT8 tensor core paths
-///
-/// # References
-/// - LLM.int8() paper [9]: Mixed-precision inference with INT8
-pub fn int8_matvec(weights: &[Int8Row], activations: &[f32]) -> Vec<f32> {
-    // Quantize activations to INT8 for integer arithmetic
-    let act_max_abs = activations.iter().map(|x| x.abs()).fold(0.0f32, f32::max);
-    let act_scale = if act_max_abs > 1e-10 {
-        act_max_abs / 127.0
-    } else {
-        1.0 / 127.0
-    };
-
-    let act_i8: Vec<i8> = activations
-        .iter()
-        .map(|&x| (x / act_scale).round().clamp(-128.0, 127.0) as i8)
-        .collect();
-
-    // Compute each output element
-    weights
-        .iter()
-        .map(|row| {
-            // INT8 dot product with i32 accumulator
-            let dot_i32: i32 = row
-                .weights
-                .iter()
-                .zip(act_i8.iter())
-                .map(|(&w, &a)| i32::from(w) * i32::from(a))
-                .sum();
-
-            // Dequantize: result = dot_i32 * weight_scale * act_scale
-            dot_i32 as f32 * row.scale * act_scale
-        })
-        .collect()
-}
-
-/// Parallel INT8 matrix-vector multiply
-///
-/// Same as `int8_matvec` but uses Rayon for parallel row processing.
-pub fn int8_matvec_parallel(weights: &[Int8Row], activations: &[f32]) -> Vec<f32> {
-    use rayon::prelude::*;
-
-    // Quantize activations to INT8
-    let act_max_abs = activations.iter().map(|x| x.abs()).fold(0.0f32, f32::max);
-    let act_scale = if act_max_abs > 1e-10 {
-        act_max_abs / 127.0
-    } else {
-        1.0 / 127.0
-    };
-
-    let act_i8: Vec<i8> = activations
-        .iter()
-        .map(|&x| (x / act_scale).round().clamp(-128.0, 127.0) as i8)
-        .collect();
-
-    // Parallel row processing
-    weights
-        .par_iter()
-        .map(|row| {
-            let dot_i32: i32 = row
-                .weights
-                .iter()
-                .zip(act_i8.iter())
-                .map(|(&w, &a)| i32::from(w) * i32::from(a))
-                .sum();
-
-            dot_i32 as f32 * row.scale * act_scale
-        })
-        .collect()
-}
-
 /// SIMD-optimized RoPE rotation for a single head
 ///
 /// Applies rotary position embedding rotation to a single attention head:
@@ -9623,8 +7659,11 @@ pub fn apply_rope_rotation_simd(
     apply_rope_rotation_scalar(x1, x2, cos_vals, sin_vals);
 }
 
+/// Scalar fallback for RoPE rotation
+///
+/// Exposed as `pub(crate)` for direct testing on AVX2 machines.
 #[inline]
-fn apply_rope_rotation_scalar(x1: &mut [f32], x2: &mut [f32], cos_vals: &[f32], sin_vals: &[f32]) {
+pub(crate) fn apply_rope_rotation_scalar(x1: &mut [f32], x2: &mut [f32], cos_vals: &[f32], sin_vals: &[f32]) {
     for i in 0..x1.len() {
         let v1 = x1[i];
         let v2 = x2[i];
@@ -10080,73 +8119,6 @@ mod tests {
             (q6k_bpw - 6.5625).abs() < 0.01,
             "Q6_K should be 6.5625 bits per weight"
         );
-    }
-
-    /// IMP-013: INT8 matrix-vector multiplication test
-    ///
-    /// Verifies integer-only matmul per LLM.int8() paper.
-    /// Target: 2x throughput vs F32 (verified by smaller data type).
-    #[test]
-    fn test_int8_matmul() {
-        // Create F32 weight matrix (4x8)
-        let weights_f32: Vec<Vec<f32>> = (0..4)
-            .map(|row| {
-                (0..8)
-                    .map(|col| ((row * 8 + col) as f32 - 16.0) / 32.0)
-                    .collect()
-            })
-            .collect();
-
-        // Quantize to INT8 rows
-        let weights_int8: Vec<Int8Row> = weights_f32
-            .iter()
-            .map(|row| Int8Row::quantize(row))
-            .collect();
-
-        // Create activation vector (8 elements)
-        let activations: Vec<f32> = (0..8).map(|i| (i as f32 - 4.0) / 8.0).collect();
-
-        // Compute INT8 matmul
-        let result = int8_matvec(&weights_int8, &activations);
-        assert_eq!(result.len(), 4, "Output should have 4 elements");
-
-        // Compare with F32 reference
-        let reference: Vec<f32> = weights_f32
-            .iter()
-            .map(|row| row.iter().zip(activations.iter()).map(|(w, a)| w * a).sum())
-            .collect();
-
-        // INT8 quantization error should be < 5% relative error
-        for (i, (int8_out, f32_out)) in result.iter().zip(reference.iter()).enumerate() {
-            let rel_error = if f32_out.abs() > 1e-10 {
-                (int8_out - f32_out).abs() / f32_out.abs()
-            } else {
-                (int8_out - f32_out).abs()
-            };
-            assert!(
-                rel_error < 0.05,
-                "IMP-013: INT8 matmul element {} error {:.4} should be < 5%",
-                i,
-                rel_error
-            );
-        }
-
-        // Test parallel version produces same results
-        let parallel_result = int8_matvec_parallel(&weights_int8, &activations);
-        for (serial, parallel) in result.iter().zip(parallel_result.iter()) {
-            assert!(
-                (serial - parallel).abs() < 1e-6,
-                "Parallel and serial INT8 matmul should match"
-            );
-        }
-
-        // Verify INT8 quantization is reversible within tolerance
-        for (orig, row) in weights_f32.iter().zip(weights_int8.iter()) {
-            let dequant = row.dequantize();
-            for (o, d) in orig.iter().zip(dequant.iter()) {
-                assert!((o - d).abs() < 0.02, "INT8 dequant error should be < 2%");
-            }
-        }
     }
 
     // ============================================================================
@@ -10765,116 +8737,6 @@ mod tests {
         let weight_data = vec![0u8; 4 * 144];
         let bad_activations = vec![0.0f32; 128];
         assert!(fused_q4k_tiled_matvec(&weight_data, &bad_activations, 256, 4, None).is_err());
-    }
-
-    #[test]
-    fn test_fused_q5k_tiled_matvec_basic() {
-        // RED: Test Q5_K tiled matvec
-        use super::fused_q5k_tiled_matvec;
-
-        let in_dim = 256;
-        let out_dim = 4;
-        let bytes_per_row = 176; // Q5_K super-block size
-
-        // Create weight data
-        let mut weight_data = Vec::with_capacity(out_dim * bytes_per_row);
-        for row in 0..out_dim {
-            let d = 0.5 + (row as f32) * 0.1;
-            weight_data.extend_from_slice(&half::f16::from_f32(d).to_bits().to_le_bytes());
-            weight_data.extend_from_slice(&half::f16::from_f32(0.05).to_bits().to_le_bytes());
-            // scales (12 bytes)
-            for i in 0..12 {
-                weight_data.push(((row * 7 + i) % 64) as u8);
-            }
-            // qh (32 bytes)
-            for i in 0..32 {
-                weight_data.push(((row * 3 + i) % 256) as u8);
-            }
-            // qs (128 bytes)
-            for i in 0..128 {
-                weight_data.push(((row * 13 + i) % 256) as u8);
-            }
-        }
-
-        let activations: Vec<f32> = (0..in_dim).map(|i| (i as f32 * 0.01).sin()).collect();
-
-        // Reference
-        let mut reference = Vec::with_capacity(out_dim);
-        for row in 0..out_dim {
-            let row_start = row * bytes_per_row;
-            let row_data = &weight_data[row_start..row_start + bytes_per_row];
-            let dot = fused_q5k_dot_simd(row_data, &activations).expect("test");
-            reference.push(dot);
-        }
-
-        // Tiled result
-        let tiled = fused_q5k_tiled_matvec(&weight_data, &activations, in_dim, out_dim, None)
-            .expect("test");
-
-        assert_eq!(tiled.len(), out_dim);
-        for i in 0..out_dim {
-            assert_ulp_eq(
-                tiled[i],
-                reference[i],
-                4,
-                &format!("q5k_tiled output {}", i),
-            );
-        }
-    }
-
-    #[test]
-    fn test_fused_q6k_tiled_matvec_basic() {
-        // RED: Test Q6_K tiled matvec
-        use super::fused_q6k_tiled_matvec;
-
-        let in_dim = 256;
-        let out_dim = 4;
-        let bytes_per_row = 210; // Q6_K super-block size
-
-        // Create weight data (Q6_K layout: ql + qh + scales + d)
-        let mut weight_data = Vec::with_capacity(out_dim * bytes_per_row);
-        for row in 0..out_dim {
-            // ql: 128 bytes
-            for i in 0..128 {
-                weight_data.push(((row * 7 + i) % 256) as u8);
-            }
-            // qh: 64 bytes
-            for i in 0..64 {
-                weight_data.push(((row * 3 + i) % 256) as u8);
-            }
-            // scales: 16 bytes (i8)
-            for i in 0..16 {
-                weight_data.push(((row + i) % 128) as u8);
-            }
-            // d: 2 bytes (f16)
-            let d = 0.5 + (row as f32) * 0.1;
-            weight_data.extend_from_slice(&half::f16::from_f32(d).to_bits().to_le_bytes());
-        }
-
-        let activations: Vec<f32> = (0..in_dim).map(|i| (i as f32 * 0.01).sin()).collect();
-
-        // Reference
-        let mut reference = Vec::with_capacity(out_dim);
-        for row in 0..out_dim {
-            let row_start = row * bytes_per_row;
-            let row_data = &weight_data[row_start..row_start + bytes_per_row];
-            let dot = fused_q6k_dot_simd(row_data, &activations).expect("test");
-            reference.push(dot);
-        }
-
-        // Tiled result
-        let tiled = fused_q6k_tiled_matvec(&weight_data, &activations, in_dim, out_dim, None)
-            .expect("test");
-
-        assert_eq!(tiled.len(), out_dim);
-        for i in 0..out_dim {
-            assert_ulp_eq(
-                tiled[i],
-                reference[i],
-                4,
-                &format!("q6k_tiled output {}", i),
-            );
-        }
     }
 
     // -------------------------------------------------------------------------
@@ -11837,168 +9699,6 @@ mod tests {
         }
     }
 
-    // =============================================================================
-    // SIMD DEQUANTIZATION TESTS
-    // =============================================================================
-
-    #[test]
-    fn test_dequantize_q4_0_simd_single_block() {
-        // Create a Q4_0 block: 2 bytes f16 scale + 16 bytes quants = 18 bytes
-        let mut data = vec![0u8; 18];
-
-        // Scale = 2.0 as f16
-        let scale_bytes = half::f16::from_f32(2.0).to_le_bytes();
-        data[0..2].copy_from_slice(&scale_bytes);
-
-        // Quants: 16 bytes = 32 nibbles (starts at byte 2)
-        // Each nibble value 0..15 is interpreted as (nibble - 8) * scale
-        for i in 0..16 {
-            // Low nibble = i % 16, high nibble = (i+1) % 16
-            data[2 + i] = (i as u8 & 0x0F) | ((((i + 1) % 16) as u8) << 4);
-        }
-
-        let result = dequantize_q4_0_simd(&data).expect("test");
-        let scalar_result = dequantize_q4_0(&data).expect("test");
-
-        assert_eq!(result.len(), 32);
-        assert_eq!(result.len(), scalar_result.len());
-
-        // SIMD and scalar should match
-        for (i, (simd, scalar)) in result.iter().zip(scalar_result.iter()).enumerate() {
-            assert!(
-                (simd - scalar).abs() < 1e-5,
-                "Mismatch at index {i}: simd={simd}, scalar={scalar}"
-            );
-        }
-    }
-
-    #[test]
-    fn test_dequantize_q4_0_simd_multiple_blocks() {
-        // Create 10 Q4_0 blocks = 180 bytes (18 bytes per block)
-        let num_blocks = 10;
-        let mut data = vec![0u8; num_blocks * 18];
-
-        for block in 0..num_blocks {
-            let offset = block * 18;
-            let scale = (block + 1) as f32 * 0.5;
-            let scale_bytes = half::f16::from_f32(scale).to_le_bytes();
-            data[offset..offset + 2].copy_from_slice(&scale_bytes);
-
-            for i in 0..16 {
-                data[offset + 2 + i] = ((i % 16) as u8) | ((((i * 2) % 16) as u8) << 4);
-            }
-        }
-
-        let result = dequantize_q4_0_simd(&data).expect("test");
-        let scalar_result = dequantize_q4_0(&data).expect("test");
-
-        assert_eq!(result.len(), num_blocks * 32);
-
-        for (i, (simd, scalar)) in result.iter().zip(scalar_result.iter()).enumerate() {
-            assert!(
-                (simd - scalar).abs() < 1e-5,
-                "Mismatch at index {i}: simd={simd}, scalar={scalar}"
-            );
-        }
-    }
-
-    #[test]
-    fn test_dequantize_q4_0_simd_parallel() {
-        // Create 100 Q4_0 blocks = 1800 bytes (18 bytes per block, enough to trigger parallelism)
-        let num_blocks = 100;
-        let mut data = vec![0u8; num_blocks * 18];
-
-        for block in 0..num_blocks {
-            let offset = block * 18;
-            let scale_bytes = half::f16::from_f32(1.0).to_le_bytes();
-            data[offset..offset + 2].copy_from_slice(&scale_bytes);
-
-            for i in 0..16 {
-                data[offset + 2 + i] = 0x88; // All values = 8 - 8 = 0
-            }
-        }
-
-        let result = dequantize_q4_0_parallel(&data).expect("test");
-        assert_eq!(result.len(), num_blocks * 32);
-
-        // All values should be 0.0
-        for (i, &val) in result.iter().enumerate() {
-            assert!(val.abs() < 1e-5, "Expected 0.0 at index {i}, got {val}");
-        }
-    }
-
-    #[test]
-    fn test_dequantize_q4_0_simd_invalid_length() {
-        // Not a multiple of block size (18)
-        let data = vec![0u8; 25];
-        let result = dequantize_q4_0_simd(&data);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_dequantize_q8_0_simd_optimized_single_block() {
-        // Create a Q8_0 block: 2 bytes f16 scale + 32 bytes quants = 34 bytes
-        let mut data = vec![0u8; 34];
-
-        // Scale = 0.5 (f16)
-        data[0..2].copy_from_slice(&half::f16::from_f32(0.5).to_le_bytes());
-
-        // Quants: signed i8 values
-        for i in 0..32 {
-            data[2 + i] = (i as i8 - 16) as u8;
-        }
-
-        let result = dequantize_q8_0_simd_optimized(&data).expect("test");
-        let scalar_result = dequantize_q8_0(&data).expect("test");
-
-        assert_eq!(result.len(), 32);
-        assert_eq!(result.len(), scalar_result.len());
-
-        for (i, (simd, scalar)) in result.iter().zip(scalar_result.iter()).enumerate() {
-            assert!(
-                (simd - scalar).abs() < 1e-3,
-                "Mismatch at index {i}: simd={simd}, scalar={scalar}"
-            );
-        }
-    }
-
-    #[test]
-    fn test_dequantize_q8_0_simd_optimized_multiple_blocks() {
-        // Create 10 Q8_0 blocks = 340 bytes (10 * 34)
-        let num_blocks = 10;
-        let mut data = vec![0u8; num_blocks * 34];
-
-        for block in 0..num_blocks {
-            let offset = block * 34;
-            let scale = (block + 1) as f32 * 0.1;
-            data[offset..offset + 2].copy_from_slice(&half::f16::from_f32(scale).to_le_bytes());
-
-            for i in 0..32 {
-                data[offset + 2 + i] = (i as i8 * 2 - 32) as u8;
-            }
-        }
-
-        let result = dequantize_q8_0_simd_optimized(&data).expect("test");
-        let scalar_result = dequantize_q8_0(&data).expect("test");
-
-        assert_eq!(result.len(), num_blocks * 32);
-
-        for (i, (simd, scalar)) in result.iter().zip(scalar_result.iter()).enumerate() {
-            assert!(
-                (simd - scalar).abs() < 1e-3,
-                "Mismatch at index {i}: simd={simd}, scalar={scalar}"
-            );
-        }
-    }
-
-    #[test]
-    fn test_dequantize_q8_0_simd_optimized_invalid_length() {
-        // Not a multiple of block size (34)
-        let data = vec![0u8; 35];
-        let result = dequantize_q8_0_simd_optimized(&data);
-        assert!(result.is_err());
-    }
-
     #[test]
     fn test_detect_simd_backend() {
         let backend = detect_simd_backend();
@@ -12039,192 +9739,6 @@ mod tests {
         assert_eq!(stats.blocks_processed, 0);
         assert_eq!(stats.bytes_processed, 0);
         assert_eq!(stats.simd_backend, SimdBackend::Scalar);
-    }
-
-    #[test]
-    fn test_q4_0_simd_matches_q4_k_correctness() {
-        // Verify Q4_0 SIMD produces mathematically correct output
-        // Q4_0 block: 2 bytes f16 scale + 16 bytes quants = 18 bytes
-        let mut data = vec![0u8; 18];
-
-        // Scale = 1.0 (f16)
-        data[0..2].copy_from_slice(&half::f16::from_f32(1.0).to_le_bytes());
-
-        // Set specific nibble values
-        // Q4_0 layout: positions 0-15 are low nibbles, 16-31 are high nibbles
-        data[2] = 0x80; // low=0, high=8 -> values: -8*1=-8 at [0], 0*1=0 at [16]
-        data[3] = 0xF1; // low=1, high=15 -> values: -7*1=-7 at [1], 7*1=7 at [17]
-
-        let result = dequantize_q4_0_simd(&data).expect("test");
-
-        // Low nibbles go to positions 0-15
-        assert!(
-            (result[0] - (-8.0)).abs() < 1e-5,
-            "Expected -8.0 at [0], got {}",
-            result[0]
-        );
-        assert!(
-            (result[1] - (-7.0)).abs() < 1e-5,
-            "Expected -7.0 at [1], got {}",
-            result[1]
-        );
-
-        // High nibbles go to positions 16-31
-        assert!(
-            (result[16] - 0.0).abs() < 1e-5,
-            "Expected 0.0 at [16], got {}",
-            result[16]
-        );
-        assert!(
-            (result[17] - 7.0).abs() < 1e-5,
-            "Expected 7.0 at [17], got {}",
-            result[17]
-        );
-    }
-
-    #[test]
-    fn test_q8_0_simd_edge_values() {
-        // Test with extreme i8 values
-        // Q8_0 block: 2 bytes f16 scale + 32 bytes quants = 34 bytes
-        let mut data = vec![0u8; 34];
-
-        // Scale = 1.0 (f16)
-        data[0..2].copy_from_slice(&half::f16::from_f32(1.0).to_le_bytes());
-
-        // Min i8 value
-        data[2] = 0x80; // -128
-                        // Max i8 value
-        data[3] = 0x7F; // 127
-                        // Zero
-        data[4] = 0x00; // 0
-
-        let result = dequantize_q8_0_simd_optimized(&data).expect("test");
-
-        assert!(
-            (result[0] - (-128.0)).abs() < 1e-5,
-            "Expected -128.0, got {}",
-            result[0]
-        );
-        assert!(
-            (result[1] - 127.0).abs() < 1e-5,
-            "Expected 127.0, got {}",
-            result[1]
-        );
-        assert!(
-            (result[2] - 0.0).abs() < 1e-5,
-            "Expected 0.0, got {}",
-            result[2]
-        );
-    }
-
-    #[test]
-    fn test_q4_0_simd_zero_scale() {
-        // Zero scale should produce all zeros
-        // Q4_0 block: 2 bytes f16 scale + 16 bytes quants = 18 bytes
-        let mut data = vec![0u8; 18];
-
-        // Scale = 0.0 (f16)
-        data[0..2].copy_from_slice(&half::f16::from_f32(0.0).to_le_bytes());
-
-        // Random quant values
-        for (i, byte) in data[2..18].iter_mut().enumerate() {
-            *byte = (i as u8).wrapping_mul(17);
-        }
-
-        let result = dequantize_q4_0_simd(&data).expect("test");
-
-        for (i, &val) in result.iter().enumerate() {
-            assert!(val == 0.0, "Expected 0.0 at index {i}, got {val}");
-        }
-    }
-
-    #[test]
-    fn test_q8_0_simd_negative_scale() {
-        // Negative scale should invert signs
-        // Q8_0 block: 2 bytes f16 scale + 32 bytes quants = 34 bytes
-        let mut data = vec![0u8; 34];
-
-        // Scale = -1.0 (f16)
-        data[0..2].copy_from_slice(&half::f16::from_f32(-1.0).to_le_bytes());
-
-        // Positive quant value
-        data[2] = 10; // 10 * -1 = -10
-
-        let result = dequantize_q8_0_simd_optimized(&data).expect("test");
-
-        assert!(
-            (result[0] - (-10.0)).abs() < 1e-5,
-            "Expected -10.0, got {}",
-            result[0]
-        );
-    }
-
-    #[test]
-    fn test_dequantize_q4_0_block_scalar_correctness() {
-        // Q4_0 block: 2 bytes f16 scale + 16 bytes quants = 18 bytes
-        // Layout: positions 0-15 are low nibbles, 16-31 are high nibbles
-        let mut block = vec![0u8; 18];
-        block[0..2].copy_from_slice(&half::f16::from_f32(2.0).to_le_bytes());
-        block[2] = 0x21; // low nibble=1, high nibble=2 -> (1-8)*2=-14 at [0], (2-8)*2=-12 at [16]
-
-        let result = dequantize_q4_0_block_scalar(&block);
-
-        assert_eq!(result.len(), 32);
-        assert!((result[0] - (-14.0)).abs() < 1e-5); // low nibble at position 0
-        assert!((result[16] - (-12.0)).abs() < 1e-5); // high nibble at position 16
-    }
-
-    #[test]
-    fn test_simd_consistency_large_data() {
-        // Test with large data to ensure SIMD parallelism works correctly
-        // Q4_0 block: 2 bytes f16 scale + 16 bytes quants = 18 bytes
-        // Q8_0 block: 2 bytes f16 scale + 32 bytes quants = 34 bytes
-        let num_blocks = 1000;
-        let mut q4_data = vec![0u8; num_blocks * 18];
-        let mut q8_data = vec![0u8; num_blocks * 34];
-
-        // Fill with deterministic pattern
-        for block in 0..num_blocks {
-            let q4_offset = block * 18;
-            let q8_offset = block * 34;
-
-            // Q4_0: scale varies by block (f16)
-            let scale = ((block % 100) as f32 + 1.0) * 0.01;
-            q4_data[q4_offset..q4_offset + 2]
-                .copy_from_slice(&half::f16::from_f32(scale).to_le_bytes());
-            for i in 0..16 {
-                q4_data[q4_offset + 2 + i] = ((block + i) % 256) as u8;
-            }
-
-            // Q8_0: scale varies by block (f16)
-            q8_data[q8_offset..q8_offset + 2]
-                .copy_from_slice(&half::f16::from_f32(scale).to_le_bytes());
-            for i in 0..32 {
-                q8_data[q8_offset + 2 + i] = ((block + i) % 256) as u8;
-            }
-        }
-
-        // Compare SIMD vs scalar Q4_0
-        let q4_simd = dequantize_q4_0_simd(&q4_data).expect("test");
-        let q4_scalar = dequantize_q4_0(&q4_data).expect("test");
-        assert_eq!(q4_simd.len(), q4_scalar.len());
-        for (i, (s, sc)) in q4_simd.iter().zip(q4_scalar.iter()).enumerate() {
-            assert!(
-                (s - sc).abs() < 1e-4,
-                "Q4_0 mismatch at {i}: simd={s}, scalar={sc}"
-            );
-        }
-
-        // Compare SIMD vs scalar Q8_0
-        let q8_simd = dequantize_q8_0_simd_optimized(&q8_data).expect("test");
-        let q8_scalar = dequantize_q8_0(&q8_data).expect("test");
-        assert_eq!(q8_simd.len(), q8_scalar.len());
-        for (i, (s, sc)) in q8_simd.iter().zip(q8_scalar.iter()).enumerate() {
-            assert!(
-                (s - sc).abs() < 1e-4,
-                "Q8_0 mismatch at {i}: simd={s}, scalar={sc}"
-            );
-        }
     }
 
     // =========================================================================
@@ -12936,208 +10450,6 @@ mod tests {
     }
 
     // =========================================================================
-    // IMP-150: Apply SIMD Nibble Extraction to Production Paths - EXTREME TDD
-    // =========================================================================
-    // Per P1 fix from Five Whys, apply SIMD nibble extraction to all Q4 dequant paths.
-    // This verifies the optimization is actually used in production code.
-
-    /// IMP-150a: Verify Q4_0 SIMD dequantization uses efficient nibble extraction
-    #[test]
-    fn test_imp_150a_q4_0_simd_path() {
-        // Create Q4_0 test data
-        let num_blocks = 8;
-        let q4_0_bytes = num_blocks * 20; // 2 bytes scale + 18 bytes quants
-        let mut q4_data = vec![0u8; q4_0_bytes];
-
-        // Initialize with test pattern
-        for block in 0..num_blocks {
-            let offset = block * 20;
-            let scale: f32 = 0.1 + (block as f32) * 0.01;
-            q4_data[offset..offset + 4].copy_from_slice(&scale.to_le_bytes());
-            for i in 4..20 {
-                q4_data[offset + i] = ((block * 17 + i * 7) % 256) as u8;
-            }
-        }
-
-        // IMP-150a: Both paths should produce identical results
-        let scalar_result = dequantize_q4_0(&q4_data);
-        let simd_result = dequantize_q4_0_simd(&q4_data);
-
-        match (&scalar_result, &simd_result) {
-            (Ok(scalar), Ok(simd)) => {
-                assert_eq!(
-                    scalar.len(),
-                    simd.len(),
-                    "IMP-150a: Output lengths should match"
-                );
-                for (i, (s, v)) in scalar.iter().zip(simd.iter()).enumerate() {
-                    let diff = (s - v).abs();
-                    assert!(
-                        diff < 1e-5,
-                        "IMP-150a: Mismatch at index {}: scalar={}, simd={}, diff={}",
-                        i,
-                        s,
-                        v,
-                        diff
-                    );
-                }
-                println!(
-                    "\nIMP-150a: Q4_0 SIMD path verified correct ({} values)",
-                    simd.len()
-                );
-            },
-            _ => {
-                println!("IMP-150a: Error in dequantization (may be expected for test data)");
-            },
-        }
-    }
-
-    /// IMP-150b: Verify Q8_0 SIMD dequantization path
-    #[test]
-    fn test_imp_150b_q8_0_simd_path() {
-        // Create Q8_0 test data
-        let num_blocks = 4;
-        let q8_0_bytes = num_blocks * 36; // 4 bytes scale + 32 bytes quants
-        let mut q8_data = vec![0u8; q8_0_bytes];
-
-        // Initialize with test pattern
-        for block in 0..num_blocks {
-            let offset = block * 36;
-            let scale: f32 = 0.05 + (block as f32) * 0.01;
-            q8_data[offset..offset + 4].copy_from_slice(&scale.to_le_bytes());
-            for i in 4..36 {
-                q8_data[offset + i] = ((block * 13 + i * 11) % 256) as u8;
-            }
-        }
-
-        // IMP-150b: Both paths should produce identical results
-        let scalar_result = dequantize_q8_0(&q8_data);
-        let simd_result = dequantize_q8_0_simd_optimized(&q8_data);
-
-        match (&scalar_result, &simd_result) {
-            (Ok(scalar), Ok(simd)) => {
-                assert_eq!(
-                    scalar.len(),
-                    simd.len(),
-                    "IMP-150b: Output lengths should match"
-                );
-                for (i, (s, v)) in scalar.iter().zip(simd.iter()).enumerate() {
-                    let diff = (s - v).abs();
-                    assert!(
-                        diff < 1e-5,
-                        "IMP-150b: Mismatch at index {}: scalar={}, simd={}, diff={}",
-                        i,
-                        s,
-                        v,
-                        diff
-                    );
-                }
-                println!(
-                    "\nIMP-150b: Q8_0 SIMD path verified correct ({} values)",
-                    simd.len()
-                );
-            },
-            _ => {
-                println!("IMP-150b: Error in dequantization (may be expected for test data)");
-            },
-        }
-    }
-
-    /// IMP-150c: Benchmark production dequantization path throughput
-    #[test]
-    fn test_imp_150c_production_throughput() {
-        // Create realistic model layer data (256KB, ~64K values)
-        let num_blocks = 2048;
-        let q4_0_bytes = num_blocks * 20;
-        let mut q4_data = vec![0u8; q4_0_bytes];
-
-        for block in 0..num_blocks {
-            let offset = block * 20;
-            let scale: f32 = 0.1;
-            q4_data[offset..offset + 4].copy_from_slice(&scale.to_le_bytes());
-            for i in 4..20 {
-                q4_data[offset + i] = (i as u8).wrapping_mul(7);
-            }
-        }
-
-        let iterations = 50;
-
-        // Measure SIMD path
-        let start = std::time::Instant::now();
-        for _ in 0..iterations {
-            let _ = dequantize_q4_0_simd(&q4_data);
-        }
-        let simd_time = start.elapsed();
-
-        let throughput_mb =
-            (q4_0_bytes * iterations) as f64 / simd_time.as_secs_f64() / 1_000_000.0;
-
-        println!("\nIMP-150c: Production Dequantization Throughput:");
-        println!(
-            "  Data size: {} KB ({} blocks)",
-            q4_0_bytes / 1024,
-            num_blocks
-        );
-        println!(
-            "  Time for {} iterations: {:.2}ms",
-            iterations,
-            simd_time.as_secs_f64() * 1000.0
-        );
-        println!("  Throughput: {:.1} MB/s", throughput_mb);
-
-        // IMP-150c: Production path should achieve reasonable throughput
-        // Debug builds are much slower due to lack of optimization
-        // Coverage instrumentation adds ~10x overhead, so use very low threshold
-        // In release builds expect > 500 MB/s, debug > 0.5 MB/s, coverage > 0.1 MB/s
-        assert!(
-            throughput_mb > 0.1,
-            "IMP-150c: Production throughput should be > 0.1 MB/s, got {:.1}",
-            throughput_mb
-        );
-    }
-
-    /// IMP-150d: Verify CPU feature detection for optimal path selection
-    #[test]
-    fn test_imp_150d_feature_detection() {
-        // IMP-150d: Feature detection should work without panics
-        #[cfg(target_arch = "x86_64")]
-        {
-            let has_avx2 = is_x86_feature_detected!("avx2");
-            let has_fma = is_x86_feature_detected!("fma");
-            let has_sse2 = is_x86_feature_detected!("sse2");
-
-            println!("\nIMP-150d: CPU Feature Detection:");
-            println!("  SSE2: {}", has_sse2);
-            println!("  AVX2: {}", has_avx2);
-            println!("  FMA: {}", has_fma);
-
-            // Modern x86_64 should have at least SSE2
-            assert!(has_sse2, "IMP-150d: SSE2 should be available on x86_64");
-
-            // Report optimal path
-            if has_avx2 && has_fma {
-                println!("  Optimal path: AVX2+FMA (best)");
-            } else if has_avx2 {
-                println!("  Optimal path: AVX2 (good)");
-            } else {
-                println!("  Optimal path: SSE2 (fallback)");
-            }
-        }
-
-        #[cfg(target_arch = "aarch64")]
-        {
-            println!("\nIMP-150d: ARM64 Feature Detection:");
-            println!("  NEON: expected (baseline for aarch64)");
-            println!("  Optimal path: NEON");
-        }
-
-        #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-        {
-            println!("\nIMP-150d: Scalar fallback path");
-        }
-    }
-
-    // =========================================================================
     // Additional Coverage Tests for Uncovered Functions
     // =========================================================================
 
@@ -13356,46 +10668,6 @@ mod tests {
         assert_eq!(quants.len(), 32);
     }
 
-    /// Test int8_matvec
-    #[test]
-    fn test_int8_matvec_basic() {
-        let rows = vec![
-            Int8Row {
-                scale: 1.0,
-                weights: vec![1i8; 4],
-            },
-            Int8Row {
-                scale: 1.0,
-                weights: vec![2i8; 4],
-            },
-        ];
-        let activations = vec![1.0f32; 4];
-        let result = int8_matvec(&rows, &activations);
-        assert_eq!(result.len(), 2);
-        assert!((result[0] - 4.0).abs() < 1e-5); // 1*1 + 1*1 + 1*1 + 1*1 = 4
-        assert!((result[1] - 8.0).abs() < 1e-5); // 2*1 + 2*1 + 2*1 + 2*1 = 8
-    }
-
-    /// Test int8_matvec_parallel
-    #[test]
-    fn test_int8_matvec_parallel_basic() {
-        let rows = vec![
-            Int8Row {
-                scale: 1.0,
-                weights: vec![1i8; 4],
-            },
-            Int8Row {
-                scale: 1.0,
-                weights: vec![2i8; 4],
-            },
-        ];
-        let activations = vec![1.0f32; 4];
-        let result = int8_matvec_parallel(&rows, &activations);
-        assert_eq!(result.len(), 2);
-        assert!((result[0] - 4.0).abs() < 1e-5);
-        assert!((result[1] - 8.0).abs() < 1e-5);
-    }
-
     /// Test softmax_simd with various sizes
     #[test]
     fn test_softmax_simd_various_sizes() {
@@ -13514,47 +10786,6 @@ mod tests {
         data[0..2].copy_from_slice(&0x3C00_u16.to_le_bytes()); // Scale = 1.0
         let result = dequantize_q8_0_simd(&data).expect("test");
         assert_eq!(result.len(), 32);
-    }
-
-    /// Test dequantize_q4_0_simd
-    #[test]
-    fn test_dequantize_q4_0_simd_basic() {
-        // Q4_0 block size is 18 bytes (2 for f16 scale + 16 for nibbles)
-        let mut data = vec![0u8; 18];
-        data[0..2].copy_from_slice(&0x3C00_u16.to_le_bytes()); // Scale = 1.0
-        let result = dequantize_q4_0_simd(&data).expect("test");
-        assert_eq!(result.len(), 32);
-    }
-
-    /// Test dequantize_q4_0_parallel
-    #[test]
-    fn test_dequantize_q4_0_parallel_basic() {
-        let mut data = vec![0u8; 18];
-        data[0..2].copy_from_slice(&0x3C00_u16.to_le_bytes()); // Scale = 1.0
-        let result = dequantize_q4_0_parallel(&data).expect("test");
-        assert_eq!(result.len(), 32);
-    }
-
-    /// Test dequantize_q8_0_simd_optimized
-    #[test]
-    fn test_dequantize_q8_0_simd_optimized_basic() {
-        let mut data = vec![0u8; 34];
-        data[0..2].copy_from_slice(&0x3C00_u16.to_le_bytes()); // Scale = 1.0
-        let result = dequantize_q8_0_simd_optimized(&data).expect("test");
-        assert_eq!(result.len(), 32);
-    }
-
-    /// Test fused_q6k_colmajor_matvec
-    #[test]
-    fn test_fused_q6k_colmajor_matvec_coverage() {
-        // Q6_K: column-major format, in_dim columns each with one super-block (256 values)
-        let in_dim = 2; // Number of input activations
-        let out_dim = 256; // Output dimension (Q6_K super-block size)
-                           // Weight data: in_dim * 210 bytes
-        let data = vec![0u8; 210 * in_dim];
-        let activations = vec![1.0f32; in_dim];
-        let result = fused_q6k_colmajor_matvec(&data, &activations, in_dim, out_dim).expect("test");
-        assert_eq!(result.len(), out_dim);
     }
 
     /// Test fused_q4_0_q8_0_parallel_matvec
@@ -13703,35 +10934,6 @@ mod tests {
         assert!(result.is_err());
     }
 
-    /// Test fused_q4k_q8_dot_simd dispatches correctly
-    #[test]
-    fn test_fused_q4k_q8_dot_simd_basic() {
-        let mut q4k_data = vec![0u8; 144];
-        q4k_data[0..2].copy_from_slice(&half::f16::from_f32(1.0).to_le_bytes());
-
-        let q8_blocks: Vec<Q8_0Block> = (0..8)
-            .map(|_| Q8_0Block {
-                scale: 1.0,
-                quants: [1i8; 32],
-            })
-            .collect();
-
-        let result = fused_q4k_q8_dot_simd(&q4k_data, &q8_blocks);
-        assert!(result.is_ok());
-    }
-
-    /// Test fused_q4k_q8_dot_simd error handling
-    #[test]
-    fn test_fused_q4k_q8_dot_simd_error() {
-        let q4k_data = vec![0u8; 143]; // Invalid length
-        let q8_blocks = vec![Q8_0Block {
-            scale: 1.0,
-            quants: [0i8; 32],
-        }];
-        let result = fused_q4k_q8_dot_simd(&q4k_data, &q8_blocks);
-        assert!(result.is_err());
-    }
-
     // =========================================================================
     // Coverage Tests: fused_q4k_q8k_dot functions
     // =========================================================================
@@ -13869,86 +11071,6 @@ mod tests {
     }
 
     // =========================================================================
-    // Coverage Tests: fused_q4k_auto_matvec_into
-    // =========================================================================
-
-    /// Test fused_q4k_auto_matvec_into basic operation
-    #[test]
-    fn test_fused_q4k_auto_matvec_into_basic() {
-        let in_dim = 256;
-        let out_dim = 2;
-        let weight_data = vec![0u8; 144 * out_dim];
-        let activations = vec![1.0f32; in_dim];
-        let mut output = vec![0.0f32; out_dim];
-
-        fused_q4k_auto_matvec_into(&weight_data, &activations, in_dim, out_dim, &mut output)
-            .expect("should succeed");
-        assert_eq!(output.len(), out_dim);
-    }
-
-    // =========================================================================
-    // Coverage Tests: fused_q6k_q8k_dot functions
-    // =========================================================================
-
-    /// Test fused_q6k_q8k_dot invalid length
-    #[test]
-    fn test_fused_q6k_q8k_dot_invalid_length() {
-        let q6k_data = vec![0u8; 200]; // Not 210
-        let q8k_scales = vec![1.0f32; 1];
-        let q8k_quants = vec![1i8; 256];
-        let result = fused_q6k_q8k_dot(&q6k_data, &q8k_scales, &q8k_quants);
-        assert!(result.is_err());
-    }
-
-    // =========================================================================
-    // Coverage Tests: fused_q6k_q8k_parallel_matvec_into
-    // =========================================================================
-
-    /// Test fused_q6k_q8k_parallel_matvec_into basic operation
-    #[test]
-    fn test_fused_q6k_q8k_parallel_matvec_into_basic() {
-        let out_dim = 2;
-        let in_dim = 256;
-        // Q6_K: 210 bytes per super-block
-        let weight_data = vec![0u8; 210 * out_dim];
-        let q8k_scales = vec![1.0f32; 8];
-        let q8k_quants = vec![1i8; in_dim];
-        let mut output = vec![0.0f32; out_dim];
-
-        fused_q6k_q8k_parallel_matvec_into(
-            &weight_data,
-            &q8k_scales,
-            &q8k_quants,
-            in_dim,
-            out_dim,
-            &mut output,
-        )
-        .expect("should succeed");
-        assert_eq!(output.len(), out_dim);
-    }
-
-    // =========================================================================
-    // Coverage Tests: fused_q4_0_parallel_matvec
-    // =========================================================================
-
-    /// Test fused_q4_0_parallel_matvec basic operation
-    #[test]
-    fn test_fused_q4_0_parallel_matvec_basic() {
-        let in_dim = 32; // One Q4_0 block
-        let out_dim = 2;
-        // Q4_0: 18 bytes per 32 values
-        let mut weight_data = vec![0u8; 18 * out_dim];
-        weight_data[0..2].copy_from_slice(&half::f16::from_f32(1.0).to_le_bytes());
-        weight_data[18..20].copy_from_slice(&half::f16::from_f32(1.0).to_le_bytes());
-
-        let activations = vec![1.0f32; in_dim];
-
-        let result =
-            fused_q4_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim).expect("test");
-        assert_eq!(result.len(), out_dim);
-    }
-
-    // =========================================================================
     // Coverage Tests: quantize_rmsnorm_q8_0 scalar path
     // =========================================================================
 
@@ -14083,45 +11205,6 @@ mod tests {
     }
 
     // =========================================================================
-    // Coverage Tests: fused_rmsnorm_ffn_up_gate_into
-    // =========================================================================
-
-    /// Test fused_rmsnorm_ffn_up_gate_into basic
-    #[test]
-    fn test_fused_rmsnorm_ffn_up_gate_into_basic() {
-        let hidden_dim = 32;
-        let intermediate_dim = 64;
-        let input = vec![1.0f32; hidden_dim];
-        let norm_weight = vec![1.0f32; hidden_dim];
-        // Q4_0: 18 bytes per 32 values
-        let blocks_per_row = hidden_dim / 32;
-        let up_weight = vec![0u8; 18 * blocks_per_row * intermediate_dim];
-        let gate_weight = vec![0u8; 18 * blocks_per_row * intermediate_dim];
-        let mut up_out = vec![0.0f32; intermediate_dim];
-        let mut gate_out = vec![0.0f32; intermediate_dim];
-        // Q8_0 quantization buffers for hidden_dim
-        let mut q8_scales = vec![0.0f32; hidden_dim / 32];
-        let mut q8_quants = vec![0i8; hidden_dim];
-
-        fused_rmsnorm_ffn_up_gate_into(
-            &input,
-            &norm_weight,
-            1e-5,
-            &up_weight,
-            &gate_weight,
-            hidden_dim,
-            intermediate_dim,
-            &mut up_out,
-            &mut gate_out,
-            &mut q8_scales,
-            &mut q8_quants,
-        )
-        .expect("should succeed");
-        assert_eq!(up_out.len(), intermediate_dim);
-        assert_eq!(gate_out.len(), intermediate_dim);
-    }
-
-    // =========================================================================
     // Coverage Tests: quantize_activations_q8_0 - extended
     // =========================================================================
 
@@ -14174,33 +11257,6 @@ mod tests {
     }
 
     // =========================================================================
-    // Coverage Tests: fused_q4_0_q8_0_parallel_matvec_prequant
-    // =========================================================================
-
-    /// Test fused_q4_0_q8_0_parallel_matvec_prequant basic operation
-    #[test]
-    fn test_fused_q4_0_q8_0_parallel_matvec_prequant_basic() {
-        let in_dim = 32;
-        let out_dim = 2;
-        let mut weight_data = vec![0u8; 18 * out_dim];
-        weight_data[0..2].copy_from_slice(&half::f16::from_f32(1.0).to_le_bytes());
-        weight_data[18..20].copy_from_slice(&half::f16::from_f32(1.0).to_le_bytes());
-
-        let scales = vec![1.0f32; 1];
-        let quants = vec![1i8; in_dim];
-
-        let result = fused_q4_0_q8_0_parallel_matvec_prequant(
-            &weight_data,
-            &scales,
-            &quants,
-            in_dim,
-            out_dim,
-        )
-        .expect("should succeed");
-        assert_eq!(result.len(), out_dim);
-    }
-
-    // =========================================================================
     // Coverage Tests: fused_q8_0_q8_0_parallel_matvec_into
     // =========================================================================
 
@@ -14247,16 +11303,6 @@ mod tests {
 
         let result = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants);
         assert!(result.is_ok());
-    }
-
-    /// Test fused_q6k_q8k dimensions validation
-    #[test]
-    fn test_fused_q6k_q8k_scales_validation() {
-        let q6k_data = vec![0u8; 210]; // Valid 210 bytes
-        let q8k_scales = vec![]; // Empty scales
-        let q8k_quants = vec![1i8; 256];
-        let result = fused_q6k_q8k_dot(&q6k_data, &q8k_scales, &q8k_quants);
-        assert!(result.is_err()); // Should fail due to scale validation
     }
 
     // =========================================================================
@@ -14442,91 +11488,6 @@ mod tests {
         let gate_weight = vec![0u8; 10]; // Too small
         let result =
             fused_rmsnorm_ffn_up_gate(&input, &norm_weight, 1e-5, &up_weight, &gate_weight, 32, 2);
-        assert!(result.is_err());
-    }
-
-    // =========================================================================
-    // Coverage Tests: fused_rmsnorm_ffn_up_gate_into error paths
-    // =========================================================================
-
-    /// Test fused_rmsnorm_ffn_up_gate_into input dimension error
-    #[test]
-    fn test_fused_rmsnorm_ffn_up_gate_into_input_dim_error() {
-        let input = vec![1.0f32; 16]; // Wrong size
-        let norm_weight = vec![1.0f32; 32];
-        let up_weight = vec![0u8; 36];
-        let gate_weight = vec![0u8; 36];
-        let mut up_output = vec![0.0f32; 1];
-        let mut gate_output = vec![0.0f32; 1];
-        let mut q8_scales = vec![0.0f32; 1];
-        let mut q8_quants = vec![0i8; 32];
-        let result = fused_rmsnorm_ffn_up_gate_into(
-            &input,
-            &norm_weight,
-            1e-5,
-            &up_weight,
-            &gate_weight,
-            32,
-            1,
-            &mut up_output,
-            &mut gate_output,
-            &mut q8_scales,
-            &mut q8_quants,
-        );
-        assert!(result.is_err());
-    }
-
-    /// Test fused_rmsnorm_ffn_up_gate_into up_weight too small
-    #[test]
-    fn test_fused_rmsnorm_ffn_up_gate_into_up_weight_error() {
-        let input = vec![1.0f32; 32];
-        let norm_weight = vec![1.0f32; 32];
-        let up_weight = vec![0u8; 10]; // Too small
-        let gate_weight = vec![0u8; 36];
-        let mut up_output = vec![0.0f32; 2];
-        let mut gate_output = vec![0.0f32; 2];
-        let mut q8_scales = vec![0.0f32; 1];
-        let mut q8_quants = vec![0i8; 32];
-        let result = fused_rmsnorm_ffn_up_gate_into(
-            &input,
-            &norm_weight,
-            1e-5,
-            &up_weight,
-            &gate_weight,
-            32,
-            2,
-            &mut up_output,
-            &mut gate_output,
-            &mut q8_scales,
-            &mut q8_quants,
-        );
-        assert!(result.is_err());
-    }
-
-    /// Test fused_rmsnorm_ffn_up_gate_into gate_weight too small
-    #[test]
-    fn test_fused_rmsnorm_ffn_up_gate_into_gate_weight_error() {
-        let input = vec![1.0f32; 32];
-        let norm_weight = vec![1.0f32; 32];
-        let up_weight = vec![0u8; 36];
-        let gate_weight = vec![0u8; 10]; // Too small
-        let mut up_output = vec![0.0f32; 2];
-        let mut gate_output = vec![0.0f32; 2];
-        let mut q8_scales = vec![0.0f32; 1];
-        let mut q8_quants = vec![0i8; 32];
-        let result = fused_rmsnorm_ffn_up_gate_into(
-            &input,
-            &norm_weight,
-            1e-5,
-            &up_weight,
-            &gate_weight,
-            32,
-            2,
-            &mut up_output,
-            &mut gate_output,
-            &mut q8_scales,
-            &mut q8_quants,
-        );
         assert!(result.is_err());
     }
 
@@ -14723,40 +11684,6 @@ mod tests {
     }
 
     // =========================================================================
-    // Coverage Tests: fused_q6k_q8k_dot
-    // =========================================================================
-
-    /// Test fused_q6k_q8k_dot invalid data length
-    #[test]
-    fn test_fused_q6k_q8k_dot_invalid_data() {
-        let q6k_data = vec![0u8; 100]; // Not multiple of 210
-        let q8k_scales = vec![1.0f32; 1];
-        let q8k_quants = vec![1i8; 256];
-        let result = fused_q6k_q8k_dot(&q6k_data, &q8k_scales, &q8k_quants);
-        assert!(result.is_err());
-    }
-
-    /// Test fused_q6k_q8k_dot buffer too small
-    #[test]
-    fn test_fused_q6k_q8k_dot_buffer_small() {
-        let q6k_data = vec![0u8; 210];
-        let q8k_scales = vec![]; // Empty scales
-        let q8k_quants = vec![1i8; 256];
-        let result = fused_q6k_q8k_dot(&q6k_data, &q8k_scales, &q8k_quants);
-        assert!(result.is_err());
-    }
-
-    /// Test fused_q6k_q8k_dot_simd invalid data
-    #[test]
-    fn test_fused_q6k_q8k_dot_simd_invalid() {
-        let q6k_data = vec![0u8; 100]; // Not multiple of 210
-        let q8k_scales = vec![1.0f32; 1];
-        let q8k_quants = vec![1i8; 256];
-        let result = fused_q6k_q8k_dot_simd(&q6k_data, &q8k_scales, &q8k_quants);
-        assert!(result.is_err());
-    }
-
-    // =========================================================================
     // Coverage Tests: fused_q5k_dot scalar
     // =========================================================================
 
@@ -14805,24 +11732,6 @@ mod tests {
         assert!(result.is_err());
     }
 
-    /// Test fused_q5k_tiled_matvec dimension mismatch
-    #[test]
-    fn test_fused_q5k_tiled_matvec_dim_mismatch() {
-        let q5k_data = vec![0u8; 176];
-        let activations = vec![1.0f32; 128];
-        let result = fused_q5k_tiled_matvec(&q5k_data, &activations, 256, 1, Some(64));
-        assert!(result.is_err());
-    }
-
-    /// Test fused_q6k_tiled_matvec dimension mismatch
-    #[test]
-    fn test_fused_q6k_tiled_matvec_dim_mismatch() {
-        let q6k_data = vec![0u8; 210];
-        let activations = vec![1.0f32; 128];
-        let result = fused_q6k_tiled_matvec(&q6k_data, &activations, 256, 1, Some(64));
-        assert!(result.is_err());
-    }
-
     // =========================================================================
     // Coverage Tests: Parallel matvec into variants
     // =========================================================================
@@ -14858,42 +11767,6 @@ mod tests {
     }
 
     // =========================================================================
-    // Coverage Tests: fused_q4k_auto_matvec_into
-    // =========================================================================
-
-    /// Test fused_q4k_auto_matvec_into weight data too small
-    #[test]
-    fn test_fused_q4k_auto_matvec_into_weight_error() {
-        let q4k_data = vec![0u8; 10]; // Too small for 256x1 matrix
-        let activations = vec![1.0f32; 256];
-        let mut output = vec![0.0f32; 1];
-        let result = fused_q4k_auto_matvec_into(&q4k_data, &activations, 256, 1, &mut output);
-        assert!(result.is_err());
-    }
-
-    /// Test fused_q4k_auto_matvec_into success
-    #[test]
-    fn test_fused_q4k_auto_matvec_into_success() {
-        // 1 row of 256 values = 1 super-block = 144 bytes
-        let q4k_data = vec![0u8; 144];
-        let activations = vec![1.0f32; 256];
-        let mut output = vec![0.0f32; 1];
-        let result = fused_q4k_auto_matvec_into(&q4k_data, &activations, 256, 1, &mut output);
-        assert!(result.is_ok());
-    }
-
-    /// Test fused_q4k_auto_matvec_into with padding
-    #[test]
-    fn test_fused_q4k_auto_matvec_into_with_padding() {
-        // Function should pad activations to 256 internally
-        let q4k_data = vec![0u8; 144];
-        let activations = vec![1.0f32; 128]; // Will be padded to 256
-        let mut output = vec![0.0f32; 1];
-        let result = fused_q4k_auto_matvec_into(&q4k_data, &activations, 256, 1, &mut output);
-        assert!(result.is_ok());
-    }
-
-    // =========================================================================
     // Coverage Tests: InterleavedQ4K
     // =========================================================================
 
@@ -14925,63 +11798,6 @@ mod tests {
         let activations = vec![1.0f32; 256];
         let result = interleaved.dot(&activations);
         assert!(result.is_ok());
-    }
-
-    // =========================================================================
-    // Coverage Tests: Int8Row
-    // =========================================================================
-
-    /// Test Int8Row quantize basic
-    #[test]
-    fn test_int8_row_quantize_basic() {
-        let weights = vec![1.0f32; 32];
-        let row = Int8Row::quantize(&weights);
-        assert!(row.scale > 0.0);
-        assert_eq!(row.weights.len(), 32);
-    }
-
-    /// Test Int8Row quantize near-zero
-    #[test]
-    fn test_int8_row_quantize_near_zero() {
-        let weights = vec![1e-12f32; 32];
-        let row = Int8Row::quantize(&weights);
-        assert!((row.scale - 1.0 / 127.0).abs() < 1e-6);
-    }
-
-    /// Test Int8Row dequantize round-trip
-    #[test]
-    fn test_int8_row_dequantize_roundtrip() {
-        let original: Vec<f32> = (0..32).map(|i| (i as f32 - 16.0) / 10.0).collect();
-        let row = Int8Row::quantize(&original);
-        let recovered = row.dequantize();
-        let max_error: f32 = original
-            .iter()
-            .zip(recovered.iter())
-            .map(|(o, r)| (o - r).abs())
-            .fold(0.0f32, f32::max);
-        assert!(max_error < 0.1);
-    }
-
-    // =========================================================================
-    // Coverage Tests: int8_matvec functions
-    // =========================================================================
-
-    /// Test int8_matvec with near-zero activations
-    #[test]
-    fn test_int8_matvec_near_zero_activations() {
-        let weights = vec![Int8Row::quantize(&vec![1.0f32; 4]); 2];
-        let activations = vec![1e-12f32; 4];
-        let result = int8_matvec(&weights, &activations);
-        assert_eq!(result.len(), 2);
-    }
-
-    /// Test int8_matvec_parallel with near-zero activations
-    #[test]
-    fn test_int8_matvec_parallel_near_zero_activations() {
-        let weights = vec![Int8Row::quantize(&vec![1.0f32; 4]); 2];
-        let activations = vec![1e-12f32; 4];
-        let result = int8_matvec_parallel(&weights, &activations);
-        assert_eq!(result.len(), 2);
     }
 
     // =========================================================================
@@ -15125,19 +11941,6 @@ mod tests {
     }
 
     // =========================================================================
-    // Coverage Tests: fused_q4_0_parallel_matvec
-    // =========================================================================
-
-    /// Test fused_q4_0_parallel_matvec weight too small
-    #[test]
-    fn test_fused_q4_0_parallel_matvec_weight_error() {
-        let weight_data = vec![0u8; 10]; // Too small
-        let activations = vec![1.0f32; 32];
-        let result = fused_q4_0_parallel_matvec(&weight_data, &activations, 32, 2);
-        assert!(result.is_err());
-    }
-
-    // =========================================================================
     // Coverage Tests: fused_q4_0_q8_0_parallel_matvec
     // =========================================================================
 
@@ -15147,17 +11950,6 @@ mod tests {
         let weight_data = vec![0u8; 10]; // Too small
         let activations = vec![1.0f32; 32];
         let result = fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, 32, 2);
-        assert!(result.is_err());
-    }
-
-    /// Test fused_q4_0_q8_0_parallel_matvec_prequant weight error
-    #[test]
-    fn test_fused_q4_0_q8_0_parallel_matvec_prequant_weight_error() {
-        let weight_data = vec![0u8; 10]; // Too small
-        let q8_scales = vec![1.0f32; 1];
-        let q8_quants = vec![1i8; 32];
-        let result =
-            fused_q4_0_q8_0_parallel_matvec_prequant(&weight_data, &q8_scales, &q8_quants, 32, 2);
         assert!(result.is_err());
     }
 
@@ -15197,50 +11989,6 @@ mod tests {
     }
 
     // =========================================================================
-    // Coverage Tests: fused_q6k_colmajor_matvec
-    // =========================================================================
-
-    /// Test fused_q6k_colmajor_matvec weight error
-    #[test]
-    fn test_fused_q6k_colmajor_matvec_weight_error() {
-        let weight_data = vec![0u8; 100]; // Too small
-        let activations = vec![1.0f32; 256];
-        let result = fused_q6k_colmajor_matvec(&weight_data, &activations, 256, 2);
-        assert!(result.is_err());
-    }
-
-    /// Test fused_q6k_colmajor_matvec activation error
-    #[test]
-    fn test_fused_q6k_colmajor_matvec_activation_error() {
-        let weight_data = vec![0u8; 420]; // Valid for 2 super-blocks
-        let activations = vec![1.0f32; 128]; // Too small
-        let result = fused_q6k_colmajor_matvec(&weight_data, &activations, 256, 1);
-        assert!(result.is_err());
-    }
-
-    // =========================================================================
-    // Coverage Tests: fused_q6k_q8k_parallel_matvec_into
-    // =========================================================================
-
-    /// Test fused_q6k_q8k_parallel_matvec_into weight error
-    #[test]
-    fn test_fused_q6k_q8k_parallel_matvec_into_weight_error() {
-        let weight_data = vec![0u8; 100]; // Too small
-        let q8k_scales = vec![1.0f32; 1];
-        let q8k_quants = vec![1i8; 256];
-        let mut output = vec![0.0f32; 1];
-        let result = fused_q6k_q8k_parallel_matvec_into(
-            &weight_data,
-            &q8k_scales,
-            &q8k_quants,
-            256,
-            1,
-            &mut output,
-        );
-        assert!(result.is_err());
-    }
-
-    // =========================================================================
     // Coverage Tests: dequantize parallel/simd variants
     // =========================================================================
 
@@ -15273,30 +12021,6 @@ mod tests {
     fn test_dequantize_q8_0_simd_invalid() {
         let data = vec![0u8; 10];
         let result = dequantize_q8_0_simd(&data);
-        assert!(result.is_err());
-    }
-
-    /// Test dequantize_q4_0_simd invalid length
-    #[test]
-    fn test_dequantize_q4_0_simd_invalid() {
-        let data = vec![0u8; 10]; // Not multiple of 18
-        let result = dequantize_q4_0_simd(&data);
-        assert!(result.is_err());
-    }
-
-    /// Test dequantize_q4_0_parallel invalid length
-    #[test]
-    fn test_dequantize_q4_0_parallel_invalid() {
-        let data = vec![0u8; 10];
-        let result = dequantize_q4_0_parallel(&data);
-        assert!(result.is_err());
-    }
-
-    /// Test dequantize_q8_0_simd_optimized invalid length
-    #[test]
-    fn test_dequantize_q8_0_simd_optimized_invalid() {
-        let data = vec![0u8; 10];
-        let result = dequantize_q8_0_simd_optimized(&data);
         assert!(result.is_err());
     }
 
@@ -15937,53 +12661,6 @@ mod tests {
     }
 
     // =========================================================================
-    // Coverage Tests: Int8Row
-    // =========================================================================
-
-    #[test]
-    fn test_int8row_debug_clone() {
-        let row = Int8Row::quantize(&[1.0f32; 8]);
-        let debug = format!("{:?}", row);
-        assert!(debug.contains("Int8Row"));
-
-        let cloned = row.clone();
-        assert_eq!(cloned.scale, row.scale);
-        assert_eq!(cloned.weights.len(), row.weights.len());
-    }
-
-    #[test]
-    fn test_int8row_dequantize() {
-        let original: Vec<f32> = (0..32).map(|i| (i as f32 - 16.0) / 10.0).collect();
-        let row = Int8Row::quantize(&original);
-        let dequant = row.dequantize();
-
-        // Check that dequantization is reasonably close
-        for (o, d) in original.iter().zip(dequant.iter()) {
-            assert!(
-                (o - d).abs() < 0.05,
-                "Dequant error too large: {} vs {}",
-                o,
-                d
-            );
-        }
-    }
-
-    #[test]
-    fn test_int8row_roundtrip() {
-        let original: Vec<f32> = (0..16).map(|i| i as f32 * 0.1).collect();
-        let row = Int8Row::quantize(&original);
-
-        // Verify weights were created
-        assert_eq!(row.weights.len(), 16);
-        // Scale should be reasonable for these values
-        assert!(row.scale > 0.0);
-
-        // Verify roundtrip produces reasonable values
-        let dequant = row.dequantize();
-        assert_eq!(dequant.len(), 16);
-    }
-
-    // =========================================================================
     // Coverage Tests: quantize_activations_q8k_into error paths
     // =========================================================================
 
@@ -16595,5 +13272,434 @@ mod tests {
         let data = vec![0u8; 48];
         let result = dequantize_q5_1(&data).expect("should succeed");
         assert_eq!(result.len(), 64);
+    }
+
+    // =========================================================================
+    // IMP-XXX: Direct Scalar Fallback Tests
+    // =========================================================================
+    // These tests directly call the scalar implementations, bypassing the
+    // SIMD dispatcher. This ensures the scalar fallbacks are tested even on
+    // machines with AVX2 support.
+
+    #[test]
+    fn test_scalar_quantize_rmsnorm_q8_0_direct() {
+        // Direct test of scalar implementation
+        let input = vec![1.0f32; 64];
+        let norm_weight = vec![1.0f32; 64];
+        let (scales, quants) = quantize_rmsnorm_q8_0_scalar(&input, &norm_weight, 1e-5);
+
+        // Should produce 2 blocks of scales (64 / 32 = 2)
+        assert_eq!(scales.len(), 2);
+        // Should produce 64 quantized values
+        assert_eq!(quants.len(), 64);
+        // Scales should be positive
+        assert!(scales.iter().all(|&s| s >= 0.0));
+    }
+
+    #[test]
+    fn test_scalar_quantize_rmsnorm_q8_0_various_sizes() {
+        for size in [32, 64, 128, 256, 512] {
+            let input = vec![0.5f32; size];
+            let norm_weight = vec![2.0f32; size];
+            let (scales, quants) = quantize_rmsnorm_q8_0_scalar(&input, &norm_weight, 1e-6);
+
+            assert_eq!(scales.len(), size / 32, "scales for size {}", size);
+            assert_eq!(quants.len(), size, "quants for size {}", size);
+        }
+    }
+
+    #[test]
+    fn test_scalar_fused_swiglu_direct() {
+        // Direct test of scalar SwiGLU
+        let mut gate = vec![1.0f32; 64];
+        let up = vec![2.0f32; 64];
+
+        fused_swiglu_scalar(&mut gate, &up);
+
+        // silu(1.0) ≈ 0.7311 (sigmoid(1) = ~0.7311)
+        // result = silu(gate) * up ≈ 0.7311 * 2.0 ≈ 1.4623
+        for g in &gate {
+            assert!(*g > 1.4 && *g < 1.5, "got {}", g);
+        }
+    }
+
+    #[test]
+    fn test_scalar_fused_swiglu_zero() {
+        let mut gate = vec![0.0f32; 32];
+        let up = vec![1.0f32; 32];
+
+        fused_swiglu_scalar(&mut gate, &up);
+
+        // silu(0) = 0 * sigmoid(0) = 0 * 0.5 = 0
+        for g in &gate {
+            assert!(g.abs() < 1e-6, "expected near zero, got {}", g);
+        }
+    }
+
+    #[test]
+    fn test_scalar_softmax_direct() {
+        let mut x = vec![1.0, 2.0, 3.0, 4.0];
+        softmax_scalar(&mut x);
+
+        // Sum should be 1.0
+        let sum: f32 = x.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-5, "sum should be 1.0, got {}", sum);
+
+        // Values should be monotonically increasing (since input was increasing)
+        assert!(x[0] < x[1] && x[1] < x[2] && x[2] < x[3]);
+    }
+
+    #[test]
+    fn test_scalar_softmax_large_values() {
+        // Test numerical stability with large values
+        let mut x = vec![1000.0, 1001.0, 1002.0, 1003.0];
+        softmax_scalar(&mut x);
+
+        // Should not overflow/underflow
+        let sum: f32 = x.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-5, "sum should be 1.0, got {}", sum);
+        assert!(x.iter().all(|&v| v.is_finite()), "all values should be finite");
+    }
+
+    #[test]
+    fn test_scalar_apply_rope_rotation_direct() {
+        let mut x1 = vec![1.0, 2.0, 3.0, 4.0];
+        let mut x2 = vec![5.0, 6.0, 7.0, 8.0];
+        let cos_vals = vec![0.5f32; 4];
+        let sin_vals = vec![0.866f32; 4]; // sin(60°) ≈ 0.866
+
+        let x1_orig = x1.clone();
+        let x2_orig = x2.clone();
+
+        apply_rope_rotation_scalar(&mut x1, &mut x2, &cos_vals, &sin_vals);
+
+        // Rotation formula: x1' = x1*cos - x2*sin, x2' = x1*sin + x2*cos
+        for i in 0..4 {
+            let expected_x1 = x1_orig[i] * 0.5 - x2_orig[i] * 0.866;
+            let expected_x2 = x1_orig[i] * 0.866 + x2_orig[i] * 0.5;
+            assert!((x1[i] - expected_x1).abs() < 1e-5, "x1[{}]: expected {}, got {}", i, expected_x1, x1[i]);
+            assert!((x2[i] - expected_x2).abs() < 1e-5, "x2[{}]: expected {}, got {}", i, expected_x2, x2[i]);
+        }
+    }
+
+    #[test]
+    fn test_scalar_fused_q4_0_q8_0_dot_direct() {
+        // Create minimal Q4_0 data (1 block = 18 bytes)
+        // Layout: 2 bytes f16 scale + 16 bytes quants
+        let mut q4_data = vec![0u8; 18];
+        // Set scale to 1.0 (f16 encoding)
+        let scale_bits = half::f16::from_f32(1.0).to_bits();
+        q4_data[0] = scale_bits as u8;
+        q4_data[1] = (scale_bits >> 8) as u8;
+        // Set quants to some pattern (each byte = 2 values)
+        for i in 0..16 {
+            q4_data[2 + i] = 0x88; // Both nibbles = 8 (after -8 offset = 0)
+        }
+
+        // Create Q8_0 activations (1 block = 32 values)
+        let q8_scales = vec![1.0f32];
+        let q8_quants = vec![1i8; 32];
+
+        let result = fused_q4_0_q8_0_dot_scalar(&q4_data, &q8_scales, &q8_quants, 32);
+
+        // With our setup, all dequantized values are 0, so dot product should be 0
+        assert!(result.abs() < 1e-5, "expected near zero, got {}", result);
+    }
+
+    #[test]
+    fn test_scalar_fused_q8_0_q8_0_dot_direct() {
+        // Create Q8_0 weight data (1 block = 34 bytes: 2 bytes scale + 32 bytes quants)
+        let mut q8_weight_data = vec![0u8; 34];
+        // Set scale to 1.0 (f16 encoding)
+        let scale_bits = half::f16::from_f32(1.0).to_bits();
+        q8_weight_data[0] = scale_bits as u8;
+        q8_weight_data[1] = (scale_bits >> 8) as u8;
+        // Set quants to 1
+        for i in 0..32 {
+            q8_weight_data[2 + i] = 1;
+        }
+
+        // Create Q8_0 activations
+        let q8_act_scales = vec![1.0f32];
+        let q8_act_quants = vec![1i8; 32];
+
+        let result = fused_q8_0_q8_0_dot_scalar(&q8_weight_data, &q8_act_scales, &q8_act_quants, 32);
+
+        // Dot product of 32 ones with scale 1.0 * 1.0 = 32
+        assert!((result - 32.0).abs() < 1e-3, "expected ~32, got {}", result);
+    }
+
+    // =========================================================================
+    // Direct Tests for Dequantization Helpers
+    // =========================================================================
+
+    #[test]
+    fn test_dequantize_q4_k_superblock_direct() {
+        // Create a minimal Q4_K super-block (144 bytes)
+        // Layout: d (2) + dmin (2) + scales (12) + qs (128) = 144 bytes
+        let mut sb_data = vec![0u8; 144];
+
+        // Set d = 1.0 (f16 encoding)
+        let d_bits = half::f16::from_f32(1.0).to_bits();
+        sb_data[0] = d_bits as u8;
+        sb_data[1] = (d_bits >> 8) as u8;
+
+        // Set dmin = 0.0 (no minimum offset)
+        sb_data[2] = 0;
+        sb_data[3] = 0;
+
+        // Set scales to simple pattern (all 1s for testing)
+        for i in 0..12 {
+            sb_data[4 + i] = 0x11; // scale = 1, min = 1 (packed)
+        }
+
+        // Set qs to all zeros for simplicity
+        for i in 0..128 {
+            sb_data[16 + i] = 0x00;
+        }
+
+        let result = dequantize_q4_k_superblock(&sb_data);
+
+        // Should produce QK_K (256) values
+        assert_eq!(result.len(), QK_K, "expected {} values, got {}", QK_K, result.len());
+        // All values should be finite
+        assert!(result.iter().all(|&v| v.is_finite()), "all values should be finite");
+    }
+
+    #[test]
+    fn test_dequantize_q4_k_superblock_nonzero_quants() {
+        // Test with non-zero quantized values
+        let mut sb_data = vec![0u8; 144];
+
+        // d = 0.5
+        let d_bits = half::f16::from_f32(0.5).to_bits();
+        sb_data[0] = d_bits as u8;
+        sb_data[1] = (d_bits >> 8) as u8;
+
+        // dmin = 0.25
+        let dmin_bits = half::f16::from_f32(0.25).to_bits();
+        sb_data[2] = dmin_bits as u8;
+        sb_data[3] = (dmin_bits >> 8) as u8;
+
+        // scales = 0x22 (scale=2, min=2 for each pair)
+        for i in 0..12 {
+            sb_data[4 + i] = 0x22;
+        }
+
+        // qs = 0x88 (nibbles = 8, 8)
+        for i in 0..128 {
+            sb_data[16 + i] = 0x88;
+        }
+
+        let result = dequantize_q4_k_superblock(&sb_data);
+
+        assert_eq!(result.len(), QK_K);
+        // With our setup, values should follow pattern: d * scale * q - dmin * m
+        // The exact values depend on scale extraction logic, but they should be consistent
+        assert!(result.iter().all(|&v| v.is_finite()));
+    }
+
+    #[test]
+    fn test_dequantize_q8_0_block_direct() {
+        // Create a Q8_0 block (34 bytes): 2 bytes scale + 32 bytes quants
+        let mut block_data = vec![0u8; 34];
+
+        // Set scale = 1.0 (f16 encoding)
+        let scale_bits = half::f16::from_f32(1.0).to_bits();
+        block_data[0] = scale_bits as u8;
+        block_data[1] = (scale_bits >> 8) as u8;
+
+        // Set quants to sequential values 0-31 (as i8)
+        for i in 0..32 {
+            block_data[2 + i] = i as u8;
+        }
+
+        let result = dequantize_q8_0_block(&block_data);
+
+        // Should produce 32 values
+        assert_eq!(result.len(), 32, "expected 32 values, got {}", result.len());
+
+        // Values should be 0.0, 1.0, 2.0, ... 31.0 (scale * quant = 1.0 * i)
+        for (i, &val) in result.iter().enumerate() {
+            let expected = i as f32;
+            assert!((val - expected).abs() < 0.01, "result[{}] = {}, expected {}", i, val, expected);
+        }
+    }
+
+    #[test]
+    fn test_dequantize_q8_0_block_negative_quants() {
+        // Test with negative quantized values
+        let mut block_data = vec![0u8; 34];
+
+        // Set scale = 2.0
+        let scale_bits = half::f16::from_f32(2.0).to_bits();
+        block_data[0] = scale_bits as u8;
+        block_data[1] = (scale_bits >> 8) as u8;
+
+        // Set quants to -128, -64, 0, 64, 127 pattern repeated
+        let pattern: [i8; 5] = [-128, -64, 0, 64, 127];
+        for i in 0..32 {
+            block_data[2 + i] = pattern[i % 5] as u8;
+        }
+
+        let result = dequantize_q8_0_block(&block_data);
+
+        assert_eq!(result.len(), 32);
+
+        // Check first few values: scale * quant = 2.0 * i8
+        assert!((result[0] - (-256.0)).abs() < 0.1, "result[0] = {}", result[0]); // 2.0 * -128
+        assert!((result[1] - (-128.0)).abs() < 0.1, "result[1] = {}", result[1]); // 2.0 * -64
+        assert!((result[2] - 0.0).abs() < 0.1, "result[2] = {}", result[2]);       // 2.0 * 0
+        assert!((result[3] - 128.0).abs() < 0.1, "result[3] = {}", result[3]);     // 2.0 * 64
+        assert!((result[4] - 254.0).abs() < 0.1, "result[4] = {}", result[4]);     // 2.0 * 127
+    }
+
+    #[test]
+    fn test_dequantize_q8_0_block_zero_scale() {
+        // Test with zero scale (edge case)
+        let mut block_data = vec![0u8; 34];
+
+        // Set scale = 0.0
+        block_data[0] = 0;
+        block_data[1] = 0;
+
+        // Set quants to 127 (max)
+        for i in 0..32 {
+            block_data[2 + i] = 127;
+        }
+
+        let result = dequantize_q8_0_block(&block_data);
+
+        // All values should be 0 (0.0 * 127 = 0)
+        for (i, &val) in result.iter().enumerate() {
+            assert!(val.abs() < 0.001, "result[{}] should be 0, got {}", i, val);
+        }
+    }
+
+    // ============================================================================
+    // DIRECT TESTS FOR EXPOSED HELPER FUNCTIONS (Force-Path Coverage)
+    // ============================================================================
+
+    #[test]
+    fn test_f16_to_f32_lut_zero() {
+        // Test zero conversion
+        let result = f16_to_f32_lut(0);
+        assert!(result.abs() < 1e-10, "Zero should convert to 0.0, got {}", result);
+    }
+
+    #[test]
+    fn test_f16_to_f32_lut_one() {
+        // Test 1.0 conversion (f16 bits for 1.0 = 0x3C00)
+        let result = f16_to_f32_lut(0x3C00);
+        assert!((result - 1.0).abs() < 1e-6, "Should be 1.0, got {}", result);
+    }
+
+    #[test]
+    fn test_f16_to_f32_lut_negative_one() {
+        // Test -1.0 conversion (f16 bits for -1.0 = 0xBC00)
+        let result = f16_to_f32_lut(0xBC00);
+        assert!((result - (-1.0)).abs() < 1e-6, "Should be -1.0, got {}", result);
+    }
+
+    #[test]
+    fn test_f16_to_f32_lut_small_value() {
+        // Test small value (0.5 = 0x3800 in f16)
+        let result = f16_to_f32_lut(0x3800);
+        assert!((result - 0.5).abs() < 1e-6, "Should be 0.5, got {}", result);
+    }
+
+    #[test]
+    fn test_read_f16_zero() {
+        // Test reading f16 zero
+        let bytes = [0x00, 0x00]; // f16 zero
+        let result = read_f16(&bytes);
+        assert!(result.abs() < 1e-10, "Should be 0.0, got {}", result);
+    }
+
+    #[test]
+    fn test_read_f16_one() {
+        // Test reading f16 1.0
+        let bytes = [0x00, 0x3C]; // f16 1.0 in little-endian
+        let result = read_f16(&bytes);
+        assert!((result - 1.0).abs() < 1e-6, "Should be 1.0, got {}", result);
+    }
+
+    #[test]
+    fn test_read_f16_negative() {
+        // Test reading f16 -1.0
+        let bytes = [0x00, 0xBC]; // f16 -1.0 in little-endian
+        let result = read_f16(&bytes);
+        assert!((result - (-1.0)).abs() < 1e-6, "Should be -1.0, got {}", result);
+    }
+
+    #[test]
+    fn test_extract_scale_min_from_slice_first_block() {
+        // Test extraction for index 0 (first block - simple layout)
+        let scales: [u8; 8] = [0x3F, 0x1F, 0x0F, 0x07, 0x20, 0x10, 0x08, 0x04];
+        let (scale, min) = extract_scale_min_from_slice(&scales, 0);
+        // idx=0: scale = scales[0] & 0x3F = 0x3F = 63
+        // idx=0: min = scales[4] & 0x3F = 0x20 = 32
+        assert!((scale - 63.0).abs() < 0.001, "scale should be 63, got {}", scale);
+        assert!((min - 32.0).abs() < 0.001, "min should be 32, got {}", min);
+    }
+
+    #[test]
+    fn test_extract_scale_min_from_slice_second_block() {
+        // Test extraction for index 2 (even, simple layout)
+        let scales: [u8; 8] = [0x3F, 0x1F, 0x0F, 0x07, 0x20, 0x10, 0x08, 0x04];
+        let (scale, min) = extract_scale_min_from_slice(&scales, 2);
+        // idx=2: scale_idx = 1, scale = scales[1] & 0x3F = 0x1F = 31
+        // idx=2: min_idx = 5, min = scales[5] & 0x3F = 0x10 = 16
+        assert!((scale - 31.0).abs() < 0.001, "scale should be 31, got {}", scale);
+        assert!((min - 16.0).abs() < 0.001, "min should be 16, got {}", min);
+    }
+
+    #[test]
+    fn test_extract_scale_min_first_blocks() {
+        // Test extract_scale_min for first 4 blocks (simple layout)
+        let scales: [u8; 12] = [
+            0x3F, 0x2F, 0x1F, 0x0F, // First 4 scale values (low 6 bits)
+            0x20, 0x18, 0x10, 0x08, // First 4 min values (low 6 bits)
+            0x00, 0x00, 0x00, 0x00, // High bits (unused for first 4)
+        ];
+
+        // Block 0: scale = 0x3F & 63 = 63, min = 0x20 & 63 = 32
+        let (scale, min) = extract_scale_min(&scales, 0);
+        assert!((scale - 63.0).abs() < 0.001, "Block 0 scale should be 63, got {}", scale);
+        assert!((min - 32.0).abs() < 0.001, "Block 0 min should be 32, got {}", min);
+
+        // Block 1: scale = 0x2F & 63 = 47, min = 0x18 & 63 = 24
+        let (scale, min) = extract_scale_min(&scales, 1);
+        assert!((scale - 47.0).abs() < 0.001, "Block 1 scale should be 47, got {}", scale);
+        assert!((min - 24.0).abs() < 0.001, "Block 1 min should be 24, got {}", min);
+    }
+
+    #[test]
+    fn test_extract_scale_min_packed_blocks() {
+        // Test extract_scale_min for blocks 4-7 (packed layout)
+        // The packed layout uses high bits from bytes 0-3 combined with bytes 8-11
+        let scales: [u8; 12] = [
+            0x40, 0x80, 0xC0, 0x00, // Low 6 bits + high 2 bits for blocks 4-7
+            0x00, 0x00, 0x00, 0x00, // Min values for blocks 0-3
+            0x12, 0x34, 0x56, 0x78, // Packed values for blocks 4-7
+        ];
+
+        // Block 4: d = (scales[8] & 0x0F) | ((scales[0] >> 6) << 4) = (0x12 & 0x0F) | (1 << 4) = 2 | 16 = 18
+        // Block 4: m = (scales[8] >> 4) | ((scales[4] >> 6) << 4) = (0x12 >> 4) | (0 << 4) = 1 | 0 = 1
+        let (scale, min) = extract_scale_min(&scales, 4);
+        assert!((scale - 18.0).abs() < 0.001, "Block 4 scale should be 18, got {}", scale);
+        assert!((min - 1.0).abs() < 0.001, "Block 4 min should be 1, got {}", min);
+    }
+
+    #[test]
+    fn test_extract_scale_min_all_zeros() {
+        // Test with all zeros
+        let scales: [u8; 12] = [0; 12];
+
+        for block_idx in 0..8 {
+            let (scale, min) = extract_scale_min(&scales, block_idx);
+            assert!(scale.abs() < 0.001, "Block {} scale should be 0, got {}", block_idx, scale);
+            assert!(min.abs() < 0.001, "Block {} min should be 0, got {}", block_idx, min);
+        }
     }
 }

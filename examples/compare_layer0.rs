@@ -24,8 +24,10 @@ fn fused_matmul(input: &[f32], data: &[u8], qtype: u32, in_dim: usize, out_dim: 
 }
 
 fn main() {
-    let path = "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf";
-    let mapped = MappedGGUFModel::from_path(path).expect("Failed to load");
+    let path = std::env::args().nth(1).unwrap_or_else(|| {
+        "../aprender/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf".to_string()
+    });
+    let mapped = MappedGGUFModel::from_path(&path).expect("Failed to load");
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("Failed to parse");
 
     let hidden_dim = model.config.hidden_dim;
@@ -51,27 +53,46 @@ fn main() {
         _ => panic!("Expected separate QKV"),
     };
 
-    let q = fused_matmul(
+    let mut q = fused_matmul(
         &normed,
         &q_weight.data,
         q_weight.qtype,
         q_weight.in_dim,
         q_weight.out_dim,
     );
-    let k = fused_matmul(
+    let mut k = fused_matmul(
         &normed,
         &k_weight.data,
         k_weight.qtype,
         k_weight.in_dim,
         k_weight.out_dim,
     );
-    let v = fused_matmul(
+    let mut v = fused_matmul(
         &normed,
         &v_weight.data,
         v_weight.qtype,
         v_weight.in_dim,
         v_weight.out_dim,
     );
+
+    // PMAT-COR-001 Fix: Add QKV biases (Qwen2.5 requires them!)
+    if let Some(ref bias) = layer.qkv_bias {
+        let q_dim = q.len();
+        let k_dim = k.len();
+        // Bias is concatenated: [Q bias (q_dim), K bias (k_dim), V bias (v_dim)]
+        for i in 0..q_dim {
+            q[i] += bias[i];
+        }
+        for i in 0..k_dim {
+            k[i] += bias[q_dim + i];
+        }
+        for i in 0..v.len() {
+            v[i] += bias[q_dim + k_dim + i];
+        }
+        println!("QKV bias applied: len={}", bias.len());
+    } else {
+        println!("WARNING: No QKV bias found!");
+    }
 
     println!("Q first 3: {:?}", &q[..3]);
     println!("K first 5: {:?}", &k[..5]);
