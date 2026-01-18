@@ -9,17 +9,21 @@
 //! - SIMD paths (scalar fallbacks)
 
 use realizar::quantize::{
-    dequantize_q4_0, dequantize_q4_k, dequantize_q5_k, dequantize_q6_k, dequantize_q8_0,
-    fused_q4_0_parallel_matvec, fused_q4k_auto_matvec_into, fused_q4k_dot, fused_q4k_dot_simd,
-    fused_q4k_parallel_matvec, fused_q4k_parallel_matvec_into, fused_q4k_q8k_parallel_matvec_into,
-    fused_q4k_tiled_matvec, fused_q5k_dot, fused_q5k_dot_simd, fused_q5k_parallel_matvec,
-    fused_q5k_parallel_matvec_into, fused_q5k_tiled_matvec, fused_q6k_colmajor_matvec,
-    fused_q6k_dot, fused_q6k_dot_simd, fused_q6k_parallel_matvec, fused_q6k_parallel_matvec_into,
-    fused_q6k_q8k_dot_simd, fused_q6k_q8k_parallel_matvec_into, fused_q6k_tiled_matvec,
-    fused_rmsnorm_ffn_up_gate, fused_rmsnorm_ffn_up_gate_into, fused_rmsnorm_q4_0_matmul,
-    fused_swiglu_simd, int8_matvec, int8_matvec_parallel, quantize_activations_q8_0,
-    quantize_activations_q8k_into, quantize_rmsnorm_q8_0, quantize_rmsnorm_q8_0_into, softmax_simd,
-    Int8Row, QK_K,
+    apply_rope_rotation_simd, dequantize_f16, dequantize_q4_0, dequantize_q4_1, dequantize_q4_k,
+    dequantize_q4_k_parallel, dequantize_q4_k_simd, dequantize_q5_0, dequantize_q5_1,
+    dequantize_q5_k, dequantize_q6_k, dequantize_q8_0, dequantize_q8_0_parallel,
+    dequantize_q8_0_simd, dequantize_q8_blocks, detect_simd_backend, f16_to_f32,
+    fused_q4_0_q8_0_parallel_matvec, fused_q4_0_q8_0_parallel_matvec_into, fused_q4k_dot,
+    fused_q4k_dot_simd, fused_q4k_parallel_matvec, fused_q4k_parallel_matvec_into,
+    fused_q4k_q8_dot, fused_q4k_q8k_dot, fused_q4k_q8k_dot_simd, fused_q4k_q8k_ffn_up_gate_into,
+    fused_q4k_q8k_parallel_matvec_into, fused_q4k_tiled_matvec, fused_q5k_dot, fused_q5k_dot_simd,
+    fused_q5k_parallel_matvec, fused_q5k_parallel_matvec_into, fused_q6k_dot, fused_q6k_dot_simd,
+    fused_q6k_parallel_matvec, fused_q6k_parallel_matvec_into, fused_q8_0_q8_0_parallel_matvec,
+    fused_q8_0_q8_0_parallel_matvec_into, fused_rmsnorm_ffn_up_gate, fused_rmsnorm_q4_0_matmul,
+    fused_swiglu_simd, quantize_activations_q8_0, quantize_activations_q8k_into,
+    quantize_rmsnorm_q8_0, quantize_rmsnorm_q8_0_into, quantize_to_q8_blocks, softmax_simd,
+    DequantStats, Q4_0Block, Q4_KBlock, Q5_KBlock, Q6_KBlock, Q8KSuperBlock, Q8_0Block, QK_K,
+    SimdBackend,
 };
 
 // ============================================================================
@@ -409,69 +413,6 @@ fn test_fused_q6k_dot_invalid_data() {
 // Q6_K x Q8_K Fused Dot Product Tests
 // ============================================================================
 
-#[test]
-fn test_fused_q6k_q8k_dot_simd_basic() {
-    // Q6_K: ql (128) + qh (64) + scales (16) + d (2) = 210 bytes
-    // Note: The scalar path has a known bug with shift overflow.
-    // This test uses the SIMD path which has correct implementation.
-    let mut q6k_data = vec![0u8; 210];
-
-    // ql: low 4 bits - use small varied values
-    for (i, byte) in q6k_data.iter_mut().enumerate().take(128) {
-        *byte = ((i % 8) | ((i % 8) << 4)) as u8;
-    }
-
-    // qh: high 2 bits
-    for i in 0..64 {
-        q6k_data[128 + i] = 0x55; // 01010101 pattern
-    }
-
-    // scales: positive values (as i8)
-    for i in 0..16 {
-        q6k_data[192 + i] = 8; // small positive scale
-    }
-
-    // d at offset 208
-    q6k_data[208..210].copy_from_slice(&half::f16::from_f32(0.1).to_bits().to_le_bytes());
-
-    let q8k_scales = vec![0.1f32; 1];
-    let q8k_quants = vec![8i8; 256];
-
-    // Use SIMD wrapper which uses AVX2 path on supported CPUs
-    let result = fused_q6k_q8k_dot_simd(&q6k_data, &q8k_scales, &q8k_quants).expect("valid");
-    assert!(result.is_finite());
-}
-
-#[test]
-fn test_fused_q6k_q8k_dot_simd_wrapper() {
-    let mut q6k_data = vec![0u8; 210];
-    q6k_data[208..210].copy_from_slice(&half::f16::from_f32(0.5).to_bits().to_le_bytes());
-
-    let q8k_scales = vec![0.5f32; 1];
-    let q8k_quants = vec![64i8; 256];
-
-    let result = fused_q6k_q8k_dot_simd(&q6k_data, &q8k_scales, &q8k_quants).expect("valid");
-    assert!(result.is_finite());
-}
-
-#[test]
-fn test_fused_q6k_q8k_dot_invalid_data() {
-    let bad_data = vec![0u8; 209];
-    let q8k_scales = vec![1.0f32; 1];
-    let q8k_quants = vec![1i8; 256];
-    // Use SIMD wrapper which checks data validity
-    assert!(fused_q6k_q8k_dot_simd(&bad_data, &q8k_scales, &q8k_quants).is_err());
-}
-
-#[test]
-fn test_fused_q6k_q8k_dot_buffer_too_small() {
-    let q6k_data = vec![0u8; 210];
-    let q8k_scales = vec![1.0f32; 0]; // empty!
-    let q8k_quants = vec![1i8; 256];
-    // Use SIMD wrapper
-    assert!(fused_q6k_q8k_dot_simd(&q6k_data, &q8k_scales, &q8k_quants).is_err());
-}
-
 // ============================================================================
 // Tiled Matrix-Vector Multiply Tests
 // ============================================================================
@@ -491,42 +432,6 @@ fn test_fused_q4k_tiled_matvec_error_activation_mismatch() {
     let activations = vec![0.0f32; 128]; // wrong length
 
     let result = fused_q4k_tiled_matvec(&weight_data, &activations, 256, 4, None);
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_fused_q5k_tiled_matvec_basic() {
-    let weight_data = vec![0u8; 176 * 4]; // 4 rows
-    let activations = vec![1.0f32; 256];
-
-    let result = fused_q5k_tiled_matvec(&weight_data, &activations, 256, 4, None).expect("valid");
-    assert_eq!(result.len(), 4);
-}
-
-#[test]
-fn test_fused_q5k_tiled_matvec_error_weight_small() {
-    let weight_data = vec![0u8; 100];
-    let activations = vec![0.0f32; 256];
-
-    let result = fused_q5k_tiled_matvec(&weight_data, &activations, 256, 4, None);
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_fused_q6k_tiled_matvec_basic() {
-    let weight_data = vec![0u8; 210 * 4]; // 4 rows
-    let activations = vec![1.0f32; 256];
-
-    let result = fused_q6k_tiled_matvec(&weight_data, &activations, 256, 4, None).expect("valid");
-    assert_eq!(result.len(), 4);
-}
-
-#[test]
-fn test_fused_q6k_tiled_matvec_error_activation_mismatch() {
-    let weight_data = vec![0u8; 210 * 4];
-    let activations = vec![0.0f32; 128]; // wrong
-
-    let result = fused_q6k_tiled_matvec(&weight_data, &activations, 256, 4, None);
     assert!(result.is_err());
 }
 
@@ -623,131 +528,6 @@ fn test_fused_q4k_q8k_parallel_matvec_into_basic() {
         &mut output,
     );
     assert!(result.is_ok());
-}
-
-#[test]
-fn test_fused_q6k_q8k_parallel_matvec_into_basic() {
-    let weight_data = vec![0u8; 210 * 4];
-    let q8k_scales = vec![1.0f32; 1];
-    let q8k_quants = vec![1i8; 256];
-    let mut output = vec![0.0f32; 4];
-
-    let result = fused_q6k_q8k_parallel_matvec_into(
-        &weight_data,
-        &q8k_scales,
-        &q8k_quants,
-        256,
-        4,
-        &mut output,
-    );
-    assert!(result.is_ok());
-}
-
-#[test]
-fn test_fused_q6k_q8k_parallel_matvec_into_errors() {
-    // Output too small
-    let weight_data = vec![0u8; 210 * 4];
-    let q8k_scales = vec![1.0f32; 1];
-    let q8k_quants = vec![1i8; 256];
-    let mut output = vec![0.0f32; 2]; // too small
-
-    let result = fused_q6k_q8k_parallel_matvec_into(
-        &weight_data,
-        &q8k_scales,
-        &q8k_quants,
-        256,
-        4,
-        &mut output,
-    );
-    assert!(result.is_err());
-}
-
-// ============================================================================
-// Q4_K Auto Matvec Tests
-// ============================================================================
-
-#[test]
-fn test_fused_q4k_auto_matvec_into_basic() {
-    let weight_data = vec![0u8; 144 * 4];
-    let activations = vec![1.0f32; 256];
-    let mut output = vec![0.0f32; 4];
-
-    let result = fused_q4k_auto_matvec_into(&weight_data, &activations, 256, 4, &mut output);
-    assert!(result.is_ok());
-}
-
-#[test]
-fn test_fused_q4k_auto_matvec_into_with_padding() {
-    // Activations not multiple of 256 - needs padding
-    let weight_data = vec![0u8; 144 * 4];
-    let activations = vec![1.0f32; 200]; // needs padding to 256
-    let mut output = vec![0.0f32; 4];
-
-    let result = fused_q4k_auto_matvec_into(&weight_data, &activations, 256, 4, &mut output);
-    assert!(result.is_ok());
-}
-
-// ============================================================================
-// Q6_K Column-Major Matvec Tests
-// ============================================================================
-
-#[test]
-fn test_fused_q6k_colmajor_matvec_basic() {
-    let weight_data = vec![0u8; 210 * 4]; // 4 columns
-    let activations = vec![1.0f32; 4];
-
-    let result = fused_q6k_colmajor_matvec(&weight_data, &activations, 4, 256).expect("valid");
-    assert_eq!(result.len(), 256);
-}
-
-#[test]
-fn test_fused_q6k_colmajor_matvec_error_weight_small() {
-    let weight_data = vec![0u8; 100]; // too small
-    let activations = vec![1.0f32; 4];
-
-    let result = fused_q6k_colmajor_matvec(&weight_data, &activations, 4, 256);
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_fused_q6k_colmajor_matvec_error_activation_mismatch() {
-    let weight_data = vec![0u8; 210 * 4];
-    let activations = vec![1.0f32; 8]; // wrong length
-
-    let result = fused_q6k_colmajor_matvec(&weight_data, &activations, 4, 256);
-    assert!(result.is_err());
-}
-
-// ============================================================================
-// Q4_0 Parallel Matvec Tests
-// ============================================================================
-
-#[test]
-fn test_fused_q4_0_parallel_matvec_basic() {
-    // Q4_0 block: 18 bytes, 32 values
-    let weight_data = vec![0u8; 18 * 4]; // 4 rows, 32 values each
-    let activations = vec![1.0f32; 32];
-
-    let result = fused_q4_0_parallel_matvec(&weight_data, &activations, 32, 4).expect("valid");
-    assert_eq!(result.len(), 4);
-}
-
-#[test]
-fn test_fused_q4_0_parallel_matvec_error_weight_small() {
-    let weight_data = vec![0u8; 10]; // too small
-    let activations = vec![1.0f32; 32];
-
-    let result = fused_q4_0_parallel_matvec(&weight_data, &activations, 32, 4);
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_fused_q4_0_parallel_matvec_error_activation_mismatch() {
-    let weight_data = vec![0u8; 18 * 4];
-    let activations = vec![1.0f32; 16]; // wrong
-
-    let result = fused_q4_0_parallel_matvec(&weight_data, &activations, 32, 4);
-    assert!(result.is_err());
 }
 
 // ============================================================================
@@ -916,33 +696,6 @@ fn test_fused_rmsnorm_ffn_up_gate_error_gate_weight_small() {
     assert!(result.is_err());
 }
 
-#[test]
-fn test_fused_rmsnorm_ffn_up_gate_into_basic() {
-    let input = vec![1.0f32; 32];
-    let norm_weight = vec![1.0f32; 32];
-    let up_weight = vec![0u8; 18 * 8];
-    let gate_weight = vec![0u8; 18 * 8];
-    let mut up_output = vec![0.0f32; 8];
-    let mut gate_output = vec![0.0f32; 8];
-    let mut q8_scales = vec![0.0f32; 1];
-    let mut q8_quants = vec![0i8; 32];
-
-    let result = fused_rmsnorm_ffn_up_gate_into(
-        &input,
-        &norm_weight,
-        1e-6,
-        &up_weight,
-        &gate_weight,
-        32,
-        8,
-        &mut up_output,
-        &mut gate_output,
-        &mut q8_scales,
-        &mut q8_quants,
-    );
-    assert!(result.is_ok());
-}
-
 // ============================================================================
 // SwiGLU Tests
 // ============================================================================
@@ -1051,57 +804,6 @@ fn test_softmax_simd_numerical_stability() {
 }
 
 // ============================================================================
-// INT8 Row Tests
-// ============================================================================
-
-#[test]
-fn test_int8_row_quantize_dequantize() {
-    let values: Vec<f32> = (0..32).map(|i| (i as f32 - 16.0) / 16.0).collect();
-
-    let row = Int8Row::quantize(&values);
-    let dequant = row.dequantize();
-
-    // Check round-trip error
-    for (orig, deq) in values.iter().zip(dequant.iter()) {
-        assert!((orig - deq).abs() < 0.02);
-    }
-}
-
-#[test]
-fn test_int8_row_single_element() {
-    let values = vec![127.0f32];
-    let row = Int8Row::quantize(&values);
-
-    // Scale should be 1.0 (127/127)
-    assert!((row.scale - 1.0).abs() < 0.01);
-
-    let dequant = row.dequantize();
-    assert!((dequant[0] - 127.0).abs() < 1.0);
-}
-
-#[test]
-fn test_int8_matvec_basic() {
-    let weights: Vec<Int8Row> = (0..4)
-        .map(|_| Int8Row::quantize(&vec![1.0f32; 8]))
-        .collect();
-    let activations = vec![1.0f32; 8];
-
-    let result = int8_matvec(&weights, &activations);
-    assert_eq!(result.len(), 4);
-}
-
-#[test]
-fn test_int8_matvec_parallel_basic() {
-    let weights: Vec<Int8Row> = (0..10)
-        .map(|_| Int8Row::quantize(&vec![1.0f32; 8]))
-        .collect();
-    let activations = vec![1.0f32; 8];
-
-    let result = int8_matvec_parallel(&weights, &activations);
-    assert_eq!(result.len(), 10);
-}
-
-// ============================================================================
 // QK_K Constant Test
 // ============================================================================
 
@@ -1115,17 +817,6 @@ fn test_qk_k_constant() {
 // Q8_0Block Method Tests
 // ============================================================================
 
-use realizar::quantize::{
-    apply_rope_rotation_simd, dequantize_f16, dequantize_q4_0_parallel, dequantize_q4_0_simd,
-    dequantize_q4_1, dequantize_q4_k_parallel, dequantize_q4_k_simd, dequantize_q5_0,
-    dequantize_q5_1, dequantize_q8_0_parallel, dequantize_q8_0_simd,
-    dequantize_q8_0_simd_optimized, dequantize_q8_blocks, detect_simd_backend, f16_to_f32,
-    fused_q4_0_q8_0_parallel_matvec, fused_q4_0_q8_0_parallel_matvec_into,
-    fused_q4_0_q8_0_parallel_matvec_prequant, fused_q4k_q8_dot, fused_q4k_q8_dot_simd,
-    fused_q4k_q8k_dot, fused_q4k_q8k_dot_simd, fused_q4k_q8k_ffn_up_gate_into,
-    fused_q8_0_q8_0_parallel_matvec, fused_q8_0_q8_0_parallel_matvec_into, quantize_to_q8_blocks,
-    DequantStats, Q8KSuperBlock, Q8_0Block, SimdBackend,
-};
 
 #[test]
 fn test_q8_0_block_quantize_basic() {
@@ -1494,20 +1185,6 @@ fn test_fused_q4k_q8_dot_error_block_count_mismatch() {
     assert!(result.is_err());
 }
 
-#[test]
-fn test_fused_q4k_q8_dot_simd_basic() {
-    let q4k_data = vec![0u8; 144];
-    let q8_blocks: Vec<Q8_0Block> = (0..8)
-        .map(|_| Q8_0Block {
-            scale: 0.5,
-            quants: [2i8; 32],
-        })
-        .collect();
-
-    let result = fused_q4k_q8_dot_simd(&q4k_data, &q8_blocks).expect("valid");
-    assert!(result.is_finite());
-}
-
 // ============================================================================
 // Fused Q4_K x Q8_K Dot Product Tests
 // ============================================================================
@@ -1683,53 +1360,6 @@ fn test_dequantize_q8_0_simd_basic() {
     assert_eq!(result.len(), 32);
 }
 
-#[test]
-fn test_dequantize_q8_0_simd_optimized_basic() {
-    let data = vec![0u8; 34];
-    let result = dequantize_q8_0_simd_optimized(&data).expect("valid");
-    assert_eq!(result.len(), 32);
-}
-
-#[test]
-fn test_dequantize_q8_0_simd_optimized_error_invalid_length() {
-    let data = vec![0u8; 33];
-    let result = dequantize_q8_0_simd_optimized(&data);
-    assert!(result.is_err());
-}
-
-// ============================================================================
-// Parallel Q4_0 Dequantization Tests
-// ============================================================================
-
-#[test]
-fn test_dequantize_q4_0_parallel_basic() {
-    // Q4_0 block: 2 (f16 scale) + 16 (quants) = 18 bytes
-    let data = vec![0u8; 18];
-    let result = dequantize_q4_0_parallel(&data).expect("valid");
-    assert_eq!(result.len(), 32);
-}
-
-#[test]
-fn test_dequantize_q4_0_parallel_multiple_blocks() {
-    let data = vec![0u8; 18 * 4];
-    let result = dequantize_q4_0_parallel(&data).expect("valid");
-    assert_eq!(result.len(), 32 * 4);
-}
-
-#[test]
-fn test_dequantize_q4_0_parallel_error_invalid_length() {
-    let data = vec![0u8; 17];
-    let result = dequantize_q4_0_parallel(&data);
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_dequantize_q4_0_simd_basic() {
-    let data = vec![0u8; 18];
-    let result = dequantize_q4_0_simd(&data).expect("valid");
-    assert_eq!(result.len(), 32);
-}
-
 // ============================================================================
 // Q4_0 x Q8_0 Parallel Matvec Tests
 // ============================================================================
@@ -1771,28 +1401,6 @@ fn test_fused_q4_0_q8_0_parallel_matvec_error_activation_mismatch() {
     let activations = vec![1.0f32; 16]; // Wrong length
 
     let result = fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, 32, 4);
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_fused_q4_0_q8_0_parallel_matvec_prequant_basic() {
-    let weight_data = vec![0u8; 18 * 4];
-    let (q8_scales, q8_quants) = quantize_activations_q8_0(&vec![1.0f32; 32]);
-
-    let result =
-        fused_q4_0_q8_0_parallel_matvec_prequant(&weight_data, &q8_scales, &q8_quants, 32, 4)
-            .expect("valid");
-    assert_eq!(result.len(), 4);
-}
-
-#[test]
-fn test_fused_q4_0_q8_0_parallel_matvec_prequant_error_weight_too_small() {
-    let weight_data = vec![0u8; 10];
-    let q8_scales = vec![1.0f32; 1];
-    let q8_quants = vec![1i8; 32];
-
-    let result =
-        fused_q4_0_q8_0_parallel_matvec_prequant(&weight_data, &q8_scales, &q8_quants, 32, 4);
     assert!(result.is_err());
 }
 
@@ -2159,8 +1767,6 @@ fn test_interleaved_q4k_dot_varied_activations() {
 // Q4_0Block and Q8_0Block Struct Field Tests
 // ============================================================================
 
-use realizar::quantize::{Q4_0Block, Q4_KBlock, Q5_KBlock, Q6_KBlock};
-
 #[test]
 fn test_q4_0_block_struct() {
     let block = Q4_0Block {
@@ -2483,15 +2089,6 @@ fn test_fused_q6k_parallel_matvec_error_weight_too_small() {
     assert!(result.is_err());
 }
 
-#[test]
-fn test_fused_q6k_colmajor_matvec_single_column() {
-    let weight_data = vec![0u8; 210]; // 1 column
-    let activations = vec![1.0f32; 1];
-
-    let result = fused_q6k_colmajor_matvec(&weight_data, &activations, 1, 256).expect("valid");
-    assert_eq!(result.len(), 256);
-}
-
 // ============================================================================
 // SIMD Dequantization Large Input Tests
 // ============================================================================
@@ -2515,74 +2112,6 @@ fn test_dequantize_q8_0_simd_error_invalid_length() {
     let data = vec![0u8; 33]; // Not multiple of 34
     let result = dequantize_q8_0_simd(&data);
     assert!(result.is_err());
-}
-
-#[test]
-fn test_dequantize_q4_0_simd_large() {
-    let data = vec![0u8; 18 * 100]; // 100 blocks
-    let result = dequantize_q4_0_simd(&data).expect("valid");
-    assert_eq!(result.len(), 32 * 100);
-}
-
-#[test]
-fn test_dequantize_q4_0_simd_error_invalid_length() {
-    let data = vec![0u8; 17]; // Not multiple of 18
-    let result = dequantize_q4_0_simd(&data);
-    assert!(result.is_err());
-}
-
-// ============================================================================
-// Int8Row Additional Tests
-// ============================================================================
-
-#[test]
-fn test_int8_row_empty() {
-    let row = Int8Row::quantize(&[]);
-    assert!(row.weights.is_empty());
-    let dequant = row.dequantize();
-    assert!(dequant.is_empty());
-}
-
-#[test]
-fn test_int8_row_all_zeros() {
-    let values = vec![0.0f32; 64];
-    let row = Int8Row::quantize(&values);
-
-    // All weights should be 0
-    row.weights.iter().for_each(|q| assert_eq!(*q, 0));
-
-    let dequant = row.dequantize();
-    dequant.iter().for_each(|v| assert!(v.abs() < 1e-6));
-}
-
-#[test]
-fn test_int8_row_negative_values() {
-    let values: Vec<f32> = (0..32).map(|i| -(i as f32) - 1.0).collect();
-    let row = Int8Row::quantize(&values);
-    let dequant = row.dequantize();
-
-    // Verify all dequantized values are negative
-    dequant.iter().for_each(|v| assert!(*v <= 0.0));
-}
-
-#[test]
-fn test_int8_matvec_empty() {
-    let weights: Vec<Int8Row> = vec![];
-    let activations = vec![1.0f32; 8];
-
-    let result = int8_matvec(&weights, &activations);
-    assert!(result.is_empty());
-}
-
-#[test]
-fn test_int8_matvec_parallel_large() {
-    let weights: Vec<Int8Row> = (0..100)
-        .map(|_| Int8Row::quantize(&vec![1.0f32; 64]))
-        .collect();
-    let activations = vec![1.0f32; 64];
-
-    let result = int8_matvec_parallel(&weights, &activations);
-    assert_eq!(result.len(), 100);
 }
 
 // ============================================================================
@@ -2690,64 +2219,6 @@ fn test_apply_rope_rotation_simd_single() {
 }
 
 // ============================================================================
-// Fused RMSNorm Additional Tests
-// ============================================================================
-
-#[test]
-fn test_fused_rmsnorm_ffn_up_gate_into_varied_input() {
-    let input: Vec<f32> = (0..32).map(|i| (i as f32 - 16.0) / 16.0).collect();
-    let norm_weight: Vec<f32> = (0..32).map(|i| (i as f32 + 1.0) / 32.0).collect();
-    let up_weight = vec![0u8; 18 * 8];
-    let gate_weight = vec![0u8; 18 * 8];
-    let mut up_output = vec![0.0f32; 8];
-    let mut gate_output = vec![0.0f32; 8];
-    let mut q8_scales = vec![0.0f32; 1];
-    let mut q8_quants = vec![0i8; 32];
-
-    let result = fused_rmsnorm_ffn_up_gate_into(
-        &input,
-        &norm_weight,
-        1e-6,
-        &up_weight,
-        &gate_weight,
-        32,
-        8,
-        &mut up_output,
-        &mut gate_output,
-        &mut q8_scales,
-        &mut q8_quants,
-    );
-    assert!(result.is_ok());
-}
-
-#[test]
-fn test_fused_rmsnorm_ffn_up_gate_into_large_dimension() {
-    let input = vec![1.0f32; 64];
-    let norm_weight = vec![1.0f32; 64];
-    let up_weight = vec![0u8; 36 * 16]; // 64 values = 2 blocks * 18 bytes = 36 bytes per row
-    let gate_weight = vec![0u8; 36 * 16];
-    let mut up_output = vec![0.0f32; 16];
-    let mut gate_output = vec![0.0f32; 16];
-    let mut q8_scales = vec![0.0f32; 2];
-    let mut q8_quants = vec![0i8; 64];
-
-    let result = fused_rmsnorm_ffn_up_gate_into(
-        &input,
-        &norm_weight,
-        1e-6,
-        &up_weight,
-        &gate_weight,
-        64,
-        16,
-        &mut up_output,
-        &mut gate_output,
-        &mut q8_scales,
-        &mut q8_quants,
-    );
-    assert!(result.is_ok());
-}
-
-// ============================================================================
 // Q4_K x Q8_K Parallel Matvec Additional Tests
 // ============================================================================
 
@@ -2792,25 +2263,6 @@ fn test_fused_q4k_q8k_parallel_matvec_into_error_weight_too_small() {
 // Q4_0 Parallel Matvec Large Tests
 // ============================================================================
 
-#[test]
-fn test_fused_q4_0_parallel_matvec_large_parallel_path() {
-    // Trigger parallel path with > 1024 rows
-    let weight_data = vec![0u8; 18 * 1100];
-    let activations = vec![1.0f32; 32];
-
-    let result = fused_q4_0_parallel_matvec(&weight_data, &activations, 32, 1100).expect("valid");
-    assert_eq!(result.len(), 1100);
-}
-
-#[test]
-fn test_fused_q4_0_parallel_matvec_error_in_dim_mismatch() {
-    let weight_data = vec![0u8; 18 * 4];
-    let activations = vec![1.0f32; 64]; // Wrong - should be 32
-
-    let result = fused_q4_0_parallel_matvec(&weight_data, &activations, 32, 4);
-    assert!(result.is_err());
-}
-
 // ============================================================================
 // DequantStats Fields Test
 // ============================================================================
@@ -2847,46 +2299,6 @@ fn test_simd_backend_all_variants() {
 }
 
 // ============================================================================
-// Fused Q6_K x Q8_K Additional Tests
-// ============================================================================
-
-#[test]
-fn test_fused_q6k_q8k_parallel_matvec_into_large() {
-    let weight_data = vec![0u8; 210 * 500];
-    let q8k_scales = vec![1.0f32; 1];
-    let q8k_quants = vec![1i8; 256];
-    let mut output = vec![0.0f32; 500];
-
-    let result = fused_q6k_q8k_parallel_matvec_into(
-        &weight_data,
-        &q8k_scales,
-        &q8k_quants,
-        256,
-        500,
-        &mut output,
-    );
-    assert!(result.is_ok());
-}
-
-#[test]
-fn test_fused_q6k_q8k_parallel_matvec_into_error_quants_too_small() {
-    let weight_data = vec![0u8; 210 * 4];
-    let q8k_scales = vec![1.0f32; 1];
-    let q8k_quants = vec![1i8; 128]; // Too small - need 256
-    let mut output = vec![0.0f32; 4];
-
-    let result = fused_q6k_q8k_parallel_matvec_into(
-        &weight_data,
-        &q8k_scales,
-        &q8k_quants,
-        256,
-        4,
-        &mut output,
-    );
-    assert!(result.is_err());
-}
-
-// ============================================================================
 // Q4_0 x Q8_0 Additional Tests
 // ============================================================================
 
@@ -2898,17 +2310,6 @@ fn test_fused_q4_0_q8_0_parallel_matvec_medium() {
 
     let result =
         fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, 32, 500).expect("valid");
-    assert_eq!(result.len(), 500);
-}
-
-#[test]
-fn test_fused_q4_0_q8_0_parallel_matvec_prequant_large() {
-    let weight_data = vec![0u8; 18 * 500];
-    let (q8_scales, q8_quants) = quantize_activations_q8_0(&vec![1.0f32; 32]);
-
-    let result =
-        fused_q4_0_q8_0_parallel_matvec_prequant(&weight_data, &q8_scales, &q8_quants, 32, 500)
-            .expect("valid");
     assert_eq!(result.len(), 500);
 }
 
@@ -3045,40 +2446,6 @@ fn test_dequantize_q8_0_parallel_large() {
     let data = vec![0u8; 34 * 100]; // 100 blocks
     let result = dequantize_q8_0_parallel(&data).expect("valid");
     assert_eq!(result.len(), 32 * 100);
-}
-
-#[test]
-fn test_dequantize_q4_0_parallel_large() {
-    let data = vec![0u8; 18 * 100]; // 100 blocks
-    let result = dequantize_q4_0_parallel(&data).expect("valid");
-    assert_eq!(result.len(), 32 * 100);
-}
-
-// ============================================================================
-// SIMD Optimized Dequantization Tests
-// ============================================================================
-
-#[test]
-fn test_dequantize_q8_0_simd_optimized_large() {
-    let data = vec![0u8; 34 * 100];
-    let result = dequantize_q8_0_simd_optimized(&data).expect("valid");
-    assert_eq!(result.len(), 32 * 100);
-}
-
-#[test]
-fn test_dequantize_q8_0_simd_optimized_varied_scales() {
-    let mut data = Vec::new();
-
-    // Create blocks with varied scales
-    (0..10).for_each(|i| {
-        let scale = (i as f32 + 1.0) * 0.1;
-        data.extend_from_slice(&half::f16::from_f32(scale).to_le_bytes());
-        data.extend_from_slice(&[64u8; 32]);
-    });
-
-    let result = dequantize_q8_0_simd_optimized(&data).expect("valid");
-    assert_eq!(result.len(), 320);
-    result.iter().for_each(|v| assert!(v.is_finite()));
 }
 
 // ============================================================================

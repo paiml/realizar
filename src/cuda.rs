@@ -58,7 +58,7 @@ use trueno_gpu::kernels::{
     FusedRmsNormQ4KGemvKernel, FusedSwigluKernel, GeluKernel, GemmKernel, GemvKernel,
     IncrementalAttentionKernel, Kernel, KvCacheScatterIndirectKernel, KvCacheScatterKernel,
     LayerNormKernel, MultiWarpBatchedQ4KGemvKernel, MultiWarpIncrementalAttentionKernel,
-    PackedDp4aQ4KQ8Kernel, Q4KGemvKernel, Q4KQ8DotKernel, Q4_0GemvKernel, Q4_1GemvKernel,
+    PackedDp4aQ4KQ8Kernel, PreciseRmsNormKernel, Q4KGemvKernel, Q4KQ8DotKernel, Q4_0GemvKernel, Q4_1GemvKernel,
     Q5KGemvKernel, Q5KKernel, Q5_0GemvKernel, Q6KGemvKernel, Q6KKernel, Q8QuantizeKernel,
     Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel, RmsNormKernel, RopeIndirectKernel,
     RopeKernel, RopeNeoxIndirectKernel, RopeNeoxKernel, SiluKernel, SoftmaxKernel,
@@ -548,6 +548,15 @@ pub enum KernelType {
         /// Epsilon for numerical stability (default: 1e-5)
         epsilon: f32,
     },
+    /// CORRECTNESS-013: High-precision RMSNorm kernel for CPU/GPU bit-exactness
+    /// Uses Kahan compensated summation and Newton-Raphson rsqrt refinement
+    /// Slower than VectorizedRmsNorm but matches CPU output exactly
+    PreciseRmsNorm {
+        /// Hidden dimension size
+        hidden_size: u32,
+        /// Epsilon for numerical stability (default: 1e-5)
+        epsilon: f32,
+    },
     /// PAR-114: Batched RoPE kernel
     /// Processes M sequences in parallel using Grid.y = M
     BatchedRope {
@@ -965,6 +974,13 @@ impl CudaKernels {
             } => BatchedVectorizedRmsNormKernel::new(*hidden_size, *batch_size)
                 .with_epsilon(*epsilon)
                 .emit_ptx(),
+            // CORRECTNESS-013: High-precision RMSNorm for CPU/GPU bit-exactness
+            KernelType::PreciseRmsNorm {
+                hidden_size,
+                epsilon,
+            } => PreciseRmsNormKernel::new(*hidden_size)
+                .with_epsilon(*epsilon)
+                .emit_ptx(),
             // PAR-114: Batched RoPE for M sequences
             KernelType::BatchedRope {
                 num_heads,
@@ -1169,6 +1185,8 @@ impl CudaKernels {
             KernelType::VectorizedRmsNorm { .. } => "rmsnorm_vectorized",
             // PAR-112: Batched Vectorized RMSNorm
             KernelType::BatchedVectorizedRmsNorm { .. } => "batched_rmsnorm_vectorized",
+            // CORRECTNESS-013: High-precision RMSNorm
+            KernelType::PreciseRmsNorm { .. } => "rmsnorm_precise",
             // PAR-114: Batched RoPE
             KernelType::BatchedRope { .. } => "batched_rope",
             // PAR-114: Batched Residual Add
@@ -7121,6 +7139,9 @@ impl CudaExecutor {
     ///
     /// PAR-081: Uses VectorizedRmsNorm with 256 threads for ~8x speedup
     /// over single-warp kernel (23µs → ~3µs for hidden_size=1536)
+    ///
+    /// CORRECTNESS-013: When CORRECTNESS_MODE=1, uses PreciseRmsNorm kernel
+    /// with Kahan summation and Newton-Raphson rsqrt for CPU-matching precision.
     #[inline]
     pub fn rmsnorm_into(
         &mut self,
@@ -7130,13 +7151,34 @@ impl CudaExecutor {
         hidden_size: u32,
         epsilon: f32,
     ) -> Result<(), GpuError> {
-        // PAR-081: Use vectorized kernel with 256 threads (8x faster)
-        let kernel_type = KernelType::VectorizedRmsNorm {
-            hidden_size,
-            epsilon,
+        // CORRECTNESS-013: Check if precise mode is requested
+        static PRECISE_MODE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let use_precise = *PRECISE_MODE.get_or_init(|| {
+            std::env::var("CORRECTNESS_MODE")
+                .map(|v| v == "1")
+                .unwrap_or(false)
+        });
+
+        // Choose kernel type based on mode
+        let (kernel_type, cache_key) = if use_precise {
+            (
+                KernelType::PreciseRmsNorm {
+                    hidden_size,
+                    epsilon,
+                },
+                format!("rmsnorm_precise_{}", hidden_size),
+            )
+        } else {
+            (
+                KernelType::VectorizedRmsNorm {
+                    hidden_size,
+                    epsilon,
+                },
+                format!("rmsnorm_vectorized_{}", hidden_size),
+            )
         };
+
         let kernel_name = self.kernels.kernel_name(&kernel_type);
-        let cache_key = format!("rmsnorm_vectorized_{}", hidden_size);
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
@@ -10483,7 +10525,7 @@ impl CudaExecutor {
                         all_logits[15], all_logits[16], all_logits[17], all_logits[18], all_logits[19]
                     );
 
-                    let mut logits_debug = all_logits[..20].to_vec();
+                    let logits_debug = all_logits[..20].to_vec();
                     // Check for all-zeros or all-same values (sign of kernel bug)
                     let first = logits_debug[0];
                     let all_same = logits_debug.iter().all(|&x| (x - first).abs() < 0.001);
@@ -11700,16 +11742,38 @@ impl CudaExecutor {
         let kv_dim = num_kv_heads * head_dim;
 
         // 1. RMSNorm kernel (used for attn_norm, ffn_norm, output_norm)
-        // PAR-081: Use VectorizedRmsNorm with 256 threads (8x faster than single-warp)
-        let rmsnorm_key = format!("rmsnorm_vectorized_{}", hidden_dim);
-        if !self.modules.contains_key(&rmsnorm_key) {
-            let kernel_type = KernelType::VectorizedRmsNorm {
-                hidden_size: hidden_dim,
-                epsilon: 1e-5, // Runtime parameter, kernel code same regardless
-            };
-            let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
-            self.modules.insert(rmsnorm_key, module);
+        // CORRECTNESS-013: Check if precise mode is requested
+        static PRECISE_MODE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let use_precise = *PRECISE_MODE.get_or_init(|| {
+            std::env::var("CORRECTNESS_MODE")
+                .map(|v| v == "1")
+                .unwrap_or(false)
+        });
+
+        if use_precise {
+            // CORRECTNESS-013: Preload PreciseRmsNorm for CPU-matching precision
+            let rmsnorm_key = format!("rmsnorm_precise_{}", hidden_dim);
+            if !self.modules.contains_key(&rmsnorm_key) {
+                let kernel_type = KernelType::PreciseRmsNorm {
+                    hidden_size: hidden_dim,
+                    epsilon: 1e-5,
+                };
+                let ptx = self.kernels.generate_ptx(&kernel_type);
+                let module = CudaModule::from_ptx(&self.context, &ptx)?;
+                self.modules.insert(rmsnorm_key, module);
+            }
+        } else {
+            // PAR-081: Use VectorizedRmsNorm with 256 threads (8x faster than single-warp)
+            let rmsnorm_key = format!("rmsnorm_vectorized_{}", hidden_dim);
+            if !self.modules.contains_key(&rmsnorm_key) {
+                let kernel_type = KernelType::VectorizedRmsNorm {
+                    hidden_size: hidden_dim,
+                    epsilon: 1e-5, // Runtime parameter, kernel code same regardless
+                };
+                let ptx = self.kernels.generate_ptx(&kernel_type);
+                let module = CudaModule::from_ptx(&self.context, &ptx)?;
+                self.modules.insert(rmsnorm_key, module);
+            }
         }
 
         // 2. Q/K/V GEMV kernels - pre-load all quant types that might be used

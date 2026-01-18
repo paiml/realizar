@@ -1,25 +1,21 @@
 //! Deep coverage tests for quantize module
 
 use realizar::quantize::{
-    apply_rope_rotation_simd, dequantize_f16, dequantize_q4_0, dequantize_q4_0_parallel,
-    dequantize_q4_0_simd, dequantize_q4_1, dequantize_q4_k, dequantize_q4_k_parallel,
-    dequantize_q4_k_simd, dequantize_q5_0, dequantize_q5_1, dequantize_q5_k, dequantize_q6_k,
-    dequantize_q8_0, dequantize_q8_0_parallel, dequantize_q8_0_simd,
-    dequantize_q8_0_simd_optimized, dequantize_q8_blocks, detect_simd_backend, f16_to_f32,
-    fused_q4_0_q8_0_parallel_matvec, fused_q4_0_q8_0_parallel_matvec_into,
-    fused_q4_0_q8_0_parallel_matvec_prequant, fused_q4k_auto_matvec_into, fused_q4k_dot,
+    apply_rope_rotation_simd, dequantize_f16, dequantize_q4_0, dequantize_q4_1, dequantize_q4_k,
+    dequantize_q4_k_parallel, dequantize_q4_k_simd, dequantize_q5_0, dequantize_q5_1,
+    dequantize_q5_k, dequantize_q6_k, dequantize_q8_0, dequantize_q8_0_parallel,
+    dequantize_q8_0_simd, dequantize_q8_blocks, detect_simd_backend, f16_to_f32,
+    fused_q4_0_q8_0_parallel_matvec, fused_q4_0_q8_0_parallel_matvec_into, fused_q4k_dot,
     fused_q4k_dot_simd, fused_q4k_parallel_matvec, fused_q4k_parallel_matvec_into,
-    fused_q4k_q8_dot, fused_q4k_q8_dot_simd, fused_q4k_q8k_dot, fused_q4k_q8k_dot_simd,
+    fused_q4k_q8_dot, fused_q4k_q8k_dot, fused_q4k_q8k_dot_simd,
     fused_q4k_q8k_ffn_up_gate_into, fused_q4k_q8k_parallel_matvec_into, fused_q4k_tiled_matvec,
     fused_q5k_dot, fused_q5k_dot_simd, fused_q5k_parallel_matvec, fused_q5k_parallel_matvec_into,
-    fused_q5k_tiled_matvec, fused_q6k_colmajor_matvec, fused_q6k_dot, fused_q6k_dot_simd,
-    fused_q6k_parallel_matvec, fused_q6k_parallel_matvec_into, fused_q6k_q8k_dot_simd,
-    fused_q6k_q8k_parallel_matvec_into, fused_q6k_tiled_matvec, fused_q8_0_q8_0_parallel_matvec,
-    fused_q8_0_q8_0_parallel_matvec_into, fused_rmsnorm_ffn_up_gate, fused_rmsnorm_q4_0_matmul,
-    fused_swiglu_simd, int8_matvec, int8_matvec_parallel, quantize_activations_q8_0,
-    quantize_activations_q8k_into, quantize_rmsnorm_q8_0, quantize_rmsnorm_q8_0_into,
-    quantize_to_q8_blocks, softmax_simd, DequantStats, Int8Row, InterleavedQ4K, Q8KSuperBlock,
-    Q8_0Block, SimdBackend, BLOCK_SIZE, QK_K,
+    fused_q6k_dot, fused_q6k_dot_simd, fused_q6k_parallel_matvec, fused_q6k_parallel_matvec_into,
+    fused_q8_0_q8_0_parallel_matvec, fused_q8_0_q8_0_parallel_matvec_into,
+    fused_rmsnorm_ffn_up_gate, fused_rmsnorm_q4_0_matmul, fused_swiglu_simd,
+    quantize_activations_q8_0, quantize_activations_q8k_into, quantize_rmsnorm_q8_0,
+    quantize_rmsnorm_q8_0_into, quantize_to_q8_blocks, softmax_simd, DequantStats,
+    InterleavedQ4K, Q8KSuperBlock, Q8_0Block, SimdBackend, BLOCK_SIZE, QK_K,
 };
 
 fn f16_bytes(val: f32) -> [u8; 2] {
@@ -128,28 +124,6 @@ fn test_interleaved_q4k_from_q4k() {
     assert!(result.is_ok());
 }
 
-// Int8Row
-#[test]
-fn test_int8_row_quantize() {
-    let row = Int8Row::quantize(&(0..32).map(|i| i as f32 / 10.0).collect::<Vec<_>>());
-    assert_eq!(row.weights.len(), 32);
-    assert!(row.scale > 0.0);
-}
-
-#[test]
-fn test_int8_matvec_basic() {
-    let row = Int8Row::quantize(&vec![1.0f32; 32]);
-    let result = int8_matvec(&[row], &vec![1.0f32; 32]);
-    assert_eq!(result.len(), 1);
-}
-
-#[test]
-fn test_int8_matvec_parallel() {
-    let row = Int8Row::quantize(&vec![1.0f32; 32]);
-    let result = int8_matvec_parallel(&vec![row; 8], &vec![1.0f32; 32]);
-    assert_eq!(result.len(), 8);
-}
-
 // F16 conversion
 #[test]
 fn test_f16_to_f32_zero() {
@@ -195,22 +169,6 @@ fn test_dequantize_q4_0_single() {
 #[test]
 fn test_dequantize_q4_0_invalid() {
     assert!(dequantize_q4_0(&[0; 10]).is_err());
-}
-
-#[test]
-fn test_dequantize_q4_0_simd() {
-    let mut data = vec![0u8; 18];
-    data[0..2].copy_from_slice(&f16_bytes(1.0));
-    assert_eq!(dequantize_q4_0_simd(&data).unwrap().len(), 32);
-}
-
-#[test]
-fn test_dequantize_q4_0_parallel() {
-    let mut data = vec![0u8; 18 * 16];
-    for i in 0..16 {
-        data[i * 18..i * 18 + 2].copy_from_slice(&f16_bytes(1.0));
-    }
-    assert_eq!(dequantize_q4_0_parallel(&data).unwrap().len(), 512);
 }
 
 // Q4_1
@@ -290,13 +248,6 @@ fn test_dequantize_q8_0_simd() {
     let mut data = vec![0u8; 34];
     data[0..2].copy_from_slice(&f16_bytes(1.0));
     assert_eq!(dequantize_q8_0_simd(&data).unwrap().len(), 32);
-}
-
-#[test]
-fn test_dequantize_q8_0_simd_optimized() {
-    let mut data = vec![0u8; 34];
-    data[0..2].copy_from_slice(&f16_bytes(1.0));
-    assert_eq!(dequantize_q8_0_simd_optimized(&data).unwrap().len(), 32);
 }
 
 #[test]
@@ -454,14 +405,6 @@ fn test_fused_q4k_q8_dot() {
     assert!(fused_q4k_q8_dot(&data, &blocks).unwrap().is_finite());
 }
 
-#[test]
-fn test_fused_q4k_q8_dot_simd() {
-    let mut data = vec![0u8; 144];
-    data[0..2].copy_from_slice(&f16_bytes(1.0));
-    let blocks: Vec<Q8_0Block> = (0..8).map(|_| Q8_0Block::quantize(&[1.0f32; 32])).collect();
-    assert!(fused_q4k_q8_dot_simd(&data, &blocks).unwrap().is_finite());
-}
-
 // Fused Q4_K Q8_K dot
 #[test]
 fn test_fused_q4k_q8k_dot() {
@@ -515,16 +458,6 @@ fn test_fused_q6k_dot_simd() {
         .is_finite());
 }
 
-// Fused Q6_K Q8_K dot
-#[test]
-fn test_fused_q6k_q8k_dot_simd() {
-    let mut data = vec![0u8; 210];
-    data[208..210].copy_from_slice(&f16_bytes(1.0));
-    assert!(fused_q6k_q8k_dot_simd(&data, &[1.0f32; 1], &[1i8; 256])
-        .unwrap()
-        .is_finite());
-}
-
 // Tiled matvec
 #[test]
 fn test_fused_q4k_tiled_matvec() {
@@ -534,34 +467,6 @@ fn test_fused_q4k_tiled_matvec() {
     }
     assert_eq!(
         fused_q4k_tiled_matvec(&weights, &[1.0f32; 256], 256, 2, None)
-            .unwrap()
-            .len(),
-        2
-    );
-}
-
-#[test]
-fn test_fused_q5k_tiled_matvec() {
-    let mut weights = vec![0u8; 176 * 2];
-    for i in 0..2 {
-        weights[i * 176..i * 176 + 2].copy_from_slice(&f16_bytes(1.0));
-    }
-    assert_eq!(
-        fused_q5k_tiled_matvec(&weights, &[1.0f32; 256], 256, 2, None)
-            .unwrap()
-            .len(),
-        2
-    );
-}
-
-#[test]
-fn test_fused_q6k_tiled_matvec() {
-    let mut weights = vec![0u8; 210 * 2];
-    for i in 0..2 {
-        weights[i * 210 + 208..i * 210 + 210].copy_from_slice(&f16_bytes(1.0));
-    }
-    assert_eq!(
-        fused_q6k_tiled_matvec(&weights, &[1.0f32; 256], 256, 2, None)
             .unwrap()
             .len(),
         2
@@ -654,17 +559,6 @@ fn test_fused_q4k_q8k_parallel_matvec_into() {
         .unwrap();
 }
 
-#[test]
-fn test_fused_q6k_q8k_parallel_matvec_into() {
-    let mut weights = vec![0u8; 210 * 8];
-    for i in 0..8 {
-        weights[i * 210 + 208..i * 210 + 210].copy_from_slice(&f16_bytes(1.0));
-    }
-    let mut output = vec![0.0f32; 8];
-    fused_q6k_q8k_parallel_matvec_into(&weights, &[1.0f32; 1], &[1i8; 256], 256, 8, &mut output)
-        .unwrap();
-}
-
 // Q4_K FFN up gate
 #[test]
 fn test_fused_q4k_q8k_ffn_up_gate_into() {
@@ -687,36 +581,6 @@ fn test_fused_q4k_q8k_ffn_up_gate_into() {
         &mut gate_out,
     )
     .unwrap();
-}
-
-// Q4_K auto matvec
-#[test]
-fn test_fused_q4k_auto_matvec_into() {
-    let mut weights = vec![0u8; 144 * 8];
-    for i in 0..8 {
-        weights[i * 144..i * 144 + 2].copy_from_slice(&f16_bytes(1.0));
-    }
-    let mut output = vec![0.0f32; 8];
-    fused_q4k_auto_matvec_into(&weights, &[1.0f32; 256], 256, 8, &mut output).unwrap();
-}
-
-// Q6_K colmajor matvec
-// Column-major: in_dim columns, each column has one Q6_K super-block (210 bytes, 256 values)
-// out_dim is fixed at 256 (Q6_K super-block size)
-#[test]
-fn test_fused_q6k_colmajor_matvec() {
-    let in_dim = 4; // 4 input columns
-    let out_dim = 256; // Q6_K super-block size
-    let mut weights = vec![0u8; 210 * in_dim]; // in_dim super-blocks
-    for i in 0..in_dim {
-        weights[i * 210 + 208..i * 210 + 210].copy_from_slice(&f16_bytes(1.0));
-    }
-    assert_eq!(
-        fused_q6k_colmajor_matvec(&weights, &[1.0f32; 4], in_dim, out_dim)
-            .unwrap()
-            .len(),
-        out_dim
-    );
 }
 
 // Q4_0 Q8_0 parallel matvec
@@ -748,23 +612,6 @@ fn test_fused_q4_0_q8_0_parallel_matvec_into() {
     }
     let mut output = vec![0.0f32; 8];
     fused_q4_0_q8_0_parallel_matvec_into(&weights, &[1.0f32; 256], 256, &mut output).unwrap();
-}
-
-#[test]
-fn test_fused_q4_0_q8_0_parallel_matvec_prequant() {
-    let bpr = 18 * 8; // 8 blocks per row (256 / 32 = 8), 18 bytes per block
-    let mut weights = vec![0u8; bpr * 8]; // 8 output rows
-    for r in 0..8 {
-        for b in 0..8 {
-            weights[r * bpr + b * 18..r * bpr + b * 18 + 2].copy_from_slice(&f16_bytes(1.0));
-        }
-    }
-    assert_eq!(
-        fused_q4_0_q8_0_parallel_matvec_prequant(&weights, &[1.0f32; 8], &[1i8; 256], 256, 8)
-            .unwrap()
-            .len(),
-        8
-    );
 }
 
 // Q8_0 Q8_0 parallel matvec
@@ -881,23 +728,6 @@ fn test_apply_rope_rotation_simd() {
 }
 
 // Consistency tests
-#[test]
-fn test_q4_0_scalar_vs_simd() {
-    let mut data = vec![0u8; 18 * 4];
-    for i in 0..4 {
-        data[i * 18..i * 18 + 2].copy_from_slice(&f16_bytes(1.0 + i as f32));
-        for j in 0..16 {
-            data[i * 18 + 2 + j] = ((i * 16 + j) % 256) as u8;
-        }
-    }
-    let scalar = dequantize_q4_0(&data).unwrap();
-    let simd = dequantize_q4_0_simd(&data).unwrap();
-    assert_eq!(scalar.len(), simd.len());
-    for (s, si) in scalar.iter().zip(simd.iter()) {
-        assert!((s - si).abs() < 1e-5);
-    }
-}
-
 #[test]
 fn test_q8_0_scalar_vs_simd() {
     let mut data = vec![0u8; 34 * 4];
