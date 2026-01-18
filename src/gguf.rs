@@ -27,9 +27,17 @@ use std::{
     fs::File,
     io::{Cursor, Read},
     path::Path,
+    sync::OnceLock,
 };
 
 use rand::Rng;
+
+/// Check if verbose mode is enabled (REALIZAR_VERBOSE=1)
+/// Default is quiet - only errors are printed
+fn verbose() -> bool {
+    static VERBOSE: OnceLock<bool> = OnceLock::new();
+    *VERBOSE.get_or_init(|| std::env::var("REALIZAR_VERBOSE").is_ok())
+}
 
 use memmap2::Mmap;
 use trueno::{Matrix as TruenoMatrix, Vector as TruenoVector};
@@ -11177,6 +11185,21 @@ impl OwnedQuantizedModel {
                 // Use cached K/V for attention with GQA
                 // Uses pre-allocated buffer to avoid 704 Vec allocations per token
                 self.attention_with_cache_gqa_into(q, k_cache, v_cache, k, v, &mut attn_out_buffer);
+
+                // CORRECTNESS-013: Debug CPU attention output for layer 0 at position 1+
+                if layer_idx == 0 && position >= 1 && std::env::var("CPU_DEBUG").is_ok() {
+                    eprintln!(
+                        "[CORRECTNESS-013-CPU] Layer 0 attention output at pos={}, first 10: {:?}",
+                        position, &attn_out_buffer[..10.min(attn_out_buffer.len())]
+                    );
+                    for h in 0..3 {
+                        let start = h * head_dim;
+                        eprintln!(
+                            "[CORRECTNESS-013-CPU] Head {} first 5: {:?}",
+                            h, &attn_out_buffer[start..start + 5]
+                        );
+                    }
+                }
             }
 
             // 2e. Store K and V in cache for future tokens
@@ -14353,17 +14376,21 @@ impl OwnedQuantizedModelCuda {
             })?;
 
         // PAR-060: Set RoPE theta for position embeddings
-        eprintln!(
-            "[PAR-060] Setting rope_theta = {} for GPU path",
-            model.config.rope_theta
-        );
+        if verbose() {
+            eprintln!(
+                "[PAR-060] Setting rope_theta = {} for GPU path",
+                model.config.rope_theta
+            );
+        }
         executor.set_rope_theta(model.config.rope_theta);
 
         // CORRECTNESS-011: Set rope_type for correct RoPE style (NORM vs NEOX)
-        eprintln!(
-            "[CORRECTNESS-011] Setting rope_type = {} for GPU path (0=NORM, 2=NEOX)",
-            model.config.rope_type
-        );
+        if verbose() {
+            eprintln!(
+                "[CORRECTNESS-011] Setting rope_type = {} for GPU path (0=NORM, 2=NEOX)",
+                model.config.rope_type
+            );
+        }
         executor.set_rope_type(model.config.rope_type);
 
         Ok(Self {
@@ -16795,15 +16822,17 @@ impl OwnedQuantizedModelCuda {
         if !self.executor.has_quantized_weights(&lm_head_name) {
             // PAR-060-DEBUG: Print first bytes of LM head weight for verification
             let lm_data = &self.model.lm_head_weight.data;
-            eprintln!(
-                "[PAR-060-DEBUG] LM head weight: len={}, first 20 bytes: {:?}",
-                lm_data.len(),
-                &lm_data[..20.min(lm_data.len())]
-            );
-            eprintln!(
-                "[PAR-060-DEBUG] LM head dims: in_dim={}, out_dim={}",
-                self.model.lm_head_weight.in_dim, self.model.lm_head_weight.out_dim
-            );
+            if verbose() {
+                eprintln!(
+                    "[PAR-060-DEBUG] LM head weight: len={}, first 20 bytes: {:?}",
+                    lm_data.len(),
+                    &lm_data[..20.min(lm_data.len())]
+                );
+                eprintln!(
+                    "[PAR-060-DEBUG] LM head dims: in_dim={}, out_dim={}",
+                    self.model.lm_head_weight.in_dim, self.model.lm_head_weight.out_dim
+                );
+            }
             total_bytes += self
                 .executor
                 .load_quantized_weights_with_type(
@@ -17202,10 +17231,12 @@ impl OwnedQuantizedModelCuda {
 
         // Pre-upload all weights to GPU
         let bytes_uploaded = self.preload_weights_gpu()?;
-        eprintln!(
-            "PAR-023: Pre-uploaded {} MB of weights to GPU",
-            bytes_uploaded / (1024 * 1024)
-        );
+        if verbose() {
+            eprintln!(
+                "PAR-023: Pre-uploaded {} MB of weights to GPU",
+                bytes_uploaded / (1024 * 1024)
+            );
+        }
 
         // PAR-045: Create KV cache with GQA-aware dimensions
         // For GQA models, K/V have kv_dim = num_kv_heads * head_dim (smaller than hidden_dim)
@@ -48872,5 +48903,716 @@ mod tests {
         assert_eq!(model.architecture(), Some("qwen2"));
         assert_eq!(model.embedding_dim(), Some(3584));
         assert_eq!(model.num_layers(), Some(28));
+    }
+
+    // =========================================================================
+    // GPT-2 Unicode to Byte Conversion Tests (Coverage: gpt2_unicode_to_byte)
+    // =========================================================================
+
+    #[test]
+    fn test_gpt2_unicode_to_byte_printable_ascii() {
+        // Printable ASCII (0x21-0x7E) should map to itself
+        assert_eq!(super::gpt2_unicode_to_byte('!'), Some(0x21)); // first printable
+        assert_eq!(super::gpt2_unicode_to_byte('~'), Some(0x7E)); // last printable
+        assert_eq!(super::gpt2_unicode_to_byte('A'), Some(0x41));
+        assert_eq!(super::gpt2_unicode_to_byte('Z'), Some(0x5A));
+        assert_eq!(super::gpt2_unicode_to_byte('a'), Some(0x61));
+        assert_eq!(super::gpt2_unicode_to_byte('z'), Some(0x7A));
+        assert_eq!(super::gpt2_unicode_to_byte('0'), Some(0x30));
+        assert_eq!(super::gpt2_unicode_to_byte('9'), Some(0x39));
+    }
+
+    #[test]
+    fn test_gpt2_unicode_to_byte_latin1_supplement() {
+        // Latin-1 supplement: 0xA1-0xAC and 0xAE-0xFF map to themselves
+        assert_eq!(super::gpt2_unicode_to_byte('\u{00A1}'), Some(0xA1)); // ¡
+        assert_eq!(super::gpt2_unicode_to_byte('\u{00AC}'), Some(0xAC)); // ¬
+        assert_eq!(super::gpt2_unicode_to_byte('\u{00AE}'), Some(0xAE)); // ®
+        assert_eq!(super::gpt2_unicode_to_byte('\u{00FF}'), Some(0xFF)); // ÿ
+    }
+
+    #[test]
+    fn test_gpt2_unicode_to_byte_special_encoded_low() {
+        // U+0100-U+0120 map to bytes 0x00-0x20
+        assert_eq!(super::gpt2_unicode_to_byte('\u{0100}'), Some(0x00)); // NUL
+        assert_eq!(super::gpt2_unicode_to_byte('\u{0101}'), Some(0x01)); // SOH
+        assert_eq!(super::gpt2_unicode_to_byte('\u{010A}'), Some(0x0A)); // LF
+        assert_eq!(super::gpt2_unicode_to_byte('\u{010D}'), Some(0x0D)); // CR
+        assert_eq!(super::gpt2_unicode_to_byte('\u{0120}'), Some(0x20)); // space
+    }
+
+    #[test]
+    fn test_gpt2_unicode_to_byte_special_encoded_del() {
+        // U+0121 maps to 0x7F (DEL)
+        assert_eq!(super::gpt2_unicode_to_byte('\u{0121}'), Some(0x7F));
+    }
+
+    #[test]
+    fn test_gpt2_unicode_to_byte_special_encoded_high() {
+        // U+0122-U+0142 map to bytes 0x80-0xA0
+        assert_eq!(super::gpt2_unicode_to_byte('\u{0122}'), Some(0x80));
+        assert_eq!(super::gpt2_unicode_to_byte('\u{0132}'), Some(0x90));
+        assert_eq!(super::gpt2_unicode_to_byte('\u{0142}'), Some(0xA0));
+    }
+
+    #[test]
+    fn test_gpt2_unicode_to_byte_special_encoded_soft_hyphen() {
+        // U+0143 maps to 0xAD (soft hyphen)
+        assert_eq!(super::gpt2_unicode_to_byte('\u{0143}'), Some(0xAD));
+    }
+
+    #[test]
+    fn test_gpt2_unicode_to_byte_invalid_special_range() {
+        // Characters beyond U+0143 in the special range return None
+        assert_eq!(super::gpt2_unicode_to_byte('\u{0144}'), None);
+        assert_eq!(super::gpt2_unicode_to_byte('\u{0150}'), None);
+    }
+
+    #[test]
+    fn test_gpt2_unicode_to_byte_non_mappable() {
+        // Characters that don't map to any byte
+        assert_eq!(super::gpt2_unicode_to_byte('\u{0200}'), None);
+        assert_eq!(super::gpt2_unicode_to_byte('\u{1000}'), None);
+        assert_eq!(super::gpt2_unicode_to_byte('中'), None);
+    }
+
+    #[test]
+    fn test_gpt2_unicode_to_byte_fallback_range() {
+        // Characters < 256 that don't fit other categories use fallback
+        // Space is 0x20, which falls through to the fallback path
+        assert_eq!(super::gpt2_unicode_to_byte(' '), Some(0x20));
+    }
+
+    // =========================================================================
+    // GGUFValue Enum Tests (Coverage: GGUFValue variants)
+    // =========================================================================
+
+    #[test]
+    fn test_gguf_value_uint8() {
+        let val = GGUFValue::UInt8(255);
+        assert_eq!(val, GGUFValue::UInt8(255));
+    }
+
+    #[test]
+    fn test_gguf_value_int8() {
+        let val = GGUFValue::Int8(-128);
+        assert_eq!(val, GGUFValue::Int8(-128));
+    }
+
+    #[test]
+    fn test_gguf_value_uint16() {
+        let val = GGUFValue::UInt16(65535);
+        assert_eq!(val, GGUFValue::UInt16(65535));
+    }
+
+    #[test]
+    fn test_gguf_value_int16() {
+        let val = GGUFValue::Int16(-32768);
+        assert_eq!(val, GGUFValue::Int16(-32768));
+    }
+
+    #[test]
+    fn test_gguf_value_uint64() {
+        let val = GGUFValue::UInt64(u64::MAX);
+        assert_eq!(val, GGUFValue::UInt64(u64::MAX));
+    }
+
+    #[test]
+    fn test_gguf_value_int64() {
+        let val = GGUFValue::Int64(i64::MIN);
+        assert_eq!(val, GGUFValue::Int64(i64::MIN));
+    }
+
+    #[test]
+    fn test_gguf_value_float64() {
+        let val = GGUFValue::Float64(std::f64::consts::PI);
+        assert_eq!(val, GGUFValue::Float64(std::f64::consts::PI));
+    }
+
+    #[test]
+    fn test_gguf_value_array_nested() {
+        let inner = vec![GGUFValue::UInt32(1), GGUFValue::UInt32(2)];
+        let val = GGUFValue::Array(inner.clone());
+        assert_eq!(val, GGUFValue::Array(inner));
+    }
+
+    // =========================================================================
+    // GGUF Header Validation Tests (Coverage: error paths)
+    // =========================================================================
+
+    #[test]
+    fn test_gguf_invalid_magic() {
+        let mut data = vec![0u8; 24];
+        // Wrong magic
+        data[0..4].copy_from_slice(&[0x00, 0x00, 0x00, 0x00]);
+        let result = GGUFModel::from_bytes(&data);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("Invalid GGUF magic"));
+    }
+
+    #[test]
+    fn test_gguf_unsupported_version() {
+        let mut data = vec![0u8; 24];
+        // Valid magic
+        data[0..4].copy_from_slice(&GGUF_MAGIC.to_le_bytes());
+        // Version 2 (unsupported)
+        data[4..8].copy_from_slice(&2u32.to_le_bytes());
+        let result = GGUFModel::from_bytes(&data);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("Unsupported GGUF version"));
+    }
+
+    #[test]
+    fn test_gguf_truncated_header() {
+        // Less than 24 bytes (minimum header size)
+        let data = vec![0u8; 16];
+        let result = GGUFModel::from_bytes(&data);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Rope Type Detection Tests (Coverage: rope_type architecture inference)
+    // =========================================================================
+
+    #[test]
+    fn test_rope_type_qwen_architecture() {
+        let data = build_gguf_with_metadata(vec![
+            ("general.architecture", GGUFValue::String("qwen".to_string())),
+        ]);
+        let model = GGUFModel::from_bytes(&data).expect("valid");
+        assert_eq!(model.rope_type(), Some(2)); // NEOX style
+    }
+
+    #[test]
+    fn test_rope_type_phi2_architecture() {
+        let data = build_gguf_with_metadata(vec![
+            ("general.architecture", GGUFValue::String("phi2".to_string())),
+        ]);
+        let model = GGUFModel::from_bytes(&data).expect("valid");
+        assert_eq!(model.rope_type(), Some(2)); // NEOX style
+    }
+
+    #[test]
+    fn test_rope_type_gemma_architecture() {
+        let data = build_gguf_with_metadata(vec![
+            ("general.architecture", GGUFValue::String("gemma2".to_string())),
+        ]);
+        let model = GGUFModel::from_bytes(&data).expect("valid");
+        assert_eq!(model.rope_type(), Some(2)); // NEOX style
+    }
+
+    #[test]
+    fn test_rope_type_falcon_architecture() {
+        let data = build_gguf_with_metadata(vec![
+            ("general.architecture", GGUFValue::String("falcon".to_string())),
+        ]);
+        let model = GGUFModel::from_bytes(&data).expect("valid");
+        assert_eq!(model.rope_type(), Some(2)); // NEOX style
+    }
+
+    #[test]
+    fn test_rope_type_stablelm_architecture() {
+        let data = build_gguf_with_metadata(vec![
+            ("general.architecture", GGUFValue::String("stablelm".to_string())),
+        ]);
+        let model = GGUFModel::from_bytes(&data).expect("valid");
+        assert_eq!(model.rope_type(), Some(2)); // NEOX style
+    }
+
+    #[test]
+    fn test_rope_type_bert_architecture() {
+        let data = build_gguf_with_metadata(vec![
+            ("general.architecture", GGUFValue::String("bert".to_string())),
+        ]);
+        let model = GGUFModel::from_bytes(&data).expect("valid");
+        assert_eq!(model.rope_type(), Some(2)); // NEOX style
+    }
+
+    #[test]
+    fn test_rope_type_deepseek2_architecture() {
+        let data = build_gguf_with_metadata(vec![
+            ("general.architecture", GGUFValue::String("deepseek2".to_string())),
+        ]);
+        let model = GGUFModel::from_bytes(&data).expect("valid");
+        assert_eq!(model.rope_type(), Some(2)); // NEOX style
+    }
+
+    #[test]
+    fn test_rope_type_llama_architecture() {
+        let data = build_gguf_with_metadata(vec![
+            ("general.architecture", GGUFValue::String("llama".to_string())),
+        ]);
+        let model = GGUFModel::from_bytes(&data).expect("valid");
+        assert_eq!(model.rope_type(), Some(0)); // NORM style (default)
+    }
+
+    #[test]
+    fn test_rope_type_tinyllama_architecture() {
+        let data = build_gguf_with_metadata(vec![
+            ("general.architecture", GGUFValue::String("tinyllama".to_string())),
+        ]);
+        let model = GGUFModel::from_bytes(&data).expect("valid");
+        assert_eq!(model.rope_type(), Some(0)); // NORM style (default)
+    }
+
+    #[test]
+    fn test_rope_type_unknown_architecture() {
+        let data = build_gguf_with_metadata(vec![
+            ("general.architecture", GGUFValue::String("custom_model".to_string())),
+        ]);
+        let model = GGUFModel::from_bytes(&data).expect("valid");
+        assert_eq!(model.rope_type(), Some(0)); // Default to NORM
+    }
+
+    // =========================================================================
+    // TensorInfo Tests (Coverage: TensorInfo struct)
+    // =========================================================================
+
+    #[test]
+    fn test_tensor_info_clone_extended() {
+        let info = TensorInfo {
+            name: "test.weight".to_string(),
+            n_dims: 2,
+            dims: vec![128, 64],
+            qtype: GGUF_TYPE_Q4_0,
+            offset: 1024,
+        };
+        let cloned = info.clone();
+        assert_eq!(cloned.name, info.name);
+        assert_eq!(cloned.n_dims, info.n_dims);
+        assert_eq!(cloned.dims, info.dims);
+        assert_eq!(cloned.qtype, info.qtype);
+        assert_eq!(cloned.offset, info.offset);
+    }
+
+    #[test]
+    fn test_tensor_info_debug_extended() {
+        let info = TensorInfo {
+            name: "test".to_string(),
+            n_dims: 1,
+            dims: vec![32],
+            qtype: GGUF_TYPE_F32,
+            offset: 0,
+        };
+        let debug = format!("{:?}", info);
+        assert!(debug.contains("test"));
+        assert!(debug.contains("n_dims: 1"));
+    }
+
+    // =========================================================================
+    // GGUFHeader Tests (Coverage: GGUFHeader struct)
+    // =========================================================================
+
+    #[test]
+    fn test_gguf_header_clone_extended() {
+        let header = GGUFHeader {
+            magic: GGUF_MAGIC,
+            version: GGUF_VERSION_V3,
+            tensor_count: 100,
+            metadata_count: 10,
+        };
+        let cloned = header.clone();
+        assert_eq!(cloned.magic, header.magic);
+        assert_eq!(cloned.version, header.version);
+        assert_eq!(cloned.tensor_count, header.tensor_count);
+        assert_eq!(cloned.metadata_count, header.metadata_count);
+    }
+
+    #[test]
+    fn test_gguf_header_partialeq_extended() {
+        let h1 = GGUFHeader {
+            magic: GGUF_MAGIC,
+            version: GGUF_VERSION_V3,
+            tensor_count: 50,
+            metadata_count: 5,
+        };
+        let h2 = h1.clone();
+        let h3 = GGUFHeader {
+            magic: GGUF_MAGIC,
+            version: GGUF_VERSION_V3,
+            tensor_count: 100, // different
+            metadata_count: 5,
+        };
+        assert_eq!(h1, h2);
+        assert_ne!(h1, h3);
+    }
+
+    // =========================================================================
+    // Token ID Tests (Coverage: bos_token_id, eos_token_id)
+    // =========================================================================
+
+    #[test]
+    fn test_bos_token_id_present() {
+        let data = build_gguf_with_metadata(vec![
+            ("tokenizer.ggml.bos_token_id", GGUFValue::UInt32(1)),
+        ]);
+        let model = GGUFModel::from_bytes(&data).expect("valid");
+        assert_eq!(model.bos_token_id(), Some(1));
+    }
+
+    #[test]
+    fn test_bos_token_id_missing() {
+        let data = build_gguf_with_metadata(vec![]);
+        let model = GGUFModel::from_bytes(&data).expect("valid");
+        assert_eq!(model.bos_token_id(), None);
+    }
+
+    // =========================================================================
+    // Quantization Type Constants Tests (Coverage: GGUF_TYPE_* constants)
+    // =========================================================================
+
+    #[test]
+    fn test_quantization_type_constants() {
+        assert_eq!(GGUF_TYPE_F32, 0);
+        assert_eq!(GGUF_TYPE_F16, 1);
+        assert_eq!(GGUF_TYPE_Q4_0, 2);
+        assert_eq!(GGUF_TYPE_Q4_1, 3);
+        assert_eq!(GGUF_TYPE_Q5_0, 6);
+        assert_eq!(GGUF_TYPE_Q5_1, 7);
+        assert_eq!(GGUF_TYPE_Q8_0, 8);
+        assert_eq!(GGUF_TYPE_Q4_K, 12);
+        assert_eq!(GGUF_TYPE_Q5_K, 13);
+        assert_eq!(GGUF_TYPE_Q6_K, 14);
+    }
+
+    // =========================================================================
+    // Buffer Size Constants Tests (Coverage: buffer watermarks)
+    // =========================================================================
+
+    #[test]
+    fn test_buffer_size_constants() {
+        assert_eq!(TOKEN_BUFFER_INLINE_CAP, 32);
+        assert_eq!(ATTENTION_BUFFER_INLINE_CAP, 64);
+        assert_eq!(HIDDEN_BUFFER_INLINE_CAP, 128);
+        assert_eq!(BUFFER_LW_SIZE, 1024);
+        assert_eq!(BUFFER_HW_SIZE, 8 * 1024);
+        assert_eq!(BUFFER_MAX_SIZE, 32 * 1024);
+    }
+
+    // =========================================================================
+    // Alignment Constants Tests (Coverage: GGUF_ALIGNMENT)
+    // =========================================================================
+
+    #[test]
+    fn test_alignment_constant() {
+        assert_eq!(GGUF_ALIGNMENT, 32);
+    }
+
+    // =========================================================================
+    // GGUFModel Clone Test (Coverage: GGUFModel struct)
+    // =========================================================================
+
+    #[test]
+    fn test_gguf_model_clone() {
+        let data = build_gguf_with_metadata(vec![
+            ("general.architecture", GGUFValue::String("llama".to_string())),
+        ]);
+        let model = GGUFModel::from_bytes(&data).expect("valid");
+        let cloned = model.clone();
+        assert_eq!(cloned.header, model.header);
+        assert_eq!(cloned.metadata.len(), model.metadata.len());
+        assert_eq!(cloned.tensors.len(), model.tensors.len());
+        assert_eq!(cloned.tensor_data_start, model.tensor_data_start);
+    }
+
+    // =========================================================================
+    // Verbose Mode Tests (Coverage: verbose() function)
+    // =========================================================================
+
+    #[test]
+    fn test_verbose_function_exists() {
+        // Just ensure it doesn't panic and returns a bool
+        let _ = super::verbose();
+    }
+
+    // =========================================================================
+    // QuantizedGenerateConfig Builder Tests (Coverage: builder methods)
+    // =========================================================================
+
+    #[test]
+    fn test_generate_config_with_empty_stop_tokens() {
+        let config = QuantizedGenerateConfig::default().with_stop_tokens(vec![]);
+        assert!(config.stop_tokens.is_empty());
+    }
+
+    #[test]
+    fn test_generate_config_with_multiple_stop_tokens() {
+        let config = QuantizedGenerateConfig::default()
+            .with_stop_tokens(vec![1, 2, 50256, 32000]);
+        assert_eq!(config.stop_tokens.len(), 4);
+        assert!(config.stop_tokens.contains(&50256));
+        assert!(config.stop_tokens.contains(&32000));
+    }
+
+    #[test]
+    fn test_generate_config_temperature_zero() {
+        let config = QuantizedGenerateConfig::default().with_temperature(0.0);
+        assert_eq!(config.temperature, 0.0);
+    }
+
+    #[test]
+    fn test_generate_config_temperature_high() {
+        let config = QuantizedGenerateConfig::default().with_temperature(2.0);
+        assert!((config.temperature - 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_generate_config_top_k_one() {
+        let config = QuantizedGenerateConfig::default().with_top_k(1);
+        assert_eq!(config.top_k, 1);
+    }
+
+    #[test]
+    fn test_generate_config_top_k_large() {
+        let config = QuantizedGenerateConfig::default().with_top_k(1000);
+        assert_eq!(config.top_k, 1000);
+    }
+
+    #[test]
+    fn test_generate_config_max_tokens_one() {
+        let config = QuantizedGenerateConfig::default().with_max_tokens(1);
+        assert_eq!(config.max_tokens, 1);
+    }
+
+    #[test]
+    fn test_generate_config_max_tokens_large() {
+        let config = QuantizedGenerateConfig::default().with_max_tokens(8192);
+        assert_eq!(config.max_tokens, 8192);
+    }
+
+    #[test]
+    fn test_generate_config_chained_builders() {
+        let config = QuantizedGenerateConfig::default()
+            .with_max_tokens(256)
+            .with_temperature(0.9)
+            .with_top_k(50)
+            .with_stop_tokens(vec![1, 2]);
+
+        assert_eq!(config.max_tokens, 256);
+        assert!((config.temperature - 0.9).abs() < 1e-6);
+        assert_eq!(config.top_k, 50);
+        assert_eq!(config.stop_tokens, vec![1, 2]);
+    }
+
+    // =========================================================================
+    // Metadata Value Reading Tests (Additional coverage for read_value)
+    // =========================================================================
+
+    #[test]
+    fn test_metadata_with_array_of_strings() {
+        // Build GGUF with array of strings in metadata
+        let mut data = Vec::new();
+
+        // Header
+        data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+        data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes()); // tensor_count
+        data.extend_from_slice(&1u64.to_le_bytes()); // metadata_count
+
+        // Metadata: key
+        let key = "tokenizer.ggml.tokens";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+
+        // Value type: array (9)
+        data.extend_from_slice(&9u32.to_le_bytes());
+        // Element type: string (8)
+        data.extend_from_slice(&8u32.to_le_bytes());
+        // Array length
+        data.extend_from_slice(&2u64.to_le_bytes());
+        // String 1: "hello"
+        data.extend_from_slice(&5u64.to_le_bytes());
+        data.extend_from_slice(b"hello");
+        // String 2: "world"
+        data.extend_from_slice(&5u64.to_le_bytes());
+        data.extend_from_slice(b"world");
+
+        let model = GGUFModel::from_bytes(&data).expect("valid GGUF");
+        let tokens = model.metadata.get("tokenizer.ggml.tokens").expect("key exists");
+        if let GGUFValue::Array(arr) = tokens {
+            assert_eq!(arr.len(), 2);
+        } else {
+            panic!("Expected array");
+        }
+    }
+
+    #[test]
+    fn test_metadata_with_int8_value() {
+        let mut data = Vec::new();
+
+        // Header
+        data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+        data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes()); // tensor_count
+        data.extend_from_slice(&1u64.to_le_bytes()); // metadata_count
+
+        // Metadata: key
+        let key = "test.int8";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+
+        // Value type: int8 (1)
+        data.extend_from_slice(&1u32.to_le_bytes());
+        // Value
+        data.push(0x80u8); // -128 as i8
+
+        let model = GGUFModel::from_bytes(&data).expect("valid GGUF");
+        let val = model.metadata.get("test.int8").expect("key exists");
+        assert_eq!(*val, GGUFValue::Int8(-128));
+    }
+
+    #[test]
+    fn test_metadata_with_uint16_value() {
+        let mut data = Vec::new();
+
+        // Header
+        data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+        data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes()); // tensor_count
+        data.extend_from_slice(&1u64.to_le_bytes()); // metadata_count
+
+        // Metadata: key
+        let key = "test.uint16";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+
+        // Value type: uint16 (2)
+        data.extend_from_slice(&2u32.to_le_bytes());
+        // Value
+        data.extend_from_slice(&12345u16.to_le_bytes());
+
+        let model = GGUFModel::from_bytes(&data).expect("valid GGUF");
+        let val = model.metadata.get("test.uint16").expect("key exists");
+        assert_eq!(*val, GGUFValue::UInt16(12345));
+    }
+
+    #[test]
+    fn test_metadata_with_int16_value() {
+        let mut data = Vec::new();
+
+        // Header
+        data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+        data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes()); // tensor_count
+        data.extend_from_slice(&1u64.to_le_bytes()); // metadata_count
+
+        // Metadata: key
+        let key = "test.int16";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+
+        // Value type: int16 (3)
+        data.extend_from_slice(&3u32.to_le_bytes());
+        // Value
+        data.extend_from_slice(&(-1234i16).to_le_bytes());
+
+        let model = GGUFModel::from_bytes(&data).expect("valid GGUF");
+        let val = model.metadata.get("test.int16").expect("key exists");
+        assert_eq!(*val, GGUFValue::Int16(-1234));
+    }
+
+    #[test]
+    fn test_metadata_with_uint64_value() {
+        let mut data = Vec::new();
+
+        // Header
+        data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+        data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes()); // tensor_count
+        data.extend_from_slice(&1u64.to_le_bytes()); // metadata_count
+
+        // Metadata: key
+        let key = "test.uint64";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+
+        // Value type: uint64 (10)
+        data.extend_from_slice(&10u32.to_le_bytes());
+        // Value
+        data.extend_from_slice(&u64::MAX.to_le_bytes());
+
+        let model = GGUFModel::from_bytes(&data).expect("valid GGUF");
+        let val = model.metadata.get("test.uint64").expect("key exists");
+        assert_eq!(*val, GGUFValue::UInt64(u64::MAX));
+    }
+
+    #[test]
+    fn test_metadata_with_int64_value() {
+        let mut data = Vec::new();
+
+        // Header
+        data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+        data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes()); // tensor_count
+        data.extend_from_slice(&1u64.to_le_bytes()); // metadata_count
+
+        // Metadata: key
+        let key = "test.int64";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+
+        // Value type: int64 (11)
+        data.extend_from_slice(&11u32.to_le_bytes());
+        // Value
+        data.extend_from_slice(&i64::MIN.to_le_bytes());
+
+        let model = GGUFModel::from_bytes(&data).expect("valid GGUF");
+        let val = model.metadata.get("test.int64").expect("key exists");
+        assert_eq!(*val, GGUFValue::Int64(i64::MIN));
+    }
+
+    #[test]
+    fn test_metadata_with_float64_value() {
+        let mut data = Vec::new();
+
+        // Header
+        data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+        data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes()); // tensor_count
+        data.extend_from_slice(&1u64.to_le_bytes()); // metadata_count
+
+        // Metadata: key
+        let key = "test.float64";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+
+        // Value type: float64 (12)
+        data.extend_from_slice(&12u32.to_le_bytes());
+        // Value
+        data.extend_from_slice(&std::f64::consts::E.to_le_bytes());
+
+        let model = GGUFModel::from_bytes(&data).expect("valid GGUF");
+        let val = model.metadata.get("test.float64").expect("key exists");
+        if let GGUFValue::Float64(f) = *val {
+            assert!((f - std::f64::consts::E).abs() < 1e-10);
+        } else {
+            panic!("Expected Float64");
+        }
+    }
+
+    #[test]
+    fn test_metadata_unsupported_value_type() {
+        let mut data = Vec::new();
+
+        // Header
+        data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+        data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes()); // tensor_count
+        data.extend_from_slice(&1u64.to_le_bytes()); // metadata_count
+
+        // Metadata: key
+        let key = "test.unknown";
+        data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        data.extend_from_slice(key.as_bytes());
+
+        // Value type: 99 (unsupported)
+        data.extend_from_slice(&99u32.to_le_bytes());
+
+        let result = GGUFModel::from_bytes(&data);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("Unsupported value type"));
     }
 }
