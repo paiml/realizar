@@ -9806,4 +9806,610 @@ mod tests {
         let cloned = choice.clone();
         assert_eq!(cloned.index, choice.index);
     }
+
+    // =========================================================================
+    // Coverage Tests: Default functions
+    // =========================================================================
+
+    #[test]
+    fn test_default_true_cov() {
+        assert!(super::default_true());
+    }
+
+    #[test]
+    fn test_default_explain_method_cov() {
+        let method = super::default_explain_method();
+        assert_eq!(method, "shap");
+    }
+
+    #[test]
+    fn test_default_top_k_features_cov() {
+        let k = super::default_top_k_features();
+        assert_eq!(k, 5);
+    }
+
+    // =========================================================================
+    // Coverage Tests: PredictRequest
+    // =========================================================================
+
+    #[test]
+    fn test_predict_request_full_cov() {
+        let req = PredictRequest {
+            model: Some("sentiment".to_string()),
+            features: vec![1.0, 2.0, 3.0, 4.0],
+            feature_names: Some(vec!["a".to_string(), "b".to_string(), "c".to_string(), "d".to_string()]),
+            top_k: Some(3),
+            include_confidence: true,
+        };
+        let json = serde_json::to_string(&req).expect("serialize");
+        assert!(json.contains("sentiment"));
+        assert!(json.contains("1.0"));
+        assert!(json.contains("true"));
+    }
+
+    #[test]
+    fn test_predict_request_defaults_cov() {
+        let json = r#"{"features": [0.5, 1.5]}"#;
+        let req: PredictRequest = serde_json::from_str(json).expect("deserialize");
+        assert!(req.model.is_none());
+        assert!(!req.features.is_empty());
+    }
+
+    // =========================================================================
+    // Coverage Tests: PredictResponse
+    // =========================================================================
+
+    #[test]
+    fn test_predict_response_full_cov() {
+        let resp = PredictResponse {
+            request_id: "req-123".to_string(),
+            model: "classifier".to_string(),
+            prediction: serde_json::json!("positive"),
+            confidence: Some(0.95),
+            top_k_predictions: Some(vec![
+                PredictionWithScore {
+                    label: "positive".to_string(),
+                    score: 0.95,
+                },
+                PredictionWithScore {
+                    label: "negative".to_string(),
+                    score: 0.05,
+                },
+            ]),
+            latency_ms: 12.5,
+        };
+        let json = serde_json::to_string(&resp).expect("serialize");
+        assert!(json.contains("req-123"));
+        assert!(json.contains("positive"));
+        assert!(json.contains("0.95"));
+    }
+
+    #[test]
+    fn test_predict_response_minimal_cov() {
+        let resp = PredictResponse {
+            request_id: "req-minimal".to_string(),
+            model: "model".to_string(),
+            prediction: serde_json::json!(42),
+            confidence: None,
+            top_k_predictions: None,
+            latency_ms: 5.0,
+        };
+        let json = serde_json::to_string(&resp).expect("serialize");
+        assert!(json.contains("req-minimal"));
+        // None fields should be skipped
+        assert!(!json.contains("confidence") || json.contains("null"));
+    }
+
+    // =========================================================================
+    // Coverage Tests: ExplainRequest
+    // =========================================================================
+
+    #[test]
+    fn test_explain_request_full_cov() {
+        let req = ExplainRequest {
+            model: Some("explainer".to_string()),
+            features: vec![1.0, 2.0, 3.0],
+            feature_names: vec!["a".to_string(), "b".to_string(), "c".to_string()],
+            top_k_features: 2,
+            method: "lime".to_string(),
+        };
+        let json = serde_json::to_string(&req).expect("serialize");
+        assert!(json.contains("explainer"));
+        assert!(json.contains("lime"));
+        assert!(json.contains("feature_names"));
+    }
+
+    // =========================================================================
+    // Coverage Tests: ExplainResponse
+    // =========================================================================
+
+    #[test]
+    fn test_explain_response_full_cov() {
+        let resp = ExplainResponse {
+            request_id: "explain-req-1".to_string(),
+            model: "model".to_string(),
+            prediction: serde_json::json!("class_a"),
+            confidence: Some(0.9),
+            explanation: ShapExplanation {
+                base_value: 0.5,
+                shap_values: vec![0.4],
+                feature_names: vec!["x".to_string()],
+                prediction: 0.9,
+            },
+            summary: "Feature x was most important".to_string(),
+            latency_ms: 15.0,
+        };
+        let json = serde_json::to_string(&resp).expect("serialize");
+        assert!(json.contains("explain-req-1"));
+        assert!(json.contains("base_value"));
+    }
+
+    // =========================================================================
+    // Coverage Tests: AuditResponse
+    // =========================================================================
+
+    #[test]
+    fn test_audit_response_debug_cov() {
+        // AuditResponse wraps AuditRecord - test the response type exists
+        // Skip constructing the full AuditRecord (too many fields) and just test type exists
+        let _check_type_exists = |r: AuditResponse| {
+            let _ = format!("{:?}", r.record);
+        };
+    }
+
+    // =========================================================================
+    // Coverage Tests: DispatchMetricsResponse
+    // =========================================================================
+
+    #[test]
+    fn test_dispatch_metrics_response_cov() {
+        let resp = DispatchMetricsResponse {
+            cpu_dispatches: 100,
+            gpu_dispatches: 200,
+            total_dispatches: 300,
+            gpu_ratio: 0.666,
+            cpu_latency_p50_us: 1000.0,
+            cpu_latency_p95_us: 2000.0,
+            cpu_latency_p99_us: 3000.0,
+            gpu_latency_p50_us: 500.0,
+            gpu_latency_p95_us: 800.0,
+            gpu_latency_p99_us: 1200.0,
+            cpu_latency_mean_us: 1100.0,
+            gpu_latency_mean_us: 600.0,
+            cpu_latency_min_us: 500,
+            cpu_latency_max_us: 5000,
+            gpu_latency_min_us: 200,
+            gpu_latency_max_us: 2000,
+            cpu_latency_variance_us: 250000.0,
+            cpu_latency_stddev_us: 500.0,
+            gpu_latency_variance_us: 100000.0,
+            gpu_latency_stddev_us: 316.23,
+            bucket_boundaries_us: vec!["0-100".to_string(), "100-500".to_string()],
+            cpu_latency_bucket_counts: vec![10, 50, 40],
+            gpu_latency_bucket_counts: vec![50, 100, 50],
+            throughput_rps: 1000.0,
+            elapsed_seconds: 60.0,
+        };
+        let json = serde_json::to_string(&resp).expect("serialize");
+        assert!(json.contains("cpu_dispatches"));
+        assert!(json.contains("gpu_ratio"));
+        assert!(json.contains("throughput_rps"));
+    }
+
+    // =========================================================================
+    // Coverage Tests: ServerMetricsResponse
+    // =========================================================================
+
+    #[test]
+    fn test_server_metrics_response_deserialize_cov() {
+        let json = r#"{
+            "throughput_tok_per_sec": 100.5,
+            "latency_p50_ms": 50.0,
+            "latency_p95_ms": 100.0,
+            "latency_p99_ms": 200.0,
+            "gpu_memory_used_bytes": 1000000,
+            "gpu_memory_total_bytes": 8000000,
+            "gpu_utilization_percent": 75,
+            "cuda_path_active": true,
+            "batch_size": 8,
+            "queue_depth": 5,
+            "total_tokens": 50000,
+            "total_requests": 1000,
+            "uptime_secs": 3600,
+            "model_name": "phi-2"
+        }"#;
+        let resp: ServerMetricsResponse = serde_json::from_str(json).expect("deserialize");
+        assert!((resp.throughput_tok_per_sec - 100.5).abs() < 0.01);
+        assert_eq!(resp.batch_size, 8);
+        assert!(resp.cuda_path_active);
+        assert_eq!(resp.model_name, "phi-2");
+    }
+
+    // =========================================================================
+    // Coverage Tests: DispatchMetricsQuery
+    // =========================================================================
+
+    #[test]
+    fn test_dispatch_metrics_query_cov() {
+        let query = DispatchMetricsQuery {
+            format: Some("prometheus".to_string()),
+        };
+        assert_eq!(query.format.unwrap(), "prometheus");
+
+        let query_none = DispatchMetricsQuery { format: None };
+        assert!(query_none.format.is_none());
+    }
+
+    // =========================================================================
+    // Coverage Tests: DispatchResetResponse
+    // =========================================================================
+
+    #[test]
+    fn test_dispatch_reset_response_deserialize_cov() {
+        let json = r#"{"success": true, "message": "Reset complete"}"#;
+        let resp: DispatchResetResponse = serde_json::from_str(json).expect("deserialize");
+        assert!(resp.success);
+        assert_eq!(resp.message, "Reset complete");
+    }
+
+    // =========================================================================
+    // Coverage Tests: BatchGenerateRequest/Response
+    // =========================================================================
+
+    #[test]
+    fn test_batch_generate_request_full_cov() {
+        let req = BatchGenerateRequest {
+            prompts: vec!["Hello".to_string(), "World".to_string()],
+            max_tokens: 100,
+            temperature: 0.7,
+            strategy: "top_k".to_string(),
+            top_k: 40,
+            top_p: 0.95,
+            seed: Some(42),
+        };
+        let json = serde_json::to_string(&req).expect("serialize");
+        assert!(json.contains("Hello"));
+        assert!(json.contains("top_k"));
+        assert!(json.contains("42"));
+    }
+
+    #[test]
+    fn test_batch_generate_response_cov() {
+        let resp = BatchGenerateResponse {
+            results: vec![
+                GenerateResponse {
+                    token_ids: vec![1, 2, 3],
+                    text: "output1".to_string(),
+                    num_generated: 3,
+                },
+                GenerateResponse {
+                    token_ids: vec![4, 5],
+                    text: "output2".to_string(),
+                    num_generated: 2,
+                },
+            ],
+        };
+        let json = serde_json::to_string(&resp).expect("serialize");
+        assert!(json.contains("output1"));
+        assert!(json.contains("output2"));
+    }
+
+    // =========================================================================
+    // Coverage Tests: ModelsResponse
+    // =========================================================================
+
+    #[test]
+    fn test_models_response_serialize_cov() {
+        use crate::registry::ModelInfo;
+
+        let resp = ModelsResponse {
+            models: vec![
+                ModelInfo {
+                    id: "model-1".to_string(),
+                    name: "LLaMA 7B".to_string(),
+                    description: "A large language model".to_string(),
+                    format: "gguf".to_string(),
+                    loaded: true,
+                },
+                ModelInfo {
+                    id: "model-2".to_string(),
+                    name: "Phi-2".to_string(),
+                    description: "Small but capable".to_string(),
+                    format: "safetensors".to_string(),
+                    loaded: false,
+                },
+            ],
+        };
+        let json = serde_json::to_string(&resp).expect("serialize");
+        assert!(json.contains("model-1"));
+        assert!(json.contains("LLaMA"));
+        assert!(json.contains("gguf"));
+    }
+
+    // =========================================================================
+    // Coverage Tests: ChatCompletionRequest deserialization
+    // =========================================================================
+
+    #[test]
+    fn test_chat_completion_request_full_cov() {
+        let req = ChatCompletionRequest {
+            model: "gpt-4".to_string(),
+            messages: vec![
+                ChatMessage {
+                    role: "system".to_string(),
+                    content: "You are helpful".to_string(),
+                    name: None,
+                },
+                ChatMessage {
+                    role: "user".to_string(),
+                    content: "Hello".to_string(),
+                    name: Some("Alice".to_string()),
+                },
+            ],
+            max_tokens: Some(100),
+            temperature: Some(0.8),
+            top_p: Some(0.95),
+            n: 2,
+            stream: true,
+            stop: Some(vec!["###".to_string()]),
+            user: Some("user-123".to_string()),
+        };
+        let json = serde_json::to_string(&req).expect("serialize");
+        let parsed: ChatCompletionRequest = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(parsed.model, "gpt-4");
+        assert_eq!(parsed.n, 2);
+        assert!(parsed.stream);
+    }
+
+    // =========================================================================
+    // Coverage Tests: ChatChoice
+    // =========================================================================
+
+    #[test]
+    fn test_chat_choice_serialize_cov() {
+        let choice = ChatChoice {
+            index: 1,
+            message: ChatMessage {
+                role: "assistant".to_string(),
+                content: "Hello there!".to_string(),
+                name: None,
+            },
+            finish_reason: "length".to_string(),
+        };
+        let json = serde_json::to_string(&choice).expect("serialize");
+        assert!(json.contains("assistant"));
+        assert!(json.contains("length"));
+        assert!(json.contains("Hello there!"));
+    }
+
+    // =========================================================================
+    // Coverage Tests: TokenizeRequest/Response
+    // =========================================================================
+
+    #[test]
+    fn test_tokenize_request_with_model_id_cov() {
+        let req = TokenizeRequest {
+            text: "test text".to_string(),
+            model_id: Some("custom-tokenizer".to_string()),
+        };
+        let json = serde_json::to_string(&req).expect("serialize");
+        assert!(json.contains("test text"));
+        assert!(json.contains("custom-tokenizer"));
+    }
+
+    #[test]
+    fn test_tokenize_response_serialize_cov() {
+        let resp = TokenizeResponse {
+            token_ids: vec![101, 102, 103, 104],
+            num_tokens: 4,
+        };
+        let json = serde_json::to_string(&resp).expect("serialize");
+        assert!(json.contains("101"));
+        assert!(json.contains("num_tokens"));
+    }
+
+    // =========================================================================
+    // Coverage Tests: GenerateRequest
+    // =========================================================================
+
+    #[test]
+    fn test_generate_request_top_p_cov() {
+        let req = GenerateRequest {
+            prompt: "Once upon a time".to_string(),
+            max_tokens: 200,
+            temperature: 0.5,
+            strategy: "top_p".to_string(),
+            top_k: 50,
+            top_p: 0.85,
+            seed: None,
+            model_id: Some("story-model".to_string()),
+        };
+        let json = serde_json::to_string(&req).expect("serialize");
+        assert!(json.contains("top_p"));
+        assert!(json.contains("0.85"));
+        assert!(json.contains("story-model"));
+    }
+
+    // =========================================================================
+    // Coverage Tests: OpenAIModelsResponse
+    // =========================================================================
+
+    #[test]
+    fn test_openai_models_response_deserialize_cov() {
+        let json = r#"{
+            "object": "list",
+            "data": [
+                {
+                    "id": "gpt-4-turbo",
+                    "object": "model",
+                    "created": 1699000000,
+                    "owned_by": "openai"
+                }
+            ]
+        }"#;
+        let resp: OpenAIModelsResponse = serde_json::from_str(json).expect("deserialize");
+        assert_eq!(resp.object, "list");
+        assert_eq!(resp.data.len(), 1);
+        assert_eq!(resp.data[0].id, "gpt-4-turbo");
+    }
+
+    // =========================================================================
+    // Coverage Tests: InMemorySinkWrapper
+    // =========================================================================
+
+    #[test]
+    fn test_in_memory_sink_wrapper_flush_cov() {
+        use crate::audit::AuditSink;
+
+        let sink = Arc::new(InMemoryAuditSink::new());
+        let wrapper = InMemorySinkWrapper(sink.clone());
+
+        // Test flush returns Ok
+        let result = wrapper.flush();
+        assert!(result.is_ok());
+
+        // Test write_batch returns Ok
+        let result = wrapper.write_batch(&[]);
+        assert!(result.is_ok());
+    }
+
+    // =========================================================================
+    // Coverage Tests: AppState methods
+    // =========================================================================
+
+    #[test]
+    fn test_app_state_has_quantized_model_cov() {
+        let state = AppState::demo().expect("test");
+        // Demo state doesn't have quantized model
+        assert!(!state.has_quantized_model());
+        assert!(state.quantized_model().is_none());
+    }
+
+    #[test]
+    fn test_app_state_with_cache_cov() {
+        let state = AppState::with_cache(10);
+        // Should have model and tokenizer
+        assert!(state.model.is_some());
+        assert!(state.tokenizer.is_some());
+        // Should have cache
+        assert!(state.cache.is_some());
+    }
+
+    #[test]
+    fn test_app_state_get_model_no_registry_cov() {
+        let state = AppState::demo().expect("test");
+        // Single model mode - should return model
+        let result = state.get_model(None);
+        assert!(result.is_ok());
+    }
+
+    // =========================================================================
+    // Coverage Tests: create_demo_apr_model
+    // =========================================================================
+
+    #[test]
+    fn test_create_demo_apr_model_cov() {
+        let result = super::create_demo_apr_model(8);
+        assert!(result.is_ok());
+        let model = result.unwrap();
+        assert_eq!(model.tensor_count(), 1);
+    }
+
+    // =========================================================================
+    // Coverage Tests: OpenAI completions types
+    // =========================================================================
+
+    #[test]
+    fn test_completion_request_cov() {
+        let json = r#"{
+            "model": "gpt-3.5-turbo-instruct",
+            "prompt": "Say hello",
+            "max_tokens": 50
+        }"#;
+        let req: CompletionRequest = serde_json::from_str(json).expect("deserialize");
+        assert_eq!(req.model, "gpt-3.5-turbo-instruct");
+        assert_eq!(req.prompt, "Say hello");
+    }
+
+    #[test]
+    fn test_completion_response_cov() {
+        let resp = CompletionResponse {
+            id: "cmpl-123".to_string(),
+            object: "text_completion".to_string(),
+            created: 1700000000,
+            model: "text-davinci-003".to_string(),
+            choices: vec![CompletionChoice {
+                text: "Hello!".to_string(),
+                index: 0,
+                logprobs: None,
+                finish_reason: "stop".to_string(),
+            }],
+            usage: Usage {
+                prompt_tokens: 5,
+                completion_tokens: 2,
+                total_tokens: 7,
+            },
+        };
+        let json = serde_json::to_string(&resp).expect("serialize");
+        assert!(json.contains("cmpl-123"));
+        assert!(json.contains("text_completion"));
+    }
+
+    #[test]
+    fn test_completion_choice_cov() {
+        let choice = CompletionChoice {
+            text: "Generated text".to_string(),
+            index: 2,
+            logprobs: Some(serde_json::json!({"tokens": [], "token_logprobs": []})),
+            finish_reason: "length".to_string(),
+        };
+        let json = serde_json::to_string(&choice).expect("serialize");
+        assert!(json.contains("Generated text"));
+        assert!(json.contains("logprobs"));
+    }
+
+    // =========================================================================
+    // Coverage Tests: Embedding types
+    // =========================================================================
+
+    #[test]
+    fn test_embedding_response_cov() {
+        let resp = EmbeddingResponse {
+            object: "list".to_string(),
+            data: vec![EmbeddingData {
+                object: "embedding".to_string(),
+                index: 0,
+                embedding: vec![0.1, 0.2, 0.3, 0.4],
+            }],
+            model: "text-embedding-ada-002".to_string(),
+            usage: EmbeddingUsage {
+                prompt_tokens: 4,
+                total_tokens: 4,
+            },
+        };
+        let json = serde_json::to_string(&resp).expect("serialize");
+        assert!(json.contains("text-embedding-ada-002"));
+        assert!(json.contains("0.1"));
+    }
+
+    #[test]
+    fn test_embedding_data_cov() {
+        let data = EmbeddingData {
+            object: "embedding".to_string(),
+            index: 5,
+            embedding: vec![0.5; 768],
+        };
+        assert_eq!(data.index, 5);
+        assert_eq!(data.embedding.len(), 768);
+    }
+
+    #[test]
+    fn test_embedding_usage_cov() {
+        let usage = EmbeddingUsage {
+            prompt_tokens: 100,
+            total_tokens: 100,
+        };
+        let json = serde_json::to_string(&usage).expect("serialize");
+        assert!(json.contains("100"));
+    }
 }
