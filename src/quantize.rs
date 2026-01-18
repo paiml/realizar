@@ -9949,6 +9949,7 @@ mod tests {
     /// IMP-148a: Measure SIMD vs scalar nibble extraction speedup
     #[cfg(target_arch = "x86_64")]
     #[test]
+    #[ignore = "Performance test - flaky under system load"]
     fn test_imp_148a_simd_vs_scalar_speedup() {
         // Skip if AVX2 not available
         if !is_x86_feature_detected!("avx2") {
@@ -10282,6 +10283,7 @@ mod tests {
 
     /// IMP-149b: Benchmark fused vs separate dequant+dot
     #[test]
+    #[ignore = "Performance test - flaky under system load"]
     fn test_imp_149b_fused_vs_separate_performance() {
         // Create realistic Q4_K weight matrix (simulating small layer)
         let num_super_blocks = 16; // 4K values
