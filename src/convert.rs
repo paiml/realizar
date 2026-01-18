@@ -1524,4 +1524,593 @@ mod tests {
         let result = GgufToAprQ4KConverter::get_f32(&metadata, "key");
         assert!(result.is_none());
     }
+
+    // =========================================================================
+    // Coverage Tests: GgufToAprConverter
+    // =========================================================================
+
+    #[test]
+    fn test_gguf_to_apr_converter_zero_layers_cov() {
+        let gguf = create_mock_gguf_transformer(4, 0, 10, 8);
+        let apr = GgufToAprConverter::from_gguf_transformer(&gguf);
+        assert!(apr.layers.is_empty());
+    }
+
+    #[test]
+    fn test_gguf_to_apr_converter_multiple_layers_cov() {
+        let gguf = create_mock_gguf_transformer(8, 4, 20, 16);
+        let apr = GgufToAprConverter::from_gguf_transformer(&gguf);
+        assert_eq!(apr.layers.len(), 4);
+    }
+
+    #[test]
+    fn test_gguf_to_apr_converter_config_all_fields_cov() {
+        let gguf = create_mock_gguf_transformer(16, 2, 32, 8);
+        let apr = GgufToAprConverter::from_gguf_transformer(&gguf);
+
+        assert_eq!(apr.config.hidden_dim, gguf.config.hidden_dim);
+        assert_eq!(apr.config.num_layers, gguf.config.num_layers);
+        assert_eq!(apr.config.num_heads, gguf.config.num_heads);
+        assert_eq!(apr.config.num_kv_heads, gguf.config.num_kv_heads);
+        assert_eq!(apr.config.vocab_size, gguf.config.vocab_size);
+        assert_eq!(apr.config.intermediate_dim, gguf.config.intermediate_dim);
+        assert_eq!(apr.config.context_length, gguf.config.context_length);
+        assert_eq!(apr.config.rope_theta, gguf.config.rope_theta);
+        assert_eq!(apr.config.eps, gguf.config.eps);
+    }
+
+    // =========================================================================
+    // Coverage Tests: APR bytes serialization
+    // =========================================================================
+
+    #[test]
+    fn test_to_apr_bytes_alignment_cov() {
+        let apr = create_test_apr_transformer(8, 2, 20, 8);
+        let bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialize");
+
+        // Check header is 64 bytes (HEADER_SIZE) and data follows
+        assert!(bytes.len() >= HEADER_SIZE);
+        // Metadata offset starts at HEADER_SIZE (64 bytes)
+        let metadata_offset =
+            u64::from_le_bytes(bytes[12..20].try_into().unwrap()) as usize;
+        assert_eq!(metadata_offset, HEADER_SIZE);
+    }
+
+    #[test]
+    fn test_apr_bytes_large_model_cov() {
+        // Larger model to test serialization
+        let apr = create_test_apr_transformer(64, 4, 100, 32);
+        let bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialize");
+
+        // Should successfully serialize
+        assert!(!bytes.is_empty());
+        assert_eq!(&bytes[0..4], &MAGIC);
+    }
+
+    // =========================================================================
+    // Coverage Tests: from_apr_bytes edge cases
+    // =========================================================================
+
+    #[test]
+    fn test_from_apr_bytes_too_short_cov() {
+        let bytes = vec![0u8; 10]; // Too short for header
+        let result = GgufToAprConverter::from_apr_bytes(&bytes);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_apr_bytes_bad_magic_cov() {
+        let mut bytes = vec![0u8; 128];
+        bytes[0..4].copy_from_slice(b"BADM"); // Wrong magic
+        let result = GgufToAprConverter::from_apr_bytes(&bytes);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_apr_bytes_wrong_version_cov() {
+        let mut bytes = vec![0u8; 128];
+        bytes[0..4].copy_from_slice(&MAGIC);
+        bytes[4] = 99; // Unsupported version
+        let result = GgufToAprConverter::from_apr_bytes(&bytes);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Coverage Tests: Q4K converter helper functions
+    // =========================================================================
+
+    #[test]
+    fn test_q4k_converter_get_string_missing_cov() {
+        use std::collections::HashMap;
+        let metadata: HashMap<String, crate::gguf::GGUFValue> = HashMap::new();
+        let result = GgufToAprQ4KConverter::get_string(&metadata, "nonexistent");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_q4k_converter_get_u32_missing_cov() {
+        use std::collections::HashMap;
+        let metadata: HashMap<String, crate::gguf::GGUFValue> = HashMap::new();
+        let result = GgufToAprQ4KConverter::get_u32(&metadata, "nonexistent");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_q4k_converter_get_f32_missing_cov() {
+        use std::collections::HashMap;
+        let metadata: HashMap<String, crate::gguf::GGUFValue> = HashMap::new();
+        let result = GgufToAprQ4KConverter::get_f32(&metadata, "nonexistent");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_q4k_converter_get_u32_from_uint32_cov() {
+        use crate::gguf::GGUFValue;
+        let mut metadata = std::collections::HashMap::new();
+        metadata.insert("key".to_string(), GGUFValue::UInt32(256));
+        let result = GgufToAprQ4KConverter::get_u32(&metadata, "key");
+        assert_eq!(result, Some(256));
+    }
+
+    #[test]
+    fn test_q4k_converter_get_u32_from_uint64_large_cov() {
+        use crate::gguf::GGUFValue;
+        let mut metadata = std::collections::HashMap::new();
+        metadata.insert("key".to_string(), GGUFValue::UInt64(1024));
+        let result = GgufToAprQ4KConverter::get_u32(&metadata, "key");
+        assert_eq!(result, Some(1024));
+    }
+
+    #[test]
+    fn test_q4k_converter_get_f32_from_float32_cov() {
+        use crate::gguf::GGUFValue;
+        let mut metadata = std::collections::HashMap::new();
+        metadata.insert("key".to_string(), GGUFValue::Float32(1.5));
+        let result = GgufToAprQ4KConverter::get_f32(&metadata, "key");
+        assert!(result.is_some());
+        assert!((result.unwrap() - 1.5).abs() < 0.0001);
+    }
+
+    // =========================================================================
+    // Coverage Tests: ConversionStats
+    // =========================================================================
+
+    #[test]
+    fn test_conversion_stats_fields_cov() {
+        let stats = ConversionStats {
+            total_parameters: 1000000,
+            memory_bytes_f32: 4000000,
+            num_layers: 12,
+            hidden_dim: 768,
+            vocab_size: 32000,
+            architecture: "llama".to_string(),
+        };
+        assert_eq!(stats.total_parameters, 1000000);
+        assert_eq!(stats.memory_bytes_f32, 4000000);
+        assert_eq!(stats.num_layers, 12);
+        assert_eq!(stats.hidden_dim, 768);
+        assert_eq!(stats.vocab_size, 32000);
+        assert_eq!(stats.architecture, "llama");
+    }
+
+    #[test]
+    fn test_conversion_stats_zero_values_cov() {
+        let stats = ConversionStats {
+            total_parameters: 0,
+            memory_bytes_f32: 0,
+            num_layers: 0,
+            hidden_dim: 0,
+            vocab_size: 0,
+            architecture: String::new(),
+        };
+        assert_eq!(stats.total_parameters, 0);
+        assert_eq!(stats.memory_bytes_f32, 0);
+        assert_eq!(stats.num_layers, 0);
+    }
+
+    #[test]
+    fn test_conversion_stats_debug_clone_cov() {
+        let stats = ConversionStats {
+            total_parameters: 500000,
+            memory_bytes_f32: 2000000,
+            num_layers: 6,
+            hidden_dim: 512,
+            vocab_size: 10000,
+            architecture: "phi".to_string(),
+        };
+        let debug = format!("{:?}", stats);
+        assert!(debug.contains("ConversionStats"));
+
+        let cloned = stats.clone();
+        assert_eq!(cloned.total_parameters, stats.total_parameters);
+    }
+
+    // =========================================================================
+    // Coverage Tests: AprTransformerConfig
+    // =========================================================================
+
+    #[test]
+    fn test_apr_transformer_config_partial_eq_cov() {
+        let config1 = create_test_apr_transformer(4, 1, 10, 8).config;
+        let config2 = create_test_apr_transformer(4, 1, 10, 8).config;
+        assert_eq!(config1, config2);
+    }
+
+    #[test]
+    fn test_apr_transformer_config_not_equal_cov() {
+        let config1 = create_test_apr_transformer(4, 1, 10, 8).config;
+        let config2 = create_test_apr_transformer(8, 2, 20, 16).config;
+        assert_ne!(config1, config2);
+    }
+
+    // =========================================================================
+    // Coverage Tests: RawTensor struct
+    // =========================================================================
+
+    #[test]
+    fn test_raw_tensor_debug_cov() {
+        let tensor = RawTensor {
+            name: "test_tensor".to_string(),
+            data: vec![1, 2, 3, 4],
+            shape: vec![2, 2],
+            dtype: 0, // F32
+        };
+        let debug_str = format!("{:?}", tensor);
+        assert!(debug_str.contains("test_tensor"));
+        assert!(debug_str.contains("shape"));
+    }
+
+    #[test]
+    fn test_raw_tensor_clone_cov() {
+        let tensor = RawTensor {
+            name: "cloneable".to_string(),
+            data: vec![10, 20, 30],
+            shape: vec![3],
+            dtype: 1, // F16
+        };
+        let cloned = tensor.clone();
+        assert_eq!(cloned.name, tensor.name);
+        assert_eq!(cloned.data, tensor.data);
+        assert_eq!(cloned.shape, tensor.shape);
+        assert_eq!(cloned.dtype, tensor.dtype);
+    }
+
+    #[test]
+    fn test_raw_tensor_empty_data_cov() {
+        let tensor = RawTensor {
+            name: "empty".to_string(),
+            data: vec![],
+            shape: vec![0],
+            dtype: 0,
+        };
+        assert!(tensor.data.is_empty());
+        assert_eq!(tensor.shape, vec![0]);
+    }
+
+    #[test]
+    fn test_raw_tensor_large_dtype_cov() {
+        let tensor = RawTensor {
+            name: "q4k".to_string(),
+            data: vec![0u8; 144], // Q4_K: 256 elements = 144 bytes
+            shape: vec![256],
+            dtype: 12, // Q4_K
+        };
+        assert_eq!(tensor.dtype, 12);
+        assert_eq!(tensor.data.len(), 144);
+    }
+
+    #[test]
+    fn test_raw_tensor_multidim_shape_cov() {
+        let tensor = RawTensor {
+            name: "3d_tensor".to_string(),
+            data: vec![0u8; 24],
+            shape: vec![2, 3, 4],
+            dtype: 0,
+        };
+        assert_eq!(tensor.shape.len(), 3);
+        let total: usize = tensor.shape.iter().product();
+        assert_eq!(total, 24);
+    }
+
+    // =========================================================================
+    // Coverage Tests: Q4KConversionStats struct
+    // =========================================================================
+
+    #[test]
+    fn test_q4k_conversion_stats_all_fields_cov() {
+        let stats = Q4KConversionStats {
+            tensor_count: 200,
+            q4k_tensor_count: 150,
+            total_bytes: 5_000_000,
+            architecture: "mistral".to_string(),
+            num_layers: 24,
+            hidden_size: 3072,
+        };
+        assert_eq!(stats.tensor_count, 200);
+        assert_eq!(stats.q4k_tensor_count, 150);
+        assert_eq!(stats.total_bytes, 5_000_000);
+        assert_eq!(stats.architecture, "mistral");
+        assert_eq!(stats.num_layers, 24);
+        assert_eq!(stats.hidden_size, 3072);
+    }
+
+    #[test]
+    fn test_q4k_conversion_stats_zero_values_cov() {
+        let stats = Q4KConversionStats {
+            tensor_count: 0,
+            q4k_tensor_count: 0,
+            total_bytes: 0,
+            architecture: String::new(),
+            num_layers: 0,
+            hidden_size: 0,
+        };
+        assert_eq!(stats.tensor_count, 0);
+        assert_eq!(stats.total_bytes, 0);
+        assert!(stats.architecture.is_empty());
+    }
+
+    // =========================================================================
+    // Coverage Tests: GgufToAprConverter::stats
+    // =========================================================================
+
+    #[test]
+    fn test_stats_function_cov() {
+        let apr = create_test_apr_transformer(16, 4, 1000, 64);
+        let stats = GgufToAprConverter::stats(&apr);
+
+        assert_eq!(stats.num_layers, 4);
+        assert_eq!(stats.hidden_dim, 16);
+        assert_eq!(stats.vocab_size, 1000);
+        assert!(stats.total_parameters > 0);
+        assert!(stats.memory_bytes_f32 > 0);
+    }
+
+    #[test]
+    fn test_stats_memory_calculations_cov() {
+        let apr = create_test_apr_transformer(32, 2, 500, 128);
+        let stats = GgufToAprConverter::stats(&apr);
+
+        // Memory should be related to parameters
+        assert!(stats.memory_mb() > 0.0);
+        assert!(stats.memory_gb() < stats.memory_mb());
+        assert!(stats.parameters_m() > 0.0);
+    }
+
+    // =========================================================================
+    // Coverage Tests: from_apr_bytes additional error paths
+    // =========================================================================
+
+    #[test]
+    fn test_from_apr_bytes_truncated_data_cov() {
+        // Create valid header but truncate before data section
+        let apr = create_test_apr_transformer(4, 1, 10, 8);
+        let mut bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialize");
+
+        // Truncate to only keep header and partial metadata
+        bytes.truncate(100);
+
+        let result = GgufToAprConverter::from_apr_bytes(&bytes);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_apr_bytes_invalid_metadata_json_cov() {
+        let mut bytes = vec![0u8; 256];
+        bytes[0..4].copy_from_slice(&MAGIC);
+        bytes[4] = 2; // v2
+        bytes[8..12].copy_from_slice(&1u32.to_le_bytes()); // 1 tensor
+        bytes[12..20].copy_from_slice(&64u64.to_le_bytes()); // metadata offset
+        bytes[20..24].copy_from_slice(&50u32.to_le_bytes()); // metadata size = 50
+        bytes[24..32].copy_from_slice(&120u64.to_le_bytes()); // tensor index offset
+        bytes[32..40].copy_from_slice(&200u64.to_le_bytes()); // data offset
+
+        // Invalid JSON metadata (just garbage bytes)
+        for i in 64..114 {
+            bytes[i] = b'X';
+        }
+
+        let result = GgufToAprConverter::from_apr_bytes(&bytes);
+        // Should error due to invalid metadata JSON
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Coverage Tests: to_apr_bytes edge cases
+    // =========================================================================
+
+    #[test]
+    fn test_to_apr_bytes_empty_layers_cov() {
+        let apr = create_test_apr_transformer(4, 0, 10, 8);
+        let bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialize");
+
+        // Should still serialize with valid header
+        assert_eq!(&bytes[0..4], &MAGIC);
+        assert!(bytes.len() > HEADER_SIZE);
+    }
+
+    #[test]
+    fn test_to_apr_bytes_large_vocab_cov() {
+        let apr = create_test_apr_transformer(8, 1, 50000, 32);
+        let bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialize");
+
+        assert!(!bytes.is_empty());
+        assert_eq!(&bytes[0..4], &MAGIC);
+    }
+
+    #[test]
+    fn test_to_apr_bytes_small_dims_cov() {
+        // Minimum viable transformer
+        let apr = create_test_apr_transformer(2, 1, 4, 2);
+        let bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialize");
+
+        assert!(!bytes.is_empty());
+    }
+
+    // =========================================================================
+    // Coverage Tests: GgufToAprConverter::from_gguf_transformer edge cases
+    // =========================================================================
+
+    #[test]
+    fn test_from_gguf_transformer_large_model_cov() {
+        let gguf = create_mock_gguf_transformer(128, 8, 32000, 256);
+        let apr = GgufToAprConverter::from_gguf_transformer(&gguf);
+
+        assert_eq!(apr.config.hidden_dim, 128);
+        assert_eq!(apr.config.num_layers, 8);
+        assert_eq!(apr.config.vocab_size, 32000);
+        assert_eq!(apr.layers.len(), 8);
+    }
+
+    #[test]
+    fn test_from_gguf_transformer_single_head_cov() {
+        let mut gguf = create_mock_gguf_transformer(8, 1, 10, 1);
+        gguf.config.num_heads = 1;
+        gguf.config.num_kv_heads = 1;
+
+        let apr = GgufToAprConverter::from_gguf_transformer(&gguf);
+        assert_eq!(apr.config.num_heads, 1);
+        assert_eq!(apr.config.num_kv_heads, 1);
+    }
+
+    #[test]
+    fn test_from_gguf_transformer_gqa_cov() {
+        // Grouped Query Attention: num_kv_heads < num_heads
+        let mut gguf = create_mock_gguf_transformer(32, 2, 100, 8);
+        gguf.config.num_heads = 8;
+        gguf.config.num_kv_heads = 2; // GQA ratio of 4:1
+
+        let apr = GgufToAprConverter::from_gguf_transformer(&gguf);
+        assert_eq!(apr.config.num_heads, 8);
+        assert_eq!(apr.config.num_kv_heads, 2);
+    }
+
+    // =========================================================================
+    // Coverage Tests: Layer weight preservation
+    // =========================================================================
+
+    #[test]
+    fn test_layer_bias_preservation_cov() {
+        let gguf = create_mock_gguf_transformer(8, 2, 20, 4);
+        let apr = GgufToAprConverter::from_gguf_transformer(&gguf);
+
+        for (apr_layer, gguf_layer) in apr.layers.iter().zip(gguf.layers.iter()) {
+            assert_eq!(apr_layer.attn_norm_bias, gguf_layer.attn_norm_bias);
+            assert_eq!(apr_layer.qkv_bias, gguf_layer.qkv_bias);
+            assert_eq!(apr_layer.attn_output_bias, gguf_layer.attn_output_bias);
+            assert_eq!(apr_layer.ffn_gate_bias, gguf_layer.ffn_gate_bias);
+            assert_eq!(apr_layer.ffn_up_bias, gguf_layer.ffn_up_bias);
+            assert_eq!(apr_layer.ffn_down_bias, gguf_layer.ffn_down_bias);
+            assert_eq!(apr_layer.ffn_norm_bias, gguf_layer.ffn_norm_bias);
+        }
+    }
+
+    #[test]
+    fn test_layer_ffn_weights_cov() {
+        let gguf = create_mock_gguf_transformer(16, 3, 50, 8);
+        let apr = GgufToAprConverter::from_gguf_transformer(&gguf);
+
+        for (apr_layer, gguf_layer) in apr.layers.iter().zip(gguf.layers.iter()) {
+            assert_eq!(apr_layer.ffn_gate_weight, gguf_layer.ffn_gate_weight);
+            assert_eq!(apr_layer.ffn_up_weight, gguf_layer.ffn_up_weight);
+            assert_eq!(apr_layer.ffn_down_weight, gguf_layer.ffn_down_weight);
+            assert_eq!(apr_layer.ffn_norm_weight, gguf_layer.ffn_norm_weight);
+        }
+    }
+
+    #[test]
+    fn test_layer_attention_weights_cov() {
+        let gguf = create_mock_gguf_transformer(32, 4, 100, 8);
+        let apr = GgufToAprConverter::from_gguf_transformer(&gguf);
+
+        for (apr_layer, gguf_layer) in apr.layers.iter().zip(gguf.layers.iter()) {
+            assert_eq!(apr_layer.attn_norm_weight, gguf_layer.attn_norm_weight);
+            assert_eq!(apr_layer.qkv_weight, gguf_layer.qkv_weight);
+            assert_eq!(apr_layer.attn_output_weight, gguf_layer.attn_output_weight);
+        }
+    }
+
+    // =========================================================================
+    // Coverage Tests: Config field preservation
+    // =========================================================================
+
+    #[test]
+    fn test_config_rope_theta_cov() {
+        let mut gguf = create_mock_gguf_transformer(8, 1, 10, 4);
+        gguf.config.rope_theta = 1000000.0; // Llama-3 style
+
+        let apr = GgufToAprConverter::from_gguf_transformer(&gguf);
+        assert!((apr.config.rope_theta - 1000000.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_config_eps_cov() {
+        let mut gguf = create_mock_gguf_transformer(8, 1, 10, 4);
+        gguf.config.eps = 1e-6; // Different epsilon
+
+        let apr = GgufToAprConverter::from_gguf_transformer(&gguf);
+        assert!((apr.config.eps - 1e-6).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_config_context_length_cov() {
+        let mut gguf = create_mock_gguf_transformer(8, 1, 10, 4);
+        gguf.config.context_length = 131072; // Long context
+
+        let apr = GgufToAprConverter::from_gguf_transformer(&gguf);
+        assert_eq!(apr.config.context_length, 131072);
+    }
+
+    #[test]
+    fn test_config_intermediate_dim_cov() {
+        let mut gguf = create_mock_gguf_transformer(8, 1, 10, 4);
+        gguf.config.intermediate_dim = 2048;
+
+        let apr = GgufToAprConverter::from_gguf_transformer(&gguf);
+        assert_eq!(apr.config.intermediate_dim, 2048);
+    }
+
+    // =========================================================================
+    // Coverage Tests: get_f32 Float64 conversion
+    // =========================================================================
+
+    #[test]
+    fn test_q4k_converter_get_f32_float64_large_cov() {
+        use crate::gguf::GGUFValue;
+        let mut metadata = std::collections::HashMap::new();
+        metadata.insert("key".to_string(), GGUFValue::Float64(1e10));
+        let result = GgufToAprQ4KConverter::get_f32(&metadata, "key");
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_q4k_converter_get_f32_float64_small_cov() {
+        use crate::gguf::GGUFValue;
+        let mut metadata = std::collections::HashMap::new();
+        metadata.insert("key".to_string(), GGUFValue::Float64(1e-10));
+        let result = GgufToAprQ4KConverter::get_f32(&metadata, "key");
+        assert!(result.is_some());
+        assert!(result.unwrap() > 0.0);
+    }
+
+    // =========================================================================
+    // Coverage Tests: get_u32 Int32 conversion
+    // =========================================================================
+
+    #[test]
+    fn test_q4k_converter_get_u32_int32_positive_cov() {
+        use crate::gguf::GGUFValue;
+        let mut metadata = std::collections::HashMap::new();
+        metadata.insert("key".to_string(), GGUFValue::Int32(12345));
+        let result = GgufToAprQ4KConverter::get_u32(&metadata, "key");
+        assert_eq!(result, Some(12345));
+    }
+
+    #[test]
+    fn test_q4k_converter_get_u32_int32_zero_cov() {
+        use crate::gguf::GGUFValue;
+        let mut metadata = std::collections::HashMap::new();
+        metadata.insert("key".to_string(), GGUFValue::Int32(0));
+        let result = GgufToAprQ4KConverter::get_u32(&metadata, "key");
+        assert_eq!(result, Some(0));
+    }
 }

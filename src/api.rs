@@ -10412,4 +10412,130 @@ mod tests {
         let json = serde_json::to_string(&usage).expect("serialize");
         assert!(json.contains("100"));
     }
+
+    // =========================================================================
+    // Coverage Tests: ErrorResponse variations
+    // =========================================================================
+
+    #[test]
+    fn test_error_response_long_message_ext_cov() {
+        let resp = ErrorResponse {
+            error: "A".repeat(1000),
+        };
+        let json = serde_json::to_string(&resp).expect("serialize");
+        assert!(json.len() > 1000);
+    }
+
+    #[test]
+    fn test_error_response_special_chars_ext_cov() {
+        let resp = ErrorResponse {
+            error: "Error with \"quotes\" and \\backslashes\\".to_string(),
+        };
+        let json = serde_json::to_string(&resp).expect("serialize");
+        assert!(json.contains("\\\""));
+    }
+
+    // =========================================================================
+    // Coverage Tests: Usage struct
+    // =========================================================================
+
+    #[test]
+    fn test_usage_serialize_ext_cov() {
+        let usage = Usage {
+            prompt_tokens: 150,
+            completion_tokens: 75,
+            total_tokens: 225,
+        };
+        let json = serde_json::to_string(&usage).expect("serialize");
+        assert!(json.contains("225"));
+    }
+
+    #[test]
+    fn test_usage_zero_values_ext_cov() {
+        let usage = Usage {
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: 0,
+        };
+        assert_eq!(usage.total_tokens, 0);
+    }
+
+    // =========================================================================
+    // Coverage Tests: TokenizeResponse
+    // =========================================================================
+
+    #[test]
+    fn test_tokenize_response_empty_ext_cov() {
+        let resp = TokenizeResponse {
+            token_ids: vec![],
+            num_tokens: 0,
+        };
+        assert!(resp.token_ids.is_empty());
+        assert_eq!(resp.num_tokens, 0);
+    }
+
+    #[test]
+    fn test_tokenize_response_large_ext_cov() {
+        let resp = TokenizeResponse {
+            token_ids: vec![1; 10000],
+            num_tokens: 10000,
+        };
+        assert_eq!(resp.token_ids.len(), 10000);
+    }
+
+    // =========================================================================
+    // Coverage Tests: EmbeddingRequest
+    // =========================================================================
+
+    #[test]
+    fn test_embedding_request_serialize_ext_cov() {
+        let req = EmbeddingRequest {
+            input: "Embed this text".to_string(),
+            model: Some("text-embedding-ada-002".to_string()),
+        };
+        let json = serde_json::to_string(&req).expect("serialize");
+        assert!(json.contains("Embed this text"));
+    }
+
+    #[test]
+    fn test_embedding_request_deserialize_ext_cov() {
+        let json = r#"{"input":"Hello","model":"test-model"}"#;
+        let req: EmbeddingRequest = serde_json::from_str(json).expect("deserialize");
+        assert_eq!(req.input, "Hello");
+        assert_eq!(req.model, Some("test-model".to_string()));
+    }
+
+    // =========================================================================
+    // Coverage Tests: BatchGenerateRequest
+    // =========================================================================
+
+    #[test]
+    fn test_batch_generate_request_serialize_ext_cov() {
+        let req = BatchGenerateRequest {
+            prompts: vec!["Hello".to_string(), "World".to_string()],
+            max_tokens: 50,
+            temperature: 0.8,
+            strategy: "greedy".to_string(),
+            top_k: 40,
+            top_p: 0.9,
+            seed: None,
+        };
+        let json = serde_json::to_string(&req).expect("serialize");
+        assert!(json.contains("Hello"));
+        assert!(json.contains("World"));
+    }
+
+    #[test]
+    fn test_batch_generate_request_single_prompt_ext_cov() {
+        let req = BatchGenerateRequest {
+            prompts: vec!["Single prompt".to_string()],
+            max_tokens: 100,
+            temperature: 1.0,
+            strategy: "top_k".to_string(),
+            top_k: 50,
+            top_p: 1.0,
+            seed: Some(42),
+        };
+        assert_eq!(req.prompts.len(), 1);
+    }
 }

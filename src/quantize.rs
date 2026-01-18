@@ -14065,4 +14065,529 @@ mod tests {
         assert!((scale2 - 42.0).abs() < 0.001);
     }
 
+    // =========================================================================
+    // Coverage Tests: Q4_0Block struct
+    // =========================================================================
+
+    #[test]
+    fn test_q4_0_block_debug_cov() {
+        let block = Q4_0Block {
+            scale: 1.5,
+            quants: [0u8; 16],
+        };
+        let debug_str = format!("{:?}", block);
+        assert!(debug_str.contains("Q4_0Block"));
+    }
+
+    #[test]
+    fn test_q4_0_block_clone_cov() {
+        let block = Q4_0Block {
+            scale: 2.5,
+            quants: [0x12; 16],
+        };
+        let cloned = block.clone();
+        assert_eq!(cloned.scale, block.scale);
+        assert_eq!(cloned.quants, block.quants);
+    }
+
+    #[test]
+    fn test_q4_0_block_zero_scale_cov() {
+        let block = Q4_0Block {
+            scale: 0.0,
+            quants: [0xFF; 16],
+        };
+        // Q4_0Block stores raw bytes, verify fields
+        assert_eq!(block.scale, 0.0);
+        assert_eq!(block.quants[0], 0xFF);
+    }
+
+    // =========================================================================
+    // Coverage Tests: Q8_0Block struct
+    // =========================================================================
+
+    #[test]
+    fn test_q8_0_block_debug_cov() {
+        let block = Q8_0Block {
+            scale: 0.5,
+            quants: [0i8; 32],
+        };
+        let debug_str = format!("{:?}", block);
+        assert!(debug_str.contains("Q8_0Block"));
+    }
+
+    #[test]
+    fn test_q8_0_block_clone_cov() {
+        let block = Q8_0Block {
+            scale: 1.0,
+            quants: [127i8; 32],
+        };
+        let cloned = block.clone();
+        assert_eq!(cloned.scale, block.scale);
+        assert_eq!(cloned.quants, block.quants);
+    }
+
+    #[test]
+    fn test_q8_0_block_negative_quants_cov() {
+        let mut quants = [0i8; 32];
+        for i in 0..32 {
+            quants[i] = -((i % 128) as i8);
+        }
+        let block = Q8_0Block { scale: 0.1, quants };
+        let deq = block.dequantize();
+        assert_eq!(deq.len(), 32);
+        // First non-zero should be negative
+        assert!(deq[1] < 0.0);
+    }
+
+    // =========================================================================
+    // Coverage Tests: Q4_KBlock struct
+    // =========================================================================
+
+    #[test]
+    fn test_q4_k_block_debug_cov() {
+        let block = Q4_KBlock {
+            d: 1.0,
+            dmin: 0.5,
+            scales: [0u8; 12],
+            qs: [0u8; 128],
+        };
+        let debug_str = format!("{:?}", block);
+        assert!(debug_str.contains("Q4_KBlock"));
+    }
+
+    #[test]
+    fn test_q4_k_block_clone_cov() {
+        let block = Q4_KBlock {
+            d: 2.0,
+            dmin: 1.0,
+            scales: [0x3F; 12],
+            qs: [0xAA; 128],
+        };
+        let cloned = block.clone();
+        assert_eq!(cloned.d, block.d);
+        assert_eq!(cloned.dmin, block.dmin);
+        assert_eq!(cloned.scales, block.scales);
+        assert_eq!(cloned.qs, block.qs);
+    }
+
+    // =========================================================================
+    // Coverage Tests: Q5_KBlock struct
+    // =========================================================================
+
+    #[test]
+    fn test_q5_k_block_debug_cov() {
+        let block = Q5_KBlock {
+            d: 1.0,
+            dmin: 0.5,
+            scales: [0u8; 12],
+            qh: [0u8; 32],
+            qs: [0u8; 128],
+        };
+        let debug_str = format!("{:?}", block);
+        assert!(debug_str.contains("Q5_KBlock"));
+    }
+
+    #[test]
+    fn test_q5_k_block_clone_cov() {
+        let block = Q5_KBlock {
+            d: 3.0,
+            dmin: 1.5,
+            scales: [0x55; 12],
+            qh: [0xFF; 32],
+            qs: [0x55; 128],
+        };
+        let cloned = block.clone();
+        assert_eq!(cloned.d, block.d);
+        assert_eq!(cloned.qh, block.qh);
+    }
+
+    // =========================================================================
+    // Coverage Tests: Q6_KBlock struct
+    // =========================================================================
+
+    #[test]
+    fn test_q6_k_block_debug_cov() {
+        let block = Q6_KBlock {
+            d: 1.0,
+            scales: [0i8; 16],
+            qh: [0u8; 64],
+            qs: [0u8; 128],
+        };
+        let debug_str = format!("{:?}", block);
+        assert!(debug_str.contains("Q6_KBlock"));
+    }
+
+    #[test]
+    fn test_q6_k_block_clone_cov() {
+        let block = Q6_KBlock {
+            d: 4.0,
+            scales: [127i8; 16],
+            qh: [0xAA; 64],
+            qs: [0x55; 128],
+        };
+        let cloned = block.clone();
+        assert_eq!(cloned.d, block.d);
+        assert_eq!(cloned.scales, block.scales);
+    }
+
+    // =========================================================================
+    // Coverage Tests: Q8KSuperBlock struct
+    // =========================================================================
+
+    #[test]
+    fn test_q8k_superblock_debug_cov() {
+        let sb = Q8KSuperBlock {
+            scale: 1.0,
+            quants: [0i8; 256],
+        };
+        let debug_str = format!("{:?}", sb);
+        assert!(debug_str.contains("Q8KSuperBlock"));
+    }
+
+    #[test]
+    fn test_q8k_superblock_clone_cov() {
+        let sb = Q8KSuperBlock {
+            scale: 2.0,
+            quants: [64i8; 256],
+        };
+        let cloned = sb.clone();
+        assert_eq!(cloned.scale, sb.scale);
+        assert_eq!(cloned.quants[0], sb.quants[0]);
+    }
+
+    #[test]
+    fn test_q8k_superblock_quantize_zeros_cov() {
+        let values = [0.0f32; 256];
+        let sb = Q8KSuperBlock::quantize(&values);
+        // All zeros should produce near-zero quants
+        for q in sb.quants.iter() {
+            assert_eq!(*q, 0);
+        }
+    }
+
+    #[test]
+    fn test_q8k_superblock_quantize_max_values_cov() {
+        let values = [127.0f32; 256];
+        let sb = Q8KSuperBlock::quantize(&values);
+        // Scale should handle max values
+        assert!(sb.scale > 0.0);
+        // All quants should be at max
+        for q in sb.quants.iter() {
+            assert_eq!(*q, 127);
+        }
+    }
+
+    #[test]
+    fn test_q8k_superblock_dequantize_roundtrip_cov() {
+        let mut values = [0.0f32; 256];
+        for (i, v) in values.iter_mut().enumerate() {
+            *v = (i as f32 - 128.0) * 0.1;
+        }
+        let sb = Q8KSuperBlock::quantize(&values);
+        let deq = sb.dequantize();
+        // Check roundtrip is approximate
+        for (orig, deq_val) in values.iter().zip(deq.iter()) {
+            let diff = (orig - deq_val).abs();
+            assert!(diff < 0.2); // Quantization error tolerance
+        }
+    }
+
+    // =========================================================================
+    // Coverage Tests: InterleavedQ4K struct
+    // =========================================================================
+
+    #[test]
+    fn test_interleaved_q4k_debug_cov() {
+        let iq4k = InterleavedQ4K {
+            d: vec![1.0],
+            dmin: vec![0.5],
+            scales: vec![0u8; 12],
+            qs: vec![0u8; 128],
+            num_super_blocks: 1,
+        };
+        let debug_str = format!("{:?}", iq4k);
+        assert!(debug_str.contains("InterleavedQ4K"));
+    }
+
+    #[test]
+    fn test_interleaved_q4k_clone_cov() {
+        let iq4k = InterleavedQ4K {
+            d: vec![2.0, 3.0],
+            dmin: vec![1.0, 1.5],
+            scales: vec![0x55; 24],
+            qs: vec![0xAA; 256],
+            num_super_blocks: 2,
+        };
+        let cloned = iq4k.clone();
+        assert_eq!(cloned.num_super_blocks, iq4k.num_super_blocks);
+        assert_eq!(cloned.d, iq4k.d);
+    }
+
+    #[test]
+    fn test_interleaved_q4k_from_q4k_invalid_size_cov() {
+        // Not a multiple of 144
+        let data = vec![0u8; 100];
+        let result = InterleavedQ4K::from_q4k(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_interleaved_q4k_from_q4k_empty_cov() {
+        let data: Vec<u8> = vec![];
+        let result = InterleavedQ4K::from_q4k(&data);
+        assert!(result.is_ok());
+        let iq4k = result.unwrap();
+        assert_eq!(iq4k.num_super_blocks, 0);
+    }
+
+    // =========================================================================
+    // Coverage Tests: quantize_activations_q8k_into error paths (extended)
+    // =========================================================================
+
+    #[test]
+    fn test_quantize_activations_q8k_into_invalid_length_ext2_cov() {
+        let activations = vec![1.0f32; 100]; // Not multiple of 256
+        let mut scales = vec![0.0f32; 1];
+        let mut quants = vec![0i8; 100];
+        let result = quantize_activations_q8k_into(&activations, &mut scales, &mut quants);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_quantize_activations_q8k_into_scales_too_small_ext2_cov() {
+        let activations = vec![1.0f32; 512]; // 2 super-blocks
+        let mut scales = vec![0.0f32; 1]; // Only space for 1
+        let mut quants = vec![0i8; 512];
+        let result = quantize_activations_q8k_into(&activations, &mut scales, &mut quants);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_quantize_activations_q8k_into_quants_too_small_ext2_cov() {
+        let activations = vec![1.0f32; 256];
+        let mut scales = vec![0.0f32; 1];
+        let mut quants = vec![0i8; 100]; // Too small
+        let result = quantize_activations_q8k_into(&activations, &mut scales, &mut quants);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_quantize_activations_q8k_into_success_ext2_cov() {
+        let activations = vec![1.5f32; 256];
+        let mut scales = vec![0.0f32; 1];
+        let mut quants = vec![0i8; 256];
+        let result = quantize_activations_q8k_into(&activations, &mut scales, &mut quants);
+        assert!(result.is_ok());
+        assert!(scales[0] > 0.0);
+    }
+
+    // =========================================================================
+    // Coverage Tests: quantize_to_q8_blocks (extended)
+    // =========================================================================
+
+    #[test]
+    fn test_quantize_to_q8_blocks_invalid_length_ext2_cov() {
+        let values = vec![1.0f32; 50]; // Not multiple of 32
+        let result = quantize_to_q8_blocks(&values);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_quantize_to_q8_blocks_success_ext2_cov() {
+        let values = vec![1.0f32; 64]; // 2 blocks
+        let result = quantize_to_q8_blocks(&values);
+        assert!(result.is_ok());
+        let blocks = result.unwrap();
+        assert_eq!(blocks.len(), 2);
+    }
+
+    #[test]
+    fn test_quantize_to_q8_blocks_empty_ext2_cov() {
+        let values: Vec<f32> = vec![];
+        let result = quantize_to_q8_blocks(&values);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    // =========================================================================
+    // Coverage Tests: dequantize_q8_blocks (extended)
+    // =========================================================================
+
+    #[test]
+    fn test_dequantize_q8_blocks_multiple_ext2_cov() {
+        let blocks = vec![
+            Q8_0Block {
+                scale: 1.0,
+                quants: [10i8; 32],
+            },
+            Q8_0Block {
+                scale: 2.0,
+                quants: [5i8; 32],
+            },
+        ];
+        let result = dequantize_q8_blocks(&blocks);
+        assert_eq!(result.len(), 64);
+        // First block values
+        assert!((result[0] - 10.0).abs() < 0.01);
+        // Second block values
+        assert!((result[32] - 10.0).abs() < 0.01);
+    }
+
+    // =========================================================================
+    // Coverage Tests: dequantize_q4_1 error path (extended)
+    // =========================================================================
+
+    #[test]
+    fn test_dequantize_q4_1_invalid_length_ext_cov() {
+        let data = vec![0u8; 10]; // Not multiple of 20
+        let result = dequantize_q4_1(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_dequantize_q4_1_empty_ext_cov() {
+        let data: Vec<u8> = vec![];
+        let result = dequantize_q4_1(&data);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    // =========================================================================
+    // Coverage Tests: dequantize_q5_0 error path (extended)
+    // =========================================================================
+
+    #[test]
+    fn test_dequantize_q5_0_invalid_length_ext_cov() {
+        let data = vec![0u8; 15]; // Not multiple of 22
+        let result = dequantize_q5_0(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_dequantize_q5_0_empty_ext_cov() {
+        let data: Vec<u8> = vec![];
+        let result = dequantize_q5_0(&data);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    // =========================================================================
+    // Coverage Tests: dequantize_q5_1 error path (extended)
+    // =========================================================================
+
+    #[test]
+    fn test_dequantize_q5_1_invalid_length_ext_cov() {
+        let data = vec![0u8; 15]; // Not multiple of 24
+        let result = dequantize_q5_1(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_dequantize_q5_1_empty_ext_cov() {
+        let data: Vec<u8> = vec![];
+        let result = dequantize_q5_1(&data);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    // =========================================================================
+    // Coverage Tests: dequantize_q4_k error path (extended)
+    // =========================================================================
+
+    #[test]
+    fn test_dequantize_q4_k_invalid_length_ext_cov() {
+        let data = vec![0u8; 100]; // Not multiple of 144
+        let result = dequantize_q4_k(&data);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Coverage Tests: dequantize_q5_k error path (extended)
+    // =========================================================================
+
+    #[test]
+    fn test_dequantize_q5_k_invalid_length_ext_cov() {
+        let data = vec![0u8; 100]; // Not multiple of 176
+        let result = dequantize_q5_k(&data);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Coverage Tests: dequantize_q6_k error path (extended)
+    // =========================================================================
+
+    #[test]
+    fn test_dequantize_q6_k_invalid_length_ext_cov() {
+        let data = vec![0u8; 100]; // Not multiple of 210
+        let result = dequantize_q6_k(&data);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Coverage Tests: Q8KSuperBlock::quantize_into
+    // =========================================================================
+
+    #[test]
+    fn test_q8k_superblock_quantize_into_cov() {
+        let values = vec![1.0f32; 256];
+        let mut scale = 0.0f32;
+        let mut quants = vec![0i8; 256];
+        Q8KSuperBlock::quantize_into(&values, &mut scale, &mut quants);
+        assert!(scale > 0.0);
+        // All same positive values should produce same quants
+        assert_eq!(quants[0], quants[255]);
+    }
+
+    #[test]
+    fn test_q8k_superblock_quantize_into_varied_cov() {
+        let mut values = vec![0.0f32; 256];
+        for (i, v) in values.iter_mut().enumerate() {
+            *v = (i as f32) * 0.5 - 64.0;
+        }
+        let mut scale = 0.0f32;
+        let mut quants = vec![0i8; 256];
+        Q8KSuperBlock::quantize_into(&values, &mut scale, &mut quants);
+        assert!(scale > 0.0);
+        // Should have varied quant values
+        assert_ne!(quants[0], quants[200]);
+    }
+
+    // =========================================================================
+    // Coverage Tests: f16_to_f32 and f16_to_f32_lut
+    // =========================================================================
+
+    #[test]
+    fn test_f16_to_f32_lut_one_cov() {
+        // f16 representation of 1.0 = 0x3C00
+        let result = f16_to_f32_lut(0x3C00);
+        assert!((result - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_f16_to_f32_lut_negative_one_cov() {
+        // f16 representation of -1.0 = 0xBC00
+        let result = f16_to_f32_lut(0xBC00);
+        assert!((result + 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_f16_to_f32_lut_half_cov() {
+        // f16 representation of 0.5 = 0x3800
+        let result = f16_to_f32_lut(0x3800);
+        assert!((result - 0.5).abs() < 0.001);
+    }
+
+    // =========================================================================
+    // Coverage Tests: Block size and QK_K constants
+    // =========================================================================
+
+    #[test]
+    fn test_block_size_constant_cov() {
+        assert_eq!(BLOCK_SIZE, 32);
+    }
+
+    #[test]
+    fn test_qk_k_constant_cov() {
+        assert_eq!(QK_K, 256);
+    }
 }
