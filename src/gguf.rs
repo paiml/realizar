@@ -49615,4 +49615,463 @@ mod tests {
         let err = result.unwrap_err();
         assert!(err.to_string().contains("Unsupported value type"));
     }
+
+    // =========================================================================
+    // Extended Coverage Tests for gpt2_unicode_to_byte
+    // =========================================================================
+
+    #[test]
+    fn test_gpt2_unicode_printable_ascii_cov() {
+        // Printable ASCII (0x21-0x7E) should map to themselves
+        for cp in 0x21u8..=0x7E {
+            let c = cp as char;
+            let result = super::gpt2_unicode_to_byte(c);
+            assert_eq!(result, Some(cp), "char '{}' (0x{:02X}) should map to itself", c, cp);
+        }
+    }
+
+    #[test]
+    fn test_gpt2_unicode_latin1_supplement_cov() {
+        // Latin-1 supplement (0xA1-0xAC and 0xAE-0xFF) should map to themselves
+        for cp in 0xA1u8..=0xAC {
+            let c = char::from_u32(cp as u32).unwrap();
+            let result = super::gpt2_unicode_to_byte(c);
+            assert_eq!(result, Some(cp));
+        }
+        for cp in 0xAE..=0xFF {
+            let c = char::from_u32(cp as u32).unwrap();
+            let result = super::gpt2_unicode_to_byte(c);
+            assert_eq!(result, Some(cp));
+        }
+    }
+
+    #[test]
+    fn test_gpt2_unicode_special_encoded_range_cov() {
+        // U+0100 to U+0143 are specially encoded
+        // U+0100 should map to 0x00
+        assert_eq!(super::gpt2_unicode_to_byte('\u{0100}'), Some(0x00));
+        // U+0120 should map to 0x20 (space)
+        assert_eq!(super::gpt2_unicode_to_byte('\u{0120}'), Some(0x20));
+        // U+0121 should map to 0x7F (DEL)
+        assert_eq!(super::gpt2_unicode_to_byte('\u{0121}'), Some(0x7F));
+        // U+0122 should map to 0x80
+        assert_eq!(super::gpt2_unicode_to_byte('\u{0122}'), Some(0x80));
+    }
+
+    #[test]
+    fn test_gpt2_unicode_soft_hyphen_cov() {
+        // U+0143 should map to 0xAD (soft hyphen)
+        assert_eq!(super::gpt2_unicode_to_byte('\u{0143}'), Some(0xAD));
+    }
+
+    #[test]
+    fn test_gpt2_unicode_invalid_cov() {
+        // U+0144 and above should return None (beyond the special range)
+        assert_eq!(super::gpt2_unicode_to_byte('\u{0144}'), None);
+        // Very high codepoints should return None
+        assert_eq!(super::gpt2_unicode_to_byte('\u{1000}'), None);
+    }
+
+    #[test]
+    fn test_gpt2_unicode_direct_fallback_cov() {
+        // Characters < 256 that aren't in special ranges should use direct conversion
+        // 0x20 (space) goes through special encoding path
+        let space_result = super::gpt2_unicode_to_byte(' ');
+        assert!(space_result.is_some());
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests for GGUFValue
+    // =========================================================================
+
+    #[test]
+    fn test_gguf_value_debug_cov() {
+        let val = GGUFValue::UInt8(42);
+        let debug_str = format!("{:?}", val);
+        assert!(debug_str.contains("42"));
+
+        let val = GGUFValue::String("test".to_string());
+        let debug_str = format!("{:?}", val);
+        assert!(debug_str.contains("test"));
+
+        let val = GGUFValue::Array(vec![GGUFValue::Int32(1), GGUFValue::Int32(2)]);
+        let debug_str = format!("{:?}", val);
+        assert!(debug_str.contains("Array"));
+    }
+
+    #[test]
+    fn test_gguf_value_clone_cov() {
+        let val = GGUFValue::Float64(3.14159);
+        let cloned = val.clone();
+        assert_eq!(val, cloned);
+
+        let val = GGUFValue::Array(vec![GGUFValue::String("a".to_string())]);
+        let cloned = val.clone();
+        assert_eq!(val, cloned);
+    }
+
+    #[test]
+    fn test_gguf_value_partial_eq_cov() {
+        assert_eq!(GGUFValue::UInt8(1), GGUFValue::UInt8(1));
+        assert_ne!(GGUFValue::UInt8(1), GGUFValue::UInt8(2));
+        assert_ne!(GGUFValue::UInt8(1), GGUFValue::Int8(1));
+
+        assert_eq!(GGUFValue::Bool(true), GGUFValue::Bool(true));
+        assert_ne!(GGUFValue::Bool(true), GGUFValue::Bool(false));
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests for GGUFHeader
+    // =========================================================================
+
+    #[test]
+    fn test_gguf_header_debug_cov() {
+        let header = GGUFHeader {
+            magic: GGUF_MAGIC,
+            version: GGUF_VERSION_V3,
+            tensor_count: 10,
+            metadata_count: 5,
+        };
+        let debug_str = format!("{:?}", header);
+        assert!(debug_str.contains("magic"));
+        assert!(debug_str.contains("version"));
+        assert!(debug_str.contains("tensor_count"));
+    }
+
+    #[test]
+    fn test_gguf_header_clone_cov() {
+        let header = GGUFHeader {
+            magic: GGUF_MAGIC,
+            version: GGUF_VERSION_V3,
+            tensor_count: 100,
+            metadata_count: 50,
+        };
+        let cloned = header.clone();
+        assert_eq!(header.magic, cloned.magic);
+        assert_eq!(header.version, cloned.version);
+        assert_eq!(header.tensor_count, cloned.tensor_count);
+        assert_eq!(header.metadata_count, cloned.metadata_count);
+    }
+
+    #[test]
+    fn test_gguf_header_partial_eq_cov() {
+        let h1 = GGUFHeader {
+            magic: GGUF_MAGIC,
+            version: GGUF_VERSION_V3,
+            tensor_count: 10,
+            metadata_count: 5,
+        };
+        let h2 = h1.clone();
+        assert_eq!(h1, h2);
+
+        let h3 = GGUFHeader {
+            magic: GGUF_MAGIC,
+            version: GGUF_VERSION_V3,
+            tensor_count: 20, // different
+            metadata_count: 5,
+        };
+        assert_ne!(h1, h3);
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests for TensorInfo
+    // =========================================================================
+
+    #[test]
+    fn test_tensor_info_debug_cov() {
+        let ti = TensorInfo {
+            name: "layer.0.weight".to_string(),
+            n_dims: 2,
+            dims: vec![128, 64],
+            qtype: GGUF_TYPE_Q4_0,
+            offset: 1024,
+        };
+        let debug_str = format!("{:?}", ti);
+        assert!(debug_str.contains("layer.0.weight"));
+        assert!(debug_str.contains("128"));
+        assert!(debug_str.contains("64"));
+    }
+
+    #[test]
+    fn test_tensor_info_clone_cov() {
+        let ti = TensorInfo {
+            name: "test.tensor".to_string(),
+            n_dims: 3,
+            dims: vec![10, 20, 30],
+            qtype: GGUF_TYPE_F32,
+            offset: 0,
+        };
+        let cloned = ti.clone();
+        assert_eq!(ti.name, cloned.name);
+        assert_eq!(ti.n_dims, cloned.n_dims);
+        assert_eq!(ti.dims, cloned.dims);
+        assert_eq!(ti.qtype, cloned.qtype);
+        assert_eq!(ti.offset, cloned.offset);
+    }
+
+    #[test]
+    fn test_tensor_info_partial_eq_cov() {
+        let ti1 = TensorInfo {
+            name: "a".to_string(),
+            n_dims: 1,
+            dims: vec![100],
+            qtype: GGUF_TYPE_Q8_0,
+            offset: 512,
+        };
+        let ti2 = ti1.clone();
+        assert_eq!(ti1, ti2);
+
+        let ti3 = TensorInfo {
+            name: "b".to_string(), // different name
+            n_dims: 1,
+            dims: vec![100],
+            qtype: GGUF_TYPE_Q8_0,
+            offset: 512,
+        };
+        assert_ne!(ti1, ti3);
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests for Constants
+    // =========================================================================
+
+    #[test]
+    fn test_gguf_type_constants_distinct_cov() {
+        // Verify all quantization type constants are distinct
+        let types = [
+            GGUF_TYPE_F32,
+            GGUF_TYPE_F16,
+            GGUF_TYPE_Q4_0,
+            GGUF_TYPE_Q4_1,
+            GGUF_TYPE_Q5_0,
+            GGUF_TYPE_Q5_1,
+            GGUF_TYPE_Q8_0,
+            GGUF_TYPE_Q4_K,
+            GGUF_TYPE_Q5_K,
+            GGUF_TYPE_Q6_K,
+        ];
+        let mut seen = std::collections::HashSet::new();
+        for t in &types {
+            assert!(seen.insert(*t), "Duplicate type constant: {}", t);
+        }
+    }
+
+    #[test]
+    fn test_buffer_size_constants_cov() {
+        // Verify buffer size ordering
+        assert!(BUFFER_LW_SIZE < BUFFER_HW_SIZE);
+        assert!(BUFFER_HW_SIZE < BUFFER_MAX_SIZE);
+        assert!(TOKEN_BUFFER_INLINE_CAP <= ATTENTION_BUFFER_INLINE_CAP);
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests for SmallVec Type Aliases
+    // =========================================================================
+
+    #[test]
+    fn test_token_buffer_inline_cov() {
+        let mut buf: TokenBuffer = smallvec::smallvec![];
+        for i in 0..TOKEN_BUFFER_INLINE_CAP {
+            buf.push(i as u32);
+        }
+        // Should still be inline (no heap allocation)
+        assert_eq!(buf.len(), TOKEN_BUFFER_INLINE_CAP);
+        // Adding one more should spill to heap
+        buf.push(100);
+        assert_eq!(buf.len(), TOKEN_BUFFER_INLINE_CAP + 1);
+    }
+
+    #[test]
+    fn test_attention_buffer_inline_cov() {
+        let mut buf: AttentionBuffer = smallvec::smallvec![];
+        for i in 0..ATTENTION_BUFFER_INLINE_CAP {
+            buf.push(i as f32);
+        }
+        assert_eq!(buf.len(), ATTENTION_BUFFER_INLINE_CAP);
+    }
+
+    #[test]
+    fn test_hidden_buffer_inline_cov() {
+        let mut buf: HiddenBuffer = smallvec::smallvec![];
+        for i in 0..HIDDEN_BUFFER_INLINE_CAP {
+            buf.push(i as f32 * 0.1);
+        }
+        assert_eq!(buf.len(), HIDDEN_BUFFER_INLINE_CAP);
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests for MappedGGUFModel (without real files)
+    // =========================================================================
+
+    #[test]
+    fn test_mapped_gguf_model_from_path_nonexistent_cov() {
+        let result = MappedGGUFModel::from_path("/nonexistent/path/model.gguf");
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(e.to_string().contains("Failed to open"));
+        }
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests for GGUFModel Parsing Errors
+    // =========================================================================
+
+    #[test]
+    fn test_gguf_parse_invalid_magic_cov() {
+        let mut data = vec![0u8; 24];
+        // Invalid magic
+        data[0..4].copy_from_slice(&0xDEADBEEFu32.to_le_bytes());
+        data[4..8].copy_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+
+        let result = GGUFModel::from_bytes(&data);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Invalid GGUF magic"));
+    }
+
+    #[test]
+    fn test_gguf_parse_unsupported_version_cov() {
+        let mut data = vec![0u8; 24];
+        data[0..4].copy_from_slice(&GGUF_MAGIC.to_le_bytes());
+        data[4..8].copy_from_slice(&99u32.to_le_bytes()); // unsupported version
+
+        let result = GGUFModel::from_bytes(&data);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Unsupported GGUF version"));
+    }
+
+    #[test]
+    fn test_gguf_parse_truncated_header_cov() {
+        // Only 8 bytes - missing tensor_count and metadata_count
+        let mut data = vec![0u8; 8];
+        data[0..4].copy_from_slice(&GGUF_MAGIC.to_le_bytes());
+        data[4..8].copy_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+
+        let result = GGUFModel::from_bytes(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_gguf_parse_empty_data_cov() {
+        let data: &[u8] = &[];
+        let result = GGUFModel::from_bytes(data);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests for GGUFConfig
+    // =========================================================================
+
+    #[test]
+    fn test_gguf_config_clone_llama_cov() {
+        let config = GGUFConfig {
+            architecture: "llama".to_string(),
+            hidden_dim: 4096,
+            intermediate_dim: 11008,
+            num_layers: 32,
+            num_heads: 32,
+            num_kv_heads: 32,
+            vocab_size: 32000,
+            context_length: 4096,
+            eps: 1e-5,
+            rope_type: 0,
+            rope_theta: 10000.0,
+        };
+        let cloned = config.clone();
+        assert_eq!(config.architecture, cloned.architecture);
+        assert_eq!(config.hidden_dim, cloned.hidden_dim);
+        assert_eq!(config.num_layers, cloned.num_layers);
+    }
+
+    #[test]
+    fn test_gguf_config_debug_phi_cov() {
+        let config = GGUFConfig {
+            architecture: "phi".to_string(),
+            hidden_dim: 2560,
+            intermediate_dim: 10240,
+            num_layers: 32,
+            num_heads: 32,
+            num_kv_heads: 32,
+            vocab_size: 51200,
+            context_length: 2048,
+            eps: 1e-5,
+            rope_type: 0,
+            rope_theta: 10000.0,
+        };
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("phi"));
+        assert!(debug_str.contains("2560"));
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests for OwnedQuantizedKVCache
+    // =========================================================================
+
+    #[test]
+    fn test_kv_cache_large_append_cov() {
+        let mut cache = OwnedQuantizedKVCache::new(1, 1024, 10);
+
+        // Append 10 positions
+        for i in 0..10 {
+            let k = vec![i as f32; 1024];
+            let v = vec![(i as f32) * 0.1; 1024];
+            cache.append(0, &k, &v);
+            cache.advance();
+        }
+
+        assert_eq!(cache.len(), 10);
+
+        // K cache should have 10 * 1024 = 10240 elements
+        let k_data = cache.get_k(0);
+        assert_eq!(k_data.len(), 10 * 1024);
+    }
+
+    #[test]
+    fn test_kv_cache_multi_layer_cov() {
+        let num_layers = 4;
+        let hidden_dim = 64;
+        let mut cache = OwnedQuantizedKVCache::new(num_layers, hidden_dim, 100);
+
+        // Append data for all layers
+        for layer in 0..num_layers {
+            let k = vec![(layer * 10) as f32; hidden_dim];
+            let v = vec![(layer * 10 + 1) as f32; hidden_dim];
+            cache.append(layer, &k, &v);
+        }
+        cache.advance();
+
+        assert_eq!(cache.len(), 1);
+
+        // Verify each layer has correct data
+        for layer in 0..num_layers {
+            let k_data = cache.get_k(layer);
+            assert_eq!(k_data.len(), hidden_dim);
+            assert!((k_data[0] - (layer * 10) as f32).abs() < 1e-6);
+        }
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests for QuantizedGenerateConfig
+    // =========================================================================
+
+    #[test]
+    fn test_generate_config_clone_cov() {
+        let config = QuantizedGenerateConfig::default()
+            .with_max_tokens(100)
+            .with_temperature(0.5)
+            .with_top_k(25)
+            .with_stop_tokens(vec![1, 2, 3]);
+        let cloned = config.clone();
+        assert_eq!(config.max_tokens, cloned.max_tokens);
+        assert!((config.temperature - cloned.temperature).abs() < 1e-6);
+        assert_eq!(config.top_k, cloned.top_k);
+        assert_eq!(config.stop_tokens, cloned.stop_tokens);
+    }
+
+    #[test]
+    fn test_generate_config_debug_cov() {
+        let config = QuantizedGenerateConfig::default();
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("max_tokens"));
+        assert!(debug_str.contains("temperature"));
+    }
 }
