@@ -11267,4 +11267,110 @@ mod tests {
         assert!(debug_str.contains("requests_processed"));
         assert!(debug_str.contains("was_batched"));
     }
+
+    // =========================================================================
+    // Extended Coverage Tests Phase 2: Unique API tests
+    // =========================================================================
+
+    #[test]
+    fn test_health_response_roundtrip_ext_cov() {
+        let json = r#"{"status":"ok","version":"2.0.0"}"#;
+        let resp: HealthResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.status, "ok");
+        assert_eq!(resp.version, "2.0.0");
+    }
+
+    #[test]
+    fn test_tokenize_request_without_model_ext_cov() {
+        let json = r#"{"text":"test input"}"#;
+        let req: TokenizeRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.text, "test input");
+        assert!(req.model_id.is_none());
+    }
+
+    #[test]
+    fn test_generate_request_all_fields_ext_cov() {
+        let json = r#"{
+            "prompt": "Hello",
+            "max_tokens": 100,
+            "temperature": 0.7,
+            "strategy": "top_k",
+            "top_k": 40,
+            "top_p": 0.95,
+            "seed": 42,
+            "model_id": "gpt-test"
+        }"#;
+        let req: GenerateRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.prompt, "Hello");
+        assert_eq!(req.max_tokens, 100);
+        assert_eq!(req.seed, Some(42));
+        assert_eq!(req.model_id, Some("gpt-test".to_string()));
+    }
+
+    #[test]
+    fn test_batch_generate_request_with_seed_ext_cov() {
+        let json = r#"{"prompts":["test"],"seed":12345}"#;
+        let req: BatchGenerateRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.seed, Some(12345));
+    }
+
+    #[test]
+    fn test_chat_message_with_name_ext_cov() {
+        let msg = ChatMessage {
+            role: "system".to_string(),
+            content: "You are helpful".to_string(),
+            name: Some("assistant_v2".to_string()),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("assistant_v2"));
+    }
+
+    #[test]
+    fn test_chat_completion_request_stream_ext_cov() {
+        let json = r#"{"model":"x","messages":[],"stream":true}"#;
+        let req: ChatCompletionRequest = serde_json::from_str(json).unwrap();
+        assert!(req.stream);
+    }
+
+    #[test]
+    fn test_chat_completion_chunk_methods_ext_cov() {
+        // Test all chunk creation methods
+        let chunk1 = ChatCompletionChunk::new("id1", "m", Some("text".to_string()), None);
+        assert_eq!(chunk1.choices[0].delta.content, Some("text".to_string()));
+
+        let chunk2 = ChatCompletionChunk::initial("id2", "m");
+        assert_eq!(chunk2.choices[0].delta.role, Some("assistant".to_string()));
+
+        let chunk3 = ChatCompletionChunk::content("id3", "m", "hello");
+        assert_eq!(chunk3.choices[0].delta.content, Some("hello".to_string()));
+
+        let chunk4 = ChatCompletionChunk::done("id4", "m");
+        assert_eq!(chunk4.choices[0].finish_reason, Some("stop".to_string()));
+    }
+
+    #[test]
+    fn test_predict_response_skip_serialization_ext_cov() {
+        let resp = PredictResponse {
+            request_id: "req-456".to_string(),
+            model: "model".to_string(),
+            prediction: serde_json::json!(42.5),
+            confidence: None,
+            top_k_predictions: None,
+            latency_ms: 0.5,
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        // confidence and top_k should be skipped with skip_serializing_if
+        assert!(!json.contains("\"confidence\""));
+        assert!(!json.contains("\"top_k_predictions\""));
+    }
+
+    #[test]
+    fn test_default_functions_ext_cov() {
+        assert_eq!(default_max_tokens(), 50);
+        assert_eq!(default_temperature(), 1.0);
+        assert_eq!(default_strategy(), "greedy");
+        assert_eq!(default_top_k(), 50);
+        assert_eq!(default_top_p(), 0.9);
+        assert!(default_true());
+    }
 }
