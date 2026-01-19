@@ -50074,4 +50074,275 @@ mod tests {
         assert!(debug_str.contains("max_tokens"));
         assert!(debug_str.contains("temperature"));
     }
+
+    // =========================================================================
+    // Extended Coverage Tests for gpt2_unicode_to_byte
+    // =========================================================================
+
+    #[test]
+    fn test_gpt2_unicode_to_byte_printable_ascii_cov() {
+        // Printable ASCII 0x21-0x7E maps to itself
+        assert_eq!(gpt2_unicode_to_byte('!'), Some(0x21));
+        assert_eq!(gpt2_unicode_to_byte('A'), Some(0x41));
+        assert_eq!(gpt2_unicode_to_byte('z'), Some(0x7A));
+        assert_eq!(gpt2_unicode_to_byte('~'), Some(0x7E));
+    }
+
+    #[test]
+    fn test_gpt2_unicode_to_byte_latin1_a1_ac_cov() {
+        // Latin-1 0xA1-0xAC maps to itself
+        assert_eq!(gpt2_unicode_to_byte('¡'), Some(0xA1)); // U+00A1
+        assert_eq!(gpt2_unicode_to_byte('¬'), Some(0xAC)); // U+00AC
+    }
+
+    #[test]
+    fn test_gpt2_unicode_to_byte_latin1_ae_ff_cov() {
+        // Latin-1 0xAE-0xFF maps to itself
+        assert_eq!(gpt2_unicode_to_byte('®'), Some(0xAE)); // U+00AE
+        assert_eq!(gpt2_unicode_to_byte('ÿ'), Some(0xFF)); // U+00FF
+    }
+
+    #[test]
+    fn test_gpt2_unicode_to_byte_special_encoded_low_cov() {
+        // U+0100-0x0120 map to 0x00-0x20
+        assert_eq!(gpt2_unicode_to_byte('\u{0100}'), Some(0x00));
+        assert_eq!(gpt2_unicode_to_byte('\u{0110}'), Some(0x10));
+        assert_eq!(gpt2_unicode_to_byte('\u{0120}'), Some(0x20));
+    }
+
+    #[test]
+    fn test_gpt2_unicode_to_byte_special_encoded_del_cov() {
+        // U+0121 maps to 0x7F (DEL)
+        assert_eq!(gpt2_unicode_to_byte('\u{0121}'), Some(0x7F));
+    }
+
+    #[test]
+    fn test_gpt2_unicode_to_byte_special_encoded_high_cov() {
+        // U+0122-0x0142 map to 0x80-0xA0
+        assert_eq!(gpt2_unicode_to_byte('\u{0122}'), Some(0x80));
+        assert_eq!(gpt2_unicode_to_byte('\u{0132}'), Some(0x90));
+        assert_eq!(gpt2_unicode_to_byte('\u{0142}'), Some(0xA0));
+    }
+
+    #[test]
+    fn test_gpt2_unicode_to_byte_special_encoded_soft_hyphen_cov() {
+        // U+0143 maps to 0xAD (soft hyphen)
+        assert_eq!(gpt2_unicode_to_byte('\u{0143}'), Some(0xAD));
+    }
+
+    #[test]
+    fn test_gpt2_unicode_to_byte_invalid_special_cov() {
+        // U+0144 and beyond are invalid for special range
+        assert_eq!(gpt2_unicode_to_byte('\u{0144}'), None);
+    }
+
+    #[test]
+    fn test_gpt2_unicode_to_byte_direct_fallback_cov() {
+        // Characters < 256 not in special ranges use direct conversion
+        assert_eq!(gpt2_unicode_to_byte('\x00'), Some(0x00));
+        assert_eq!(gpt2_unicode_to_byte(' '), Some(0x20));
+    }
+
+    #[test]
+    fn test_gpt2_unicode_to_byte_out_of_range_cov() {
+        // Characters beyond the special range and > 255 return None
+        // U+0200 is well beyond the special encoding range (U+0100-U+0143)
+        assert_eq!(gpt2_unicode_to_byte('\u{0200}'), None);
+        // Emoji is definitely out of range
+        assert_eq!(gpt2_unicode_to_byte('😀'), None);
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests for GGUF Constants
+    // =========================================================================
+
+    #[test]
+    fn test_gguf_magic_constant_bytes_cov() {
+        assert_eq!(GGUF_MAGIC, 0x4655_4747);
+        // "GGUF" in little-endian
+        let bytes = GGUF_MAGIC.to_le_bytes();
+        assert_eq!(bytes[0], b'G');
+        assert_eq!(bytes[1], b'G');
+        assert_eq!(bytes[2], b'U');
+        assert_eq!(bytes[3], b'F');
+    }
+
+    #[test]
+    fn test_gguf_version_v3_constant_cov() {
+        assert_eq!(GGUF_VERSION_V3, 3);
+    }
+
+    #[test]
+    fn test_gguf_type_constants_cov2() {
+        assert_eq!(GGUF_TYPE_F32, 0);
+        assert_eq!(GGUF_TYPE_F16, 1);
+        assert_eq!(GGUF_TYPE_Q4_0, 2);
+        assert_eq!(GGUF_TYPE_Q4_1, 3);
+        assert_eq!(GGUF_TYPE_Q5_0, 6);
+        assert_eq!(GGUF_TYPE_Q5_1, 7);
+        assert_eq!(GGUF_TYPE_Q8_0, 8);
+        assert_eq!(GGUF_TYPE_Q4_K, 12);
+        assert_eq!(GGUF_TYPE_Q5_K, 13);
+        assert_eq!(GGUF_TYPE_Q6_K, 14);
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests for Buffer Constants
+    // =========================================================================
+
+    #[test]
+    fn test_buffer_inline_cap_constants_cov() {
+        assert_eq!(TOKEN_BUFFER_INLINE_CAP, 32);
+        assert_eq!(ATTENTION_BUFFER_INLINE_CAP, 64);
+        assert_eq!(HIDDEN_BUFFER_INLINE_CAP, 128);
+    }
+
+    #[test]
+    fn test_buffer_watermark_constants_cov() {
+        assert_eq!(BUFFER_LW_SIZE, 1024);
+        assert_eq!(BUFFER_HW_SIZE, 8 * 1024);
+        assert_eq!(BUFFER_MAX_SIZE, 32 * 1024);
+    }
+
+    #[test]
+    fn test_token_buffer_smallvec_inline_cov() {
+        // TokenBuffer should be inline for <= 32 tokens
+        let mut buf: TokenBuffer = smallvec::smallvec![];
+        for i in 0..32 {
+            buf.push(i);
+        }
+        assert_eq!(buf.len(), 32);
+        // Verify it's inline (no heap allocation)
+        assert!(!buf.spilled());
+    }
+
+    #[test]
+    fn test_token_buffer_smallvec_spill_cov() {
+        // TokenBuffer should spill to heap for > 32 tokens
+        let mut buf: TokenBuffer = smallvec::smallvec![];
+        for i in 0..33 {
+            buf.push(i);
+        }
+        assert_eq!(buf.len(), 33);
+        assert!(buf.spilled());
+    }
+
+    #[test]
+    fn test_attention_buffer_smallvec_inline_cov() {
+        // AttentionBuffer should be inline for <= 64 elements
+        let mut buf: AttentionBuffer = smallvec::smallvec![];
+        for i in 0..64 {
+            buf.push(i as f32);
+        }
+        assert_eq!(buf.len(), 64);
+        assert!(!buf.spilled());
+    }
+
+    #[test]
+    fn test_hidden_buffer_smallvec_inline_cov() {
+        // HiddenBuffer should be inline for <= 128 elements
+        let mut buf: HiddenBuffer = smallvec::smallvec![];
+        for i in 0..128 {
+            buf.push(i as f32);
+        }
+        assert_eq!(buf.len(), 128);
+        assert!(!buf.spilled());
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests for GGUFValue enum
+    // =========================================================================
+
+    #[test]
+    fn test_gguf_value_uint8_cov() {
+        let val = GGUFValue::UInt8(255);
+        assert_eq!(val, GGUFValue::UInt8(255));
+    }
+
+    #[test]
+    fn test_gguf_value_int8_cov() {
+        let val = GGUFValue::Int8(-128);
+        assert_eq!(val, GGUFValue::Int8(-128));
+    }
+
+    #[test]
+    fn test_gguf_value_uint16_cov() {
+        let val = GGUFValue::UInt16(65535);
+        assert_eq!(val, GGUFValue::UInt16(65535));
+    }
+
+    #[test]
+    fn test_gguf_value_int16_cov() {
+        let val = GGUFValue::Int16(-32768);
+        assert_eq!(val, GGUFValue::Int16(-32768));
+    }
+
+    #[test]
+    fn test_gguf_value_uint32_cov2() {
+        let val = GGUFValue::UInt32(u32::MAX);
+        assert_eq!(val, GGUFValue::UInt32(u32::MAX));
+    }
+
+    #[test]
+    fn test_gguf_value_int32_cov2() {
+        let val = GGUFValue::Int32(i32::MIN);
+        assert_eq!(val, GGUFValue::Int32(i32::MIN));
+    }
+
+    #[test]
+    fn test_gguf_value_float32_cov() {
+        let val = GGUFValue::Float32(3.14159);
+        if let GGUFValue::Float32(f) = val {
+            assert!((f - 3.14159).abs() < 1e-5);
+        } else {
+            panic!("Expected Float32");
+        }
+    }
+
+    #[test]
+    fn test_gguf_value_bool_cov() {
+        let val_true = GGUFValue::Bool(true);
+        let val_false = GGUFValue::Bool(false);
+        assert_eq!(val_true, GGUFValue::Bool(true));
+        assert_eq!(val_false, GGUFValue::Bool(false));
+    }
+
+    #[test]
+    fn test_gguf_value_string_cov2() {
+        let val = GGUFValue::String("hello world".to_string());
+        assert_eq!(val, GGUFValue::String("hello world".to_string()));
+    }
+
+    #[test]
+    fn test_gguf_value_array_cov2() {
+        let arr = vec![GGUFValue::UInt8(1), GGUFValue::UInt8(2), GGUFValue::UInt8(3)];
+        let val = GGUFValue::Array(arr);
+        if let GGUFValue::Array(a) = val {
+            assert_eq!(a.len(), 3);
+        } else {
+            panic!("Expected Array");
+        }
+    }
+
+    #[test]
+    fn test_gguf_value_clone_string_cov() {
+        let val = GGUFValue::String("test".to_string());
+        let cloned = val.clone();
+        assert_eq!(val, cloned);
+    }
+
+    #[test]
+    fn test_gguf_value_debug_uint32_cov() {
+        let val = GGUFValue::UInt32(42);
+        let debug_str = format!("{:?}", val);
+        assert!(debug_str.contains("UInt32"));
+        assert!(debug_str.contains("42"));
+    }
+
+    #[test]
+    fn test_gguf_value_partial_eq_different_types_cov() {
+        let val1 = GGUFValue::UInt8(42);
+        let val2 = GGUFValue::UInt32(42);
+        assert_ne!(val1, val2); // Different types, not equal
+    }
 }
