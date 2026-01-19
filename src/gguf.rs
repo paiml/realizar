@@ -50345,4 +50345,432 @@ mod tests {
         let val2 = GGUFValue::UInt32(42);
         assert_ne!(val1, val2); // Different types, not equal
     }
+
+    // =========================================================================
+    // Extended Coverage Tests: GGUFConfig
+    // =========================================================================
+
+    #[test]
+    fn test_gguf_config_debug_ext_cov() {
+        let config = GGUFConfig {
+            architecture: "llama".to_string(),
+            hidden_dim: 2048,
+            num_layers: 22,
+            num_heads: 32,
+            num_kv_heads: 4,
+            vocab_size: 32000,
+            intermediate_dim: 5504,
+            context_length: 2048,
+            rope_theta: 10000.0,
+            eps: 1e-5,
+            rope_type: 0,
+        };
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("GGUFConfig"));
+        assert!(debug_str.contains("llama"));
+    }
+
+    #[test]
+    fn test_gguf_config_clone_ext_cov() {
+        let config = GGUFConfig {
+            architecture: "phi2".to_string(),
+            hidden_dim: 2560,
+            num_layers: 32,
+            num_heads: 32,
+            num_kv_heads: 32,
+            vocab_size: 51200,
+            intermediate_dim: 10240,
+            context_length: 2048,
+            rope_theta: 10000.0,
+            eps: 1e-5,
+            rope_type: 2,
+        };
+        let cloned = config.clone();
+        assert_eq!(cloned.architecture, "phi2");
+        assert_eq!(cloned.hidden_dim, 2560);
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests: TensorInfo
+    // =========================================================================
+
+    #[test]
+    fn test_tensor_info_debug_ext_cov() {
+        let info = TensorInfo {
+            name: "test.weight".to_string(),
+            n_dims: 2,
+            dims: vec![256, 128],
+            qtype: 0,
+            offset: 1024,
+        };
+        let debug_str = format!("{:?}", info);
+        assert!(debug_str.contains("TensorInfo"));
+        assert!(debug_str.contains("test.weight"));
+    }
+
+    #[test]
+    fn test_tensor_info_clone_ext_cov() {
+        let info = TensorInfo {
+            name: "blk.0.attn_qkv.weight".to_string(),
+            n_dims: 2,
+            dims: vec![4096, 2048],
+            qtype: 6,
+            offset: 0,
+        };
+        let cloned = info.clone();
+        assert_eq!(cloned.name, "blk.0.attn_qkv.weight");
+        assert_eq!(cloned.dims, vec![4096, 2048]);
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests: GGUFHeader
+    // =========================================================================
+
+    #[test]
+    fn test_gguf_header_debug_ext_cov() {
+        let header = GGUFHeader {
+            magic: 0x46554747,
+            version: 3,
+            tensor_count: 100,
+            metadata_count: 50,
+        };
+        let debug_str = format!("{:?}", header);
+        assert!(debug_str.contains("GGUFHeader"));
+        assert!(debug_str.contains("100"));
+    }
+
+    #[test]
+    fn test_gguf_header_clone_ext_cov() {
+        let header = GGUFHeader {
+            magic: 0x46554747,
+            version: 2,
+            tensor_count: 200,
+            metadata_count: 75,
+        };
+        let cloned = header.clone();
+        assert_eq!(cloned.version, 2);
+        assert_eq!(cloned.tensor_count, 200);
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests: GGUFModel
+    // =========================================================================
+
+    #[test]
+    fn test_gguf_model_debug_ext_cov() {
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 10,
+                metadata_count: 5,
+            },
+            metadata: std::collections::HashMap::new(),
+            tensors: vec![],
+            tensor_data_start: 1024,
+        };
+        let debug_str = format!("{:?}", model);
+        assert!(debug_str.contains("GGUFModel"));
+    }
+
+    #[test]
+    fn test_gguf_model_clone_ext_cov() {
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 10,
+                metadata_count: 5,
+            },
+            metadata: std::collections::HashMap::new(),
+            tensors: vec![],
+            tensor_data_start: 2048,
+        };
+        let cloned = model.clone();
+        assert_eq!(cloned.header.version, 3);
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests: QuantizedTensorRef
+    // =========================================================================
+
+    #[test]
+    fn test_quantized_tensor_ref_debug_ext_cov() {
+        let tensor = QuantizedTensorRef {
+            offset: 1024,
+            byte_size: 4096,
+            num_elements: 256,
+            qtype: 6,
+        };
+        let debug_str = format!("{:?}", tensor);
+        assert!(debug_str.contains("QuantizedTensorRef"));
+    }
+
+    #[test]
+    fn test_quantized_tensor_ref_clone_ext_cov() {
+        let tensor = QuantizedTensorRef {
+            offset: 2048,
+            byte_size: 8192,
+            num_elements: 512,
+            qtype: 2,
+        };
+        let cloned = tensor.clone();
+        assert_eq!(cloned.qtype, 2);
+        assert_eq!(cloned.offset, 2048);
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests: OwnedQuantizedTensor
+    // =========================================================================
+
+    #[test]
+    fn test_owned_quantized_tensor_debug_ext_cov() {
+        let tensor = OwnedQuantizedTensor {
+            data: vec![0u8; 64],
+            in_dim: 32,
+            out_dim: 64,
+            qtype: 2,
+        };
+        let debug_str = format!("{:?}", tensor);
+        assert!(debug_str.contains("OwnedQuantizedTensor"));
+    }
+
+    #[test]
+    fn test_owned_quantized_tensor_clone_ext_cov() {
+        let tensor = OwnedQuantizedTensor {
+            data: vec![1u8; 64],
+            in_dim: 16,
+            out_dim: 32,
+            qtype: 8,
+        };
+        let cloned = tensor.clone();
+        assert_eq!(cloned.qtype, 8);
+        assert_eq!(cloned.in_dim, 16);
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests: QKVWeights enum
+    // =========================================================================
+
+    #[test]
+    fn test_qkv_weights_fused_clone_ext_cov() {
+        let tensor = QuantizedTensorRef {
+            offset: 0,
+            byte_size: 1024,
+            num_elements: 128,
+            qtype: 2,
+        };
+        let weights = QKVWeights::Fused(tensor);
+        let cloned = weights.clone();
+        if let QKVWeights::Fused(t) = cloned {
+            assert_eq!(t.qtype, 2);
+        }
+    }
+
+    #[test]
+    fn test_qkv_weights_separate_clone_ext_cov() {
+        let q = QuantizedTensorRef { offset: 0, byte_size: 256, num_elements: 32, qtype: 2 };
+        let k = QuantizedTensorRef { offset: 256, byte_size: 256, num_elements: 32, qtype: 2 };
+        let v = QuantizedTensorRef { offset: 512, byte_size: 256, num_elements: 32, qtype: 2 };
+        let weights = QKVWeights::Separate { q, k, v };
+        let cloned = weights.clone();
+        if let QKVWeights::Separate { q: q_clone, .. } = cloned {
+            assert_eq!(q_clone.qtype, 2);
+        }
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests: OwnedQKVWeights enum
+    // =========================================================================
+
+    #[test]
+    fn test_owned_qkv_weights_fused_debug_ext_cov() {
+        let weights = OwnedQKVWeights::Fused(OwnedQuantizedTensor {
+            data: vec![0u8; 192],
+            in_dim: 64,
+            out_dim: 192,
+            qtype: 2,
+        });
+        let debug_str = format!("{:?}", weights);
+        assert!(debug_str.contains("Fused"));
+    }
+
+    #[test]
+    fn test_owned_qkv_weights_separate_debug_ext_cov() {
+        let weights = OwnedQKVWeights::Separate {
+            q: OwnedQuantizedTensor { data: vec![0u8; 64], in_dim: 32, out_dim: 64, qtype: 2 },
+            k: OwnedQuantizedTensor { data: vec![0u8; 64], in_dim: 32, out_dim: 64, qtype: 2 },
+            v: OwnedQuantizedTensor { data: vec![0u8; 64], in_dim: 32, out_dim: 64, qtype: 2 },
+        };
+        let debug_str = format!("{:?}", weights);
+        assert!(debug_str.contains("Separate"));
+    }
+
+    #[test]
+    fn test_owned_qkv_weights_clone_ext_cov() {
+        let weights = OwnedQKVWeights::Fused(OwnedQuantizedTensor {
+            data: vec![1u8; 64],
+            in_dim: 32,
+            out_dim: 64,
+            qtype: 2,
+        });
+        let cloned = weights.clone();
+        if let OwnedQKVWeights::Fused(tensor) = cloned {
+            assert_eq!(tensor.qtype, 2);
+        }
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests: GGUFValue UInt64 and Int64
+    // =========================================================================
+
+    #[test]
+    fn test_gguf_value_uint64_ext_cov() {
+        let val = GGUFValue::UInt64(u64::MAX);
+        assert_eq!(val, GGUFValue::UInt64(u64::MAX));
+    }
+
+    #[test]
+    fn test_gguf_value_int64_ext_cov() {
+        let val = GGUFValue::Int64(i64::MIN);
+        assert_eq!(val, GGUFValue::Int64(i64::MIN));
+    }
+
+    #[test]
+    fn test_gguf_value_float64_ext_cov() {
+        let val = GGUFValue::Float64(std::f64::consts::PI);
+        if let GGUFValue::Float64(f) = val {
+            assert!((f - std::f64::consts::PI).abs() < 1e-10);
+        } else {
+            panic!("Expected Float64");
+        }
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests: GGUFValue nested array
+    // =========================================================================
+
+    #[test]
+    fn test_gguf_value_nested_array_ext_cov() {
+        let inner1 = vec![GGUFValue::UInt8(1), GGUFValue::UInt8(2)];
+        let inner2 = vec![GGUFValue::UInt8(3), GGUFValue::UInt8(4)];
+        let outer = vec![GGUFValue::Array(inner1), GGUFValue::Array(inner2)];
+        let val = GGUFValue::Array(outer);
+        if let GGUFValue::Array(a) = &val {
+            assert_eq!(a.len(), 2);
+            if let GGUFValue::Array(inner) = &a[0] {
+                assert_eq!(inner.len(), 2);
+            }
+        }
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests: GGUFValue clone various types
+    // =========================================================================
+
+    #[test]
+    fn test_gguf_value_clone_uint64_ext_cov() {
+        let val = GGUFValue::UInt64(12345678901234);
+        let cloned = val.clone();
+        assert_eq!(val, cloned);
+    }
+
+    #[test]
+    fn test_gguf_value_clone_int64_ext_cov() {
+        let val = GGUFValue::Int64(-12345678901234);
+        let cloned = val.clone();
+        assert_eq!(val, cloned);
+    }
+
+    #[test]
+    fn test_gguf_value_clone_float64_ext_cov() {
+        let val = GGUFValue::Float64(2.71828);
+        let cloned = val.clone();
+        if let (GGUFValue::Float64(f1), GGUFValue::Float64(f2)) = (&val, &cloned) {
+            assert!((f1 - f2).abs() < 1e-10);
+        }
+    }
+
+    #[test]
+    fn test_gguf_value_clone_array_ext_cov() {
+        let arr = vec![GGUFValue::UInt8(1), GGUFValue::UInt8(2)];
+        let val = GGUFValue::Array(arr);
+        let cloned = val.clone();
+        if let GGUFValue::Array(a) = &cloned {
+            assert_eq!(a.len(), 2);
+        }
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests: GGUFValue debug various types
+    // =========================================================================
+
+    #[test]
+    fn test_gguf_value_debug_uint64_ext_cov() {
+        let val = GGUFValue::UInt64(999999999);
+        let debug_str = format!("{:?}", val);
+        assert!(debug_str.contains("UInt64"));
+    }
+
+    #[test]
+    fn test_gguf_value_debug_int64_ext_cov() {
+        let val = GGUFValue::Int64(-999999999);
+        let debug_str = format!("{:?}", val);
+        assert!(debug_str.contains("Int64"));
+    }
+
+    #[test]
+    fn test_gguf_value_debug_float64_ext_cov() {
+        let val = GGUFValue::Float64(1.41421356);
+        let debug_str = format!("{:?}", val);
+        assert!(debug_str.contains("Float64"));
+    }
+
+    #[test]
+    fn test_gguf_value_debug_array_ext_cov() {
+        let arr = vec![GGUFValue::UInt8(1)];
+        let val = GGUFValue::Array(arr);
+        let debug_str = format!("{:?}", val);
+        assert!(debug_str.contains("Array"));
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests: GGUFValue eq comparisons
+    // =========================================================================
+
+    #[test]
+    fn test_gguf_value_eq_uint8_ext_cov() {
+        let v1 = GGUFValue::UInt8(100);
+        let v2 = GGUFValue::UInt8(100);
+        let v3 = GGUFValue::UInt8(200);
+        assert_eq!(v1, v2);
+        assert_ne!(v1, v3);
+    }
+
+    #[test]
+    fn test_gguf_value_eq_int8_ext_cov() {
+        let v1 = GGUFValue::Int8(-50);
+        let v2 = GGUFValue::Int8(-50);
+        let v3 = GGUFValue::Int8(50);
+        assert_eq!(v1, v2);
+        assert_ne!(v1, v3);
+    }
+
+    #[test]
+    fn test_gguf_value_eq_bool_ext_cov() {
+        let v1 = GGUFValue::Bool(true);
+        let v2 = GGUFValue::Bool(true);
+        let v3 = GGUFValue::Bool(false);
+        assert_eq!(v1, v2);
+        assert_ne!(v1, v3);
+    }
+
+    #[test]
+    fn test_gguf_value_eq_string_ext_cov() {
+        let v1 = GGUFValue::String("test".to_string());
+        let v2 = GGUFValue::String("test".to_string());
+        let v3 = GGUFValue::String("other".to_string());
+        assert_eq!(v1, v2);
+        assert_ne!(v1, v3);
+    }
 }
