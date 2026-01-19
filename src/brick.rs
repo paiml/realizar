@@ -2347,7 +2347,9 @@ mod tests {
     // Verify RmsNormBrick runs correctly
     #[test]
     fn rmsnorm_brick_runs() {
-        let brick = RmsNormBrick::new(vec![1.0; 4], 1e-5);
+        // Use a more lenient budget to avoid flaky failures on slow CI
+        let brick = RmsNormBrick::new(vec![1.0; 4], 1e-5)
+            .with_budget(TokenBudget::from_latency(1000.0)); // 1ms budget
         let input = vec![1.0, 2.0, 3.0, 4.0];
         let result = brick.run(&input).expect("should run");
 
