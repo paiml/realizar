@@ -212,6 +212,21 @@ pub mod explain;
 pub mod format;
 pub mod generate;
 pub mod gguf;
+/// High-level inference API for CLI tools
+///
+/// Per spec APR-CLI-DELEGATE-001: All inference in `apr run` and `apr chat`
+/// delegates to this module. This eliminates ~1800 lines of duplicated code.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use realizar::infer::{InferenceConfig, run_inference};
+///
+/// let result = run_inference(&InferenceConfig::new("model.gguf")
+///     .with_prompt("Hello!"))?;
+/// println!("{}", result.text);
+/// ```
+pub mod infer;
 /// GPU acceleration module (Phase 4: ≥100 tok/s target)
 ///
 /// Implements GPU-accelerated matrix operations via Trueno's wgpu backend.
@@ -331,6 +346,7 @@ pub mod uri;
 
 // Re-exports for convenience
 pub use error::{RealizarError, Result};
+pub use infer::{run_inference, InferenceConfig, InferenceResult};
 pub use inference_trace::{InferenceTracer, ModelInfo, TraceConfig, TraceStep};
 pub use safetensors::SafetensorsConfig;
 pub use tensor::Tensor;

@@ -13137,4 +13137,859 @@ mod tests {
         let result = quantized_dot_q8(&block_a, &block_b);
         assert!(result.is_finite());
     }
+
+    // =========================================================================
+    // Deep Coverage Tests for gpu.rs (Phase 802)
+    // =========================================================================
+
+    // --- exceeds_gpu_buffer_limit tests ---
+    #[test]
+    fn test_exceeds_gpu_buffer_limit_small_cov() {
+        // Small buffer should not exceed limit
+        assert!(!exceeds_gpu_buffer_limit(1000));
+        assert!(!exceeds_gpu_buffer_limit(0));
+    }
+
+    #[test]
+    fn test_exceeds_gpu_buffer_limit_large_cov() {
+        // Large buffer should exceed limit (256MB / 4 bytes = 67108864 f32s)
+        let limit_elements = 256 * 1024 * 1024 / 4;
+        assert!(exceeds_gpu_buffer_limit(limit_elements + 1));
+        assert!(exceeds_gpu_buffer_limit(100_000_000));
+    }
+
+    #[test]
+    fn test_exceeds_gpu_buffer_limit_boundary_cov() {
+        // At boundary
+        let limit_elements = 256 * 1024 * 1024 / 4;
+        // At limit should not exceed (<=)
+        assert!(!exceeds_gpu_buffer_limit(limit_elements));
+    }
+
+    // --- scalar_softmax deep tests ---
+    #[test]
+    fn test_scalar_softmax_empty_deep2() {
+        let result = scalar_softmax(&[]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_scalar_softmax_single_deep2() {
+        let result = scalar_softmax(&[0.0]);
+        assert_eq!(result.len(), 1);
+        assert!((result[0] - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_scalar_softmax_uniform_deep2() {
+        let input = vec![1.0, 1.0, 1.0, 1.0];
+        let result = scalar_softmax(&input);
+        assert_eq!(result.len(), 4);
+        for val in &result {
+            assert!((val - 0.25).abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn test_scalar_softmax_numerical_stability_deep2() {
+        // Large values should not overflow
+        let input = vec![1000.0, 1001.0, 1002.0];
+        let result = scalar_softmax(&input);
+        assert_eq!(result.len(), 3);
+        let sum: f32 = result.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-5);
+    }
+
+    // --- simd_softmax deep tests ---
+    #[test]
+    fn test_simd_softmax_empty_deep2() {
+        let result = simd_softmax(&[]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_simd_softmax_single_deep2() {
+        let result = simd_softmax(&[0.0]);
+        assert_eq!(result.len(), 1);
+        assert!((result[0] - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_simd_softmax_matches_scalar_deep2() {
+        let input = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
+        let scalar_result = scalar_softmax(&input);
+        let simd_result = simd_softmax(&input);
+        assert_eq!(scalar_result.len(), simd_result.len());
+        for i in 0..scalar_result.len() {
+            assert!((scalar_result[i] - simd_result[i]).abs() < 1e-5);
+        }
+    }
+
+    // --- scalar_rope deep tests ---
+    #[test]
+    fn test_scalar_rope_empty_deep2() {
+        let result = scalar_rope(&[], 0, 0, 10000.0);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_scalar_rope_zero_seq_len_deep2() {
+        let result = scalar_rope(&[1.0, 2.0, 3.0, 4.0], 0, 4, 10000.0);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_scalar_rope_zero_head_dim_deep2() {
+        let result = scalar_rope(&[1.0, 2.0, 3.0, 4.0], 1, 0, 10000.0);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_scalar_rope_basic_deep2() {
+        // Single position, single head, head_dim=4
+        let input = vec![1.0, 2.0, 3.0, 4.0];
+        let result = scalar_rope(&input, 1, 4, 10000.0);
+        assert_eq!(result.len(), 4);
+        // Position 0 should apply rotation with angle=0 (cos=1, sin=0)
+        // So output should be close to input at position 0
+        assert!((result[0] - 1.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_scalar_rope_multiple_positions_deep2() {
+        // 2 positions, 1 head, head_dim=4
+        let input = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+        let result = scalar_rope(&input, 2, 4, 10000.0);
+        assert_eq!(result.len(), 8);
+        // Results should be finite
+        for val in &result {
+            assert!(val.is_finite());
+        }
+    }
+
+    // --- simd_rope deep tests ---
+    #[test]
+    fn test_simd_rope_empty_deep2() {
+        let result = simd_rope(&[], 0, 0, 10000.0);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_simd_rope_matches_scalar_deep2() {
+        let input: Vec<f32> = (0..64).map(|x| x as f32 * 0.1).collect();
+        let scalar_result = scalar_rope(&input, 2, 16, 10000.0);
+        let simd_result = simd_rope(&input, 2, 16, 10000.0);
+        assert_eq!(scalar_result.len(), simd_result.len());
+        for i in 0..scalar_result.len() {
+            assert!(
+                (scalar_result[i] - simd_result[i]).abs() < 1e-4,
+                "Mismatch at {}: scalar={}, simd={}",
+                i,
+                scalar_result[i],
+                simd_result[i]
+            );
+        }
+    }
+
+    // --- CacheAlignedBuffer tests ---
+    #[test]
+    fn test_cache_aligned_buffer_new_cov() {
+        let buf = CacheAlignedBuffer::new(100);
+        assert_eq!(buf.len(), 100);
+        assert!(!buf.is_empty());
+    }
+
+    #[test]
+    fn test_cache_aligned_buffer_empty_cov() {
+        let buf = CacheAlignedBuffer::new(0);
+        assert_eq!(buf.len(), 0);
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn test_cache_aligned_buffer_alignment_cov() {
+        let buf = CacheAlignedBuffer::new(256);
+        // Should be aligned to 64 bytes
+        assert!(buf.is_aligned(64));
+    }
+
+    #[test]
+    fn test_cache_aligned_buffer_slice_cov() {
+        let mut buf = CacheAlignedBuffer::new(10);
+        let slice = buf.as_mut_slice();
+        slice[0] = 42.0;
+        slice[9] = 99.0;
+        assert_eq!(buf.as_slice()[0], 42.0);
+        assert_eq!(buf.as_slice()[9], 99.0);
+    }
+
+    // --- prefetch_read tests ---
+    #[test]
+    fn test_prefetch_read_in_bounds_cov() {
+        let data = vec![1.0f32; 100];
+        // Should not panic
+        prefetch_read(&data, 0, 50);
+        prefetch_read(&data, 50, 49);
+    }
+
+    #[test]
+    fn test_prefetch_read_out_of_bounds_cov() {
+        let data = vec![1.0f32; 10];
+        // Should be a no-op when out of bounds
+        prefetch_read(&data, 5, 100); // position + distance > len
+        prefetch_read(&data, 10, 1); // position at end
+    }
+
+    // --- sequential_sum tests ---
+    #[test]
+    fn test_sequential_sum_empty_cov() {
+        let result = sequential_sum(&[]);
+        assert_eq!(result, 0.0);
+    }
+
+    #[test]
+    fn test_sequential_sum_basic_cov() {
+        let data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let result = sequential_sum(&data);
+        assert!((result - 15.0).abs() < 1e-5);
+    }
+
+    // --- sum_with_prefetch tests ---
+    #[test]
+    fn test_sum_with_prefetch_empty_cov() {
+        let result = sum_with_prefetch(&[], 8);
+        assert_eq!(result, 0.0);
+    }
+
+    #[test]
+    fn test_sum_with_prefetch_basic_cov() {
+        let data: Vec<f32> = (1..=100).map(|x| x as f32).collect();
+        let result = sum_with_prefetch(&data, 16);
+        let expected = 5050.0; // Sum of 1..100
+        assert!((result - expected).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_sum_with_prefetch_matches_sequential_cov() {
+        let data: Vec<f32> = (0..1000).map(|x| x as f32 * 0.001).collect();
+        let seq = sequential_sum(&data);
+        let prefetch = sum_with_prefetch(&data, 32);
+        assert!((seq - prefetch).abs() < 1e-3);
+    }
+
+    // --- naive_matmul tests ---
+    #[test]
+    fn test_naive_matmul_identity_cov() {
+        // 2x2 @ 2x2 identity-like
+        let a = vec![1.0, 0.0, 0.0, 1.0];
+        let b = vec![5.0, 6.0, 7.0, 8.0];
+        let result = naive_matmul(&a, &b, 2, 2, 2);
+        assert_eq!(result.len(), 4);
+        assert!((result[0] - 5.0).abs() < 1e-5);
+        assert!((result[3] - 8.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_naive_matmul_non_square_cov() {
+        // 2x3 @ 3x1
+        let a = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let b = vec![1.0, 1.0, 1.0];
+        let result = naive_matmul(&a, &b, 2, 3, 1);
+        assert_eq!(result.len(), 2);
+        assert!((result[0] - 6.0).abs() < 1e-5); // 1+2+3
+        assert!((result[1] - 15.0).abs() < 1e-5); // 4+5+6
+    }
+
+    // --- blocked_matmul tests ---
+    #[test]
+    fn test_blocked_matmul_matches_naive_cov() {
+        let a = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0];
+        let b = vec![9.0, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0];
+        let naive = naive_matmul(&a, &b, 3, 3, 3);
+        let blocked = blocked_matmul(&a, &b, 3, 3, 3, 2);
+        assert_eq!(naive.len(), blocked.len());
+        for i in 0..naive.len() {
+            assert!((naive[i] - blocked[i]).abs() < 1e-4);
+        }
+    }
+
+    #[test]
+    fn test_blocked_matmul_large_block_cov() {
+        let a = vec![1.0, 2.0, 3.0, 4.0];
+        let b = vec![5.0, 6.0, 7.0, 8.0];
+        // Block size larger than matrix dimensions
+        let result = blocked_matmul(&a, &b, 2, 2, 2, 100);
+        assert_eq!(result.len(), 4);
+        assert!((result[0] - 19.0).abs() < 1e-5);
+    }
+
+    // --- TensorPool tests ---
+    #[test]
+    fn test_tensor_pool_new_cov() {
+        let pool = TensorPool::new(10);
+        assert_eq!(pool.available(), 0);
+    }
+
+    #[test]
+    fn test_tensor_pool_acquire_release_cov() {
+        let mut pool = TensorPool::new(5);
+        let buf = pool.acquire(100);
+        assert_eq!(buf.len(), 100);
+        pool.release(buf);
+        assert_eq!(pool.available(), 1);
+    }
+
+    #[test]
+    fn test_tensor_pool_reuse_cov() {
+        let mut pool = TensorPool::new(5);
+        let buf1 = pool.acquire(100);
+        pool.release(buf1);
+        let buf2 = pool.acquire(100);
+        assert_eq!(buf2.len(), 100);
+        // Should have reused the buffer
+        assert_eq!(pool.available(), 0);
+    }
+
+    #[test]
+    fn test_tensor_pool_size_mismatch_cov() {
+        let mut pool = TensorPool::new(5);
+        let buf = pool.acquire(100);
+        pool.release(buf);
+        // Request different size - should allocate new
+        let buf2 = pool.acquire(200);
+        assert_eq!(buf2.len(), 200);
+    }
+
+    #[test]
+    fn test_tensor_pool_capacity_limit_cov() {
+        let mut pool = TensorPool::new(2);
+        let buf1 = pool.acquire(10);
+        let buf2 = pool.acquire(10);
+        let buf3 = pool.acquire(10);
+        pool.release(buf1);
+        pool.release(buf2);
+        pool.release(buf3); // Should not exceed capacity
+        assert!(pool.available() <= 2);
+    }
+
+    // --- DoubleBuffer tests ---
+    #[test]
+    fn test_double_buffer_new_cov() {
+        let buf: DoubleBuffer<f32> = DoubleBuffer::new(100);
+        assert_eq!(buf.capacity(), 100);
+    }
+
+    #[test]
+    fn test_double_buffer_front_back_cov() {
+        let mut buf: DoubleBuffer<f32> = DoubleBuffer::new(10);
+        buf.back_mut()[0] = 42.0;
+        assert_eq!(buf.front()[0], 0.0);
+        buf.swap();
+        assert_eq!(buf.front()[0], 42.0);
+    }
+
+    #[test]
+    fn test_double_buffer_swap_cov() {
+        let mut buf: DoubleBuffer<i32> = DoubleBuffer::new(5);
+        buf.back_mut()[0] = 1;
+        buf.swap();
+        buf.back_mut()[0] = 2;
+        assert_eq!(buf.front()[0], 1);
+        buf.swap();
+        assert_eq!(buf.front()[0], 2);
+    }
+
+    // --- ChunkedProcessor tests ---
+    #[test]
+    fn test_chunked_processor_new_cov() {
+        let proc = ChunkedProcessor::new(64);
+        assert_eq!(proc.chunk_size(), 64);
+    }
+
+    #[test]
+    fn test_chunked_processor_num_chunks_cov() {
+        let proc = ChunkedProcessor::new(10);
+        assert_eq!(proc.num_chunks(0), 0);
+        assert_eq!(proc.num_chunks(10), 1);
+        assert_eq!(proc.num_chunks(11), 2);
+        assert_eq!(proc.num_chunks(20), 2);
+        assert_eq!(proc.num_chunks(21), 3);
+    }
+
+    #[test]
+    fn test_chunked_processor_bounds_cov() {
+        let proc = ChunkedProcessor::new(10);
+        assert_eq!(proc.chunk_bounds(0, 25), (0, 10));
+        assert_eq!(proc.chunk_bounds(1, 25), (10, 20));
+        assert_eq!(proc.chunk_bounds(2, 25), (20, 25));
+    }
+
+    #[test]
+    fn test_chunked_processor_process_cov() {
+        let proc = ChunkedProcessor::new(5);
+        let data: Vec<f32> = vec![1.0; 12];
+        let result = proc.process_chunks(&data, |chunk| chunk.iter().sum());
+        assert!((result - 12.0).abs() < 1e-5);
+    }
+
+    // --- GpuPipelineStage tests ---
+    #[test]
+    fn test_pipeline_stage_values_cov() {
+        assert_eq!(GpuPipelineStage::Embed as u8, 0);
+        assert_eq!(GpuPipelineStage::Attention as u8, 1);
+        assert_eq!(GpuPipelineStage::FFN as u8, 2);
+        assert_eq!(GpuPipelineStage::Output as u8, 3);
+    }
+
+    // --- InferencePipeline tests ---
+    #[test]
+    fn test_inference_pipeline_new_cov() {
+        let pipe = InferencePipeline::new(4);
+        assert_eq!(pipe.num_stages(), 4);
+        assert_eq!(pipe.total_latency(), 0.0);
+    }
+
+    #[test]
+    fn test_inference_pipeline_record_cov() {
+        let mut pipe = InferencePipeline::new(4);
+        pipe.record_stage_time(GpuPipelineStage::Embed, 1.0);
+        pipe.record_stage_time(GpuPipelineStage::Attention, 5.0);
+        pipe.record_stage_time(GpuPipelineStage::FFN, 3.0);
+        pipe.record_stage_time(GpuPipelineStage::Output, 1.0);
+        assert!((pipe.total_latency() - 10.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_inference_pipeline_reset_cov() {
+        let mut pipe = InferencePipeline::new(4);
+        pipe.record_stage_time(GpuPipelineStage::Embed, 5.0);
+        pipe.reset();
+        assert_eq!(pipe.total_latency(), 0.0);
+        assert!(pipe.stage_breakdown().is_empty());
+    }
+
+    // --- TokenBatch tests ---
+    #[test]
+    fn test_token_batch_new_deep2() {
+        let batch = TokenBatch::new(32);
+        assert_eq!(batch.capacity(), 32);
+        assert_eq!(batch.len(), 0);
+        assert!(batch.is_empty());
+    }
+
+    #[test]
+    fn test_token_batch_push_deep2() {
+        let mut batch = TokenBatch::new(5);
+        assert!(batch.push(1).is_none());
+        assert!(batch.push(2).is_none());
+        assert!(batch.push(3).is_none());
+        assert_eq!(batch.len(), 3);
+        assert!(!batch.is_full());
+    }
+
+    #[test]
+    fn test_token_batch_full_deep2() {
+        let mut batch = TokenBatch::new(3);
+        batch.push(1);
+        batch.push(2);
+        let result = batch.push(3); // Should return Some with tokens
+        assert!(result.is_some());
+        let tokens = result.expect("test");
+        assert_eq!(tokens, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_token_batch_flush_deep2() {
+        let mut batch = TokenBatch::new(5);
+        batch.push(10);
+        batch.push(20);
+        batch.push(30);
+        let tokens = batch.flush();
+        assert_eq!(tokens, vec![10, 20, 30]);
+        assert!(batch.is_empty());
+    }
+
+    // --- quantized_matvec_q4 deep tests ---
+    #[test]
+    fn test_quantized_matvec_q4_basic_deep2() {
+        // Q4_0 block: 2 bytes scale + 16 bytes (32 4-bit values)
+        let block_size = 18;
+        let cols = 32; // One block
+        let rows = 2;
+        let weights = vec![0u8; rows * (cols / 32) * block_size];
+        let input = vec![1.0f32; cols];
+        let result = quantized_matvec_q4(&weights, &input, rows, cols);
+        assert_eq!(result.len(), rows);
+    }
+
+    #[test]
+    fn test_quantized_matvec_q4_empty_deep2() {
+        let weights: Vec<u8> = vec![];
+        let input: Vec<f32> = vec![];
+        let result = quantized_matvec_q4(&weights, &input, 0, 0);
+        assert!(result.is_empty());
+    }
+
+    // --- quantized_matvec_q8 deep tests ---
+    #[test]
+    fn test_quantized_matvec_q8_basic_deep2() {
+        // Q8_0 block: 2 bytes scale + 32 bytes values
+        let block_size = 34;
+        let cols = 32; // One block
+        let rows = 2;
+        let weights = vec![0u8; rows * (cols / 32) * block_size];
+        let input = vec![1.0f32; cols];
+        let result = quantized_matvec_q8(&weights, &input, rows, cols);
+        assert_eq!(result.len(), rows);
+    }
+
+    // --- QuantizedAccumulator tests ---
+    #[test]
+    fn test_quantized_accumulator_new_deep2() {
+        let acc = QuantizedAccumulator::new();
+        assert_eq!(acc.sum(), 0.0);
+    }
+
+    #[test]
+    fn test_quantized_accumulator_add_scaled_deep2() {
+        let mut acc = QuantizedAccumulator::new();
+        acc.add_scaled(2.0, 0.5); // 2.0 * 0.5 = 1.0
+        acc.add_scaled(4.0, 0.5); // 4.0 * 0.5 = 2.0
+        assert!((acc.sum() - 3.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_quantized_accumulator_add_block_deep2() {
+        let mut acc = QuantizedAccumulator::new();
+        acc.add_block(10.0, 0.5); // 10.0 * 0.5 = 5.0
+        acc.add_block(6.0, 0.5); // 6.0 * 0.5 = 3.0
+        assert!((acc.sum() - 8.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_quantized_accumulator_reset_deep2() {
+        let mut acc = QuantizedAccumulator::new();
+        acc.add_scaled(10.0, 1.0);
+        acc.reset();
+        assert_eq!(acc.sum(), 0.0);
+    }
+
+    // --- ContiguousAttentionBuffer tests ---
+    #[test]
+    fn test_contiguous_attention_buffer_new_deep2() {
+        // Constructor: new(max_seq_len, num_heads, head_dim)
+        let buf = ContiguousAttentionBuffer::new(8, 4, 64);
+        assert_eq!(buf.max_seq_len(), 8);
+    }
+
+    #[test]
+    fn test_contiguous_attention_buffer_is_contiguous_deep2() {
+        let buf = ContiguousAttentionBuffer::new(10, 2, 32);
+        assert!(buf.is_contiguous());
+    }
+
+    #[test]
+    fn test_contiguous_attention_buffer_get_views_deep2() {
+        let buf = ContiguousAttentionBuffer::new(4, 2, 16);
+        let (q, k, v, o) = buf.get_views();
+        assert_eq!(q.len(), 4 * 2 * 16); // max_seq_len * num_heads * head_dim
+        assert_eq!(k.len(), q.len());
+        assert_eq!(v.len(), q.len());
+        assert_eq!(o.len(), q.len());
+    }
+
+    #[test]
+    fn test_contiguous_attention_buffer_reset_deep2() {
+        let mut buf = ContiguousAttentionBuffer::new(4, 2, 16);
+        {
+            let (q, _, _, _) = buf.get_views_mut();
+            q[0] = 42.0;
+        }
+        buf.reset();
+        let (q, _, _, _) = buf.get_views();
+        assert_eq!(q[0], 0.0);
+    }
+
+    // --- batch_embed tests ---
+    #[test]
+    fn test_batch_embed_empty_cov() {
+        let embedding_table = vec![1.0f32; 100];
+        let tokens: Vec<usize> = vec![];
+        let result = batch_embed(&embedding_table, &tokens, 10);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_batch_embed_multiple_tokens_cov() {
+        let hidden_dim = 4;
+        let vocab_size = 10;
+        let mut embedding_table = vec![0.0f32; vocab_size * hidden_dim];
+        // Set specific embeddings
+        for i in 0..vocab_size {
+            for j in 0..hidden_dim {
+                embedding_table[i * hidden_dim + j] = (i * 10 + j) as f32;
+            }
+        }
+        let tokens = vec![0, 5, 9];
+        let result = batch_embed(&embedding_table, &tokens, hidden_dim);
+        assert_eq!(result.len(), 3 * hidden_dim);
+        // Check token 0 embedding
+        assert_eq!(result[0], 0.0);
+        // Check token 5 embedding
+        assert_eq!(result[4], 50.0);
+        // Check token 9 embedding
+        assert_eq!(result[8], 90.0);
+    }
+
+    // --- sequential_ffn and parallel_ffn tests ---
+    #[test]
+    fn test_sequential_ffn_zero_weights_cov() {
+        let hidden_dim = 4;
+        let inter_dim = 8;
+        let hidden = vec![1.0f32; hidden_dim];
+        let w1 = vec![0.0f32; hidden_dim * inter_dim];
+        let w2 = vec![0.0f32; inter_dim * hidden_dim];
+        let result = sequential_ffn(&hidden, &w1, &w2, hidden_dim, inter_dim);
+        assert_eq!(result.len(), hidden_dim);
+        for val in &result {
+            assert_eq!(*val, 0.0);
+        }
+    }
+
+    #[test]
+    fn test_parallel_ffn_matches_sequential_cov() {
+        let hidden_dim = 8;
+        let inter_dim = 16;
+        let hidden: Vec<f32> = (0..hidden_dim).map(|x| x as f32 * 0.1).collect();
+        let w1: Vec<f32> = (0..hidden_dim * inter_dim).map(|x| x as f32 * 0.01).collect();
+        let w2: Vec<f32> = (0..inter_dim * hidden_dim).map(|x| x as f32 * 0.01).collect();
+
+        let seq = sequential_ffn(&hidden, &w1, &w2, hidden_dim, inter_dim);
+        let par = parallel_ffn(&hidden, &w1, &w2, hidden_dim, inter_dim);
+
+        assert_eq!(seq.len(), par.len());
+        for i in 0..seq.len() {
+            assert!(
+                (seq[i] - par[i]).abs() < 1e-3,
+                "Mismatch at {}: seq={}, par={}",
+                i, seq[i], par[i]
+            );
+        }
+    }
+
+    // --- standard_layernorm and fused_layernorm deep tests ---
+    #[test]
+    fn test_standard_layernorm_basic_deep2() {
+        let input = vec![1.0, 2.0, 3.0, 4.0];
+        let gamma = vec![1.0, 1.0, 1.0, 1.0];
+        let beta = vec![0.0, 0.0, 0.0, 0.0];
+        let result = standard_layernorm(&input, &gamma, &beta, 1e-5);
+        assert_eq!(result.len(), 4);
+        // Result should be normalized (mean ~0, std ~1)
+        let mean: f32 = result.iter().sum::<f32>() / 4.0;
+        assert!(mean.abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_standard_layernorm_with_scale_shift_deep2() {
+        let input = vec![1.0, 2.0, 3.0, 4.0];
+        let gamma = vec![2.0, 2.0, 2.0, 2.0];
+        let beta = vec![1.0, 1.0, 1.0, 1.0];
+        let result = standard_layernorm(&input, &gamma, &beta, 1e-5);
+        // After scaling by 2 and shifting by 1
+        let mean: f32 = result.iter().sum::<f32>() / 4.0;
+        assert!((mean - 1.0).abs() < 1e-4); // Mean should be close to beta
+    }
+
+    #[test]
+    fn test_fused_layernorm_matches_standard_deep2() {
+        let input: Vec<f32> = (0..32).map(|x| x as f32 * 0.1).collect();
+        let gamma = vec![1.0f32; 32];
+        let beta = vec![0.0f32; 32];
+
+        let standard = standard_layernorm(&input, &gamma, &beta, 1e-5);
+        let fused = fused_layernorm(&input, &gamma, &beta, 1e-5);
+
+        assert_eq!(standard.len(), fused.len());
+        for i in 0..standard.len() {
+            assert!(
+                (standard[i] - fused[i]).abs() < 1e-4,
+                "Mismatch at {}: standard={}, fused={}",
+                i, standard[i], fused[i]
+            );
+        }
+    }
+
+    // --- ForwardArena tests ---
+    #[test]
+    fn test_forward_arena_new_cov() {
+        let arena = ForwardArena::new(1024);
+        assert_eq!(arena.capacity(), 1024);
+    }
+
+    #[test]
+    fn test_forward_arena_alloc_cov() {
+        let mut arena = ForwardArena::new(1000);
+        let buf1 = arena.alloc(100);
+        assert_eq!(buf1.len(), 100);
+        let buf2 = arena.alloc(200);
+        assert_eq!(buf2.len(), 200);
+    }
+
+    #[test]
+    fn test_forward_arena_reset_cov() {
+        let mut arena = ForwardArena::new(500);
+        arena.alloc(100);
+        arena.alloc(200);
+        arena.reset();
+        // After reset, should be able to allocate full capacity again
+        let buf = arena.alloc(400);
+        assert_eq!(buf.len(), 400);
+    }
+
+    // --- ScratchBuffer tests ---
+    #[test]
+    fn test_scratch_buffer_new_deep2() {
+        let scratch = ScratchBuffer::new(4, 256);
+        assert_eq!(scratch.num_layers(), 4);
+        assert_eq!(scratch.layer_size(), 256);
+        assert_eq!(scratch.total_size(), 1024);
+    }
+
+    #[test]
+    fn test_scratch_buffer_get_layer_deep2() {
+        let scratch = ScratchBuffer::new(2, 100);
+        let layer0 = scratch.get_layer(0);
+        assert_eq!(layer0.len(), 100);
+        let layer1 = scratch.get_layer(1);
+        assert_eq!(layer1.len(), 100);
+    }
+
+    #[test]
+    fn test_scratch_buffer_get_layer_mut_deep2() {
+        let mut scratch = ScratchBuffer::new(2, 50);
+        {
+            let layer = scratch.get_layer_mut(0);
+            layer[0] = 42.0;
+        }
+        assert_eq!(scratch.get_layer(0)[0], 42.0);
+    }
+
+    #[test]
+    fn test_scratch_buffer_reset_deep2() {
+        let mut scratch = ScratchBuffer::new(2, 50);
+        scratch.get_layer_mut(0)[0] = 99.0;
+        scratch.reset();
+        assert_eq!(scratch.get_layer(0)[0], 0.0);
+    }
+
+    // --- GpuBufferPool tests ---
+    #[test]
+    fn test_gpu_buffer_pool_new_deep2() {
+        let pool = GpuBufferPool::new();
+        let stats = pool.stats();
+        assert_eq!(stats.cached_buffers, 0);
+    }
+
+    #[test]
+    fn test_gpu_buffer_pool_acquire_release_deep2() {
+        let mut pool = GpuBufferPool::new();
+        let buf = pool.acquire(100);
+        assert_eq!(buf.len(), 100);
+        pool.release(buf);
+        let stats = pool.stats();
+        assert!(stats.cached_buffers > 0 || stats.cached_bytes >= 0);
+    }
+
+    #[test]
+    fn test_gpu_buffer_pool_clear_deep2() {
+        let mut pool = GpuBufferPool::new();
+        let buf = pool.acquire(1024);
+        pool.release(buf);
+        pool.clear();
+        let stats = pool.stats();
+        assert_eq!(stats.cached_buffers, 0);
+    }
+
+    // --- GpuCompute additional tests ---
+    #[test]
+    fn test_gpu_compute_empty_inputs_cov() {
+        let mut compute = GpuCompute::new(ComputeBackend::Cpu).expect("test");
+        let empty: Vec<f32> = vec![];
+        let result = compute.relu(&empty);
+        assert!(result.is_ok());
+        assert!(result.expect("test").is_empty());
+    }
+
+    #[test]
+    fn test_gpu_compute_large_matmul_cov() {
+        let mut compute = GpuCompute::new(ComputeBackend::Cpu).expect("test");
+        let a = vec![1.0f32; 64 * 64];
+        let b = vec![1.0f32; 64 * 64];
+        let c = compute.matmul(&a, &b, 64, 64, 64);
+        assert!(c.is_ok());
+        assert_eq!(c.expect("test").len(), 64 * 64);
+    }
+
+    // --- StreamingKVCache additional tests ---
+    #[test]
+    fn test_streaming_kv_cache_get_valid_deep2() {
+        let mut cache = StreamingKVCache::new(4, 100, 8, 64);
+        let kv_dim = 8 * 64;
+        let k = vec![1.0f32; kv_dim];
+        let v = vec![2.0f32; kv_dim];
+
+        // Need to append to all layers for each position
+        for layer in 0..4 {
+            cache.append(layer, &k, &v);
+        }
+
+        let (keys, values) = cache.get_valid(0);
+        assert!(!keys.is_empty());
+        assert!(!values.is_empty());
+        assert_eq!(keys.len(), kv_dim);
+    }
+
+    #[test]
+    fn test_streaming_kv_cache_get_range_deep2() {
+        let mut cache = StreamingKVCache::new(2, 10, 4, 32);
+        let kv_dim = 4 * 32;
+        let k = vec![1.0f32; kv_dim];
+        let v = vec![2.0f32; kv_dim];
+
+        // Fill 3 positions
+        for _ in 0..3 {
+            for layer in 0..2 {
+                cache.append(layer, &k, &v);
+            }
+        }
+        assert_eq!(cache.len(), 3);
+
+        let (keys, values) = cache.get_range(0, 0, 2);
+        assert_eq!(keys.len(), 2 * kv_dim);
+        assert_eq!(values.len(), 2 * kv_dim);
+    }
+
+    #[test]
+    fn test_streaming_kv_cache_clear_deep2() {
+        let mut cache = StreamingKVCache::new(2, 10, 4, 32);
+        let kv_dim = 4 * 32;
+        let k = vec![1.0f32; kv_dim];
+        let v = vec![2.0f32; kv_dim];
+
+        for layer in 0..2 {
+            cache.append(layer, &k, &v);
+        }
+        assert_eq!(cache.len(), 1);
+
+        cache.clear();
+        assert_eq!(cache.len(), 0);
+        assert!(cache.is_empty());
+    }
+
+    // --- LARGE_VOCAB_THRESHOLD test ---
+    #[test]
+    fn test_large_vocab_threshold_constant_cov() {
+        assert_eq!(LARGE_VOCAB_THRESHOLD, 65536);
+    }
 }

@@ -14332,7 +14332,7 @@ mod tests {
     }
 
     #[test]
-    fn test_interleaved_q4k_from_q4k_empty_cov() {
+    fn test_interleaved_q4k_from_q4k_empty_deep2() {
         let data: Vec<u8> = vec![];
         let result = InterleavedQ4K::from_q4k(&data);
         assert!(result.is_ok());
@@ -16003,5 +16003,875 @@ mod tests {
         let mut out_quants = [0i8; 256];
         Q8KSuperBlock::quantize_into(values_slice, &mut out_scale, &mut out_quants);
         assert!(out_scale > 0.0);
+    }
+
+    // =========================================================================
+    // Deep Coverage Tests: InterleavedQ4K
+    // =========================================================================
+
+    #[test]
+    fn test_interleaved_q4k_from_q4k_invalid_length_cov() {
+        // Not a multiple of 144
+        let data = vec![0u8; 143];
+        let result = InterleavedQ4K::from_q4k(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_interleaved_q4k_from_q4k_empty_deep3() {
+        let result = InterleavedQ4K::from_q4k(&[]);
+        assert!(result.is_ok());
+        let iq = result.unwrap();
+        assert_eq!(iq.num_super_blocks, 0);
+        assert_eq!(iq.num_values(), 0);
+    }
+
+    #[test]
+    fn test_interleaved_q4k_num_values_cov() {
+        // One super-block = 256 values
+        let data = vec![0u8; 144];
+        let iq = InterleavedQ4K::from_q4k(&data).unwrap();
+        assert_eq!(iq.num_values(), 256);
+    }
+
+    #[test]
+    fn test_interleaved_q4k_dot_dim_mismatch_cov() {
+        let data = vec![0u8; 144];
+        let iq = InterleavedQ4K::from_q4k(&data).unwrap();
+        let activations = vec![1.0f32; 100]; // Wrong size
+        let result = iq.dot(&activations);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_interleaved_q4k_dot_valid_cov() {
+        // Create valid Q4_K data
+        let mut data = vec![0u8; 144];
+        // Set d=1.0 as f16
+        let d_bytes = half::f16::from_f32(1.0).to_le_bytes();
+        data[0] = d_bytes[0];
+        data[1] = d_bytes[1];
+        // dmin = 0.0
+        data[2] = 0;
+        data[3] = 0;
+
+        let iq = InterleavedQ4K::from_q4k(&data).unwrap();
+        let activations = vec![1.0f32; 256];
+        let result = iq.dot(&activations);
+        assert!(result.is_ok());
+    }
+
+    // =========================================================================
+    // Deep Coverage Tests: Q8_0Block additional methods
+    // =========================================================================
+
+    #[test]
+    fn test_q8_0_block_quantize_all_zeros_cov() {
+        let values = [0.0f32; 32];
+        let block = Q8_0Block::quantize(&values);
+        // Scale should be minimal (1/127)
+        assert!(block.scale > 0.0);
+        assert!(block.scale < 0.01);
+    }
+
+    #[test]
+    fn test_q8_0_block_relative_error_near_zero_cov() {
+        let values = [1e-12f32; 32];
+        let block = Q8_0Block::quantize(&values);
+        let rel_err = block.relative_error(&values);
+        // Should return 0.0 for near-zero inputs
+        assert_eq!(rel_err, 0.0);
+    }
+
+    #[test]
+    fn test_q8_0_block_quantization_error_deep2() {
+        let values: [f32; 32] = std::array::from_fn(|i| i as f32 - 16.0);
+        let block = Q8_0Block::quantize(&values);
+        let error = block.quantization_error(&values);
+        // Error should be small for linear values
+        assert!(error < 0.5);
+    }
+
+    #[test]
+    fn test_q8_0_block_dequantize_roundtrip_cov() {
+        let values: [f32; 32] = std::array::from_fn(|i| (i as f32 - 15.5) * 2.0);
+        let block = Q8_0Block::quantize(&values);
+        let dequantized = block.dequantize();
+        // Check roundtrip error is reasonable
+        for (orig, deq) in values.iter().zip(dequantized.iter()) {
+            let err = (orig - deq).abs();
+            assert!(err < 1.0, "Error too large: {} vs {}", orig, deq);
+        }
+    }
+
+    // =========================================================================
+    // Deep Coverage Tests: Q8KSuperBlock
+    // =========================================================================
+
+    #[test]
+    fn test_q8k_superblock_quantize_alternating_cov() {
+        let values: [f32; 256] = std::array::from_fn(|i| if i % 2 == 0 { 10.0 } else { -10.0 });
+        let sb = Q8KSuperBlock::quantize(&values);
+        assert!(sb.scale > 0.0);
+        // Check that quants alternate in sign
+        assert!(sb.quants[0] > 0);
+        assert!(sb.quants[1] < 0);
+    }
+
+    #[test]
+    fn test_q8k_superblock_quantize_increasing_cov() {
+        let values: [f32; 256] = std::array::from_fn(|i| (i as f32 - 128.0) / 10.0);
+        let sb = Q8KSuperBlock::quantize(&values);
+        assert!(sb.scale > 0.0);
+        // First quant should be negative, last should be positive
+        assert!(sb.quants[0] < 0);
+        assert!(sb.quants[255] > 0);
+    }
+
+    // =========================================================================
+    // Deep Coverage Tests: quantize_to_q8_blocks
+    // =========================================================================
+
+    #[test]
+    fn test_quantize_to_q8_blocks_exact_blocks_cov() {
+        let values: Vec<f32> = (0..64).map(|i| i as f32).collect();
+        let blocks = quantize_to_q8_blocks(&values).unwrap();
+        assert_eq!(blocks.len(), 2); // 64 values = 2 blocks
+    }
+
+    #[test]
+    fn test_quantize_to_q8_blocks_partial_block_cov() {
+        // Function requires multiple of 32, so 50 should error
+        let values: Vec<f32> = (0..50).map(|i| i as f32).collect();
+        let result = quantize_to_q8_blocks(&values);
+        // Should error because 50 is not a multiple of 32
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_quantize_to_q8_blocks_empty_deep2() {
+        let values: Vec<f32> = vec![];
+        let blocks = quantize_to_q8_blocks(&values).unwrap();
+        assert!(blocks.is_empty());
+    }
+
+    // =========================================================================
+    // Deep Coverage Tests: dequantize_q8_blocks
+    // =========================================================================
+
+    #[test]
+    fn test_dequantize_q8_blocks_roundtrip_deep2() {
+        let values: Vec<f32> = (0..32).map(|i| i as f32 - 16.0).collect();
+        let blocks = quantize_to_q8_blocks(&values).unwrap();
+        let dequantized = dequantize_q8_blocks(&blocks);
+        assert_eq!(dequantized.len(), 32);
+        // Check roundtrip error
+        for (orig, deq) in values.iter().zip(dequantized.iter()) {
+            let err = (orig - deq).abs();
+            assert!(err < 1.0);
+        }
+    }
+
+    // =========================================================================
+    // Deep Coverage Tests: f16_to_f32
+    // =========================================================================
+
+    #[test]
+    fn test_f16_to_f32_special_values_cov() {
+        // Zero
+        assert_eq!(f16_to_f32(0x0000), 0.0);
+        // One (f16 representation of 1.0)
+        let one = half::f16::from_f32(1.0).to_bits();
+        assert!((f16_to_f32(one) - 1.0).abs() < 1e-3);
+        // Negative one
+        let neg_one = half::f16::from_f32(-1.0).to_bits();
+        assert!((f16_to_f32(neg_one) - (-1.0)).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_f16_to_f32_small_values_cov() {
+        let small = half::f16::from_f32(0.001).to_bits();
+        let result = f16_to_f32(small);
+        assert!((result - 0.001).abs() < 1e-4);
+    }
+
+    // =========================================================================
+    // Deep Coverage Tests: dequantize_f16
+    // =========================================================================
+
+    #[test]
+    fn test_dequantize_f16_valid_deep2() {
+        // 4 bytes = 2 f16 values
+        let one = half::f16::from_f32(1.0).to_le_bytes();
+        let two = half::f16::from_f32(2.0).to_le_bytes();
+        let data = [one[0], one[1], two[0], two[1]];
+        let result = dequantize_f16(&data).unwrap();
+        assert_eq!(result.len(), 2);
+        assert!((result[0] - 1.0).abs() < 1e-3);
+        assert!((result[1] - 2.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_dequantize_f16_odd_length_cov() {
+        let data = [0u8; 3]; // Not a multiple of 2
+        let result = dequantize_f16(&data);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Deep Coverage Tests: dequantize_q4_1
+    // =========================================================================
+
+    #[test]
+    fn test_dequantize_q4_1_valid_cov() {
+        // Q4_1 block: 2 bytes scale + 2 bytes min + 16 bytes quants = 20 bytes
+        let mut data = vec![0u8; 20];
+        // scale = 1.0 as f16
+        let scale = half::f16::from_f32(1.0).to_le_bytes();
+        data[0] = scale[0];
+        data[1] = scale[1];
+        // min = 0.0 as f16
+        data[2] = 0;
+        data[3] = 0;
+        // quants: all zeros
+
+        let result = dequantize_q4_1(&data).unwrap();
+        assert_eq!(result.len(), 32);
+    }
+
+    #[test]
+    fn test_dequantize_q4_1_invalid_length_deep2() {
+        let data = vec![0u8; 19]; // Not a multiple of 20
+        let result = dequantize_q4_1(&data);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Deep Coverage Tests: dequantize_q5_0
+    // =========================================================================
+
+    #[test]
+    fn test_dequantize_q5_0_valid_cov() {
+        // Q5_0 block: 2 bytes scale + 4 bytes high bits + 16 bytes low quants = 22 bytes
+        let mut data = vec![0u8; 22];
+        // scale = 1.0 as f16
+        let scale = half::f16::from_f32(1.0).to_le_bytes();
+        data[0] = scale[0];
+        data[1] = scale[1];
+
+        let result = dequantize_q5_0(&data).unwrap();
+        assert_eq!(result.len(), 32);
+    }
+
+    #[test]
+    fn test_dequantize_q5_0_invalid_length_deep2() {
+        let data = vec![0u8; 21]; // Not a multiple of 22
+        let result = dequantize_q5_0(&data);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Deep Coverage Tests: dequantize_q5_1
+    // =========================================================================
+
+    #[test]
+    fn test_dequantize_q5_1_valid_deep2() {
+        // Q5_1 block: 2 bytes scale + 2 bytes min + 4 bytes high bits + 16 bytes low = 24 bytes
+        let mut data = vec![0u8; 24];
+        // scale = 1.0 as f16
+        let scale = half::f16::from_f32(1.0).to_le_bytes();
+        data[0] = scale[0];
+        data[1] = scale[1];
+
+        let result = dequantize_q5_1(&data).unwrap();
+        assert_eq!(result.len(), 32);
+    }
+
+    #[test]
+    fn test_dequantize_q5_1_invalid_length_deep2() {
+        let data = vec![0u8; 23]; // Not a multiple of 24
+        let result = dequantize_q5_1(&data);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Deep Coverage Tests: dequantize_q5_k
+    // =========================================================================
+
+    #[test]
+    fn test_dequantize_q5_k_valid_cov() {
+        // Q5_K super-block: 176 bytes
+        let data = vec![0u8; 176];
+        let result = dequantize_q5_k(&data).unwrap();
+        assert_eq!(result.len(), 256);
+    }
+
+    #[test]
+    fn test_dequantize_q5_k_invalid_length_cov() {
+        let data = vec![0u8; 175]; // Not a multiple of 176
+        let result = dequantize_q5_k(&data);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Deep Coverage Tests: dequantize_q6_k
+    // =========================================================================
+
+    #[test]
+    fn test_dequantize_q6_k_valid_cov() {
+        // Q6_K super-block: 210 bytes
+        let data = vec![0u8; 210];
+        let result = dequantize_q6_k(&data).unwrap();
+        assert_eq!(result.len(), 256);
+    }
+
+    #[test]
+    fn test_dequantize_q6_k_invalid_length_cov() {
+        let data = vec![0u8; 209]; // Not a multiple of 210
+        let result = dequantize_q6_k(&data);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Deep Coverage Tests: fused dot products
+    // =========================================================================
+
+    #[test]
+    fn test_fused_q4k_dot_valid_cov() {
+        let data = vec![0u8; 144]; // One super-block
+        let activations = vec![1.0f32; 256];
+        let result = fused_q4k_dot(&data, &activations);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_fused_q4k_dot_invalid_data_cov() {
+        let data = vec![0u8; 143]; // Invalid length
+        let activations = vec![1.0f32; 256];
+        let result = fused_q4k_dot(&data, &activations);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_fused_q4k_dot_dim_mismatch_cov() {
+        let data = vec![0u8; 144];
+        let activations = vec![1.0f32; 100]; // Wrong size
+        let result = fused_q4k_dot(&data, &activations);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_fused_q4k_dot_simd_valid_cov() {
+        let data = vec![0u8; 144];
+        let activations = vec![1.0f32; 256];
+        let result = fused_q4k_dot_simd(&data, &activations);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_fused_q6k_dot_valid_cov() {
+        let data = vec![0u8; 210];
+        let activations = vec![1.0f32; 256];
+        let result = fused_q6k_dot(&data, &activations);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_fused_q5k_dot_valid_cov() {
+        let data = vec![0u8; 176];
+        let activations = vec![1.0f32; 256];
+        let result = fused_q5k_dot(&data, &activations);
+        assert!(result.is_ok());
+    }
+
+    // =========================================================================
+    // Deep Coverage Tests: fused_q4k_q8_dot
+    // =========================================================================
+
+    #[test]
+    fn test_fused_q4k_q8_dot_valid_cov() {
+        let q4k_data = vec![0u8; 144];
+        let q8_blocks: Vec<Q8_0Block> = (0..8).map(|_| {
+            Q8_0Block {
+                scale: 1.0,
+                quants: [0i8; 32],
+            }
+        }).collect();
+        let result = fused_q4k_q8_dot(&q4k_data, &q8_blocks);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_fused_q4k_q8_dot_invalid_q4k_cov() {
+        let q4k_data = vec![0u8; 143]; // Invalid length
+        let q8_blocks: Vec<Q8_0Block> = (0..8).map(|_| {
+            Q8_0Block {
+                scale: 1.0,
+                quants: [0i8; 32],
+            }
+        }).collect();
+        let result = fused_q4k_q8_dot(&q4k_data, &q8_blocks);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Deep Coverage Tests: fused_q4k_q8k_dot
+    // =========================================================================
+
+    #[test]
+    fn test_fused_q4k_q8k_dot_valid_cov() {
+        let q4k_data = vec![0u8; 144];
+        let q8k_scales = vec![1.0f32; 1]; // One scale per super-block
+        let q8k_quants = vec![0i8; 256];
+        let result = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_fused_q4k_q8k_dot_invalid_q4k_cov() {
+        let q4k_data = vec![0u8; 143];
+        let q8k_scales = vec![1.0f32; 1];
+        let q8k_quants = vec![0i8; 256];
+        let result = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Deep Coverage Tests: quantize_activations_q8k_into
+    // =========================================================================
+
+    #[test]
+    fn test_quantize_activations_q8k_into_valid_cov() {
+        let activations: Vec<f32> = (0..256).map(|i| (i as f32 - 128.0) / 10.0).collect();
+        let mut scales = vec![0.0f32; 1]; // One scale per 256 values
+        let mut quants = vec![0i8; 256];
+        let result = quantize_activations_q8k_into(&activations, &mut scales, &mut quants);
+        assert!(result.is_ok());
+        assert!(scales[0] > 0.0);
+    }
+
+    #[test]
+    fn test_quantize_activations_q8k_into_zeros_cov() {
+        let activations = vec![0.0f32; 256];
+        let mut scales = vec![0.0f32; 1];
+        let mut quants = vec![0i8; 256];
+        let result = quantize_activations_q8k_into(&activations, &mut scales, &mut quants);
+        // Should succeed even with zeros
+        assert!(result.is_ok());
+    }
+
+    // =========================================================================
+    // Deep Coverage Tests: quantize_activations_q8_0
+    // =========================================================================
+
+    #[test]
+    fn test_quantize_activations_q8_0_valid_cov() {
+        let activations: Vec<f32> = (0..64).map(|i| i as f32).collect();
+        let (scales, quants) = quantize_activations_q8_0(&activations);
+        assert_eq!(scales.len(), 2); // 64/32 = 2 blocks
+        assert_eq!(quants.len(), 64);
+    }
+
+    #[test]
+    fn test_quantize_activations_q8_0_empty_cov() {
+        let activations: Vec<f32> = vec![];
+        let (scales, quants) = quantize_activations_q8_0(&activations);
+        assert!(scales.is_empty());
+        assert!(quants.is_empty());
+    }
+
+    // =========================================================================
+    // Deep Coverage Tests: apply_rope_rotation_scalar
+    // =========================================================================
+
+    #[test]
+    fn test_apply_rope_rotation_scalar_identity_cov() {
+        let mut x1 = vec![1.0, 2.0, 3.0, 4.0];
+        let mut x2 = vec![5.0, 6.0, 7.0, 8.0];
+        let cos_vals = vec![1.0, 1.0, 1.0, 1.0]; // cos(0) = 1
+        let sin_vals = vec![0.0, 0.0, 0.0, 0.0]; // sin(0) = 0
+
+        apply_rope_rotation_scalar(&mut x1, &mut x2, &cos_vals, &sin_vals);
+
+        // With cos=1, sin=0: x1' = x1, x2' = x2
+        assert_eq!(x1, vec![1.0, 2.0, 3.0, 4.0]);
+        assert_eq!(x2, vec![5.0, 6.0, 7.0, 8.0]);
+    }
+
+    #[test]
+    fn test_apply_rope_rotation_scalar_ninety_deg_cov() {
+        let mut x1 = vec![1.0, 0.0];
+        let mut x2 = vec![0.0, 1.0];
+        let cos_vals = vec![0.0, 0.0]; // cos(90) = 0
+        let sin_vals = vec![1.0, 1.0]; // sin(90) = 1
+
+        apply_rope_rotation_scalar(&mut x1, &mut x2, &cos_vals, &sin_vals);
+
+        // x1' = x1*0 - x2*1 = -x2
+        // x2' = x1*1 + x2*0 = x1
+        assert!((x1[0] - 0.0).abs() < 1e-6);
+        assert!((x2[0] - 1.0).abs() < 1e-6);
+    }
+
+    // =========================================================================
+    // Deep Coverage Tests: apply_rope_rotation_simd
+    // =========================================================================
+
+    #[test]
+    fn test_apply_rope_rotation_simd_basic_cov() {
+        let mut x1: Vec<f32> = (0..16).map(|i| i as f32).collect();
+        let mut x2: Vec<f32> = (0..16).map(|i| (i + 16) as f32).collect();
+        let cos_vals: Vec<f32> = vec![1.0; 16];
+        let sin_vals: Vec<f32> = vec![0.0; 16];
+
+        apply_rope_rotation_simd(&mut x1, &mut x2, &cos_vals, &sin_vals);
+
+        // With cos=1, sin=0: values unchanged
+        assert_eq!(x1[0], 0.0);
+        assert_eq!(x2[0], 16.0);
+    }
+
+    // =========================================================================
+    // Deep Coverage Tests: softmax_simd
+    // =========================================================================
+
+    #[test]
+    fn test_softmax_simd_basic_deep2() {
+        let mut x = vec![1.0, 2.0, 3.0, 4.0];
+        softmax_simd(&mut x);
+
+        // Sum should be 1.0
+        let sum: f32 = x.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-5);
+
+        // Values should be ordered (higher input -> higher probability)
+        assert!(x[3] > x[2]);
+        assert!(x[2] > x[1]);
+        assert!(x[1] > x[0]);
+    }
+
+    #[test]
+    fn test_softmax_simd_large_values_deep2() {
+        let mut x = vec![100.0, 101.0, 102.0, 103.0];
+        softmax_simd(&mut x);
+
+        let sum: f32 = x.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_softmax_simd_uniform_deep2() {
+        let mut x = vec![5.0; 4];
+        softmax_simd(&mut x);
+
+        // Uniform input -> uniform output
+        for &val in &x {
+            assert!((val - 0.25).abs() < 1e-5);
+        }
+    }
+
+    // =========================================================================
+    // Deep Coverage Tests: fused_swiglu_simd
+    // =========================================================================
+
+    #[test]
+    fn test_fused_swiglu_simd_basic_deep2() {
+        let mut gate = vec![1.0, 2.0, 3.0, 4.0];
+        let up = vec![1.0, 1.0, 1.0, 1.0];
+
+        fused_swiglu_simd(&mut gate, &up);
+
+        // gate should be modified
+        assert!(gate[0] > 0.0);
+    }
+
+    #[test]
+    fn test_fused_swiglu_simd_zeros_deep2() {
+        let mut gate = vec![0.0; 8];
+        let up = vec![1.0; 8];
+
+        fused_swiglu_simd(&mut gate, &up);
+
+        // sigmoid(0) = 0.5, so gate[i] = 0 * 0.5 * 1 = 0
+        for &val in &gate {
+            assert!((val - 0.0).abs() < 1e-6);
+        }
+    }
+
+    // =========================================================================
+    // Deep Coverage Tests: DequantStats and SimdBackend
+    // =========================================================================
+
+    #[test]
+    fn test_simd_backend_display_cov() {
+        let backend = detect_simd_backend();
+        let display = format!("{backend}");
+        assert!(!display.is_empty());
+    }
+
+    #[test]
+    fn test_dequant_stats_default_cov() {
+        let stats = DequantStats::default();
+        assert_eq!(stats.blocks_processed, 0);
+        assert_eq!(stats.bytes_processed, 0);
+    }
+
+    // =========================================================================
+    // Deep Coverage Tests: fused matvec functions
+    // =========================================================================
+
+    #[test]
+    fn test_fused_q4k_parallel_matvec_valid_cov() {
+        // in_dim=256, out_dim=2 -> 2 rows * 144 bytes per row
+        let weights = vec![0u8; 288];
+        let activations = vec![1.0f32; 256];
+        let result = fused_q4k_parallel_matvec(&weights, &activations, 256, 2);
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert_eq!(output.len(), 2);
+    }
+
+    #[test]
+    fn test_fused_q5k_parallel_matvec_valid_cov() {
+        // in_dim=256, out_dim=2 -> 2 rows * 176 bytes per row
+        let weights = vec![0u8; 352];
+        let activations = vec![1.0f32; 256];
+        let result = fused_q5k_parallel_matvec(&weights, &activations, 256, 2);
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert_eq!(output.len(), 2);
+    }
+
+    #[test]
+    fn test_fused_q6k_parallel_matvec_valid_cov() {
+        // in_dim=256, out_dim=2 -> 2 rows * 210 bytes per row
+        let weights = vec![0u8; 420];
+        let activations = vec![1.0f32; 256];
+        let result = fused_q6k_parallel_matvec(&weights, &activations, 256, 2);
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert_eq!(output.len(), 2);
+    }
+
+    // =========================================================================
+    // Deep Coverage Tests: fused_q4_0_q8_0 functions
+    // =========================================================================
+
+    #[test]
+    fn test_fused_q4_0_q8_0_parallel_matvec_valid_cov() {
+        // Q4_0: 18 bytes per 32 values
+        // in_dim=32, out_dim=2 -> 2 rows * 18 bytes per row
+        let mut weights = vec![0u8; 36];
+        // Set scales to 1.0 as f16
+        let scale = half::f16::from_f32(1.0).to_le_bytes();
+        weights[0] = scale[0];
+        weights[1] = scale[1];
+        weights[18] = scale[0];
+        weights[19] = scale[1];
+
+        let activations = vec![1.0f32; 32];
+        let result = fused_q4_0_q8_0_parallel_matvec(&weights, &activations, 32, 2);
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert_eq!(output.len(), 2);
+    }
+
+    // =========================================================================
+    // Deep Coverage Tests: parallel dequantization
+    // =========================================================================
+
+    #[test]
+    fn test_dequantize_q4_k_parallel_valid_cov() {
+        let data = vec![0u8; 144];
+        let result = dequantize_q4_k_parallel(&data);
+        assert!(result.is_ok());
+        let values = result.unwrap();
+        assert_eq!(values.len(), 256);
+    }
+
+    #[test]
+    fn test_dequantize_q4_k_simd_valid_cov() {
+        let data = vec![0u8; 144];
+        let result = dequantize_q4_k_simd(&data);
+        assert!(result.is_ok());
+        let values = result.unwrap();
+        assert_eq!(values.len(), 256);
+    }
+
+    #[test]
+    fn test_dequantize_q8_0_parallel_valid_cov() {
+        // Q8_0: 34 bytes per 32 values
+        let data = vec![0u8; 34];
+        let result = dequantize_q8_0_parallel(&data);
+        assert!(result.is_ok());
+        let values = result.unwrap();
+        assert_eq!(values.len(), 32);
+    }
+
+    #[test]
+    fn test_dequantize_q8_0_simd_valid_cov() {
+        let data = vec![0u8; 34];
+        let result = dequantize_q8_0_simd(&data);
+        assert!(result.is_ok());
+        let values = result.unwrap();
+        assert_eq!(values.len(), 32);
+    }
+
+    // =========================================================================
+    // Deep Coverage Tests: fused_rmsnorm functions
+    // =========================================================================
+
+    #[test]
+    fn test_quantize_rmsnorm_q8_0_basic_cov() {
+        let input: Vec<f32> = (0..64).map(|i| (i as f32 - 32.0) / 10.0).collect();
+        let norm_weight = vec![1.0f32; 64];
+        let eps = 1e-5;
+
+        let (scales, quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, eps);
+        assert_eq!(scales.len(), 2); // 64/32 = 2 blocks
+        assert_eq!(quants.len(), 64);
+    }
+
+    #[test]
+    fn test_quantize_rmsnorm_q8_0_into_basic_cov() {
+        let input: Vec<f32> = (0..32).map(|i| i as f32 / 10.0).collect();
+        let norm_weight = vec![1.0f32; 32];
+        let eps = 1e-5;
+        let mut scales = vec![0.0f32; 1];
+        let mut quants = vec![0i8; 32];
+
+        quantize_rmsnorm_q8_0_into(&input, &norm_weight, eps, &mut scales, &mut quants);
+        assert!(scales[0] > 0.0);
+    }
+
+    #[test]
+    fn test_fused_rmsnorm_q4_0_matmul_cov() {
+        // in_dim=32, out_dim=2 -> 2 rows * 18 bytes per row
+        let mut weights = vec![0u8; 36];
+        let scale = half::f16::from_f32(1.0).to_le_bytes();
+        weights[0] = scale[0];
+        weights[1] = scale[1];
+        weights[18] = scale[0];
+        weights[19] = scale[1];
+
+        let input = vec![1.0f32; 32];
+        let norm_weight = vec![1.0f32; 32];
+        let eps = 1e-5;
+
+        // Signature: (input, norm_weight, eps, weight_data, in_dim, out_dim)
+        let result = fused_rmsnorm_q4_0_matmul(&input, &norm_weight, eps, &weights, 32, 2);
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert_eq!(output.len(), 2);
+    }
+
+    #[test]
+    fn test_fused_rmsnorm_ffn_up_gate_cov() {
+        // For Q4_K: 144 bytes per 256 values
+        // in_dim=256, out_dim=1
+        let up_weights = vec![0u8; 144];
+        let gate_weights = vec![0u8; 144];
+        let input = vec![1.0f32; 256];
+        let norm_weight = vec![1.0f32; 256];
+        let eps = 1e-5;
+
+        // Signature: (input, norm_weight, eps, up_weight_data, gate_weight_data, in_dim, out_dim)
+        let result = fused_rmsnorm_ffn_up_gate(
+            &input, &norm_weight, eps, &up_weights, &gate_weights, 256, 1
+        );
+        assert!(result.is_ok());
+        let (up_out, gate_out) = result.unwrap();
+        assert_eq!(up_out.len(), 1);
+        assert_eq!(gate_out.len(), 1);
+    }
+
+    // =========================================================================
+    // Deep Coverage Tests: fused_q4k_tiled_matvec
+    // =========================================================================
+
+    #[test]
+    fn test_fused_q4k_tiled_matvec_valid_cov() {
+        // in_dim=256, out_dim=2 -> 2 rows * 144 bytes per row
+        let weights = vec![0u8; 288];
+        let activations = vec![1.0f32; 256];
+        let result = fused_q4k_tiled_matvec(&weights, &activations, 256, 2, None);
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert_eq!(output.len(), 2);
+    }
+
+    // =========================================================================
+    // Deep Coverage Tests: fused_q8_0_q8_0 functions
+    // =========================================================================
+
+    #[test]
+    fn test_fused_q8_0_q8_0_parallel_matvec_valid_cov() {
+        // Q8_0: 34 bytes per 32 values
+        // in_dim=32, out_dim=2 -> 2 rows * 34 bytes per row
+        let mut weights = vec![0u8; 68];
+        let scale = half::f16::from_f32(1.0).to_le_bytes();
+        weights[0] = scale[0];
+        weights[1] = scale[1];
+        weights[34] = scale[0];
+        weights[35] = scale[1];
+
+        let activations = vec![1.0f32; 32];
+        let result = fused_q8_0_q8_0_parallel_matvec(&weights, &activations, 32, 2);
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert_eq!(output.len(), 2);
+    }
+
+    #[test]
+    fn test_fused_q8_0_q8_0_parallel_matvec_into_valid_cov() {
+        let mut weights = vec![0u8; 68];
+        let scale = half::f16::from_f32(1.0).to_le_bytes();
+        weights[0] = scale[0];
+        weights[1] = scale[1];
+        weights[34] = scale[0];
+        weights[35] = scale[1];
+
+        let activations = vec![1.0f32; 32];
+        let mut output = vec![0.0f32; 2];
+        let result = fused_q8_0_q8_0_parallel_matvec_into(&weights, &activations, 32, 2, &mut output);
+        assert!(result.is_ok());
+    }
+
+    // =========================================================================
+    // Deep Coverage Tests: fused_q4k_q8k_parallel_matvec_into
+    // =========================================================================
+
+    #[test]
+    fn test_fused_q4k_q8k_parallel_matvec_into_valid_cov() {
+        // in_dim=256, out_dim=2 -> 2 rows * 144 bytes per row
+        let weights = vec![0u8; 288];
+        let q8k_scales = vec![1.0f32; 1]; // One scale for 256 values
+        let q8k_quants = vec![0i8; 256];
+        let mut output = vec![0.0f32; 2];
+
+        let result = fused_q4k_q8k_parallel_matvec_into(
+            &weights, &q8k_scales, &q8k_quants, 256, 2, &mut output
+        );
+        assert!(result.is_ok());
+    }
+
+    // =========================================================================
+    // Deep Coverage Tests: fused_q4k_q8k_ffn_up_gate_into
+    // =========================================================================
+
+    #[test]
+    fn test_fused_q4k_q8k_ffn_up_gate_into_valid_cov() {
+        // Signature: (up_weight, gate_weight, q8k_scales, q8k_quants, in_dim, out_dim, up_output, gate_output)
+        let up_weights = vec![0u8; 144];
+        let gate_weights = vec![0u8; 144];
+        let q8k_scales = vec![1.0f32; 1];
+        let q8k_quants = vec![0i8; 256];
+        let mut up_output = vec![0.0f32; 1];
+        let mut gate_output = vec![0.0f32; 1];
+
+        let result = fused_q4k_q8k_ffn_up_gate_into(
+            &up_weights, &gate_weights, &q8k_scales, &q8k_quants, 256, 1, &mut up_output, &mut gate_output
+        );
+        assert!(result.is_ok());
     }
 }
