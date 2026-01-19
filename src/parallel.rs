@@ -1309,4 +1309,263 @@ mod tests {
         let err2 = ParallelError::CommunicationError("timeout".to_string());
         assert!(err2.to_string().contains("timeout"));
     }
+
+    // =========================================================================
+    // Extended Coverage Tests: ParallelConfig
+    // =========================================================================
+
+    #[test]
+    fn test_parallel_config_world_size_calculation_ext_cov() {
+        let config = ParallelConfig::new(2, 2, 2, 0).expect("test");
+        assert_eq!(config.world_size, 8);
+    }
+
+    #[test]
+    fn test_parallel_config_single_debug_ext_cov() {
+        let config = ParallelConfig::single();
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("tp_size"));
+        assert!(debug_str.contains("pp_size"));
+    }
+
+    #[test]
+    fn test_parallel_config_invalid_zero_tp_ext_cov() {
+        let result = ParallelConfig::new(0, 1, 1, 0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parallel_config_invalid_zero_pp_ext_cov() {
+        let result = ParallelConfig::new(1, 0, 1, 0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parallel_config_invalid_zero_dp_ext_cov() {
+        let result = ParallelConfig::new(1, 1, 0, 0);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests: ReduceOp
+    // =========================================================================
+
+    #[test]
+    fn test_reduce_op_all_variants_ext_cov() {
+        let ops = [
+            ReduceOp::Sum,
+            ReduceOp::Min,
+            ReduceOp::Max,
+            ReduceOp::Avg,
+        ];
+        for op in ops {
+            let json = serde_json::to_string(&op).expect("serialize");
+            let _: ReduceOp = serde_json::from_str(&json).expect("deserialize");
+        }
+    }
+
+    #[test]
+    fn test_reduce_op_clone_ext_cov() {
+        let op = ReduceOp::Max;
+        let cloned = op.clone();
+        assert_eq!(op, cloned);
+    }
+
+    #[test]
+    fn test_reduce_op_debug_ext_cov() {
+        let op = ReduceOp::Avg;
+        let debug_str = format!("{:?}", op);
+        assert!(debug_str.contains("Avg"));
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests: ParallelError
+    // =========================================================================
+
+    #[test]
+    fn test_parallel_error_all_variants_ext_cov() {
+        let errors: [ParallelError; 5] = [
+            ParallelError::InvalidRank { rank: 5, world_size: 4 },
+            ParallelError::InvalidWorldSize(0),
+            ParallelError::CommunicationError("timeout".to_string()),
+            ParallelError::ShapeMismatch { expected: vec![2, 3], got: vec![3, 2] },
+            ParallelError::PipelineError("stage error".to_string()),
+        ];
+        for err in errors {
+            let _ = err.to_string();
+        }
+    }
+
+    #[test]
+    fn test_parallel_error_shape_mismatch_ext_cov() {
+        let err = ParallelError::ShapeMismatch { expected: vec![10, 20], got: vec![20, 10] };
+        let msg = err.to_string();
+        assert!(msg.contains("10") || msg.contains("20"));
+    }
+
+    #[test]
+    fn test_parallel_error_debug_ext_cov() {
+        let err = ParallelError::NotInitialized;
+        let debug_str = format!("{:?}", err);
+        assert!(debug_str.contains("NotInitialized"));
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests: ZeroOffload
+    // =========================================================================
+
+    #[test]
+    fn test_zero_offload_clone_ext_cov() {
+        let zero = ZeroOffload::inference();
+        let cloned = zero.clone();
+        assert_eq!(zero.offload_params, cloned.offload_params);
+        assert_eq!(zero.offload_activations, cloned.offload_activations);
+    }
+
+    #[test]
+    fn test_zero_offload_debug_ext_cov() {
+        let zero = ZeroOffload::default();
+        let debug_str = format!("{:?}", zero);
+        assert!(debug_str.contains("offload_optimizer"));
+        assert!(debug_str.contains("pin_memory"));
+    }
+
+    #[test]
+    fn test_zero_offload_memory_savings_extremes_ext_cov() {
+        // Test with all offload options enabled
+        let full_offload = ZeroOffload {
+            offload_optimizer: true,
+            offload_params: true,
+            offload_activations: true,
+            pin_memory: true,
+            overlap_comm: true,
+        };
+        let savings = full_offload.memory_savings_ratio();
+        assert!(savings >= 0.0);
+        assert!(savings <= 1.0);
+
+        // Test with no offload
+        let no_offload = ZeroOffload {
+            offload_optimizer: false,
+            offload_params: false,
+            offload_activations: false,
+            pin_memory: false,
+            overlap_comm: false,
+        };
+        let no_savings = no_offload.memory_savings_ratio();
+        assert!(no_savings >= 0.0);
+        assert!(no_savings < savings);
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests: PipelineStats
+    // =========================================================================
+
+    #[test]
+    fn test_pipeline_stats_clone_debug_ext_cov() {
+        let stats = PipelineStats {
+            micro_batches_processed: 100,
+            forward_passes: 100,
+            bubble_time_ms: 5.0,
+            avg_stage_latency_ms: 10.5,
+        };
+        let cloned = stats.clone();
+        assert_eq!(stats.micro_batches_processed, cloned.micro_batches_processed);
+
+        let debug_str = format!("{:?}", stats);
+        assert!(debug_str.contains("micro_batches_processed"));
+        assert!(debug_str.contains("bubble_time_ms"));
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests: TensorParallel
+    // =========================================================================
+
+    #[test]
+    fn test_tensor_parallel_chunk_size_ext_cov() {
+        let tp = TensorParallel::new(4, 0).expect("test");
+        let chunk = tp.chunk_size(1000);
+        assert_eq!(chunk, 250); // 1000 / 4 = 250
+    }
+
+    #[test]
+    fn test_tensor_parallel_debug_ext_cov() {
+        let tp = TensorParallel::new(8, 2).expect("test");
+        let debug_str = format!("{:?}", tp);
+        assert!(debug_str.contains("tp_size"));
+        assert!(debug_str.contains("rank"));
+    }
+
+    #[test]
+    fn test_tensor_parallel_invalid_rank_ext_cov() {
+        let result = TensorParallel::new(4, 10);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_tensor_parallel_invalid_size_ext_cov() {
+        let result = TensorParallel::new(0, 0);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests: Communicator
+    // =========================================================================
+
+    #[test]
+    fn test_communicator_debug_ext_cov() {
+        let comm = Communicator::new(4, 0).expect("test");
+        let debug_str = format!("{:?}", comm);
+        assert!(debug_str.contains("world_size"));
+        assert!(debug_str.contains("rank"));
+    }
+
+    #[test]
+    fn test_communicator_invalid_rank_ext_cov() {
+        let result = Communicator::new(4, 10);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests: PipelineParallel
+    // =========================================================================
+
+    #[test]
+    fn test_pipeline_parallel_stage_info_ext_cov() {
+        // PipelineParallel::new(pp_size, stage, total_layers, micro_batch_size)
+        let pp = PipelineParallel::new(4, 0, 24, 4).expect("test");
+        let info = pp.stage_info();
+        assert_eq!(info.start_layer, 0);
+        assert_eq!(info.num_layers, 6); // 24 / 4 = 6 layers per stage
+    }
+
+    #[test]
+    fn test_pipeline_parallel_debug_ext_cov() {
+        let pp = PipelineParallel::new(4, 0, 24, 4).expect("test");
+        let debug_str = format!("{:?}", pp);
+        assert!(debug_str.contains("pp_size"));
+        assert!(debug_str.contains("stage"));
+    }
+
+    #[test]
+    fn test_pipeline_parallel_micro_batch_size_ext_cov() {
+        let pp = PipelineParallel::new(4, 0, 24, 8).expect("test");
+        assert_eq!(pp.micro_batch_size(), 8);
+    }
+
+    #[test]
+    fn test_pipeline_parallel_first_last_stage_ext_cov() {
+        let first = PipelineParallel::new(4, 0, 24, 4).expect("test");
+        let last = PipelineParallel::new(4, 3, 24, 4).expect("test");
+        let middle = PipelineParallel::new(4, 1, 24, 4).expect("test");
+
+        assert!(first.is_first_stage());
+        assert!(!first.is_last_stage());
+
+        assert!(!last.is_first_stage());
+        assert!(last.is_last_stage());
+
+        assert!(!middle.is_first_stage());
+        assert!(!middle.is_last_stage());
+    }
 }
