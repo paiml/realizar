@@ -1312,4 +1312,239 @@ mod tests {
         assert_eq!(result.format, "GGUF");
         assert!(result.used_gpu);
     }
+
+    // =========================================================================
+    // Extended Coverage Tests: InferenceConfig builders
+    // =========================================================================
+
+    #[test]
+    fn test_inference_config_all_methods_chain_ext_cov() {
+        let config = InferenceConfig::new("/model.gguf")
+            .with_prompt("Test prompt")
+            .with_max_tokens(100)
+            .with_temperature(1.5)
+            .with_top_k(50)
+            .without_gpu()
+            .with_verbose(true)
+            .with_trace(true);
+
+        assert_eq!(config.prompt, Some("Test prompt".to_string()));
+        assert_eq!(config.max_tokens, 100);
+        assert!((config.temperature - 1.5).abs() < f32::EPSILON);
+        assert_eq!(config.top_k, 50);
+        assert!(config.no_gpu);
+        assert!(config.verbose);
+        assert!(config.trace);
+    }
+
+    #[test]
+    fn test_inference_config_defaults_ext_cov() {
+        let config = InferenceConfig::new("/model.apr");
+
+        // Check all default values
+        assert!(config.prompt.is_none());
+        assert!(config.input_tokens.is_none());
+        assert_eq!(config.max_tokens, 32);
+        assert!((config.temperature - 0.0).abs() < f32::EPSILON);
+        assert_eq!(config.top_k, 1);
+        assert!(!config.no_gpu);
+        assert!(!config.trace);
+        assert!(!config.trace_verbose);
+        assert!(config.trace_output.is_none());
+        assert!(config.trace_steps.is_none());
+        assert!(!config.verbose);
+    }
+
+    #[test]
+    fn test_inference_config_with_input_tokens_only_ext_cov() {
+        let config = InferenceConfig::new("/model.safetensors")
+            .with_input_tokens(vec![100, 200, 300, 400]);
+
+        assert_eq!(config.input_tokens, Some(vec![100, 200, 300, 400]));
+        assert!(config.prompt.is_none());
+    }
+
+    #[test]
+    fn test_inference_config_temperature_extremes_ext_cov() {
+        let cold_config = InferenceConfig::new("/model.gguf")
+            .with_temperature(0.0);
+        let hot_config = InferenceConfig::new("/model.gguf")
+            .with_temperature(2.0);
+
+        assert!((cold_config.temperature - 0.0).abs() < f32::EPSILON);
+        assert!((hot_config.temperature - 2.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_inference_config_top_k_values_ext_cov() {
+        let greedy = InferenceConfig::new("/model.gguf").with_top_k(1);
+        let wide = InferenceConfig::new("/model.gguf").with_top_k(100);
+        let disabled = InferenceConfig::new("/model.gguf").with_top_k(0);
+
+        assert_eq!(greedy.top_k, 1);
+        assert_eq!(wide.top_k, 100);
+        assert_eq!(disabled.top_k, 0);
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests: clean_model_output
+    // =========================================================================
+
+    #[test]
+    fn test_clean_model_output_endoftext_ext_cov() {
+        let raw = "Hello world<|endoftext|>";
+        let cleaned = clean_model_output(raw);
+        assert_eq!(cleaned, "Hello world");
+    }
+
+    #[test]
+    fn test_clean_model_output_preserves_other_text_ext_cov() {
+        let raw = "[INST]user input[/INST]assistant response";
+        let cleaned = clean_model_output(raw);
+        // Should preserve text since [INST] tokens aren't in the markers list
+        assert!(cleaned.contains("user input"));
+        assert!(cleaned.contains("response"));
+    }
+
+    #[test]
+    fn test_clean_model_output_im_start_im_end_ext_cov() {
+        // Function removes markers but keeps content between them
+        let raw = "<|im_start|>assistant\nHi there!<|im_end|>";
+        let cleaned = clean_model_output(raw);
+        assert_eq!(cleaned, "Hi there!");
+    }
+
+    #[test]
+    fn test_clean_model_output_empty_ext_cov() {
+        let raw = "";
+        let cleaned = clean_model_output(raw);
+        assert_eq!(cleaned, "");
+    }
+
+    #[test]
+    fn test_clean_model_output_only_markers_ext_cov() {
+        let raw = "<|im_start|><|im_end|><|endoftext|>";
+        let cleaned = clean_model_output(raw);
+        assert_eq!(cleaned, "");
+    }
+
+    #[test]
+    fn test_clean_model_output_multiple_endoftext_ext_cov() {
+        let raw = "Text<|endoftext|>More text<|endoftext|>";
+        let cleaned = clean_model_output(raw);
+        assert_eq!(cleaned, "TextMore text");
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests: prefault_mmap
+    // =========================================================================
+
+    #[test]
+    fn test_prefault_mmap_large_ext_cov() {
+        let data = vec![0u8; 4096 * 10]; // 10 pages
+        prefault_mmap(&data);
+    }
+
+    #[test]
+    fn test_prefault_mmap_not_page_aligned_ext_cov() {
+        let data = vec![0u8; 5000]; // Not page-aligned
+        prefault_mmap(&data);
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests: InferenceResult
+    // =========================================================================
+
+    #[test]
+    fn test_inference_result_debug_ext_cov() {
+        let result = InferenceResult {
+            text: "test".to_string(),
+            tokens: vec![1],
+            input_token_count: 1,
+            generated_token_count: 0,
+            inference_ms: 5.0,
+            tok_per_sec: 0.0,
+            load_ms: 2.0,
+            format: "APR".to_string(),
+            used_gpu: false,
+        };
+        let debug_str = format!("{:?}", result);
+        assert!(debug_str.contains("text"));
+        assert!(debug_str.contains("tokens"));
+        assert!(debug_str.contains("format"));
+        assert!(debug_str.contains("used_gpu"));
+    }
+
+    #[test]
+    fn test_inference_result_zero_values_ext_cov() {
+        let result = InferenceResult {
+            text: String::new(),
+            tokens: vec![],
+            input_token_count: 0,
+            generated_token_count: 0,
+            inference_ms: 0.0,
+            tok_per_sec: 0.0,
+            load_ms: 0.0,
+            format: String::new(),
+            used_gpu: false,
+        };
+        assert!(result.text.is_empty());
+        assert!(result.tokens.is_empty());
+        assert_eq!(result.input_token_count, 0);
+    }
+
+    #[test]
+    fn test_inference_result_large_values_ext_cov() {
+        let result = InferenceResult {
+            text: "A".repeat(10000),
+            tokens: vec![1; 1000],
+            input_token_count: 100,
+            generated_token_count: 900,
+            inference_ms: 1000000.0,
+            tok_per_sec: 1000.0,
+            load_ms: 5000.0,
+            format: "GGUF".to_string(),
+            used_gpu: true,
+        };
+        assert_eq!(result.text.len(), 10000);
+        assert_eq!(result.tokens.len(), 1000);
+        assert_eq!(result.generated_token_count, 900);
+    }
+
+    #[test]
+    fn test_inference_result_formats_ext_cov() {
+        for fmt in ["GGUF", "APR", "SafeTensors"] {
+            let result = InferenceResult {
+                text: "test".to_string(),
+                tokens: vec![1],
+                input_token_count: 1,
+                generated_token_count: 0,
+                inference_ms: 1.0,
+                tok_per_sec: 1.0,
+                load_ms: 1.0,
+                format: fmt.to_string(),
+                used_gpu: false,
+            };
+            assert_eq!(result.format, fmt);
+        }
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests: run_inference error paths
+    // =========================================================================
+
+    #[test]
+    fn test_run_inference_permission_denied_ext_cov() {
+        // Try to read from a path that likely doesn't exist or isn't readable
+        let config = InferenceConfig::new("/root/super_secret/model.gguf");
+        let result = run_inference(&config);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_run_inference_empty_path_ext_cov() {
+        let config = InferenceConfig::new("");
+        let result = run_inference(&config);
+        assert!(result.is_err());
+    }
 }
