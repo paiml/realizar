@@ -2113,4 +2113,229 @@ mod tests {
         let result = GgufToAprQ4KConverter::get_u32(&metadata, "key");
         assert_eq!(result, Some(0));
     }
+
+    // =========================================================================
+    // Extended Coverage Tests for ConversionStats
+    // =========================================================================
+
+    #[test]
+    fn test_conversion_stats_memory_mb_cov() {
+        let stats = ConversionStats {
+            total_parameters: 1_000_000,
+            memory_bytes_f32: 4 * 1024 * 1024, // 4 MB
+            num_layers: 12,
+            hidden_dim: 768,
+            vocab_size: 50257,
+            architecture: "gpt2".to_string(),
+        };
+        assert!((stats.memory_mb() - 4.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_conversion_stats_memory_gb_cov() {
+        let stats = ConversionStats {
+            total_parameters: 1_000_000_000,
+            memory_bytes_f32: 4 * 1024 * 1024 * 1024, // 4 GB
+            num_layers: 32,
+            hidden_dim: 4096,
+            vocab_size: 32000,
+            architecture: "llama".to_string(),
+        };
+        assert!((stats.memory_gb() - 4.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_conversion_stats_parameters_m_cov() {
+        let stats = ConversionStats {
+            total_parameters: 125_000_000, // 125M
+            memory_bytes_f32: 500_000_000,
+            num_layers: 12,
+            hidden_dim: 768,
+            vocab_size: 50257,
+            architecture: "gpt2".to_string(),
+        };
+        assert!((stats.parameters_m() - 125.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_conversion_stats_parameters_b_cov() {
+        let stats = ConversionStats {
+            total_parameters: 7_000_000_000, // 7B
+            memory_bytes_f32: 28_000_000_000,
+            num_layers: 32,
+            hidden_dim: 4096,
+            vocab_size: 32000,
+            architecture: "llama".to_string(),
+        };
+        assert!((stats.parameters_b() - 7.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_conversion_stats_clone_cov() {
+        let stats = ConversionStats {
+            total_parameters: 1000,
+            memory_bytes_f32: 4000,
+            num_layers: 1,
+            hidden_dim: 64,
+            vocab_size: 100,
+            architecture: "test".to_string(),
+        };
+        let cloned = stats.clone();
+        assert_eq!(stats.total_parameters, cloned.total_parameters);
+        assert_eq!(stats.architecture, cloned.architecture);
+    }
+
+    #[test]
+    fn test_conversion_stats_debug_cov() {
+        let stats = ConversionStats {
+            total_parameters: 1000,
+            memory_bytes_f32: 4000,
+            num_layers: 1,
+            hidden_dim: 64,
+            vocab_size: 100,
+            architecture: "debug_test".to_string(),
+        };
+        let debug_str = format!("{:?}", stats);
+        assert!(debug_str.contains("total_parameters"));
+        assert!(debug_str.contains("debug_test"));
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests for RawTensor
+    // =========================================================================
+
+    #[test]
+    fn test_raw_tensor_new_cov() {
+        let tensor = RawTensor {
+            name: "test_tensor".to_string(),
+            data: vec![0u8; 100],
+            shape: vec![10, 10],
+            dtype: 0, // F32
+        };
+        assert_eq!(tensor.name, "test_tensor");
+        assert_eq!(tensor.data.len(), 100);
+        assert_eq!(tensor.shape, vec![10, 10]);
+        assert_eq!(tensor.dtype, 0);
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests for Q4KConversionStats
+    // =========================================================================
+
+    #[test]
+    fn test_q4k_conversion_stats_new_ext_cov() {
+        let stats = Q4KConversionStats {
+            tensor_count: 10,
+            q4k_tensor_count: 5,
+            total_bytes: 1000,
+            architecture: "llama".to_string(),
+            num_layers: 12,
+            hidden_size: 768,
+        };
+        assert_eq!(stats.tensor_count, 10);
+        assert_eq!(stats.q4k_tensor_count, 5);
+        assert_eq!(stats.total_bytes, 1000);
+        assert_eq!(stats.architecture, "llama");
+        assert_eq!(stats.num_layers, 12);
+        assert_eq!(stats.hidden_size, 768);
+    }
+
+    #[test]
+    fn test_q4k_conversion_stats_clone_ext_cov() {
+        let stats = Q4KConversionStats {
+            tensor_count: 5,
+            q4k_tensor_count: 3,
+            total_bytes: 500,
+            architecture: "gpt2".to_string(),
+            num_layers: 6,
+            hidden_size: 512,
+        };
+        let cloned = stats.clone();
+        assert_eq!(stats.tensor_count, cloned.tensor_count);
+        assert_eq!(stats.q4k_tensor_count, cloned.q4k_tensor_count);
+        assert_eq!(stats.architecture, cloned.architecture);
+    }
+
+    #[test]
+    fn test_q4k_conversion_stats_debug_ext_cov() {
+        let stats = Q4KConversionStats {
+            tensor_count: 1,
+            q4k_tensor_count: 1,
+            total_bytes: 100,
+            architecture: "tiny".to_string(),
+            num_layers: 2,
+            hidden_size: 256,
+        };
+        let debug_str = format!("{:?}", stats);
+        assert!(debug_str.contains("tensor_count"));
+        assert!(debug_str.contains("architecture"));
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests for GgufToAprQ4KConverter helpers
+    // =========================================================================
+
+    #[test]
+    fn test_q4k_converter_get_string_ext_cov() {
+        use crate::gguf::GGUFValue;
+        let mut metadata = std::collections::HashMap::new();
+        metadata.insert("key".to_string(), GGUFValue::String("value".to_string()));
+        let result = GgufToAprQ4KConverter::get_string(&metadata, "key");
+        assert_eq!(result, Some("value".to_string()));
+    }
+
+    #[test]
+    fn test_q4k_converter_get_string_wrong_type_ext_cov() {
+        use crate::gguf::GGUFValue;
+        let mut metadata = std::collections::HashMap::new();
+        metadata.insert("key".to_string(), GGUFValue::UInt32(42));
+        let result = GgufToAprQ4KConverter::get_string(&metadata, "key");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_q4k_converter_get_u32_uint32_ext_cov() {
+        use crate::gguf::GGUFValue;
+        let mut metadata = std::collections::HashMap::new();
+        metadata.insert("key".to_string(), GGUFValue::UInt32(12345));
+        let result = GgufToAprQ4KConverter::get_u32(&metadata, "key");
+        assert_eq!(result, Some(12345));
+    }
+
+    #[test]
+    fn test_q4k_converter_get_u32_uint64_ext_cov() {
+        use crate::gguf::GGUFValue;
+        let mut metadata = std::collections::HashMap::new();
+        metadata.insert("key".to_string(), GGUFValue::UInt64(999));
+        let result = GgufToAprQ4KConverter::get_u32(&metadata, "key");
+        assert_eq!(result, Some(999));
+    }
+
+    #[test]
+    fn test_q4k_converter_get_u32_wrong_type_ext_cov() {
+        use crate::gguf::GGUFValue;
+        let mut metadata = std::collections::HashMap::new();
+        metadata.insert("key".to_string(), GGUFValue::String("not a number".to_string()));
+        let result = GgufToAprQ4KConverter::get_u32(&metadata, "key");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_q4k_converter_get_f32_float32_ext_cov() {
+        use crate::gguf::GGUFValue;
+        let mut metadata = std::collections::HashMap::new();
+        metadata.insert("key".to_string(), GGUFValue::Float32(3.14159));
+        let result = GgufToAprQ4KConverter::get_f32(&metadata, "key");
+        assert!(result.is_some());
+        assert!((result.unwrap() - 3.14159).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_q4k_converter_get_f32_wrong_type_ext_cov() {
+        use crate::gguf::GGUFValue;
+        let mut metadata = std::collections::HashMap::new();
+        metadata.insert("key".to_string(), GGUFValue::UInt32(42));
+        let result = GgufToAprQ4KConverter::get_f32(&metadata, "key");
+        assert_eq!(result, None);
+    }
 }
