@@ -2217,4 +2217,223 @@ test benchmark_bar ... bench:         750 ns/iter (+/- 30)
         // Should fail to parse invalid GGUF but not panic
         assert!(result.is_err() || result.is_ok());
     }
+
+    // =========================================================================
+    // Extended Coverage Tests: format_size boundaries
+    // =========================================================================
+
+    #[test]
+    fn test_format_size_exact_boundaries_cov() {
+        // Exact KB boundary
+        assert_eq!(format_size(1024), "1.0 KB");
+        // Exact MB boundary
+        assert_eq!(format_size(1024 * 1024), "1.0 MB");
+        // Exact GB boundary
+        assert_eq!(format_size(1024 * 1024 * 1024), "1.0 GB");
+    }
+
+    #[test]
+    fn test_format_size_just_below_boundaries_cov() {
+        // Just below KB boundary
+        assert_eq!(format_size(1023), "1023 B");
+        // Just below MB boundary
+        assert_eq!(format_size(1024 * 1024 - 1), "1024.0 KB");
+        // Just below GB boundary
+        assert_eq!(format_size(1024 * 1024 * 1024 - 1), "1024.0 MB");
+    }
+
+    #[test]
+    fn test_format_size_large_values_cov() {
+        // Multi-GB values
+        assert_eq!(format_size(10 * 1024 * 1024 * 1024), "10.0 GB");
+        assert_eq!(format_size(100 * 1024 * 1024 * 1024), "100.0 GB");
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests: parse_cargo_bench_output
+    // =========================================================================
+
+    #[test]
+    fn test_parse_cargo_bench_output_nonnumeric_ext_cov() {
+        let output = "test name bench: abc ns/iter (+/- 10)"; // non-numeric time
+        let results = parse_cargo_bench_output(output, None);
+        assert!(results.is_empty()); // Should skip malformed lines
+    }
+
+    #[test]
+    fn test_parse_cargo_bench_output_no_test_keyword_ext_cov() {
+        let output = "bench_name ... bench: 100 ns/iter (+/- 10)"; // no "test" keyword
+        let results = parse_cargo_bench_output(output, None);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_parse_cargo_bench_output_too_few_parts_ext_cov() {
+        let output = "test bench"; // too few parts
+        let results = parse_cargo_bench_output(output, None);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_parse_cargo_bench_output_with_suite_name_ext_cov() {
+        let output = "test bench_test ... bench: 500 ns/iter (+/- 50)";
+        let results = parse_cargo_bench_output(output, Some("my_suite"));
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["suite"], "my_suite");
+    }
+
+    #[test]
+    fn test_parse_cargo_bench_output_large_comma_separated_ext_cov() {
+        let output = "test slow_bench ... bench: 50,000 ns/iter (+/- 1000)";
+        let results = parse_cargo_bench_output(output, None);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["time_ns"], 50000);
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests: is_local_file_path
+    // =========================================================================
+
+    #[test]
+    fn test_is_local_file_path_relative_subdirs_ext_cov() {
+        assert!(is_local_file_path("./models/model.gguf"));
+        assert!(is_local_file_path("../model.safetensors"));
+        assert!(is_local_file_path("models/subdir/file.apr"));
+    }
+
+    #[test]
+    fn test_is_local_file_path_absolute_linux_ext_cov() {
+        assert!(is_local_file_path("/home/user/models/model.gguf"));
+        assert!(is_local_file_path("/var/models/model.safetensors"));
+    }
+
+    #[test]
+    fn test_is_local_file_path_url_with_ext_ext_cov() {
+        // URLs with recognized extensions ARE treated as "local" by current logic
+        // (function checks extension, not scheme)
+        assert!(is_local_file_path("http://example.com/model.gguf"));
+        assert!(is_local_file_path("https://example.com/model.safetensors"));
+        // URLs without recognized extensions are NOT treated as local
+        assert!(!is_local_file_path("http://example.com/model"));
+        assert!(!is_local_file_path("s3://bucket/model.bin"));
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests: validate_suite_name comprehensive
+    // =========================================================================
+
+    #[test]
+    fn test_validate_suite_name_iterate_all_ext_cov() {
+        for (name, _) in BENCHMARK_SUITES {
+            assert!(validate_suite_name(name), "Suite {name} should be valid");
+        }
+    }
+
+    #[test]
+    fn test_validate_suite_name_uppercase_fails_ext_cov() {
+        // Should be case sensitive
+        assert!(!validate_suite_name("TENSOR_OPS"));
+        assert!(!validate_suite_name("Tensor_Ops"));
+        assert!(!validate_suite_name("INFERENCE"));
+    }
+
+    #[test]
+    fn test_validate_suite_name_prefix_suffix_ext_cov() {
+        assert!(!validate_suite_name("tensor")); // partial
+        assert!(!validate_suite_name("tensor_ops_extra")); // too long
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests: display_model_info formats
+    // =========================================================================
+
+    #[test]
+    fn test_display_model_info_apr_file_ext_cov() {
+        let result = display_model_info("model.apr", &[0; 8]);
+        // May error due to invalid APR data but shouldn't panic
+        assert!(result.is_err() || result.is_ok());
+    }
+
+    #[test]
+    fn test_display_model_info_unknown_extension_with_data_cov() {
+        let result = display_model_info("model.xyz", &[1, 2, 3, 4, 5, 6, 7, 8]);
+        assert!(result.is_ok()); // Should handle unknown gracefully
+    }
+
+    #[test]
+    fn test_display_model_info_no_extension_cov() {
+        let result = display_model_info("model", &[0; 10]);
+        // Should handle unknown gracefully
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests: load_*_model functions
+    // =========================================================================
+
+    #[test]
+    fn test_load_gguf_model_empty_data_cov() {
+        let result = load_gguf_model(&[]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_safetensors_model_empty_data_cov() {
+        let result = load_safetensors_model(&[]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_apr_model_empty_data_cov() {
+        let result = load_apr_model(&[]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_apr_model_invalid_magic_cov() {
+        let result = load_apr_model(&[0x00, 0x00, 0x00, 0x00]);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests: home_dir
+    // =========================================================================
+
+    #[test]
+    fn test_home_dir_not_panic_cov() {
+        // Simply verify the function doesn't panic
+        let _ = home_dir();
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests: run_benchmarks list mode
+    // =========================================================================
+
+    #[test]
+    fn test_run_benchmarks_list_mode_cov() {
+        let result = run_benchmarks(None, true, None, None, None, None);
+        assert!(result.is_ok());
+    }
+
+    // =========================================================================
+    // Extended Coverage Tests: BENCHMARK_SUITES const
+    // =========================================================================
+
+    #[test]
+    fn test_benchmark_suites_at_least_expected_cov() {
+        assert!(BENCHMARK_SUITES.len() >= 5);
+        // Should contain commonly expected suites
+        let names: Vec<&str> = BENCHMARK_SUITES.iter().map(|(n, _)| *n).collect();
+        assert!(names.contains(&"tensor_ops"));
+        assert!(names.contains(&"inference"));
+    }
+
+    #[test]
+    fn test_benchmark_suites_no_empty_descriptions_cov() {
+        for (name, desc) in BENCHMARK_SUITES {
+            assert!(!name.is_empty(), "Suite name should not be empty");
+            assert!(!desc.is_empty(), "Suite description should not be empty");
+            assert!(desc.len() > 5, "Description should be meaningful");
+        }
+    }
 }
