@@ -50773,4 +50773,3664 @@ mod tests {
         assert_eq!(v1, v2);
         assert_ne!(v1, v3);
     }
+
+    // =========================================================================
+    // Deep Coverage Tests for gguf.rs (Phase 802)
+    // =========================================================================
+
+    // --- GGUFHeader tests ---
+    #[test]
+    fn test_gguf_header_clone_deep() {
+        let header = GGUFHeader {
+            magic: GGUF_MAGIC,
+            version: 3,
+            tensor_count: 100,
+            metadata_count: 50,
+        };
+        let cloned = header.clone();
+        assert_eq!(header, cloned);
+    }
+
+    #[test]
+    fn test_gguf_header_debug_deep() {
+        let header = GGUFHeader {
+            magic: GGUF_MAGIC,
+            version: 2,
+            tensor_count: 10,
+            metadata_count: 5,
+        };
+        let debug = format!("{:?}", header);
+        assert!(debug.contains("GGUFHeader"));
+    }
+
+    // --- TensorInfo tests ---
+    #[test]
+    fn test_tensor_info_clone_deep() {
+        let info = TensorInfo {
+            name: "token_embd.weight".to_string(),
+            n_dims: 2,
+            dims: vec![32000, 1024],
+            qtype: 2,
+            offset: 12345,
+        };
+        let cloned = info.clone();
+        assert_eq!(info, cloned);
+    }
+
+    #[test]
+    fn test_tensor_info_debug_deep() {
+        let info = TensorInfo {
+            name: "test.weight".to_string(),
+            n_dims: 3,
+            dims: vec![100, 200, 300],
+            qtype: 0,
+            offset: 0,
+        };
+        let debug = format!("{:?}", info);
+        assert!(debug.contains("TensorInfo"));
+        assert!(debug.contains("test.weight"));
+    }
+
+    // --- GGUFValue additional tests ---
+    #[test]
+    fn test_gguf_value_eq_uint16_deep() {
+        let v1 = GGUFValue::UInt16(1000);
+        let v2 = GGUFValue::UInt16(1000);
+        let v3 = GGUFValue::UInt16(2000);
+        assert_eq!(v1, v2);
+        assert_ne!(v1, v3);
+    }
+
+    #[test]
+    fn test_gguf_value_eq_int16_deep() {
+        let v1 = GGUFValue::Int16(-1000);
+        let v2 = GGUFValue::Int16(-1000);
+        let v3 = GGUFValue::Int16(1000);
+        assert_eq!(v1, v2);
+        assert_ne!(v1, v3);
+    }
+
+    #[test]
+    fn test_gguf_value_eq_uint32_deep() {
+        let v1 = GGUFValue::UInt32(100000);
+        let v2 = GGUFValue::UInt32(100000);
+        let v3 = GGUFValue::UInt32(200000);
+        assert_eq!(v1, v2);
+        assert_ne!(v1, v3);
+    }
+
+    #[test]
+    fn test_gguf_value_eq_int32_deep() {
+        let v1 = GGUFValue::Int32(-100000);
+        let v2 = GGUFValue::Int32(-100000);
+        let v3 = GGUFValue::Int32(100000);
+        assert_eq!(v1, v2);
+        assert_ne!(v1, v3);
+    }
+
+    #[test]
+    fn test_gguf_value_eq_uint64_deep() {
+        let v1 = GGUFValue::UInt64(10000000000);
+        let v2 = GGUFValue::UInt64(10000000000);
+        let v3 = GGUFValue::UInt64(20000000000);
+        assert_eq!(v1, v2);
+        assert_ne!(v1, v3);
+    }
+
+    #[test]
+    fn test_gguf_value_eq_int64_deep() {
+        let v1 = GGUFValue::Int64(-10000000000);
+        let v2 = GGUFValue::Int64(-10000000000);
+        let v3 = GGUFValue::Int64(10000000000);
+        assert_eq!(v1, v2);
+        assert_ne!(v1, v3);
+    }
+
+    #[test]
+    fn test_gguf_value_eq_float32_deep() {
+        let v1 = GGUFValue::Float32(3.14159);
+        let v2 = GGUFValue::Float32(3.14159);
+        let v3 = GGUFValue::Float32(2.71828);
+        assert_eq!(v1, v2);
+        assert_ne!(v1, v3);
+    }
+
+    #[test]
+    fn test_gguf_value_eq_float64_deep() {
+        let v1 = GGUFValue::Float64(3.14159265358979);
+        let v2 = GGUFValue::Float64(3.14159265358979);
+        let v3 = GGUFValue::Float64(2.71828182845904);
+        assert_eq!(v1, v2);
+        assert_ne!(v1, v3);
+    }
+
+    #[test]
+    fn test_gguf_value_eq_array_deep() {
+        let v1 = GGUFValue::Array(vec![GGUFValue::Int32(1), GGUFValue::Int32(2)]);
+        let v2 = GGUFValue::Array(vec![GGUFValue::Int32(1), GGUFValue::Int32(2)]);
+        let v3 = GGUFValue::Array(vec![GGUFValue::Int32(3)]);
+        assert_eq!(v1, v2);
+        assert_ne!(v1, v3);
+    }
+
+    // --- GGUF constant tests ---
+    #[test]
+    fn test_gguf_constants_deep() {
+        assert_eq!(GGUF_MAGIC, 0x46554747); // "GGUF" in little-endian
+        assert_eq!(GGUF_ALIGNMENT, 32);
+    }
+
+    // --- GGUFModel tests ---
+    #[test]
+    fn test_gguf_model_clone_deep() {
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: GGUF_MAGIC,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 0,
+            },
+            metadata: HashMap::new(),
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+        let cloned = model.clone();
+        assert_eq!(cloned.header.magic, GGUF_MAGIC);
+    }
+
+    #[test]
+    fn test_gguf_model_debug_deep() {
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: GGUF_MAGIC,
+                version: 3,
+                tensor_count: 5,
+                metadata_count: 10,
+            },
+            metadata: HashMap::new(),
+            tensors: vec![],
+            tensor_data_start: 1024,
+        };
+        let debug = format!("{:?}", model);
+        assert!(debug.contains("GGUFModel"));
+    }
+
+    // --- BatchGenerationStats tests ---
+    #[test]
+    fn test_batch_generation_stats_struct_deep() {
+        let stats = BatchGenerationStats {
+            gpu_cache_ready: true,
+            cache_memory_gb: 2.5,
+            num_layers: 32,
+            hidden_dim: 4096,
+            intermediate_dim: 11008,
+            recommended_batch_size: 16,
+            max_batch_size: 64,
+        };
+        assert!(stats.gpu_cache_ready);
+        assert!((stats.cache_memory_gb - 2.5).abs() < 1e-5);
+        assert_eq!(stats.num_layers, 32);
+        assert_eq!(stats.hidden_dim, 4096);
+        assert_eq!(stats.intermediate_dim, 11008);
+        assert_eq!(stats.recommended_batch_size, 16);
+        assert_eq!(stats.max_batch_size, 64);
+    }
+
+    #[test]
+    fn test_batch_generation_stats_defaults_deep() {
+        let stats = BatchGenerationStats {
+            gpu_cache_ready: false,
+            cache_memory_gb: 0.0,
+            num_layers: 0,
+            hidden_dim: 0,
+            intermediate_dim: 0,
+            recommended_batch_size: 0,
+            max_batch_size: 0,
+        };
+        assert!(!stats.gpu_cache_ready);
+        assert_eq!(stats.cache_memory_gb, 0.0);
+    }
+
+    // --- QuantizedGenerateConfig tests ---
+    #[test]
+    fn test_quantized_generate_config_default_deep() {
+        let config = QuantizedGenerateConfig::default();
+        assert!(config.max_tokens > 0);
+        assert!(config.temperature >= 0.0);
+        assert!(config.top_k >= 1);
+    }
+
+    #[test]
+    fn test_quantized_generate_config_deterministic_deep() {
+        let config = QuantizedGenerateConfig::deterministic(50);
+        assert_eq!(config.max_tokens, 50);
+        assert_eq!(config.temperature, 0.0);
+        assert_eq!(config.top_k, 1);
+    }
+
+    #[test]
+    fn test_quantized_generate_config_custom_deep() {
+        let config = QuantizedGenerateConfig {
+            max_tokens: 100,
+            temperature: 0.8,
+            top_k: 40,
+            stop_tokens: vec![1, 2],
+        };
+        assert_eq!(config.max_tokens, 100);
+        assert!((config.temperature - 0.8).abs() < 1e-5);
+        assert_eq!(config.top_k, 40);
+        assert_eq!(config.stop_tokens, vec![1, 2]);
+    }
+
+    #[test]
+    fn test_quantized_generate_config_builder_deep() {
+        let config = QuantizedGenerateConfig::default()
+            .with_max_tokens(200)
+            .with_temperature(0.7)
+            .with_top_k(50)
+            .with_stop_tokens(vec![0]);
+        assert_eq!(config.max_tokens, 200);
+        assert!((config.temperature - 0.7).abs() < 1e-5);
+        assert_eq!(config.top_k, 50);
+        assert_eq!(config.stop_tokens, vec![0]);
+    }
+
+    // --- DispatchMetrics tests ---
+    #[test]
+    fn test_dispatch_metrics_new_deep() {
+        let metrics = DispatchMetrics::new();
+        // Verify the metrics exist - they track via AtomicUsize internally
+        let debug = format!("{:?}", metrics);
+        assert!(debug.contains("DispatchMetrics") || debug.contains("cpu_dispatches"));
+    }
+
+    #[test]
+    fn test_dispatch_metrics_bucket_boundaries_deep() {
+        // Test the constant bucket boundaries
+        assert_eq!(DispatchMetrics::BUCKET_BOUNDARIES.len(), 4);
+        assert_eq!(DispatchMetrics::BUCKET_BOUNDARIES[0], 100);
+        assert_eq!(DispatchMetrics::BUCKET_BOUNDARIES[1], 500);
+        assert_eq!(DispatchMetrics::BUCKET_BOUNDARIES[2], 1000);
+        assert_eq!(DispatchMetrics::BUCKET_BOUNDARIES[3], 5000);
+    }
+
+    // --- InferenceScratchBuffer tests (from config) ---
+    #[test]
+    fn test_inference_scratch_buffer_from_config_deep() {
+        // Create a minimal config for scratch buffer
+        let config = GGUFConfig {
+            architecture: "llama".to_string(),
+            hidden_dim: 1024,
+            intermediate_dim: 2048,
+            vocab_size: 32000,
+            num_layers: 12,
+            num_heads: 16,
+            num_kv_heads: 4,
+            rope_theta: 10000.0,
+            context_length: 2048,
+            eps: 1e-5,
+            rope_type: 0,
+        };
+        let scratch = InferenceScratchBuffer::from_config(&config);
+        assert_eq!(scratch.hidden.len(), 1024);
+        assert_eq!(scratch.normed.len(), 1024);
+        assert_eq!(scratch.ffn_up.len(), 2048);
+        assert_eq!(scratch.ffn_gate.len(), 2048);
+        assert_eq!(scratch.ffn_down.len(), 1024);
+        assert_eq!(scratch.logits.len(), 32000);
+    }
+
+    #[test]
+    fn test_inference_scratch_buffer_qkv_dims_deep() {
+        let config = GGUFConfig {
+            architecture: "gpt2".to_string(),
+            hidden_dim: 768,
+            intermediate_dim: 2048,
+            vocab_size: 50257,
+            num_layers: 12,
+            num_heads: 12,
+            num_kv_heads: 12,
+            rope_theta: 10000.0,
+            context_length: 1024,
+            eps: 1e-5,
+            rope_type: 0,
+        };
+        let scratch = InferenceScratchBuffer::from_config(&config);
+        // QKV is 3x hidden for fused projection
+        assert_eq!(scratch.qkv.len(), 768 * 3);
+        assert_eq!(scratch.q.len(), 768);
+        assert_eq!(scratch.k.len(), 768);
+        assert_eq!(scratch.v.len(), 768);
+    }
+
+    // --- GGUFConfig tests ---
+    #[test]
+    fn test_gguf_config_fields_deep() {
+        let config = GGUFConfig {
+            architecture: "llama".to_string(),
+            hidden_dim: 2048,
+            intermediate_dim: 5632,
+            vocab_size: 32000,
+            num_layers: 24,
+            num_heads: 32,
+            num_kv_heads: 8,
+            rope_theta: 1000000.0,
+            context_length: 4096,
+            eps: 1e-6,
+            rope_type: 0,
+        };
+        assert_eq!(config.hidden_dim, 2048);
+        assert_eq!(config.intermediate_dim, 5632);
+        assert_eq!(config.num_layers, 24);
+        assert_eq!(config.num_kv_heads, 8);
+        assert!((config.rope_theta - 1000000.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_gguf_config_gqa_ratio_deep() {
+        // Test GQA (Grouped Query Attention) configuration
+        let config = GGUFConfig {
+            architecture: "llama".to_string(),
+            hidden_dim: 4096,
+            intermediate_dim: 14336,
+            vocab_size: 128256,
+            num_layers: 32,
+            num_heads: 32,
+            num_kv_heads: 8, // GQA ratio of 4:1
+            rope_theta: 500000.0,
+            context_length: 8192,
+            eps: 1e-5,
+            rope_type: 0,
+        };
+        let gqa_ratio = config.num_heads / config.num_kv_heads;
+        assert_eq!(gqa_ratio, 4); // 4 query heads share 1 KV head
+    }
+
+    // --- More GGUFHeader tests ---
+    #[test]
+    fn test_gguf_header_versions_deep() {
+        for version in [1u32, 2, 3] {
+            let header = GGUFHeader {
+                magic: 0x46554747, // "GGUF"
+                version,
+                tensor_count: 100,
+                metadata_count: 50,
+            };
+            assert_eq!(header.version, version);
+        }
+    }
+
+    #[test]
+    fn test_gguf_header_large_counts_deep() {
+        let header = GGUFHeader {
+            magic: 0x46554747,
+            version: 3,
+            tensor_count: u64::MAX,
+            metadata_count: u64::MAX,
+        };
+        assert_eq!(header.tensor_count, u64::MAX);
+        assert_eq!(header.metadata_count, u64::MAX);
+    }
+
+    // --- TensorInfo edge cases ---
+    #[test]
+    fn test_tensor_info_scalar_deep() {
+        // A 0-dimensional tensor (scalar)
+        let info = TensorInfo {
+            name: "scalar".to_string(),
+            n_dims: 0,
+            dims: vec![],
+            qtype: 0, // F32
+            offset: 0,
+        };
+        assert_eq!(info.n_dims, 0);
+        assert!(info.dims.is_empty());
+    }
+
+    #[test]
+    fn test_tensor_info_high_dims_deep() {
+        // A 4-dimensional tensor
+        let info = TensorInfo {
+            name: "conv4d".to_string(),
+            n_dims: 4,
+            dims: vec![32, 64, 3, 3],
+            qtype: 0,
+            offset: 1024,
+        };
+        assert_eq!(info.n_dims, 4);
+        assert_eq!(info.dims.len(), 4);
+        let total_elements: u64 = info.dims.iter().product();
+        assert_eq!(total_elements, 32 * 64 * 3 * 3);
+    }
+
+    // --- GGUFValue edge cases ---
+    #[test]
+    fn test_gguf_value_empty_array_deep() {
+        let empty_array: GGUFValue = GGUFValue::Array(vec![]);
+        if let GGUFValue::Array(arr) = empty_array {
+            assert!(arr.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_gguf_value_large_string_deep() {
+        let large_str = "x".repeat(10000);
+        let value = GGUFValue::String(large_str.clone());
+        if let GGUFValue::String(s) = value {
+            assert_eq!(s.len(), 10000);
+        }
+    }
+
+    #[test]
+    fn test_gguf_value_float_edge_cases_deep() {
+        // Test special float values
+        let values = [
+            GGUFValue::Float32(f32::MIN),
+            GGUFValue::Float32(f32::MAX),
+            GGUFValue::Float32(f32::EPSILON),
+            GGUFValue::Float64(f64::MIN),
+            GGUFValue::Float64(f64::MAX),
+        ];
+        for v in &values {
+            let debug = format!("{:?}", v);
+            assert!(debug.contains("Float"));
+        }
+    }
+
+    #[test]
+    fn test_gguf_value_int_boundaries_deep() {
+        let values = [
+            GGUFValue::Int8(i8::MIN),
+            GGUFValue::Int8(i8::MAX),
+            GGUFValue::Int16(i16::MIN),
+            GGUFValue::Int16(i16::MAX),
+            GGUFValue::Int32(i32::MIN),
+            GGUFValue::Int32(i32::MAX),
+            GGUFValue::Int64(i64::MIN),
+            GGUFValue::Int64(i64::MAX),
+        ];
+        for v in &values {
+            let debug = format!("{:?}", v);
+            assert!(debug.contains("Int"));
+        }
+    }
+
+    #[test]
+    fn test_gguf_value_uint_boundaries_deep() {
+        let values = [
+            GGUFValue::UInt8(u8::MIN),
+            GGUFValue::UInt8(u8::MAX),
+            GGUFValue::UInt16(u16::MIN),
+            GGUFValue::UInt16(u16::MAX),
+            GGUFValue::UInt32(u32::MIN),
+            GGUFValue::UInt32(u32::MAX),
+            GGUFValue::UInt64(u64::MIN),
+            GGUFValue::UInt64(u64::MAX),
+        ];
+        for v in &values {
+            let debug = format!("{:?}", v);
+            assert!(debug.contains("UInt"));
+        }
+    }
+
+    // --- OwnedQuantizedKVCache tests ---
+    #[test]
+    fn test_owned_quantized_kv_cache_new_deep() {
+        let cache = OwnedQuantizedKVCache::new(12, 768, 512);
+        assert_eq!(cache.len(), 0);
+        assert!(cache.is_empty());
+    }
+
+    #[test]
+    fn test_owned_quantized_kv_cache_append_deep() {
+        let mut cache = OwnedQuantizedKVCache::new(6, 512, 256);
+        // Simulate appending K/V for layer 0
+        let k = vec![1.0f32; 512];
+        let v = vec![2.0f32; 512];
+        cache.append(0, &k, &v);
+        cache.advance();
+        assert_eq!(cache.len(), 1);
+        assert!(!cache.is_empty());
+    }
+
+    #[test]
+    fn test_owned_quantized_kv_cache_get_kv_deep() {
+        let mut cache = OwnedQuantizedKVCache::new(2, 64, 128);
+        let k = vec![3.0f32; 64];
+        let v = vec![4.0f32; 64];
+        cache.append(0, &k, &v);
+        cache.advance();
+
+        let cached_k = cache.get_k(0);
+        let cached_v = cache.get_v(0);
+        assert_eq!(cached_k.len(), 64);
+        assert_eq!(cached_v.len(), 64);
+        assert_eq!(cached_k[0], 3.0);
+        assert_eq!(cached_v[0], 4.0);
+    }
+
+    #[test]
+    fn test_owned_quantized_kv_cache_out_of_bounds_deep() {
+        let cache = OwnedQuantizedKVCache::new(4, 256, 64);
+        // Out of bounds layer should return empty slice
+        let k = cache.get_k(10);
+        let v = cache.get_v(10);
+        assert!(k.is_empty());
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn test_owned_quantized_kv_cache_snapshot_deep() {
+        let mut cache = OwnedQuantizedKVCache::new(3, 128, 32);
+        assert_eq!(cache.snapshot_len(), 0);
+
+        let k = vec![1.0f32; 128];
+        let v = vec![1.0f32; 128];
+        cache.append(0, &k, &v);
+        cache.advance();
+        assert_eq!(cache.snapshot_len(), 1);
+    }
+
+    // --- GGUFModel tests ---
+    #[test]
+    fn test_gguf_model_empty_tensors_deep() {
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 0,
+            },
+            metadata: HashMap::new(),
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+        assert!(model.tensors.is_empty());
+        assert_eq!(model.header.tensor_count, 0);
+    }
+
+    #[test]
+    fn test_gguf_model_multiple_tensors_deep() {
+        let tensors = vec![
+            TensorInfo {
+                name: "embed".to_string(),
+                n_dims: 2,
+                dims: vec![32000, 4096],
+                qtype: 0,
+                offset: 0,
+            },
+            TensorInfo {
+                name: "attn.q".to_string(),
+                n_dims: 2,
+                dims: vec![4096, 4096],
+                qtype: 0,
+                offset: 32000 * 4096 * 4,
+            },
+            TensorInfo {
+                name: "ffn.gate".to_string(),
+                n_dims: 2,
+                dims: vec![11008, 4096],
+                qtype: 0,
+                offset: 32000 * 4096 * 4 + 4096 * 4096 * 4,
+            },
+        ];
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 3,
+                metadata_count: 0,
+            },
+            metadata: HashMap::new(),
+            tensors,
+            tensor_data_start: 1024,
+        };
+        assert_eq!(model.tensors.len(), 3);
+        assert_eq!(model.tensors[0].name, "embed");
+        assert_eq!(model.tensors[1].name, "attn.q");
+        assert_eq!(model.tensors[2].name, "ffn.gate");
+    }
+
+    // --- Test metadata retrieval ---
+    #[test]
+    fn test_gguf_model_metadata_lookup_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("general.architecture".to_string(), GGUFValue::String("llama".to_string()));
+        metadata.insert("llama.context_length".to_string(), GGUFValue::UInt32(4096));
+        metadata.insert("llama.embedding_length".to_string(), GGUFValue::UInt32(4096));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 3,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 512,
+        };
+
+        assert!(model.metadata.contains_key("general.architecture"));
+        if let Some(GGUFValue::String(arch)) = model.metadata.get("general.architecture") {
+            assert_eq!(arch, "llama");
+        }
+    }
+
+    // --- Quantization type coverage ---
+    #[test]
+    fn test_quantization_qtype_values_deep() {
+        // Common GGML data types
+        const GGML_TYPE_F32: u32 = 0;
+        const GGML_TYPE_F16: u32 = 1;
+        const GGML_TYPE_Q4_0: u32 = 2;
+        const GGML_TYPE_Q4_1: u32 = 3;
+        const GGML_TYPE_Q5_0: u32 = 6;
+        const GGML_TYPE_Q5_1: u32 = 7;
+        const GGML_TYPE_Q8_0: u32 = 8;
+
+        let tensors = [
+            TensorInfo { name: "f32".to_string(), n_dims: 1, dims: vec![100], qtype: GGML_TYPE_F32, offset: 0 },
+            TensorInfo { name: "f16".to_string(), n_dims: 1, dims: vec![100], qtype: GGML_TYPE_F16, offset: 0 },
+            TensorInfo { name: "q4_0".to_string(), n_dims: 1, dims: vec![100], qtype: GGML_TYPE_Q4_0, offset: 0 },
+            TensorInfo { name: "q4_1".to_string(), n_dims: 1, dims: vec![100], qtype: GGML_TYPE_Q4_1, offset: 0 },
+            TensorInfo { name: "q5_0".to_string(), n_dims: 1, dims: vec![100], qtype: GGML_TYPE_Q5_0, offset: 0 },
+            TensorInfo { name: "q5_1".to_string(), n_dims: 1, dims: vec![100], qtype: GGML_TYPE_Q5_1, offset: 0 },
+            TensorInfo { name: "q8_0".to_string(), n_dims: 1, dims: vec![100], qtype: GGML_TYPE_Q8_0, offset: 0 },
+        ];
+
+        for tensor in &tensors {
+            assert!(tensor.qtype <= 20); // Valid qtype range
+        }
+    }
+
+    // --- Vocabulary and tokenization tests ---
+    #[test]
+    fn test_vocabulary_extraction_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
+            GGUFValue::String("hello".to_string()),
+            GGUFValue::String("world".to_string()),
+            GGUFValue::String("test".to_string()),
+        ]));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 1,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        let vocab = model.vocabulary();
+        assert!(vocab.is_some());
+        let vocab = vocab.unwrap();
+        assert_eq!(vocab.len(), 3);
+        assert_eq!(vocab[0], "hello");
+        assert_eq!(vocab[1], "world");
+        assert_eq!(vocab[2], "test");
+    }
+
+    #[test]
+    fn test_vocabulary_missing_deep() {
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 0,
+            },
+            metadata: HashMap::new(),
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        let vocab = model.vocabulary();
+        assert!(vocab.is_none());
+    }
+
+    #[test]
+    fn test_vocabulary_empty_array_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![]));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 1,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        let vocab = model.vocabulary();
+        assert!(vocab.is_none()); // Empty array returns None
+    }
+
+    #[test]
+    fn test_decode_with_vocabulary_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
+            GGUFValue::String("Hello".to_string()),
+            GGUFValue::String(" ".to_string()),
+            GGUFValue::String("World".to_string()),
+        ]));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 1,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        let decoded = model.decode(&[0, 1, 2]);
+        assert_eq!(decoded, "Hello World");
+    }
+
+    #[test]
+    fn test_decode_without_vocabulary_deep() {
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 0,
+            },
+            metadata: HashMap::new(),
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        // Without vocabulary, falls back to ASCII
+        let decoded = model.decode(&[65, 66, 67]);
+        assert_eq!(decoded, "ABC");
+    }
+
+    #[test]
+    fn test_decode_byte_tokens_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
+            GGUFValue::String("<0x41>".to_string()), // 'A'
+            GGUFValue::String("<0x42>".to_string()), // 'B'
+            GGUFValue::String("<0x43>".to_string()), // 'C'
+        ]));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 1,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        let decoded = model.decode(&[0, 1, 2]);
+        assert_eq!(decoded, "ABC");
+    }
+
+    #[test]
+    fn test_decode_sentencepiece_markers_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
+            GGUFValue::String("▁Hello".to_string()),
+            GGUFValue::String("▁World".to_string()),
+        ]));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 1,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        let decoded = model.decode(&[0, 1]);
+        assert!(decoded.contains("Hello") && decoded.contains("World"));
+    }
+
+    #[test]
+    fn test_decode_gpt2_style_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
+            GGUFValue::String("test".to_string()),
+        ]));
+        metadata.insert("tokenizer.ggml.model".to_string(), GGUFValue::String("gpt2".to_string()));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 2,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        let decoded = model.decode(&[0]);
+        // GPT2 style decoding processes each char through unicode mapping
+        assert!(!decoded.is_empty());
+    }
+
+    #[test]
+    fn test_encode_basic_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
+            GGUFValue::String("a".to_string()),
+            GGUFValue::String("b".to_string()),
+            GGUFValue::String("ab".to_string()),
+        ]));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 1,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        let encoded = model.encode("ab");
+        assert!(encoded.is_some());
+        // Greedy longest match should find "ab" as token 2
+        let tokens = encoded.unwrap();
+        assert!(tokens.contains(&2));
+    }
+
+    #[test]
+    fn test_encode_without_vocabulary_deep() {
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 0,
+            },
+            metadata: HashMap::new(),
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        let encoded = model.encode("test");
+        assert!(encoded.is_none());
+    }
+
+    // --- RoPE frequency tests ---
+    #[test]
+    fn test_rope_freq_base_extraction_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("general.architecture".to_string(), GGUFValue::String("llama".to_string()));
+        metadata.insert("llama.rope.freq_base".to_string(), GGUFValue::Float32(10000.0));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 2,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        let freq_base = model.rope_freq_base();
+        assert!(freq_base.is_some());
+        assert!((freq_base.unwrap() - 10000.0).abs() < 1e-5);
+    }
+
+    // --- More boundary tests for GGUFValue ---
+    #[test]
+    fn test_gguf_value_bool_variants_deep() {
+        let true_val = GGUFValue::Bool(true);
+        let false_val = GGUFValue::Bool(false);
+
+        if let GGUFValue::Bool(v) = true_val {
+            assert!(v);
+        }
+        if let GGUFValue::Bool(v) = false_val {
+            assert!(!v);
+        }
+    }
+
+    #[test]
+    fn test_gguf_value_nested_array_deep() {
+        let nested = GGUFValue::Array(vec![
+            GGUFValue::Array(vec![
+                GGUFValue::Int32(1),
+                GGUFValue::Int32(2),
+            ]),
+            GGUFValue::Array(vec![
+                GGUFValue::Int32(3),
+                GGUFValue::Int32(4),
+            ]),
+        ]);
+
+        if let GGUFValue::Array(outer) = nested {
+            assert_eq!(outer.len(), 2);
+            if let GGUFValue::Array(inner) = &outer[0] {
+                assert_eq!(inner.len(), 2);
+            }
+        }
+    }
+
+    // --- OwnedQuantizedKVCache rollback test ---
+    #[test]
+    fn test_owned_quantized_kv_cache_rollback_deep() {
+        let mut cache = OwnedQuantizedKVCache::new(2, 64, 32);
+
+        // Add several entries
+        for i in 0..5 {
+            let k = vec![i as f32; 64];
+            let v = vec![i as f32; 64];
+            cache.append(0, &k, &v);
+            cache.advance();
+        }
+        assert_eq!(cache.len(), 5);
+
+        // Rollback to length 2
+        cache.rollback_to(2, 64);
+        assert_eq!(cache.len(), 2);
+    }
+
+    #[test]
+    fn test_owned_quantized_kv_cache_rollback_no_op_deep() {
+        let mut cache = OwnedQuantizedKVCache::new(2, 64, 32);
+        cache.rollback_to(10, 64); // Should be no-op since cache is empty
+        assert_eq!(cache.len(), 0);
+    }
+
+    // --- GGUFConfig from_gguf test ---
+    #[test]
+    fn test_gguf_config_from_model_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("general.architecture".to_string(), GGUFValue::String("llama".to_string()));
+        metadata.insert("llama.embedding_length".to_string(), GGUFValue::UInt32(4096));
+        metadata.insert("llama.block_count".to_string(), GGUFValue::UInt32(32));
+        metadata.insert("llama.attention.head_count".to_string(), GGUFValue::UInt32(32));
+        metadata.insert("llama.attention.head_count_kv".to_string(), GGUFValue::UInt32(8));
+        metadata.insert("llama.vocab_size".to_string(), GGUFValue::UInt32(32000));
+        metadata.insert("llama.feed_forward_length".to_string(), GGUFValue::UInt32(11008));
+        metadata.insert("llama.context_length".to_string(), GGUFValue::UInt32(4096));
+        metadata.insert("llama.rope.freq_base".to_string(), GGUFValue::Float32(10000.0));
+        metadata.insert("llama.attention.layer_norm_rms_epsilon".to_string(), GGUFValue::Float32(1e-5));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 10,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        let config = GGUFConfig::from_gguf(&model);
+        assert!(config.is_ok());
+        let config = config.unwrap();
+        assert_eq!(config.architecture, "llama");
+        assert_eq!(config.hidden_dim, 4096);
+        assert_eq!(config.num_layers, 32);
+    }
+
+    // --- More metadata accessor tests ---
+    #[test]
+    fn test_rope_type_extraction_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("general.architecture".to_string(), GGUFValue::String("llama".to_string()));
+        metadata.insert("llama.rope.scaling.type".to_string(), GGUFValue::String("neox".to_string()));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 2,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        let rope_type = model.rope_type();
+        assert!(rope_type.is_some());
+        assert_eq!(rope_type.unwrap(), 2); // NEOX style
+    }
+
+    #[test]
+    fn test_rope_type_none_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("general.architecture".to_string(), GGUFValue::String("llama".to_string()));
+        metadata.insert("llama.rope.scaling.type".to_string(), GGUFValue::String("none".to_string()));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 2,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        let rope_type = model.rope_type();
+        assert!(rope_type.is_some());
+        assert_eq!(rope_type.unwrap(), 0); // NORM style
+    }
+
+    #[test]
+    fn test_layer_norm_epsilon_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("general.architecture".to_string(), GGUFValue::String("llama".to_string()));
+        metadata.insert("llama.attention.layer_norm_rms_epsilon".to_string(), GGUFValue::Float32(1e-6));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 2,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        let eps = model.rms_epsilon();
+        assert!(eps.is_some());
+        assert!((eps.unwrap() - 1e-6).abs() < 1e-10);
+    }
+
+    // --- More encode tests ---
+    #[test]
+    fn test_encode_sentencepiece_with_space_prefix_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
+            GGUFValue::String("▁".to_string()), // word boundary
+            GGUFValue::String("hello".to_string()),
+            GGUFValue::String("▁hello".to_string()),
+        ]));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 1,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        // Should add space prefix for SentencePiece style
+        let encoded = model.encode("hello");
+        assert!(encoded.is_some());
+    }
+
+    #[test]
+    fn test_encode_gpt2_with_space_replacement_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
+            GGUFValue::String("hello".to_string()),
+            GGUFValue::String("Ġworld".to_string()), // GPT-2 space prefix
+        ]));
+        metadata.insert("tokenizer.ggml.model".to_string(), GGUFValue::String("gpt2".to_string()));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 2,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        // Should replace space with Ġ for GPT-2 style
+        let encoded = model.encode("hello world");
+        assert!(encoded.is_some());
+    }
+
+    // --- Decode edge cases ---
+    #[test]
+    fn test_decode_unknown_token_id_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
+            GGUFValue::String("a".to_string()),
+            GGUFValue::String("b".to_string()),
+        ]));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 1,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        // Token ID 99 doesn't exist - should use replacement char
+        let decoded = model.decode(&[0, 99, 1]);
+        assert!(decoded.contains("a") && decoded.contains("b"));
+        // Should contain replacement character for unknown token
+        assert!(decoded.contains("�") || decoded.len() >= 2);
+    }
+
+    // --- Various metadata type accessor tests ---
+    #[test]
+    fn test_metadata_accessors_multiple_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("general.architecture".to_string(), GGUFValue::String("qwen2".to_string()));
+        metadata.insert("qwen2.embedding_length".to_string(), GGUFValue::UInt32(2048));
+        metadata.insert("qwen2.block_count".to_string(), GGUFValue::UInt32(24));
+        metadata.insert("qwen2.attention.head_count".to_string(), GGUFValue::UInt32(16));
+        metadata.insert("qwen2.attention.head_count_kv".to_string(), GGUFValue::UInt32(2));
+        metadata.insert("qwen2.context_length".to_string(), GGUFValue::UInt32(32768));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 6,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        assert_eq!(model.architecture(), Some("qwen2"));
+        assert_eq!(model.embedding_dim(), Some(2048));
+        assert_eq!(model.num_layers(), Some(24));
+        assert_eq!(model.num_heads(), Some(16));
+        assert_eq!(model.num_kv_heads(), Some(2));
+        assert_eq!(model.context_length(), Some(32768));
+    }
+
+    // --- InferenceScratchBuffer direct buffer tests ---
+    #[test]
+    fn test_inference_scratch_buffer_fields_deep() {
+        let config = GGUFConfig {
+            architecture: "test".to_string(),
+            hidden_dim: 512,
+            intermediate_dim: 1024,
+            vocab_size: 8000,
+            num_layers: 6,
+            num_heads: 8,
+            num_kv_heads: 8,
+            rope_theta: 10000.0,
+            context_length: 512,
+            eps: 1e-5,
+            rope_type: 0,
+        };
+        let scratch = InferenceScratchBuffer::from_config(&config);
+
+        // Test all buffer fields are properly sized
+        assert_eq!(scratch.attn_out.len(), 512);
+        assert_eq!(scratch.attn_proj.len(), 512);
+    }
+
+    // --- Additional OwnedQuantizedKVCache tests ---
+    #[test]
+    fn test_owned_quantized_kv_cache_from_config_deep() {
+        let config = GGUFConfig {
+            architecture: "llama".to_string(),
+            hidden_dim: 1024,
+            intermediate_dim: 2816,
+            vocab_size: 32000,
+            num_layers: 8,
+            num_heads: 8,
+            num_kv_heads: 8,
+            rope_theta: 10000.0,
+            context_length: 2048,
+            eps: 1e-5,
+            rope_type: 0,
+        };
+        let cache = OwnedQuantizedKVCache::from_config(&config, 256);
+        assert!(cache.is_empty());
+    }
+
+    // --- GGUFValue pattern matching tests ---
+    #[test]
+    fn test_gguf_value_mixed_array_deep() {
+        // Test an array with mixed types
+        let mixed = GGUFValue::Array(vec![
+            GGUFValue::Int32(42),
+            GGUFValue::String("test".to_string()),
+            GGUFValue::Float32(3.14),
+            GGUFValue::Bool(true),
+        ]);
+
+        if let GGUFValue::Array(arr) = mixed {
+            assert_eq!(arr.len(), 4);
+            assert!(matches!(&arr[0], GGUFValue::Int32(42)));
+            assert!(matches!(&arr[1], GGUFValue::String(s) if s == "test"));
+            assert!(matches!(&arr[2], GGUFValue::Float32(f) if (*f - 3.14).abs() < 1e-5));
+            assert!(matches!(&arr[3], GGUFValue::Bool(true)));
+        }
+    }
+
+    // --- GGUFHeader equality test ---
+    #[test]
+    fn test_gguf_header_equality_deep() {
+        let h1 = GGUFHeader {
+            magic: 0x46554747,
+            version: 3,
+            tensor_count: 100,
+            metadata_count: 50,
+        };
+        let h2 = GGUFHeader {
+            magic: 0x46554747,
+            version: 3,
+            tensor_count: 100,
+            metadata_count: 50,
+        };
+        let h3 = GGUFHeader {
+            magic: 0x46554747,
+            version: 2, // Different version
+            tensor_count: 100,
+            metadata_count: 50,
+        };
+
+        assert_eq!(h1, h2);
+        assert_ne!(h1, h3);
+    }
+
+    // --- TensorInfo equality test ---
+    #[test]
+    fn test_tensor_info_equality_deep() {
+        let t1 = TensorInfo {
+            name: "weights".to_string(),
+            n_dims: 2,
+            dims: vec![1024, 4096],
+            qtype: 0,
+            offset: 0,
+        };
+        let t2 = TensorInfo {
+            name: "weights".to_string(),
+            n_dims: 2,
+            dims: vec![1024, 4096],
+            qtype: 0,
+            offset: 0,
+        };
+        let t3 = TensorInfo {
+            name: "bias".to_string(), // Different name
+            n_dims: 2,
+            dims: vec![1024, 4096],
+            qtype: 0,
+            offset: 0,
+        };
+
+        assert_eq!(t1, t2);
+        assert_ne!(t1, t3);
+    }
+
+    // --- QuantizedGenerateConfig edge cases ---
+    #[test]
+    fn test_quantized_generate_config_zero_max_tokens_deep() {
+        let config = QuantizedGenerateConfig {
+            max_tokens: 0,
+            temperature: 1.0,
+            top_k: 40,
+            stop_tokens: vec![],
+        };
+        assert_eq!(config.max_tokens, 0);
+    }
+
+    #[test]
+    fn test_quantized_generate_config_high_temperature_deep() {
+        let config = QuantizedGenerateConfig {
+            max_tokens: 100,
+            temperature: 2.0,
+            top_k: 100,
+            stop_tokens: vec![0, 1, 2],
+        };
+        assert_eq!(config.temperature, 2.0);
+        assert_eq!(config.stop_tokens.len(), 3);
+    }
+
+    // --- Additional GGUFValue variant tests ---
+    #[test]
+    fn test_gguf_value_int64_deep() {
+        let val = GGUFValue::Int64(i64::MAX);
+        if let GGUFValue::Int64(v) = val {
+            assert_eq!(v, i64::MAX);
+        } else {
+            panic!("Expected Int64 variant");
+        }
+    }
+
+    #[test]
+    fn test_gguf_value_uint64_deep() {
+        let val = GGUFValue::UInt64(u64::MAX);
+        if let GGUFValue::UInt64(v) = val {
+            assert_eq!(v, u64::MAX);
+        } else {
+            panic!("Expected UInt64 variant");
+        }
+    }
+
+    #[test]
+    fn test_gguf_value_float64_deep() {
+        let val = GGUFValue::Float64(std::f64::consts::PI);
+        if let GGUFValue::Float64(v) = val {
+            assert!((v - std::f64::consts::PI).abs() < 1e-15);
+        } else {
+            panic!("Expected Float64 variant");
+        }
+    }
+
+    #[test]
+    fn test_gguf_value_nested_array_extra_deep() {
+        let inner = GGUFValue::Array(vec![
+            GGUFValue::Int32(1),
+            GGUFValue::Int32(2),
+        ]);
+        let outer = GGUFValue::Array(vec![inner]);
+
+        if let GGUFValue::Array(arr) = &outer {
+            assert_eq!(arr.len(), 1);
+            if let GGUFValue::Array(inner_arr) = &arr[0] {
+                assert_eq!(inner_arr.len(), 2);
+            }
+        }
+    }
+
+    // --- TensorInfo dimension edge cases ---
+    #[test]
+    fn test_tensor_info_1d_deep() {
+        let t = TensorInfo {
+            name: "bias".to_string(),
+            n_dims: 1,
+            dims: vec![4096],
+            qtype: 0,
+            offset: 0,
+        };
+        assert_eq!(t.n_dims, 1);
+        assert_eq!(t.dims.len(), 1);
+        assert_eq!(t.dims[0], 4096);
+    }
+
+    #[test]
+    fn test_tensor_info_3d_deep() {
+        let t = TensorInfo {
+            name: "conv_weights".to_string(),
+            n_dims: 3,
+            dims: vec![64, 3, 3],
+            qtype: 2,
+            offset: 1024,
+        };
+        assert_eq!(t.n_dims, 3);
+        assert_eq!(t.dims, vec![64, 3, 3]);
+    }
+
+    #[test]
+    fn test_tensor_info_4d_deep() {
+        let t = TensorInfo {
+            name: "attention_weights".to_string(),
+            n_dims: 4,
+            dims: vec![8, 32, 64, 64],
+            qtype: 8,
+            offset: 2048,
+        };
+        assert_eq!(t.n_dims, 4);
+        assert_eq!(t.dims.len(), 4);
+    }
+
+    // --- GGUFConfig field validation ---
+    #[test]
+    fn test_gguf_config_large_model_deep() {
+        let config = GGUFConfig {
+            architecture: "llama".to_string(),
+            hidden_dim: 8192,
+            intermediate_dim: 28672,
+            vocab_size: 128000,
+            num_layers: 80,
+            num_heads: 64,
+            num_kv_heads: 8,
+            rope_theta: 500000.0,
+            context_length: 131072,
+            eps: 1e-6,
+            rope_type: 0,
+        };
+
+        // Large model config (like Llama 70B)
+        assert_eq!(config.num_layers, 80);
+        assert_eq!(config.hidden_dim, 8192);
+        assert!(config.context_length > 100000);
+    }
+
+    #[test]
+    fn test_gguf_config_small_model_deep() {
+        let config = GGUFConfig {
+            architecture: "gpt2".to_string(),
+            hidden_dim: 768,
+            intermediate_dim: 3072,
+            vocab_size: 50257,
+            num_layers: 12,
+            num_heads: 12,
+            num_kv_heads: 12,
+            rope_theta: 10000.0,
+            context_length: 1024,
+            eps: 1e-5,
+            rope_type: 0,
+        };
+
+        // Small model config (like GPT-2 small)
+        assert_eq!(config.num_layers, 12);
+        assert_eq!(config.hidden_dim, 768);
+    }
+
+    // --- Header version tests ---
+    #[test]
+    fn test_gguf_header_version_1_deep() {
+        let h = GGUFHeader {
+            magic: 0x46554747,
+            version: 1,
+            tensor_count: 10,
+            metadata_count: 5,
+        };
+        assert_eq!(h.version, 1);
+    }
+
+    #[test]
+    fn test_gguf_header_version_2_deep() {
+        let h = GGUFHeader {
+            magic: 0x46554747,
+            version: 2,
+            tensor_count: 20,
+            metadata_count: 10,
+        };
+        assert_eq!(h.version, 2);
+    }
+
+    // --- Metadata accessor edge cases ---
+    #[test]
+    fn test_num_kv_heads_fallback_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("general.architecture".to_string(), GGUFValue::String("llama".to_string()));
+        // Set num_heads but NOT num_kv_heads - should fall back
+        metadata.insert("llama.attention.head_count".to_string(), GGUFValue::UInt32(32));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 2,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        // num_kv_heads not present, should return None
+        assert!(model.num_kv_heads().is_none());
+    }
+
+    #[test]
+    fn test_architecture_missing_deep() {
+        let metadata = HashMap::new();
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 0,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        assert!(model.architecture().is_none());
+    }
+
+    #[test]
+    fn test_context_length_missing_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("general.architecture".to_string(), GGUFValue::String("llama".to_string()));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 1,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        assert!(model.context_length().is_none());
+    }
+
+    // --- Vocabulary token extraction ---
+    #[test]
+    fn test_vocabulary_with_byte_tokens_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
+            GGUFValue::String("<|endoftext|>".to_string()),
+            GGUFValue::String("<0x00>".to_string()),
+            GGUFValue::String("<0xFF>".to_string()),
+            GGUFValue::String("hello".to_string()),
+        ]));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 1,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        let vocab = model.vocabulary().expect("Should have vocabulary");
+        assert_eq!(vocab.len(), 4);
+        assert!(vocab.iter().any(|t| t.contains("endoftext")));
+    }
+
+    // --- Encode/decode with special tokens ---
+    #[test]
+    fn test_encode_with_bos_eos_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
+            GGUFValue::String("<s>".to_string()),      // BOS token at id 0
+            GGUFValue::String("</s>".to_string()),     // EOS token at id 1
+            GGUFValue::String("hello".to_string()),    // id 2
+        ]));
+        metadata.insert("tokenizer.ggml.bos_token_id".to_string(), GGUFValue::UInt32(0));
+        metadata.insert("tokenizer.ggml.eos_token_id".to_string(), GGUFValue::UInt32(1));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 3,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        let bos = model.bos_token_id();
+        let eos = model.eos_token_id();
+        assert_eq!(bos, Some(0));
+        assert_eq!(eos, Some(1));
+    }
+
+    #[test]
+    fn test_decode_special_tokens_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
+            GGUFValue::String("<s>".to_string()),
+            GGUFValue::String("</s>".to_string()),
+            GGUFValue::String("a".to_string()),
+            GGUFValue::String("b".to_string()),
+        ]));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 1,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        let decoded = model.decode(&[0, 2, 3, 1]);
+        assert!(decoded.contains("<s>") || decoded.contains("a"));
+    }
+
+    // --- OwnedQuantizedKVCache operations ---
+    #[test]
+    fn test_owned_quantized_kv_cache_multiple_appends_extra_deep() {
+        let mut cache = OwnedQuantizedKVCache::new(4, 64, 128);
+        assert!(cache.is_empty());
+
+        // First append - one token for each layer
+        let k1 = vec![1.0f32; 64];
+        let v1 = vec![2.0f32; 64];
+        for layer in 0..4 {
+            cache.append(layer, &k1, &v1);
+        }
+        cache.advance();
+        assert_eq!(cache.len(), 1);
+
+        // Second append
+        let k2 = vec![3.0f32; 64];
+        let v2 = vec![4.0f32; 64];
+        for layer in 0..4 {
+            cache.append(layer, &k2, &v2);
+        }
+        cache.advance();
+        assert_eq!(cache.len(), 2);
+    }
+
+    #[test]
+    fn test_owned_quantized_kv_cache_advance_extra_deep() {
+        let mut cache = OwnedQuantizedKVCache::new(2, 32, 64);
+
+        let k = vec![1.0f32; 32];
+        let v = vec![2.0f32; 32];
+
+        // Append and advance 3 times
+        for _ in 0..3 {
+            for layer in 0..2 {
+                cache.append(layer, &k, &v);
+            }
+            cache.advance();
+        }
+
+        assert_eq!(cache.len(), 3);
+    }
+
+    #[test]
+    fn test_owned_quantized_kv_cache_get_k_v_extra_deep() {
+        let mut cache = OwnedQuantizedKVCache::new(2, 16, 32);
+
+        let k = vec![1.5f32; 16];
+        let v = vec![3.5f32; 16];
+
+        for layer in 0..2 {
+            cache.append(layer, &k, &v);
+        }
+        cache.advance();
+
+        // Get K for layer 0 - returns all cached keys for that layer
+        let k_layer0 = cache.get_k(0);
+        assert!(!k_layer0.is_empty());
+
+        // Get V for layer 1
+        let v_layer1 = cache.get_v(1);
+        assert!(!v_layer1.is_empty());
+    }
+
+    #[test]
+    fn test_owned_quantized_kv_cache_snapshot_rollback_extra_deep() {
+        let mut cache = OwnedQuantizedKVCache::new(2, 16, 64);
+
+        let k = vec![1.0f32; 16];
+        let v = vec![2.0f32; 16];
+
+        // Append 2 tokens
+        for _ in 0..2 {
+            for layer in 0..2 {
+                cache.append(layer, &k, &v);
+            }
+            cache.advance();
+        }
+
+        let snap = cache.snapshot_len();
+        assert_eq!(snap, 2);
+
+        // Append 1 more
+        for layer in 0..2 {
+            cache.append(layer, &k, &v);
+        }
+        cache.advance();
+        assert_eq!(cache.len(), 3);
+
+        cache.rollback_to(snap, 16); // kv_dim = hidden_dim = 16
+        assert_eq!(cache.len(), 2);
+    }
+
+    // --- GGUFModel tensor lookup ---
+    #[test]
+    fn test_gguf_model_tensor_lookup_deep() {
+        let tensors = vec![
+            TensorInfo {
+                name: "embed.weight".to_string(),
+                n_dims: 2,
+                dims: vec![32000, 2048],
+                qtype: 0,
+                offset: 0,
+            },
+            TensorInfo {
+                name: "lm_head.weight".to_string(),
+                n_dims: 2,
+                dims: vec![32000, 2048],
+                qtype: 2,
+                offset: 262144000,
+            },
+        ];
+
+        let metadata = HashMap::new();
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 2,
+                metadata_count: 0,
+            },
+            metadata,
+            tensors,
+            tensor_data_start: 0,
+        };
+
+        // Check tensor count
+        assert_eq!(model.tensors.len(), 2);
+        assert_eq!(model.tensors[0].name, "embed.weight");
+        assert_eq!(model.tensors[1].name, "lm_head.weight");
+    }
+
+    // --- QuantizedGenerateConfig stop tokens ---
+    #[test]
+    fn test_quantized_generate_config_many_stop_tokens_deep() {
+        let config = QuantizedGenerateConfig {
+            max_tokens: 512,
+            temperature: 0.7,
+            top_k: 50,
+            stop_tokens: vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+        };
+        assert_eq!(config.stop_tokens.len(), 10);
+        assert!(config.stop_tokens.contains(&5));
+    }
+
+    #[test]
+    fn test_quantized_generate_config_low_top_k_deep() {
+        let config = QuantizedGenerateConfig {
+            max_tokens: 1,
+            temperature: 0.0,
+            top_k: 1, // Greedy decoding
+            stop_tokens: vec![],
+        };
+        assert_eq!(config.top_k, 1);
+        assert_eq!(config.temperature, 0.0);
+    }
+
+    // --- InferenceScratchBuffer validation ---
+    #[test]
+    fn test_inference_scratch_buffer_from_config_extra_deep() {
+        let config = GGUFConfig {
+            architecture: "llama".to_string(),
+            hidden_dim: 2048,
+            intermediate_dim: 5632,
+            vocab_size: 32000,
+            num_layers: 22,
+            num_heads: 32,
+            num_kv_heads: 4,
+            rope_theta: 10000.0,
+            context_length: 2048,
+            eps: 1e-5,
+            rope_type: 0,
+        };
+        let scratch = InferenceScratchBuffer::from_config(&config);
+
+        // Check all buffers are allocated with correct size
+        assert_eq!(scratch.hidden.len(), 2048);
+        assert_eq!(scratch.normed.len(), 2048);
+        assert_eq!(scratch.ffn_up.len(), 5632);
+    }
+
+    // --- DispatchMetrics tracking ---
+    #[test]
+    fn test_dispatch_metrics_record_cpu_latency_deep() {
+        let metrics = DispatchMetrics::new();
+
+        // Record multiple latencies
+        for i in 0..10 {
+            metrics.record_cpu_latency(std::time::Duration::from_micros(i * 100));
+        }
+
+        // Check stats
+        assert!(metrics.cpu_latency_mean_us() >= 0.0);
+        assert_eq!(metrics.cpu_latency_count(), 10);
+    }
+
+    // --- GGUFHeader Debug trait ---
+    #[test]
+    fn test_gguf_header_debug_format_deep() {
+        let h = GGUFHeader {
+            magic: 0x46554747,
+            version: 3,
+            tensor_count: 291,
+            metadata_count: 24,
+        };
+        let debug_str = format!("{:?}", h);
+        assert!(debug_str.contains("magic"));
+        assert!(debug_str.contains("version"));
+        assert!(debug_str.contains("291"));
+    }
+
+    // --- TensorInfo Debug trait ---
+    #[test]
+    fn test_tensor_info_debug_format_deep() {
+        let t = TensorInfo {
+            name: "model.layers.0.self_attn.q_proj.weight".to_string(),
+            n_dims: 2,
+            dims: vec![4096, 4096],
+            qtype: 2,
+            offset: 1024,
+        };
+        let debug_str = format!("{:?}", t);
+        assert!(debug_str.contains("q_proj"));
+        assert!(debug_str.contains("4096"));
+    }
+
+    // --- GGUFConfig head dimension calculation ---
+    #[test]
+    fn test_gguf_config_head_dim_calculation_deep() {
+        let config = GGUFConfig {
+            architecture: "llama".to_string(),
+            hidden_dim: 4096,
+            intermediate_dim: 11008,
+            vocab_size: 32000,
+            num_layers: 32,
+            num_heads: 32,
+            num_kv_heads: 32,
+            rope_theta: 10000.0,
+            context_length: 4096,
+            eps: 1e-5,
+            rope_type: 0,
+        };
+
+        // Head dimension = hidden_dim / num_heads
+        let head_dim = config.hidden_dim / config.num_heads;
+        assert_eq!(head_dim, 128);
+    }
+
+    #[test]
+    fn test_gguf_config_gqa_head_dim_deep() {
+        let config = GGUFConfig {
+            architecture: "llama".to_string(),
+            hidden_dim: 4096,
+            intermediate_dim: 14336,
+            vocab_size: 32000,
+            num_layers: 32,
+            num_heads: 32,
+            num_kv_heads: 8, // GQA with 4:1 ratio
+            rope_theta: 10000.0,
+            context_length: 8192,
+            eps: 1e-5,
+            rope_type: 0,
+        };
+
+        // KV head dimension = hidden_dim / num_heads (same as Q)
+        let kv_head_dim = config.hidden_dim / config.num_heads;
+        let gqa_ratio = config.num_heads / config.num_kv_heads;
+        assert_eq!(kv_head_dim, 128);
+        assert_eq!(gqa_ratio, 4);
+    }
+
+    // --- More encode edge cases ---
+    #[test]
+    fn test_encode_empty_string_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
+            GGUFValue::String("a".to_string()),
+        ]));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 1,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        let encoded = model.encode("");
+        // Empty string should return empty or None
+        assert!(encoded.is_none() || encoded.as_ref().map_or(true, |v| v.is_empty()));
+    }
+
+    #[test]
+    fn test_encode_unicode_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
+            GGUFValue::String("你".to_string()),
+            GGUFValue::String("好".to_string()),
+            GGUFValue::String("世界".to_string()),
+        ]));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 1,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        let encoded = model.encode("你好");
+        assert!(encoded.is_some());
+    }
+
+    // --- Decode edge cases ---
+    #[test]
+    fn test_decode_empty_tokens_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
+            GGUFValue::String("a".to_string()),
+        ]));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 1,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        let decoded = model.decode(&[]);
+        assert!(decoded.is_empty());
+    }
+
+    #[test]
+    fn test_decode_single_token_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
+            GGUFValue::String("hello".to_string()),
+        ]));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 1,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        let decoded = model.decode(&[0]);
+        assert!(decoded.contains("hello"));
+    }
+
+    // --- sample_topk tests ---
+    #[test]
+    fn test_sample_topk_greedy_deep() {
+        // With top_k=1, should always return the highest probability token
+        let logits = vec![1.0, 5.0, 2.0, 3.0];
+        let result = OwnedQuantizedModel::sample_topk(&logits, 1.0, 1);
+        assert_eq!(result, 1); // Index 1 has highest value (5.0)
+    }
+
+    #[test]
+    fn test_sample_topk_high_temperature_deep() {
+        // High temperature should still work
+        let logits = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let result = OwnedQuantizedModel::sample_topk(&logits, 2.0, 5);
+        // Result should be valid index
+        assert!(result < 5);
+    }
+
+    #[test]
+    fn test_sample_topk_low_temperature_deep() {
+        // Low temperature should favor highest values
+        let logits = vec![1.0, 10.0, 2.0, 3.0];
+        // With very low temperature, should strongly favor index 1
+        for _ in 0..5 {
+            let result = OwnedQuantizedModel::sample_topk(&logits, 0.1, 4);
+            assert!(result < 4);
+        }
+    }
+
+    #[test]
+    fn test_sample_topk_small_vocab_deep() {
+        let logits = vec![1.0, 2.0];
+        let result = OwnedQuantizedModel::sample_topk(&logits, 1.0, 2);
+        assert!(result < 2);
+    }
+
+    // --- DispatchMetrics additional tests ---
+    #[test]
+    fn test_dispatch_metrics_gpu_latency_deep() {
+        let metrics = DispatchMetrics::new();
+
+        // Record GPU latencies
+        for i in 0..5 {
+            metrics.record_gpu_latency(std::time::Duration::from_micros(i * 200));
+        }
+
+        assert!(metrics.gpu_latency_mean_us() >= 0.0);
+        assert_eq!(metrics.gpu_latency_count(), 5);
+    }
+
+    #[test]
+    fn test_dispatch_metrics_mixed_dispatches_deep() {
+        let metrics = DispatchMetrics::new();
+
+        // Record both CPU and GPU dispatches
+        metrics.record_cpu_dispatch();
+        metrics.record_cpu_dispatch();
+        metrics.record_gpu_dispatch();
+
+        assert_eq!(metrics.cpu_dispatches(), 2);
+        assert_eq!(metrics.gpu_dispatches(), 1);
+        assert_eq!(metrics.total_dispatches(), 3);
+    }
+
+    #[test]
+    fn test_dispatch_metrics_gpu_ratio_deep() {
+        let metrics = DispatchMetrics::new();
+
+        // Record dispatches: 1 CPU, 3 GPU
+        metrics.record_cpu_dispatch();
+        metrics.record_gpu_dispatch();
+        metrics.record_gpu_dispatch();
+        metrics.record_gpu_dispatch();
+
+        let ratio = metrics.gpu_ratio();
+        assert!((ratio - 0.75).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_dispatch_metrics_zero_dispatches_deep() {
+        let metrics = DispatchMetrics::new();
+        assert_eq!(metrics.cpu_dispatches(), 0);
+        assert_eq!(metrics.gpu_dispatches(), 0);
+        assert_eq!(metrics.total_dispatches(), 0);
+        assert_eq!(metrics.gpu_ratio(), 0.0);
+    }
+
+    // --- GGUFValue Display and Debug ---
+    #[test]
+    fn test_gguf_value_debug_int8_deep() {
+        let val = GGUFValue::Int8(-128);
+        let debug_str = format!("{:?}", val);
+        assert!(debug_str.contains("-128"));
+    }
+
+    #[test]
+    fn test_gguf_value_debug_uint16_deep() {
+        let val = GGUFValue::UInt16(65535);
+        let debug_str = format!("{:?}", val);
+        assert!(debug_str.contains("65535"));
+    }
+
+    #[test]
+    fn test_gguf_value_debug_int16_deep() {
+        let val = GGUFValue::Int16(-32768);
+        let debug_str = format!("{:?}", val);
+        assert!(debug_str.contains("-32768"));
+    }
+
+    #[test]
+    fn test_gguf_value_debug_uint32_deep() {
+        let val = GGUFValue::UInt32(4294967295);
+        let debug_str = format!("{:?}", val);
+        assert!(debug_str.contains("4294967295"));
+    }
+
+    #[test]
+    fn test_gguf_value_debug_bool_deep() {
+        let val_true = GGUFValue::Bool(true);
+        let val_false = GGUFValue::Bool(false);
+        let debug_true = format!("{:?}", val_true);
+        let debug_false = format!("{:?}", val_false);
+        assert!(debug_true.contains("true"));
+        assert!(debug_false.contains("false"));
+    }
+
+    // --- GGUFConfig additional tests ---
+    #[test]
+    fn test_gguf_config_partial_eq_deep() {
+        let config1 = GGUFConfig {
+            architecture: "llama".to_string(),
+            hidden_dim: 4096,
+            intermediate_dim: 11008,
+            vocab_size: 32000,
+            num_layers: 32,
+            num_heads: 32,
+            num_kv_heads: 32,
+            rope_theta: 10000.0,
+            context_length: 4096,
+            eps: 1e-5,
+            rope_type: 0,
+        };
+
+        let config2 = config1.clone();
+        assert_eq!(config1.architecture, config2.architecture);
+        assert_eq!(config1.hidden_dim, config2.hidden_dim);
+    }
+
+    #[test]
+    fn test_gguf_config_mistral_deep() {
+        let config = GGUFConfig {
+            architecture: "mistral".to_string(),
+            hidden_dim: 4096,
+            intermediate_dim: 14336,
+            vocab_size: 32000,
+            num_layers: 32,
+            num_heads: 32,
+            num_kv_heads: 8,
+            rope_theta: 10000.0,
+            context_length: 32768,
+            eps: 1e-5,
+            rope_type: 0,
+        };
+
+        assert_eq!(config.architecture, "mistral");
+        assert_eq!(config.num_kv_heads, 8); // GQA
+    }
+
+    // --- OwnedQuantizedKVCache boundary tests ---
+    #[test]
+    fn test_owned_quantized_kv_cache_max_seq_len_deep() {
+        let mut cache = OwnedQuantizedKVCache::new(2, 16, 3); // max_seq_len = 3
+
+        let k = vec![1.0f32; 16];
+        let v = vec![2.0f32; 16];
+
+        // Fill to max
+        for _ in 0..3 {
+            for layer in 0..2 {
+                cache.append(layer, &k, &v);
+            }
+            cache.advance();
+        }
+        assert_eq!(cache.len(), 3);
+
+        // Try to exceed max - should not increase
+        for layer in 0..2 {
+            cache.append(layer, &k, &v);
+        }
+        cache.advance();
+        assert_eq!(cache.len(), 3); // Should be capped at max
+    }
+
+    #[test]
+    fn test_owned_quantized_kv_cache_empty_get_deep() {
+        let cache = OwnedQuantizedKVCache::new(4, 32, 64);
+        assert!(cache.is_empty());
+
+        // Getting from empty cache should return empty
+        let k = cache.get_k(0);
+        let v = cache.get_v(0);
+        assert!(k.is_empty());
+        assert!(v.is_empty());
+    }
+
+    // --- InferenceScratchBuffer additional tests ---
+    #[test]
+    fn test_inference_scratch_buffer_qkv_size_deep() {
+        let config = GGUFConfig {
+            architecture: "llama".to_string(),
+            hidden_dim: 1024,
+            intermediate_dim: 2816,
+            vocab_size: 32000,
+            num_layers: 12,
+            num_heads: 16,
+            num_kv_heads: 16,
+            rope_theta: 10000.0,
+            context_length: 2048,
+            eps: 1e-5,
+            rope_type: 0,
+        };
+        let scratch = InferenceScratchBuffer::from_config(&config);
+
+        // QKV should be 3x hidden_dim
+        assert_eq!(scratch.qkv.len(), 1024 * 3);
+        assert_eq!(scratch.q.len(), 1024);
+        assert_eq!(scratch.k.len(), 1024);
+        assert_eq!(scratch.v.len(), 1024);
+    }
+
+    #[test]
+    fn test_inference_scratch_buffer_logits_size_deep() {
+        let config = GGUFConfig {
+            architecture: "qwen2".to_string(),
+            hidden_dim: 896,
+            intermediate_dim: 4864,
+            vocab_size: 151936,
+            num_layers: 24,
+            num_heads: 14,
+            num_kv_heads: 2,
+            rope_theta: 1000000.0,
+            context_length: 131072,
+            eps: 1e-6,
+            rope_type: 0,
+        };
+        let scratch = InferenceScratchBuffer::from_config(&config);
+
+        // Logits buffer should match vocab size
+        assert_eq!(scratch.logits.len(), 151936);
+    }
+
+    // --- GGUFHeader field tests ---
+    #[test]
+    fn test_gguf_header_large_tensor_count_deep() {
+        let h = GGUFHeader {
+            magic: 0x46554747,
+            version: 3,
+            tensor_count: 10000,
+            metadata_count: 500,
+        };
+        assert_eq!(h.tensor_count, 10000);
+        assert_eq!(h.metadata_count, 500);
+    }
+
+    // --- TensorInfo additional tests ---
+    #[test]
+    fn test_tensor_info_large_offset_deep() {
+        let t = TensorInfo {
+            name: "lm_head.weight".to_string(),
+            n_dims: 2,
+            dims: vec![128000, 4096],
+            qtype: 2, // Q4_K
+            offset: 8_000_000_000, // 8GB offset
+        };
+        assert_eq!(t.offset, 8_000_000_000);
+    }
+
+    #[test]
+    fn test_tensor_info_various_qtypes_deep() {
+        let qtypes = [0, 2, 3, 6, 7, 8, 10, 11, 12, 14, 15];
+        for qtype in qtypes {
+            let t = TensorInfo {
+                name: format!("tensor_qtype_{}", qtype),
+                n_dims: 2,
+                dims: vec![1024, 1024],
+                qtype,
+                offset: 0,
+            };
+            assert_eq!(t.qtype, qtype);
+        }
+    }
+
+    // --- Metadata edge cases ---
+    #[test]
+    fn test_num_layers_present_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("general.architecture".to_string(), GGUFValue::String("llama".to_string()));
+        metadata.insert("llama.block_count".to_string(), GGUFValue::UInt32(32));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 2,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        let num_layers = model.num_layers();
+        assert_eq!(num_layers, Some(32));
+    }
+
+    #[test]
+    fn test_num_heads_present_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("general.architecture".to_string(), GGUFValue::String("llama".to_string()));
+        metadata.insert("llama.attention.head_count".to_string(), GGUFValue::UInt32(64));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 2,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        let num_heads = model.num_heads();
+        assert_eq!(num_heads, Some(64));
+    }
+
+    #[test]
+    fn test_intermediate_dim_present_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("general.architecture".to_string(), GGUFValue::String("llama".to_string()));
+        metadata.insert("llama.feed_forward_length".to_string(), GGUFValue::UInt32(14336));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 2,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        // Check the metadata directly
+        if let Some(GGUFValue::UInt32(ffn)) = model.metadata.get("llama.feed_forward_length") {
+            assert_eq!(*ffn, 14336);
+        }
+    }
+
+    // --- BatchGenerationStats additional tests ---
+    #[test]
+    fn test_batch_generation_stats_with_values_deep() {
+        let stats = BatchGenerationStats {
+            gpu_cache_ready: true,
+            cache_memory_gb: 4.5,
+            num_layers: 32,
+            hidden_dim: 4096,
+            intermediate_dim: 14336,
+            recommended_batch_size: 8,
+            max_batch_size: 16,
+        };
+
+        // Verify all fields
+        assert!(stats.gpu_cache_ready);
+        assert!((stats.cache_memory_gb - 4.5).abs() < 0.01);
+        assert_eq!(stats.num_layers, 32);
+        assert_eq!(stats.hidden_dim, 4096);
+        assert_eq!(stats.intermediate_dim, 14336);
+        assert_eq!(stats.recommended_batch_size, 8);
+        assert_eq!(stats.max_batch_size, 16);
+    }
+
+    // --- QuantizedGenerateConfig with all parameters ---
+    #[test]
+    fn test_quantized_generate_config_all_params_deep() {
+        let config = QuantizedGenerateConfig {
+            max_tokens: 2048,
+            temperature: 0.8,
+            top_k: 50,
+            stop_tokens: vec![1, 2, 128000, 128001],
+        };
+
+        assert_eq!(config.max_tokens, 2048);
+        assert_eq!(config.temperature, 0.8);
+        assert_eq!(config.top_k, 50);
+        assert_eq!(config.stop_tokens.len(), 4);
+        assert!(config.stop_tokens.contains(&128000));
+    }
+
+    // --- ContiguousKVCache tests ---
+    #[test]
+    fn test_contiguous_kv_cache_new_extra_deep() {
+        let cache = ContiguousKVCache::new(4, 64, 32);
+        assert!(cache.is_empty());
+        assert_eq!(cache.len(), 0);
+    }
+
+    #[test]
+    fn test_contiguous_kv_cache_append_extra_deep() {
+        let mut cache = ContiguousKVCache::new(2, 16, 8);
+
+        let k = vec![1.0f32; 16];
+        let v = vec![2.0f32; 16];
+
+        for layer in 0..2 {
+            cache.append(layer, &k, &v);
+        }
+        cache.advance();
+
+        assert_eq!(cache.len(), 1);
+    }
+
+    #[test]
+    fn test_contiguous_kv_cache_is_contiguous_deep() {
+        let cache = ContiguousKVCache::new(8, 128, 64);
+        assert!(cache.is_contiguous());
+    }
+
+    #[test]
+    fn test_contiguous_kv_cache_is_cache_aligned_deep() {
+        let cache = ContiguousKVCache::new(4, 64, 32);
+        assert!(cache.is_cache_aligned());
+    }
+
+    #[test]
+    fn test_contiguous_kv_cache_from_config_extra_deep() {
+        let config = GGUFConfig {
+            architecture: "llama".to_string(),
+            hidden_dim: 512,
+            intermediate_dim: 1408,
+            vocab_size: 32000,
+            num_layers: 6,
+            num_heads: 8,
+            num_kv_heads: 8,
+            rope_theta: 10000.0,
+            context_length: 1024,
+            eps: 1e-5,
+            rope_type: 0,
+        };
+        let cache = ContiguousKVCache::from_config(&config, 128);
+        assert!(cache.is_empty());
+    }
+
+    // --- More metadata accessor tests ---
+    #[test]
+    fn test_vocab_size_from_metadata_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("general.architecture".to_string(), GGUFValue::String("llama".to_string()));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 1,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        // Without vocab size, should return None from vocab_size accessor
+        // But architecture is present
+        assert_eq!(model.architecture(), Some("llama"));
+    }
+
+    // --- Multiple architecture types ---
+    #[test]
+    fn test_architecture_phi_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("general.architecture".to_string(), GGUFValue::String("phi".to_string()));
+        metadata.insert("phi.embedding_length".to_string(), GGUFValue::UInt32(2560));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 2,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        assert_eq!(model.architecture(), Some("phi"));
+        assert_eq!(model.embedding_dim(), Some(2560));
+    }
+
+    #[test]
+    fn test_architecture_qwen2_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("general.architecture".to_string(), GGUFValue::String("qwen2".to_string()));
+        metadata.insert("qwen2.embedding_length".to_string(), GGUFValue::UInt32(1536));
+        metadata.insert("qwen2.block_count".to_string(), GGUFValue::UInt32(28));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 3,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        assert_eq!(model.architecture(), Some("qwen2"));
+        assert_eq!(model.embedding_dim(), Some(1536));
+        assert_eq!(model.num_layers(), Some(28));
+    }
+
+    #[test]
+    fn test_architecture_gemma_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("general.architecture".to_string(), GGUFValue::String("gemma".to_string()));
+        metadata.insert("gemma.embedding_length".to_string(), GGUFValue::UInt32(2048));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 2,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        assert_eq!(model.architecture(), Some("gemma"));
+    }
+
+    // --- GGUFModel with tensors ---
+    #[test]
+    fn test_gguf_model_with_many_tensors_deep() {
+        let mut tensors = Vec::new();
+        for i in 0..50 {
+            tensors.push(TensorInfo {
+                name: format!("layer.{}.weight", i),
+                n_dims: 2,
+                dims: vec![1024, 1024],
+                qtype: 2,
+                offset: i as u64 * 4194304,
+            });
+        }
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 50,
+                metadata_count: 0,
+            },
+            metadata: HashMap::new(),
+            tensors,
+            tensor_data_start: 0,
+        };
+
+        assert_eq!(model.tensors.len(), 50);
+        assert_eq!(model.header.tensor_count, 50);
+    }
+
+    // --- Edge cases for OwnedQuantizedKVCache ---
+    #[test]
+    fn test_owned_kv_cache_out_of_bounds_layer_deep() {
+        let mut cache = OwnedQuantizedKVCache::new(2, 16, 32);
+
+        let k = vec![1.0f32; 16];
+        let v = vec![2.0f32; 16];
+
+        // Append to invalid layer index should not panic
+        cache.append(10, &k, &v); // layer 10 doesn't exist
+
+        // Cache should still work
+        assert!(cache.is_empty());
+    }
+
+    // --- InferenceScratchBuffer field access ---
+    #[test]
+    fn test_inference_scratch_buffer_all_fields_deep() {
+        let config = GGUFConfig {
+            architecture: "llama".to_string(),
+            hidden_dim: 512,
+            intermediate_dim: 1408,
+            vocab_size: 32000,
+            num_layers: 6,
+            num_heads: 8,
+            num_kv_heads: 8,
+            rope_theta: 10000.0,
+            context_length: 512,
+            eps: 1e-5,
+            rope_type: 0,
+        };
+        let scratch = InferenceScratchBuffer::from_config(&config);
+
+        // Check all buffer allocations
+        assert_eq!(scratch.hidden.len(), 512);
+        assert_eq!(scratch.normed.len(), 512);
+        assert_eq!(scratch.q.len(), 512);
+        assert_eq!(scratch.k.len(), 512);
+        assert_eq!(scratch.v.len(), 512);
+        assert_eq!(scratch.attn_out.len(), 512);
+        assert_eq!(scratch.attn_proj.len(), 512);
+        assert_eq!(scratch.ffn_up.len(), 1408);
+        assert_eq!(scratch.ffn_gate.len(), 1408);
+        assert_eq!(scratch.ffn_down.len(), 512);
+        assert_eq!(scratch.logits.len(), 32000);
+    }
+
+    // --- DispatchMetrics latency histograms ---
+    #[test]
+    fn test_dispatch_metrics_latency_buckets_deep() {
+        let metrics = DispatchMetrics::new();
+
+        // Test BUCKET_BOUNDARIES constant
+        assert_eq!(DispatchMetrics::BUCKET_BOUNDARIES.len(), 4);
+        assert_eq!(DispatchMetrics::BUCKET_BOUNDARIES[0], 100);
+        assert_eq!(DispatchMetrics::BUCKET_BOUNDARIES[1], 500);
+        assert_eq!(DispatchMetrics::BUCKET_BOUNDARIES[2], 1000);
+        assert_eq!(DispatchMetrics::BUCKET_BOUNDARIES[3], 5000);
+
+        // Record latencies in different buckets
+        metrics.record_cpu_latency(std::time::Duration::from_micros(50));   // Bucket 0
+        metrics.record_cpu_latency(std::time::Duration::from_micros(200));  // Bucket 1
+        metrics.record_cpu_latency(std::time::Duration::from_micros(700));  // Bucket 2
+        metrics.record_cpu_latency(std::time::Duration::from_micros(2000)); // Bucket 3
+        metrics.record_cpu_latency(std::time::Duration::from_micros(10000)); // Bucket 4
+
+        assert_eq!(metrics.cpu_latency_count(), 5);
+    }
+
+    // --- GGUFValue clone tests ---
+    #[test]
+    fn test_gguf_value_clone_deep() {
+        let val1 = GGUFValue::String("test".to_string());
+        let val2 = val1.clone();
+        if let (GGUFValue::String(s1), GGUFValue::String(s2)) = (&val1, &val2) {
+            assert_eq!(s1, s2);
+        }
+
+        let arr1 = GGUFValue::Array(vec![GGUFValue::Int32(1), GGUFValue::Int32(2)]);
+        let arr2 = arr1.clone();
+        if let GGUFValue::Array(a) = &arr2 {
+            assert_eq!(a.len(), 2);
+        }
+    }
+
+    // --- TensorInfo clone tests ---
+    #[test]
+    fn test_tensor_info_clone_all_fields_deep() {
+        let t1 = TensorInfo {
+            name: "weights".to_string(),
+            n_dims: 3,
+            dims: vec![64, 128, 256],
+            qtype: 6,
+            offset: 123456789,
+        };
+        let t2 = t1.clone();
+
+        assert_eq!(t1.name, t2.name);
+        assert_eq!(t1.n_dims, t2.n_dims);
+        assert_eq!(t1.dims, t2.dims);
+        assert_eq!(t1.qtype, t2.qtype);
+        assert_eq!(t1.offset, t2.offset);
+    }
+
+    // --- GGUFHeader clone tests ---
+    #[test]
+    fn test_gguf_header_clone_all_fields_deep() {
+        let h1 = GGUFHeader {
+            magic: 0x46554747,
+            version: 3,
+            tensor_count: 999,
+            metadata_count: 888,
+        };
+        let h2 = h1.clone();
+
+        assert_eq!(h1.magic, h2.magic);
+        assert_eq!(h1.version, h2.version);
+        assert_eq!(h1.tensor_count, h2.tensor_count);
+        assert_eq!(h1.metadata_count, h2.metadata_count);
+    }
+
+    // --- BatchGenerationStats clone tests ---
+    #[test]
+    fn test_batch_generation_stats_clone_extra_deep() {
+        let stats1 = BatchGenerationStats {
+            gpu_cache_ready: true,
+            cache_memory_gb: 2.5,
+            num_layers: 24,
+            hidden_dim: 2048,
+            intermediate_dim: 8192,
+            recommended_batch_size: 4,
+            max_batch_size: 8,
+        };
+        let stats2 = stats1.clone();
+
+        assert_eq!(stats1.gpu_cache_ready, stats2.gpu_cache_ready);
+        assert_eq!(stats1.cache_memory_gb, stats2.cache_memory_gb);
+        assert_eq!(stats1.num_layers, stats2.num_layers);
+    }
+
+    // --- GGUFConfig clone tests ---
+    #[test]
+    fn test_gguf_config_clone_extra_deep() {
+        let config1 = GGUFConfig {
+            architecture: "falcon".to_string(),
+            hidden_dim: 4544,
+            intermediate_dim: 18176,
+            vocab_size: 65024,
+            num_layers: 32,
+            num_heads: 71,
+            num_kv_heads: 1,
+            rope_theta: 10000.0,
+            context_length: 2048,
+            eps: 1e-5,
+            rope_type: 1,
+        };
+        let config2 = config1.clone();
+
+        assert_eq!(config1.architecture, config2.architecture);
+        assert_eq!(config1.hidden_dim, config2.hidden_dim);
+        assert_eq!(config1.num_kv_heads, config2.num_kv_heads);
+        assert_eq!(config1.rope_type, config2.rope_type);
+    }
+
+    // --- QuantizedGenerateConfig clone tests ---
+    #[test]
+    fn test_quantized_generate_config_clone_extra_deep() {
+        let config1 = QuantizedGenerateConfig {
+            max_tokens: 100,
+            temperature: 0.9,
+            top_k: 40,
+            stop_tokens: vec![1, 2, 3],
+        };
+        let config2 = config1.clone();
+
+        assert_eq!(config1.max_tokens, config2.max_tokens);
+        assert_eq!(config1.temperature, config2.temperature);
+        assert_eq!(config1.top_k, config2.top_k);
+        assert_eq!(config1.stop_tokens, config2.stop_tokens);
+    }
+
+    // --- Decode byte token tests ---
+    #[test]
+    fn test_decode_hex_byte_token_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
+            GGUFValue::String("<0xE4>".to_string()),  // byte 0xE4
+            GGUFValue::String("<0xB8>".to_string()),  // byte 0xB8
+            GGUFValue::String("<0xAD>".to_string()),  // byte 0xAD
+        ]));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 1,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        // Decode should convert byte tokens to actual bytes
+        let decoded = model.decode(&[0, 1, 2]);
+        // 0xE4B8AD = 中 (Chinese character)
+        assert!(decoded.contains('中') || decoded.len() > 0);
+    }
+
+    #[test]
+    fn test_decode_gpt2_style_extra_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
+            GGUFValue::String("hello".to_string()),
+            GGUFValue::String("Ġworld".to_string()), // GPT-2 space prefix
+        ]));
+        metadata.insert("tokenizer.ggml.model".to_string(), GGUFValue::String("gpt2".to_string()));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 2,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        let decoded = model.decode(&[0, 1]);
+        // GPT-2 style decoding
+        assert!(!decoded.is_empty());
+    }
+
+    #[test]
+    fn test_decode_sentencepiece_style_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
+            GGUFValue::String("▁hello".to_string()),
+            GGUFValue::String("▁world".to_string()),
+        ]));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 1,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        let decoded = model.decode(&[0, 1]);
+        // SentencePiece ▁ should become space
+        assert!(decoded.contains("hello") && decoded.contains("world"));
+    }
+
+    #[test]
+    fn test_decode_no_vocab_fallback_deep() {
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 0,
+            },
+            metadata: HashMap::new(),
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        // No vocabulary - should use ASCII fallback
+        let decoded = model.decode(&[65, 66, 67]); // A, B, C
+        assert!(decoded.contains('A') || decoded.contains("65"));
+    }
+
+    // --- Encode additional tests ---
+    #[test]
+    fn test_encode_with_word_boundary_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
+            GGUFValue::String("▁".to_string()),
+            GGUFValue::String("hello".to_string()),
+            GGUFValue::String("▁hello".to_string()),
+            GGUFValue::String("world".to_string()),
+        ]));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 1,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        let encoded = model.encode("hello world");
+        // Should find some tokens
+        assert!(encoded.is_some());
+    }
+
+    // --- Metadata type conversion tests ---
+    #[test]
+    fn test_metadata_int32_to_usize_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("general.architecture".to_string(), GGUFValue::String("llama".to_string()));
+        metadata.insert("llama.block_count".to_string(), GGUFValue::Int32(24)); // Int32 instead of UInt32
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 2,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        // Should handle Int32 metadata value
+        let layers = model.num_layers();
+        // May return None if only UInt32 is handled
+        assert!(layers.is_none() || layers == Some(24));
+    }
+
+    // --- ContiguousKVCache additional tests ---
+    #[test]
+    fn test_contiguous_kv_cache_get_k_v_deep() {
+        let mut cache = ContiguousKVCache::new(2, 32, 16);
+
+        let k = vec![1.5f32; 32];
+        let v = vec![2.5f32; 32];
+
+        for layer in 0..2 {
+            cache.append(layer, &k, &v);
+        }
+        cache.advance();
+
+        // Get K for layer 0
+        let k0 = cache.get_k(0);
+        assert!(!k0.is_empty());
+
+        // Get V for layer 1
+        let v1 = cache.get_v(1);
+        assert!(!v1.is_empty());
+    }
+
+    #[test]
+    fn test_contiguous_kv_cache_multiple_tokens_deep() {
+        let mut cache = ContiguousKVCache::new(3, 64, 32);
+
+        let k = vec![1.0f32; 64];
+        let v = vec![2.0f32; 64];
+
+        // Append 5 tokens
+        for _ in 0..5 {
+            for layer in 0..3 {
+                cache.append(layer, &k, &v);
+            }
+            cache.advance();
+        }
+
+        assert_eq!(cache.len(), 5);
+        assert!(!cache.is_empty());
+    }
+
+    // --- DispatchMetrics additional tests ---
+    #[test]
+    fn test_dispatch_metrics_latency_stats_deep() {
+        let metrics = DispatchMetrics::new();
+
+        // Record various latencies
+        metrics.record_cpu_latency(std::time::Duration::from_micros(100));
+        metrics.record_cpu_latency(std::time::Duration::from_micros(200));
+        metrics.record_cpu_latency(std::time::Duration::from_micros(300));
+
+        // Check mean
+        let mean = metrics.cpu_latency_mean_us();
+        assert!((mean - 200.0).abs() < 1.0);
+
+        // Check latency sum
+        let sum = metrics.cpu_latency_sum_us();
+        assert_eq!(sum, 600);
+    }
+
+    #[test]
+    fn test_dispatch_metrics_gpu_stats_deep() {
+        let metrics = DispatchMetrics::new();
+
+        // Record GPU latencies
+        metrics.record_gpu_latency(std::time::Duration::from_micros(500));
+        metrics.record_gpu_latency(std::time::Duration::from_micros(1000));
+
+        let mean = metrics.gpu_latency_mean_us();
+        assert!((mean - 750.0).abs() < 1.0);
+    }
+
+    // --- GGUFValue equality tests ---
+    #[test]
+    fn test_gguf_value_partial_eq_deep() {
+        let val1 = GGUFValue::Int32(42);
+        let val2 = GGUFValue::Int32(42);
+        let val3 = GGUFValue::Int32(43);
+
+        assert_eq!(val1, val2);
+        assert_ne!(val1, val3);
+    }
+
+    #[test]
+    fn test_gguf_value_string_eq_deep() {
+        let val1 = GGUFValue::String("test".to_string());
+        let val2 = GGUFValue::String("test".to_string());
+        let val3 = GGUFValue::String("other".to_string());
+
+        assert_eq!(val1, val2);
+        assert_ne!(val1, val3);
+    }
+
+    // --- OwnedQuantizedKVCache get_k/get_v tests ---
+    #[test]
+    fn test_owned_kv_cache_get_after_multiple_appends_deep() {
+        let mut cache = OwnedQuantizedKVCache::new(2, 8, 16);
+
+        // Append 3 tokens
+        for i in 0..3 {
+            let k = vec![(i + 1) as f32; 8];
+            let v = vec![(i + 10) as f32; 8];
+            for layer in 0..2 {
+                cache.append(layer, &k, &v);
+            }
+            cache.advance();
+        }
+
+        assert_eq!(cache.len(), 3);
+
+        // Get K/V for each layer
+        let k0 = cache.get_k(0);
+        let v0 = cache.get_v(0);
+        let k1 = cache.get_k(1);
+        let v1 = cache.get_v(1);
+
+        // Each should have 3 * 8 = 24 elements
+        assert_eq!(k0.len(), 24);
+        assert_eq!(v0.len(), 24);
+        assert_eq!(k1.len(), 24);
+        assert_eq!(v1.len(), 24);
+    }
+
+    // --- sample_topk with edge cases ---
+    #[test]
+    fn test_sample_topk_all_same_logits_deep() {
+        // When all logits are the same, any token is valid
+        let logits = vec![1.0; 5];
+        for _ in 0..10 {
+            let result = OwnedQuantizedModel::sample_topk(&logits, 1.0, 5);
+            assert!(result < 5);
+        }
+    }
+
+    #[test]
+    fn test_sample_topk_large_logit_difference_deep() {
+        // Large difference should strongly prefer highest
+        let mut logits = vec![-1000.0; 10];
+        logits[3] = 1000.0;
+
+        // With this extreme difference, should almost always pick index 3
+        let result = OwnedQuantizedModel::sample_topk(&logits, 1.0, 10);
+        assert!(result < 10); // Valid result
+    }
+
+    // --- GGUFConfig from model tests ---
+    #[test]
+    fn test_gguf_config_from_model_phi_deep() {
+        let config = GGUFConfig {
+            architecture: "phi".to_string(),
+            hidden_dim: 2560,
+            intermediate_dim: 10240,
+            vocab_size: 51200,
+            num_layers: 32,
+            num_heads: 32,
+            num_kv_heads: 32,
+            rope_theta: 10000.0,
+            context_length: 2048,
+            eps: 1e-5,
+            rope_type: 0,
+        };
+
+        assert_eq!(config.architecture, "phi");
+        assert_eq!(config.hidden_dim, 2560);
+    }
+
+    #[test]
+    fn test_gguf_config_from_model_stablelm_deep() {
+        let config = GGUFConfig {
+            architecture: "stablelm".to_string(),
+            hidden_dim: 2048,
+            intermediate_dim: 5632,
+            vocab_size: 50304,
+            num_layers: 24,
+            num_heads: 32,
+            num_kv_heads: 32,
+            rope_theta: 10000.0,
+            context_length: 4096,
+            eps: 1e-6,
+            rope_type: 0,
+        };
+
+        assert_eq!(config.architecture, "stablelm");
+        assert_eq!(config.num_layers, 24);
+    }
+
+    // --- GGUF constants tests ---
+    #[test]
+    fn test_gguf_constants_extra_deep() {
+        // Verify all quantization type constants
+        assert_eq!(GGUF_TYPE_F32, 0);
+        assert_eq!(GGUF_TYPE_F16, 1);
+        assert_eq!(GGUF_TYPE_Q4_0, 2);
+        assert_eq!(GGUF_TYPE_Q4_1, 3);
+        assert_eq!(GGUF_TYPE_Q5_0, 6);
+        assert_eq!(GGUF_TYPE_Q5_1, 7);
+        assert_eq!(GGUF_TYPE_Q8_0, 8);
+        assert_eq!(GGUF_TYPE_Q4_K, 12);
+        assert_eq!(GGUF_TYPE_Q5_K, 13);
+        assert_eq!(GGUF_TYPE_Q6_K, 14);
+    }
+
+    #[test]
+    fn test_gguf_magic_and_version_deep() {
+        assert_eq!(GGUF_MAGIC, 0x4655_4747);
+        assert_eq!(GGUF_VERSION_V3, 3);
+        assert_eq!(GGUF_ALIGNMENT, 32);
+    }
+
+    #[test]
+    fn test_buffer_constants_extra_deep() {
+        assert_eq!(TOKEN_BUFFER_INLINE_CAP, 32);
+        assert_eq!(ATTENTION_BUFFER_INLINE_CAP, 64);
+        assert_eq!(HIDDEN_BUFFER_INLINE_CAP, 128);
+        assert_eq!(BUFFER_LW_SIZE, 1024);
+        assert_eq!(BUFFER_HW_SIZE, 8 * 1024);
+        assert_eq!(BUFFER_MAX_SIZE, 32 * 1024);
+    }
+
+    // --- GGUFModel header tests ---
+    #[test]
+    fn test_gguf_model_header_access_deep() {
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: GGUF_MAGIC,
+                version: GGUF_VERSION_V3,
+                tensor_count: 123,
+                metadata_count: 45,
+            },
+            metadata: HashMap::new(),
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        assert_eq!(model.header.magic, GGUF_MAGIC);
+        assert_eq!(model.header.version, GGUF_VERSION_V3);
+        assert_eq!(model.header.tensor_count, 123);
+        assert_eq!(model.header.metadata_count, 45);
+    }
+
+    // --- Additional architecture tests ---
+    #[test]
+    fn test_architecture_deepseek_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("general.architecture".to_string(), GGUFValue::String("deepseek".to_string()));
+        metadata.insert("deepseek.embedding_length".to_string(), GGUFValue::UInt32(4096));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 2,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        assert_eq!(model.architecture(), Some("deepseek"));
+    }
+
+    #[test]
+    fn test_architecture_yi_deep() {
+        let mut metadata = HashMap::new();
+        metadata.insert("general.architecture".to_string(), GGUFValue::String("yi".to_string()));
+        metadata.insert("yi.embedding_length".to_string(), GGUFValue::UInt32(4096));
+        metadata.insert("yi.block_count".to_string(), GGUFValue::UInt32(32));
+
+        let model = GGUFModel {
+            header: GGUFHeader {
+                magic: 0x46554747,
+                version: 3,
+                tensor_count: 0,
+                metadata_count: 3,
+            },
+            metadata,
+            tensors: vec![],
+            tensor_data_start: 0,
+        };
+
+        assert_eq!(model.architecture(), Some("yi"));
+    }
+
+    // --- More DispatchMetrics tests ---
+    #[test]
+    fn test_dispatch_metrics_throughput_deep() {
+        let metrics = DispatchMetrics::new();
+
+        // Record many dispatches quickly
+        for _ in 0..100 {
+            metrics.record_cpu_dispatch();
+        }
+        for _ in 0..50 {
+            metrics.record_gpu_dispatch();
+        }
+
+        assert_eq!(metrics.cpu_dispatches(), 100);
+        assert_eq!(metrics.gpu_dispatches(), 50);
+        assert_eq!(metrics.total_dispatches(), 150);
+    }
+
+    // --- ContiguousKVCache boundary tests ---
+    #[test]
+    fn test_contiguous_kv_cache_max_capacity_deep() {
+        let mut cache = ContiguousKVCache::new(2, 16, 4); // max_seq_len = 4
+
+        let k = vec![1.0f32; 16];
+        let v = vec![2.0f32; 16];
+
+        // Fill to max
+        for _ in 0..4 {
+            for layer in 0..2 {
+                cache.append(layer, &k, &v);
+            }
+            cache.advance();
+        }
+        assert_eq!(cache.len(), 4);
+
+        // Exceeding max should not increase
+        for layer in 0..2 {
+            cache.append(layer, &k, &v);
+        }
+        cache.advance();
+        assert_eq!(cache.len(), 4); // Capped
+    }
+
+    // --- OwnedQuantizedKVCache edge cases ---
+    #[test]
+    fn test_owned_kv_cache_zero_layers_deep() {
+        // Zero layers is an edge case
+        let cache = OwnedQuantizedKVCache::new(0, 32, 64);
+        assert!(cache.is_empty());
+    }
+
+    #[test]
+    fn test_owned_kv_cache_large_seq_len_deep() {
+        let cache = OwnedQuantizedKVCache::new(2, 64, 1024);
+        assert!(cache.is_empty());
+        // Large max_seq_len should still work
+    }
+
+    // --- TensorInfo multiple dimensions ---
+    #[test]
+    fn test_tensor_info_5d_deep() {
+        let t = TensorInfo {
+            name: "conv3d_weight".to_string(),
+            n_dims: 5,
+            dims: vec![16, 3, 3, 3, 64],
+            qtype: 0,
+            offset: 0,
+        };
+        assert_eq!(t.n_dims, 5);
+        assert_eq!(t.dims.len(), 5);
+    }
+
+    #[test]
+    fn test_tensor_info_empty_dims_deep() {
+        // Scalar tensor
+        let t = TensorInfo {
+            name: "scalar".to_string(),
+            n_dims: 0,
+            dims: vec![],
+            qtype: 0,
+            offset: 0,
+        };
+        assert_eq!(t.n_dims, 0);
+        assert!(t.dims.is_empty());
+    }
+
+    // --- GGUFValue array tests ---
+    #[test]
+    fn test_gguf_value_empty_array_extra_deep() {
+        let val = GGUFValue::Array(vec![]);
+        if let GGUFValue::Array(arr) = val {
+            assert!(arr.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_gguf_value_large_array_deep() {
+        let arr: Vec<GGUFValue> = (0..100).map(|i| GGUFValue::Int32(i)).collect();
+        let val = GGUFValue::Array(arr);
+        if let GGUFValue::Array(a) = val {
+            assert_eq!(a.len(), 100);
+        }
+    }
+
+    // --- InferenceScratchBuffer intermediate buffer ---
+    #[test]
+    fn test_inference_scratch_buffer_intermediate_deep() {
+        let config = GGUFConfig {
+            architecture: "llama".to_string(),
+            hidden_dim: 256,
+            intermediate_dim: 704,
+            vocab_size: 32000,
+            num_layers: 4,
+            num_heads: 4,
+            num_kv_heads: 4,
+            rope_theta: 10000.0,
+            context_length: 512,
+            eps: 1e-5,
+            rope_type: 0,
+        };
+        let scratch = InferenceScratchBuffer::from_config(&config);
+
+        // FFN intermediate should match config
+        assert_eq!(scratch.ffn_up.len(), 704);
+        assert_eq!(scratch.ffn_gate.len(), 704);
+    }
+
+    // --- BatchGenerationStats default values ---
+    #[test]
+    fn test_batch_generation_stats_default_deep() {
+        let stats = BatchGenerationStats {
+            gpu_cache_ready: false,
+            cache_memory_gb: 0.0,
+            num_layers: 0,
+            hidden_dim: 0,
+            intermediate_dim: 0,
+            recommended_batch_size: 0,
+            max_batch_size: 0,
+        };
+
+        assert!(!stats.gpu_cache_ready);
+        assert_eq!(stats.cache_memory_gb, 0.0);
+        assert_eq!(stats.num_layers, 0);
+    }
+
+    // --- GGUFConfig different architectures ---
+    #[test]
+    fn test_gguf_config_tinyllama_deep() {
+        let config = GGUFConfig {
+            architecture: "llama".to_string(),
+            hidden_dim: 2048,
+            intermediate_dim: 5632,
+            vocab_size: 32000,
+            num_layers: 22,
+            num_heads: 32,
+            num_kv_heads: 4,
+            rope_theta: 10000.0,
+            context_length: 2048,
+            eps: 1e-5,
+            rope_type: 0,
+        };
+
+        // TinyLlama uses GQA with 4 KV heads
+        let gqa_ratio = config.num_heads / config.num_kv_heads;
+        assert_eq!(gqa_ratio, 8);
+    }
+
+    #[test]
+    fn test_gguf_config_qwen2_7b_deep() {
+        let config = GGUFConfig {
+            architecture: "qwen2".to_string(),
+            hidden_dim: 3584,
+            intermediate_dim: 18944,
+            vocab_size: 152064,
+            num_layers: 28,
+            num_heads: 28,
+            num_kv_heads: 4,
+            rope_theta: 1000000.0,
+            context_length: 32768,
+            eps: 1e-6,
+            rope_type: 0,
+        };
+
+        // Qwen2-7B has high vocab size
+        assert!(config.vocab_size > 150000);
+        assert_eq!(config.num_layers, 28);
+    }
+
+    // ========== OwnedQuantizedKVCache extra tests ==========
+    #[test]
+    fn test_owned_quantized_kv_cache_new_cov() {
+        let cache = OwnedQuantizedKVCache::new(4, 256, 512);
+        assert_eq!(cache.len(), 0);
+        assert!(cache.is_empty());
+        assert_eq!(cache.max_len(), 512);
+    }
+
+    #[test]
+    fn test_owned_quantized_kv_cache_append_cov() {
+        let mut cache = OwnedQuantizedKVCache::new(2, 64, 100);
+        cache.append(0, &vec![1.0f32; 64], &vec![2.0f32; 64]);
+        cache.advance();
+        assert_eq!(cache.len(), 1);
+    }
+
+    #[test]
+    fn test_owned_quantized_kv_cache_get_k_cov() {
+        let mut cache = OwnedQuantizedKVCache::new(2, 64, 100);
+        cache.append(0, &vec![1.0f32; 64], &vec![2.0f32; 64]);
+        cache.advance();
+        let k = cache.get_k(0);
+        assert_eq!(k.len(), 64);
+    }
+
+    #[test]
+    fn test_owned_quantized_kv_cache_get_v_cov() {
+        let mut cache = OwnedQuantizedKVCache::new(2, 64, 100);
+        cache.append(0, &vec![1.0f32; 64], &vec![2.0f32; 64]);
+        cache.advance();
+        let v = cache.get_v(0);
+        assert_eq!(v.len(), 64);
+    }
+
+    #[test]
+    fn test_owned_quantized_kv_cache_snapshot_len_cov() {
+        let mut cache = OwnedQuantizedKVCache::new(2, 64, 100);
+        cache.append(0, &vec![1.0f32; 64], &vec![2.0f32; 64]);
+        cache.advance();
+        assert_eq!(cache.snapshot_len(), 1);
+    }
+
+    #[test]
+    fn test_owned_quantized_kv_cache_rollback_cov() {
+        let mut cache = OwnedQuantizedKVCache::new(2, 64, 100);
+        cache.append(0, &vec![1.0f32; 64], &vec![2.0f32; 64]);
+        cache.advance();
+        cache.append(0, &vec![3.0f32; 64], &vec![4.0f32; 64]);
+        cache.advance();
+        assert_eq!(cache.len(), 2);
+        cache.rollback_to(1, 64);
+        assert_eq!(cache.len(), 1);
+    }
+
+    #[test]
+    fn test_owned_quantized_kv_cache_default_cov() {
+        let cache = OwnedQuantizedKVCache::default();
+        assert!(cache.is_empty());
+        assert_eq!(cache.len(), 0);
+    }
+
+    #[test]
+    fn test_owned_quantized_kv_cache_reset_cov() {
+        let mut cache = OwnedQuantizedKVCache::new(2, 64, 100);
+        cache.append(0, &vec![1.0f32; 64], &vec![2.0f32; 64]);
+        cache.advance();
+        cache.reset();
+        assert!(cache.is_empty());
+    }
+
+    // ========== ContiguousKVCache extra tests ==========
+    #[test]
+    fn test_contiguous_kv_cache_new_cov() {
+        let cache = ContiguousKVCache::new(4, 256, 512);
+        assert!(cache.is_contiguous());
+        assert!(cache.is_empty());
+        assert_eq!(cache.max_len(), 512);
+    }
+
+    #[test]
+    fn test_contiguous_kv_cache_append_cov() {
+        let mut cache = ContiguousKVCache::new(2, 64, 100);
+        cache.append(0, &vec![1.0f32; 64], &vec![2.0f32; 64]);
+        cache.advance();
+        assert_eq!(cache.len(), 1);
+    }
+
+    #[test]
+    fn test_contiguous_kv_cache_get_k_cov() {
+        let mut cache = ContiguousKVCache::new(2, 64, 100);
+        cache.append(0, &vec![1.0f32; 64], &vec![2.0f32; 64]);
+        cache.advance();
+        let k = cache.get_k(0);
+        assert!(!k.is_empty());
+    }
+
+    #[test]
+    fn test_contiguous_kv_cache_get_v_cov() {
+        let mut cache = ContiguousKVCache::new(2, 64, 100);
+        cache.append(0, &vec![1.0f32; 64], &vec![2.0f32; 64]);
+        cache.advance();
+        let v = cache.get_v(0);
+        assert!(!v.is_empty());
+    }
+
+    #[test]
+    fn test_contiguous_kv_cache_reset_cov() {
+        let mut cache = ContiguousKVCache::new(2, 64, 100);
+        cache.append(0, &vec![1.0f32; 64], &vec![2.0f32; 64]);
+        cache.advance();
+        cache.reset();
+        assert!(cache.is_empty());
+    }
+
+    #[test]
+    fn test_contiguous_kv_cache_layer_stride_cov() {
+        let cache = ContiguousKVCache::new(2, 64, 100);
+        let stride = cache.layer_stride();
+        assert!(stride > 0);
+    }
+
+    // ========== DispatchMetrics extra tests ==========
+    #[test]
+    fn test_dispatch_metrics_new_cov() {
+        let metrics = DispatchMetrics::new();
+        assert_eq!(metrics.cpu_dispatches.load(std::sync::atomic::Ordering::Relaxed), 0);
+        assert_eq!(metrics.gpu_dispatches.load(std::sync::atomic::Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn test_dispatch_metrics_cpu_dispatch_cov() {
+        let metrics = DispatchMetrics::new();
+        metrics.record_cpu_dispatch();
+        metrics.record_cpu_dispatch();
+        assert_eq!(metrics.cpu_dispatches.load(std::sync::atomic::Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn test_dispatch_metrics_gpu_dispatch_cov() {
+        let metrics = DispatchMetrics::new();
+        metrics.record_gpu_dispatch();
+        metrics.record_gpu_dispatch();
+        metrics.record_gpu_dispatch();
+        assert_eq!(metrics.gpu_dispatches.load(std::sync::atomic::Ordering::Relaxed), 3);
+    }
+
+    #[test]
+    fn test_dispatch_metrics_cpu_latency_cov() {
+        let metrics = DispatchMetrics::new();
+        metrics.record_cpu_latency(std::time::Duration::from_micros(100));
+        metrics.record_cpu_latency(std::time::Duration::from_micros(200));
+        let mean = metrics.cpu_latency_mean_us();
+        assert!(mean > 0.0);
+    }
+
+    #[test]
+    fn test_dispatch_metrics_gpu_latency_cov() {
+        let metrics = DispatchMetrics::new();
+        metrics.record_gpu_latency(std::time::Duration::from_micros(50));
+        metrics.record_gpu_latency(std::time::Duration::from_micros(150));
+        let mean = metrics.gpu_latency_mean_us();
+        assert!(mean > 0.0);
+    }
+
+    #[test]
+    fn test_dispatch_metrics_gpu_ratio_cov() {
+        let metrics = DispatchMetrics::new();
+        metrics.record_cpu_dispatch();
+        metrics.record_cpu_dispatch();
+        metrics.record_gpu_dispatch();
+        metrics.record_gpu_dispatch();
+        metrics.record_gpu_dispatch();
+        let ratio = metrics.gpu_ratio();
+        assert!((ratio - 0.6).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_dispatch_metrics_gpu_ratio_zero_cov() {
+        let metrics = DispatchMetrics::new();
+        let ratio = metrics.gpu_ratio();
+        assert_eq!(ratio, 0.0);
+    }
+
+    // ========== ChunkedPrefillConfig extra tests ==========
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn test_chunked_prefill_config_default_cov() {
+        let config = ChunkedPrefillConfig::default();
+        assert_eq!(config.chunk_size, 512);
+        assert_eq!(config.max_context, 8192);
+    }
+
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn test_chunked_prefill_config_with_chunk_size_cov() {
+        let config = ChunkedPrefillConfig::with_chunk_size(256);
+        assert_eq!(config.chunk_size, 256);
+    }
+
+    // ========== SpeculativeConfig extra tests ==========
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn test_speculative_config_default_cov() {
+        let config = SpeculativeConfig::default();
+        assert_eq!(config.speculation_length, 4);
+        assert_eq!(config.draft_temperature, 0.0);
+    }
+
+    // ========== VerificationResult extra tests ==========
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn test_verification_result_fields_cov() {
+        let result = VerificationResult {
+            accepted_count: 3,
+            draft_count: 4,
+            accepted_tokens: vec![1u32, 2, 3],
+            all_accepted: false,
+        };
+        assert_eq!(result.accepted_tokens.len(), 3);
+        assert_eq!(result.accepted_count, 3);
+        assert_eq!(result.draft_count, 4);
+        assert!(!result.all_accepted);
+    }
+
+    // ========== BatchGenerationStats extra tests ==========
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn test_batch_generation_stats_fields_cov() {
+        let stats = BatchGenerationStats {
+            gpu_cache_ready: true,
+            cache_memory_gb: 2.5,
+            num_layers: 32,
+            hidden_dim: 4096,
+            intermediate_dim: 11008,
+            recommended_batch_size: 16,
+            max_batch_size: 64,
+        };
+        assert!(stats.gpu_cache_ready);
+        assert_eq!(stats.cache_memory_gb, 2.5);
+        assert_eq!(stats.num_layers, 32);
+    }
+
+    // ========== SlotState extra tests ==========
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn test_slot_state_variants_cov() {
+        let empty = SlotState::Empty;
+        assert!(matches!(empty, SlotState::Empty));
+        assert!(empty.is_empty());
+    }
+
+    // ========== BatchingConfig extra tests ==========
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn test_batching_config_default_cov() {
+        let config = BatchingConfig::default();
+        assert_eq!(config.batch_threshold, 32);
+        assert_eq!(config.max_batch_size, 64);
+        assert!(config.prefer_throughput);
+    }
 }

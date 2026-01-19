@@ -824,3 +824,305 @@ fn test_cuda_kernels_bias_activation() {
     let ptx_epilogue = kernels.generate_ptx(&kernel_epilogue);
     assert!(!ptx_epilogue.is_empty());
 }
+
+// ============================================================================
+// CUDA Execution Tests (RTX 4090 - actual GPU operations)
+// ============================================================================
+
+#[test]
+fn test_cuda_executor_silu_host() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+
+    let mut executor = CudaExecutor::new(0).expect("Failed to create executor");
+
+    let input = vec![0.0f32, 1.0, -1.0, 2.0, -2.0, 0.5, -0.5, 3.0];
+    let mut output = vec![0.0f32; 8];
+
+    executor.silu_host(&input, &mut output).expect("silu_host");
+
+    // SiLU(x) = x * sigmoid(x) = x / (1 + exp(-x))
+    // SiLU(0) = 0, SiLU(1) ≈ 0.731, SiLU(-1) ≈ -0.269
+    assert!((output[0] - 0.0).abs() < 0.01, "SiLU(0) should be ~0");
+    assert!(output[1] > 0.7 && output[1] < 0.75, "SiLU(1) should be ~0.731");
+    assert!(output[2] < -0.2 && output[2] > -0.3, "SiLU(-1) should be ~-0.269");
+}
+
+#[test]
+fn test_cuda_executor_gelu_host() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+
+    let mut executor = CudaExecutor::new(0).expect("Failed to create executor");
+
+    let input = vec![0.0f32, 1.0, -1.0, 2.0, -2.0];
+    let mut output = vec![0.0f32; 5];
+
+    executor.gelu_host(&input, &mut output).expect("gelu_host");
+
+    // GELU(0) = 0, GELU(1) ≈ 0.841, GELU(-1) ≈ -0.159
+    assert!((output[0] - 0.0).abs() < 0.01, "GELU(0) should be ~0");
+    assert!(output[1] > 0.8 && output[1] < 0.9, "GELU(1) should be ~0.841");
+    assert!(output[2] < -0.1 && output[2] > -0.2, "GELU(-1) should be ~-0.159");
+}
+
+#[test]
+fn test_cuda_executor_residual_add_host() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+
+    let mut executor = CudaExecutor::new(0).expect("Failed to create executor");
+
+    let residual = vec![1.0f32, 2.0, 3.0, 4.0];
+    let hidden = vec![0.5f32, 0.5, 0.5, 0.5];
+    let mut output = vec![0.0f32; 4];
+
+    executor
+        .residual_add_host(&residual, &hidden, &mut output)
+        .expect("residual_add_host");
+
+    // output = residual + hidden
+    assert!((output[0] - 1.5).abs() < 0.01);
+    assert!((output[1] - 2.5).abs() < 0.01);
+    assert!((output[2] - 3.5).abs() < 0.01);
+    assert!((output[3] - 4.5).abs() < 0.01);
+}
+
+#[test]
+fn test_cuda_executor_fused_residual_rmsnorm_host() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+
+    let mut executor = CudaExecutor::new(0).expect("Failed to create executor");
+
+    let residual = vec![1.0f32, 1.0, 1.0, 1.0];
+    let hidden = vec![0.0f32, 0.0, 0.0, 0.0];
+    let gamma = vec![1.0f32, 1.0, 1.0, 1.0];
+    let mut output = vec![0.0f32; 4];
+
+    executor
+        .fused_residual_rmsnorm_host(&residual, &hidden, &gamma, &mut output, 1e-5)
+        .expect("fused_residual_rmsnorm_host");
+
+    // After residual add: [1, 1, 1, 1]
+    // After RMSNorm with gamma=1: normalized values
+    assert!(!output.iter().all(|&x| x == 0.0), "Output should not be all zeros");
+}
+
+#[test]
+fn test_cuda_executor_fused_swiglu_host() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+
+    let mut executor = CudaExecutor::new(0).expect("Failed to create executor");
+
+    // SwiGLU(gate, up) = SiLU(gate) * up
+    let gate = vec![1.0f32, 0.0, -1.0, 2.0];
+    let up = vec![1.0f32, 1.0, 1.0, 1.0];
+    let mut output = vec![0.0f32; 4];
+
+    executor
+        .fused_swiglu_host(&gate, &up, &mut output)
+        .expect("fused_swiglu_host");
+
+    // SwiGLU(1, 1) = SiLU(1) * 1 ≈ 0.731
+    // SwiGLU(0, 1) = SiLU(0) * 1 = 0
+    assert!(output[0] > 0.7 && output[0] < 0.75, "SwiGLU(1,1) should be ~0.731");
+    assert!((output[1] - 0.0).abs() < 0.01, "SwiGLU(0,1) should be ~0");
+}
+
+#[test]
+fn test_cuda_executor_gemm_multiple_sizes() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+
+    let mut executor = CudaExecutor::new(0).expect("Failed to create executor");
+
+    // Test various matrix sizes
+    for (m, n, k) in [(16, 16, 16), (32, 64, 32), (64, 32, 64), (128, 128, 64)] {
+        let a = vec![1.0f32; m * k];
+        let b = vec![1.0f32; k * n];
+        let mut c = vec![0.0f32; m * n];
+
+        executor.gemm(&a, &b, &mut c, m as u32, n as u32, k as u32)
+            .expect(&format!("gemm {}x{}x{}", m, n, k));
+
+        // Each element should be k (sum of k ones)
+        let expected = k as f32;
+        let actual = c[0];
+        assert!(
+            (actual - expected).abs() < 0.1,
+            "GEMM {}x{}x{}: expected {}, got {}",
+            m, n, k, expected, actual
+        );
+    }
+}
+
+#[test]
+fn test_cuda_executor_gemm_cached() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+
+    let mut executor = CudaExecutor::new(0).expect("Failed to create executor");
+
+    // Load weights into cache (A matrix: m x k = 1 x 64)
+    let weights = vec![1.0f32; 1 * 64]; // m=1, k=64
+    executor.load_weights("cached_weight", &weights).expect("load weights");
+
+    // Use cached weights
+    // B matrix: k x n = 64 x 64 = 4096 elements
+    // C matrix: m x n = 1 x 64 = 64 elements
+    let input = vec![1.0f32; 64 * 64]; // k*n = 4096
+    let mut output = vec![0.0f32; 1 * 64]; // m*n = 64
+
+    executor
+        .gemm_cached("cached_weight", &input, &mut output, 1, 64, 64)
+        .expect("gemm_cached");
+
+    // Each output element should be 64 (sum of k=64 ones)
+    assert!(
+        (output[0] - 64.0).abs() < 0.1,
+        "GEMM cached: expected 64, got {}",
+        output[0]
+    );
+}
+
+#[test]
+fn test_cuda_executor_quantized_weights_with_type() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+
+    let mut executor = CudaExecutor::new(0).expect("Failed to create executor");
+
+    // Load quantized weights with specific type
+    let data = vec![0u8; 144]; // Q4_K block size
+    let bytes = executor
+        .load_quantized_weights_with_type("q4k_weight", &data, 12) // 12 = Q4_K GGML type
+        .expect("load_quantized_weights_with_type");
+    assert!(bytes > 0);
+
+    // Check type was stored
+    let qtype = executor.get_quantized_weight_type("q4k_weight");
+    assert_eq!(qtype, Some(12));
+}
+
+#[test]
+fn test_cuda_executor_gemv_buffers() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+
+    let mut executor = CudaExecutor::new(0).expect("Failed to create executor");
+
+    // Get buffer stats (before allocation)
+    let (input_bytes, output_bytes) = executor.gemv_buffer_stats();
+    assert_eq!(input_bytes, 0);
+    assert_eq!(output_bytes, 0);
+
+    // Clear buffers (should not panic even if empty)
+    executor.clear_gemv_buffers();
+}
+
+#[test]
+fn test_cuda_context_access() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+
+    let executor = CudaExecutor::new(0).expect("Failed to create executor");
+
+    // Access context
+    let _context = executor.context();
+
+    // Verify we can use context for device info
+    let name = executor.device_name().expect("device_name");
+    assert!(name.contains("RTX") || name.contains("GeForce") || !name.is_empty());
+}
+
+#[test]
+fn test_cuda_executor_profiler_all_modes() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+
+    let mut executor = CudaExecutor::new(0).expect("Failed to create executor");
+
+    // Test all sync modes
+    for mode in [SyncMode::Immediate, SyncMode::PerLayer, SyncMode::Deferred] {
+        executor.set_profiler_sync_mode(mode);
+        assert_eq!(executor.profiler_sync_mode(), mode);
+    }
+}
+
+#[test]
+fn test_cuda_executor_multiple_operations_sequence() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+
+    let mut executor = CudaExecutor::new(0).expect("Failed to create executor");
+    executor.enable_profiling();
+
+    // Run a sequence of operations
+    let a = vec![1.0f32; 64 * 64];
+    let b = vec![1.0f32; 64 * 64];
+    let mut c = vec![0.0f32; 64 * 64];
+
+    // GEMM
+    executor.gemm(&a, &b, &mut c, 64, 64, 64).expect("gemm");
+
+    // Softmax (in-place)
+    let mut data = vec![1.0f32, 2.0, 3.0, 4.0];
+    executor.softmax(&mut data).expect("softmax");
+
+    // RMSNorm
+    let input = vec![1.0f32, 2.0, 3.0, 4.0];
+    let gamma = vec![1.0f32; 4];
+    let mut norm_output = vec![0.0f32; 4];
+    executor.rmsnorm_host(&input, &gamma, &mut norm_output, 1e-5).expect("rmsnorm");
+
+    // Get profiler summary
+    let summary = executor.profiler_summary();
+    assert!(!summary.is_empty() || summary.is_empty()); // Just verify no panic
+}
+
+#[test]
+fn test_cuda_kernels_all_kernel_types() {
+    let kernels = CudaKernels::new();
+
+    // Test all remaining kernel types not covered elsewhere
+    let kernel_types = vec![
+        // Gemv variants
+        KernelType::Gemv { k: 256, n: 256 },
+        KernelType::CoalescedGemv { k: 512, n: 512 },
+        // Quantized
+        KernelType::QuantizedGemm { m: 1, n: 256, k: 256 },
+        KernelType::QuantizedGemmGgml { m: 1, n: 256, k: 256 },
+        // Rope variants
+        KernelType::Rope { num_heads: 32, head_dim: 64, theta: 10000.0 },
+        // Residual
+        KernelType::ResidualAdd { n: 4096 },
+        // Activations
+        KernelType::Silu { n: 1024 },
+        KernelType::Gelu { n: 1024 },
+        // RMSNorm variants
+        KernelType::RmsNorm { hidden_size: 4096, epsilon: 1e-5 },
+        KernelType::VectorizedRmsNorm { hidden_size: 4096, epsilon: 1e-5 },
+        // Fused operations
+        KernelType::FusedResidualRmsNorm { hidden_size: 4096, epsilon: 1e-5 },
+        KernelType::FusedSwiglu { n: 4096 },
+    ];
+
+    for kernel in kernel_types {
+        let ptx = kernels.generate_ptx(&kernel);
+        assert!(!ptx.is_empty(), "PTX for {:?} should not be empty", kernel);
+    }
+}

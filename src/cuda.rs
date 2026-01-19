@@ -43,6 +43,15 @@
 //! ```
 
 use std::collections::{BTreeMap, HashMap};
+use std::sync::OnceLock;
+
+/// Check if verbose mode is enabled (REALIZAR_VERBOSE=1)
+/// Default is quiet - only errors are printed
+fn verbose() -> bool {
+    static VERBOSE: OnceLock<bool> = OnceLock::new();
+    *VERBOSE.get_or_init(|| std::env::var("REALIZAR_VERBOSE").is_ok())
+}
+
 use trueno_gpu::driver::{
     cuda_available, device_count, CaptureMode, CudaContext, CudaGraphExec, CudaModule, CudaStream,
     GpuBuffer, LaunchConfig,
@@ -60,6 +69,7 @@ use trueno_gpu::kernels::{
     LayerNormKernel, MultiWarpBatchedQ4KGemvKernel, MultiWarpIncrementalAttentionKernel,
     PackedDp4aQ4KQ8Kernel, PreciseRmsNormKernel, Q4KGemvKernel, Q4KQ8DotKernel, Q4_0GemvKernel, Q4_1GemvKernel,
     Q5KGemvKernel, Q5KKernel, Q5_0GemvKernel, Q6KGemvKernel, Q6KKernel, Q8QuantizeKernel,
+    PreciseRopeIndirectKernel,  // CORRECTNESS-013
     Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel, RmsNormKernel, RopeIndirectKernel,
     RopeKernel, RopeNeoxIndirectKernel, RopeNeoxKernel, SiluKernel, SoftmaxKernel,
     TensorCoreQ4KGemmKernel, TiledQ4KGemvKernel, TrueDp4aQ4KGemvKernel, VectorizedQ4KGemvKernel,
@@ -712,6 +722,16 @@ pub enum KernelType {
         /// RoPE base frequency (theta)
         theta: f32,
     },
+    /// CORRECTNESS-013: Precise RoPE NEOX Indirect (no .approx trig)
+    /// Uses polynomial sin/cos approximation for CPU-matching precision.
+    PreciseRopeNeoxIndirect {
+        /// Number of attention heads
+        num_heads: u32,
+        /// Dimension per head (must be even)
+        head_dim: u32,
+        /// RoPE base frequency (theta)
+        theta: f32,
+    },
     /// PAR-062: ArgMax block reduction kernel
     /// First pass: each block finds local max and index, outputs to temp arrays
     /// Input: f32* logits (vocab_size floats)
@@ -1055,6 +1075,12 @@ impl CudaKernels {
                 head_dim,
                 theta,
             } => RopeNeoxIndirectKernel::new(*num_heads, *head_dim, *theta).emit_ptx(),
+            // CORRECTNESS-013: Precise RoPE NEOX Indirect (no .approx trig)
+            KernelType::PreciseRopeNeoxIndirect {
+                num_heads,
+                head_dim,
+                theta,
+            } => PreciseRopeIndirectKernel::new(*num_heads, *head_dim, *theta).emit_ptx(),
             // PAR-063-V3: True DP4A Q4K GEMV with proper nibble expansion
             KernelType::TrueDp4aQ4KGemv { k, n } => TrueDp4aQ4KGemvKernel::new(*k, *n).emit_ptx(),
             // PAR-094: Tensor Core Q4K GEMM for batched speculative decode
@@ -1217,6 +1243,8 @@ impl CudaKernels {
             KernelType::RopeNeox { .. } => "rope_neox",
             // CORRECTNESS-011: RoPE NEOX Indirect (CUDA Graph compatible)
             KernelType::RopeNeoxIndirect { .. } => "rope_neox_indirect",
+            // CORRECTNESS-013: Precise RoPE NEOX Indirect (no .approx trig)
+            KernelType::PreciseRopeNeoxIndirect { .. } => "rope_precise_indirect",
             // PAR-063-V3: True DP4A Q4K GEMV
             KernelType::TrueDp4aQ4KGemv { .. } => "true_dp4a_q4k_gemv",
             // PAR-094: Tensor Core Q4K GEMM for batched speculative decode
@@ -2896,7 +2924,9 @@ impl CudaExecutor {
                 .unwrap_or(WeightQuantType::Q4K);
 
             // Log if non-Q4K types detected (for debugging mixed-quant models)
-            if attn_q_qtype != WeightQuantType::Q4K || attn_k_qtype != WeightQuantType::Q4K {
+            if verbose()
+                && (attn_q_qtype != WeightQuantType::Q4K || attn_k_qtype != WeightQuantType::Q4K)
+            {
                 eprintln!(
                     "[PAR-058] Layer {}: Q={:?}, K={:?}, V={:?}",
                     layer_idx, attn_q_qtype, attn_k_qtype, attn_v_qtype
@@ -2930,10 +2960,11 @@ impl CudaExecutor {
                 .unwrap_or(WeightQuantType::Q4K);
 
             // Log if non-Q4K FFN types detected
-            if ffn_down_qtype != WeightQuantType::Q4K
-                || ffn_gate_qtype != WeightQuantType::Q4K
-                || ffn_up_qtype != WeightQuantType::Q4K
-                || attn_output_qtype != WeightQuantType::Q4K
+            if verbose()
+                && (ffn_down_qtype != WeightQuantType::Q4K
+                    || ffn_gate_qtype != WeightQuantType::Q4K
+                    || ffn_up_qtype != WeightQuantType::Q4K
+                    || attn_output_qtype != WeightQuantType::Q4K)
             {
                 eprintln!(
                     "[PAR-058] Layer {}: O={:?}, gate={:?}, up={:?}, down={:?}",
@@ -2960,13 +2991,15 @@ impl CudaExecutor {
                 .map_or((0, 0), |b| (b.as_ptr(), b.len()));
 
             // Log if bias detected (for debugging)
-            if attn_q_bias_len > 0 && (layer_idx == 0 || layer_idx == 4 || layer_idx == 27) {
-                eprintln!(
-                    "[BIAS-FIX] Layer {}: Q bias len={}, K bias len={}, V bias len={}",
-                    layer_idx, attn_q_bias_len, attn_k_bias_len, attn_v_bias_len
-                );
-            } else if attn_q_bias_len == 0 && layer_idx <= 10 {
-                eprintln!("[BIAS-FIX] Layer {}: NO BIAS (q_bias_len=0)", layer_idx);
+            if verbose() {
+                if attn_q_bias_len > 0 && (layer_idx == 0 || layer_idx == 4 || layer_idx == 27) {
+                    eprintln!(
+                        "[BIAS-FIX] Layer {}: Q bias len={}, K bias len={}, V bias len={}",
+                        layer_idx, attn_q_bias_len, attn_k_bias_len, attn_v_bias_len
+                    );
+                } else if attn_q_bias_len == 0 && layer_idx <= 10 {
+                    eprintln!("[BIAS-FIX] Layer {}: NO BIAS (q_bias_len=0)", layer_idx);
+                }
             }
 
             indexed.push(IndexedLayerWeights {
@@ -3028,15 +3061,19 @@ impl CudaExecutor {
                     14 => WeightQuantType::Q6K, // Qwen 1.5B uses Q6_K for LM head
                     _ => WeightQuantType::Q4K,  // Default fallback
                 };
+                if verbose() {
+                    eprintln!(
+                        "[PAR-058-FIX] LM head qtype: {:?} (GGML type {})",
+                        self.lm_head_qtype, qtype
+                    );
+                }
+            }
+            if verbose() {
                 eprintln!(
-                    "[PAR-058-FIX] LM head qtype: {:?} (GGML type {})",
-                    self.lm_head_qtype, qtype
+                    "[PAR-054] Indexed lm_head_ptr={:#x}, len={}",
+                    self.lm_head_ptr, self.lm_head_len
                 );
             }
-            eprintln!(
-                "[PAR-054] Indexed lm_head_ptr={:#x}, len={}",
-                self.lm_head_ptr, self.lm_head_len
-            );
         }
 
         Ok(())
@@ -7154,9 +7191,13 @@ impl CudaExecutor {
         // CORRECTNESS-013: Check if precise mode is requested
         static PRECISE_MODE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         let use_precise = *PRECISE_MODE.get_or_init(|| {
-            std::env::var("CORRECTNESS_MODE")
+            let mode = std::env::var("CORRECTNESS_MODE")
                 .map(|v| v == "1")
-                .unwrap_or(false)
+                .unwrap_or(false);
+            if mode {
+                eprintln!("[CORRECTNESS-013] RMSNorm using PreciseRmsNormKernel (Kahan+Newton-Raphson)");
+            }
+            mode
         });
 
         // Choose kernel type based on mode
@@ -8475,6 +8516,8 @@ impl CudaExecutor {
     /// CORRECTNESS-011: RoPE NEOX Indirect (CUDA Graph compatible)
     ///
     /// Same as rope_neox_into but reads position from device memory.
+    /// CORRECTNESS-013: When CORRECTNESS_MODE=1, uses PreciseRopeNeoxIndirect kernel
+    /// with polynomial sin/cos approximation for CPU-matching precision.
     pub fn rope_neox_indirect_into(
         &mut self,
         input: &GpuBuffer<f32>,
@@ -8484,13 +8527,39 @@ impl CudaExecutor {
         head_dim: u32,
         theta: f32,
     ) -> Result<(), GpuError> {
-        let kernel_type = KernelType::RopeNeoxIndirect {
-            num_heads,
-            head_dim,
-            theta,
+        // CORRECTNESS-013: Check if precise mode is requested
+        static PRECISE_MODE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let use_precise = *PRECISE_MODE.get_or_init(|| {
+            let mode = std::env::var("CORRECTNESS_MODE")
+                .map(|v| v == "1")
+                .unwrap_or(false);
+            if mode {
+                eprintln!("[CORRECTNESS-013] RoPE NEOX using PreciseRopeIndirectKernel (polynomial trig)");
+            }
+            mode
+        });
+
+        // Choose kernel type based on mode
+        let (kernel_type, cache_key) = if use_precise {
+            (
+                KernelType::PreciseRopeNeoxIndirect {
+                    num_heads,
+                    head_dim,
+                    theta,
+                },
+                format!("rope_precise_indirect_{}_{}", num_heads, head_dim),
+            )
+        } else {
+            (
+                KernelType::RopeNeoxIndirect {
+                    num_heads,
+                    head_dim,
+                    theta,
+                },
+                format!("rope_neox_indirect_{}_{}", num_heads, head_dim),
+            )
         };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
-        let cache_key = format!("rope_neox_indirect_{}_{}", num_heads, head_dim);
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
@@ -9817,7 +9886,7 @@ impl CudaExecutor {
             }
         }
 
-        if total_bytes > 0 {
+        if total_bytes > 0 && verbose() {
             eprintln!(
                 "[BIAS-FIX] Preloaded QKV bias for {} layers ({} bytes)",
                 num_layers, total_bytes
@@ -11544,7 +11613,7 @@ impl CudaExecutor {
         // PAR-054: Check if we should capture or replay
         if !skip_graph && self.decode_graph.is_some() && self.decode_token_count > 0 {
             // Replay path: update position and launch graph
-            if self.decode_token_count <= 3 {
+            if self.decode_token_count <= 3 && verbose() {
                 eprintln!(
                     "[PAR-054] Graph replay #{} (pos={})",
                     self.decode_token_count, position
@@ -12065,29 +12134,62 @@ impl CudaExecutor {
 
         // CORRECTNESS-011: RoPE NEOX indirect kernels for Qwen2.5 (rope_type=2)
         // Five-Whys: GPU garbage output → wrong RoPE style → NEOX kernels not loaded
+        // CORRECTNESS-013: Use precise kernels when CORRECTNESS_MODE=1
         if self.rope_type == 2 {
-            let rope_neox_q_indirect_key = format!("rope_neox_indirect_{}_{}", num_heads, head_dim);
-            if !self.modules.contains_key(&rope_neox_q_indirect_key) {
-                let kernel_type = KernelType::RopeNeoxIndirect {
-                    num_heads,
-                    head_dim,
-                    theta,
-                };
-                let ptx = self.kernels.generate_ptx(&kernel_type);
-                let module = CudaModule::from_ptx(&self.context, &ptx)?;
-                self.modules.insert(rope_neox_q_indirect_key, module);
-            }
-            let rope_neox_k_indirect_key =
-                format!("rope_neox_indirect_{}_{}", num_kv_heads, head_dim);
-            if !self.modules.contains_key(&rope_neox_k_indirect_key) {
-                let kernel_type = KernelType::RopeNeoxIndirect {
-                    num_heads: num_kv_heads,
-                    head_dim,
-                    theta,
-                };
-                let ptx = self.kernels.generate_ptx(&kernel_type);
-                let module = CudaModule::from_ptx(&self.context, &ptx)?;
-                self.modules.insert(rope_neox_k_indirect_key, module);
+            if use_precise {
+                // CORRECTNESS-013: Preload PreciseRopeNeoxIndirect for Q
+                let rope_precise_q_indirect_key =
+                    format!("rope_precise_indirect_{}_{}", num_heads, head_dim);
+                if !self.modules.contains_key(&rope_precise_q_indirect_key) {
+                    let kernel_type = KernelType::PreciseRopeNeoxIndirect {
+                        num_heads,
+                        head_dim,
+                        theta,
+                    };
+                    let ptx = self.kernels.generate_ptx(&kernel_type);
+                    let module = CudaModule::from_ptx(&self.context, &ptx)?;
+                    self.modules.insert(rope_precise_q_indirect_key, module);
+                }
+                // CORRECTNESS-013: Preload PreciseRopeNeoxIndirect for K
+                let rope_precise_k_indirect_key =
+                    format!("rope_precise_indirect_{}_{}", num_kv_heads, head_dim);
+                if !self.modules.contains_key(&rope_precise_k_indirect_key) {
+                    let kernel_type = KernelType::PreciseRopeNeoxIndirect {
+                        num_heads: num_kv_heads,
+                        head_dim,
+                        theta,
+                    };
+                    let ptx = self.kernels.generate_ptx(&kernel_type);
+                    let module = CudaModule::from_ptx(&self.context, &ptx)?;
+                    self.modules.insert(rope_precise_k_indirect_key, module);
+                }
+            } else {
+                // Standard RopeNeoxIndirect for Q
+                let rope_neox_q_indirect_key =
+                    format!("rope_neox_indirect_{}_{}", num_heads, head_dim);
+                if !self.modules.contains_key(&rope_neox_q_indirect_key) {
+                    let kernel_type = KernelType::RopeNeoxIndirect {
+                        num_heads,
+                        head_dim,
+                        theta,
+                    };
+                    let ptx = self.kernels.generate_ptx(&kernel_type);
+                    let module = CudaModule::from_ptx(&self.context, &ptx)?;
+                    self.modules.insert(rope_neox_q_indirect_key, module);
+                }
+                // Standard RopeNeoxIndirect for K
+                let rope_neox_k_indirect_key =
+                    format!("rope_neox_indirect_{}_{}", num_kv_heads, head_dim);
+                if !self.modules.contains_key(&rope_neox_k_indirect_key) {
+                    let kernel_type = KernelType::RopeNeoxIndirect {
+                        num_heads: num_kv_heads,
+                        head_dim,
+                        theta,
+                    };
+                    let ptx = self.kernels.generate_ptx(&kernel_type);
+                    let module = CudaModule::from_ptx(&self.context, &ptx)?;
+                    self.modules.insert(rope_neox_k_indirect_key, module);
+                }
             }
             // Also preload direct NEOX kernels for non-graph-capture mode
             let rope_neox_q_key = format!("rope_neox_{}_{}", num_heads, head_dim);
@@ -12225,11 +12327,13 @@ impl CudaExecutor {
             self.modules.insert(multi_warp_indirect_key, module);
         }
 
-        eprintln!(
-            "[PAR-054-FIX] Pre-loaded {} kernel modules for {} layers",
-            self.modules.len(),
-            num_layers
-        );
+        if verbose() {
+            eprintln!(
+                "[PAR-054-FIX] Pre-loaded {} kernel modules for {} layers",
+                self.modules.len(),
+                num_layers
+            );
+        }
         Ok(())
     }
 
@@ -12265,10 +12369,12 @@ impl CudaExecutor {
         self.decode_graph = Some(graph_exec);
         self.decode_token_count = 1;
 
-        eprintln!(
-            "[PAR-054] ✓ CUDA graph captured successfully ({} layers + LM head)",
-            num_layers
-        );
+        if verbose() {
+            eprintln!(
+                "[PAR-054] ✓ CUDA graph captured successfully ({} layers + LM head)",
+                num_layers
+            );
+        }
 
         Ok(())
     }
@@ -12280,15 +12386,26 @@ impl CudaExecutor {
         logits: &mut [f32],
         position: u32,
     ) -> Result<(), GpuError> {
+        // CORRECTNESS-013: Stateless GPU mode - force position=0, seq_len=1
+        static STATELESS_MODE_REPLAY: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let use_stateless = *STATELESS_MODE_REPLAY.get_or_init(|| {
+            std::env::var("STATELESS_GPU")
+                .map(|v| v == "1")
+                .unwrap_or(false)
+        });
+
         // Update position buffer (async memcpy, doesn't invalidate graph)
+        // CORRECTNESS-013: In stateless mode, always use position=0
         if let Some(ref mut pos_buf) = self.position_buf {
-            pos_buf.copy_from_host(&[position])?;
+            let pos_to_write = if use_stateless { 0 } else { position };
+            pos_buf.copy_from_host(&[pos_to_write])?;
         }
 
         // PAR-061-FIX: Update seq_len buffer (seq_len = position + 1)
         // The attention kernel reads seq_len from device memory in indirect mode
+        // CORRECTNESS-013: In stateless mode, always use seq_len=1
         if let Some(ref mut seq_len_buf) = self.seq_len_buf {
-            let seq_len = position + 1;
+            let seq_len = if use_stateless { 1 } else { position + 1 };
             seq_len_buf.copy_from_host(&[seq_len])?;
         }
 
@@ -13724,7 +13841,7 @@ impl CudaExecutor {
 
             // Apply RoPE to Q and K (in-place)
             // PAR-061: Use indirect position for CUDA graph capture to avoid baking position
-            if layer_idx == 0 {
+            if layer_idx == 0 && verbose() {
                 eprintln!(
                     "[CORRECTNESS-010] RoPE: skip_debug={}, position_buf={}, using {}",
                     skip_debug,
@@ -16456,10 +16573,25 @@ impl CudaExecutor {
         let head_dim = self.kv_head_dim;
         let max_len = self.kv_cache_max_len;
 
+        // CORRECTNESS-013: Stateless GPU mode - disable KV cache to isolate cache bugs
+        // When STATELESS_GPU=1, attention only sees the current token (no history)
+        // If output becomes correct in stateless mode, the bug is in KV cache logic
+        static STATELESS_MODE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let use_stateless = *STATELESS_MODE.get_or_init(|| {
+            let mode = std::env::var("STATELESS_GPU")
+                .map(|v| v == "1")
+                .unwrap_or(false);
+            if mode {
+                eprintln!("[CORRECTNESS-013] STATELESS_GPU mode ENABLED - attention only sees current token");
+            }
+            mode
+        });
+
         // Get current cache length and check bounds
         let cache_len = self.kv_cache_lengths.get(&layer_idx).copied().unwrap_or(0);
-        let new_len = cache_len + 1;
-        if new_len > max_len {
+        // CORRECTNESS-013: In stateless mode, always use seq_len=1 (only current token)
+        let new_len = if use_stateless { 1 } else { cache_len + 1 };
+        if !use_stateless && new_len > max_len {
             return Err(GpuError::InvalidLaunchConfig(format!(
                 "PAR-051: KV cache overflow - max_len={}, trying to add position {}",
                 max_len, new_len
@@ -16585,7 +16717,8 @@ impl CudaExecutor {
                 }
                 let scatter_module = self.modules.get_mut(&scatter_key).expect("just inserted");
 
-                let mut position_val = cache_len as u32;
+                // CORRECTNESS-013: In stateless mode, always write to position 0
+                let mut position_val = if use_stateless { 0u32 } else { cache_len as u32 };
 
                 // CORRECTNESS-001 FIX: Kernel expects (src, cache, pos, head_dim, max_len)
                 // Fixed parameter order: pos is 3rd, removed extra num_heads_val
@@ -16693,6 +16826,13 @@ impl CudaExecutor {
                     "[PAR-058-ATTN] K cache head0 pos0 first 5: {:?}",
                     &k_cache_vals[..5.min(k_cache_vals.len())]
                 );
+                // CORRECTNESS-013: Also dump position 1 when seq_len >= 2
+                if new_len >= 2 && k_cache_vals.len() >= head_dim + 5 {
+                    eprintln!(
+                        "[PAR-058-ATTN] K cache head0 pos1 first 5: {:?}",
+                        &k_cache_vals[head_dim..(head_dim + 5).min(k_cache_vals.len())]
+                    );
+                }
             }
 
             // Check V cache values
@@ -16723,7 +16863,7 @@ impl CudaExecutor {
         let use_graph_mode = self.seq_len_buf.is_some();
         let use_single_warp = new_len < 128 && head_dim <= 64;
 
-        if layer_idx == 0 && new_len == 1 {
+        if layer_idx == 0 && new_len == 1 && verbose() {
             eprintln!(
                 "[CORRECTNESS-009] head_dim={}, using {} kernel, graph_mode={}, skip_debug={}",
                 head_dim,
@@ -16863,6 +17003,26 @@ impl CudaExecutor {
         }
 
         // PAR-051: NO sync here - caller continues pipeline
+
+        // CORRECTNESS-013: Debug attention output for layer 0 at seq_len=2
+        if !skip_debug && layer_idx == 0 && new_len == 2 {
+            self.stream.synchronize()?;
+            let mut attn_out = vec![0.0f32; out_gpu.len()];
+            out_gpu.copy_to_host(&mut attn_out)?;
+            eprintln!(
+                "[CORRECTNESS-013-ATTN] Layer 0 attention output at seq_len=2, first 10: {:?}",
+                &attn_out[..10.min(attn_out.len())]
+            );
+            // Dump per-head output for first 3 heads
+            for h in 0..3.min(num_heads) {
+                let start = h * head_dim;
+                eprintln!(
+                    "[CORRECTNESS-013-ATTN] Head {} first 5: {:?}",
+                    h, &attn_out[start..start+5]
+                );
+            }
+        }
+
         Ok(new_len)
     }
 
