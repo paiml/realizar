@@ -54359,7 +54359,7 @@ mod tests {
     // ========== ChunkedPrefillConfig extra tests ==========
     #[cfg(feature = "gpu")]
     #[test]
-    fn test_chunked_prefill_config_default_cov() {
+    fn test_chunked_prefill_config_default_extra_cov() {
         let config = ChunkedPrefillConfig::default();
         assert_eq!(config.chunk_size, 512);
         assert_eq!(config.max_context, 8192);
@@ -54367,7 +54367,7 @@ mod tests {
 
     #[cfg(feature = "gpu")]
     #[test]
-    fn test_chunked_prefill_config_with_chunk_size_cov() {
+    fn test_chunked_prefill_config_chunk_size_extra_cov() {
         let config = ChunkedPrefillConfig::with_chunk_size(256);
         assert_eq!(config.chunk_size, 256);
     }
@@ -54375,7 +54375,7 @@ mod tests {
     // ========== SpeculativeConfig extra tests ==========
     #[cfg(feature = "gpu")]
     #[test]
-    fn test_speculative_config_default_cov() {
+    fn test_speculative_config_default_extra_cov() {
         let config = SpeculativeConfig::default();
         assert_eq!(config.speculation_length, 4);
         assert_eq!(config.draft_temperature, 0.0);
@@ -54418,7 +54418,7 @@ mod tests {
     // ========== SlotState extra tests ==========
     #[cfg(feature = "gpu")]
     #[test]
-    fn test_slot_state_variants_cov() {
+    fn test_slot_state_empty_variant_extra_cov() {
         let empty = SlotState::Empty;
         assert!(matches!(empty, SlotState::Empty));
         assert!(empty.is_empty());
