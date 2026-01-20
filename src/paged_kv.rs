@@ -3138,17 +3138,20 @@ mod tests {
 
         assert_eq!(cache.len(), 3);
 
-        // Access p3 to make it most recently used
-        cache.lookup(3);
+        // Access p2 and p3 to give them distinct last_access times
+        // This ensures deterministic LRU behavior (p1 has lowest last_access)
+        cache.lookup(2); // p2.last_access = 1
+        cache.lookup(3); // p3.last_access = 2
 
-        // Insert new prefix - should evict LRU (p1)
+        // Insert new prefix - should evict LRU (p1 with last_access=0)
         let mut p4 = CachedPrefix::new(4, 4, vec![]);
         p4.ref_count = 0;
         let inserted = cache.insert(p4);
         assert!(inserted);
 
-        // p1 should be evicted
+        // p1 should be evicted (lowest last_access)
         assert!(!cache.contains(1));
+        assert!(cache.contains(2)); // Accessed, not evicted
         assert!(cache.contains(3)); // Most recently used
         assert!(cache.contains(4)); // Just inserted
         assert_eq!(cache.stats().prefixes_evicted, 1);
