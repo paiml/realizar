@@ -8371,6 +8371,15 @@ impl OwnedQuantizedModel {
                                 reason: format!("Failed to acquire CUDA executor lock: {e}"),
                             })?;
 
+                    // THREAD-FIX: Ensure CUDA context is current for this thread
+                    // (context may have been created on a different thread)
+                    executor
+                        .make_current()
+                        .map_err(|e| RealizarError::UnsupportedOperation {
+                            operation: "cuda_make_current".to_string(),
+                            reason: format!("Failed to set CUDA context current: {e}"),
+                        })?;
+
                     // PAR-005: Lazy cache - upload weights on first use
                     if !executor.has_quantized_weights(&cache_key) {
                         executor
@@ -8427,6 +8436,14 @@ impl OwnedQuantizedModel {
                                 reason: format!("Failed to acquire CUDA executor lock: {e}"),
                             })?;
 
+                    // THREAD-FIX: Ensure CUDA context is current for this thread
+                    executor
+                        .make_current()
+                        .map_err(|e| RealizarError::UnsupportedOperation {
+                            operation: "cuda_make_current".to_string(),
+                            reason: format!("Failed to set CUDA context current: {e}"),
+                        })?;
+
                     // PAR-005: Lazy cache
                     if !executor.has_quantized_weights(&cache_key) {
                         executor
@@ -8480,6 +8497,14 @@ impl OwnedQuantizedModel {
                                 operation: "cuda_q6k_lock".to_string(),
                                 reason: format!("Failed to acquire CUDA executor lock: {e}"),
                             })?;
+
+                    // THREAD-FIX: Ensure CUDA context is current for this thread
+                    executor
+                        .make_current()
+                        .map_err(|e| RealizarError::UnsupportedOperation {
+                            operation: "cuda_make_current".to_string(),
+                            reason: format!("Failed to set CUDA context current: {e}"),
+                        })?;
 
                     // PAR-005: Lazy cache
                     if !executor.has_quantized_weights(&cache_key) {
@@ -8540,6 +8565,15 @@ impl OwnedQuantizedModel {
                                 operation: "cuda_gemm_lock".to_string(),
                                 reason: format!("Failed to acquire CUDA executor lock: {e}"),
                             })?;
+
+                    // THREAD-FIX: Ensure CUDA context is current for this thread
+                    executor
+                        .make_current()
+                        .map_err(|e| RealizarError::UnsupportedOperation {
+                            operation: "cuda_make_current".to_string(),
+                            reason: format!("Failed to set CUDA context current: {e}"),
+                        })?;
+
                     executor
                         .gemm(
                             input,
@@ -16676,6 +16710,14 @@ impl OwnedQuantizedModelCuda {
     ///
     /// Returns error if weight upload fails or model uses fused QKV (phi-2 style).
     pub fn preload_weights_gpu(&mut self) -> Result<usize> {
+        // THREAD-FIX: Ensure CUDA context is current for this thread
+        self.executor
+            .make_current()
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "cuda_make_current".to_string(),
+                reason: format!("Failed to set CUDA context current: {e}"),
+            })?;
+
         let mut total_bytes = 0usize;
 
         for (layer_idx, layer) in self.model.layers.iter().enumerate() {
@@ -17220,6 +17262,15 @@ impl OwnedQuantizedModelCuda {
         if prompt.is_empty() {
             return Ok(Vec::new());
         }
+
+        // THREAD-FIX: Ensure CUDA context is current for this thread
+        // (context may have been created on a different thread, e.g., main vs tokio worker)
+        self.executor
+            .make_current()
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "cuda_make_current".to_string(),
+                reason: format!("Failed to set CUDA context current: {e}"),
+            })?;
 
         // Check architecture support
         if !self.supports_gpu_resident() {
