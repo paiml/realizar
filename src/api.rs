@@ -3399,10 +3399,109 @@ async fn openai_chat_completions_handler(
             stop_tokens: Vec::new(),
         };
 
-        // Get mutable access to CUDA model
+        // PAR-112: True streaming - handle streaming vs non-streaming with different paths
+        if request.stream {
+            // TRUE STREAMING: Generate tokens one-by-one and stream as they're produced
+            use tokio::sync::mpsc;
+            use tokio_stream::wrappers::ReceiverStream;
+            use tokio_stream::StreamExt;
+
+            let (tx, rx) = mpsc::channel::<Result<u32, String>>(16);
+            let cuda_model_clone = cuda_model_lock.clone();
+            let prompt_ids_clone = prompt_ids.clone();
+            let q_config_clone = q_config.clone();
+
+            // Spawn generation in a blocking task to avoid blocking the async runtime
+            tokio::task::spawn_blocking(move || {
+                let mut cuda_model = cuda_model_clone.write().unwrap();
+
+                // Use streaming generation - sends tokens via channel as they're generated
+                let result = cuda_model.generate_gpu_resident_streaming(
+                    &prompt_ids_clone,
+                    &q_config_clone,
+                    |token_id| {
+                        // Send token through channel; return false to stop if channel closed
+                        tx.blocking_send(Ok(token_id)).is_ok()
+                    },
+                );
+
+                // Send error if generation failed
+                if let Err(e) = result {
+                    let _ = tx.blocking_send(Err(e.to_string()));
+                }
+            });
+
+            // Convert channel receiver to SSE stream
+            let model_name = request.model.clone();
+            let request_id_clone = request_id.clone();
+            let tokenizer_clone = tokenizer.clone();
+            let metrics = state.metrics.clone();
+            let start_time = start;
+
+            let token_stream = ReceiverStream::new(rx);
+            let mut completion_tokens = 0usize;
+
+            let stream = async_stream::stream! {
+                // Send initial chunk with role
+                let initial = ChatCompletionChunk::initial(&request_id_clone, &model_name);
+                if let Ok(data) = serde_json::to_string(&initial) {
+                    yield Ok::<_, Infallible>(Event::default().data(data));
+                }
+
+                // Stream tokens as they arrive from generation
+                tokio::pin!(token_stream);
+                while let Some(result) = token_stream.next().await {
+                    match result {
+                        Ok(token_id) => {
+                            completion_tokens += 1;
+                            // Decode and send immediately
+                            if let Ok(text) = tokenizer_clone.decode(&[token_id]) {
+                                if !text.is_empty() {
+                                    let chunk = ChatCompletionChunk::content(&request_id_clone, &model_name, &text);
+                                    if let Ok(data) = serde_json::to_string(&chunk) {
+                                        yield Ok(Event::default().data(data));
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            // Send error chunk
+                            let error_chunk = serde_json::json!({
+                                "error": e
+                            });
+                            if let Ok(data) = serde_json::to_string(&error_chunk) {
+                                yield Ok(Event::default().data(data));
+                            }
+                            break;
+                        }
+                    }
+                }
+
+                // Send final chunk with finish reason
+                let done = ChatCompletionChunk::done(&request_id_clone, &model_name);
+                if let Ok(data) = serde_json::to_string(&done) {
+                    yield Ok(Event::default().data(data));
+                }
+
+                // Record metrics
+                metrics.record_success(completion_tokens, start_time.elapsed());
+
+                // Send [DONE] marker
+                yield Ok(Event::default().data("[DONE]"));
+            };
+
+            return Sse::new(stream)
+                .keep_alive(
+                    axum::response::sse::KeepAlive::new()
+                        .interval(std::time::Duration::from_secs(15))
+                        .text("keep-alive"),
+                )
+                .into_response();
+        }
+
+        // NON-STREAMING: Generate all tokens first, then return
         let mut cuda_model = cuda_model_lock.write().unwrap();
 
-        // PAR-111: Use GPU-resident generation for maximum performance
         let generated = match cuda_model.generate_gpu_resident(&prompt_ids, &q_config) {
             Ok(g) => g,
             Err(e) => {
@@ -3420,51 +3519,6 @@ async fn openai_chat_completions_handler(
         // Skip prompt tokens
         let token_ids: Vec<u32> = generated.iter().skip(prompt_tokens).copied().collect();
         let completion_tokens = token_ids.len();
-
-        // Handle streaming vs non-streaming
-        if request.stream {
-            // Streaming response - return SSE
-            let model_name = request.model.clone();
-            let request_id_clone = request_id.clone();
-
-            let stream = async_stream::stream! {
-                // Send initial chunk with role
-                let initial = ChatCompletionChunk::initial(&request_id_clone, &model_name);
-                if let Ok(data) = serde_json::to_string(&initial) {
-                    yield Ok::<_, Infallible>(Event::default().data(data));
-                }
-
-                // Stream tokens one by one
-                for &token_id in &token_ids {
-                    // Decode single token
-                    if let Ok(text) = tokenizer.decode(&[token_id]) {
-                        if !text.is_empty() {
-                            let chunk = ChatCompletionChunk::content(&request_id_clone, &model_name, &text);
-                            if let Ok(data) = serde_json::to_string(&chunk) {
-                                yield Ok(Event::default().data(data));
-                            }
-                        }
-                    }
-                }
-
-                // Send final chunk with finish reason
-                let done = ChatCompletionChunk::done(&request_id_clone, &model_name);
-                if let Ok(data) = serde_json::to_string(&done) {
-                    yield Ok(Event::default().data(data));
-                }
-
-                // Send [DONE] marker
-                yield Ok(Event::default().data("[DONE]"));
-            };
-
-            return Sse::new(stream)
-                .keep_alive(
-                    axum::response::sse::KeepAlive::new()
-                        .interval(std::time::Duration::from_secs(15))
-                        .text("keep-alive"),
-                )
-                .into_response();
-        }
 
         // Non-streaming: decode all tokens and return
         let response_text = tokenizer
