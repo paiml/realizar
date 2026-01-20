@@ -2309,6 +2309,20 @@ impl CudaExecutor {
         device_count().unwrap_or(0)
     }
 
+    /// Set the CUDA context as current for the calling thread
+    ///
+    /// CUDA contexts are thread-local. When using async/multi-threaded code
+    /// (like axum/tokio), you must call `make_current()` before any CUDA
+    /// operation if the operation might run on a different thread than where
+    /// the executor was created.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if cuCtxSetCurrent fails (e.g., invalid context).
+    pub fn make_current(&self) -> Result<(), GpuError> {
+        self.context.make_current()
+    }
+
     // ========================================================================
     // PAR-073: BrickProfiler API for per-brick timing
     // ========================================================================

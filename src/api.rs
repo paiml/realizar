@@ -103,6 +103,10 @@ pub struct AppState {
     /// Batch configuration for window timing and size thresholds (PARITY-052)
     #[cfg(feature = "gpu")]
     batch_config: Option<BatchConfig>,
+    /// CUDA-optimized model for high-performance GPU inference (PAR-111)
+    /// Uses pre-uploaded weights and batched workspaces for 755+ tok/s (2.6x Ollama)
+    #[cfg(feature = "cuda")]
+    cuda_model: Option<Arc<std::sync::RwLock<crate::gguf::OwnedQuantizedModelCuda>>>,
 }
 
 /// Helper to create default audit infrastructure
@@ -158,6 +162,8 @@ impl AppState {
             batch_request_tx: None,
             #[cfg(feature = "gpu")]
             batch_config: None,
+            #[cfg(feature = "cuda")]
+            cuda_model: None,
         }
     }
 
@@ -203,6 +209,8 @@ impl AppState {
             batch_request_tx: None,
             #[cfg(feature = "gpu")]
             batch_config: None,
+            #[cfg(feature = "cuda")]
+            cuda_model: None,
         })
     }
 
@@ -289,6 +297,8 @@ impl AppState {
             batch_request_tx: None,
             #[cfg(feature = "gpu")]
             batch_config: None,
+            #[cfg(feature = "cuda")]
+            cuda_model: None,
         }
     }
 
@@ -347,6 +357,8 @@ impl AppState {
             batch_request_tx: None,
             #[cfg(feature = "gpu")]
             batch_config: None,
+            #[cfg(feature = "cuda")]
+            cuda_model: None,
         })
     }
 
@@ -392,6 +404,8 @@ impl AppState {
             dispatch_metrics: None,
             batch_request_tx: None,
             batch_config: None,
+            #[cfg(feature = "cuda")]
+            cuda_model: None,
         })
     }
 
@@ -432,6 +446,8 @@ impl AppState {
             dispatch_metrics: None,
             batch_request_tx: None,
             batch_config: None,
+            #[cfg(feature = "cuda")]
+            cuda_model: None,
         })
     }
 
@@ -485,6 +501,8 @@ impl AppState {
             batch_request_tx: None,
             #[cfg(feature = "gpu")]
             batch_config: None,
+            #[cfg(feature = "cuda")]
+            cuda_model: None,
         })
     }
 
@@ -536,6 +554,8 @@ impl AppState {
             dispatch_metrics: Some(Arc::new(crate::gguf::DispatchMetrics::new())),
             batch_request_tx: None,
             batch_config: None,
+            #[cfg(feature = "cuda")]
+            cuda_model: None,
         })
     }
 
@@ -576,6 +596,8 @@ impl AppState {
             dispatch_metrics: Some(Arc::new(crate::gguf::DispatchMetrics::new())),
             batch_request_tx: None,
             batch_config: None,
+            #[cfg(feature = "cuda")]
+            cuda_model: None,
         })
     }
 
@@ -620,6 +642,57 @@ impl AppState {
             batch_request_tx: None,
             #[cfg(feature = "gpu")]
             batch_config: None,
+            #[cfg(feature = "cuda")]
+            cuda_model: None,
+        })
+    }
+
+    /// Create application state with CUDA-optimized model for high-performance GPU inference (PAR-111)
+    ///
+    /// This uses the `OwnedQuantizedModelCuda` wrapper which achieves 755+ tok/s (2.6x Ollama) by:
+    /// - Pre-uploading all weights to GPU via `preload_weights_gpu()`
+    /// - Using batched workspaces for efficient inference
+    /// - GPU-resident KV cache to avoid CPU→GPU transfers
+    ///
+    /// # Arguments
+    ///
+    /// * `cuda_model` - CUDA-optimized model wrapper (already initialized with GPU resources)
+    /// * `vocab` - Vocabulary tokens from GGUF metadata (tokenizer.ggml.tokens)
+    ///
+    /// # Errors
+    ///
+    /// Returns error if tokenizer creation fails
+    #[cfg(feature = "cuda")]
+    pub fn with_cuda_model_and_vocab(
+        cuda_model: crate::gguf::OwnedQuantizedModelCuda,
+        vocab: Vec<String>,
+    ) -> Result<Self, RealizarError> {
+        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>")?;
+
+        let (audit_logger, audit_sink) = create_audit_state();
+        Ok(Self {
+            model: None,
+            tokenizer: Some(Arc::new(tokenizer)),
+            cache: None,
+            cache_key: None,
+            metrics: Arc::new(MetricsCollector::new()),
+            registry: None,
+            default_model_id: None,
+            apr_model: None,
+            audit_logger,
+            audit_sink,
+            #[cfg(feature = "gpu")]
+            gpu_model: None,
+            quantized_model: None,
+            #[cfg(feature = "gpu")]
+            cached_model: None,
+            #[cfg(feature = "gpu")]
+            dispatch_metrics: None,
+            #[cfg(feature = "gpu")]
+            batch_request_tx: None,
+            #[cfg(feature = "gpu")]
+            batch_config: None,
+            cuda_model: Some(Arc::new(std::sync::RwLock::new(cuda_model))),
         })
     }
 
@@ -658,6 +731,24 @@ impl AppState {
     #[cfg(feature = "gpu")]
     pub fn cached_model(&self) -> Option<&Arc<crate::gguf::OwnedQuantizedModelCachedSync>> {
         self.cached_model.as_ref()
+    }
+
+    /// Check if this AppState has a CUDA-optimized model (PAR-111)
+    #[cfg(feature = "cuda")]
+    #[must_use]
+    pub fn has_cuda_model(&self) -> bool {
+        self.cuda_model.is_some()
+    }
+
+    /// Get the CUDA-optimized model for high-performance GPU inference (PAR-111)
+    ///
+    /// Returns the model wrapper that achieves 755+ tok/s (2.6x Ollama) by using:
+    /// - Pre-uploaded GPU weights
+    /// - Batched workspaces
+    /// - GPU-resident KV cache
+    #[cfg(feature = "cuda")]
+    pub fn cuda_model(&self) -> Option<&Arc<std::sync::RwLock<crate::gguf::OwnedQuantizedModelCuda>>> {
+        self.cuda_model.as_ref()
     }
 
     /// Get dispatch metrics for adaptive CPU/GPU tracking (IMP-126)
@@ -3249,6 +3340,156 @@ async fn openai_chat_completions_handler(
                 } else {
                     "stop".to_string()
                 },
+            }],
+            usage: Usage {
+                prompt_tokens,
+                completion_tokens,
+                total_tokens: prompt_tokens + completion_tokens,
+            },
+            brick_trace: None,
+            step_trace: None,
+            layer_trace: None,
+        })
+        .into_response();
+    }
+
+    // PAR-111: CUDA-optimized model for high-performance GPU inference (755+ tok/s, 2.6x Ollama)
+    #[cfg(feature = "cuda")]
+    if let Some(cuda_model_lock) = state.cuda_model() {
+        use crate::gguf::QuantizedGenerateConfig;
+
+        let tokenizer = match state.tokenizer.clone() {
+            Some(t) => t,
+            None => {
+                state.metrics.record_failure();
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "No tokenizer available".to_string(),
+                    }),
+                )
+                    .into_response();
+            }
+        };
+
+        // Convert chat messages to prompt using ChatML (GGUF models are typically Qwen/ChatML)
+        let prompt_text = format_chat_messages(&request.messages, Some("qwen"));
+
+        // Tokenize prompt
+        let prompt_ids = tokenizer.encode(&prompt_text);
+        if prompt_ids.is_empty() {
+            state.metrics.record_failure();
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "Messages cannot be empty".to_string(),
+                }),
+            )
+                .into_response();
+        }
+
+        let prompt_tokens = prompt_ids.len();
+        let max_tokens = request.max_tokens.unwrap_or(256);
+        let temperature = request.temperature.unwrap_or(0.7) as f32;
+
+        let q_config = QuantizedGenerateConfig {
+            max_tokens,
+            temperature,
+            top_k: if temperature == 0.0 { 1 } else { 40 },
+            stop_tokens: Vec::new(),
+        };
+
+        // Get mutable access to CUDA model
+        let mut cuda_model = cuda_model_lock.write().unwrap();
+
+        // PAR-111: Use GPU-resident generation for maximum performance
+        let generated = match cuda_model.generate_gpu_resident(&prompt_ids, &q_config) {
+            Ok(g) => g,
+            Err(e) => {
+                state.metrics.record_failure();
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: e.to_string(),
+                    }),
+                )
+                    .into_response();
+            }
+        };
+
+        // Skip prompt tokens
+        let token_ids: Vec<u32> = generated.iter().skip(prompt_tokens).copied().collect();
+        let completion_tokens = token_ids.len();
+
+        // Handle streaming vs non-streaming
+        if request.stream {
+            // Streaming response - return SSE
+            let model_name = request.model.clone();
+            let request_id_clone = request_id.clone();
+
+            let stream = async_stream::stream! {
+                // Send initial chunk with role
+                let initial = ChatCompletionChunk::initial(&request_id_clone, &model_name);
+                if let Ok(data) = serde_json::to_string(&initial) {
+                    yield Ok::<_, Infallible>(Event::default().data(data));
+                }
+
+                // Stream tokens one by one
+                for &token_id in &token_ids {
+                    // Decode single token
+                    if let Ok(text) = tokenizer.decode(&[token_id]) {
+                        if !text.is_empty() {
+                            let chunk = ChatCompletionChunk::content(&request_id_clone, &model_name, &text);
+                            if let Ok(data) = serde_json::to_string(&chunk) {
+                                yield Ok(Event::default().data(data));
+                            }
+                        }
+                    }
+                }
+
+                // Send final chunk with finish reason
+                let done = ChatCompletionChunk::done(&request_id_clone, &model_name);
+                if let Ok(data) = serde_json::to_string(&done) {
+                    yield Ok(Event::default().data(data));
+                }
+
+                // Send [DONE] marker
+                yield Ok(Event::default().data("[DONE]"));
+            };
+
+            return Sse::new(stream)
+                .keep_alive(
+                    axum::response::sse::KeepAlive::new()
+                        .interval(std::time::Duration::from_secs(15))
+                        .text("keep-alive"),
+                )
+                .into_response();
+        }
+
+        // Non-streaming: decode all tokens and return
+        let response_text = tokenizer
+            .decode(&token_ids)
+            .unwrap_or_else(|_| "".to_string());
+
+        let elapsed = start.elapsed();
+        state.metrics.record_success(completion_tokens, elapsed);
+
+        return Json(ChatCompletionResponse {
+            id: request_id,
+            object: "chat.completion".to_string(),
+            created: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64,
+            model: request.model,
+            choices: vec![ChatChoice {
+                index: 0,
+                message: ChatMessage {
+                    role: "assistant".to_string(),
+                    content: response_text,
+                    name: None,
+                },
+                finish_reason: "stop".to_string(),
             }],
             usage: Usage {
                 prompt_tokens,
