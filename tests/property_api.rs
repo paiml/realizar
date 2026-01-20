@@ -34,6 +34,7 @@ fn test_health_response_serialization() {
     let resp = HealthResponse {
         status: "ok".to_string(),
         version: "2.0.0".to_string(),
+        compute_mode: "cpu".to_string(),
     };
 
     let json = serde_json::to_string(&resp).unwrap();
@@ -51,7 +52,7 @@ proptest! {
         status in "[a-z]{3,20}",
         version in "[0-9]+\\.[0-9]+\\.[0-9]+"
     ) {
-        let resp = HealthResponse { status: status.clone(), version: version.clone() };
+        let resp = HealthResponse { status: status.clone(), version: version.clone(), compute_mode: "cpu".to_string() };
         let json = serde_json::to_string(&resp).unwrap();
         let parsed: HealthResponse = serde_json::from_str(&json).unwrap();
         prop_assert_eq!(parsed.status, status);
@@ -416,6 +417,9 @@ fn test_chat_completion_response() {
             completion_tokens: 5,
             total_tokens: 15,
         },
+        brick_trace: None,
+        step_trace: None,
+        layer_trace: None,
     };
 
     let json = serde_json::to_string(&resp).unwrap();

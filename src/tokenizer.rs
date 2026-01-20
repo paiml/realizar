@@ -922,21 +922,22 @@ mod tests {
 
     #[test]
     fn test_bpe_encode_multiple_words() {
+        // BPE uses GPT-2 encoding: space -> Ġ (U+0120)
         let vocab = vec![
             "<unk>".to_string(),
             "h".to_string(),
             "i".to_string(),
-            " ".to_string(),
-            " h".to_string(),
+            "Ġ".to_string(),      // GPT-2 space encoding
+            "Ġh".to_string(),     // GPT-2 space + h
         ];
-        let merges = vec![(" ".to_string(), "h".to_string())];
+        let merges = vec![("Ġ".to_string(), "h".to_string())];
 
         let tokenizer = BPETokenizer::new(vocab, merges, "<unk>").expect("test");
-        // "hi hi" -> "hi" + " hi"
+        // "hi hi" -> "hi" + " hi" (space becomes Ġ)
         // "hi" -> h, i
-        // " hi" -> " " + "h" -> " h", then "i"
+        // "Ġhi" -> "Ġ" + "h" -> "Ġh", then "i"
         let encoded = tokenizer.encode("hi hi");
-        assert_eq!(encoded, vec![1, 2, 4, 2]); // h, i, " h", i
+        assert_eq!(encoded, vec![1, 2, 4, 2]); // h, i, "Ġh", i
     }
 
     #[test]
