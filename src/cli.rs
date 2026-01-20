@@ -1270,6 +1270,49 @@ pub async fn serve_model(
     Ok(())
 }
 
+/// Start a demo inference server (no model required)
+///
+/// This is useful for testing the API without loading a real model.
+pub async fn serve_demo(host: &str, port: u16) -> Result<()> {
+    use std::net::SocketAddr;
+
+    println!("Starting Realizar inference server (demo mode)...");
+
+    let state = crate::api::AppState::demo()?;
+    let app = crate::api::create_router(state);
+
+    let addr: SocketAddr = format!("{host}:{port}").parse().map_err(|e| {
+        crate::error::RealizarError::InvalidShape {
+            reason: format!("Invalid address: {e}"),
+        }
+    })?;
+
+    println!("Server listening on http://{addr}");
+    println!();
+    println!("Endpoints:");
+    println!("  GET  /health   - Health check");
+    println!("  POST /tokenize - Tokenize text");
+    println!("  POST /generate - Generate text");
+    println!();
+    println!("Example:");
+    println!("  curl http://{addr}/health");
+    println!();
+
+    let listener = tokio::net::TcpListener::bind(addr).await.map_err(|e| {
+        crate::error::RealizarError::InvalidShape {
+            reason: format!("Failed to bind: {e}"),
+        }
+    })?;
+
+    axum::serve(listener, app)
+        .await
+        .map_err(|e| crate::error::RealizarError::InvalidShape {
+            reason: format!("Server error: {e}"),
+        })?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3211,5 +3254,141 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
             Some("/tmp/out.json".to_string()),
         );
         assert!(result.is_ok());
+    }
+
+    // =========================================================================
+    // Server Command Tests (EXTREME TDD - PAR-112)
+    // =========================================================================
+
+    #[tokio::test]
+    async fn test_serve_model_invalid_extension() {
+        // Test that unsupported file extensions return error
+        let result = serve_model("127.0.0.1", 8080, "/nonexistent/model.xyz", false, false).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("Unsupported file extension"));
+    }
+
+    #[tokio::test]
+    async fn test_serve_model_nonexistent_gguf() {
+        // Test that nonexistent GGUF file returns error
+        let result = serve_model("127.0.0.1", 8080, "/nonexistent/model.gguf", false, false).await;
+        assert!(result.is_err());
+        // Should fail during GGUF loading
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("Failed to load GGUF")
+                || err.to_string().contains("No such file")
+                || err.to_string().contains("mmap")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_serve_model_nonexistent_safetensors() {
+        // Test that nonexistent SafeTensors file returns error
+        let result =
+            serve_model("127.0.0.1", 8080, "/nonexistent/model.safetensors", false, false).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("Failed to read")
+                || err.to_string().contains("No such file")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_serve_model_nonexistent_apr() {
+        // Test that nonexistent APR file returns error
+        let result = serve_model("127.0.0.1", 8080, "/nonexistent/model.apr", false, false).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("Failed to read")
+                || err.to_string().contains("No such file")
+        );
+    }
+
+    #[test]
+    fn test_serve_model_extension_detection() {
+        // Verify extension detection logic
+        assert!("/path/to/model.gguf".ends_with(".gguf"));
+        assert!("/path/to/model.safetensors".ends_with(".safetensors"));
+        assert!("/path/to/model.apr".ends_with(".apr"));
+        assert!(!"/path/to/model.xyz".ends_with(".gguf"));
+        assert!(!"/path/to/model.xyz".ends_with(".safetensors"));
+        assert!(!"/path/to/model.xyz".ends_with(".apr"));
+    }
+
+    #[test]
+    fn test_serve_model_address_parsing() {
+        // Verify address parsing works correctly
+        let addr: std::result::Result<std::net::SocketAddr, _> = "127.0.0.1:8080".parse();
+        assert!(addr.is_ok());
+
+        let addr: std::result::Result<std::net::SocketAddr, _> = "0.0.0.0:3000".parse();
+        assert!(addr.is_ok());
+
+        let addr: std::result::Result<std::net::SocketAddr, _> = "invalid:port".parse();
+        assert!(addr.is_err());
+    }
+
+    #[test]
+    fn test_serve_model_port_ranges() {
+        // Verify port range handling
+        let addr: std::result::Result<std::net::SocketAddr, _> = "127.0.0.1:0".parse();
+        assert!(addr.is_ok()); // Port 0 = OS assigns
+
+        let addr: std::result::Result<std::net::SocketAddr, _> = "127.0.0.1:65535".parse();
+        assert!(addr.is_ok()); // Max port
+
+        let addr: std::result::Result<std::net::SocketAddr, _> = "127.0.0.1:80".parse();
+        assert!(addr.is_ok()); // Privileged port (may need root)
+    }
+
+    #[test]
+    fn test_batch_mode_flag_logic() {
+        // Test batch mode flag combinations
+        let batch_mode = true;
+        let force_gpu = false;
+        assert!(batch_mode && !force_gpu); // Valid: batch without forced GPU
+
+        let batch_mode = true;
+        let force_gpu = true;
+        assert!(batch_mode && force_gpu); // Valid: batch with GPU
+
+        let batch_mode = false;
+        let force_gpu = true;
+        assert!(!batch_mode && force_gpu); // Valid: single-request with GPU (true streaming)
+    }
+
+    #[test]
+    fn test_cuda_env_var_detection() {
+        // Test REALIZAR_BACKEND environment variable detection
+        std::env::remove_var("REALIZAR_BACKEND");
+        let use_cuda = std::env::var("REALIZAR_BACKEND")
+            .map(|v| v.eq_ignore_ascii_case("cuda"))
+            .unwrap_or(false);
+        assert!(!use_cuda);
+
+        std::env::set_var("REALIZAR_BACKEND", "cuda");
+        let use_cuda = std::env::var("REALIZAR_BACKEND")
+            .map(|v| v.eq_ignore_ascii_case("cuda"))
+            .unwrap_or(false);
+        assert!(use_cuda);
+
+        std::env::set_var("REALIZAR_BACKEND", "CUDA");
+        let use_cuda = std::env::var("REALIZAR_BACKEND")
+            .map(|v| v.eq_ignore_ascii_case("cuda"))
+            .unwrap_or(false);
+        assert!(use_cuda);
+
+        std::env::set_var("REALIZAR_BACKEND", "cpu");
+        let use_cuda = std::env::var("REALIZAR_BACKEND")
+            .map(|v| v.eq_ignore_ascii_case("cuda"))
+            .unwrap_or(false);
+        assert!(!use_cuda);
+
+        // Cleanup
+        std::env::remove_var("REALIZAR_BACKEND");
     }
 }

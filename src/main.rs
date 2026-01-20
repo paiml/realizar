@@ -378,42 +378,9 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// Demo server - delegates to cli::serve_demo for testability
 async fn serve_demo(host: &str, port: u16) -> Result<()> {
-    println!("Starting Realizar inference server (demo mode)...");
-
-    let state = AppState::demo()?;
-    let app = create_router(state);
-
-    let addr: SocketAddr = format!("{host}:{port}").parse().map_err(|e| {
-        realizar::error::RealizarError::InvalidShape {
-            reason: format!("Invalid address: {e}"),
-        }
-    })?;
-
-    println!("Server listening on http://{addr}");
-    println!();
-    println!("Endpoints:");
-    println!("  GET  /health   - Health check");
-    println!("  POST /tokenize - Tokenize text");
-    println!("  POST /generate - Generate text");
-    println!();
-    println!("Example:");
-    println!("  curl http://{addr}/health");
-    println!();
-
-    let listener = tokio::net::TcpListener::bind(addr).await.map_err(|e| {
-        realizar::error::RealizarError::InvalidShape {
-            reason: format!("Failed to bind: {e}"),
-        }
-    })?;
-
-    axum::serve(listener, app)
-        .await
-        .map_err(|e| realizar::error::RealizarError::InvalidShape {
-            reason: format!("Server error: {e}"),
-        })?;
-
-    Ok(())
+    cli::serve_demo(host, port).await
 }
 
 /// Serve a model - delegates to cli::serve_model for testability
