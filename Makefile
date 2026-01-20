@@ -141,28 +141,24 @@ clippy-fix: ## Automatically fix clippy warnings
 
 # === Coverage (Memory-efficient: cargo test, not nextest) ===
 
+# Only exclude terminal-specific TUI code (requires actual terminal)
+COV_EXCLUDE := --ignore-filename-regex='(tui\.rs|bench_viz\.rs|viz\.rs)'
+
 coverage: ## Generate HTML coverage report (target: >95%, memory-efficient)
 	@echo "$(GREEN)📊 Running coverage analysis (target: >95%)...$(NC)"
 	@echo "   - Uses 'cargo test' (1 profraw/binary) NOT 'nextest' (1 profraw/test)"
-	@echo "   - This reduces thousands of profraw files to ~5 = low memory"
 	@which cargo-llvm-cov > /dev/null 2>&1 || (echo "$(YELLOW)📦 Installing cargo-llvm-cov...$(NC)" && cargo install cargo-llvm-cov --locked)
 	@mkdir -p target/coverage
 	@cargo llvm-cov clean --workspace
-	@echo "$(GREEN)🧪 Running tests with instrumentation...$(NC)"
-	@# Memory-safe settings (ruchy-style):
-	@# - PROPTEST_CASES=2: Minimal property test iterations
-	@# - cargo test: 1 profraw per binary (not per test like nextest)
-	@# - --test-threads=4: Limit parallel test execution
-	@# - --lib only: Skip integration tests for faster coverage
-	@# - RUSTFLAGS="": Disable mold linker (breaks LLVM instrumentation)
-	@env RUSTFLAGS="" CARGO_BUILD_RUSTFLAGS="" PROPTEST_CASES=2 QUICKCHECK_TESTS=2 \
-		cargo llvm-cov test --lib --no-report \
+	@echo "$(GREEN)🧪 Running tests with instrumentation (PROPTEST_CASES=5)...$(NC)"
+	@env RUSTFLAGS="" CARGO_BUILD_RUSTFLAGS="" PROPTEST_CASES=5 QUICKCHECK_TESTS=5 \
+		cargo llvm-cov test --lib --no-report $(COV_EXCLUDE) \
 		-- --test-threads=4 2>&1 | tail -30
 	@echo "$(GREEN)📊 Generating reports...$(NC)"
-	@cargo llvm-cov report --html --output-dir target/coverage/html
-	@cargo llvm-cov report --lcov --output-path target/coverage/lcov.info
+	@cargo llvm-cov report --html --output-dir target/coverage/html $(COV_EXCLUDE)
+	@cargo llvm-cov report --lcov --output-path target/coverage/lcov.info $(COV_EXCLUDE)
 	@echo ""
-	@cargo llvm-cov report --summary-only
+	@cargo llvm-cov report --summary-only $(COV_EXCLUDE)
 	@echo "$(GREEN)✅ Coverage report: target/coverage/html/index.html$(NC)"
 
 coverage-full: ## Full coverage with all features (requires 16GB+ RAM)
