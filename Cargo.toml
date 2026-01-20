@@ -351,6 +351,306 @@ required-features = ["cuda"]
 name = "cuda_chat_completions"
 required-features = ["cuda"]
 
+[[example]]
+name = "bench_batched_forward"
+required-features = ["cuda"]
+
+[[example]]
+name = "bench_batched_gemv"
+required-features = ["cuda"]
+
+[[example]]
+name = "bench_continuous_batching"
+required-features = ["cuda"]
+
+[[example]]
+name = "bench_multisequence_graph"
+required-features = ["cuda"]
+
+[[example]]
+name = "bench_speculative"
+required-features = ["cuda"]
+
+[[example]]
+name = "check_token_74403"
+required-features = ["cuda"]
+
+[[example]]
+name = "compare_cpu_gpu"
+required-features = ["cuda"]
+
+[[example]]
+name = "compare_layer0_full"
+required-features = ["cuda"]
+
+[[example]]
+name = "compare_lm_head_input"
+required-features = ["cuda"]
+
+[[example]]
+name = "compare_q_projection"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_cpu_gpu_divergence"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_gpu_divergence"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_hidden_state"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_layer0_compare"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_layer_by_layer"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_lm_head_divergence"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_lm_head"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_normed_hidden_compare"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_normed_hidden"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_pos1"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_q4k_gemv"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_q4k_gemv_tiled"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_q4k_rmsnorm_input"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_q6k_lm_head_test"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_single_row"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_speculative"
+required-features = ["cuda"]
+
+[[example]]
+name = "final_hidden_compare"
+required-features = ["cuda"]
+
+[[example]]
+name = "hidden_compare"
+required-features = ["cuda"]
+
+[[example]]
+name = "layer0_attention_compare"
+required-features = ["cuda"]
+
+[[example]]
+name = "layer0_step_compare"
+required-features = ["cuda"]
+
+[[example]]
+name = "pmat_benchmark_matrix"
+required-features = ["cuda"]
+
+[[example]]
+name = "profile_7b"
+required-features = ["cuda"]
+
+[[example]]
+name = "test_generation"
+required-features = ["cuda"]
+
+[[example]]
+name = "test_gpu_bias"
+required-features = ["cuda"]
+
+[[example]]
+name = "test_graphed"
+required-features = ["cuda"]
+
+[[example]]
+name = "test_lm_head_only"
+required-features = ["cuda"]
+
+[[example]]
+name = "test_m16"
+required-features = ["cuda"]
+
+[[example]]
+name = "test_q6k_correctness"
+required-features = ["cuda"]
+
+[[example]]
+name = "apr_gpu_benchmark"
+required-features = ["cuda"]
+
+[[example]]
+name = "bench_apr_gpu"
+required-features = ["cuda"]
+
+[[example]]
+name = "bench_apr_vs_gguf"
+required-features = ["cuda"]
+
+[[example]]
+name = "bench_tiled_q4k"
+required-features = ["cuda"]
+
+[[example]]
+name = "brick_divergence_trace"
+required-features = ["cuda"]
+
+[[example]]
+name = "check_gpu_logits"
+required-features = ["cuda"]
+
+[[example]]
+name = "compare_hidden_before_norm"
+required-features = ["cuda"]
+
+[[example]]
+name = "compare_layers"
+required-features = ["cuda"]
+
+[[example]]
+name = "compare_weights"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_layer0_divergence"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_layer0_stepwise"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_lm_head_direct"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_q4k_controlled"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_q4k_gemv_layer0"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_q4k_real_input"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_q6k_controlled"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_q6k_gemv"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_q6k_row"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_rmsnorm_layer0"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_tiled_q4k"
+required-features = ["cuda"]
+
+[[example]]
+name = "dump_q6k_ptx"
+required-features = ["cuda"]
+
+[[example]]
+name = "fresh_compare"
+required-features = ["cuda"]
+
+[[example]]
+name = "gpu_showcase_benchmark"
+required-features = ["cuda"]
+
+[[example]]
+name = "layer_by_layer_trace"
+required-features = ["cuda"]
+
+[[example]]
+name = "test_attention_debug"
+required-features = ["cuda"]
+
+[[example]]
+name = "test_attention_phi2_dims"
+required-features = ["cuda"]
+
+[[example]]
+name = "test_q4k_phi2_dims"
+required-features = ["cuda"]
+
+[[example]]
+name = "test_q6k_gemv_direct"
+required-features = ["cuda"]
+
+[[example]]
+name = "test_q6k_single_row"
+required-features = ["cuda"]
+
+[[example]]
+name = "test_tc_attention"
+required-features = ["cuda"]
+
+[[example]]
+name = "test_tiled_vs_cpu"
+required-features = ["cuda"]
+
+[[example]]
+name = "trace_all_layers"
+required-features = ["cuda"]
+
+[[example]]
+name = "trace_final"
+required-features = ["cuda"]
+
+[[example]]
+name = "trace_pos1_divergence"
+required-features = ["cuda"]
+
+[[example]]
+name = "test_cuda_minimal"
+required-features = ["cuda"]
+
+[[example]]
+name = "verify_attention_kernel"
+required-features = ["cuda"]
+
+[[example]]
+name = "test_apr_quantized_cache"
+required-features = ["cuda"]
+
 [profile.release]
 opt-level = 3
 lto = "fat"           # Link-time optimization for maximum performance

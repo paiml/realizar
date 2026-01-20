@@ -853,6 +853,9 @@ fn test_chat_completion_response_full() {
             completion_tokens: 5,
             total_tokens: 15,
         },
+        brick_trace: None,
+        layer_trace: None,
+        step_trace: None,
     };
     let json = serde_json::to_string(&response).expect("serialize");
     assert!(json.contains("chat.completion"));
@@ -916,6 +919,7 @@ fn test_health_response_roundtrip_custom() {
     let response = HealthResponse {
         status: "degraded".to_string(),
         version: "0.5.0-beta".to_string(),
+        compute_mode: "cpu".to_string(),
     };
     let json = serde_json::to_string(&response).expect("serialize");
     let rt: HealthResponse = serde_json::from_str(&json).expect("deserialize");
@@ -1351,6 +1355,9 @@ fn test_complete_chat_completion_flow() {
             completion_tokens: 3,
             total_tokens: request.messages.iter().map(|m| m.content.len() / 4).sum::<usize>() + 3,
         },
+        brick_trace: None,
+        layer_trace: None,
+        step_trace: None,
     };
 
     // Serialize response
@@ -1516,6 +1523,7 @@ fn test_empty_strings_everywhere() {
     let response = HealthResponse {
         status: String::new(),
         version: String::new(),
+        compute_mode: "cpu".to_string(),
     };
     let json = serde_json::to_string(&response).expect("serialize");
     let rt: HealthResponse = serde_json::from_str(&json).expect("deserialize");
@@ -1799,6 +1807,9 @@ fn test_chat_completion_response_empty_choices() {
             completion_tokens: 0,
             total_tokens: 0,
         },
+        brick_trace: None,
+        layer_trace: None,
+        step_trace: None,
     };
     let json = serde_json::to_string(&response).expect("serialize");
     assert!(json.contains(r#""choices":[]"#));

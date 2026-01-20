@@ -17811,3 +17811,30 @@ mod tests {
         assert!(result.is_err());
     }
 }
+
+/// Backwards-compatible alias for `fused_q6k_parallel_matvec`.
+///
+/// The column-major layout is now the default for the parallel implementation.
+#[inline]
+pub fn fused_q6k_colmajor_matvec(
+    weight_data: &[u8],
+    activations: &[f32],
+    in_dim: usize,
+    out_dim: usize,
+) -> Result<Vec<f32>> {
+    fused_q6k_parallel_matvec(weight_data, activations, in_dim, out_dim)
+}
+
+/// Backwards-compatible alias for `fused_q4k_parallel_matvec_into`.
+///
+/// The "auto" naming referred to automatic thread dispatch which is now the default.
+#[inline]
+pub fn fused_q4k_auto_matvec_into(
+    weight_data: &[u8],
+    activations: &[f32],
+    in_dim: usize,
+    out_dim: usize,
+    output: &mut [f32],
+) -> Result<()> {
+    fused_q4k_parallel_matvec_into(weight_data, activations, in_dim, out_dim, output)
+}

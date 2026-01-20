@@ -23,10 +23,12 @@ fn test_health_response_creation() {
     let resp = HealthResponse {
         status: "healthy".to_string(),
         version: "1.0.0".to_string(),
+        compute_mode: "cpu".to_string(),
     };
 
     assert_eq!(resp.status, "healthy");
     assert_eq!(resp.version, "1.0.0");
+    assert_eq!(resp.compute_mode, "cpu");
 }
 
 #[test]
