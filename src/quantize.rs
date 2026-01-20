@@ -1546,6 +1546,102 @@ pub fn dequantize_q6_k(data: &[u8]) -> Result<Vec<f32>> {
     Ok(result)
 }
 
+/// Dequantize `Q2_K` format weights
+///
+/// Q2_K uses 2 bits per weight with K-quantization (super-block size 256).
+/// This provides very high compression ratio at the cost of some precision.
+///
+/// # Arguments
+///
+/// * `data` - Raw `Q2_K` quantized data (super-blocks of 84 bytes each)
+///
+/// # Returns
+///
+/// Dequantized float32 values
+///
+/// # Errors
+///
+/// Returns error if data length is not a multiple of super-block size (84 bytes)
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// let quantized = load_q2_k_weights();
+/// let weights = dequantize_q2_k(&quantized)?;
+/// ```
+pub fn dequantize_q2_k(data: &[u8]) -> Result<Vec<f32>> {
+    // Q2_K super-block layout (per llama.cpp block_q2_K):
+    // - scales: 16 bytes (4 bits scale + 4 bits min per sub-block, 16 sub-blocks)
+    // - qs: 64 bytes (2 bits per value, 256 values)
+    // - d: 2 bytes (f16)
+    // - dmin: 2 bytes (f16)
+    // Total: 16 + 64 + 2 + 2 = 84 bytes
+    const SUPER_BLOCK_BYTES: usize = 84;
+
+    if !data.len().is_multiple_of(SUPER_BLOCK_BYTES) {
+        return Err(RealizarError::InvalidShape {
+            reason: format!(
+                "Q2_K data length {} is not a multiple of super-block size {}",
+                data.len(),
+                SUPER_BLOCK_BYTES
+            ),
+        });
+    }
+
+    let num_super_blocks = data.len() / SUPER_BLOCK_BYTES;
+    let mut result = vec![0.0f32; num_super_blocks * QK_K];
+
+    for sb_idx in 0..num_super_blocks {
+        let sb_start = sb_idx * SUPER_BLOCK_BYTES;
+        let out_start = sb_idx * QK_K;
+
+        // Read scales and mins (16 bytes at offset 0)
+        // Each byte: low 4 bits = scale, high 4 bits = min
+        let scales_data = &data[sb_start..sb_start + 16];
+
+        // Read qs (64 bytes at offset 16)
+        let qs = &data[sb_start + 16..sb_start + 80];
+
+        // Read d (f16 -> f32) at offset 80
+        let d = read_f16(&data[sb_start + 80..sb_start + 82]);
+
+        // Read dmin (f16 -> f32) at offset 82
+        let dmin = read_f16(&data[sb_start + 82..sb_start + 84]);
+
+        // Dequantize 256 values (16 sub-blocks of 16 values each)
+        // Each sub-block has its own scale and min
+        for j in 0..16 {
+            // Extract scale and min from scales_data
+            let sc = (scales_data[j] & 0x0F) as f32;
+            let m = (scales_data[j] >> 4) as f32;
+
+            let d_sc = d * sc;
+            let dm = dmin * m;
+
+            // Each sub-block has 16 values, stored in 4 bytes (2 bits per value)
+            // qs layout: values are packed as 4 values per byte
+            let qs_offset = j * 4;
+
+            for k in 0..4 {
+                let q_byte = qs[qs_offset + k];
+                // Extract 4 values from this byte (2 bits each)
+                let q0 = (q_byte & 0x03) as f32;
+                let q1 = ((q_byte >> 2) & 0x03) as f32;
+                let q2 = ((q_byte >> 4) & 0x03) as f32;
+                let q3 = ((q_byte >> 6) & 0x03) as f32;
+
+                let base_idx = out_start + j * 16 + k * 4;
+                result[base_idx] = d_sc * q0 - dm;
+                result[base_idx + 1] = d_sc * q1 - dm;
+                result[base_idx + 2] = d_sc * q2 - dm;
+                result[base_idx + 3] = d_sc * q3 - dm;
+            }
+        }
+    }
+
+    Ok(result)
+}
+
 /// Helper: Read f16 from bytes and convert to f32
 #[inline]
 pub(crate) fn read_f16(bytes: &[u8]) -> f32 {

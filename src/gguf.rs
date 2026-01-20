@@ -75,6 +75,12 @@ pub const GGUF_TYPE_Q5_1: u32 = 7;
 /// GGUF quantization type: `Q8_0` (8-bit quantization, block size 32)
 pub const GGUF_TYPE_Q8_0: u32 = 8;
 
+/// GGUF quantization type: `Q2_K` (2-bit K-quantization, super-block size 256)
+pub const GGUF_TYPE_Q2_K: u32 = 10;
+
+/// GGUF quantization type: `Q3_K` (3-bit K-quantization, super-block size 256)
+pub const GGUF_TYPE_Q3_K: u32 = 11;
+
 /// GGUF quantization type: `Q4_K` (4-bit K-quantization, super-block size 256)
 pub const GGUF_TYPE_Q4_K: u32 = 12;
 
@@ -933,6 +939,35 @@ impl GGUFModel {
 
                 let bytes = &file_data[offset..offset + byte_size];
                 let mut values = dequantize_q8_0_simd(bytes)?;
+
+                // Trim to exact size
+                values.truncate(size);
+                Ok(values)
+            },
+            GGUF_TYPE_Q2_K => {
+                // Q2_K quantized data (K-quantization) - 2 bits per weight
+                use crate::quantize::{dequantize_q2_k, QK_K};
+
+                // Q2_K super-block size: 84 bytes for 256 values
+                const SUPER_BLOCK_BYTES: usize = 84;
+
+                let num_super_blocks = size.div_ceil(QK_K);
+                let byte_size = num_super_blocks * SUPER_BLOCK_BYTES;
+
+                if offset + byte_size > file_data.len() {
+                    return Err(RealizarError::UnsupportedOperation {
+                        operation: "get_tensor_f32".to_string(),
+                        reason: format!(
+                            "Data range [{}, {}) exceeds file size {}",
+                            offset,
+                            offset + byte_size,
+                            file_data.len()
+                        ),
+                    });
+                }
+
+                let bytes = &file_data[offset..offset + byte_size];
+                let mut values = dequantize_q2_k(bytes)?;
 
                 // Trim to exact size
                 values.truncate(size);
@@ -2092,6 +2127,14 @@ impl<'a> QuantizedGGUFTransformer<'a> {
                 const BLOCK_BYTES: usize = 34; // 2 (f16 scale) + 32 (i8 quants)
                 let num_blocks = num_elements.div_ceil(BLOCK_SIZE);
                 num_blocks * BLOCK_BYTES
+            },
+            GGUF_TYPE_Q2_K => {
+                // Q2_K: 256 elements per super-block
+                // Layout: 16 bytes scales + 64 bytes quants + 2 bytes d + 2 bytes dmin = 84 bytes
+                use crate::quantize::QK_K;
+                const SUPER_BLOCK_BYTES: usize = 84;
+                let num_super_blocks = num_elements.div_ceil(QK_K);
+                num_super_blocks * SUPER_BLOCK_BYTES
             },
             GGUF_TYPE_Q4_1 => {
                 // Q4_1: 32 elements per block
@@ -9359,6 +9402,38 @@ impl OwnedQuantizedModel {
                     }
                     let row_data = &weight.data[row_start..row_end];
                     let row_dequant = dequantize_q6_k(row_data)?;
+
+                    let copy_len = in_dim.min(row_dequant.len());
+                    let out_start = row * in_dim;
+                    output[out_start..out_start + copy_len]
+                        .copy_from_slice(&row_dequant[..copy_len]);
+                }
+
+                // Transpose from [out_dim, in_dim] to [in_dim, out_dim] for GEMV kernel
+                let mut transposed = vec![0.0f32; total_weights];
+                for o in 0..out_dim {
+                    for i in 0..in_dim {
+                        transposed[i * out_dim + o] = output[o * in_dim + i];
+                    }
+                }
+                Ok(transposed)
+            },
+            GGUF_TYPE_Q2_K => {
+                // Q2_K: 84 bytes per 256-element super-block
+                use crate::quantize::{dequantize_q2_k, QK_K};
+
+                // GGUF tensor layout is [out_dim, in_dim] (same as Q4_K)
+                let super_blocks_per_row = in_dim.div_ceil(QK_K);
+                let bytes_per_row = super_blocks_per_row * 84;
+
+                for row in 0..out_dim {
+                    let row_start = row * bytes_per_row;
+                    let row_end = row_start + bytes_per_row;
+                    if row_end > weight.data.len() {
+                        break;
+                    }
+                    let row_data = &weight.data[row_start..row_end];
+                    let row_dequant = dequantize_q2_k(row_data)?;
 
                     let copy_len = in_dim.min(row_dequant.len());
                     let out_start = row * in_dim;
