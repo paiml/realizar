@@ -1714,6 +1714,39 @@ impl AprTransformer {
         }
     }
 
+    /// Apply Rotary Position Embedding (RoPE) to Q or K vectors
+    ///
+    /// RoPE encodes position information by rotating pairs of elements
+    /// with position-dependent angles.
+    fn apply_rope_f32(&self, x: &mut [f32], position: usize, num_heads: usize, head_dim: usize) {
+        let half_dim = head_dim / 2;
+        let theta = self.config.rope_theta;
+        let pos_f32 = position as f32;
+        let head_dim_f32 = head_dim as f32;
+
+        for h in 0..num_heads {
+            let head_start = h * head_dim;
+            let idx2_start = head_start + half_dim;
+
+            if idx2_start + half_dim > x.len() {
+                continue;
+            }
+
+            for i in 0..half_dim {
+                let freq = 1.0 / theta.powf(2.0 * i as f32 / head_dim_f32);
+                let angle = pos_f32 * freq;
+                let (sin_val, cos_val) = angle.sin_cos();
+
+                let x1 = x[head_start + i];
+                let x2 = x[idx2_start + i];
+
+                // Apply rotation: [cos -sin; sin cos] * [x1; x2]
+                x[head_start + i] = x1 * cos_val - x2 * sin_val;
+                x[idx2_start + i] = x1 * sin_val + x2 * cos_val;
+            }
+        }
+    }
+
     /// Forward pass through the transformer
     ///
     /// # Arguments
@@ -1758,13 +1791,79 @@ impl AprTransformer {
                 self.add_bias(&mut qkv, bias);
             }
 
-            // 2c. Simplified attention (matches GGUF implementation)
+            // 2c. Proper attention with GQA support and RoPE
             let seq_len = token_ids.len();
-            let mut attn_out = Vec::with_capacity(seq_len * hidden_dim);
+            let head_dim = hidden_dim / self.config.num_heads;
+            let num_kv_heads = self.config.num_kv_heads;
+            let kv_dim = num_kv_heads * head_dim;
+            let group_size = self.config.num_heads / num_kv_heads;
+            let scale = 1.0 / (head_dim as f32).sqrt();
+
+            // Split QKV and apply RoPE
+            let mut q_all = Vec::with_capacity(seq_len * hidden_dim);
+            let mut k_all = Vec::with_capacity(seq_len * kv_dim);
+            let mut v_all = Vec::with_capacity(seq_len * kv_dim);
+
             for s in 0..seq_len {
                 let qkv_start = s * qkv_dim;
-                for h in 0..hidden_dim {
-                    attn_out.push(qkv[qkv_start + h]); // Use Q for simplified version
+
+                // Extract Q, K, V (layout: [Q..., K..., V...])
+                let mut q_pos = qkv[qkv_start..qkv_start + hidden_dim].to_vec();
+                let mut k_pos = qkv[qkv_start + hidden_dim..qkv_start + hidden_dim + kv_dim].to_vec();
+                let v_pos = &qkv[qkv_start + hidden_dim + kv_dim..qkv_start + hidden_dim + 2 * kv_dim];
+
+                // Apply RoPE to Q and K
+                self.apply_rope_f32(&mut q_pos, s, self.config.num_heads, head_dim);
+                self.apply_rope_f32(&mut k_pos, s, num_kv_heads, head_dim);
+
+                q_all.extend_from_slice(&q_pos);
+                k_all.extend_from_slice(&k_pos);
+                v_all.extend_from_slice(v_pos);
+            }
+
+            // Compute scaled dot-product attention with causal mask
+            let mut attn_out = vec![0.0f32; seq_len * hidden_dim];
+            for head in 0..self.config.num_heads {
+                let kv_head = head / group_size;
+                let q_head_offset = head * head_dim;
+                let kv_head_offset = kv_head * head_dim;
+
+                for i in 0..seq_len {
+                    // Compute attention scores for this position
+                    let mut scores = Vec::with_capacity(i + 1);
+                    let q_start = i * hidden_dim + q_head_offset;
+
+                    for j in 0..=i {
+                        // Only attend to positions <= current (causal mask)
+                        let k_start = j * kv_dim + kv_head_offset;
+                        let mut score = 0.0f32;
+                        for d in 0..head_dim {
+                            score += q_all[q_start + d] * k_all[k_start + d];
+                        }
+                        scores.push(score * scale);
+                    }
+
+                    // Softmax
+                    let max_score = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                    let mut exp_sum = 0.0f32;
+                    for s in &mut scores {
+                        *s = (*s - max_score).exp();
+                        exp_sum += *s;
+                    }
+                    if exp_sum > 0.0 {
+                        for s in &mut scores {
+                            *s /= exp_sum;
+                        }
+                    }
+
+                    // Weighted sum of V
+                    let out_start = i * hidden_dim + q_head_offset;
+                    for (j, &weight) in scores.iter().enumerate() {
+                        let v_start = j * kv_dim + kv_head_offset;
+                        for d in 0..head_dim {
+                            attn_out[out_start + d] += weight * v_all[v_start + d];
+                        }
+                    }
                 }
             }
 
@@ -1780,28 +1879,54 @@ impl AprTransformer {
                 hidden[i] += attn_output[i];
             }
 
-            // 2f. FFN up projection
-            let mut ffn_hidden =
-                self.matmul(&hidden, &layer.ffn_up_weight, hidden_dim, intermediate_dim);
-            if let Some(ref bias) = layer.ffn_up_bias {
-                self.add_bias(&mut ffn_hidden, bias);
-            }
+            // 2f. Apply FFN norm if present (post_attention_layernorm)
+            let ffn_input = if let Some(ref ffn_norm) = layer.ffn_norm_weight {
+                self.layer_norm(&hidden, ffn_norm, layer.ffn_norm_bias.as_deref(), self.config.eps)
+            } else {
+                hidden.clone()
+            };
 
-            // GELU activation
-            self.gelu(&mut ffn_hidden);
+            // 2g. FFN projection (SwiGLU or standard GELU)
+            let ffn_output = if let Some(ref gate_weight) = layer.ffn_gate_weight {
+                // SwiGLU: down(SiLU(gate(x)) * up(x))
+                let gate = self.matmul(&ffn_input, gate_weight, hidden_dim, intermediate_dim);
+                let up = self.matmul(&ffn_input, &layer.ffn_up_weight, hidden_dim, intermediate_dim);
 
-            // FFN down projection
-            let mut ffn_output = self.matmul(
-                &ffn_hidden,
-                &layer.ffn_down_weight,
-                intermediate_dim,
-                hidden_dim,
-            );
-            if let Some(ref bias) = layer.ffn_down_bias {
-                self.add_bias(&mut ffn_output, bias);
-            }
+                // SiLU(gate) * up, then down projection
+                let mut ffn_hidden = Vec::with_capacity(gate.len());
+                for (g, u) in gate.iter().zip(up.iter()) {
+                    let silu_g = g / (1.0 + (-g).exp()); // SiLU = x * sigmoid(x)
+                    ffn_hidden.push(silu_g * u);
+                }
 
-            // Residual connection
+                let mut out =
+                    self.matmul(&ffn_hidden, &layer.ffn_down_weight, intermediate_dim, hidden_dim);
+                if let Some(ref bias) = layer.ffn_down_bias {
+                    self.add_bias(&mut out, bias);
+                }
+                out
+            } else {
+                // Standard MLP: down(GELU(up(x)))
+                let mut ffn_hidden =
+                    self.matmul(&ffn_input, &layer.ffn_up_weight, hidden_dim, intermediate_dim);
+                if let Some(ref bias) = layer.ffn_up_bias {
+                    self.add_bias(&mut ffn_hidden, bias);
+                }
+                self.gelu(&mut ffn_hidden);
+
+                let mut out = self.matmul(
+                    &ffn_hidden,
+                    &layer.ffn_down_weight,
+                    intermediate_dim,
+                    hidden_dim,
+                );
+                if let Some(ref bias) = layer.ffn_down_bias {
+                    self.add_bias(&mut out, bias);
+                }
+                out
+            };
+
+            // 2h. Residual connection
             for i in 0..hidden.len() {
                 hidden[i] += ffn_output[i];
             }

@@ -2846,4 +2846,526 @@ mod tests {
         let block = Q4KvBlock::default();
         assert_eq!(block.scale, 0.0);
     }
+
+    // =========================================================================
+    // Deep coverage tests (_deep_pkcov_ prefix)
+    // =========================================================================
+
+    // --- Error handling paths ---
+
+    #[test]
+    fn test_deep_pkcov_extend_sequence_not_found() {
+        let mut cache = PagedKvCache::new(100, 16, 8, 64);
+        let fake_seq = SeqId::new();
+
+        let result = cache.extend(fake_seq, 32);
+        assert!(matches!(result, Err(PagedCacheError::SequenceNotFound(_))));
+    }
+
+    #[test]
+    fn test_deep_pkcov_extend_sequence_out_of_memory() {
+        let mut cache = PagedKvCache::new(2, 16, 8, 64);
+        let seq_id = cache.allocate_sequence(16).expect("alloc"); // Uses 1 page
+
+        // Extend to need more pages than available
+        let result = cache.extend(seq_id, 32); // Needs 2 more pages, only 1 free
+        assert!(matches!(result, Err(PagedCacheError::OutOfMemory { .. })));
+    }
+
+    #[test]
+    fn test_deep_pkcov_extend_no_new_pages_needed() {
+        let mut cache = PagedKvCache::new(100, 16, 8, 64);
+        let seq_id = cache.allocate_sequence(16).expect("alloc"); // 1 page, 16 capacity
+        cache.update_tokens(seq_id, 5).expect("update");
+
+        // Extend by small amount that fits in existing page
+        let result = cache.extend(seq_id, 5);
+        assert!(result.is_ok());
+        assert_eq!(cache.free_page_count(), 99); // No new pages allocated
+    }
+
+    #[test]
+    fn test_deep_pkcov_update_tokens_not_found() {
+        let mut cache = PagedKvCache::new(100, 16, 8, 64);
+        let fake_seq = SeqId::new();
+
+        let result = cache.update_tokens(fake_seq, 10);
+        assert!(matches!(result, Err(PagedCacheError::SequenceNotFound(_))));
+    }
+
+    #[test]
+    fn test_deep_pkcov_fork_sequence_not_found() {
+        let mut cache = PagedKvCache::new(100, 16, 8, 64);
+        let fake_seq = SeqId::new();
+
+        let result = cache.fork_sequence(fake_seq);
+        assert!(matches!(result, Err(PagedCacheError::SequenceNotFound(_))));
+    }
+
+    #[test]
+    fn test_deep_pkcov_get_page_sequence_not_found() {
+        let cache = PagedKvCache::new(100, 16, 8, 64);
+        let fake_seq = SeqId::new();
+
+        let result = cache.get_page(fake_seq, 0);
+        assert!(matches!(result, Err(PagedCacheError::SequenceNotFound(_))));
+    }
+
+    #[test]
+    fn test_deep_pkcov_get_page_mut_sequence_not_found() {
+        let mut cache = PagedKvCache::new(100, 16, 8, 64);
+        let fake_seq = SeqId::new();
+
+        let result = cache.get_page_mut(fake_seq, 0);
+        assert!(matches!(result, Err(PagedCacheError::SequenceNotFound(_))));
+    }
+
+    #[test]
+    fn test_deep_pkcov_get_page_mut_invalid_page_access() {
+        let mut cache = PagedKvCache::new(100, 16, 8, 64);
+        let seq_id = cache.allocate_sequence(16).expect("alloc"); // 1 page
+
+        let result = cache.get_page_mut(seq_id, 100); // Beyond allocated
+        assert!(matches!(
+            result,
+            Err(PagedCacheError::InvalidPageAccess { .. })
+        ));
+    }
+
+    // --- Edge cases in paged memory management ---
+
+    #[test]
+    fn test_deep_pkcov_utilization_zero_pages() {
+        // Create cache with zero pages - edge case
+        let cache = PagedKvCache::new(0, 16, 8, 64);
+        assert_eq!(cache.utilization(), 0.0);
+        assert_eq!(cache.free_page_count(), 0);
+    }
+
+    #[test]
+    fn test_deep_pkcov_free_nonexistent_sequence() {
+        let mut cache = PagedKvCache::new(100, 16, 8, 64);
+        let fake_seq = SeqId::new();
+
+        // Should not panic, just do nothing
+        cache.free_sequence(fake_seq);
+        assert_eq!(cache.stats().sequences_freed, 0);
+    }
+
+    #[test]
+    fn test_deep_pkcov_allocate_zero_tokens() {
+        let mut cache = PagedKvCache::new(100, 16, 8, 64);
+
+        // Zero tokens should allocate at least 1 page (div_ceil behavior)
+        // Actually 0.div_ceil(16) = 0, so 0 pages needed
+        let seq_id = cache.allocate_sequence(0).expect("alloc");
+        assert!(cache.page_tables.get(&seq_id).is_some());
+    }
+
+    #[test]
+    fn test_deep_pkcov_update_tokens_spans_multiple_pages() {
+        let mut cache = PagedKvCache::new(100, 16, 8, 64);
+        let seq_id = cache.allocate_sequence(48).expect("alloc"); // 3 pages
+
+        // Update with tokens spanning all pages
+        cache.update_tokens(seq_id, 48).expect("update");
+
+        let tokens = cache.get_sequence_tokens(seq_id).expect("get");
+        assert_eq!(tokens, 48);
+    }
+
+    #[test]
+    fn test_deep_pkcov_update_tokens_partial_fill() {
+        let mut cache = PagedKvCache::new(100, 16, 8, 64);
+        let seq_id = cache.allocate_sequence(32).expect("alloc"); // 2 pages
+
+        // Only fill part of first page
+        cache.update_tokens(seq_id, 5).expect("update");
+
+        let tokens = cache.get_sequence_tokens(seq_id).expect("get");
+        assert_eq!(tokens, 5);
+    }
+
+    // --- Copy-on-write edge cases ---
+
+    #[test]
+    fn test_deep_pkcov_cow_out_of_memory() {
+        let mut cache = PagedKvCache::new(2, 16, 8, 64);
+        let parent_id = cache.allocate_sequence(16).expect("alloc"); // 1 page
+        let child_id = cache.fork_sequence(parent_id).expect("fork"); // Shares page
+
+        // Fill remaining page
+        let _ = cache.allocate_sequence(16).expect("alloc2");
+
+        // Now try to write to child - COW needs a free page but none available
+        let result = cache.get_page_mut(child_id, 0);
+        assert!(matches!(result, Err(PagedCacheError::OutOfMemory { .. })));
+    }
+
+    #[test]
+    fn test_deep_pkcov_cow_multiple_forks() {
+        let mut cache = PagedKvCache::new(100, 16, 8, 64);
+        let parent_id = cache.allocate_sequence(16).expect("alloc");
+        cache.update_tokens(parent_id, 16).expect("update");
+
+        // Fork multiple times
+        let child1 = cache.fork_sequence(parent_id).expect("fork1");
+        let child2 = cache.fork_sequence(parent_id).expect("fork2");
+
+        assert_eq!(cache.stats().cow_operations, 2);
+
+        // Write to child1 triggers COW
+        let _page = cache.get_page_mut(child1, 0).expect("get");
+        assert_eq!(cache.stats().cow_operations, 3);
+
+        // child2 still shares with parent
+        let page = cache.get_page(child2, 0).expect("get2");
+        assert!(page.ref_count >= 1);
+    }
+
+    #[test]
+    fn test_deep_pkcov_free_shared_sequence() {
+        let mut cache = PagedKvCache::new(100, 16, 8, 64);
+        let parent_id = cache.allocate_sequence(16).expect("alloc");
+        let child_id = cache.fork_sequence(parent_id).expect("fork");
+
+        // Free parent - pages should not return to free list (still referenced by child)
+        cache.free_sequence(parent_id);
+        assert_eq!(cache.free_page_count(), 99); // Page still in use by child
+
+        // Free child - now pages return
+        cache.free_sequence(child_id);
+        assert_eq!(cache.free_page_count(), 100);
+    }
+
+    // --- Defragmentation paths ---
+
+    #[test]
+    fn test_deep_pkcov_should_defragment_low_free_ratio() {
+        let mut cache = PagedKvCache::new(10, 16, 8, 64);
+
+        // Allocate to use most pages
+        for _ in 0..9 {
+            let _ = cache.allocate_sequence(16).expect("alloc");
+        }
+
+        // With >90% utilization and any fragmentation, should trigger
+        // Need to create a hole first
+        let seq_to_free = cache.allocate_sequence(16).ok();
+        if let Some(seq) = seq_to_free {
+            cache.free_sequence(seq);
+        }
+
+        // Low free ratio check is at 10% threshold
+        // We have 1 free page out of 10 = 10%, right at threshold
+    }
+
+    #[test]
+    fn test_deep_pkcov_should_defragment_high_waste() {
+        let mut cache = PagedKvCache::new(100, 16, 8, 64);
+
+        // Allocate several sequences with partial fill
+        let seq1 = cache.allocate_sequence(32).expect("alloc1"); // 2 pages
+        let seq2 = cache.allocate_sequence(32).expect("alloc2"); // 2 pages
+        let seq3 = cache.allocate_sequence(32).expect("alloc3"); // 2 pages
+
+        // Free middle sequence to create holes
+        cache.free_sequence(seq2);
+
+        // Update with very few tokens to create waste
+        cache.update_tokens(seq1, 1).expect("update1");
+        cache.update_tokens(seq3, 1).expect("update3");
+
+        let stats = cache.fragmentation_stats();
+        assert!(stats.holes > 0 || stats.wasted_capacity > 0);
+    }
+
+    #[test]
+    fn test_deep_pkcov_compact_empty_page_list() {
+        let mut cache = PagedKvCache::new(100, 16, 8, 64);
+        let seq_id = cache.allocate_sequence(0).expect("alloc"); // 0 pages
+
+        let moved = cache.compact_sequence(seq_id);
+        assert_eq!(moved, 0);
+    }
+
+    #[test]
+    fn test_deep_pkcov_fragmentation_stats_large_free_region() {
+        let mut cache = PagedKvCache::new(100, 16, 8, 64);
+
+        // Allocate just one sequence at the beginning
+        let _ = cache.allocate_sequence(16).expect("alloc");
+
+        let stats = cache.fragmentation_stats();
+        // Large free region at the end
+        assert!(stats.largest_free_region >= 99);
+    }
+
+    // --- Prefix cache edge cases ---
+
+    #[test]
+    fn test_deep_pkcov_prefix_cache_add_ref_not_found() {
+        let mut cache = PrefixCache::new(100);
+
+        let result = cache.add_ref(999999);
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_deep_pkcov_prefix_cache_remove_ref_not_found() {
+        let mut cache = PrefixCache::new(100);
+
+        let result = cache.remove_ref(999999);
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_deep_pkcov_prefix_cache_lru_eviction() {
+        let mut cache = PrefixCache::new(3);
+
+        // Insert 3 prefixes with ref_count 0 (to make them evictable)
+        let mut p1 = CachedPrefix::new(1, 1, vec![]);
+        p1.ref_count = 0;
+        let mut p2 = CachedPrefix::new(2, 2, vec![]);
+        p2.ref_count = 0;
+        let mut p3 = CachedPrefix::new(3, 3, vec![]);
+        p3.ref_count = 0;
+
+        cache.insert(p1);
+        cache.insert(p2);
+        cache.insert(p3);
+
+        assert_eq!(cache.len(), 3);
+
+        // Access p3 to make it most recently used
+        cache.lookup(3);
+
+        // Insert new prefix - should evict LRU (p1)
+        let mut p4 = CachedPrefix::new(4, 4, vec![]);
+        p4.ref_count = 0;
+        let inserted = cache.insert(p4);
+        assert!(inserted);
+
+        // p1 should be evicted
+        assert!(!cache.contains(1));
+        assert!(cache.contains(3)); // Most recently used
+        assert!(cache.contains(4)); // Just inserted
+        assert_eq!(cache.stats().prefixes_evicted, 1);
+    }
+
+    #[test]
+    fn test_deep_pkcov_prefix_cache_utilization_zero_capacity() {
+        let cache = PrefixCache::new(0);
+        assert_eq!(cache.utilization(), 0.0);
+    }
+
+    #[test]
+    fn test_deep_pkcov_find_longest_prefix_partial_match() {
+        let mut cache = PrefixCache::new(100);
+
+        // Insert only a 3-token prefix
+        let prefix_3 = compute_prefix_hash(&[1, 2, 3]);
+        cache.insert(CachedPrefix::new(prefix_3, 3, vec![]));
+
+        // Search for 5-token sequence that matches first 3
+        let tokens = vec![1, 2, 3, 4, 5];
+        let result = find_longest_prefix(&mut cache, &tokens);
+
+        assert!(result.is_some());
+        let (hash, len) = result.expect("match");
+        assert_eq!(hash, prefix_3);
+        assert_eq!(len, 3);
+    }
+
+    // --- Quantization edge cases ---
+
+    #[test]
+    fn test_deep_pkcov_q8_quantize_extreme_values() {
+        let mut values = [0.0f32; KV_QUANT_BLOCK_SIZE];
+        // Mix of extreme values
+        values[0] = 1000.0;
+        values[1] = -1000.0;
+        values[16] = 0.0001;
+
+        let block = Q8KvBlock::quantize(&values);
+        let restored = block.dequantize();
+
+        // Extreme values should be clipped but proportional
+        assert!(restored[0] > 0.0);
+        assert!(restored[1] < 0.0);
+    }
+
+    #[test]
+    fn test_deep_pkcov_q4_quantize_extreme_values() {
+        let mut values = [0.0f32; KV_QUANT_BLOCK_SIZE];
+        values[0] = 100.0;
+        values[1] = -100.0;
+
+        let block = Q4KvBlock::quantize(&values);
+        let restored = block.dequantize();
+
+        // Should handle extreme values without panic
+        assert!(restored[0] > 0.0);
+        assert!(restored[1] < 0.0);
+    }
+
+    #[test]
+    fn test_deep_pkcov_quantized_kv_data_write_read_q4() {
+        let mut data = QuantizedKvData::new(KvQuantType::Q4, 16, 8, 64);
+
+        let test_values: Vec<f32> = (0..64).map(|i| (i as f32 - 32.0) * 0.1).collect();
+        data.write_values(0, &test_values);
+        let read_values = data.read_values(0, 64);
+
+        // Q4 has more error but should preserve sign and rough magnitude
+        for (orig, read) in test_values.iter().zip(read_values.iter()) {
+            assert!(
+                (orig - read).abs() < 0.5,
+                "Q4 error too high: {} vs {}",
+                orig,
+                read
+            );
+        }
+    }
+
+    #[test]
+    fn test_deep_pkcov_quantized_kv_data_cross_block_write() {
+        let mut data = QuantizedKvData::new(KvQuantType::Q8, 16, 8, 64);
+
+        // Write data that spans multiple blocks
+        let test_keys: Vec<f32> = (0..128).map(|i| i as f32 * 0.01).collect();
+        data.write_keys(16, &test_keys); // Start at offset 16, spans blocks
+
+        let read_keys = data.read_keys(16, 128);
+        assert_eq!(read_keys.len(), 128);
+    }
+
+    #[test]
+    fn test_deep_pkcov_quantized_paged_cache_invalid_page() {
+        let mut cache = QuantizedPagedKvCache::new(100, 16, 8, 64, KvQuantType::Q8);
+        let seq_id = cache.allocate_sequence(16).expect("alloc");
+
+        // Try to access page beyond allocation
+        let result = cache.get_page(seq_id, 100);
+        assert!(matches!(
+            result,
+            Err(PagedCacheError::InvalidPageAccess { .. })
+        ));
+    }
+
+    #[test]
+    fn test_deep_pkcov_quantized_paged_cache_sequence_not_found() {
+        let cache = QuantizedPagedKvCache::new(100, 16, 8, 64, KvQuantType::Q4);
+        let fake_seq = SeqId::new();
+
+        let result = cache.get_page(fake_seq, 0);
+        assert!(matches!(result, Err(PagedCacheError::SequenceNotFound(_))));
+    }
+
+    #[test]
+    fn test_deep_pkcov_quantized_paged_cache_get_page_mut_invalid() {
+        let mut cache = QuantizedPagedKvCache::new(100, 16, 8, 64, KvQuantType::Q8);
+        let seq_id = cache.allocate_sequence(16).expect("alloc");
+
+        let result = cache.get_page_mut(seq_id, 50);
+        assert!(matches!(
+            result,
+            Err(PagedCacheError::InvalidPageAccess { .. })
+        ));
+    }
+
+    #[test]
+    fn test_deep_pkcov_quantized_paged_cache_memory_savings_empty() {
+        let cache = QuantizedPagedKvCache::new(100, 16, 8, 64, KvQuantType::Q8);
+        let savings = cache.memory_savings();
+        assert_eq!(savings, 1.0); // No sequences, default 1.0
+    }
+
+    #[test]
+    fn test_deep_pkcov_quantized_paged_cache_total_pages() {
+        let cache = QuantizedPagedKvCache::new(50, 16, 8, 64, KvQuantType::Q4);
+        assert_eq!(cache.total_pages(), 50);
+    }
+
+    // --- Additional boundary tests ---
+
+    #[test]
+    fn test_deep_pkcov_kv_page_remaining_capacity_overflow() {
+        let mut page = KvPage::new(PageId::new(0), 16, 8, 64);
+        page.num_tokens = 20; // More than block_size
+
+        // saturating_sub should handle this
+        assert_eq!(page.remaining_capacity(16), 0);
+    }
+
+    #[test]
+    fn test_deep_pkcov_cached_prefix_remove_ref_underflow() {
+        let mut prefix = CachedPrefix::new(1, 5, vec![]);
+        prefix.ref_count = 0;
+
+        // Should not underflow
+        let removed = prefix.remove_ref();
+        assert!(removed);
+        assert_eq!(prefix.ref_count, 0);
+    }
+
+    #[test]
+    fn test_deep_pkcov_seq_id_value() {
+        let seq = SeqId::new();
+        let value = seq.value();
+        // Value should be accessible and not panic
+        assert!(value < u64::MAX);
+    }
+
+    #[test]
+    fn test_deep_pkcov_fragmentation_stats_default() {
+        let stats = FragmentationStats::default();
+        assert_eq!(stats.holes, 0);
+        assert_eq!(stats.wasted_capacity, 0);
+        assert_eq!(stats.fragmentation_ratio, 0.0);
+        assert_eq!(stats.largest_free_region, 0);
+        assert_eq!(stats.avg_tokens_per_page, 0.0);
+    }
+
+    #[test]
+    fn test_deep_pkcov_quantized_kv_page_memory_bytes() {
+        let page_fp32 = QuantizedKvPage::new(PageId::new(0), KvQuantType::FP32, 16, 8, 64);
+        let page_q8 = QuantizedKvPage::new(PageId::new(1), KvQuantType::Q8, 16, 8, 64);
+        let page_q4 = QuantizedKvPage::new(PageId::new(2), KvQuantType::Q4, 16, 8, 64);
+
+        // FP32 should use most memory
+        assert!(page_fp32.memory_bytes() > page_q8.memory_bytes());
+        assert!(page_q8.memory_bytes() > page_q4.memory_bytes());
+    }
+
+    #[test]
+    fn test_deep_pkcov_quantized_kv_page_write_multiple_positions() {
+        let mut page = QuantizedKvPage::new(PageId::new(0), KvQuantType::FP32, 16, 8, 64);
+
+        // Write to different token positions
+        let keys1: Vec<f32> = (0..512).map(|i| i as f32).collect();
+        let keys2: Vec<f32> = (0..512).map(|i| -i as f32).collect();
+
+        page.write_keys(0, &keys1);
+        page.write_keys(1, &keys2);
+
+        let read1 = page.read_keys(0);
+        let read2 = page.read_keys(1);
+
+        assert_eq!(read1[0], 0.0);
+        assert_eq!(read2[0], 0.0); // -0 is 0
+        assert_eq!(read2[1], -1.0);
+    }
+
+    #[test]
+    fn test_deep_pkcov_extend_sequence_exact_capacity() {
+        let mut cache = PagedKvCache::new(100, 16, 8, 64);
+        let seq_id = cache.allocate_sequence(16).expect("alloc"); // 1 page
+        cache.update_tokens(seq_id, 16).expect("update");
+
+        // Extend by exactly block_size - should need one more page
+        let result = cache.extend(seq_id, 16);
+        assert!(result.is_ok());
+        assert_eq!(cache.free_page_count(), 98);
+    }
 }

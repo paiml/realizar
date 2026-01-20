@@ -308,6 +308,11 @@ pub mod quantize;
 #[cfg(feature = "server")]
 pub mod registry;
 pub mod safetensors;
+/// SafeTensors inference support (PAR-301)
+///
+/// Converts HuggingFace SafeTensors models to AprTransformer for inference.
+/// Requires config.json and tokenizer.json in the same directory.
+pub mod safetensors_infer;
 /// Continuous batching scheduler
 ///
 /// Per spec §8: Implements continuous batching for LLM serving based on vLLM/Orca.
