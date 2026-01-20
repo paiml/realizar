@@ -2477,8 +2477,9 @@ test benchmark_bar ... bench:         750 ns/iter (+/- 30)
     }
 
     #[test]
+    #[cfg(not(feature = "bench-http"))]
     fn test_deep_clicov_run_external_benchmark_feature_disabled() {
-        // Test the non-bench-http stub
+        // Test the non-bench-http stub (only runs when bench-http is disabled)
         let result = run_external_benchmark("ollama", "http://localhost:11434", None, None);
         assert!(result.is_err());
         let err = result.unwrap_err();

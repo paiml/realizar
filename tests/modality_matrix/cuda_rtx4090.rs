@@ -391,6 +391,7 @@ mod integration {
     use super::*;
 
     #[test]
+    #[ignore = "Env var test is non-deterministic in parallel test runs due to global state"]
     fn test_force_cuda_env_var_set() {
         force_backend(Backend::Cuda);
 

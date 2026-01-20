@@ -478,31 +478,14 @@ async fn serve_model(
 
         // PARITY-113: Enable CUDA backend via --gpu flag or REALIZAR_BACKEND environment variable
         #[cfg(feature = "cuda")]
-        let mut quantized_model = quantized_model;
-        #[cfg(feature = "cuda")]
         let use_cuda = force_gpu
             || std::env::var("REALIZAR_BACKEND")
                 .map(|v| v.eq_ignore_ascii_case("cuda"))
                 .unwrap_or(false);
-        #[cfg(feature = "cuda")]
-        if use_cuda {
-            let source = if force_gpu {
-                "--gpu flag"
-            } else {
-                "REALIZAR_BACKEND=cuda"
-            };
-            println!("Enabling CUDA backend ({source})...");
-            match quantized_model.enable_cuda(0) {
-                Ok(()) => {
-                    println!("  CUDA enabled on GPU 0");
-                    println!("  cuda_enabled: {}", quantized_model.cuda_enabled());
-                },
-                Err(e) => {
-                    eprintln!("  Warning: CUDA enable failed: {}. Falling back to CPU.", e);
-                },
-            }
-            println!();
-        }
+
+        #[cfg(not(feature = "cuda"))]
+        let use_cuda = false;
+
         #[cfg(not(feature = "cuda"))]
         if force_gpu {
             eprintln!("Warning: --gpu flag requires 'cuda' feature. Falling back to CPU.");
@@ -511,82 +494,114 @@ async fn serve_model(
         }
 
         // PARITY-093: Use cached model with batch support for M4 parity
-        let state = {
+        // PAR-112-FIX: Use OwnedQuantizedModelCuda for true streaming support
+        let state = if use_cuda && !batch_mode {
+            // PAR-112-FIX: Create OwnedQuantizedModelCuda for true streaming
+            // This enables generate_gpu_resident_streaming which streams tokens as generated
+            #[cfg(feature = "cuda")]
+            {
+                use realizar::gguf::OwnedQuantizedModelCuda;
+
+                let source = if force_gpu {
+                    "--gpu flag"
+                } else {
+                    "REALIZAR_BACKEND=cuda"
+                };
+                println!("Creating CUDA model ({source})...");
+
+                let max_seq_len = 4096; // Support long sequences
+                let cuda_model = OwnedQuantizedModelCuda::with_max_seq_len(quantized_model, 0, max_seq_len)
+                    .map_err(|e| realizar::error::RealizarError::UnsupportedOperation {
+                        operation: "cuda_model_create".to_string(),
+                        reason: format!("CUDA model creation failed: {e}"),
+                    })?;
+
+                println!("  CUDA model created on GPU: {}", cuda_model.device_name());
+                println!("  Max sequence length: {}", max_seq_len);
+                println!("  TRUE STREAMING: enabled (PAR-112)");
+                println!();
+
+                // Use with_cuda_model_and_vocab to enable true streaming path
+                realizar::api::AppState::with_cuda_model_and_vocab(cuda_model, vocab)?
+            }
+
+            #[cfg(not(feature = "cuda"))]
+            {
+                // This branch is unreachable since use_cuda is always false without cuda feature
+                realizar::api::AppState::with_quantized_model_and_vocab(quantized_model, vocab)?
+            }
+        } else if batch_mode {
             #[cfg(feature = "gpu")]
             {
-                if batch_mode {
-                    use realizar::gguf::OwnedQuantizedModelCachedSync;
+                use realizar::gguf::OwnedQuantizedModelCachedSync;
 
-                    println!("Initializing batch inference mode (PARITY-093/094)...");
+                println!("Initializing batch inference mode (PARITY-093/094)...");
 
-                    // Create cached model for scheduler reuse (10.6x speedup - IMP-112)
-                    let cached_model = OwnedQuantizedModelCachedSync::new(quantized_model);
+                // Create cached model for scheduler reuse (10.6x speedup - IMP-112)
+                let cached_model = OwnedQuantizedModelCachedSync::new(quantized_model);
 
-                    // PARITY-094: Warmup GPU cache for batch_generate_gpu
-                    // This dequantizes FFN weights to GPU memory (~6GB for phi-2)
-                    println!("  Warming up GPU cache (dequantizing FFN weights)...");
-                    match cached_model.warmup_gpu_cache() {
-                        Ok((memory_bytes, num_layers)) => {
-                            println!(
-                                "  GPU cache ready: {:.2} GB ({} layers)",
-                                memory_bytes as f64 / 1e9,
-                                num_layers
-                            );
-                        },
-                        Err(e) => {
-                            eprintln!(
-                                "  Warning: GPU cache warmup failed: {}. Falling back to CPU batch.",
-                                e
-                            );
-                        },
-                    }
-
-                    // Create state first (this wraps model in Arc internally)
-                    let state = realizar::api::AppState::with_cached_model_and_vocab(cached_model, vocab)?;
-
-                    // Get Arc'd model back for batch processor
-                    let cached_model_arc = state
-                        .cached_model()
-                        .expect("cached_model should exist")
-                        .clone();
-
-                    // Configure batch processing (PARITY-095: aligned thresholds)
-                    let batch_config = realizar::api::BatchConfig::default();
-                    println!("  Batch window: {}ms", batch_config.window_ms);
-                    println!("  Min batch size: {}", batch_config.min_batch);
-                    println!("  Optimal batch: {}", batch_config.optimal_batch);
-                    println!("  Max batch size: {}", batch_config.max_batch);
-                    println!(
-                        "  GPU threshold: {} (GPU GEMM for batch >= this)",
-                        batch_config.gpu_threshold
-                    );
-
-                    // Spawn batch processor task
-                    let batch_tx = realizar::api::spawn_batch_processor(
-                        cached_model_arc,
-                        batch_config.clone(),
-                    );
-
-                    println!("  Batch processor: RUNNING");
-                    println!();
-
-                    // Add batch support to state
-                    state.with_batch_config(batch_tx, batch_config)
-                } else {
-                    // Use quantized model for serving (fused CPU ops are faster for m=1)
-                    realizar::api::AppState::with_quantized_model_and_vocab(quantized_model, vocab)?
+                // PARITY-094: Warmup GPU cache for batch_generate_gpu
+                // This dequantizes FFN weights to GPU memory (~6GB for phi-2)
+                println!("  Warming up GPU cache (dequantizing FFN weights)...");
+                match cached_model.warmup_gpu_cache() {
+                    Ok((memory_bytes, num_layers)) => {
+                        println!(
+                            "  GPU cache ready: {:.2} GB ({} layers)",
+                            memory_bytes as f64 / 1e9,
+                            num_layers
+                        );
+                    },
+                    Err(e) => {
+                        eprintln!(
+                            "  Warning: GPU cache warmup failed: {}. Falling back to CPU batch.",
+                            e
+                        );
+                    },
                 }
+
+                // Create state first (this wraps model in Arc internally)
+                let state = realizar::api::AppState::with_cached_model_and_vocab(cached_model, vocab)?;
+
+                // Get Arc'd model back for batch processor
+                let cached_model_arc = state
+                    .cached_model()
+                    .expect("cached_model should exist")
+                    .clone();
+
+                // Configure batch processing (PARITY-095: aligned thresholds)
+                let batch_config = realizar::api::BatchConfig::default();
+                println!("  Batch window: {}ms", batch_config.window_ms);
+                println!("  Min batch size: {}", batch_config.min_batch);
+                println!("  Optimal batch: {}", batch_config.optimal_batch);
+                println!("  Max batch size: {}", batch_config.max_batch);
+                println!(
+                    "  GPU threshold: {} (GPU GEMM for batch >= this)",
+                    batch_config.gpu_threshold
+                );
+
+                // Spawn batch processor task
+                let batch_tx = realizar::api::spawn_batch_processor(
+                    cached_model_arc,
+                    batch_config.clone(),
+                );
+
+                println!("  Batch processor: RUNNING");
+                println!();
+
+                // Add batch support to state
+                state.with_batch_config(batch_tx, batch_config)
             }
 
             #[cfg(not(feature = "gpu"))]
             {
-                if batch_mode {
-                    eprintln!(
-                        "Warning: --batch requires 'gpu' feature. Falling back to single-request mode."
-                    );
-                }
+                eprintln!(
+                    "Warning: --batch requires 'gpu' feature. Falling back to single-request mode."
+                );
                 realizar::api::AppState::with_quantized_model_and_vocab(quantized_model, vocab)?
             }
+        } else {
+            // CPU mode: Use quantized model for serving (fused CPU ops are faster for m=1)
+            realizar::api::AppState::with_quantized_model_and_vocab(quantized_model, vocab)?
         };
 
         let app = realizar::api::create_router(state);

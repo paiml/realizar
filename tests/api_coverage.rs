@@ -36,6 +36,7 @@ fn test_health_response_serialization() {
     let response = HealthResponse {
         status: "healthy".to_string(),
         version: "1.0.0".to_string(),
+        compute_mode: "cpu".to_string(),
     };
 
     let json = serde_json::to_string(&response).expect("should serialize");
@@ -362,6 +363,9 @@ fn test_chat_completion_response_serialization() {
             completion_tokens: 5,
             total_tokens: 15,
         },
+        brick_trace: None,
+        layer_trace: None,
+        step_trace: None,
     };
 
     let json = serde_json::to_string(&response).expect("should serialize");
@@ -1789,6 +1793,9 @@ fn test_chat_completion_response_multiple_choices() {
             completion_tokens: 20,
             total_tokens: 30,
         },
+        brick_trace: None,
+        layer_trace: None,
+        step_trace: None,
     };
 
     let json = serde_json::to_string(&response).expect("should serialize");
@@ -1858,6 +1865,9 @@ fn test_negative_timestamp_handling() {
             completion_tokens: 0,
             total_tokens: 0,
         },
+        brick_trace: None,
+        layer_trace: None,
+        step_trace: None,
     };
 
     let json = serde_json::to_string(&response).expect("should serialize");
@@ -2777,6 +2787,9 @@ fn test_chat_completion_response_long_conversation() {
             completion_tokens: 500,
             total_tokens: 600,
         },
+        brick_trace: None,
+        layer_trace: None,
+        step_trace: None,
     };
 
     let json = serde_json::to_string(&response).expect("should serialize");
@@ -2882,6 +2895,7 @@ fn test_health_response_custom_status() {
     let response = HealthResponse {
         status: "degraded".to_string(),
         version: "0.0.0-dev".to_string(),
+        compute_mode: "cpu".to_string(),
     };
 
     let json = serde_json::to_string(&response).expect("should serialize");
@@ -3639,6 +3653,9 @@ fn test_chat_completion_response_all_finish_reasons() {
             completion_tokens: 100,
             total_tokens: 110,
         },
+        brick_trace: None,
+        layer_trace: None,
+        step_trace: None,
     };
 
     let json = serde_json::to_string(&response).expect("should serialize");
@@ -4235,6 +4252,9 @@ fn test_chat_completion_response_with_all_finish_reasons() {
                 completion_tokens: 1,
                 total_tokens: 2,
             },
+            brick_trace: None,
+            layer_trace: None,
+            step_trace: None,
         };
 
         let json = serde_json::to_string(&response).expect("serialize");
@@ -4572,6 +4592,9 @@ fn test_chat_completion_response_clone() {
             completion_tokens: 5,
             total_tokens: 15,
         },
+        brick_trace: None,
+        layer_trace: None,
+        step_trace: None,
     };
     let cloned = original.clone();
     assert_eq!(original.id, cloned.id);
@@ -4727,6 +4750,7 @@ fn test_health_response_roundtrip() {
     let original = HealthResponse {
         status: "healthy".to_string(),
         version: "1.2.3".to_string(),
+        compute_mode: "cpu".to_string(),
     };
     let json = serde_json::to_string(&original).expect("serialize");
     let restored: HealthResponse = serde_json::from_str(&json).expect("deserialize");
