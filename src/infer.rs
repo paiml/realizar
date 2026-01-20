@@ -371,52 +371,75 @@ fn run_apr_inference(config: &InferenceConfig) -> Result<InferenceResult> {
     use crate::apr::AprV2Model;
     use crate::apr_transformer::AprTransformer;
 
+    // Verbose: Show loading message BEFORE loading
+    if config.verbose {
+        eprintln!("Loading APR model: {}", config.model_path.display());
+    }
+
     let load_start = Instant::now();
-    let model = AprModel::load(&config.model_path)?;
+
+    // Load APR into AprTransformer for proper inference with RoPE and SwiGLU
+    let transformer = AprTransformer::from_apr_file(&config.model_path)?;
     let load_ms = load_start.elapsed().as_secs_f64() * 1000.0;
+
+    let arch = &transformer.config.architecture;
 
     if config.verbose {
         eprintln!(
-            "Loaded APR model ({} tensors) in {:.1}ms",
-            model.tensor_count(),
-            load_ms
+            "Architecture: {} ({} layers, vocab_size={})",
+            arch, transformer.config.num_layers, transformer.config.vocab_size
         );
+        eprintln!("Model loaded in {:.1}ms", load_ms);
     }
 
-    // Check if transformer model
-    if !model.metadata().is_transformer() {
-        return Err(RealizarError::UnsupportedOperation {
-            operation: "apr_inference".to_string(),
-            reason: "APR model is not a transformer (missing hidden_size/num_layers)".to_string(),
-        });
-    }
-
-    // Get input tokens
+    // Get input tokens (use sibling tokenizer.json)
     let input_tokens = if let Some(ref tokens) = config.input_tokens {
         tokens.clone()
     } else if let Some(ref prompt) = config.prompt {
-        AprModel::encode_text(&config.model_path, prompt).unwrap_or_else(|| vec![1u32])
+        // Load tokenizer from sibling tokenizer.json
+        AprV2Model::encode_text(&config.model_path, prompt).unwrap_or_else(|| vec![1u32])
     } else {
-        vec![1u32]
+        vec![1u32] // BOS token
     };
 
     let input_token_count = input_tokens.len();
-    let eos_id = Some(2u32);
 
-    // Run generation
+    // Run forward pass
     let infer_start = Instant::now();
-    let tokens = model.generate(&input_tokens, config.max_tokens, eos_id).map_err(|e| {
-        RealizarError::InferenceError(format!("APR generation failed: {}", e))
-    })?;
+    let mut all_tokens = input_tokens.clone();
+
+    for _ in 0..config.max_tokens.min(128) {
+        // Forward pass to get logits
+        let logits = transformer.forward(&all_tokens)?;
+
+        // Greedy sampling (argmax)
+        let next_token = logits
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(i, _)| i as u32)
+            .unwrap_or(0);
+
+        // Check for EOS (Qwen2 EOS=151645, BOS=151643)
+        if next_token == 151645 || next_token == 151643 {
+            break;
+        }
+
+        all_tokens.push(next_token);
+    }
+
     let inference_ms = infer_start.elapsed().as_secs_f64() * 1000.0;
 
-    // Decode output
-    let vocab = AprModel::load_tokenizer_from_sibling(&config.model_path);
-    let generated_tokens = &tokens[input_token_count..];
-    let text = vocab
-        .as_ref()
-        .map(|(v, _, _)| AprModel::decode_tokens(v, generated_tokens))
-        .unwrap_or_else(|| format!("{:?}", generated_tokens));
+    // Decode output tokens
+    let generated_tokens = &all_tokens[input_token_count..];
+    let text = if let Some(tokenizer) = AprV2Model::load_tokenizer(&config.model_path) {
+        tokenizer.decode(generated_tokens)
+    } else {
+        format!("[{} tokens generated, tokenizer not found]", generated_tokens.len())
+    };
+
+    // Clean output
+    let text = clean_model_output(&text);
 
     let generated_token_count = generated_tokens.len();
     let tok_per_sec = if inference_ms > 0.0 {
@@ -427,7 +450,7 @@ fn run_apr_inference(config: &InferenceConfig) -> Result<InferenceResult> {
 
     Ok(InferenceResult {
         text,
-        tokens,
+        tokens: all_tokens,
         input_token_count,
         generated_token_count,
         inference_ms,
