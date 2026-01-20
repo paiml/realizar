@@ -3941,7 +3941,7 @@ dependencies = [
 
 [[package]]
 name = "realizar"
-version = "0.6.4"
+version = "0.6.5"
 dependencies = [
  "alimentar",
  "anyhow",

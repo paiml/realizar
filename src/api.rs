@@ -2833,6 +2833,16 @@ async fn openai_chat_completions_handler(
     use std::time::Instant;
     let start = Instant::now();
 
+    // Check for streaming request - redirect to streaming endpoint
+    if request.stream {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Streaming not supported on this endpoint. Use /v1/chat/completions/stream or set stream=false".to_string(),
+            }),
+        ));
+    }
+
     // IMP-150: Try quantized model first (supports GGUF serve mode)
     if let Some(quantized_model) = state.quantized_model() {
         use crate::gguf::QuantizedGenerateConfig;
