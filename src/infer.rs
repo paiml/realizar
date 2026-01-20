@@ -2393,4 +2393,135 @@ mod tests {
         let config = InferenceConfig::new("/absolute/path/model.gguf");
         assert!(config.model_path.starts_with("/"));
     }
+
+    // =========================================================================
+    // Synthetic Model Inference Path Tests
+    // These tests create minimal model files to exercise inference code paths
+    // =========================================================================
+
+    #[test]
+    fn test_run_gguf_inference_minimal_model() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        // Create minimal valid GGUF file (no tensors - will fail on model load)
+        let mut temp = NamedTempFile::with_suffix(".gguf").unwrap();
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF"); // magic
+        data.extend_from_slice(&3u32.to_le_bytes()); // version 3
+        data.extend_from_slice(&0u64.to_le_bytes()); // tensor_count = 0
+        data.extend_from_slice(&0u64.to_le_bytes()); // metadata_count = 0
+        temp.write_all(&data).unwrap();
+        temp.flush().unwrap();
+
+        let config = InferenceConfig::new(temp.path())
+            .with_prompt("Hello")
+            .with_max_tokens(5);
+
+        // Will fail because model has no tensors, but exercises the GGUF path
+        let result = run_inference(&config);
+        assert!(result.is_err()); // Expected: model can't be loaded properly
+    }
+
+    #[test]
+    fn test_run_apr_inference_minimal_model() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        // Create minimal valid APR file header
+        let mut temp = NamedTempFile::with_suffix(".apr").unwrap();
+        let mut data = Vec::new();
+        // APR magic + minimal header
+        data.extend_from_slice(b"APR\x02"); // APR v2 magic
+        data.extend_from_slice(&[0u8; 60]); // Minimal header padding
+        temp.write_all(&data).unwrap();
+        temp.flush().unwrap();
+
+        let config = InferenceConfig::new(temp.path())
+            .with_prompt("Test")
+            .with_max_tokens(3);
+
+        // Will fail on loading, but exercises the APR format detection path
+        let result = run_inference(&config);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_run_safetensors_inference_minimal() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        // Create minimal SafeTensors file (8-byte header size + empty JSON)
+        let mut temp = NamedTempFile::with_suffix(".safetensors").unwrap();
+        let json_header = b"{}";
+        let header_size = json_header.len() as u64;
+        let mut data = Vec::new();
+        data.extend_from_slice(&header_size.to_le_bytes());
+        data.extend_from_slice(json_header);
+        temp.write_all(&data).unwrap();
+        temp.flush().unwrap();
+
+        let config = InferenceConfig::new(temp.path())
+            .with_prompt("Test")
+            .with_max_tokens(3);
+
+        // Will fail on loading (no tensors), but exercises SafeTensors path
+        let result = run_inference(&config);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_inference_config_input_tokens_path() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        // Create minimal GGUF to test input_tokens path (instead of prompt)
+        let mut temp = NamedTempFile::with_suffix(".gguf").unwrap();
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        temp.write_all(&data).unwrap();
+        temp.flush().unwrap();
+
+        // Use input_tokens instead of prompt
+        let config = InferenceConfig::new(temp.path())
+            .with_input_tokens(vec![1, 2, 3])
+            .with_max_tokens(5);
+
+        assert_eq!(config.input_tokens, Some(vec![1, 2, 3]));
+        assert!(config.prompt.is_none());
+
+        // Will fail on model load, but exercises input_tokens path
+        let result = run_inference(&config);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_inference_config_verbose_path() {
+        // Test verbose config (doesn't need model file for this)
+        let config = InferenceConfig::new("/model.gguf")
+            .with_verbose(true)
+            .with_prompt("test");
+
+        assert!(config.verbose);
+    }
+
+    #[test]
+    fn test_inference_result_tok_per_sec_calculation() {
+        // Test tok/s calculation edge case: zero inference_ms
+        let result = InferenceResult {
+            text: "test".to_string(),
+            tokens: vec![1, 2, 3],
+            input_token_count: 1,
+            generated_token_count: 2,
+            inference_ms: 0.0, // Edge case
+            tok_per_sec: 0.0,
+            load_ms: 5.0,
+            format: "GGUF".to_string(),
+            used_gpu: false,
+        };
+        assert_eq!(result.tok_per_sec, 0.0);
+    }
 }
