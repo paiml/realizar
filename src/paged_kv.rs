@@ -2865,10 +2865,11 @@ mod tests {
     #[test]
     fn test_deep_pkcov_extend_sequence_out_of_memory() {
         let mut cache = PagedKvCache::new(2, 16, 8, 64);
-        let seq_id = cache.allocate_sequence(16).expect("alloc"); // Uses 1 page
+        let seq_id = cache.allocate_sequence(16).expect("alloc"); // Uses 1 page, 1 free
 
         // Extend to need more pages than available
-        let result = cache.extend(seq_id, 32); // Needs 2 more pages, only 1 free
+        // extend(48) needs 48/16 = 3 pages total, have 1, need 2 more, only 1 free
+        let result = cache.extend(seq_id, 48);
         assert!(matches!(result, Err(PagedCacheError::OutOfMemory { .. })));
     }
 

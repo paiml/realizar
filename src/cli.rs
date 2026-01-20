@@ -2456,8 +2456,8 @@ test benchmark_bar ... bench:         750 ns/iter (+/- 30)
     fn test_deep_clicov_format_size_fractional_kb() {
         // 1.5 KB
         assert_eq!(format_size(1536), "1.5 KB");
-        // 2.25 KB
-        assert_eq!(format_size(2304), "2.3 KB");
+        // 2.25 KB -> rounds to 2.2 with .1f precision
+        assert_eq!(format_size(2304), "2.2 KB");
     }
 
     #[test]

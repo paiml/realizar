@@ -66,7 +66,7 @@ fn main() {
     // Warmup parallel
     let mut out = vec![0.0f32; 8960];
     for _ in 0..3 {
-        let _ = realizar::quantize::fused_q4k_auto_matvec_into(
+        let _ = realizar::quantize::fused_q4k_parallel_matvec_into(
             &matmul_weights,
             &input,
             1536,
@@ -78,7 +78,7 @@ fn main() {
     let iters2 = 100;
     let start2 = Instant::now();
     for _ in 0..iters2 {
-        let _ = realizar::quantize::fused_q4k_auto_matvec_into(
+        let _ = realizar::quantize::fused_q4k_parallel_matvec_into(
             &matmul_weights,
             &input,
             1536,
