@@ -395,6 +395,46 @@ impl AppState {
         })
     }
 
+    /// Create application state with GPU model and real vocabulary (IMP-152)
+    ///
+    /// This version uses the actual vocabulary from the GGUF file for proper text encoding/decoding.
+    ///
+    /// # Arguments
+    ///
+    /// * `gpu_model` - GPU model for inference
+    /// * `vocab` - Vocabulary tokens from GGUF metadata (tokenizer.ggml.tokens)
+    ///
+    /// # Errors
+    ///
+    /// Returns error if tokenizer creation fails
+    #[cfg(feature = "gpu")]
+    pub fn with_gpu_model_and_vocab(
+        gpu_model: crate::gpu::GpuModel,
+        vocab: Vec<String>,
+    ) -> Result<Self, RealizarError> {
+        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>")?;
+
+        let (audit_logger, audit_sink) = create_audit_state();
+        Ok(Self {
+            model: None,
+            tokenizer: Some(Arc::new(tokenizer)),
+            cache: None,
+            cache_key: None,
+            metrics: Arc::new(MetricsCollector::new()),
+            registry: None,
+            default_model_id: None,
+            apr_model: None,
+            audit_logger,
+            audit_sink,
+            gpu_model: Some(Arc::new(std::sync::RwLock::new(gpu_model))),
+            quantized_model: None,
+            cached_model: None,
+            dispatch_metrics: None,
+            batch_request_tx: None,
+            batch_config: None,
+        })
+    }
+
     /// Create application state with a quantized model for fused Q4_K inference (IMP-100)
     ///
     /// This is 1.37x faster than dequantized GpuModel due to reduced memory bandwidth.
@@ -2899,7 +2939,330 @@ async fn openai_chat_completions_handler(
             .as_millis()
     );
 
-    // IMP-150: Try quantized model first (supports GGUF serve mode)
+    // IMP-152: Try GPU model (non-batched --gpu mode)
+    #[cfg(feature = "gpu")]
+    if let Some(gpu_model_lock) = state.gpu_model() {
+        use crate::gpu::GpuGenerateConfig;
+
+        let tokenizer = match state.tokenizer.clone() {
+            Some(t) => t,
+            None => {
+                state.metrics.record_failure();
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "No tokenizer available".to_string(),
+                    }),
+                )
+                    .into_response();
+            }
+        };
+
+        // Convert chat messages to prompt using ChatML
+        let prompt_text = format_chat_messages(&request.messages, Some("qwen"));
+        let prompt_ids: Vec<usize> = tokenizer.encode(&prompt_text).iter().map(|&x| x as usize).collect();
+
+        if prompt_ids.is_empty() {
+            state.metrics.record_failure();
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "Messages cannot be empty".to_string(),
+                }),
+            )
+                .into_response();
+        }
+
+        let prompt_tokens = prompt_ids.len();
+        let max_tokens = request.max_tokens.unwrap_or(256);
+        let temperature = request.temperature.unwrap_or(0.7) as f32;
+
+        let gpu_config = GpuGenerateConfig {
+            max_tokens,
+            temperature,
+            top_k: if temperature == 0.0 { 1 } else { 40 },
+            stop_tokens: Vec::new(),
+        };
+
+        // Generate using GPU model
+        let generated = {
+            let mut model = match gpu_model_lock.write() {
+                Ok(m) => m,
+                Err(e) => {
+                    state.metrics.record_failure();
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse {
+                            error: format!("GPU model lock error: {e}"),
+                        }),
+                    )
+                        .into_response();
+                }
+            };
+            match model.generate(&prompt_ids, &gpu_config) {
+                Ok(g) => g,
+                Err(e) => {
+                    state.metrics.record_failure();
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse {
+                            error: e.to_string(),
+                        }),
+                    )
+                        .into_response();
+                }
+            }
+        };
+
+        // Skip prompt tokens, convert to u32
+        let token_ids: Vec<u32> = generated.iter().skip(prompt_tokens).map(|&x| x as u32).collect();
+        let completion_tokens = token_ids.len();
+
+        // Handle streaming vs non-streaming
+        if request.stream {
+            let model_name = request.model.clone();
+            let request_id_clone = request_id.clone();
+
+            let stream = async_stream::stream! {
+                // Send initial chunk with role
+                let initial = ChatCompletionChunk::initial(&request_id_clone, &model_name);
+                if let Ok(data) = serde_json::to_string(&initial) {
+                    yield Ok::<_, Infallible>(Event::default().data(data));
+                }
+
+                // Stream tokens one by one
+                for &token_id in &token_ids {
+                    if let Ok(text) = tokenizer.decode(&[token_id]) {
+                        if !text.is_empty() {
+                            let chunk = ChatCompletionChunk::content(&request_id_clone, &model_name, &text);
+                            if let Ok(data) = serde_json::to_string(&chunk) {
+                                yield Ok(Event::default().data(data));
+                            }
+                        }
+                    }
+                }
+
+                // Send final chunk with finish reason
+                let done = ChatCompletionChunk::done(&request_id_clone, &model_name);
+                if let Ok(data) = serde_json::to_string(&done) {
+                    yield Ok(Event::default().data(data));
+                }
+
+                // Send [DONE] marker
+                yield Ok(Event::default().data("[DONE]".to_string()));
+            };
+
+            state.metrics.record_success(completion_tokens, start.elapsed());
+            return Sse::new(stream).into_response();
+        }
+
+        // Non-streaming response
+        let text = match tokenizer.decode(&token_ids) {
+            Ok(t) => t,
+            Err(e) => {
+                state.metrics.record_failure();
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: e.to_string(),
+                    }),
+                )
+                    .into_response();
+            }
+        };
+
+        let latency = start.elapsed();
+        state.metrics.record_success(completion_tokens, latency);
+
+        return Json(ChatCompletionResponse {
+            id: request_id,
+            object: "chat.completion".to_string(),
+            created: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64,
+            model: request.model.clone(),
+            choices: vec![ChatChoice {
+                index: 0,
+                message: ChatMessage {
+                    role: "assistant".to_string(),
+                    content: text,
+                    name: None,
+                },
+                finish_reason: if completion_tokens >= max_tokens {
+                    "length".to_string()
+                } else {
+                    "stop".to_string()
+                },
+            }],
+            usage: Usage {
+                prompt_tokens,
+                completion_tokens,
+                total_tokens: prompt_tokens + completion_tokens,
+            },
+            brick_trace: None,
+            step_trace: None,
+            layer_trace: None,
+        })
+        .into_response();
+    }
+
+    // IMP-151: Try cached model (GPU batched --gpu --batch mode)
+    #[cfg(feature = "gpu")]
+    if let Some(cached_model) = state.cached_model() {
+        use crate::gguf::QuantizedGenerateConfig;
+
+        let tokenizer = match state.tokenizer.clone() {
+            Some(t) => t,
+            None => {
+                state.metrics.record_failure();
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "No tokenizer available".to_string(),
+                    }),
+                )
+                    .into_response();
+            }
+        };
+
+        // Convert chat messages to prompt using ChatML (GGUF models are typically Qwen/ChatML)
+        let prompt_text = format_chat_messages(&request.messages, Some("qwen"));
+
+        // Tokenize prompt
+        let prompt_ids = tokenizer.encode(&prompt_text);
+        if prompt_ids.is_empty() {
+            state.metrics.record_failure();
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "Messages cannot be empty".to_string(),
+                }),
+            )
+                .into_response();
+        }
+
+        let prompt_tokens = prompt_ids.len();
+        let max_tokens = request.max_tokens.unwrap_or(256);
+        let temperature = request.temperature.unwrap_or(0.7) as f32;
+
+        let q_config = QuantizedGenerateConfig {
+            max_tokens,
+            temperature,
+            top_k: if temperature == 0.0 { 1 } else { 40 },
+            stop_tokens: Vec::new(),
+        };
+
+        let generated = match cached_model.model().generate_with_cache(&prompt_ids, &q_config) {
+            Ok(g) => g,
+            Err(e) => {
+                state.metrics.record_failure();
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: e.to_string(),
+                    }),
+                )
+                    .into_response();
+            }
+        };
+
+        // Skip prompt tokens
+        let token_ids: Vec<u32> = generated.iter().skip(prompt_tokens).copied().collect();
+        let completion_tokens = token_ids.len();
+
+        // Handle streaming vs non-streaming
+        if request.stream {
+            // Streaming response - return SSE
+            let model_name = request.model.clone();
+            let request_id_clone = request_id.clone();
+
+            let stream = async_stream::stream! {
+                // Send initial chunk with role
+                let initial = ChatCompletionChunk::initial(&request_id_clone, &model_name);
+                if let Ok(data) = serde_json::to_string(&initial) {
+                    yield Ok::<_, Infallible>(Event::default().data(data));
+                }
+
+                // Stream tokens one by one
+                for &token_id in &token_ids {
+                    // Decode single token
+                    if let Ok(text) = tokenizer.decode(&[token_id]) {
+                        if !text.is_empty() {
+                            let chunk = ChatCompletionChunk::content(&request_id_clone, &model_name, &text);
+                            if let Ok(data) = serde_json::to_string(&chunk) {
+                                yield Ok(Event::default().data(data));
+                            }
+                        }
+                    }
+                }
+
+                // Send final chunk with finish reason
+                let done = ChatCompletionChunk::done(&request_id_clone, &model_name);
+                if let Ok(data) = serde_json::to_string(&done) {
+                    yield Ok(Event::default().data(data));
+                }
+
+                // Send [DONE] marker
+                yield Ok(Event::default().data("[DONE]".to_string()));
+            };
+
+            state.metrics.record_success(completion_tokens, start.elapsed());
+            return Sse::new(stream).into_response();
+        }
+
+        // Non-streaming response
+        let text = match tokenizer.decode(&token_ids) {
+            Ok(t) => t,
+            Err(e) => {
+                state.metrics.record_failure();
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: e.to_string(),
+                    }),
+                )
+                    .into_response();
+            }
+        };
+
+        let latency = start.elapsed();
+        state.metrics.record_success(completion_tokens, latency);
+
+        return Json(ChatCompletionResponse {
+            id: request_id,
+            object: "chat.completion".to_string(),
+            created: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64,
+            model: request.model.clone(),
+            choices: vec![ChatChoice {
+                index: 0,
+                message: ChatMessage {
+                    role: "assistant".to_string(),
+                    content: text,
+                    name: None,
+                },
+                finish_reason: if completion_tokens >= max_tokens {
+                    "length".to_string()
+                } else {
+                    "stop".to_string()
+                },
+            }],
+            usage: Usage {
+                prompt_tokens,
+                completion_tokens,
+                total_tokens: prompt_tokens + completion_tokens,
+            },
+            brick_trace: None,
+            step_trace: None,
+            layer_trace: None,
+        })
+        .into_response();
+    }
+
+    // IMP-150: Try quantized model (supports GGUF serve mode)
     if let Some(quantized_model) = state.quantized_model() {
         use crate::gguf::QuantizedGenerateConfig;
 
@@ -13350,6 +13713,7 @@ mod tests {
             max_tokens: 50,
             temperature: 0.7,
             top_k: 40,
+            stop: Vec::new(),
         };
         let json = serde_json::to_string(&req).expect("serialize");
         assert!(json.contains("hello"));
@@ -13548,7 +13912,7 @@ mod tests {
 
     #[test]
     fn test_deep_apicov_app_state_with_registry_error() {
-        let registry = ModelRegistry::new();
+        let registry = ModelRegistry::new(10);
         // Default model doesn't exist in empty registry
         let result = AppState::with_registry(registry, "nonexistent");
         assert!(result.is_err());
