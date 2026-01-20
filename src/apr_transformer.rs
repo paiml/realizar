@@ -1247,6 +1247,12 @@ impl AprTransformer {
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(4) as usize;
 
+        let num_kv_heads = metadata
+            .get("num_key_value_heads")
+            .or_else(|| metadata.get("num_kv_heads"))
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(num_heads as u64) as usize;
+
         let vocab_size = metadata
             .get("vocab_size")
             .and_then(serde_json::Value::as_u64)
@@ -1258,14 +1264,31 @@ impl AprTransformer {
             .and_then(serde_json::Value::as_u64)
             .unwrap_or((hidden_dim * 4) as u64) as usize;
 
+        let rope_theta = metadata
+            .get("rope_theta")
+            .and_then(serde_json::Value::as_f64)
+            .unwrap_or(10000.0) as f32;
+
+        let rms_norm_eps = metadata
+            .get("rms_norm_eps")
+            .and_then(serde_json::Value::as_f64)
+            .unwrap_or(1e-6) as f32;
+
+        let max_position = metadata
+            .get("max_position_embeddings")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(2048) as usize;
+
         let config = AprTransformerConfig {
             hidden_dim,
             num_layers,
             num_heads,
-            num_kv_heads: num_heads,
+            num_kv_heads,
             vocab_size,
             intermediate_dim,
-            context_length: 2048,
+            context_length: max_position,
+            rope_theta,
+            eps: rms_norm_eps,
             ..Default::default()
         };
 
@@ -1386,55 +1409,95 @@ impl AprTransformer {
             .or_else(|| get_f32_tensor("output.weight"))
             .unwrap_or_else(|| vec![0.0; hidden_dim * vocab_size]);
 
+        // Compute KV dimension from config
+        let head_dim = hidden_dim / num_heads;
+        let kv_dim = num_kv_heads * head_dim;
+
         // Load layers
         let mut layers = Vec::with_capacity(num_layers);
         for i in 0..num_layers {
-            let prefix = format!("model.layers.{i}");
+            let hf_prefix = format!("model.layers.{i}");
+            let gguf_prefix = format!("blk.{i}");
 
             // Try separate Q/K/V or combined QKV
-            let qkv_dim = 3 * hidden_dim;
+            // Support both HuggingFace and GGUF naming conventions
+            let qkv_out_dim = hidden_dim + kv_dim + kv_dim;
             let qkv_weight =
-                if let Some(qkv) = get_f32_tensor(&format!("{prefix}.self_attn.qkv_proj.weight")) {
+                if let Some(qkv) = get_f32_tensor(&format!("{hf_prefix}.self_attn.qkv_proj.weight")) {
                     qkv
                 } else {
-                    // Combine separate Q, K, V into QKV
-                    let q = get_f32_tensor(&format!("{prefix}.self_attn.q_proj.weight"))
+                    // Get Q weight - [hidden_dim, hidden_dim]
+                    let q = get_f32_tensor(&format!("{hf_prefix}.self_attn.q_proj.weight"))
+                        .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.attn_q.weight")))
                         .unwrap_or_else(|| vec![0.0; hidden_dim * hidden_dim]);
-                    let k = get_f32_tensor(&format!("{prefix}.self_attn.k_proj.weight"))
-                        .unwrap_or_else(|| vec![0.0; hidden_dim * hidden_dim]);
-                    let v = get_f32_tensor(&format!("{prefix}.self_attn.v_proj.weight"))
-                        .unwrap_or_else(|| vec![0.0; hidden_dim * hidden_dim]);
+                    // Get K weight - [kv_dim, hidden_dim]
+                    let k = get_f32_tensor(&format!("{hf_prefix}.self_attn.k_proj.weight"))
+                        .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.attn_k.weight")))
+                        .unwrap_or_else(|| vec![0.0; hidden_dim * kv_dim]);
+                    // Get V weight - [kv_dim, hidden_dim]
+                    let v = get_f32_tensor(&format!("{hf_prefix}.self_attn.v_proj.weight"))
+                        .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.attn_v.weight")))
+                        .unwrap_or_else(|| vec![0.0; hidden_dim * kv_dim]);
 
-                    // Interleave Q, K, V for each row
-                    let mut qkv = Vec::with_capacity(hidden_dim * qkv_dim);
+                    // Concatenate Q, K, V for each input row
+                    // Output: [hidden_dim, hidden_dim + kv_dim + kv_dim]
+                    let mut qkv = Vec::with_capacity(hidden_dim * qkv_out_dim);
                     for row in 0..hidden_dim {
-                        let row_start = row * hidden_dim;
-                        qkv.extend_from_slice(&q[row_start..row_start + hidden_dim]);
-                        qkv.extend_from_slice(&k[row_start..row_start + hidden_dim]);
-                        qkv.extend_from_slice(&v[row_start..row_start + hidden_dim]);
+                        // Q: [hidden_dim, hidden_dim] -> row is hidden_dim values
+                        qkv.extend_from_slice(&q[row * hidden_dim..(row + 1) * hidden_dim]);
+                        // K: [kv_dim, hidden_dim] -> row is kv_dim values
+                        qkv.extend_from_slice(&k[row * kv_dim..(row + 1) * kv_dim]);
+                        // V: [kv_dim, hidden_dim] -> row is kv_dim values
+                        qkv.extend_from_slice(&v[row * kv_dim..(row + 1) * kv_dim]);
                     }
                     qkv
                 };
 
-            let attn_output = get_f32_tensor(&format!("{prefix}.self_attn.o_proj.weight"))
+            // Get Q/K/V biases (optional, for Qwen models)
+            let q_bias = get_f32_tensor(&format!("{hf_prefix}.self_attn.q_proj.bias"))
+                .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.attn_q.bias")));
+            let k_bias = get_f32_tensor(&format!("{hf_prefix}.self_attn.k_proj.bias"))
+                .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.attn_k.bias")));
+            let v_bias = get_f32_tensor(&format!("{hf_prefix}.self_attn.v_proj.bias"))
+                .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.attn_v.bias")));
+
+            // Combine biases if present
+            let qkv_bias = match (&q_bias, &k_bias, &v_bias) {
+                (Some(q), Some(k), Some(v)) => {
+                    let mut bias = Vec::with_capacity(qkv_out_dim);
+                    bias.extend_from_slice(q);
+                    bias.extend_from_slice(k);
+                    bias.extend_from_slice(v);
+                    Some(bias)
+                }
+                _ => None,
+            };
+
+            let attn_output = get_f32_tensor(&format!("{hf_prefix}.self_attn.o_proj.weight"))
+                .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.attn_output.weight")))
                 .unwrap_or_else(|| vec![0.0; hidden_dim * hidden_dim]);
 
-            let attn_norm = get_f32_tensor(&format!("{prefix}.input_layernorm.weight"))
+            let attn_norm = get_f32_tensor(&format!("{hf_prefix}.input_layernorm.weight"))
+                .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.attn_norm.weight")))
                 .unwrap_or_else(|| vec![1.0; hidden_dim]);
 
-            let ffn_norm = get_f32_tensor(&format!("{prefix}.post_attention_layernorm.weight"));
+            let ffn_norm = get_f32_tensor(&format!("{hf_prefix}.post_attention_layernorm.weight"))
+                .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.ffn_norm.weight")));
 
-            let ffn_gate = get_f32_tensor(&format!("{prefix}.mlp.gate_proj.weight"));
-            let ffn_up = get_f32_tensor(&format!("{prefix}.mlp.up_proj.weight"))
+            let ffn_gate = get_f32_tensor(&format!("{hf_prefix}.mlp.gate_proj.weight"))
+                .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.ffn_gate.weight")));
+            let ffn_up = get_f32_tensor(&format!("{hf_prefix}.mlp.up_proj.weight"))
+                .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.ffn_up.weight")))
                 .unwrap_or_else(|| vec![0.0; hidden_dim * intermediate_dim]);
-            let ffn_down = get_f32_tensor(&format!("{prefix}.mlp.down_proj.weight"))
+            let ffn_down = get_f32_tensor(&format!("{hf_prefix}.mlp.down_proj.weight"))
+                .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.ffn_down.weight")))
                 .unwrap_or_else(|| vec![0.0; intermediate_dim * hidden_dim]);
 
             layers.push(AprTransformerLayer {
                 attn_norm_weight: attn_norm,
                 attn_norm_bias: None,
                 qkv_weight,
-                qkv_bias: None,
+                qkv_bias,
                 attn_output_weight: attn_output,
                 attn_output_bias: None,
                 ffn_gate_weight: ffn_gate,
@@ -1511,8 +1574,11 @@ impl AprTransformer {
 
             tokens.push(next_token);
 
-            // Stop at EOS (token 2 is common)
-            if next_token == 2 {
+            // Stop at EOS tokens:
+            // - Standard: 2
+            // - Qwen2: 151645 (EOS), 151643 (BOS)
+            // - LLaMA: 2
+            if next_token == 2 || next_token == 151645 || next_token == 151643 {
                 break;
             }
         }

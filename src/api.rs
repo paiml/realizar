@@ -496,6 +496,90 @@ impl AppState {
         })
     }
 
+    /// Create application state with thread-safe cached model and real vocabulary (IMP-116)
+    ///
+    /// Uses Mutex-based scheduler caching for 10.6x GPU speedup with proper token decoding.
+    ///
+    /// # Arguments
+    ///
+    /// * `cached_model` - Thread-safe cached model with scheduler
+    /// * `vocab` - Vocabulary tokens from GGUF metadata (tokenizer.ggml.tokens)
+    ///
+    /// # Errors
+    ///
+    /// Returns error if tokenizer creation fails
+    #[cfg(feature = "gpu")]
+    pub fn with_cached_model_and_vocab(
+        cached_model: crate::gguf::OwnedQuantizedModelCachedSync,
+        vocab: Vec<String>,
+    ) -> Result<Self, RealizarError> {
+        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>")?;
+
+        let (audit_logger, audit_sink) = create_audit_state();
+        Ok(Self {
+            model: None,
+            tokenizer: Some(Arc::new(tokenizer)),
+            cache: None,
+            cache_key: None,
+            metrics: Arc::new(MetricsCollector::new()),
+            registry: None,
+            default_model_id: None,
+            apr_model: None,
+            audit_logger,
+            audit_sink,
+            gpu_model: None,
+            quantized_model: None,
+            cached_model: Some(Arc::new(cached_model)),
+            dispatch_metrics: Some(Arc::new(crate::gguf::DispatchMetrics::new())),
+            batch_request_tx: None,
+            batch_config: None,
+        })
+    }
+
+    /// Create application state with quantized model and real vocabulary from GGUF
+    ///
+    /// This version uses the actual vocabulary from the GGUF file for proper decoding.
+    ///
+    /// # Arguments
+    ///
+    /// * `quantized_model` - Quantized model for fused Q4_K inference
+    /// * `vocab` - Vocabulary tokens from GGUF metadata (tokenizer.ggml.tokens)
+    ///
+    /// # Errors
+    ///
+    /// Returns error if tokenizer creation fails
+    pub fn with_quantized_model_and_vocab(
+        quantized_model: crate::gguf::OwnedQuantizedModel,
+        vocab: Vec<String>,
+    ) -> Result<Self, RealizarError> {
+        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>")?;
+
+        let (audit_logger, audit_sink) = create_audit_state();
+        Ok(Self {
+            model: None,
+            tokenizer: Some(Arc::new(tokenizer)),
+            cache: None,
+            cache_key: None,
+            metrics: Arc::new(MetricsCollector::new()),
+            registry: None,
+            default_model_id: None,
+            apr_model: None,
+            audit_logger,
+            audit_sink,
+            #[cfg(feature = "gpu")]
+            gpu_model: None,
+            quantized_model: Some(Arc::new(quantized_model)),
+            #[cfg(feature = "gpu")]
+            cached_model: None,
+            #[cfg(feature = "gpu")]
+            dispatch_metrics: None,
+            #[cfg(feature = "gpu")]
+            batch_request_tx: None,
+            #[cfg(feature = "gpu")]
+            batch_config: None,
+        })
+    }
+
     /// Check if this AppState has a quantized model (IMP-100)
     #[must_use]
     pub fn has_quantized_model(&self) -> bool {
@@ -2749,7 +2833,114 @@ async fn openai_chat_completions_handler(
     use std::time::Instant;
     let start = Instant::now();
 
-    // Get model and tokenizer
+    // IMP-150: Try quantized model first (supports GGUF serve mode)
+    if let Some(quantized_model) = state.quantized_model() {
+        use crate::gguf::QuantizedGenerateConfig;
+
+        let tokenizer = state.tokenizer.clone().ok_or_else(|| {
+            state.metrics.record_failure();
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "No tokenizer available".to_string(),
+                }),
+            )
+        })?;
+
+        // Convert chat messages to prompt using ChatML (GGUF models are typically Qwen/ChatML)
+        let prompt_text = format_chat_messages(&request.messages, Some("qwen"));
+
+        // Tokenize prompt
+        let prompt_ids = tokenizer.encode(&prompt_text);
+        if prompt_ids.is_empty() {
+            state.metrics.record_failure();
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "Messages cannot be empty".to_string(),
+                }),
+            ));
+        }
+
+        let prompt_tokens = prompt_ids.len();
+        let max_tokens = request.max_tokens.unwrap_or(256);
+        let temperature = request.temperature.unwrap_or(0.7) as f32;
+
+        let q_config = QuantizedGenerateConfig {
+            max_tokens,
+            temperature,
+            top_k: if temperature == 0.0 { 1 } else { 40 },
+            stop_tokens: Vec::new(),
+        };
+
+        let generated = quantized_model
+            .generate_with_cache(&prompt_ids, &q_config)
+            .map_err(|e| {
+                state.metrics.record_failure();
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: e.to_string(),
+                    }),
+                )
+            })?;
+
+        // Skip prompt tokens
+        let token_ids: Vec<u32> = generated.iter().skip(prompt_tokens).copied().collect();
+        let completion_tokens = token_ids.len();
+
+        // Decode generated text
+        let text = tokenizer.decode(&token_ids).map_err(|e| {
+            state.metrics.record_failure();
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+        })?;
+
+        let latency = start.elapsed();
+        state.metrics.record_success(completion_tokens, latency);
+
+        let response_id = format!(
+            "chatcmpl-q4k-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+
+        return Ok(Json(ChatCompletionResponse {
+            id: response_id,
+            object: "chat.completion".to_string(),
+            created: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64,
+            model: request.model.clone(),
+            choices: vec![ChatChoice {
+                index: 0,
+                message: ChatMessage {
+                    role: "assistant".to_string(),
+                    content: text,
+                    name: None,
+                },
+                finish_reason: if completion_tokens >= max_tokens {
+                    "length".to_string()
+                } else {
+                    "stop".to_string()
+                },
+            }],
+            usage: Usage {
+                prompt_tokens,
+                completion_tokens,
+                total_tokens: prompt_tokens + completion_tokens,
+            },
+        }));
+    }
+
+    // Fall back to registry-based model lookup
     let model_id = if request.model == "default" || request.model.is_empty() {
         None
     } else {
@@ -12946,8 +13137,15 @@ mod tests {
             latency_p50_ms: 5.2,
             latency_p95_ms: 15.8,
             latency_p99_ms: 25.3,
+            gpu_memory_used_bytes: 1_000_000_000,
+            gpu_memory_total_bytes: 24_000_000_000,
             gpu_utilization_percent: 85,
+            cuda_path_active: true,
             batch_size: 4,
+            queue_depth: 2,
+            total_tokens: 10000,
+            total_requests: 500,
+            uptime_secs: 3600,
             model_name: "test-model".to_string(),
         };
         let json = serde_json::to_string(&resp).expect("serialize");

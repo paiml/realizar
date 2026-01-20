@@ -465,6 +465,15 @@ async fn serve_model(
         println!("  Vocab size: {}", quantized_model.config.vocab_size);
         println!("  Hidden dim: {}", quantized_model.config.hidden_dim);
         println!("  Layers: {}", quantized_model.layers.len());
+
+        // Extract vocabulary from GGUF for proper token decoding
+        let vocab = mapped.model.vocabulary().unwrap_or_else(|| {
+            eprintln!("  Warning: No vocabulary in GGUF, using placeholder tokens");
+            (0..quantized_model.config.vocab_size)
+                .map(|i| format!("token{i}"))
+                .collect()
+        });
+        println!("  Vocab loaded: {} tokens", vocab.len());
         println!();
 
         // PARITY-113: Enable CUDA backend via --gpu flag or REALIZAR_BACKEND environment variable
@@ -533,7 +542,7 @@ async fn serve_model(
                     }
 
                     // Create state first (this wraps model in Arc internally)
-                    let state = realizar::api::AppState::with_cached_model(cached_model)?;
+                    let state = realizar::api::AppState::with_cached_model_and_vocab(cached_model, vocab)?;
 
                     // Get Arc'd model back for batch processor
                     let cached_model_arc = state
@@ -565,7 +574,7 @@ async fn serve_model(
                     state.with_batch_config(batch_tx, batch_config)
                 } else {
                     // Use quantized model for serving (fused CPU ops are faster for m=1)
-                    realizar::api::AppState::with_quantized_model(quantized_model)?
+                    realizar::api::AppState::with_quantized_model_and_vocab(quantized_model, vocab)?
                 }
             }
 
@@ -576,7 +585,7 @@ async fn serve_model(
                         "Warning: --batch requires 'gpu' feature. Falling back to single-request mode."
                     );
                 }
-                realizar::api::AppState::with_quantized_model(quantized_model)?
+                realizar::api::AppState::with_quantized_model_and_vocab(quantized_model, vocab)?
             }
         };
 
@@ -1270,6 +1279,102 @@ fn run_gguf_inference_gpu(
     Ok(())
 }
 
+/// Run SafeTensors inference with performance timing
+fn run_safetensors_inference(
+    model_ref: &str,
+    prompt: &str,
+    max_tokens: usize,
+    _temperature: f32,
+    format: &str,
+) -> Result<()> {
+    use realizar::apr::AprV2Model;
+    use realizar::safetensors_infer::SafetensorsToAprConverter;
+    use std::path::Path;
+    use std::time::Instant;
+
+    let load_start = Instant::now();
+    let model_path = Path::new(model_ref);
+
+    // Convert SafeTensors to AprTransformer (F32 weights)
+    let transformer = SafetensorsToAprConverter::convert(model_path).map_err(|e| {
+        realizar::error::RealizarError::UnsupportedOperation {
+            operation: "convert_safetensors".to_string(),
+            reason: format!("Failed to convert SafeTensors: {e}"),
+        }
+    })?;
+
+    let load_time = load_start.elapsed();
+    println!("Model loaded in {:.2}ms", load_time.as_secs_f64() * 1000.0);
+    println!(
+        "Architecture: {} ({} layers, vocab_size={})",
+        transformer.config.architecture,
+        transformer.config.num_layers,
+        transformer.config.vocab_size
+    );
+
+    // Use proper tokenizer from sibling tokenizer.json
+    let prompt_tokens = AprV2Model::encode_text(model_path, prompt).unwrap_or_else(|| {
+        // Fallback: simple char tokenization
+        prompt.chars().map(|c| c as u32).collect()
+    });
+    let prompt_len = prompt_tokens.len();
+
+    println!("Prompt tokens: {}", prompt_len);
+    println!();
+
+    // Run inference
+    let gen_start = Instant::now();
+    let generated = transformer.generate(&prompt_tokens, max_tokens)?;
+    let gen_time = gen_start.elapsed();
+
+    let tokens_generated = generated.len().saturating_sub(prompt_len);
+    let tokens_per_sec = if gen_time.as_secs_f64() > 0.0 {
+        tokens_generated as f64 / gen_time.as_secs_f64()
+    } else {
+        0.0
+    };
+
+    // Decode output using proper tokenizer
+    let output_tokens = &generated[prompt_len..];
+    let output_text = if let Some(tokenizer) = AprV2Model::load_tokenizer(model_path) {
+        tokenizer.decode(output_tokens)
+    } else {
+        output_tokens
+            .iter()
+            .map(|&t| char::from_u32(t.min(127)).unwrap_or('?'))
+            .collect()
+    };
+
+    match format {
+        "json" => {
+            let json = serde_json::json!({
+                "model": model_ref,
+                "format": "SafeTensors",
+                "prompt": prompt,
+                "generated_text": output_text,
+                "tokens_generated": tokens_generated,
+                "generation_time_ms": gen_time.as_secs_f64() * 1000.0,
+                "tokens_per_second": tokens_per_sec,
+            });
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json).unwrap_or_default()
+            );
+        },
+        _ => {
+            println!(
+                "Generated ({tokens_generated} tokens in {:.2}ms):",
+                gen_time.as_secs_f64() * 1000.0
+            );
+            println!("{output_text}");
+            println!();
+            println!("Performance: {:.1} tok/s", tokens_per_sec);
+        },
+    }
+
+    Ok(())
+}
+
 /// Run APR inference with performance timing
 fn run_apr_inference(
     model_ref: &str,
@@ -1279,7 +1384,9 @@ fn run_apr_inference(
     temperature: f32,
     format: &str,
 ) -> Result<()> {
+    use realizar::apr::AprV2Model;
     use realizar::apr_transformer::AprTransformer;
+    use std::path::Path;
     use std::time::Instant;
 
     let load_start = Instant::now();
@@ -1295,8 +1402,12 @@ fn run_apr_inference(
     let load_time = load_start.elapsed();
     println!("Model loaded in {:.2}ms", load_time.as_secs_f64() * 1000.0);
 
-    // Simple tokenization (split by chars for now - real tokenizer would be better)
-    let prompt_tokens: Vec<u32> = prompt.chars().map(|c| c as u32).collect();
+    // Use proper tokenizer from sibling tokenizer.json
+    let model_path = Path::new(model_ref);
+    let prompt_tokens = AprV2Model::encode_text(model_path, prompt).unwrap_or_else(|| {
+        // Fallback: simple char tokenization
+        prompt.chars().map(|c| c as u32).collect()
+    });
     let prompt_len = prompt_tokens.len();
 
     println!("Prompt tokens: {}", prompt_len);
@@ -1315,11 +1426,17 @@ fn run_apr_inference(
         0.0
     };
 
-    // Decode output (simple ASCII for now)
-    let output_text: String = generated[prompt_len..]
-        .iter()
-        .map(|&t| char::from_u32(t.min(127)).unwrap_or('?'))
-        .collect();
+    // Decode output using proper tokenizer
+    let output_tokens = &generated[prompt_len..];
+    let output_text = if let Some(tokenizer) = AprV2Model::load_tokenizer(model_path) {
+        tokenizer.decode(output_tokens)
+    } else {
+        // Fallback: simple ASCII
+        output_tokens
+            .iter()
+            .map(|&t| char::from_u32(t.min(127)).unwrap_or('?'))
+            .collect()
+    };
 
     match format {
         "json" => {
@@ -1343,7 +1460,7 @@ fn run_apr_inference(
                 "Generated ({tokens_generated} tokens in {:.2}ms):",
                 gen_time.as_secs_f64() * 1000.0
             );
-            println!("{prompt}{output_text}");
+            println!("{output_text}");
             println!();
             println!("Performance: {:.1} tok/s", tokens_per_sec);
         },
@@ -1486,7 +1603,16 @@ async fn run_model(
                     format,
                 )?;
             },
-            ModelFormat::Gguf | ModelFormat::SafeTensors => {
+            ModelFormat::SafeTensors => {
+                run_safetensors_inference(
+                    model_ref,
+                    &formatted_prompt,
+                    max_tokens,
+                    temperature,
+                    format,
+                )?;
+            },
+            ModelFormat::Gguf => {
                 run_gguf_inference(
                     model_ref,
                     &file_data,
