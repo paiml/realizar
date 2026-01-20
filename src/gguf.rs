@@ -17342,6 +17342,115 @@ impl OwnedQuantizedModelCuda {
         Ok(tokens)
     }
 
+    /// PAR-112: True token-by-token streaming generation
+    ///
+    /// Generates tokens one at a time and calls the callback after each token.
+    /// The callback receives the token ID and can return `false` to stop generation early.
+    ///
+    /// This enables true real-time streaming where each token is delivered
+    /// as soon as it's generated, rather than pseudo-streaming where all tokens
+    /// are generated first then iterated.
+    ///
+    /// # Arguments
+    ///
+    /// * `prompt` - Initial token IDs
+    /// * `config` - Generation configuration
+    /// * `on_token` - Callback called for each generated token, returns `false` to stop
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// model.generate_gpu_resident_streaming(&prompt, &config, |token_id| {
+    ///     println!("Generated: {}", token_id);
+    ///     true // continue generation
+    /// })?;
+    /// ```
+    pub fn generate_gpu_resident_streaming<F>(
+        &mut self,
+        prompt: &[u32],
+        config: &QuantizedGenerateConfig,
+        mut on_token: F,
+    ) -> Result<Vec<u32>>
+    where
+        F: FnMut(u32) -> bool,
+    {
+        if prompt.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // THREAD-FIX: Ensure CUDA context is current for this thread
+        self.executor
+            .make_current()
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "cuda_make_current".to_string(),
+                reason: format!("Failed to set CUDA context current: {e}"),
+            })?;
+
+        // Check architecture support
+        if !self.supports_gpu_resident() {
+            return Err(RealizarError::UnsupportedOperation {
+                operation: "generate_gpu_resident_streaming".to_string(),
+                reason: "Model architecture not supported for GPU-resident path".to_string(),
+            });
+        }
+
+        // Pre-upload all weights to GPU
+        let _ = self.preload_weights_gpu()?;
+
+        // Create KV cache with GQA-aware dimensions
+        let num_kv_heads = self.model.config.num_kv_heads;
+        let head_dim = self.model.config.hidden_dim / self.model.config.num_heads;
+        let kv_dim = num_kv_heads * head_dim;
+        let mut cache = OwnedQuantizedKVCache::new(
+            self.model.config.num_layers,
+            kv_dim,
+            prompt.len() + config.max_tokens,
+        );
+
+        // Reset GPU KV cache positions
+        self.executor.reset_kv_cache_gpu();
+
+        let mut tokens = prompt.to_vec();
+
+        // Process prompt tokens (prefill)
+        for (pos, &token_id) in prompt.iter().enumerate() {
+            if pos < prompt.len() - 1 {
+                let _ = self.forward_gpu_resident(token_id, &mut cache, pos)?;
+            }
+        }
+
+        // Generate from last prompt token
+        let mut position = prompt.len() - 1;
+        let mut last_token = prompt[prompt.len() - 1];
+
+        for _token_num in 0..config.max_tokens {
+            let next_token = if config.temperature == 0.0 || config.top_k == 1 {
+                self.forward_gpu_resident_to_token_id(last_token, &mut cache, position)?
+            } else {
+                let logits = self.forward_gpu_resident(last_token, &mut cache, position)?;
+                OwnedQuantizedModel::sample_topk(&logits, config.temperature, config.top_k)
+            };
+
+            // Check stop tokens
+            if config.stop_tokens.contains(&next_token) {
+                break;
+            }
+
+            tokens.push(next_token);
+
+            // PAR-112: Call the streaming callback IMMEDIATELY after generating each token
+            // If callback returns false, stop generation early
+            if !on_token(next_token) {
+                break;
+            }
+
+            last_token = next_token;
+            position += 1;
+        }
+
+        Ok(tokens)
+    }
+
     /// PAR-106: Batched GPU-resident generation for continuous batching
     ///
     /// Processes multiple prompts concurrently with true weight sharing:
