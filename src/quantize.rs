@@ -17311,7 +17311,7 @@ mod tests {
     #[test]
     fn test_fused_q4_0_q8_0_parallel_matvec_large_matrix_deep_qcov_025() {
         // Test with larger matrix to exercise parallel path
-        let in_dim = 128;
+        let in_dim: usize = 128;
         let out_dim = 64;
         let blocks_per_row = in_dim.div_ceil(32);
         let bytes_per_row = blocks_per_row * 18;
