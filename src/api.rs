@@ -3174,6 +3174,9 @@ async fn openai_chat_completions_handler(
             },
         };
 
+        // PMAT-088: Clean output to prevent prompt injection
+        let text = clean_chat_output(&text);
+
         let latency = start.elapsed();
         state.metrics.record_success(completion_tokens, latency);
 
@@ -3249,11 +3252,17 @@ async fn openai_chat_completions_handler(
         let max_tokens = request.max_tokens.unwrap_or(256);
         let temperature = request.temperature.unwrap_or(0.7);
 
+        // PMAT-088: Get EOS token ID for proper stop sequence
+        let eos_token_id = tokenizer
+            .get_token_id("<|im_end|>")
+            .or_else(|| tokenizer.get_token_id("<|endoftext|>"))
+            .unwrap_or(151645);
+
         let q_config = QuantizedGenerateConfig {
             max_tokens,
             temperature,
             top_k: if temperature == 0.0 { 1 } else { 40 },
-            stop_tokens: Vec::new(),
+            stop_tokens: vec![eos_token_id],
         };
 
         let generated = match cached_model
@@ -3334,6 +3343,9 @@ async fn openai_chat_completions_handler(
             },
         };
 
+        // PMAT-088: Clean output to prevent prompt injection
+        let text = clean_chat_output(&text);
+
         let latency = start.elapsed();
         state.metrics.record_success(completion_tokens, latency);
 
@@ -3409,11 +3421,17 @@ async fn openai_chat_completions_handler(
         let max_tokens = request.max_tokens.unwrap_or(256);
         let temperature = request.temperature.unwrap_or(0.7);
 
+        // PMAT-088: Get EOS token ID for proper stop sequence
+        let eos_token_id = tokenizer
+            .get_token_id("<|im_end|>")
+            .or_else(|| tokenizer.get_token_id("<|endoftext|>"))
+            .unwrap_or(151645);
+
         let q_config = QuantizedGenerateConfig {
             max_tokens,
             temperature,
             top_k: if temperature == 0.0 { 1 } else { 40 },
-            stop_tokens: Vec::new(),
+            stop_tokens: vec![eos_token_id],
         };
 
         // PAR-112: True streaming - handle streaming vs non-streaming with different paths
@@ -3542,6 +3560,9 @@ async fn openai_chat_completions_handler(
             .decode(&token_ids)
             .unwrap_or_else(|_| String::new());
 
+        // PMAT-088: Clean output to prevent prompt injection
+        let response_text = clean_chat_output(&response_text);
+
         let elapsed = start.elapsed();
         state.metrics.record_success(completion_tokens, elapsed);
 
@@ -3612,11 +3633,18 @@ async fn openai_chat_completions_handler(
         let max_tokens = request.max_tokens.unwrap_or(256);
         let temperature = request.temperature.unwrap_or(0.7);
 
+        // PMAT-088: Get EOS token ID for proper stop sequence
+        // ChatML uses <|im_end|> (token ID 151645 for Qwen models)
+        let eos_token_id = tokenizer
+            .get_token_id("<|im_end|>")
+            .or_else(|| tokenizer.get_token_id("<|endoftext|>"))
+            .unwrap_or(151645); // Fallback to Qwen's <|im_end|> token ID
+
         let q_config = QuantizedGenerateConfig {
             max_tokens,
             temperature,
             top_k: if temperature == 0.0 { 1 } else { 40 },
-            stop_tokens: Vec::new(),
+            stop_tokens: vec![eos_token_id],
         };
 
         let generated = match quantized_model.generate_with_cache(&prompt_ids, &q_config) {
@@ -3693,6 +3721,9 @@ async fn openai_chat_completions_handler(
                     .into_response();
             },
         };
+
+        // PMAT-088: Clean output - stop at first stop sequence to prevent prompt injection
+        let text = clean_chat_output(&text);
 
         let latency = start.elapsed();
         state.metrics.record_success(completion_tokens, latency);
@@ -4268,6 +4299,40 @@ fn format_chat_messages(messages: &[ChatMessage], model_name: Option<&str>) -> S
         }
         prompt
     })
+}
+
+/// Clean chat output to prevent prompt injection (PMAT-088)
+///
+/// Stops output at the first stop sequence to prevent the model from
+/// generating additional conversation turns or injected content.
+fn clean_chat_output(text: &str) -> String {
+    // List of stop sequences that indicate end of assistant response
+    const STOP_SEQUENCES: &[&str] = &[
+        "<|im_end|>",      // ChatML (Qwen, OpenHermes, Yi)
+        "<|endoftext|>",   // GPT-style
+        "<|end|>",         // Alternative
+        "</s>",            // LLaMA style
+        "\nHuman:",        // Anthropic/Claude style
+        "\nUser:",         // Alternative user turn
+        "\n\nHuman:",      // With extra newline
+        "\n\nUser:",       // With extra newline
+        "<|im_start|>",    // Start of new turn in ChatML
+    ];
+
+    let mut result = text.to_string();
+
+    // Find the earliest stop sequence and truncate there
+    let mut earliest_pos = result.len();
+    for stop in STOP_SEQUENCES {
+        if let Some(pos) = result.find(stop) {
+            if pos < earliest_pos {
+                earliest_pos = pos;
+            }
+        }
+    }
+
+    result.truncate(earliest_pos);
+    result.trim().to_string()
 }
 
 // ============================================================================
@@ -5444,6 +5509,53 @@ mod tests {
     use tower::util::ServiceExt;
 
     use super::*;
+
+    // ========================================================================
+    // PMAT-088: clean_chat_output tests
+    // ========================================================================
+
+    #[test]
+    fn test_clean_chat_output_no_stop_sequence() {
+        let input = "Hello, how can I help you?";
+        assert_eq!(clean_chat_output(input), "Hello, how can I help you?");
+    }
+
+    #[test]
+    fn test_clean_chat_output_im_end() {
+        let input = "Hello!<|im_end|>\nHuman: Hi there";
+        assert_eq!(clean_chat_output(input), "Hello!");
+    }
+
+    #[test]
+    fn test_clean_chat_output_human_turn() {
+        let input = "Hello!\nHuman: Hi there!";
+        assert_eq!(clean_chat_output(input), "Hello!");
+    }
+
+    #[test]
+    fn test_clean_chat_output_user_turn() {
+        let input = "Hello!\nUser: Hi there!";
+        assert_eq!(clean_chat_output(input), "Hello!");
+    }
+
+    #[test]
+    fn test_clean_chat_output_im_start() {
+        let input = "Hello!<|im_start|>user\nHi there";
+        assert_eq!(clean_chat_output(input), "Hello!");
+    }
+
+    #[test]
+    fn test_clean_chat_output_multiple_stops() {
+        // Should stop at the earliest one
+        let input = "Hello!<|im_end|>\nHuman: Hi<|endoftext|>";
+        assert_eq!(clean_chat_output(input), "Hello!");
+    }
+
+    #[test]
+    fn test_clean_chat_output_trims_whitespace() {
+        let input = "  Hello!  <|im_end|>";
+        assert_eq!(clean_chat_output(input), "Hello!");
+    }
 
     fn create_test_app() -> Router {
         let state = AppState::demo().expect("test");
