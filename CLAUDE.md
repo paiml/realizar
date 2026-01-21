@@ -502,10 +502,40 @@ pub trait HttpServer {
 - CUDA Cores: 16384
 - Memory Bandwidth: 1008 GB/s
 
+**⚠️ CRITICAL: CUDA IS ALWAYS AVAILABLE**
+
+99% of development happens on RTX 4090. CUDA hardware is ALWAYS present.
+
+- **NEVER** say "CUDA not available" or "skipping because no GPU"
+- **NEVER** use `CudaExecutor::is_available()` as a pre-check - it can return false even when GPU exists
+- **ALWAYS** try `CudaExecutor::new(0)` directly and inspect the actual error if it fails
+- If CUDA tests fail, **investigate the real error** - don't assume hardware is missing
+
+```rust
+// ❌ WRONG - Don't pre-check availability
+if !CudaExecutor::is_available() {
+    println!("Skipping: CUDA not available");  // WRONG ASSUMPTION
+    return;
+}
+
+// ✅ CORRECT - Try to create and show actual error
+match CudaExecutor::new(0) {
+    Ok(exec) => { /* use it */ },
+    Err(e) => {
+        eprintln!("CUDA init failed: {:?}", e);  // Shows REAL problem
+        // Investigate: library path? permissions? driver version?
+    }
+}
+```
+
 **⚠️ MANDATORY GPU TESTING:**
 ```bash
 # ALWAYS run GPU tests - RTX 4090 is available
 cargo test --lib --features cuda
+
+# For integration tests with multiple CudaExecutor instances, use single thread
+# to avoid CUDA_ERROR_NOT_INITIALIZED race condition:
+cargo test --test cuda_combinatorial_coverage --features cuda -- --test-threads=1
 
 # DO NOT use #[ignore] for GPU tests
 # ALL GPU tests must execute, not be skipped
