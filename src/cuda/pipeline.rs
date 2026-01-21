@@ -381,7 +381,7 @@ pub mod presets {
     /// k must be divisible by 256 (super-block size)
     pub fn q4k_ggml_inference(batch: u32, hidden: u32, k: u32) -> KernelType {
         debug_assert!(
-            k % 256 == 0,
+            k.is_multiple_of(256),
             "k must be divisible by 256 for GGML super-blocks"
         );
         KernelType::QuantizedGemmGgml {

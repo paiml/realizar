@@ -7,6 +7,8 @@
 //! - Batched RMSNorm, RoPE, SwiGLU
 //! - Host convenience wrappers
 
+#![allow(clippy::wildcard_imports)] // Internal module organization uses super::*
+
 use super::*;
 
 impl CudaExecutor {
@@ -1274,5 +1276,4 @@ impl CudaExecutor {
 
         Ok(())
     }
-
 }

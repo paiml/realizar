@@ -353,9 +353,9 @@ pub mod uri;
 pub use error::{RealizarError, Result};
 pub use infer::{run_inference, InferenceConfig, InferenceResult};
 pub use inference_trace::{InferenceTracer, ModelInfo, TraceConfig, TraceStep};
-pub use safetensors::SafetensorsConfig;
 #[cfg(not(target_arch = "wasm32"))]
 pub use safetensors::MappedSafeTensorsModel;
+pub use safetensors::SafetensorsConfig;
 pub use tensor::Tensor;
 
 /// Library version

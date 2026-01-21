@@ -8,6 +8,8 @@
 //! - Fused RMSNorm + Q4K GEMV
 //! - Batched Q4K/Q6K GEMV
 
+#![allow(clippy::wildcard_imports)] // Internal module organization uses super::*
+
 use super::*;
 
 impl CudaExecutor {
@@ -3346,5 +3348,4 @@ impl CudaExecutor {
         // PAR-075: NO sync - async operation for pipeline
         Ok(())
     }
-
 }

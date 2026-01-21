@@ -518,7 +518,7 @@ fn test_converter_to_apr_bytes_version() {
     // Version is at bytes 4-8
     let version = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
     assert!(
-        version >= 1 && version <= 100,
+        (1..=100).contains(&version),
         "Unexpected version: {}",
         version
     );
@@ -644,7 +644,7 @@ mod proptest_tests {
 
             // Ratio should be in [0, 1]
             let ratio = stats.q4k_tensor_count as f64 / stats.tensor_count as f64;
-            prop_assert!(ratio >= 0.0 && ratio <= 1.0);
+            prop_assert!((0.0..=1.0).contains(&ratio));
         }
 
         #[test]
@@ -654,7 +654,7 @@ mod proptest_tests {
             dtype in 0u32..10u32
         ) {
             let tensor = RawTensor {
-                name: name.clone(),
+                name: name,
                 data: vec![0u8; data_len],
                 dtype,
                 shape: vec![data_len],

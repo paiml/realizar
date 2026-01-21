@@ -51,7 +51,7 @@ fn test_layer_norm_identity() {
     let config = create_tiny_config();
     let transformer = create_transformer_with_identity_weights(&config);
 
-    let input = vec![0.0f32; 4];
+    let _input = vec![0.0f32; 4];
     let embedded = transformer.embed(&[0]);
 
     // With zero embeddings and identity weights, output should be zeros
@@ -80,16 +80,11 @@ fn test_layer_norm_scaling() {
     let variance = 1.25f32;
     let std_dev = (variance + 1e-5).sqrt();
 
-    let expected: Vec<f32> = (1..=4)
-        .map(|x| (x as f32 - mean) / std_dev)
-        .collect();
+    let expected: Vec<f32> = (1..=4).map(|x| (x as f32 - mean) / std_dev).collect();
 
     // Verify the normalization would produce expected values
     // (actual forward pass applies this in layers)
-    let actual_normalized: Vec<f32> = embedded
-        .iter()
-        .map(|&x| (x - mean) / std_dev)
-        .collect();
+    let actual_normalized: Vec<f32> = embedded.iter().map(|&x| (x - mean) / std_dev).collect();
 
     assert_close(&actual_normalized, &expected, EPSILON, "layer_norm_scaling");
 }
@@ -211,8 +206,14 @@ fn test_softmax_negative_values() {
 
     let sum: f32 = softmax.iter().sum();
     assert!((sum - 1.0).abs() < EPSILON, "Softmax should sum to 1");
-    assert!(softmax[3] > softmax[2], "Larger logit should have higher prob");
-    assert!(softmax[2] > softmax[1], "Larger logit should have higher prob");
+    assert!(
+        softmax[3] > softmax[2],
+        "Larger logit should have higher prob"
+    );
+    assert!(
+        softmax[2] > softmax[1],
+        "Larger logit should have higher prob"
+    );
 }
 
 #[test]
@@ -271,7 +272,10 @@ fn test_rope_different_positions() {
 
     // Should be different (unless by coincidence)
     let diff: f32 = x1.iter().zip(&x2).map(|(a, b)| (a - b).abs()).sum();
-    assert!(diff > EPSILON, "Different positions should give different rotations");
+    assert!(
+        diff > EPSILON,
+        "Different positions should give different rotations"
+    );
 }
 
 #[test]
@@ -315,7 +319,11 @@ fn test_forward_single_token() {
     assert!(result.is_ok(), "Single token should succeed");
 
     let logits = result.unwrap();
-    assert_eq!(logits.len(), config.vocab_size, "Output should be vocab_size");
+    assert_eq!(
+        logits.len(),
+        config.vocab_size,
+        "Output should be vocab_size"
+    );
 }
 
 #[test]
@@ -327,7 +335,11 @@ fn test_forward_multiple_tokens() {
     assert!(result.is_ok(), "Multiple tokens should succeed");
 
     let logits = result.unwrap();
-    assert_eq!(logits.len(), config.vocab_size, "Output should be vocab_size");
+    assert_eq!(
+        logits.len(),
+        config.vocab_size,
+        "Output should be vocab_size"
+    );
 }
 
 #[test]
@@ -356,7 +368,11 @@ fn test_forward_different_inputs_different_outputs() {
     let result2 = transformer.forward(&[1]).unwrap();
 
     // Should be different
-    let diff: f32 = result1.iter().zip(&result2).map(|(a, b)| (a - b).abs()).sum();
+    let diff: f32 = result1
+        .iter()
+        .zip(&result2)
+        .map(|(a, b)| (a - b).abs())
+        .sum();
     // With proper weights they should differ
     let _ = diff; // May be zero with identity weights
 }
@@ -425,7 +441,7 @@ fn test_golden_tiny_transformer() {
 
     // LM head: identity-like projection
     transformer.lm_head_weight = vec![0.0; 4 * 8];
-    for i in 0..4.min(8) {
+    for i in 0..4 {
         transformer.lm_head_weight[i * 8 + i] = 1.0;
     }
 
@@ -569,7 +585,11 @@ fn test_rms_norm_computation() {
     let mean_sq: f32 = input.iter().map(|x| x * x).sum::<f32>() / input.len() as f32;
     let rms = (mean_sq + eps).sqrt();
 
-    let expected: Vec<f32> = input.iter().zip(&weight).map(|(x, w)| x / rms * w).collect();
+    let expected: Vec<f32> = input
+        .iter()
+        .zip(&weight)
+        .map(|(x, w)| x / rms * w)
+        .collect();
 
     // Verify computation
     assert!((expected[0] - 0.365).abs() < 0.01, "RMSNorm element 0");
@@ -586,7 +606,10 @@ fn test_rms_norm_zero_input() {
 
     // With zero input, output should be zero (0 / sqrt(eps))
     let normalized = input[0] / rms;
-    assert!(normalized.abs() < EPSILON, "Zero input should give zero output");
+    assert!(
+        normalized.abs() < EPSILON,
+        "Zero input should give zero output"
+    );
 }
 
 // ============================================================================
@@ -652,7 +675,10 @@ fn create_transformer_with_identity_weights(config: &AprTransformerConfig) -> Ap
 fn compute_softmax(logits: &[f32]) -> Vec<f32> {
     let max_logit = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
     let exp_sum: f32 = logits.iter().map(|x| (x - max_logit).exp()).sum();
-    logits.iter().map(|x| (x - max_logit).exp() / exp_sum).collect()
+    logits
+        .iter()
+        .map(|x| (x - max_logit).exp() / exp_sum)
+        .collect()
 }
 
 /// Apply RoPE to a vector

@@ -598,8 +598,8 @@ mod proptest_tests {
             inference_ms in 0.0f64..1_000_000.0f64,
         ) {
             let result = InferenceResult {
-                text: text.clone(),
-                tokens: tokens.clone(),
+                text: text,
+                tokens: tokens,
                 input_token_count: input_count,
                 generated_token_count: gen_count,
                 inference_ms,

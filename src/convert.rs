@@ -1571,7 +1571,8 @@ mod tests {
         // Check header is 64 bytes (HEADER_SIZE) and data follows
         assert!(bytes.len() >= HEADER_SIZE);
         // Metadata offset starts at HEADER_SIZE (64 bytes)
-        let metadata_offset = u64::from_le_bytes(bytes[12..20].try_into().expect("index out of bounds")) as usize;
+        let metadata_offset =
+            u64::from_le_bytes(bytes[12..20].try_into().expect("index out of bounds")) as usize;
         assert_eq!(metadata_offset, HEADER_SIZE);
     }
 
@@ -2687,7 +2688,14 @@ mod tests {
 
         let apr = GgufToAprConverter::from_gguf_transformer(&gguf);
         assert!(apr.layers[0].ffn_gate_weight.is_some());
-        assert_eq!(apr.layers[0].ffn_gate_weight.as_ref().expect("index out of bounds").len(), 128);
+        assert_eq!(
+            apr.layers[0]
+                .ffn_gate_weight
+                .as_ref()
+                .expect("index out of bounds")
+                .len(),
+            128
+        );
         assert!(apr.layers[0].ffn_norm_weight.is_some());
     }
 
@@ -2698,8 +2706,10 @@ mod tests {
         let bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialize");
 
         // Parse header to get offsets
-        let metadata_offset = u64::from_le_bytes(bytes[12..20].try_into().expect("index out of bounds")) as usize;
-        let tensor_index_offset = u64::from_le_bytes(bytes[24..32].try_into().expect("index out of bounds")) as usize;
+        let metadata_offset =
+            u64::from_le_bytes(bytes[12..20].try_into().expect("index out of bounds")) as usize;
+        let tensor_index_offset =
+            u64::from_le_bytes(bytes[24..32].try_into().expect("index out of bounds")) as usize;
 
         // Metadata should start at HEADER_SIZE (64)
         assert_eq!(metadata_offset, HEADER_SIZE);
@@ -2776,10 +2786,14 @@ mod tests {
         let apr = create_test_apr_transformer(8, 2, 50, 16);
         let bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialize");
 
-        let metadata_offset = u64::from_le_bytes(bytes[12..20].try_into().expect("index out of bounds"));
-        let metadata_size = u32::from_le_bytes(bytes[20..24].try_into().expect("index out of bounds"));
-        let tensor_index_offset = u64::from_le_bytes(bytes[24..32].try_into().expect("index out of bounds"));
-        let data_offset = u64::from_le_bytes(bytes[32..40].try_into().expect("index out of bounds"));
+        let metadata_offset =
+            u64::from_le_bytes(bytes[12..20].try_into().expect("index out of bounds"));
+        let metadata_size =
+            u32::from_le_bytes(bytes[20..24].try_into().expect("index out of bounds"));
+        let tensor_index_offset =
+            u64::from_le_bytes(bytes[24..32].try_into().expect("index out of bounds"));
+        let data_offset =
+            u64::from_le_bytes(bytes[32..40].try_into().expect("index out of bounds"));
 
         // Metadata should start at header end
         assert_eq!(metadata_offset, HEADER_SIZE as u64);

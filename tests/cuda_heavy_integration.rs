@@ -26,6 +26,7 @@
 
 #![cfg(feature = "cuda")]
 #![allow(unused_imports)]
+#![allow(dead_code)] // Constants and helpers for ignored integration tests
 
 use realizar::cuda::{CudaExecutor, CudaKernels, KernelType, WeightQuantType};
 use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel, OwnedQuantizedModelCuda};
@@ -62,7 +63,10 @@ fn init_cuda_context() {
     CUDA_INIT.call_once(|| {
         // Try to create executor to initialize CUDA context
         if let Ok(exec) = CudaExecutor::new(0) {
-            eprintln!("T-QA-017: CUDA context initialized (devices: {})", CudaExecutor::num_devices());
+            eprintln!(
+                "T-QA-017: CUDA context initialized (devices: {})",
+                CudaExecutor::num_devices()
+            );
             // Store for shared use
             let _ = SHARED_EXECUTOR.set(std::sync::Mutex::new(exec));
         }
@@ -117,7 +121,7 @@ fn try_create_cuda_executor() -> Option<CudaExecutor> {
             eprintln!("CUDA executor creation failed: {:?}", e);
             eprintln!("This should NOT happen on RTX 4090 - investigate!");
             None
-        }
+        },
     }
 }
 
@@ -149,10 +153,22 @@ fn test_tqa017a_weight_caching_comprehensive() {
     assert!(size3.is_ok(), "T-QA-017a: large weights load failed");
 
     // Verify weights are cached
-    assert!(executor.has_weights("test.small"), "T-QA-017a: small weights not cached");
-    assert!(executor.has_weights("test.medium"), "T-QA-017a: medium weights not cached");
-    assert!(executor.has_weights("test.large"), "T-QA-017a: large weights not cached");
-    assert!(!executor.has_weights("test.nonexistent"), "T-QA-017a: nonexistent should return false");
+    assert!(
+        executor.has_weights("test.small"),
+        "T-QA-017a: small weights not cached"
+    );
+    assert!(
+        executor.has_weights("test.medium"),
+        "T-QA-017a: medium weights not cached"
+    );
+    assert!(
+        executor.has_weights("test.large"),
+        "T-QA-017a: large weights not cached"
+    );
+    assert!(
+        !executor.has_weights("test.nonexistent"),
+        "T-QA-017a: nonexistent should return false"
+    );
 
     eprintln!("T-QA-017a: PASS - weight caching comprehensive");
 }
@@ -171,17 +187,29 @@ fn test_tqa017a_quantized_weight_caching() {
     // Q4_K: 256 elements per block = 144 bytes per block
     let q4k_weights = mock_quantized_weights(100, WeightQuantType::Q4K);
     let result = executor.load_quantized_weights("layer.0.q4k", &q4k_weights);
-    assert!(result.is_ok(), "T-QA-017a: Q4K weights load failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "T-QA-017a: Q4K weights load failed: {:?}",
+        result.err()
+    );
 
     // Q6_K: 256 elements per block = 210 bytes per block
     let q6k_weights = mock_quantized_weights(100, WeightQuantType::Q6K);
     let result = executor.load_quantized_weights("layer.0.q6k", &q6k_weights);
-    assert!(result.is_ok(), "T-QA-017a: Q6K weights load failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "T-QA-017a: Q6K weights load failed: {:?}",
+        result.err()
+    );
 
     // Q8_0: 32 elements per block = 34 bytes per block
     let q8_0_weights = mock_quantized_weights(1000, WeightQuantType::Q8_0);
     let result = executor.load_quantized_weights("layer.0.q8_0", &q8_0_weights);
-    assert!(result.is_ok(), "T-QA-017a: Q8_0 weights load failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "T-QA-017a: Q8_0 weights load failed: {:?}",
+        result.err()
+    );
 
     eprintln!("T-QA-017a: PASS - quantized weight caching");
 }
@@ -203,10 +231,10 @@ fn test_tqa017b_rmsnorm_preloading() {
     // Initialize KV cache (required for some operations)
     executor
         .init_kv_cache_gpu(
-            4, // num_layers
-            8, // num_heads
-            2, // num_kv_heads
-            64, // head_dim
+            4,    // num_layers
+            8,    // num_heads
+            2,    // num_kv_heads
+            64,   // head_dim
             2048, // max_seq_len
         )
         .expect("KV cache init failed");
@@ -224,12 +252,20 @@ fn test_tqa017b_rmsnorm_preloading() {
     let ffn_refs: Vec<&[f32]> = ffn_norms.iter().map(|v| v.as_slice()).collect();
 
     let result = executor.preload_rmsnorm_weights(4, &attn_refs, &ffn_refs);
-    assert!(result.is_ok(), "T-QA-017b: RMSNorm preload failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "T-QA-017b: RMSNorm preload failed: {:?}",
+        result.err()
+    );
 
     // Preload output norm
     let output_norm = mock_f32_weights(hidden_dim, 300);
     let result = executor.preload_output_norm(&output_norm);
-    assert!(result.is_ok(), "T-QA-017b: Output norm preload failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "T-QA-017b: Output norm preload failed: {:?}",
+        result.err()
+    );
 
     eprintln!("T-QA-017b: PASS - RMSNorm preloading");
 }
@@ -245,13 +281,15 @@ fn test_tqa017c_kv_cache_init_various_configs() {
 
     // Test various KV cache configurations
     let configs = [
-        (4, 8, 2, 64, 1024),   // Small model, GQA
+        (4, 8, 2, 64, 1024),    // Small model, GQA
         (12, 12, 12, 64, 2048), // Medium model, MHA
-        (24, 14, 2, 64, 4096), // Qwen 0.5B config
+        (24, 14, 2, 64, 4096),  // Qwen 0.5B config
         (32, 32, 8, 128, 8192), // Large model, GQA
     ];
 
-    for (i, (num_layers, num_heads, num_kv_heads, head_dim, max_seq_len)) in configs.iter().enumerate() {
+    for (i, (num_layers, num_heads, num_kv_heads, head_dim, max_seq_len)) in
+        configs.iter().enumerate()
+    {
         let mut executor = match try_create_cuda_executor() {
             Some(e) => e,
             None => return,
@@ -366,7 +404,10 @@ fn test_tqa017f_graph_state_management() {
     };
 
     // Initial state: no decode graph
-    assert!(!executor.has_decode_graph(), "T-QA-017f: should have no decode graph initially");
+    assert!(
+        !executor.has_decode_graph(),
+        "T-QA-017f: should have no decode graph initially"
+    );
 
     // Clear operations should be safe
     executor.clear_decode_graph();
@@ -436,20 +477,27 @@ fn test_tqa017h_indexed_weights_build() {
     for layer_idx in 0..2 {
         // Load attention weights
         let attn_qkv = mock_quantized_weights(hidden_dim * 3, WeightQuantType::Q4K);
-        let _ = executor.load_quantized_weights(&format!("blk.{}.attn_qkv.weight", layer_idx), &attn_qkv);
+        let _ = executor
+            .load_quantized_weights(&format!("blk.{}.attn_qkv.weight", layer_idx), &attn_qkv);
 
         let attn_output = mock_quantized_weights(hidden_dim, WeightQuantType::Q4K);
-        let _ = executor.load_quantized_weights(&format!("blk.{}.attn_output.weight", layer_idx), &attn_output);
+        let _ = executor.load_quantized_weights(
+            &format!("blk.{}.attn_output.weight", layer_idx),
+            &attn_output,
+        );
 
         // Load FFN weights
         let ffn_gate = mock_quantized_weights(intermediate_dim, WeightQuantType::Q4K);
-        let _ = executor.load_quantized_weights(&format!("blk.{}.ffn_gate.weight", layer_idx), &ffn_gate);
+        let _ = executor
+            .load_quantized_weights(&format!("blk.{}.ffn_gate.weight", layer_idx), &ffn_gate);
 
         let ffn_up = mock_quantized_weights(intermediate_dim, WeightQuantType::Q4K);
-        let _ = executor.load_quantized_weights(&format!("blk.{}.ffn_up.weight", layer_idx), &ffn_up);
+        let _ =
+            executor.load_quantized_weights(&format!("blk.{}.ffn_up.weight", layer_idx), &ffn_up);
 
         let ffn_down = mock_quantized_weights(hidden_dim, WeightQuantType::Q4K);
-        let _ = executor.load_quantized_weights(&format!("blk.{}.ffn_down.weight", layer_idx), &ffn_down);
+        let _ = executor
+            .load_quantized_weights(&format!("blk.{}.ffn_down.weight", layer_idx), &ffn_down);
     }
 
     // Build indexed weights (this exercises the build_indexed_weights function)
@@ -459,7 +507,10 @@ fn test_tqa017h_indexed_weights_build() {
     // Note: This may fail if weight naming convention doesn't match
     // That's OK for coverage - we're testing the code path
     if let Err(e) = &result {
-        eprintln!("T-QA-017h: build_indexed_weights returned error (expected for mock weights): {:?}", e);
+        eprintln!(
+            "T-QA-017h: build_indexed_weights returned error (expected for mock weights): {:?}",
+            e
+        );
     }
 
     eprintln!("T-QA-017h: PASS - indexed weights build (code path exercised)");
@@ -502,10 +553,18 @@ fn test_tqa017i_transformer_layer_infrastructure() {
     let ffn_refs: Vec<&[f32]> = ffn_norms.iter().map(|v| v.as_slice()).collect();
 
     let preload_result = executor.preload_rmsnorm_weights(num_layers, &attn_refs, &ffn_refs);
-    assert!(preload_result.is_ok(), "T-QA-017i: RMSNorm preload failed: {:?}", preload_result.err());
+    assert!(
+        preload_result.is_ok(),
+        "T-QA-017i: RMSNorm preload failed: {:?}",
+        preload_result.err()
+    );
 
     let output_norm_result = executor.preload_output_norm(&mock_f32_weights(hidden_dim, 600));
-    assert!(output_norm_result.is_ok(), "T-QA-017i: Output norm preload failed: {:?}", output_norm_result.err());
+    assert!(
+        output_norm_result.is_ok(),
+        "T-QA-017i: Output norm preload failed: {:?}",
+        output_norm_result.err()
+    );
 
     // Initialize workspace for inference
     let workspace_result = executor.init_workspace(hidden_dim, hidden_dim * 4);
@@ -583,7 +642,10 @@ fn test_tqa017k_graph_capture_state() {
         .expect("KV cache init failed");
 
     // Check initial graph state
-    assert!(!executor.has_decode_graph(), "Should have no graph initially");
+    assert!(
+        !executor.has_decode_graph(),
+        "Should have no graph initially"
+    );
 
     // Test graph-related env var handling (CUDA_GRAPH_DISABLE)
     // The graphed functions check this env var
@@ -610,10 +672,16 @@ fn test_tqa017l_profiler_integration() {
     };
 
     // Test profiler toggle
-    assert!(!executor.is_profiling_enabled(), "Profiling should be disabled by default");
+    assert!(
+        !executor.is_profiling_enabled(),
+        "Profiling should be disabled by default"
+    );
 
     executor.enable_profiling();
-    assert!(executor.is_profiling_enabled(), "Profiling should be enabled");
+    assert!(
+        executor.is_profiling_enabled(),
+        "Profiling should be enabled"
+    );
 
     // Run some operations to generate profiler data
     let mut data = mock_f32_weights(4096, 900);
@@ -625,11 +693,17 @@ fn test_tqa017l_profiler_integration() {
     executor.reset_profiler();
     executor.disable_profiling();
 
-    assert!(!executor.is_profiling_enabled(), "Profiling should be disabled");
+    assert!(
+        !executor.is_profiling_enabled(),
+        "Profiling should be disabled"
+    );
 
     // Test execution graph tracking
     executor.enable_graph_tracking();
-    assert!(executor.is_graph_tracking_enabled(), "Graph tracking should be enabled");
+    assert!(
+        executor.is_graph_tracking_enabled(),
+        "Graph tracking should be enabled"
+    );
 
     let _ = executor.softmax(&mut data);
 
@@ -665,7 +739,8 @@ fn test_tqa017m_memory_pool_stats() {
     let name = executor.device_name().expect("device_name failed");
     assert!(!name.is_empty(), "Device name should not be empty");
 
-    eprintln!("T-QA-017m: GPU: {} ({:.2} GB free / {:.2} GB total)",
+    eprintln!(
+        "T-QA-017m: GPU: {} ({:.2} GB free / {:.2} GB total)",
         name,
         free as f64 / (1024.0 * 1024.0 * 1024.0),
         total as f64 / (1024.0 * 1024.0 * 1024.0)
@@ -699,14 +774,14 @@ fn test_tqa017_real_model_forward_all_layers_gpu() {
         Err(e) => {
             eprintln!("Skipping: Failed to load GGUF model: {:?}", e);
             return;
-        }
+        },
     };
     let model = match OwnedQuantizedModel::from_mapped(&mapped) {
         Ok(m) => m,
         Err(e) => {
             eprintln!("Skipping: Failed to create model: {:?}", e);
             return;
-        }
+        },
     };
 
     // Create CUDA model
@@ -715,10 +790,14 @@ fn test_tqa017_real_model_forward_all_layers_gpu() {
         Err(e) => {
             eprintln!("Skipping: Failed to create CUDA model: {:?}", e);
             return;
-        }
+        },
     };
 
-    eprintln!("T-QA-017: Loaded {} on {}", QWEN_05B_PATH, cuda_model.device_name());
+    eprintln!(
+        "T-QA-017: Loaded {} on {}",
+        QWEN_05B_PATH,
+        cuda_model.device_name()
+    );
 
     // Run single token forward
     let tokens = [1u32]; // BOS token
@@ -727,7 +806,11 @@ fn test_tqa017_real_model_forward_all_layers_gpu() {
     assert!(result.is_ok(), "Forward failed: {:?}", result.err());
 
     let logits = result.unwrap();
-    assert_eq!(logits.len(), QWEN_05B_VOCAB_SIZE as usize, "Logits should match vocab size");
+    assert_eq!(
+        logits.len(),
+        QWEN_05B_VOCAB_SIZE as usize,
+        "Logits should match vocab size"
+    );
 
     // Verify logits are finite
     let finite_count = logits.iter().filter(|x| x.is_finite()).count();
@@ -756,26 +839,30 @@ fn test_tqa017_real_model_batched_inference_b4() {
         Err(e) => {
             eprintln!("Skipping: Failed to load GGUF model: {:?}", e);
             return;
-        }
+        },
     };
     let model = match OwnedQuantizedModel::from_mapped(&mapped) {
         Ok(m) => m,
         Err(e) => {
             eprintln!("Skipping: Failed to create model: {:?}", e);
             return;
-        }
+        },
     };
     let mut cuda_model = match OwnedQuantizedModelCuda::new(model, 0) {
         Ok(m) => m,
         Err(e) => {
             eprintln!("Skipping: Failed to create CUDA model: {:?}", e);
             return;
-        }
+        },
     };
 
     // Pre-cache weights for batch mode
     let cache_result = cuda_model.pre_cache_weights_for_batch();
-    assert!(cache_result.is_ok(), "Weight caching failed: {:?}", cache_result.err());
+    assert!(
+        cache_result.is_ok(),
+        "Weight caching failed: {:?}",
+        cache_result.err()
+    );
 
     eprintln!("T-QA-017: Batched inference test (batch_size=4) - weights cached");
 
@@ -809,25 +896,29 @@ fn test_tqa017_real_model_batched_inference_b8() {
         Err(e) => {
             eprintln!("Skipping: Failed to load GGUF model: {:?}", e);
             return;
-        }
+        },
     };
     let model = match OwnedQuantizedModel::from_mapped(&mapped) {
         Ok(m) => m,
         Err(e) => {
             eprintln!("Skipping: Failed to create model: {:?}", e);
             return;
-        }
+        },
     };
     let mut cuda_model = match OwnedQuantizedModelCuda::new(model, 0) {
         Ok(m) => m,
         Err(e) => {
             eprintln!("Skipping: Failed to create CUDA model: {:?}", e);
             return;
-        }
+        },
     };
 
     let cache_result = cuda_model.pre_cache_weights_for_batch();
-    assert!(cache_result.is_ok(), "Weight caching failed: {:?}", cache_result.err());
+    assert!(
+        cache_result.is_ok(),
+        "Weight caching failed: {:?}",
+        cache_result.err()
+    );
 
     eprintln!("T-QA-017: Batched inference test (batch_size=8)");
 
@@ -861,21 +952,21 @@ fn test_tqa017_real_model_cuda_graph_capture() {
         Err(e) => {
             eprintln!("Skipping: Failed to load GGUF model: {:?}", e);
             return;
-        }
+        },
     };
     let model = match OwnedQuantizedModel::from_mapped(&mapped) {
         Ok(m) => m,
         Err(e) => {
             eprintln!("Skipping: Failed to create model: {:?}", e);
             return;
-        }
+        },
     };
     let mut cuda_model = match OwnedQuantizedModelCuda::new(model, 0) {
         Ok(m) => m,
         Err(e) => {
             eprintln!("Skipping: Failed to create CUDA model: {:?}", e);
             return;
-        }
+        },
     };
 
     eprintln!("T-QA-017: CUDA graph capture test");
@@ -883,12 +974,20 @@ fn test_tqa017_real_model_cuda_graph_capture() {
     // First forward captures the graph
     let tokens = [1u32];
     let result1 = cuda_model.forward_cuda(&tokens);
-    assert!(result1.is_ok(), "First forward (graph capture) failed: {:?}", result1.err());
+    assert!(
+        result1.is_ok(),
+        "First forward (graph capture) failed: {:?}",
+        result1.err()
+    );
     let logits1 = result1.unwrap();
 
     // Second forward replays the graph
     let result2 = cuda_model.forward_cuda(&tokens);
-    assert!(result2.is_ok(), "Second forward (graph replay) failed: {:?}", result2.err());
+    assert!(
+        result2.is_ok(),
+        "Second forward (graph replay) failed: {:?}",
+        result2.err()
+    );
     let logits2 = result2.unwrap();
 
     // Results should be very close (graph replay correctness)
@@ -903,7 +1002,10 @@ fn test_tqa017_real_model_cuda_graph_capture() {
         max_diff
     );
 
-    eprintln!("T-QA-017: PASS - CUDA graph capture (max_diff={})", max_diff);
+    eprintln!(
+        "T-QA-017: PASS - CUDA graph capture (max_diff={})",
+        max_diff
+    );
 }
 
 // ============================================================================
@@ -930,7 +1032,7 @@ fn test_tqa017_cpu_gpu_parity() {
         Err(e) => {
             eprintln!("Skipping: Failed to load GGUF model: {:?}", e);
             return;
-        }
+        },
     };
 
     let model = match OwnedQuantizedModel::from_mapped(&mapped) {
@@ -938,7 +1040,7 @@ fn test_tqa017_cpu_gpu_parity() {
         Err(e) => {
             eprintln!("Skipping: Failed to create model: {:?}", e);
             return;
-        }
+        },
     };
 
     // Clone for CPU reference
@@ -948,7 +1050,7 @@ fn test_tqa017_cpu_gpu_parity() {
         Err(e) => {
             eprintln!("Skipping: Failed to create CUDA model: {:?}", e);
             return;
-        }
+        },
     };
 
     // Run single token on both
@@ -959,7 +1061,7 @@ fn test_tqa017_cpu_gpu_parity() {
         Err(e) => {
             eprintln!("Skipping: CPU forward failed: {:?}", e);
             return;
-        }
+        },
     };
 
     let gpu_logits = match cuda_model.forward_cuda(&tokens) {
@@ -967,10 +1069,14 @@ fn test_tqa017_cpu_gpu_parity() {
         Err(e) => {
             eprintln!("Skipping: GPU forward failed: {:?}", e);
             return;
-        }
+        },
     };
 
-    assert_eq!(cpu_logits.len(), gpu_logits.len(), "Logit lengths should match");
+    assert_eq!(
+        cpu_logits.len(),
+        gpu_logits.len(),
+        "Logit lengths should match"
+    );
 
     // Compare with tolerance (quantization differences expected)
     let mut max_diff = 0.0f32;
@@ -982,11 +1088,17 @@ fn test_tqa017_cpu_gpu_parity() {
     }
     let avg_diff = sum_diff / cpu_logits.len() as f32;
 
-    eprintln!("T-QA-017: CPU/GPU parity - max_diff={:.6}, avg_diff={:.6}", max_diff, avg_diff);
+    eprintln!(
+        "T-QA-017: CPU/GPU parity - max_diff={:.6}, avg_diff={:.6}",
+        max_diff, avg_diff
+    );
 
     // Soft assertion - warn but don't fail (known divergence tracked in PARITY-CPU-GPU-001)
     if max_diff > 1e-3 {
-        eprintln!("WARNING: CPU/GPU max diff {} exceeds 1e-3 (see PARITY-CPU-GPU-001)", max_diff);
+        eprintln!(
+            "WARNING: CPU/GPU max diff {} exceeds 1e-3 (see PARITY-CPU-GPU-001)",
+            max_diff
+        );
     }
 
     eprintln!("T-QA-017: PASS - CPU/GPU parity code paths exercised");
@@ -1044,9 +1156,17 @@ fn test_tqa017n_forward_synthetic() {
     let _ = executor.preload_rmsnorm_weights(num_layers, &attn_refs, &ffn_refs);
 
     // Load quantized weights
-    let block_count = (hidden_dim * hidden_dim + 255) / 256;
+    let block_count = (hidden_dim * hidden_dim).div_ceil(256);
     for layer_idx in 0..num_layers {
-        for suffix in ["attn_q", "attn_k", "attn_v", "attn_output", "ffn_gate", "ffn_up", "ffn_down"] {
+        for suffix in [
+            "attn_q",
+            "attn_k",
+            "attn_v",
+            "attn_output",
+            "ffn_gate",
+            "ffn_up",
+            "ffn_down",
+        ] {
             let name = format!("blk.{}.{}.weight", layer_idx, suffix);
             let weights = mock_quantized_weights(block_count, WeightQuantType::Q4K);
             let _ = executor.load_quantized_weights(&name, &weights);
@@ -1057,7 +1177,15 @@ fn test_tqa017n_forward_synthetic() {
     let mut output = vec![0.0f32; hidden_dim];
 
     // May fail with synthetic weights, but exercises code path
-    let _ = executor.forward_all_layers_gpu(&input, &mut output, 0, num_layers, hidden_dim as u32, 512, 1e-5);
+    let _ = executor.forward_all_layers_gpu(
+        &input,
+        &mut output,
+        0,
+        num_layers,
+        hidden_dim as u32,
+        512,
+        1e-5,
+    );
     eprintln!("T-QA-017n: PASS - forward synthetic exercised");
 }
 
@@ -1073,7 +1201,15 @@ fn test_tqa017n_indexed_weights() {
 
     let block_count = 100;
     for layer_idx in 0..2 {
-        for suffix in ["attn_q", "attn_k", "attn_v", "attn_output", "ffn_gate", "ffn_up", "ffn_down"] {
+        for suffix in [
+            "attn_q",
+            "attn_k",
+            "attn_v",
+            "attn_output",
+            "ffn_gate",
+            "ffn_up",
+            "ffn_down",
+        ] {
             let name = format!("blk.{}.{}.weight", layer_idx, suffix);
             let weights = mock_quantized_weights(block_count, WeightQuantType::Q4K);
             let _ = executor.load_quantized_weights(&name, &weights);
@@ -1081,7 +1217,10 @@ fn test_tqa017n_indexed_weights() {
     }
 
     let _ = executor.build_indexed_weights(2, |layer_idx| format!("blk.{}", layer_idx));
-    eprintln!("T-QA-017n: has_indexed_weights = {}", executor.has_indexed_weights());
+    eprintln!(
+        "T-QA-017n: has_indexed_weights = {}",
+        executor.has_indexed_weights()
+    );
     eprintln!("T-QA-017n: PASS - indexed weights");
 }
 
@@ -1325,7 +1464,7 @@ fn test_tqa017n_gemv_kernels() {
 
     let m = 256u32;
     let n = 256u32;
-    let block_count = ((m * n) as usize + 255) / 256;
+    let block_count = ((m * n) as usize).div_ceil(256);
 
     // Q4K
     let q4k_weights = mock_quantized_weights(block_count, WeightQuantType::Q4K);
@@ -1391,15 +1530,17 @@ fn test_tqa017n_transformer_layer_host() {
     let _ = executor.init_kv_cache_gpu(1, 4, 2, 64, 1024);
 
     // Load weights
-    let block_count = (hidden_dim * hidden_dim + 255) / 256;
-    let ffn_block_count = (hidden_dim * intermediate_dim as usize + 255) / 256;
+    let block_count = (hidden_dim * hidden_dim).div_ceil(256);
+    let ffn_block_count = (hidden_dim * intermediate_dim as usize).div_ceil(256);
     for suffix in ["attn_q", "attn_k", "attn_v", "attn_output"] {
         let weights = mock_quantized_weights(block_count, WeightQuantType::Q4K);
-        let _ = executor.load_quantized_weights(&format!("{}.{}.weight", layer_prefix, suffix), &weights);
+        let _ = executor
+            .load_quantized_weights(&format!("{}.{}.weight", layer_prefix, suffix), &weights);
     }
     for suffix in ["ffn_gate", "ffn_up", "ffn_down"] {
         let weights = mock_quantized_weights(ffn_block_count, WeightQuantType::Q4K);
-        let _ = executor.load_quantized_weights(&format!("{}.{}.weight", layer_prefix, suffix), &weights);
+        let _ = executor
+            .load_quantized_weights(&format!("{}.{}.weight", layer_prefix, suffix), &weights);
     }
 
     let input = mock_f32_weights(hidden_dim, 1000);
@@ -1407,7 +1548,17 @@ fn test_tqa017n_transformer_layer_host() {
     let attn_gamma = mock_f32_weights(hidden_dim, 100);
     let ffn_gamma = mock_f32_weights(hidden_dim, 101);
 
-    let _ = executor.transformer_layer_host(&input, &mut output, 0, layer_prefix, hidden_dim as u32, intermediate_dim, &attn_gamma, &ffn_gamma, 1e-5);
+    let _ = executor.transformer_layer_host(
+        &input,
+        &mut output,
+        0,
+        layer_prefix,
+        hidden_dim as u32,
+        intermediate_dim,
+        &attn_gamma,
+        &ffn_gamma,
+        1e-5,
+    );
     eprintln!("T-QA-017n: PASS - transformer layer host");
 }
 
@@ -1438,16 +1589,26 @@ fn test_tqa017o_live_fire_synthetic_forward() {
     let head_dim = hidden_dim / num_heads;
     let _vocab_size = 32000usize; // For reference - real Qwen-like dimensions
 
-    eprintln!("T-QA-017o: LIVE FIRE - hidden_dim={}, intermediate={}, layers={}",
-              hidden_dim, intermediate_dim, num_layers);
+    eprintln!(
+        "T-QA-017o: LIVE FIRE - hidden_dim={}, intermediate={}, layers={}",
+        hidden_dim, intermediate_dim, num_layers
+    );
 
     // Initialize KV cache
     let kv_result = executor.init_kv_cache_gpu(num_layers, num_heads, num_kv_heads, head_dim, 2048);
-    assert!(kv_result.is_ok(), "KV cache init failed: {:?}", kv_result.err());
+    assert!(
+        kv_result.is_ok(),
+        "KV cache init failed: {:?}",
+        kv_result.err()
+    );
 
     // Initialize workspace
     let ws_result = executor.init_workspace(hidden_dim, intermediate_dim as usize);
-    assert!(ws_result.is_ok(), "Workspace init failed: {:?}", ws_result.err());
+    assert!(
+        ws_result.is_ok(),
+        "Workspace init failed: {:?}",
+        ws_result.err()
+    );
 
     // Preload RMSNorm weights for all layers
     let attn_norms: Vec<Vec<f32>> = (0..num_layers)
@@ -1460,7 +1621,11 @@ fn test_tqa017o_live_fire_synthetic_forward() {
     let ffn_refs: Vec<&[f32]> = ffn_norms.iter().map(|v| v.as_slice()).collect();
 
     let preload_result = executor.preload_rmsnorm_weights(num_layers, &attn_refs, &ffn_refs);
-    assert!(preload_result.is_ok(), "RMSNorm preload failed: {:?}", preload_result.err());
+    assert!(
+        preload_result.is_ok(),
+        "RMSNorm preload failed: {:?}",
+        preload_result.err()
+    );
 
     // Preload output norm
     let output_norm = mock_f32_weights(hidden_dim, 3000);
@@ -1468,8 +1633,8 @@ fn test_tqa017o_live_fire_synthetic_forward() {
 
     // Load quantized weights for all layers (Q4K format)
     // Attention: Q, K, V, O projections
-    let attn_block_count = (hidden_dim * hidden_dim + 255) / 256;
-    let ffn_block_count = (hidden_dim * intermediate_dim as usize + 255) / 256;
+    let attn_block_count = (hidden_dim * hidden_dim).div_ceil(256);
+    let ffn_block_count = (hidden_dim * intermediate_dim as usize).div_ceil(256);
 
     for layer_idx in 0..num_layers {
         // Attention weights
@@ -1477,19 +1642,35 @@ fn test_tqa017o_live_fire_synthetic_forward() {
             let name = format!("blk.{}.{}.weight", layer_idx, suffix);
             let weights = mock_quantized_weights(attn_block_count, WeightQuantType::Q4K);
             let load_result = executor.load_quantized_weights(&name, &weights);
-            assert!(load_result.is_ok(), "Failed to load {}: {:?}", name, load_result.err());
+            assert!(
+                load_result.is_ok(),
+                "Failed to load {}: {:?}",
+                name,
+                load_result.err()
+            );
         }
         // FFN weights
         for suffix in ["ffn_gate", "ffn_up", "ffn_down"] {
             let name = format!("blk.{}.{}.weight", layer_idx, suffix);
             let weights = mock_quantized_weights(ffn_block_count, WeightQuantType::Q4K);
             let load_result = executor.load_quantized_weights(&name, &weights);
-            assert!(load_result.is_ok(), "Failed to load {}: {:?}", name, load_result.err());
+            assert!(
+                load_result.is_ok(),
+                "Failed to load {}: {:?}",
+                name,
+                load_result.err()
+            );
         }
     }
 
-    eprintln!("T-QA-017o: Loaded {} quantized weights", executor.cached_quantized_weight_count());
-    eprintln!("T-QA-017o: Total quantized bytes: {}", executor.cached_quantized_weight_bytes());
+    eprintln!(
+        "T-QA-017o: Loaded {} quantized weights",
+        executor.cached_quantized_weight_count()
+    );
+    eprintln!(
+        "T-QA-017o: Total quantized bytes: {}",
+        executor.cached_quantized_weight_bytes()
+    );
 
     // Build indexed weights for O(1) lookup
     let _ = executor.build_indexed_weights(num_layers, |i| format!("blk.{}", i));
@@ -1502,12 +1683,21 @@ fn test_tqa017o_live_fire_synthetic_forward() {
     let mut output = vec![0.0f32; hidden_dim];
 
     let forward_result = executor.forward_all_layers_gpu(
-        &input, &mut output, 0, num_layers, hidden_dim as u32, intermediate_dim, 1e-5
+        &input,
+        &mut output,
+        0,
+        num_layers,
+        hidden_dim as u32,
+        intermediate_dim,
+        1e-5,
     );
 
     // Check result (may fail with synthetic weights, but code path is exercised)
     if let Err(e) = &forward_result {
-        eprintln!("T-QA-017o: forward_all_layers_gpu error (expected with synthetic): {:?}", e);
+        eprintln!(
+            "T-QA-017o: forward_all_layers_gpu error (expected with synthetic): {:?}",
+            e
+        );
     }
 
     // Verify profiler captured operations
@@ -1548,11 +1738,21 @@ fn test_tqa017o_live_fire_batched_inference() {
 
         // Initialize batched workspace
         let ws_result = executor.init_batched_workspace(hidden_dim, intermediate_dim, batch_size);
-        assert!(ws_result.is_ok(), "Batched workspace init failed for b={}: {:?}", batch_size, ws_result.err());
+        assert!(
+            ws_result.is_ok(),
+            "Batched workspace init failed for b={}: {:?}",
+            batch_size,
+            ws_result.err()
+        );
 
         // Initialize batched KV cache
         let kv_result = executor.init_batched_kv_cache_gpu(num_layers, batch_size);
-        assert!(kv_result.is_ok(), "Batched KV cache init failed for b={}: {:?}", batch_size, kv_result.err());
+        assert!(
+            kv_result.is_ok(),
+            "Batched KV cache init failed for b={}: {:?}",
+            batch_size,
+            kv_result.err()
+        );
 
         eprintln!("T-QA-017o: batch_size={} initialized OK", batch_size);
     }
@@ -1583,7 +1783,10 @@ fn test_tqa017p_cuda_graph_complex_branching() {
     let _ = executor.init_kv_cache_gpu(2, 8, 2, 64, 1024);
 
     // Test 1: Check initial state - no decode graph
-    assert!(!executor.has_decode_graph(), "Should have no decode graph initially");
+    assert!(
+        !executor.has_decode_graph(),
+        "Should have no decode graph initially"
+    );
 
     // Test 2: Clear decode graph when none exists (edge case)
     executor.clear_decode_graph();
@@ -1650,7 +1853,11 @@ fn test_tqa017p_graph_capture_stream_sync() {
 
     // Synchronize compute stream
     let sync_result = executor.synchronize_compute();
-    assert!(sync_result.is_ok(), "Compute sync failed: {:?}", sync_result.err());
+    assert!(
+        sync_result.is_ok(),
+        "Compute sync failed: {:?}",
+        sync_result.err()
+    );
 
     let mut data2 = mock_f32_weights(1024, 2000);
     let _ = executor.softmax(&mut data2);
@@ -1714,17 +1921,41 @@ fn test_tqa017p_decode_graph_lifecycle() {
     let mut output = vec![0.0f32; hidden_dim];
 
     // First forward - may capture graph
-    let _ = executor.forward_all_layers_gpu(&input, &mut output, 0, num_layers, hidden_dim as u32, 512, 1e-5);
+    let _ = executor.forward_all_layers_gpu(
+        &input,
+        &mut output,
+        0,
+        num_layers,
+        hidden_dim as u32,
+        512,
+        1e-5,
+    );
 
     // Second forward - may replay graph
-    let _ = executor.forward_all_layers_gpu(&input, &mut output, 1, num_layers, hidden_dim as u32, 512, 1e-5);
+    let _ = executor.forward_all_layers_gpu(
+        &input,
+        &mut output,
+        1,
+        num_layers,
+        hidden_dim as u32,
+        512,
+        1e-5,
+    );
 
     // Clear graph
     executor.clear_decode_graph();
     assert!(!executor.has_decode_graph());
 
     // Third forward - should work without graph
-    let _ = executor.forward_all_layers_gpu(&input, &mut output, 2, num_layers, hidden_dim as u32, 512, 1e-5);
+    let _ = executor.forward_all_layers_gpu(
+        &input,
+        &mut output,
+        2,
+        num_layers,
+        hidden_dim as u32,
+        512,
+        1e-5,
+    );
 
     executor.clear_workspace();
 
@@ -1753,7 +1984,7 @@ fn test_tqa017q_all_quant_kernels() {
     let mut output = vec![0.0f32; m as usize];
 
     // Q4_K GEMV
-    let q4k_blocks = ((m * n) as usize + 255) / 256;
+    let q4k_blocks = ((m * n) as usize).div_ceil(256);
     let q4k_weights = mock_quantized_weights(q4k_blocks, WeightQuantType::Q4K);
     let r1 = executor.q4k_gemv(&q4k_weights, &input, &mut output, m, n);
     eprintln!("  Q4K GEMV: {:?}", r1.is_ok());
@@ -1840,7 +2071,10 @@ fn test_tqa017q_attention_operations() {
 
     // Memory estimation
     let (in_bytes, out_bytes) = CudaExecutor::flash_attention_memory_bytes(seq_len, head_dim);
-    eprintln!("  Flash attention memory: in={}, out={}", in_bytes, out_bytes);
+    eprintln!(
+        "  Flash attention memory: in={}, out={}",
+        in_bytes, out_bytes
+    );
 
     eprintln!("T-QA-017q: PASS - Attention operations");
 }

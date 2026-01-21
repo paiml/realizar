@@ -139,7 +139,9 @@ fn test_error_display_unsupported_operation() {
         reason: "not implemented".to_string(),
     };
     let msg = err.to_string();
-    assert!(msg.contains("test_op") || msg.contains("not implemented") || msg.contains("Unsupported"));
+    assert!(
+        msg.contains("test_op") || msg.contains("not implemented") || msg.contains("Unsupported")
+    );
 }
 
 // ============================================================================
@@ -173,7 +175,10 @@ impl std::io::Read for FaultyReader {
         }
 
         let remaining = self.fail_after.saturating_sub(self.position);
-        let to_read = buf.len().min(remaining).min(self.data.len() - self.position);
+        let to_read = buf
+            .len()
+            .min(remaining)
+            .min(self.data.len() - self.position);
 
         if to_read == 0 {
             return Err(std::io::Error::new(
@@ -224,11 +229,7 @@ fn test_faulty_reader_with_gguf_header() {
         let truncated = &data[..fail_point.min(data.len())];
         let result = GGUFModel::from_bytes(truncated);
         if fail_point < 24 {
-            assert!(
-                result.is_err(),
-                "Should fail with {} bytes",
-                fail_point
-            );
+            assert!(result.is_err(), "Should fail with {} bytes", fail_point);
         }
     }
 }
@@ -399,7 +400,7 @@ fn test_error_with_unicode() {
 fn test_error_with_long_string() {
     let long_reason = "x".repeat(10000);
     let err = RealizarError::InvalidShape {
-        reason: long_reason.clone(),
+        reason: long_reason,
     };
     let msg = err.to_string();
     assert!(!msg.is_empty());

@@ -169,7 +169,10 @@ impl CudaExecutor {
     ///
     /// Returns a reference to the GPU buffer pointer. The buffer is
     /// reallocated only when the size changes (common case: same size reused).
-    pub(crate) fn ensure_gemv_input_buffer(&mut self, required_size: usize) -> Result<u64, GpuError> {
+    pub(crate) fn ensure_gemv_input_buffer(
+        &mut self,
+        required_size: usize,
+    ) -> Result<u64, GpuError> {
         // Reallocate only if size changed (common case: reuse existing buffer)
         if self.gemv_input_size != required_size {
             self.gemv_input_buffer = Some(GpuBuffer::new(&self.context, required_size)?);
@@ -183,7 +186,10 @@ impl CudaExecutor {
     }
 
     /// Ensure GEMV output buffer has exact required size
-    pub(crate) fn ensure_gemv_output_buffer(&mut self, required_size: usize) -> Result<u64, GpuError> {
+    pub(crate) fn ensure_gemv_output_buffer(
+        &mut self,
+        required_size: usize,
+    ) -> Result<u64, GpuError> {
         if self.gemv_output_size != required_size {
             self.gemv_output_buffer = Some(GpuBuffer::new(&self.context, required_size)?);
             self.gemv_output_size = required_size;

@@ -125,7 +125,7 @@ proptest! {
     #[test]
     fn prop_tokenize_response_valid(tokens in proptest::collection::vec(0u32..50000, 0..100)) {
         let len = tokens.len();
-        let resp = TokenizeResponse { token_ids: tokens.clone(), num_tokens: len };
+        let resp = TokenizeResponse { token_ids: tokens, num_tokens: len };
         prop_assert_eq!(resp.num_tokens, len);
         prop_assert_eq!(resp.token_ids.len(), len);
     }
@@ -278,7 +278,7 @@ proptest! {
     fn prop_batch_request_sizes(n in 1usize..10) {
         let prompts: Vec<String> = (0..n).map(|i| format!("prompt_{}", i)).collect();
         let req = BatchGenerateRequest {
-            prompts: prompts.clone(),
+            prompts: prompts,
             max_tokens: 10,
             temperature: 1.0,
             strategy: "greedy".to_string(),
@@ -875,7 +875,7 @@ fn test_temperature_high() {
 fn test_large_token_list() {
     let tokens: Vec<u32> = (0..10000).collect();
     let resp = TokenizeResponse {
-        token_ids: tokens.clone(),
+        token_ids: tokens,
         num_tokens: 10000,
     };
 

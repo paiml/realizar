@@ -29,7 +29,7 @@ fn test_g2_rmsnorm_gpu_direct() {
         Err(e) => {
             eprintln!("CUDA init failed (RTX 4090 expected): {:?}", e);
             return;
-        }
+        },
     };
 
     let hidden_dim = 32u32;
@@ -47,7 +47,11 @@ fn test_g2_rmsnorm_gpu_direct() {
     let output = read_gpu_buffer(&output_gpu, hidden_dim as usize);
 
     let sum: f32 = output.iter().sum();
-    assert!(sum.abs() > 1e-6, "Output should not be all zeros, got sum={}", sum);
+    assert!(
+        sum.abs() > 1e-6,
+        "Output should not be all zeros, got sum={}",
+        sum
+    );
 }
 
 #[test]
@@ -57,7 +61,7 @@ fn test_g2_rmsnorm_into_direct() {
         Err(e) => {
             eprintln!("CUDA init failed: {:?}", e);
             return;
-        }
+        },
     };
 
     let hidden_dim = 64u32;
@@ -92,7 +96,7 @@ fn test_g2_vectorized_rmsnorm() {
         Err(e) => {
             eprintln!("CUDA init failed: {:?}", e);
             return;
-        }
+        },
     };
 
     let hidden_dim = 256u32;
@@ -105,12 +109,19 @@ fn test_g2_vectorized_rmsnorm() {
     let output_gpu = GpuBuffer::<f32>::new(ctx, hidden_dim as usize).expect("output");
 
     let result = exec.rmsnorm_into(&input_gpu, &gamma_gpu, &output_gpu, hidden_dim, 1e-5);
-    assert!(result.is_ok(), "VectorizedRmsNorm failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "VectorizedRmsNorm failed: {:?}",
+        result.err()
+    );
 
     exec.synchronize().expect("sync");
     let output = read_gpu_buffer(&output_gpu, hidden_dim as usize);
 
-    assert!(output.iter().all(|x| x.is_finite()), "All outputs should be finite");
+    assert!(
+        output.iter().all(|x| x.is_finite()),
+        "All outputs should be finite"
+    );
 }
 
 #[test]
@@ -120,7 +131,7 @@ fn test_g2_softmax_inplace() {
         Err(e) => {
             eprintln!("CUDA init failed: {:?}", e);
             return;
-        }
+        },
     };
 
     let dim = 64usize;
@@ -130,8 +141,15 @@ fn test_g2_softmax_inplace() {
     assert!(result.is_ok(), "softmax failed: {:?}", result.err());
 
     let sum: f32 = data.iter().sum();
-    assert!((sum - 1.0).abs() < 0.01, "Softmax should sum to 1.0, got {}", sum);
-    assert!(data.iter().all(|&x| x >= 0.0), "Softmax outputs should be non-negative");
+    assert!(
+        (sum - 1.0).abs() < 0.01,
+        "Softmax should sum to 1.0, got {}",
+        sum
+    );
+    assert!(
+        data.iter().all(|&x| x >= 0.0),
+        "Softmax outputs should be non-negative"
+    );
 }
 
 #[test]
@@ -141,7 +159,7 @@ fn test_g2_gemm_small() {
         Err(e) => {
             eprintln!("CUDA init failed: {:?}", e);
             return;
-        }
+        },
     };
 
     let m = 4u32;
@@ -156,7 +174,13 @@ fn test_g2_gemm_small() {
     assert!(result.is_ok(), "GEMM failed: {:?}", result.err());
 
     for (i, val) in c.iter().enumerate() {
-        assert!((val - k as f32).abs() < 0.5, "c[{}]: expected {}, got {}", i, k, val);
+        assert!(
+            (val - k as f32).abs() < 0.5,
+            "c[{}]: expected {}, got {}",
+            i,
+            k,
+            val
+        );
     }
 }
 
@@ -167,7 +191,7 @@ fn test_g2_gemm_tiled() {
         Err(e) => {
             eprintln!("CUDA init failed: {:?}", e);
             return;
-        }
+        },
     };
 
     let m = 64u32;
@@ -183,7 +207,13 @@ fn test_g2_gemm_tiled() {
 
     let expected = k as f32 * 0.01;
     for (i, val) in c.iter().enumerate() {
-        assert!((val - expected).abs() < 0.1, "c[{}]: expected ~{}, got {}", i, expected, val);
+        assert!(
+            (val - expected).abs() < 0.1,
+            "c[{}]: expected ~{}, got {}",
+            i,
+            expected,
+            val
+        );
     }
 }
 
@@ -198,7 +228,7 @@ fn test_g1_synthetic_workspace_init() {
         Err(e) => {
             eprintln!("CUDA init failed: {:?}", e);
             return;
-        }
+        },
     };
 
     let hidden_dim = 64usize;
@@ -215,7 +245,7 @@ fn test_g1_synthetic_kv_cache() {
         Err(e) => {
             eprintln!("CUDA init failed: {:?}", e);
             return;
-        }
+        },
     };
 
     let n_layers = 2usize;
@@ -225,7 +255,11 @@ fn test_g1_synthetic_kv_cache() {
     let head_dim = 32usize;
 
     let result = exec.init_kv_cache_gpu(n_layers, max_seq_len, n_heads, n_kv_heads, head_dim);
-    assert!(result.is_ok(), "init_kv_cache_gpu failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "init_kv_cache_gpu failed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -235,7 +269,7 @@ fn test_g1_synthetic_rope_into() {
         Err(e) => {
             eprintln!("CUDA init failed: {:?}", e);
             return;
-        }
+        },
     };
 
     let head_dim = 32u32;
@@ -272,7 +306,7 @@ fn test_g5_load_weights_synthetic() {
         Err(e) => {
             eprintln!("CUDA init failed: {:?}", e);
             return;
-        }
+        },
     };
 
     let weights: Vec<f32> = (0..1024).map(|i| (i as f32) * 0.001).collect();
@@ -287,12 +321,16 @@ fn test_g5_load_quantized_weights() {
         Err(e) => {
             eprintln!("CUDA init failed: {:?}", e);
             return;
-        }
+        },
     };
 
     let q4k_data: Vec<u8> = vec![0x55; 144];
     let result = exec.load_quantized_weights("synthetic.q4k", &q4k_data);
-    assert!(result.is_ok(), "load_quantized_weights failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "load_quantized_weights failed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -302,7 +340,7 @@ fn test_g5_clear_weights() {
         Err(e) => {
             eprintln!("CUDA init failed: {:?}", e);
             return;
-        }
+        },
     };
 
     let weights: Vec<f32> = vec![1.0; 512];
@@ -322,7 +360,7 @@ fn test_g2_silu_gpu() {
         Err(e) => {
             eprintln!("CUDA init failed: {:?}", e);
             return;
-        }
+        },
     };
 
     let n = 128u32;
@@ -340,7 +378,11 @@ fn test_g2_silu_gpu() {
 
     // SiLU(0) should be ~0
     let mid = (n / 2) as usize;
-    assert!(output[mid].abs() < 0.1, "SiLU(0) should be ~0, got {}", output[mid]);
+    assert!(
+        output[mid].abs() < 0.1,
+        "SiLU(0) should be ~0, got {}",
+        output[mid]
+    );
 }
 
 #[test]
@@ -350,7 +392,7 @@ fn test_g2_gelu_gpu() {
         Err(e) => {
             eprintln!("CUDA init failed: {:?}", e);
             return;
-        }
+        },
     };
 
     let n = 128u32;
@@ -378,7 +420,7 @@ fn test_g2_elementwise_mul() {
         Err(e) => {
             eprintln!("CUDA init failed: {:?}", e);
             return;
-        }
+        },
     };
 
     let n = 256u32;
@@ -397,7 +439,12 @@ fn test_g2_elementwise_mul() {
     let output = read_gpu_buffer(&c_gpu, n as usize);
 
     for (i, &val) in output.iter().enumerate() {
-        assert!((val - 6.0).abs() < 0.01, "c[{}]: expected 6.0, got {}", i, val);
+        assert!(
+            (val - 6.0).abs() < 0.01,
+            "c[{}]: expected 6.0, got {}",
+            i,
+            val
+        );
     }
 }
 
@@ -408,7 +455,7 @@ fn test_g2_residual_add() {
         Err(e) => {
             eprintln!("CUDA init failed: {:?}", e);
             return;
-        }
+        },
     };
 
     let n = 256u32;
@@ -427,7 +474,12 @@ fn test_g2_residual_add() {
     let output = read_gpu_buffer(&out_gpu, n as usize);
 
     for (i, &val) in output.iter().enumerate() {
-        assert!((val - 3.0).abs() < 0.01, "out[{}]: expected 3.0, got {}", i, val);
+        assert!(
+            (val - 3.0).abs() < 0.01,
+            "out[{}]: expected 3.0, got {}",
+            i,
+            val
+        );
     }
 }
 
@@ -442,7 +494,7 @@ fn test_memory_pool_stats() {
         Err(e) => {
             eprintln!("CUDA init failed: {:?}", e);
             return;
-        }
+        },
     };
 
     for i in 0..3 {
@@ -465,7 +517,7 @@ fn test_staging_pool_stats() {
         Err(e) => {
             eprintln!("CUDA init failed: {:?}", e);
             return;
-        }
+        },
     };
 
     for i in 0..3 {
@@ -491,7 +543,7 @@ fn test_profiler_enable_disable() {
         Err(e) => {
             eprintln!("CUDA init failed: {:?}", e);
             return;
-        }
+        },
     };
 
     assert!(!exec.is_profiling_enabled());
@@ -512,7 +564,7 @@ fn test_device_info() {
         Err(e) => {
             eprintln!("CUDA init failed: {:?}", e);
             return;
-        }
+        },
     };
 
     let mem_info = exec.memory_info();
@@ -521,7 +573,11 @@ fn test_device_info() {
     let (free, total) = mem_info.unwrap();
     assert!(total > 0, "Total memory should be positive");
     assert!(free <= total, "Free memory should not exceed total");
-    assert!(total >= 20 * 1024 * 1024 * 1024, "Expected ~24GB, got {}", total);
+    assert!(
+        total >= 20 * 1024 * 1024 * 1024,
+        "Expected ~24GB, got {}",
+        total
+    );
 }
 
 #[test]
@@ -531,7 +587,7 @@ fn test_synchronize() {
         Err(e) => {
             eprintln!("CUDA init failed: {:?}", e);
             return;
-        }
+        },
     };
 
     let result = exec.synchronize();
@@ -560,7 +616,7 @@ fn test_g2_swiglu_components_host() {
         Err(e) => {
             eprintln!("CUDA init failed: {:?}", e);
             return;
-        }
+        },
     };
 
     let n = 64usize;
@@ -575,16 +631,28 @@ fn test_g2_swiglu_components_host() {
     assert!(result.is_ok(), "silu_host failed: {:?}", result.err());
 
     // SiLU(1.0) ≈ 0.731
-    assert!(silu_out[0] > 0.7 && silu_out[0] < 0.8, "SiLU(1.0) should be ~0.731");
+    assert!(
+        silu_out[0] > 0.7 && silu_out[0] < 0.8,
+        "SiLU(1.0) should be ~0.731"
+    );
 
     // Then elementwise mul with up
     let mut output = vec![0.0f32; n];
     let result = exec.elementwise_mul_host(&silu_out, &up, &mut output);
-    assert!(result.is_ok(), "elementwise_mul_host failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "elementwise_mul_host failed: {:?}",
+        result.err()
+    );
 
     // Result should be ~0.731 * 2.0 = ~1.462
     for (i, &val) in output.iter().enumerate() {
-        assert!(val > 1.0 && val < 2.0, "output[{}]: expected ~1.46, got {}", i, val);
+        assert!(
+            val > 1.0 && val < 2.0,
+            "output[{}]: expected ~1.46, got {}",
+            i,
+            val
+        );
     }
 }
 
@@ -604,7 +672,7 @@ fn test_g2_q4k_gemv_kernel_type() {
         KernelType::Q4KGemv { k, n } => {
             assert_eq!(k, 256);
             assert_eq!(n, 64);
-        }
+        },
         _ => panic!("Wrong kernel type"),
     }
 }
@@ -619,7 +687,7 @@ fn test_g2_coalesced_q4k_gemv_kernel_type() {
         KernelType::CoalescedQ4KGemv { k, n } => {
             assert_eq!(k, 512);
             assert_eq!(n, 128);
-        }
+        },
         _ => panic!("Wrong kernel type"),
     }
 }
@@ -635,7 +703,7 @@ fn test_g2_flash_attention_basic() {
         Err(e) => {
             eprintln!("CUDA init failed: {:?}", e);
             return;
-        }
+        },
     };
 
     let seq_len = 4u32;
@@ -666,7 +734,7 @@ fn test_g1_transformer_layer_host() {
         Err(e) => {
             eprintln!("CUDA init failed: {:?}", e);
             return;
-        }
+        },
     };
 
     let hidden_dim = 64usize;
@@ -698,7 +766,7 @@ fn test_g1_silu_host() {
         Err(e) => {
             eprintln!("CUDA init failed: {:?}", e);
             return;
-        }
+        },
     };
 
     let n = 64usize;
@@ -719,7 +787,7 @@ fn test_g1_gelu_host() {
         Err(e) => {
             eprintln!("CUDA init failed: {:?}", e);
             return;
-        }
+        },
     };
 
     let n = 64usize;
@@ -750,7 +818,7 @@ struct SyntheticConfig {
 impl Default for SyntheticConfig {
     fn default() -> Self {
         Self {
-            hidden_dim: 64,       // Small for fast tests
+            hidden_dim: 64, // Small for fast tests
             intermediate_dim: 128,
             n_heads: 2,
             n_kv_heads: 2,
@@ -764,7 +832,7 @@ impl Default for SyntheticConfig {
 fn create_q4k_weights(output_dim: usize, input_dim: usize) -> Vec<u8> {
     // Q4_K: 256 values per super-block, 144 bytes each
     let num_values = output_dim * input_dim;
-    let num_superblocks = (num_values + 255) / 256;
+    let num_superblocks = num_values.div_ceil(256);
     let bytes_per_block = 144;
     vec![0x55; num_superblocks * bytes_per_block]
 }
@@ -777,7 +845,7 @@ fn test_g1_synthetic_full_setup() {
         Err(e) => {
             eprintln!("CUDA init failed: {:?}", e);
             return;
-        }
+        },
     };
 
     let cfg = SyntheticConfig::default();
@@ -794,7 +862,11 @@ fn test_g1_synthetic_full_setup() {
         cfg.n_kv_heads,
         cfg.head_dim,
     );
-    assert!(result.is_ok(), "init_kv_cache_gpu failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "init_kv_cache_gpu failed: {:?}",
+        result.err()
+    );
 
     // 3. Load synthetic weights for layer 0
     let layer_prefix = "model.layers.0";
@@ -852,7 +924,7 @@ fn test_g1_residual_add_into() {
         Err(e) => {
             eprintln!("CUDA init failed: {:?}", e);
             return;
-        }
+        },
     };
 
     let n = 256u32;
@@ -865,13 +937,22 @@ fn test_g1_residual_add_into() {
     let output_gpu = GpuBuffer::<f32>::new(ctx, n as usize).expect("output");
 
     let result = exec.residual_add_into(&a_gpu, &b_gpu, &output_gpu, n);
-    assert!(result.is_ok(), "residual_add_into failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "residual_add_into failed: {:?}",
+        result.err()
+    );
 
     exec.synchronize().expect("sync");
     let output = read_gpu_buffer(&output_gpu, n as usize);
 
     for (i, &val) in output.iter().enumerate() {
-        assert!((val - 3.0).abs() < 0.01, "out[{}]: expected 3.0, got {}", i, val);
+        assert!(
+            (val - 3.0).abs() < 0.01,
+            "out[{}]: expected 3.0, got {}",
+            i,
+            val
+        );
     }
 }
 
@@ -883,7 +964,7 @@ fn test_g1_fused_swiglu_into() {
         Err(e) => {
             eprintln!("CUDA init failed: {:?}", e);
             return;
-        }
+        },
     };
 
     let n = 128u32;
@@ -896,14 +977,23 @@ fn test_g1_fused_swiglu_into() {
     let output_gpu = GpuBuffer::<f32>::new(ctx, n as usize).expect("output");
 
     let result = exec.fused_swiglu_into(&gate_gpu, &up_gpu, &output_gpu, n);
-    assert!(result.is_ok(), "fused_swiglu_into failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "fused_swiglu_into failed: {:?}",
+        result.err()
+    );
 
     exec.synchronize().expect("sync");
     let output = read_gpu_buffer(&output_gpu, n as usize);
 
     // SwiGLU(1, 2) = SiLU(1) * 2 ≈ 0.731 * 2 = 1.46
     for (i, &val) in output.iter().enumerate() {
-        assert!(val > 1.0 && val < 2.0, "out[{}]: expected ~1.46, got {}", i, val);
+        assert!(
+            val > 1.0 && val < 2.0,
+            "out[{}]: expected ~1.46, got {}",
+            i,
+            val
+        );
     }
 }
 
@@ -915,7 +1005,7 @@ fn test_g2_batched_rmsnorm() {
         Err(e) => {
             eprintln!("CUDA init failed: {:?}", e);
             return;
-        }
+        },
     };
 
     let batch_size = 4u32;
@@ -938,13 +1028,20 @@ fn test_g2_batched_rmsnorm() {
         hidden_dim,
         1e-5,
     );
-    assert!(result.is_ok(), "batched_rmsnorm_into failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "batched_rmsnorm_into failed: {:?}",
+        result.err()
+    );
 
     exec.synchronize().expect("sync");
     let output = read_gpu_buffer(&output_gpu, total_elems);
 
     // Each batch element should be normalized
-    assert!(output.iter().all(|x| x.is_finite()), "All outputs should be finite");
+    assert!(
+        output.iter().all(|x| x.is_finite()),
+        "All outputs should be finite"
+    );
 }
 
 #[test]
@@ -955,7 +1052,7 @@ fn test_g2_make_current() {
         Err(e) => {
             eprintln!("CUDA init failed: {:?}", e);
             return;
-        }
+        },
     };
 
     // make_current should succeed (we're on the same thread)
@@ -971,7 +1068,7 @@ fn test_g2_kernel_caching() {
         Err(e) => {
             eprintln!("CUDA init failed: {:?}", e);
             return;
-        }
+        },
     };
 
     // Run softmax twice - second should use cached kernel
@@ -981,5 +1078,8 @@ fn test_g2_kernel_caching() {
     let r1 = exec.softmax(&mut data1);
     let r2 = exec.softmax(&mut data2);
 
-    assert!(r1.is_ok() && r2.is_ok(), "Cached kernel execution should succeed");
+    assert!(
+        r1.is_ok() && r2.is_ok(),
+        "Cached kernel execution should succeed"
+    );
 }

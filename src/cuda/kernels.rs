@@ -3,71 +3,25 @@
 //! This module contains the `KernelType` enum for all supported GPU kernels
 //! and the `CudaKernels` struct for generating PTX assembly.
 
+// All kernel types are imported for exhaustive KernelType enum coverage
+#[allow(unused_imports)]
 use trueno_gpu::kernels::{
-    Activation,
-    ArgMaxFinalKernel,
-    ArgMaxKernel,
-    AttentionKernel,
-    BatchedIncrementalAttentionKernel,
-    BatchedQ4KGemvKernel,
-    BatchedQ6KGemvKernel,
-    BatchedResidualAddKernel,
-    BatchedRopeKernel,
-    BatchedSwigluKernel,
-    BatchedVectorizedRmsNormKernel,
-    BiasActivationKernel,
-    ChunkedTiledQ4KGemvKernel,
-    CoalescedGemvKernel,
-    CoalescedQ4KGemvKernel,
-    CoalescedQ6KGemvKernel,
-    Dp4aQ4KGemvKernel,
-    Dp4aSIMDQ4KGemvKernel,
-    ElementwiseMulKernel,
-    Fp16Q4KGemvKernel,
-    FusedGateUpKernel,
-    FusedGateUpQ4KGemvKernel,
-    FusedQKVKernel,
-    FusedResidualRmsNormKernel,
-    FusedRmsNormQ4KGemvKernel,
-    FusedSwigluKernel,
-    GeluKernel,
-    GemmKernel,
-    GemvKernel,
-    IncrementalAttentionKernel,
-    Kernel,
-    KvCacheScatterIndirectKernel,
-    KvCacheScatterKernel,
-    LayerNormKernel,
-    MultiWarpBatchedQ4KGemvKernel,
-    MultiWarpIncrementalAttentionKernel,
-    PackedDp4aQ4KQ8Kernel,
-    PreciseRmsNormKernel,
-    PreciseRopeIndirectKernel,
-    Q4KGemvKernel,
-    Q4KQ8DotKernel,
-    Q4_0GemvKernel,
-    Q4_1GemvKernel,
-    Q5KGemvKernel,
-    Q5KKernel,
-    Q5_0GemvKernel,
-    Q6KGemvKernel,
-    Q6KKernel,
-    Q8QuantizeKernel,
-    Q8_0GemvKernel,
-    QuantizeKernel,
-    ResidualAddKernel,
-    RmsNormKernel,
-    RopeIndirectKernel,
-    RopeKernel,
-    RopeNeoxIndirectKernel,
-    RopeNeoxKernel,
-    SiluKernel,
-    SoftmaxKernel,
-    TensorCoreQ4KGemmKernel,
-    TiledQ4KGemvKernel,
-    TrueDp4aQ4KGemvKernel,
-    VectorizedQ4KGemvKernel,
-    VectorizedRmsNormKernel,
+    Activation, ArgMaxFinalKernel, ArgMaxKernel, AttentionKernel,
+    BatchedIncrementalAttentionKernel, BatchedQ4KGemvKernel, BatchedQ6KGemvKernel,
+    BatchedResidualAddKernel, BatchedRopeKernel, BatchedSwigluKernel,
+    BatchedVectorizedRmsNormKernel, BiasActivationKernel, ChunkedTiledQ4KGemvKernel,
+    CoalescedGemvKernel, CoalescedQ4KGemvKernel, CoalescedQ6KGemvKernel, Dp4aQ4KGemvKernel,
+    Dp4aSIMDQ4KGemvKernel, ElementwiseMulKernel, Fp16Q4KGemvKernel, FusedGateUpKernel,
+    FusedGateUpQ4KGemvKernel, FusedQKVKernel, FusedResidualRmsNormKernel,
+    FusedRmsNormQ4KGemvKernel, FusedSwigluKernel, GeluKernel, GemmKernel, GemvKernel,
+    IncrementalAttentionKernel, Kernel, KvCacheScatterIndirectKernel, KvCacheScatterKernel,
+    LayerNormKernel, MultiWarpBatchedQ4KGemvKernel, MultiWarpIncrementalAttentionKernel,
+    PackedDp4aQ4KQ8Kernel, PreciseRmsNormKernel, PreciseRopeIndirectKernel, Q4KGemvKernel,
+    Q4KQ8DotKernel, Q4_0GemvKernel, Q4_1GemvKernel, Q5KGemvKernel, Q5KKernel, Q5_0GemvKernel,
+    Q6KGemvKernel, Q6KKernel, Q8QuantizeKernel, Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel,
+    RmsNormKernel, RopeIndirectKernel, RopeKernel, RopeNeoxIndirectKernel, RopeNeoxKernel,
+    SiluKernel, SoftmaxKernel, TensorCoreQ4KGemmKernel, TiledQ4KGemvKernel, TrueDp4aQ4KGemvKernel,
+    VectorizedQ4KGemvKernel, VectorizedRmsNormKernel,
 };
 
 /// CUDA kernel types supported by realizar
@@ -771,7 +725,7 @@ impl CudaKernels {
             } => GemmKernel::tiled(*m, *n, *k, *tile_size).emit_ptx(),
             KernelType::GemmTensorCore { m, n, k } => {
                 GemmKernel::tensor_core(*m, *n, *k).emit_ptx()
-            }
+            },
             // GEMV for M=1 matmuls (critical for token generation throughput)
             KernelType::Gemv { k, n } => GemvKernel::new(*k, *n).emit_ptx(),
             // PARITY-118: Coalesced GEMV with 256 threads + shared memory caching
@@ -790,7 +744,7 @@ impl CudaKernels {
                     kernel = kernel.without_affine();
                 }
                 kernel.emit_ptx()
-            }
+            },
             KernelType::Attention {
                 seq_len,
                 head_dim,
@@ -801,7 +755,7 @@ impl CudaKernels {
                     kernel = kernel.with_causal();
                 }
                 kernel.emit_ptx()
-            }
+            },
             // PARITY-043: Multi-head attention with parallel head processing
             // Uses trueno's FlashAttention kernel which handles multi-head via grid config
             KernelType::MultiHeadAttention {
@@ -827,7 +781,7 @@ impl CudaKernels {
                     kernel = kernel.with_causal();
                 }
                 kernel.emit_ptx()
-            }
+            },
             // REALIZAR-PARITY-001.3: Tensor Core FlashAttention using FP16 WMMA
             // ~40x faster than FP32 baseline (target: <2ms/token vs 79ms)
             KernelType::AttentionTensorCore {
@@ -841,12 +795,12 @@ impl CudaKernels {
                     kernel = kernel.with_causal();
                 }
                 kernel.emit_ptx()
-            }
+            },
             KernelType::QuantizedGemm { m, n, k } => QuantizeKernel::new(*m, *n, *k).emit_ptx(),
             // PARITY-041: GGML Q4_K super-block format (256 values, 144 bytes per super-block)
             KernelType::QuantizedGemmGgml { m, n, k } => {
                 QuantizeKernel::ggml(*m, *n, *k).emit_ptx()
-            }
+            },
             // PARITY-116: GGML Q5_K super-block format (256 values, 176 bytes per super-block)
             KernelType::Q5KQuantizedGemm { m, n, k } => Q5KKernel::new(*m, *n, *k).emit_ptx(),
             // PARITY-117: GGML Q6_K super-block format (256 values, 210 bytes per super-block)
@@ -854,7 +808,7 @@ impl CudaKernels {
             // IMP-900b: Fused GEMM+bias+activation (uses tiled GEMM for now)
             KernelType::GemmBiasActivation { m, n, k, .. } => {
                 GemmKernel::tiled(*m, *n, *k, 32).emit_ptx()
-            }
+            },
             // IMP-1000: Element-wise bias + activation epilogue (trueno-gpu kernel)
             KernelType::BiasActivation {
                 n,
@@ -868,11 +822,11 @@ impl CudaKernels {
                         _ => Activation::None,
                     });
                 kernel.emit_ptx()
-            }
+            },
             // IMP-1000a: FP16 Tensor Core GEMM with WMMA - using trueno kernel
             KernelType::GemmFp16TensorCore { m, n, k } => {
                 GemmKernel::wmma_fp16(*m, *n, *k).emit_ptx()
-            }
+            },
             // PARITY-073: Fused Q4_K × Q8_0 dot product - use trueno's QuantizeKernel
             // Dot product is 1×n × n×1 GEMM (m=1, n=1, k=n_values)
             KernelType::FusedQ4Q8Dot { n } => QuantizeKernel::ggml(1, 1, *n).emit_ptx(),
@@ -899,7 +853,7 @@ impl CudaKernels {
             // PAR-069: Vectorized Q4K GEMV with coalesced u32 loads
             KernelType::VectorizedQ4KGemv { k, n } => {
                 VectorizedQ4KGemvKernel::new(*k, *n).emit_ptx()
-            }
+            },
             // PAR-063: DP4A Q4K GEMV with 4x instruction reduction
             KernelType::Dp4aQ4KGemv { k, n } => Dp4aQ4KGemvKernel::new(*k, *n).emit_ptx(),
             // PAR-063-V2: DP4A SIMD Q4K GEMV with integer accumulation
@@ -911,7 +865,7 @@ impl CudaKernels {
             // PAR-130: Batched Q6K GEMV - batch decode
             KernelType::BatchedQ6KGemv { k, n, m } => {
                 BatchedQ6KGemvKernel::new(*k, *n, *m).emit_ptx()
-            }
+            },
             // PAR-053: FP16 Q4K GEMV - 2x bandwidth savings
             KernelType::Fp16Q4KGemv { k, n } => Fp16Q4KGemvKernel::new(*k, *n).emit_ptx(),
             // PAR-058: Q8_0 GEMV - simpler quantization for FFN down in some models
@@ -935,7 +889,7 @@ impl CudaKernels {
                 IncrementalAttentionKernel::with_gqa(*max_seq_len, *head_dim, *n_heads, *n_kv_heads)
                     .with_indirect_seq_len(*indirect)
                     .emit_ptx()
-            }
+            },
             // PAR-070: Multi-warp attention for decode with parallel position processing
             KernelType::MultiWarpAttention {
                 max_seq_len,
@@ -1004,11 +958,11 @@ impl CudaKernels {
             // PAR-114: Batched Residual Add for M sequences
             KernelType::BatchedResidualAdd { n, batch_size } => {
                 BatchedResidualAddKernel::new(*n, *batch_size).emit_ptx()
-            }
+            },
             // PAR-114: Batched SwiGLU for M sequences
             KernelType::BatchedSwiglu { n, batch_size } => {
                 BatchedSwigluKernel::new(*n, *batch_size).emit_ptx()
-            }
+            },
             // PAR-023: Residual Add for async pipeline
             KernelType::ResidualAdd { n } => ResidualAddKernel::new(*n).emit_ptx(),
             // PAR-023: Fused Residual Add + RMSNorm for reduced memory bandwidth
@@ -1023,11 +977,11 @@ impl CudaKernels {
                 FusedRmsNormQ4KGemvKernel::new(*k, *n)
                     .with_epsilon(*epsilon)
                     .emit_ptx()
-            }
+            },
             // PAR-077: Fused gate + up Q4K GEMV
             KernelType::FusedGateUpQ4KGemv { k, n } => {
                 FusedGateUpQ4KGemvKernel::new(*k, *n).emit_ptx()
-            }
+            },
             // PAR-023: Activation kernels for GPU-resident pipeline
             KernelType::Silu { n } => SiluKernel::new(*n).emit_ptx(),
             KernelType::Gelu { n } => GeluKernel::new(*n).emit_ptx(),
@@ -1079,15 +1033,15 @@ impl CudaKernels {
             // PAR-094: Tensor Core Q4K GEMM for batched speculative decode
             KernelType::TensorCoreQ4KGemm { m, k, n } => {
                 TensorCoreQ4KGemmKernel::new(*m, *k, *n).emit_ptx()
-            }
+            },
             // PAR-108: Batched Q4K GEMV for 2x Ollama via shared dequantization
             KernelType::BatchedQ4KGemv { m, k, n } => {
                 BatchedQ4KGemvKernel::new(*k, *n, *m).emit_ptx()
-            }
+            },
             // PAR-129: Multi-warp batched Q4K GEMV for M=16/32 (2-4 warps × 8 batch elements)
             KernelType::MultiWarpBatchedQ4KGemv { k, n, warps } => {
                 MultiWarpBatchedQ4KGemvKernel::new(*k, *n, *warps).emit_ptx()
-            }
+            },
             // PAR-063-V4: Q8 Quantization kernel for activations (f32 → Q8_1)
             KernelType::Q8Quantize { n } => Q8QuantizeKernel { n: *n }.emit_ptx(),
             // PAR-063-V5: Q4K × Q8 dot product using integer arithmetic
@@ -1098,7 +1052,7 @@ impl CudaKernels {
             KernelType::ArgMax { length } => ArgMaxKernel::new(*length).emit_ptx(),
             KernelType::ArgMaxFinal { num_blocks } => {
                 ArgMaxFinalKernel::new(*num_blocks).emit_ptx()
-            }
+            },
         }
     }
 
@@ -1122,7 +1076,7 @@ impl CudaKernels {
                 } else {
                     "flash_attention"
                 }
-            }
+            },
             // PARITY-043: Multi-head attention uses trueno's FlashAttention kernel
             KernelType::MultiHeadAttention { causal, .. } => {
                 if *causal {
@@ -1130,7 +1084,7 @@ impl CudaKernels {
                 } else {
                     "flash_attention"
                 }
-            }
+            },
             // REALIZAR-PARITY-001.3: Tensor Core attention kernel names
             KernelType::AttentionTensorCore { causal, .. } => {
                 if *causal {
@@ -1138,7 +1092,7 @@ impl CudaKernels {
                 } else {
                     "flash_attention_tensor_core"
                 }
-            }
+            },
             KernelType::QuantizedGemm { .. } => "q4k_gemm_fused",
             KernelType::QuantizedGemmGgml { .. } => "q4k_gemm_ggml",
             KernelType::Q5KQuantizedGemm { .. } => "q5k_gemm_ggml",
@@ -1185,7 +1139,7 @@ impl CudaKernels {
                 } else {
                     "incremental_attention"
                 }
-            }
+            },
             // PAR-070: Multi-warp attention for decode
             KernelType::MultiWarpAttention { indirect, .. } => {
                 if *indirect {
@@ -1193,7 +1147,7 @@ impl CudaKernels {
                 } else {
                     "multi_warp_attention"
                 }
-            }
+            },
             // PAR-052: KV Cache Scatter
             KernelType::KvCacheScatter { .. } => "kv_cache_scatter",
             // PAR-054: KV Cache Scatter Indirect (CUDA Graph Compatible)

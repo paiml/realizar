@@ -7,8 +7,7 @@ use realizar::apr_transformer::{
     AprBenchmarkResult, AprBenchmarkRunner, AprInferenceScratch, AprKVCache, AprLoadResult,
     AprParityComparison, AprPrefillResult, AprQuantizationType, AprTransformer,
     AprTransformerConfig, AprTransformerLayer, GenerateConfig, MmapAprTransformer,
-    QuantizedAprLayerQ4, QuantizedAprTensorQ4, QuantizedAprTransformer, QuantizedAprTransformerQ4,
-    APR_TRANSFORMER_HEADER_SIZE,
+    QuantizedAprTensorQ4, QuantizedAprTransformer, APR_TRANSFORMER_HEADER_SIZE,
 };
 
 // ============================================================================
@@ -244,7 +243,7 @@ fn test_transformer_new_creates_valid_model() {
         num_kv_heads: 4,
         ..Default::default()
     };
-    let transformer = AprTransformer::new(config.clone());
+    let transformer = AprTransformer::new(config);
     assert_eq!(transformer.config().hidden_dim, 32);
     assert_eq!(transformer.config().num_layers, 2);
     assert_eq!(transformer.layers.len(), 2);
@@ -656,7 +655,7 @@ fn test_quantized_transformer_config_access() {
         vocab_size: 100,
         ..Default::default()
     };
-    let qt = QuantizedAprTransformer::new(config.clone(), AprQuantizationType::F32);
+    let qt = QuantizedAprTransformer::new(config, AprQuantizationType::F32);
     assert_eq!(qt.config().hidden_dim, 64);
     assert_eq!(qt.config().num_layers, 2);
     assert_eq!(qt.config().vocab_size, 100);

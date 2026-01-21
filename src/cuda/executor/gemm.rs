@@ -7,6 +7,8 @@
 //! - Softmax kernel
 //! - Q4K/Q5K/Q6K GEMV with direct weight transfer
 
+#![allow(clippy::wildcard_imports)] // Internal module organization uses super::*
+
 use super::*;
 
 impl CudaExecutor {
@@ -1313,5 +1315,4 @@ impl CudaExecutor {
 
         Ok(())
     }
-
 }

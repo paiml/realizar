@@ -2960,7 +2960,7 @@ mod tests {
         // Zero tokens should allocate at least 1 page (div_ceil behavior)
         // Actually 0.div_ceil(16) = 0, so 0 pages needed
         let seq_id = cache.allocate_sequence(0).expect("alloc");
-        assert!(cache.page_tables.get(&seq_id).is_some());
+        assert!(cache.page_tables.contains_key(&seq_id));
     }
 
     #[test]

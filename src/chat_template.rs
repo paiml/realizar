@@ -998,7 +998,9 @@ mod tests {
     #[test]
     fn test_chatml_format_message() {
         let template = ChatMLTemplate::new();
-        let result = template.format_message("user", "Hello!").expect("operation failed");
+        let result = template
+            .format_message("user", "Hello!")
+            .expect("operation failed");
         assert_eq!(result, "<|im_start|>user\nHello!<|im_end|>\n");
     }
 
@@ -1009,7 +1011,9 @@ mod tests {
             ChatMessage::system("You are helpful."),
             ChatMessage::user("Hello!"),
         ];
-        let output = template.format_conversation(&messages).expect("operation failed");
+        let output = template
+            .format_conversation(&messages)
+            .expect("operation failed");
 
         assert!(output.contains("<|im_start|>system"));
         assert!(output.contains("You are helpful."));
@@ -1042,7 +1046,9 @@ mod tests {
             ChatMessage::system("You are helpful."),
             ChatMessage::user("Hello!"),
         ];
-        let output = template.format_conversation(&messages).expect("operation failed");
+        let output = template
+            .format_conversation(&messages)
+            .expect("operation failed");
 
         assert!(output.starts_with("<s>"));
         assert!(output.contains("[INST]"));
@@ -1061,7 +1067,9 @@ mod tests {
             ChatMessage::assistant("Hi there!"),
             ChatMessage::user("How are you?"),
         ];
-        let output = template.format_conversation(&messages).expect("operation failed");
+        let output = template
+            .format_conversation(&messages)
+            .expect("operation failed");
 
         assert!(output.contains("Hello!"));
         assert!(output.contains("Hi there!"));
@@ -1082,7 +1090,9 @@ mod tests {
             ChatMessage::system("System prompt"),
             ChatMessage::user("Hello!"),
         ];
-        let output = template.format_conversation(&messages).expect("operation failed");
+        let output = template
+            .format_conversation(&messages)
+            .expect("operation failed");
 
         // System prompt should be ignored
         assert!(!output.contains("System prompt"));
@@ -1098,7 +1108,9 @@ mod tests {
     fn test_phi_format() {
         let template = PhiTemplate::new();
         let messages = vec![ChatMessage::user("Hello!")];
-        let output = template.format_conversation(&messages).expect("operation failed");
+        let output = template
+            .format_conversation(&messages)
+            .expect("operation failed");
 
         assert!(output.contains("Instruct: Hello!"));
         assert!(output.ends_with("Output:"));
@@ -1112,7 +1124,9 @@ mod tests {
     fn test_alpaca_format() {
         let template = AlpacaTemplate::new();
         let messages = vec![ChatMessage::user("Hello!")];
-        let output = template.format_conversation(&messages).expect("operation failed");
+        let output = template
+            .format_conversation(&messages)
+            .expect("operation failed");
 
         assert!(output.contains("### Instruction:"));
         assert!(output.contains("Hello!"));
@@ -1131,7 +1145,9 @@ mod tests {
             ChatMessage::user("User"),
             ChatMessage::assistant("Assistant"),
         ];
-        let output = template.format_conversation(&messages).expect("operation failed");
+        let output = template
+            .format_conversation(&messages)
+            .expect("operation failed");
 
         assert_eq!(output, "SystemUserAssistant");
     }
@@ -1174,7 +1190,9 @@ mod tests {
     fn test_unicode_preserved() {
         let template = ChatMLTemplate::new();
         let messages = vec![ChatMessage::user("Hello! 你好 مرحبا 🎉")];
-        let output = template.format_conversation(&messages).expect("operation failed");
+        let output = template
+            .format_conversation(&messages)
+            .expect("operation failed");
 
         assert!(output.contains("你好"));
         assert!(output.contains("مرحبا"));
@@ -1194,7 +1212,9 @@ mod tests {
     fn test_whitespace_preserved() {
         let template = ChatMLTemplate::new();
         let messages = vec![ChatMessage::user("  content with spaces  ")];
-        let output = template.format_conversation(&messages).expect("operation failed");
+        let output = template
+            .format_conversation(&messages)
+            .expect("operation failed");
         assert!(output.contains("  content with spaces  "));
     }
 
@@ -1203,7 +1223,9 @@ mod tests {
         let template = ChatMLTemplate::new();
         let multiline = "Line 1\nLine 2\nLine 3";
         let messages = vec![ChatMessage::user(multiline)];
-        let output = template.format_conversation(&messages).expect("operation failed");
+        let output = template
+            .format_conversation(&messages)
+            .expect("operation failed");
         assert!(output.contains("Line 1\nLine 2\nLine 3"));
     }
 

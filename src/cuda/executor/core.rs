@@ -8,6 +8,8 @@
 //! - Tile-level profiling for cache hierarchy analysis
 //! - Context, device, and pool management methods
 
+#![allow(clippy::wildcard_imports)] // Internal module organization uses super::*
+
 use super::*;
 
 impl CudaExecutor {
@@ -222,7 +224,10 @@ impl CudaExecutor {
     /// This is the preferred API for known brick types.
     #[inline]
     #[must_use]
-    pub(crate) fn start_brick_id(&mut self, brick_id: trueno::BrickId) -> Option<trueno::BrickIdTimer> {
+    pub(crate) fn start_brick_id(
+        &mut self,
+        brick_id: trueno::BrickId,
+    ) -> Option<trueno::BrickIdTimer> {
         if !self.profiler.is_enabled() {
             return None;
         }
@@ -248,7 +253,12 @@ impl CudaExecutor {
     /// Use this for production profiling. Call `finalize_profiling()` after
     /// GPU sync to apply all pending measurements.
     #[inline]
-    pub(crate) fn record_brick_deferred(&mut self, brick_id: trueno::BrickId, start_ns: u64, elements: u64) {
+    pub(crate) fn record_brick_deferred(
+        &mut self,
+        brick_id: trueno::BrickId,
+        start_ns: u64,
+        elements: u64,
+    ) {
         self.profiler.record_deferred(brick_id, start_ns, elements);
     }
 
@@ -414,7 +424,12 @@ impl CudaExecutor {
     /// * `timer` - Timer handle from `start_tile_timer()`
     /// * `elements` - Number of elements processed (for throughput calculation)
     /// * `flops` - Number of floating-point operations (for GFLOP/s calculation)
-    pub(crate) fn stop_tile_timer(&mut self, timer: Option<trueno::TileTimer>, elements: u64, flops: u64) {
+    pub(crate) fn stop_tile_timer(
+        &mut self,
+        timer: Option<trueno::TileTimer>,
+        elements: u64,
+        flops: u64,
+    ) {
         if let Some(t) = timer {
             // Sync to capture real GPU time
             let _ = self.stream.synchronize();

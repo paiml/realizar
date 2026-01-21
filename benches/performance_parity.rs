@@ -842,7 +842,7 @@ fn benchmark_e2e_generation(c: &mut Criterion) {
         })
         .collect();
 
-    let model = OwnedQuantizedModel::new_for_benchmark(
+    let model = OwnedQuantizedModel::new_for_test(
         config.clone(),
         token_embedding,
         layers,
@@ -868,7 +868,8 @@ fn benchmark_e2e_generation(c: &mut Criterion) {
         group.bench_with_input(
             BenchmarkId::new("generate_no_cache", format!("p{prompt_len}_g{gen_len}")),
             &(&model, &prompt, &config),
-            |b, (m, p, cfg)| {
+            |b, input: &(&OwnedQuantizedModel, &Vec<u32>, &QuantizedGenerateConfig)| {
+                let (m, p, cfg) = input;
                 b.iter(|| {
                     let result = m.generate(black_box(*p), black_box(*cfg)).expect("test");
                     black_box(result)
@@ -880,7 +881,8 @@ fn benchmark_e2e_generation(c: &mut Criterion) {
         group.bench_with_input(
             BenchmarkId::new("generate_with_cache", format!("p{prompt_len}_g{gen_len}")),
             &(&model, &prompt, &config),
-            |b, (m, p, cfg)| {
+            |b, input: &(&OwnedQuantizedModel, &Vec<u32>, &QuantizedGenerateConfig)| {
+                let (m, p, cfg) = input;
                 b.iter(|| {
                     let result = m
                         .generate_with_cache(black_box(*p), black_box(*cfg))

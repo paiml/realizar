@@ -151,12 +151,12 @@ impl WeightQuantType {
             Self::Q4K | Self::Q5K | Self::Q6K => {
                 let n_superblocks = n_rows * ((n_cols + 255) / 256);
                 size_bytes == n_superblocks * self.bytes_per_superblock()
-            }
+            },
             // Block formats (32 elements per block)
             Self::Q4_0 | Self::Q4_1 | Self::Q5_0 | Self::Q8_0 => {
                 let n_blocks = n_rows * ((n_cols + 31) / 32);
                 size_bytes == n_blocks * self.bytes_per_block()
-            }
+            },
         }
     }
 

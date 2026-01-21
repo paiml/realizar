@@ -6,83 +6,41 @@
 //! - Weight loading and caching
 //! - CUDA graph capture and replay
 
-use std::collections::{BTreeMap, HashMap};
+#![allow(clippy::wildcard_imports)] // Submodules use super::* for internal organization
+
+use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use trueno_gpu::driver::{
     cuda_available, device_count, CaptureMode, CudaContext, CudaGraphExec, CudaModule, CudaStream,
     GpuBuffer, LaunchConfig,
 };
+// All kernel types are imported for API completeness
+#[allow(unused_imports)]
 use trueno_gpu::kernels::{
-    Activation,
-    ArgMaxFinalKernel,
-    ArgMaxKernel,
-    AttentionKernel,
-    BatchedIncrementalAttentionKernel,
-    BatchedQ4KGemvKernel,
-    BatchedQ6KGemvKernel,
-    BatchedResidualAddKernel,
-    BatchedRopeKernel,
-    BatchedSwigluKernel,
-    BatchedVectorizedRmsNormKernel,
-    BiasActivationKernel,
-    ChunkedTiledQ4KGemvKernel,
-    CoalescedGemvKernel,
-    CoalescedQ4KGemvKernel,
-    CoalescedQ6KGemvKernel,
-    Dp4aQ4KGemvKernel,
-    Dp4aSIMDQ4KGemvKernel,
-    ElementwiseMulKernel,
-    Fp16Q4KGemvKernel,
-    FusedGateUpKernel,
-    FusedGateUpQ4KGemvKernel,
-    FusedQKVKernel,
-    FusedResidualRmsNormKernel,
-    FusedRmsNormQ4KGemvKernel,
-    FusedSwigluKernel,
-    GeluKernel,
-    GemmKernel,
-    GemvKernel,
-    IncrementalAttentionKernel,
-    Kernel,
-    KvCacheScatterIndirectKernel,
-    KvCacheScatterKernel,
-    LayerNormKernel,
-    MultiWarpBatchedQ4KGemvKernel,
-    MultiWarpIncrementalAttentionKernel,
-    PackedDp4aQ4KQ8Kernel,
-    PreciseRmsNormKernel,
-    PreciseRopeIndirectKernel,
-    Q4KGemvKernel,
-    Q4KQ8DotKernel,
-    Q4_0GemvKernel,
-    Q4_1GemvKernel,
-    Q5KGemvKernel,
-    Q5KKernel,
-    Q5_0GemvKernel,
-    Q6KGemvKernel,
-    Q6KKernel,
-    Q8QuantizeKernel,
-    Q8_0GemvKernel,
-    QuantizeKernel,
-    ResidualAddKernel,
-    RmsNormKernel,
-    RopeIndirectKernel,
-    RopeKernel,
-    RopeNeoxIndirectKernel,
-    RopeNeoxKernel,
-    SiluKernel,
-    SoftmaxKernel,
-    TensorCoreQ4KGemmKernel,
-    TiledQ4KGemvKernel,
-    TrueDp4aQ4KGemvKernel,
-    VectorizedQ4KGemvKernel,
-    VectorizedRmsNormKernel,
+    Activation, ArgMaxFinalKernel, ArgMaxKernel, AttentionKernel,
+    BatchedIncrementalAttentionKernel, BatchedQ4KGemvKernel, BatchedQ6KGemvKernel,
+    BatchedResidualAddKernel, BatchedRopeKernel, BatchedSwigluKernel,
+    BatchedVectorizedRmsNormKernel, BiasActivationKernel, ChunkedTiledQ4KGemvKernel,
+    CoalescedGemvKernel, CoalescedQ4KGemvKernel, CoalescedQ6KGemvKernel, Dp4aQ4KGemvKernel,
+    Dp4aSIMDQ4KGemvKernel, ElementwiseMulKernel, Fp16Q4KGemvKernel, FusedGateUpKernel,
+    FusedGateUpQ4KGemvKernel, FusedQKVKernel, FusedResidualRmsNormKernel,
+    FusedRmsNormQ4KGemvKernel, FusedSwigluKernel, GeluKernel, GemmKernel, GemvKernel,
+    IncrementalAttentionKernel, Kernel, KvCacheScatterIndirectKernel, KvCacheScatterKernel,
+    LayerNormKernel, MultiWarpBatchedQ4KGemvKernel, MultiWarpIncrementalAttentionKernel,
+    PackedDp4aQ4KQ8Kernel, PreciseRmsNormKernel, PreciseRopeIndirectKernel, Q4KGemvKernel,
+    Q4KQ8DotKernel, Q4_0GemvKernel, Q4_1GemvKernel, Q5KGemvKernel, Q5KKernel, Q5_0GemvKernel,
+    Q6KGemvKernel, Q6KKernel, Q8QuantizeKernel, Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel,
+    RmsNormKernel, RopeIndirectKernel, RopeKernel, RopeNeoxIndirectKernel, RopeNeoxKernel,
+    SiluKernel, SoftmaxKernel, TensorCoreQ4KGemmKernel, TiledQ4KGemvKernel, TrueDp4aQ4KGemvKernel,
+    VectorizedQ4KGemvKernel, VectorizedRmsNormKernel,
 };
 use trueno_gpu::GpuError;
 
 use crate::cuda::kernels::{CudaKernels, KernelType};
-use crate::cuda::memory::{GpuMemoryPool, PinnedHostBuffer, PoolStats, StagingBufferPool, StagingPoolStats};
+use crate::cuda::memory::{
+    GpuMemoryPool, PinnedHostBuffer, PoolStats, StagingBufferPool, StagingPoolStats,
+};
 use crate::cuda::types::{IndexedLayerWeights, TransformerWorkspace, WeightQuantType};
 
 // Implementation modules (split from impl_main.rs for maintainability)

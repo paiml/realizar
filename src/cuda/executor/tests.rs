@@ -316,9 +316,7 @@ fn test_parity042_transfer_mode_properties() {
 
     assert_eq!(TransferMode::Pageable.estimated_speedup(), 1.0);
     assert!(TransferMode::Pinned.estimated_speedup() > 1.0);
-    assert!(
-        TransferMode::ZeroCopy.estimated_speedup() > TransferMode::Pinned.estimated_speedup()
-    );
+    assert!(TransferMode::ZeroCopy.estimated_speedup() > TransferMode::Pinned.estimated_speedup());
 }
 
 #[test]
@@ -1594,8 +1592,7 @@ fn test_flash_attention_size_validation() {
     let mut output = vec![0.0f32; correct_size];
 
     let scale = 1.0 / (head_dim as f32).sqrt();
-    let result =
-        executor.flash_attention(&q, &k, &v, &mut output, seq_len, head_dim, scale, false);
+    let result = executor.flash_attention(&q, &k, &v, &mut output, seq_len, head_dim, scale, false);
 
     assert!(result.is_err(), "Should reject wrong V size");
 }
@@ -1636,7 +1633,7 @@ fn test_flash_attention_memory_tracking() {
 
 /// Helper: Create mock Q4_K weights (144 bytes per 256 values)
 fn mock_q4k_weights(n_rows: usize, k: usize) -> Vec<u8> {
-    assert!(k % 256 == 0, "k must be divisible by 256 for Q4_K");
+    assert!(k.is_multiple_of(256), "k must be divisible by 256 for Q4_K");
     let n_superblocks_per_row = k / 256;
     let bytes_per_row = n_superblocks_per_row * 144;
     vec![0x42u8; n_rows * bytes_per_row] // Non-zero pattern for detection
@@ -1644,7 +1641,7 @@ fn mock_q4k_weights(n_rows: usize, k: usize) -> Vec<u8> {
 
 /// Helper: Create mock Q5_K weights (176 bytes per 256 values)
 fn mock_q5k_weights(n_rows: usize, k: usize) -> Vec<u8> {
-    assert!(k % 256 == 0, "k must be divisible by 256 for Q5_K");
+    assert!(k.is_multiple_of(256), "k must be divisible by 256 for Q5_K");
     let n_superblocks_per_row = k / 256;
     let bytes_per_row = n_superblocks_per_row * 176;
     vec![0x43u8; n_rows * bytes_per_row]
@@ -1652,7 +1649,7 @@ fn mock_q5k_weights(n_rows: usize, k: usize) -> Vec<u8> {
 
 /// Helper: Create mock Q6_K weights (210 bytes per 256 values)
 fn mock_q6k_weights(n_rows: usize, k: usize) -> Vec<u8> {
-    assert!(k % 256 == 0, "k must be divisible by 256 for Q6_K");
+    assert!(k.is_multiple_of(256), "k must be divisible by 256 for Q6_K");
     let n_superblocks_per_row = k / 256;
     let bytes_per_row = n_superblocks_per_row * 210;
     vec![0x44u8; n_rows * bytes_per_row]

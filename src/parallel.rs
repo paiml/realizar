@@ -1362,7 +1362,7 @@ mod tests {
     #[test]
     fn test_reduce_op_clone_ext_cov() {
         let op = ReduceOp::Max;
-        let cloned = op.clone();
+        let cloned = op;
         assert_eq!(op, cloned);
     }
 

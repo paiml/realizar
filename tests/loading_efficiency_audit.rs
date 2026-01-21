@@ -140,8 +140,14 @@ fn test_audit_eager_vs_mmap_rss_difference() {
     // (Allow some tolerance for page alignment differences)
     // Note: This is a soft check - mmap may have similar RSS if all pages are faulted
     println!("RSS before: {} bytes", rss_before);
-    println!("RSS after mmap: {} bytes (increase: {})", rss_after_mmap, mmap_increase);
-    println!("RSS after heap: {} bytes (increase: {})", rss_after_heap, heap_increase);
+    println!(
+        "RSS after mmap: {} bytes (increase: {})",
+        rss_after_mmap, mmap_increase
+    );
+    println!(
+        "RSS after heap: {} bytes (increase: {})",
+        rss_after_heap, heap_increase
+    );
 }
 
 #[test]
@@ -157,7 +163,11 @@ fn test_audit_mmap_is_zero_copy() {
     let bytes2 = model.get_tensor_bytes("data").expect("bytes2");
 
     // Same slice should have same pointer (zero-copy)
-    assert_eq!(bytes1.as_ptr(), bytes2.as_ptr(), "Zero-copy: pointers should match");
+    assert_eq!(
+        bytes1.as_ptr(),
+        bytes2.as_ptr(),
+        "Zero-copy: pointers should match"
+    );
 }
 
 #[test]
@@ -181,7 +191,9 @@ fn test_audit_release_cpu_pages_no_error() {
     assert!(model.is_mmap());
 
     // release_cpu_pages should succeed for mmap models
-    model.release_cpu_pages().expect("release pages should succeed");
+    model
+        .release_cpu_pages()
+        .expect("release pages should succeed");
 }
 
 // ============================================================================
@@ -244,7 +256,10 @@ fn test_jidoka_261_invalid_magic_stops_line() {
     data[0..4].copy_from_slice(&[0x47, 0x47, 0x55, 0x46]); // GGUF instead of APR
 
     let result = AprHeader::from_bytes(&data);
-    assert!(result.is_err(), "F-JID-261: Invalid magic must trigger error");
+    assert!(
+        result.is_err(),
+        "F-JID-261: Invalid magic must trigger error"
+    );
 
     if let Err(RealizarError::FormatError { reason }) = result {
         assert!(
@@ -261,7 +276,10 @@ fn test_jidoka_262_truncated_header_stops_line() {
     let data = vec![0u8; 32]; // Less than HEADER_SIZE (64)
 
     let result = AprHeader::from_bytes(&data);
-    assert!(result.is_err(), "F-JID-262: Truncated header must trigger error");
+    assert!(
+        result.is_err(),
+        "F-JID-262: Truncated header must trigger error"
+    );
 
     if let Err(RealizarError::FormatError { reason }) = result {
         assert!(
@@ -315,7 +333,8 @@ fn test_jidoka_264_tensor_oob_stops_line() {
     temp.write_all(&[0u8]).expect("dtype");
     temp.write_all(&[1u8]).expect("ndim");
     temp.write_all(&100u64.to_le_bytes()).expect("dim");
-    temp.write_all(&1_000_000u64.to_le_bytes()).expect("offset oob");
+    temp.write_all(&1_000_000u64.to_le_bytes())
+        .expect("offset oob");
     temp.write_all(&400u64.to_le_bytes()).expect("size");
 
     let path = temp.path();
@@ -463,7 +482,11 @@ fn test_jidoka_272_zero_tensors_handled() {
 
     let result = AprV2Model::from_bytes(data);
     if let Ok(model) = result {
-        assert_eq!(model.tensor_count(), 0, "Zero tensor model should report 0 tensors");
+        assert_eq!(
+            model.tensor_count(),
+            0,
+            "Zero tensor model should report 0 tensors"
+        );
     }
 }
 
@@ -495,7 +518,8 @@ fn test_jidoka_273_invalid_utf8_name_detected() {
 
     // Invalid UTF-8 tensor name
     let bad_name = &[0xFF, 0xFE, 0x00];
-    temp.write_all(&(bad_name.len() as u16).to_le_bytes()).expect("write");
+    temp.write_all(&(bad_name.len() as u16).to_le_bytes())
+        .expect("write");
     temp.write_all(bad_name).expect("write");
     temp.write_all(&[0u8]).expect("dtype");
     temp.write_all(&[1u8]).expect("ndim");
@@ -589,8 +613,7 @@ fn test_jidoka_280_drop_no_panic() {
         // model dropped here
     }
 
-    // If we get here, drop succeeded
-    assert!(true, "F-JID-280: Model dropped without panic");
+    // F-JID-280: If we get here, model was dropped without panic (test passed)
 }
 
 // ============================================================================

@@ -715,7 +715,7 @@ mod tests {
         // Transposed V: v[i] at pos j is at index i * max_seq_len + j
         let mut v_cache_transposed = vec![0.0; hidden_dim * max_seq_len];
         for i in 0..hidden_dim {
-            v_cache_transposed[i * max_seq_len + 0] = 1.0; // v[i] = 1.0 at pos 0
+            v_cache_transposed[i * max_seq_len] = 1.0; // v[i] = 1.0 at pos 0
         }
 
         let current_k = vec![1.0; hidden_dim];

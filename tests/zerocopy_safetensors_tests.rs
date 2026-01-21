@@ -81,9 +81,19 @@ mod mapped_model_tests {
     #[test]
     fn test_fzc001_tensor_names() {
         let tensors = [
-            ("layer1.weight", "F32", &[128, 256][..], &[0u8; 128 * 256 * 4][..]),
+            (
+                "layer1.weight",
+                "F32",
+                &[128, 256][..],
+                &[0u8; 128 * 256 * 4][..],
+            ),
             ("layer1.bias", "F32", &[128][..], &[0u8; 128 * 4][..]),
-            ("layer2.weight", "F32", &[64, 128][..], &[0u8; 64 * 128 * 4][..]),
+            (
+                "layer2.weight",
+                "F32",
+                &[64, 128][..],
+                &[0u8; 64 * 128 * 4][..],
+            ),
         ];
         let file = create_test_safetensors(&tensors);
 
@@ -211,7 +221,9 @@ mod bf16_native_tests {
         let model = MappedSafeTensorsModel::load(file.path()).expect("load model");
 
         // get_tensor_bf16_bytes returns raw bytes WITHOUT F32 conversion
-        let bytes = model.get_tensor_bf16_bytes("weights").expect("get bf16 bytes");
+        let bytes = model
+            .get_tensor_bf16_bytes("weights")
+            .expect("get bf16 bytes");
 
         // Verify we got raw BF16 bytes (2 bytes per value)
         assert_eq!(bytes.len(), values.len() * 2);
@@ -234,7 +246,9 @@ mod bf16_native_tests {
         let file = create_bf16_safetensors(&values);
 
         let model = MappedSafeTensorsModel::load(file.path()).expect("load model");
-        let result = model.get_tensor_bf16_as_f32("weights").expect("get bf16 as f32");
+        let result = model
+            .get_tensor_bf16_as_f32("weights")
+            .expect("get bf16 as f32");
 
         assert_eq!(result.len(), values.len());
 
@@ -256,7 +270,9 @@ mod bf16_native_tests {
         let file = create_bf16_safetensors(&values);
 
         let model = MappedSafeTensorsModel::load(file.path()).expect("load model");
-        let bytes = model.get_tensor_bf16_bytes("weights").expect("get bf16 bytes");
+        let bytes = model
+            .get_tensor_bf16_bytes("weights")
+            .expect("get bf16 bytes");
 
         // Verify data is contiguous and can be cast to bf16 slice
         assert_eq!(bytes.len(), 512); // 256 * 2 bytes
@@ -272,18 +288,13 @@ mod bf16_native_tests {
     // F-ZC-002: BF16 special values
     #[test]
     fn test_fzc002_bf16_special_values() {
-        let values = [
-            0.0f32,
-            -0.0,
-            f32::INFINITY,
-            f32::NEG_INFINITY,
-            1.0,
-            -1.0,
-        ];
+        let values = [0.0f32, -0.0, f32::INFINITY, f32::NEG_INFINITY, 1.0, -1.0];
         let file = create_bf16_safetensors(&values);
 
         let model = MappedSafeTensorsModel::load(file.path()).expect("load model");
-        let result = model.get_tensor_bf16_as_f32("weights").expect("get bf16 as f32");
+        let result = model
+            .get_tensor_bf16_as_f32("weights")
+            .expect("get bf16 as f32");
 
         assert_eq!(result.len(), 6);
 
@@ -360,7 +371,9 @@ mod f16_native_tests {
         let file = create_f16_safetensors(&values);
 
         let model = MappedSafeTensorsModel::load(file.path()).expect("load model");
-        let bytes = model.get_tensor_f16_bytes("weights").expect("get f16 bytes");
+        let bytes = model
+            .get_tensor_f16_bytes("weights")
+            .expect("get f16 bytes");
 
         // Verify we got raw F16 bytes (2 bytes per value)
         assert_eq!(bytes.len(), values.len() * 2);
@@ -380,7 +393,9 @@ mod f16_native_tests {
         let file = create_f16_safetensors(&values);
 
         let model = MappedSafeTensorsModel::load(file.path()).expect("load model");
-        let result = model.get_tensor_f16_as_f32("weights").expect("get f16 as f32");
+        let result = model
+            .get_tensor_f16_as_f32("weights")
+            .expect("get f16 as f32");
 
         assert_eq!(result.len(), values.len());
 
@@ -842,10 +857,7 @@ mod ttft_benchmark_tests {
         );
 
         assert_eq!(model.tensor_count(), 1);
-        println!(
-            "PASS: 3GB model TTFT = {:?} (< 500ms threshold)",
-            elapsed
-        );
+        println!("PASS: 3GB model TTFT = {:?} (< 500ms threshold)", elapsed);
     }
 
     // Verify zero-copy: loading time should be constant regardless of file size

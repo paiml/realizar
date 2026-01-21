@@ -753,7 +753,7 @@ fn test_dequantize_q8_0_valid() {
 #[test]
 fn test_dequantize_f16_valid() {
     // 4 f16 values
-    let mut data = vec![0u8; 8];
+    let data = vec![0u8; 8];
     // 4 zeros
     let result = dequantize_f16(&data);
     assert!(result.is_ok());

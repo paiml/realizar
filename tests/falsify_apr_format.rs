@@ -154,22 +154,20 @@ fn test_falsify_type_safety_invalid_dtype_0xff() {
     tmpfile.flush().expect("flush failed");
 
     // Attempt to load - should NOT panic
-    let result = std::panic::catch_unwind(|| {
-        realizar::apr::AprV2Model::load(tmpfile.path())
-    });
+    let result = std::panic::catch_unwind(|| realizar::apr::AprV2Model::load(tmpfile.path()));
 
     // Falsification check: panic = format is unsafe
     match result {
         Ok(Ok(_model)) => {
             // Loaded successfully - dtype 0xFF defaults to F32 (acceptable)
             println!("[PASS] Invalid dtype 0xFF handled gracefully (defaults to F32)");
-        }
+        },
         Ok(Err(e)) => {
             println!("[PASS] Invalid dtype 0xFF returned Err: {e}");
-        }
+        },
         Err(_panic) => {
             panic!("[FALSIFIED] Invalid dtype 0xFF caused PANIC - format is UNSAFE!");
-        }
+        },
     }
 }
 
@@ -185,7 +183,13 @@ fn test_falsify_type_safety_undefined_dtype_range() {
         let tensor_index_offset = metadata_offset + metadata_bytes.len() as u64;
         let data_offset = (tensor_index_offset + tensor_entry.len() as u64).div_ceil(64) * 64;
 
-        let header = build_apr_header(1, metadata_offset, metadata.len() as u32, tensor_index_offset, data_offset);
+        let header = build_apr_header(
+            1,
+            metadata_offset,
+            metadata.len() as u32,
+            tensor_index_offset,
+            data_offset,
+        );
 
         let mut file_data = Vec::new();
         file_data.extend_from_slice(&header);
@@ -198,17 +202,15 @@ fn test_falsify_type_safety_undefined_dtype_range() {
         tmpfile.write_all(&file_data).expect("write failed");
         tmpfile.flush().expect("flush failed");
 
-        let result = std::panic::catch_unwind(|| {
-            realizar::apr::AprV2Model::load(tmpfile.path())
-        });
+        let result = std::panic::catch_unwind(|| realizar::apr::AprV2Model::load(tmpfile.path()));
 
         match result {
             Ok(_) => {
                 println!("[PASS] dtype={dtype} handled without panic");
-            }
+            },
             Err(_) => {
                 panic!("[FALSIFIED] dtype={dtype} caused PANIC!");
-            }
+            },
         }
     }
 }
@@ -231,7 +233,13 @@ fn test_falsify_type_safety_shape_data_mismatch() {
     let tensor_index_offset = metadata_offset + metadata_bytes.len() as u64;
     let data_offset = (tensor_index_offset + tensor_entry.len() as u64).div_ceil(64) * 64;
 
-    let header = build_apr_header(1, metadata_offset, metadata.len() as u32, tensor_index_offset, data_offset);
+    let header = build_apr_header(
+        1,
+        metadata_offset,
+        metadata.len() as u32,
+        tensor_index_offset,
+        data_offset,
+    );
 
     let mut file_data = Vec::new();
     file_data.extend_from_slice(&header);
@@ -253,13 +261,13 @@ fn test_falsify_type_safety_shape_data_mismatch() {
     match result {
         Ok(Ok(_)) => {
             println!("[WARN] Shape/data mismatch not detected during read");
-        }
+        },
         Ok(Err(e)) => {
             println!("[PASS] Shape/data mismatch returned Err: {e}");
-        }
+        },
         Err(_) => {
             panic!("[FALSIFIED] Shape/data mismatch caused PANIC!");
-        }
+        },
     }
 }
 
@@ -276,7 +284,13 @@ fn test_falsify_type_safety_overflow_shape() {
     let tensor_index_offset = metadata_offset + metadata_bytes.len() as u64;
     let data_offset = (tensor_index_offset + tensor_entry.len() as u64).div_ceil(64) * 64;
 
-    let header = build_apr_header(1, metadata_offset, metadata.len() as u32, tensor_index_offset, data_offset);
+    let header = build_apr_header(
+        1,
+        metadata_offset,
+        metadata.len() as u32,
+        tensor_index_offset,
+        data_offset,
+    );
 
     let mut file_data = Vec::new();
     file_data.extend_from_slice(&header);
@@ -289,20 +303,18 @@ fn test_falsify_type_safety_overflow_shape() {
     tmpfile.write_all(&file_data).expect("write failed");
     tmpfile.flush().expect("flush failed");
 
-    let result = std::panic::catch_unwind(|| {
-        realizar::apr::AprV2Model::load(tmpfile.path())
-    });
+    let result = std::panic::catch_unwind(|| realizar::apr::AprV2Model::load(tmpfile.path()));
 
     match result {
         Ok(Ok(_)) => {
             println!("[WARN] Overflow shape loaded successfully (may be deferred validation)");
-        }
+        },
         Ok(Err(e)) => {
             println!("[PASS] Overflow shape returned Err: {e}");
-        }
+        },
         Err(_) => {
             panic!("[FALSIFIED] Overflow shape caused PANIC!");
-        }
+        },
     }
 }
 
@@ -354,23 +366,21 @@ fn test_falsify_efficiency_many_tiny_tensors() {
 
         // Time the load
         let start = Instant::now();
-        let result = std::panic::catch_unwind(|| {
-            realizar::apr::AprV2Model::load(tmpfile.path())
-        });
+        let result = std::panic::catch_unwind(|| realizar::apr::AprV2Model::load(tmpfile.path()));
         let elapsed = start.elapsed();
 
         match result {
             Ok(Ok(_model)) => {
                 load_times.push((count, elapsed));
                 println!("[INFO] {count} tensors loaded in {:?}", elapsed);
-            }
+            },
             Ok(Err(e)) => {
                 println!("[PASS] {count} tensors returned Err: {e}");
                 return; // Early return, test passes
-            }
+            },
             Err(_) => {
                 panic!("[FALSIFIED] {count} tensors caused PANIC!");
-            }
+            },
         }
     }
 
@@ -408,7 +418,13 @@ fn test_falsify_efficiency_unaligned_offset() {
     let tensor_index_offset = metadata_offset + metadata_bytes.len() as u64;
     let data_offset = (tensor_index_offset + tensor_entry.len() as u64).div_ceil(64) * 64;
 
-    let header = build_apr_header(1, metadata_offset, metadata.len() as u32, tensor_index_offset, data_offset);
+    let header = build_apr_header(
+        1,
+        metadata_offset,
+        metadata.len() as u32,
+        tensor_index_offset,
+        data_offset,
+    );
 
     let mut file_data = Vec::new();
     file_data.extend_from_slice(&header);
@@ -428,13 +444,13 @@ fn test_falsify_efficiency_unaligned_offset() {
     match result {
         Ok(Ok(data)) => {
             println!("[PASS] Unaligned offset handled (data len={})", data.len());
-        }
+        },
         Ok(Err(e)) => {
             println!("[PASS] Unaligned offset returned Err: {e}");
-        }
+        },
         Err(_) => {
             panic!("[FALSIFIED] Unaligned offset caused PANIC!");
-        }
+        },
     }
 }
 
@@ -463,7 +479,13 @@ fn test_falsify_metadata_deep_nesting() {
     let tensor_index_offset = metadata_offset + metadata_bytes.len() as u64;
     let data_offset = (tensor_index_offset + tensor_entry.len() as u64).div_ceil(64) * 64;
 
-    let header = build_apr_header(1, metadata_offset, json.len() as u32, tensor_index_offset, data_offset);
+    let header = build_apr_header(
+        1,
+        metadata_offset,
+        json.len() as u32,
+        tensor_index_offset,
+        data_offset,
+    );
 
     let mut file_data = Vec::new();
     file_data.extend_from_slice(&header);
@@ -477,26 +499,27 @@ fn test_falsify_metadata_deep_nesting() {
     tmpfile.flush().expect("flush failed");
 
     let start = Instant::now();
-    let result = std::panic::catch_unwind(|| {
-        realizar::apr::AprV2Model::load(tmpfile.path())
-    });
+    let result = std::panic::catch_unwind(|| realizar::apr::AprV2Model::load(tmpfile.path()));
     let elapsed = start.elapsed();
 
     // Check for hang (>5 seconds)
     if elapsed > Duration::from_secs(5) {
-        panic!("[FALSIFIED] Deep nesting caused hang ({}s)", elapsed.as_secs());
+        panic!(
+            "[FALSIFIED] Deep nesting caused hang ({}s)",
+            elapsed.as_secs()
+        );
     }
 
     match result {
         Ok(Ok(_)) => {
             println!("[PASS] Deep nesting handled in {:?}", elapsed);
-        }
+        },
         Ok(Err(e)) => {
             println!("[PASS] Deep nesting returned Err: {e}");
-        }
+        },
         Err(_) => {
             panic!("[FALSIFIED] Deep nesting caused PANIC!");
-        }
+        },
     }
 }
 
@@ -517,7 +540,13 @@ fn test_falsify_metadata_special_floats() {
         let tensor_index_offset = metadata_offset + metadata_bytes.len() as u64;
         let data_offset = (tensor_index_offset + tensor_entry.len() as u64).div_ceil(64) * 64;
 
-        let header = build_apr_header(1, metadata_offset, json.len() as u32, tensor_index_offset, data_offset);
+        let header = build_apr_header(
+            1,
+            metadata_offset,
+            json.len() as u32,
+            tensor_index_offset,
+            data_offset,
+        );
 
         let mut file_data = Vec::new();
         file_data.extend_from_slice(&header);
@@ -530,20 +559,21 @@ fn test_falsify_metadata_special_floats() {
         tmpfile.write_all(&file_data).expect("write failed");
         tmpfile.flush().expect("flush failed");
 
-        let result = std::panic::catch_unwind(|| {
-            realizar::apr::AprV2Model::load(tmpfile.path())
-        });
+        let result = std::panic::catch_unwind(|| realizar::apr::AprV2Model::load(tmpfile.path()));
 
         match result {
             Ok(Ok(_)) => {
-                println!("[INFO] Special float JSON accepted: {}", &json[..50.min(json.len())]);
-            }
+                println!(
+                    "[INFO] Special float JSON accepted: {}",
+                    &json[..50.min(json.len())]
+                );
+            },
             Ok(Err(_)) => {
                 println!("[PASS] Special float JSON rejected");
-            }
+            },
             Err(_) => {
                 panic!("[FALSIFIED] Special float JSON caused PANIC!");
-            }
+            },
         }
     }
 }
@@ -562,7 +592,13 @@ fn test_falsify_metadata_huge_string() {
     let tensor_index_offset = metadata_offset + metadata_bytes.len() as u64;
     let data_offset = (tensor_index_offset + tensor_entry.len() as u64).div_ceil(64) * 64;
 
-    let header = build_apr_header(1, metadata_offset, json.len() as u32, tensor_index_offset, data_offset);
+    let header = build_apr_header(
+        1,
+        metadata_offset,
+        json.len() as u32,
+        tensor_index_offset,
+        data_offset,
+    );
 
     let mut file_data = Vec::new();
     file_data.extend_from_slice(&header);
@@ -576,9 +612,7 @@ fn test_falsify_metadata_huge_string() {
     tmpfile.flush().expect("flush failed");
 
     let start = Instant::now();
-    let result = std::panic::catch_unwind(|| {
-        realizar::apr::AprV2Model::load(tmpfile.path())
-    });
+    let result = std::panic::catch_unwind(|| realizar::apr::AprV2Model::load(tmpfile.path()));
     let elapsed = start.elapsed();
 
     println!("[INFO] 10MB metadata processed in {:?}", elapsed);
@@ -586,13 +620,13 @@ fn test_falsify_metadata_huge_string() {
     match result {
         Ok(Ok(_)) => {
             println!("[PASS] Huge metadata handled gracefully");
-        }
+        },
         Ok(Err(e)) => {
             println!("[PASS] Huge metadata returned Err: {e}");
-        }
+        },
         Err(_) => {
             panic!("[FALSIFIED] Huge metadata caused PANIC!");
-        }
+        },
     }
 }
 
@@ -617,7 +651,13 @@ fn test_falsify_metadata_invalid_utf8_tensor_name() {
     let tensor_index_offset = metadata_offset + metadata_bytes.len() as u64;
     let data_offset = (tensor_index_offset + tensor_entry.len() as u64).div_ceil(64) * 64;
 
-    let header = build_apr_header(1, metadata_offset, metadata.len() as u32, tensor_index_offset, data_offset);
+    let header = build_apr_header(
+        1,
+        metadata_offset,
+        metadata.len() as u32,
+        tensor_index_offset,
+        data_offset,
+    );
 
     let mut file_data = Vec::new();
     file_data.extend_from_slice(&header);
@@ -630,20 +670,18 @@ fn test_falsify_metadata_invalid_utf8_tensor_name() {
     tmpfile.write_all(&file_data).expect("write failed");
     tmpfile.flush().expect("flush failed");
 
-    let result = std::panic::catch_unwind(|| {
-        realizar::apr::AprV2Model::load(tmpfile.path())
-    });
+    let result = std::panic::catch_unwind(|| realizar::apr::AprV2Model::load(tmpfile.path()));
 
     match result {
         Ok(Ok(_)) => {
             println!("[WARN] Invalid UTF-8 tensor name was accepted");
-        }
+        },
         Ok(Err(e)) => {
             println!("[PASS] Invalid UTF-8 tensor name returned Err: {e}");
-        }
+        },
         Err(_) => {
             panic!("[FALSIFIED] Invalid UTF-8 tensor name caused PANIC!");
-        }
+        },
     }
 }
 
@@ -657,20 +695,18 @@ fn test_falsify_boundary_empty_file() {
     let mut tmpfile = NamedTempFile::new().expect("tempfile creation failed");
     tmpfile.flush().expect("flush failed");
 
-    let result = std::panic::catch_unwind(|| {
-        realizar::apr::AprV2Model::load(tmpfile.path())
-    });
+    let result = std::panic::catch_unwind(|| realizar::apr::AprV2Model::load(tmpfile.path()));
 
     match result {
         Ok(Ok(_)) => {
             panic!("[FALSIFIED] Empty file loaded successfully!");
-        }
+        },
         Ok(Err(e)) => {
             println!("[PASS] Empty file returned Err: {e}");
-        }
+        },
         Err(_) => {
             panic!("[FALSIFIED] Empty file caused PANIC!");
-        }
+        },
     }
 }
 
@@ -681,20 +717,18 @@ fn test_falsify_boundary_magic_only() {
     tmpfile.write_all(&MAGIC).expect("write failed");
     tmpfile.flush().expect("flush failed");
 
-    let result = std::panic::catch_unwind(|| {
-        realizar::apr::AprV2Model::load(tmpfile.path())
-    });
+    let result = std::panic::catch_unwind(|| realizar::apr::AprV2Model::load(tmpfile.path()));
 
     match result {
         Ok(Ok(_)) => {
             panic!("[FALSIFIED] Magic-only file loaded successfully!");
-        }
+        },
         Ok(Err(e)) => {
             println!("[PASS] Magic-only file returned Err: {e}");
-        }
+        },
         Err(_) => {
             panic!("[FALSIFIED] Magic-only file caused PANIC!");
-        }
+        },
     }
 }
 
@@ -708,20 +742,18 @@ fn test_falsify_boundary_wrong_magic() {
     tmpfile.write_all(&file_data).expect("write failed");
     tmpfile.flush().expect("flush failed");
 
-    let result = std::panic::catch_unwind(|| {
-        realizar::apr::AprV2Model::load(tmpfile.path())
-    });
+    let result = std::panic::catch_unwind(|| realizar::apr::AprV2Model::load(tmpfile.path()));
 
     match result {
         Ok(Ok(_)) => {
             panic!("[FALSIFIED] Wrong magic file loaded successfully!");
-        }
+        },
         Ok(Err(e)) => {
             println!("[PASS] Wrong magic returned Err: {e}");
-        }
+        },
         Err(_) => {
             panic!("[FALSIFIED] Wrong magic caused PANIC!");
-        }
+        },
     }
 }
 
@@ -738,7 +770,13 @@ fn test_falsify_boundary_offset_beyond_eof() {
     let tensor_index_offset = metadata_offset + metadata_bytes.len() as u64;
     let data_offset = (tensor_index_offset + tensor_entry.len() as u64).div_ceil(64) * 64;
 
-    let header = build_apr_header(1, metadata_offset, metadata.len() as u32, tensor_index_offset, data_offset);
+    let header = build_apr_header(
+        1,
+        metadata_offset,
+        metadata.len() as u32,
+        tensor_index_offset,
+        data_offset,
+    );
 
     let mut file_data = Vec::new();
     file_data.extend_from_slice(&header);
@@ -759,13 +797,13 @@ fn test_falsify_boundary_offset_beyond_eof() {
     match result {
         Ok(Ok(_)) => {
             panic!("[FALSIFIED] Offset beyond EOF returned data!");
-        }
+        },
         Ok(Err(e)) => {
             println!("[PASS] Offset beyond EOF returned Err: {e}");
-        }
+        },
         Err(_) => {
             panic!("[FALSIFIED] Offset beyond EOF caused PANIC!");
-        }
+        },
     }
 }
 

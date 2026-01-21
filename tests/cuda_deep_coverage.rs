@@ -87,7 +87,7 @@ fn test_kernel_type_attention_debug() {
 #[test]
 fn test_kernel_type_clone() {
     let kt = KernelType::Softmax { dim: 1024 };
-    let cloned = kt.clone();
+    let cloned = kt;
     match cloned {
         KernelType::Softmax { dim } => assert_eq!(dim, 1024),
         _ => panic!("Clone failed"),
@@ -415,7 +415,7 @@ fn test_transfer_mode_debug() {
 #[test]
 fn test_transfer_mode_clone() {
     let mode = TransferMode::Pinned;
-    let cloned = mode.clone();
+    let cloned = mode;
     assert!(matches!(cloned, TransferMode::Pinned));
 }
 
@@ -526,7 +526,7 @@ fn test_weight_quant_type_debug() {
 #[test]
 fn test_weight_quant_type_clone() {
     let qt = WeightQuantType::Q6K;
-    let cloned = qt.clone();
+    let cloned = qt;
     assert!(matches!(cloned, WeightQuantType::Q6K));
 }
 
