@@ -228,7 +228,7 @@ fn run_gguf_inference(config: &InferenceConfig) -> Result<InferenceResult> {
         .model_path
         .file_stem()
         .and_then(|s| s.to_str())
-        .map(|s| {
+        .map_or("Transformer", |s| {
             if s.to_lowercase().contains("qwen") {
                 "Qwen2"
             } else if s.to_lowercase().contains("llama") {
@@ -240,8 +240,7 @@ fn run_gguf_inference(config: &InferenceConfig) -> Result<InferenceResult> {
             } else {
                 "Transformer"
             }
-        })
-        .unwrap_or("Transformer");
+        });
 
     if config.verbose {
         eprintln!(
@@ -343,14 +342,16 @@ fn run_gguf_generate(
                 }
                 let tokens = cuda_model
                     .generate_gpu_resident(input_tokens, gen_config)
-                    .map_err(|e| RealizarError::InferenceError(format!("GPU generation failed: {}", e)))?;
+                    .map_err(|e| {
+                        RealizarError::InferenceError(format!("GPU generation failed: {}", e))
+                    })?;
                 return Ok((tokens, true));
-            }
+            },
             Err(e) => {
                 if config.verbose {
                     eprintln!("Backend: CPU (GPU unavailable: {})", e);
                 }
-            }
+            },
         }
     }
 
@@ -417,8 +418,7 @@ fn run_apr_inference(config: &InferenceConfig) -> Result<InferenceResult> {
             .iter()
             .enumerate()
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
-            .map(|(i, _)| i as u32)
-            .unwrap_or(0);
+            .map_or(0, |(i, _)| i as u32);
 
         // Check for EOS (Qwen2 EOS=151645, BOS=151643)
         if next_token == 151645 || next_token == 151643 {
@@ -435,7 +435,10 @@ fn run_apr_inference(config: &InferenceConfig) -> Result<InferenceResult> {
     let text = if let Some(tokenizer) = AprV2Model::load_tokenizer(&config.model_path) {
         tokenizer.decode(generated_tokens)
     } else {
-        format!("[{} tokens generated, tokenizer not found]", generated_tokens.len())
+        format!(
+            "[{} tokens generated, tokenizer not found]",
+            generated_tokens.len()
+        )
     };
 
     // Clean output
@@ -512,8 +515,7 @@ fn run_safetensors_inference(config: &InferenceConfig) -> Result<InferenceResult
             .iter()
             .enumerate()
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
-            .map(|(i, _)| i as u32)
-            .unwrap_or(0);
+            .map_or(0, |(i, _)| i as u32);
 
         // Check for EOS (Qwen2 EOS=151645, BOS=151643)
         if next_token == 151645 || next_token == 151643 {
@@ -530,7 +532,10 @@ fn run_safetensors_inference(config: &InferenceConfig) -> Result<InferenceResult
     let text = if let Some(tokenizer) = AprV2Model::load_tokenizer(&config.model_path) {
         tokenizer.decode(generated_tokens)
     } else {
-        format!("[{} tokens generated, tokenizer not found]", generated_tokens.len())
+        format!(
+            "[{} tokens generated, tokenizer not found]",
+            generated_tokens.len()
+        )
     };
 
     // Clean output
@@ -621,16 +626,14 @@ mod tests {
 
     #[test]
     fn test_inference_config_with_input_tokens() {
-        let config = InferenceConfig::new("/model.gguf")
-            .with_input_tokens(vec![1, 2, 3, 4]);
+        let config = InferenceConfig::new("/model.gguf").with_input_tokens(vec![1, 2, 3, 4]);
         assert_eq!(config.input_tokens, Some(vec![1, 2, 3, 4]));
         assert!(config.prompt.is_none()); // prompt not set
     }
 
     #[test]
     fn test_inference_config_with_trace() {
-        let config = InferenceConfig::new("/model.gguf")
-            .with_trace(true);
+        let config = InferenceConfig::new("/model.gguf").with_trace(true);
         assert!(config.trace);
         assert!(!config.trace_verbose);
     }
@@ -731,7 +734,8 @@ mod tests {
         let dir = std::env::temp_dir();
         let path = dir.join("invalid_format_model.bin");
         let mut file = std::fs::File::create(&path).expect("create file");
-        file.write_all(&[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]).expect("write");
+        file.write_all(&[0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+            .expect("write");
 
         let config = InferenceConfig::new(&path);
         let result = run_inference(&config);
@@ -787,15 +791,13 @@ mod tests {
 
     #[test]
     fn test_inference_config_with_trace_enabled() {
-        let config = InferenceConfig::new("/model.gguf")
-            .with_trace(true);
+        let config = InferenceConfig::new("/model.gguf").with_trace(true);
         assert!(config.trace);
     }
 
     #[test]
     fn test_inference_config_with_trace_disabled() {
-        let config = InferenceConfig::new("/model.gguf")
-            .with_trace(false);
+        let config = InferenceConfig::new("/model.gguf").with_trace(false);
         assert!(!config.trace);
     }
 
@@ -883,43 +885,37 @@ mod tests {
 
     #[test]
     fn test_inference_config_with_zero_temperature() {
-        let config = InferenceConfig::new("/model.gguf")
-            .with_temperature(0.0);
+        let config = InferenceConfig::new("/model.gguf").with_temperature(0.0);
         assert!((config.temperature - 0.0).abs() < f32::EPSILON);
     }
 
     #[test]
     fn test_inference_config_with_high_temperature() {
-        let config = InferenceConfig::new("/model.gguf")
-            .with_temperature(2.0);
+        let config = InferenceConfig::new("/model.gguf").with_temperature(2.0);
         assert!((config.temperature - 2.0).abs() < f32::EPSILON);
     }
 
     #[test]
     fn test_inference_config_with_zero_top_k() {
-        let config = InferenceConfig::new("/model.gguf")
-            .with_top_k(0);
+        let config = InferenceConfig::new("/model.gguf").with_top_k(0);
         assert_eq!(config.top_k, 0);
     }
 
     #[test]
     fn test_inference_config_with_large_top_k() {
-        let config = InferenceConfig::new("/model.gguf")
-            .with_top_k(1000);
+        let config = InferenceConfig::new("/model.gguf").with_top_k(1000);
         assert_eq!(config.top_k, 1000);
     }
 
     #[test]
     fn test_inference_config_with_zero_max_tokens() {
-        let config = InferenceConfig::new("/model.gguf")
-            .with_max_tokens(0);
+        let config = InferenceConfig::new("/model.gguf").with_max_tokens(0);
         assert_eq!(config.max_tokens, 0);
     }
 
     #[test]
     fn test_inference_config_with_large_max_tokens() {
-        let config = InferenceConfig::new("/model.gguf")
-            .with_max_tokens(4096);
+        let config = InferenceConfig::new("/model.gguf").with_max_tokens(4096);
         assert_eq!(config.max_tokens, 4096);
     }
 
@@ -981,61 +977,57 @@ mod tests {
 
     #[test]
     fn test_inference_config_input_tokens_clone_cov() {
-        let config = InferenceConfig::new("/m.gguf")
-            .with_input_tokens(vec![1, 2, 3, 4, 5]);
+        let config = InferenceConfig::new("/m.gguf").with_input_tokens(vec![1, 2, 3, 4, 5]);
         let cloned = config.clone();
         assert_eq!(config.input_tokens, cloned.input_tokens);
     }
 
     #[test]
     fn test_inference_config_empty_prompt_cov() {
-        let config = InferenceConfig::new("/model.gguf")
-            .with_prompt("");
+        let config = InferenceConfig::new("/model.gguf").with_prompt("");
         assert_eq!(config.prompt, Some("".to_string()));
     }
 
     #[test]
     fn test_inference_config_long_prompt_cov() {
         let long_prompt = "x".repeat(10000);
-        let config = InferenceConfig::new("/model.gguf")
-            .with_prompt(&long_prompt);
+        let config = InferenceConfig::new("/model.gguf").with_prompt(&long_prompt);
         assert_eq!(config.prompt, Some(long_prompt));
     }
 
     #[test]
     fn test_inference_config_empty_input_tokens_cov() {
-        let config = InferenceConfig::new("/model.gguf")
-            .with_input_tokens(vec![]);
+        let config = InferenceConfig::new("/model.gguf").with_input_tokens(vec![]);
         assert_eq!(config.input_tokens, Some(vec![]));
     }
 
     #[test]
     fn test_inference_config_large_input_tokens_cov() {
         let tokens: Vec<u32> = (0..1000).collect();
-        let config = InferenceConfig::new("/model.gguf")
-            .with_input_tokens(tokens.clone());
+        let config = InferenceConfig::new("/model.gguf").with_input_tokens(tokens.clone());
         assert_eq!(config.input_tokens, Some(tokens));
     }
 
     #[test]
     fn test_inference_config_negative_temperature_cov() {
         // Temperature can be set to any float, even negative
-        let config = InferenceConfig::new("/model.gguf")
-            .with_temperature(-1.0);
+        let config = InferenceConfig::new("/model.gguf").with_temperature(-1.0);
         assert!((config.temperature - (-1.0)).abs() < f32::EPSILON);
     }
 
     #[test]
     fn test_inference_config_verbose_false_cov() {
-        let config = InferenceConfig::new("/model.gguf")
-            .with_verbose(false);
+        let config = InferenceConfig::new("/model.gguf").with_verbose(false);
         assert!(!config.verbose);
     }
 
     #[test]
     fn test_inference_config_path_with_spaces_cov() {
         let config = InferenceConfig::new("/path/with spaces/model.gguf");
-        assert_eq!(config.model_path, PathBuf::from("/path/with spaces/model.gguf"));
+        assert_eq!(
+            config.model_path,
+            PathBuf::from("/path/with spaces/model.gguf")
+        );
     }
 
     #[test]
@@ -1439,8 +1431,8 @@ mod tests {
 
     #[test]
     fn test_inference_config_with_input_tokens_only_ext_cov() {
-        let config = InferenceConfig::new("/model.safetensors")
-            .with_input_tokens(vec![100, 200, 300, 400]);
+        let config =
+            InferenceConfig::new("/model.safetensors").with_input_tokens(vec![100, 200, 300, 400]);
 
         assert_eq!(config.input_tokens, Some(vec![100, 200, 300, 400]));
         assert!(config.prompt.is_none());
@@ -1448,10 +1440,8 @@ mod tests {
 
     #[test]
     fn test_inference_config_temperature_extremes_ext_cov() {
-        let cold_config = InferenceConfig::new("/model.gguf")
-            .with_temperature(0.0);
-        let hot_config = InferenceConfig::new("/model.gguf")
-            .with_temperature(2.0);
+        let cold_config = InferenceConfig::new("/model.gguf").with_temperature(0.0);
+        let hot_config = InferenceConfig::new("/model.gguf").with_temperature(2.0);
 
         assert!((cold_config.temperature - 0.0).abs() < f32::EPSILON);
         assert!((hot_config.temperature - 2.0).abs() < f32::EPSILON);
@@ -1679,21 +1669,19 @@ mod tests {
     fn test_architecture_detection_qwen_deep_icov() {
         // Test that "qwen" in filename is detected as "Qwen2"
         let path = PathBuf::from("/models/qwen2-7b-instruct-q4.gguf");
-        let arch = path.file_stem()
-            .and_then(|s| s.to_str())
-            .map(|s| {
-                if s.to_lowercase().contains("qwen") {
-                    "Qwen2"
-                } else if s.to_lowercase().contains("llama") {
-                    "LLaMA"
-                } else if s.to_lowercase().contains("mistral") {
-                    "Mistral"
-                } else if s.to_lowercase().contains("phi") {
-                    "Phi"
-                } else {
-                    "Transformer"
-                }
-            });
+        let arch = path.file_stem().and_then(|s| s.to_str()).map(|s| {
+            if s.to_lowercase().contains("qwen") {
+                "Qwen2"
+            } else if s.to_lowercase().contains("llama") {
+                "LLaMA"
+            } else if s.to_lowercase().contains("mistral") {
+                "Mistral"
+            } else if s.to_lowercase().contains("phi") {
+                "Phi"
+            } else {
+                "Transformer"
+            }
+        });
         assert_eq!(arch, Some("Qwen2"));
     }
 
@@ -1701,21 +1689,19 @@ mod tests {
     fn test_architecture_detection_llama_deep_icov() {
         // Test that "llama" in filename is detected as "LLaMA"
         let path = PathBuf::from("/models/llama-3.1-8b-instruct.gguf");
-        let arch = path.file_stem()
-            .and_then(|s| s.to_str())
-            .map(|s| {
-                if s.to_lowercase().contains("qwen") {
-                    "Qwen2"
-                } else if s.to_lowercase().contains("llama") {
-                    "LLaMA"
-                } else if s.to_lowercase().contains("mistral") {
-                    "Mistral"
-                } else if s.to_lowercase().contains("phi") {
-                    "Phi"
-                } else {
-                    "Transformer"
-                }
-            });
+        let arch = path.file_stem().and_then(|s| s.to_str()).map(|s| {
+            if s.to_lowercase().contains("qwen") {
+                "Qwen2"
+            } else if s.to_lowercase().contains("llama") {
+                "LLaMA"
+            } else if s.to_lowercase().contains("mistral") {
+                "Mistral"
+            } else if s.to_lowercase().contains("phi") {
+                "Phi"
+            } else {
+                "Transformer"
+            }
+        });
         assert_eq!(arch, Some("LLaMA"));
     }
 
@@ -1723,21 +1709,19 @@ mod tests {
     fn test_architecture_detection_mistral_deep_icov() {
         // Test that "mistral" in filename is detected as "Mistral"
         let path = PathBuf::from("/models/mistral-7b-v0.2-q4_k_m.gguf");
-        let arch = path.file_stem()
-            .and_then(|s| s.to_str())
-            .map(|s| {
-                if s.to_lowercase().contains("qwen") {
-                    "Qwen2"
-                } else if s.to_lowercase().contains("llama") {
-                    "LLaMA"
-                } else if s.to_lowercase().contains("mistral") {
-                    "Mistral"
-                } else if s.to_lowercase().contains("phi") {
-                    "Phi"
-                } else {
-                    "Transformer"
-                }
-            });
+        let arch = path.file_stem().and_then(|s| s.to_str()).map(|s| {
+            if s.to_lowercase().contains("qwen") {
+                "Qwen2"
+            } else if s.to_lowercase().contains("llama") {
+                "LLaMA"
+            } else if s.to_lowercase().contains("mistral") {
+                "Mistral"
+            } else if s.to_lowercase().contains("phi") {
+                "Phi"
+            } else {
+                "Transformer"
+            }
+        });
         assert_eq!(arch, Some("Mistral"));
     }
 
@@ -1745,21 +1729,19 @@ mod tests {
     fn test_architecture_detection_phi_deep_icov() {
         // Test that "phi" in filename is detected as "Phi"
         let path = PathBuf::from("/models/phi-2-q4_0.gguf");
-        let arch = path.file_stem()
-            .and_then(|s| s.to_str())
-            .map(|s| {
-                if s.to_lowercase().contains("qwen") {
-                    "Qwen2"
-                } else if s.to_lowercase().contains("llama") {
-                    "LLaMA"
-                } else if s.to_lowercase().contains("mistral") {
-                    "Mistral"
-                } else if s.to_lowercase().contains("phi") {
-                    "Phi"
-                } else {
-                    "Transformer"
-                }
-            });
+        let arch = path.file_stem().and_then(|s| s.to_str()).map(|s| {
+            if s.to_lowercase().contains("qwen") {
+                "Qwen2"
+            } else if s.to_lowercase().contains("llama") {
+                "LLaMA"
+            } else if s.to_lowercase().contains("mistral") {
+                "Mistral"
+            } else if s.to_lowercase().contains("phi") {
+                "Phi"
+            } else {
+                "Transformer"
+            }
+        });
         assert_eq!(arch, Some("Phi"));
     }
 
@@ -1767,21 +1749,19 @@ mod tests {
     fn test_architecture_detection_transformer_fallback_deep_icov() {
         // Test that unknown models fall back to "Transformer"
         let path = PathBuf::from("/models/custom-model-q8_0.gguf");
-        let arch = path.file_stem()
-            .and_then(|s| s.to_str())
-            .map(|s| {
-                if s.to_lowercase().contains("qwen") {
-                    "Qwen2"
-                } else if s.to_lowercase().contains("llama") {
-                    "LLaMA"
-                } else if s.to_lowercase().contains("mistral") {
-                    "Mistral"
-                } else if s.to_lowercase().contains("phi") {
-                    "Phi"
-                } else {
-                    "Transformer"
-                }
-            });
+        let arch = path.file_stem().and_then(|s| s.to_str()).map(|s| {
+            if s.to_lowercase().contains("qwen") {
+                "Qwen2"
+            } else if s.to_lowercase().contains("llama") {
+                "LLaMA"
+            } else if s.to_lowercase().contains("mistral") {
+                "Mistral"
+            } else if s.to_lowercase().contains("phi") {
+                "Phi"
+            } else {
+                "Transformer"
+            }
+        });
         assert_eq!(arch, Some("Transformer"));
     }
 
@@ -1797,21 +1777,19 @@ mod tests {
         ];
         for (path_str, expected) in paths {
             let path = PathBuf::from(path_str);
-            let arch = path.file_stem()
-                .and_then(|s| s.to_str())
-                .map(|s| {
-                    if s.to_lowercase().contains("qwen") {
-                        "Qwen2"
-                    } else if s.to_lowercase().contains("llama") {
-                        "LLaMA"
-                    } else if s.to_lowercase().contains("mistral") {
-                        "Mistral"
-                    } else if s.to_lowercase().contains("phi") {
-                        "Phi"
-                    } else {
-                        "Transformer"
-                    }
-                });
+            let arch = path.file_stem().and_then(|s| s.to_str()).map(|s| {
+                if s.to_lowercase().contains("qwen") {
+                    "Qwen2"
+                } else if s.to_lowercase().contains("llama") {
+                    "LLaMA"
+                } else if s.to_lowercase().contains("mistral") {
+                    "Mistral"
+                } else if s.to_lowercase().contains("phi") {
+                    "Phi"
+                } else {
+                    "Transformer"
+                }
+            });
             assert_eq!(arch, Some(expected), "Failed for path: {}", path_str);
         }
     }
@@ -1820,15 +1798,13 @@ mod tests {
     fn test_architecture_detection_no_extension_deep_icov() {
         // Test path with no extension
         let path = PathBuf::from("/models/qwen2-model");
-        let arch = path.file_stem()
-            .and_then(|s| s.to_str())
-            .map(|s| {
-                if s.to_lowercase().contains("qwen") {
-                    "Qwen2"
-                } else {
-                    "Transformer"
-                }
-            });
+        let arch = path.file_stem().and_then(|s| s.to_str()).map(|s| {
+            if s.to_lowercase().contains("qwen") {
+                "Qwen2"
+            } else {
+                "Transformer"
+            }
+        });
         assert_eq!(arch, Some("Qwen2"));
     }
 
@@ -1895,7 +1871,7 @@ mod tests {
         // Test with qwen model name (should use ChatML template)
         let result = format_messages(&messages, Some("qwen2-7b-instruct.gguf"));
         assert!(result.is_ok());
-        let formatted = result.unwrap();
+        let formatted = result.expect("operation failed");
         // ChatML format uses <|im_start|> markers
         assert!(formatted.contains("<|im_start|>") || formatted.contains("user"));
     }
@@ -1906,7 +1882,7 @@ mod tests {
         let messages = vec![ChatMessage::user("Hello!")];
         let result = format_messages(&messages, Some("llama-3.1-8b-instruct.gguf"));
         assert!(result.is_ok());
-        let formatted = result.unwrap();
+        let formatted = result.expect("operation failed");
         // LLaMA format uses [INST] markers
         assert!(formatted.contains("[INST]") || formatted.contains("user"));
     }
@@ -1946,8 +1922,7 @@ mod tests {
 
     #[test]
     fn test_input_tokens_none_uses_prompt_deep_icov() {
-        let config = InferenceConfig::new("/model.gguf")
-            .with_prompt("Hello");
+        let config = InferenceConfig::new("/model.gguf").with_prompt("Hello");
 
         // When input_tokens is None, prompt should be used (line 257)
         assert!(config.input_tokens.is_none());
@@ -1977,15 +1952,13 @@ mod tests {
 
     #[test]
     fn test_verbose_flag_enabled_deep_icov() {
-        let config = InferenceConfig::new("/model.gguf")
-            .with_verbose(true);
+        let config = InferenceConfig::new("/model.gguf").with_verbose(true);
         assert!(config.verbose);
     }
 
     #[test]
     fn test_verbose_flag_disabled_deep_icov() {
-        let config = InferenceConfig::new("/model.gguf")
-            .with_verbose(false);
+        let config = InferenceConfig::new("/model.gguf").with_verbose(false);
         assert!(!config.verbose);
     }
 
@@ -2000,30 +1973,21 @@ mod tests {
     #[test]
     fn test_model_name_extraction_from_path_deep_icov() {
         let path = PathBuf::from("/models/qwen2-7b-instruct.gguf");
-        let model_name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
+        let model_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         assert_eq!(model_name, "qwen2-7b-instruct.gguf");
     }
 
     #[test]
     fn test_model_name_extraction_no_parent_deep_icov() {
         let path = PathBuf::from("qwen2-7b.gguf");
-        let model_name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
+        let model_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         assert_eq!(model_name, "qwen2-7b.gguf");
     }
 
     #[test]
     fn test_model_name_extraction_empty_path_deep_icov() {
         let path = PathBuf::from("");
-        let model_name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
+        let model_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         assert_eq!(model_name, "");
     }
 
@@ -2093,24 +2057,21 @@ mod tests {
     #[test]
     fn test_max_tokens_capped_at_128_deep_icov() {
         // Test the .min(128) capping in gen_config (line 285)
-        let config = InferenceConfig::new("/model.gguf")
-            .with_max_tokens(1000);
+        let config = InferenceConfig::new("/model.gguf").with_max_tokens(1000);
         let capped = config.max_tokens.min(128);
         assert_eq!(capped, 128);
     }
 
     #[test]
     fn test_max_tokens_not_capped_if_under_128_deep_icov() {
-        let config = InferenceConfig::new("/model.gguf")
-            .with_max_tokens(50);
+        let config = InferenceConfig::new("/model.gguf").with_max_tokens(50);
         let capped = config.max_tokens.min(128);
         assert_eq!(capped, 50);
     }
 
     #[test]
     fn test_max_tokens_exactly_128_deep_icov() {
-        let config = InferenceConfig::new("/model.gguf")
-            .with_max_tokens(128);
+        let config = InferenceConfig::new("/model.gguf").with_max_tokens(128);
         let capped = config.max_tokens.min(128);
         assert_eq!(capped, 128);
     }
@@ -2205,17 +2166,15 @@ mod tests {
     fn test_architecture_detection_priority_qwen_over_llama_deep_icov() {
         // If filename contains both "qwen" and "llama", qwen should win (checked first)
         let path = PathBuf::from("/models/qwen-llama-hybrid.gguf");
-        let arch = path.file_stem()
-            .and_then(|s| s.to_str())
-            .map(|s| {
-                if s.to_lowercase().contains("qwen") {
-                    "Qwen2"
-                } else if s.to_lowercase().contains("llama") {
-                    "LLaMA"
-                } else {
-                    "Transformer"
-                }
-            });
+        let arch = path.file_stem().and_then(|s| s.to_str()).map(|s| {
+            if s.to_lowercase().contains("qwen") {
+                "Qwen2"
+            } else if s.to_lowercase().contains("llama") {
+                "LLaMA"
+            } else {
+                "Transformer"
+            }
+        });
         assert_eq!(arch, Some("Qwen2"));
     }
 
@@ -2223,19 +2182,17 @@ mod tests {
     fn test_architecture_detection_priority_llama_over_mistral_deep_icov() {
         // If filename contains both "llama" and "mistral", llama should win
         let path = PathBuf::from("/models/llama-mistral-blend.gguf");
-        let arch = path.file_stem()
-            .and_then(|s| s.to_str())
-            .map(|s| {
-                if s.to_lowercase().contains("qwen") {
-                    "Qwen2"
-                } else if s.to_lowercase().contains("llama") {
-                    "LLaMA"
-                } else if s.to_lowercase().contains("mistral") {
-                    "Mistral"
-                } else {
-                    "Transformer"
-                }
-            });
+        let arch = path.file_stem().and_then(|s| s.to_str()).map(|s| {
+            if s.to_lowercase().contains("qwen") {
+                "Qwen2"
+            } else if s.to_lowercase().contains("llama") {
+                "LLaMA"
+            } else if s.to_lowercase().contains("mistral") {
+                "Mistral"
+            } else {
+                "Transformer"
+            }
+        });
         assert_eq!(arch, Some("LLaMA"));
     }
 
@@ -2246,7 +2203,7 @@ mod tests {
         let path = PathBuf::from("/models/model-v1.0_final (copy).gguf");
         let stem = path.file_stem().and_then(|s| s.to_str());
         assert!(stem.is_some());
-        assert!(stem.unwrap().contains("model"));
+        assert!(stem.expect("operation failed").contains("model"));
     }
 
     #[test]
@@ -2379,13 +2336,13 @@ mod tests {
     #[test]
     fn test_inference_config_path_with_symlink_name_deep_icov() {
         let config = InferenceConfig::new("/models/latest -> llama-3.gguf");
-        assert!(config.model_path.to_str().unwrap().contains("latest"));
+        assert!(config.model_path.to_str().expect("invalid UTF-8").contains("latest"));
     }
 
     #[test]
     fn test_inference_config_relative_path_deep_icov() {
         let config = InferenceConfig::new("./models/model.gguf");
-        assert!(config.model_path.to_str().unwrap().contains("./"));
+        assert!(config.model_path.to_str().expect("invalid UTF-8").contains("./"));
     }
 
     #[test]
@@ -2405,14 +2362,14 @@ mod tests {
         use tempfile::NamedTempFile;
 
         // Create minimal valid GGUF file (no tensors - will fail on model load)
-        let mut temp = NamedTempFile::with_suffix(".gguf").unwrap();
+        let mut temp = NamedTempFile::with_suffix(".gguf").expect("file operation failed");
         let mut data = Vec::new();
         data.extend_from_slice(b"GGUF"); // magic
         data.extend_from_slice(&3u32.to_le_bytes()); // version 3
         data.extend_from_slice(&0u64.to_le_bytes()); // tensor_count = 0
         data.extend_from_slice(&0u64.to_le_bytes()); // metadata_count = 0
-        temp.write_all(&data).unwrap();
-        temp.flush().unwrap();
+        temp.write_all(&data).expect("operation failed");
+        temp.flush().expect("operation failed");
 
         let config = InferenceConfig::new(temp.path())
             .with_prompt("Hello")
@@ -2429,13 +2386,13 @@ mod tests {
         use tempfile::NamedTempFile;
 
         // Create minimal valid APR file header
-        let mut temp = NamedTempFile::with_suffix(".apr").unwrap();
+        let mut temp = NamedTempFile::with_suffix(".apr").expect("file operation failed");
         let mut data = Vec::new();
         // APR magic + minimal header
         data.extend_from_slice(b"APR\x02"); // APR v2 magic
         data.extend_from_slice(&[0u8; 60]); // Minimal header padding
-        temp.write_all(&data).unwrap();
-        temp.flush().unwrap();
+        temp.write_all(&data).expect("operation failed");
+        temp.flush().expect("operation failed");
 
         let config = InferenceConfig::new(temp.path())
             .with_prompt("Test")
@@ -2452,14 +2409,14 @@ mod tests {
         use tempfile::NamedTempFile;
 
         // Create minimal SafeTensors file (8-byte header size + empty JSON)
-        let mut temp = NamedTempFile::with_suffix(".safetensors").unwrap();
+        let mut temp = NamedTempFile::with_suffix(".safetensors").expect("file operation failed");
         let json_header = b"{}";
         let header_size = json_header.len() as u64;
         let mut data = Vec::new();
         data.extend_from_slice(&header_size.to_le_bytes());
         data.extend_from_slice(json_header);
-        temp.write_all(&data).unwrap();
-        temp.flush().unwrap();
+        temp.write_all(&data).expect("operation failed");
+        temp.flush().expect("operation failed");
 
         let config = InferenceConfig::new(temp.path())
             .with_prompt("Test")
@@ -2476,14 +2433,14 @@ mod tests {
         use tempfile::NamedTempFile;
 
         // Create minimal GGUF to test input_tokens path (instead of prompt)
-        let mut temp = NamedTempFile::with_suffix(".gguf").unwrap();
+        let mut temp = NamedTempFile::with_suffix(".gguf").expect("file operation failed");
         let mut data = Vec::new();
         data.extend_from_slice(b"GGUF");
         data.extend_from_slice(&3u32.to_le_bytes());
         data.extend_from_slice(&0u64.to_le_bytes());
         data.extend_from_slice(&0u64.to_le_bytes());
-        temp.write_all(&data).unwrap();
-        temp.flush().unwrap();
+        temp.write_all(&data).expect("operation failed");
+        temp.flush().expect("operation failed");
 
         // Use input_tokens instead of prompt
         let config = InferenceConfig::new(temp.path())

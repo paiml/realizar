@@ -1005,400 +1005,401 @@ pub fn validate_suite_name(suite_name: &str) -> bool {
 // ============================================================================
 #[cfg(feature = "server")]
 mod server_commands {
-    use super::*;
+    use super::{load_apr_model, load_safetensors_model, Result};
 
     /// Result of preparing server state (returned by `prepare_serve_state`)
     pub struct PreparedServer {
-    /// The prepared AppState for the server
-    pub state: crate::api::AppState,
-    /// Whether batch mode is enabled
-    pub batch_mode_enabled: bool,
-    /// Model type that was loaded
-    pub model_type: ModelType,
-}
-
-impl std::fmt::Debug for PreparedServer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PreparedServer")
-            .field("batch_mode_enabled", &self.batch_mode_enabled)
-            .field("model_type", &self.model_type)
-            .finish_non_exhaustive()
+        /// The prepared AppState for the server
+        pub state: crate::api::AppState,
+        /// Whether batch mode is enabled
+        pub batch_mode_enabled: bool,
+        /// Model type that was loaded
+        pub model_type: ModelType,
     }
-}
 
-/// Type of model being served
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ModelType {
-    /// GGUF quantized model
-    Gguf,
-    /// SafeTensors model
-    SafeTensors,
-    /// APR format model
-    Apr,
-}
-
-impl std::fmt::Display for ModelType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ModelType::Gguf => write!(f, "GGUF"),
-            ModelType::SafeTensors => write!(f, "SafeTensors"),
-            ModelType::Apr => write!(f, "APR"),
+    impl std::fmt::Debug for PreparedServer {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("PreparedServer")
+                .field("batch_mode_enabled", &self.batch_mode_enabled)
+                .field("model_type", &self.model_type)
+                .finish_non_exhaustive()
         }
     }
-}
 
-/// Prepare server state by loading a model (GGUF/SafeTensors/APR)
-///
-/// This function is extracted from `serve_model` for testability.
-/// It handles model loading and AppState creation without starting the server.
-///
-/// # Arguments
-/// * `model_path` - Path to model file (.gguf, .safetensors, or .apr)
-/// * `batch_mode` - Enable batch processing (requires 'gpu' feature)
-/// * `force_gpu` - Force CUDA backend (requires 'cuda' feature)
-///
-/// # Returns
-/// A `PreparedServer` containing the AppState and configuration
-pub fn prepare_serve_state(
-    model_path: &str,
-    batch_mode: bool,
-    force_gpu: bool,
-) -> Result<PreparedServer> {
-    use crate::gguf::MappedGGUFModel;
-
-    println!("Loading model from: {model_path}");
-    if batch_mode {
-        println!("Mode: BATCH (PARITY-093 M4 parity)");
-    } else {
-        println!("Mode: SINGLE-REQUEST");
+    /// Type of model being served
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum ModelType {
+        /// GGUF quantized model
+        Gguf,
+        /// SafeTensors model
+        SafeTensors,
+        /// APR format model
+        Apr,
     }
-    if force_gpu {
-        println!("GPU: FORCED (--gpu flag)");
-    }
-    println!();
 
-    if model_path.ends_with(".gguf") {
-        // Load GGUF model
-        println!("Parsing GGUF file...");
-        let mapped = MappedGGUFModel::from_path(model_path).map_err(|e| {
-            crate::error::RealizarError::UnsupportedOperation {
-                operation: "load_gguf".to_string(),
-                reason: format!("Failed to load GGUF: {e}"),
+    impl std::fmt::Display for ModelType {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                ModelType::Gguf => write!(f, "GGUF"),
+                ModelType::SafeTensors => write!(f, "SafeTensors"),
+                ModelType::Apr => write!(f, "APR"),
             }
-        })?;
+        }
+    }
 
-        println!("Successfully loaded GGUF model");
-        println!("  Tensors: {}", mapped.model.tensors.len());
-        println!("  Metadata: {} entries", mapped.model.metadata.len());
+    /// Prepare server state by loading a model (GGUF/SafeTensors/APR)
+    ///
+    /// This function is extracted from `serve_model` for testability.
+    /// It handles model loading and AppState creation without starting the server.
+    ///
+    /// # Arguments
+    /// * `model_path` - Path to model file (.gguf, .safetensors, or .apr)
+    /// * `batch_mode` - Enable batch processing (requires 'gpu' feature)
+    /// * `force_gpu` - Force CUDA backend (requires 'cuda' feature)
+    ///
+    /// # Returns
+    /// A `PreparedServer` containing the AppState and configuration
+    pub fn prepare_serve_state(
+        model_path: &str,
+        batch_mode: bool,
+        force_gpu: bool,
+    ) -> Result<PreparedServer> {
+        use crate::gguf::MappedGGUFModel;
+
+        println!("Loading model from: {model_path}");
+        if batch_mode {
+            println!("Mode: BATCH (PARITY-093 M4 parity)");
+        } else {
+            println!("Mode: SINGLE-REQUEST");
+        }
+        if force_gpu {
+            println!("GPU: FORCED (--gpu flag)");
+        }
         println!();
 
-        // IMP-100: Use OwnedQuantizedModel with fused Q4_K ops (1.37x faster for single-token)
-        println!("Creating quantized model (fused Q4_K ops)...");
-        let quantized_model =
-            crate::gguf::OwnedQuantizedModel::from_mapped(&mapped).map_err(|e| {
+        if model_path.ends_with(".gguf") {
+            // Load GGUF model
+            println!("Parsing GGUF file...");
+            let mapped = MappedGGUFModel::from_path(model_path).map_err(|e| {
                 crate::error::RealizarError::UnsupportedOperation {
-                    operation: "create_quantized".to_string(),
-                    reason: format!("Failed to create quantized model: {e}"),
+                    operation: "load_gguf".to_string(),
+                    reason: format!("Failed to load GGUF: {e}"),
                 }
             })?;
 
-        println!("Quantized model created successfully!");
-        println!("  Vocab size: {}", quantized_model.config.vocab_size);
-        println!("  Hidden dim: {}", quantized_model.config.hidden_dim);
-        println!("  Layers: {}", quantized_model.layers.len());
+            println!("Successfully loaded GGUF model");
+            println!("  Tensors: {}", mapped.model.tensors.len());
+            println!("  Metadata: {} entries", mapped.model.metadata.len());
+            println!();
 
-        // Extract vocabulary from GGUF for proper token decoding
-        let vocab = mapped.model.vocabulary().unwrap_or_else(|| {
-            eprintln!("  Warning: No vocabulary in GGUF, using placeholder tokens");
-            (0..quantized_model.config.vocab_size)
-                .map(|i| format!("token{i}"))
-                .collect()
-        });
-        println!("  Vocab loaded: {} tokens", vocab.len());
-        println!();
+            // IMP-100: Use OwnedQuantizedModel with fused Q4_K ops (1.37x faster for single-token)
+            println!("Creating quantized model (fused Q4_K ops)...");
+            let quantized_model =
+                crate::gguf::OwnedQuantizedModel::from_mapped(&mapped).map_err(|e| {
+                    crate::error::RealizarError::UnsupportedOperation {
+                        operation: "create_quantized".to_string(),
+                        reason: format!("Failed to create quantized model: {e}"),
+                    }
+                })?;
 
-        // PARITY-113: Enable CUDA backend via --gpu flag or REALIZAR_BACKEND environment variable
-        #[cfg(feature = "cuda")]
-        let use_cuda = force_gpu
-            || std::env::var("REALIZAR_BACKEND")
-                .map(|v| v.eq_ignore_ascii_case("cuda"))
-                .unwrap_or(false);
+            println!("Quantized model created successfully!");
+            println!("  Vocab size: {}", quantized_model.config.vocab_size);
+            println!("  Hidden dim: {}", quantized_model.config.hidden_dim);
+            println!("  Layers: {}", quantized_model.layers.len());
 
-        #[cfg(not(feature = "cuda"))]
-        let use_cuda = false;
+            // Extract vocabulary from GGUF for proper token decoding
+            let vocab = mapped.model.vocabulary().unwrap_or_else(|| {
+                eprintln!("  Warning: No vocabulary in GGUF, using placeholder tokens");
+                (0..quantized_model.config.vocab_size)
+                    .map(|i| format!("token{i}"))
+                    .collect()
+            });
+            println!("  Vocab loaded: {} tokens", vocab.len());
+            println!();
 
-        #[cfg(not(feature = "cuda"))]
-        if force_gpu {
-            eprintln!("Warning: --gpu flag requires 'cuda' feature. Falling back to CPU.");
-            eprintln!("Build with: cargo build --features cuda");
-            eprintln!();
-        }
-
-        // PARITY-093: Use cached model with batch support for M4 parity
-        // PAR-112-FIX: Use OwnedQuantizedModelCuda for true streaming support
-        let state = if use_cuda && !batch_mode {
-            // PAR-112-FIX: Create OwnedQuantizedModelCuda for true streaming
-            // This enables generate_gpu_resident_streaming which streams tokens as generated
+            // PARITY-113: Enable CUDA backend via --gpu flag or REALIZAR_BACKEND environment variable
             #[cfg(feature = "cuda")]
-            {
-                use crate::gguf::OwnedQuantizedModelCuda;
-
-                let source = if force_gpu {
-                    "--gpu flag"
-                } else {
-                    "REALIZAR_BACKEND=cuda"
-                };
-                println!("Creating CUDA model ({source})...");
-
-                let max_seq_len = 4096; // Support long sequences
-                let cuda_model = OwnedQuantizedModelCuda::with_max_seq_len(quantized_model, 0, max_seq_len)
-                    .map_err(|e| crate::error::RealizarError::UnsupportedOperation {
-                        operation: "cuda_model_create".to_string(),
-                        reason: format!("CUDA model creation failed: {e}"),
-                    })?;
-
-                println!("  CUDA model created on GPU: {}", cuda_model.device_name());
-                println!("  Max sequence length: {}", max_seq_len);
-                println!("  TRUE STREAMING: enabled (PAR-112)");
-                println!();
-
-                // Use with_cuda_model_and_vocab to enable true streaming path
-                crate::api::AppState::with_cuda_model_and_vocab(cuda_model, vocab)?
-            }
+            let use_cuda = force_gpu
+                || std::env::var("REALIZAR_BACKEND")
+                    .map(|v| v.eq_ignore_ascii_case("cuda"))
+                    .unwrap_or(false);
 
             #[cfg(not(feature = "cuda"))]
-            {
-                // This branch is unreachable since use_cuda is always false without cuda feature
-                crate::api::AppState::with_quantized_model_and_vocab(quantized_model, vocab)?
+            let use_cuda = false;
+
+            #[cfg(not(feature = "cuda"))]
+            if force_gpu {
+                eprintln!("Warning: --gpu flag requires 'cuda' feature. Falling back to CPU.");
+                eprintln!("Build with: cargo build --features cuda");
+                eprintln!();
             }
-        } else if batch_mode {
-            #[cfg(feature = "gpu")]
-            {
-                use crate::gguf::OwnedQuantizedModelCachedSync;
 
-                println!("Initializing batch inference mode (PARITY-093/094)...");
+            // PARITY-093: Use cached model with batch support for M4 parity
+            // PAR-112-FIX: Use OwnedQuantizedModelCuda for true streaming support
+            let state = if use_cuda && !batch_mode {
+                // PAR-112-FIX: Create OwnedQuantizedModelCuda for true streaming
+                // This enables generate_gpu_resident_streaming which streams tokens as generated
+                #[cfg(feature = "cuda")]
+                {
+                    use crate::gguf::OwnedQuantizedModelCuda;
 
-                // Create cached model for scheduler reuse (10.6x speedup - IMP-112)
-                let cached_model = OwnedQuantizedModelCachedSync::new(quantized_model);
+                    let source = if force_gpu {
+                        "--gpu flag"
+                    } else {
+                        "REALIZAR_BACKEND=cuda"
+                    };
+                    println!("Creating CUDA model ({source})...");
 
-                // PARITY-094: Warmup GPU cache for batch_generate_gpu
-                // This dequantizes FFN weights to GPU memory (~6GB for phi-2)
-                println!("  Warming up GPU cache (dequantizing FFN weights)...");
-                match cached_model.warmup_gpu_cache() {
-                    Ok((memory_bytes, num_layers)) => {
-                        println!(
-                            "  GPU cache ready: {:.2} GB ({} layers)",
-                            memory_bytes as f64 / 1e9,
-                            num_layers
-                        );
-                    },
-                    Err(e) => {
-                        eprintln!(
+                    let max_seq_len = 4096; // Support long sequences
+                    let cuda_model =
+                        OwnedQuantizedModelCuda::with_max_seq_len(quantized_model, 0, max_seq_len)
+                            .map_err(|e| crate::error::RealizarError::UnsupportedOperation {
+                                operation: "cuda_model_create".to_string(),
+                                reason: format!("CUDA model creation failed: {e}"),
+                            })?;
+
+                    println!("  CUDA model created on GPU: {}", cuda_model.device_name());
+                    println!("  Max sequence length: {}", max_seq_len);
+                    println!("  TRUE STREAMING: enabled (PAR-112)");
+                    println!();
+
+                    // Use with_cuda_model_and_vocab to enable true streaming path
+                    crate::api::AppState::with_cuda_model_and_vocab(cuda_model, vocab)?
+                }
+
+                #[cfg(not(feature = "cuda"))]
+                {
+                    // This branch is unreachable since use_cuda is always false without cuda feature
+                    crate::api::AppState::with_quantized_model_and_vocab(quantized_model, vocab)?
+                }
+            } else if batch_mode {
+                #[cfg(feature = "gpu")]
+                {
+                    use crate::gguf::OwnedQuantizedModelCachedSync;
+
+                    println!("Initializing batch inference mode (PARITY-093/094)...");
+
+                    // Create cached model for scheduler reuse (10.6x speedup - IMP-112)
+                    let cached_model = OwnedQuantizedModelCachedSync::new(quantized_model);
+
+                    // PARITY-094: Warmup GPU cache for batch_generate_gpu
+                    // This dequantizes FFN weights to GPU memory (~6GB for phi-2)
+                    println!("  Warming up GPU cache (dequantizing FFN weights)...");
+                    match cached_model.warmup_gpu_cache() {
+                        Ok((memory_bytes, num_layers)) => {
+                            println!(
+                                "  GPU cache ready: {:.2} GB ({} layers)",
+                                memory_bytes as f64 / 1e9,
+                                num_layers
+                            );
+                        },
+                        Err(e) => {
+                            eprintln!(
                             "  Warning: GPU cache warmup failed: {}. Falling back to CPU batch.",
                             e
                         );
-                    },
+                        },
+                    }
+
+                    // Create state first (this wraps model in Arc internally)
+                    let state =
+                        crate::api::AppState::with_cached_model_and_vocab(cached_model, vocab)?;
+
+                    // Get Arc'd model back for batch processor
+                    let cached_model_arc = state
+                        .cached_model()
+                        .expect("cached_model should exist")
+                        .clone();
+
+                    // Configure batch processing (PARITY-095: aligned thresholds)
+                    let batch_config = crate::api::BatchConfig::default();
+                    println!("  Batch window: {}ms", batch_config.window_ms);
+                    println!("  Min batch size: {}", batch_config.min_batch);
+                    println!("  Optimal batch: {}", batch_config.optimal_batch);
+                    println!("  Max batch size: {}", batch_config.max_batch);
+                    println!(
+                        "  GPU threshold: {} (GPU GEMM for batch >= this)",
+                        batch_config.gpu_threshold
+                    );
+
+                    // Spawn batch processor task
+                    let batch_tx =
+                        crate::api::spawn_batch_processor(cached_model_arc, batch_config.clone());
+
+                    println!("  Batch processor: RUNNING");
+                    println!();
+
+                    // Add batch support to state
+                    state.with_batch_config(batch_tx, batch_config)
                 }
 
-                // Create state first (this wraps model in Arc internally)
-                let state = crate::api::AppState::with_cached_model_and_vocab(cached_model, vocab)?;
-
-                // Get Arc'd model back for batch processor
-                let cached_model_arc = state
-                    .cached_model()
-                    .expect("cached_model should exist")
-                    .clone();
-
-                // Configure batch processing (PARITY-095: aligned thresholds)
-                let batch_config = crate::api::BatchConfig::default();
-                println!("  Batch window: {}ms", batch_config.window_ms);
-                println!("  Min batch size: {}", batch_config.min_batch);
-                println!("  Optimal batch: {}", batch_config.optimal_batch);
-                println!("  Max batch size: {}", batch_config.max_batch);
-                println!(
-                    "  GPU threshold: {} (GPU GEMM for batch >= this)",
-                    batch_config.gpu_threshold
-                );
-
-                // Spawn batch processor task
-                let batch_tx = crate::api::spawn_batch_processor(
-                    cached_model_arc,
-                    batch_config.clone(),
-                );
-
-                println!("  Batch processor: RUNNING");
-                println!();
-
-                // Add batch support to state
-                state.with_batch_config(batch_tx, batch_config)
-            }
-
-            #[cfg(not(feature = "gpu"))]
-            {
-                eprintln!(
+                #[cfg(not(feature = "gpu"))]
+                {
+                    eprintln!(
                     "Warning: --batch requires 'gpu' feature. Falling back to single-request mode."
                 );
+                    crate::api::AppState::with_quantized_model_and_vocab(quantized_model, vocab)?
+                }
+            } else {
+                // CPU mode: Use quantized model for serving (fused CPU ops are faster for m=1)
                 crate::api::AppState::with_quantized_model_and_vocab(quantized_model, vocab)?
-            }
+            };
+
+            Ok(PreparedServer {
+                state,
+                batch_mode_enabled: batch_mode,
+                model_type: ModelType::Gguf,
+            })
+        } else if model_path.ends_with(".safetensors") {
+            let file_data = std::fs::read(model_path).map_err(|e| {
+                crate::error::RealizarError::UnsupportedOperation {
+                    operation: "read_model_file".to_string(),
+                    reason: format!("Failed to read {model_path}: {e}"),
+                }
+            })?;
+            load_safetensors_model(&file_data)?;
+            // SafeTensors models use demo state for now (TODO: implement full SafeTensors serving)
+            Ok(PreparedServer {
+                state: crate::api::AppState::demo()?,
+                batch_mode_enabled: false,
+                model_type: ModelType::SafeTensors,
+            })
+        } else if model_path.ends_with(".apr") {
+            let file_data = std::fs::read(model_path).map_err(|e| {
+                crate::error::RealizarError::UnsupportedOperation {
+                    operation: "read_model_file".to_string(),
+                    reason: format!("Failed to read {model_path}: {e}"),
+                }
+            })?;
+            load_apr_model(&file_data)?;
+            // APR models use demo state for now (TODO: implement full APR serving)
+            Ok(PreparedServer {
+                state: crate::api::AppState::demo()?,
+                batch_mode_enabled: false,
+                model_type: ModelType::Apr,
+            })
         } else {
-            // CPU mode: Use quantized model for serving (fused CPU ops are faster for m=1)
-            crate::api::AppState::with_quantized_model_and_vocab(quantized_model, vocab)?
-        };
-
-        Ok(PreparedServer {
-            state,
-            batch_mode_enabled: batch_mode,
-            model_type: ModelType::Gguf,
-        })
-    } else if model_path.ends_with(".safetensors") {
-        let file_data = std::fs::read(model_path).map_err(|e| {
-            crate::error::RealizarError::UnsupportedOperation {
-                operation: "read_model_file".to_string(),
-                reason: format!("Failed to read {model_path}: {e}"),
-            }
-        })?;
-        load_safetensors_model(&file_data)?;
-        // SafeTensors models use demo state for now (TODO: implement full SafeTensors serving)
-        Ok(PreparedServer {
-            state: crate::api::AppState::demo()?,
-            batch_mode_enabled: false,
-            model_type: ModelType::SafeTensors,
-        })
-    } else if model_path.ends_with(".apr") {
-        let file_data = std::fs::read(model_path).map_err(|e| {
-            crate::error::RealizarError::UnsupportedOperation {
-                operation: "read_model_file".to_string(),
-                reason: format!("Failed to read {model_path}: {e}"),
-            }
-        })?;
-        load_apr_model(&file_data)?;
-        // APR models use demo state for now (TODO: implement full APR serving)
-        Ok(PreparedServer {
-            state: crate::api::AppState::demo()?,
-            batch_mode_enabled: false,
-            model_type: ModelType::Apr,
-        })
-    } else {
-        Err(crate::error::RealizarError::UnsupportedOperation {
-            operation: "detect_model_type".to_string(),
-            reason: "Unsupported file extension. Expected .gguf, .safetensors, or .apr".to_string(),
-        })
-    }
-}
-
-/// Serve a GGUF/SafeTensors/APR model via HTTP API
-///
-/// This function was extracted from main.rs (PAR-112-FIX) to enable:
-/// 1. Unit testing of server initialization logic
-/// 2. Coverage measurement (main.rs was at 3.66%)
-/// 3. Reuse from other entry points
-///
-/// # Arguments
-/// * `host` - Host to bind to (e.g., "0.0.0.0")
-/// * `port` - Port to listen on
-/// * `model_path` - Path to model file (.gguf, .safetensors, or .apr)
-/// * `batch_mode` - Enable batch processing (requires 'gpu' feature)
-/// * `force_gpu` - Force CUDA backend (requires 'cuda' feature)
-pub async fn serve_model(
-    host: &str,
-    port: u16,
-    model_path: &str,
-    batch_mode: bool,
-    force_gpu: bool,
-) -> Result<()> {
-    // Prepare server state (testable)
-    let prepared = prepare_serve_state(model_path, batch_mode, force_gpu)?;
-
-    // Create router
-    let app = crate::api::create_router(prepared.state);
-
-    // Parse and validate address
-    let addr: std::net::SocketAddr = format!("{host}:{port}").parse().map_err(|e| {
-        crate::error::RealizarError::InvalidShape {
-            reason: format!("Invalid address: {e}"),
+            Err(crate::error::RealizarError::UnsupportedOperation {
+                operation: "detect_model_type".to_string(),
+                reason: "Unsupported file extension. Expected .gguf, .safetensors, or .apr"
+                    .to_string(),
+            })
         }
-    })?;
-
-    // Print server info
-    println!("Server listening on http://{addr}");
-    println!();
-    println!("Endpoints:");
-    println!("  GET  /health         - Health check");
-    println!("  POST /v1/completions - OpenAI-compatible completions");
-    if prepared.batch_mode_enabled {
-        println!("  POST /v1/batch/completions - GPU batch completions (PARITY-022)");
-        println!("  POST /v1/gpu/warmup  - Warmup GPU cache");
-        println!("  GET  /v1/gpu/status  - GPU status");
     }
-    println!("  POST /generate       - Generate text (Q4_K fused)");
-    println!();
 
-    if prepared.batch_mode_enabled {
-        println!("M4 Parity Target: 192 tok/s at concurrency >= 4");
-        println!("Benchmark with: wrk -t4 -c4 -d30s http://{addr}/v1/completions");
+    /// Serve a GGUF/SafeTensors/APR model via HTTP API
+    ///
+    /// This function was extracted from main.rs (PAR-112-FIX) to enable:
+    /// 1. Unit testing of server initialization logic
+    /// 2. Coverage measurement (main.rs was at 3.66%)
+    /// 3. Reuse from other entry points
+    ///
+    /// # Arguments
+    /// * `host` - Host to bind to (e.g., "0.0.0.0")
+    /// * `port` - Port to listen on
+    /// * `model_path` - Path to model file (.gguf, .safetensors, or .apr)
+    /// * `batch_mode` - Enable batch processing (requires 'gpu' feature)
+    /// * `force_gpu` - Force CUDA backend (requires 'cuda' feature)
+    pub async fn serve_model(
+        host: &str,
+        port: u16,
+        model_path: &str,
+        batch_mode: bool,
+        force_gpu: bool,
+    ) -> Result<()> {
+        // Prepare server state (testable)
+        let prepared = prepare_serve_state(model_path, batch_mode, force_gpu)?;
+
+        // Create router
+        let app = crate::api::create_router(prepared.state);
+
+        // Parse and validate address
+        let addr: std::net::SocketAddr = format!("{host}:{port}").parse().map_err(|e| {
+            crate::error::RealizarError::InvalidShape {
+                reason: format!("Invalid address: {e}"),
+            }
+        })?;
+
+        // Print server info
+        println!("Server listening on http://{addr}");
         println!();
-    }
-
-    // Bind and serve
-    let listener = tokio::net::TcpListener::bind(addr).await.map_err(|e| {
-        crate::error::RealizarError::UnsupportedOperation {
-            operation: "bind".to_string(),
-            reason: format!("Failed to bind: {e}"),
+        println!("Endpoints:");
+        println!("  GET  /health         - Health check");
+        println!("  POST /v1/completions - OpenAI-compatible completions");
+        if prepared.batch_mode_enabled {
+            println!("  POST /v1/batch/completions - GPU batch completions (PARITY-022)");
+            println!("  POST /v1/gpu/warmup  - Warmup GPU cache");
+            println!("  GET  /v1/gpu/status  - GPU status");
         }
-    })?;
+        println!("  POST /generate       - Generate text (Q4_K fused)");
+        println!();
 
-    axum::serve(listener, app).await.map_err(|e| {
-        crate::error::RealizarError::UnsupportedOperation {
-            operation: "serve".to_string(),
-            reason: format!("Server error: {e}"),
+        if prepared.batch_mode_enabled {
+            println!("M4 Parity Target: 192 tok/s at concurrency >= 4");
+            println!("Benchmark with: wrk -t4 -c4 -d30s http://{addr}/v1/completions");
+            println!();
         }
-    })?;
 
-    Ok(())
-}
-
-/// Start a demo inference server (no model required)
-///
-/// This is useful for testing the API without loading a real model.
-pub async fn serve_demo(host: &str, port: u16) -> Result<()> {
-    use std::net::SocketAddr;
-
-    println!("Starting Realizar inference server (demo mode)...");
-
-    let state = crate::api::AppState::demo()?;
-    let app = crate::api::create_router(state);
-
-    let addr: SocketAddr = format!("{host}:{port}").parse().map_err(|e| {
-        crate::error::RealizarError::InvalidShape {
-            reason: format!("Invalid address: {e}"),
-        }
-    })?;
-
-    println!("Server listening on http://{addr}");
-    println!();
-    println!("Endpoints:");
-    println!("  GET  /health   - Health check");
-    println!("  POST /tokenize - Tokenize text");
-    println!("  POST /generate - Generate text");
-    println!();
-    println!("Example:");
-    println!("  curl http://{addr}/health");
-    println!();
-
-    let listener = tokio::net::TcpListener::bind(addr).await.map_err(|e| {
-        crate::error::RealizarError::InvalidShape {
-            reason: format!("Failed to bind: {e}"),
-        }
-    })?;
-
-    axum::serve(listener, app)
-        .await
-        .map_err(|e| crate::error::RealizarError::InvalidShape {
-            reason: format!("Server error: {e}"),
+        // Bind and serve
+        let listener = tokio::net::TcpListener::bind(addr).await.map_err(|e| {
+            crate::error::RealizarError::UnsupportedOperation {
+                operation: "bind".to_string(),
+                reason: format!("Failed to bind: {e}"),
+            }
         })?;
 
-    Ok(())
-}
+        axum::serve(listener, app).await.map_err(|e| {
+            crate::error::RealizarError::UnsupportedOperation {
+                operation: "serve".to_string(),
+                reason: format!("Server error: {e}"),
+            }
+        })?;
+
+        Ok(())
+    }
+
+    /// Start a demo inference server (no model required)
+    ///
+    /// This is useful for testing the API without loading a real model.
+    pub async fn serve_demo(host: &str, port: u16) -> Result<()> {
+        use std::net::SocketAddr;
+
+        println!("Starting Realizar inference server (demo mode)...");
+
+        let state = crate::api::AppState::demo()?;
+        let app = crate::api::create_router(state);
+
+        let addr: SocketAddr = format!("{host}:{port}").parse().map_err(|e| {
+            crate::error::RealizarError::InvalidShape {
+                reason: format!("Invalid address: {e}"),
+            }
+        })?;
+
+        println!("Server listening on http://{addr}");
+        println!();
+        println!("Endpoints:");
+        println!("  GET  /health   - Health check");
+        println!("  POST /tokenize - Tokenize text");
+        println!("  POST /generate - Generate text");
+        println!();
+        println!("Example:");
+        println!("  curl http://{addr}/health");
+        println!();
+
+        let listener = tokio::net::TcpListener::bind(addr).await.map_err(|e| {
+            crate::error::RealizarError::InvalidShape {
+                reason: format!("Failed to bind: {e}"),
+            }
+        })?;
+
+        axum::serve(listener, app).await.map_err(|e| {
+            crate::error::RealizarError::InvalidShape {
+                reason: format!("Server error: {e}"),
+            }
+        })?;
+
+        Ok(())
+    }
 } // mod server_commands
 
 #[cfg(feature = "server")]
@@ -2308,13 +2309,17 @@ test benchmark_bar ... bench:         750 ns/iter (+/- 30)
 
     #[test]
     fn test_benchmark_suites_tensor_ops_exists_cov() {
-        let found = BENCHMARK_SUITES.iter().any(|(name, _)| *name == "tensor_ops");
+        let found = BENCHMARK_SUITES
+            .iter()
+            .any(|(name, _)| *name == "tensor_ops");
         assert!(found);
     }
 
     #[test]
     fn test_benchmark_suites_inference_exists_cov() {
-        let found = BENCHMARK_SUITES.iter().any(|(name, _)| *name == "inference");
+        let found = BENCHMARK_SUITES
+            .iter()
+            .any(|(name, _)| *name == "inference");
         assert!(found);
     }
 
@@ -2332,7 +2337,9 @@ test benchmark_bar ... bench:         750 ns/iter (+/- 30)
 
     #[test]
     fn test_benchmark_suites_comparative_exists_cov() {
-        let found = BENCHMARK_SUITES.iter().any(|(name, _)| *name == "comparative");
+        let found = BENCHMARK_SUITES
+            .iter()
+            .any(|(name, _)| *name == "comparative");
         assert!(found);
     }
 
@@ -2894,8 +2901,7 @@ test benchmark_bar ... bench:         750 ns/iter (+/- 30)
 
     #[test]
     fn test_deep_clicov_run_external_benchmark_with_model() {
-        let result =
-            run_external_benchmark("vllm", "http://localhost:8000", Some("llama3"), None);
+        let result = run_external_benchmark("vllm", "http://localhost:8000", Some("llama3"), None);
         assert!(result.is_err());
     }
 
@@ -3046,9 +3052,7 @@ test benchmark_bar ... bench:         750 ns/iter (+/- 30)
 
     #[test]
     fn test_deep_clicov_benchmark_suites_quantize_exists() {
-        let found = BENCHMARK_SUITES
-            .iter()
-            .any(|(name, _)| *name == "quantize");
+        let found = BENCHMARK_SUITES.iter().any(|(name, _)| *name == "quantize");
         assert!(found);
     }
 
@@ -3165,13 +3169,13 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
         let result = run_convoy_test(
             Some("test_runtime".to_string()),
             Some("test_model.gguf".to_string()),
-            Some(output.to_str().unwrap().to_string()),
+            Some(output.to_str().expect("invalid UTF-8").to_string()),
         );
         assert!(result.is_ok());
 
         // Verify file was created and contains valid JSON
         assert!(output.exists());
-        let content = fs::read_to_string(&output).unwrap();
+        let content = fs::read_to_string(&output).expect("file operation failed");
         assert!(content.contains("baseline"));
         assert!(content.contains("convoy"));
 
@@ -3187,13 +3191,13 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
         let result = run_saturation_test(
             Some("test_runtime".to_string()),
             Some("test_model.gguf".to_string()),
-            Some(output.to_str().unwrap().to_string()),
+            Some(output.to_str().expect("invalid UTF-8").to_string()),
         );
         assert!(result.is_ok());
 
         // Verify file was created
         assert!(output.exists());
-        let content = fs::read_to_string(&output).unwrap();
+        let content = fs::read_to_string(&output).expect("file operation failed");
         assert!(content.contains("throughput"));
 
         let _ = fs::remove_file(&output);
@@ -3209,18 +3213,14 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
         let file2 = dir.join("deep_clicov_invalid2.json");
 
         // Write invalid JSON to file1
-        let mut f1 = File::create(&file1).unwrap();
-        f1.write_all(b"not valid json").unwrap();
+        let mut f1 = File::create(&file1).expect("file operation failed");
+        f1.write_all(b"not valid json").expect("operation failed");
 
         // Write valid but empty JSON to file2
-        let mut f2 = File::create(&file2).unwrap();
-        f2.write_all(b"{}").unwrap();
+        let mut f2 = File::create(&file2).expect("file operation failed");
+        f2.write_all(b"{}").expect("operation failed");
 
-        let result = run_bench_compare(
-            file1.to_str().unwrap(),
-            file2.to_str().unwrap(),
-            5.0,
-        );
+        let result = run_bench_compare(file1.to_str().expect("file operation failed"), file2.to_str().expect("file operation failed"), 5.0);
 
         let _ = std::fs::remove_file(&file1);
         let _ = std::fs::remove_file(&file2);
@@ -3238,15 +3238,15 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
         let current = dir.join("deep_clicov_current.json");
 
         // Write minimal valid JSON
-        let mut f1 = File::create(&baseline).unwrap();
-        f1.write_all(b"{}").unwrap();
+        let mut f1 = File::create(&baseline).expect("file operation failed");
+        f1.write_all(b"{}").expect("operation failed");
 
-        let mut f2 = File::create(&current).unwrap();
-        f2.write_all(b"{}").unwrap();
+        let mut f2 = File::create(&current).expect("file operation failed");
+        f2.write_all(b"{}").expect("operation failed");
 
         let result = run_bench_regression(
-            baseline.to_str().unwrap(),
-            current.to_str().unwrap(),
+            baseline.to_str().expect("invalid UTF-8"),
+            current.to_str().expect("invalid UTF-8"),
             true, // strict mode
         );
 
@@ -3377,13 +3377,18 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
     #[tokio::test]
     async fn test_serve_model_nonexistent_safetensors() {
         // Test that nonexistent SafeTensors file returns error
-        let result =
-            serve_model("127.0.0.1", 8080, "/nonexistent/model.safetensors", false, false).await;
+        let result = serve_model(
+            "127.0.0.1",
+            8080,
+            "/nonexistent/model.safetensors",
+            false,
+            false,
+        )
+        .await;
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
-            err.to_string().contains("Failed to read")
-                || err.to_string().contains("No such file")
+            err.to_string().contains("Failed to read") || err.to_string().contains("No such file")
         );
     }
 
@@ -3394,8 +3399,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
-            err.to_string().contains("Failed to read")
-                || err.to_string().contains("No such file")
+            err.to_string().contains("Failed to read") || err.to_string().contains("No such file")
         );
     }
 
@@ -3584,8 +3588,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
-            err.to_string().contains("Failed to read")
-                || err.to_string().contains("No such file")
+            err.to_string().contains("Failed to read") || err.to_string().contains("No such file")
         );
     }
 
@@ -3596,8 +3599,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
-            err.to_string().contains("Failed to read")
-                || err.to_string().contains("No such file")
+            err.to_string().contains("Failed to read") || err.to_string().contains("No such file")
         );
     }
 
@@ -3692,9 +3694,13 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
             .expect("No test model file found. Run tests with a valid GGUF model.");
 
         let result = prepare_serve_state(model_path, false, false);
-        assert!(result.is_ok(), "prepare_serve_state failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "prepare_serve_state failed: {:?}",
+            result.err()
+        );
 
-        let prepared = result.unwrap();
+        let prepared = result.expect("operation failed");
         assert_eq!(prepared.model_type, ModelType::Gguf);
         assert!(!prepared.batch_mode_enabled);
         // State should have a quantized model
@@ -3717,9 +3723,13 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
 
         // Batch mode requires Tokio runtime for spawn_batch_processor
         let result = prepare_serve_state(model_path, true, false);
-        assert!(result.is_ok(), "prepare_serve_state failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "prepare_serve_state failed: {:?}",
+            result.err()
+        );
 
-        let prepared = result.unwrap();
+        let prepared = result.expect("operation failed");
         assert_eq!(prepared.model_type, ModelType::Gguf);
         // batch_mode_enabled is true since we enabled it and gpu feature is available
         assert!(prepared.batch_mode_enabled);
@@ -3752,7 +3762,10 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 None
             };
 
-            assert_eq!(actual, expected_ext, "Extension detection failed for {path}");
+            assert_eq!(
+                actual, expected_ext,
+                "Extension detection failed for {path}"
+            );
         }
     }
 
@@ -3790,11 +3803,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
     #[test]
     fn test_serve_model_address_formats() {
         // Test various IPv4 address format combinations
-        let ipv4_cases = vec![
-            ("127.0.0.1", 8080),
-            ("0.0.0.0", 3000),
-            ("192.168.1.1", 80),
-        ];
+        let ipv4_cases = vec![("127.0.0.1", 8080), ("0.0.0.0", 3000), ("192.168.1.1", 80)];
 
         for (host, port) in ipv4_cases {
             let addr_str = format!("{}:{}", host, port);
