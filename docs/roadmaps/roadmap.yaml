@@ -4001,3 +4001,19 @@ roadmap:
   estimated_effort: null
   labels: []
   notes: null
+- id: Enable cuda,heavy-tests features in coverage target for 95% coverage
+  github_issue: null
+  item_type: task
+  title: 'New task: Enable cuda,heavy-tests features in coverage target for 95% coverage'
+  status: inprogress
+  priority: medium
+  assigned_to: null
+  created: 2026-01-21T09:01:05.298976136+00:00
+  updated: 2026-01-21T09:01:05.298976136+00:00
+  spec: null
+  acceptance_criteria: []
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels: []
+  notes: null

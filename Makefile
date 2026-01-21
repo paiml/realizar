@@ -147,12 +147,13 @@ COV_EXCLUDE := --ignore-filename-regex='(tui\.rs|bench_viz\.rs|viz\.rs)'
 coverage: ## Generate HTML coverage report (target: >95%, memory-efficient)
 	@echo "$(GREEN)📊 Running coverage analysis (target: >95%)...$(NC)"
 	@echo "   - Uses 'cargo test' (1 profraw/binary) NOT 'nextest' (1 profraw/test)"
+	@echo "   - Features: cuda,heavy-tests (for maximum coverage)"
 	@which cargo-llvm-cov > /dev/null 2>&1 || (echo "$(YELLOW)📦 Installing cargo-llvm-cov...$(NC)" && cargo install cargo-llvm-cov --locked)
 	@mkdir -p target/coverage
 	@cargo llvm-cov clean --workspace
 	@echo "$(GREEN)🧪 Running tests with instrumentation (PROPTEST_CASES=5)...$(NC)"
 	@env RUSTFLAGS="" CARGO_BUILD_RUSTFLAGS="" PROPTEST_CASES=5 QUICKCHECK_TESTS=5 \
-		cargo llvm-cov test --lib --no-report $(COV_EXCLUDE) \
+		cargo llvm-cov test --lib --features "cuda,heavy-tests" --no-report $(COV_EXCLUDE) \
 		-- --test-threads=4 2>&1 | tail -30
 	@echo "$(GREEN)📊 Generating reports...$(NC)"
 	@cargo llvm-cov report --html --output-dir target/coverage/html $(COV_EXCLUDE)
