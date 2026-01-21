@@ -2041,4 +2041,122 @@ mod tests {
         // Should contain event type in output
         assert!(json.contains("TOKENIZE") || json.contains("events"));
     }
+
+    // =========================================================================
+    // Additional Coverage Tests (95% push)
+    // =========================================================================
+
+    #[test]
+    fn test_write_output_to_file() {
+        use std::fs;
+        use std::path::PathBuf;
+        let path = std::env::temp_dir().join("trace_test_output.json");
+
+        let config = TraceConfig {
+            enabled: true,
+            steps: HashSet::new(),
+            verbose: false,
+            output: Some(PathBuf::from(&path)),
+        };
+
+        let mut tracer = InferenceTracer::new(config);
+        tracer.start_step(TraceStep::Tokenize);
+        tracer.trace_encode("test", &[1, 2], 100);
+
+        tracer.write_output().expect("write output");
+
+        // Verify file was created and contains JSON
+        assert!(path.exists());
+        let content = fs::read_to_string(&path).expect("read");
+        assert!(content.contains("events"));
+
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_write_output_text_mode() {
+        // Text mode (no output path) writes to stderr
+        let config = TraceConfig::enabled();
+        let mut tracer = InferenceTracer::new(config);
+
+        tracer.start_step(TraceStep::Embed);
+        tracer.trace_embed(3, 4, Some(&[0.1, 0.2]));
+
+        // This should not panic
+        tracer.write_output().expect("write output");
+    }
+
+    #[test]
+    fn test_set_model_info() {
+        let config = TraceConfig::enabled();
+        let mut tracer = InferenceTracer::new(config);
+
+        let info = ModelInfo {
+            name: "TestModel".to_string(),
+            num_layers: 12,
+            hidden_dim: 768,
+            vocab_size: 50000,
+            num_heads: 12,
+            quant_type: Some("Q4_K_M".to_string()),
+        };
+        tracer.set_model_info(info);
+
+        // Model info should affect JSON output
+        let json = tracer.to_json();
+        assert!(json.contains("TestModel"));
+    }
+
+    #[test]
+    fn test_is_verbose() {
+        let mut config = TraceConfig::enabled();
+        config.verbose = true;
+        let tracer = InferenceTracer::new(config);
+        assert!(tracer.is_verbose());
+
+        let config2 = TraceConfig::enabled();
+        let tracer2 = InferenceTracer::new(config2);
+        assert!(!tracer2.is_verbose());
+    }
+
+    #[test]
+    fn test_trace_config_enabled_steps() {
+        let config = TraceConfig::enabled();
+        // All steps should be traced when enabled
+        assert!(config.should_trace(TraceStep::Tokenize));
+        assert!(config.should_trace(TraceStep::Embed));
+        assert!(config.should_trace(TraceStep::TransformerBlock));
+        assert!(config.should_trace(TraceStep::LmHead));
+        assert!(config.should_trace(TraceStep::Sample));
+        assert!(config.should_trace(TraceStep::Decode));
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn test_trace_step_legacy_names() {
+        // legacy_name returns uppercase
+        assert_eq!(TraceStep::Tokenize.legacy_name(), "ENCODE");
+        assert_eq!(TraceStep::Embed.legacy_name(), "EMBED");
+        assert_eq!(TraceStep::TransformerBlock.legacy_name(), "TRANSFORMER");
+        assert_eq!(TraceStep::LmHead.legacy_name(), "LM_HEAD");
+        assert_eq!(TraceStep::Sample.legacy_name(), "SAMPLE");
+        assert_eq!(TraceStep::Decode.legacy_name(), "DECODE");
+    }
+
+    #[test]
+    fn test_record_execution_failed() {
+        let config = TraceConfig::enabled();
+        let mut tracer = InferenceTracer::new(config);
+
+        tracer.record_execution_failed("Token overflow", "ID 50001 > vocab 50000");
+
+        assert_eq!(tracer.error_count(), 1);
+        let events = tracer.events();
+        assert!(!events.is_empty());
+
+        // Should have ExecutionFailed event type
+        let has_failed = events
+            .iter()
+            .any(|e| e.event_type == AwsEventType::ExecutionFailed);
+        assert!(has_failed);
+    }
 }

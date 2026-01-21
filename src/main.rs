@@ -14,7 +14,6 @@
 //! - `viz` - Visualize benchmark results
 //! - `info` - Show version info
 
-use std::net::SocketAddr;
 
 use clap::{Parser, Subcommand};
 #[cfg(feature = "registry")]
@@ -22,7 +21,6 @@ use pacha::resolver::{ModelResolver, ModelSource};
 #[cfg(feature = "registry")]
 use pacha::uri::ModelUri;
 use realizar::{
-    api::{create_router, AppState},
     cli,
     error::Result,
 };
