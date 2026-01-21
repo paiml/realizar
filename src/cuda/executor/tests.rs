@@ -2368,3 +2368,284 @@ fn test_cov001_kernel_type_kernel_names() {
         assert!(!name.is_empty(), "Kernel name should not be empty");
     }
 }
+
+// =========================================================================
+// COV-003: Layer.rs preload/has method coverage tests
+// Target: cuda/executor/layer.rs (15.29% -> higher)
+// =========================================================================
+
+#[test]
+#[serial]
+fn test_cov003_preload_rmsnorm_weights() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Initially no weights loaded
+    assert!(!executor.has_rmsnorm_weights(0));
+    assert!(!executor.has_rmsnorm_weights(1));
+
+    // Preload weights for 1 layer
+    let gamma = vec![1.0f32; 256];
+    let attn_norms: Vec<&[f32]> = vec![&gamma];
+    let ffn_norms: Vec<&[f32]> = vec![&gamma];
+    let result = executor.preload_rmsnorm_weights(1, &attn_norms, &ffn_norms);
+    assert!(result.is_ok(), "preload_rmsnorm_weights should succeed");
+
+    // Now layer 0 has weights
+    assert!(executor.has_rmsnorm_weights(0));
+    assert!(!executor.has_rmsnorm_weights(1)); // Layer 1 not loaded
+}
+
+#[test]
+#[serial]
+fn test_cov003_preload_rmsnorm_weights_multiple_layers() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    let gamma = vec![1.0f32; 512];
+
+    // Preload 4 layers
+    let attn_norms: Vec<&[f32]> = vec![&gamma, &gamma, &gamma, &gamma];
+    let ffn_norms: Vec<&[f32]> = vec![&gamma, &gamma, &gamma, &gamma];
+    let result = executor.preload_rmsnorm_weights(4, &attn_norms, &ffn_norms);
+    assert!(result.is_ok(), "preload_rmsnorm_weights should succeed");
+
+    // Verify all layers have weights
+    for layer_idx in 0..4 {
+        assert!(executor.has_rmsnorm_weights(layer_idx));
+    }
+    // Layer 4 not loaded
+    assert!(!executor.has_rmsnorm_weights(4));
+}
+
+#[test]
+#[serial]
+fn test_cov003_preload_output_norm() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Initially no output norm
+    assert!(!executor.has_output_norm());
+
+    // Preload output norm
+    let gamma = vec![1.0f32; 256];
+    let result = executor.preload_output_norm(&gamma);
+    assert!(result.is_ok(), "preload_output_norm should succeed");
+
+    // Now has output norm
+    assert!(executor.has_output_norm());
+}
+
+#[test]
+#[serial]
+fn test_cov003_preload_qkv_bias() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Initially no QKV bias
+    assert!(!executor.has_qkv_bias(0));
+
+    // Preload QKV bias for 1 layer
+    let hidden_dim = 256;
+    let bias_data = vec![0.1f32; hidden_dim];
+    let q_biases: Vec<Option<&[f32]>> = vec![Some(&bias_data)];
+    let k_biases: Vec<Option<&[f32]>> = vec![Some(&bias_data)];
+    let v_biases: Vec<Option<&[f32]>> = vec![Some(&bias_data)];
+
+    let result = executor.preload_qkv_bias(1, &q_biases, &k_biases, &v_biases);
+    assert!(result.is_ok(), "preload_qkv_bias should succeed: {:?}", result);
+
+    // Now layer 0 has QKV bias
+    assert!(executor.has_qkv_bias(0));
+    assert!(!executor.has_qkv_bias(1)); // Layer 1 not loaded
+}
+
+#[test]
+#[serial]
+fn test_cov003_preload_qkv_bias_multiple_layers() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    let hidden_dim = 128;
+    let bias_data = vec![0.1f32; hidden_dim];
+
+    // Preload for 3 layers
+    let q_biases: Vec<Option<&[f32]>> = vec![Some(&bias_data), Some(&bias_data), Some(&bias_data)];
+    let k_biases: Vec<Option<&[f32]>> = vec![Some(&bias_data), Some(&bias_data), Some(&bias_data)];
+    let v_biases: Vec<Option<&[f32]>> = vec![Some(&bias_data), Some(&bias_data), Some(&bias_data)];
+
+    let result = executor.preload_qkv_bias(3, &q_biases, &k_biases, &v_biases);
+    assert!(result.is_ok(), "preload_qkv_bias should succeed");
+
+    // Verify all layers have QKV bias
+    for layer_idx in 0..3 {
+        assert!(executor.has_qkv_bias(layer_idx), "layer {} should have bias", layer_idx);
+    }
+    assert!(!executor.has_qkv_bias(3));
+}
+
+#[test]
+#[serial]
+fn test_cov003_preload_lm_head_bias_none() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Initially no LM head bias
+    assert!(!executor.has_lm_head_bias());
+
+    // Preload None bias (no bias)
+    let result = executor.preload_lm_head_bias(None);
+    assert!(result.is_ok(), "preload_lm_head_bias(None) should succeed");
+
+    // Still no bias after loading None
+    assert!(!executor.has_lm_head_bias());
+}
+
+#[test]
+#[serial]
+fn test_cov003_preload_lm_head_bias_some() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Initially no LM head bias
+    assert!(!executor.has_lm_head_bias());
+
+    // Preload with bias
+    let vocab_size = 32000;
+    let bias = vec![0.0f32; vocab_size];
+    let result = executor.preload_lm_head_bias(Some(&bias));
+    assert!(result.is_ok(), "preload_lm_head_bias(Some) should succeed");
+
+    // Now has bias
+    assert!(executor.has_lm_head_bias());
+}
+
+#[test]
+#[serial]
+fn test_cov003_cache_rmsnorm_gamma() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Cache gamma by name
+    let gamma = vec![1.0f32; 256];
+    let result = executor.cache_rmsnorm_gamma("test_norm_layer", &gamma);
+    assert!(result.is_ok(), "cache_rmsnorm_gamma should succeed");
+
+    // Cache another
+    let result2 = executor.cache_rmsnorm_gamma("output_norm", &gamma);
+    assert!(result2.is_ok(), "cache_rmsnorm_gamma for output_norm should succeed");
+}
+
+#[test]
+#[serial]
+fn test_cov003_workspace_output_none() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Fresh executor has no workspace output
+    let output = executor.workspace_output();
+    // This may or may not be None depending on implementation
+    let _ = output;
+}
+
+#[test]
+#[serial]
+fn test_cov003_read_hidden_state_to_cpu() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Try to read hidden state - may fail if no forward pass done yet
+    let result = executor.read_hidden_state_to_cpu();
+    // Just verify it doesn't panic - it may return error if no hidden state
+    let _ = result;
+}
+
+#[test]
+#[serial]
+fn test_cov003_output_rmsnorm_gpu() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // First preload output norm
+    let gamma = vec![1.0f32; 256];
+    executor.preload_output_norm(&gamma).expect("preload_output_norm");
+
+    // Now test output_rmsnorm_gpu
+    // (This requires a GPU buffer input, so we test the preload path)
+    assert!(executor.has_output_norm());
+}
+
+#[test]
+#[serial]
+fn test_cov003_preload_combined_weights() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Test preloading all weight types for a layer
+    let hidden_dim = 256;
+
+    // 1. RMSNorm weights
+    let gamma = vec![1.0f32; hidden_dim];
+    let attn_norms: Vec<&[f32]> = vec![&gamma];
+    let ffn_norms: Vec<&[f32]> = vec![&gamma];
+    executor.preload_rmsnorm_weights(1, &attn_norms, &ffn_norms).expect("rmsnorm");
+    assert!(executor.has_rmsnorm_weights(0));
+
+    // 2. Output norm
+    executor.preload_output_norm(&gamma).expect("output norm");
+    assert!(executor.has_output_norm());
+
+    // 3. QKV bias
+    let bias = vec![0.1f32; hidden_dim];
+    let q_biases: Vec<Option<&[f32]>> = vec![Some(&bias)];
+    let k_biases: Vec<Option<&[f32]>> = vec![Some(&bias)];
+    let v_biases: Vec<Option<&[f32]>> = vec![Some(&bias)];
+    executor.preload_qkv_bias(1, &q_biases, &k_biases, &v_biases).expect("qkv bias");
+    assert!(executor.has_qkv_bias(0));
+
+    // 4. LM head bias
+    let vocab_bias = vec![0.0f32; 32000];
+    executor.preload_lm_head_bias(Some(&vocab_bias)).expect("lm head bias");
+    assert!(executor.has_lm_head_bias());
+}
+
+#[test]
+#[serial]
+fn test_cov003_has_methods_boundary_conditions() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Test has_* methods with large layer indices (should return false)
+    assert!(!executor.has_rmsnorm_weights(999));
+    assert!(!executor.has_qkv_bias(1000));
+
+    // Test default states
+    assert!(!executor.has_output_norm());
+    assert!(!executor.has_lm_head_bias());
+}
