@@ -4513,3 +4513,220 @@ fn test_cov008_copy_gemv_buffers() {
     let result = executor.copy_from_gemv_output(&mut output);
     assert!(result.is_ok(), "copy_from_gemv_output failed: {:?}", result.err());
 }
+
+// ============================================================================
+// COV-009: gemm.rs coverage tests
+// Target: Increase coverage from 60.92% to 75%+
+// Focus: synchronize_compute, synchronize_transfer, synchronize_all,
+//        allocate_buffer, softmax, gemm
+// ============================================================================
+
+#[test]
+#[serial]
+fn test_cov009_synchronize_compute() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    let result = executor.synchronize_compute();
+    assert!(result.is_ok(), "synchronize_compute failed: {:?}", result.err());
+}
+
+#[test]
+#[serial]
+fn test_cov009_synchronize_transfer() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    let result = executor.synchronize_transfer();
+    assert!(result.is_ok(), "synchronize_transfer failed: {:?}", result.err());
+}
+
+#[test]
+#[serial]
+fn test_cov009_synchronize_all() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    let result = executor.synchronize_all();
+    assert!(result.is_ok(), "synchronize_all failed: {:?}", result.err());
+}
+
+#[test]
+#[serial]
+fn test_cov009_allocate_buffer_basic() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    let result = executor.allocate_buffer(256);
+    assert!(result.is_ok(), "allocate_buffer failed: {:?}", result.err());
+
+    let buffer = result.unwrap();
+    assert!(buffer.len() == 256, "Buffer should have 256 elements");
+}
+
+#[test]
+#[serial]
+fn test_cov009_allocate_buffer_large() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Allocate 1MB buffer (262144 f32 elements)
+    let result = executor.allocate_buffer(262144);
+    assert!(result.is_ok(), "allocate_buffer large failed: {:?}", result.err());
+}
+
+#[test]
+#[serial]
+fn test_cov009_softmax_basic() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Test softmax with small vector
+    let mut data = vec![1.0f32, 2.0, 3.0, 4.0];
+    let result = executor.softmax(&mut data);
+    assert!(result.is_ok(), "softmax failed: {:?}", result.err());
+
+    // Verify softmax properties
+    let sum: f32 = data.iter().sum();
+    assert!((sum - 1.0).abs() < 0.01, "Softmax should sum to 1, got {}", sum);
+
+    // Verify monotonicity (higher input -> higher output)
+    for i in 1..data.len() {
+        assert!(data[i] > data[i - 1], "Softmax should preserve ordering");
+    }
+}
+
+#[test]
+#[serial]
+fn test_cov009_softmax_larger() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Test with 32-element vector (warp-aligned)
+    let mut data: Vec<f32> = (0..32).map(|i| (i as f32) / 10.0).collect();
+    let result = executor.softmax(&mut data);
+    assert!(result.is_ok(), "softmax larger failed: {:?}", result.err());
+
+    // Softmax should produce valid probabilities (all positive)
+    assert!(data.iter().all(|&x| x > 0.0), "Softmax outputs should be positive");
+    // Last element should be largest (highest input)
+    assert!(data[31] > data[0], "Highest input should have highest probability");
+}
+
+#[test]
+#[serial]
+fn test_cov009_softmax_uniform() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Uniform input should give uniform output
+    let n = 8;
+    let mut data = vec![0.0f32; n];
+    let result = executor.softmax(&mut data);
+    assert!(result.is_ok(), "softmax uniform failed: {:?}", result.err());
+
+    // All should be 1/n
+    let expected = 1.0 / n as f32;
+    for (i, &val) in data.iter().enumerate() {
+        assert!((val - expected).abs() < 0.01, "Uniform softmax[{}] should be {}, got {}", i, expected, val);
+    }
+}
+
+#[test]
+#[serial]
+fn test_cov009_gemm_basic() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Small matrix multiplication: C = A * B
+    // A is 4x4, B is 4x4, C is 4x4
+    let m = 4u32;
+    let n = 4u32;
+    let k = 4u32;
+
+    // Identity-like matrix A (ones on diagonal)
+    let a = vec![
+        1.0f32, 0.0, 0.0, 0.0,
+        0.0, 1.0, 0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+        0.0, 0.0, 0.0, 1.0,
+    ];
+
+    // B = some values
+    let b = vec![
+        1.0f32, 2.0, 3.0, 4.0,
+        5.0, 6.0, 7.0, 8.0,
+        9.0, 10.0, 11.0, 12.0,
+        13.0, 14.0, 15.0, 16.0,
+    ];
+
+    let mut c = vec![0.0f32; (m * n) as usize];
+
+    let result = executor.gemm(&a, &b, &mut c, m, n, k);
+    assert!(result.is_ok(), "gemm failed: {:?}", result.err());
+
+    // For identity * B, result should be B
+    for (idx, &val) in c.iter().enumerate() {
+        assert!((val - b[idx]).abs() < 1e-3, "gemm identity mismatch at {}: {} vs {}", idx, val, b[idx]);
+    }
+}
+
+#[test]
+#[serial]
+fn test_cov009_gemm_larger() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Larger matrix: 32x32 * 32x32
+    let m = 32u32;
+    let n = 32u32;
+    let k = 32u32;
+
+    let a = vec![1.0f32; (m * k) as usize];
+    let b = vec![1.0f32; (k * n) as usize];
+    let mut c = vec![0.0f32; (m * n) as usize];
+
+    let result = executor.gemm(&a, &b, &mut c, m, n, k);
+    assert!(result.is_ok(), "gemm larger failed: {:?}", result.err());
+
+    // Each element should be k (sum of k ones)
+    for (idx, &val) in c.iter().enumerate() {
+        assert!((val - k as f32).abs() < 1.0, "gemm[{}] should be {}, got {}", idx, k, val);
+    }
+}
+
+#[test]
+#[serial]
+fn test_cov009_gemm_cached_weight_not_found() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    let input_buf = GpuBuffer::from_host(&executor.context, &[1.0f32; 32]).expect("input");
+    let output_buf = GpuBuffer::<f32>::new(&executor.context, 32).expect("output");
+
+    // Try to use non-existent cached weight
+    let result = executor.gemm_cached_async("nonexistent_weight", &input_buf, &output_buf, 32, 1, 32);
+    assert!(result.is_err(), "gemm_cached_async should fail for non-existent weight");
+}
