@@ -19929,6 +19929,693 @@ mod tests {
             "Memory should be tracked"
         );
     }
+
+    // ========================================================================
+    // COV-001: Comprehensive Quantized Kernel Tests (Target: 95% coverage)
+    // ========================================================================
+
+    /// Helper: Create mock Q4_K weights (144 bytes per 256 values)
+    fn mock_q4k_weights(n_rows: usize, k: usize) -> Vec<u8> {
+        assert!(k % 256 == 0, "k must be divisible by 256 for Q4_K");
+        let n_superblocks_per_row = k / 256;
+        let bytes_per_row = n_superblocks_per_row * 144;
+        vec![0x42u8; n_rows * bytes_per_row] // Non-zero pattern for detection
+    }
+
+    /// Helper: Create mock Q5_K weights (176 bytes per 256 values)
+    fn mock_q5k_weights(n_rows: usize, k: usize) -> Vec<u8> {
+        assert!(k % 256 == 0, "k must be divisible by 256 for Q5_K");
+        let n_superblocks_per_row = k / 256;
+        let bytes_per_row = n_superblocks_per_row * 176;
+        vec![0x43u8; n_rows * bytes_per_row]
+    }
+
+    /// Helper: Create mock Q6_K weights (210 bytes per 256 values)
+    fn mock_q6k_weights(n_rows: usize, k: usize) -> Vec<u8> {
+        assert!(k % 256 == 0, "k must be divisible by 256 for Q6_K");
+        let n_superblocks_per_row = k / 256;
+        let bytes_per_row = n_superblocks_per_row * 210;
+        vec![0x44u8; n_rows * bytes_per_row]
+    }
+
+    #[test]
+    #[serial]
+    fn test_cov001_q4k_gemv_basic() {
+        if !CudaExecutor::is_available() {
+            return;
+        }
+        let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+        let n = 256u32;
+        let k = 256u32;
+        let weights = mock_q4k_weights(n as usize, k as usize);
+        let input = vec![1.0f32; k as usize];
+        let mut output = vec![0.0f32; n as usize];
+
+        let result = executor.q4k_gemv(&weights, &input, &mut output, n, k);
+        assert!(result.is_ok(), "q4k_gemv should succeed: {:?}", result);
+    }
+
+    #[test]
+    #[serial]
+    fn test_cov001_q5k_gemv_basic() {
+        if !CudaExecutor::is_available() {
+            return;
+        }
+        let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+        let n = 256u32;
+        let k = 256u32;
+        let weights = mock_q5k_weights(n as usize, k as usize);
+        let input = vec![1.0f32; k as usize];
+        let mut output = vec![0.0f32; n as usize];
+
+        let result = executor.q5k_gemv(&weights, &input, &mut output, n, k);
+        assert!(result.is_ok(), "q5k_gemv should succeed: {:?}", result);
+    }
+
+    #[test]
+    #[serial]
+    fn test_cov001_q6k_gemv_basic() {
+        if !CudaExecutor::is_available() {
+            return;
+        }
+        let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+        let n = 256u32;
+        let k = 256u32;
+        let weights = mock_q6k_weights(n as usize, k as usize);
+        let input = vec![1.0f32; k as usize];
+        let mut output = vec![0.0f32; n as usize];
+
+        let result = executor.q6k_gemv(&weights, &input, &mut output, n, k);
+        assert!(result.is_ok(), "q6k_gemv should succeed: {:?}", result);
+    }
+
+    #[test]
+    #[serial]
+    fn test_cov001_q4k_gemv_cached() {
+        if !CudaExecutor::is_available() {
+            return;
+        }
+        let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+        let n = 256u32;
+        let k = 256u32;
+        let weights = mock_q4k_weights(n as usize, k as usize);
+
+        // Load weights to cache
+        executor
+            .load_quantized_weights("test_q4k", &weights)
+            .expect("load weights");
+
+        let input = vec![1.0f32; k as usize];
+        let mut output = vec![0.0f32; n as usize];
+
+        let result = executor.q4k_gemv_cached("test_q4k", &input, &mut output, n, k);
+        assert!(
+            result.is_ok(),
+            "q4k_gemv_cached should succeed: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn test_cov001_q5k_gemv_cached() {
+        if !CudaExecutor::is_available() {
+            return;
+        }
+        let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+        let n = 256u32;
+        let k = 256u32;
+        let weights = mock_q5k_weights(n as usize, k as usize);
+
+        executor
+            .load_quantized_weights("test_q5k", &weights)
+            .expect("load weights");
+
+        let input = vec![1.0f32; k as usize];
+        let mut output = vec![0.0f32; n as usize];
+
+        let result = executor.q5k_gemv_cached("test_q5k", &input, &mut output, n, k);
+        assert!(
+            result.is_ok(),
+            "q5k_gemv_cached should succeed: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn test_cov001_q6k_gemv_cached() {
+        if !CudaExecutor::is_available() {
+            return;
+        }
+        let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+        let n = 256u32;
+        let k = 256u32;
+        let weights = mock_q6k_weights(n as usize, k as usize);
+
+        executor
+            .load_quantized_weights("test_q6k", &weights)
+            .expect("load weights");
+
+        let input = vec![1.0f32; k as usize];
+        let mut output = vec![0.0f32; n as usize];
+
+        let result = executor.q6k_gemv_cached("test_q6k", &input, &mut output, n, k);
+        assert!(
+            result.is_ok(),
+            "q6k_gemv_cached should succeed: {:?}",
+            result
+        );
+    }
+
+    // ========================================================================
+    // COV-002: High-level CUDA function tests (slice-based API)
+    // ========================================================================
+
+    #[test]
+    #[serial]
+    fn test_cov002_softmax_basic() {
+        if !CudaExecutor::is_available() {
+            return;
+        }
+        let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+        let mut data = vec![1.0f32, 2.0, 3.0, 4.0];
+        let result = executor.softmax(&mut data);
+        assert!(result.is_ok(), "softmax should succeed: {:?}", result);
+
+        // Verify softmax properties: sum to 1, all positive
+        let sum: f32 = data.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-5, "softmax sum should be 1.0");
+        assert!(data.iter().all(|&x| x > 0.0), "all values should be positive");
+    }
+
+    #[test]
+    #[serial]
+    fn test_cov002_gemm_optimized() {
+        if !CudaExecutor::is_available() {
+            return;
+        }
+        let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+        let m = 32u32;
+        let n = 32u32;
+        let k = 32u32;
+        let a = vec![1.0f32; (m * k) as usize];
+        let b = vec![1.0f32; (k * n) as usize];
+        let mut c = vec![0.0f32; (m * n) as usize];
+
+        let tile_size = 32u32;
+        let result = executor.gemm_optimized(&a, &b, &mut c, m, n, k, tile_size);
+        assert!(result.is_ok(), "gemm_optimized should succeed: {:?}", result);
+
+        // Each element should be k (dot product of k ones)
+        for val in &c {
+            assert!((*val - k as f32).abs() < 1e-3, "expected {}, got {}", k, val);
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_cov002_gemm_fused_variants() {
+        if !CudaExecutor::is_available() {
+            return;
+        }
+        let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+        let m = 16u32;
+        let n = 16u32;
+        let k = 16u32;
+        let a = vec![1.0f32; (m * k) as usize];
+        let b = vec![1.0f32; (k * n) as usize];
+        let bias = vec![1.0f32; n as usize];
+        let mut c = vec![0.0f32; (m * n) as usize];
+
+        // Test with bias and no activation (0)
+        let result = executor.gemm_fused(&a, &b, Some(&bias), &mut c, m, n, k, 0);
+        assert!(result.is_ok(), "gemm_fused with no activation should succeed: {:?}", result);
+
+        // Test with bias and ReLU activation (1)
+        c.fill(0.0);
+        let result = executor.gemm_fused(&a, &b, Some(&bias), &mut c, m, n, k, 1);
+        assert!(result.is_ok(), "gemm_fused with ReLU should succeed: {:?}", result);
+
+        // Test with bias and GELU activation (2)
+        c.fill(0.0);
+        let result = executor.gemm_fused(&a, &b, Some(&bias), &mut c, m, n, k, 2);
+        assert!(result.is_ok(), "gemm_fused with GELU should succeed: {:?}", result);
+    }
+
+    #[test]
+    #[serial]
+    fn test_cov002_flash_attention_multi_head() {
+        if !CudaExecutor::is_available() {
+            return;
+        }
+        let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+        let seq_len = 8u32;
+        let head_dim = 8u32;
+        let n_heads = 4u32;
+        let size = (seq_len * head_dim * n_heads) as usize;
+
+        let q = vec![1.0f32; size];
+        let k = vec![1.0f32; size];
+        let v = vec![1.0f32; size];
+        let mut output = vec![0.0f32; size];
+
+        let result = executor.flash_attention_multi_head(&q, &k, &v, &mut output, seq_len, head_dim, n_heads, true);
+        assert!(result.is_ok(), "flash_attention_multi_head should succeed: {:?}", result);
+    }
+
+    #[test]
+    #[serial]
+    fn test_cov002_silu_gelu_host() {
+        if !CudaExecutor::is_available() {
+            return;
+        }
+        let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+        let size = 256usize;
+        let input = vec![1.0f32; size];
+        let mut silu_out = vec![0.0f32; size];
+        let mut gelu_out = vec![0.0f32; size];
+
+        let result = executor.silu_host(&input, &mut silu_out);
+        assert!(result.is_ok(), "silu_host should succeed: {:?}", result);
+
+        let result = executor.gelu_host(&input, &mut gelu_out);
+        assert!(result.is_ok(), "gelu_host should succeed: {:?}", result);
+
+        // SiLU and GELU should produce different results
+        assert!(silu_out[0] != gelu_out[0], "SiLU and GELU should differ");
+    }
+
+    #[test]
+    #[serial]
+    fn test_cov002_elementwise_mul_host() {
+        if !CudaExecutor::is_available() {
+            return;
+        }
+        let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+        let size = 256usize;
+        let a = vec![2.0f32; size];
+        let b = vec![3.0f32; size];
+        let mut output = vec![0.0f32; size];
+
+        let result = executor.elementwise_mul_host(&a, &b, &mut output);
+        assert!(result.is_ok(), "elementwise_mul_host should succeed: {:?}", result);
+        assert!((output[0] - 6.0).abs() < 1e-5, "2 * 3 should be 6");
+    }
+
+    #[test]
+    #[serial]
+    fn test_cov002_load_and_clear_weights() {
+        if !CudaExecutor::is_available() {
+            return;
+        }
+        let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+        let weights = vec![1.0f32; 1024];
+
+        // Load weights
+        let result = executor.load_weights("test_weights", &weights);
+        assert!(result.is_ok(), "load_weights should succeed");
+
+        // Check cache stats
+        assert!(executor.has_weights("test_weights"));
+        assert_eq!(executor.cached_weight_count(), 1);
+        assert!(executor.cached_weight_bytes() > 0);
+
+        // Clear weights
+        executor.clear_weights();
+        assert!(!executor.has_weights("test_weights"));
+        assert_eq!(executor.cached_weight_count(), 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_cov002_load_quantized_weights() {
+        if !CudaExecutor::is_available() {
+            return;
+        }
+        let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+        // Mock Q4_K weights: 144 bytes per 256 values
+        let weights = vec![0x42u8; 144];
+
+        // Load quantized weights
+        let result = executor.load_quantized_weights("q4k_test", &weights);
+        assert!(result.is_ok(), "load_quantized_weights should succeed");
+
+        // Check cache stats
+        assert!(executor.cached_quantized_weight_count() > 0);
+        assert!(executor.cached_quantized_weight_bytes() > 0);
+
+        // Clear
+        executor.clear_quantized_weights();
+        assert_eq!(executor.cached_quantized_weight_count(), 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_cov002_profiler_operations() {
+        if !CudaExecutor::is_available() {
+            return;
+        }
+        let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+        // Enable profiling
+        executor.enable_profiling();
+        assert!(executor.is_profiling_enabled());
+
+        // Get profiler and reset
+        let _profiler = executor.profiler();
+        let _profiler_mut = executor.profiler_mut();
+        executor.reset_profiler();
+
+        // Get profiler summary
+        let _summary = executor.profiler_summary();
+
+        // Disable profiling
+        executor.disable_profiling();
+        assert!(!executor.is_profiling_enabled());
+    }
+
+    #[test]
+    #[serial]
+    fn test_cov002_graph_tracking() {
+        if !CudaExecutor::is_available() {
+            return;
+        }
+        let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+        // Enable graph tracking
+        executor.enable_graph_tracking();
+        assert!(executor.is_graph_tracking_enabled());
+
+        // Get execution graph
+        let _graph = executor.execution_graph();
+        let _ascii = executor.execution_graph_ascii();
+
+        // Clear and disable
+        executor.clear_execution_graph();
+        executor.disable_graph_tracking();
+        assert!(!executor.is_graph_tracking_enabled());
+    }
+
+    #[test]
+    #[serial]
+    fn test_cov002_tile_profiling() {
+        if !CudaExecutor::is_available() {
+            return;
+        }
+        let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+        // Enable tile profiling
+        executor.enable_tile_profiling();
+        assert!(executor.is_tile_profiling_enabled());
+
+        // Get tile stats
+        let _summary = executor.tile_summary();
+        let _json = executor.tile_stats_json();
+
+        // Reset and disable
+        executor.reset_tile_stats();
+        executor.disable_tile_profiling();
+        assert!(!executor.is_tile_profiling_enabled());
+    }
+
+    #[test]
+    #[serial]
+    fn test_cov002_memory_and_device_info() {
+        if !CudaExecutor::is_available() {
+            return;
+        }
+        let executor = CudaExecutor::new(0).expect("CUDA executor");
+
+        // Get device name
+        let name = executor.device_name().expect("device_name should succeed");
+        assert!(name.contains("NVIDIA") || name.contains("RTX") || name.contains("GeForce"));
+
+        // Get memory info
+        let mem_info = executor.memory_info();
+        assert!(mem_info.is_ok(), "memory_info should succeed");
+        let (free, total) = mem_info.unwrap();
+        assert!(total > 0, "total memory should be > 0");
+        assert!(free <= total, "free should be <= total");
+
+        // Get context
+        let _ctx = executor.context();
+    }
+
+    #[test]
+    #[serial]
+    fn test_cov002_staging_buffer_operations() {
+        if !CudaExecutor::is_available() {
+            return;
+        }
+        let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+        // Get staging buffer
+        let buf = executor.get_staging_buffer(1024);
+        assert!(buf.len() >= 1024);
+
+        // Return staging buffer
+        executor.return_staging_buffer(buf);
+
+        // Get pool stats
+        let _stats = executor.staging_pool_stats();
+
+        // Clear pool
+        executor.clear_pool();
+    }
+
+    #[test]
+    #[serial]
+    fn test_cov002_synchronize() {
+        if !CudaExecutor::is_available() {
+            return;
+        }
+        let executor = CudaExecutor::new(0).expect("CUDA executor");
+
+        let result = executor.synchronize();
+        assert!(result.is_ok(), "synchronize should succeed");
+    }
+
+    #[test]
+    fn test_cov002_cuda_likely_available() {
+        // This should return true on a system with CUDA (checks /dev/nvidia0 or CUDA_VISIBLE_DEVICES)
+        let likely = CudaKernels::cuda_likely_available();
+        // On a system with RTX 4090, this should be true
+        assert!(likely, "cuda_likely_available should be true on a system with NVIDIA GPU");
+    }
+
+    #[test]
+    fn test_cov002_is_available_and_num_devices() {
+        let available = CudaExecutor::is_available();
+        let num_devices = CudaExecutor::num_devices();
+
+        if available {
+            assert!(num_devices > 0, "If CUDA available, num_devices should be > 0");
+        }
+    }
+
+    #[test]
+    fn test_cov001_transfer_mode_properties() {
+        let modes = [
+            TransferMode::Pageable,
+            TransferMode::Pinned,
+            TransferMode::Async,
+            TransferMode::ZeroCopy,
+        ];
+
+        for mode in modes {
+            let speedup = mode.estimated_speedup();
+            assert!(speedup >= 1.0, "Speedup should be >= 1.0");
+
+            let requires_pinned = mode.requires_pinned();
+            match mode {
+                TransferMode::Pageable => assert!(!requires_pinned),
+                _ => assert!(requires_pinned),
+            }
+        }
+    }
+
+    #[test]
+    fn test_cov001_weight_quant_type_detection() {
+        // Test from_ggml_type
+        assert!(matches!(
+            WeightQuantType::from_ggml_type(12),
+            Some(WeightQuantType::Q4K)
+        ));
+        assert!(matches!(
+            WeightQuantType::from_ggml_type(13),
+            Some(WeightQuantType::Q5K)
+        ));
+        assert!(matches!(
+            WeightQuantType::from_ggml_type(14),
+            Some(WeightQuantType::Q6K)
+        ));
+        assert!(matches!(
+            WeightQuantType::from_ggml_type(8),
+            Some(WeightQuantType::Q8_0)
+        ));
+        assert!(matches!(
+            WeightQuantType::from_ggml_type(6),
+            Some(WeightQuantType::Q5_0)
+        ));
+        assert!(matches!(
+            WeightQuantType::from_ggml_type(2),
+            Some(WeightQuantType::Q4_0)
+        ));
+        assert!(matches!(
+            WeightQuantType::from_ggml_type(3),
+            Some(WeightQuantType::Q4_1)
+        ));
+        assert!(WeightQuantType::from_ggml_type(999).is_none());
+
+        // Test bytes_per_superblock
+        assert_eq!(WeightQuantType::Q4K.bytes_per_superblock(), 144);
+        assert_eq!(WeightQuantType::Q5K.bytes_per_superblock(), 176);
+        assert_eq!(WeightQuantType::Q6K.bytes_per_superblock(), 210);
+
+        // Test bytes_per_block
+        assert_eq!(WeightQuantType::Q8_0.bytes_per_block(), 34);
+        assert_eq!(WeightQuantType::Q4_0.bytes_per_block(), 18);
+
+        // Test matches_size
+        let q4k = WeightQuantType::Q4K;
+        assert!(q4k.matches_size(144, 1, 256)); // 1 row, 256 cols = 1 superblock
+    }
+
+    #[test]
+    fn test_cov001_ptx_optimization_hints() {
+        let max_throughput = PtxOptimizationHints::max_throughput();
+        assert!(max_throughput.uses_vectorized_loads());
+        assert_eq!(max_throughput.vector_width(), 4);
+        assert_eq!(max_throughput.shared_mem_padding(), 1);
+
+        let low_latency = PtxOptimizationHints::low_latency();
+        assert!(!low_latency.uses_vectorized_loads());
+        assert_eq!(low_latency.vector_width(), 1);
+        assert_eq!(low_latency.shared_mem_padding(), 0);
+
+        let balanced = PtxOptimizationHints::balanced();
+        assert!(balanced.uses_vectorized_loads());
+        assert_eq!(balanced.vector_width(), 2);
+    }
+
+    #[test]
+    fn test_cov001_ptx_optimizer() {
+        let hints = PtxOptimizationHints::max_throughput();
+        let optimizer = PtxOptimizer::new(hints);
+
+        // Test summary generation
+        let summary = optimizer.summary();
+        assert!(summary.contains("PtxOptimizer"));
+
+        // Test padded row calculation
+        assert_eq!(optimizer.padded_shared_mem_row(32), 33);
+
+        // Test register estimation
+        let regs = optimizer.estimated_registers();
+        assert!(regs > 0);
+
+        // Test high register pressure detection
+        let _high_pressure = optimizer.is_high_register_pressure();
+    }
+
+    #[test]
+    fn test_cov001_register_tiling() {
+        let large = RegisterTiling::large();
+        assert_eq!(large.registers_needed(), 64);
+
+        let medium = RegisterTiling::medium();
+        assert_eq!(medium.registers_needed(), 16);
+
+        let small = RegisterTiling::small();
+        assert_eq!(small.registers_needed(), 4);
+    }
+
+    #[test]
+    fn test_cov001_memory_pattern() {
+        let scalar = MemoryPattern::Scalar;
+        let vec2 = MemoryPattern::Vector2;
+        let vec4 = MemoryPattern::Vector4;
+
+        // Just ensure they can be compared
+        assert_ne!(scalar, vec2);
+        assert_ne!(vec2, vec4);
+    }
+
+    #[test]
+    fn test_cov001_bank_conflict_strategy() {
+        let none = BankConflictStrategy::None;
+        let padding = BankConflictStrategy::Padding;
+        let xor = BankConflictStrategy::Xor;
+
+        assert_ne!(none, padding);
+        assert_ne!(padding, xor);
+    }
+
+    #[test]
+    fn test_cov001_presets_coverage() {
+        // Test all preset functions
+        let _llama_attn = presets::llama_attention(2048, 64);
+        let _ffn = presets::ffn_gemm(1, 4096, 11008);
+        let _q4k = presets::q4k_inference(1, 4096, 4096);
+        let _q4k_ggml = presets::q4k_ggml_inference(1, 4096, 4096);
+        let _rmsnorm = presets::rmsnorm(4096);
+        let _mha = presets::multi_head_attention(2048, 64, 32);
+        let _phi2_mha = presets::phi2_multi_head_attention(2048);
+        let _tc_attn = presets::tensor_core_attention(2048, 64, 32);
+        let _llama_tc = presets::llama_tensor_core_attention(2048);
+    }
+
+    #[test]
+    fn test_cov001_kernel_type_kernel_names() {
+        let kernels = CudaKernels::new();
+
+        // Test all kernel type names
+        let types = [
+            KernelType::GemmNaive { m: 1, n: 1, k: 1 },
+            KernelType::GemmTiled {
+                m: 1,
+                n: 1,
+                k: 1,
+                tile_size: 32,
+            },
+            KernelType::Softmax { dim: 128 },
+            KernelType::LayerNorm {
+                hidden_size: 256,
+                epsilon: 1e-5,
+                affine: true,
+            },
+            KernelType::Attention {
+                seq_len: 16,
+                head_dim: 64,
+                causal: true,
+            },
+            KernelType::QuantizedGemm { m: 1, n: 256, k: 256 },
+            KernelType::QuantizedGemmGgml { m: 1, n: 256, k: 256 },
+            KernelType::Q4KGemv { k: 256, n: 256 },
+            KernelType::Q5KGemv { k: 256, n: 256 },
+            KernelType::Q6KGemv { k: 256, n: 256 },
+        ];
+
+        for kt in types {
+            let name = kernels.kernel_name(&kt);
+            assert!(!name.is_empty(), "Kernel name should not be empty");
+        }
+    }
 }
 
 // ============================================================================

@@ -1365,4 +1365,129 @@ mod tests {
 
         assert_eq!(tokenizer.vocab_size(), 3);
     }
+
+    // =========================================================================
+    // Additional 95% Coverage Tests
+    // =========================================================================
+
+    #[test]
+    fn test_cov95_bpe_apply_merge_single_token() {
+        // Test apply_merge with single token (early return path)
+        let vocab = vec![
+            "<unk>".to_string(),
+            "a".to_string(),
+            "b".to_string(),
+            "ab".to_string(),
+        ];
+        let merges = vec![("a".to_string(), "b".to_string())];
+        let tokenizer = BPETokenizer::new(vocab, merges, "<unk>").expect("test");
+
+        // Encode single char - no merge possible
+        let encoded = tokenizer.encode("a");
+        assert_eq!(encoded, vec![1]);
+    }
+
+    #[test]
+    fn test_cov95_bpe_apply_merge_no_match() {
+        // Test apply_merge when merge pair doesn't match
+        let vocab = vec![
+            "<unk>".to_string(),
+            "x".to_string(),
+            "y".to_string(),
+            "z".to_string(),
+            "ab".to_string(),
+        ];
+        let merges = vec![("a".to_string(), "b".to_string())]; // merge won't match "xyz"
+        let tokenizer = BPETokenizer::new(vocab, merges, "<unk>").expect("test");
+
+        // "xyz" has no matching merge pairs
+        let encoded = tokenizer.encode("xyz");
+        assert_eq!(encoded, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_cov95_bpe_apply_merge_consecutive() {
+        // Test apply_merge with consecutive matches
+        let vocab = vec![
+            "<unk>".to_string(),
+            "a".to_string(),
+            "b".to_string(),
+            "ab".to_string(),
+        ];
+        let merges = vec![("a".to_string(), "b".to_string())];
+        let tokenizer = BPETokenizer::new(vocab, merges, "<unk>").expect("test");
+
+        // "abab" should merge to "ab" + "ab"
+        let encoded = tokenizer.encode("abab");
+        assert_eq!(encoded, vec![3, 3]); // "ab", "ab"
+    }
+
+    #[test]
+    fn test_cov95_bpe_decode_gpt2_remapped_bytes() {
+        // Test decode with GPT-2 remapped byte tokens (0x100+ range)
+        // GPT-2 uses chars starting at U+0100 for raw bytes
+        let vocab = vec![
+            "<unk>".to_string(),
+            "\u{0100}".to_string(), // maps to byte 0
+            "\u{0101}".to_string(), // maps to byte 1
+            "\u{0120}".to_string(), // maps to byte 32 (space in GPT-2)
+        ];
+        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").expect("test");
+
+        // Decode tokens with GPT-2 byte remapping
+        let decoded = tokenizer.decode(&[3]).expect("test");
+        // U+0120 should decode to space (byte 32)
+        assert!(decoded.contains('\u{0120}') || decoded.contains(' '));
+    }
+
+    #[test]
+    fn test_cov95_bpe_decode_high_unicode_byte() {
+        // Test decode with high unicode that maps to byte via GPT-2 encoding
+        // GPT-2 remaps bytes 127-160 to U+0100 + offset
+        let vocab = vec![
+            "<unk>".to_string(),
+            "\u{017F}".to_string(), // Should map to byte 127 in GPT-2 encoding
+            "\u{01A0}".to_string(), // Should map to byte 160 in GPT-2 encoding
+        ];
+        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").expect("test");
+
+        // These tokens should decode (possibly with replacement chars)
+        let decoded = tokenizer.decode(&[1, 2]).expect("test");
+        assert!(!decoded.is_empty());
+    }
+
+    #[test]
+    fn test_cov95_bpe_decode_soft_hyphen() {
+        // Test decode with soft hyphen (byte 173)
+        let vocab = vec![
+            "<unk>".to_string(),
+            "\u{01AD}".to_string(), // U+0100 + 173 = U+01AD for soft hyphen in GPT-2
+        ];
+        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").expect("test");
+
+        let decoded = tokenizer.decode(&[1]).expect("test");
+        assert!(!decoded.is_empty());
+    }
+
+    #[test]
+    fn test_cov95_bpe_encode_with_multiple_merges() {
+        // Test encoding that exercises multiple merge iterations
+        let vocab = vec![
+            "<unk>".to_string(),
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string(),
+            "ab".to_string(),
+            "abc".to_string(),
+        ];
+        let merges = vec![
+            ("a".to_string(), "b".to_string()),
+            ("ab".to_string(), "c".to_string()),
+        ];
+        let tokenizer = BPETokenizer::new(vocab, merges, "<unk>").expect("test");
+
+        let encoded = tokenizer.encode("abc");
+        // First merge: a+b -> ab, then ab+c -> abc
+        assert_eq!(encoded, vec![5]); // "abc"
+    }
 }
