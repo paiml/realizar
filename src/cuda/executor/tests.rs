@@ -3141,3 +3141,334 @@ fn test_cov004_reset_after_tokens() {
     assert!(result.is_ok(), "Fresh token after reset failed: {:?}", result.err());
     assert_eq!(result.unwrap(), 1);
 }
+
+// =============================================================================
+// COV-005: cuda/executor/attention.rs coverage tests
+// Target: 16.19% → 50%+
+// Tests for: incremental_attention_async, incremental_attention_into,
+//            batched_incremental_attention_into, init_flash_decoding,
+//            tensor_core_attention, gemm_fp16, flash_attention_memory_bytes
+// =============================================================================
+
+#[test]
+fn test_cov005_flash_attention_memory_bytes() {
+    // Static function - no CUDA needed
+    let (naive, flash) = CudaExecutor::flash_attention_memory_bytes(128, 64);
+
+    // Naive: 128 * 128 * 4 = 65536 bytes
+    assert_eq!(naive, 128 * 128 * 4);
+
+    // Flash: block_size(64) * block_size(64) * 4 * 2 = 32768 bytes
+    assert_eq!(flash, 64 * 64 * 4 * 2);
+
+    // Flash should always be smaller for reasonable seq_len
+    assert!(flash < naive);
+}
+
+#[test]
+fn test_cov005_flash_attention_memory_bytes_large() {
+    let (naive, flash) = CudaExecutor::flash_attention_memory_bytes(4096, 128);
+
+    // Naive: 4096 * 4096 * 4 = 67MB
+    assert_eq!(naive, 4096 * 4096 * 4);
+
+    // Flash is constant regardless of seq_len
+    assert_eq!(flash, 64 * 64 * 4 * 2);
+
+    // Huge difference for long sequences
+    assert!(naive > flash * 1000);
+}
+
+#[test]
+#[serial]
+fn test_cov005_incremental_attention_async_overflow() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    let num_heads = 4;
+    let num_kv_heads = 4;
+    let head_dim = 8;
+    let q_dim = num_heads * head_dim;
+    let kv_dim = num_kv_heads * head_dim;
+    let max_len = 2; // Very small
+
+    let _ = executor.init_kv_cache_gpu(1, num_heads, num_kv_heads, head_dim, max_len);
+
+    let q_buf = GpuBuffer::from_host(&executor.context, &vec![1.0f32; q_dim]).unwrap();
+    let k_buf = GpuBuffer::from_host(&executor.context, &vec![1.0f32; kv_dim]).unwrap();
+    let v_buf = GpuBuffer::from_host(&executor.context, &vec![1.0f32; kv_dim]).unwrap();
+
+    // Fill cache
+    for _ in 0..max_len {
+        let _ = executor.incremental_attention_async(0, &q_buf, &k_buf, &v_buf);
+    }
+
+    // Next should overflow
+    let result = executor.incremental_attention_async(0, &q_buf, &k_buf, &v_buf);
+    assert!(result.is_err());
+}
+
+#[test]
+#[serial]
+fn test_cov005_incremental_attention_into_overflow() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    let num_heads = 4;
+    let num_kv_heads = 4;
+    let head_dim = 8;
+    let q_dim = num_heads * head_dim;
+    let kv_dim = num_kv_heads * head_dim;
+    let max_len = 2;
+
+    let _ = executor.init_kv_cache_gpu(1, num_heads, num_kv_heads, head_dim, max_len);
+
+    let q_buf = GpuBuffer::from_host(&executor.context, &vec![1.0f32; q_dim]).unwrap();
+    let k_buf = GpuBuffer::from_host(&executor.context, &vec![1.0f32; kv_dim]).unwrap();
+    let v_buf = GpuBuffer::from_host(&executor.context, &vec![1.0f32; kv_dim]).unwrap();
+    let out_buf = GpuBuffer::<f32>::new(&executor.context, q_dim).unwrap();
+
+    // Fill cache
+    for _ in 0..max_len {
+        let _ = executor.incremental_attention_into(0, &q_buf, &k_buf, &v_buf, &out_buf);
+    }
+
+    // Next should overflow
+    let result = executor.incremental_attention_into(0, &q_buf, &k_buf, &v_buf, &out_buf);
+    assert!(result.is_err());
+}
+
+#[test]
+#[serial]
+fn test_cov005_batched_attention_not_initialized() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    let num_heads = 4;
+    let num_kv_heads = 4;
+    let head_dim = 8;
+    let q_dim = num_heads * head_dim;
+    let kv_dim = num_kv_heads * head_dim;
+    let m = 2;
+
+    // Init regular KV cache but NOT batched
+    let _ = executor.init_kv_cache_gpu(1, num_heads, num_kv_heads, head_dim, 16);
+
+    let q_buf = GpuBuffer::from_host(&executor.context, &vec![1.0f32; m * q_dim]).unwrap();
+    let k_buf = GpuBuffer::from_host(&executor.context, &vec![1.0f32; m * kv_dim]).unwrap();
+    let v_buf = GpuBuffer::from_host(&executor.context, &vec![1.0f32; m * kv_dim]).unwrap();
+    let out_buf = GpuBuffer::<f32>::new(&executor.context, m * q_dim).unwrap();
+
+    let positions = vec![0u32; m];
+
+    // Should fail because batched KV cache not initialized
+    let result = executor.batched_incremental_attention_into(
+        0, &q_buf, &k_buf, &v_buf, &out_buf, m, &positions
+    );
+    assert!(result.is_err());
+}
+
+#[test]
+#[serial]
+fn test_cov005_init_flash_decoding() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    let result = executor.init_flash_decoding(4, 8, 128, 2);
+    assert!(result.is_ok());
+}
+
+#[test]
+#[serial]
+fn test_cov005_flash_decoding_not_initialized() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    let num_heads = 4;
+    let num_kv_heads = 4;
+    let head_dim = 8;
+    let q_dim = num_heads * head_dim;
+    let kv_dim = num_kv_heads * head_dim;
+    let m = 2;
+
+    // Init KV cache but NOT flash decoding
+    let _ = executor.init_kv_cache_gpu(1, num_heads, num_kv_heads, head_dim, 16);
+    let _ = executor.init_batched_kv_cache_gpu(1, m);
+
+    let q_buf = GpuBuffer::from_host(&executor.context, &vec![1.0f32; m * q_dim]).unwrap();
+    let k_buf = GpuBuffer::from_host(&executor.context, &vec![1.0f32; m * kv_dim]).unwrap();
+    let v_buf = GpuBuffer::from_host(&executor.context, &vec![1.0f32; m * kv_dim]).unwrap();
+    let out_buf = GpuBuffer::<f32>::new(&executor.context, m * q_dim).unwrap();
+
+    let positions = vec![0u32; m];
+
+    // Should fail because flash decoding not initialized
+    let result = executor.flash_decoding_attention_into(
+        0, &q_buf, &k_buf, &v_buf, &out_buf, m, &positions
+    );
+    assert!(result.is_err());
+}
+
+#[test]
+#[serial]
+fn test_cov005_tensor_core_attention_dimension_validation() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // seq_len not multiple of 16 should fail
+    let q = vec![1.0f32; 4 * 15 * 16]; // seq_len=15
+    let k = vec![1.0f32; 4 * 15 * 16];
+    let v = vec![1.0f32; 4 * 15 * 16];
+    let mut output = vec![0.0f32; 4 * 15 * 16];
+
+    let result = executor.tensor_core_attention(&q, &k, &v, &mut output, 15, 16, 4, false);
+    assert!(result.is_err());
+}
+
+#[test]
+#[serial]
+fn test_cov005_tensor_core_attention_head_dim_validation() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // head_dim not multiple of 16 should fail
+    let q = vec![1.0f32; 4 * 16 * 15]; // head_dim=15
+    let k = vec![1.0f32; 4 * 16 * 15];
+    let v = vec![1.0f32; 4 * 16 * 15];
+    let mut output = vec![0.0f32; 4 * 16 * 15];
+
+    let result = executor.tensor_core_attention(&q, &k, &v, &mut output, 16, 15, 4, false);
+    assert!(result.is_err());
+}
+
+#[test]
+#[serial]
+fn test_cov005_tensor_core_attention_size_mismatch() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Wrong input size should fail
+    let q = vec![1.0f32; 100]; // Wrong size
+    let k = vec![1.0f32; 4 * 16 * 16];
+    let v = vec![1.0f32; 4 * 16 * 16];
+    let mut output = vec![0.0f32; 4 * 16 * 16];
+
+    let result = executor.tensor_core_attention(&q, &k, &v, &mut output, 16, 16, 4, false);
+    assert!(result.is_err());
+}
+
+#[test]
+#[serial]
+fn test_cov005_gemm_fp16_dimension_validation() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // m not multiple of 16 should fail
+    let a = vec![1.0f32; 15 * 16];
+    let b = vec![1.0f32; 16 * 16];
+    let mut c = vec![0.0f32; 15 * 16];
+
+    let result = executor.gemm_fp16(&a, &b, &mut c, 15, 16, 16);
+    assert!(result.is_err());
+}
+
+#[test]
+#[serial]
+fn test_cov005_gemm_fp16_size_mismatch() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Wrong A size
+    let a = vec![1.0f32; 100]; // Should be 16*16=256
+    let b = vec![1.0f32; 16 * 16];
+    let mut c = vec![0.0f32; 16 * 16];
+
+    let result = executor.gemm_fp16(&a, &b, &mut c, 16, 16, 16);
+    assert!(result.is_err());
+}
+
+#[test]
+#[serial]
+fn test_cov005_gemm_fp16_valid() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Valid dimensions (multiples of 16)
+    let a = vec![1.0f32; 16 * 16];
+    let b = vec![1.0f32; 16 * 16];
+    let mut c = vec![0.0f32; 16 * 16];
+
+    let result = executor.gemm_fp16(&a, &b, &mut c, 16, 16, 16);
+    assert!(result.is_ok(), "gemm_fp16 failed: {:?}", result.err());
+
+    // Result should be non-zero (each element = sum of 16 products of 1.0*1.0 = 16.0)
+    assert!(c[0] > 0.0);
+}
+
+#[test]
+#[serial]
+fn test_cov005_tensor_core_attention_valid() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Valid dimensions (multiples of 16)
+    let n_heads = 2u32;
+    let seq_len = 16u32;
+    let head_dim = 16u32;
+    let total = (n_heads * seq_len * head_dim) as usize;
+
+    let q = vec![1.0f32; total];
+    let k = vec![1.0f32; total];
+    let v = vec![1.0f32; total];
+    let mut output = vec![0.0f32; total];
+
+    let result = executor.tensor_core_attention(&q, &k, &v, &mut output, seq_len, head_dim, n_heads, false);
+    assert!(result.is_ok(), "tensor_core_attention failed: {:?}", result.err());
+}
+
+#[test]
+#[serial]
+fn test_cov005_tensor_core_attention_causal() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    let n_heads = 2u32;
+    let seq_len = 16u32;
+    let head_dim = 16u32;
+    let total = (n_heads * seq_len * head_dim) as usize;
+
+    let q = vec![1.0f32; total];
+    let k = vec![1.0f32; total];
+    let v = vec![1.0f32; total];
+    let mut output = vec![0.0f32; total];
+
+    // Test with causal=true
+    let result = executor.tensor_core_attention(&q, &k, &v, &mut output, seq_len, head_dim, n_heads, true);
+    assert!(result.is_ok(), "causal tensor_core_attention failed: {:?}", result.err());
+}
