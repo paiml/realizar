@@ -151,10 +151,15 @@ coverage: ## Generate HTML coverage report (target: >95%, memory-efficient)
 	@which cargo-llvm-cov > /dev/null 2>&1 || (echo "$(YELLOW)📦 Installing cargo-llvm-cov...$(NC)" && cargo install cargo-llvm-cov --locked)
 	@mkdir -p target/coverage
 	@cargo llvm-cov clean --workspace
-	@echo "$(GREEN)🧪 Running tests with instrumentation (PROPTEST_CASES=5)...$(NC)"
+	@echo "$(GREEN)🧪 Running lib tests with instrumentation (PROPTEST_CASES=5)...$(NC)"
 	@env RUSTFLAGS="" CARGO_BUILD_RUSTFLAGS="" PROPTEST_CASES=5 QUICKCHECK_TESTS=5 \
 		cargo llvm-cov test --lib --features "cuda,heavy-tests" --no-report $(COV_EXCLUDE) \
 		-- --test-threads=4 2>&1 | tail -30
+	@echo "$(GREEN)🧪 Running CUDA integration tests (--test-threads=1 for GPU)...$(NC)"
+	@env RUSTFLAGS="" CARGO_BUILD_RUSTFLAGS="" PROPTEST_CASES=5 QUICKCHECK_TESTS=5 \
+		cargo llvm-cov test --test cuda_heavy_integration --test cuda_combinatorial_coverage \
+		--features "cuda,heavy-tests" --no-report $(COV_EXCLUDE) \
+		-- --test-threads=1 2>&1 | tail -30
 	@echo "$(GREEN)📊 Generating reports...$(NC)"
 	@cargo llvm-cov report --html --output-dir target/coverage/html $(COV_EXCLUDE)
 	@cargo llvm-cov report --lcov --output-path target/coverage/lcov.info $(COV_EXCLUDE)
