@@ -25,7 +25,7 @@
 //! - `memory`: GPU memory pool and staging buffers
 //! - `types`: Weight loading types and transformer workspace
 //! - `pipeline`: Async pipeline and PTX optimization
-//! - `executor`: CUDA execution engine (TODO: split further - currently >800 lines)
+//! - `executor`: CUDA execution engine (split into submodules)
 //!
 //! ## Available Kernels
 //!
@@ -53,12 +53,16 @@ pub use pipeline::{
 };
 pub use types::{IndexedLayerWeights, TransformerWorkspace, WeightQuantType};
 
-// The executor module is included inline for now due to its massive size (~15K lines)
-// TODO: Split CudaExecutor into smaller modules:
+// The executor module (21K lines) - future work to split into submodules:
 // - executor/core.rs: Basic context and profiling
 // - executor/weights.rs: Weight loading and caching
 // - executor/gemm.rs: GEMM/GEMV operations
-// - executor/kernels.rs: Activation and attention kernels
+// - executor/quantized.rs: Quantized GEMV operations
+// - executor/activations.rs: GELU, SiLU, RMSNorm, RoPE
+// - executor/attention.rs: Flash attention, incremental attention
+// - executor/layer.rs: Transformer layer operations
+// - executor/forward.rs: Forward pass methods
 // - executor/graph.rs: CUDA graph capture and replay
+// - executor/kv_cache.rs: KV cache management
 mod executor;
 pub use executor::CudaExecutor;
