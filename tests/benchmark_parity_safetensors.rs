@@ -661,7 +661,189 @@ fn test_tqa021_bf16_streaming_conversion() {
 }
 
 // ============================================================================
-// H. Summary Test
+// H. Fused BF16 Matmul (Streaming Conversion)
+// ============================================================================
+
+/// Fused BF16 matmul that converts during computation
+/// This avoids allocating a full F32 weight buffer
+fn fused_bf16_matmul(input: &[f32], weight_bf16: &[u8], in_dim: usize, out_dim: usize) -> Vec<f32> {
+    use realizar::inference::simd_bf16_matmul;
+    simd_bf16_matmul(input, weight_bf16, in_dim, out_dim)
+}
+
+/// Test SafeTensors BF16 inference path vs GGUF Q4_K
+///
+/// Simulates the actual inference paths:
+/// - SafeTensors: BF16→F32 conversion at load time, then F32 matmul
+/// - GGUF Q4_K: Fused dequant+matmul during inference
+///
+/// The key insight is that SafeTensors pays the conversion cost once at load,
+/// while GGUF pays the dequantization cost every inference. For long sessions,
+/// SafeTensors should be faster after the initial load.
+#[test]
+fn test_tqa021_safetensors_vs_gguf_inference_parity() {
+    println!("\n=== T-QA-021: SafeTensors vs GGUF Inference Parity ===\n");
+
+    let hidden_dim = 896;
+    let intermediate_dim = 4864;
+    let iterations = 100;
+
+    // Create input
+    let input: Vec<f32> = (0..hidden_dim).map(|i| (i as f32 * 0.001).sin()).collect();
+
+    // Create F32 weights (what SafeTensors uses after BF16→F32 conversion at load time)
+    let weight_f32: Vec<f32> = (0..(hidden_dim * intermediate_dim))
+        .map(|i| (i as f32 * 0.0001).cos())
+        .collect();
+
+    // Convert to BF16 (simulating original SafeTensors format)
+    let weight_bf16: Vec<u8> = weight_f32
+        .iter()
+        .flat_map(|&v| half::bf16::from_f32(v).to_le_bytes())
+        .collect();
+
+    println!("Matrix size: {}x{}", hidden_dim, intermediate_dim);
+    println!("Iterations: {iterations}");
+    println!();
+
+    // === Simulate SafeTensors Path ===
+    // 1. Load time: Convert BF16→F32 (one time)
+    let load_start = Instant::now();
+    let converted_weights = bf16_to_f32_simd_avx2(&weight_bf16);
+    let load_elapsed = load_start.elapsed();
+
+    // 2. Inference time: F32 matmul (repeated)
+    let start = Instant::now();
+    for _ in 0..iterations {
+        let _ = matmul_f32_simd(&input, &converted_weights, hidden_dim, intermediate_dim);
+    }
+    let safetensors_inference_elapsed = start.elapsed();
+
+    // === Simulate GGUF Q4_K Path ===
+    // Fused dequant+matmul (includes conversion overhead each time)
+    // Using BF16 as proxy for Q4_K dequantization
+    let start = Instant::now();
+    for _ in 0..iterations {
+        let _ = fused_bf16_matmul(&input, &weight_bf16, hidden_dim, intermediate_dim);
+    }
+    let gguf_inference_elapsed = start.elapsed();
+
+    let ops_per_iter = 2 * hidden_dim * intermediate_dim;
+    let safetensors_gflops =
+        (ops_per_iter * iterations) as f64 / safetensors_inference_elapsed.as_secs_f64() / 1e9;
+    let gguf_gflops =
+        (ops_per_iter * iterations) as f64 / gguf_inference_elapsed.as_secs_f64() / 1e9;
+
+    println!("SafeTensors BF16 Path:");
+    println!("  Load time (BF16→F32): {:.2} ms", load_elapsed.as_secs_f64() * 1000.0);
+    println!("  Inference: {safetensors_gflops:.2} GFLOPS");
+    println!("  Time: {:.2} ms", safetensors_inference_elapsed.as_secs_f64() * 1000.0);
+    println!();
+    println!("GGUF Q4_K Path (simulated with BF16):");
+    println!("  Inference: {gguf_gflops:.2} GFLOPS");
+    println!("  Time: {:.2} ms", gguf_inference_elapsed.as_secs_f64() * 1000.0);
+    println!();
+
+    let inference_parity = safetensors_gflops / gguf_gflops;
+    println!("Inference parity (SafeTensors/GGUF): {:.1}x", inference_parity);
+
+    if inference_parity >= 1.0 {
+        println!("RESULT: PASS ✓ SafeTensors matches or exceeds GGUF");
+    } else if inference_parity >= 0.8 {
+        println!("RESULT: PASS ✓ SafeTensors ≥80% of GGUF (target met)");
+    } else {
+        println!("RESULT: FAIL SafeTensors < 80% of GGUF");
+    }
+
+    // Amortization analysis: how many inferences to amortize load cost?
+    let inference_time_ms = safetensors_inference_elapsed.as_secs_f64() * 1000.0 / iterations as f64;
+    let load_time_ms = load_elapsed.as_secs_f64() * 1000.0;
+    let amortization_inferences = (load_time_ms / (inference_time_ms * (inference_parity - 1.0).max(0.001))).ceil() as usize;
+
+    println!();
+    println!("Amortization:");
+    println!("  Load cost: {load_time_ms:.2} ms");
+    println!("  Per-inference gain: {:.2} ms", inference_time_ms * (inference_parity - 1.0).max(0.0));
+    println!("  Break-even after: {amortization_inferences} inferences");
+
+    // Accuracy check
+    let safetensors_result = matmul_f32_simd(&input, &converted_weights, hidden_dim, intermediate_dim);
+    let gguf_result = fused_bf16_matmul(&input, &weight_bf16, hidden_dim, intermediate_dim);
+
+    let max_error: f32 = safetensors_result
+        .iter()
+        .zip(gguf_result.iter())
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0f32, f32::max);
+
+    println!();
+    println!("Accuracy: max_error = {max_error:.6}");
+
+    // SafeTensors should be FASTER than fused GGUF after load
+    // because GGUF includes dequantization overhead every time
+    assert!(
+        inference_parity >= 0.8,
+        "SafeTensors inference parity too low: {:.1}x (expected ≥0.8x)",
+        inference_parity
+    );
+}
+
+/// Profile memory bandwidth vs compute bottleneck
+#[test]
+fn test_tqa021_bottleneck_analysis() {
+    println!("\n=== T-QA-021: Bottleneck Analysis ===\n");
+
+    // Test different matrix sizes to identify memory vs compute bound
+    let configs = [
+        (256, 256, "Small (L1 cache)"),
+        (896, 896, "Medium (L2 cache)"),
+        (896, 4864, "Large (L3/RAM)"),
+        (4864, 4864, "XL (RAM bound)"),
+    ];
+
+    println!("| Size | F32 GFLOPS | BF16 GFLOPS | Parity | Bottleneck |");
+    println!("|------|------------|-------------|--------|------------|");
+
+    for (m, n, name) in &configs {
+        let input: Vec<f32> = (0..*m).map(|i| (i as f32 * 0.001).sin()).collect();
+        let weight_f32: Vec<f32> = (0..(m * n)).map(|i| (i as f32 * 0.0001).cos()).collect();
+        let weight_bf16: Vec<u8> = weight_f32
+            .iter()
+            .flat_map(|&v| half::bf16::from_f32(v).to_le_bytes())
+            .collect();
+
+        let iterations = 50;
+        let ops = 2 * m * n * iterations;
+
+        let start = Instant::now();
+        for _ in 0..iterations {
+            let _ = matmul_f32_simd(&input, &weight_f32, *m, *n);
+        }
+        let f32_gflops = ops as f64 / start.elapsed().as_secs_f64() / 1e9;
+
+        let start = Instant::now();
+        for _ in 0..iterations {
+            let _ = fused_bf16_matmul(&input, &weight_bf16, *m, *n);
+        }
+        let bf16_gflops = ops as f64 / start.elapsed().as_secs_f64() / 1e9;
+
+        let parity = bf16_gflops / f32_gflops * 100.0;
+        let bottleneck = if parity > 90.0 {
+            "Compute"
+        } else if parity > 60.0 {
+            "Mixed"
+        } else {
+            "Memory"
+        };
+
+        println!(
+            "| {name:<18} | {f32_gflops:>10.2} | {bf16_gflops:>11.2} | {parity:>5.1}% | {bottleneck:<10} |"
+        );
+    }
+}
+
+// ============================================================================
+// I. Summary Test
 // ============================================================================
 
 #[test]
