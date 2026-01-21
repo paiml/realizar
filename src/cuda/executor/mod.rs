@@ -85,8 +85,16 @@ use crate::cuda::kernels::{CudaKernels, KernelType};
 use crate::cuda::memory::{GpuMemoryPool, PinnedHostBuffer, PoolStats, StagingBufferPool, StagingPoolStats};
 use crate::cuda::types::{IndexedLayerWeights, TransformerWorkspace, WeightQuantType};
 
-// Implementation module
-mod impl_main;
+// Implementation modules (split from impl_main.rs for maintainability)
+mod activations;
+mod attention;
+mod core;
+mod gemm;
+mod kv_cache;
+mod layer;
+mod quantized;
+mod weights;
+mod workspace;
 
 // Test modules
 #[cfg(test)]
