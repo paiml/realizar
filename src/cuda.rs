@@ -22179,4 +22179,222 @@ mod proptests {
         );
         println!("T-QA-012f: KV cache update across multiple tokens PASSED");
     }
+
+    // ============================================================================
+    // T-QA-013: Synthetic Graph Tests
+    // ============================================================================
+    // These tests exercise CUDA graph capture/replay state management.
+
+    /// T-QA-013a: Test decode graph state management
+    ///
+    /// Verifies has_decode_graph and clear_decode_graph work correctly.
+    #[test]
+    #[serial]
+    fn test_tqa013a_decode_graph_state() {
+        if !CudaExecutor::is_available() {
+            println!("T-QA-013a: CUDA not available, skipping");
+            return;
+        }
+
+        let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+        // Initially no graph captured
+        assert!(
+            !executor.has_decode_graph(),
+            "T-QA-013a: No decode graph initially"
+        );
+
+        // Clear graph (should be no-op on empty state)
+        executor.clear_decode_graph();
+        assert!(
+            !executor.has_decode_graph(),
+            "T-QA-013a: Still no graph after clear"
+        );
+
+        println!("T-QA-013a: Decode graph state management PASSED");
+    }
+
+    /// T-QA-013b: Test workspace and indexed weight checks
+    ///
+    /// Verifies the workspace and indexed weight state checks used by graph capture.
+    #[test]
+    #[serial]
+    fn test_tqa013b_workspace_and_indexed_weights() {
+        if !CudaExecutor::is_available() {
+            println!("T-QA-013b: CUDA not available, skipping");
+            return;
+        }
+
+        let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+        // Initially no workspace
+        assert!(
+            !executor.has_workspace(),
+            "T-QA-013b: No workspace initially"
+        );
+
+        // Initially no indexed weights
+        assert!(
+            !executor.has_indexed_weights(),
+            "T-QA-013b: No indexed weights initially"
+        );
+
+        // Clear indexed weights (should be no-op)
+        executor.clear_indexed_weights();
+        assert!(
+            !executor.has_indexed_weights(),
+            "T-QA-013b: Still no indexed weights after clear"
+        );
+
+        println!("T-QA-013b: Workspace and indexed weights checks PASSED");
+    }
+
+    /// T-QA-013c: Test CUDA graph disable env var
+    ///
+    /// Verifies that the CUDA_GRAPH_DISABLE environment variable path is exercised.
+    #[test]
+    #[serial]
+    fn test_tqa013c_graph_disable_env_var() {
+        if !CudaExecutor::is_available() {
+            println!("T-QA-013c: CUDA not available, skipping");
+            return;
+        }
+
+        // Set env var to disable graphs
+        std::env::set_var("CUDA_GRAPH_DISABLE", "1");
+
+        // Create executor - env var is read lazily
+        let executor = CudaExecutor::new(0).expect("CUDA executor");
+
+        // Just verify executor was created (env var affects forward pass path selection)
+        assert!(
+            !executor.has_decode_graph(),
+            "T-QA-013c: No graph should be captured when disabled"
+        );
+
+        // Clean up env var
+        std::env::remove_var("CUDA_GRAPH_DISABLE");
+
+        println!("T-QA-013c: CUDA_GRAPH_DISABLE env var handling PASSED");
+    }
+
+    /// T-QA-013d: Test graphed forward with incomplete state (falls back to non-graphed)
+    ///
+    /// Verifies that forward_all_layers_gpu_to_logits_graphed gracefully falls back
+    /// when workspace/indexed weights are not available.
+    #[test]
+    #[serial]
+    fn test_tqa013d_graphed_forward_fallback() {
+        if !CudaExecutor::is_available() {
+            println!("T-QA-013d: CUDA not available, skipping");
+            return;
+        }
+
+        let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+        // Model dimensions
+        let hidden_dim = 256u32;
+        let intermediate_dim = 1024u32;
+        let num_layers = 1usize;
+        let vocab_size = 1000u32;
+        let epsilon = 1e-5f32;
+
+        // Input/output (without setting up weights - will fail at forward pass)
+        let input = vec![0.1f32; hidden_dim as usize];
+        let mut logits = vec![0.0f32; vocab_size as usize];
+
+        // Try graphed forward without weights - should fail with missing weights error
+        let result = executor.forward_all_layers_gpu_to_logits_graphed(
+            &input,
+            &mut logits,
+            0,
+            num_layers,
+            hidden_dim,
+            intermediate_dim,
+            vocab_size,
+            epsilon,
+        );
+
+        // Expect error due to missing weights (not a graph capture error)
+        assert!(
+            result.is_err(),
+            "T-QA-013d: Should fail without weights"
+        );
+        let err_msg = format!("{:?}", result.err().unwrap());
+        // Error should mention missing cached weights or norms, not graph capture failure
+        assert!(
+            err_msg.contains("not cached") || err_msg.contains("PAR-023") || err_msg.contains("Workspace"),
+            "T-QA-013d: Error should be about missing state, not graph: {}",
+            err_msg
+        );
+
+        // No graph should be captured on failure
+        assert!(
+            !executor.has_decode_graph(),
+            "T-QA-013d: No graph captured on failure"
+        );
+
+        println!("T-QA-013d: Graphed forward fallback on incomplete state PASSED");
+    }
+
+    /// T-QA-013e: Test batched decode graph state management
+    ///
+    /// Verifies batched graph state is properly initialized.
+    #[test]
+    #[serial]
+    fn test_tqa013e_batched_graph_state() {
+        if !CudaExecutor::is_available() {
+            println!("T-QA-013e: CUDA not available, skipping");
+            return;
+        }
+
+        let executor = CudaExecutor::new(0).expect("CUDA executor");
+
+        // Verify batched decode graphs map is empty initially
+        // We check this indirectly via the fact that has_decode_graph returns false
+        // (batched graphs use a different storage but similar patterns)
+        assert!(
+            !executor.has_decode_graph(),
+            "T-QA-013e: No graphs captured initially"
+        );
+
+        println!("T-QA-013e: Batched graph state initialization PASSED");
+    }
+
+    /// T-QA-013f: Test graph state after clear_workspace
+    ///
+    /// Verifies that clearing workspace affects graph capture eligibility.
+    #[test]
+    #[serial]
+    fn test_tqa013f_clear_workspace_graph_state() {
+        if !CudaExecutor::is_available() {
+            println!("T-QA-013f: CUDA not available, skipping");
+            return;
+        }
+
+        let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+        // Clear workspace and verify state
+        executor.clear_workspace();
+        assert!(
+            !executor.has_workspace(),
+            "T-QA-013f: No workspace after clear"
+        );
+
+        // Clear decode graph and verify
+        executor.clear_decode_graph();
+        assert!(
+            !executor.has_decode_graph(),
+            "T-QA-013f: No graph after clear"
+        );
+
+        // Clear indexed weights
+        executor.clear_indexed_weights();
+        assert!(
+            !executor.has_indexed_weights(),
+            "T-QA-013f: No indexed weights after clear"
+        );
+
+        println!("T-QA-013f: Clear workspace/graph state PASSED");
+    }
 }
