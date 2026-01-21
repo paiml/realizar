@@ -65,7 +65,7 @@ async-stream = { version = "0.3", optional = true }
 clap = { version = "4", features = ["derive"], optional = true }
 
 # Terminal UI and CLI utilities (Ollama-style spinners, progress)
-presentar-terminal = { version = "0.3.2", path = "../presentar/crates/presentar-terminal", optional = true }
+presentar-terminal = { version = "0.3.2", optional = true }
 
 # Lambda runtime (lightweight HTTP client)
 ureq = { version = "2", features = ["json"], optional = true }

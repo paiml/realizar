@@ -34,7 +34,10 @@ mod thread;
 // Re-exports for public API
 pub use kv_cache::{attention_with_cache, attention_with_transposed_v, KVCache, OptimizedKVCache};
 pub use norm::{apply_rope, simd_layer_norm, simd_rms_norm};
-pub use simd::{simd_add, simd_dot, simd_gelu, simd_matmul, simd_mul, simd_silu, simd_softmax};
+pub use simd::{
+    simd_add, simd_bf16_dot, simd_bf16_matmul, simd_bf16_to_f32, simd_dot, simd_f16_to_f32,
+    simd_gelu, simd_matmul, simd_mul, simd_silu, simd_softmax,
+};
 pub use thread::{
     configure_optimal_thread_pool, configure_thread_pool, InferenceMode, ThreadConfig,
 };
