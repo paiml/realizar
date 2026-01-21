@@ -53,14 +53,26 @@ const QWEN_05B_EPSILON: f32 = 1e-6;
 // Static Initialization
 // ============================================================================
 
+use std::sync::OnceLock;
+
 static CUDA_INIT: Once = Once::new();
+static SHARED_EXECUTOR: OnceLock<std::sync::Mutex<CudaExecutor>> = OnceLock::new();
 
 fn init_cuda_context() {
     CUDA_INIT.call_once(|| {
-        if CudaExecutor::is_available() {
+        // Try to create executor to initialize CUDA context
+        if let Ok(exec) = CudaExecutor::new(0) {
             eprintln!("T-QA-017: CUDA context initialized (devices: {})", CudaExecutor::num_devices());
+            // Store for shared use
+            let _ = SHARED_EXECUTOR.set(std::sync::Mutex::new(exec));
         }
     });
+}
+
+/// Get or create a shared executor for tests that don't need isolated state
+fn get_shared_executor() -> Option<std::sync::MutexGuard<'static, CudaExecutor>> {
+    init_cuda_context();
+    SHARED_EXECUTOR.get().and_then(|m| m.lock().ok())
 }
 
 fn model_exists(path: &str) -> bool {
@@ -95,16 +107,15 @@ fn mock_quantized_weights(block_count: usize, qtype: WeightQuantType) -> Vec<u8>
     (0..total_bytes).map(|i| (i % 256) as u8).collect()
 }
 
-/// Helper to create CUDA executor with graceful error handling for GPU resource exhaustion
+/// Helper to create CUDA executor - NEVER pre-check is_available()!
+/// See CLAUDE.md: RTX 4090 is always present, is_available() can lie.
 fn try_create_cuda_executor() -> Option<CudaExecutor> {
-    if !CudaExecutor::is_available() {
-        eprintln!("Skipping: CUDA not available");
-        return None;
-    }
     match CudaExecutor::new(0) {
         Ok(executor) => Some(executor),
         Err(e) => {
-            eprintln!("Skipping: CUDA executor creation failed: {:?}", e);
+            // Show REAL error, don't claim "CUDA not available"
+            eprintln!("CUDA executor creation failed: {:?}", e);
+            eprintln!("This should NOT happen on RTX 4090 - investigate!");
             None
         }
     }
