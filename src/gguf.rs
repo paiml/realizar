@@ -11999,6 +11999,81 @@ impl OwnedQuantizedModel {
 
         Ok(tokens)
     }
+
+    /// Generate tokens with streaming callback (PMAT-087)
+    ///
+    /// Same as `generate_with_cache` but calls `on_token` after each token
+    /// is generated, enabling true streaming to clients.
+    ///
+    /// # Arguments
+    /// * `prompt` - Input token IDs
+    /// * `config` - Generation configuration
+    /// * `on_token` - Callback called for each generated token. Return `false` to stop.
+    ///
+    /// # Returns
+    /// Generated token sequence including prompt
+    ///
+    /// # Errors
+    /// Returns error if generation fails
+    pub fn generate_with_cache_streaming<F>(
+        &self,
+        prompt: &[u32],
+        config: &QuantizedGenerateConfig,
+        mut on_token: F,
+    ) -> Result<Vec<u32>>
+    where
+        F: FnMut(u32) -> bool,
+    {
+        if prompt.is_empty() {
+            return Err(RealizarError::InvalidShape {
+                reason: "Prompt cannot be empty".to_string(),
+            });
+        }
+
+        let max_seq_len = prompt.len() + config.max_tokens;
+        let mut cache = OwnedQuantizedKVCache::from_config(&self.config, max_seq_len);
+        let mut tokens = prompt.to_vec();
+
+        // Process prompt tokens (prefill)
+        let mut logits = Vec::new();
+        for (pos, &token_id) in prompt.iter().enumerate() {
+            logits = self.forward_single_with_cache(token_id, &mut cache, pos)?;
+        }
+
+        // Generate new tokens with streaming
+        for gen_idx in 0..config.max_tokens {
+            // Sample next token
+            let next_token = if config.temperature == 0.0 || config.top_k == 1 {
+                Self::argmax(&logits)
+            } else {
+                Self::sample_topk(&logits, config.temperature, config.top_k)
+            };
+
+            // Check stop condition
+            if config.stop_tokens.contains(&next_token) {
+                break;
+            }
+
+            tokens.push(next_token);
+
+            // PMAT-087: Call streaming callback - stop if it returns false
+            if !on_token(next_token) {
+                break;
+            }
+
+            // Check max length
+            if tokens.len() >= max_seq_len {
+                break;
+            }
+
+            // Get logits for next iteration
+            let position = prompt.len() + gen_idx;
+            logits = self.forward_single_with_cache(next_token, &mut cache, position)?;
+        }
+
+        Ok(tokens)
+    }
+
     /// Generate tokens with zero-allocation inference (IMP-131)
     ///
     /// This is the highest-performance generation path. Uses pre-allocated
