@@ -333,7 +333,7 @@ impl BPETokenizer {
                             let encoded = c.encode_utf8(&mut buf);
                             bytes.extend_from_slice(encoded.as_bytes());
                         }
-                    }
+                    },
                 }
             }
         }
@@ -355,9 +355,9 @@ impl BPETokenizer {
             let byte = (code - 0x100) as u8;
             // Map back based on GPT-2's byte_encoder
             match byte {
-                0..=32 => Some(byte),      // Control chars + space
-                127..=160 => Some(byte),   // DEL + extended ASCII
-                173 => Some(173),          // Soft hyphen
+                0..=32 => Some(byte),    // Control chars + space
+                127..=160 => Some(byte), // DEL + extended ASCII
+                173 => Some(173),        // Soft hyphen
                 _ => None,
             }
         } else {
@@ -927,8 +927,8 @@ mod tests {
             "<unk>".to_string(),
             "h".to_string(),
             "i".to_string(),
-            "Ġ".to_string(),      // GPT-2 space encoding
-            "Ġh".to_string(),     // GPT-2 space + h
+            "Ġ".to_string(),  // GPT-2 space encoding
+            "Ġh".to_string(), // GPT-2 space + h
         ];
         let merges = vec![("Ġ".to_string(), "h".to_string())];
 

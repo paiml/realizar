@@ -3,7 +3,9 @@
 //! This traces intermediate values to find where computation diverges.
 
 use realizar::gguf::{MappedGGUFModel, OwnedQKVWeights, OwnedQuantizedModel, OwnedQuantizedTensor};
-use realizar::quantize::{fused_q4k_parallel_matvec, fused_q6k_colmajor_matvec, fused_q6k_parallel_matvec};
+use realizar::quantize::{
+    fused_q4k_parallel_matvec, fused_q6k_colmajor_matvec, fused_q6k_parallel_matvec,
+};
 
 const GGUF_TYPE_Q4_K: u32 = 12;
 const GGUF_TYPE_Q6_K: u32 = 14;

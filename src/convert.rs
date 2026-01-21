@@ -185,7 +185,7 @@ impl GgufToAprConverter {
         header[20..24].copy_from_slice(&(metadata_bytes.len() as u32).to_le_bytes());
         header[24..32].copy_from_slice(&tensor_index_offset.to_le_bytes());
         header[32..40].copy_from_slice(&data_offset.to_le_bytes());
-        header[40..44].copy_from_slice(&0u32.to_le_bytes()); // checksum (TODO)
+        header[40..44].copy_from_slice(&0u32.to_le_bytes()); // checksum: reserved for future use
                                                              // bytes 44-63 reserved
 
         // Combine all parts
@@ -1194,11 +1194,11 @@ mod tests {
 
         let result = GgufToAprQ4KConverter::get_f32(&metadata, "scale");
         assert!(result.is_some());
-        assert!((result.unwrap() - 3.14).abs() < 0.001);
+        assert!((result.expect("operation failed") - 3.14).abs() < 0.001);
 
         let big = GgufToAprQ4KConverter::get_f32(&metadata, "big_scale");
         assert!(big.is_some());
-        assert!((big.unwrap() - 2.71828).abs() < 0.001);
+        assert!((big.expect("operation failed") - 2.71828).abs() < 0.001);
 
         let missing = GgufToAprQ4KConverter::get_f32(&metadata, "nonexistent");
         assert_eq!(missing, None);
@@ -1486,7 +1486,7 @@ mod tests {
 
         let result = GgufToAprQ4KConverter::get_f32(&metadata, "key");
         assert!(result.is_some());
-        assert!((result.unwrap() - 3.14159).abs() < 0.0001);
+        assert!((result.expect("operation failed") - 3.14159).abs() < 0.0001);
     }
 
     #[test]
@@ -1571,8 +1571,7 @@ mod tests {
         // Check header is 64 bytes (HEADER_SIZE) and data follows
         assert!(bytes.len() >= HEADER_SIZE);
         // Metadata offset starts at HEADER_SIZE (64 bytes)
-        let metadata_offset =
-            u64::from_le_bytes(bytes[12..20].try_into().unwrap()) as usize;
+        let metadata_offset = u64::from_le_bytes(bytes[12..20].try_into().expect("index out of bounds")) as usize;
         assert_eq!(metadata_offset, HEADER_SIZE);
     }
 
@@ -1668,7 +1667,7 @@ mod tests {
         metadata.insert("key".to_string(), GGUFValue::Float32(1.5));
         let result = GgufToAprQ4KConverter::get_f32(&metadata, "key");
         assert!(result.is_some());
-        assert!((result.unwrap() - 1.5).abs() < 0.0001);
+        assert!((result.expect("operation failed") - 1.5).abs() < 0.0001);
     }
 
     // =========================================================================
@@ -2089,7 +2088,7 @@ mod tests {
         metadata.insert("key".to_string(), GGUFValue::Float64(1e-10));
         let result = GgufToAprQ4KConverter::get_f32(&metadata, "key");
         assert!(result.is_some());
-        assert!(result.unwrap() > 0.0);
+        assert!(result.expect("operation failed") > 0.0);
     }
 
     // =========================================================================
@@ -2315,7 +2314,10 @@ mod tests {
     fn test_q4k_converter_get_u32_wrong_type_ext_cov() {
         use crate::gguf::GGUFValue;
         let mut metadata = std::collections::HashMap::new();
-        metadata.insert("key".to_string(), GGUFValue::String("not a number".to_string()));
+        metadata.insert(
+            "key".to_string(),
+            GGUFValue::String("not a number".to_string()),
+        );
         let result = GgufToAprQ4KConverter::get_u32(&metadata, "key");
         assert_eq!(result, None);
     }
@@ -2327,7 +2329,7 @@ mod tests {
         metadata.insert("key".to_string(), GGUFValue::Float32(3.14159));
         let result = GgufToAprQ4KConverter::get_f32(&metadata, "key");
         assert!(result.is_some());
-        assert!((result.unwrap() - 3.14159).abs() < 1e-5);
+        assert!((result.expect("operation failed") - 3.14159).abs() < 1e-5);
     }
 
     #[test]
@@ -2533,7 +2535,10 @@ mod tests {
         let loaded = GgufToAprConverter::from_apr_bytes(&bytes).expect("deserialize");
 
         assert_eq!(original.config, loaded.config);
-        assert_eq!(original.layers[0].attn_norm_bias, loaded.layers[0].attn_norm_bias);
+        assert_eq!(
+            original.layers[0].attn_norm_bias,
+            loaded.layers[0].attn_norm_bias
+        );
         assert_eq!(original.lm_head_bias, loaded.lm_head_bias);
     }
 
@@ -2682,7 +2687,7 @@ mod tests {
 
         let apr = GgufToAprConverter::from_gguf_transformer(&gguf);
         assert!(apr.layers[0].ffn_gate_weight.is_some());
-        assert_eq!(apr.layers[0].ffn_gate_weight.as_ref().unwrap().len(), 128);
+        assert_eq!(apr.layers[0].ffn_gate_weight.as_ref().expect("index out of bounds").len(), 128);
         assert!(apr.layers[0].ffn_norm_weight.is_some());
     }
 
@@ -2693,10 +2698,8 @@ mod tests {
         let bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialize");
 
         // Parse header to get offsets
-        let metadata_offset =
-            u64::from_le_bytes(bytes[12..20].try_into().unwrap()) as usize;
-        let tensor_index_offset =
-            u64::from_le_bytes(bytes[24..32].try_into().unwrap()) as usize;
+        let metadata_offset = u64::from_le_bytes(bytes[12..20].try_into().expect("index out of bounds")) as usize;
+        let tensor_index_offset = u64::from_le_bytes(bytes[24..32].try_into().expect("index out of bounds")) as usize;
 
         // Metadata should start at HEADER_SIZE (64)
         assert_eq!(metadata_offset, HEADER_SIZE);
@@ -2773,14 +2776,10 @@ mod tests {
         let apr = create_test_apr_transformer(8, 2, 50, 16);
         let bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialize");
 
-        let metadata_offset =
-            u64::from_le_bytes(bytes[12..20].try_into().unwrap());
-        let metadata_size =
-            u32::from_le_bytes(bytes[20..24].try_into().unwrap());
-        let tensor_index_offset =
-            u64::from_le_bytes(bytes[24..32].try_into().unwrap());
-        let data_offset =
-            u64::from_le_bytes(bytes[32..40].try_into().unwrap());
+        let metadata_offset = u64::from_le_bytes(bytes[12..20].try_into().expect("index out of bounds"));
+        let metadata_size = u32::from_le_bytes(bytes[20..24].try_into().expect("index out of bounds"));
+        let tensor_index_offset = u64::from_le_bytes(bytes[24..32].try_into().expect("index out of bounds"));
+        let data_offset = u64::from_le_bytes(bytes[32..40].try_into().expect("index out of bounds"));
 
         // Metadata should start at header end
         assert_eq!(metadata_offset, HEADER_SIZE as u64);

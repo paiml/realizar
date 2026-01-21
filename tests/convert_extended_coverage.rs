@@ -438,7 +438,10 @@ fn test_converter_roundtrip_with_all_params() {
 
     assert_eq!(original.config().eps, restored.config().eps);
     assert_eq!(original.config().rope_theta, restored.config().rope_theta);
-    assert_eq!(original.config().context_length, restored.config().context_length);
+    assert_eq!(
+        original.config().context_length,
+        restored.config().context_length
+    );
 }
 
 // ============================================================================
@@ -514,7 +517,11 @@ fn test_converter_to_apr_bytes_version() {
 
     // Version is at bytes 4-8
     let version = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
-    assert!(version >= 1 && version <= 100, "Unexpected version: {}", version);
+    assert!(
+        version >= 1 && version <= 100,
+        "Unexpected version: {}",
+        version
+    );
 }
 
 #[test]
@@ -542,16 +549,7 @@ fn test_converter_to_apr_bytes_not_empty() {
 #[test]
 fn test_conversion_stats_all_architectures() {
     let architectures = [
-        "llama",
-        "llama2",
-        "llama3",
-        "phi",
-        "phi2",
-        "phi3",
-        "qwen",
-        "qwen2",
-        "mistral",
-        "gemma",
+        "llama", "llama2", "llama3", "phi", "phi2", "phi3", "qwen", "qwen2", "mistral", "gemma",
         "gemma2",
     ];
 

@@ -257,7 +257,10 @@ fn test_context_window_manager_truncate_preserves_order() {
                 msgs.iter()
                     .position(|m| m.content == result[i - 1].content)
                     .unwrap()
-                    < msgs.iter().position(|m| m.content == result[i].content).unwrap()
+                    < msgs
+                        .iter()
+                        .position(|m| m.content == result[i].content)
+                        .unwrap()
             );
         }
     }
@@ -980,7 +983,10 @@ fn test_usage_large_prompt() {
         completion_tokens: 1000,
         total_tokens: 101000,
     };
-    assert_eq!(usage.prompt_tokens + usage.completion_tokens, usage.total_tokens);
+    assert_eq!(
+        usage.prompt_tokens + usage.completion_tokens,
+        usage.total_tokens
+    );
 }
 
 #[test]
@@ -1353,7 +1359,12 @@ fn test_complete_chat_completion_flow() {
         usage: Usage {
             prompt_tokens: request.messages.iter().map(|m| m.content.len() / 4).sum(),
             completion_tokens: 3,
-            total_tokens: request.messages.iter().map(|m| m.content.len() / 4).sum::<usize>() + 3,
+            total_tokens: request
+                .messages
+                .iter()
+                .map(|m| m.content.len() / 4)
+                .sum::<usize>()
+                + 3,
         },
         brick_trace: None,
         layer_trace: None,

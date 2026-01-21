@@ -2481,7 +2481,7 @@ pub fn fused_q4k_q8k_dot_simd(
             // SAFETY: Memory safety ensured by bounds checking and alignment
             return unsafe { fused_q4k_q8k_dot_avx512vnni_v2(q4k_data, q8k_scales, q8k_quants) };
         }
-        // Fallback to AVX2 (layout bug fixed)
+        // Fallback to AVX2 (layout issue resolved)
         if is_x86_feature_detected!("avx2") {
             // SAFETY: Memory safety ensured by bounds checking and alignment
             return unsafe { fused_q4k_q8k_dot_avx2(q4k_data, q8k_scales, q8k_quants) };
@@ -7759,7 +7759,12 @@ pub fn apply_rope_rotation_simd(
 ///
 /// Exposed as `pub(crate)` for direct testing on AVX2 machines.
 #[inline]
-pub(crate) fn apply_rope_rotation_scalar(x1: &mut [f32], x2: &mut [f32], cos_vals: &[f32], sin_vals: &[f32]) {
+pub(crate) fn apply_rope_rotation_scalar(
+    x1: &mut [f32],
+    x2: &mut [f32],
+    cos_vals: &[f32],
+    sin_vals: &[f32],
+) {
     for i in 0..x1.len() {
         let v1 = x1[i];
         let v2 = x2[i];
@@ -11884,7 +11889,7 @@ mod tests {
         data[0..2].copy_from_slice(&half::f16::from_f32(1.0).to_le_bytes());
         let result = InterleavedQ4K::from_q4k(&data);
         assert!(result.is_ok());
-        let interleaved = result.unwrap();
+        let interleaved = result.expect("quantization failed");
         assert_eq!(interleaved.num_values(), 256);
     }
 
@@ -11892,7 +11897,7 @@ mod tests {
     #[test]
     fn test_interleaved_q4k_dot() {
         let data = vec![0u8; 144];
-        let interleaved = InterleavedQ4K::from_q4k(&data).unwrap();
+        let interleaved = InterleavedQ4K::from_q4k(&data).expect("quantization failed");
         let activations = vec![1.0f32; 256];
         let result = interleaved.dot(&activations);
         assert!(result.is_ok());
@@ -12875,7 +12880,7 @@ mod tests {
         let result = dequantize_q4_0(&data);
         // Empty data should work but return empty
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     #[test]
@@ -12895,7 +12900,7 @@ mod tests {
         let data: Vec<u8> = vec![];
         let result = dequantize_q8_0(&data);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     #[test]
@@ -12915,7 +12920,7 @@ mod tests {
         let data: Vec<u8> = vec![];
         let result = dequantize_f16(&data);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     #[test]
@@ -12982,7 +12987,7 @@ mod tests {
         let q4k_data = vec![0u8; 144];
         let interleaved = InterleavedQ4K::from_q4k(&q4k_data);
         assert!(interleaved.is_ok());
-        let interleaved = interleaved.unwrap();
+        let interleaved = interleaved.expect("quantization failed");
         assert_eq!(interleaved.num_values(), 256);
     }
 
@@ -13056,7 +13061,7 @@ mod tests {
         let data: Vec<u8> = vec![];
         let result = dequantize_q4_1(&data);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     // =========================================================================
@@ -13076,7 +13081,7 @@ mod tests {
         let data: Vec<u8> = vec![];
         let result = dequantize_q5_0(&data);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     // =========================================================================
@@ -13096,7 +13101,7 @@ mod tests {
         let data: Vec<u8> = vec![];
         let result = dequantize_q5_1(&data);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     // =========================================================================
@@ -13159,7 +13164,7 @@ mod tests {
         let values: Vec<f32> = vec![];
         let result = quantize_to_q8_blocks(&values);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     #[test]
@@ -13167,7 +13172,7 @@ mod tests {
         let values: Vec<f32> = (0..32).map(|i| i as f32 * 0.1).collect();
         let result = quantize_to_q8_blocks(&values);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), 1);
+        assert_eq!(result.expect("quantization failed").len(), 1);
     }
 
     // =========================================================================
@@ -13177,7 +13182,7 @@ mod tests {
     #[test]
     fn test_dequantize_q8_blocks_roundtrip_cov() {
         let original: Vec<f32> = (0..64).map(|i| (i as f32 - 32.0) * 0.1).collect();
-        let blocks = quantize_to_q8_blocks(&original).unwrap();
+        let blocks = quantize_to_q8_blocks(&original).expect("quantization failed");
         let restored = dequantize_q8_blocks(&blocks);
         assert_eq!(restored.len(), 64);
         // Should be close to original
@@ -13215,7 +13220,7 @@ mod tests {
         let data: Vec<u8> = vec![];
         let result = dequantize_f16(&data);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     // =========================================================================
@@ -13456,7 +13461,10 @@ mod tests {
         // Should not overflow/underflow
         let sum: f32 = x.iter().sum();
         assert!((sum - 1.0).abs() < 1e-5, "sum should be 1.0, got {}", sum);
-        assert!(x.iter().all(|&v| v.is_finite()), "all values should be finite");
+        assert!(
+            x.iter().all(|&v| v.is_finite()),
+            "all values should be finite"
+        );
     }
 
     #[test]
@@ -13475,8 +13483,20 @@ mod tests {
         for i in 0..4 {
             let expected_x1 = x1_orig[i] * 0.5 - x2_orig[i] * 0.866;
             let expected_x2 = x1_orig[i] * 0.866 + x2_orig[i] * 0.5;
-            assert!((x1[i] - expected_x1).abs() < 1e-5, "x1[{}]: expected {}, got {}", i, expected_x1, x1[i]);
-            assert!((x2[i] - expected_x2).abs() < 1e-5, "x2[{}]: expected {}, got {}", i, expected_x2, x2[i]);
+            assert!(
+                (x1[i] - expected_x1).abs() < 1e-5,
+                "x1[{}]: expected {}, got {}",
+                i,
+                expected_x1,
+                x1[i]
+            );
+            assert!(
+                (x2[i] - expected_x2).abs() < 1e-5,
+                "x2[{}]: expected {}, got {}",
+                i,
+                expected_x2,
+                x2[i]
+            );
         }
     }
 
@@ -13521,7 +13541,8 @@ mod tests {
         let q8_act_scales = vec![1.0f32];
         let q8_act_quants = vec![1i8; 32];
 
-        let result = fused_q8_0_q8_0_dot_scalar(&q8_weight_data, &q8_act_scales, &q8_act_quants, 32);
+        let result =
+            fused_q8_0_q8_0_dot_scalar(&q8_weight_data, &q8_act_scales, &q8_act_quants, 32);
 
         // Dot product of 32 ones with scale 1.0 * 1.0 = 32
         assert!((result - 32.0).abs() < 1e-3, "expected ~32, got {}", result);
@@ -13559,9 +13580,18 @@ mod tests {
         let result = dequantize_q4_k_superblock(&sb_data);
 
         // Should produce QK_K (256) values
-        assert_eq!(result.len(), QK_K, "expected {} values, got {}", QK_K, result.len());
+        assert_eq!(
+            result.len(),
+            QK_K,
+            "expected {} values, got {}",
+            QK_K,
+            result.len()
+        );
         // All values should be finite
-        assert!(result.iter().all(|&v| v.is_finite()), "all values should be finite");
+        assert!(
+            result.iter().all(|&v| v.is_finite()),
+            "all values should be finite"
+        );
     }
 
     #[test]
@@ -13620,7 +13650,13 @@ mod tests {
         // Values should be 0.0, 1.0, 2.0, ... 31.0 (scale * quant = 1.0 * i)
         for (i, &val) in result.iter().enumerate() {
             let expected = i as f32;
-            assert!((val - expected).abs() < 0.01, "result[{}] = {}, expected {}", i, val, expected);
+            assert!(
+                (val - expected).abs() < 0.01,
+                "result[{}] = {}, expected {}",
+                i,
+                val,
+                expected
+            );
         }
     }
 
@@ -13645,11 +13681,19 @@ mod tests {
         assert_eq!(result.len(), 32);
 
         // Check first few values: scale * quant = 2.0 * i8
-        assert!((result[0] - (-256.0)).abs() < 0.1, "result[0] = {}", result[0]); // 2.0 * -128
-        assert!((result[1] - (-128.0)).abs() < 0.1, "result[1] = {}", result[1]); // 2.0 * -64
-        assert!((result[2] - 0.0).abs() < 0.1, "result[2] = {}", result[2]);       // 2.0 * 0
-        assert!((result[3] - 128.0).abs() < 0.1, "result[3] = {}", result[3]);     // 2.0 * 64
-        assert!((result[4] - 254.0).abs() < 0.1, "result[4] = {}", result[4]);     // 2.0 * 127
+        assert!(
+            (result[0] - (-256.0)).abs() < 0.1,
+            "result[0] = {}",
+            result[0]
+        ); // 2.0 * -128
+        assert!(
+            (result[1] - (-128.0)).abs() < 0.1,
+            "result[1] = {}",
+            result[1]
+        ); // 2.0 * -64
+        assert!((result[2] - 0.0).abs() < 0.1, "result[2] = {}", result[2]); // 2.0 * 0
+        assert!((result[3] - 128.0).abs() < 0.1, "result[3] = {}", result[3]); // 2.0 * 64
+        assert!((result[4] - 254.0).abs() < 0.1, "result[4] = {}", result[4]); // 2.0 * 127
     }
 
     #[test]
@@ -13682,7 +13726,11 @@ mod tests {
     fn test_f16_to_f32_lut_zero() {
         // Test zero conversion
         let result = f16_to_f32_lut(0);
-        assert!(result.abs() < 1e-10, "Zero should convert to 0.0, got {}", result);
+        assert!(
+            result.abs() < 1e-10,
+            "Zero should convert to 0.0, got {}",
+            result
+        );
     }
 
     #[test]
@@ -13696,7 +13744,11 @@ mod tests {
     fn test_f16_to_f32_lut_negative_one() {
         // Test -1.0 conversion (f16 bits for -1.0 = 0xBC00)
         let result = f16_to_f32_lut(0xBC00);
-        assert!((result - (-1.0)).abs() < 1e-6, "Should be -1.0, got {}", result);
+        assert!(
+            (result - (-1.0)).abs() < 1e-6,
+            "Should be -1.0, got {}",
+            result
+        );
     }
 
     #[test]
@@ -13727,7 +13779,11 @@ mod tests {
         // Test reading f16 -1.0
         let bytes = [0x00, 0xBC]; // f16 -1.0 in little-endian
         let result = read_f16(&bytes);
-        assert!((result - (-1.0)).abs() < 1e-6, "Should be -1.0, got {}", result);
+        assert!(
+            (result - (-1.0)).abs() < 1e-6,
+            "Should be -1.0, got {}",
+            result
+        );
     }
 
     #[test]
@@ -13737,7 +13793,11 @@ mod tests {
         let (scale, min) = extract_scale_min_from_slice(&scales, 0);
         // idx=0: scale = scales[0] & 0x3F = 0x3F = 63
         // idx=0: min = scales[4] & 0x3F = 0x20 = 32
-        assert!((scale - 63.0).abs() < 0.001, "scale should be 63, got {}", scale);
+        assert!(
+            (scale - 63.0).abs() < 0.001,
+            "scale should be 63, got {}",
+            scale
+        );
         assert!((min - 32.0).abs() < 0.001, "min should be 32, got {}", min);
     }
 
@@ -13748,7 +13808,11 @@ mod tests {
         let (scale, min) = extract_scale_min_from_slice(&scales, 2);
         // idx=2: scale_idx = 1, scale = scales[1] & 0x3F = 0x1F = 31
         // idx=2: min_idx = 5, min = scales[5] & 0x3F = 0x10 = 16
-        assert!((scale - 31.0).abs() < 0.001, "scale should be 31, got {}", scale);
+        assert!(
+            (scale - 31.0).abs() < 0.001,
+            "scale should be 31, got {}",
+            scale
+        );
         assert!((min - 16.0).abs() < 0.001, "min should be 16, got {}", min);
     }
 
@@ -13763,13 +13827,29 @@ mod tests {
 
         // Block 0: scale = 0x3F & 63 = 63, min = 0x20 & 63 = 32
         let (scale, min) = extract_scale_min(&scales, 0);
-        assert!((scale - 63.0).abs() < 0.001, "Block 0 scale should be 63, got {}", scale);
-        assert!((min - 32.0).abs() < 0.001, "Block 0 min should be 32, got {}", min);
+        assert!(
+            (scale - 63.0).abs() < 0.001,
+            "Block 0 scale should be 63, got {}",
+            scale
+        );
+        assert!(
+            (min - 32.0).abs() < 0.001,
+            "Block 0 min should be 32, got {}",
+            min
+        );
 
         // Block 1: scale = 0x2F & 63 = 47, min = 0x18 & 63 = 24
         let (scale, min) = extract_scale_min(&scales, 1);
-        assert!((scale - 47.0).abs() < 0.001, "Block 1 scale should be 47, got {}", scale);
-        assert!((min - 24.0).abs() < 0.001, "Block 1 min should be 24, got {}", min);
+        assert!(
+            (scale - 47.0).abs() < 0.001,
+            "Block 1 scale should be 47, got {}",
+            scale
+        );
+        assert!(
+            (min - 24.0).abs() < 0.001,
+            "Block 1 min should be 24, got {}",
+            min
+        );
     }
 
     #[test]
@@ -13785,8 +13865,16 @@ mod tests {
         // Block 4: d = (scales[8] & 0x0F) | ((scales[0] >> 6) << 4) = (0x12 & 0x0F) | (1 << 4) = 2 | 16 = 18
         // Block 4: m = (scales[8] >> 4) | ((scales[4] >> 6) << 4) = (0x12 >> 4) | (0 << 4) = 1 | 0 = 1
         let (scale, min) = extract_scale_min(&scales, 4);
-        assert!((scale - 18.0).abs() < 0.001, "Block 4 scale should be 18, got {}", scale);
-        assert!((min - 1.0).abs() < 0.001, "Block 4 min should be 1, got {}", min);
+        assert!(
+            (scale - 18.0).abs() < 0.001,
+            "Block 4 scale should be 18, got {}",
+            scale
+        );
+        assert!(
+            (min - 1.0).abs() < 0.001,
+            "Block 4 min should be 1, got {}",
+            min
+        );
     }
 
     #[test]
@@ -13796,8 +13884,18 @@ mod tests {
 
         for block_idx in 0..8 {
             let (scale, min) = extract_scale_min(&scales, block_idx);
-            assert!(scale.abs() < 0.001, "Block {} scale should be 0, got {}", block_idx, scale);
-            assert!(min.abs() < 0.001, "Block {} min should be 0, got {}", block_idx, min);
+            assert!(
+                scale.abs() < 0.001,
+                "Block {} scale should be 0, got {}",
+                block_idx,
+                scale
+            );
+            assert!(
+                min.abs() < 0.001,
+                "Block {} min should be 0, got {}",
+                block_idx,
+                min
+            );
         }
     }
 
@@ -13810,7 +13908,7 @@ mod tests {
         let data: &[u8] = &[];
         let result = dequantize_f16(data);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     #[test]
@@ -13826,7 +13924,7 @@ mod tests {
         let data: &[u8] = &[];
         let result = dequantize_q4_0(data);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     #[test]
@@ -13834,7 +13932,7 @@ mod tests {
         let data: &[u8] = &[];
         let result = dequantize_q8_0(data);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     #[test]
@@ -13842,7 +13940,7 @@ mod tests {
         let data: &[u8] = &[];
         let result = dequantize_q4_k(data);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     #[test]
@@ -13850,7 +13948,7 @@ mod tests {
         let data: &[u8] = &[];
         let result = dequantize_q5_k(data);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     #[test]
@@ -13858,7 +13956,7 @@ mod tests {
         let data: &[u8] = &[];
         let result = dequantize_q6_k(data);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     // =========================================================================
@@ -13870,7 +13968,7 @@ mod tests {
         let data: &[u8] = &[];
         let result = dequantize_q4_1(data);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     // =========================================================================
@@ -13882,7 +13980,7 @@ mod tests {
         let data: &[u8] = &[];
         let result = dequantize_q5_0(data);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     // =========================================================================
@@ -13894,7 +13992,7 @@ mod tests {
         let data: &[u8] = &[];
         let result = dequantize_q5_1(data);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     // =========================================================================
@@ -14096,7 +14194,7 @@ mod tests {
     fn test_fused_q4_0_q8_0_parallel_matvec_empty_input_check() {
         let result = fused_q4_0_q8_0_parallel_matvec(&[], &[], 0, 0);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     #[test]
@@ -14432,7 +14530,7 @@ mod tests {
         let data: Vec<u8> = vec![];
         let result = InterleavedQ4K::from_q4k(&data);
         assert!(result.is_ok());
-        let iq4k = result.unwrap();
+        let iq4k = result.expect("quantization failed");
         assert_eq!(iq4k.num_super_blocks, 0);
     }
 
@@ -14493,7 +14591,7 @@ mod tests {
         let values = vec![1.0f32; 64]; // 2 blocks
         let result = quantize_to_q8_blocks(&values);
         assert!(result.is_ok());
-        let blocks = result.unwrap();
+        let blocks = result.expect("quantization failed");
         assert_eq!(blocks.len(), 2);
     }
 
@@ -14502,7 +14600,7 @@ mod tests {
         let values: Vec<f32> = vec![];
         let result = quantize_to_q8_blocks(&values);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     // =========================================================================
@@ -14545,7 +14643,7 @@ mod tests {
         let data: Vec<u8> = vec![];
         let result = dequantize_q4_1(&data);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     // =========================================================================
@@ -14564,7 +14662,7 @@ mod tests {
         let data: Vec<u8> = vec![];
         let result = dequantize_q5_0(&data);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     // =========================================================================
@@ -14583,7 +14681,7 @@ mod tests {
         let data: Vec<u8> = vec![];
         let result = dequantize_q5_1(&data);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     // =========================================================================
@@ -14827,20 +14925,20 @@ mod tests {
         // All quants zero = all zeros out
         let result = dequantize_q4_0(&data);
         assert!(result.is_ok());
-        let vals = result.unwrap();
+        let vals = result.expect("quantization failed");
         assert_eq!(vals.len(), 32);
     }
 
     #[test]
     fn test_dequantize_q4_0_two_blocks_ext_cov() {
         let mut data = vec![0u8; 36]; // 2 blocks at 18 bytes each
-        // First block scale = 1.0
+                                      // First block scale = 1.0
         data[0..2].copy_from_slice(&half::f16::from_f32(1.0).to_le_bytes());
         // Second block scale = 2.0
         data[18..20].copy_from_slice(&half::f16::from_f32(2.0).to_le_bytes());
         let result = dequantize_q4_0(&data);
         assert!(result.is_ok());
-        let vals = result.unwrap();
+        let vals = result.expect("quantization failed");
         assert_eq!(vals.len(), 64);
     }
 
@@ -14856,7 +14954,7 @@ mod tests {
         // All zero quants
         let result = dequantize_q8_0(&data);
         assert!(result.is_ok());
-        let vals = result.unwrap();
+        let vals = result.expect("quantization failed");
         assert_eq!(vals.len(), 32);
     }
 
@@ -14870,7 +14968,7 @@ mod tests {
         }
         let result = dequantize_q8_0(&data);
         assert!(result.is_ok());
-        let vals = result.unwrap();
+        let vals = result.expect("quantization failed");
         assert_eq!(vals.len(), 32);
         // Each value should be approximately 10 * 0.1 = 1.0
         for v in &vals {
@@ -14888,7 +14986,7 @@ mod tests {
         let data = vec![0u8; 144];
         let result = dequantize_q4_k(&data);
         assert!(result.is_ok());
-        let vals = result.unwrap();
+        let vals = result.expect("quantization failed");
         assert_eq!(vals.len(), 256);
     }
 
@@ -14902,7 +15000,7 @@ mod tests {
         let data = vec![0u8; 176];
         let result = dequantize_q5_k(&data);
         assert!(result.is_ok());
-        let vals = result.unwrap();
+        let vals = result.expect("quantization failed");
         assert_eq!(vals.len(), 256);
     }
 
@@ -14916,7 +15014,7 @@ mod tests {
         let data = vec![0u8; 210];
         let result = dequantize_q6_k(&data);
         assert!(result.is_ok());
-        let vals = result.unwrap();
+        let vals = result.expect("quantization failed");
         assert_eq!(vals.len(), 256);
     }
 
@@ -15338,7 +15436,7 @@ mod tests {
         let values = vec![1.0f32; 64]; // 2 blocks
         let result = quantize_to_q8_blocks(&values);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), 2);
+        assert_eq!(result.expect("quantization failed").len(), 2);
     }
 
     #[test]
@@ -15353,7 +15451,7 @@ mod tests {
         let values = vec![1.0f32; 32];
         let result = quantize_to_q8_blocks(&values);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), 1);
+        assert_eq!(result.expect("quantization failed").len(), 1);
     }
 
     #[test]
@@ -15361,7 +15459,7 @@ mod tests {
         let values: Vec<f32> = vec![];
         let result = quantize_to_q8_blocks(&values);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), 0);
+        assert_eq!(result.expect("quantization failed").len(), 0);
     }
 
     // =========================================================================
@@ -15371,8 +15469,14 @@ mod tests {
     #[test]
     fn test_dequantize_q8_blocks_ext_cov() {
         let blocks = vec![
-            Q8_0Block { scale: 0.1, quants: [10i8; 32] },
-            Q8_0Block { scale: 0.2, quants: [5i8; 32] },
+            Q8_0Block {
+                scale: 0.1,
+                quants: [10i8; 32],
+            },
+            Q8_0Block {
+                scale: 0.2,
+                quants: [5i8; 32],
+            },
         ];
         let result = dequantize_q8_blocks(&blocks);
         assert_eq!(result.len(), 64);
@@ -15394,7 +15498,7 @@ mod tests {
         let data = vec![0u8; 144]; // 1 superblock
         let result = InterleavedQ4K::from_q4k(&data);
         assert!(result.is_ok());
-        let interleaved = result.unwrap();
+        let interleaved = result.expect("quantization failed");
         assert_eq!(interleaved.num_super_blocks, 1);
     }
 
@@ -15408,14 +15512,14 @@ mod tests {
     #[test]
     fn test_interleaved_q4k_num_values_ext_cov() {
         let data = vec![0u8; 288]; // 2 superblocks
-        let interleaved = InterleavedQ4K::from_q4k(&data).unwrap();
+        let interleaved = InterleavedQ4K::from_q4k(&data).expect("quantization failed");
         assert_eq!(interleaved.num_values(), 512);
     }
 
     #[test]
     fn test_interleaved_q4k_clone_ext_cov() {
         let data = vec![0u8; 144];
-        let interleaved = InterleavedQ4K::from_q4k(&data).unwrap();
+        let interleaved = InterleavedQ4K::from_q4k(&data).expect("quantization failed");
         let cloned = interleaved.clone();
         assert_eq!(interleaved.num_super_blocks, cloned.num_super_blocks);
     }
@@ -15423,7 +15527,7 @@ mod tests {
     #[test]
     fn test_interleaved_q4k_debug_ext_cov() {
         let data = vec![0u8; 144];
-        let interleaved = InterleavedQ4K::from_q4k(&data).unwrap();
+        let interleaved = InterleavedQ4K::from_q4k(&data).expect("quantization failed");
         let debug_str = format!("{:?}", interleaved);
         assert!(debug_str.contains("num_super_blocks"));
     }
@@ -15431,7 +15535,7 @@ mod tests {
     #[test]
     fn test_interleaved_q4k_dot_success_ext_cov() {
         let data = vec![0u8; 144]; // 1 superblock
-        let interleaved = InterleavedQ4K::from_q4k(&data).unwrap();
+        let interleaved = InterleavedQ4K::from_q4k(&data).expect("quantization failed");
         let activations = vec![1.0f32; 256];
         let result = interleaved.dot(&activations);
         assert!(result.is_ok());
@@ -15440,7 +15544,7 @@ mod tests {
     #[test]
     fn test_interleaved_q4k_dot_wrong_size_ext_cov() {
         let data = vec![0u8; 144];
-        let interleaved = InterleavedQ4K::from_q4k(&data).unwrap();
+        let interleaved = InterleavedQ4K::from_q4k(&data).expect("quantization failed");
         let activations = vec![1.0f32; 100]; // Wrong size
         let result = interleaved.dot(&activations);
         assert!(result.is_err());
@@ -15623,63 +15727,63 @@ mod tests {
     fn test_dequantize_q4_0_empty_input_ext_cov() {
         let result = dequantize_q4_0(&[]);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     #[test]
     fn test_dequantize_q8_0_empty_input_ext_cov() {
         let result = dequantize_q8_0(&[]);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     #[test]
     fn test_dequantize_f16_empty_input_ext_cov() {
         let result = dequantize_f16(&[]);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     #[test]
     fn test_dequantize_q4_1_empty_input_ext_cov() {
         let result = dequantize_q4_1(&[]);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     #[test]
     fn test_dequantize_q5_0_empty_input_ext_cov() {
         let result = dequantize_q5_0(&[]);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     #[test]
     fn test_dequantize_q5_1_empty_input_ext_cov() {
         let result = dequantize_q5_1(&[]);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     #[test]
     fn test_dequantize_q4_k_empty_input_ext_cov() {
         let result = dequantize_q4_k(&[]);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     #[test]
     fn test_dequantize_q5_k_empty_input_ext_cov() {
         let result = dequantize_q5_k(&[]);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     #[test]
     fn test_dequantize_q6_k_empty_input_ext_cov() {
         let result = dequantize_q6_k(&[]);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     // =========================================================================
@@ -15692,7 +15796,8 @@ mod tests {
         let scales = vec![1.0f32; 1];
         let quants = vec![0i8; 256];
         let mut output = vec![0.0f32; 0]; // Wrong size
-        let result = fused_q4k_q8k_parallel_matvec_into(&q4k_data, &scales, &quants, 1, 256, &mut output);
+        let result =
+            fused_q4k_q8k_parallel_matvec_into(&q4k_data, &scales, &quants, 1, 256, &mut output);
         assert!(result.is_err());
     }
 
@@ -15702,7 +15807,8 @@ mod tests {
         let scales = vec![1.0f32; 1];
         let quants = vec![0i8; 256];
         let mut output = vec![0.0f32; 1];
-        let result = fused_q4k_q8k_parallel_matvec_into(&q4k_data, &scales, &quants, 1, 256, &mut output);
+        let result =
+            fused_q4k_q8k_parallel_matvec_into(&q4k_data, &scales, &quants, 1, 256, &mut output);
         assert!(result.is_err());
     }
 
@@ -15808,28 +15914,28 @@ mod tests {
     fn test_dequantize_q4_k_parallel_empty_ext_cov() {
         let result = dequantize_q4_k_parallel(&[]);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     #[test]
     fn test_dequantize_q4_k_simd_empty_ext_cov() {
         let result = dequantize_q4_k_simd(&[]);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     #[test]
     fn test_dequantize_q8_0_parallel_empty_ext_cov() {
         let result = dequantize_q8_0_parallel(&[]);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     #[test]
     fn test_dequantize_q8_0_simd_empty_ext_cov() {
         let result = dequantize_q8_0_simd(&[]);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("quantization failed").is_empty());
     }
 
     // =========================================================================
@@ -15874,7 +15980,8 @@ mod tests {
         let weights = vec![0u8; 10]; // Invalid
         let activations = vec![1.0f32; 32];
         let mut output = vec![0.0f32; 1];
-        let result = fused_q8_0_q8_0_parallel_matvec_into(&weights, &activations, 32, 32, &mut output);
+        let result =
+            fused_q8_0_q8_0_parallel_matvec_into(&weights, &activations, 32, 32, &mut output);
         assert!(result.is_err());
     }
 
@@ -15890,7 +15997,16 @@ mod tests {
         let quants = vec![0i8; 256];
         let mut up_output = vec![0.0f32; 1];
         let mut gate_output = vec![0.0f32; 1];
-        let result = fused_q4k_q8k_ffn_up_gate_into(&up_data, &gate_data, &scales, &quants, 1, 256, &mut up_output, &mut gate_output);
+        let result = fused_q4k_q8k_ffn_up_gate_into(
+            &up_data,
+            &gate_data,
+            &scales,
+            &quants,
+            1,
+            256,
+            &mut up_output,
+            &mut gate_output,
+        );
         assert!(result.is_err());
     }
 
@@ -15902,7 +16018,16 @@ mod tests {
         let quants = vec![0i8; 256];
         let mut up_output = vec![0.0f32; 1];
         let mut gate_output = vec![0.0f32; 1];
-        let result = fused_q4k_q8k_ffn_up_gate_into(&up_data, &gate_data, &scales, &quants, 1, 256, &mut up_output, &mut gate_output);
+        let result = fused_q4k_q8k_ffn_up_gate_into(
+            &up_data,
+            &gate_data,
+            &scales,
+            &quants,
+            1,
+            256,
+            &mut up_output,
+            &mut gate_output,
+        );
         assert!(result.is_err());
     }
 
@@ -16117,7 +16242,7 @@ mod tests {
     fn test_interleaved_q4k_from_q4k_empty_deep3() {
         let result = InterleavedQ4K::from_q4k(&[]);
         assert!(result.is_ok());
-        let iq = result.unwrap();
+        let iq = result.expect("quantization failed");
         assert_eq!(iq.num_super_blocks, 0);
         assert_eq!(iq.num_values(), 0);
     }
@@ -16126,14 +16251,14 @@ mod tests {
     fn test_interleaved_q4k_num_values_cov() {
         // One super-block = 256 values
         let data = vec![0u8; 144];
-        let iq = InterleavedQ4K::from_q4k(&data).unwrap();
+        let iq = InterleavedQ4K::from_q4k(&data).expect("quantization failed");
         assert_eq!(iq.num_values(), 256);
     }
 
     #[test]
     fn test_interleaved_q4k_dot_dim_mismatch_cov() {
         let data = vec![0u8; 144];
-        let iq = InterleavedQ4K::from_q4k(&data).unwrap();
+        let iq = InterleavedQ4K::from_q4k(&data).expect("quantization failed");
         let activations = vec![1.0f32; 100]; // Wrong size
         let result = iq.dot(&activations);
         assert!(result.is_err());
@@ -16151,7 +16276,7 @@ mod tests {
         data[2] = 0;
         data[3] = 0;
 
-        let iq = InterleavedQ4K::from_q4k(&data).unwrap();
+        let iq = InterleavedQ4K::from_q4k(&data).expect("quantization failed");
         let activations = vec![1.0f32; 256];
         let result = iq.dot(&activations);
         assert!(result.is_ok());
@@ -16231,7 +16356,7 @@ mod tests {
     #[test]
     fn test_quantize_to_q8_blocks_exact_blocks_cov() {
         let values: Vec<f32> = (0..64).map(|i| i as f32).collect();
-        let blocks = quantize_to_q8_blocks(&values).unwrap();
+        let blocks = quantize_to_q8_blocks(&values).expect("quantization failed");
         assert_eq!(blocks.len(), 2); // 64 values = 2 blocks
     }
 
@@ -16247,7 +16372,7 @@ mod tests {
     #[test]
     fn test_quantize_to_q8_blocks_empty_deep2() {
         let values: Vec<f32> = vec![];
-        let blocks = quantize_to_q8_blocks(&values).unwrap();
+        let blocks = quantize_to_q8_blocks(&values).expect("quantization failed");
         assert!(blocks.is_empty());
     }
 
@@ -16258,7 +16383,7 @@ mod tests {
     #[test]
     fn test_dequantize_q8_blocks_roundtrip_deep2() {
         let values: Vec<f32> = (0..32).map(|i| i as f32 - 16.0).collect();
-        let blocks = quantize_to_q8_blocks(&values).unwrap();
+        let blocks = quantize_to_q8_blocks(&values).expect("quantization failed");
         let dequantized = dequantize_q8_blocks(&blocks);
         assert_eq!(dequantized.len(), 32);
         // Check roundtrip error
@@ -16301,7 +16426,7 @@ mod tests {
         let one = half::f16::from_f32(1.0).to_le_bytes();
         let two = half::f16::from_f32(2.0).to_le_bytes();
         let data = [one[0], one[1], two[0], two[1]];
-        let result = dequantize_f16(&data).unwrap();
+        let result = dequantize_f16(&data).expect("quantization failed");
         assert_eq!(result.len(), 2);
         assert!((result[0] - 1.0).abs() < 1e-3);
         assert!((result[1] - 2.0).abs() < 1e-3);
@@ -16331,7 +16456,7 @@ mod tests {
         data[3] = 0;
         // quants: all zeros
 
-        let result = dequantize_q4_1(&data).unwrap();
+        let result = dequantize_q4_1(&data).expect("quantization failed");
         assert_eq!(result.len(), 32);
     }
 
@@ -16355,7 +16480,7 @@ mod tests {
         data[0] = scale[0];
         data[1] = scale[1];
 
-        let result = dequantize_q5_0(&data).unwrap();
+        let result = dequantize_q5_0(&data).expect("quantization failed");
         assert_eq!(result.len(), 32);
     }
 
@@ -16379,7 +16504,7 @@ mod tests {
         data[0] = scale[0];
         data[1] = scale[1];
 
-        let result = dequantize_q5_1(&data).unwrap();
+        let result = dequantize_q5_1(&data).expect("quantization failed");
         assert_eq!(result.len(), 32);
     }
 
@@ -16398,7 +16523,7 @@ mod tests {
     fn test_dequantize_q5_k_valid_cov() {
         // Q5_K super-block: 176 bytes
         let data = vec![0u8; 176];
-        let result = dequantize_q5_k(&data).unwrap();
+        let result = dequantize_q5_k(&data).expect("quantization failed");
         assert_eq!(result.len(), 256);
     }
 
@@ -16417,7 +16542,7 @@ mod tests {
     fn test_dequantize_q6_k_valid_cov() {
         // Q6_K super-block: 210 bytes
         let data = vec![0u8; 210];
-        let result = dequantize_q6_k(&data).unwrap();
+        let result = dequantize_q6_k(&data).expect("quantization failed");
         assert_eq!(result.len(), 256);
     }
 
@@ -16487,12 +16612,12 @@ mod tests {
     #[test]
     fn test_fused_q4k_q8_dot_valid_cov() {
         let q4k_data = vec![0u8; 144];
-        let q8_blocks: Vec<Q8_0Block> = (0..8).map(|_| {
-            Q8_0Block {
+        let q8_blocks: Vec<Q8_0Block> = (0..8)
+            .map(|_| Q8_0Block {
                 scale: 1.0,
                 quants: [0i8; 32],
-            }
-        }).collect();
+            })
+            .collect();
         let result = fused_q4k_q8_dot(&q4k_data, &q8_blocks);
         assert!(result.is_ok());
     }
@@ -16500,12 +16625,12 @@ mod tests {
     #[test]
     fn test_fused_q4k_q8_dot_invalid_q4k_cov() {
         let q4k_data = vec![0u8; 143]; // Invalid length
-        let q8_blocks: Vec<Q8_0Block> = (0..8).map(|_| {
-            Q8_0Block {
+        let q8_blocks: Vec<Q8_0Block> = (0..8)
+            .map(|_| Q8_0Block {
                 scale: 1.0,
                 quants: [0i8; 32],
-            }
-        }).collect();
+            })
+            .collect();
         let result = fused_q4k_q8_dot(&q4k_data, &q8_blocks);
         assert!(result.is_err());
     }
@@ -16723,7 +16848,7 @@ mod tests {
         let activations = vec![1.0f32; 256];
         let result = fused_q4k_parallel_matvec(&weights, &activations, 256, 2);
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("quantization failed");
         assert_eq!(output.len(), 2);
     }
 
@@ -16734,7 +16859,7 @@ mod tests {
         let activations = vec![1.0f32; 256];
         let result = fused_q5k_parallel_matvec(&weights, &activations, 256, 2);
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("quantization failed");
         assert_eq!(output.len(), 2);
     }
 
@@ -16745,7 +16870,7 @@ mod tests {
         let activations = vec![1.0f32; 256];
         let result = fused_q6k_parallel_matvec(&weights, &activations, 256, 2);
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("quantization failed");
         assert_eq!(output.len(), 2);
     }
 
@@ -16768,7 +16893,7 @@ mod tests {
         let activations = vec![1.0f32; 32];
         let result = fused_q4_0_q8_0_parallel_matvec(&weights, &activations, 32, 2);
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("quantization failed");
         assert_eq!(output.len(), 2);
     }
 
@@ -16781,7 +16906,7 @@ mod tests {
         let data = vec![0u8; 144];
         let result = dequantize_q4_k_parallel(&data);
         assert!(result.is_ok());
-        let values = result.unwrap();
+        let values = result.expect("quantization failed");
         assert_eq!(values.len(), 256);
     }
 
@@ -16790,7 +16915,7 @@ mod tests {
         let data = vec![0u8; 144];
         let result = dequantize_q4_k_simd(&data);
         assert!(result.is_ok());
-        let values = result.unwrap();
+        let values = result.expect("quantization failed");
         assert_eq!(values.len(), 256);
     }
 
@@ -16800,7 +16925,7 @@ mod tests {
         let data = vec![0u8; 34];
         let result = dequantize_q8_0_parallel(&data);
         assert!(result.is_ok());
-        let values = result.unwrap();
+        let values = result.expect("quantization failed");
         assert_eq!(values.len(), 32);
     }
 
@@ -16809,7 +16934,7 @@ mod tests {
         let data = vec![0u8; 34];
         let result = dequantize_q8_0_simd(&data);
         assert!(result.is_ok());
-        let values = result.unwrap();
+        let values = result.expect("quantization failed");
         assert_eq!(values.len(), 32);
     }
 
@@ -16857,7 +16982,7 @@ mod tests {
         // Signature: (input, norm_weight, eps, weight_data, in_dim, out_dim)
         let result = fused_rmsnorm_q4_0_matmul(&input, &norm_weight, eps, &weights, 32, 2);
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("quantization failed");
         assert_eq!(output.len(), 2);
     }
 
@@ -16873,10 +16998,16 @@ mod tests {
 
         // Signature: (input, norm_weight, eps, up_weight_data, gate_weight_data, in_dim, out_dim)
         let result = fused_rmsnorm_ffn_up_gate(
-            &input, &norm_weight, eps, &up_weights, &gate_weights, 256, 1
+            &input,
+            &norm_weight,
+            eps,
+            &up_weights,
+            &gate_weights,
+            256,
+            1,
         );
         assert!(result.is_ok());
-        let (up_out, gate_out) = result.unwrap();
+        let (up_out, gate_out) = result.expect("quantization failed");
         assert_eq!(up_out.len(), 1);
         assert_eq!(gate_out.len(), 1);
     }
@@ -16892,7 +17023,7 @@ mod tests {
         let activations = vec![1.0f32; 256];
         let result = fused_q4k_tiled_matvec(&weights, &activations, 256, 2, None);
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("quantization failed");
         assert_eq!(output.len(), 2);
     }
 
@@ -16914,7 +17045,7 @@ mod tests {
         let activations = vec![1.0f32; 32];
         let result = fused_q8_0_q8_0_parallel_matvec(&weights, &activations, 32, 2);
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("quantization failed");
         assert_eq!(output.len(), 2);
     }
 
@@ -16929,7 +17060,8 @@ mod tests {
 
         let activations = vec![1.0f32; 32];
         let mut output = vec![0.0f32; 2];
-        let result = fused_q8_0_q8_0_parallel_matvec_into(&weights, &activations, 32, 2, &mut output);
+        let result =
+            fused_q8_0_q8_0_parallel_matvec_into(&weights, &activations, 32, 2, &mut output);
         assert!(result.is_ok());
     }
 
@@ -16946,7 +17078,12 @@ mod tests {
         let mut output = vec![0.0f32; 2];
 
         let result = fused_q4k_q8k_parallel_matvec_into(
-            &weights, &q8k_scales, &q8k_quants, 256, 2, &mut output
+            &weights,
+            &q8k_scales,
+            &q8k_quants,
+            256,
+            2,
+            &mut output,
         );
         assert!(result.is_ok());
     }
@@ -16966,7 +17103,14 @@ mod tests {
         let mut gate_output = vec![0.0f32; 1];
 
         let result = fused_q4k_q8k_ffn_up_gate_into(
-            &up_weights, &gate_weights, &q8k_scales, &q8k_quants, 256, 1, &mut up_output, &mut gate_output
+            &up_weights,
+            &gate_weights,
+            &q8k_scales,
+            &q8k_quants,
+            256,
+            1,
+            &mut up_output,
+            &mut gate_output,
         );
         assert!(result.is_ok());
     }
@@ -17008,7 +17152,7 @@ mod tests {
         let result = interleaved.dot_scalar(&activations);
         assert!(result.is_ok());
         // With scale=0 and min=0 from scales array, result should be 0
-        let dot_result = result.unwrap();
+        let dot_result = result.expect("quantization failed");
         assert!(dot_result.abs() < 1e-6, "Expected ~0, got {}", dot_result);
     }
 
@@ -17035,7 +17179,7 @@ mod tests {
         let result = interleaved.dot_scalar(&activations);
         assert!(result.is_ok());
         // Result should be non-zero due to scales
-        let _dot_result = result.unwrap();
+        let _dot_result = result.expect("quantization failed");
     }
 
     #[test]
@@ -17084,7 +17228,7 @@ mod tests {
         let result = interleaved.dot_scalar(&activations);
         assert!(result.is_ok());
         // Result should be negative
-        let dot_result = result.unwrap();
+        let dot_result = result.expect("quantization failed");
         assert!(dot_result < 0.0, "Expected negative, got {}", dot_result);
     }
 
@@ -17168,7 +17312,7 @@ mod tests {
 
         let result = fused_q4k_dot(&q4k_data, &activations);
         assert!(result.is_ok());
-        let dot = result.unwrap();
+        let dot = result.expect("quantization failed");
         assert!(dot.abs() < 1e-6, "Expected ~0, got {}", dot);
     }
 
@@ -17209,7 +17353,13 @@ mod tests {
         // Results should be within ULP tolerance
         let diff = (scalar_result - simd_result).abs();
         let tolerance = scalar_result.abs() * 1e-5 + 1e-6;
-        assert!(diff < tolerance, "scalar={}, simd={}, diff={}", scalar_result, simd_result, diff);
+        assert!(
+            diff < tolerance,
+            "scalar={}, simd={}, diff={}",
+            scalar_result,
+            simd_result,
+            diff
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -17270,7 +17420,9 @@ mod tests {
         q4k_data.extend_from_slice(&[0xABu8; 128]);
 
         let q8k_scales = vec![1.5f32; 1];
-        let q8k_quants: Vec<i8> = (0..256).map(|i| ((i % 256) as i8).wrapping_sub(64)).collect();
+        let q8k_quants: Vec<i8> = (0..256)
+            .map(|i| ((i % 256) as i8).wrapping_sub(64))
+            .collect();
 
         let result = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants);
         assert!(result.is_ok());
@@ -17398,9 +17550,8 @@ mod tests {
         let activations = vec![1.0f32; in_dim];
         let mut output = vec![0.0f32; out_dim];
 
-        let result = fused_q4_0_q8_0_parallel_matvec_into(
-            &weight_data, &activations, in_dim, &mut output
-        );
+        let result =
+            fused_q4_0_q8_0_parallel_matvec_into(&weight_data, &activations, in_dim, &mut output);
         assert!(result.is_err());
     }
 
@@ -17417,9 +17568,8 @@ mod tests {
         for row in 0..out_dim {
             for block in 0..blocks_per_row {
                 let offset = row * bytes_per_row + block * 18;
-                weight_data[offset..offset + 2].copy_from_slice(
-                    &half::f16::from_f32(1.0).to_le_bytes()
-                );
+                weight_data[offset..offset + 2]
+                    .copy_from_slice(&half::f16::from_f32(1.0).to_le_bytes());
             }
         }
 
@@ -17427,7 +17577,7 @@ mod tests {
 
         let result = fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), out_dim);
+        assert_eq!(result.expect("quantization failed").len(), out_dim);
     }
 
     // -------------------------------------------------------------------------
@@ -17454,7 +17604,13 @@ mod tests {
         let simd = fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants).expect("simd ok");
 
         let rel_diff = (scalar - simd).abs() / (scalar.abs() + 1e-10);
-        assert!(rel_diff < 0.01, "scalar={}, simd={}, rel_diff={}", scalar, simd, rel_diff);
+        assert!(
+            rel_diff < 0.01,
+            "scalar={}, simd={}, rel_diff={}",
+            scalar,
+            simd,
+            rel_diff
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -17476,7 +17632,7 @@ mod tests {
 
         let result = dequantize_q4_k(&data);
         assert!(result.is_ok());
-        let vals = result.unwrap();
+        let vals = result.expect("quantization failed");
         assert_eq!(vals.len(), 256);
         // All values should be positive (d * scale * 15 - dmin * min)
     }
@@ -17488,15 +17644,20 @@ mod tests {
         data[0..2].copy_from_slice(&half::f16::from_f32(1.0).to_le_bytes());
         data[2..4].copy_from_slice(&half::f16::from_f32(1.0).to_le_bytes());
         data[4..16].copy_from_slice(&[0x3F; 12]); // max scales
-        // qs all zero
+                                                  // qs all zero
         data[16..144].copy_from_slice(&[0x00; 128]);
 
         let result = dequantize_q4_k(&data);
         assert!(result.is_ok());
-        let vals = result.unwrap();
+        let vals = result.expect("quantization failed");
         // Values should be negative due to -dmin * min term
         for (i, &v) in vals.iter().enumerate() {
-            assert!(v <= 0.0 || v.abs() < 1e-6, "vals[{}]={} should be <= 0", i, v);
+            assert!(
+                v <= 0.0 || v.abs() < 1e-6,
+                "vals[{}]={} should be <= 0",
+                i,
+                v
+            );
         }
     }
 
@@ -17507,14 +17668,14 @@ mod tests {
         data[0..2].copy_from_slice(&half::f16::from_f32(2.0).to_le_bytes());
         data[2..4].copy_from_slice(&half::f16::from_f32(0.5).to_le_bytes());
         data[4..16].copy_from_slice(&[0x1F; 12]); // varied scales
-        // qh all 0xFF (high bits set)
+                                                  // qh all 0xFF (high bits set)
         data[16..48].copy_from_slice(&[0xFF; 32]);
         // qs varied
         data[48..176].copy_from_slice(&[0xAA; 128]);
 
         let result = dequantize_q5_k(&data);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), 256);
+        assert_eq!(result.expect("quantization failed").len(), 256);
     }
 
     #[test]
@@ -17534,7 +17695,7 @@ mod tests {
 
         let result = dequantize_q6_k(&data);
         assert!(result.is_ok());
-        let vals = result.unwrap();
+        let vals = result.expect("quantization failed");
         // Should have mix of positive and negative values
         let has_pos = vals.iter().any(|&v| v > 0.0);
         let has_neg = vals.iter().any(|&v| v < 0.0);
@@ -17553,7 +17714,7 @@ mod tests {
 
         let result = dequantize_q8_0(&data);
         assert!(result.is_ok());
-        let vals = result.unwrap();
+        let vals = result.expect("quantization failed");
         // All values should be negative
         for (i, &v) in vals.iter().enumerate() {
             assert!(v < 0.0, "vals[{}]={} should be < 0", i, v);
@@ -17617,9 +17778,7 @@ mod tests {
         let mut q4k_data = vec![0u8; 144 * num_sb];
         for i in 0..num_sb {
             let offset = i * 144;
-            q4k_data[offset..offset + 2].copy_from_slice(
-                &half::f16::from_f32(1.0).to_le_bytes()
-            );
+            q4k_data[offset..offset + 2].copy_from_slice(&half::f16::from_f32(1.0).to_le_bytes());
         }
 
         let activations = vec![1.0f32; 256 * num_sb];
@@ -17726,7 +17885,7 @@ mod tests {
         let data: Vec<u8> = vec![];
         let result = dequantize_q4_0(&data);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), 0);
+        assert_eq!(result.expect("quantization failed").len(), 0);
     }
 
     #[test]
@@ -17734,7 +17893,7 @@ mod tests {
         let data: Vec<u8> = vec![];
         let result = dequantize_q8_0(&data);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), 0);
+        assert_eq!(result.expect("quantization failed").len(), 0);
     }
 
     #[test]
@@ -17742,7 +17901,7 @@ mod tests {
         let data: Vec<u8> = vec![];
         let result = dequantize_q4_k(&data);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), 0);
+        assert_eq!(result.expect("quantization failed").len(), 0);
     }
 
     #[test]
@@ -17750,7 +17909,7 @@ mod tests {
         let data: Vec<u8> = vec![];
         let result = dequantize_q5_k(&data);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), 0);
+        assert_eq!(result.expect("quantization failed").len(), 0);
     }
 
     #[test]
@@ -17758,7 +17917,7 @@ mod tests {
         let data: Vec<u8> = vec![];
         let result = dequantize_q6_k(&data);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), 0);
+        assert_eq!(result.expect("quantization failed").len(), 0);
     }
 
     // -------------------------------------------------------------------------
@@ -17774,7 +17933,12 @@ mod tests {
         let mut output = vec![0.0f32; 2];
 
         let result = fused_q4k_q8k_parallel_matvec_into(
-            &weights, &q8k_scales, &q8k_quants, 256, 2, &mut output
+            &weights,
+            &q8k_scales,
+            &q8k_quants,
+            256,
+            2,
+            &mut output,
         );
         assert!(result.is_err());
     }
@@ -17789,8 +17953,14 @@ mod tests {
         let mut gate_output = vec![0.0f32; 1];
 
         let result = fused_q4k_q8k_ffn_up_gate_into(
-            &up_weights, &gate_weights, &q8k_scales, &q8k_quants,
-            256, 1, &mut up_output, &mut gate_output
+            &up_weights,
+            &gate_weights,
+            &q8k_scales,
+            &q8k_quants,
+            256,
+            1,
+            &mut up_output,
+            &mut gate_output,
         );
         assert!(result.is_err());
     }
@@ -17805,8 +17975,14 @@ mod tests {
         let mut gate_output = vec![0.0f32; 1];
 
         let result = fused_q4k_q8k_ffn_up_gate_into(
-            &up_weights, &gate_weights, &q8k_scales, &q8k_quants,
-            256, 1, &mut up_output, &mut gate_output
+            &up_weights,
+            &gate_weights,
+            &q8k_scales,
+            &q8k_quants,
+            256,
+            1,
+            &mut up_output,
+            &mut gate_output,
         );
         assert!(result.is_err());
     }
@@ -17880,7 +18056,7 @@ mod tests {
 
         let result = fused_q4k_tiled_matvec(&weight_data, &activations, in_dim, out_dim, None);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), out_dim);
+        assert_eq!(result.expect("quantization failed").len(), out_dim);
     }
 
     #[test]
@@ -17893,7 +18069,7 @@ mod tests {
 
         let result = fused_q4k_parallel_matvec(&weight_data, &activations, in_dim, out_dim);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), out_dim);
+        assert_eq!(result.expect("quantization failed").len(), out_dim);
     }
 
     #[test]
@@ -17906,7 +18082,7 @@ mod tests {
 
         let result = fused_q5k_parallel_matvec(&weight_data, &activations, in_dim, out_dim);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), out_dim);
+        assert_eq!(result.expect("quantization failed").len(), out_dim);
     }
 
     #[test]
@@ -17919,17 +18095,20 @@ mod tests {
 
         let result = fused_q6k_parallel_matvec(&weight_data, &activations, in_dim, out_dim);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), out_dim);
+        assert_eq!(result.expect("quantization failed").len(), out_dim);
     }
 
     #[test]
     fn test_cov95_fused_q4k_q8_dot_basic() {
         // Q4_K super-block: 144 bytes for 256 values
         let q4k_data = vec![0u8; 144];
-        let q8_blocks = vec![Q8_0Block {
-            scale: 1.0,
-            quants: [0i8; 32],
-        }; 8]; // 256 values
+        let q8_blocks = vec![
+            Q8_0Block {
+                scale: 1.0,
+                quants: [0i8; 32],
+            };
+            8
+        ]; // 256 values
 
         let result = fused_q4k_q8_dot(&q4k_data, &q8_blocks);
         assert!(result.is_ok());
@@ -18018,7 +18197,7 @@ mod tests {
         let data = vec![0u8; 20];
         let result = dequantize_q4_1(&data);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), 32);
+        assert_eq!(result.expect("quantization failed").len(), 32);
     }
 
     #[test]
@@ -18027,7 +18206,7 @@ mod tests {
         let data = vec![0u8; 22];
         let result = dequantize_q5_0(&data);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), 32);
+        assert_eq!(result.expect("quantization failed").len(), 32);
     }
 
     #[test]
@@ -18036,7 +18215,7 @@ mod tests {
         let data = vec![0u8; 24];
         let result = dequantize_q5_1(&data);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), 32);
+        assert_eq!(result.expect("quantization failed").len(), 32);
     }
 
     #[test]
@@ -18045,7 +18224,7 @@ mod tests {
         let data = vec![0u8; 84];
         let result = dequantize_q2_k(&data);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), 256);
+        assert_eq!(result.expect("quantization failed").len(), 256);
     }
 
     #[test]
@@ -18054,7 +18233,7 @@ mod tests {
         let data = vec![0u8; 4];
         let result = dequantize_f16(&data);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), 2);
+        assert_eq!(result.expect("quantization failed").len(), 2);
     }
 
     #[test]
@@ -18091,9 +18270,8 @@ mod tests {
         let activations = vec![1.0f32; in_dim];
         let mut output = vec![0.0f32; out_dim];
 
-        let result = fused_q4k_auto_matvec_into(
-            &weight_data, &activations, in_dim, out_dim, &mut output
-        );
+        let result =
+            fused_q4k_auto_matvec_into(&weight_data, &activations, in_dim, out_dim, &mut output);
         assert!(result.is_ok());
     }
 
@@ -18113,7 +18291,7 @@ mod tests {
         let values = vec![1.0f32; 32];
         let result = quantize_to_q8_blocks(&values);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), 1);
+        assert_eq!(result.expect("quantization failed").len(), 1);
     }
 
     #[test]

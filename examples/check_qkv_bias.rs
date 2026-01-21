@@ -40,7 +40,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut found_bias = false;
     for tensor in &mapped.model.tensors {
         if tensor.name.contains("bias") {
-            println!("  {}: dims={:?}, qtype={}", tensor.name, tensor.dims, tensor.qtype);
+            println!(
+                "  {}: dims={:?}, qtype={}",
+                tensor.name, tensor.dims, tensor.qtype
+            );
             found_bias = true;
         }
     }
@@ -51,12 +54,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Check Q, K, V weights separately
     println!("\n=== Q/K/V Weight Tensors (Layer 0) ===");
     for tensor in &mapped.model.tensors {
-        if tensor.name.contains("blk.0") &&
-           (tensor.name.contains("attn_q") ||
-            tensor.name.contains("attn_k") ||
-            tensor.name.contains("attn_v") ||
-            tensor.name.contains("attn_qkv")) {
-            println!("  {}: dims={:?}, qtype={}", tensor.name, tensor.dims, tensor.qtype);
+        if tensor.name.contains("blk.0")
+            && (tensor.name.contains("attn_q")
+                || tensor.name.contains("attn_k")
+                || tensor.name.contains("attn_v")
+                || tensor.name.contains("attn_qkv"))
+        {
+            println!(
+                "  {}: dims={:?}, qtype={}",
+                tensor.name, tensor.dims, tensor.qtype
+            );
         }
     }
 

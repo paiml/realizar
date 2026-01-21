@@ -191,7 +191,6 @@ fn build_minimal_transformer_gguf(
 // GGUFTransformer STRUCT TESTS
 // ============================================================================
 
-
 #[test]
 fn test_cov_gguf_transformer_layer_structure() {
     let data = build_minimal_transformer_gguf(64, 100, 2);
@@ -263,7 +262,6 @@ fn test_cov_gguf_transformer_layer_ffn_gate_optional() {
     assert!(layer.ffn_gate_weight.is_none());
     assert!(layer.ffn_gate_bias.is_none());
 }
-
 
 // ============================================================================
 // QUANTIZED TRANSFORMER TESTS
@@ -591,7 +589,6 @@ fn test_cov_owned_quantized_kv_cache_multiple_layers() {
     assert!(!cache.get_k(1).is_empty());
     assert!(!cache.get_k(2).is_empty());
 }
-
 
 // ============================================================================
 // GGUF VALUE TYPE TESTS

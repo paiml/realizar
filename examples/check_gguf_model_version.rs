@@ -16,10 +16,10 @@ fn main() {
         match val {
             realizar::gguf::GGUFValue::Array(_) => {
                 println!("{}: [array]", key);
-            }
+            },
             _ => {
                 println!("{}: {:?}", key, val);
-            }
+            },
         }
     }
 }

@@ -847,7 +847,9 @@ impl InferenceTracer {
             output_shape: vec![],
             stats: TensorStats::default(),
             duration_us: 0,
-            error: Some(TraceError::ExecutionFailed { cause: error.to_string() }),
+            error: Some(TraceError::ExecutionFailed {
+                cause: error.to_string(),
+            }),
             cause: Some(cause.to_string()),
             details: TraceDetails::default(),
         };

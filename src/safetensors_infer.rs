@@ -51,19 +51,27 @@ impl SafetensorsToAprConverter {
         })?;
 
         // Extract architecture parameters
-        let hidden_dim = config.hidden_size.ok_or_else(|| RealizarError::FormatError {
-            reason: "config.json missing hidden_size".to_string(),
-        })?;
-        let num_layers = config.num_hidden_layers.ok_or_else(|| RealizarError::FormatError {
-            reason: "config.json missing num_hidden_layers".to_string(),
-        })?;
-        let num_heads = config.num_attention_heads.ok_or_else(|| RealizarError::FormatError {
-            reason: "config.json missing num_attention_heads".to_string(),
-        })?;
+        let hidden_dim = config
+            .hidden_size
+            .ok_or_else(|| RealizarError::FormatError {
+                reason: "config.json missing hidden_size".to_string(),
+            })?;
+        let num_layers = config
+            .num_hidden_layers
+            .ok_or_else(|| RealizarError::FormatError {
+                reason: "config.json missing num_hidden_layers".to_string(),
+            })?;
+        let num_heads = config
+            .num_attention_heads
+            .ok_or_else(|| RealizarError::FormatError {
+                reason: "config.json missing num_attention_heads".to_string(),
+            })?;
         let num_kv_heads = config.num_kv_heads();
-        let vocab_size = config.vocab_size.ok_or_else(|| RealizarError::FormatError {
-            reason: "config.json missing vocab_size".to_string(),
-        })?;
+        let vocab_size = config
+            .vocab_size
+            .ok_or_else(|| RealizarError::FormatError {
+                reason: "config.json missing vocab_size".to_string(),
+            })?;
         let intermediate_dim = config.intermediate_size.unwrap_or(hidden_dim * 4);
         let context_length = config.max_position_embeddings.unwrap_or(2048);
         let rope_theta = config.rope_theta.unwrap_or(10000.0);
@@ -104,7 +112,14 @@ impl SafetensorsToAprConverter {
         // Extract layers
         let mut layers = Vec::with_capacity(num_layers);
         for i in 0..num_layers {
-            let layer = Self::extract_layer(&st_model, i, hidden_dim, num_heads, num_kv_heads, intermediate_dim)?;
+            let layer = Self::extract_layer(
+                &st_model,
+                i,
+                hidden_dim,
+                num_heads,
+                num_kv_heads,
+                intermediate_dim,
+            )?;
             layers.push(layer);
         }
 
@@ -143,7 +158,8 @@ impl SafetensorsToAprConverter {
         // Concatenate and transpose Q, K, V into combined QKV weight
         let head_dim = hidden_dim / num_heads;
         let kv_dim = head_dim * num_kv_heads;
-        let qkv_weight = Self::concat_qkv_transposed(&q_weight, &k_weight, &v_weight, hidden_dim, kv_dim);
+        let qkv_weight =
+            Self::concat_qkv_transposed(&q_weight, &k_weight, &v_weight, hidden_dim, kv_dim);
 
         // QKV bias (optional) - 1D vector, no transpose needed
         let qkv_bias = Self::try_concat_qkv_bias(st_model, &prefix, hidden_dim, kv_dim);
@@ -356,7 +372,8 @@ mod tests {
 
     #[test]
     fn test_convert_file_not_found_ext_cov() {
-        let result = SafetensorsToAprConverter::convert(Path::new("/nonexistent/model.safetensors"));
+        let result =
+            SafetensorsToAprConverter::convert(Path::new("/nonexistent/model.safetensors"));
         assert!(result.is_err());
         if let Err(RealizarError::IoError { message }) = result {
             assert!(message.contains("Failed to read SafeTensors file"));
@@ -540,12 +557,8 @@ mod tests {
         let data = create_safetensors_bytes(&[]);
         let st_model = SafetensorsModel::from_bytes(&data).expect("parse safetensors");
 
-        let result = SafetensorsToAprConverter::try_concat_qkv_bias(
-            &st_model,
-            "model.layers.0",
-            64,
-            64,
-        );
+        let result =
+            SafetensorsToAprConverter::try_concat_qkv_bias(&st_model, "model.layers.0", 64, 64);
         assert!(result.is_none());
     }
 
@@ -562,12 +575,8 @@ mod tests {
         let st_model = SafetensorsModel::from_bytes(&data).expect("parse safetensors");
 
         // Should return None because k_bias and v_bias are missing
-        let result = SafetensorsToAprConverter::try_concat_qkv_bias(
-            &st_model,
-            "model.layers.0",
-            4,
-            4,
-        );
+        let result =
+            SafetensorsToAprConverter::try_concat_qkv_bias(&st_model, "model.layers.0", 4, 4);
         assert!(result.is_none());
     }
 
@@ -578,14 +587,8 @@ mod tests {
             .iter()
             .flat_map(|f| f.to_le_bytes())
             .collect();
-        let k_bias_data: Vec<u8> = [5.0f32, 6.0]
-            .iter()
-            .flat_map(|f| f.to_le_bytes())
-            .collect();
-        let v_bias_data: Vec<u8> = [7.0f32, 8.0]
-            .iter()
-            .flat_map(|f| f.to_le_bytes())
-            .collect();
+        let k_bias_data: Vec<u8> = [5.0f32, 6.0].iter().flat_map(|f| f.to_le_bytes()).collect();
+        let v_bias_data: Vec<u8> = [7.0f32, 8.0].iter().flat_map(|f| f.to_le_bytes()).collect();
 
         let data = create_safetensors_bytes(&[
             (
@@ -609,14 +612,10 @@ mod tests {
         ]);
         let st_model = SafetensorsModel::from_bytes(&data).expect("parse safetensors");
 
-        let result = SafetensorsToAprConverter::try_concat_qkv_bias(
-            &st_model,
-            "model.layers.0",
-            4,
-            2,
-        );
+        let result =
+            SafetensorsToAprConverter::try_concat_qkv_bias(&st_model, "model.layers.0", 4, 2);
         assert!(result.is_some());
-        let bias = result.unwrap();
+        let bias = result.expect("operation failed");
         assert_eq!(bias.len(), 8); // 4 + 2 + 2
         assert_eq!(bias[0], 1.0);
         assert_eq!(bias[4], 5.0);
@@ -650,7 +649,7 @@ mod tests {
 
         let result = SafetensorsToAprConverter::convert(&model_path);
         assert!(result.is_ok());
-        let transformer = result.unwrap();
+        let transformer = result.expect("operation failed");
         assert_eq!(transformer.config.intermediate_dim, 64 * 4);
     }
 
@@ -681,7 +680,7 @@ mod tests {
 
         let result = SafetensorsToAprConverter::convert(&model_path);
         assert!(result.is_ok());
-        let transformer = result.unwrap();
+        let transformer = result.expect("operation failed");
         assert_eq!(transformer.config.context_length, 2048);
     }
 
@@ -708,7 +707,7 @@ mod tests {
 
         let result = SafetensorsToAprConverter::convert(&model_path);
         assert!(result.is_ok());
-        let transformer = result.unwrap();
+        let transformer = result.expect("operation failed");
 
         // lm_head_weight should have same dimensions as token_embedding (tied or separate)
         // When tied: lm_head_weight.len() == token_embedding.len()
@@ -744,10 +743,13 @@ mod tests {
 
         let result = SafetensorsToAprConverter::convert(&model_path);
         assert!(result.is_ok());
-        let transformer = result.unwrap();
+        let transformer = result.expect("operation failed");
 
         // lm_head_weight should NOT equal token_embedding
-        assert_ne!(transformer.lm_head_weight[0], transformer.token_embedding[0]);
+        assert_ne!(
+            transformer.lm_head_weight[0],
+            transformer.token_embedding[0]
+        );
     }
 
     #[test]
@@ -778,7 +780,7 @@ mod tests {
 
         let result = SafetensorsToAprConverter::convert(&model_path);
         assert!(result.is_ok());
-        let transformer = result.unwrap();
+        let transformer = result.expect("operation failed");
         assert!((transformer.config.rope_theta - 500000.0).abs() < 1.0);
     }
 
@@ -809,7 +811,7 @@ mod tests {
 
         let result = SafetensorsToAprConverter::convert(&model_path);
         assert!(result.is_ok());
-        let transformer = result.unwrap();
+        let transformer = result.expect("operation failed");
         assert!((transformer.config.eps - 1e-5).abs() < 1e-9);
     }
 
@@ -840,12 +842,16 @@ mod tests {
 
         let result = SafetensorsToAprConverter::convert(&model_path);
         assert!(result.is_ok());
-        let transformer = result.unwrap();
+        let transformer = result.expect("operation failed");
         assert_eq!(transformer.config.architecture, "LlamaForCausalLM");
     }
 
     /// Helper to create all layer tensors for a single transformer layer
-    fn create_layer_tensors(layer_idx: usize, hidden_dim: usize, intermediate_dim: usize) -> Vec<(&'static str, String, Vec<usize>, Vec<u8>)> {
+    fn create_layer_tensors(
+        layer_idx: usize,
+        hidden_dim: usize,
+        intermediate_dim: usize,
+    ) -> Vec<(&'static str, String, Vec<usize>, Vec<u8>)> {
         // Lease the string from Box to get 'static lifetime approximation
         // We'll build it differently - just use the layer_idx in the data
 
@@ -863,15 +869,60 @@ mod tests {
         let down_size = intermediate_dim * hidden_dim;
 
         vec![
-            ("attn_norm", format!("{prefix}.input_layernorm.weight"), vec![attn_norm_size], vec![0u8; attn_norm_size * 4]),
-            ("q_proj", format!("{prefix}.self_attn.q_proj.weight"), vec![hidden_dim, hidden_dim], vec![0u8; q_size * 4]),
-            ("k_proj", format!("{prefix}.self_attn.k_proj.weight"), vec![hidden_dim, hidden_dim], vec![0u8; k_size * 4]),
-            ("v_proj", format!("{prefix}.self_attn.v_proj.weight"), vec![hidden_dim, hidden_dim], vec![0u8; v_size * 4]),
-            ("o_proj", format!("{prefix}.self_attn.o_proj.weight"), vec![hidden_dim, hidden_dim], vec![0u8; o_size * 4]),
-            ("ffn_norm", format!("{prefix}.post_attention_layernorm.weight"), vec![ffn_norm_size], vec![0u8; ffn_norm_size * 4]),
-            ("gate_proj", format!("{prefix}.mlp.gate_proj.weight"), vec![intermediate_dim, hidden_dim], vec![0u8; gate_size * 4]),
-            ("up_proj", format!("{prefix}.mlp.up_proj.weight"), vec![intermediate_dim, hidden_dim], vec![0u8; up_size * 4]),
-            ("down_proj", format!("{prefix}.mlp.down_proj.weight"), vec![hidden_dim, intermediate_dim], vec![0u8; down_size * 4]),
+            (
+                "attn_norm",
+                format!("{prefix}.input_layernorm.weight"),
+                vec![attn_norm_size],
+                vec![0u8; attn_norm_size * 4],
+            ),
+            (
+                "q_proj",
+                format!("{prefix}.self_attn.q_proj.weight"),
+                vec![hidden_dim, hidden_dim],
+                vec![0u8; q_size * 4],
+            ),
+            (
+                "k_proj",
+                format!("{prefix}.self_attn.k_proj.weight"),
+                vec![hidden_dim, hidden_dim],
+                vec![0u8; k_size * 4],
+            ),
+            (
+                "v_proj",
+                format!("{prefix}.self_attn.v_proj.weight"),
+                vec![hidden_dim, hidden_dim],
+                vec![0u8; v_size * 4],
+            ),
+            (
+                "o_proj",
+                format!("{prefix}.self_attn.o_proj.weight"),
+                vec![hidden_dim, hidden_dim],
+                vec![0u8; o_size * 4],
+            ),
+            (
+                "ffn_norm",
+                format!("{prefix}.post_attention_layernorm.weight"),
+                vec![ffn_norm_size],
+                vec![0u8; ffn_norm_size * 4],
+            ),
+            (
+                "gate_proj",
+                format!("{prefix}.mlp.gate_proj.weight"),
+                vec![intermediate_dim, hidden_dim],
+                vec![0u8; gate_size * 4],
+            ),
+            (
+                "up_proj",
+                format!("{prefix}.mlp.up_proj.weight"),
+                vec![intermediate_dim, hidden_dim],
+                vec![0u8; up_size * 4],
+            ),
+            (
+                "down_proj",
+                format!("{prefix}.mlp.down_proj.weight"),
+                vec![hidden_dim, intermediate_dim],
+                vec![0u8; down_size * 4],
+            ),
         ]
     }
 
@@ -916,30 +967,39 @@ mod tests {
         let mut offset = 0usize;
 
         // Add embed_tokens
-        tensor_entries.insert("model.embed_tokens.weight".to_string(), json!({
-            "dtype": "F32",
-            "shape": [vocab_size, hidden_dim],
-            "data_offsets": [offset, offset + embed_data.len()]
-        }));
+        tensor_entries.insert(
+            "model.embed_tokens.weight".to_string(),
+            json!({
+                "dtype": "F32",
+                "shape": [vocab_size, hidden_dim],
+                "data_offsets": [offset, offset + embed_data.len()]
+            }),
+        );
         all_data.extend(&embed_data);
         offset += embed_data.len();
 
         // Add norm
-        tensor_entries.insert("model.norm.weight".to_string(), json!({
-            "dtype": "F32",
-            "shape": [hidden_dim],
-            "data_offsets": [offset, offset + norm_data.len()]
-        }));
+        tensor_entries.insert(
+            "model.norm.weight".to_string(),
+            json!({
+                "dtype": "F32",
+                "shape": [hidden_dim],
+                "data_offsets": [offset, offset + norm_data.len()]
+            }),
+        );
         all_data.extend(&norm_data);
         offset += norm_data.len();
 
         // Add layer tensors
         for (_, name, shape, data) in &layer_tensors {
-            tensor_entries.insert(name.clone(), json!({
-                "dtype": "F32",
-                "shape": shape,
-                "data_offsets": [offset, offset + data.len()]
-            }));
+            tensor_entries.insert(
+                name.clone(),
+                json!({
+                    "dtype": "F32",
+                    "shape": shape,
+                    "data_offsets": [offset, offset + data.len()]
+                }),
+            );
             all_data.extend(data);
             offset += data.len();
         }
@@ -957,7 +1017,7 @@ mod tests {
         let result = SafetensorsToAprConverter::convert(&model_path);
         assert!(result.is_ok(), "Conversion failed: {:?}", result.err());
 
-        let transformer = result.unwrap();
+        let transformer = result.expect("operation failed");
         assert_eq!(transformer.config.hidden_dim, hidden_dim);
         assert_eq!(transformer.config.num_layers, num_layers);
         assert_eq!(transformer.layers.len(), num_layers);
@@ -1005,21 +1065,27 @@ mod tests {
 
         // Add embed_tokens
         let embed_data: Vec<u8> = vec![0u8; vocab_size * hidden_dim * 4];
-        tensor_entries.insert("model.embed_tokens.weight".to_string(), json!({
-            "dtype": "F32",
-            "shape": [vocab_size, hidden_dim],
-            "data_offsets": [offset, offset + embed_data.len()]
-        }));
+        tensor_entries.insert(
+            "model.embed_tokens.weight".to_string(),
+            json!({
+                "dtype": "F32",
+                "shape": [vocab_size, hidden_dim],
+                "data_offsets": [offset, offset + embed_data.len()]
+            }),
+        );
         all_data.extend(&embed_data);
         offset += embed_data.len();
 
         // Add norm
         let norm_data: Vec<u8> = vec![0u8; hidden_dim * 4];
-        tensor_entries.insert("model.norm.weight".to_string(), json!({
-            "dtype": "F32",
-            "shape": [hidden_dim],
-            "data_offsets": [offset, offset + norm_data.len()]
-        }));
+        tensor_entries.insert(
+            "model.norm.weight".to_string(),
+            json!({
+                "dtype": "F32",
+                "shape": [hidden_dim],
+                "data_offsets": [offset, offset + norm_data.len()]
+            }),
+        );
         all_data.extend(&norm_data);
         offset += norm_data.len();
 
@@ -1027,11 +1093,14 @@ mod tests {
         for layer_idx in 0..num_layers {
             let layer_tensors = create_layer_tensors(layer_idx, hidden_dim, intermediate_dim);
             for (_, name, shape, data) in &layer_tensors {
-                tensor_entries.insert(name.clone(), json!({
-                    "dtype": "F32",
-                    "shape": shape,
-                    "data_offsets": [offset, offset + data.len()]
-                }));
+                tensor_entries.insert(
+                    name.clone(),
+                    json!({
+                        "dtype": "F32",
+                        "shape": shape,
+                        "data_offsets": [offset, offset + data.len()]
+                    }),
+                );
                 all_data.extend(data);
                 offset += data.len();
             }
@@ -1050,7 +1119,7 @@ mod tests {
         let result = SafetensorsToAprConverter::convert(&model_path);
         assert!(result.is_ok(), "Conversion failed: {:?}", result.err());
 
-        let transformer = result.unwrap();
+        let transformer = result.expect("operation failed");
         assert_eq!(transformer.layers.len(), num_layers);
     }
 
@@ -1102,7 +1171,7 @@ mod tests {
 
         let result = SafetensorsToAprConverter::convert(&model_path);
         assert!(result.is_ok());
-        let transformer = result.unwrap();
+        let transformer = result.expect("operation failed");
         assert_eq!(transformer.config.num_heads, 8);
         assert_eq!(transformer.config.num_kv_heads, 4);
     }

@@ -2348,8 +2348,8 @@ mod tests {
     #[test]
     fn rmsnorm_brick_runs() {
         // Use a more lenient budget to avoid flaky failures on slow CI
-        let brick = RmsNormBrick::new(vec![1.0; 4], 1e-5)
-            .with_budget(TokenBudget::from_latency(1000.0)); // 1ms budget
+        let brick =
+            RmsNormBrick::new(vec![1.0; 4], 1e-5).with_budget(TokenBudget::from_latency(1000.0)); // 1ms budget
         let input = vec![1.0, 2.0, 3.0, 4.0];
         let result = brick.run(&input).expect("should run");
 
@@ -2988,7 +2988,7 @@ mod tests {
         let brick = ActivationQuantBrick::new(64);
         let input: Vec<f32> = (0..64).map(|i| (i as f32 - 32.0) / 10.0).collect();
 
-        let (quants, scales) = brick.quantize(&input).unwrap();
+        let (quants, scales) = brick.quantize(&input).expect("operation failed");
 
         assert_eq!(quants.len(), 64);
         assert_eq!(scales.len(), 2); // 64 / 32 = 2 blocks
@@ -3001,11 +3001,11 @@ mod tests {
         let brick = ActivationQuantBrick::new(32);
         let input: Vec<f32> = (0..32).map(|i| (i as f32 - 16.0) * 0.1).collect();
 
-        let (quants, scales) = brick.quantize(&input).unwrap();
-        let output = brick.dequantize(&quants, &scales).unwrap();
+        let (quants, scales) = brick.quantize(&input).expect("operation failed");
+        let output = brick.dequantize(&quants, &scales).expect("operation failed");
 
         // Q8 error should be < 1%
-        let error = brick.measure_error(&input, &quants, &scales).unwrap();
+        let error = brick.measure_error(&input, &quants, &scales).expect("operation failed");
         assert!(error < 0.01, "Q8 error {} should be < 1%", error);
 
         // Output should be close to input
@@ -3026,7 +3026,7 @@ mod tests {
         let keys = vec![0.5f32; seq_len * 2 * 8]; // [seq_len * num_kv_heads * head_dim]
         let values = vec![0.25f32; seq_len * 2 * 8];
 
-        let output = brick.forward(&query, &keys, &values, seq_len).unwrap();
+        let output = brick.forward(&query, &keys, &values, seq_len).expect("operation failed");
 
         assert_eq!(output.len(), 4 * 8);
         // With uniform values, output should be close to uniform values
@@ -3060,7 +3060,7 @@ mod tests {
             0.0, 0.0, 1.0, 0.0, // V2
         ];
 
-        let output = brick.forward(&query, &keys, &values, seq_len).unwrap();
+        let output = brick.forward(&query, &keys, &values, seq_len).expect("operation failed");
 
         // After softmax, K0 should have highest weight
         // Output should be weighted combination dominated by V0
@@ -3085,7 +3085,7 @@ mod tests {
 
         let output = brick
             .forward(&input_q8, input_scale, &weights_q4, &weight_scales)
-            .unwrap();
+            .expect("operation failed");
 
         assert_eq!(output.len(), 4);
         assert!(output.iter().all(|&v| !v.is_nan()));
@@ -3103,7 +3103,7 @@ mod tests {
 
         let output = brick
             .forward(&input, &gate_proj, &up_proj, &down_proj)
-            .unwrap();
+            .expect("operation failed");
 
         assert_eq!(output.len(), 4);
         assert!(output.iter().all(|&v| !v.is_nan()), "No NaNs");
@@ -3124,7 +3124,7 @@ mod tests {
 
         let output = brick
             .forward(&input, &gate_proj, &up_proj, &down_proj)
-            .unwrap();
+            .expect("operation failed");
 
         // SwiGLU(1.0, 1.0) = silu(1.0) * 1.0 = 1.0 * sigmoid(1.0) * 1.0
         // sigmoid(1.0) ≈ 0.731
@@ -3144,7 +3144,7 @@ mod tests {
         let brick = ActivationQuantBrick::new(1024);
         let input: Vec<f32> = (0..1024).map(|i| i as f32 / 1024.0).collect();
 
-        let result = brick.execute_timed(&input).unwrap();
+        let result = brick.execute_timed(&input).expect("operation failed");
 
         assert_eq!(result.output.0.len(), 1024); // quants
         assert!(result.us_per_token > 0.0);
@@ -3167,7 +3167,7 @@ mod tests {
 
         let result = brick
             .forward_timed(&query, &keys, &values, seq_len)
-            .unwrap();
+            .expect("operation failed");
 
         assert_eq!(result.output.len(), 8 * 64);
         assert!(result.us_per_token > 0.0);
@@ -3191,7 +3191,7 @@ mod tests {
 
         let result = brick
             .forward_timed(&input, &gate_proj, &up_proj, &down_proj)
-            .unwrap();
+            .expect("operation failed");
 
         assert_eq!(result.output.len(), hidden);
         assert!(result.us_per_token > 0.0);
@@ -3224,7 +3224,7 @@ mod tests {
         let brick = RmsNormBrick::new(weights, 1e-5);
         let input = vec![2.0f32; 64];
 
-        let result = brick.run(&input).unwrap();
+        let result = brick.run(&input).expect("operation failed");
         let output = result.output;
 
         // RMSNorm should produce values with RMS ≈ 1.0 (scaled by weights)
@@ -3245,8 +3245,8 @@ mod tests {
         let up = vec![0.2f32; 32];
         let down = vec![0.1f32; 32];
 
-        let out1 = brick.forward(&input, &gate, &up, &down).unwrap();
-        let out2 = brick.forward(&input, &gate, &up, &down).unwrap();
+        let out1 = brick.forward(&input, &gate, &up, &down).expect("operation failed");
+        let out2 = brick.forward(&input, &gate, &up, &down).expect("operation failed");
 
         assert_eq!(out1, out2, "Same input must produce same output");
     }
@@ -3321,8 +3321,8 @@ mod tests {
         let down = vec![0.1f32; 32];
 
         // Multiple runs should match
-        let out1 = brick.forward(&input, &gate, &up, &down).unwrap();
-        let out2 = brick.forward(&input, &gate, &up, &down).unwrap();
+        let out1 = brick.forward(&input, &gate, &up, &down).expect("operation failed");
+        let out2 = brick.forward(&input, &gate, &up, &down).expect("operation failed");
 
         for (a, b) in out1.iter().zip(out2.iter()) {
             assert!(
@@ -3364,7 +3364,7 @@ mod tests {
         ];
         let values = vec![1.0f32; 12];
 
-        let output = brick.forward(&query, &keys, &values, 3).unwrap();
+        let output = brick.forward(&query, &keys, &values, 3).expect("operation failed");
 
         assert!(output.iter().all(|&v| !v.is_nan()), "No NaN in output");
         assert!(output.iter().all(|&v| v.is_finite()), "All outputs finite");
@@ -3383,7 +3383,7 @@ mod tests {
         let up = vec![1.0f32];
         let down = vec![1.0f32];
 
-        let output = brick.forward(&input, &gate, &up, &down).unwrap();
+        let output = brick.forward(&input, &gate, &up, &down).expect("operation failed");
 
         // Expected: silu(1.0) * 1.0 * 1.0 = 0.731
         let expected = 1.0 / (1.0 + (-1.0f32).exp()); // sigmoid(1) * 1
@@ -3404,7 +3404,7 @@ mod tests {
             RmsNormBrick::new(vec![1.0; 4], 1e-5).with_budget(TokenBudget::from_latency(1000.0)); // 1ms budget for test
         let input = vec![1e-10f32; 4]; // Very small values
 
-        let result = brick.run(&input).unwrap();
+        let result = brick.run(&input).expect("operation failed");
         let output = result.output;
 
         assert!(

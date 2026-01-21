@@ -74,8 +74,14 @@ fn main() {
     // Benchmark Q6K×f32 (old path)
     let start = Instant::now();
     for _ in 0..iters {
-        fused_q6k_parallel_matvec_into(&weight_data_q6k, &activations, in_dim, out_dim, &mut output)
-            .unwrap();
+        fused_q6k_parallel_matvec_into(
+            &weight_data_q6k,
+            &activations,
+            in_dim,
+            out_dim,
+            &mut output,
+        )
+        .unwrap();
     }
     let f32_time = start.elapsed();
     let f32_avg = f32_time.as_micros() as f64 / iters as f64;

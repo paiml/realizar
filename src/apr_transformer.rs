@@ -1422,36 +1422,37 @@ impl AprTransformer {
             // Try separate Q/K/V or combined QKV
             // Support both HuggingFace and GGUF naming conventions
             let qkv_out_dim = hidden_dim + kv_dim + kv_dim;
-            let qkv_weight =
-                if let Some(qkv) = get_f32_tensor(&format!("{hf_prefix}.self_attn.qkv_proj.weight")) {
-                    qkv
-                } else {
-                    // Get Q weight - [hidden_dim, hidden_dim]
-                    let q = get_f32_tensor(&format!("{hf_prefix}.self_attn.q_proj.weight"))
-                        .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.attn_q.weight")))
-                        .unwrap_or_else(|| vec![0.0; hidden_dim * hidden_dim]);
-                    // Get K weight - [kv_dim, hidden_dim]
-                    let k = get_f32_tensor(&format!("{hf_prefix}.self_attn.k_proj.weight"))
-                        .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.attn_k.weight")))
-                        .unwrap_or_else(|| vec![0.0; hidden_dim * kv_dim]);
-                    // Get V weight - [kv_dim, hidden_dim]
-                    let v = get_f32_tensor(&format!("{hf_prefix}.self_attn.v_proj.weight"))
-                        .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.attn_v.weight")))
-                        .unwrap_or_else(|| vec![0.0; hidden_dim * kv_dim]);
+            let qkv_weight = if let Some(qkv) =
+                get_f32_tensor(&format!("{hf_prefix}.self_attn.qkv_proj.weight"))
+            {
+                qkv
+            } else {
+                // Get Q weight - [hidden_dim, hidden_dim]
+                let q = get_f32_tensor(&format!("{hf_prefix}.self_attn.q_proj.weight"))
+                    .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.attn_q.weight")))
+                    .unwrap_or_else(|| vec![0.0; hidden_dim * hidden_dim]);
+                // Get K weight - [kv_dim, hidden_dim]
+                let k = get_f32_tensor(&format!("{hf_prefix}.self_attn.k_proj.weight"))
+                    .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.attn_k.weight")))
+                    .unwrap_or_else(|| vec![0.0; hidden_dim * kv_dim]);
+                // Get V weight - [kv_dim, hidden_dim]
+                let v = get_f32_tensor(&format!("{hf_prefix}.self_attn.v_proj.weight"))
+                    .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.attn_v.weight")))
+                    .unwrap_or_else(|| vec![0.0; hidden_dim * kv_dim]);
 
-                    // Concatenate Q, K, V for each input row
-                    // Output: [hidden_dim, hidden_dim + kv_dim + kv_dim]
-                    let mut qkv = Vec::with_capacity(hidden_dim * qkv_out_dim);
-                    for row in 0..hidden_dim {
-                        // Q: [hidden_dim, hidden_dim] -> row is hidden_dim values
-                        qkv.extend_from_slice(&q[row * hidden_dim..(row + 1) * hidden_dim]);
-                        // K: [kv_dim, hidden_dim] -> row is kv_dim values
-                        qkv.extend_from_slice(&k[row * kv_dim..(row + 1) * kv_dim]);
-                        // V: [kv_dim, hidden_dim] -> row is kv_dim values
-                        qkv.extend_from_slice(&v[row * kv_dim..(row + 1) * kv_dim]);
-                    }
-                    qkv
-                };
+                // Concatenate Q, K, V for each input row
+                // Output: [hidden_dim, hidden_dim + kv_dim + kv_dim]
+                let mut qkv = Vec::with_capacity(hidden_dim * qkv_out_dim);
+                for row in 0..hidden_dim {
+                    // Q: [hidden_dim, hidden_dim] -> row is hidden_dim values
+                    qkv.extend_from_slice(&q[row * hidden_dim..(row + 1) * hidden_dim]);
+                    // K: [kv_dim, hidden_dim] -> row is kv_dim values
+                    qkv.extend_from_slice(&k[row * kv_dim..(row + 1) * kv_dim]);
+                    // V: [kv_dim, hidden_dim] -> row is kv_dim values
+                    qkv.extend_from_slice(&v[row * kv_dim..(row + 1) * kv_dim]);
+                }
+                qkv
+            };
 
             // Get Q/K/V biases (optional, for Qwen models)
             let q_bias = get_f32_tensor(&format!("{hf_prefix}.self_attn.q_proj.bias"))
@@ -1469,7 +1470,7 @@ impl AprTransformer {
                     bias.extend_from_slice(k);
                     bias.extend_from_slice(v);
                     Some(bias)
-                }
+                },
                 _ => None,
             };
 
@@ -1875,8 +1876,10 @@ impl AprTransformer {
 
                 // Extract Q, K, V (layout: [Q..., K..., V...])
                 let mut q_pos = qkv[qkv_start..qkv_start + hidden_dim].to_vec();
-                let mut k_pos = qkv[qkv_start + hidden_dim..qkv_start + hidden_dim + kv_dim].to_vec();
-                let v_pos = &qkv[qkv_start + hidden_dim + kv_dim..qkv_start + hidden_dim + 2 * kv_dim];
+                let mut k_pos =
+                    qkv[qkv_start + hidden_dim..qkv_start + hidden_dim + kv_dim].to_vec();
+                let v_pos =
+                    &qkv[qkv_start + hidden_dim + kv_dim..qkv_start + hidden_dim + 2 * kv_dim];
 
                 // Apply RoPE to Q and K
                 self.apply_rope_f32(&mut q_pos, s, self.config.num_heads, head_dim);
@@ -1947,7 +1950,12 @@ impl AprTransformer {
 
             // 2f. Apply FFN norm if present (post_attention_layernorm)
             let ffn_input = if let Some(ref ffn_norm) = layer.ffn_norm_weight {
-                self.layer_norm(&hidden, ffn_norm, layer.ffn_norm_bias.as_deref(), self.config.eps)
+                self.layer_norm(
+                    &hidden,
+                    ffn_norm,
+                    layer.ffn_norm_bias.as_deref(),
+                    self.config.eps,
+                )
             } else {
                 hidden.clone()
             };
@@ -1956,7 +1964,12 @@ impl AprTransformer {
             let ffn_output = if let Some(ref gate_weight) = layer.ffn_gate_weight {
                 // SwiGLU: down(SiLU(gate(x)) * up(x))
                 let gate = self.matmul(&ffn_input, gate_weight, hidden_dim, intermediate_dim);
-                let up = self.matmul(&ffn_input, &layer.ffn_up_weight, hidden_dim, intermediate_dim);
+                let up = self.matmul(
+                    &ffn_input,
+                    &layer.ffn_up_weight,
+                    hidden_dim,
+                    intermediate_dim,
+                );
 
                 // SiLU(gate) * up, then down projection
                 let mut ffn_hidden = Vec::with_capacity(gate.len());
@@ -1965,16 +1978,24 @@ impl AprTransformer {
                     ffn_hidden.push(silu_g * u);
                 }
 
-                let mut out =
-                    self.matmul(&ffn_hidden, &layer.ffn_down_weight, intermediate_dim, hidden_dim);
+                let mut out = self.matmul(
+                    &ffn_hidden,
+                    &layer.ffn_down_weight,
+                    intermediate_dim,
+                    hidden_dim,
+                );
                 if let Some(ref bias) = layer.ffn_down_bias {
                     self.add_bias(&mut out, bias);
                 }
                 out
             } else {
                 // Standard MLP: down(GELU(up(x)))
-                let mut ffn_hidden =
-                    self.matmul(&ffn_input, &layer.ffn_up_weight, hidden_dim, intermediate_dim);
+                let mut ffn_hidden = self.matmul(
+                    &ffn_input,
+                    &layer.ffn_up_weight,
+                    hidden_dim,
+                    intermediate_dim,
+                );
                 if let Some(ref bias) = layer.ffn_up_bias {
                     self.add_bias(&mut ffn_hidden, bias);
                 }
@@ -5279,7 +5300,7 @@ mod tests {
 
         let result = transformer.forward(&[1, 2, 3]);
         assert!(result.is_ok());
-        let logits = result.unwrap();
+        let logits = result.expect("APR operation failed");
         assert_eq!(logits.len(), 100); // vocab_size
     }
 
@@ -5401,7 +5422,7 @@ mod tests {
 
         let result = transformer.forward(&[1]);
         assert!(result.is_ok());
-        let logits = result.unwrap();
+        let logits = result.expect("APR operation failed");
         assert_eq!(logits.len(), 100); // vocab_size
     }
 
@@ -5420,7 +5441,7 @@ mod tests {
 
         let result = transformer.forward(&[1, 2, 3]);
         assert!(result.is_ok());
-        let logits = result.unwrap();
+        let logits = result.expect("APR operation failed");
         assert_eq!(logits.len(), 100);
     }
 
@@ -5439,7 +5460,7 @@ mod tests {
 
         let result = transformer.predict_next(&[1, 2, 3]);
         assert!(result.is_ok());
-        let next_token = result.unwrap();
+        let next_token = result.expect("APR operation failed");
         assert!(next_token < 100); // Within vocab
     }
 
@@ -5462,7 +5483,7 @@ mod tests {
 
         let result = transformer.generate(&[1], 0);
         assert!(result.is_ok());
-        let tokens = result.unwrap();
+        let tokens = result.expect("APR operation failed");
         assert_eq!(tokens.len(), 1); // Just the prompt
     }
 
@@ -5481,7 +5502,7 @@ mod tests {
 
         let result = transformer.generate(&[1], 3);
         assert!(result.is_ok());
-        let tokens = result.unwrap();
+        let tokens = result.expect("APR operation failed");
         assert!(!tokens.is_empty() && tokens.len() <= 4);
     }
 
@@ -5880,7 +5901,7 @@ mod tests {
         let transformer = AprTransformer::new(config.clone());
         let result = transformer.forward(&[1, 2, 3]);
         assert!(result.is_ok());
-        let logits = result.unwrap();
+        let logits = result.expect("APR operation failed");
         // Logits should have vocab_size dimensions
         assert_eq!(logits.len(), config.vocab_size);
     }
@@ -5899,7 +5920,7 @@ mod tests {
         let transformer = AprTransformer::new(config.clone());
         let result = transformer.forward(&[42]);
         assert!(result.is_ok());
-        let logits = result.unwrap();
+        let logits = result.expect("APR operation failed");
         assert_eq!(logits.len(), 100);
         // All logits should be finite
         assert!(logits.iter().all(|x| x.is_finite()));
@@ -5950,7 +5971,7 @@ mod tests {
         let qt = QuantizedAprTransformer::new(config.clone(), AprQuantizationType::Q8_0);
         let result = qt.forward(&[1, 2, 3]);
         assert!(result.is_ok());
-        let logits = result.unwrap();
+        let logits = result.expect("APR operation failed");
         assert_eq!(logits.len(), config.vocab_size);
     }
 
@@ -5968,7 +5989,7 @@ mod tests {
         let qt = QuantizedAprTransformer::new(config.clone(), AprQuantizationType::Q4_K);
         let result = qt.forward(&[1, 2, 3]);
         assert!(result.is_ok());
-        let logits = result.unwrap();
+        let logits = result.expect("APR operation failed");
         assert_eq!(logits.len(), config.vocab_size);
     }
 
@@ -6005,7 +6026,7 @@ mod tests {
 
         let result = qt.forward_with_cache(1, &mut cache, 0);
         assert!(result.is_ok());
-        let logits = result.unwrap();
+        let logits = result.expect("APR operation failed");
         assert_eq!(logits.len(), config.vocab_size);
     }
 
@@ -6288,7 +6309,7 @@ mod tests {
         };
         let result = transformer.generate_with_cache(&[1, 2], &gen_config);
         assert!(result.is_ok());
-        let tokens = result.unwrap();
+        let tokens = result.expect("APR operation failed");
         assert!(tokens.len() >= 2); // At least the prompt
     }
 
@@ -6428,7 +6449,7 @@ mod tests {
 
         let result = runner.benchmark_decode(&[1, 2, 3], 2);
         assert!(result.is_ok());
-        let benchmark = result.unwrap();
+        let benchmark = result.expect("APR operation failed");
         assert!(benchmark.tokens_generated <= 10);
         assert!(benchmark.model_memory_mb > 0.0);
     }
@@ -6451,7 +6472,7 @@ mod tests {
 
         let result = runner.benchmark_prefill(&[1, 2, 3]);
         assert!(result.is_ok());
-        let prefill = result.unwrap();
+        let prefill = result.expect("APR operation failed");
         assert_eq!(prefill.prompt_tokens, 3);
         assert!(prefill.prefill_time_ms > 0.0 || prefill.prefill_tok_s >= 0.0);
     }
@@ -6468,7 +6489,7 @@ mod tests {
 
         let result = AprBenchmarkRunner::benchmark_load(loader);
         assert!(result.is_ok());
-        let load_result = result.unwrap();
+        let load_result = result.expect("APR operation failed");
         assert!(load_result.load_time_ms >= 0.0);
     }
 
@@ -6606,7 +6627,7 @@ mod tests {
         let qt = QuantizedAprTransformer::new(config.clone(), AprQuantizationType::F32);
         let result = qt.forward(&[1]);
         assert!(result.is_ok());
-        let logits = result.unwrap();
+        let logits = result.expect("APR operation failed");
         assert_eq!(logits.len(), config.vocab_size);
     }
 
@@ -6625,7 +6646,7 @@ mod tests {
         // Token 999 is out of vocab - should handle gracefully
         let result = qt.forward(&[999]);
         assert!(result.is_ok());
-        let logits = result.unwrap();
+        let logits = result.expect("APR operation failed");
         assert_eq!(logits.len(), config.vocab_size);
     }
 
@@ -7199,7 +7220,7 @@ mod tests {
 
         let result = transformer.forward_with_cache(1, &mut cache, 0);
         assert!(result.is_ok());
-        let logits = result.unwrap();
+        let logits = result.expect("APR operation failed");
         assert_eq!(logits.len(), 100);
     }
 
@@ -7369,7 +7390,7 @@ mod tests {
         };
         let result = transformer.generate_with_cache(&[1], &gen_config);
         assert!(result.is_ok());
-        let tokens = result.unwrap();
+        let tokens = result.expect("APR operation failed");
         // With max_tokens=0, should return just the prompt
         assert_eq!(tokens.len(), 1);
     }
@@ -7500,7 +7521,7 @@ mod tests {
 
         let result = transformer.forward(&[1, 2]);
         assert!(result.is_ok());
-        let logits = result.unwrap();
+        let logits = result.expect("APR operation failed");
         assert_eq!(logits.len(), config.vocab_size);
     }
 
@@ -7726,7 +7747,7 @@ mod tests {
 
         let result = transformer.predict_next(&[5]);
         assert!(result.is_ok());
-        let next_token = result.unwrap();
+        let next_token = result.expect("APR operation failed");
         assert!(next_token < 50);
     }
 
@@ -7745,7 +7766,7 @@ mod tests {
 
         let result = transformer.predict_next(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
         assert!(result.is_ok());
-        let next_token = result.unwrap();
+        let next_token = result.expect("APR operation failed");
         assert!(next_token < 50);
     }
 
@@ -7939,7 +7960,7 @@ mod tests {
 
         let result = transformer.forward(&[1, 2, 3]);
         assert!(result.is_ok());
-        let logits = result.unwrap();
+        let logits = result.expect("APR operation failed");
         assert_eq!(logits.len(), config.vocab_size);
     }
 
@@ -7967,7 +7988,7 @@ mod tests {
             let token_id = (pos % 50) as u32;
             let result = transformer.forward_with_cache(token_id, &mut cache, pos);
             assert!(result.is_ok());
-            let logits = result.unwrap();
+            let logits = result.expect("APR operation failed");
             assert_eq!(logits.len(), config.vocab_size);
         }
 
@@ -8254,7 +8275,7 @@ mod tests {
 
         let result = transformer.generate_with_cache(&[1, 2], &gen_config);
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("APR operation failed");
         assert!(output.len() >= 2); // At least the prompt
     }
 
@@ -8302,7 +8323,7 @@ mod tests {
 
         let result = transformer.forward_with_cache(1, &mut cache, 0);
         assert!(result.is_ok());
-        let logits = result.unwrap();
+        let logits = result.expect("APR operation failed");
         assert_eq!(logits.len(), 50);
     }
 
@@ -8502,7 +8523,7 @@ mod tests {
         let result = MmapAprTransformer::from_file(&path);
         assert!(result.is_ok(), "Failed to load mmap file: {:?}", result);
 
-        let model = result.unwrap();
+        let model = result.expect("APR operation failed");
         assert!(model.is_mmap());
         assert_eq!(model.config.hidden_dim, 64);
         assert_eq!(model.config.num_layers, 2);
@@ -8852,7 +8873,7 @@ mod tests {
 
         let result = transformer.forward(&[1, 2]);
         assert!(result.is_ok());
-        let logits = result.unwrap();
+        let logits = result.expect("APR operation failed");
         assert_eq!(logits.len(), 50);
     }
 
@@ -8931,7 +8952,7 @@ mod tests {
 
         let result = qt.forward(&[1, 2, 3, 4, 5]);
         assert!(result.is_ok());
-        let logits = result.unwrap();
+        let logits = result.expect("APR operation failed");
         assert_eq!(logits.len(), 50);
     }
 
@@ -9004,7 +9025,7 @@ mod tests {
 
         let result = transformer.generate(&[1, 2, 3], 3);
         assert!(result.is_ok());
-        let tokens = result.unwrap();
+        let tokens = result.expect("APR operation failed");
         assert!(tokens.len() >= 3); // At least prompt length
     }
 
@@ -9573,9 +9594,18 @@ mod tests {
 
     #[test]
     fn test_apr_quantization_type_from_byte_all_ext_cov() {
-        assert_eq!(AprQuantizationType::from_byte(0), Some(AprQuantizationType::F32));
-        assert_eq!(AprQuantizationType::from_byte(1), Some(AprQuantizationType::Q4_K));
-        assert_eq!(AprQuantizationType::from_byte(2), Some(AprQuantizationType::Q8_0));
+        assert_eq!(
+            AprQuantizationType::from_byte(0),
+            Some(AprQuantizationType::F32)
+        );
+        assert_eq!(
+            AprQuantizationType::from_byte(1),
+            Some(AprQuantizationType::Q4_K)
+        );
+        assert_eq!(
+            AprQuantizationType::from_byte(2),
+            Some(AprQuantizationType::Q8_0)
+        );
         assert_eq!(AprQuantizationType::from_byte(3), None);
         assert_eq!(AprQuantizationType::from_byte(255), None);
     }
@@ -9767,9 +9797,7 @@ mod tests {
 
     #[test]
     fn test_apr_load_result_clone_ext_cov() {
-        let result = AprLoadResult {
-            load_time_ms: 50.0,
-        };
+        let result = AprLoadResult { load_time_ms: 50.0 };
         let cloned = result.clone();
         assert!((cloned.load_time_ms - 50.0).abs() < 1e-6);
     }
@@ -9925,8 +9953,8 @@ mod tests {
             ffn_gate_weight: Some(QuantizedAprTensorQ4::new(vec![0u8; 36], 32, 128)),
             ffn_norm_weight: Some(vec![1.0; 32]),
         };
-        assert_eq!(layer.ffn_gate_weight.as_ref().unwrap().in_dim, 32);
-        assert_eq!(layer.ffn_norm_weight.as_ref().unwrap().len(), 32);
+        assert_eq!(layer.ffn_gate_weight.as_ref().expect("APR operation failed").in_dim, 32);
+        assert_eq!(layer.ffn_norm_weight.as_ref().expect("APR operation failed").len(), 32);
     }
 
     #[test]
@@ -10239,10 +10267,10 @@ mod tests {
     #[test]
     fn test_apr_transformer_layer_serialize_cov() {
         let layer = AprTransformerLayer::empty(32, 128);
-        let json = serde_json::to_string(&layer).unwrap();
+        let json = serde_json::to_string(&layer).expect("invalid UTF-8");
         assert!(json.contains("attn_norm_weight"));
 
-        let layer2: AprTransformerLayer = serde_json::from_str(&json).unwrap();
+        let layer2: AprTransformerLayer = serde_json::from_str(&json).expect("parse failed");
         assert_eq!(layer2.attn_norm_weight.len(), 32);
     }
 
@@ -10508,7 +10536,8 @@ mod tests {
             lm_head_bias: None,
         };
 
-        let q4_model = QuantizedAprTransformer::from_f32_transformer(&f32_model, AprQuantizationType::Q4_K);
+        let q4_model =
+            QuantizedAprTransformer::from_f32_transformer(&f32_model, AprQuantizationType::Q4_K);
         assert_eq!(q4_model.quantization_type(), AprQuantizationType::Q4_K);
     }
 

@@ -2800,7 +2800,7 @@ Some text
         let state = GrammarState {
             rule: "root".to_string(),
             alt_idx: 0,
-            elem_idx: 1, // Past the only element
+            elem_idx: 1,                              // Past the only element
             stack: vec![("other".to_string(), 0, 0)], // Non-empty stack
         };
 
@@ -3089,8 +3089,7 @@ Some text
         let mut grammar = Grammar::with_root("root");
         grammar.add_rule(GrammarRule::single("root", vec![GrammarElement::Char('a')]));
 
-        let masker =
-            GrammarTokenMasker::new(grammar, HashMap::new(), 42).expect("should create");
+        let masker = GrammarTokenMasker::new(grammar, HashMap::new(), 42).expect("should create");
         assert_eq!(masker.eos_token_id(), 42);
     }
 
@@ -3103,8 +3102,7 @@ Some text
         let mut token_strings = HashMap::new();
         token_strings.insert(0, "xy".to_string()); // First char 'x' is invalid
 
-        let masker =
-            GrammarTokenMasker::new(grammar, token_strings, 99).expect("should create");
+        let masker = GrammarTokenMasker::new(grammar, token_strings, 99).expect("should create");
         let mask = masker.get_mask();
         assert!(!mask.is_allowed(0)); // Token should not be allowed
     }
@@ -3118,8 +3116,7 @@ Some text
         let mut token_strings = HashMap::new();
         token_strings.insert(0, "".to_string()); // Empty token
 
-        let masker =
-            GrammarTokenMasker::new(grammar, token_strings, 99).expect("should create");
+        let masker = GrammarTokenMasker::new(grammar, token_strings, 99).expect("should create");
         let mask = masker.get_mask();
         // Empty token won't have a first char, so it shouldn't be in allowed
         assert!(!mask.is_allowed(0));
@@ -3177,8 +3174,7 @@ Some text
         let tools = vec![ToolDefinition::new("known_tool", "Known", vec![])];
         let mut parser = ToolCallParser::new(tools).with_format(ToolCallFormat::Anthropic);
 
-        let text =
-            "<tool_use><name>unknown_tool</name><input>{}</input></tool_use>";
+        let text = "<tool_use><name>unknown_tool</name><input>{}</input></tool_use>";
         let calls = parser.parse(text);
         assert!(calls.is_empty());
     }
@@ -3223,8 +3219,7 @@ Some text
         let tools = vec![ToolDefinition::new("known", "Known", vec![])];
         let mut parser = ToolCallParser::new(tools).with_format(ToolCallFormat::Hermes);
 
-        let text =
-            r#"<tool_call>{"name": "unknown", "arguments": {}}</tool_call>"#;
+        let text = r#"<tool_call>{"name": "unknown", "arguments": {}}</tool_call>"#;
         let calls = parser.parse(text);
         assert!(calls.is_empty());
     }
@@ -3267,10 +3262,7 @@ Some text
                 ToolParameter {
                     name: "enum_param".to_string(),
                     description: "Enum".to_string(),
-                    param_type: ToolParameterType::Enum(vec![
-                        "a".to_string(),
-                        "b".to_string(),
-                    ]),
+                    param_type: ToolParameterType::Enum(vec!["a".to_string(), "b".to_string()]),
                     required: true,
                     default: None,
                 },
@@ -3328,7 +3320,10 @@ Some text
         // Test rule_names iterator
         let mut grammar = Grammar::with_root("root");
         grammar.add_rule(GrammarRule::single("root", vec![GrammarElement::Char('a')]));
-        grammar.add_rule(GrammarRule::single("other", vec![GrammarElement::Char('b')]));
+        grammar.add_rule(GrammarRule::single(
+            "other",
+            vec![GrammarElement::Char('b')],
+        ));
 
         let names: Vec<_> = grammar.rule_names().collect();
         assert_eq!(names.len(), 2);
@@ -3348,8 +3343,8 @@ Some text
         // Advance with invalid char - returns false but preserves states
         let advanced = sm.advance('x'); // Invalid char
         assert!(!advanced); // Should return false
-        // Note: current impl preserves states on failed advance (states not cleared)
-        // This allows retry with different char
+                            // Note: current impl preserves states on failed advance (states not cleared)
+                            // This allows retry with different char
         assert!(sm.has_valid_continuation());
     }
 
@@ -3437,10 +3432,8 @@ Some text
     #[test]
     fn test_deep_grcov_grammar_alternative_clone() {
         // Test Clone for GrammarAlternative
-        let alt1 = GrammarAlternative::new(vec![
-            GrammarElement::Char('a'),
-            GrammarElement::Char('b'),
-        ]);
+        let alt1 =
+            GrammarAlternative::new(vec![GrammarElement::Char('a'), GrammarElement::Char('b')]);
         let alt2 = alt1.clone();
         assert_eq!(alt1, alt2);
     }
