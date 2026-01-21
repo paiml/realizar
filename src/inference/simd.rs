@@ -234,6 +234,225 @@ pub fn simd_softmax(data: &mut [f32]) {
 }
 
 // ============================================================================
+// BF16/F16 SIMD Conversion (T-QA-021 Optimization)
+// ============================================================================
+
+/// Fast BF16→F32 conversion using bit manipulation
+///
+/// BF16 is a truncated F32 (same exponent, fewer mantissa bits).
+/// Conversion is just a 16-bit left shift.
+///
+/// # Arguments
+///
+/// * `input` - Raw BF16 bytes (2 bytes per value)
+///
+/// # Returns
+///
+/// F32 vector with converted values
+///
+/// # Performance
+///
+/// This implementation uses SIMD on x86_64 with AVX2 support,
+/// processing 8 BF16 values in parallel.
+///
+/// # Example
+///
+/// ```
+/// use realizar::inference::simd_bf16_to_f32;
+///
+/// let bf16_bytes = half::bf16::from_f32(1.5).to_le_bytes();
+/// let f32_vals = simd_bf16_to_f32(&bf16_bytes);
+/// assert!((f32_vals[0] - 1.5).abs() < 0.01);
+/// ```
+#[must_use]
+pub fn simd_bf16_to_f32(input: &[u8]) -> Vec<f32> {
+    let count = input.len() / 2;
+    if count == 0 {
+        return Vec::new();
+    }
+
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    {
+        simd_bf16_to_f32_avx2(input, count)
+    }
+
+    #[cfg(not(all(target_arch = "x86_64", target_feature = "avx2")))]
+    {
+        bf16_to_f32_fast(input, count)
+    }
+}
+
+/// AVX2-accelerated BF16→F32 conversion
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+fn simd_bf16_to_f32_avx2(input: &[u8], count: usize) -> Vec<f32> {
+    use std::arch::x86_64::*;
+
+    let mut output = vec![0.0f32; count];
+    let chunks = count / 8;
+    let remainder = count % 8;
+
+    unsafe {
+        for i in 0..chunks {
+            let in_offset = i * 16;
+            let out_offset = i * 8;
+
+            // Load 8 BF16 values (16 bytes)
+            let bf16_bytes = _mm_loadu_si128(input.as_ptr().add(in_offset) as *const __m128i);
+
+            // Unpack lower 4 BF16 to F32 (zero-extend and shift left by 16)
+            let lo = _mm_unpacklo_epi16(bf16_bytes, _mm_setzero_si128());
+            let lo_shifted = _mm_slli_epi32(lo, 16);
+
+            // Unpack upper 4 BF16 to F32
+            let hi = _mm_unpackhi_epi16(bf16_bytes, _mm_setzero_si128());
+            let hi_shifted = _mm_slli_epi32(hi, 16);
+
+            // Store results
+            _mm_storeu_ps(
+                output.as_mut_ptr().add(out_offset),
+                _mm_castsi128_ps(lo_shifted),
+            );
+            _mm_storeu_ps(
+                output.as_mut_ptr().add(out_offset + 4),
+                _mm_castsi128_ps(hi_shifted),
+            );
+        }
+    }
+
+    // Handle remainder with scalar
+    let remainder_start = chunks * 8;
+    for i in 0..remainder {
+        let offset = (remainder_start + i) * 2;
+        let bits = u16::from_le_bytes([input[offset], input[offset + 1]]) as u32;
+        output[remainder_start + i] = f32::from_bits(bits << 16);
+    }
+
+    output
+}
+
+/// Fast scalar BF16→F32 conversion using bit manipulation
+#[cfg(not(all(target_arch = "x86_64", target_feature = "avx2")))]
+fn bf16_to_f32_fast(input: &[u8], count: usize) -> Vec<f32> {
+    let mut output = Vec::with_capacity(count);
+    for chunk in input.chunks_exact(2) {
+        let bits = u16::from_le_bytes([chunk[0], chunk[1]]) as u32;
+        output.push(f32::from_bits(bits << 16));
+    }
+    output
+}
+
+/// Scalar fallback for non-AVX2 platforms
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+fn bf16_to_f32_fast(input: &[u8], count: usize) -> Vec<f32> {
+    let mut output = Vec::with_capacity(count);
+    for chunk in input.chunks_exact(2) {
+        let bits = u16::from_le_bytes([chunk[0], chunk[1]]) as u32;
+        output.push(f32::from_bits(bits << 16));
+    }
+    output
+}
+
+/// Fast F16→F32 conversion using the half crate
+///
+/// Unlike BF16, F16 has a different exponent bias and requires
+/// proper conversion (not just bit shifting).
+///
+/// # Arguments
+///
+/// * `input` - Raw F16 bytes (2 bytes per value)
+///
+/// # Returns
+///
+/// F32 vector with converted values
+#[must_use]
+pub fn simd_f16_to_f32(input: &[u8]) -> Vec<f32> {
+    input
+        .chunks_exact(2)
+        .map(|chunk| {
+            let bits = u16::from_le_bytes([chunk[0], chunk[1]]);
+            half::f16::from_bits(bits).to_f32()
+        })
+        .collect()
+}
+
+/// SIMD-accelerated BF16 dot product
+///
+/// Computes dot product of two BF16 vectors without full conversion.
+/// Converts small chunks at a time to keep F32 data in L1 cache.
+///
+/// # Arguments
+///
+/// * `a` - First BF16 vector (raw bytes)
+/// * `b` - Second BF16 vector (raw bytes)
+///
+/// # Returns
+///
+/// Dot product as F32
+#[must_use]
+pub fn simd_bf16_dot(a: &[u8], b: &[u8]) -> f32 {
+    const CHUNK_SIZE: usize = 64; // 64 BF16 values = 128 bytes, fits in L1
+
+    let count = a.len().min(b.len()) / 2;
+    let mut sum = 0.0f32;
+
+    for chunk_start in (0..count).step_by(CHUNK_SIZE) {
+        let chunk_end = (chunk_start + CHUNK_SIZE).min(count);
+        let byte_start = chunk_start * 2;
+        let byte_end = chunk_end * 2;
+
+        // Convert chunk to F32
+        let a_f32 = simd_bf16_to_f32(&a[byte_start..byte_end]);
+        let b_f32 = simd_bf16_to_f32(&b[byte_start..byte_end]);
+
+        // Compute dot product of chunk using SIMD
+        sum += simd_dot(&a_f32, &b_f32);
+    }
+
+    sum
+}
+
+/// SIMD-accelerated BF16 matmul
+///
+/// Computes matrix-vector product with BF16 weights.
+/// Uses streaming conversion to minimize memory bandwidth.
+///
+/// # Arguments
+///
+/// * `input` - F32 input vector
+/// * `weight_bf16` - BF16 weight matrix (raw bytes, row-major)
+/// * `in_dim` - Input dimension
+/// * `out_dim` - Output dimension
+///
+/// # Returns
+///
+/// F32 output vector
+#[must_use]
+pub fn simd_bf16_matmul(input: &[f32], weight_bf16: &[u8], in_dim: usize, out_dim: usize) -> Vec<f32> {
+    const TILE_SIZE: usize = 64;
+
+    let mut output = vec![0.0f32; out_dim];
+    let input_vec = Vector::from_slice(input);
+
+    for tile_start in (0..out_dim).step_by(TILE_SIZE) {
+        let tile_end = (tile_start + TILE_SIZE).min(out_dim);
+
+        for row in tile_start..tile_end {
+            let row_byte_start = row * in_dim * 2;
+            let row_byte_end = row_byte_start + in_dim * 2;
+            let row_bf16 = &weight_bf16[row_byte_start..row_byte_end];
+
+            // Convert row to F32
+            let row_f32 = simd_bf16_to_f32(row_bf16);
+            let row_vec = Vector::from_slice(&row_f32);
+
+            output[row] = input_vec.dot(&row_vec).expect("dot product failed");
+        }
+    }
+
+    output
+}
+
+// ============================================================================
 // EXTREME TDD: Comprehensive Tests
 // ============================================================================
 
@@ -667,5 +886,192 @@ mod tests {
         assert!((gate[0]).abs() < 1e-5);
         // gate[1] = silu(1) * 2 ≈ 0.7311 * 2 ≈ 1.46
         assert!((gate[1] - 1.46).abs() < 0.05);
+    }
+
+    // ------------------------------------------------------------------------
+    // BF16/F16 Conversion Tests (T-QA-021)
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_simd_bf16_to_f32_empty() {
+        let result = simd_bf16_to_f32(&[]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_simd_bf16_to_f32_single() {
+        // BF16 representation of 1.0: 0x3F80
+        let bf16_bytes = half::bf16::from_f32(1.0).to_le_bytes();
+        let result = simd_bf16_to_f32(&bf16_bytes);
+        assert_eq!(result.len(), 1);
+        assert!((result[0] - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_simd_bf16_to_f32_various_values() {
+        let values = [0.0f32, 1.0, -1.0, 0.5, 2.0, -0.5, 100.0, -100.0];
+        let mut bf16_bytes = Vec::new();
+        for &v in &values {
+            bf16_bytes.extend_from_slice(&half::bf16::from_f32(v).to_le_bytes());
+        }
+
+        let result = simd_bf16_to_f32(&bf16_bytes);
+        assert_eq!(result.len(), values.len());
+
+        for (i, (&expected, &actual)) in values.iter().zip(result.iter()).enumerate() {
+            // BF16 has limited precision, allow some tolerance
+            let tol = expected.abs().max(1.0) * 0.01;
+            assert!(
+                (actual - expected).abs() < tol,
+                "Value {} mismatch: expected {}, got {}",
+                i,
+                expected,
+                actual
+            );
+        }
+    }
+
+    #[test]
+    fn test_simd_bf16_to_f32_large_batch() {
+        // Test with more than 8 values to verify SIMD remainder handling
+        let count = 17; // 2 SIMD chunks (8+8) + 1 remainder
+        let mut bf16_bytes = Vec::with_capacity(count * 2);
+        for i in 0..count {
+            let v = i as f32 * 0.1;
+            bf16_bytes.extend_from_slice(&half::bf16::from_f32(v).to_le_bytes());
+        }
+
+        let result = simd_bf16_to_f32(&bf16_bytes);
+        assert_eq!(result.len(), count);
+
+        for i in 0..count {
+            let expected = i as f32 * 0.1;
+            let tol = 0.01;
+            assert!(
+                (result[i] - expected).abs() < tol,
+                "Index {} mismatch: expected {}, got {}",
+                i,
+                expected,
+                result[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_simd_f16_to_f32_single() {
+        let f16_bytes = half::f16::from_f32(1.0).to_le_bytes();
+        let result = simd_f16_to_f32(&f16_bytes);
+        assert_eq!(result.len(), 1);
+        assert!((result[0] - 1.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_simd_f16_to_f32_various_values() {
+        let values = [0.0f32, 1.0, -1.0, 0.5, 2.0, -0.5];
+        let mut f16_bytes = Vec::new();
+        for &v in &values {
+            f16_bytes.extend_from_slice(&half::f16::from_f32(v).to_le_bytes());
+        }
+
+        let result = simd_f16_to_f32(&f16_bytes);
+        assert_eq!(result.len(), values.len());
+
+        for (expected, actual) in values.iter().zip(result.iter()) {
+            // F16 has limited precision
+            assert!(
+                (actual - expected).abs() < 0.01,
+                "Mismatch: expected {}, got {}",
+                expected,
+                actual
+            );
+        }
+    }
+
+    #[test]
+    fn test_simd_bf16_dot_basic() {
+        // Create two simple BF16 vectors
+        let a_vals = [1.0f32, 2.0, 3.0, 4.0];
+        let b_vals = [1.0f32, 1.0, 1.0, 1.0];
+
+        let mut a_bytes = Vec::new();
+        let mut b_bytes = Vec::new();
+        for (&a, &b) in a_vals.iter().zip(b_vals.iter()) {
+            a_bytes.extend_from_slice(&half::bf16::from_f32(a).to_le_bytes());
+            b_bytes.extend_from_slice(&half::bf16::from_f32(b).to_le_bytes());
+        }
+
+        let result = simd_bf16_dot(&a_bytes, &b_bytes);
+        // 1+2+3+4 = 10
+        assert!((result - 10.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_simd_bf16_dot_large() {
+        // Test with many chunks to exercise chunked processing
+        let n = 256; // 4 chunks of 64
+        let mut a_bytes = Vec::with_capacity(n * 2);
+        let mut b_bytes = Vec::with_capacity(n * 2);
+
+        for i in 0..n {
+            let v = ((i % 10) as f32) * 0.1;
+            a_bytes.extend_from_slice(&half::bf16::from_f32(v).to_le_bytes());
+            b_bytes.extend_from_slice(&half::bf16::from_f32(1.0).to_le_bytes());
+        }
+
+        let result = simd_bf16_dot(&a_bytes, &b_bytes);
+        // Sum of 0.0, 0.1, 0.2, ..., 0.9, 0.0, 0.1, ... (26 complete cycles)
+        // Each cycle sums to 0+0.1+0.2+...+0.9 = 4.5
+        // 256/10 = 25 full cycles + 6 remainder (0.0+0.1+0.2+0.3+0.4+0.5 = 1.5)
+        let expected = 25.0 * 4.5 + 1.5;
+        assert!(
+            (result - expected).abs() < 1.0,
+            "Large dot: expected ~{}, got {}",
+            expected,
+            result
+        );
+    }
+
+    #[test]
+    fn test_simd_bf16_matmul_identity() {
+        // 3x3 identity in BF16
+        let input = vec![1.0f32, 2.0, 3.0];
+        let mut weight_bytes = Vec::new();
+        let identity = [
+            [1.0f32, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ];
+        for row in &identity {
+            for &v in row {
+                weight_bytes.extend_from_slice(&half::bf16::from_f32(v).to_le_bytes());
+            }
+        }
+
+        let output = simd_bf16_matmul(&input, &weight_bytes, 3, 3);
+        assert_eq!(output.len(), 3);
+        assert!((output[0] - 1.0).abs() < 0.01);
+        assert!((output[1] - 2.0).abs() < 0.01);
+        assert!((output[2] - 3.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_simd_bf16_matmul_projection() {
+        // 2x4 projection matrix
+        let input = vec![1.0f32, 2.0, 3.0, 4.0];
+        let weight = [
+            [1.0f32, 1.0, 1.0, 1.0], // row 0: sum = 10
+            [1.0, 0.0, 0.0, -1.0],   // row 1: 1-4 = -3
+        ];
+        let mut weight_bytes = Vec::new();
+        for row in &weight {
+            for &v in row {
+                weight_bytes.extend_from_slice(&half::bf16::from_f32(v).to_le_bytes());
+            }
+        }
+
+        let output = simd_bf16_matmul(&input, &weight_bytes, 4, 2);
+        assert_eq!(output.len(), 2);
+        assert!((output[0] - 10.0).abs() < 0.1, "Sum: expected 10, got {}", output[0]);
+        assert!((output[1] - (-3.0)).abs() < 0.1, "Diff: expected -3, got {}", output[1]);
     }
 }

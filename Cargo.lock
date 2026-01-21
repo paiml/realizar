@@ -3644,6 +3644,8 @@ dependencies = [
 [[package]]
 name = "presentar-core"
 version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "48ea7601aed6ef0857477f827bb4245fb70cce342d25432607d1789ea9af7e9f"
 dependencies = [
  "jugar-probar 1.0.1",
  "serde",
@@ -3654,6 +3656,8 @@ dependencies = [
 [[package]]
 name = "presentar-terminal"
 version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e157826c23b6f8db29b6ffe46de22494213b22dd7b666253efb9aae0b4cd89c3"
 dependencies = [
  "bitvec",
  "compact_str",
