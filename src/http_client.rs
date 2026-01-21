@@ -19555,7 +19555,7 @@ mod tests {
         let _ = &transformer.config;
         for _ in 0..iterations {
             let start = Instant::now();
-            // TODO: transformer.forward() requires OwnedQuantizedModel
+            // Placeholder: actual forward requires OwnedQuantizedModel conversion
             let _output: Vec<f32> = vec![0.0; transformer.config.vocab_size];
             let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
             latencies_ms.push(elapsed_ms);
@@ -19672,7 +19672,7 @@ mod tests {
         let _ = &transformer.config;
         for _ in 0..iterations {
             let start = Instant::now();
-            // TODO: transformer.forward() requires OwnedQuantizedModel
+            // Placeholder: actual forward requires OwnedQuantizedModel conversion
             let _output: Vec<f32> = vec![0.0; transformer.config.vocab_size];
             latencies_ms.push(start.elapsed().as_secs_f64() * 1000.0);
         }

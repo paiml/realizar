@@ -6,8 +6,8 @@
 #![cfg(feature = "cuda")]
 
 use realizar::cuda::{
-    CudaExecutor, CudaKernels, GpuMemoryPool, KernelType, PoolStats, SizeClass,
-    StagingBufferPool, StagingPoolStats, TransferMode, WeightQuantType,
+    CudaExecutor, CudaKernels, GpuMemoryPool, KernelType, PoolStats, SizeClass, StagingBufferPool,
+    StagingPoolStats, TransferMode, WeightQuantType,
 };
 use serial_test::serial;
 
@@ -34,14 +34,23 @@ macro_rules! skip_if_no_cuda {
 
 #[test]
 fn test_kernel_type_gemm_naive_debug() {
-    let kt = KernelType::GemmNaive { m: 64, n: 64, k: 64 };
+    let kt = KernelType::GemmNaive {
+        m: 64,
+        n: 64,
+        k: 64,
+    };
     let debug = format!("{kt:?}");
     assert!(debug.contains("GemmNaive"));
 }
 
 #[test]
 fn test_kernel_type_gemm_tiled_debug() {
-    let kt = KernelType::GemmTiled { m: 128, n: 128, k: 128, tile_size: 32 };
+    let kt = KernelType::GemmTiled {
+        m: 128,
+        n: 128,
+        k: 128,
+        tile_size: 32,
+    };
     let debug = format!("{kt:?}");
     assert!(debug.contains("GemmTiled"));
 }
@@ -55,14 +64,22 @@ fn test_kernel_type_softmax_debug() {
 
 #[test]
 fn test_kernel_type_layernorm_debug() {
-    let kt = KernelType::LayerNorm { hidden_size: 2048, epsilon: 1e-5, affine: true };
+    let kt = KernelType::LayerNorm {
+        hidden_size: 2048,
+        epsilon: 1e-5,
+        affine: true,
+    };
     let debug = format!("{kt:?}");
     assert!(debug.contains("LayerNorm"));
 }
 
 #[test]
 fn test_kernel_type_attention_debug() {
-    let kt = KernelType::Attention { seq_len: 512, head_dim: 64, causal: true };
+    let kt = KernelType::Attention {
+        seq_len: 512,
+        head_dim: 64,
+        causal: true,
+    };
     let debug = format!("{kt:?}");
     assert!(debug.contains("Attention"));
 }
@@ -96,14 +113,23 @@ fn test_cuda_kernels_default() {
 #[test]
 fn test_cuda_kernels_generate_ptx_gemm_naive() {
     let kernels = CudaKernels::new();
-    let ptx = kernels.generate_ptx(&KernelType::GemmNaive { m: 32, n: 32, k: 32 });
+    let ptx = kernels.generate_ptx(&KernelType::GemmNaive {
+        m: 32,
+        n: 32,
+        k: 32,
+    });
     assert!(ptx.contains(".version"));
 }
 
 #[test]
 fn test_cuda_kernels_generate_ptx_gemm_tiled() {
     let kernels = CudaKernels::new();
-    let ptx = kernels.generate_ptx(&KernelType::GemmTiled { m: 64, n: 64, k: 64, tile_size: 16 });
+    let ptx = kernels.generate_ptx(&KernelType::GemmTiled {
+        m: 64,
+        n: 64,
+        k: 64,
+        tile_size: 16,
+    });
     assert!(ptx.contains(".version"));
 }
 
@@ -120,7 +146,7 @@ fn test_cuda_kernels_generate_ptx_layernorm() {
     let ptx = kernels.generate_ptx(&KernelType::LayerNorm {
         hidden_size: 4096,
         epsilon: 1e-6,
-        affine: false
+        affine: false,
     });
     assert!(ptx.contains(".version"));
 }
@@ -131,7 +157,7 @@ fn test_cuda_kernels_generate_ptx_attention() {
     let ptx = kernels.generate_ptx(&KernelType::Attention {
         seq_len: 1024,
         head_dim: 64,
-        causal: false
+        causal: false,
     });
     assert!(ptx.contains(".version"));
 }
@@ -139,14 +165,22 @@ fn test_cuda_kernels_generate_ptx_attention() {
 #[test]
 fn test_cuda_kernels_generate_ptx_quantized() {
     let kernels = CudaKernels::new();
-    let ptx = kernels.generate_ptx(&KernelType::QuantizedGemm { m: 1, n: 2560, k: 2560 });
+    let ptx = kernels.generate_ptx(&KernelType::QuantizedGemm {
+        m: 1,
+        n: 2560,
+        k: 2560,
+    });
     assert!(ptx.contains(".version"));
 }
 
 #[test]
 fn test_cuda_kernels_kernel_name_gemm_naive() {
     let kernels = CudaKernels::new();
-    let name = kernels.kernel_name(&KernelType::GemmNaive { m: 32, n: 32, k: 32 });
+    let name = kernels.kernel_name(&KernelType::GemmNaive {
+        m: 32,
+        n: 32,
+        k: 32,
+    });
     assert!(!name.is_empty());
 }
 
@@ -813,7 +847,10 @@ fn test_cuda_executor_softmax() {
     assert!(result.is_ok());
 
     let sum: f32 = input.iter().sum();
-    assert!((sum - 1.0).abs() < 1e-4, "Softmax sum should be 1.0, got {sum}");
+    assert!(
+        (sum - 1.0).abs() < 1e-4,
+        "Softmax sum should be 1.0, got {sum}"
+    );
 }
 
 // ============================================================================
@@ -856,10 +893,14 @@ fn test_cuda_executor_cached_weight_count() {
 
     assert_eq!(executor.cached_weight_count(), 0);
 
-    executor.load_weights("w1", &vec![0.1f32; 100]).expect("load");
+    executor
+        .load_weights("w1", &vec![0.1f32; 100])
+        .expect("load");
     assert_eq!(executor.cached_weight_count(), 1);
 
-    executor.load_weights("w2", &vec![0.1f32; 100]).expect("load");
+    executor
+        .load_weights("w2", &vec![0.1f32; 100])
+        .expect("load");
     assert_eq!(executor.cached_weight_count(), 2);
 }
 
@@ -882,8 +923,12 @@ fn test_cuda_executor_clear_weights() {
     skip_if_no_cuda!();
     let mut executor = CudaExecutor::new(0).expect("executor");
 
-    executor.load_weights("w1", &vec![0.1f32; 100]).expect("load");
-    executor.load_weights("w2", &vec![0.1f32; 100]).expect("load");
+    executor
+        .load_weights("w1", &vec![0.1f32; 100])
+        .expect("load");
+    executor
+        .load_weights("w2", &vec![0.1f32; 100])
+        .expect("load");
 
     executor.clear_weights();
 
@@ -1295,7 +1340,11 @@ fn test_cuda_executor_has_lm_head_bias() {
 
 #[test]
 fn test_kernel_type_gemm_tensor_core() {
-    let kt = KernelType::GemmTensorCore { m: 64, n: 64, k: 64 };
+    let kt = KernelType::GemmTensorCore {
+        m: 64,
+        n: 64,
+        k: 64,
+    };
     let debug = format!("{kt:?}");
     assert!(debug.contains("GemmTensorCore"));
 }
@@ -1316,56 +1365,91 @@ fn test_kernel_type_coalesced_gemv() {
 
 #[test]
 fn test_kernel_type_quantized_gemm() {
-    let kt = KernelType::QuantizedGemm { m: 1, n: 4096, k: 4096 };
+    let kt = KernelType::QuantizedGemm {
+        m: 1,
+        n: 4096,
+        k: 4096,
+    };
     let debug = format!("{kt:?}");
     assert!(debug.contains("QuantizedGemm"));
 }
 
 #[test]
 fn test_kernel_type_quantized_gemm_ggml() {
-    let kt = KernelType::QuantizedGemmGgml { m: 1, n: 4096, k: 4096 };
+    let kt = KernelType::QuantizedGemmGgml {
+        m: 1,
+        n: 4096,
+        k: 4096,
+    };
     let debug = format!("{kt:?}");
     assert!(debug.contains("QuantizedGemmGgml"));
 }
 
 #[test]
 fn test_kernel_type_q5k_quantized_gemm() {
-    let kt = KernelType::Q5KQuantizedGemm { m: 1, n: 4096, k: 4096 };
+    let kt = KernelType::Q5KQuantizedGemm {
+        m: 1,
+        n: 4096,
+        k: 4096,
+    };
     let debug = format!("{kt:?}");
     assert!(debug.contains("Q5KQuantizedGemm"));
 }
 
 #[test]
 fn test_kernel_type_q6k_quantized_gemm() {
-    let kt = KernelType::Q6KQuantizedGemm { m: 1, n: 4096, k: 4096 };
+    let kt = KernelType::Q6KQuantizedGemm {
+        m: 1,
+        n: 4096,
+        k: 4096,
+    };
     let debug = format!("{kt:?}");
     assert!(debug.contains("Q6KQuantizedGemm"));
 }
 
 #[test]
 fn test_kernel_type_gemm_optimized() {
-    let kt = KernelType::GemmOptimized { m: 64, n: 64, k: 64, tile_size: 16, reg_block: 4 };
+    let kt = KernelType::GemmOptimized {
+        m: 64,
+        n: 64,
+        k: 64,
+        tile_size: 16,
+        reg_block: 4,
+    };
     let debug = format!("{kt:?}");
     assert!(debug.contains("GemmOptimized"));
 }
 
 #[test]
 fn test_kernel_type_gemm_bias_activation() {
-    let kt = KernelType::GemmBiasActivation { m: 64, n: 64, k: 64, activation: 1 };
+    let kt = KernelType::GemmBiasActivation {
+        m: 64,
+        n: 64,
+        k: 64,
+        activation: 1,
+    };
     let debug = format!("{kt:?}");
     assert!(debug.contains("GemmBiasActivation"));
 }
 
 #[test]
 fn test_kernel_type_bias_activation() {
-    let kt = KernelType::BiasActivation { n: 1024, bias_size: 256, activation: 2 };
+    let kt = KernelType::BiasActivation {
+        n: 1024,
+        bias_size: 256,
+        activation: 2,
+    };
     let debug = format!("{kt:?}");
     assert!(debug.contains("BiasActivation"));
 }
 
 #[test]
 fn test_kernel_type_gemm_fp16_tensor_core() {
-    let kt = KernelType::GemmFp16TensorCore { m: 64, n: 64, k: 64 };
+    let kt = KernelType::GemmFp16TensorCore {
+        m: 64,
+        n: 64,
+        k: 64,
+    };
     let debug = format!("{kt:?}");
     assert!(debug.contains("GemmFp16TensorCore"));
 }
@@ -1386,14 +1470,22 @@ fn test_kernel_type_q4k_gemv() {
 
 #[test]
 fn test_kernel_type_tiled_q4k_gemv() {
-    let kt = KernelType::TiledQ4KGemv { k: 4096, n: 11008, outputs_per_block: 4 };
+    let kt = KernelType::TiledQ4KGemv {
+        k: 4096,
+        n: 11008,
+        outputs_per_block: 4,
+    };
     let debug = format!("{kt:?}");
     assert!(debug.contains("TiledQ4KGemv"));
 }
 
 #[test]
 fn test_kernel_type_chunked_tiled_q4k_gemv() {
-    let kt = KernelType::ChunkedTiledQ4KGemv { k: 11008, n: 4096, outputs_per_block: 4 };
+    let kt = KernelType::ChunkedTiledQ4KGemv {
+        k: 11008,
+        n: 4096,
+        outputs_per_block: 4,
+    };
     let debug = format!("{kt:?}");
     assert!(debug.contains("ChunkedTiledQ4KGemv"));
 }
@@ -1456,21 +1548,33 @@ fn test_kernel_type_true_dp4a_q4k_gemv() {
 
 #[test]
 fn test_kernel_type_tensor_core_q4k_gemm() {
-    let kt = KernelType::TensorCoreQ4KGemm { m: 16, k: 4096, n: 4096 };
+    let kt = KernelType::TensorCoreQ4KGemm {
+        m: 16,
+        k: 4096,
+        n: 4096,
+    };
     let debug = format!("{kt:?}");
     assert!(debug.contains("TensorCoreQ4KGemm"));
 }
 
 #[test]
 fn test_kernel_type_batched_q4k_gemv() {
-    let kt = KernelType::BatchedQ4KGemv { m: 8, k: 4096, n: 11008 };
+    let kt = KernelType::BatchedQ4KGemv {
+        m: 8,
+        k: 4096,
+        n: 11008,
+    };
     let debug = format!("{kt:?}");
     assert!(debug.contains("BatchedQ4KGemv"));
 }
 
 #[test]
 fn test_kernel_type_multi_warp_batched_q4k_gemv() {
-    let kt = KernelType::MultiWarpBatchedQ4KGemv { k: 4096, n: 11008, warps: 4 };
+    let kt = KernelType::MultiWarpBatchedQ4KGemv {
+        k: 4096,
+        n: 11008,
+        warps: 4,
+    };
     let debug = format!("{kt:?}");
     assert!(debug.contains("MultiWarpBatchedQ4KGemv"));
 }
@@ -1498,7 +1602,11 @@ fn test_kernel_type_coalesced_q6k_gemv() {
 
 #[test]
 fn test_kernel_type_batched_q6k_gemv() {
-    let kt = KernelType::BatchedQ6KGemv { k: 4096, n: 11008, m: 8 };
+    let kt = KernelType::BatchedQ6KGemv {
+        k: 4096,
+        n: 11008,
+        m: 8,
+    };
     let debug = format!("{kt:?}");
     assert!(debug.contains("BatchedQ6KGemv"));
 }
@@ -1602,14 +1710,20 @@ fn test_kernel_type_kv_cache_scatter_indirect() {
 
 #[test]
 fn test_kernel_type_rms_norm() {
-    let kt = KernelType::RmsNorm { hidden_size: 4096, epsilon: 1e-5 };
+    let kt = KernelType::RmsNorm {
+        hidden_size: 4096,
+        epsilon: 1e-5,
+    };
     let debug = format!("{kt:?}");
     assert!(debug.contains("RmsNorm"));
 }
 
 #[test]
 fn test_kernel_type_vectorized_rms_norm() {
-    let kt = KernelType::VectorizedRmsNorm { hidden_size: 4096, epsilon: 1e-5 };
+    let kt = KernelType::VectorizedRmsNorm {
+        hidden_size: 4096,
+        epsilon: 1e-5,
+    };
     let debug = format!("{kt:?}");
     assert!(debug.contains("VectorizedRmsNorm"));
 }
@@ -1627,7 +1741,10 @@ fn test_kernel_type_batched_vectorized_rms_norm() {
 
 #[test]
 fn test_kernel_type_precise_rms_norm() {
-    let kt = KernelType::PreciseRmsNorm { hidden_size: 4096, epsilon: 1e-5 };
+    let kt = KernelType::PreciseRmsNorm {
+        hidden_size: 4096,
+        epsilon: 1e-5,
+    };
     let debug = format!("{kt:?}");
     assert!(debug.contains("PreciseRmsNorm"));
 }
@@ -1646,14 +1763,20 @@ fn test_kernel_type_batched_rope() {
 
 #[test]
 fn test_kernel_type_batched_residual_add() {
-    let kt = KernelType::BatchedResidualAdd { n: 4096, batch_size: 8 };
+    let kt = KernelType::BatchedResidualAdd {
+        n: 4096,
+        batch_size: 8,
+    };
     let debug = format!("{kt:?}");
     assert!(debug.contains("BatchedResidualAdd"));
 }
 
 #[test]
 fn test_kernel_type_batched_swiglu() {
-    let kt = KernelType::BatchedSwiglu { n: 11008, batch_size: 8 };
+    let kt = KernelType::BatchedSwiglu {
+        n: 11008,
+        batch_size: 8,
+    };
     let debug = format!("{kt:?}");
     assert!(debug.contains("BatchedSwiglu"));
 }

@@ -4,10 +4,9 @@
 //! and error paths not covered by existing tests.
 
 use realizar::cli::{
-    display_model_info, format_size, home_dir, is_local_file_path, load_apr_model,
-    load_gguf_model, load_safetensors_model, print_info, run_bench_compare, run_bench_regression,
-    run_benchmarks, run_convoy_test, run_saturation_test, run_visualization, validate_suite_name,
-    BENCHMARK_SUITES,
+    display_model_info, format_size, home_dir, is_local_file_path, load_apr_model, load_gguf_model,
+    load_safetensors_model, print_info, run_bench_compare, run_bench_regression, run_benchmarks,
+    run_convoy_test, run_saturation_test, run_visualization, validate_suite_name, BENCHMARK_SUITES,
 };
 
 // ============================================================================
@@ -185,7 +184,11 @@ fn test_validate_suite_invalid() {
 #[test]
 fn test_validate_suite_all_defined_are_valid() {
     for (name, _) in BENCHMARK_SUITES {
-        assert!(validate_suite_name(name), "Suite '{}' should be valid", name);
+        assert!(
+            validate_suite_name(name),
+            "Suite '{}' should be valid",
+            name
+        );
     }
 }
 
@@ -257,7 +260,11 @@ fn test_benchmark_suites_unique_names() {
     let mut unique_names = names.clone();
     unique_names.sort();
     unique_names.dedup();
-    assert_eq!(names.len(), unique_names.len(), "Duplicate suite names found");
+    assert_eq!(
+        names.len(),
+        unique_names.len(),
+        "Duplicate suite names found"
+    );
 }
 
 // ============================================================================
@@ -465,7 +472,14 @@ fn test_run_benchmarks_list_with_url() {
 
 #[test]
 fn test_run_benchmarks_list_with_output() {
-    let result = run_benchmarks(None, true, None, None, None, Some("/tmp/test.json".to_string()));
+    let result = run_benchmarks(
+        None,
+        true,
+        None,
+        None,
+        None,
+        Some("/tmp/test.json".to_string()),
+    );
     assert!(result.is_ok());
 }
 
@@ -626,11 +640,7 @@ fn test_run_bench_compare_file2_not_found() {
     let dir = std::env::temp_dir();
     let file1 = dir.join("bench_cmp_f1.json");
     std::fs::write(&file1, "{}").expect("write");
-    let result = run_bench_compare(
-        file1.to_str().unwrap(),
-        "/nonexistent/file2.json",
-        5.0,
-    );
+    let result = run_bench_compare(file1.to_str().unwrap(), "/nonexistent/file2.json", 5.0);
     let _ = std::fs::remove_file(&file1);
     assert!(result.is_err());
 }
@@ -650,7 +660,11 @@ fn test_run_bench_compare_invalid_json_file1() {
 
 #[test]
 fn test_run_bench_regression_file1_not_found() {
-    let result = run_bench_regression("/nonexistent/baseline.json", "/nonexistent/current.json", false);
+    let result = run_bench_regression(
+        "/nonexistent/baseline.json",
+        "/nonexistent/current.json",
+        false,
+    );
     assert!(result.is_err());
 }
 
@@ -659,7 +673,11 @@ fn test_run_bench_regression_file2_not_found() {
     let dir = std::env::temp_dir();
     let baseline = dir.join("bench_reg_baseline.json");
     std::fs::write(&baseline, "{}").expect("write");
-    let result = run_bench_regression(baseline.to_str().unwrap(), "/nonexistent/current.json", false);
+    let result = run_bench_regression(
+        baseline.to_str().unwrap(),
+        "/nonexistent/current.json",
+        false,
+    );
     let _ = std::fs::remove_file(&baseline);
     assert!(result.is_err());
 }

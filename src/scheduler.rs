@@ -3953,9 +3953,9 @@ mod tests {
         manager.assign_request(vec![2], 10);
 
         // Start generation on slot 0
-        manager.get_slot_mut(0).unwrap().start_generation(1.0);
+        manager.get_slot_mut(0).expect("operation failed").start_generation(1.0);
         // Start generation on slot 1
-        manager.get_slot_mut(1).unwrap().start_generation(2.0);
+        manager.get_slot_mut(1).expect("operation failed").start_generation(2.0);
 
         let generating: Vec<_> = manager.generating_slots().collect();
         assert_eq!(generating.len(), 2);
@@ -4023,9 +4023,9 @@ mod tests {
 
         let entry = batch.get_mut(0);
         assert!(entry.is_some());
-        entry.unwrap().position = 42;
+        entry.expect("operation failed").position = 42;
 
-        let entry = batch.get(0).unwrap();
+        let entry = batch.get(0).expect("index out of bounds");
         assert_eq!(entry.position, 42);
     }
 
@@ -4111,7 +4111,7 @@ mod tests {
         scheduler.add_sequence(0, 1, vec![10, 20]);
 
         // Add decode sequence
-        let seq_idx = scheduler.add_sequence(1, 2, vec![30]).unwrap();
+        let seq_idx = scheduler.add_sequence(1, 2, vec![30]).expect("index out of bounds");
         scheduler.start_decode(seq_idx, 1);
 
         let ubatch = scheduler.create_ubatch();
@@ -4221,7 +4221,7 @@ mod tests {
 
         // Should be moved to back of queue (round-robin)
         // Queue should now have seq 1 first
-        let (next_seq, _) = scheduler.next_chunk().unwrap();
+        let (next_seq, _) = scheduler.next_chunk().expect("operation failed");
         assert_eq!(next_seq, 1);
     }
 

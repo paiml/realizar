@@ -12875,7 +12875,7 @@ mod tests {
     fn test_gpu_compute_dot_empty_cov() {
         let mut compute = GpuCompute::new(ComputeBackend::Cpu).expect("test");
         let result = compute.dot(&[], &[]);
-        assert!(result.is_err() || result.unwrap().abs() < 1e-10);
+        assert!(result.is_err() || result.expect("GPU operation failed").abs() < 1e-10);
     }
 
     #[test]
@@ -12911,8 +12911,8 @@ mod tests {
         let m = 64;
         let k = 64;
         let n = 64;
-        let a: Vec<f32> = (0..m*k).map(|i| (i % 10) as f32 * 0.1).collect();
-        let b: Vec<f32> = (0..k*n).map(|i| (i % 10) as f32 * 0.1).collect();
+        let a: Vec<f32> = (0..m * k).map(|i| (i % 10) as f32 * 0.1).collect();
+        let b: Vec<f32> = (0..k * n).map(|i| (i % 10) as f32 * 0.1).collect();
         let c = compute.matmul(&a, &b, m, k, n).expect("test");
         assert_eq!(c.len(), m * n);
     }
@@ -13761,8 +13761,12 @@ mod tests {
         let hidden_dim = 8;
         let inter_dim = 16;
         let hidden: Vec<f32> = (0..hidden_dim).map(|x| x as f32 * 0.1).collect();
-        let w1: Vec<f32> = (0..hidden_dim * inter_dim).map(|x| x as f32 * 0.01).collect();
-        let w2: Vec<f32> = (0..inter_dim * hidden_dim).map(|x| x as f32 * 0.01).collect();
+        let w1: Vec<f32> = (0..hidden_dim * inter_dim)
+            .map(|x| x as f32 * 0.01)
+            .collect();
+        let w2: Vec<f32> = (0..inter_dim * hidden_dim)
+            .map(|x| x as f32 * 0.01)
+            .collect();
 
         let seq = sequential_ffn(&hidden, &w1, &w2, hidden_dim, inter_dim);
         let par = parallel_ffn(&hidden, &w1, &w2, hidden_dim, inter_dim);
@@ -13772,7 +13776,9 @@ mod tests {
             assert!(
                 (seq[i] - par[i]).abs() < 1e-3,
                 "Mismatch at {}: seq={}, par={}",
-                i, seq[i], par[i]
+                i,
+                seq[i],
+                par[i]
             );
         }
     }
@@ -13815,7 +13821,9 @@ mod tests {
             assert!(
                 (standard[i] - fused[i]).abs() < 1e-4,
                 "Mismatch at {}: standard={}, fused={}",
-                i, standard[i], fused[i]
+                i,
+                standard[i],
+                fused[i]
             );
         }
     }
@@ -14037,7 +14045,7 @@ mod tests {
         metrics.record_inference(std::time::Duration::from_millis(100), 10);
         let p50 = metrics.latency_percentile(50);
         assert!(p50.is_some());
-        assert_eq!(p50.unwrap(), std::time::Duration::from_millis(100));
+        assert_eq!(p50.expect("GPU operation failed"), std::time::Duration::from_millis(100));
     }
 
     #[test]
@@ -14050,11 +14058,11 @@ mod tests {
         metrics.record_inference(std::time::Duration::from_millis(500), 10);
 
         // p0 should be the minimum
-        let p0 = metrics.latency_percentile(0).unwrap();
+        let p0 = metrics.latency_percentile(0).expect("GPU operation failed");
         assert_eq!(p0, std::time::Duration::from_millis(100));
 
         // p100 should be near the maximum
-        let p100 = metrics.latency_percentile(100).unwrap();
+        let p100 = metrics.latency_percentile(100).expect("GPU operation failed");
         assert_eq!(p100, std::time::Duration::from_millis(500));
     }
 
@@ -14638,7 +14646,7 @@ mod tests {
         let b = vec![5.0, 6.0, 7.0, 8.0];
         let result = scheduler.matmul(&a, &b, 2, 2, 2);
         assert!(result.is_ok());
-        let c = result.unwrap();
+        let c = result.expect("GPU operation failed");
         assert!((c[0] - 19.0).abs() < 1e-5);
     }
 
@@ -14650,7 +14658,7 @@ mod tests {
         let empty_ops: Vec<MatmulOp> = vec![];
         let result = scheduler.matmul_batch(&empty_ops);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("GPU operation failed").is_empty());
     }
 
     #[test]
@@ -14664,7 +14672,7 @@ mod tests {
 
         let result = scheduler.matmul_batch(&ops);
         assert!(result.is_ok());
-        let results = result.unwrap();
+        let results = result.expect("GPU operation failed");
         assert_eq!(results.len(), 1);
         assert!((results[0][0] - 19.0).abs() < 1e-5);
     }
@@ -14681,7 +14689,7 @@ mod tests {
 
         let result = scheduler.matmul_batch(&ops);
         assert!(result.is_ok());
-        let results = result.unwrap();
+        let results = result.expect("GPU operation failed");
         assert_eq!(results.len(), 2);
     }
 
@@ -14697,7 +14705,7 @@ mod tests {
         // Should handle 0x0 @ 0x0 gracefully (returns empty result)
         let result = compute.matmul(&a, &b, 0, 0, 0);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("GPU operation failed").is_empty());
     }
 
     #[test]
@@ -14711,7 +14719,7 @@ mod tests {
 
         let result = compute.matmul(&a, &b, 1, k, 1);
         assert!(result.is_ok());
-        let c = result.unwrap();
+        let c = result.expect("GPU operation failed");
         assert_eq!(c.len(), 1);
         // 1x128 @ 128x1 = 1x1, each element contributes 0.01
         assert!((c[0] - (k as f32 * 0.01)).abs() < 1e-4);
@@ -14738,7 +14746,7 @@ mod tests {
 
         let result = scheduler.matmul_transpose_b(&q, &k, 2, 2, 2);
         assert!(result.is_ok());
-        let scores = result.unwrap();
+        let scores = result.expect("GPU operation failed");
         assert_eq!(scores.len(), 4);
     }
 
@@ -14983,7 +14991,7 @@ mod tests {
         // Third push fills and returns batch
         let result = batch.push(3);
         assert!(result.is_some());
-        assert_eq!(result.unwrap(), vec![1, 2, 3]);
+        assert_eq!(result.expect("index out of bounds"), vec![1, 2, 3]);
 
         // Batch should be empty after auto-flush
         assert!(batch.is_empty());
@@ -15055,7 +15063,7 @@ mod tests {
         // Poll completed
         let result = scheduler.poll();
         assert!(result.is_some());
-        let (batch_id, tokens) = result.unwrap();
+        let (batch_id, tokens) = result.expect("GPU operation failed");
         assert_eq!(batch_id, id1);
         assert_eq!(tokens, vec![10, 11, 12]);
 
@@ -15150,13 +15158,13 @@ mod tests {
         // Should dequeue highest first
         let item = queue.dequeue_highest();
         assert!(item.is_some());
-        assert_eq!(item.unwrap().into_data(), "high");
+        assert_eq!(item.expect("GPU operation failed").into_data(), "high");
 
         let item = queue.dequeue_highest();
-        assert_eq!(item.unwrap().into_data(), "medium");
+        assert_eq!(item.expect("GPU operation failed").into_data(), "medium");
 
         let item = queue.dequeue_highest();
-        assert_eq!(item.unwrap().into_data(), "low");
+        assert_eq!(item.expect("GPU operation failed").into_data(), "low");
 
         assert!(queue.is_empty());
     }
@@ -15172,9 +15180,9 @@ mod tests {
         queue.enqueue(PriorityRequest::new(5, 3));
 
         // Should dequeue in FIFO order
-        assert_eq!(queue.dequeue_highest().unwrap().into_data(), 1);
-        assert_eq!(queue.dequeue_highest().unwrap().into_data(), 2);
-        assert_eq!(queue.dequeue_highest().unwrap().into_data(), 3);
+        assert_eq!(queue.dequeue_highest().expect("GPU operation failed").into_data(), 1);
+        assert_eq!(queue.dequeue_highest().expect("GPU operation failed").into_data(), 2);
+        assert_eq!(queue.dequeue_highest().expect("GPU operation failed").into_data(), 3);
     }
 
     #[test]
@@ -15210,7 +15218,7 @@ mod tests {
         // Allocate
         let id = tracker.allocate(500, 50);
         assert!(id.is_some());
-        let id = id.unwrap();
+        let id = id.expect("GPU operation failed");
 
         assert_eq!(tracker.memory_usage(), 500);
         assert_eq!(tracker.compute_usage(), 50);
@@ -15599,7 +15607,7 @@ mod tests {
         let result = AsyncGpuResult::ready(vec![1.0, 2.0, 3.0]);
         let data = result.try_get();
         assert!(data.is_some());
-        assert_eq!(data.unwrap(), &vec![1.0, 2.0, 3.0]);
+        assert_eq!(data.expect("index out of bounds"), &vec![1.0, 2.0, 3.0]);
     }
 
     #[test]
@@ -15622,7 +15630,7 @@ mod tests {
         assert!(!result.is_ready());
         result.set_result(vec![7.0, 8.0, 9.0]);
         assert!(result.is_ready());
-        assert_eq!(result.try_get().unwrap(), &vec![7.0, 8.0, 9.0]);
+        assert_eq!(result.try_get().expect("index out of bounds"), &vec![7.0, 8.0, 9.0]);
     }
 
     // --- GpuCompute Tests ---
@@ -15640,7 +15648,7 @@ mod tests {
 
     #[test]
     fn test_gpu_compute_backend_ext_cov() {
-        let compute = GpuCompute::new(ComputeBackend::Cpu).unwrap();
+        let compute = GpuCompute::new(ComputeBackend::Cpu).expect("GPU operation failed");
         let backend = compute.backend();
         assert!(matches!(backend, ComputeBackend::Cpu));
     }

@@ -6,8 +6,8 @@
 
 use realizar::quantize::{
     dequantize_f16, dequantize_q4_0, dequantize_q4_1, dequantize_q4_k, dequantize_q5_0,
-    dequantize_q5_1, dequantize_q5_k, dequantize_q6_k, dequantize_q8_0, f16_to_f32,
-    fused_q4k_dot, fused_q4k_dot_simd, fused_q4k_parallel_matvec, fused_q4k_parallel_matvec_into,
+    dequantize_q5_1, dequantize_q5_k, dequantize_q6_k, dequantize_q8_0, f16_to_f32, fused_q4k_dot,
+    fused_q4k_dot_simd, fused_q4k_parallel_matvec, fused_q4k_parallel_matvec_into,
     fused_q4k_q8_dot, fused_q4k_q8k_dot, fused_q4k_q8k_dot_simd, fused_q5k_dot, fused_q5k_dot_simd,
     fused_q5k_parallel_matvec, fused_q5k_parallel_matvec_into, fused_q6k_dot, fused_q6k_dot_simd,
     fused_q6k_parallel_matvec, fused_q6k_parallel_matvec_into, quantize_activations_q8_0,
@@ -258,7 +258,7 @@ fn test_fused_q4k_q8_dot_empty_data() {
 #[test]
 fn test_fused_q4k_q8_dot_mismatched_blocks() {
     let data = vec![0u8; 144]; // 1 Q4_K block for 256 values
-    // Create Q8_0 blocks for fewer values
+                               // Create Q8_0 blocks for fewer values
     let blocks = vec![Q8_0Block::quantize(&[0.0; 32])]; // Only 32 values
     let result = fused_q4k_q8_dot(&data, &blocks);
     assert!(result.is_err());

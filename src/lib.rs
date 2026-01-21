@@ -212,21 +212,6 @@ pub mod explain;
 pub mod format;
 pub mod generate;
 pub mod gguf;
-/// High-level inference API for CLI tools
-///
-/// Per spec APR-CLI-DELEGATE-001: All inference in `apr run` and `apr chat`
-/// delegates to this module. This eliminates ~1800 lines of duplicated code.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// use realizar::infer::{InferenceConfig, run_inference};
-///
-/// let result = run_inference(&InferenceConfig::new("model.gguf")
-///     .with_prompt("Hello!"))?;
-/// println!("{}", result.text);
-/// ```
-pub mod infer;
 /// GPU acceleration module (Phase 4: ≥100 tok/s target)
 ///
 /// Implements GPU-accelerated matrix operations via Trueno's wgpu backend.
@@ -250,6 +235,21 @@ pub mod grammar;
 /// **NO MOCK DATA** - measures real network latency and inference timing.
 #[cfg(feature = "bench-http")]
 pub mod http_client;
+/// High-level inference API for CLI tools
+///
+/// Per spec APR-CLI-DELEGATE-001: All inference in `apr run` and `apr chat`
+/// delegates to this module. This eliminates ~1800 lines of duplicated code.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use realizar::infer::{InferenceConfig, run_inference};
+///
+/// let result = run_inference(&InferenceConfig::new("model.gguf")
+///     .with_prompt("Hello!"))?;
+/// println!("{}", result.text);
+/// ```
+pub mod infer;
 /// SIMD-accelerated inference engine using trueno
 ///
 /// Provides high-performance transformer inference competing with llama.cpp.

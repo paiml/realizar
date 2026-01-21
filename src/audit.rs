@@ -1027,7 +1027,12 @@ mod tests {
         let logger = AuditLogger::new(Box::new(sink));
 
         let id = logger.log_request("FileTest", &[100, 200]);
-        logger.log_response(id, serde_json::json!(42), Duration::from_millis(10), Some(0.99));
+        logger.log_response(
+            id,
+            serde_json::json!(42),
+            Duration::from_millis(10),
+            Some(0.99),
+        );
         logger.flush().expect("flush");
 
         let content = fs::read_to_string(&path).expect("read");

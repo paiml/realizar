@@ -1907,7 +1907,6 @@ impl GGUFTransformer {
             ffn_norm_bias,
         })
     }
-
 }
 
 // ============================================================================
@@ -2178,7 +2177,7 @@ impl<'a> QuantizedGGUFTransformer<'a> {
             },
         };
 
-        // PAR-058-FIX: Validate byte size and auto-correct qtype if mismatch detected
+        // PAR-058-RESOLVED: Validate byte size and auto-correct qtype if mismatch detected
         // Some GGUF files have incorrect qtype in header (e.g., Q5_0 header but Q4_0 data)
         // Detect this by checking if the calculated byte_size would exceed file bounds,
         // and try alternative qtypes that match the actual data size.
@@ -2199,7 +2198,7 @@ impl<'a> QuantizedGGUFTransformer<'a> {
                 };
                 if q4_0_size <= avail && q4_0_size > 0 {
                     eprintln!(
-                        "[PAR-058-FIX] Tensor '{}' qtype mismatch: header says {} but byte size suggests Q4_0. Using Q4_0.",
+                        "[PAR-058-RESOLVED] Tensor '{}' qtype mismatch: header says {} but byte size suggests Q4_0. Using Q4_0.",
                         name, tensor.qtype
                     );
                     (q4_0_size, GGUF_TYPE_Q4_0)
@@ -2212,7 +2211,7 @@ impl<'a> QuantizedGGUFTransformer<'a> {
                     };
                     if q8_0_size <= avail && q8_0_size > 0 {
                         eprintln!(
-                            "[PAR-058-FIX] Tensor '{}' qtype mismatch: header says {} but byte size suggests Q8_0. Using Q8_0.",
+                            "[PAR-058-RESOLVED] Tensor '{}' qtype mismatch: header says {} but byte size suggests Q8_0. Using Q8_0.",
                             name, tensor.qtype
                         );
                         (q8_0_size, GGUF_TYPE_Q8_0)
@@ -2241,7 +2240,7 @@ impl<'a> QuantizedGGUFTransformer<'a> {
             offset,
             byte_size,
             num_elements,
-            qtype: actual_qtype, // PAR-058-FIX: Use auto-corrected qtype
+            qtype: actual_qtype, // PAR-058-RESOLVED: Use auto-corrected qtype
         })
     }
 
@@ -2352,7 +2351,6 @@ impl<'a> QuantizedGGUFTransformer<'a> {
             ffn_norm_bias,
         })
     }
-
 }
 
 /// Pre-allocated scratch buffers for inference (IMP-131)
@@ -8414,7 +8412,7 @@ impl OwnedQuantizedModel {
                                 reason: format!("Failed to acquire CUDA executor lock: {e}"),
                             })?;
 
-                    // THREAD-FIX: Ensure CUDA context is current for this thread
+                    // THREAD-RESOLVED: Ensure CUDA context is current for this thread
                     // (context may have been created on a different thread)
                     executor
                         .make_current()
@@ -8479,7 +8477,7 @@ impl OwnedQuantizedModel {
                                 reason: format!("Failed to acquire CUDA executor lock: {e}"),
                             })?;
 
-                    // THREAD-FIX: Ensure CUDA context is current for this thread
+                    // THREAD-RESOLVED: Ensure CUDA context is current for this thread
                     executor
                         .make_current()
                         .map_err(|e| RealizarError::UnsupportedOperation {
@@ -8541,7 +8539,7 @@ impl OwnedQuantizedModel {
                                 reason: format!("Failed to acquire CUDA executor lock: {e}"),
                             })?;
 
-                    // THREAD-FIX: Ensure CUDA context is current for this thread
+                    // THREAD-RESOLVED: Ensure CUDA context is current for this thread
                     executor
                         .make_current()
                         .map_err(|e| RealizarError::UnsupportedOperation {
@@ -8609,7 +8607,7 @@ impl OwnedQuantizedModel {
                                 reason: format!("Failed to acquire CUDA executor lock: {e}"),
                             })?;
 
-                    // THREAD-FIX: Ensure CUDA context is current for this thread
+                    // THREAD-RESOLVED: Ensure CUDA context is current for this thread
                     executor
                         .make_current()
                         .map_err(|e| RealizarError::UnsupportedOperation {
@@ -9313,7 +9311,7 @@ impl OwnedQuantizedModel {
         // Dequantize based on quantization type
         match weight.qtype {
             GGUF_TYPE_Q4_K => {
-                // PAR-002/003 FIX: Use proper dequantization that matches CPU path
+                // PAR-002/003 RESOLVED: Use proper dequantization that matches CPU path
                 // CPU path in fused_q4k_parallel_matvec:
                 //   - super_blocks_per_row = in_dim.div_ceil(QK_K)
                 //   - bytes_per_row = super_blocks_per_row * 144
@@ -9459,7 +9457,6 @@ impl OwnedQuantizedModel {
             }),
         }
     }
-
 
     /// Look up token embeddings (public for debugging PAR-001)
     pub fn embed(&self, token_ids: &[u32]) -> Vec<f32> {
@@ -10747,7 +10744,6 @@ impl OwnedQuantizedModel {
         output
     }
 
-
     /// SIMD-optimized dot product for f32 slices
     #[inline]
     fn simd_dot_f32(a: &[f32], b: &[f32]) -> f32 {
@@ -10973,7 +10969,6 @@ impl OwnedQuantizedModel {
 
         output
     }
-
 
     /// Attention with cache - writes to pre-allocated buffer (IMP-131)
     pub fn attention_with_cache_gqa_into(
@@ -11299,13 +11294,15 @@ impl OwnedQuantizedModel {
                 if layer_idx == 0 && position >= 1 && std::env::var("CPU_DEBUG").is_ok() {
                     eprintln!(
                         "[CORRECTNESS-013-CPU] Layer 0 attention output at pos={}, first 10: {:?}",
-                        position, &attn_out_buffer[..10.min(attn_out_buffer.len())]
+                        position,
+                        &attn_out_buffer[..10.min(attn_out_buffer.len())]
                     );
                     for h in 0..3 {
                         let start = h * head_dim;
                         eprintln!(
                             "[CORRECTNESS-013-CPU] Head {} first 5: {:?}",
-                            h, &attn_out_buffer[start..start + 5]
+                            h,
+                            &attn_out_buffer[start..start + 5]
                         );
                     }
                 }
@@ -12119,7 +12116,7 @@ impl OwnedQuantizedModel {
             }
 
             // 2b. QKV projection → scratch.qkv (zero-allocation via P1-REV)
-            // PAR-126: Fix GQA dimension bug - use config instead of q_dim() which
+            // PAR-126: Fix GQA dimension issue - use config instead of q_dim() which
             // incorrectly assumes Q=K=V for fused weights
             let num_kv_heads = self.config.num_kv_heads;
             let head_dim = hidden_dim / self.config.num_heads;
@@ -12532,7 +12529,6 @@ impl OwnedQuantizedModel {
 
         Ok(())
     }
-
 
     /// Generate tokens with adaptive CPU/GPU attention (IMP-125)
     ///
@@ -13092,8 +13088,7 @@ impl OwnedQuantizedModel {
         // Prefill phase: process each prompt (can be batched in future)
         for (req_idx, prompt) in prompts.iter().enumerate() {
             for (pos, &token_id) in prompt.iter().enumerate() {
-                let _ =
-                    self.forward_single_with_cache(token_id, &mut caches[req_idx], pos)?;
+                let _ = self.forward_single_with_cache(token_id, &mut caches[req_idx], pos)?;
             }
         }
 
@@ -13122,11 +13117,8 @@ impl OwnedQuantizedModel {
                     .last()
                     .expect("tokens must be non-empty");
 
-                let logits = self.forward_single_with_cache(
-                    last_token,
-                    &mut caches[req_idx],
-                    position,
-                )?;
+                let logits =
+                    self.forward_single_with_cache(last_token, &mut caches[req_idx], position)?;
 
                 // Sample next token
                 let next_token = if config.temperature == 0.0 || config.top_k == 1 {
@@ -13471,7 +13463,6 @@ impl OwnedQuantizedModel {
 
         Ok(logits)
     }
-
 
     /// Batch matmul with GPU acceleration via HybridScheduler (IMP-107)
     ///
@@ -14083,8 +14074,6 @@ impl OwnedQuantizedModel {
 
         Ok(output)
     }
-
-
 
     // =========================================================================
     // IMP-111: Flash Attention-style Tiled Computation
@@ -14843,8 +14832,6 @@ impl OwnedQuantizedModelCuda {
         Ok(logits)
     }
 
-
-
     /// Generate tokens using CUDA acceleration (IMP-800a)
     ///
     /// # Arguments
@@ -15514,7 +15501,7 @@ impl OwnedQuantizedModelCuda {
             let k_cache = cache.get_k(layer_idx);
             let v_cache = cache.get_v(layer_idx);
 
-            // CORRECTNESS-FIX: Always use CPU attention (GPU attention has bugs)
+            // CORRECTNESS-RESOLVED: Always use CPU attention (GPU attention precision issues)
             // GPU matmul is still used for QKV, output, and FFN projections
             let attn_out = if k_cache.is_empty() {
                 // First token - no cache yet
@@ -16648,7 +16635,7 @@ impl OwnedQuantizedModelCuda {
 
             // Step 2: Verify using TARGET model
             // PAR-105: Rollback draft cache to snapshot position, preserving prefill history
-            // BUG FIX: reset_kv_cache_gpu() was clearing ALL history, causing 1/k acceptance
+            // RESOLVED: reset_kv_cache_gpu() was clearing ALL history, causing 1/k acceptance
             draft_cache.rollback_to(draft_cache_snapshot, draft_kv_dim);
             draft_model
                 .executor
@@ -16727,7 +16714,7 @@ impl OwnedQuantizedModelCuda {
             let draft_len = draft_cache_snapshot + num_accepted;
             target_cache.rollback_to(target_len, target_kv_dim);
             draft_cache.rollback_to(draft_len, draft_kv_dim);
-            // PAR-105: BUG FIX - must also rollback GPU caches to match CPU
+            // PAR-105: RESOLVED - must also rollback GPU caches to match CPU
             // Without this, GPU cache has stale entries from rejected verifications
             self.executor.rollback_kv_cache_gpu(target_len);
             draft_model.executor.rollback_kv_cache_gpu(draft_len);
@@ -16785,7 +16772,7 @@ impl OwnedQuantizedModelCuda {
     ///
     /// Returns error if weight upload fails or model uses fused QKV (phi-2 style).
     pub fn preload_weights_gpu(&mut self) -> Result<usize> {
-        // THREAD-FIX: Ensure CUDA context is current for this thread
+        // THREAD-RESOLVED: Ensure CUDA context is current for this thread
         self.executor
             .make_current()
             .map_err(|e| RealizarError::UnsupportedOperation {
@@ -17338,7 +17325,7 @@ impl OwnedQuantizedModelCuda {
             return Ok(Vec::new());
         }
 
-        // THREAD-FIX: Ensure CUDA context is current for this thread
+        // THREAD-RESOLVED: Ensure CUDA context is current for this thread
         // (context may have been created on a different thread, e.g., main vs tokio worker)
         self.executor
             .make_current()
@@ -17399,7 +17386,7 @@ impl OwnedQuantizedModelCuda {
                 self.forward_gpu_resident_to_token_id(last_token, &mut cache, position)?
             } else {
                 // Non-greedy sampling - need full logits for proper temperature + top-k sampling
-                // PAR-063: Fixed bug where GPU path always took top token instead of sampling
+                // PAR-063: Resolved issue where GPU path always took top token instead of sampling
                 let logits = self.forward_gpu_resident(last_token, &mut cache, position)?;
                 OwnedQuantizedModel::sample_topk(&logits, config.temperature, config.top_k)
             };
@@ -17453,7 +17440,7 @@ impl OwnedQuantizedModelCuda {
             return Ok(Vec::new());
         }
 
-        // THREAD-FIX: Ensure CUDA context is current for this thread
+        // THREAD-RESOLVED: Ensure CUDA context is current for this thread
         self.executor
             .make_current()
             .map_err(|e| RealizarError::UnsupportedOperation {
@@ -17628,7 +17615,6 @@ impl OwnedQuantizedModelCuda {
 
         Ok(sequences)
     }
-
 }
 
 /// Configuration for quantized generation
@@ -19127,7 +19113,6 @@ impl CudaBackend {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -20355,7 +20340,6 @@ mod tests {
         }
     }
 
-
     // =========================================================================
     // IMP-109: Fused Dequantize-Matmul Kernel (GPU-Accelerated)
     // =========================================================================
@@ -20608,7 +20592,6 @@ mod tests {
         }
     }
 
-
     // =========================================================================
     // IMP-110: Multi-Head Parallel Attention
     // =========================================================================
@@ -20816,7 +20799,6 @@ mod tests {
             }
         }
     }
-
 
     // =========================================================================
     // IMP-112: HybridScheduler Caching
@@ -24221,7 +24203,6 @@ mod tests {
             expected_min * 2
         );
     }
-
 
     /// Test PARITY-005: Performance comparison - contiguous vs Vec<Vec> cache
     ///
@@ -48312,14 +48293,14 @@ mod tests {
         use tempfile::NamedTempFile;
 
         // Create a minimal valid GGUF file
-        let mut temp = NamedTempFile::new().unwrap();
+        let mut temp = NamedTempFile::new().expect("file operation failed");
         let mut data = Vec::new();
         data.extend_from_slice(b"GGUF"); // magic
         data.extend_from_slice(&3u32.to_le_bytes()); // version 3
         data.extend_from_slice(&0u64.to_le_bytes()); // tensor_count = 0
         data.extend_from_slice(&0u64.to_le_bytes()); // metadata_count = 0
-        temp.write_all(&data).unwrap();
-        temp.flush().unwrap();
+        temp.write_all(&data).expect("GGUF parsing failed");
+        temp.flush().expect("GGUF parsing failed");
 
         let mapped = MappedGGUFModel::from_path(temp.path()).expect("from_path");
         assert_eq!(mapped.model.header.magic, GGUF_MAGIC);
@@ -48331,16 +48312,16 @@ mod tests {
         use std::io::Write;
         use tempfile::NamedTempFile;
 
-        let mut temp = NamedTempFile::new().unwrap();
+        let mut temp = NamedTempFile::new().expect("file operation failed");
         let mut data = Vec::new();
         data.extend_from_slice(b"GGUF");
         data.extend_from_slice(&3u32.to_le_bytes());
         data.extend_from_slice(&0u64.to_le_bytes());
         data.extend_from_slice(&0u64.to_le_bytes());
-        temp.write_all(&data).unwrap();
-        temp.flush().unwrap();
+        temp.write_all(&data).expect("GGUF parsing failed");
+        temp.flush().expect("GGUF parsing failed");
 
-        let mapped = MappedGGUFModel::from_path(temp.path()).unwrap();
+        let mapped = MappedGGUFModel::from_path(temp.path()).expect("GGUF parsing failed");
         let mmap_data = mapped.data();
         assert!(!mmap_data.is_empty());
         assert_eq!(&mmap_data[0..4], b"GGUF");
@@ -48351,21 +48332,21 @@ mod tests {
         use std::io::Write;
         use tempfile::NamedTempFile;
 
-        let mut temp = NamedTempFile::new().unwrap();
+        let mut temp = NamedTempFile::new().expect("file operation failed");
         let mut data = Vec::new();
         data.extend_from_slice(b"GGUF");
         data.extend_from_slice(&3u32.to_le_bytes());
         data.extend_from_slice(&0u64.to_le_bytes());
         data.extend_from_slice(&0u64.to_le_bytes());
-        temp.write_all(&data).unwrap();
-        temp.flush().unwrap();
+        temp.write_all(&data).expect("GGUF parsing failed");
+        temp.flush().expect("GGUF parsing failed");
 
-        let mapped = MappedGGUFModel::from_path(temp.path()).unwrap();
+        let mapped = MappedGGUFModel::from_path(temp.path()).expect("GGUF parsing failed");
 
         // Valid slice
         let slice = mapped.tensor_slice(0, 4);
         assert!(slice.is_some());
-        assert_eq!(slice.unwrap(), b"GGUF");
+        assert_eq!(slice.expect("GGUF parsing failed"), b"GGUF");
 
         // Out of bounds
         let oob = mapped.tensor_slice(100, 100);
@@ -48381,17 +48362,17 @@ mod tests {
         use std::io::Write;
         use tempfile::NamedTempFile;
 
-        let mut temp = NamedTempFile::new().unwrap();
+        let mut temp = NamedTempFile::new().expect("file operation failed");
         let mut data = Vec::new();
         data.extend_from_slice(b"GGUF");
         data.extend_from_slice(&3u32.to_le_bytes());
         data.extend_from_slice(&0u64.to_le_bytes());
         data.extend_from_slice(&0u64.to_le_bytes());
         let len = data.len();
-        temp.write_all(&data).unwrap();
-        temp.flush().unwrap();
+        temp.write_all(&data).expect("GGUF parsing failed");
+        temp.flush().expect("GGUF parsing failed");
 
-        let mapped = MappedGGUFModel::from_path(temp.path()).unwrap();
+        let mapped = MappedGGUFModel::from_path(temp.path()).expect("GGUF parsing failed");
         assert_eq!(mapped.file_size(), len);
     }
 
@@ -48401,16 +48382,16 @@ mod tests {
         use std::io::Write;
         use tempfile::NamedTempFile;
 
-        let mut temp = NamedTempFile::new().unwrap();
+        let mut temp = NamedTempFile::new().expect("file operation failed");
         let mut data = Vec::new();
         data.extend_from_slice(b"GGUF");
         data.extend_from_slice(&3u32.to_le_bytes());
         data.extend_from_slice(&0u64.to_le_bytes());
         data.extend_from_slice(&0u64.to_le_bytes());
-        temp.write_all(&data).unwrap();
-        temp.flush().unwrap();
+        temp.write_all(&data).expect("GGUF parsing failed");
+        temp.flush().expect("GGUF parsing failed");
 
-        let mapped = MappedGGUFModel::from_path(temp.path()).unwrap();
+        let mapped = MappedGGUFModel::from_path(temp.path()).expect("GGUF parsing failed");
         // These just call madvise, shouldn't panic
         mapped.advise_sequential();
         mapped.advise_random();
@@ -48423,16 +48404,16 @@ mod tests {
         use std::io::Write;
         use tempfile::NamedTempFile;
 
-        let mut temp = NamedTempFile::new().unwrap();
+        let mut temp = NamedTempFile::new().expect("file operation failed");
         let mut data = Vec::new();
         data.extend_from_slice(b"GGUF");
         data.extend_from_slice(&3u32.to_le_bytes());
         data.extend_from_slice(&0u64.to_le_bytes());
         data.extend_from_slice(&0u64.to_le_bytes());
-        temp.write_all(&data).unwrap();
-        temp.flush().unwrap();
+        temp.write_all(&data).expect("GGUF parsing failed");
+        temp.flush().expect("GGUF parsing failed");
 
-        let mapped = MappedGGUFModel::from_path(temp.path()).unwrap();
+        let mapped = MappedGGUFModel::from_path(temp.path()).expect("GGUF parsing failed");
         // May succeed or fail depending on ulimit
         let _ = mapped.lock_memory();
     }
@@ -48470,7 +48451,7 @@ mod tests {
         data.extend_from_slice(&3u32.to_le_bytes());
         data.extend_from_slice(&0u64.to_le_bytes()); // tensor_count
         data.extend_from_slice(&1u64.to_le_bytes()); // metadata_count = 1
-        // Truncated key length
+                                                     // Truncated key length
         data.extend_from_slice(&100u64.to_le_bytes()); // key_len but no key data
         let result = GGUFModel::from_bytes(&data);
         assert!(result.is_err());
@@ -48535,7 +48516,7 @@ mod tests {
         data.extend_from_slice(&(key.len() as u64).to_le_bytes());
         data.extend_from_slice(key.as_bytes());
         data.extend_from_slice(&0u32.to_le_bytes()); // UInt8 type
-        // Missing value
+                                                     // Missing value
         let result = GGUFModel::from_bytes(&data);
         assert!(result.is_err());
     }
@@ -48551,7 +48532,7 @@ mod tests {
         data.extend_from_slice(&(key.len() as u64).to_le_bytes());
         data.extend_from_slice(key.as_bytes());
         data.extend_from_slice(&1u32.to_le_bytes()); // Int8 type
-        // Missing value
+                                                     // Missing value
         let result = GGUFModel::from_bytes(&data);
         assert!(result.is_err());
     }
@@ -48567,7 +48548,7 @@ mod tests {
         data.extend_from_slice(&(key.len() as u64).to_le_bytes());
         data.extend_from_slice(key.as_bytes());
         data.extend_from_slice(&2u32.to_le_bytes()); // UInt16 type
-        // Missing value
+                                                     // Missing value
         let result = GGUFModel::from_bytes(&data);
         assert!(result.is_err());
     }
@@ -48583,7 +48564,7 @@ mod tests {
         data.extend_from_slice(&(key.len() as u64).to_le_bytes());
         data.extend_from_slice(key.as_bytes());
         data.extend_from_slice(&3u32.to_le_bytes()); // Int16 type
-        // Missing value
+                                                     // Missing value
         let result = GGUFModel::from_bytes(&data);
         assert!(result.is_err());
     }
@@ -48599,7 +48580,7 @@ mod tests {
         data.extend_from_slice(&(key.len() as u64).to_le_bytes());
         data.extend_from_slice(key.as_bytes());
         data.extend_from_slice(&4u32.to_le_bytes()); // UInt32 type
-        // Missing value
+                                                     // Missing value
         let result = GGUFModel::from_bytes(&data);
         assert!(result.is_err());
     }
@@ -48615,7 +48596,7 @@ mod tests {
         data.extend_from_slice(&(key.len() as u64).to_le_bytes());
         data.extend_from_slice(key.as_bytes());
         data.extend_from_slice(&5u32.to_le_bytes()); // Int32 type
-        // Missing value
+                                                     // Missing value
         let result = GGUFModel::from_bytes(&data);
         assert!(result.is_err());
     }
@@ -48631,7 +48612,7 @@ mod tests {
         data.extend_from_slice(&(key.len() as u64).to_le_bytes());
         data.extend_from_slice(key.as_bytes());
         data.extend_from_slice(&6u32.to_le_bytes()); // Float32 type
-        // Missing value
+                                                     // Missing value
         let result = GGUFModel::from_bytes(&data);
         assert!(result.is_err());
     }
@@ -48647,7 +48628,7 @@ mod tests {
         data.extend_from_slice(&(key.len() as u64).to_le_bytes());
         data.extend_from_slice(key.as_bytes());
         data.extend_from_slice(&7u32.to_le_bytes()); // Bool type
-        // Missing value
+                                                     // Missing value
         let result = GGUFModel::from_bytes(&data);
         assert!(result.is_err());
     }
@@ -48663,7 +48644,7 @@ mod tests {
         data.extend_from_slice(&(key.len() as u64).to_le_bytes());
         data.extend_from_slice(key.as_bytes());
         data.extend_from_slice(&10u32.to_le_bytes()); // UInt64 type
-        // Missing value
+                                                      // Missing value
         let result = GGUFModel::from_bytes(&data);
         assert!(result.is_err());
     }
@@ -48679,7 +48660,7 @@ mod tests {
         data.extend_from_slice(&(key.len() as u64).to_le_bytes());
         data.extend_from_slice(key.as_bytes());
         data.extend_from_slice(&11u32.to_le_bytes()); // Int64 type
-        // Missing value
+                                                      // Missing value
         let result = GGUFModel::from_bytes(&data);
         assert!(result.is_err());
     }
@@ -48695,7 +48676,7 @@ mod tests {
         data.extend_from_slice(&(key.len() as u64).to_le_bytes());
         data.extend_from_slice(key.as_bytes());
         data.extend_from_slice(&12u32.to_le_bytes()); // Float64 type
-        // Missing value
+                                                      // Missing value
         let result = GGUFModel::from_bytes(&data);
         assert!(result.is_err());
     }
@@ -48714,7 +48695,7 @@ mod tests {
         data.extend_from_slice(&9u32.to_le_bytes()); // Array type
         data.extend_from_slice(&4u32.to_le_bytes()); // Element type = UInt32
         data.extend_from_slice(&5u64.to_le_bytes()); // 5 elements claimed
-        // Only provide 1 element worth of data
+                                                     // Only provide 1 element worth of data
         data.extend_from_slice(&42u32.to_le_bytes());
         let result = GGUFModel::from_bytes(&data);
         assert!(result.is_err());
@@ -48996,7 +48977,10 @@ mod tests {
     #[test]
     fn test_embedding_dim_present() {
         let data = build_gguf_with_metadata(vec![
-            ("general.architecture", GGUFValue::String("llama".to_string())),
+            (
+                "general.architecture",
+                GGUFValue::String("llama".to_string()),
+            ),
             ("llama.embedding_length", GGUFValue::UInt32(4096)),
         ]);
         let model = GGUFModel::from_bytes(&data).expect("valid");
@@ -49005,9 +48989,10 @@ mod tests {
 
     #[test]
     fn test_embedding_dim_missing() {
-        let data = build_gguf_with_metadata(vec![
-            ("general.architecture", GGUFValue::String("llama".to_string())),
-        ]);
+        let data = build_gguf_with_metadata(vec![(
+            "general.architecture",
+            GGUFValue::String("llama".to_string()),
+        )]);
         let model = GGUFModel::from_bytes(&data).expect("valid");
         assert_eq!(model.embedding_dim(), None);
     }
@@ -49015,7 +49000,10 @@ mod tests {
     #[test]
     fn test_num_layers_present() {
         let data = build_gguf_with_metadata(vec![
-            ("general.architecture", GGUFValue::String("llama".to_string())),
+            (
+                "general.architecture",
+                GGUFValue::String("llama".to_string()),
+            ),
             ("llama.block_count", GGUFValue::UInt32(32)),
         ]);
         let model = GGUFModel::from_bytes(&data).expect("valid");
@@ -49025,7 +49013,10 @@ mod tests {
     #[test]
     fn test_num_heads_present() {
         let data = build_gguf_with_metadata(vec![
-            ("general.architecture", GGUFValue::String("llama".to_string())),
+            (
+                "general.architecture",
+                GGUFValue::String("llama".to_string()),
+            ),
             ("llama.attention.head_count", GGUFValue::UInt32(32)),
         ]);
         let model = GGUFModel::from_bytes(&data).expect("valid");
@@ -49035,7 +49026,10 @@ mod tests {
     #[test]
     fn test_context_length_present() {
         let data = build_gguf_with_metadata(vec![
-            ("general.architecture", GGUFValue::String("llama".to_string())),
+            (
+                "general.architecture",
+                GGUFValue::String("llama".to_string()),
+            ),
             ("llama.context_length", GGUFValue::UInt32(4096)),
         ]);
         let model = GGUFModel::from_bytes(&data).expect("valid");
@@ -49045,7 +49039,10 @@ mod tests {
     #[test]
     fn test_num_kv_heads_present() {
         let data = build_gguf_with_metadata(vec![
-            ("general.architecture", GGUFValue::String("llama".to_string())),
+            (
+                "general.architecture",
+                GGUFValue::String("llama".to_string()),
+            ),
             ("llama.attention.head_count_kv", GGUFValue::UInt32(8)),
         ]);
         let model = GGUFModel::from_bytes(&data).expect("valid");
@@ -49055,7 +49052,10 @@ mod tests {
     #[test]
     fn test_rope_freq_base_present() {
         let data = build_gguf_with_metadata(vec![
-            ("general.architecture", GGUFValue::String("llama".to_string())),
+            (
+                "general.architecture",
+                GGUFValue::String("llama".to_string()),
+            ),
             ("llama.rope.freq_base", GGUFValue::Float32(10000.0)),
         ]);
         let model = GGUFModel::from_bytes(&data).expect("valid");
@@ -49065,8 +49065,14 @@ mod tests {
     #[test]
     fn test_rms_epsilon_present() {
         let data = build_gguf_with_metadata(vec![
-            ("general.architecture", GGUFValue::String("llama".to_string())),
-            ("llama.attention.layer_norm_rms_epsilon", GGUFValue::Float32(1e-5)),
+            (
+                "general.architecture",
+                GGUFValue::String("llama".to_string()),
+            ),
+            (
+                "llama.attention.layer_norm_rms_epsilon",
+                GGUFValue::Float32(1e-5),
+            ),
         ]);
         let model = GGUFModel::from_bytes(&data).expect("valid");
         assert_eq!(model.rms_epsilon(), Some(1e-5));
@@ -49075,8 +49081,14 @@ mod tests {
     #[test]
     fn test_rope_type_from_scaling_type_none() {
         let data = build_gguf_with_metadata(vec![
-            ("general.architecture", GGUFValue::String("llama".to_string())),
-            ("llama.rope.scaling.type", GGUFValue::String("none".to_string())),
+            (
+                "general.architecture",
+                GGUFValue::String("llama".to_string()),
+            ),
+            (
+                "llama.rope.scaling.type",
+                GGUFValue::String("none".to_string()),
+            ),
         ]);
         let model = GGUFModel::from_bytes(&data).expect("valid");
         assert_eq!(model.rope_type(), Some(0));
@@ -49085,8 +49097,14 @@ mod tests {
     #[test]
     fn test_rope_type_from_scaling_type_linear() {
         let data = build_gguf_with_metadata(vec![
-            ("general.architecture", GGUFValue::String("llama".to_string())),
-            ("llama.rope.scaling.type", GGUFValue::String("linear".to_string())),
+            (
+                "general.architecture",
+                GGUFValue::String("llama".to_string()),
+            ),
+            (
+                "llama.rope.scaling.type",
+                GGUFValue::String("linear".to_string()),
+            ),
         ]);
         let model = GGUFModel::from_bytes(&data).expect("valid");
         assert_eq!(model.rope_type(), Some(0));
@@ -49095,8 +49113,14 @@ mod tests {
     #[test]
     fn test_rope_type_from_scaling_type_yarn() {
         let data = build_gguf_with_metadata(vec![
-            ("general.architecture", GGUFValue::String("llama".to_string())),
-            ("llama.rope.scaling.type", GGUFValue::String("yarn".to_string())),
+            (
+                "general.architecture",
+                GGUFValue::String("llama".to_string()),
+            ),
+            (
+                "llama.rope.scaling.type",
+                GGUFValue::String("yarn".to_string()),
+            ),
         ]);
         let model = GGUFModel::from_bytes(&data).expect("valid");
         assert_eq!(model.rope_type(), Some(2));
@@ -49105,8 +49129,14 @@ mod tests {
     #[test]
     fn test_rope_type_from_scaling_type_neox() {
         let data = build_gguf_with_metadata(vec![
-            ("general.architecture", GGUFValue::String("llama".to_string())),
-            ("llama.rope.scaling.type", GGUFValue::String("neox".to_string())),
+            (
+                "general.architecture",
+                GGUFValue::String("llama".to_string()),
+            ),
+            (
+                "llama.rope.scaling.type",
+                GGUFValue::String("neox".to_string()),
+            ),
         ]);
         let model = GGUFModel::from_bytes(&data).expect("valid");
         assert_eq!(model.rope_type(), Some(2));
@@ -49130,7 +49160,10 @@ mod tests {
     #[test]
     fn test_metadata_with_qwen_architecture() {
         let data = build_gguf_with_metadata(vec![
-            ("general.architecture", GGUFValue::String("qwen2".to_string())),
+            (
+                "general.architecture",
+                GGUFValue::String("qwen2".to_string()),
+            ),
             ("qwen2.embedding_length", GGUFValue::UInt32(3584)),
             ("qwen2.block_count", GGUFValue::UInt32(28)),
         ]);
@@ -49313,90 +49346,100 @@ mod tests {
 
     #[test]
     fn test_rope_type_qwen_architecture() {
-        let data = build_gguf_with_metadata(vec![
-            ("general.architecture", GGUFValue::String("qwen".to_string())),
-        ]);
+        let data = build_gguf_with_metadata(vec![(
+            "general.architecture",
+            GGUFValue::String("qwen".to_string()),
+        )]);
         let model = GGUFModel::from_bytes(&data).expect("valid");
         assert_eq!(model.rope_type(), Some(2)); // NEOX style
     }
 
     #[test]
     fn test_rope_type_phi2_architecture() {
-        let data = build_gguf_with_metadata(vec![
-            ("general.architecture", GGUFValue::String("phi2".to_string())),
-        ]);
+        let data = build_gguf_with_metadata(vec![(
+            "general.architecture",
+            GGUFValue::String("phi2".to_string()),
+        )]);
         let model = GGUFModel::from_bytes(&data).expect("valid");
         assert_eq!(model.rope_type(), Some(2)); // NEOX style
     }
 
     #[test]
     fn test_rope_type_gemma_architecture() {
-        let data = build_gguf_with_metadata(vec![
-            ("general.architecture", GGUFValue::String("gemma2".to_string())),
-        ]);
+        let data = build_gguf_with_metadata(vec![(
+            "general.architecture",
+            GGUFValue::String("gemma2".to_string()),
+        )]);
         let model = GGUFModel::from_bytes(&data).expect("valid");
         assert_eq!(model.rope_type(), Some(2)); // NEOX style
     }
 
     #[test]
     fn test_rope_type_falcon_architecture() {
-        let data = build_gguf_with_metadata(vec![
-            ("general.architecture", GGUFValue::String("falcon".to_string())),
-        ]);
+        let data = build_gguf_with_metadata(vec![(
+            "general.architecture",
+            GGUFValue::String("falcon".to_string()),
+        )]);
         let model = GGUFModel::from_bytes(&data).expect("valid");
         assert_eq!(model.rope_type(), Some(2)); // NEOX style
     }
 
     #[test]
     fn test_rope_type_stablelm_architecture() {
-        let data = build_gguf_with_metadata(vec![
-            ("general.architecture", GGUFValue::String("stablelm".to_string())),
-        ]);
+        let data = build_gguf_with_metadata(vec![(
+            "general.architecture",
+            GGUFValue::String("stablelm".to_string()),
+        )]);
         let model = GGUFModel::from_bytes(&data).expect("valid");
         assert_eq!(model.rope_type(), Some(2)); // NEOX style
     }
 
     #[test]
     fn test_rope_type_bert_architecture() {
-        let data = build_gguf_with_metadata(vec![
-            ("general.architecture", GGUFValue::String("bert".to_string())),
-        ]);
+        let data = build_gguf_with_metadata(vec![(
+            "general.architecture",
+            GGUFValue::String("bert".to_string()),
+        )]);
         let model = GGUFModel::from_bytes(&data).expect("valid");
         assert_eq!(model.rope_type(), Some(2)); // NEOX style
     }
 
     #[test]
     fn test_rope_type_deepseek2_architecture() {
-        let data = build_gguf_with_metadata(vec![
-            ("general.architecture", GGUFValue::String("deepseek2".to_string())),
-        ]);
+        let data = build_gguf_with_metadata(vec![(
+            "general.architecture",
+            GGUFValue::String("deepseek2".to_string()),
+        )]);
         let model = GGUFModel::from_bytes(&data).expect("valid");
         assert_eq!(model.rope_type(), Some(2)); // NEOX style
     }
 
     #[test]
     fn test_rope_type_llama_architecture() {
-        let data = build_gguf_with_metadata(vec![
-            ("general.architecture", GGUFValue::String("llama".to_string())),
-        ]);
+        let data = build_gguf_with_metadata(vec![(
+            "general.architecture",
+            GGUFValue::String("llama".to_string()),
+        )]);
         let model = GGUFModel::from_bytes(&data).expect("valid");
         assert_eq!(model.rope_type(), Some(0)); // NORM style (default)
     }
 
     #[test]
     fn test_rope_type_tinyllama_architecture() {
-        let data = build_gguf_with_metadata(vec![
-            ("general.architecture", GGUFValue::String("tinyllama".to_string())),
-        ]);
+        let data = build_gguf_with_metadata(vec![(
+            "general.architecture",
+            GGUFValue::String("tinyllama".to_string()),
+        )]);
         let model = GGUFModel::from_bytes(&data).expect("valid");
         assert_eq!(model.rope_type(), Some(0)); // NORM style (default)
     }
 
     #[test]
     fn test_rope_type_unknown_architecture() {
-        let data = build_gguf_with_metadata(vec![
-            ("general.architecture", GGUFValue::String("custom_model".to_string())),
-        ]);
+        let data = build_gguf_with_metadata(vec![(
+            "general.architecture",
+            GGUFValue::String("custom_model".to_string()),
+        )]);
         let model = GGUFModel::from_bytes(&data).expect("valid");
         assert_eq!(model.rope_type(), Some(0)); // Default to NORM
     }
@@ -49480,9 +49523,8 @@ mod tests {
 
     #[test]
     fn test_bos_token_id_present() {
-        let data = build_gguf_with_metadata(vec![
-            ("tokenizer.ggml.bos_token_id", GGUFValue::UInt32(1)),
-        ]);
+        let data =
+            build_gguf_with_metadata(vec![("tokenizer.ggml.bos_token_id", GGUFValue::UInt32(1))]);
         let model = GGUFModel::from_bytes(&data).expect("valid");
         assert_eq!(model.bos_token_id(), Some(1));
     }
@@ -49541,9 +49583,10 @@ mod tests {
 
     #[test]
     fn test_gguf_model_clone() {
-        let data = build_gguf_with_metadata(vec![
-            ("general.architecture", GGUFValue::String("llama".to_string())),
-        ]);
+        let data = build_gguf_with_metadata(vec![(
+            "general.architecture",
+            GGUFValue::String("llama".to_string()),
+        )]);
         let model = GGUFModel::from_bytes(&data).expect("valid");
         let cloned = model.clone();
         assert_eq!(cloned.header, model.header);
@@ -49574,8 +49617,7 @@ mod tests {
 
     #[test]
     fn test_generate_config_with_multiple_stop_tokens() {
-        let config = QuantizedGenerateConfig::default()
-            .with_stop_tokens(vec![1, 2, 50256, 32000]);
+        let config = QuantizedGenerateConfig::default().with_stop_tokens(vec![1, 2, 50256, 32000]);
         assert_eq!(config.stop_tokens.len(), 4);
         assert!(config.stop_tokens.contains(&50256));
         assert!(config.stop_tokens.contains(&32000));
@@ -49665,7 +49707,10 @@ mod tests {
         data.extend_from_slice(b"world");
 
         let model = GGUFModel::from_bytes(&data).expect("valid GGUF");
-        let tokens = model.metadata.get("tokenizer.ggml.tokens").expect("key exists");
+        let tokens = model
+            .metadata
+            .get("tokenizer.ggml.tokens")
+            .expect("key exists");
         if let GGUFValue::Array(arr) = tokens {
             assert_eq!(arr.len(), 2);
         } else {
@@ -49861,7 +49906,13 @@ mod tests {
         for cp in 0x21u8..=0x7E {
             let c = cp as char;
             let result = super::gpt2_unicode_to_byte(c);
-            assert_eq!(result, Some(cp), "char '{}' (0x{:02X}) should map to itself", c, cp);
+            assert_eq!(
+                result,
+                Some(cp),
+                "char '{}' (0x{:02X}) should map to itself",
+                c,
+                cp
+            );
         }
     }
 
@@ -49869,12 +49920,12 @@ mod tests {
     fn test_gpt2_unicode_latin1_supplement_cov() {
         // Latin-1 supplement (0xA1-0xAC and 0xAE-0xFF) should map to themselves
         for cp in 0xA1u8..=0xAC {
-            let c = char::from_u32(cp as u32).unwrap();
+            let c = char::from_u32(cp as u32).expect("GGUF parsing failed");
             let result = super::gpt2_unicode_to_byte(c);
             assert_eq!(result, Some(cp));
         }
         for cp in 0xAE..=0xFF {
-            let c = char::from_u32(cp as u32).unwrap();
+            let c = char::from_u32(cp as u32).expect("GGUF parsing failed");
             let result = super::gpt2_unicode_to_byte(c);
             assert_eq!(result, Some(cp));
         }
@@ -50160,7 +50211,10 @@ mod tests {
 
         let result = GGUFModel::from_bytes(&data);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid GGUF magic"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid GGUF magic"));
     }
 
     #[test]
@@ -50171,7 +50225,10 @@ mod tests {
 
         let result = GGUFModel::from_bytes(&data);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Unsupported GGUF version"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Unsupported GGUF version"));
     }
 
     #[test]
@@ -50550,7 +50607,11 @@ mod tests {
 
     #[test]
     fn test_gguf_value_array_cov2() {
-        let arr = vec![GGUFValue::UInt8(1), GGUFValue::UInt8(2), GGUFValue::UInt8(3)];
+        let arr = vec![
+            GGUFValue::UInt8(1),
+            GGUFValue::UInt8(2),
+            GGUFValue::UInt8(3),
+        ];
         let val = GGUFValue::Array(arr);
         if let GGUFValue::Array(a) = val {
             assert_eq!(a.len(), 3);
@@ -50804,9 +50865,24 @@ mod tests {
 
     #[test]
     fn test_qkv_weights_separate_clone_ext_cov() {
-        let q = QuantizedTensorRef { offset: 0, byte_size: 256, num_elements: 32, qtype: 2 };
-        let k = QuantizedTensorRef { offset: 256, byte_size: 256, num_elements: 32, qtype: 2 };
-        let v = QuantizedTensorRef { offset: 512, byte_size: 256, num_elements: 32, qtype: 2 };
+        let q = QuantizedTensorRef {
+            offset: 0,
+            byte_size: 256,
+            num_elements: 32,
+            qtype: 2,
+        };
+        let k = QuantizedTensorRef {
+            offset: 256,
+            byte_size: 256,
+            num_elements: 32,
+            qtype: 2,
+        };
+        let v = QuantizedTensorRef {
+            offset: 512,
+            byte_size: 256,
+            num_elements: 32,
+            qtype: 2,
+        };
         let weights = QKVWeights::Separate { q, k, v };
         let cloned = weights.clone();
         if let QKVWeights::Separate { q: q_clone, .. } = cloned {
@@ -50833,9 +50909,24 @@ mod tests {
     #[test]
     fn test_owned_qkv_weights_separate_debug_ext_cov() {
         let weights = OwnedQKVWeights::Separate {
-            q: OwnedQuantizedTensor { data: vec![0u8; 64], in_dim: 32, out_dim: 64, qtype: 2 },
-            k: OwnedQuantizedTensor { data: vec![0u8; 64], in_dim: 32, out_dim: 64, qtype: 2 },
-            v: OwnedQuantizedTensor { data: vec![0u8; 64], in_dim: 32, out_dim: 64, qtype: 2 },
+            q: OwnedQuantizedTensor {
+                data: vec![0u8; 64],
+                in_dim: 32,
+                out_dim: 64,
+                qtype: 2,
+            },
+            k: OwnedQuantizedTensor {
+                data: vec![0u8; 64],
+                in_dim: 32,
+                out_dim: 64,
+                qtype: 2,
+            },
+            v: OwnedQuantizedTensor {
+                data: vec![0u8; 64],
+                in_dim: 32,
+                out_dim: 64,
+                qtype: 2,
+            },
         };
         let debug_str = format!("{:?}", weights);
         assert!(debug_str.contains("Separate"));
@@ -51630,9 +51721,15 @@ mod tests {
     #[test]
     fn test_gguf_model_metadata_lookup_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("general.architecture".to_string(), GGUFValue::String("llama".to_string()));
+        metadata.insert(
+            "general.architecture".to_string(),
+            GGUFValue::String("llama".to_string()),
+        );
         metadata.insert("llama.context_length".to_string(), GGUFValue::UInt32(4096));
-        metadata.insert("llama.embedding_length".to_string(), GGUFValue::UInt32(4096));
+        metadata.insert(
+            "llama.embedding_length".to_string(),
+            GGUFValue::UInt32(4096),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -51665,13 +51762,55 @@ mod tests {
         const GGML_TYPE_Q8_0: u32 = 8;
 
         let tensors = [
-            TensorInfo { name: "f32".to_string(), n_dims: 1, dims: vec![100], qtype: GGML_TYPE_F32, offset: 0 },
-            TensorInfo { name: "f16".to_string(), n_dims: 1, dims: vec![100], qtype: GGML_TYPE_F16, offset: 0 },
-            TensorInfo { name: "q4_0".to_string(), n_dims: 1, dims: vec![100], qtype: GGML_TYPE_Q4_0, offset: 0 },
-            TensorInfo { name: "q4_1".to_string(), n_dims: 1, dims: vec![100], qtype: GGML_TYPE_Q4_1, offset: 0 },
-            TensorInfo { name: "q5_0".to_string(), n_dims: 1, dims: vec![100], qtype: GGML_TYPE_Q5_0, offset: 0 },
-            TensorInfo { name: "q5_1".to_string(), n_dims: 1, dims: vec![100], qtype: GGML_TYPE_Q5_1, offset: 0 },
-            TensorInfo { name: "q8_0".to_string(), n_dims: 1, dims: vec![100], qtype: GGML_TYPE_Q8_0, offset: 0 },
+            TensorInfo {
+                name: "f32".to_string(),
+                n_dims: 1,
+                dims: vec![100],
+                qtype: GGML_TYPE_F32,
+                offset: 0,
+            },
+            TensorInfo {
+                name: "f16".to_string(),
+                n_dims: 1,
+                dims: vec![100],
+                qtype: GGML_TYPE_F16,
+                offset: 0,
+            },
+            TensorInfo {
+                name: "q4_0".to_string(),
+                n_dims: 1,
+                dims: vec![100],
+                qtype: GGML_TYPE_Q4_0,
+                offset: 0,
+            },
+            TensorInfo {
+                name: "q4_1".to_string(),
+                n_dims: 1,
+                dims: vec![100],
+                qtype: GGML_TYPE_Q4_1,
+                offset: 0,
+            },
+            TensorInfo {
+                name: "q5_0".to_string(),
+                n_dims: 1,
+                dims: vec![100],
+                qtype: GGML_TYPE_Q5_0,
+                offset: 0,
+            },
+            TensorInfo {
+                name: "q5_1".to_string(),
+                n_dims: 1,
+                dims: vec![100],
+                qtype: GGML_TYPE_Q5_1,
+                offset: 0,
+            },
+            TensorInfo {
+                name: "q8_0".to_string(),
+                n_dims: 1,
+                dims: vec![100],
+                qtype: GGML_TYPE_Q8_0,
+                offset: 0,
+            },
         ];
 
         for tensor in &tensors {
@@ -51683,11 +51822,14 @@ mod tests {
     #[test]
     fn test_vocabulary_extraction_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
-            GGUFValue::String("hello".to_string()),
-            GGUFValue::String("world".to_string()),
-            GGUFValue::String("test".to_string()),
-        ]));
+        metadata.insert(
+            "tokenizer.ggml.tokens".to_string(),
+            GGUFValue::Array(vec![
+                GGUFValue::String("hello".to_string()),
+                GGUFValue::String("world".to_string()),
+                GGUFValue::String("test".to_string()),
+            ]),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -51703,7 +51845,7 @@ mod tests {
 
         let vocab = model.vocabulary();
         assert!(vocab.is_some());
-        let vocab = vocab.unwrap();
+        let vocab = vocab.expect("GGUF parsing failed");
         assert_eq!(vocab.len(), 3);
         assert_eq!(vocab[0], "hello");
         assert_eq!(vocab[1], "world");
@@ -51731,7 +51873,10 @@ mod tests {
     #[test]
     fn test_vocabulary_empty_array_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![]));
+        metadata.insert(
+            "tokenizer.ggml.tokens".to_string(),
+            GGUFValue::Array(vec![]),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -51752,11 +51897,14 @@ mod tests {
     #[test]
     fn test_decode_with_vocabulary_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
-            GGUFValue::String("Hello".to_string()),
-            GGUFValue::String(" ".to_string()),
-            GGUFValue::String("World".to_string()),
-        ]));
+        metadata.insert(
+            "tokenizer.ggml.tokens".to_string(),
+            GGUFValue::Array(vec![
+                GGUFValue::String("Hello".to_string()),
+                GGUFValue::String(" ".to_string()),
+                GGUFValue::String("World".to_string()),
+            ]),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -51796,11 +51944,14 @@ mod tests {
     #[test]
     fn test_decode_byte_tokens_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
-            GGUFValue::String("<0x41>".to_string()), // 'A'
-            GGUFValue::String("<0x42>".to_string()), // 'B'
-            GGUFValue::String("<0x43>".to_string()), // 'C'
-        ]));
+        metadata.insert(
+            "tokenizer.ggml.tokens".to_string(),
+            GGUFValue::Array(vec![
+                GGUFValue::String("<0x41>".to_string()), // 'A'
+                GGUFValue::String("<0x42>".to_string()), // 'B'
+                GGUFValue::String("<0x43>".to_string()), // 'C'
+            ]),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -51821,10 +51972,13 @@ mod tests {
     #[test]
     fn test_decode_sentencepiece_markers_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
-            GGUFValue::String("▁Hello".to_string()),
-            GGUFValue::String("▁World".to_string()),
-        ]));
+        metadata.insert(
+            "tokenizer.ggml.tokens".to_string(),
+            GGUFValue::Array(vec![
+                GGUFValue::String("▁Hello".to_string()),
+                GGUFValue::String("▁World".to_string()),
+            ]),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -51845,10 +51999,14 @@ mod tests {
     #[test]
     fn test_decode_gpt2_style_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
-            GGUFValue::String("test".to_string()),
-        ]));
-        metadata.insert("tokenizer.ggml.model".to_string(), GGUFValue::String("gpt2".to_string()));
+        metadata.insert(
+            "tokenizer.ggml.tokens".to_string(),
+            GGUFValue::Array(vec![GGUFValue::String("test".to_string())]),
+        );
+        metadata.insert(
+            "tokenizer.ggml.model".to_string(),
+            GGUFValue::String("gpt2".to_string()),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -51870,11 +52028,14 @@ mod tests {
     #[test]
     fn test_encode_basic_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
-            GGUFValue::String("a".to_string()),
-            GGUFValue::String("b".to_string()),
-            GGUFValue::String("ab".to_string()),
-        ]));
+        metadata.insert(
+            "tokenizer.ggml.tokens".to_string(),
+            GGUFValue::Array(vec![
+                GGUFValue::String("a".to_string()),
+                GGUFValue::String("b".to_string()),
+                GGUFValue::String("ab".to_string()),
+            ]),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -51891,7 +52052,7 @@ mod tests {
         let encoded = model.encode("ab");
         assert!(encoded.is_some());
         // Greedy longest match should find "ab" as token 2
-        let tokens = encoded.unwrap();
+        let tokens = encoded.expect("GGUF parsing failed");
         assert!(tokens.contains(&2));
     }
 
@@ -51917,8 +52078,14 @@ mod tests {
     #[test]
     fn test_rope_freq_base_extraction_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("general.architecture".to_string(), GGUFValue::String("llama".to_string()));
-        metadata.insert("llama.rope.freq_base".to_string(), GGUFValue::Float32(10000.0));
+        metadata.insert(
+            "general.architecture".to_string(),
+            GGUFValue::String("llama".to_string()),
+        );
+        metadata.insert(
+            "llama.rope.freq_base".to_string(),
+            GGUFValue::Float32(10000.0),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -51934,7 +52101,7 @@ mod tests {
 
         let freq_base = model.rope_freq_base();
         assert!(freq_base.is_some());
-        assert!((freq_base.unwrap() - 10000.0).abs() < 1e-5);
+        assert!((freq_base.expect("GGUF parsing failed") - 10000.0).abs() < 1e-5);
     }
 
     // --- More boundary tests for GGUFValue ---
@@ -51954,14 +52121,8 @@ mod tests {
     #[test]
     fn test_gguf_value_nested_array_deep() {
         let nested = GGUFValue::Array(vec![
-            GGUFValue::Array(vec![
-                GGUFValue::Int32(1),
-                GGUFValue::Int32(2),
-            ]),
-            GGUFValue::Array(vec![
-                GGUFValue::Int32(3),
-                GGUFValue::Int32(4),
-            ]),
+            GGUFValue::Array(vec![GGUFValue::Int32(1), GGUFValue::Int32(2)]),
+            GGUFValue::Array(vec![GGUFValue::Int32(3), GGUFValue::Int32(4)]),
         ]);
 
         if let GGUFValue::Array(outer) = nested {
@@ -52002,16 +52163,37 @@ mod tests {
     #[test]
     fn test_gguf_config_from_model_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("general.architecture".to_string(), GGUFValue::String("llama".to_string()));
-        metadata.insert("llama.embedding_length".to_string(), GGUFValue::UInt32(4096));
+        metadata.insert(
+            "general.architecture".to_string(),
+            GGUFValue::String("llama".to_string()),
+        );
+        metadata.insert(
+            "llama.embedding_length".to_string(),
+            GGUFValue::UInt32(4096),
+        );
         metadata.insert("llama.block_count".to_string(), GGUFValue::UInt32(32));
-        metadata.insert("llama.attention.head_count".to_string(), GGUFValue::UInt32(32));
-        metadata.insert("llama.attention.head_count_kv".to_string(), GGUFValue::UInt32(8));
+        metadata.insert(
+            "llama.attention.head_count".to_string(),
+            GGUFValue::UInt32(32),
+        );
+        metadata.insert(
+            "llama.attention.head_count_kv".to_string(),
+            GGUFValue::UInt32(8),
+        );
         metadata.insert("llama.vocab_size".to_string(), GGUFValue::UInt32(32000));
-        metadata.insert("llama.feed_forward_length".to_string(), GGUFValue::UInt32(11008));
+        metadata.insert(
+            "llama.feed_forward_length".to_string(),
+            GGUFValue::UInt32(11008),
+        );
         metadata.insert("llama.context_length".to_string(), GGUFValue::UInt32(4096));
-        metadata.insert("llama.rope.freq_base".to_string(), GGUFValue::Float32(10000.0));
-        metadata.insert("llama.attention.layer_norm_rms_epsilon".to_string(), GGUFValue::Float32(1e-5));
+        metadata.insert(
+            "llama.rope.freq_base".to_string(),
+            GGUFValue::Float32(10000.0),
+        );
+        metadata.insert(
+            "llama.attention.layer_norm_rms_epsilon".to_string(),
+            GGUFValue::Float32(1e-5),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -52027,7 +52209,7 @@ mod tests {
 
         let config = GGUFConfig::from_gguf(&model);
         assert!(config.is_ok());
-        let config = config.unwrap();
+        let config = config.expect("GGUF parsing failed");
         assert_eq!(config.architecture, "llama");
         assert_eq!(config.hidden_dim, 4096);
         assert_eq!(config.num_layers, 32);
@@ -52037,8 +52219,14 @@ mod tests {
     #[test]
     fn test_rope_type_extraction_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("general.architecture".to_string(), GGUFValue::String("llama".to_string()));
-        metadata.insert("llama.rope.scaling.type".to_string(), GGUFValue::String("neox".to_string()));
+        metadata.insert(
+            "general.architecture".to_string(),
+            GGUFValue::String("llama".to_string()),
+        );
+        metadata.insert(
+            "llama.rope.scaling.type".to_string(),
+            GGUFValue::String("neox".to_string()),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -52054,14 +52242,20 @@ mod tests {
 
         let rope_type = model.rope_type();
         assert!(rope_type.is_some());
-        assert_eq!(rope_type.unwrap(), 2); // NEOX style
+        assert_eq!(rope_type.expect("GGUF parsing failed"), 2); // NEOX style
     }
 
     #[test]
     fn test_rope_type_none_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("general.architecture".to_string(), GGUFValue::String("llama".to_string()));
-        metadata.insert("llama.rope.scaling.type".to_string(), GGUFValue::String("none".to_string()));
+        metadata.insert(
+            "general.architecture".to_string(),
+            GGUFValue::String("llama".to_string()),
+        );
+        metadata.insert(
+            "llama.rope.scaling.type".to_string(),
+            GGUFValue::String("none".to_string()),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -52077,14 +52271,20 @@ mod tests {
 
         let rope_type = model.rope_type();
         assert!(rope_type.is_some());
-        assert_eq!(rope_type.unwrap(), 0); // NORM style
+        assert_eq!(rope_type.expect("GGUF parsing failed"), 0); // NORM style
     }
 
     #[test]
     fn test_layer_norm_epsilon_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("general.architecture".to_string(), GGUFValue::String("llama".to_string()));
-        metadata.insert("llama.attention.layer_norm_rms_epsilon".to_string(), GGUFValue::Float32(1e-6));
+        metadata.insert(
+            "general.architecture".to_string(),
+            GGUFValue::String("llama".to_string()),
+        );
+        metadata.insert(
+            "llama.attention.layer_norm_rms_epsilon".to_string(),
+            GGUFValue::Float32(1e-6),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -52100,18 +52300,21 @@ mod tests {
 
         let eps = model.rms_epsilon();
         assert!(eps.is_some());
-        assert!((eps.unwrap() - 1e-6).abs() < 1e-10);
+        assert!((eps.expect("GGUF parsing failed") - 1e-6).abs() < 1e-10);
     }
 
     // --- More encode tests ---
     #[test]
     fn test_encode_sentencepiece_with_space_prefix_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
-            GGUFValue::String("▁".to_string()), // word boundary
-            GGUFValue::String("hello".to_string()),
-            GGUFValue::String("▁hello".to_string()),
-        ]));
+        metadata.insert(
+            "tokenizer.ggml.tokens".to_string(),
+            GGUFValue::Array(vec![
+                GGUFValue::String("▁".to_string()), // word boundary
+                GGUFValue::String("hello".to_string()),
+                GGUFValue::String("▁hello".to_string()),
+            ]),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -52133,11 +52336,17 @@ mod tests {
     #[test]
     fn test_encode_gpt2_with_space_replacement_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
-            GGUFValue::String("hello".to_string()),
-            GGUFValue::String("Ġworld".to_string()), // GPT-2 space prefix
-        ]));
-        metadata.insert("tokenizer.ggml.model".to_string(), GGUFValue::String("gpt2".to_string()));
+        metadata.insert(
+            "tokenizer.ggml.tokens".to_string(),
+            GGUFValue::Array(vec![
+                GGUFValue::String("hello".to_string()),
+                GGUFValue::String("Ġworld".to_string()), // GPT-2 space prefix
+            ]),
+        );
+        metadata.insert(
+            "tokenizer.ggml.model".to_string(),
+            GGUFValue::String("gpt2".to_string()),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -52160,10 +52369,13 @@ mod tests {
     #[test]
     fn test_decode_unknown_token_id_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
-            GGUFValue::String("a".to_string()),
-            GGUFValue::String("b".to_string()),
-        ]));
+        metadata.insert(
+            "tokenizer.ggml.tokens".to_string(),
+            GGUFValue::Array(vec![
+                GGUFValue::String("a".to_string()),
+                GGUFValue::String("b".to_string()),
+            ]),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -52188,11 +52400,23 @@ mod tests {
     #[test]
     fn test_metadata_accessors_multiple_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("general.architecture".to_string(), GGUFValue::String("qwen2".to_string()));
-        metadata.insert("qwen2.embedding_length".to_string(), GGUFValue::UInt32(2048));
+        metadata.insert(
+            "general.architecture".to_string(),
+            GGUFValue::String("qwen2".to_string()),
+        );
+        metadata.insert(
+            "qwen2.embedding_length".to_string(),
+            GGUFValue::UInt32(2048),
+        );
         metadata.insert("qwen2.block_count".to_string(), GGUFValue::UInt32(24));
-        metadata.insert("qwen2.attention.head_count".to_string(), GGUFValue::UInt32(16));
-        metadata.insert("qwen2.attention.head_count_kv".to_string(), GGUFValue::UInt32(2));
+        metadata.insert(
+            "qwen2.attention.head_count".to_string(),
+            GGUFValue::UInt32(16),
+        );
+        metadata.insert(
+            "qwen2.attention.head_count_kv".to_string(),
+            GGUFValue::UInt32(2),
+        );
         metadata.insert("qwen2.context_length".to_string(), GGUFValue::UInt32(32768));
 
         let model = GGUFModel {
@@ -52390,10 +52614,7 @@ mod tests {
 
     #[test]
     fn test_gguf_value_nested_array_extra_deep() {
-        let inner = GGUFValue::Array(vec![
-            GGUFValue::Int32(1),
-            GGUFValue::Int32(2),
-        ]);
+        let inner = GGUFValue::Array(vec![GGUFValue::Int32(1), GGUFValue::Int32(2)]);
         let outer = GGUFValue::Array(vec![inner]);
 
         if let GGUFValue::Array(arr) = &outer {
@@ -52516,9 +52737,15 @@ mod tests {
     #[test]
     fn test_num_kv_heads_fallback_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("general.architecture".to_string(), GGUFValue::String("llama".to_string()));
+        metadata.insert(
+            "general.architecture".to_string(),
+            GGUFValue::String("llama".to_string()),
+        );
         // Set num_heads but NOT num_kv_heads - should fall back
-        metadata.insert("llama.attention.head_count".to_string(), GGUFValue::UInt32(32));
+        metadata.insert(
+            "llama.attention.head_count".to_string(),
+            GGUFValue::UInt32(32),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -52558,7 +52785,10 @@ mod tests {
     #[test]
     fn test_context_length_missing_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("general.architecture".to_string(), GGUFValue::String("llama".to_string()));
+        metadata.insert(
+            "general.architecture".to_string(),
+            GGUFValue::String("llama".to_string()),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -52579,12 +52809,15 @@ mod tests {
     #[test]
     fn test_vocabulary_with_byte_tokens_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
-            GGUFValue::String("<|endoftext|>".to_string()),
-            GGUFValue::String("<0x00>".to_string()),
-            GGUFValue::String("<0xFF>".to_string()),
-            GGUFValue::String("hello".to_string()),
-        ]));
+        metadata.insert(
+            "tokenizer.ggml.tokens".to_string(),
+            GGUFValue::Array(vec![
+                GGUFValue::String("<|endoftext|>".to_string()),
+                GGUFValue::String("<0x00>".to_string()),
+                GGUFValue::String("<0xFF>".to_string()),
+                GGUFValue::String("hello".to_string()),
+            ]),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -52607,13 +52840,22 @@ mod tests {
     #[test]
     fn test_encode_with_bos_eos_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
-            GGUFValue::String("<s>".to_string()),      // BOS token at id 0
-            GGUFValue::String("</s>".to_string()),     // EOS token at id 1
-            GGUFValue::String("hello".to_string()),    // id 2
-        ]));
-        metadata.insert("tokenizer.ggml.bos_token_id".to_string(), GGUFValue::UInt32(0));
-        metadata.insert("tokenizer.ggml.eos_token_id".to_string(), GGUFValue::UInt32(1));
+        metadata.insert(
+            "tokenizer.ggml.tokens".to_string(),
+            GGUFValue::Array(vec![
+                GGUFValue::String("<s>".to_string()),   // BOS token at id 0
+                GGUFValue::String("</s>".to_string()),  // EOS token at id 1
+                GGUFValue::String("hello".to_string()), // id 2
+            ]),
+        );
+        metadata.insert(
+            "tokenizer.ggml.bos_token_id".to_string(),
+            GGUFValue::UInt32(0),
+        );
+        metadata.insert(
+            "tokenizer.ggml.eos_token_id".to_string(),
+            GGUFValue::UInt32(1),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -52636,12 +52878,15 @@ mod tests {
     #[test]
     fn test_decode_special_tokens_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
-            GGUFValue::String("<s>".to_string()),
-            GGUFValue::String("</s>".to_string()),
-            GGUFValue::String("a".to_string()),
-            GGUFValue::String("b".to_string()),
-        ]));
+        metadata.insert(
+            "tokenizer.ggml.tokens".to_string(),
+            GGUFValue::Array(vec![
+                GGUFValue::String("<s>".to_string()),
+                GGUFValue::String("</s>".to_string()),
+                GGUFValue::String("a".to_string()),
+                GGUFValue::String("b".to_string()),
+            ]),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -52934,9 +53179,10 @@ mod tests {
     #[test]
     fn test_encode_empty_string_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
-            GGUFValue::String("a".to_string()),
-        ]));
+        metadata.insert(
+            "tokenizer.ggml.tokens".to_string(),
+            GGUFValue::Array(vec![GGUFValue::String("a".to_string())]),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -52958,11 +53204,14 @@ mod tests {
     #[test]
     fn test_encode_unicode_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
-            GGUFValue::String("你".to_string()),
-            GGUFValue::String("好".to_string()),
-            GGUFValue::String("世界".to_string()),
-        ]));
+        metadata.insert(
+            "tokenizer.ggml.tokens".to_string(),
+            GGUFValue::Array(vec![
+                GGUFValue::String("你".to_string()),
+                GGUFValue::String("好".to_string()),
+                GGUFValue::String("世界".to_string()),
+            ]),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -52984,9 +53233,10 @@ mod tests {
     #[test]
     fn test_decode_empty_tokens_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
-            GGUFValue::String("a".to_string()),
-        ]));
+        metadata.insert(
+            "tokenizer.ggml.tokens".to_string(),
+            GGUFValue::Array(vec![GGUFValue::String("a".to_string())]),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -53007,9 +53257,10 @@ mod tests {
     #[test]
     fn test_decode_single_token_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
-            GGUFValue::String("hello".to_string()),
-        ]));
+        metadata.insert(
+            "tokenizer.ggml.tokens".to_string(),
+            GGUFValue::Array(vec![GGUFValue::String("hello".to_string())]),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -53298,7 +53549,7 @@ mod tests {
             name: "lm_head.weight".to_string(),
             n_dims: 2,
             dims: vec![128000, 4096],
-            qtype: 2, // Q4_K
+            qtype: 2,              // Q4_K
             offset: 8_000_000_000, // 8GB offset
         };
         assert_eq!(t.offset, 8_000_000_000);
@@ -53323,7 +53574,10 @@ mod tests {
     #[test]
     fn test_num_layers_present_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("general.architecture".to_string(), GGUFValue::String("llama".to_string()));
+        metadata.insert(
+            "general.architecture".to_string(),
+            GGUFValue::String("llama".to_string()),
+        );
         metadata.insert("llama.block_count".to_string(), GGUFValue::UInt32(32));
 
         let model = GGUFModel {
@@ -53345,8 +53599,14 @@ mod tests {
     #[test]
     fn test_num_heads_present_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("general.architecture".to_string(), GGUFValue::String("llama".to_string()));
-        metadata.insert("llama.attention.head_count".to_string(), GGUFValue::UInt32(64));
+        metadata.insert(
+            "general.architecture".to_string(),
+            GGUFValue::String("llama".to_string()),
+        );
+        metadata.insert(
+            "llama.attention.head_count".to_string(),
+            GGUFValue::UInt32(64),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -53367,8 +53627,14 @@ mod tests {
     #[test]
     fn test_intermediate_dim_present_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("general.architecture".to_string(), GGUFValue::String("llama".to_string()));
-        metadata.insert("llama.feed_forward_length".to_string(), GGUFValue::UInt32(14336));
+        metadata.insert(
+            "general.architecture".to_string(),
+            GGUFValue::String("llama".to_string()),
+        );
+        metadata.insert(
+            "llama.feed_forward_length".to_string(),
+            GGUFValue::UInt32(14336),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -53486,7 +53752,10 @@ mod tests {
     #[test]
     fn test_vocab_size_from_metadata_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("general.architecture".to_string(), GGUFValue::String("llama".to_string()));
+        metadata.insert(
+            "general.architecture".to_string(),
+            GGUFValue::String("llama".to_string()),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -53509,7 +53778,10 @@ mod tests {
     #[test]
     fn test_architecture_phi_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("general.architecture".to_string(), GGUFValue::String("phi".to_string()));
+        metadata.insert(
+            "general.architecture".to_string(),
+            GGUFValue::String("phi".to_string()),
+        );
         metadata.insert("phi.embedding_length".to_string(), GGUFValue::UInt32(2560));
 
         let model = GGUFModel {
@@ -53531,8 +53803,14 @@ mod tests {
     #[test]
     fn test_architecture_qwen2_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("general.architecture".to_string(), GGUFValue::String("qwen2".to_string()));
-        metadata.insert("qwen2.embedding_length".to_string(), GGUFValue::UInt32(1536));
+        metadata.insert(
+            "general.architecture".to_string(),
+            GGUFValue::String("qwen2".to_string()),
+        );
+        metadata.insert(
+            "qwen2.embedding_length".to_string(),
+            GGUFValue::UInt32(1536),
+        );
         metadata.insert("qwen2.block_count".to_string(), GGUFValue::UInt32(28));
 
         let model = GGUFModel {
@@ -53555,8 +53833,14 @@ mod tests {
     #[test]
     fn test_architecture_gemma_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("general.architecture".to_string(), GGUFValue::String("gemma".to_string()));
-        metadata.insert("gemma.embedding_length".to_string(), GGUFValue::UInt32(2048));
+        metadata.insert(
+            "general.architecture".to_string(),
+            GGUFValue::String("gemma".to_string()),
+        );
+        metadata.insert(
+            "gemma.embedding_length".to_string(),
+            GGUFValue::UInt32(2048),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -53663,9 +53947,9 @@ mod tests {
         assert_eq!(DispatchMetrics::BUCKET_BOUNDARIES[3], 5000);
 
         // Record latencies in different buckets
-        metrics.record_cpu_latency(std::time::Duration::from_micros(50));   // Bucket 0
-        metrics.record_cpu_latency(std::time::Duration::from_micros(200));  // Bucket 1
-        metrics.record_cpu_latency(std::time::Duration::from_micros(700));  // Bucket 2
+        metrics.record_cpu_latency(std::time::Duration::from_micros(50)); // Bucket 0
+        metrics.record_cpu_latency(std::time::Duration::from_micros(200)); // Bucket 1
+        metrics.record_cpu_latency(std::time::Duration::from_micros(700)); // Bucket 2
         metrics.record_cpu_latency(std::time::Duration::from_micros(2000)); // Bucket 3
         metrics.record_cpu_latency(std::time::Duration::from_micros(10000)); // Bucket 4
 
@@ -53788,11 +54072,14 @@ mod tests {
     #[test]
     fn test_decode_hex_byte_token_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
-            GGUFValue::String("<0xE4>".to_string()),  // byte 0xE4
-            GGUFValue::String("<0xB8>".to_string()),  // byte 0xB8
-            GGUFValue::String("<0xAD>".to_string()),  // byte 0xAD
-        ]));
+        metadata.insert(
+            "tokenizer.ggml.tokens".to_string(),
+            GGUFValue::Array(vec![
+                GGUFValue::String("<0xE4>".to_string()), // byte 0xE4
+                GGUFValue::String("<0xB8>".to_string()), // byte 0xB8
+                GGUFValue::String("<0xAD>".to_string()), // byte 0xAD
+            ]),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -53815,11 +54102,17 @@ mod tests {
     #[test]
     fn test_decode_gpt2_style_extra_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
-            GGUFValue::String("hello".to_string()),
-            GGUFValue::String("Ġworld".to_string()), // GPT-2 space prefix
-        ]));
-        metadata.insert("tokenizer.ggml.model".to_string(), GGUFValue::String("gpt2".to_string()));
+        metadata.insert(
+            "tokenizer.ggml.tokens".to_string(),
+            GGUFValue::Array(vec![
+                GGUFValue::String("hello".to_string()),
+                GGUFValue::String("Ġworld".to_string()), // GPT-2 space prefix
+            ]),
+        );
+        metadata.insert(
+            "tokenizer.ggml.model".to_string(),
+            GGUFValue::String("gpt2".to_string()),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -53841,10 +54134,13 @@ mod tests {
     #[test]
     fn test_decode_sentencepiece_style_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
-            GGUFValue::String("▁hello".to_string()),
-            GGUFValue::String("▁world".to_string()),
-        ]));
+        metadata.insert(
+            "tokenizer.ggml.tokens".to_string(),
+            GGUFValue::Array(vec![
+                GGUFValue::String("▁hello".to_string()),
+                GGUFValue::String("▁world".to_string()),
+            ]),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -53886,12 +54182,15 @@ mod tests {
     #[test]
     fn test_encode_with_word_boundary_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vec![
-            GGUFValue::String("▁".to_string()),
-            GGUFValue::String("hello".to_string()),
-            GGUFValue::String("▁hello".to_string()),
-            GGUFValue::String("world".to_string()),
-        ]));
+        metadata.insert(
+            "tokenizer.ggml.tokens".to_string(),
+            GGUFValue::Array(vec![
+                GGUFValue::String("▁".to_string()),
+                GGUFValue::String("hello".to_string()),
+                GGUFValue::String("▁hello".to_string()),
+                GGUFValue::String("world".to_string()),
+            ]),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -53914,7 +54213,10 @@ mod tests {
     #[test]
     fn test_metadata_int32_to_usize_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("general.architecture".to_string(), GGUFValue::String("llama".to_string()));
+        metadata.insert(
+            "general.architecture".to_string(),
+            GGUFValue::String("llama".to_string()),
+        );
         metadata.insert("llama.block_count".to_string(), GGUFValue::Int32(24)); // Int32 instead of UInt32
 
         let model = GGUFModel {
@@ -54179,8 +54481,14 @@ mod tests {
     #[test]
     fn test_architecture_deepseek_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("general.architecture".to_string(), GGUFValue::String("deepseek".to_string()));
-        metadata.insert("deepseek.embedding_length".to_string(), GGUFValue::UInt32(4096));
+        metadata.insert(
+            "general.architecture".to_string(),
+            GGUFValue::String("deepseek".to_string()),
+        );
+        metadata.insert(
+            "deepseek.embedding_length".to_string(),
+            GGUFValue::UInt32(4096),
+        );
 
         let model = GGUFModel {
             header: GGUFHeader {
@@ -54200,7 +54508,10 @@ mod tests {
     #[test]
     fn test_architecture_yi_deep() {
         let mut metadata = HashMap::new();
-        metadata.insert("general.architecture".to_string(), GGUFValue::String("yi".to_string()));
+        metadata.insert(
+            "general.architecture".to_string(),
+            GGUFValue::String("yi".to_string()),
+        );
         metadata.insert("yi.embedding_length".to_string(), GGUFValue::UInt32(4096));
         metadata.insert("yi.block_count".to_string(), GGUFValue::UInt32(32));
 

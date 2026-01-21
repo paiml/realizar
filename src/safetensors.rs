@@ -1158,7 +1158,7 @@ mod tests {
 
         let info = model.get_tensor_info("weight");
         assert!(info.is_some());
-        let info = info.unwrap();
+        let info = info.expect("operation failed");
         assert_eq!(info.shape, vec![2, 3]);
         assert_eq!(info.dtype, SafetensorsDtype::F32);
 

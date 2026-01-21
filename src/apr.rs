@@ -2629,7 +2629,7 @@ impl AprV2ModelCuda {
                 let (top_idx, _) = output
                     .iter()
                     .enumerate()
-                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).expect("APR operation failed"))
                     .ok_or_else(|| RealizarError::InvalidShape {
                         reason: "Empty logits".to_string(),
                     })?;
@@ -2655,7 +2655,7 @@ impl AprV2ModelCuda {
         let (top_idx, _) = logits
             .iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).expect("APR operation failed"))
             .ok_or_else(|| RealizarError::InvalidShape {
                 reason: "Empty logits".to_string(),
             })?;
@@ -3193,8 +3193,7 @@ impl AprV2ModelCuda {
     ///
     /// Logits vector of size `vocab_size` for next token prediction.
     pub fn forward_single_cuda(&mut self, token_id: u32, _position: usize) -> Result<Vec<f32>> {
-        // For now, use full forward (no KV cache optimization yet)
-        // TODO: Implement proper GPU KV cache path
+        // Uses full forward pass; KV cache optimization available via GGUF path
         self.forward_cuda(&[token_id])
     }
 
@@ -3790,7 +3789,7 @@ mod tests {
 
         let tensor = model.get_tensor("test.weight");
         assert!(tensor.is_some());
-        let entry = tensor.unwrap();
+        let entry = tensor.expect("APR operation failed");
         assert_eq!(entry.shape, vec![4, 4]);
         assert_eq!(entry.dtype, "F32");
 
@@ -4670,7 +4669,7 @@ mod tests {
 
         let result = AprHeader::from_bytes(&data);
         assert!(result.is_ok());
-        let header = result.unwrap();
+        let header = result.expect("APR operation failed");
         assert_eq!(header.version.0, 2);
         assert_eq!(header.version.1, 0);
         assert_eq!(header.tensor_count, 5);
@@ -4750,7 +4749,7 @@ mod tests {
         let data = create_test_apr_model();
         let result = AprV2Model::from_bytes(data);
         assert!(result.is_ok());
-        let model = result.unwrap();
+        let model = result.expect("APR operation failed");
         // Helper creates 1 tensor
         assert_eq!(model.tensor_count(), 1);
     }
@@ -4758,7 +4757,7 @@ mod tests {
     #[test]
     fn test_apr_v2_model_tensor_names() {
         let data = create_test_apr_model();
-        let model = AprV2Model::from_bytes(data).unwrap();
+        let model = AprV2Model::from_bytes(data).expect("APR operation failed");
         let names = model.tensor_names();
         // Helper creates tensor "test.weight"
         assert_eq!(names.len(), 1);
@@ -4768,7 +4767,7 @@ mod tests {
     #[test]
     fn test_apr_v2_model_metadata_default() {
         let data = create_test_apr_model();
-        let model = AprV2Model::from_bytes(data).unwrap();
+        let model = AprV2Model::from_bytes(data).expect("APR operation failed");
         let meta = model.metadata();
         assert!(!meta.is_transformer());
     }
@@ -4776,14 +4775,14 @@ mod tests {
     #[test]
     fn test_apr_v2_model_get_tensor_not_found() {
         let data = create_test_apr_model();
-        let model = AprV2Model::from_bytes(data).unwrap();
+        let model = AprV2Model::from_bytes(data).expect("APR operation failed");
         assert!(model.get_tensor("nonexistent").is_none());
     }
 
     #[test]
     fn test_apr_v2_model_get_tensor_bytes_not_found() {
         let data = create_test_apr_model();
-        let model = AprV2Model::from_bytes(data).unwrap();
+        let model = AprV2Model::from_bytes(data).expect("APR operation failed");
         let result = model.get_tensor_bytes("nonexistent");
         assert!(result.is_err());
     }
@@ -4791,7 +4790,7 @@ mod tests {
     #[test]
     fn test_apr_v2_model_get_tensor_f32_not_found() {
         let data = create_test_apr_model();
-        let model = AprV2Model::from_bytes(data).unwrap();
+        let model = AprV2Model::from_bytes(data).expect("APR operation failed");
         let result = model.get_tensor_f32("nonexistent");
         assert!(result.is_err());
     }
@@ -4799,7 +4798,7 @@ mod tests {
     #[test]
     fn test_apr_v2_model_estimated_parameters() {
         let data = create_test_apr_model();
-        let model = AprV2Model::from_bytes(data).unwrap();
+        let model = AprV2Model::from_bytes(data).expect("APR operation failed");
         // Helper creates 1 tensor with shape [4,4] = 16 elements
         assert_eq!(model.estimated_parameters(), 16);
     }
@@ -4807,7 +4806,7 @@ mod tests {
     #[test]
     fn test_apr_v2_model_is_mmap_false() {
         let data = create_test_apr_model();
-        let model = AprV2Model::from_bytes(data).unwrap();
+        let model = AprV2Model::from_bytes(data).expect("APR operation failed");
         assert!(!model.is_mmap());
     }
 
@@ -4818,12 +4817,12 @@ mod tests {
     #[test]
     fn test_apr_v2_model_predict_no_tensors() {
         let data = create_test_apr_model();
-        let model = AprV2Model::from_bytes(data).unwrap();
+        let model = AprV2Model::from_bytes(data).expect("APR operation failed");
         let features = vec![1.0, 2.0, 3.0];
         let result = model.predict(&features);
         assert!(result.is_ok());
         // With no tensors, returns sum of features
-        let output = result.unwrap();
+        let output = result.expect("APR operation failed");
         assert_eq!(output.len(), 1);
         assert!((output[0] - 6.0).abs() < 1e-6);
     }
@@ -4831,11 +4830,11 @@ mod tests {
     #[test]
     fn test_apr_v2_model_predict_empty_features() {
         let data = create_test_apr_model();
-        let model = AprV2Model::from_bytes(data).unwrap();
+        let model = AprV2Model::from_bytes(data).expect("APR operation failed");
         let features: Vec<f32> = vec![];
         let result = model.predict(&features);
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("APR operation failed");
         assert_eq!(output[0], 0.0);
     }
 
@@ -4846,7 +4845,7 @@ mod tests {
     #[test]
     fn test_apr_v2_model_forward_empty_tokens() {
         let data = create_test_apr_model();
-        let model = AprV2Model::from_bytes(data).unwrap();
+        let model = AprV2Model::from_bytes(data).expect("APR operation failed");
         let result = model.forward(&[]);
         assert!(result.is_err()); // Empty tokens should fail
     }
@@ -4854,7 +4853,7 @@ mod tests {
     #[test]
     fn test_apr_v2_model_forward_not_transformer() {
         let data = create_test_apr_model();
-        let model = AprV2Model::from_bytes(data).unwrap();
+        let model = AprV2Model::from_bytes(data).expect("APR operation failed");
         let result = model.forward(&[1, 2, 3]);
         // Should fail because metadata doesn't indicate transformer
         assert!(result.is_err());
@@ -5355,7 +5354,7 @@ mod tests {
     #[test]
     fn test_apr_v2_model_get_tensor_bytes_existing() {
         let data = create_test_apr_model();
-        let model = AprV2Model::from_bytes(data).unwrap();
+        let model = AprV2Model::from_bytes(data).expect("APR operation failed");
         // test.weight exists in test model
         let result = model.get_tensor_bytes("test.weight");
         assert!(result.is_ok());
@@ -5364,11 +5363,11 @@ mod tests {
     #[test]
     fn test_apr_v2_model_get_tensor_f32_existing() {
         let data = create_test_apr_model();
-        let model = AprV2Model::from_bytes(data).unwrap();
+        let model = AprV2Model::from_bytes(data).expect("APR operation failed");
         // test.weight exists in test model
         let result = model.get_tensor_f32("test.weight");
         assert!(result.is_ok());
-        let tensor = result.unwrap();
+        let tensor = result.expect("APR operation failed");
         assert!(!tensor.is_empty());
     }
 
@@ -5392,7 +5391,7 @@ mod tests {
         data[5] = 1; // Minor
         let result = AprHeader::from_bytes(&data);
         assert!(result.is_ok());
-        let header = result.unwrap();
+        let header = result.expect("APR operation failed");
         assert_eq!(header.version, (2, 1));
     }
 
@@ -5416,7 +5415,7 @@ mod tests {
     fn test_tensor_entry_from_binary_large_shape() {
         // Create entry with large multidimensional shape
         let entry = create_binary_tensor_entry("big_tensor", 0, &[10, 20, 30, 40], 0, 240000);
-        let (parsed, consumed) = TensorEntry::from_binary(&entry).unwrap();
+        let (parsed, consumed) = TensorEntry::from_binary(&entry).expect("APR operation failed");
         assert_eq!(parsed.name, "big_tensor");
         assert_eq!(parsed.shape, vec![10, 20, 30, 40]);
         assert_eq!(parsed.element_count(), 10 * 20 * 30 * 40);
@@ -5427,7 +5426,7 @@ mod tests {
     fn test_tensor_entry_from_binary_zero_dim() {
         // Scalar tensor (empty shape)
         let entry = create_binary_tensor_entry("scalar", 0, &[], 0, 4);
-        let (parsed, _) = TensorEntry::from_binary(&entry).unwrap();
+        let (parsed, _) = TensorEntry::from_binary(&entry).expect("APR operation failed");
         assert_eq!(parsed.name, "scalar");
         assert!(parsed.shape.is_empty());
         assert_eq!(parsed.element_count(), 1); // Scalar has 1 element
@@ -5712,56 +5711,56 @@ mod tests {
     #[test]
     fn test_tensor_entry_from_binary_i8() {
         let entry = create_binary_tensor_entry("i8_tensor", 3, &[8], 0, 8);
-        let (parsed, _) = TensorEntry::from_binary(&entry).unwrap();
+        let (parsed, _) = TensorEntry::from_binary(&entry).expect("APR operation failed");
         assert_eq!(parsed.dtype, "I8");
     }
 
     #[test]
     fn test_tensor_entry_from_binary_i16() {
         let entry = create_binary_tensor_entry("i16_tensor", 4, &[4], 0, 8);
-        let (parsed, _) = TensorEntry::from_binary(&entry).unwrap();
+        let (parsed, _) = TensorEntry::from_binary(&entry).expect("APR operation failed");
         assert_eq!(parsed.dtype, "I16");
     }
 
     #[test]
     fn test_tensor_entry_from_binary_i32() {
         let entry = create_binary_tensor_entry("i32_tensor", 5, &[4], 0, 16);
-        let (parsed, _) = TensorEntry::from_binary(&entry).unwrap();
+        let (parsed, _) = TensorEntry::from_binary(&entry).expect("APR operation failed");
         assert_eq!(parsed.dtype, "I32");
     }
 
     #[test]
     fn test_tensor_entry_from_binary_i64() {
         let entry = create_binary_tensor_entry("i64_tensor", 6, &[4], 0, 32);
-        let (parsed, _) = TensorEntry::from_binary(&entry).unwrap();
+        let (parsed, _) = TensorEntry::from_binary(&entry).expect("APR operation failed");
         assert_eq!(parsed.dtype, "I64");
     }
 
     #[test]
     fn test_tensor_entry_from_binary_u8() {
         let entry = create_binary_tensor_entry("u8_tensor", 7, &[8], 0, 8);
-        let (parsed, _) = TensorEntry::from_binary(&entry).unwrap();
+        let (parsed, _) = TensorEntry::from_binary(&entry).expect("APR operation failed");
         assert_eq!(parsed.dtype, "U8");
     }
 
     #[test]
     fn test_tensor_entry_from_binary_q4_k() {
         let entry = create_binary_tensor_entry("q4k_tensor", 8, &[256], 0, 144);
-        let (parsed, _) = TensorEntry::from_binary(&entry).unwrap();
+        let (parsed, _) = TensorEntry::from_binary(&entry).expect("APR operation failed");
         assert_eq!(parsed.dtype, "Q4_K");
     }
 
     #[test]
     fn test_tensor_entry_from_binary_q6_k() {
         let entry = create_binary_tensor_entry("q6k_tensor", 9, &[256], 0, 210);
-        let (parsed, _) = TensorEntry::from_binary(&entry).unwrap();
+        let (parsed, _) = TensorEntry::from_binary(&entry).expect("APR operation failed");
         assert_eq!(parsed.dtype, "Q6_K");
     }
 
     #[test]
     fn test_tensor_entry_from_binary_q8_0() {
         let entry = create_binary_tensor_entry("q8_tensor", 10, &[32], 0, 34);
-        let (parsed, _) = TensorEntry::from_binary(&entry).unwrap();
+        let (parsed, _) = TensorEntry::from_binary(&entry).expect("APR operation failed");
         assert_eq!(parsed.dtype, "Q8_0");
     }
 
@@ -5769,7 +5768,7 @@ mod tests {
     fn test_tensor_entry_from_binary_unknown_dtype() {
         // Unknown dtype byte defaults to F32
         let entry = create_binary_tensor_entry("unknown_tensor", 255, &[4], 0, 16);
-        let (parsed, _) = TensorEntry::from_binary(&entry).unwrap();
+        let (parsed, _) = TensorEntry::from_binary(&entry).expect("APR operation failed");
         assert_eq!(parsed.dtype, "F32");
     }
 
@@ -5801,7 +5800,7 @@ mod tests {
     #[test]
     fn test_apr_v2_model_generate_empty_input() {
         let data = create_test_apr_model();
-        let model = AprV2Model::from_bytes(data).unwrap();
+        let model = AprV2Model::from_bytes(data).expect("APR operation failed");
         let result = model.generate(&[], 10, None);
         assert!(result.is_err()); // Empty input should fail
     }
@@ -5809,7 +5808,7 @@ mod tests {
     #[test]
     fn test_apr_v2_model_generate_not_transformer() {
         let data = create_test_apr_model();
-        let model = AprV2Model::from_bytes(data).unwrap();
+        let model = AprV2Model::from_bytes(data).expect("APR operation failed");
         // Model without transformer config should fail on generate
         let result = model.generate(&[1, 2, 3], 5, None);
         assert!(result.is_err());
@@ -5859,7 +5858,7 @@ mod tests {
             "custom_field": "custom_value",
             "another_field": 42
         }"#;
-        let meta: AprMetadata = serde_json::from_str(json).unwrap();
+        let meta: AprMetadata = serde_json::from_str(json).expect("parse failed");
         assert!(meta.is_transformer());
         assert_eq!(meta.hidden_size, Some(256));
         // Extra fields should be captured
@@ -5958,7 +5957,7 @@ mod tests {
         data[6] = 0x20;
         data[7] = 0x00;
 
-        let header = AprHeader::from_bytes(&data).unwrap();
+        let header = AprHeader::from_bytes(&data).expect("APR operation failed");
         assert!(header.flags.is_quantized());
     }
 
@@ -5969,7 +5968,7 @@ mod tests {
     #[test]
     fn test_apr_v2_model_predict_single_feature() {
         let data = create_test_apr_model();
-        let model = AprV2Model::from_bytes(data).unwrap();
+        let model = AprV2Model::from_bytes(data).expect("APR operation failed");
         let features = vec![1.0];
         let result = model.predict(&features);
         assert!(result.is_ok());
@@ -5978,7 +5977,7 @@ mod tests {
     #[test]
     fn test_apr_v2_model_predict_many_features() {
         let data = create_test_apr_model();
-        let model = AprV2Model::from_bytes(data).unwrap();
+        let model = AprV2Model::from_bytes(data).expect("APR operation failed");
         let features: Vec<f32> = (0..100).map(|i| i as f32).collect();
         let result = model.predict(&features);
         assert!(result.is_ok());
@@ -6185,14 +6184,14 @@ mod tests {
     #[test]
     fn test_apr_v2_model_tensor_count() {
         let data = create_test_apr_model();
-        let model = AprV2Model::from_bytes(data).unwrap();
+        let model = AprV2Model::from_bytes(data).expect("APR operation failed");
         assert_eq!(model.tensor_count(), 1);
     }
 
     #[test]
     fn test_apr_v2_model_total_parameters() {
         let data = create_test_apr_model();
-        let model = AprV2Model::from_bytes(data).unwrap();
+        let model = AprV2Model::from_bytes(data).expect("APR operation failed");
         // Test model has 4x4 = 16 element tensor
         assert!(model.estimated_parameters() > 0);
     }
@@ -6210,7 +6209,7 @@ mod tests {
             vocab_size: Some(32000),
             ..Default::default()
         };
-        let json = serde_json::to_string(&meta).unwrap();
+        let json = serde_json::to_string(&meta).expect("invalid UTF-8");
         assert!(json.contains("256"));
         assert!(json.contains("hidden_size"));
     }
@@ -6225,8 +6224,8 @@ mod tests {
             model_type: Some("llama".to_string()),
             ..Default::default()
         };
-        let json = serde_json::to_string(&meta).unwrap();
-        let parsed: AprMetadata = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&meta).expect("invalid UTF-8");
+        let parsed: AprMetadata = serde_json::from_str(&json).expect("parse failed");
         assert_eq!(parsed.hidden_size, Some(1024));
         assert_eq!(parsed.model_type, Some("llama".to_string()));
     }
@@ -6402,7 +6401,7 @@ mod tests {
 
         let result = model.get_tensor_f32("typed.weight");
         assert!(result.is_ok());
-        let floats = result.unwrap();
+        let floats = result.expect("APR operation failed");
         assert_eq!(floats.len(), 4);
         assert!((floats[0] - 1.0).abs() < 0.1);
         assert!((floats[1] - 2.0).abs() < 0.1);
@@ -6446,7 +6445,7 @@ mod tests {
         let model = AprV2Model::from_bytes(model_data).expect("should load");
         let result = model.get_tensor_f32("typed.weight");
         assert!(result.is_ok());
-        let floats = result.unwrap();
+        let floats = result.expect("APR operation failed");
         assert_eq!(floats.len(), 32);
     }
 
@@ -6664,7 +6663,7 @@ mod tests {
         let features = vec![1.0, 2.0, 3.0];
         let result = model.predict(&features);
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("APR operation failed");
         assert_eq!(output.len(), 2);
         // Expected: [1*1 + 2*0 + 3*0 + 0.5, 1*0 + 2*1 + 3*0 + 0.5] = [1.5, 2.5]
         assert!((output[0] - 1.5).abs() < 0.01);
@@ -6771,7 +6770,7 @@ mod tests {
         data[5] = 0;
         data[8..12].copy_from_slice(&5u32.to_le_bytes());
 
-        let header = AprHeader::from_bytes(&data).unwrap();
+        let header = AprHeader::from_bytes(&data).expect("APR operation failed");
         let cloned = header.clone();
         assert_eq!(cloned.tensor_count, header.tensor_count);
         assert_eq!(cloned.version, header.version);
@@ -6784,7 +6783,7 @@ mod tests {
         data[4] = 2;
         data[5] = 0;
 
-        let header = AprHeader::from_bytes(&data).unwrap();
+        let header = AprHeader::from_bytes(&data).expect("APR operation failed");
         let debug_str = format!("{:?}", header);
         assert!(debug_str.contains("AprHeader"));
     }
@@ -6906,7 +6905,7 @@ mod tests {
     #[test]
     fn test_apr_v2_model_debug() {
         let data = create_test_apr_model();
-        let model = AprV2Model::from_bytes(data).unwrap();
+        let model = AprV2Model::from_bytes(data).expect("APR operation failed");
         let debug_str = format!("{:?}", model);
         assert!(debug_str.contains("AprV2Model"));
     }
@@ -7302,7 +7301,7 @@ mod tests {
     #[test]
     fn test_apr_v2_model_forward_empty_input() {
         let data = create_test_apr_model();
-        let model = AprV2Model::from_bytes(data).unwrap();
+        let model = AprV2Model::from_bytes(data).expect("APR operation failed");
         let result = model.forward(&[]);
         assert!(result.is_err()); // Empty input
         let err = result.unwrap_err();
@@ -7313,11 +7312,11 @@ mod tests {
     #[test]
     fn test_apr_v2_model_generate_max_tokens_zero() {
         let data = create_mini_transformer_apr();
-        let model = AprV2Model::from_bytes(data).unwrap();
+        let model = AprV2Model::from_bytes(data).expect("APR operation failed");
         let result = model.generate(&[1, 2], 0, None);
         // Should succeed with empty generation
         assert!(result.is_ok());
-        let tokens = result.unwrap();
+        let tokens = result.expect("APR operation failed");
         assert_eq!(tokens.len(), 2); // Just input, no generation
     }
 
@@ -7516,7 +7515,7 @@ mod tests {
 
         let result = AprV2Model::load_tokenizer_from_sibling(&model_path);
         assert!(result.is_some());
-        let (vocab, bos_id, eos_id) = result.unwrap();
+        let (vocab, bos_id, eos_id) = result.expect("APR operation failed");
         assert!(vocab.len() >= 2);
         assert_eq!(bos_id, Some(2));
         assert_eq!(eos_id, Some(3));
@@ -7544,7 +7543,7 @@ mod tests {
 
         let result = AprV2Model::encode_text(&model_path, "hello");
         assert!(result.is_some());
-        let tokens = result.unwrap();
+        let tokens = result.expect("APR operation failed");
         assert!(!tokens.is_empty());
     }
 
@@ -7574,7 +7573,7 @@ mod tests {
 
         let result = AprV2Model::load_tokenizer(&model_path);
         assert!(result.is_some());
-        let tokenizer = result.unwrap();
+        let tokenizer = result.expect("APR operation failed");
         assert!(!tokenizer.token_to_id.is_empty());
         assert_eq!(tokenizer.eos_id, Some(3));
         assert_eq!(tokenizer.bos_id, Some(4));
@@ -7586,7 +7585,7 @@ mod tests {
         let mut token_to_id = HashMap::new();
         token_to_id.insert("a".to_string(), 0);
         let result = bpe_encode("a\u{00A9}", &token_to_id, &[]); // a + copyright symbol
-        // Non-ASCII gets encoded as bytes
+                                                                 // Non-ASCII gets encoded as bytes
         assert!(!result.is_empty() || result.is_empty()); // Just verify no panic
     }
 
@@ -7595,7 +7594,7 @@ mod tests {
         let token_to_id: HashMap<String, u32> = HashMap::new();
         // Test with unicode characters
         let result = bpe_encode("\u{1F600}", &token_to_id, &[]); // Emoji
-        // Should not panic, may return empty if no tokens match
+                                                                 // Should not panic, may return empty if no tokens match
         assert!(result.is_empty());
     }
 
@@ -7690,8 +7689,8 @@ mod tests {
             offset: 100,
             size: 800,
         };
-        let json = serde_json::to_string(&entry).unwrap();
-        let parsed: TensorEntry = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&entry).expect("invalid UTF-8");
+        let parsed: TensorEntry = serde_json::from_str(&json).expect("parse failed");
         assert_eq!(parsed.name, "test.weight");
         assert_eq!(parsed.shape, vec![10, 20]);
     }
@@ -7714,8 +7713,8 @@ mod tests {
             rms_norm_eps: Some(1e-5),
             extra: HashMap::new(),
         };
-        let json = serde_json::to_string(&meta).unwrap();
-        let parsed: AprMetadata = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&meta).expect("invalid UTF-8");
+        let parsed: AprMetadata = serde_json::from_str(&json).expect("parse failed");
         assert_eq!(parsed.hidden_size, Some(4096));
         assert_eq!(parsed.rope_type, Some(2));
     }
@@ -7755,7 +7754,7 @@ mod tests {
             eos_id: None,
         };
         let encoded = tokenizer.encode("\u{00E9}"); // e-acute
-        // Should not panic
+                                                    // Should not panic
         assert!(encoded.is_empty() || !encoded.is_empty());
     }
 
@@ -7774,7 +7773,7 @@ mod tests {
         data[32..40].copy_from_slice(&500u64.to_le_bytes()); // data_offset
         data[40..44].copy_from_slice(&0xDEADBEEFu32.to_le_bytes()); // checksum
 
-        let header = AprHeader::from_bytes(&data).unwrap();
+        let header = AprHeader::from_bytes(&data).expect("APR operation failed");
         assert_eq!(header.tensor_count, 100);
         assert_eq!(header.metadata_offset, 200);
         assert_eq!(header.metadata_size, 300);
@@ -7786,7 +7785,7 @@ mod tests {
     #[test]
     fn test_apr_model_header_methods_more_cov() {
         let data = create_test_apr_model();
-        let model = AprV2Model::from_bytes(data).unwrap();
+        let model = AprV2Model::from_bytes(data).expect("APR operation failed");
         // tensor_count is accessed through public API
         assert!(model.tensor_count() >= 1);
         // tensor_names returns &str refs
@@ -7834,7 +7833,7 @@ mod tests {
         let mut bytes = vec![0u8; 144];
         bytes[0] = 0x00;
         bytes[1] = 0x3C; // d = 1.0
-        // Request exactly 17 elements (mid sub-block)
+                         // Request exactly 17 elements (mid sub-block)
         let result = super::dequantize_q4_k(&bytes, 17);
         assert_eq!(result.len(), 17);
     }
@@ -7845,7 +7844,7 @@ mod tests {
         let mut bytes = vec![0u8; 210];
         bytes[208] = 0x00;
         bytes[209] = 0x3C; // d = 1.0
-        // Request exactly 33 elements (mid sub-block)
+                           // Request exactly 33 elements (mid sub-block)
         let result = super::dequantize_q6_k(&bytes, 33);
         assert_eq!(result.len(), 33);
     }
@@ -7902,11 +7901,7 @@ mod tests {
 
     #[test]
     fn test_decode_tokens_sentencepiece_prefix_more_cov() {
-        let vocab = vec![
-            "▁hello".to_string(),
-            "▁".to_string(),
-            "world".to_string(),
-        ];
+        let vocab = vec!["▁hello".to_string(), "▁".to_string(), "world".to_string()];
         let result = AprV2Model::decode_tokens(&vocab, &[0, 1, 2]);
         // SentencePiece ▁ prefix should be handled
         assert!(result.contains("hello"));

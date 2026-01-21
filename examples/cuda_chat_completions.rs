@@ -23,7 +23,9 @@
 //! - GGUF model file (e.g., Qwen2.5-Coder-1.5B-Instruct-Q4_K_M)
 
 use realizar::cuda::CudaExecutor;
-use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel, OwnedQuantizedModelCuda, QuantizedGenerateConfig};
+use realizar::gguf::{
+    MappedGGUFModel, OwnedQuantizedModel, OwnedQuantizedModelCuda, QuantizedGenerateConfig,
+};
 use std::env;
 use std::time::Instant;
 
@@ -39,7 +41,9 @@ fn main() {
     let model_path = if args.len() > 1 {
         &args[1]
     } else {
-        println!("Usage: cargo run --features cuda --example cuda_chat_completions -- <model.gguf>");
+        println!(
+            "Usage: cargo run --features cuda --example cuda_chat_completions -- <model.gguf>"
+        );
         println!();
         println!("Example models:");
         println!("  - qwen2.5-coder-1.5b-instruct-q4_k_m.gguf (recommended)");
@@ -62,7 +66,7 @@ fn main() {
         Err(err) => {
             println!("❌ Failed to create CUDA executor: {}", err);
             return;
-        }
+        },
     };
 
     let device_name = executor.device_name().unwrap_or_default();
@@ -84,7 +88,7 @@ fn main() {
         Err(e) => {
             println!("❌ Failed to load model: {}", e);
             return;
-        }
+        },
     };
 
     let cpu_model = match OwnedQuantizedModel::from_mapped(&mapped) {
@@ -92,7 +96,7 @@ fn main() {
         Err(e) => {
             println!("❌ Failed to build model: {}", e);
             return;
-        }
+        },
     };
 
     println!("   Model loaded in {:.2?}", start.elapsed());
@@ -110,7 +114,7 @@ fn main() {
         Err(e) => {
             println!("❌ Failed to create CUDA model: {}", e);
             return;
-        }
+        },
     };
 
     // Pre-upload weights to GPU
@@ -119,7 +123,7 @@ fn main() {
         Err(e) => {
             println!("❌ Failed to preload weights: {}", e);
             return;
-        }
+        },
     };
 
     println!(
@@ -136,7 +140,7 @@ fn main() {
         None => {
             println!("❌ Failed to load vocabulary");
             return;
-        }
+        },
     };
     println!("   Vocab size: {}", vocab.len());
     println!();
@@ -161,7 +165,7 @@ fn main() {
         None => {
             println!("❌ Failed to encode prompt");
             return;
-        }
+        },
     };
     println!("Tokenized: {} tokens", input_ids.len());
     println!();
@@ -183,7 +187,7 @@ fn main() {
         Err(e) => {
             println!("❌ Generation failed: {}", e);
             return;
-        }
+        },
     };
 
     let elapsed = start.elapsed();
@@ -212,7 +216,10 @@ fn main() {
     // Compare to baselines
     let ollama_baseline = 333.0; // tok/s
     let speedup = toks_per_sec / ollama_baseline;
-    println!("  vs Ollama ({:.0} tok/s): {:.2}x", ollama_baseline, speedup);
+    println!(
+        "  vs Ollama ({:.0} tok/s): {:.2}x",
+        ollama_baseline, speedup
+    );
 
     if speedup >= 2.0 {
         println!("  ✅ Exceeds 2x Ollama parity!");

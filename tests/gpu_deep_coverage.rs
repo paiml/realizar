@@ -3,12 +3,11 @@
 //! Tests non-GPU-gated functions and structs.
 
 use realizar::gpu::{
-    batch_embed, exceeds_gpu_buffer_limit, fused_layernorm, naive_matmul,
-    parallel_ffn, prefetch_read, scalar_rope, scalar_softmax, sequential_ffn, sequential_sum,
-    simd_rope, simd_softmax, standard_layernorm, sum_with_prefetch, CacheAlignedBuffer,
-    ChunkedProcessor, ContiguousAttentionBuffer, DoubleBuffer, ForwardArena,
-    GpuPipelineStage, InferencePipeline, QuantizedAccumulator, ScratchBuffer, TensorPool,
-    TokenBatch,
+    batch_embed, exceeds_gpu_buffer_limit, fused_layernorm, naive_matmul, parallel_ffn,
+    prefetch_read, scalar_rope, scalar_softmax, sequential_ffn, sequential_sum, simd_rope,
+    simd_softmax, standard_layernorm, sum_with_prefetch, CacheAlignedBuffer, ChunkedProcessor,
+    ContiguousAttentionBuffer, DoubleBuffer, ForwardArena, GpuPipelineStage, InferencePipeline,
+    QuantizedAccumulator, ScratchBuffer, TensorPool, TokenBatch,
 };
 
 // ============================================================================

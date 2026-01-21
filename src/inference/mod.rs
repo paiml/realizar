@@ -32,9 +32,7 @@ mod simd;
 mod thread;
 
 // Re-exports for public API
-pub use kv_cache::{
-    attention_with_cache, attention_with_transposed_v, KVCache, OptimizedKVCache,
-};
+pub use kv_cache::{attention_with_cache, attention_with_transposed_v, KVCache, OptimizedKVCache};
 pub use norm::{apply_rope, simd_layer_norm, simd_rms_norm};
 pub use simd::{simd_add, simd_dot, simd_gelu, simd_matmul, simd_mul, simd_silu, simd_softmax};
 pub use thread::{
@@ -338,7 +336,7 @@ mod tests {
         let bytes_per_row = 144; // Q4_K block size for 256 elements
         let data = vec![0u8; out_dim * bytes_per_row];
 
-        let weight = Q4KWeight::new(data, in_dim, out_dim).unwrap();
+        let weight = Q4KWeight::new(data, in_dim, out_dim).expect("operation failed");
         assert_eq!(weight.memory_bytes(), bytes_per_row);
         assert_eq!(weight.f32_equivalent_bytes(), in_dim * out_dim * 4);
         assert!(weight.compression_ratio() > 1.0);

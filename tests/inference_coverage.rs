@@ -5,9 +5,9 @@
 //! simd_* functions, and attention functions.
 
 use realizar::inference::{
-    apply_rope, attention_with_transposed_v, simd_add, simd_dot, simd_gelu,
-    simd_layer_norm, simd_matmul, simd_mul, simd_rms_norm, simd_silu, simd_softmax, InferenceMode,
-    KVCache, OptimizedKVCache, Q4KWeight, ThreadConfig,
+    apply_rope, attention_with_transposed_v, simd_add, simd_dot, simd_gelu, simd_layer_norm,
+    simd_matmul, simd_mul, simd_rms_norm, simd_silu, simd_softmax, InferenceMode, KVCache,
+    OptimizedKVCache, Q4KWeight, ThreadConfig,
 };
 
 // ===== ThreadConfig Tests =====
@@ -316,7 +316,8 @@ fn test_cov_attention_transposed_v_empty() {
     let current_k = vec![0.5, 0.5, 0.5, 0.5];
     let current_v = vec![0.5, 0.5, 0.5, 0.5];
 
-    let output = attention_with_transposed_v(&q, &k_cache, &v_transposed, &current_k, &current_v, 2, 8);
+    let output =
+        attention_with_transposed_v(&q, &k_cache, &v_transposed, &current_k, &current_v, 2, 8);
 
     // With current K/V, output is produced
     assert_eq!(output.len(), 4);
@@ -337,8 +338,15 @@ fn test_cov_attention_transposed_v_single_pos() {
     // V transposed: [hidden_dim, max_seq_len]
     let v_transposed = vec![0.0; hidden_dim * max_seq_len];
 
-    let output =
-        attention_with_transposed_v(&q, &k_cache, &v_transposed, &current_k, &current_v, num_heads, max_seq_len);
+    let output = attention_with_transposed_v(
+        &q,
+        &k_cache,
+        &v_transposed,
+        &current_k,
+        &current_v,
+        num_heads,
+        max_seq_len,
+    );
 
     assert_eq!(output.len(), hidden_dim);
 }

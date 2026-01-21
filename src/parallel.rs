@@ -1352,12 +1352,7 @@ mod tests {
 
     #[test]
     fn test_reduce_op_all_variants_ext_cov() {
-        let ops = [
-            ReduceOp::Sum,
-            ReduceOp::Min,
-            ReduceOp::Max,
-            ReduceOp::Avg,
-        ];
+        let ops = [ReduceOp::Sum, ReduceOp::Min, ReduceOp::Max, ReduceOp::Avg];
         for op in ops {
             let json = serde_json::to_string(&op).expect("serialize");
             let _: ReduceOp = serde_json::from_str(&json).expect("deserialize");
@@ -1385,10 +1380,16 @@ mod tests {
     #[test]
     fn test_parallel_error_all_variants_ext_cov() {
         let errors: [ParallelError; 5] = [
-            ParallelError::InvalidRank { rank: 5, world_size: 4 },
+            ParallelError::InvalidRank {
+                rank: 5,
+                world_size: 4,
+            },
             ParallelError::InvalidWorldSize(0),
             ParallelError::CommunicationError("timeout".to_string()),
-            ParallelError::ShapeMismatch { expected: vec![2, 3], got: vec![3, 2] },
+            ParallelError::ShapeMismatch {
+                expected: vec![2, 3],
+                got: vec![3, 2],
+            },
             ParallelError::PipelineError("stage error".to_string()),
         ];
         for err in errors {
@@ -1398,7 +1399,10 @@ mod tests {
 
     #[test]
     fn test_parallel_error_shape_mismatch_ext_cov() {
-        let err = ParallelError::ShapeMismatch { expected: vec![10, 20], got: vec![20, 10] };
+        let err = ParallelError::ShapeMismatch {
+            expected: vec![10, 20],
+            got: vec![20, 10],
+        };
         let msg = err.to_string();
         assert!(msg.contains("10") || msg.contains("20"));
     }
@@ -1470,7 +1474,10 @@ mod tests {
             avg_stage_latency_ms: 10.5,
         };
         let cloned = stats.clone();
-        assert_eq!(stats.micro_batches_processed, cloned.micro_batches_processed);
+        assert_eq!(
+            stats.micro_batches_processed,
+            cloned.micro_batches_processed
+        );
 
         let debug_str = format!("{:?}", stats);
         assert!(debug_str.contains("micro_batches_processed"));

@@ -35,14 +35,20 @@ fn main() {
     println!("\n=== Attention Norm Weight (Layer 0) ===");
     for tensor in &mapped.model.tensors {
         if tensor.name.contains("blk.0") && tensor.name.contains("attn_norm") {
-            println!("  {}: dims={:?}, qtype={}", tensor.name, tensor.dims, tensor.qtype);
+            println!(
+                "  {}: dims={:?}, qtype={}",
+                tensor.name, tensor.dims, tensor.qtype
+            );
 
             // Load weight and show stats
             if let Ok(weight) = mapped.model.get_tensor_f32(&tensor.name, mapped.data()) {
                 let min = weight.iter().cloned().fold(f32::INFINITY, f32::min);
                 let max = weight.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
                 let mean: f32 = weight.iter().sum::<f32>() / weight.len() as f32;
-                println!("  Weight stats: min={:.6}, max={:.6}, mean={:.6}", min, max, mean);
+                println!(
+                    "  Weight stats: min={:.6}, max={:.6}, mean={:.6}",
+                    min, max, mean
+                );
                 println!("  First 5: {:?}", &weight[..5.min(weight.len())]);
             }
         }

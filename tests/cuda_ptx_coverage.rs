@@ -336,7 +336,10 @@ fn test_preset_configs_all_variants() {
     assert!(matches!(attention, KernelType::Attention { .. }));
 
     let ffn = presets::ffn_gemm(4, 4096, 11008);
-    assert!(matches!(ffn, KernelType::GemmTiled { .. } | KernelType::GemmOptimized { .. }));
+    assert!(matches!(
+        ffn,
+        KernelType::GemmTiled { .. } | KernelType::GemmOptimized { .. }
+    ));
 
     let q4k = presets::q4k_inference(1, 4096, 4096);
     assert!(matches!(q4k, KernelType::QuantizedGemm { .. }));
@@ -461,16 +464,47 @@ fn test_kernel_names_all_variants() {
 
     // Test all kernel types have names
     let kernels = vec![
-        KernelType::GemmNaive { m: 64, n: 64, k: 64 },
-        KernelType::GemmTiled { m: 64, n: 64, k: 64, tile_size: 16 },
-        KernelType::GemmTensorCore { m: 64, n: 64, k: 64 },
+        KernelType::GemmNaive {
+            m: 64,
+            n: 64,
+            k: 64,
+        },
+        KernelType::GemmTiled {
+            m: 64,
+            n: 64,
+            k: 64,
+            tile_size: 16,
+        },
+        KernelType::GemmTensorCore {
+            m: 64,
+            n: 64,
+            k: 64,
+        },
         KernelType::Gemv { k: 256, n: 256 },
         KernelType::CoalescedGemv { k: 256, n: 256 },
         KernelType::Softmax { dim: 1024 },
-        KernelType::LayerNorm { hidden_size: 768, epsilon: 1e-5, affine: true },
-        KernelType::Attention { seq_len: 128, head_dim: 64, causal: true },
-        KernelType::MultiHeadAttention { seq_len: 128, head_dim: 64, n_heads: 8, causal: false },
-        KernelType::AttentionTensorCore { seq_len: 128, head_dim: 64, n_heads: 8, causal: true },
+        KernelType::LayerNorm {
+            hidden_size: 768,
+            epsilon: 1e-5,
+            affine: true,
+        },
+        KernelType::Attention {
+            seq_len: 128,
+            head_dim: 64,
+            causal: true,
+        },
+        KernelType::MultiHeadAttention {
+            seq_len: 128,
+            head_dim: 64,
+            n_heads: 8,
+            causal: false,
+        },
+        KernelType::AttentionTensorCore {
+            seq_len: 128,
+            head_dim: 64,
+            n_heads: 8,
+            causal: true,
+        },
     ];
 
     for kernel in kernels {
@@ -495,7 +529,9 @@ fn test_cuda_executor_gemm_sizes() {
     let a = vec![1.0f32; 32 * 32];
     let b = vec![1.0f32; 32 * 32];
     let mut c = vec![0.0f32; 32 * 32];
-    executor.gemm(&a, &b, &mut c, 32, 32, 32).expect("small gemm");
+    executor
+        .gemm(&a, &b, &mut c, 32, 32, 32)
+        .expect("small gemm");
 
     // Verify result is reasonable (not all zeros)
     let sum: f32 = c.iter().sum();
@@ -505,7 +541,9 @@ fn test_cuda_executor_gemm_sizes() {
     let a = vec![1.0f32; 128 * 256];
     let b = vec![1.0f32; 256 * 128];
     let mut c = vec![0.0f32; 128 * 128];
-    executor.gemm(&a, &b, &mut c, 128, 128, 256).expect("larger gemm");
+    executor
+        .gemm(&a, &b, &mut c, 128, 128, 256)
+        .expect("larger gemm");
     let sum: f32 = c.iter().sum();
     assert!(sum > 0.0);
 }
@@ -545,10 +583,17 @@ fn test_cuda_executor_softmax() {
 
     // Verify softmax properties: sum to 1.0
     let sum: f32 = data.iter().sum();
-    assert!((sum - 1.0).abs() < 0.01, "Softmax should sum to ~1.0, got {}", sum);
+    assert!(
+        (sum - 1.0).abs() < 0.01,
+        "Softmax should sum to ~1.0, got {}",
+        sum
+    );
 
     // Higher inputs should have higher probabilities (last element was max)
-    assert!(data[7] > data[0], "Softmax should give higher prob to larger inputs");
+    assert!(
+        data[7] > data[0],
+        "Softmax should give higher prob to larger inputs"
+    );
 }
 
 #[test]
@@ -561,7 +606,9 @@ fn test_cuda_executor_rmsnorm() {
 
     // Cache RMSNorm gamma weights
     let gamma = vec![1.0f32; 64];
-    let bytes = executor.cache_rmsnorm_gamma("test_gamma", &gamma).expect("cache gamma");
+    let bytes = executor
+        .cache_rmsnorm_gamma("test_gamma", &gamma)
+        .expect("cache gamma");
     assert!(bytes > 0, "Should have cached some bytes");
 
     // Test rmsnorm_host (doesn't require cached gamma)
@@ -574,7 +621,10 @@ fn test_cuda_executor_rmsnorm() {
         .expect("rmsnorm_host");
 
     // Verify output is normalized
-    assert!(!output.iter().all(|&x| x == 0.0), "RMSNorm output should not be all zeros");
+    assert!(
+        !output.iter().all(|&x| x == 0.0),
+        "RMSNorm output should not be all zeros"
+    );
 }
 
 #[test]
@@ -587,7 +637,9 @@ fn test_cuda_executor_weight_cache() {
 
     // Load weights
     let weights = vec![1.0f32; 256];
-    let bytes_loaded = executor.load_weights("test_weight", &weights).expect("load weights");
+    let bytes_loaded = executor
+        .load_weights("test_weight", &weights)
+        .expect("load weights");
     assert!(bytes_loaded > 0);
 
     // Verify cache
@@ -621,7 +673,9 @@ fn test_cuda_executor_quantized_weight_cache() {
     assert!(executor.cached_quantized_weight_bytes() > 0);
 
     // Test pointer retrieval
-    let ptr = executor.get_quantized_weight_ptr("q_weight").expect("get ptr");
+    let ptr = executor
+        .get_quantized_weight_ptr("q_weight")
+        .expect("get ptr");
     assert!(ptr > 0);
 
     // Clear
@@ -787,7 +841,11 @@ fn test_cuda_kernels_quantized_gemm() {
     let kernels = CudaKernels::new();
 
     // Test QuantizedGemm kernel generation
-    let kernel = KernelType::QuantizedGemm { m: 1, n: 4096, k: 4096 };
+    let kernel = KernelType::QuantizedGemm {
+        m: 1,
+        n: 4096,
+        k: 4096,
+    };
     let ptx = kernels.generate_ptx(&kernel);
     assert!(!ptx.is_empty());
 
@@ -845,8 +903,14 @@ fn test_cuda_executor_silu_host() {
     // SiLU(x) = x * sigmoid(x) = x / (1 + exp(-x))
     // SiLU(0) = 0, SiLU(1) ≈ 0.731, SiLU(-1) ≈ -0.269
     assert!((output[0] - 0.0).abs() < 0.01, "SiLU(0) should be ~0");
-    assert!(output[1] > 0.7 && output[1] < 0.75, "SiLU(1) should be ~0.731");
-    assert!(output[2] < -0.2 && output[2] > -0.3, "SiLU(-1) should be ~-0.269");
+    assert!(
+        output[1] > 0.7 && output[1] < 0.75,
+        "SiLU(1) should be ~0.731"
+    );
+    assert!(
+        output[2] < -0.2 && output[2] > -0.3,
+        "SiLU(-1) should be ~-0.269"
+    );
 }
 
 #[test]
@@ -864,8 +928,14 @@ fn test_cuda_executor_gelu_host() {
 
     // GELU(0) = 0, GELU(1) ≈ 0.841, GELU(-1) ≈ -0.159
     assert!((output[0] - 0.0).abs() < 0.01, "GELU(0) should be ~0");
-    assert!(output[1] > 0.8 && output[1] < 0.9, "GELU(1) should be ~0.841");
-    assert!(output[2] < -0.1 && output[2] > -0.2, "GELU(-1) should be ~-0.159");
+    assert!(
+        output[1] > 0.8 && output[1] < 0.9,
+        "GELU(1) should be ~0.841"
+    );
+    assert!(
+        output[2] < -0.1 && output[2] > -0.2,
+        "GELU(-1) should be ~-0.159"
+    );
 }
 
 #[test]
@@ -910,7 +980,10 @@ fn test_cuda_executor_fused_residual_rmsnorm_host() {
 
     // After residual add: [1, 1, 1, 1]
     // After RMSNorm with gamma=1: normalized values
-    assert!(!output.iter().all(|&x| x == 0.0), "Output should not be all zeros");
+    assert!(
+        !output.iter().all(|&x| x == 0.0),
+        "Output should not be all zeros"
+    );
 }
 
 #[test]
@@ -932,7 +1005,10 @@ fn test_cuda_executor_fused_swiglu_host() {
 
     // SwiGLU(1, 1) = SiLU(1) * 1 ≈ 0.731
     // SwiGLU(0, 1) = SiLU(0) * 1 = 0
-    assert!(output[0] > 0.7 && output[0] < 0.75, "SwiGLU(1,1) should be ~0.731");
+    assert!(
+        output[0] > 0.7 && output[0] < 0.75,
+        "SwiGLU(1,1) should be ~0.731"
+    );
     assert!((output[1] - 0.0).abs() < 0.01, "SwiGLU(0,1) should be ~0");
 }
 
@@ -950,7 +1026,8 @@ fn test_cuda_executor_gemm_multiple_sizes() {
         let b = vec![1.0f32; k * n];
         let mut c = vec![0.0f32; m * n];
 
-        executor.gemm(&a, &b, &mut c, m as u32, n as u32, k as u32)
+        executor
+            .gemm(&a, &b, &mut c, m as u32, n as u32, k as u32)
             .expect(&format!("gemm {}x{}x{}", m, n, k));
 
         // Each element should be k (sum of k ones)
@@ -959,7 +1036,11 @@ fn test_cuda_executor_gemm_multiple_sizes() {
         assert!(
             (actual - expected).abs() < 0.1,
             "GEMM {}x{}x{}: expected {}, got {}",
-            m, n, k, expected, actual
+            m,
+            n,
+            k,
+            expected,
+            actual
         );
     }
 }
@@ -974,7 +1055,9 @@ fn test_cuda_executor_gemm_cached() {
 
     // Load weights into cache (A matrix: m x k = 1 x 64)
     let weights = vec![1.0f32; 1 * 64]; // m=1, k=64
-    executor.load_weights("cached_weight", &weights).expect("load weights");
+    executor
+        .load_weights("cached_weight", &weights)
+        .expect("load weights");
 
     // Use cached weights
     // B matrix: k x n = 64 x 64 = 4096 elements
@@ -1087,7 +1170,9 @@ fn test_cuda_executor_multiple_operations_sequence() {
     let input = vec![1.0f32, 2.0, 3.0, 4.0];
     let gamma = vec![1.0f32; 4];
     let mut norm_output = vec![0.0f32; 4];
-    executor.rmsnorm_host(&input, &gamma, &mut norm_output, 1e-5).expect("rmsnorm");
+    executor
+        .rmsnorm_host(&input, &gamma, &mut norm_output, 1e-5)
+        .expect("rmsnorm");
 
     // Get profiler summary
     let summary = executor.profiler_summary();
@@ -1104,20 +1189,41 @@ fn test_cuda_kernels_all_kernel_types() {
         KernelType::Gemv { k: 256, n: 256 },
         KernelType::CoalescedGemv { k: 512, n: 512 },
         // Quantized
-        KernelType::QuantizedGemm { m: 1, n: 256, k: 256 },
-        KernelType::QuantizedGemmGgml { m: 1, n: 256, k: 256 },
+        KernelType::QuantizedGemm {
+            m: 1,
+            n: 256,
+            k: 256,
+        },
+        KernelType::QuantizedGemmGgml {
+            m: 1,
+            n: 256,
+            k: 256,
+        },
         // Rope variants
-        KernelType::Rope { num_heads: 32, head_dim: 64, theta: 10000.0 },
+        KernelType::Rope {
+            num_heads: 32,
+            head_dim: 64,
+            theta: 10000.0,
+        },
         // Residual
         KernelType::ResidualAdd { n: 4096 },
         // Activations
         KernelType::Silu { n: 1024 },
         KernelType::Gelu { n: 1024 },
         // RMSNorm variants
-        KernelType::RmsNorm { hidden_size: 4096, epsilon: 1e-5 },
-        KernelType::VectorizedRmsNorm { hidden_size: 4096, epsilon: 1e-5 },
+        KernelType::RmsNorm {
+            hidden_size: 4096,
+            epsilon: 1e-5,
+        },
+        KernelType::VectorizedRmsNorm {
+            hidden_size: 4096,
+            epsilon: 1e-5,
+        },
         // Fused operations
-        KernelType::FusedResidualRmsNorm { hidden_size: 4096, epsilon: 1e-5 },
+        KernelType::FusedResidualRmsNorm {
+            hidden_size: 4096,
+            epsilon: 1e-5,
+        },
         KernelType::FusedSwiglu { n: 4096 },
     ];
 

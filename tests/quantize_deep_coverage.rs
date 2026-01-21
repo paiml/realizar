@@ -4,18 +4,16 @@
 //! SIMD backends, RoPE rotation, and helper types not covered by existing tests.
 
 use realizar::quantize::{
-    detect_simd_backend, dequantize_f16, dequantize_q4_0, dequantize_q4_1, dequantize_q4_k,
-    dequantize_q4_k_parallel, dequantize_q4_k_simd, dequantize_q5_0, dequantize_q5_1,
-    dequantize_q5_k, dequantize_q6_k, dequantize_q8_0, dequantize_q8_0_parallel,
-    dequantize_q8_0_simd, f16_to_f32, fused_q4k_dot, fused_q4k_dot_simd,
-    fused_q4k_parallel_matvec, fused_q4k_parallel_matvec_into,
-    fused_q4k_tiled_matvec, fused_q5k_dot,
-    fused_q5k_dot_simd, fused_q5k_parallel_matvec, fused_q5k_parallel_matvec_into,
-    fused_q6k_dot, fused_q6k_dot_simd, fused_q6k_parallel_matvec,
-    fused_q6k_parallel_matvec_into, fused_swiglu_simd, quantize_activations_q8_0,
-    quantize_rmsnorm_q8_0, quantize_rmsnorm_q8_0_into, quantize_to_q8_blocks, softmax_simd,
-    DequantStats, Q4_0Block, Q4_KBlock, Q5_KBlock, Q6_KBlock, Q8KSuperBlock, Q8_0Block,
-    SimdBackend, BLOCK_SIZE, QK_K,
+    dequantize_f16, dequantize_q4_0, dequantize_q4_1, dequantize_q4_k, dequantize_q4_k_parallel,
+    dequantize_q4_k_simd, dequantize_q5_0, dequantize_q5_1, dequantize_q5_k, dequantize_q6_k,
+    dequantize_q8_0, dequantize_q8_0_parallel, dequantize_q8_0_simd, detect_simd_backend,
+    f16_to_f32, fused_q4k_dot, fused_q4k_dot_simd, fused_q4k_parallel_matvec,
+    fused_q4k_parallel_matvec_into, fused_q4k_tiled_matvec, fused_q5k_dot, fused_q5k_dot_simd,
+    fused_q5k_parallel_matvec, fused_q5k_parallel_matvec_into, fused_q6k_dot, fused_q6k_dot_simd,
+    fused_q6k_parallel_matvec, fused_q6k_parallel_matvec_into, fused_swiglu_simd,
+    quantize_activations_q8_0, quantize_rmsnorm_q8_0, quantize_rmsnorm_q8_0_into,
+    quantize_to_q8_blocks, softmax_simd, DequantStats, Q4_0Block, Q4_KBlock, Q5_KBlock, Q6_KBlock,
+    Q8KSuperBlock, Q8_0Block, SimdBackend, BLOCK_SIZE, QK_K,
 };
 
 // ============================================================================

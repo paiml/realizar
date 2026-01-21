@@ -14,16 +14,12 @@
 //! - `viz` - Visualize benchmark results
 //! - `info` - Show version info
 
-
 use clap::{Parser, Subcommand};
 #[cfg(feature = "registry")]
 use pacha::resolver::{ModelResolver, ModelSource};
 #[cfg(feature = "registry")]
 use pacha::uri::ModelUri;
-use realizar::{
-    cli,
-    error::Result,
-};
+use realizar::{cli, error::Result};
 
 /// Realizar - Pure Rust ML inference engine
 ///

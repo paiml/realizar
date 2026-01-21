@@ -211,9 +211,7 @@ fn test_inference_config_input_tokens_overrides_prompt() {
 
 #[test]
 fn test_inference_config_without_gpu_multiple_calls() {
-    let config = InferenceConfig::new("/m.gguf")
-        .without_gpu()
-        .without_gpu();
+    let config = InferenceConfig::new("/m.gguf").without_gpu().without_gpu();
     assert!(config.no_gpu);
 }
 
@@ -676,7 +674,7 @@ fn test_inference_result_high_throughput() {
         tokens: (0..1001).collect(),
         input_token_count: 1,
         generated_token_count: 1000,
-        inference_ms: 100.0, // 100ms
+        inference_ms: 100.0,  // 100ms
         tok_per_sec: 10000.0, // 1000 tokens / 0.1 seconds = 10000 tok/s
         load_ms: 10.0,
         format: "GGUF".to_string(),
@@ -740,10 +738,10 @@ fn test_run_inference_gguf_valid_header_incomplete_body() {
     // Create a file with valid GGUF header but incomplete body
     let mut data = Vec::new();
     // GGUF v3 header
-    data.extend_from_slice(b"GGUF");     // magic
-    data.extend_from_slice(&3u32.to_le_bytes());  // version
-    data.extend_from_slice(&0u64.to_le_bytes());  // tensor count
-    data.extend_from_slice(&0u64.to_le_bytes());  // metadata kv count
+    data.extend_from_slice(b"GGUF"); // magic
+    data.extend_from_slice(&3u32.to_le_bytes()); // version
+    data.extend_from_slice(&0u64.to_le_bytes()); // tensor count
+    data.extend_from_slice(&0u64.to_le_bytes()); // metadata kv count
 
     let path = create_temp_file("gguf_header_only.gguf", &data);
     let config = InferenceConfig::new(&path);
@@ -756,9 +754,7 @@ fn test_run_inference_gguf_valid_header_incomplete_body() {
 #[test]
 fn test_run_inference_verbose_error_path() {
     let path = create_temp_file("verbose_err.gguf", &[0; 10]);
-    let config = InferenceConfig::new(&path)
-        .with_verbose(true)
-        .without_gpu();
+    let config = InferenceConfig::new(&path).with_verbose(true).without_gpu();
     let result = realizar::infer::run_inference(&config);
     assert!(result.is_err());
     cleanup_file(&path);
@@ -773,11 +769,11 @@ fn test_run_inference_verbose_error_path() {
 fn test_run_inference_apr_header_incomplete() {
     // APR header with version but incomplete
     let mut data = Vec::new();
-    data.extend_from_slice(b"APR\0");    // magic
-    data.extend_from_slice(&1u32.to_le_bytes());  // version
-    data.extend_from_slice(&0u32.to_le_bytes());  // tensor count
-    data.extend_from_slice(&0u32.to_le_bytes());  // metadata size
-    // Add padding to make it "valid-looking"
+    data.extend_from_slice(b"APR\0"); // magic
+    data.extend_from_slice(&1u32.to_le_bytes()); // version
+    data.extend_from_slice(&0u32.to_le_bytes()); // tensor count
+    data.extend_from_slice(&0u32.to_le_bytes()); // metadata size
+                                                 // Add padding to make it "valid-looking"
     data.extend_from_slice(&[0u8; 100]);
 
     let path = create_temp_file("apr_incomplete.apr", &data);

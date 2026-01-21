@@ -267,4 +267,3 @@ fn test_phi2_transformer_loading() {
     assert_eq!(transformer.token_embedding.len(), 51200 * 2560);
     assert_eq!(transformer.output_norm_weight.len(), 2560);
 }
-

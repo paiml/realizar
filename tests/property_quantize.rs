@@ -5,9 +5,8 @@
 use proptest::prelude::*;
 use realizar::quantize::{
     dequantize_f16, dequantize_q4_0, dequantize_q4_1, dequantize_q4_k, dequantize_q5_0,
-    dequantize_q5_1, dequantize_q5_k, dequantize_q6_k, dequantize_q8_0, f16_to_f32,
-    fused_q4k_dot, fused_q4k_dot_simd, fused_q6k_dot, fused_q6k_dot_simd, softmax_simd,
-    BLOCK_SIZE, QK_K,
+    dequantize_q5_1, dequantize_q5_k, dequantize_q6_k, dequantize_q8_0, f16_to_f32, fused_q4k_dot,
+    fused_q4k_dot_simd, fused_q6k_dot, fused_q6k_dot_simd, softmax_simd, BLOCK_SIZE, QK_K,
 };
 
 /// Strategy for generating valid Q4_0 blocks
@@ -264,10 +263,10 @@ mod fused_rmsnorm_tests {
 fn q4_k_superblock_strategy() -> impl Strategy<Value = Vec<u8>> {
     // Q4_K super-block: d (2) + dmin (2) + scales (12) + qs (128) = 144 bytes
     (
-        any::<u16>(),                                       // d as f16 bits
-        any::<u16>(),                                       // dmin as f16 bits
-        prop::collection::vec(any::<u8>(), 12..=12),        // scales
-        prop::collection::vec(any::<u8>(), 128..=128),      // qs
+        any::<u16>(),                                  // d as f16 bits
+        any::<u16>(),                                  // dmin as f16 bits
+        prop::collection::vec(any::<u8>(), 12..=12),   // scales
+        prop::collection::vec(any::<u8>(), 128..=128), // qs
     )
         .prop_map(|(d_bits, dmin_bits, scales, qs)| {
             let mut block = Vec::with_capacity(144);
@@ -283,11 +282,11 @@ fn q4_k_superblock_strategy() -> impl Strategy<Value = Vec<u8>> {
 fn q5_k_superblock_strategy() -> impl Strategy<Value = Vec<u8>> {
     // Q5_K super-block: d (2) + dmin (2) + scales (12) + qh (32) + qs (128) = 176 bytes
     (
-        any::<u16>(),                                       // d as f16 bits
-        any::<u16>(),                                       // dmin as f16 bits
-        prop::collection::vec(any::<u8>(), 12..=12),        // scales
-        prop::collection::vec(any::<u8>(), 32..=32),        // qh (high bits)
-        prop::collection::vec(any::<u8>(), 128..=128),      // qs (low 4 bits)
+        any::<u16>(),                                  // d as f16 bits
+        any::<u16>(),                                  // dmin as f16 bits
+        prop::collection::vec(any::<u8>(), 12..=12),   // scales
+        prop::collection::vec(any::<u8>(), 32..=32),   // qh (high bits)
+        prop::collection::vec(any::<u8>(), 128..=128), // qs (low 4 bits)
     )
         .prop_map(|(d_bits, dmin_bits, scales, qh, qs)| {
             let mut block = Vec::with_capacity(176);
@@ -304,10 +303,10 @@ fn q5_k_superblock_strategy() -> impl Strategy<Value = Vec<u8>> {
 fn q6_k_superblock_strategy() -> impl Strategy<Value = Vec<u8>> {
     // Q6_K super-block: ql (128) + qh (64) + scales (16) + d (2) = 210 bytes
     (
-        prop::collection::vec(any::<u8>(), 128..=128),      // ql (low 4 bits)
-        prop::collection::vec(any::<u8>(), 64..=64),        // qh (high 2 bits)
-        prop::collection::vec(any::<u8>(), 16..=16),        // scales
-        any::<u16>(),                                       // d as f16 bits
+        prop::collection::vec(any::<u8>(), 128..=128), // ql (low 4 bits)
+        prop::collection::vec(any::<u8>(), 64..=64),   // qh (high 2 bits)
+        prop::collection::vec(any::<u8>(), 16..=16),   // scales
+        any::<u16>(),                                  // d as f16 bits
     )
         .prop_map(|(ql, qh, scales, d_bits)| {
             let mut block = Vec::with_capacity(210);
@@ -767,7 +766,10 @@ mod edge_case_tests {
     fn test_softmax_simd_single_element() {
         let mut x = vec![5.0f32];
         softmax_simd(&mut x);
-        assert!((x[0] - 1.0).abs() < 1e-6, "Single element softmax should be 1.0");
+        assert!(
+            (x[0] - 1.0).abs() < 1e-6,
+            "Single element softmax should be 1.0"
+        );
     }
 
     #[test]
@@ -777,7 +779,10 @@ mod edge_case_tests {
         softmax_simd(&mut x);
 
         let sum: f32 = x.iter().sum();
-        assert!((sum - 1.0).abs() < 1e-5, "Softmax should sum to 1.0 even with large values");
+        assert!(
+            (sum - 1.0).abs() < 1e-5,
+            "Softmax should sum to 1.0 even with large values"
+        );
 
         // The largest input should have the largest output
         assert!(x[2] > x[1] && x[1] > x[0]);
@@ -789,7 +794,10 @@ mod edge_case_tests {
         softmax_simd(&mut x);
 
         let sum: f32 = x.iter().sum();
-        assert!((sum - 1.0).abs() < 1e-5, "Softmax should sum to 1.0 with negative values");
+        assert!(
+            (sum - 1.0).abs() < 1e-5,
+            "Softmax should sum to 1.0 with negative values"
+        );
     }
 
     // ========================================================================
@@ -878,7 +886,10 @@ mod edge_case_tests {
         softmax_simd(&mut x);
 
         // Equal inputs should produce equal outputs
-        assert!((x[0] - x[1]).abs() < 1e-6, "Equal inputs should give equal softmax outputs");
+        assert!(
+            (x[0] - x[1]).abs() < 1e-6,
+            "Equal inputs should give equal softmax outputs"
+        );
         assert!((x[0] - 0.5).abs() < 1e-6, "Each should be 0.5");
     }
 
@@ -890,7 +901,11 @@ mod edge_case_tests {
             softmax_simd(&mut x);
 
             let sum: f32 = x.iter().sum();
-            assert!((sum - 1.0).abs() < 1e-5, "Softmax of {} elements should sum to 1.0", size);
+            assert!(
+                (sum - 1.0).abs() < 1e-5,
+                "Softmax of {} elements should sum to 1.0",
+                size
+            );
 
             // All inputs equal, so all outputs should be 1/size
             let expected = 1.0 / size as f32;
@@ -916,7 +931,10 @@ mod edge_case_tests {
 
         // Negative infinity (0xFC00)
         let neg_inf = f16_to_f32(0xFC00);
-        assert!(neg_inf.is_infinite() && neg_inf < 0.0, "0xFC00 should be -inf");
+        assert!(
+            neg_inf.is_infinite() && neg_inf < 0.0,
+            "0xFC00 should be -inf"
+        );
 
         // NaN (0x7C01 or higher with non-zero mantissa)
         let nan = f16_to_f32(0x7C01);
@@ -924,6 +942,9 @@ mod edge_case_tests {
 
         // Max normal (0x7BFF)
         let max_normal = f16_to_f32(0x7BFF);
-        assert!(max_normal > 60000.0 && max_normal < 70000.0, "Max f16 should be ~65504");
+        assert!(
+            max_normal > 60000.0 && max_normal < 70000.0,
+            "Max f16 should be ~65504"
+        );
     }
 }

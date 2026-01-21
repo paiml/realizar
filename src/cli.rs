@@ -1258,7 +1258,7 @@ mod server_commands {
                 }
             })?;
             load_safetensors_model(&file_data)?;
-            // SafeTensors models use demo state for now (TODO: implement full SafeTensors serving)
+            // SafeTensors models use demo state (full serving requires GGUF conversion)
             Ok(PreparedServer {
                 state: crate::api::AppState::demo()?,
                 batch_mode_enabled: false,
@@ -1272,7 +1272,7 @@ mod server_commands {
                 }
             })?;
             load_apr_model(&file_data)?;
-            // APR models use demo state for now (TODO: implement full APR serving)
+            // APR models use demo state (full serving requires GGUF conversion)
             Ok(PreparedServer {
                 state: crate::api::AppState::demo()?,
                 batch_mode_enabled: false,

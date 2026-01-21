@@ -6,7 +6,13 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Values from debug output at position 1, layer 0
     // Q head 0 first elements (full 128 dims not shown, but we'll use what we have)
-    let q_first5 = [0.22444972f32, 0.1500241, 0.16961512, -0.11974904, 0.16413349];
+    let q_first5 = [
+        0.22444972f32,
+        0.1500241,
+        0.16961512,
+        -0.11974904,
+        0.16413349,
+    ];
 
     // K cache position 0 first elements
     let k0_first5 = [7.8360004f32, 3.5289938, -0.35749412, -0.7482981, 1.6254648];
@@ -15,7 +21,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let k1_first5 = [2.8995457f32, 1.7079767, 0.58705133, -0.53181976, 1.6363757];
 
     // V cache position 0 first elements
-    let v0_first5 = [-0.029915452f32, -0.07104013, -0.39225078, 0.18054092, -0.7353064];
+    let v0_first5 = [
+        -0.029915452f32,
+        -0.07104013,
+        -0.39225078,
+        0.18054092,
+        -0.7353064,
+    ];
 
     // Compute partial dot products (just first 5 elements)
     let partial_score0: f32 = q_first5.iter().zip(&k0_first5).map(|(q, k)| q * k).sum();
@@ -53,8 +65,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nExpected output (first 5 elements, approximate):");
     for i in 0..5 {
         let expected = weight0 * v0_first5[i] + weight1 * 0.0; // V1 unknown
-        println!("  out[{}] ≈ {:.6} * {:.6} + {:.6} * V1[{}]",
-                 i, weight0, v0_first5[i], weight1, i);
+        println!(
+            "  out[{}] ≈ {:.6} * {:.6} + {:.6} * V1[{}]",
+            i, weight0, v0_first5[i], weight1, i
+        );
     }
 
     // What we observe:
@@ -83,8 +97,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // For weight0 = 0.99, we need exp(score0) = 99 * exp(score1)
     // So score0 - score1 = ln(99) ≈ 4.6
 
-    println!("\nFor weight0 = 0.99: score0 - score1 ≈ {:.2}", (99.0f32).ln());
-    println!("For weight0 = 0.9999: score0 - score1 ≈ {:.2}", (9999.0f32).ln());
+    println!(
+        "\nFor weight0 = 0.99: score0 - score1 ≈ {:.2}",
+        (99.0f32).ln()
+    );
+    println!(
+        "For weight0 = 0.9999: score0 - score1 ≈ {:.2}",
+        (9999.0f32).ln()
+    );
 
     Ok(())
 }

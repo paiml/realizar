@@ -162,7 +162,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== GPU Output ===");
     println!("Head 0 first 5 elements: {:?}", &output[..5]);
     println!("Head 0 element 0: {:.6}", output[0]);
-    println!("Head 1 first 5 elements: {:?}", &output[head_dim..head_dim + 5]);
+    println!(
+        "Head 1 first 5 elements: {:?}",
+        &output[head_dim..head_dim + 5]
+    );
 
     // Verify
     let tolerance = 0.001;
@@ -183,7 +186,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if pass {
-        println!("\n✅ All elements match expected value within tolerance {}", tolerance);
+        println!(
+            "\n✅ All elements match expected value within tolerance {}",
+            tolerance
+        );
     } else {
         println!("\n❌ VERIFICATION FAILED");
         println!("This indicates a bug in the multi-warp attention kernel.");

@@ -3,8 +3,8 @@
 //! This module provides additional coverage for conversion functions
 //! not covered by existing tests. Targets 95%+ coverage.
 
-use realizar::convert::{ConversionStats, GgufToAprConverter, Q4KConversionStats, RawTensor};
 use realizar::apr_transformer::{AprTransformer, AprTransformerConfig};
+use realizar::convert::{ConversionStats, GgufToAprConverter, Q4KConversionStats, RawTensor};
 
 // ============================================================================
 // Test 1-10: ConversionStats tests

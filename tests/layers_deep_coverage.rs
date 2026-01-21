@@ -42,8 +42,8 @@ fn test_layer_norm_forward_1d() {
 #[test]
 fn test_layer_norm_forward_2d() {
     let norm = LayerNorm::new(4, 1e-5).expect("create layer norm");
-    let input = Tensor::from_vec(vec![2, 4], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0])
-        .expect("input");
+    let input =
+        Tensor::from_vec(vec![2, 4], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]).expect("input");
     let output = norm.forward(&input).expect("forward");
     assert_eq!(output.shape(), &[2, 4]);
 }
@@ -103,8 +103,8 @@ fn test_linear_forward_small() {
 #[test]
 fn test_linear_forward_batched() {
     let linear = Linear::new(4, 8).expect("create linear");
-    let input = Tensor::from_vec(vec![2, 4], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0])
-        .expect("input");
+    let input =
+        Tensor::from_vec(vec![2, 4], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]).expect("input");
     let output = linear.forward(&input).expect("forward");
     assert_eq!(output.shape(), &[2, 8]);
 }
@@ -201,8 +201,8 @@ fn test_fused_ln_linear_forward_parallel() {
 #[test]
 fn test_fused_ln_linear_batched() {
     let fused = FusedLayerNormLinear::new(4, 8, 1e-5).expect("create");
-    let input = Tensor::from_vec(vec![2, 4], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0])
-        .expect("input");
+    let input =
+        Tensor::from_vec(vec![2, 4], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]).expect("input");
     let output = fused.forward(&input).expect("forward");
     assert_eq!(output.shape(), &[2, 8]);
 }
@@ -240,8 +240,8 @@ fn test_feedforward_forward() {
 #[test]
 fn test_feedforward_batched() {
     let ff = FeedForward::new(4, 16).expect("create");
-    let input = Tensor::from_vec(vec![2, 4], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0])
-        .expect("input");
+    let input =
+        Tensor::from_vec(vec![2, 4], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]).expect("input");
     let output = ff.forward(&input).expect("forward");
     assert_eq!(output.shape(), &[2, 4]);
 }
@@ -390,8 +390,8 @@ fn test_softmax_1d() {
 
 #[test]
 fn test_softmax_2d() {
-    let input = Tensor::from_vec(vec![2, 4], vec![1.0, 2.0, 3.0, 4.0, 1.0, 1.0, 1.0, 1.0])
-        .expect("input");
+    let input =
+        Tensor::from_vec(vec![2, 4], vec![1.0, 2.0, 3.0, 4.0, 1.0, 1.0, 1.0, 1.0]).expect("input");
     let output = realizar::layers::softmax(&input).expect("softmax");
     assert_eq!(output.shape(), &[2, 4]);
 }
@@ -468,7 +468,9 @@ fn test_attention_flash_forward_v2() {
     let q = Tensor::from_vec(vec![1, 4], vec![1.0, 2.0, 3.0, 4.0]).expect("q");
     let k = Tensor::from_vec(vec![1, 4], vec![1.0, 2.0, 3.0, 4.0]).expect("k");
     let v = Tensor::from_vec(vec![1, 4], vec![1.0, 2.0, 3.0, 4.0]).expect("v");
-    let output = attn.flash_forward_v2(&q, &k, &v, 4).expect("flash forward v2");
+    let output = attn
+        .flash_forward_v2(&q, &k, &v, 4)
+        .expect("flash forward v2");
     assert_eq!(output.shape(), &[1, 4]);
 }
 
@@ -478,7 +480,9 @@ fn test_attention_flash_forward_parallel() {
     let q = Tensor::from_vec(vec![2, 4], vec![1.0; 8]).expect("q");
     let k = Tensor::from_vec(vec![2, 4], vec![1.0; 8]).expect("k");
     let v = Tensor::from_vec(vec![2, 4], vec![1.0; 8]).expect("v");
-    let output = attn.flash_forward_parallel(&q, &k, &v, 2).expect("flash forward parallel");
+    let output = attn
+        .flash_forward_parallel(&q, &k, &v, 2)
+        .expect("flash forward parallel");
     assert_eq!(output.shape(), &[2, 4]);
 }
 

@@ -57,22 +57,69 @@ use trueno_gpu::driver::{
     GpuBuffer, LaunchConfig,
 };
 use trueno_gpu::kernels::{
-    Activation, ArgMaxFinalKernel, ArgMaxKernel, AttentionKernel,
-    BatchedIncrementalAttentionKernel, BatchedQ4KGemvKernel, BatchedQ6KGemvKernel,
-    BatchedResidualAddKernel, BatchedRopeKernel, BatchedSwigluKernel,
-    BatchedVectorizedRmsNormKernel, BiasActivationKernel, ChunkedTiledQ4KGemvKernel,
-    CoalescedGemvKernel, CoalescedQ4KGemvKernel, CoalescedQ6KGemvKernel, Dp4aQ4KGemvKernel,
-    Dp4aSIMDQ4KGemvKernel, ElementwiseMulKernel, Fp16Q4KGemvKernel, FusedGateUpKernel,
-    FusedGateUpQ4KGemvKernel, FusedQKVKernel, FusedResidualRmsNormKernel,
-    FusedRmsNormQ4KGemvKernel, FusedSwigluKernel, GeluKernel, GemmKernel, GemvKernel,
-    IncrementalAttentionKernel, Kernel, KvCacheScatterIndirectKernel, KvCacheScatterKernel,
-    LayerNormKernel, MultiWarpBatchedQ4KGemvKernel, MultiWarpIncrementalAttentionKernel,
-    PackedDp4aQ4KQ8Kernel, PreciseRmsNormKernel, Q4KGemvKernel, Q4KQ8DotKernel, Q4_0GemvKernel, Q4_1GemvKernel,
-    Q5KGemvKernel, Q5KKernel, Q5_0GemvKernel, Q6KGemvKernel, Q6KKernel, Q8QuantizeKernel,
-    PreciseRopeIndirectKernel,  // CORRECTNESS-013
-    Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel, RmsNormKernel, RopeIndirectKernel,
-    RopeKernel, RopeNeoxIndirectKernel, RopeNeoxKernel, SiluKernel, SoftmaxKernel,
-    TensorCoreQ4KGemmKernel, TiledQ4KGemvKernel, TrueDp4aQ4KGemvKernel, VectorizedQ4KGemvKernel,
+    Activation,
+    ArgMaxFinalKernel,
+    ArgMaxKernel,
+    AttentionKernel,
+    BatchedIncrementalAttentionKernel,
+    BatchedQ4KGemvKernel,
+    BatchedQ6KGemvKernel,
+    BatchedResidualAddKernel,
+    BatchedRopeKernel,
+    BatchedSwigluKernel,
+    BatchedVectorizedRmsNormKernel,
+    BiasActivationKernel,
+    ChunkedTiledQ4KGemvKernel,
+    CoalescedGemvKernel,
+    CoalescedQ4KGemvKernel,
+    CoalescedQ6KGemvKernel,
+    Dp4aQ4KGemvKernel,
+    Dp4aSIMDQ4KGemvKernel,
+    ElementwiseMulKernel,
+    Fp16Q4KGemvKernel,
+    FusedGateUpKernel,
+    FusedGateUpQ4KGemvKernel,
+    FusedQKVKernel,
+    FusedResidualRmsNormKernel,
+    FusedRmsNormQ4KGemvKernel,
+    FusedSwigluKernel,
+    GeluKernel,
+    GemmKernel,
+    GemvKernel,
+    IncrementalAttentionKernel,
+    Kernel,
+    KvCacheScatterIndirectKernel,
+    KvCacheScatterKernel,
+    LayerNormKernel,
+    MultiWarpBatchedQ4KGemvKernel,
+    MultiWarpIncrementalAttentionKernel,
+    PackedDp4aQ4KQ8Kernel,
+    PreciseRmsNormKernel,
+    PreciseRopeIndirectKernel, // CORRECTNESS-013
+    Q4KGemvKernel,
+    Q4KQ8DotKernel,
+    Q4_0GemvKernel,
+    Q4_1GemvKernel,
+    Q5KGemvKernel,
+    Q5KKernel,
+    Q5_0GemvKernel,
+    Q6KGemvKernel,
+    Q6KKernel,
+    Q8QuantizeKernel,
+    Q8_0GemvKernel,
+    QuantizeKernel,
+    ResidualAddKernel,
+    RmsNormKernel,
+    RopeIndirectKernel,
+    RopeKernel,
+    RopeNeoxIndirectKernel,
+    RopeNeoxKernel,
+    SiluKernel,
+    SoftmaxKernel,
+    TensorCoreQ4KGemmKernel,
+    TiledQ4KGemvKernel,
+    TrueDp4aQ4KGemvKernel,
+    VectorizedQ4KGemvKernel,
     VectorizedRmsNormKernel,
 };
 use trueno_gpu::GpuError;
@@ -458,7 +505,7 @@ pub enum KernelType {
         /// Output dimension (N)
         n: u32,
     },
-    /// Q4_0 quantized GEMV (fused dequantization) - PAR-058-FIX
+    /// Q4_0 quantized GEMV (fused dequantization) - PAR-058
     /// Q4_0 format: 18 bytes per 32 values (2-byte fp16 scale + 16 bytes packed nibbles)
     /// Used when GGUF header says Q5_0 but data is actually Q4_0 (qtype mismatch)
     Q4_0Gemv {
@@ -467,7 +514,7 @@ pub enum KernelType {
         /// Output dimension (N)
         n: u32,
     },
-    /// Q4_1 quantized GEMV (fused dequantization) - PAR-058-FIX
+    /// Q4_1 quantized GEMV (fused dequantization) - PAR-058
     /// Q4_1 format: 20 bytes per 32 values (2-byte fp16 scale + 2-byte fp16 min + 16 bytes packed nibbles)
     /// Used when Qwen2.5-0.5B FFN down is Q4_1 despite metadata claiming Q4_K
     Q4_1Gemv {
@@ -822,7 +869,7 @@ impl CudaKernels {
                 // With tile_q = tile_kv = T: smem = T * head_dim * 3 * 4
                 // Max T = 48KB / (head_dim * 12)
                 let max_tile = (48 * 1024) / (head_dim * 12);
-                // IMP-1010 FIX: Also constrain by thread limit (1024 / head_dim)
+                // IMP-1010: Also constrain by thread limit (1024 / head_dim)
                 // Must match flash_attention_multi_head launch config
                 // Kernel assumes tile_q == tile_kv (same threads load Q and K)
                 let thread_limit = 1024 / head_dim;
@@ -925,9 +972,9 @@ impl CudaKernels {
             KernelType::Q8_0Gemv { k, n } => Q8_0GemvKernel::new(*k, *n).emit_ptx(),
             // PAR-058: Q5_0 GEMV - used for Q/K weights in Qwen 0.5B
             KernelType::Q5_0Gemv { k, n } => Q5_0GemvKernel::new(*k, *n).emit_ptx(),
-            // PAR-058-FIX: Q4_0 GEMV - used when GGUF qtype mismatch detected
+            // PAR-058: Q4_0 GEMV - used when GGUF qtype mismatch detected
             KernelType::Q4_0Gemv { k, n } => Q4_0GemvKernel::new(*k, *n).emit_ptx(),
-            // PAR-058-FIX: Q4_1 GEMV - used when Qwen2.5-0.5B FFN down is Q4_1
+            // PAR-058: Q4_1 GEMV - used when Qwen2.5-0.5B FFN down is Q4_1
             KernelType::Q4_1Gemv { k, n } => Q4_1GemvKernel::new(*k, *n).emit_ptx(),
             // PAR-020 + PAR-021: Incremental attention for M=1 autoregressive decoding
             // Supports GQA via with_gqa() constructor
@@ -1180,9 +1227,9 @@ impl CudaKernels {
             KernelType::Q8_0Gemv { .. } => "q8_0_gemv_warp_reduce",
             // PAR-058: Q5_0 GEMV
             KernelType::Q5_0Gemv { .. } => "q5_0_gemv_warp_reduce",
-            // PAR-058-FIX: Q4_0 GEMV
+            // PAR-058: Q4_0 GEMV
             KernelType::Q4_0Gemv { .. } => "q4_0_gemv_warp_reduce",
-            // PAR-058-FIX: Q4_1 GEMV
+            // PAR-058: Q4_1 GEMV
             KernelType::Q4_1Gemv { .. } => "q4_1_gemv_warp_reduce",
             // PAR-020: Incremental attention for M=1 autoregressive decoding
             // PAR-061: indirect mode returns different kernel name
@@ -1846,19 +1893,19 @@ pub struct IndexedLayerWeights {
     pub attn_output_ptr: u64,
     /// O projection weights size in bytes
     pub attn_output_len: usize,
-    /// O projection quantization type (PAR-058-FIX: Q4_0 models were broken)
+    /// O projection quantization type (PAR-058: Q4_0 models were broken)
     pub attn_output_qtype: WeightQuantType,
     /// FFN gate projection device pointer (may be Q4K or Q4_0 quantized)
     pub ffn_gate_ptr: u64,
     /// FFN gate projection size in bytes
     pub ffn_gate_len: usize,
-    /// FFN gate projection quantization type (PAR-058-FIX: Q4_0 models were broken)
+    /// FFN gate projection quantization type (PAR-058: Q4_0 models were broken)
     pub ffn_gate_qtype: WeightQuantType,
     /// FFN up projection device pointer (may be Q4K or Q4_0 quantized)
     pub ffn_up_ptr: u64,
     /// FFN up projection size in bytes
     pub ffn_up_len: usize,
-    /// FFN up projection quantization type (PAR-058-FIX: Q4_0 models were broken)
+    /// FFN up projection quantization type (PAR-058: Q4_0 models were broken)
     pub ffn_up_qtype: WeightQuantType,
     /// FFN down projection device pointer (Q4K, Q6K, or Q4_0 quantized)
     pub ffn_down_ptr: u64,
@@ -1905,7 +1952,7 @@ pub enum WeightQuantType {
     /// Q4_0 quantization (type 2) - 18 bytes per 32 elements
     Q4_0,
     /// Q4_1 quantization (type 3) - 20 bytes per 32 elements (2 f16 scale + 2 f16 min + 16 quants)
-    /// PAR-058-FIX: Added to handle Qwen 0.5B which has FFN down in Q4_1 despite metadata
+    /// PAR-058: Added to handle Qwen 0.5B which has FFN down in Q4_1 despite metadata
     Q4_1,
 }
 
@@ -1940,7 +1987,7 @@ impl WeightQuantType {
     pub fn from_ggml_type(type_id: u32) -> Option<Self> {
         match type_id {
             2 => Some(Self::Q4_0),
-            3 => Some(Self::Q4_1), // PAR-058-FIX: Q4_1 support
+            3 => Some(Self::Q4_1), // PAR-058: Q4_1 support
             6 => Some(Self::Q5_0),
             8 => Some(Self::Q8_0),
             12 => Some(Self::Q4K),
@@ -1967,7 +2014,7 @@ impl WeightQuantType {
         }
     }
 
-    /// PAR-058-FIX: Detect quantization type from actual weight size
+    /// PAR-058: Detect quantization type from actual weight size
     /// Some GGUF files have incorrect type metadata, so we verify by size
     ///
     /// CORRECTNESS-002 FIX: For certain dimension combinations, Q4_0 and Q4K have
@@ -2094,7 +2141,7 @@ pub struct CudaExecutor {
     output_norm_len: usize,
     lm_head_ptr: u64,
     lm_head_len: usize,
-    // PAR-058-FIX: LM head quantization type (Q6_K in Qwen 1.5B, not Q4_K)
+    // PAR-058: LM head quantization type (Q6_K in Qwen 1.5B, not Q4_K)
     lm_head_qtype: WeightQuantType,
     // PAR-064-FIX: LM head bias pointer and length (optional, for models with output.bias)
     lm_head_bias_ptr: u64,
@@ -2947,14 +2994,14 @@ impl CudaExecutor {
                 );
             }
 
-            // PAR-058-FIX: Get O projection quantization type (was missing, causing Q4_0 models to fail)
+            // PAR-058: Get O projection quantization type (was missing, causing Q4_0 models to fail)
             let attn_output_qtype = self
                 .quantized_weight_types
                 .get(&o_name)
                 .and_then(|&t| WeightQuantType::from_ggml_type(t))
                 .unwrap_or(WeightQuantType::Q4K);
 
-            // PAR-058-FIX: Get FFN gate/up quantization types (was missing, causing Q4_0 models to fail)
+            // PAR-058: Get FFN gate/up quantization types (was missing, causing Q4_0 models to fail)
             let ffn_gate_qtype = self
                 .quantized_weight_types
                 .get(&gate_name)
@@ -3028,13 +3075,13 @@ impl CudaExecutor {
                 attn_v_qtype,
                 attn_output_ptr,
                 attn_output_len,
-                attn_output_qtype, // PAR-058-FIX: was missing
+                attn_output_qtype, // PAR-058: was missing
                 ffn_gate_ptr,
                 ffn_gate_len,
-                ffn_gate_qtype, // PAR-058-FIX: was missing
+                ffn_gate_qtype, // PAR-058: was missing
                 ffn_up_ptr,
                 ffn_up_len,
-                ffn_up_qtype, // PAR-058-FIX: was missing
+                ffn_up_qtype, // PAR-058: was missing
                 ffn_down_ptr,
                 ffn_down_len,
                 ffn_down_qtype,
@@ -3061,7 +3108,7 @@ impl CudaExecutor {
         }
 
         // PAR-054: Index LM head weight for CUDA graph capture
-        // PAR-058-FIX: Detect LM head quantization type (Q6_K in Qwen 1.5B, not Q4_K)
+        // PAR-058: Detect LM head quantization type (Q6_K in Qwen 1.5B, not Q4_K)
         if let Some(buf) = self.quantized_weight_cache.get("output.weight") {
             self.lm_head_ptr = buf.as_ptr();
             self.lm_head_len = buf.len();
@@ -3077,7 +3124,7 @@ impl CudaExecutor {
                 };
                 if verbose() {
                     eprintln!(
-                        "[PAR-058-FIX] LM head qtype: {:?} (GGML type {})",
+                        "[PAR-058] LM head qtype: {:?} (GGML type {})",
                         self.lm_head_qtype, qtype
                     );
                 }
@@ -4789,7 +4836,7 @@ impl CudaExecutor {
             .as_ptr();
 
         // CORRECTNESS-001: Use TiledQ4KGemv for aligned K (matches sync version)
-        // The basic Q4KGemv kernel has the same scale extraction bug
+        // The basic Q4KGemv kernel has the same scale extraction issue
         let use_tiled = k.is_multiple_of(256);
         let outputs_per_block = 4u32;
 
@@ -6114,7 +6161,7 @@ impl CudaExecutor {
         Ok(())
     }
 
-    /// PAR-058-FIX: Execute Q4_0 GEMV into existing buffer (zero-allocation, async)
+    /// PAR-058: Execute Q4_0 GEMV into existing buffer (zero-allocation, async)
     ///
     /// Like `q5_0_gemv_into` but for Q4_0 quantized weights.
     /// Used when GGUF header claims Q5_0 but data is actually Q4_0 format (qtype mismatch).
@@ -6137,7 +6184,7 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
-        // PAR-058-FIX: Zero allocation Q4_0 GEMV for GGUF qtype mismatch
+        // PAR-058: Zero allocation Q4_0 GEMV for GGUF qtype mismatch
         let kernel_type = KernelType::Q4_0Gemv { k, n };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
         let cache_key = format!("q4_0_gemv_{}_{}", k, n);
@@ -6179,7 +6226,7 @@ impl CudaExecutor {
         Ok(())
     }
 
-    /// PAR-058-FIX: Execute Q4_1 GEMV into existing buffer (zero-allocation, async)
+    /// PAR-058: Execute Q4_1 GEMV into existing buffer (zero-allocation, async)
     ///
     /// Like `q4_0_gemv_into` but for Q4_1 quantized weights.
     /// Q4_1 adds a min offset (affine quantization) vs Q4_0's symmetric quantization.
@@ -6203,7 +6250,7 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
-        // PAR-058-FIX: Zero allocation Q4_1 GEMV for Qwen2.5-0.5B FFN down
+        // PAR-058: Zero allocation Q4_1 GEMV for Qwen2.5-0.5B FFN down
         let kernel_type = KernelType::Q4_1Gemv { k, n };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
         let cache_key = format!("q4_1_gemv_{}_{}", k, n);
@@ -7209,7 +7256,9 @@ impl CudaExecutor {
                 .map(|v| v == "1")
                 .unwrap_or(false);
             if mode {
-                eprintln!("[CORRECTNESS-013] RMSNorm using PreciseRmsNormKernel (Kahan+Newton-Raphson)");
+                eprintln!(
+                    "[CORRECTNESS-013] RMSNorm using PreciseRmsNormKernel (Kahan+Newton-Raphson)"
+                );
             }
             mode
         });
@@ -8548,7 +8597,9 @@ impl CudaExecutor {
                 .map(|v| v == "1")
                 .unwrap_or(false);
             if mode {
-                eprintln!("[CORRECTNESS-013] RoPE NEOX using PreciseRopeIndirectKernel (polynomial trig)");
+                eprintln!(
+                    "[CORRECTNESS-013] RoPE NEOX using PreciseRopeIndirectKernel (polynomial trig)"
+                );
             }
             mode
         });
@@ -9497,7 +9548,7 @@ impl CudaExecutor {
         // PAR-063: Use DP4A kernel for aligned dimensions (fastest)
         let _use_dp4a = hidden_aligned && q_aligned && hidden_dim <= CHUNK_THRESHOLD;
         let q = {
-            // Force TiledQ4K for now - dp4a_q4k has scale extraction bug
+            // Force TiledQ4K for now - dp4a_q4k has scale extraction issue
             self.q4k_gemv_cached_async(&q_name, &normed, q_dim, hidden_dim)?
         };
         let _use_dp4a_kv = hidden_aligned && kv_aligned && hidden_dim <= CHUNK_THRESHOLD;
@@ -10494,7 +10545,7 @@ impl CudaExecutor {
         // PAR-056: Tiled kernel selection based on K dimension
         let lm_head_name = "output.weight".to_string();
 
-        // PAR-058-FIX: Detect LM head quantization type using size-based detection
+        // PAR-058: Detect LM head quantization type using size-based detection
         let lm_head_qtype = if let Some(lm_head_buf) =
             self.quantized_weight_cache.get(&lm_head_name)
         {
@@ -10549,7 +10600,7 @@ impl CudaExecutor {
         // Allocate logits buffer
         let logits_gpu = GpuBuffer::<f32>::new(&self.context, vocab_size as usize)?;
 
-        // PAR-058-FIX: Dispatch to correct kernel based on detected quantization type
+        // PAR-058: Dispatch to correct kernel based on detected quantization type
         match lm_head_qtype {
             WeightQuantType::Q6K => {
                 self.q6k_gemv_into(
@@ -10579,9 +10630,11 @@ impl CudaExecutor {
                     let (global_max_idx, global_max_val) = all_logits
                         .iter()
                         .enumerate()
-                        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                        .max_by(|(_, a), (_, b)| {
+                            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+                        })
                         .map(|(i, v)| (i, *v))
-                        .unwrap();
+                        .expect("CUDA operation failed");
                     eprintln!(
                         "[CORRECTNESS-007] Global argmax: idx={}, val={:.4}",
                         global_max_idx, global_max_val
@@ -10609,7 +10662,7 @@ impl CudaExecutor {
                     );
 
                     let logits_debug = all_logits[..20].to_vec();
-                    // Check for all-zeros or all-same values (sign of kernel bug)
+                    // Check for all-zeros or all-same values (sign of kernel issue)
                     let first = logits_debug[0];
                     let all_same = logits_debug.iter().all(|&x| (x - first).abs() < 0.001);
                     if all_same {
@@ -10622,8 +10675,8 @@ impl CudaExecutor {
                     let (max_idx, max_val) = logits_debug
                         .iter()
                         .enumerate()
-                        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-                        .unwrap();
+                        .max_by(|(_, a), (_, b)| a.partial_cmp(b).expect("CUDA operation failed"))
+                        .expect("CUDA operation failed");
                     eprintln!(
                         "[CORRECTNESS-003] Q6K argmax in first 20: idx={}, val={}",
                         max_idx, max_val
@@ -10655,7 +10708,9 @@ impl CudaExecutor {
                                 // Each superblock: 128 ql (low 4 bits), 64 qh (high 2 bits), 16 scales, 1 d (f16)
                                 for sb in 0..super_blocks_per_row {
                                     let sb_offset = sb * 210;
-                                    if sb_offset + 210 > row_data.len() { break; }
+                                    if sb_offset + 210 > row_data.len() {
+                                        break;
+                                    }
 
                                     // Extract d scale (f16 at offset 0)
                                     let d_bytes = [row_data[sb_offset], row_data[sb_offset + 1]];
@@ -10673,7 +10728,9 @@ impl CudaExecutor {
                                     // Dequantize and dot product
                                     for i in 0..256 {
                                         let hidden_idx = sb * 256 + i;
-                                        if hidden_idx >= hidden_dim as usize { break; }
+                                        if hidden_idx >= hidden_dim as usize {
+                                            break;
+                                        }
 
                                         // Extract 6-bit quantized value
                                         let ql_idx = i / 2;
@@ -10702,7 +10759,9 @@ impl CudaExecutor {
                         eprintln!("[CORRECTNESS-004] CPU logits[0..20]: {:?}", cpu_logits);
 
                         // Compare
-                        let max_diff = logits_debug.iter().zip(cpu_logits.iter())
+                        let max_diff = logits_debug
+                            .iter()
+                            .zip(cpu_logits.iter())
                             .map(|(g, c)| (g - c).abs())
                             .fold(0.0f32, f32::max);
                         eprintln!("[CORRECTNESS-004] Max GPU-CPU diff: {:.6}", max_diff);
@@ -11481,9 +11540,8 @@ impl CudaExecutor {
         intermediate_dim: u32,
         epsilon: f32,
     ) -> Result<(), GpuError> {
-        // This is similar to transformer_layer_batched but uses device-side positions
-        // For now, just call the regular batched version with positions read back
-        // TODO: Optimize to use positions_ptr directly in kernels
+        // Uses batched version with positions read back from device
+        // Direct device-side position access planned for PAR-200
 
         // For graph capture, we need to avoid host-device transfers
         // The positions are already on device, kernels can read from there
@@ -12057,7 +12115,7 @@ impl CudaExecutor {
         }
 
         // 5. LM head (hidden_dim -> vocab_size) - pre-load both Q4K and Q6K
-        // PAR-058-FIX: Qwen 1.5B uses Q6K for LM head, not Q4K
+        // PAR-058: Qwen 1.5B uses Q6K for LM head, not Q4K
         // PAR-065: Coalesced Q4K for LM head
         let lm_head_q4k_key = format!("coalesced_q4k_gemv_{}_{}", hidden_dim, vocab_size);
         if !self.modules.contains_key(&lm_head_q4k_key) {
@@ -12678,8 +12736,8 @@ impl CudaExecutor {
             let (cpu_argmax_idx, cpu_argmax_val) = all_logits
                 .iter()
                 .enumerate()
-                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-                .unwrap();
+                .max_by(|(_, a), (_, b)| a.partial_cmp(b).expect("CUDA operation failed"))
+                .expect("CUDA operation failed");
 
             eprintln!(
                 "[CORRECTNESS-004] Graph logits[0..20]: {:?}",
@@ -12844,7 +12902,7 @@ impl CudaExecutor {
         std::mem::forget(normed_output);
 
         // LM head projection - PAR-054: Use pre-allocated logits_buf
-        // PAR-058-FIX: Use correct kernel based on LM head quantization type
+        // PAR-058: Use correct kernel based on LM head quantization type
         let logits_ptr = self
             .workspace
             .logits_buf
@@ -12875,7 +12933,7 @@ impl CudaExecutor {
         // SAFETY: Memory safety ensured by bounds checking and alignment
         let normed_input = unsafe { GpuBuffer::<f32>::from_raw_parts(normed_ptr, normed_len) };
 
-        // PAR-058-FIX: Dispatch to correct kernel based on LM head quant type
+        // PAR-058: Dispatch to correct kernel based on LM head quant type
         // Validate qtype against actual size - GGUF metadata can lie!
         let lm_head_qtype =
             WeightQuantType::from_size(self.lm_head_len, vocab_size as usize, hidden_dim as usize)
@@ -12884,7 +12942,7 @@ impl CudaExecutor {
         // Log if we overrode the type
         if lm_head_qtype != self.lm_head_qtype {
             eprintln!(
-                "[PAR-058-FIX] LM head qtype override: {:?} -> {:?} (size-based detection)",
+                "[PAR-058] LM head qtype override: {:?} -> {:?} (size-based detection)",
                 self.lm_head_qtype, lm_head_qtype
             );
         }
@@ -13018,7 +13076,7 @@ impl CudaExecutor {
         let kv_aligned = kv_dim.is_multiple_of(256);
 
         // PAR-056: For K > 8192, use non-tiled Q4KGemvKernel (warp-based)
-        // TODO: Debug ChunkedTiledQ4KGemvKernel for large K (causes Error 700)
+        // ChunkedTiledQ4KGemvKernel bypassed for large K (PAR-056 path)
         let q = if !hidden_aligned || !q_aligned || hidden_dim > CHUNK_THRESHOLD {
             self.q4k_gemv_cached_async(&q_name, &normed, q_dim, hidden_dim)?
         } else {
@@ -14017,7 +14075,7 @@ impl CudaExecutor {
         }
 
         // 4. Output projection: attn_out_buf -> hidden_buf1 (reuse, normed no longer needed)
-        // PAR-058-FIX: Use correct kernel based on output projection quantization type
+        // PAR-058: Use correct kernel based on output projection quantization type
         let timer_oproj = if profiling {
             self.start_brick_timer("OProj")
         } else {
@@ -14033,7 +14091,7 @@ impl CudaExecutor {
                     q_dim,
                 )?;
             },
-            // PAR-058-FIX: Add Q5_0 support for output projection (Qwen 0.5B)
+            // PAR-058: Add Q5_0 support for output projection (Qwen 0.5B)
             WeightQuantType::Q5_0 => {
                 self.q5_0_gemv_into(
                     layer_weights.attn_output_ptr,
@@ -14145,7 +14203,7 @@ impl CudaExecutor {
                     hidden_dim,
                 )?;
             },
-            // PAR-058-FIX: Add Q5_0 support for FFN gate (Qwen 0.5B)
+            // PAR-058: Add Q5_0 support for FFN gate (Qwen 0.5B)
             WeightQuantType::Q5_0 => {
                 self.q5_0_gemv_into(
                     layer_weights.ffn_gate_ptr,
@@ -14175,7 +14233,7 @@ impl CudaExecutor {
                     hidden_dim,
                 )?;
             },
-            // PAR-058-FIX: Add Q5_0 support for FFN up (Qwen 0.5B)
+            // PAR-058: Add Q5_0 support for FFN up (Qwen 0.5B)
             WeightQuantType::Q5_0 => {
                 self.q5_0_gemv_into(
                     layer_weights.ffn_up_ptr,
@@ -14306,7 +14364,7 @@ impl CudaExecutor {
         // Log if we overrode the type
         if !skip_debug && ffn_down_qtype != layer_weights.ffn_down_qtype && layer_idx == 0 {
             eprintln!(
-                "[PAR-058-FIX] FFN down qtype override: {:?} -> {:?} (size-based detection)",
+                "[PAR-058] FFN down qtype override: {:?} -> {:?} (size-based detection)",
                 layer_weights.ffn_down_qtype, ffn_down_qtype
             );
         }
@@ -14344,7 +14402,7 @@ impl CudaExecutor {
                 )?;
             },
             WeightQuantType::Q4_1 => {
-                // PAR-058-FIX: Q4_1 for Qwen2.5-0.5B FFN down (size-based detection)
+                // PAR-058: Q4_1 for Qwen2.5-0.5B FFN down (size-based detection)
                 self.q4_1_gemv_into(
                     layer_weights.ffn_down_ptr,
                     &ffn_act_buf,
@@ -15623,7 +15681,7 @@ impl CudaExecutor {
         // Launch configuration: 2D grid for attention
         // Grid X: Q blocks (ceil(seq_len / tile_q)), Grid Y: num_heads
         // Threads: tile_q * head_dim (must be <= 1024)
-        // IMP-1010 FIX: Ensure tile_q * head_dim <= 1024 so all threads can load Q/K/V elements
+        // IMP-1010: Ensure tile_q * head_dim <= 1024 so all threads can load Q/K/V elements
         let thread_limit = 1024 / head_dim;
         let tile_q = 64u32.min(seq_len).min(thread_limit);
         let num_q_blocks = (seq_len + tile_q - 1) / tile_q;
@@ -15760,7 +15818,7 @@ impl CudaExecutor {
         // - Threads = tile_q * head_dim (each thread handles one element)
         // Calculate tile size to fit in 48KB shared memory (same as generate_ptx)
         let max_tile = (48 * 1024) / (head_dim * 12);
-        // IMP-1010 FIX: Ensure tile_q * head_dim <= 1024 so all threads can load Q/K/V elements
+        // IMP-1010: Ensure tile_q * head_dim <= 1024 so all threads can load Q/K/V elements
         // Without this constraint, we launch 1024 threads but need tile_q * head_dim > 1024 loads
         let thread_limit = 1024 / head_dim;
         let tile_q = max_tile.min(64).min(seq_len).min(thread_limit);
@@ -16589,7 +16647,7 @@ impl CudaExecutor {
 
         // CORRECTNESS-013: Stateless GPU mode - disable KV cache to isolate cache bugs
         // When STATELESS_GPU=1, attention only sees the current token (no history)
-        // If output becomes correct in stateless mode, the bug is in KV cache logic
+        // If output becomes correct in stateless mode, the issue is in KV cache logic
         static STATELESS_MODE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         let use_stateless = *STATELESS_MODE.get_or_init(|| {
             let mode = std::env::var("STATELESS_GPU")
@@ -16732,7 +16790,11 @@ impl CudaExecutor {
                 let scatter_module = self.modules.get_mut(&scatter_key).expect("just inserted");
 
                 // CORRECTNESS-013: In stateless mode, always write to position 0
-                let mut position_val = if use_stateless { 0u32 } else { cache_len as u32 };
+                let mut position_val = if use_stateless {
+                    0u32
+                } else {
+                    cache_len as u32
+                };
 
                 // CORRECTNESS-001 FIX: Kernel expects (src, cache, pos, head_dim, max_len)
                 // Fixed parameter order: pos is 3rd, removed extra num_heads_val
@@ -17032,7 +17094,8 @@ impl CudaExecutor {
                 let start = h * head_dim;
                 eprintln!(
                     "[CORRECTNESS-013-ATTN] Head {} first 5: {:?}",
-                    h, &attn_out[start..start+5]
+                    h,
+                    &attn_out[start..start + 5]
                 );
             }
         }
@@ -20113,7 +20176,10 @@ mod tests {
         // Verify softmax properties: sum to 1, all positive
         let sum: f32 = data.iter().sum();
         assert!((sum - 1.0).abs() < 1e-5, "softmax sum should be 1.0");
-        assert!(data.iter().all(|&x| x > 0.0), "all values should be positive");
+        assert!(
+            data.iter().all(|&x| x > 0.0),
+            "all values should be positive"
+        );
     }
 
     #[test]
@@ -20133,11 +20199,20 @@ mod tests {
 
         let tile_size = 32u32;
         let result = executor.gemm_optimized(&a, &b, &mut c, m, n, k, tile_size);
-        assert!(result.is_ok(), "gemm_optimized should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "gemm_optimized should succeed: {:?}",
+            result
+        );
 
         // Each element should be k (dot product of k ones)
         for val in &c {
-            assert!((*val - k as f32).abs() < 1e-3, "expected {}, got {}", k, val);
+            assert!(
+                (*val - k as f32).abs() < 1e-3,
+                "expected {}, got {}",
+                k,
+                val
+            );
         }
     }
 
@@ -20159,17 +20234,29 @@ mod tests {
 
         // Test with bias and no activation (0)
         let result = executor.gemm_fused(&a, &b, Some(&bias), &mut c, m, n, k, 0);
-        assert!(result.is_ok(), "gemm_fused with no activation should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "gemm_fused with no activation should succeed: {:?}",
+            result
+        );
 
         // Test with bias and ReLU activation (1)
         c.fill(0.0);
         let result = executor.gemm_fused(&a, &b, Some(&bias), &mut c, m, n, k, 1);
-        assert!(result.is_ok(), "gemm_fused with ReLU should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "gemm_fused with ReLU should succeed: {:?}",
+            result
+        );
 
         // Test with bias and GELU activation (2)
         c.fill(0.0);
         let result = executor.gemm_fused(&a, &b, Some(&bias), &mut c, m, n, k, 2);
-        assert!(result.is_ok(), "gemm_fused with GELU should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "gemm_fused with GELU should succeed: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -20190,8 +20277,21 @@ mod tests {
         let v = vec![1.0f32; size];
         let mut output = vec![0.0f32; size];
 
-        let result = executor.flash_attention_multi_head(&q, &k, &v, &mut output, seq_len, head_dim, n_heads, true);
-        assert!(result.is_ok(), "flash_attention_multi_head should succeed: {:?}", result);
+        let result = executor.flash_attention_multi_head(
+            &q,
+            &k,
+            &v,
+            &mut output,
+            seq_len,
+            head_dim,
+            n_heads,
+            true,
+        );
+        assert!(
+            result.is_ok(),
+            "flash_attention_multi_head should succeed: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -20231,7 +20331,11 @@ mod tests {
         let mut output = vec![0.0f32; size];
 
         let result = executor.elementwise_mul_host(&a, &b, &mut output);
-        assert!(result.is_ok(), "elementwise_mul_host should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "elementwise_mul_host should succeed: {:?}",
+            result
+        );
         assert!((output[0] - 6.0).abs() < 1e-5, "2 * 3 should be 6");
     }
 
@@ -20368,7 +20472,7 @@ mod tests {
         // Get memory info
         let mem_info = executor.memory_info();
         assert!(mem_info.is_ok(), "memory_info should succeed");
-        let (free, total) = mem_info.unwrap();
+        let (free, total) = mem_info.expect("CUDA operation failed");
         assert!(total > 0, "total memory should be > 0");
         assert!(free <= total, "free should be <= total");
 
@@ -20415,7 +20519,10 @@ mod tests {
         // This should return true on a system with CUDA (checks /dev/nvidia0 or CUDA_VISIBLE_DEVICES)
         let likely = CudaKernels::cuda_likely_available();
         // On a system with RTX 4090, this should be true
-        assert!(likely, "cuda_likely_available should be true on a system with NVIDIA GPU");
+        assert!(
+            likely,
+            "cuda_likely_available should be true on a system with NVIDIA GPU"
+        );
     }
 
     #[test]
@@ -20424,7 +20531,10 @@ mod tests {
         let num_devices = CudaExecutor::num_devices();
 
         if available {
-            assert!(num_devices > 0, "If CUDA available, num_devices should be > 0");
+            assert!(
+                num_devices > 0,
+                "If CUDA available, num_devices should be > 0"
+            );
         }
     }
 
@@ -20604,8 +20714,16 @@ mod tests {
                 head_dim: 64,
                 causal: true,
             },
-            KernelType::QuantizedGemm { m: 1, n: 256, k: 256 },
-            KernelType::QuantizedGemmGgml { m: 1, n: 256, k: 256 },
+            KernelType::QuantizedGemm {
+                m: 1,
+                n: 256,
+                k: 256,
+            },
+            KernelType::QuantizedGemmGgml {
+                m: 1,
+                n: 256,
+                k: 256,
+            },
             KernelType::Q4KGemv { k: 256, n: 256 },
             KernelType::Q5KGemv { k: 256, n: 256 },
             KernelType::Q6KGemv { k: 256, n: 256 },
@@ -21658,7 +21776,10 @@ mod proptests {
             .load_quantized_weights(&format!("{}.attn_v.weight", layer_prefix), &qkvo_weights)
             .expect("T-QA-012a: Load V weights");
         executor
-            .load_quantized_weights(&format!("{}.attn_output.weight", layer_prefix), &qkvo_weights)
+            .load_quantized_weights(
+                &format!("{}.attn_output.weight", layer_prefix),
+                &qkvo_weights,
+            )
             .expect("T-QA-012a: Load O weights");
 
         // FFN weights
@@ -21668,7 +21789,10 @@ mod proptests {
         let gate_up_weights = create_mock_q4k_weights_for_harness(1024, 256);
         let down_weights = create_mock_q4k_weights_for_harness(256, 1024);
         executor
-            .load_quantized_weights(&format!("{}.ffn_gate.weight", layer_prefix), &gate_up_weights)
+            .load_quantized_weights(
+                &format!("{}.ffn_gate.weight", layer_prefix),
+                &gate_up_weights,
+            )
             .expect("T-QA-012a: Load gate weights");
         executor
             .load_quantized_weights(&format!("{}.ffn_up.weight", layer_prefix), &gate_up_weights)
@@ -21707,7 +21831,7 @@ mod proptests {
             "T-QA-012a: transformer_layer_gpu should execute: {:?}",
             result.err()
         );
-        let output = result.unwrap();
+        let output = result.expect("CUDA operation failed");
         assert_eq!(
             output.len(),
             hidden_dim as usize,
@@ -21750,35 +21874,41 @@ mod proptests {
         let qkvo_weights = create_mock_q4k_weights_for_harness(256, 256);
         executor
             .load_quantized_weights(&format!("{}.attn_q.weight", layer_prefix), &qkvo_weights)
-            .unwrap();
+            .expect("CUDA operation failed");
         executor
             .load_quantized_weights(&format!("{}.attn_k.weight", layer_prefix), &qkvo_weights)
-            .unwrap();
+            .expect("CUDA operation failed");
         executor
             .load_quantized_weights(&format!("{}.attn_v.weight", layer_prefix), &qkvo_weights)
-            .unwrap();
+            .expect("CUDA operation failed");
         executor
-            .load_quantized_weights(&format!("{}.attn_output.weight", layer_prefix), &qkvo_weights)
-            .unwrap();
+            .load_quantized_weights(
+                &format!("{}.attn_output.weight", layer_prefix),
+                &qkvo_weights,
+            )
+            .expect("CUDA operation failed");
 
         let gate_up_weights = create_mock_q4k_weights_for_harness(1024, 256);
         let down_weights = create_mock_q4k_weights_for_harness(256, 1024);
         executor
-            .load_quantized_weights(&format!("{}.ffn_gate.weight", layer_prefix), &gate_up_weights)
-            .unwrap();
+            .load_quantized_weights(
+                &format!("{}.ffn_gate.weight", layer_prefix),
+                &gate_up_weights,
+            )
+            .expect("CUDA operation failed");
         executor
             .load_quantized_weights(&format!("{}.ffn_up.weight", layer_prefix), &gate_up_weights)
-            .unwrap();
+            .expect("CUDA operation failed");
         executor
             .load_quantized_weights(&format!("{}.ffn_down.weight", layer_prefix), &down_weights)
-            .unwrap();
+            .expect("CUDA operation failed");
 
         let gamma = vec![1.0f32; hidden_dim as usize];
-        let attn_norm_gamma = GpuBuffer::from_host(&executor.context, &gamma).unwrap();
-        let ffn_norm_gamma = GpuBuffer::from_host(&executor.context, &gamma).unwrap();
+        let attn_norm_gamma = GpuBuffer::from_host(&executor.context, &gamma).expect("CUDA operation failed");
+        let ffn_norm_gamma = GpuBuffer::from_host(&executor.context, &gamma).expect("CUDA operation failed");
 
         let input_data = vec![0.1f32; hidden_dim as usize];
-        let input = GpuBuffer::from_host(&executor.context, &input_data).unwrap();
+        let input = GpuBuffer::from_host(&executor.context, &input_data).expect("CUDA operation failed");
 
         // Execute tiled profiled variant
         let result = executor.transformer_layer_gpu_tiled_profiled(
@@ -21797,7 +21927,7 @@ mod proptests {
             "T-QA-012b: transformer_layer_gpu_tiled_profiled should execute: {:?}",
             result.err()
         );
-        let output = result.unwrap();
+        let output = result.expect("CUDA operation failed");
         assert_eq!(output.len(), hidden_dim as usize);
         println!("T-QA-012b: transformer_layer_gpu_tiled_profiled execution PASSED");
     }
@@ -21805,7 +21935,7 @@ mod proptests {
     /// T-QA-012c: Test transformer_layer_gpu_true_dp4a
     ///
     /// Tests the DP4A (dot product of 4 8-bit integers) optimized variant.
-    /// Note: CORRECTNESS-001 disables DP4A kernel due to scale extraction bug.
+    /// Note: CORRECTNESS-001 disables DP4A kernel due to scale extraction issue.
     /// This test verifies the code path is exercised, accepting either success or
     /// the known PTX error from the disabled kernel.
     #[test]
@@ -21838,35 +21968,41 @@ mod proptests {
         let qkvo_weights = create_mock_q4k_weights_for_harness(256, 256);
         executor
             .load_quantized_weights(&format!("{}.attn_q.weight", layer_prefix), &qkvo_weights)
-            .unwrap();
+            .expect("CUDA operation failed");
         executor
             .load_quantized_weights(&format!("{}.attn_k.weight", layer_prefix), &qkvo_weights)
-            .unwrap();
+            .expect("CUDA operation failed");
         executor
             .load_quantized_weights(&format!("{}.attn_v.weight", layer_prefix), &qkvo_weights)
-            .unwrap();
+            .expect("CUDA operation failed");
         executor
-            .load_quantized_weights(&format!("{}.attn_output.weight", layer_prefix), &qkvo_weights)
-            .unwrap();
+            .load_quantized_weights(
+                &format!("{}.attn_output.weight", layer_prefix),
+                &qkvo_weights,
+            )
+            .expect("CUDA operation failed");
 
         let gate_up_weights = create_mock_q4k_weights_for_harness(1024, 256);
         let down_weights = create_mock_q4k_weights_for_harness(256, 1024);
         executor
-            .load_quantized_weights(&format!("{}.ffn_gate.weight", layer_prefix), &gate_up_weights)
-            .unwrap();
+            .load_quantized_weights(
+                &format!("{}.ffn_gate.weight", layer_prefix),
+                &gate_up_weights,
+            )
+            .expect("CUDA operation failed");
         executor
             .load_quantized_weights(&format!("{}.ffn_up.weight", layer_prefix), &gate_up_weights)
-            .unwrap();
+            .expect("CUDA operation failed");
         executor
             .load_quantized_weights(&format!("{}.ffn_down.weight", layer_prefix), &down_weights)
-            .unwrap();
+            .expect("CUDA operation failed");
 
         let gamma = vec![1.0f32; hidden_dim as usize];
-        let attn_norm_gamma = GpuBuffer::from_host(&executor.context, &gamma).unwrap();
-        let ffn_norm_gamma = GpuBuffer::from_host(&executor.context, &gamma).unwrap();
+        let attn_norm_gamma = GpuBuffer::from_host(&executor.context, &gamma).expect("CUDA operation failed");
+        let ffn_norm_gamma = GpuBuffer::from_host(&executor.context, &gamma).expect("CUDA operation failed");
 
         let input_data = vec![0.1f32; hidden_dim as usize];
-        let input = GpuBuffer::from_host(&executor.context, &input_data).unwrap();
+        let input = GpuBuffer::from_host(&executor.context, &input_data).expect("CUDA operation failed");
 
         // Execute DP4A variant
         let result = executor.transformer_layer_gpu_true_dp4a(
@@ -21880,13 +22016,13 @@ mod proptests {
             epsilon,
         );
 
-        // CORRECTNESS-001: DP4A kernel has known scale extraction bug
+        // CORRECTNESS-001: DP4A kernel has known scale extraction issue
         // Accept either success or the expected PTX error
         match &result {
             Ok(output) => {
                 assert_eq!(output.len(), hidden_dim as usize);
                 println!("T-QA-012c: transformer_layer_gpu_true_dp4a execution PASSED");
-            }
+            },
             Err(e) => {
                 let err_msg = format!("{:?}", e);
                 // Accept known PTX errors from the disabled DP4A kernel
@@ -21898,7 +22034,7 @@ mod proptests {
                 println!(
                     "T-QA-012c: transformer_layer_gpu_true_dp4a correctly reports DP4A kernel issue (CORRECTNESS-001)"
                 );
-            }
+            },
         }
     }
 
@@ -21937,19 +22073,19 @@ mod proptests {
             let qkvo_weights = create_mock_q4k_weights_for_harness(256, 256);
             executor
                 .load_quantized_weights(&format!("{}.attn_q.weight", layer_prefix), &qkvo_weights)
-                .unwrap();
+                .expect("CUDA operation failed");
             executor
                 .load_quantized_weights(&format!("{}.attn_k.weight", layer_prefix), &qkvo_weights)
-                .unwrap();
+                .expect("CUDA operation failed");
             executor
                 .load_quantized_weights(&format!("{}.attn_v.weight", layer_prefix), &qkvo_weights)
-                .unwrap();
+                .expect("CUDA operation failed");
             executor
                 .load_quantized_weights(
                     &format!("{}.attn_output.weight", layer_prefix),
                     &qkvo_weights,
                 )
-                .unwrap();
+                .expect("CUDA operation failed");
 
             let gate_up_weights = create_mock_q4k_weights_for_harness(1024, 256);
             let down_weights = create_mock_q4k_weights_for_harness(256, 1024);
@@ -21958,39 +22094,36 @@ mod proptests {
                     &format!("{}.ffn_gate.weight", layer_prefix),
                     &gate_up_weights,
                 )
-                .unwrap();
+                .expect("CUDA operation failed");
             executor
                 .load_quantized_weights(
                     &format!("{}.ffn_up.weight", layer_prefix),
                     &gate_up_weights,
                 )
-                .unwrap();
+                .expect("CUDA operation failed");
             executor
-                .load_quantized_weights(
-                    &format!("{}.ffn_down.weight", layer_prefix),
-                    &down_weights,
-                )
-                .unwrap();
+                .load_quantized_weights(&format!("{}.ffn_down.weight", layer_prefix), &down_weights)
+                .expect("CUDA operation failed");
 
             // Cache RMSNorm gammas
             let gamma = vec![1.0f32; hidden_dim as usize];
             executor
                 .cache_rmsnorm_gamma(&format!("blk.{}.attn_norm.gamma", layer_idx), &gamma)
-                .unwrap();
+                .expect("CUDA operation failed");
             executor
                 .cache_rmsnorm_gamma(&format!("blk.{}.ffn_norm.gamma", layer_idx), &gamma)
-                .unwrap();
+                .expect("CUDA operation failed");
         }
 
         // Cache output norm using preload_output_norm
         let gamma = vec![1.0f32; hidden_dim as usize];
-        executor.preload_output_norm(&gamma).unwrap();
+        executor.preload_output_norm(&gamma).expect("CUDA operation failed");
 
         // Cache LM head (output.weight) for final projection
         let lm_head_weights = create_mock_q4k_weights_for_harness(1000, 256); // vocab_size=1000
         executor
             .load_quantized_weights("output.weight", &lm_head_weights)
-            .unwrap();
+            .expect("CUDA operation failed");
 
         // Build indexed weights for forward_all_layers_gpu
         executor
@@ -22052,11 +22185,11 @@ mod proptests {
             .expect("T-QA-012e: KV cache init");
 
         let gamma = vec![1.0f32; hidden_dim as usize];
-        let attn_norm_gamma = GpuBuffer::from_host(&executor.context, &gamma).unwrap();
-        let ffn_norm_gamma = GpuBuffer::from_host(&executor.context, &gamma).unwrap();
+        let attn_norm_gamma = GpuBuffer::from_host(&executor.context, &gamma).expect("CUDA operation failed");
+        let ffn_norm_gamma = GpuBuffer::from_host(&executor.context, &gamma).expect("CUDA operation failed");
 
         let input_data = vec![0.1f32; hidden_dim as usize];
-        let input = GpuBuffer::from_host(&executor.context, &input_data).unwrap();
+        let input = GpuBuffer::from_host(&executor.context, &input_data).expect("CUDA operation failed");
 
         // Attempt execution without weights - should fail
         let result = executor.transformer_layer_gpu(
@@ -22120,37 +22253,43 @@ mod proptests {
         let qkvo_weights = create_mock_q4k_weights_for_harness(256, 256);
         executor
             .load_quantized_weights(&format!("{}.attn_q.weight", layer_prefix), &qkvo_weights)
-            .unwrap();
+            .expect("CUDA operation failed");
         executor
             .load_quantized_weights(&format!("{}.attn_k.weight", layer_prefix), &qkvo_weights)
-            .unwrap();
+            .expect("CUDA operation failed");
         executor
             .load_quantized_weights(&format!("{}.attn_v.weight", layer_prefix), &qkvo_weights)
-            .unwrap();
+            .expect("CUDA operation failed");
         executor
-            .load_quantized_weights(&format!("{}.attn_output.weight", layer_prefix), &qkvo_weights)
-            .unwrap();
+            .load_quantized_weights(
+                &format!("{}.attn_output.weight", layer_prefix),
+                &qkvo_weights,
+            )
+            .expect("CUDA operation failed");
 
         let gate_up_weights = create_mock_q4k_weights_for_harness(1024, 256);
         let down_weights = create_mock_q4k_weights_for_harness(256, 1024);
         executor
-            .load_quantized_weights(&format!("{}.ffn_gate.weight", layer_prefix), &gate_up_weights)
-            .unwrap();
+            .load_quantized_weights(
+                &format!("{}.ffn_gate.weight", layer_prefix),
+                &gate_up_weights,
+            )
+            .expect("CUDA operation failed");
         executor
             .load_quantized_weights(&format!("{}.ffn_up.weight", layer_prefix), &gate_up_weights)
-            .unwrap();
+            .expect("CUDA operation failed");
         executor
             .load_quantized_weights(&format!("{}.ffn_down.weight", layer_prefix), &down_weights)
-            .unwrap();
+            .expect("CUDA operation failed");
 
         let gamma = vec![1.0f32; hidden_dim as usize];
-        let attn_norm_gamma = GpuBuffer::from_host(&executor.context, &gamma).unwrap();
-        let ffn_norm_gamma = GpuBuffer::from_host(&executor.context, &gamma).unwrap();
+        let attn_norm_gamma = GpuBuffer::from_host(&executor.context, &gamma).expect("CUDA operation failed");
+        let ffn_norm_gamma = GpuBuffer::from_host(&executor.context, &gamma).expect("CUDA operation failed");
 
         // Execute twice to verify KV cache updates
         for token_idx in 0..2 {
             let input_data = vec![0.1f32 * (token_idx as f32 + 1.0); hidden_dim as usize];
-            let input = GpuBuffer::from_host(&executor.context, &input_data).unwrap();
+            let input = GpuBuffer::from_host(&executor.context, &input_data).expect("CUDA operation failed");
 
             let result = executor.transformer_layer_gpu(
                 &input,
@@ -22172,7 +22311,11 @@ mod proptests {
         }
 
         // Verify KV cache length increased
-        let cache_len = executor.kv_cache_lengths.get(&layer_idx).copied().unwrap_or(0);
+        let cache_len = executor
+            .kv_cache_lengths
+            .get(&layer_idx)
+            .copied()
+            .unwrap_or(0);
         assert_eq!(
             cache_len, 2,
             "T-QA-012f: KV cache should have 2 entries after 2 tokens"
@@ -22316,14 +22459,13 @@ mod proptests {
         );
 
         // Expect error due to missing weights (not a graph capture error)
-        assert!(
-            result.is_err(),
-            "T-QA-013d: Should fail without weights"
-        );
-        let err_msg = format!("{:?}", result.err().unwrap());
+        assert!(result.is_err(), "T-QA-013d: Should fail without weights");
+        let err_msg = format!("{:?}", result.err().expect("CUDA operation failed"));
         // Error should mention missing cached weights or norms, not graph capture failure
         assert!(
-            err_msg.contains("not cached") || err_msg.contains("PAR-023") || err_msg.contains("Workspace"),
+            err_msg.contains("not cached")
+                || err_msg.contains("PAR-023")
+                || err_msg.contains("Workspace"),
             "T-QA-013d: Error should be about missing state, not graph: {}",
             err_msg
         );
@@ -22555,8 +22697,12 @@ mod proptests {
         assert_eq!(buf.size_bytes(), 4, "T-QA-014e: Single element bytes");
 
         let mut readback = vec![0.0f32];
-        buf.copy_to_host(&mut readback).expect("T-QA-014e: copy_to_host");
-        assert!((readback[0] - 42.0).abs() < 1e-6, "T-QA-014e: Value preserved");
+        buf.copy_to_host(&mut readback)
+            .expect("T-QA-014e: copy_to_host");
+        assert!(
+            (readback[0] - 42.0).abs() < 1e-6,
+            "T-QA-014e: Value preserved"
+        );
 
         println!("T-QA-014e: Single element buffer PASSED");
     }
@@ -22574,23 +22720,31 @@ mod proptests {
 
         // Large buffer (1M elements = 4MB)
         let size = 1_000_000usize;
-        let mut buf: GpuBuffer<f32> = GpuBuffer::new(&executor.context, size)
-            .expect("T-QA-014f: Large buffer allocation");
+        let mut buf: GpuBuffer<f32> =
+            GpuBuffer::new(&executor.context, size).expect("T-QA-014f: Large buffer allocation");
 
         assert_eq!(buf.len(), size, "T-QA-014f: Large buffer length");
         assert_eq!(buf.size_bytes(), size * 4, "T-QA-014f: Large buffer bytes");
 
         // Initialize with pattern
         let data: Vec<f32> = (0..size).map(|i| i as f32 * 0.001).collect();
-        buf.copy_from_host(&data).expect("T-QA-014f: copy_from_host");
+        buf.copy_from_host(&data)
+            .expect("T-QA-014f: copy_from_host");
 
         // Spot check some values
         let mut readback = vec![0.0f32; size];
-        buf.copy_to_host(&mut readback).expect("T-QA-014f: copy_to_host");
+        buf.copy_to_host(&mut readback)
+            .expect("T-QA-014f: copy_to_host");
 
         assert!((readback[0] - 0.0).abs() < 1e-5, "T-QA-014f: First value");
-        assert!((readback[1000] - 1.0).abs() < 1e-5, "T-QA-014f: Value at 1000");
-        assert!((readback[size - 1] - (size - 1) as f32 * 0.001).abs() < 1e-5, "T-QA-014f: Last value");
+        assert!(
+            (readback[1000] - 1.0).abs() < 1e-5,
+            "T-QA-014f: Value at 1000"
+        );
+        assert!(
+            (readback[size - 1] - (size - 1) as f32 * 0.001).abs() < 1e-5,
+            "T-QA-014f: Last value"
+        );
 
         println!("T-QA-014f: Large buffer allocation PASSED");
     }

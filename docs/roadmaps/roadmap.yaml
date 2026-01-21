@@ -4017,3 +4017,19 @@ roadmap:
   estimated_effort: null
   labels: []
   notes: null
+- id: 'T-QA-012: Single Layer Harness for cuda.rs transformer_layer coverage'
+  github_issue: null
+  item_type: task
+  title: 'New task: T-QA-012: Single Layer Harness for cuda.rs transformer_layer coverage'
+  status: inprogress
+  priority: medium
+  assigned_to: null
+  created: 2026-01-21T09:42:41.062913377+00:00
+  updated: 2026-01-21T09:42:41.062913377+00:00
+  spec: null
+  acceptance_criteria: []
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels: []
+  notes: null
