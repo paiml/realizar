@@ -653,16 +653,16 @@ Simple unit tests would NOT have caught this - only sequential TUI simulation re
 
 ---
 
-**Last Updated:** 2025-12-30
+**Last Updated:** 2026-01-21
 **Realizar Version:** 0.3.5 (KV Cache for context-aware generation)
-**GPU Spec Version:** v5.1.0 (QA Suite Complete + 95% Coverage)
+**GPU Spec Version:** v5.2.0 (CUDA Monolith Shattered + Lint Zero)
 **Trueno Version:** 0.4.2
 **Aprender Version:** 0.1.0
 **paiml-mcp-agent-toolkit Version:** v2.200.0 (with Known Defects Scorer, SATD Detector, Defect Analyzer)
 **TDG Score:** 93.9/100 (A)
 **Rust Project Score:** 137.9/134 (103%, Grade A+)
-**Test Coverage:** 92.02% (region), 95.00% (function)
-**Total Tests:** 2315 (all passing), 44 GPU-only ignored, 50 QA tests (QA-001 to QA-050)
+**Test Coverage:** 80.97% (region), 88.75% (function), 80.08% (lines)
+**Total Tests:** 6324 (all passing), 32 ignored
 **Mutation Score:** 100% on api.rs (18/18 viable mutants caught)
 **Documentation:** 15.0/15 (100%) ✅ Perfect score!
 **Known Defects:** 20.0/20 (100%) ✅ Perfect score!
@@ -699,5 +699,11 @@ Simple unit tests would NOT have caught this - only sequential TUI simulation re
     - `forward_with_cache()` for context-aware generation
     - `causal_attention_cached()` with parallel head processing
   - **13-19 tok/s** context-aware generation (32-45% of llama.cpp)
-**Latest Achievement:** KV Cache enables efficient context-aware generation
-**Completed:** Weeks 1-8 + GPU parity M1-M32 + APR Q4_0 (M2) + Rayon (M3) + KV Cache (M4)
+**CUDA Refactor (v5.2.0):**
+  - Shattered 23K-line cuda.rs monolith into 9 atomic modules
+  - Split 21K-line executor.rs into domain submodules (activations, core, gemm, layer, quantized, workspace)
+  - Split 15K-line impl_main.rs into 9 focused submodules
+  - 65 files cleaned for zero clippy warnings
+  - Fixed broken benchmarks (GGUFTransformer → AprTransformer)
+**Latest Achievement:** CUDA monolith shattered + comprehensive lint cleanup (65 files, 2089 insertions, 1040 deletions)
+**Completed:** Weeks 1-8 + GPU parity M1-M32 + APR Q4_0 (M2) + Rayon (M3) + KV Cache (M4) + CUDA Refactor (v5.2.0)
