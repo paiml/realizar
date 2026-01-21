@@ -14741,7 +14741,11 @@ impl OwnedQuantizedModelCuda {
             );
 
             // 2b. QKV projection (CPU - fused Q4_K for now)
-            let qkv_dim = 3 * hidden_dim;
+            // GQA-aware dimensions: Q has num_heads, K/V have num_kv_heads
+            let num_kv_heads = self.model.config.num_kv_heads;
+            let head_dim = hidden_dim / self.model.config.num_heads;
+            let kv_dim = num_kv_heads * head_dim;
+            let qkv_dim = hidden_dim + 2 * kv_dim; // Q + K + V with GQA
             let mut qkv = self.model.qkv_matmul(&normed, &layer.qkv_weight)?;
             if let Some(ref bias) = layer.qkv_bias {
                 self.model.add_bias(&mut qkv, bias);
@@ -14750,20 +14754,19 @@ impl OwnedQuantizedModelCuda {
             // 2c. Attention (CPU - complex control flow)
             let seq_len = token_ids.len();
             let mut q_all = Vec::with_capacity(seq_len * hidden_dim);
-            let mut k_all = Vec::with_capacity(seq_len * hidden_dim);
-            let mut v_all = Vec::with_capacity(seq_len * hidden_dim);
+            let mut k_all = Vec::with_capacity(seq_len * kv_dim);
+            let mut v_all = Vec::with_capacity(seq_len * kv_dim);
 
             for s in 0..seq_len {
                 let qkv_start = s * qkv_dim;
                 let mut q = qkv[qkv_start..qkv_start + hidden_dim].to_vec();
-                let mut k = qkv[qkv_start + hidden_dim..qkv_start + 2 * hidden_dim].to_vec();
-                let v = &qkv[qkv_start + 2 * hidden_dim..qkv_start + 3 * hidden_dim];
+                let mut k = qkv[qkv_start + hidden_dim..qkv_start + hidden_dim + kv_dim].to_vec();
+                let v = &qkv[qkv_start + hidden_dim + kv_dim..qkv_start + hidden_dim + 2 * kv_dim];
 
-                // Note: Uses num_heads for both (non-GQA code path)
+                // GQA-aware RoPE: Q uses num_heads, K uses num_kv_heads
                 self.model
                     .apply_rope(&mut q, s, self.model.config.num_heads);
-                self.model
-                    .apply_rope(&mut k, s, self.model.config.num_heads);
+                self.model.apply_rope(&mut k, s, num_kv_heads);
 
                 q_all.extend_from_slice(&q);
                 k_all.extend_from_slice(&k);
