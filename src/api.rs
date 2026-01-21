@@ -747,7 +747,9 @@ impl AppState {
     /// - Batched workspaces
     /// - GPU-resident KV cache
     #[cfg(feature = "cuda")]
-    pub fn cuda_model(&self) -> Option<&Arc<std::sync::RwLock<crate::gguf::OwnedQuantizedModelCuda>>> {
+    pub fn cuda_model(
+        &self,
+    ) -> Option<&Arc<std::sync::RwLock<crate::gguf::OwnedQuantizedModelCuda>>> {
         self.cuda_model.as_ref()
     }
 
@@ -3019,7 +3021,7 @@ async fn openai_chat_completions_handler(
     let trace_level = headers
         .get("X-Trace-Level")
         .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_lowercase());
+        .map(str::to_lowercase);
 
     // Generate request ID
     let request_id = format!(
@@ -3046,12 +3048,16 @@ async fn openai_chat_completions_handler(
                     }),
                 )
                     .into_response();
-            }
+            },
         };
 
         // Convert chat messages to prompt using ChatML
         let prompt_text = format_chat_messages(&request.messages, Some("qwen"));
-        let prompt_ids: Vec<usize> = tokenizer.encode(&prompt_text).iter().map(|&x| x as usize).collect();
+        let prompt_ids: Vec<usize> = tokenizer
+            .encode(&prompt_text)
+            .iter()
+            .map(|&x| x as usize)
+            .collect();
 
         if prompt_ids.is_empty() {
             state.metrics.record_failure();
@@ -3066,7 +3072,7 @@ async fn openai_chat_completions_handler(
 
         let prompt_tokens = prompt_ids.len();
         let max_tokens = request.max_tokens.unwrap_or(256);
-        let temperature = request.temperature.unwrap_or(0.7) as f32;
+        let temperature = request.temperature.unwrap_or(0.7);
 
         let gpu_config = GpuGenerateConfig {
             max_tokens,
@@ -3088,7 +3094,7 @@ async fn openai_chat_completions_handler(
                         }),
                     )
                         .into_response();
-                }
+                },
             };
             match model.generate(&prompt_ids, &gpu_config) {
                 Ok(g) => g,
@@ -3101,12 +3107,16 @@ async fn openai_chat_completions_handler(
                         }),
                     )
                         .into_response();
-                }
+                },
             }
         };
 
         // Skip prompt tokens, convert to u32
-        let token_ids: Vec<u32> = generated.iter().skip(prompt_tokens).map(|&x| x as u32).collect();
+        let token_ids: Vec<u32> = generated
+            .iter()
+            .skip(prompt_tokens)
+            .map(|&x| x as u32)
+            .collect();
         let completion_tokens = token_ids.len();
 
         // Handle streaming vs non-streaming
@@ -3143,7 +3153,9 @@ async fn openai_chat_completions_handler(
                 yield Ok(Event::default().data("[DONE]".to_string()));
             };
 
-            state.metrics.record_success(completion_tokens, start.elapsed());
+            state
+                .metrics
+                .record_success(completion_tokens, start.elapsed());
             return Sse::new(stream).into_response();
         }
 
@@ -3159,7 +3171,7 @@ async fn openai_chat_completions_handler(
                     }),
                 )
                     .into_response();
-            }
+            },
         };
 
         let latency = start.elapsed();
@@ -3214,7 +3226,7 @@ async fn openai_chat_completions_handler(
                     }),
                 )
                     .into_response();
-            }
+            },
         };
 
         // Convert chat messages to prompt using ChatML (GGUF models are typically Qwen/ChatML)
@@ -3235,7 +3247,7 @@ async fn openai_chat_completions_handler(
 
         let prompt_tokens = prompt_ids.len();
         let max_tokens = request.max_tokens.unwrap_or(256);
-        let temperature = request.temperature.unwrap_or(0.7) as f32;
+        let temperature = request.temperature.unwrap_or(0.7);
 
         let q_config = QuantizedGenerateConfig {
             max_tokens,
@@ -3244,7 +3256,10 @@ async fn openai_chat_completions_handler(
             stop_tokens: Vec::new(),
         };
 
-        let generated = match cached_model.model().generate_with_cache(&prompt_ids, &q_config) {
+        let generated = match cached_model
+            .model()
+            .generate_with_cache(&prompt_ids, &q_config)
+        {
             Ok(g) => g,
             Err(e) => {
                 state.metrics.record_failure();
@@ -3255,7 +3270,7 @@ async fn openai_chat_completions_handler(
                     }),
                 )
                     .into_response();
-            }
+            },
         };
 
         // Skip prompt tokens
@@ -3298,7 +3313,9 @@ async fn openai_chat_completions_handler(
                 yield Ok(Event::default().data("[DONE]".to_string()));
             };
 
-            state.metrics.record_success(completion_tokens, start.elapsed());
+            state
+                .metrics
+                .record_success(completion_tokens, start.elapsed());
             return Sse::new(stream).into_response();
         }
 
@@ -3314,7 +3331,7 @@ async fn openai_chat_completions_handler(
                     }),
                 )
                     .into_response();
-            }
+            },
         };
 
         let latency = start.elapsed();
@@ -3369,7 +3386,7 @@ async fn openai_chat_completions_handler(
                     }),
                 )
                     .into_response();
-            }
+            },
         };
 
         // Convert chat messages to prompt using ChatML (GGUF models are typically Qwen/ChatML)
@@ -3390,7 +3407,7 @@ async fn openai_chat_completions_handler(
 
         let prompt_tokens = prompt_ids.len();
         let max_tokens = request.max_tokens.unwrap_or(256);
-        let temperature = request.temperature.unwrap_or(0.7) as f32;
+        let temperature = request.temperature.unwrap_or(0.7);
 
         let q_config = QuantizedGenerateConfig {
             max_tokens,
@@ -3413,7 +3430,7 @@ async fn openai_chat_completions_handler(
 
             // Spawn generation in a blocking task to avoid blocking the async runtime
             tokio::task::spawn_blocking(move || {
-                let mut cuda_model = cuda_model_clone.write().unwrap();
+                let mut cuda_model = cuda_model_clone.write().expect("operation failed");
 
                 // Use streaming generation - sends tokens via channel as they're generated
                 let result = cuda_model.generate_gpu_resident_streaming(
@@ -3500,7 +3517,7 @@ async fn openai_chat_completions_handler(
         }
 
         // NON-STREAMING: Generate all tokens first, then return
-        let mut cuda_model = cuda_model_lock.write().unwrap();
+        let mut cuda_model = cuda_model_lock.write().expect("operation failed");
 
         let generated = match cuda_model.generate_gpu_resident(&prompt_ids, &q_config) {
             Ok(g) => g,
@@ -3513,7 +3530,7 @@ async fn openai_chat_completions_handler(
                     }),
                 )
                     .into_response();
-            }
+            },
         };
 
         // Skip prompt tokens
@@ -3523,7 +3540,7 @@ async fn openai_chat_completions_handler(
         // Non-streaming: decode all tokens and return
         let response_text = tokenizer
             .decode(&token_ids)
-            .unwrap_or_else(|_| "".to_string());
+            .unwrap_or_else(|_| String::new());
 
         let elapsed = start.elapsed();
         state.metrics.record_success(completion_tokens, elapsed);
@@ -3572,7 +3589,7 @@ async fn openai_chat_completions_handler(
                     }),
                 )
                     .into_response();
-            }
+            },
         };
 
         // Convert chat messages to prompt using ChatML (GGUF models are typically Qwen/ChatML)
@@ -3593,7 +3610,7 @@ async fn openai_chat_completions_handler(
 
         let prompt_tokens = prompt_ids.len();
         let max_tokens = request.max_tokens.unwrap_or(256);
-        let temperature = request.temperature.unwrap_or(0.7) as f32;
+        let temperature = request.temperature.unwrap_or(0.7);
 
         let q_config = QuantizedGenerateConfig {
             max_tokens,
@@ -3613,7 +3630,7 @@ async fn openai_chat_completions_handler(
                     }),
                 )
                     .into_response();
-            }
+            },
         };
 
         // Skip prompt tokens
@@ -3656,7 +3673,9 @@ async fn openai_chat_completions_handler(
                 yield Ok(Event::default().data("[DONE]".to_string()));
             };
 
-            state.metrics.record_success(completion_tokens, start.elapsed());
+            state
+                .metrics
+                .record_success(completion_tokens, start.elapsed());
             return Sse::new(stream).into_response();
         }
 
@@ -3672,7 +3691,7 @@ async fn openai_chat_completions_handler(
                     }),
                 )
                     .into_response();
-            }
+            },
         };
 
         let latency = start.elapsed();
@@ -3802,7 +3821,7 @@ async fn openai_chat_completions_handler(
                 }),
             )
                 .into_response();
-        }
+        },
     };
 
     // Convert chat messages to prompt using model-specific template
@@ -3850,7 +3869,7 @@ async fn openai_chat_completions_handler(
                 }),
             )
                 .into_response();
-        }
+        },
     };
 
     // Convert back to u32 and decode
@@ -3862,12 +3881,8 @@ async fn openai_chat_completions_handler(
         Ok(ids) => ids,
         Err(e) => {
             state.metrics.record_failure();
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse { error: e }),
-            )
-                .into_response();
-        }
+            return (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })).into_response();
+        },
     };
 
     // Handle streaming for registry models
@@ -3906,7 +3921,9 @@ async fn openai_chat_completions_handler(
             yield Ok(Event::default().data("[DONE]".to_string()));
         };
 
-        state.metrics.record_success(completion_tokens, start.elapsed());
+        state
+            .metrics
+            .record_success(completion_tokens, start.elapsed());
         return Sse::new(stream).into_response();
     }
 
@@ -3923,7 +3940,7 @@ async fn openai_chat_completions_handler(
                 }),
             )
                 .into_response();
-        }
+        },
     };
 
     let completion_tokens = generated_ids.len();
@@ -10933,7 +10950,12 @@ mod tests {
         let req = PredictRequest {
             model: Some("sentiment".to_string()),
             features: vec![1.0, 2.0, 3.0, 4.0],
-            feature_names: Some(vec!["a".to_string(), "b".to_string(), "c".to_string(), "d".to_string()]),
+            feature_names: Some(vec![
+                "a".to_string(),
+                "b".to_string(),
+                "c".to_string(),
+                "d".to_string(),
+            ]),
             top_k: Some(3),
             include_confidence: true,
         };
@@ -11130,7 +11152,7 @@ mod tests {
         let query = DispatchMetricsQuery {
             format: Some("prometheus".to_string()),
         };
-        assert_eq!(query.format.unwrap(), "prometheus");
+        assert_eq!(query.format.expect("operation failed"), "prometheus");
 
         let query_none = DispatchMetricsQuery { format: None };
         assert!(query_none.format.is_none());
@@ -11407,7 +11429,7 @@ mod tests {
     fn test_create_demo_apr_model_cov() {
         let result = super::create_demo_apr_model(8);
         assert!(result.is_ok());
-        let model = result.unwrap();
+        let model = result.expect("operation failed");
         assert_eq!(model.tensor_count(), 1);
     }
 
@@ -12371,7 +12393,7 @@ mod tests {
     #[test]
     fn test_health_response_roundtrip_ext_cov() {
         let json = r#"{"status":"ok","version":"2.0.0","compute_mode":"gpu"}"#;
-        let resp: HealthResponse = serde_json::from_str(json).unwrap();
+        let resp: HealthResponse = serde_json::from_str(json).expect("parse failed");
         assert_eq!(resp.status, "ok");
         assert_eq!(resp.version, "2.0.0");
         assert_eq!(resp.compute_mode, "gpu");
@@ -12380,7 +12402,7 @@ mod tests {
     #[test]
     fn test_tokenize_request_without_model_ext_cov() {
         let json = r#"{"text":"test input"}"#;
-        let req: TokenizeRequest = serde_json::from_str(json).unwrap();
+        let req: TokenizeRequest = serde_json::from_str(json).expect("parse failed");
         assert_eq!(req.text, "test input");
         assert!(req.model_id.is_none());
     }
@@ -12397,7 +12419,7 @@ mod tests {
             "seed": 42,
             "model_id": "gpt-test"
         }"#;
-        let req: GenerateRequest = serde_json::from_str(json).unwrap();
+        let req: GenerateRequest = serde_json::from_str(json).expect("parse failed");
         assert_eq!(req.prompt, "Hello");
         assert_eq!(req.max_tokens, 100);
         assert_eq!(req.seed, Some(42));
@@ -12407,7 +12429,7 @@ mod tests {
     #[test]
     fn test_batch_generate_request_with_seed_ext_cov() {
         let json = r#"{"prompts":["test"],"seed":12345}"#;
-        let req: BatchGenerateRequest = serde_json::from_str(json).unwrap();
+        let req: BatchGenerateRequest = serde_json::from_str(json).expect("parse failed");
         assert_eq!(req.seed, Some(12345));
     }
 
@@ -12418,14 +12440,14 @@ mod tests {
             content: "You are helpful".to_string(),
             name: Some("assistant_v2".to_string()),
         };
-        let json = serde_json::to_string(&msg).unwrap();
+        let json = serde_json::to_string(&msg).expect("invalid UTF-8");
         assert!(json.contains("assistant_v2"));
     }
 
     #[test]
     fn test_chat_completion_request_stream_ext_cov() {
         let json = r#"{"model":"x","messages":[],"stream":true}"#;
-        let req: ChatCompletionRequest = serde_json::from_str(json).unwrap();
+        let req: ChatCompletionRequest = serde_json::from_str(json).expect("parse failed");
         assert!(req.stream);
     }
 
@@ -12455,7 +12477,7 @@ mod tests {
             top_k_predictions: None,
             latency_ms: 0.5,
         };
-        let json = serde_json::to_string(&resp).unwrap();
+        let json = serde_json::to_string(&resp).expect("invalid UTF-8");
         // confidence and top_k should be skipped with skip_serializing_if
         assert!(!json.contains("\"confidence\""));
         assert!(!json.contains("\"top_k_predictions\""));
@@ -12523,8 +12545,14 @@ mod tests {
     fn test_batch_tokenize_response_serialize_more_cov() {
         let resp = BatchTokenizeResponse {
             results: vec![
-                TokenizeResponse { token_ids: vec![1, 2], num_tokens: 2 },
-                TokenizeResponse { token_ids: vec![3, 4, 5], num_tokens: 3 },
+                TokenizeResponse {
+                    token_ids: vec![1, 2],
+                    num_tokens: 2,
+                },
+                TokenizeResponse {
+                    token_ids: vec![3, 4, 5],
+                    num_tokens: 3,
+                },
             ],
         };
         let json = serde_json::to_string(&resp).expect("serialize");
@@ -12545,9 +12573,7 @@ mod tests {
 
     #[test]
     fn test_stream_done_event_serialize_more_cov() {
-        let event = StreamDoneEvent {
-            num_generated: 15,
-        };
+        let event = StreamDoneEvent { num_generated: 15 };
         let json = serde_json::to_string(&event).expect("serialize");
         assert!(json.contains("15"));
     }
@@ -12556,14 +12582,12 @@ mod tests {
     fn test_openai_models_response_serialize_more_cov() {
         let resp = OpenAIModelsResponse {
             object: "list".to_string(),
-            data: vec![
-                OpenAIModel {
-                    id: "model-1".to_string(),
-                    object: "model".to_string(),
-                    created: 12345,
-                    owned_by: "realizar".to_string(),
-                },
-            ],
+            data: vec![OpenAIModel {
+                id: "model-1".to_string(),
+                object: "model".to_string(),
+                created: 12345,
+                owned_by: "realizar".to_string(),
+            }],
         };
         let json = serde_json::to_string(&resp).expect("serialize");
         assert!(json.contains("model-1"));
@@ -12946,7 +12970,8 @@ mod tests {
     #[tokio::test]
     async fn test_openai_chat_completions_valid_more_cov() {
         let app = create_test_app();
-        let json = r#"{"model":"default","messages":[{"role":"user","content":"Hi"}],"max_tokens":5}"#;
+        let json =
+            r#"{"model":"default","messages":[{"role":"user","content":"Hi"}],"max_tokens":5}"#;
 
         let response = app
             .oneshot(
@@ -12986,7 +13011,8 @@ mod tests {
     #[tokio::test]
     async fn test_openai_chat_completions_stream_valid_more_cov() {
         let app = create_test_app();
-        let json = r#"{"model":"default","messages":[{"role":"user","content":"Hi"}],"max_tokens":3}"#;
+        let json =
+            r#"{"model":"default","messages":[{"role":"user","content":"Hi"}],"max_tokens":3}"#;
 
         let response = app
             .oneshot(
@@ -13049,13 +13075,11 @@ mod tests {
 
     #[test]
     fn test_format_chat_messages_assistant_role_more_cov() {
-        let messages = vec![
-            ChatMessage {
-                role: "assistant".to_string(),
-                content: "I am here to help".to_string(),
-                name: None,
-            },
-        ];
+        let messages = vec![ChatMessage {
+            role: "assistant".to_string(),
+            content: "I am here to help".to_string(),
+            name: None,
+        }];
         let formatted = format_chat_messages(&messages, None);
         assert!(!formatted.is_empty());
     }
@@ -13440,8 +13464,14 @@ mod tests {
             prediction: serde_json::json!("class_0"),
             confidence: Some(0.9),
             top_k_predictions: Some(vec![
-                PredictionWithScore { label: "class_0".to_string(), score: 0.9 },
-                PredictionWithScore { label: "class_1".to_string(), score: 0.1 },
+                PredictionWithScore {
+                    label: "class_0".to_string(),
+                    score: 0.9,
+                },
+                PredictionWithScore {
+                    label: "class_1".to_string(),
+                    score: 0.1,
+                },
             ]),
             latency_ms: 2.5,
         };
@@ -13548,7 +13578,8 @@ mod tests {
     #[tokio::test]
     async fn test_deep_apicov_chat_completions_with_top_p() {
         let app = create_test_app();
-        let json = r#"{"model":"default","messages":[{"role":"user","content":"hello"}],"top_p":0.9}"#;
+        let json =
+            r#"{"model":"default","messages":[{"role":"user","content":"hello"}],"top_p":0.9}"#;
 
         let response = app
             .oneshot(
@@ -13628,7 +13659,8 @@ mod tests {
     #[tokio::test]
     async fn test_deep_apicov_stream_generate_top_p_strategy() {
         let app = create_test_app();
-        let json = r#"{"prompt":"token1","max_tokens":2,"strategy":"top_p","top_p":0.9,"seed":456}"#;
+        let json =
+            r#"{"prompt":"token1","max_tokens":2,"strategy":"top_p","top_p":0.9,"seed":456}"#;
 
         let response = app
             .oneshot(
@@ -13648,7 +13680,8 @@ mod tests {
     #[tokio::test]
     async fn test_deep_apicov_chat_completions_stream_endpoint() {
         let app = create_test_app();
-        let json = r#"{"model":"default","messages":[{"role":"user","content":"hi"}],"stream":true}"#;
+        let json =
+            r#"{"model":"default","messages":[{"role":"user","content":"hi"}],"stream":true}"#;
 
         let response = app
             .oneshot(
@@ -14357,5 +14390,4 @@ mod tests {
         assert!(json.contains("num_generated"));
         assert!(json.contains("10"));
     }
-
 }
