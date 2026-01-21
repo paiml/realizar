@@ -12,7 +12,7 @@
 
 use crate::apr_transformer::{AprTransformer, AprTransformerConfig, AprTransformerLayer};
 use crate::error::{RealizarError, Result};
-use crate::safetensors::{SafetensorsConfig, SafetensorsModel};
+use crate::safetensors::{MappedSafeTensorsModel, SafetensorsConfig};
 use std::path::Path;
 
 /// SafeTensors to APR Transformer converter
@@ -36,11 +36,9 @@ impl SafetensorsToAprConverter {
     ///
     /// Returns error if SafeTensors file, config.json, or required tensors are missing
     pub fn convert(model_path: &Path) -> Result<AprTransformer> {
-        // Load SafeTensors model
-        let data = std::fs::read(model_path).map_err(|e| RealizarError::IoError {
-            message: format!("Failed to read SafeTensors file: {e}"),
-        })?;
-        let st_model = SafetensorsModel::from_bytes(&data)?;
+        // Load SafeTensors model using mmap for zero-copy access (T-QA-020)
+        // This is critical for fast model loading - mmap is O(1) regardless of file size
+        let st_model = MappedSafeTensorsModel::load(model_path)?;
 
         // Load config.json (required for architecture info)
         let config = SafetensorsConfig::load_from_sibling(model_path).ok_or_else(|| {
@@ -100,7 +98,7 @@ impl SafetensorsToAprConverter {
 
         // Check for tied embeddings (lm_head = embed_tokens.T)
         // lm_head.weight: [vocab_size, hidden_dim] -> transpose -> [hidden_dim, vocab_size]
-        let lm_head_weight = if st_model.tensors.contains_key("lm_head.weight") {
+        let lm_head_weight = if st_model.has_tensor("lm_head.weight") {
             let raw = st_model.get_tensor_auto("lm_head.weight")?;
             Self::transpose_weight(&raw, vocab_size, hidden_dim)
         } else {
@@ -136,7 +134,7 @@ impl SafetensorsToAprConverter {
 
     /// Extract a single transformer layer from SafeTensors
     fn extract_layer(
-        st_model: &SafetensorsModel,
+        st_model: &MappedSafeTensorsModel,
         layer_idx: usize,
         hidden_dim: usize,
         num_heads: usize,
@@ -264,7 +262,7 @@ impl SafetensorsToAprConverter {
 
     /// Try to concatenate Q, K, V biases if they exist
     fn try_concat_qkv_bias(
-        st_model: &SafetensorsModel,
+        st_model: &MappedSafeTensorsModel,
         prefix: &str,
         hidden_dim: usize,
         kv_dim: usize,
@@ -375,10 +373,12 @@ mod tests {
         let result =
             SafetensorsToAprConverter::convert(Path::new("/nonexistent/model.safetensors"));
         assert!(result.is_err());
-        if let Err(RealizarError::IoError { message }) = result {
-            assert!(message.contains("Failed to read SafeTensors file"));
+        // MappedSafeTensorsModel::load() returns UnsupportedOperation for file open errors
+        if let Err(RealizarError::UnsupportedOperation { operation, reason }) = result {
+            assert_eq!(operation, "open_safetensors");
+            assert!(reason.contains("Failed to open file"));
         } else {
-            panic!("Expected IoError");
+            panic!("Expected UnsupportedOperation error");
         }
     }
 
@@ -554,8 +554,11 @@ mod tests {
     #[test]
     fn test_try_concat_qkv_bias_none_when_missing_ext_cov() {
         // Create safetensors model without any biases
+        let temp_dir = TempDir::new().expect("create temp dir");
+        let model_path = temp_dir.path().join("model.safetensors");
         let data = create_safetensors_bytes(&[]);
-        let st_model = SafetensorsModel::from_bytes(&data).expect("parse safetensors");
+        std::fs::write(&model_path, data).expect("write safetensors");
+        let st_model = MappedSafeTensorsModel::load(&model_path).expect("load safetensors");
 
         let result =
             SafetensorsToAprConverter::try_concat_qkv_bias(&st_model, "model.layers.0", 64, 64);
@@ -565,6 +568,8 @@ mod tests {
     #[test]
     fn test_try_concat_qkv_bias_partial_missing_ext_cov() {
         // Create safetensors with only q_proj.bias (missing k and v)
+        let temp_dir = TempDir::new().expect("create temp dir");
+        let model_path = temp_dir.path().join("model.safetensors");
         let q_bias_data: Vec<u8> = (0..16).flat_map(|i| (i as f32).to_le_bytes()).collect();
         let data = create_safetensors_bytes(&[(
             "model.layers.0.self_attn.q_proj.bias",
@@ -572,7 +577,8 @@ mod tests {
             &[4],
             &q_bias_data,
         )]);
-        let st_model = SafetensorsModel::from_bytes(&data).expect("parse safetensors");
+        std::fs::write(&model_path, data).expect("write safetensors");
+        let st_model = MappedSafeTensorsModel::load(&model_path).expect("load safetensors");
 
         // Should return None because k_bias and v_bias are missing
         let result =
@@ -583,6 +589,8 @@ mod tests {
     #[test]
     fn test_try_concat_qkv_bias_all_present_ext_cov() {
         // Create F32 byte data for biases
+        let temp_dir = TempDir::new().expect("create temp dir");
+        let model_path = temp_dir.path().join("model.safetensors");
         let q_bias_data: Vec<u8> = [1.0f32, 2.0, 3.0, 4.0]
             .iter()
             .flat_map(|f| f.to_le_bytes())
@@ -610,7 +618,8 @@ mod tests {
                 &v_bias_data,
             ),
         ]);
-        let st_model = SafetensorsModel::from_bytes(&data).expect("parse safetensors");
+        std::fs::write(&model_path, data).expect("write safetensors");
+        let st_model = MappedSafeTensorsModel::load(&model_path).expect("load safetensors");
 
         let result =
             SafetensorsToAprConverter::try_concat_qkv_bias(&st_model, "model.layers.0", 4, 2);
