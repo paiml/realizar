@@ -3074,11 +3074,17 @@ async fn openai_chat_completions_handler(
         let max_tokens = request.max_tokens.unwrap_or(256);
         let temperature = request.temperature.unwrap_or(0.7);
 
+        // PMAT-088: Get EOS token ID for proper stop sequence (GPU path)
+        let eos_token_id = tokenizer
+            .get_token_id("<|im_end|>")
+            .or_else(|| tokenizer.get_token_id("<|endoftext|>"))
+            .unwrap_or(151645) as usize;
+
         let gpu_config = GpuGenerateConfig {
             max_tokens,
             temperature,
             top_k: if temperature == 0.0 { 1 } else { 40 },
-            stop_tokens: Vec::new(),
+            stop_tokens: vec![eos_token_id],
         };
 
         // Generate using GPU model
