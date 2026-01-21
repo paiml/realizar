@@ -4,6 +4,13 @@
 //! to cover PTX generation and kernel name dispatch branches.
 //!
 //! Goal: Cover kernel dispatch branches and improve cuda.rs coverage.
+//!
+//! **IMPORTANT**: Run with `--test-threads=1` to avoid CUDA driver init race:
+//! ```bash
+//! cargo test --test cuda_combinatorial_coverage --features cuda -- --test-threads=1
+//! ```
+//! Parallel test execution causes CUDA_ERROR_NOT_INITIALIZED (error 3) due to
+//! concurrent cuInit() calls.
 
 #![cfg(feature = "cuda")]
 
@@ -15,14 +22,13 @@ use realizar::cuda::{CudaExecutor, CudaKernels, KernelType, PinnedHostBuffer};
 // ============================================================================
 
 fn try_create_executor() -> Option<CudaExecutor> {
-    if !CudaExecutor::is_available() {
-        eprintln!("Skipping: CUDA not available");
-        return None;
-    }
+    // IMPORTANT: Don't use is_available() pre-check - it can return false even when
+    // CUDA hardware exists (RTX 4090). Instead, try to create and show actual error.
     match CudaExecutor::new(0) {
         Ok(exec) => Some(exec),
         Err(e) => {
-            eprintln!("Skipping: CUDA executor creation failed: {:?}", e);
+            eprintln!("CUDA executor creation failed: {:?}", e);
+            eprintln!("This should NOT happen on RTX 4090 - investigate the error above!");
             None
         }
     }
