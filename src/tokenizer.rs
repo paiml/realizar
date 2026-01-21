@@ -1208,4 +1208,161 @@ mod tests {
         let encoded = tokenizer.encode("hello world");
         assert_eq!(encoded, vec![1, 2, 3]); // hello, space, world
     }
+
+    // -------------------------------------------------------------------------
+    // Additional BPE Decode Tests (95% coverage push)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_bpe_decode_special_tokens() {
+        let vocab = vec![
+            "<unk>".to_string(),
+            "<|endoftext|>".to_string(),
+            "<s>".to_string(),
+            "</s>".to_string(),
+            "<pad>".to_string(),
+            "hello".to_string(),
+        ];
+        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").expect("test");
+
+        // Special tokens should be skipped in decode
+        let decoded = tokenizer.decode(&[1, 2, 3, 4, 5]).expect("test");
+        assert_eq!(decoded, "hello"); // Only "hello" should remain
+    }
+
+    #[test]
+    fn test_bpe_decode_byte_tokens() {
+        let vocab = vec![
+            "<unk>".to_string(),
+            "<0xE6>".to_string(), // UTF-8 first byte of some CJK chars
+            "<0x97>".to_string(),
+            "<0xA5>".to_string(),
+        ];
+        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").expect("test");
+
+        // These three bytes form the UTF-8 sequence for "日" (U+65E5)
+        let decoded = tokenizer.decode(&[1, 2, 3]).expect("test");
+        assert_eq!(decoded, "日");
+    }
+
+    #[test]
+    fn test_bpe_decode_gpt2_space() {
+        let vocab = vec![
+            "<unk>".to_string(),
+            "Ġhello".to_string(), // Ġ = space prefix in GPT-2
+        ];
+        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").expect("test");
+
+        let decoded = tokenizer.decode(&[1]).expect("test");
+        assert_eq!(decoded, " hello");
+    }
+
+    #[test]
+    fn test_bpe_decode_gpt2_newline() {
+        let vocab = vec![
+            "<unk>".to_string(),
+            "Ċ".to_string(), // newline in GPT-2
+            "ċ".to_string(), // lowercase variant
+        ];
+        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").expect("test");
+
+        let decoded = tokenizer.decode(&[1, 2]).expect("test");
+        assert_eq!(decoded, "\n\n");
+    }
+
+    #[test]
+    fn test_bpe_decode_sentencepiece_space() {
+        let vocab = vec![
+            "<unk>".to_string(),
+            "▁hello".to_string(), // SentencePiece space
+        ];
+        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").expect("test");
+
+        let decoded = tokenizer.decode(&[1]).expect("test");
+        assert_eq!(decoded, " hello");
+    }
+
+    #[test]
+    fn test_bpe_decode_gpt2_carriage_return() {
+        let vocab = vec![
+            "<unk>".to_string(),
+            "Ḃ".to_string(), // carriage return in GPT-2
+            "a".to_string(),
+        ];
+        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").expect("test");
+
+        let decoded = tokenizer.decode(&[1, 2]).expect("test");
+        assert_eq!(decoded, "\ra");
+    }
+
+    #[test]
+    fn test_bpe_decode_regular_utf8() {
+        let vocab = vec![
+            "<unk>".to_string(),
+            "こんにちは".to_string(), // Japanese
+        ];
+        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").expect("test");
+
+        let decoded = tokenizer.decode(&[1]).expect("test");
+        assert_eq!(decoded, "こんにちは");
+    }
+
+    #[test]
+    fn test_bpe_decode_invalid_byte_token() {
+        let vocab = vec![
+            "<unk>".to_string(),
+            "<0xGG>".to_string(), // Invalid hex
+        ];
+        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").expect("test");
+
+        // Should not panic, just treat as regular token
+        let decoded = tokenizer.decode(&[1]).expect("test");
+        assert!(decoded.contains("<0xGG>"));
+    }
+
+    #[test]
+    fn test_bpe_decode_mixed_tokens() {
+        let vocab = vec![
+            "<unk>".to_string(),
+            "Ġhello".to_string(), // GPT-2 space + word
+            "Ċ".to_string(),      // newline
+            "world".to_string(),
+        ];
+        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").expect("test");
+
+        let decoded = tokenizer.decode(&[1, 2, 3]).expect("test");
+        assert_eq!(decoded, " hello\nworld");
+    }
+
+    #[test]
+    fn test_bpe_gpt2_char_to_byte_printable_ascii() {
+        // Test that printable ASCII is preserved
+        let vocab = vec!["<unk>".to_string(), "a".to_string(), "!".to_string()];
+        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").expect("test");
+
+        let decoded = tokenizer.decode(&[1, 2]).expect("test");
+        assert_eq!(decoded, "a!");
+    }
+
+    #[test]
+    fn test_bpe_gpt2_char_to_byte_space() {
+        // Space (ASCII 32) should be preserved
+        let vocab = vec!["<unk>".to_string(), " ".to_string(), "a".to_string()];
+        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>").expect("test");
+
+        let decoded = tokenizer.decode(&[1, 2]).expect("test");
+        assert_eq!(decoded, " a");
+    }
+
+    #[test]
+    fn test_sentencepiece_vocab_size() {
+        let vocab = vec![
+            ("<unk>".to_string(), 0.0),
+            ("a".to_string(), -1.0),
+            ("b".to_string(), -1.0),
+        ];
+        let tokenizer = SentencePieceTokenizer::new(vocab, "<unk>").expect("test");
+
+        assert_eq!(tokenizer.vocab_size(), 3);
+    }
 }
