@@ -30,7 +30,7 @@ fn try_create_executor() -> Option<CudaExecutor> {
             eprintln!("CUDA executor creation failed: {:?}", e);
             eprintln!("This should NOT happen on RTX 4090 - investigate the error above!");
             None
-        }
+        },
     }
 }
 
@@ -47,12 +47,38 @@ fn test_tqa023_ptx_all_kernel_types() {
 
     // B1. Basic GEMM variants
     let gemm_variants = [
-        KernelType::GemmNaive { m: 64, n: 64, k: 64 },
-        KernelType::GemmNaive { m: 1, n: 4096, k: 4096 },
-        KernelType::GemmNaive { m: 32, n: 128, k: 256 },
-        KernelType::GemmTiled { m: 256, n: 256, k: 256, tile_size: 16 },
-        KernelType::GemmTiled { m: 1024, n: 1024, k: 1024, tile_size: 32 },
-        KernelType::GemmTensorCore { m: 128, n: 128, k: 128 },
+        KernelType::GemmNaive {
+            m: 64,
+            n: 64,
+            k: 64,
+        },
+        KernelType::GemmNaive {
+            m: 1,
+            n: 4096,
+            k: 4096,
+        },
+        KernelType::GemmNaive {
+            m: 32,
+            n: 128,
+            k: 256,
+        },
+        KernelType::GemmTiled {
+            m: 256,
+            n: 256,
+            k: 256,
+            tile_size: 16,
+        },
+        KernelType::GemmTiled {
+            m: 1024,
+            n: 1024,
+            k: 1024,
+            tile_size: 32,
+        },
+        KernelType::GemmTensorCore {
+            m: 128,
+            n: 128,
+            k: 128,
+        },
         KernelType::Gemv { k: 4096, n: 4096 },
         KernelType::Gemv { k: 2560, n: 10240 },
         KernelType::CoalescedGemv { k: 4096, n: 4096 },
@@ -61,26 +87,66 @@ fn test_tqa023_ptx_all_kernel_types() {
 
     for kt in &gemm_variants {
         let ptx = kernels.generate_ptx(kt);
-        assert!(ptx.contains(".version"), "PTX should have version for {:?}", kt);
+        assert!(
+            ptx.contains(".version"),
+            "PTX should have version for {:?}",
+            kt
+        );
         covered += 1;
     }
     println!("  GEMM variants: {} covered", covered);
 
     // B2. Quantized GEMM variants
     let quant_variants = [
-        KernelType::QuantizedGemm { m: 1, n: 4096, k: 4096 },
-        KernelType::QuantizedGemm { m: 32, n: 2560, k: 2560 },
-        KernelType::QuantizedGemmGgml { m: 1, n: 4096, k: 4096 },
-        KernelType::QuantizedGemmGgml { m: 16, n: 10240, k: 2560 },
-        KernelType::Q5KQuantizedGemm { m: 1, n: 4096, k: 4096 },
-        KernelType::Q5KQuantizedGemm { m: 8, n: 2560, k: 10240 },
-        KernelType::Q6KQuantizedGemm { m: 1, n: 4096, k: 4096 },
-        KernelType::Q6KQuantizedGemm { m: 4, n: 896, k: 4864 },
+        KernelType::QuantizedGemm {
+            m: 1,
+            n: 4096,
+            k: 4096,
+        },
+        KernelType::QuantizedGemm {
+            m: 32,
+            n: 2560,
+            k: 2560,
+        },
+        KernelType::QuantizedGemmGgml {
+            m: 1,
+            n: 4096,
+            k: 4096,
+        },
+        KernelType::QuantizedGemmGgml {
+            m: 16,
+            n: 10240,
+            k: 2560,
+        },
+        KernelType::Q5KQuantizedGemm {
+            m: 1,
+            n: 4096,
+            k: 4096,
+        },
+        KernelType::Q5KQuantizedGemm {
+            m: 8,
+            n: 2560,
+            k: 10240,
+        },
+        KernelType::Q6KQuantizedGemm {
+            m: 1,
+            n: 4096,
+            k: 4096,
+        },
+        KernelType::Q6KQuantizedGemm {
+            m: 4,
+            n: 896,
+            k: 4864,
+        },
     ];
 
     for kt in &quant_variants {
         let ptx = kernels.generate_ptx(kt);
-        assert!(ptx.contains(".version"), "PTX should have version for {:?}", kt);
+        assert!(
+            ptx.contains(".version"),
+            "PTX should have version for {:?}",
+            kt
+        );
         covered += 1;
     }
     println!("  Quantized GEMM: {} total covered", covered);
@@ -89,9 +155,21 @@ fn test_tqa023_ptx_all_kernel_types() {
     let gemv_variants = [
         KernelType::Q4KGemv { k: 4096, n: 4096 },
         KernelType::Q4KGemv { k: 2560, n: 10240 },
-        KernelType::TiledQ4KGemv { k: 4096, n: 4096, outputs_per_block: 4 },
-        KernelType::TiledQ4KGemv { k: 2560, n: 10240, outputs_per_block: 8 },
-        KernelType::ChunkedTiledQ4KGemv { k: 4096, n: 4096, outputs_per_block: 4 },
+        KernelType::TiledQ4KGemv {
+            k: 4096,
+            n: 4096,
+            outputs_per_block: 4,
+        },
+        KernelType::TiledQ4KGemv {
+            k: 2560,
+            n: 10240,
+            outputs_per_block: 8,
+        },
+        KernelType::ChunkedTiledQ4KGemv {
+            k: 4096,
+            n: 4096,
+            outputs_per_block: 4,
+        },
         KernelType::CoalescedQ4KGemv { k: 4096, n: 4096 },
         KernelType::VectorizedQ4KGemv { k: 4096, n: 4096 },
         KernelType::Dp4aQ4KGemv { k: 4096, n: 4096 },
@@ -112,42 +190,109 @@ fn test_tqa023_ptx_all_kernel_types() {
 
     for kt in &gemv_variants {
         let ptx = kernels.generate_ptx(kt);
-        assert!(ptx.contains(".version"), "PTX should have version for {:?}", kt);
+        assert!(
+            ptx.contains(".version"),
+            "PTX should have version for {:?}",
+            kt
+        );
         covered += 1;
     }
     println!("  GEMV variants: {} total covered", covered);
 
     // B4. Batched GEMV
     let batched_variants = [
-        KernelType::BatchedQ4KGemv { m: 2, k: 4096, n: 4096 },
-        KernelType::BatchedQ4KGemv { m: 16, k: 2560, n: 10240 },
-        KernelType::BatchedQ4KGemv { m: 32, k: 4096, n: 4096 },
-        KernelType::MultiWarpBatchedQ4KGemv { k: 4096, n: 4096, warps: 4 },
-        KernelType::MultiWarpBatchedQ4KGemv { k: 2560, n: 10240, warps: 8 },
-        KernelType::BatchedQ6KGemv { m: 2, k: 4096, n: 4096 },
-        KernelType::BatchedQ6KGemv { m: 8, k: 896, n: 4864 },
+        KernelType::BatchedQ4KGemv {
+            m: 2,
+            k: 4096,
+            n: 4096,
+        },
+        KernelType::BatchedQ4KGemv {
+            m: 16,
+            k: 2560,
+            n: 10240,
+        },
+        KernelType::BatchedQ4KGemv {
+            m: 32,
+            k: 4096,
+            n: 4096,
+        },
+        KernelType::MultiWarpBatchedQ4KGemv {
+            k: 4096,
+            n: 4096,
+            warps: 4,
+        },
+        KernelType::MultiWarpBatchedQ4KGemv {
+            k: 2560,
+            n: 10240,
+            warps: 8,
+        },
+        KernelType::BatchedQ6KGemv {
+            m: 2,
+            k: 4096,
+            n: 4096,
+        },
+        KernelType::BatchedQ6KGemv {
+            m: 8,
+            k: 896,
+            n: 4864,
+        },
     ];
 
     for kt in &batched_variants {
         let ptx = kernels.generate_ptx(kt);
-        assert!(ptx.contains(".version"), "PTX should have version for {:?}", kt);
+        assert!(
+            ptx.contains(".version"),
+            "PTX should have version for {:?}",
+            kt
+        );
         covered += 1;
     }
     println!("  Batched GEMV: {} total covered", covered);
 
     // B5. Attention variants
     let attention_variants = [
-        KernelType::Attention { seq_len: 128, head_dim: 64, causal: true },
-        KernelType::Attention { seq_len: 2048, head_dim: 128, causal: true },
-        KernelType::Attention { seq_len: 512, head_dim: 64, causal: false },
-        KernelType::MultiHeadAttention { n_heads: 8, seq_len: 512, head_dim: 64, causal: true },
-        KernelType::MultiHeadAttention { n_heads: 32, seq_len: 2048, head_dim: 128, causal: true },
-        KernelType::MultiHeadAttention { n_heads: 14, seq_len: 256, head_dim: 64, causal: false },
+        KernelType::Attention {
+            seq_len: 128,
+            head_dim: 64,
+            causal: true,
+        },
+        KernelType::Attention {
+            seq_len: 2048,
+            head_dim: 128,
+            causal: true,
+        },
+        KernelType::Attention {
+            seq_len: 512,
+            head_dim: 64,
+            causal: false,
+        },
+        KernelType::MultiHeadAttention {
+            n_heads: 8,
+            seq_len: 512,
+            head_dim: 64,
+            causal: true,
+        },
+        KernelType::MultiHeadAttention {
+            n_heads: 32,
+            seq_len: 2048,
+            head_dim: 128,
+            causal: true,
+        },
+        KernelType::MultiHeadAttention {
+            n_heads: 14,
+            seq_len: 256,
+            head_dim: 64,
+            causal: false,
+        },
     ];
 
     for kt in &attention_variants {
         let ptx = kernels.generate_ptx(kt);
-        assert!(ptx.contains(".version"), "PTX should have version for {:?}", kt);
+        assert!(
+            ptx.contains(".version"),
+            "PTX should have version for {:?}",
+            kt
+        );
         covered += 1;
     }
     println!("  Attention: {} total covered", covered);
@@ -157,12 +302,33 @@ fn test_tqa023_ptx_all_kernel_types() {
         KernelType::Softmax { dim: 4096 },
         KernelType::Softmax { dim: 32000 },
         KernelType::Softmax { dim: 128256 },
-        KernelType::LayerNorm { hidden_size: 4096, epsilon: 1e-5, affine: true },
-        KernelType::LayerNorm { hidden_size: 2560, epsilon: 1e-6, affine: false },
-        KernelType::RmsNorm { hidden_size: 4096, epsilon: 1e-5 },
-        KernelType::RmsNorm { hidden_size: 896, epsilon: 1e-6 },
-        KernelType::VectorizedRmsNorm { hidden_size: 4096, epsilon: 1e-5 },
-        KernelType::FusedRmsNormQ4KGemv { k: 2560, n: 10240, epsilon: 1e-5 },
+        KernelType::LayerNorm {
+            hidden_size: 4096,
+            epsilon: 1e-5,
+            affine: true,
+        },
+        KernelType::LayerNorm {
+            hidden_size: 2560,
+            epsilon: 1e-6,
+            affine: false,
+        },
+        KernelType::RmsNorm {
+            hidden_size: 4096,
+            epsilon: 1e-5,
+        },
+        KernelType::RmsNorm {
+            hidden_size: 896,
+            epsilon: 1e-6,
+        },
+        KernelType::VectorizedRmsNorm {
+            hidden_size: 4096,
+            epsilon: 1e-5,
+        },
+        KernelType::FusedRmsNormQ4KGemv {
+            k: 2560,
+            n: 10240,
+            epsilon: 1e-5,
+        },
         KernelType::Gelu { n: 4096 },
         KernelType::Gelu { n: 10240 },
         KernelType::Silu { n: 4096 },
@@ -171,17 +337,37 @@ fn test_tqa023_ptx_all_kernel_types() {
 
     for kt in &norm_variants {
         let ptx = kernels.generate_ptx(kt);
-        assert!(ptx.contains(".version"), "PTX should have version for {:?}", kt);
+        assert!(
+            ptx.contains(".version"),
+            "PTX should have version for {:?}",
+            kt
+        );
         covered += 1;
     }
     println!("  Normalization/Activation: {} total covered", covered);
 
     // B7. Other kernels
     let other_variants = [
-        KernelType::Rope { num_heads: 32, head_dim: 64, theta: 10000.0 },
-        KernelType::RopeNeox { num_heads: 32, head_dim: 64, theta: 10000.0 },
-        KernelType::RopeIndirect { num_heads: 32, head_dim: 64, theta: 10000.0 },
-        KernelType::RopeNeoxIndirect { num_heads: 32, head_dim: 64, theta: 10000.0 },
+        KernelType::Rope {
+            num_heads: 32,
+            head_dim: 64,
+            theta: 10000.0,
+        },
+        KernelType::RopeNeox {
+            num_heads: 32,
+            head_dim: 64,
+            theta: 10000.0,
+        },
+        KernelType::RopeIndirect {
+            num_heads: 32,
+            head_dim: 64,
+            theta: 10000.0,
+        },
+        KernelType::RopeNeoxIndirect {
+            num_heads: 32,
+            head_dim: 64,
+            theta: 10000.0,
+        },
         KernelType::ResidualAdd { n: 4096 },
         KernelType::ResidualAdd { n: 2560 },
         KernelType::FusedGateUpQ4KGemv { k: 2560, n: 10240 },
@@ -192,7 +378,11 @@ fn test_tqa023_ptx_all_kernel_types() {
 
     for kt in &other_variants {
         let ptx = kernels.generate_ptx(kt);
-        assert!(ptx.contains(".version"), "PTX should have version for {:?}", kt);
+        assert!(
+            ptx.contains(".version"),
+            "PTX should have version for {:?}",
+            kt
+        );
         covered += 1;
     }
     println!("  Other kernels: {} total covered", covered);
@@ -209,20 +399,41 @@ fn test_tqa023_kernel_names_all_types() {
 
     let kernel_types = vec![
         KernelType::GemmNaive { m: 1, n: 1, k: 1 },
-        KernelType::GemmTiled { m: 1, n: 1, k: 1, tile_size: 16 },
+        KernelType::GemmTiled {
+            m: 1,
+            n: 1,
+            k: 1,
+            tile_size: 16,
+        },
         KernelType::GemmTensorCore { m: 1, n: 1, k: 1 },
         KernelType::Gemv { k: 1, n: 1 },
         KernelType::CoalescedGemv { k: 1, n: 1 },
         KernelType::Softmax { dim: 1 },
-        KernelType::LayerNorm { hidden_size: 1, epsilon: 1e-5, affine: true },
-        KernelType::Attention { seq_len: 1, head_dim: 1, causal: true },
+        KernelType::LayerNorm {
+            hidden_size: 1,
+            epsilon: 1e-5,
+            affine: true,
+        },
+        KernelType::Attention {
+            seq_len: 1,
+            head_dim: 1,
+            causal: true,
+        },
         KernelType::QuantizedGemm { m: 1, n: 1, k: 1 },
         KernelType::QuantizedGemmGgml { m: 1, n: 1, k: 1 },
         KernelType::Q5KQuantizedGemm { m: 1, n: 1, k: 1 },
         KernelType::Q6KQuantizedGemm { m: 1, n: 1, k: 1 },
         KernelType::Q4KGemv { k: 1, n: 1 },
-        KernelType::TiledQ4KGemv { k: 1, n: 1, outputs_per_block: 1 },
-        KernelType::ChunkedTiledQ4KGemv { k: 1, n: 1, outputs_per_block: 1 },
+        KernelType::TiledQ4KGemv {
+            k: 1,
+            n: 1,
+            outputs_per_block: 1,
+        },
+        KernelType::ChunkedTiledQ4KGemv {
+            k: 1,
+            n: 1,
+            outputs_per_block: 1,
+        },
         KernelType::CoalescedQ4KGemv { k: 1, n: 1 },
         KernelType::VectorizedQ4KGemv { k: 1, n: 1 },
         KernelType::Dp4aQ4KGemv { k: 1, n: 1 },
@@ -236,27 +447,66 @@ fn test_tqa023_kernel_names_all_types() {
         KernelType::Q4_1Gemv { k: 1, n: 1 },
         KernelType::Q5_0Gemv { k: 1, n: 1 },
         KernelType::BatchedQ4KGemv { m: 1, k: 1, n: 1 },
-        KernelType::MultiWarpBatchedQ4KGemv { k: 1, n: 1, warps: 1 },
+        KernelType::MultiWarpBatchedQ4KGemv {
+            k: 1,
+            n: 1,
+            warps: 1,
+        },
         KernelType::BatchedQ6KGemv { m: 1, k: 1, n: 1 },
-        KernelType::RmsNorm { hidden_size: 1, epsilon: 1e-5 },
-        KernelType::VectorizedRmsNorm { hidden_size: 1, epsilon: 1e-5 },
-        KernelType::FusedRmsNormQ4KGemv { k: 1, n: 1, epsilon: 1e-5 },
+        KernelType::RmsNorm {
+            hidden_size: 1,
+            epsilon: 1e-5,
+        },
+        KernelType::VectorizedRmsNorm {
+            hidden_size: 1,
+            epsilon: 1e-5,
+        },
+        KernelType::FusedRmsNormQ4KGemv {
+            k: 1,
+            n: 1,
+            epsilon: 1e-5,
+        },
         KernelType::Gelu { n: 1 },
         KernelType::Silu { n: 1 },
-        KernelType::Rope { num_heads: 1, head_dim: 1, theta: 10000.0 },
-        KernelType::RopeNeox { num_heads: 1, head_dim: 1, theta: 10000.0 },
-        KernelType::RopeIndirect { num_heads: 1, head_dim: 1, theta: 10000.0 },
-        KernelType::RopeNeoxIndirect { num_heads: 1, head_dim: 1, theta: 10000.0 },
+        KernelType::Rope {
+            num_heads: 1,
+            head_dim: 1,
+            theta: 10000.0,
+        },
+        KernelType::RopeNeox {
+            num_heads: 1,
+            head_dim: 1,
+            theta: 10000.0,
+        },
+        KernelType::RopeIndirect {
+            num_heads: 1,
+            head_dim: 1,
+            theta: 10000.0,
+        },
+        KernelType::RopeNeoxIndirect {
+            num_heads: 1,
+            head_dim: 1,
+            theta: 10000.0,
+        },
         KernelType::ResidualAdd { n: 1 },
         KernelType::FusedGateUpQ4KGemv { k: 1, n: 1 },
         KernelType::Q8Quantize { n: 1 },
         KernelType::Q4KQ8Dot { k: 1, n: 1 },
-        KernelType::MultiHeadAttention { n_heads: 1, seq_len: 1, head_dim: 1, causal: true },
+        KernelType::MultiHeadAttention {
+            n_heads: 1,
+            seq_len: 1,
+            head_dim: 1,
+            causal: true,
+        },
     ];
 
     for kt in &kernel_types {
         let name = kernels.kernel_name(kt);
-        assert!(!name.is_empty(), "Kernel name should not be empty for {:?}", kt);
+        assert!(
+            !name.is_empty(),
+            "Kernel name should not be empty for {:?}",
+            kt
+        );
     }
 
     println!("  {} kernel name branches covered", kernel_types.len());
@@ -299,7 +549,9 @@ fn test_tqa023_pinned_host_buffer_api() {
 
 #[test]
 fn test_tqa023_executor_profiler_api() {
-    let Some(mut executor) = try_create_executor() else { return };
+    let Some(mut executor) = try_create_executor() else {
+        return;
+    };
 
     println!("\n=== T-QA-023: Executor Profiler API ===\n");
 
@@ -333,7 +585,9 @@ fn test_tqa023_executor_profiler_api() {
 
 #[test]
 fn test_tqa023_executor_graph_tracking_api() {
-    let Some(mut executor) = try_create_executor() else { return };
+    let Some(mut executor) = try_create_executor() else {
+        return;
+    };
 
     println!("\n=== T-QA-023: Executor Graph Tracking API ===\n");
 
@@ -358,7 +612,9 @@ fn test_tqa023_executor_graph_tracking_api() {
 
 #[test]
 fn test_tqa023_executor_tile_profiling_api() {
-    let Some(mut executor) = try_create_executor() else { return };
+    let Some(mut executor) = try_create_executor() else {
+        return;
+    };
 
     println!("\n=== T-QA-023: Executor Tile Profiling API ===\n");
 
@@ -386,7 +642,9 @@ fn test_tqa023_executor_tile_profiling_api() {
 
 #[test]
 fn test_tqa023_executor_weight_cache_api() {
-    let Some(mut executor) = try_create_executor() else { return };
+    let Some(mut executor) = try_create_executor() else {
+        return;
+    };
 
     println!("\n=== T-QA-023: Executor Weight Cache API ===\n");
 
@@ -397,7 +655,7 @@ fn test_tqa023_executor_weight_cache_api() {
             assert!(executor.has_weights("test_layer_0_q"));
             assert!(!executor.has_weights("nonexistent"));
             println!("  Loaded weights at ptr: 0x{:x}", ptr);
-        }
+        },
         Err(e) => println!("  Weight load failed: {:?}", e),
     }
 
@@ -410,7 +668,9 @@ fn test_tqa023_executor_weight_cache_api() {
 
 #[test]
 fn test_tqa023_executor_quantized_weight_api() {
-    let Some(mut executor) = try_create_executor() else { return };
+    let Some(mut executor) = try_create_executor() else {
+        return;
+    };
 
     println!("\n=== T-QA-023: Executor Quantized Weight API ===\n");
 
@@ -434,7 +694,9 @@ fn test_tqa023_executor_quantized_weight_api() {
 
 #[test]
 fn test_tqa023_executor_synchronization() {
-    let Some(executor) = try_create_executor() else { return };
+    let Some(executor) = try_create_executor() else {
+        return;
+    };
 
     println!("\n=== T-QA-023: Executor Synchronization ===\n");
 
@@ -463,7 +725,9 @@ fn test_tqa023_executor_synchronization() {
 
 #[test]
 fn test_tqa023_executor_softmax() {
-    let Some(mut executor) = try_create_executor() else { return };
+    let Some(mut executor) = try_create_executor() else {
+        return;
+    };
 
     println!("\n=== T-QA-023: Softmax ===\n");
 
@@ -476,7 +740,7 @@ fn test_tqa023_executor_softmax() {
             Ok(_) => {
                 let sum: f32 = data.iter().sum();
                 println!("  softmax dim={}: sum={:.6}", dim, sum);
-            }
+            },
             Err(e) => println!("  softmax dim={}: {:?}", dim, e),
         }
     }
@@ -490,7 +754,9 @@ fn test_tqa023_executor_softmax() {
 
 #[test]
 fn test_tqa023_error_quantized_weight_not_found() {
-    let Some(executor) = try_create_executor() else { return };
+    let Some(executor) = try_create_executor() else {
+        return;
+    };
 
     println!("\n=== T-QA-023: Error Paths - Quantized Weight Not Found ===\n");
 
@@ -580,37 +846,46 @@ fn test_tqa023_size_class_coverage() {
 
     // Test all size class boundaries
     let test_sizes = [
-        (1, Some(4096)),           // Tiny → 4KB
-        (4096, Some(4096)),        // Exact 4KB
-        (4097, Some(16384)),       // 4KB+1 → 16KB
-        (16384, Some(16384)),      // Exact 16KB
-        (16385, Some(65536)),      // 16KB+1 → 64KB
-        (65536, Some(65536)),      // Exact 64KB
-        (65537, Some(262_144)),    // 64KB+1 → 256KB
-        (262_144, Some(262_144)),  // Exact 256KB
-        (262_145, Some(1_048_576)), // 256KB+1 → 1MB
-        (1_048_576, Some(1_048_576)), // Exact 1MB
-        (1_048_577, Some(4_194_304)), // 1MB+1 → 4MB
-        (4_194_304, Some(4_194_304)), // Exact 4MB
-        (4_194_305, Some(16_777_216)), // 4MB+1 → 16MB
-        (16_777_216, Some(16_777_216)), // Exact 16MB
-        (16_777_217, Some(67_108_864)), // 16MB+1 → 64MB
-        (67_108_864, Some(67_108_864)), // Exact 64MB
-        (67_108_865, Some(268_435_456)), // 64MB+1 → 256MB
+        (1, Some(4096)),                  // Tiny → 4KB
+        (4096, Some(4096)),               // Exact 4KB
+        (4097, Some(16384)),              // 4KB+1 → 16KB
+        (16384, Some(16384)),             // Exact 16KB
+        (16385, Some(65536)),             // 16KB+1 → 64KB
+        (65536, Some(65536)),             // Exact 64KB
+        (65537, Some(262_144)),           // 64KB+1 → 256KB
+        (262_144, Some(262_144)),         // Exact 256KB
+        (262_145, Some(1_048_576)),       // 256KB+1 → 1MB
+        (1_048_576, Some(1_048_576)),     // Exact 1MB
+        (1_048_577, Some(4_194_304)),     // 1MB+1 → 4MB
+        (4_194_304, Some(4_194_304)),     // Exact 4MB
+        (4_194_305, Some(16_777_216)),    // 4MB+1 → 16MB
+        (16_777_216, Some(16_777_216)),   // Exact 16MB
+        (16_777_217, Some(67_108_864)),   // 16MB+1 → 64MB
+        (67_108_864, Some(67_108_864)),   // Exact 64MB
+        (67_108_865, Some(268_435_456)),  // 64MB+1 → 256MB
         (268_435_456, Some(268_435_456)), // Exact 256MB
-        (268_435_457, None), // Too large → None
+        (268_435_457, None),              // Too large → None
     ];
 
     for (size, expected_class) in &test_sizes {
         let result = SizeClass::for_size(*size);
         match (result, expected_class) {
             (Some(sc), Some(expected)) => {
-                assert_eq!(sc.bytes(), *expected, "Size {} should map to {}", size, expected);
-            }
+                assert_eq!(
+                    sc.bytes(),
+                    *expected,
+                    "Size {} should map to {}",
+                    size,
+                    expected
+                );
+            },
             (None, None) => {
                 println!("  Size {} correctly returns None (too large)", size);
-            }
-            _ => panic!("Mismatch for size {}: got {:?}, expected {:?}", size, result, expected_class),
+            },
+            _ => panic!(
+                "Mismatch for size {}: got {:?}, expected {:?}",
+                size, result, expected_class
+            ),
         }
     }
 
@@ -786,7 +1061,10 @@ fn test_tqa023_weight_quant_type_coverage() {
         let result = WeightQuantType::from_ggml_type(*type_id);
         assert_eq!(result, *expected, "GGML type {} mismatch", type_id);
     }
-    println!("  from_ggml_type verified for {} cases", ggml_mappings.len());
+    println!(
+        "  from_ggml_type verified for {} cases",
+        ggml_mappings.len()
+    );
 
     // Test bytes_per_superblock
     assert_eq!(WeightQuantType::Q4K.bytes_per_superblock(), 144);
@@ -841,15 +1119,30 @@ fn test_tqa023_weight_quant_type_coverage() {
 
     // Test from_size
     // Q4K: 1 row × 256 cols = 144 bytes
-    assert_eq!(WeightQuantType::from_size(144, 1, 256), Some(WeightQuantType::Q4K));
+    assert_eq!(
+        WeightQuantType::from_size(144, 1, 256),
+        Some(WeightQuantType::Q4K)
+    );
     // Q5K: 1 row × 256 cols = 176 bytes
-    assert_eq!(WeightQuantType::from_size(176, 1, 256), Some(WeightQuantType::Q5K));
+    assert_eq!(
+        WeightQuantType::from_size(176, 1, 256),
+        Some(WeightQuantType::Q5K)
+    );
     // Q6K: 1 row × 256 cols = 210 bytes
-    assert_eq!(WeightQuantType::from_size(210, 1, 256), Some(WeightQuantType::Q6K));
+    assert_eq!(
+        WeightQuantType::from_size(210, 1, 256),
+        Some(WeightQuantType::Q6K)
+    );
     // Q8_0: 1 row × 32 cols = 34 bytes
-    assert_eq!(WeightQuantType::from_size(34, 1, 32), Some(WeightQuantType::Q8_0));
+    assert_eq!(
+        WeightQuantType::from_size(34, 1, 32),
+        Some(WeightQuantType::Q8_0)
+    );
     // Q5_0: 1 row × 32 cols = 22 bytes
-    assert_eq!(WeightQuantType::from_size(22, 1, 32), Some(WeightQuantType::Q5_0));
+    assert_eq!(
+        WeightQuantType::from_size(22, 1, 32),
+        Some(WeightQuantType::Q5_0)
+    );
     // Unknown size
     assert_eq!(WeightQuantType::from_size(999999, 1, 32), None);
     println!("  from_size verified");

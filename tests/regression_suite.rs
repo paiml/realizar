@@ -215,8 +215,7 @@ fn test_regression_header_offsets_valid() {
 
     // Metadata offset should be right after header
     assert_eq!(
-        header.metadata_offset,
-        HEADER_SIZE as u64,
+        header.metadata_offset, HEADER_SIZE as u64,
         "Metadata offset should be {}",
         HEADER_SIZE
     );
@@ -272,11 +271,7 @@ fn test_regression_model_tensor_names() {
     ];
 
     for expected in &expected_names {
-        assert!(
-            names.contains(expected),
-            "Missing tensor: {}",
-            expected
-        );
+        assert!(names.contains(expected), "Missing tensor: {}", expected);
     }
 }
 

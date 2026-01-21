@@ -13223,7 +13223,7 @@ mod tests {
 
     #[test]
     fn test_dispatch_metrics_query_default_more_cov() {
-        let json = r#"{}"#;
+        let json = r"{}";
         let query: DispatchMetricsQuery = serde_json::from_str(json).expect("deserialize");
         assert!(query.format.is_none());
     }

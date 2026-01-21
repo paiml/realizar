@@ -72,7 +72,7 @@ fn test_header_zero_tensor_count() {
     data[0..4].copy_from_slice(&APR_V2_MAGIC.to_le_bytes());
     data[4..8].copy_from_slice(&1u32.to_le_bytes()); // version 1
     data[8..12].copy_from_slice(&0u32.to_le_bytes()); // 0 tensors
-    // May succeed or fail depending on implementation
+                                                      // May succeed or fail depending on implementation
     let _ = AprHeader::from_bytes(&data);
 }
 
@@ -108,7 +108,7 @@ fn test_tensor_entry_truncated_name() {
 fn test_tensor_entry_zero_name_length() {
     let mut data = vec![0u8; 32];
     data[0..4].copy_from_slice(&0u32.to_le_bytes()); // name length = 0
-    // This may be valid (empty name) or invalid
+                                                     // This may be valid (empty name) or invalid
     let _ = TensorEntry::from_binary(&data);
 }
 
@@ -431,10 +431,10 @@ fn test_header_parsing_is_deterministic() {
     match (r1, r2) {
         (Ok(h1), Ok(h2)) => {
             assert_eq!(h1.tensor_count, h2.tensor_count);
-        }
+        },
         (Err(_), Err(_)) => {
             // Both errors is also consistent
-        }
+        },
         _ => panic!("Inconsistent parsing results"),
     }
 }

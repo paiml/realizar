@@ -575,12 +575,12 @@ impl MappedSafeTensorsModel {
         // Memory-map the file (zero-copy)
         // SAFETY: File is opened read-only and we don't modify it
         let mmap = unsafe {
-            memmap2::MmapOptions::new()
-                .map(&file)
-                .map_err(|e| RealizarError::UnsupportedOperation {
+            memmap2::MmapOptions::new().map(&file).map_err(|e| {
+                RealizarError::UnsupportedOperation {
                     operation: "mmap_safetensors".to_string(),
                     reason: format!("Failed to mmap file '{}': {}", path.display(), e),
-                })?
+                }
+            })?
         };
 
         // Parse header (8-byte metadata length)
@@ -594,18 +594,14 @@ impl MappedSafeTensorsModel {
             });
         }
 
-        let metadata_len = u64::from_le_bytes(
-            mmap[0..8]
-                .try_into()
-                .expect("slice is exactly 8 bytes"),
-        );
+        let metadata_len =
+            u64::from_le_bytes(mmap[0..8].try_into().expect("slice is exactly 8 bytes"));
 
-        let metadata_len_usize = usize::try_from(metadata_len).map_err(|_| {
-            RealizarError::UnsupportedOperation {
+        let metadata_len_usize =
+            usize::try_from(metadata_len).map_err(|_| RealizarError::UnsupportedOperation {
                 operation: "parse_safetensors_header".to_string(),
                 reason: format!("Metadata length {} exceeds platform limit", metadata_len),
-            }
-        })?;
+            })?;
 
         // Verify we have enough data for metadata
         let data_offset = 8 + metadata_len_usize;
@@ -635,11 +631,12 @@ impl MappedSafeTensorsModel {
     /// Parse JSON metadata from bytes
     fn parse_metadata(json_bytes: &[u8]) -> Result<HashMap<String, SafetensorsTensorInfo>> {
         // Parse JSON as generic Value first to handle __metadata__ and other special keys
-        let json_value: serde_json::Value =
-            serde_json::from_slice(json_bytes).map_err(|e| RealizarError::UnsupportedOperation {
+        let json_value: serde_json::Value = serde_json::from_slice(json_bytes).map_err(|e| {
+            RealizarError::UnsupportedOperation {
                 operation: "parse_json".to_string(),
                 reason: e.to_string(),
-            })?;
+            }
+        })?;
 
         let json_map =
             json_value
@@ -711,7 +708,10 @@ impl MappedSafeTensorsModel {
                 operation: "get_tensor_bytes".to_string(),
                 reason: format!(
                     "Tensor '{}' data offsets [{}, {}] exceed file size {}",
-                    name, abs_start, abs_end, self.mmap.len()
+                    name,
+                    abs_start,
+                    abs_end,
+                    self.mmap.len()
                 ),
             });
         }
@@ -729,12 +729,13 @@ impl MappedSafeTensorsModel {
     ///
     /// Returns error if tensor not found or dtype is not F32.
     pub fn get_tensor_f32(&self, name: &str) -> Result<Vec<f32>> {
-        let tensor = self.tensors.get(name).ok_or_else(|| {
-            RealizarError::UnsupportedOperation {
+        let tensor = self
+            .tensors
+            .get(name)
+            .ok_or_else(|| RealizarError::UnsupportedOperation {
                 operation: "get_tensor_f32".to_string(),
                 reason: format!("Tensor '{name}' not found"),
-            }
-        })?;
+            })?;
 
         if tensor.dtype != SafetensorsDtype::F32 {
             return Err(RealizarError::UnsupportedOperation {
@@ -782,12 +783,13 @@ impl MappedSafeTensorsModel {
     ///
     /// Returns error if tensor not found or dtype is not BF16.
     pub fn get_tensor_bf16_bytes(&self, name: &str) -> Result<&[u8]> {
-        let tensor = self.tensors.get(name).ok_or_else(|| {
-            RealizarError::UnsupportedOperation {
+        let tensor = self
+            .tensors
+            .get(name)
+            .ok_or_else(|| RealizarError::UnsupportedOperation {
                 operation: "get_tensor_bf16_bytes".to_string(),
                 reason: format!("Tensor '{name}' not found"),
-            }
-        })?;
+            })?;
 
         if tensor.dtype != SafetensorsDtype::BF16 {
             return Err(RealizarError::UnsupportedOperation {
@@ -833,12 +835,13 @@ impl MappedSafeTensorsModel {
     ///
     /// Returns error if tensor not found or dtype is not F16.
     pub fn get_tensor_f16_bytes(&self, name: &str) -> Result<&[u8]> {
-        let tensor = self.tensors.get(name).ok_or_else(|| {
-            RealizarError::UnsupportedOperation {
+        let tensor = self
+            .tensors
+            .get(name)
+            .ok_or_else(|| RealizarError::UnsupportedOperation {
                 operation: "get_tensor_f16_bytes".to_string(),
                 reason: format!("Tensor '{name}' not found"),
-            }
-        })?;
+            })?;
 
         if tensor.dtype != SafetensorsDtype::F16 {
             return Err(RealizarError::UnsupportedOperation {
@@ -872,12 +875,13 @@ impl MappedSafeTensorsModel {
     ///
     /// Supports F32, F16, and BF16 dtypes with automatic conversion to F32.
     pub fn get_tensor_auto(&self, name: &str) -> Result<Vec<f32>> {
-        let tensor = self.tensors.get(name).ok_or_else(|| {
-            RealizarError::UnsupportedOperation {
+        let tensor = self
+            .tensors
+            .get(name)
+            .ok_or_else(|| RealizarError::UnsupportedOperation {
                 operation: "get_tensor_auto".to_string(),
                 reason: format!("Tensor '{name}' not found"),
-            }
-        })?;
+            })?;
 
         match tensor.dtype {
             SafetensorsDtype::F32 => self.get_tensor_f32(name),

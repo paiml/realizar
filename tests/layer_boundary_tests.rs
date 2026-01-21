@@ -89,8 +89,14 @@ fn test_rms_norm_mixed_signs() {
     let output = simd_rms_norm(&input, &weight, eps);
 
     // Signs should be preserved
-    assert!(output[0] < 0.0, "Negative input should give negative output");
-    assert!(output[1] > 0.0, "Positive input should give positive output");
+    assert!(
+        output[0] < 0.0,
+        "Negative input should give negative output"
+    );
+    assert!(
+        output[1] > 0.0,
+        "Positive input should give positive output"
+    );
 }
 
 #[test]
@@ -103,7 +109,11 @@ fn test_rms_norm_single_element() {
 
     // RMS of [5] = 5, normalized = 5/5 = 1, * weight 2 = 2
     assert_eq!(output.len(), 1);
-    assert!((output[0] - 2.0).abs() < 0.01, "Expected ~2.0, got {}", output[0]);
+    assert!(
+        (output[0] - 2.0).abs() < 0.01,
+        "Expected ~2.0, got {}",
+        output[0]
+    );
 }
 
 #[test]
@@ -126,7 +136,10 @@ fn test_rms_norm_weight_scaling() {
     let output = simd_rms_norm(&input, &weight, eps);
 
     // Weight of 0 should give 0 output
-    assert!((output[3]).abs() < 1e-10, "Zero weight should give zero output");
+    assert!(
+        (output[3]).abs() < 1e-10,
+        "Zero weight should give zero output"
+    );
 }
 
 // ============================================================================
@@ -144,7 +157,10 @@ fn test_layer_norm_near_zero_variance() {
     // LayerNorm with zero variance should produce near-zero (after mean subtraction)
     for v in &output {
         assert!(v.is_finite(), "Output should be finite");
-        assert!(v.abs() < 0.01, "Near-zero variance should give near-zero output");
+        assert!(
+            v.abs() < 0.01,
+            "Near-zero variance should give near-zero output"
+        );
     }
 }
 
@@ -465,7 +481,10 @@ fn test_rope_theta_variation() {
     // Different theta should produce different results
     // (for non-zero position)
     let different = x1.iter().zip(x2.iter()).any(|(a, b)| (a - b).abs() > 0.001);
-    assert!(different, "Different theta should produce different results");
+    assert!(
+        different,
+        "Different theta should produce different results"
+    );
 }
 
 #[test]
@@ -581,11 +600,7 @@ fn test_rms_norm_negative_weights() {
 
     // Negative weights should negate output
     for (i, v) in output.iter().enumerate() {
-        assert!(
-            v.is_finite(),
-            "Output[{}] should be finite",
-            i
-        );
+        assert!(v.is_finite(), "Output[{}] should be finite", i);
     }
 }
 
@@ -599,7 +614,10 @@ fn test_rms_norm_large_weights() {
 
     // Large weights should scale output
     for v in &output {
-        assert!(v.is_finite(), "Large weights should still give finite output");
+        assert!(
+            v.is_finite(),
+            "Large weights should still give finite output"
+        );
     }
 }
 

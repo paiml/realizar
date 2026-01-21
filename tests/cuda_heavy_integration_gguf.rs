@@ -90,35 +90,30 @@ fn try_create_cuda_executor() -> Option<CudaExecutor> {
         Err(e) => {
             eprintln!("Skipping: CUDA executor creation failed: {:?}", e);
             None
-        }
+        },
     }
 }
 
 /// Helper to safely run forward_cuda with panic catching (for GQA bugs)
-fn try_forward_cuda(
-    cuda_model: &mut OwnedQuantizedModelCuda,
-    tokens: &[u32],
-) -> Option<Vec<f32>> {
+fn try_forward_cuda(cuda_model: &mut OwnedQuantizedModelCuda, tokens: &[u32]) -> Option<Vec<f32>> {
     use std::panic;
 
     // forward_cuda may panic on GQA models (known bug: PARITY-GQA-001)
-    let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
-        cuda_model.forward_cuda(tokens)
-    }));
+    let result = panic::catch_unwind(panic::AssertUnwindSafe(|| cuda_model.forward_cuda(tokens)));
 
     match result {
         Ok(Ok(logits)) => Some(logits),
         Ok(Err(e)) => {
             eprintln!("Skipping: forward_cuda returned error: {:?}", e);
             None
-        }
+        },
         Err(panic_info) => {
             eprintln!(
                 "Skipping: forward_cuda panicked (likely GQA bug): {:?}",
                 panic_info.downcast_ref::<&str>()
             );
             None
-        }
+        },
     }
 }
 
@@ -134,7 +129,7 @@ fn load_qwen_model() -> Option<(OwnedQuantizedModel, MappedGGUFModel)> {
         Err(e) => {
             eprintln!("Skipping: Failed to load GGUF model: {:?}", e);
             return None;
-        }
+        },
     };
 
     let model = match OwnedQuantizedModel::from_mapped(&mapped) {
@@ -142,7 +137,7 @@ fn load_qwen_model() -> Option<(OwnedQuantizedModel, MappedGGUFModel)> {
         Err(e) => {
             eprintln!("Skipping: Failed to create OwnedQuantizedModel: {:?}", e);
             return None;
-        }
+        },
     };
 
     Some((model, mapped))
@@ -174,10 +169,13 @@ fn test_tqa017_gguf_forward_all_layers_full() {
         Err(e) => {
             eprintln!("Skipping: Failed to create CUDA model: {:?}", e);
             return;
-        }
+        },
     };
 
-    eprintln!("T-QA-017-GGUF-A1: Model loaded on {}", cuda_model.device_name());
+    eprintln!(
+        "T-QA-017-GGUF-A1: Model loaded on {}",
+        cuda_model.device_name()
+    );
 
     // Single token forward pass
     let start = Instant::now();
@@ -187,7 +185,7 @@ fn test_tqa017_gguf_forward_all_layers_full() {
         None => {
             eprintln!("T-QA-017-GGUF-A1: SKIPPED (GQA forward bug)");
             return;
-        }
+        },
     };
     let logits = &logits_batch;
     let elapsed = start.elapsed();
@@ -235,7 +233,7 @@ fn test_tqa017_gguf_forward_multi_token() {
         Err(e) => {
             eprintln!("Skipping: Failed to create CUDA model: {:?}", e);
             return;
-        }
+        },
     };
 
     // Multi-token forward (simulating "Hello world")
@@ -246,7 +244,7 @@ fn test_tqa017_gguf_forward_multi_token() {
         None => {
             eprintln!("T-QA-017-GGUF-A2: SKIPPED (GQA forward bug)");
             return;
-        }
+        },
     };
     let logits = &logits_batch;
     let elapsed = start.elapsed();
@@ -279,7 +277,7 @@ fn test_tqa017_gguf_forward_autoregressive() {
         Err(e) => {
             eprintln!("Skipping: Failed to create CUDA model: {:?}", e);
             return;
-        }
+        },
     };
 
     // Generate 10 tokens autoregressively
@@ -293,7 +291,7 @@ fn test_tqa017_gguf_forward_autoregressive() {
             None => {
                 eprintln!("T-QA-017-GGUF-A3: SKIPPED at token {} (GQA forward bug)", i);
                 return;
-            }
+            },
         };
         let logits = &logits_batch;
 
@@ -344,7 +342,7 @@ fn test_tqa017_gguf_cuda_graph_capture() {
         Err(e) => {
             eprintln!("Skipping: Failed to create CUDA model: {:?}", e);
             return;
-        }
+        },
     };
 
     // First forward captures the graph
@@ -355,7 +353,7 @@ fn test_tqa017_gguf_cuda_graph_capture() {
         None => {
             eprintln!("T-QA-017-GGUF-B1: SKIPPED (GQA forward bug)");
             return;
-        }
+        },
     };
     let logits1 = &logits1_batch;
     let capture_time = start.elapsed();
@@ -367,7 +365,7 @@ fn test_tqa017_gguf_cuda_graph_capture() {
         None => {
             eprintln!("T-QA-017-GGUF-B1: SKIPPED on replay (GQA forward bug)");
             return;
-        }
+        },
     };
     let logits2 = &logits2_batch;
     let replay_time = start.elapsed();
@@ -407,7 +405,7 @@ fn test_tqa017_gguf_cuda_graph_replay_perf() {
         Err(e) => {
             eprintln!("Skipping: Failed to create CUDA model: {:?}", e);
             return;
-        }
+        },
     };
 
     // Warmup and capture
@@ -425,9 +423,12 @@ fn test_tqa017_gguf_cuda_graph_replay_perf() {
         let logits_batch = match try_forward_cuda(&mut cuda_model, &tokens) {
             Some(l) => l,
             None => {
-                eprintln!("T-QA-017-GGUF-B2: SKIPPED at iteration {} (GQA forward bug)", i);
+                eprintln!(
+                    "T-QA-017-GGUF-B2: SKIPPED at iteration {} (GQA forward bug)",
+                    i
+                );
                 return;
-            }
+            },
         };
         assert!(logits_batch[0].is_finite(), "Logits should be finite");
     }
@@ -468,7 +469,7 @@ fn test_tqa017_gguf_batched_inference_b4() {
         Err(e) => {
             eprintln!("Skipping: Failed to create CUDA model: {:?}", e);
             return;
-        }
+        },
     };
 
     // Pre-cache weights for batch mode
@@ -491,9 +492,13 @@ fn test_tqa017_gguf_batched_inference_b4() {
             None => {
                 eprintln!("T-QA-017-GGUF-C1: SKIPPED at batch {} (GQA forward bug)", i);
                 return;
-            }
+            },
         };
-        assert!(logits_batch[0].is_finite(), "Batch {} logits should be finite", i);
+        assert!(
+            logits_batch[0].is_finite(),
+            "Batch {} logits should be finite",
+            i
+        );
     }
 
     let elapsed = start.elapsed();
@@ -522,7 +527,7 @@ fn test_tqa017_gguf_batched_inference_b8() {
         Err(e) => {
             eprintln!("Skipping: Failed to create CUDA model: {:?}", e);
             return;
-        }
+        },
     };
 
     cuda_model
@@ -539,7 +544,7 @@ fn test_tqa017_gguf_batched_inference_b8() {
             None => {
                 eprintln!("T-QA-017-GGUF-C2: SKIPPED at batch {} (GQA forward bug)", i);
                 return;
-            }
+            },
         };
         assert!(logits_batch[0].is_finite());
     }
@@ -568,7 +573,7 @@ fn test_tqa017_gguf_batched_inference_b32() {
         Err(e) => {
             eprintln!("Skipping: Failed to create CUDA model: {:?}", e);
             return;
-        }
+        },
     };
 
     cuda_model
@@ -585,7 +590,7 @@ fn test_tqa017_gguf_batched_inference_b32() {
             None => {
                 eprintln!("T-QA-017-GGUF-C3: SKIPPED at batch {} (GQA forward bug)", i);
                 return;
-            }
+            },
         };
         assert!(logits_batch[0].is_finite());
     }
@@ -635,7 +640,7 @@ fn test_tqa017_gguf_vram_usage() {
         Err(e) => {
             eprintln!("Skipping: Failed to create CUDA model: {:?}", e);
             return;
-        }
+        },
     };
 
     // Get VRAM after model load
@@ -692,7 +697,7 @@ fn test_tqa017_gguf_ptx_compilation() {
         Err(e) => {
             eprintln!("Skipping: Failed to create CUDA model: {:?}", e);
             return;
-        }
+        },
     };
 
     // Enable profiling to track kernel execution
@@ -740,7 +745,7 @@ fn test_tqa017_gguf_cpu_gpu_parity() {
         Err(e) => {
             eprintln!("Skipping: Failed to create CUDA model: {:?}", e);
             return;
-        }
+        },
     };
 
     // Run single token on both
@@ -756,7 +761,7 @@ fn test_tqa017_gguf_cpu_gpu_parity() {
         None => {
             eprintln!("T-QA-017-GGUF-E1: SKIPPED (GQA forward bug)");
             return;
-        }
+        },
     };
     let gpu_logits = &gpu_logits_batch;
     let gpu_time = gpu_start.elapsed();
@@ -837,7 +842,7 @@ fn test_tqa017_gguf_long_context_256() {
         Err(e) => {
             eprintln!("Skipping: Failed to create CUDA model: {:?}", e);
             return;
-        }
+        },
     };
 
     // Generate 256 tokens of context
@@ -848,7 +853,7 @@ fn test_tqa017_gguf_long_context_256() {
         None => {
             eprintln!("T-QA-017-GGUF-F1: SKIPPED (GQA forward bug)");
             return;
-        }
+        },
     };
     let logits = &logits_batch;
     let elapsed = start.elapsed();
@@ -882,7 +887,7 @@ fn test_tqa017_gguf_long_context_512() {
         Err(e) => {
             eprintln!("Skipping: Failed to create CUDA model: {:?}", e);
             return;
-        }
+        },
     };
 
     let tokens: Vec<u32> = (1..513).collect();
@@ -892,7 +897,7 @@ fn test_tqa017_gguf_long_context_512() {
         None => {
             eprintln!("T-QA-017-GGUF-F2: SKIPPED (GQA forward bug)");
             return;
-        }
+        },
     };
     let logits = &logits_batch;
     let elapsed = start.elapsed();

@@ -7875,6 +7875,33 @@ unsafe fn apply_rope_rotation_avx512(
     }
 }
 
+/// Backwards-compatible alias for `fused_q6k_parallel_matvec`.
+///
+/// The column-major layout is now the default for the parallel implementation.
+#[inline]
+pub fn fused_q6k_colmajor_matvec(
+    weight_data: &[u8],
+    activations: &[f32],
+    in_dim: usize,
+    out_dim: usize,
+) -> Result<Vec<f32>> {
+    fused_q6k_parallel_matvec(weight_data, activations, in_dim, out_dim)
+}
+
+/// Backwards-compatible alias for `fused_q4k_parallel_matvec_into`.
+///
+/// The "auto" naming referred to automatic thread dispatch which is now the default.
+#[inline]
+pub fn fused_q4k_auto_matvec_into(
+    weight_data: &[u8],
+    activations: &[f32],
+    in_dim: usize,
+    out_dim: usize,
+    output: &mut [f32],
+) -> Result<()> {
+    fused_q4k_parallel_matvec_into(weight_data, activations, in_dim, out_dim, output)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -14454,7 +14481,7 @@ mod tests {
         let values = [0.0f32; 256];
         let sb = Q8KSuperBlock::quantize(&values);
         // All zeros should produce near-zero quants
-        for q in sb.quants.iter() {
+        for q in &sb.quants {
             assert_eq!(*q, 0);
         }
     }
@@ -14466,7 +14493,7 @@ mod tests {
         // Scale should handle max values
         assert!(sb.scale > 0.0);
         // All quants should be at max
-        for q in sb.quants.iter() {
+        for q in &sb.quants {
             assert_eq!(*q, 127);
         }
     }
@@ -15695,7 +15722,7 @@ mod tests {
     #[test]
     fn test_simd_backend_clone_ext_cov() {
         let backend = SimdBackend::Avx2;
-        let cloned = backend.clone();
+        let cloned = backend;
         assert_eq!(backend, cloned);
     }
 
@@ -15708,7 +15735,7 @@ mod tests {
 
     #[test]
     fn test_simd_backend_default_ext_cov() {
-        let backend: SimdBackend = Default::default();
+        let backend: SimdBackend = SimdBackend::default();
         assert_eq!(backend, SimdBackend::Scalar);
     }
 
@@ -17742,7 +17769,7 @@ mod tests {
         }
         let block = Q8KSuperBlock::quantize(&values);
         // Quants should alternate between positive and negative
-        assert!(block.quants[0] > 0 || block.quants[0] < 0);
+        assert!(block.quants[0] != 0);
         assert!(block.quants[0] != block.quants[1] || block.quants[0] == 0);
     }
 
@@ -18281,7 +18308,7 @@ mod tests {
         let mut scales = vec![0.0f32; 8];
         let mut quants = vec![0i8; 256];
 
-        quantize_activations_q8k_into(&activations, &mut scales, &mut quants);
+        let _ = quantize_activations_q8k_into(&activations, &mut scales, &mut quants);
         let has_nonzero = scales.iter().any(|&s| s.abs() > 1e-10);
         assert!(has_nonzero);
     }
@@ -18303,31 +18330,4 @@ mod tests {
         let result = dequantize_q8_blocks(&blocks);
         assert_eq!(result.len(), 32);
     }
-}
-
-/// Backwards-compatible alias for `fused_q6k_parallel_matvec`.
-///
-/// The column-major layout is now the default for the parallel implementation.
-#[inline]
-pub fn fused_q6k_colmajor_matvec(
-    weight_data: &[u8],
-    activations: &[f32],
-    in_dim: usize,
-    out_dim: usize,
-) -> Result<Vec<f32>> {
-    fused_q6k_parallel_matvec(weight_data, activations, in_dim, out_dim)
-}
-
-/// Backwards-compatible alias for `fused_q4k_parallel_matvec_into`.
-///
-/// The "auto" naming referred to automatic thread dispatch which is now the default.
-#[inline]
-pub fn fused_q4k_auto_matvec_into(
-    weight_data: &[u8],
-    activations: &[f32],
-    in_dim: usize,
-    out_dim: usize,
-    output: &mut [f32],
-) -> Result<()> {
-    fused_q4k_parallel_matvec_into(weight_data, activations, in_dim, out_dim, output)
 }

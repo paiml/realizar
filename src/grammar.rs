@@ -3114,7 +3114,7 @@ Some text
         grammar.add_rule(GrammarRule::single("root", vec![GrammarElement::Char('a')]));
 
         let mut token_strings = HashMap::new();
-        token_strings.insert(0, "".to_string()); // Empty token
+        token_strings.insert(0, String::new()); // Empty token
 
         let masker = GrammarTokenMasker::new(grammar, token_strings, 99).expect("should create");
         let mask = masker.get_mask();

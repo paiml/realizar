@@ -985,7 +985,7 @@ mod tests {
     #[test]
     fn test_inference_config_empty_prompt_cov() {
         let config = InferenceConfig::new("/model.gguf").with_prompt("");
-        assert_eq!(config.prompt, Some("".to_string()));
+        assert_eq!(config.prompt, Some(String::new()));
     }
 
     #[test]
@@ -1095,7 +1095,7 @@ mod tests {
     #[test]
     fn test_inference_result_empty_text_cov() {
         let result = InferenceResult {
-            text: "".to_string(),
+            text: String::new(),
             tokens: vec![],
             input_token_count: 0,
             generated_token_count: 0,
@@ -1112,7 +1112,7 @@ mod tests {
     #[test]
     fn test_inference_result_empty_tokens_cov() {
         let result = InferenceResult {
-            text: "".to_string(),
+            text: String::new(),
             tokens: vec![],
             input_token_count: 0,
             generated_token_count: 0,
@@ -2336,13 +2336,21 @@ mod tests {
     #[test]
     fn test_inference_config_path_with_symlink_name_deep_icov() {
         let config = InferenceConfig::new("/models/latest -> llama-3.gguf");
-        assert!(config.model_path.to_str().expect("invalid UTF-8").contains("latest"));
+        assert!(config
+            .model_path
+            .to_str()
+            .expect("invalid UTF-8")
+            .contains("latest"));
     }
 
     #[test]
     fn test_inference_config_relative_path_deep_icov() {
         let config = InferenceConfig::new("./models/model.gguf");
-        assert!(config.model_path.to_str().expect("invalid UTF-8").contains("./"));
+        assert!(config
+            .model_path
+            .to_str()
+            .expect("invalid UTF-8")
+            .contains("./"));
     }
 
     #[test]

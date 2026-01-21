@@ -447,8 +447,8 @@ fn test_checksum_mismatch() {
 fn test_overlapping_tensors() {
     let mut data = create_valid_header();
     data[8..12].copy_from_slice(&2u32.to_le_bytes()); // 2 tensors
-    // Create two tensor entries pointing to same data
-    // (Would need proper tensor entry format)
+                                                      // Create two tensor entries pointing to same data
+                                                      // (Would need proper tensor entry format)
     let _ = AprV2Model::from_bytes(data);
 }
 
@@ -519,7 +519,7 @@ fn test_unknown_future_dtype() {
 fn test_bf16_on_system_without_support() {
     let mut data = create_valid_header_with_tensor();
     set_tensor_dtype(&mut data, 2); // BF16
-    // BF16 support varies by platform
+                                    // BF16 support varies by platform
     let _ = AprV2Model::from_bytes(data);
 }
 
@@ -591,8 +591,8 @@ fn test_parse_is_deterministic() {
     let result2 = AprV2Model::from_bytes(data);
 
     match (result1, result2) {
-        (Ok(_), Ok(_)) => {}
-        (Err(_), Err(_)) => {}
+        (Ok(_), Ok(_)) => {},
+        (Err(_), Err(_)) => {},
         _ => panic!("Parsing should be deterministic"),
     }
 }
@@ -643,7 +643,7 @@ fn create_valid_header() -> Vec<u8> {
     data[0..4].copy_from_slice(&APR_MAGIC);
     data[4] = 2; // Version major
     data[5] = 0; // Version minor
-    // flags, tensor_count, offsets all zero
+                 // flags, tensor_count, offsets all zero
     data
 }
 

@@ -3865,7 +3865,7 @@ mod tests {
         assert!(
             low_req.state == SequenceState::Preempted
                 || low_req.state == SequenceState::Waiting
-                || output.preempted_seq_ids.len() > 0
+                || !output.preempted_seq_ids.is_empty()
         );
     }
 
@@ -3953,9 +3953,15 @@ mod tests {
         manager.assign_request(vec![2], 10);
 
         // Start generation on slot 0
-        manager.get_slot_mut(0).expect("operation failed").start_generation(1.0);
+        manager
+            .get_slot_mut(0)
+            .expect("operation failed")
+            .start_generation(1.0);
         // Start generation on slot 1
-        manager.get_slot_mut(1).expect("operation failed").start_generation(2.0);
+        manager
+            .get_slot_mut(1)
+            .expect("operation failed")
+            .start_generation(2.0);
 
         let generating: Vec<_> = manager.generating_slots().collect();
         assert_eq!(generating.len(), 2);
@@ -4111,7 +4117,9 @@ mod tests {
         scheduler.add_sequence(0, 1, vec![10, 20]);
 
         // Add decode sequence
-        let seq_idx = scheduler.add_sequence(1, 2, vec![30]).expect("index out of bounds");
+        let seq_idx = scheduler
+            .add_sequence(1, 2, vec![30])
+            .expect("index out of bounds");
         scheduler.start_decode(seq_idx, 1);
 
         let ubatch = scheduler.create_ubatch();

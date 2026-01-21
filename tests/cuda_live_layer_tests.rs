@@ -58,7 +58,12 @@ fn test_ll001_softmax_random_input() {
         let mut data = random_f32_vec(dim, 42 + dim as u64);
 
         let result = executor.softmax(&mut data);
-        assert!(result.is_ok(), "LL-001: softmax failed for dim={}: {:?}", dim, result.err());
+        assert!(
+            result.is_ok(),
+            "LL-001: softmax failed for dim={}: {:?}",
+            dim,
+            result.err()
+        );
 
         // Verify output is finite (not NaN/Inf)
         let finite_count = data.iter().filter(|x| x.is_finite()).count();
@@ -153,7 +158,13 @@ fn test_ll004_gemm_random_input() {
     let mut executor = CudaExecutor::new(0).expect("CUDA executor creation failed");
 
     // Test various matrix sizes
-    for (m, k, n) in [(4, 4, 4), (8, 8, 8), (16, 16, 16), (32, 32, 32), (64, 64, 64)] {
+    for (m, k, n) in [
+        (4, 4, 4),
+        (8, 8, 8),
+        (16, 16, 16),
+        (32, 32, 32),
+        (64, 64, 64),
+    ] {
         let a = random_f32_vec(m * k, 500 + (m * k) as u64);
         let b = random_f32_vec(k * n, 600 + (k * n) as u64);
         let mut c = vec![0.0f32; m * n];
@@ -277,19 +288,60 @@ fn test_ll020_ptx_generation_all_kernel_types() {
 
     // Test all kernel type PTX generation
     let kernel_types = vec![
-        KernelType::GemmNaive { m: 64, n: 64, k: 64 },
-        KernelType::GemmTiled { m: 128, n: 128, k: 128, tile_size: 32 },
-        KernelType::GemmTensorCore { m: 16, n: 16, k: 16 },
+        KernelType::GemmNaive {
+            m: 64,
+            n: 64,
+            k: 64,
+        },
+        KernelType::GemmTiled {
+            m: 128,
+            n: 128,
+            k: 128,
+            tile_size: 32,
+        },
+        KernelType::GemmTensorCore {
+            m: 16,
+            n: 16,
+            k: 16,
+        },
         KernelType::Gemv { k: 2048, n: 1024 },
         KernelType::CoalescedGemv { k: 2048, n: 1024 },
         KernelType::Softmax { dim: 4096 },
-        KernelType::LayerNorm { hidden_size: 4096, epsilon: 1e-5, affine: true },
-        KernelType::Attention { seq_len: 512, head_dim: 64, causal: true },
-        KernelType::MultiHeadAttention { seq_len: 256, head_dim: 64, n_heads: 8, causal: true },
-        KernelType::QuantizedGemm { m: 1, n: 4096, k: 4096 },
-        KernelType::QuantizedGemmGgml { m: 1, n: 2560, k: 2560 },
-        KernelType::RmsNorm { hidden_size: 2048, epsilon: 1e-6 },
-        KernelType::Rope { num_heads: 32, head_dim: 64, theta: 10000.0 },
+        KernelType::LayerNorm {
+            hidden_size: 4096,
+            epsilon: 1e-5,
+            affine: true,
+        },
+        KernelType::Attention {
+            seq_len: 512,
+            head_dim: 64,
+            causal: true,
+        },
+        KernelType::MultiHeadAttention {
+            seq_len: 256,
+            head_dim: 64,
+            n_heads: 8,
+            causal: true,
+        },
+        KernelType::QuantizedGemm {
+            m: 1,
+            n: 4096,
+            k: 4096,
+        },
+        KernelType::QuantizedGemmGgml {
+            m: 1,
+            n: 2560,
+            k: 2560,
+        },
+        KernelType::RmsNorm {
+            hidden_size: 2048,
+            epsilon: 1e-6,
+        },
+        KernelType::Rope {
+            num_heads: 32,
+            head_dim: 64,
+            theta: 10000.0,
+        },
         KernelType::ResidualAdd { n: 4096 },
         KernelType::Silu { n: 4096 },
         KernelType::Gelu { n: 4096 },
@@ -300,12 +352,35 @@ fn test_ll020_ptx_generation_all_kernel_types() {
         KernelType::Q4_0Gemv { k: 2048, n: 2048 },
         KernelType::Q4_1Gemv { k: 2048, n: 2048 },
         KernelType::Q5_0Gemv { k: 2048, n: 2048 },
-        KernelType::BatchedQ4KGemv { m: 8, k: 2560, n: 2560 },
-        KernelType::BatchedQ6KGemv { k: 2560, n: 2560, m: 8 },
-        KernelType::BatchedVectorizedRmsNorm { hidden_size: 2048, batch_size: 8, epsilon: 1e-5 },
-        KernelType::BatchedRope { num_heads: 32, head_dim: 64, batch_size: 8, theta: 10000.0 },
-        KernelType::BatchedResidualAdd { n: 2048, batch_size: 8 },
-        KernelType::BatchedSwiglu { n: 8192, batch_size: 8 },
+        KernelType::BatchedQ4KGemv {
+            m: 8,
+            k: 2560,
+            n: 2560,
+        },
+        KernelType::BatchedQ6KGemv {
+            k: 2560,
+            n: 2560,
+            m: 8,
+        },
+        KernelType::BatchedVectorizedRmsNorm {
+            hidden_size: 2048,
+            batch_size: 8,
+            epsilon: 1e-5,
+        },
+        KernelType::BatchedRope {
+            num_heads: 32,
+            head_dim: 64,
+            batch_size: 8,
+            theta: 10000.0,
+        },
+        KernelType::BatchedResidualAdd {
+            n: 2048,
+            batch_size: 8,
+        },
+        KernelType::BatchedSwiglu {
+            n: 8192,
+            batch_size: 8,
+        },
         KernelType::ArgMax { length: 32000 },
         KernelType::ArgMaxFinal { num_blocks: 128 },
         KernelType::IncrementalAttention {
@@ -332,7 +407,10 @@ fn test_ll020_ptx_generation_all_kernel_types() {
             kernel_type
         );
     }
-    eprintln!("LL-020: PASS - PTX generation for {} kernel types", kernel_types.len());
+    eprintln!(
+        "LL-020: PASS - PTX generation for {} kernel types",
+        kernel_types.len()
+    );
 }
 
 // ============================================================================
@@ -463,15 +541,24 @@ fn test_ll060_profiler_enable_disable() {
     let mut executor = CudaExecutor::new(0).expect("CUDA executor creation failed");
 
     // Initially disabled
-    assert!(!executor.is_profiling_enabled(), "LL-060: profiling should be disabled by default");
+    assert!(
+        !executor.is_profiling_enabled(),
+        "LL-060: profiling should be disabled by default"
+    );
 
     // Enable profiling
     executor.enable_profiling();
-    assert!(executor.is_profiling_enabled(), "LL-060: profiling should be enabled");
+    assert!(
+        executor.is_profiling_enabled(),
+        "LL-060: profiling should be enabled"
+    );
 
     // Disable profiling
     executor.disable_profiling();
-    assert!(!executor.is_profiling_enabled(), "LL-060: profiling should be disabled");
+    assert!(
+        !executor.is_profiling_enabled(),
+        "LL-060: profiling should be disabled"
+    );
 
     eprintln!("LL-060: PASS - profiler enable/disable");
 }
@@ -491,7 +578,10 @@ fn test_ll061_profiler_summary() {
 
     // Get summary
     let summary = executor.profiler_summary();
-    assert!(!summary.is_empty(), "LL-061: profiler summary should not be empty");
+    assert!(
+        !summary.is_empty(),
+        "LL-061: profiler summary should not be empty"
+    );
 
     eprintln!("LL-061: PASS - profiler summary: {} chars", summary.len());
 }

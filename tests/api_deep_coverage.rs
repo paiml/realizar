@@ -16,11 +16,11 @@ use realizar::api::{
     ChatDelta, ChatMessage, CompletionChoice, CompletionRequest, CompletionResponse,
     ContextWindowConfig, ContextWindowManager, DispatchMetricsResponse, DispatchResetResponse,
     EmbeddingData, EmbeddingRequest, EmbeddingResponse, EmbeddingUsage, ErrorResponse,
-    ExplainRequest, ExplainResponse, GenerateRequest, GenerateResponse, GpuBatchRequest,
-    GpuBatchResponse, GpuBatchResult, GpuBatchStats, GpuStatusResponse, GpuWarmupResponse,
-    HealthResponse, ModelLineage, ModelMetadataResponse, PredictRequest, PredictResponse,
-    PredictionWithScore, ReloadRequest, ReloadResponse, ServerMetricsResponse, StreamDoneEvent,
-    StreamTokenEvent, TokenizeRequest, TokenizeResponse, Usage,
+    ExplainRequest, GenerateRequest, GenerateResponse, GpuBatchRequest, GpuBatchResponse,
+    GpuBatchResult, GpuBatchStats, GpuStatusResponse, GpuWarmupResponse, HealthResponse,
+    ModelLineage, ModelMetadataResponse, PredictRequest, PredictResponse, PredictionWithScore,
+    ReloadRequest, ReloadResponse, ServerMetricsResponse, StreamDoneEvent, StreamTokenEvent,
+    TokenizeRequest, TokenizeResponse, Usage,
 };
 
 // ============================================================================
@@ -361,7 +361,7 @@ fn test_gpu_batch_result_many_tokens() {
     let tokens: Vec<u32> = (0..1000).collect();
     let result = GpuBatchResult {
         index: 5,
-        token_ids: tokens.clone(),
+        token_ids: tokens,
         text: "x".repeat(1000),
         num_generated: 1000,
     };
@@ -1003,7 +1003,7 @@ fn test_tokenize_request_empty_text() {
 fn test_tokenize_response_large_array() {
     let token_ids: Vec<u32> = (0..10000).collect();
     let response = TokenizeResponse {
-        token_ids: token_ids.clone(),
+        token_ids,
         num_tokens: 10000,
     };
     let json = serde_json::to_string(&response).expect("serialize");
@@ -1241,7 +1241,7 @@ fn test_context_window_config_debug() {
 #[test]
 fn test_context_window_config_clone() {
     let config = ContextWindowConfig::new(8192).with_reserved_output(512);
-    let cloned = config.clone();
+    let cloned = config;
     assert_eq!(cloned.max_tokens, 8192);
     assert_eq!(cloned.reserved_output_tokens, 512);
 }
@@ -1253,7 +1253,7 @@ fn test_chat_message_clone() {
         content: "Test".to_string(),
         name: Some("Bob".to_string()),
     };
-    let cloned = msg.clone();
+    let cloned = msg;
     assert_eq!(cloned.role, "user");
     assert_eq!(cloned.name, Some("Bob".to_string()));
 }
@@ -1526,7 +1526,7 @@ fn test_max_u64_in_metrics() {
     };
     // Should serialize without overflow
     let json = serde_json::to_string(&response).expect("serialize");
-    assert!(json.len() > 0);
+    assert!(!json.is_empty());
 }
 
 #[test]
@@ -1571,7 +1571,7 @@ fn test_very_long_content() {
     let long_content = "x".repeat(1_000_000);
     let msg = ChatMessage {
         role: "user".to_string(),
-        content: long_content.clone(),
+        content: long_content,
         name: None,
     };
     let json = serde_json::to_string(&msg).expect("serialize");
@@ -1680,7 +1680,7 @@ fn test_dispatch_metrics_response_clone() {
         throughput_rps: 50.0,
         elapsed_seconds: 1.0,
     };
-    let cloned = response.clone();
+    let cloned = response;
     assert_eq!(cloned.total_dispatches, 30);
 }
 

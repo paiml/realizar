@@ -590,5 +590,4 @@ impl CudaExecutor {
 
         Ok(new_len)
     }
-
 }

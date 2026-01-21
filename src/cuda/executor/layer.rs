@@ -7,6 +7,8 @@
 //! - PAR-062: CUDA Graph-captured decode
 //! - Full forward pass with all layers
 
+#![allow(clippy::wildcard_imports)] // Internal module organization uses super::*
+
 use super::*;
 
 impl CudaExecutor {
@@ -6649,5 +6651,4 @@ impl CudaExecutor {
 
         Ok(())
     }
-
 }

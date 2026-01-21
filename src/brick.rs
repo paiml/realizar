@@ -3002,10 +3002,14 @@ mod tests {
         let input: Vec<f32> = (0..32).map(|i| (i as f32 - 16.0) * 0.1).collect();
 
         let (quants, scales) = brick.quantize(&input).expect("operation failed");
-        let output = brick.dequantize(&quants, &scales).expect("operation failed");
+        let output = brick
+            .dequantize(&quants, &scales)
+            .expect("operation failed");
 
         // Q8 error should be < 1%
-        let error = brick.measure_error(&input, &quants, &scales).expect("operation failed");
+        let error = brick
+            .measure_error(&input, &quants, &scales)
+            .expect("operation failed");
         assert!(error < 0.01, "Q8 error {} should be < 1%", error);
 
         // Output should be close to input
@@ -3026,7 +3030,9 @@ mod tests {
         let keys = vec![0.5f32; seq_len * 2 * 8]; // [seq_len * num_kv_heads * head_dim]
         let values = vec![0.25f32; seq_len * 2 * 8];
 
-        let output = brick.forward(&query, &keys, &values, seq_len).expect("operation failed");
+        let output = brick
+            .forward(&query, &keys, &values, seq_len)
+            .expect("operation failed");
 
         assert_eq!(output.len(), 4 * 8);
         // With uniform values, output should be close to uniform values
@@ -3060,7 +3066,9 @@ mod tests {
             0.0, 0.0, 1.0, 0.0, // V2
         ];
 
-        let output = brick.forward(&query, &keys, &values, seq_len).expect("operation failed");
+        let output = brick
+            .forward(&query, &keys, &values, seq_len)
+            .expect("operation failed");
 
         // After softmax, K0 should have highest weight
         // Output should be weighted combination dominated by V0
@@ -3245,8 +3253,12 @@ mod tests {
         let up = vec![0.2f32; 32];
         let down = vec![0.1f32; 32];
 
-        let out1 = brick.forward(&input, &gate, &up, &down).expect("operation failed");
-        let out2 = brick.forward(&input, &gate, &up, &down).expect("operation failed");
+        let out1 = brick
+            .forward(&input, &gate, &up, &down)
+            .expect("operation failed");
+        let out2 = brick
+            .forward(&input, &gate, &up, &down)
+            .expect("operation failed");
 
         assert_eq!(out1, out2, "Same input must produce same output");
     }
@@ -3321,8 +3333,12 @@ mod tests {
         let down = vec![0.1f32; 32];
 
         // Multiple runs should match
-        let out1 = brick.forward(&input, &gate, &up, &down).expect("operation failed");
-        let out2 = brick.forward(&input, &gate, &up, &down).expect("operation failed");
+        let out1 = brick
+            .forward(&input, &gate, &up, &down)
+            .expect("operation failed");
+        let out2 = brick
+            .forward(&input, &gate, &up, &down)
+            .expect("operation failed");
 
         for (a, b) in out1.iter().zip(out2.iter()) {
             assert!(
@@ -3364,7 +3380,9 @@ mod tests {
         ];
         let values = vec![1.0f32; 12];
 
-        let output = brick.forward(&query, &keys, &values, 3).expect("operation failed");
+        let output = brick
+            .forward(&query, &keys, &values, 3)
+            .expect("operation failed");
 
         assert!(output.iter().all(|&v| !v.is_nan()), "No NaN in output");
         assert!(output.iter().all(|&v| v.is_finite()), "All outputs finite");
@@ -3383,7 +3401,9 @@ mod tests {
         let up = vec![1.0f32];
         let down = vec![1.0f32];
 
-        let output = brick.forward(&input, &gate, &up, &down).expect("operation failed");
+        let output = brick
+            .forward(&input, &gate, &up, &down)
+            .expect("operation failed");
 
         // Expected: silu(1.0) * 1.0 * 1.0 = 0.731
         let expected = 1.0 / (1.0 + (-1.0f32).exp()); // sigmoid(1) * 1

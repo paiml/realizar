@@ -3145,14 +3145,14 @@ test benchmark_bar ... bench:         750 ns/iter (+/- 30)
 
     #[test]
     fn test_deep_clicov_parse_cargo_bench_output_realistic_output() {
-        let output = r#"
+        let output = r"
 running 3 benchmarks
 test tensor_ops::bench_add     ... bench:         123 ns/iter (+/- 12)
 test tensor_ops::bench_mul     ... bench:       1,456 ns/iter (+/- 145)
 test tensor_ops::bench_matmul  ... bench:      12,345 ns/iter (+/- 1,234)
 
 test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
-"#;
+";
         let results = parse_cargo_bench_output(output, Some("tensor_ops"));
         assert_eq!(results.len(), 3);
         assert_eq!(results[0]["time_ns"], 123);
@@ -3220,7 +3220,11 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
         let mut f2 = File::create(&file2).expect("file operation failed");
         f2.write_all(b"{}").expect("operation failed");
 
-        let result = run_bench_compare(file1.to_str().expect("file operation failed"), file2.to_str().expect("file operation failed"), 5.0);
+        let result = run_bench_compare(
+            file1.to_str().expect("file operation failed"),
+            file2.to_str().expect("file operation failed"),
+            5.0,
+        );
 
         let _ = std::fs::remove_file(&file1);
         let _ = std::fs::remove_file(&file2);
@@ -3508,7 +3512,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
     #[test]
     fn test_model_type_clone_copy() {
         let mt = ModelType::Gguf;
-        let mt_clone = mt.clone();
+        let mt_clone = mt;
         let mt_copy = mt;
         assert_eq!(mt, mt_clone);
         assert_eq!(mt, mt_copy);

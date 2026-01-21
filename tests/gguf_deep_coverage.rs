@@ -884,10 +884,7 @@ fn test_many_metadata_entries() {
 fn test_long_string_metadata() {
     let mut metadata = HashMap::new();
     let long_string = "a".repeat(10000);
-    metadata.insert(
-        "long_key".to_string(),
-        GGUFValue::String(long_string.clone()),
-    );
+    metadata.insert("long_key".to_string(), GGUFValue::String(long_string));
     let model = create_mock_gguf_model_with_metadata(metadata);
     if let Some(GGUFValue::String(s)) = model.metadata.get("long_key") {
         assert_eq!(s.len(), 10000);
@@ -911,7 +908,7 @@ fn test_empty_string_metadata() {
 #[test]
 fn test_large_array_metadata() {
     let mut metadata = HashMap::new();
-    let large_array: Vec<GGUFValue> = (0..1000).map(|i| GGUFValue::UInt32(i)).collect();
+    let large_array: Vec<GGUFValue> = (0..1000).map(GGUFValue::UInt32).collect();
     metadata.insert("large_array".to_string(), GGUFValue::Array(large_array));
     let model = create_mock_gguf_model_with_metadata(metadata);
     if let Some(GGUFValue::Array(arr)) = model.metadata.get("large_array") {

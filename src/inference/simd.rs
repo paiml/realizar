@@ -433,7 +433,12 @@ pub fn simd_bf16_dot(a: &[u8], b: &[u8]) -> f32 {
 /// conversion overhead and improve cache utilization. The tile size is
 /// chosen to fit in L2 cache (~256KB per tile).
 #[must_use]
-pub fn simd_bf16_matmul(input: &[f32], weight_bf16: &[u8], in_dim: usize, out_dim: usize) -> Vec<f32> {
+pub fn simd_bf16_matmul(
+    input: &[f32],
+    weight_bf16: &[u8],
+    in_dim: usize,
+    out_dim: usize,
+) -> Vec<f32> {
     // Batch conversion: convert all BF16 weights to F32 once
     // This is more efficient than row-by-row conversion because:
     // 1. Amortizes function call overhead
@@ -1078,11 +1083,7 @@ mod tests {
         // 3x3 identity in BF16
         let input = vec![1.0f32, 2.0, 3.0];
         let mut weight_bytes = Vec::new();
-        let identity = [
-            [1.0f32, 0.0, 0.0],
-            [0.0, 1.0, 0.0],
-            [0.0, 0.0, 1.0],
-        ];
+        let identity = [[1.0f32, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
         for row in &identity {
             for &v in row {
                 weight_bytes.extend_from_slice(&half::bf16::from_f32(v).to_le_bytes());
@@ -1113,7 +1114,15 @@ mod tests {
 
         let output = simd_bf16_matmul(&input, &weight_bytes, 4, 2);
         assert_eq!(output.len(), 2);
-        assert!((output[0] - 10.0).abs() < 0.1, "Sum: expected 10, got {}", output[0]);
-        assert!((output[1] - (-3.0)).abs() < 0.1, "Diff: expected -3, got {}", output[1]);
+        assert!(
+            (output[0] - 10.0).abs() < 0.1,
+            "Sum: expected 10, got {}",
+            output[0]
+        );
+        assert!(
+            (output[1] - (-3.0)).abs() < 0.1,
+            "Diff: expected -3, got {}",
+            output[1]
+        );
     }
 }

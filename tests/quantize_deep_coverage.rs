@@ -91,7 +91,7 @@ fn test_dequant_stats_clone() {
         bytes_processed: 1600,
         simd_backend: SimdBackend::Avx2,
     };
-    let cloned = stats.clone();
+    let cloned = stats;
     assert_eq!(cloned.blocks_processed, 100);
     assert_eq!(cloned.bytes_processed, 1600);
     assert_eq!(cloned.simd_backend, SimdBackend::Avx2);
@@ -845,7 +845,7 @@ fn test_q4_0_block_clone() {
         scale: 2.0,
         quants: [0xFF; 16],
     };
-    let cloned = block.clone();
+    let cloned = block;
     assert_eq!(cloned.scale, 2.0);
     assert_eq!(cloned.quants[0], 0xFF);
 }
@@ -856,7 +856,7 @@ fn test_q8_0_block_clone() {
         scale: 1.0,
         quants: [127i8; 32],
     };
-    let cloned = block.clone();
+    let cloned = block;
     assert_eq!(cloned.scale, 1.0);
     assert_eq!(cloned.quants[0], 127);
 }
@@ -867,7 +867,7 @@ fn test_q8k_super_block_clone() {
         scale: 0.5,
         quants: [64i8; 256],
     };
-    let cloned = block.clone();
+    let cloned = block;
     assert_eq!(cloned.scale, 0.5);
     assert_eq!(cloned.quants[0], 64);
 }

@@ -9560,7 +9560,7 @@ mod tests {
 
     #[test]
     fn test_apr_quantization_type_default_ext_cov() {
-        let qtype: AprQuantizationType = Default::default();
+        let qtype: AprQuantizationType = AprQuantizationType::default();
         assert_eq!(qtype, AprQuantizationType::F32);
     }
 
@@ -9613,7 +9613,7 @@ mod tests {
     #[test]
     fn test_apr_quantization_type_clone_ext_cov() {
         let qtype = AprQuantizationType::Q4_K;
-        let cloned = qtype.clone();
+        let cloned = qtype;
         assert_eq!(qtype, cloned);
     }
 
@@ -9953,8 +9953,22 @@ mod tests {
             ffn_gate_weight: Some(QuantizedAprTensorQ4::new(vec![0u8; 36], 32, 128)),
             ffn_norm_weight: Some(vec![1.0; 32]),
         };
-        assert_eq!(layer.ffn_gate_weight.as_ref().expect("APR operation failed").in_dim, 32);
-        assert_eq!(layer.ffn_norm_weight.as_ref().expect("APR operation failed").len(), 32);
+        assert_eq!(
+            layer
+                .ffn_gate_weight
+                .as_ref()
+                .expect("APR operation failed")
+                .in_dim,
+            32
+        );
+        assert_eq!(
+            layer
+                .ffn_norm_weight
+                .as_ref()
+                .expect("APR operation failed")
+                .len(),
+            32
+        );
     }
 
     #[test]

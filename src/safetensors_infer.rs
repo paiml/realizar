@@ -315,7 +315,7 @@ mod tests {
         for (name, dtype, shape, data) in tensors {
             let end = offset + data.len();
             tensor_entries.insert(
-                name.to_string(),
+                (*name).to_string(),
                 json!({
                     "dtype": dtype,
                     "shape": shape,

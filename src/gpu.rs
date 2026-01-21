@@ -13906,7 +13906,7 @@ mod tests {
         assert_eq!(buf.len(), 100);
         pool.release(buf);
         let stats = pool.stats();
-        assert!(stats.cached_buffers > 0 || stats.cached_bytes >= 0);
+        assert!(stats.cached_buffers > 0 || stats.cached_bytes > 0);
     }
 
     #[test]
@@ -14045,7 +14045,10 @@ mod tests {
         metrics.record_inference(std::time::Duration::from_millis(100), 10);
         let p50 = metrics.latency_percentile(50);
         assert!(p50.is_some());
-        assert_eq!(p50.expect("GPU operation failed"), std::time::Duration::from_millis(100));
+        assert_eq!(
+            p50.expect("GPU operation failed"),
+            std::time::Duration::from_millis(100)
+        );
     }
 
     #[test]
@@ -14062,7 +14065,9 @@ mod tests {
         assert_eq!(p0, std::time::Duration::from_millis(100));
 
         // p100 should be near the maximum
-        let p100 = metrics.latency_percentile(100).expect("GPU operation failed");
+        let p100 = metrics
+            .latency_percentile(100)
+            .expect("GPU operation failed");
         assert_eq!(p100, std::time::Duration::from_millis(500));
     }
 
@@ -14933,7 +14938,7 @@ mod tests {
         // Test chunked processor when data is exact multiple of chunk size
         let processor = ChunkedProcessor::new(4);
 
-        let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]; // 8 elements, 2 chunks
+        let _data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]; // 8 elements, 2 chunks
         assert_eq!(processor.num_chunks(8), 2);
 
         let (start, end) = processor.chunk_bounds(0, 8);
@@ -14948,7 +14953,7 @@ mod tests {
         // Test chunked processor with partial last chunk
         let processor = ChunkedProcessor::new(4);
 
-        let data = vec![1.0, 2.0, 3.0, 4.0, 5.0]; // 5 elements, 2 chunks (4 + 1)
+        let _data = vec![1.0, 2.0, 3.0, 4.0, 5.0]; // 5 elements, 2 chunks (4 + 1)
         assert_eq!(processor.num_chunks(5), 2);
 
         let (start, end) = processor.chunk_bounds(1, 5);
@@ -15180,9 +15185,27 @@ mod tests {
         queue.enqueue(PriorityRequest::new(5, 3));
 
         // Should dequeue in FIFO order
-        assert_eq!(queue.dequeue_highest().expect("GPU operation failed").into_data(), 1);
-        assert_eq!(queue.dequeue_highest().expect("GPU operation failed").into_data(), 2);
-        assert_eq!(queue.dequeue_highest().expect("GPU operation failed").into_data(), 3);
+        assert_eq!(
+            queue
+                .dequeue_highest()
+                .expect("GPU operation failed")
+                .into_data(),
+            1
+        );
+        assert_eq!(
+            queue
+                .dequeue_highest()
+                .expect("GPU operation failed")
+                .into_data(),
+            2
+        );
+        assert_eq!(
+            queue
+                .dequeue_highest()
+                .expect("GPU operation failed")
+                .into_data(),
+            3
+        );
     }
 
     #[test]
@@ -15543,14 +15566,14 @@ mod tests {
     fn test_gpu_buffer_pool_new_ext_cov() {
         let pool = GpuBufferPool::new();
         // Pool should be created with default configuration
-        assert!(pool.bucket_sizes.len() > 0);
+        assert!(!pool.bucket_sizes.is_empty());
     }
 
     #[test]
     fn test_gpu_buffer_pool_default_ext_cov() {
         let pool = GpuBufferPool::default();
         // Default should match new()
-        assert!(pool.bucket_sizes.len() > 0);
+        assert!(!pool.bucket_sizes.is_empty());
     }
 
     #[test]
@@ -15630,7 +15653,10 @@ mod tests {
         assert!(!result.is_ready());
         result.set_result(vec![7.0, 8.0, 9.0]);
         assert!(result.is_ready());
-        assert_eq!(result.try_get().expect("index out of bounds"), &vec![7.0, 8.0, 9.0]);
+        assert_eq!(
+            result.try_get().expect("index out of bounds"),
+            &vec![7.0, 8.0, 9.0]
+        );
     }
 
     // --- GpuCompute Tests ---

@@ -302,7 +302,7 @@ fn test_metadata_array_truncated() {
     data.extend_from_slice(&9u32.to_le_bytes()); // Type 9 = ARRAY
     data.extend_from_slice(&4u32.to_le_bytes()); // Element type = U32
     data.extend_from_slice(&1000u64.to_le_bytes()); // Array length = 1000
-    // No array data
+                                                    // No array data
     let result = GGUFModel::from_bytes(&data);
     assert!(result.is_err());
 }
@@ -362,7 +362,7 @@ fn test_tensor_info_zero_dimensions() {
     data.extend_from_slice(&0u32.to_le_bytes()); // n_dims = 0
     data.extend_from_slice(&0u32.to_le_bytes()); // qtype = F32
     data.extend_from_slice(&0u64.to_le_bytes()); // offset = 0
-    // This is technically valid for a scalar
+                                                 // This is technically valid for a scalar
     let _ = GGUFModel::from_bytes(&data);
 }
 
@@ -374,7 +374,7 @@ fn test_tensor_info_excessive_dimensions() {
     data.extend_from_slice(&(name.len() as u64).to_le_bytes());
     data.extend_from_slice(name);
     data.extend_from_slice(&100u32.to_le_bytes()); // n_dims = 100
-    // Not enough dimension data
+                                                   // Not enough dimension data
     let result = GGUFModel::from_bytes(&data);
     assert!(result.is_err());
 }
@@ -404,7 +404,7 @@ fn test_null_bytes_injection() {
     data.extend_from_slice(key_with_nulls);
     data.extend_from_slice(&4u32.to_le_bytes()); // Type = U32
     data.extend_from_slice(&42u32.to_le_bytes()); // Value
-    // Should either parse (null bytes in key) or error gracefully
+                                                  // Should either parse (null bytes in key) or error gracefully
     let _ = GGUFModel::from_bytes(&data);
 }
 
@@ -437,7 +437,7 @@ fn test_misaligned_tensor_offset() {
     data.extend_from_slice(&64u64.to_le_bytes()); // dim[0] = 64
     data.extend_from_slice(&0u32.to_le_bytes()); // qtype = F32
     data.extend_from_slice(&17u64.to_le_bytes()); // offset = 17 (not aligned)
-    // Should either handle or error - no panic
+                                                  // Should either handle or error - no panic
     let _ = GGUFModel::from_bytes(&data);
 }
 

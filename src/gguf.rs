@@ -53201,7 +53201,7 @@ mod tests {
 
         let encoded = model.encode("");
         // Empty string should return empty or None
-        assert!(encoded.is_none() || encoded.as_ref().map_or(true, |v| v.is_empty()));
+        assert!(encoded.is_none() || encoded.as_ref().is_none_or(std::vec::Vec::is_empty));
     }
 
     #[test]
@@ -54099,7 +54099,7 @@ mod tests {
         // Decode should convert byte tokens to actual bytes
         let decoded = model.decode(&[0, 1, 2]);
         // 0xE4B8AD = 中 (Chinese character)
-        assert!(decoded.contains('中') || decoded.len() > 0);
+        assert!(decoded.contains('中') || !decoded.is_empty());
     }
 
     #[test]
@@ -54630,7 +54630,7 @@ mod tests {
 
     #[test]
     fn test_gguf_value_large_array_deep() {
-        let arr: Vec<GGUFValue> = (0..100).map(|i| GGUFValue::Int32(i)).collect();
+        let arr: Vec<GGUFValue> = (0..100).map(GGUFValue::Int32).collect();
         let val = GGUFValue::Array(arr);
         if let GGUFValue::Array(a) = val {
             assert_eq!(a.len(), 100);

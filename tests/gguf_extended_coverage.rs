@@ -95,9 +95,9 @@ fn test_gguf_value_int64() {
 
 #[test]
 fn test_gguf_value_float32() {
-    let value = GGUFValue::Float32(3.14159);
+    let value = GGUFValue::Float32(std::f32::consts::PI);
     if let GGUFValue::Float32(v) = value {
-        assert!((v - 3.14159).abs() < 0.0001);
+        assert!((v - std::f32::consts::PI).abs() < 0.0001);
     } else {
         panic!("Expected Float32");
     }
@@ -105,9 +105,9 @@ fn test_gguf_value_float32() {
 
 #[test]
 fn test_gguf_value_float64() {
-    let value = GGUFValue::Float64(2.71828182845);
+    let value = GGUFValue::Float64(std::f64::consts::E);
     if let GGUFValue::Float64(v) = value {
-        assert!((v - 2.71828182845).abs() < 0.00001);
+        assert!((v - std::f64::consts::E).abs() < 0.00001);
     } else {
         panic!("Expected Float64");
     }
@@ -160,7 +160,7 @@ fn test_gguf_value_array() {
 #[test]
 fn test_gguf_value_clone() {
     let value = GGUFValue::Int32(42);
-    let cloned = value.clone();
+    let cloned = value;
     if let GGUFValue::Int32(v) = cloned {
         assert_eq!(v, 42);
     }
@@ -776,7 +776,7 @@ fn test_tensor_info_unicode_name() {
 fn test_tensor_info_long_name() {
     let long_name = "a".repeat(1000);
     let info = TensorInfo {
-        name: long_name.clone(),
+        name: long_name,
         n_dims: 2,
         dims: vec![10, 10],
         qtype: GGUF_TYPE_F32,

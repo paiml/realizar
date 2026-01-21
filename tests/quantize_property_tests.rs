@@ -8,7 +8,7 @@ use realizar::quantize::{
     dequantize_f16, dequantize_q4_0, dequantize_q4_1, dequantize_q4_k, dequantize_q5_0,
     dequantize_q5_1, dequantize_q5_k, dequantize_q6_k, dequantize_q8_0, f16_to_f32,
     fused_swiglu_simd, quantize_activations_q8_0, quantize_rmsnorm_q8_0, quantize_to_q8_blocks,
-    softmax_simd, Q8KSuperBlock, Q8_0Block, BLOCK_SIZE, QK_K,
+    softmax_simd, Q8KSuperBlock, Q8_0Block, BLOCK_SIZE,
 };
 
 // ============================================================================
@@ -168,7 +168,7 @@ proptest! {
 proptest! {
     #[test]
     fn prop_softmax_sums_to_one(values in prop::collection::vec(-5.0f32..5.0f32, 4..64)) {
-        let mut x = values.clone();
+        let mut x = values;
         softmax_simd(&mut x);
 
         // Sum should be approximately 1.0
@@ -178,7 +178,7 @@ proptest! {
 
     #[test]
     fn prop_softmax_all_positive(values in prop::collection::vec(-10.0f32..10.0f32, 4..64)) {
-        let mut x = values.clone();
+        let mut x = values;
         softmax_simd(&mut x);
 
         // All values should be positive after softmax
@@ -248,7 +248,7 @@ proptest! {
         gate in prop::collection::vec(-5.0f32..5.0f32, 32..=32),
         up in prop::collection::vec(-5.0f32..5.0f32, 32..=32)
     ) {
-        let mut gate_vec = gate.clone();
+        let mut gate_vec = gate;
         fused_swiglu_simd(&mut gate_vec, &up);
 
         // All outputs should be finite
@@ -262,7 +262,7 @@ proptest! {
         gate in prop::collection::vec(-2.0f32..2.0f32, 32..=32),
         up in prop::collection::vec(-2.0f32..2.0f32, 32..=32)
     ) {
-        let mut gate_vec = gate.clone();
+        let mut gate_vec = gate;
         fused_swiglu_simd(&mut gate_vec, &up);
 
         // SwiGLU = silu(gate) * up, bounded by ~max(|up|) * 2 (since silu is bounded)

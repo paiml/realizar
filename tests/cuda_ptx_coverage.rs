@@ -1028,7 +1028,7 @@ fn test_cuda_executor_gemm_multiple_sizes() {
 
         executor
             .gemm(&a, &b, &mut c, m as u32, n as u32, k as u32)
-            .expect(&format!("gemm {}x{}x{}", m, n, k));
+            .unwrap_or_else(|_| panic!("gemm {}x{}x{}", m, n, k));
 
         // Each element should be k (sum of k ones)
         let expected = k as f32;
@@ -1054,7 +1054,7 @@ fn test_cuda_executor_gemm_cached() {
     let mut executor = CudaExecutor::new(0).expect("Failed to create executor");
 
     // Load weights into cache (A matrix: m x k = 1 x 64)
-    let weights = vec![1.0f32; 1 * 64]; // m=1, k=64
+    let weights = vec![1.0f32; 64]; // m=1, k=64
     executor
         .load_weights("cached_weight", &weights)
         .expect("load weights");
@@ -1063,7 +1063,7 @@ fn test_cuda_executor_gemm_cached() {
     // B matrix: k x n = 64 x 64 = 4096 elements
     // C matrix: m x n = 1 x 64 = 64 elements
     let input = vec![1.0f32; 64 * 64]; // k*n = 4096
-    let mut output = vec![0.0f32; 1 * 64]; // m*n = 64
+    let mut output = vec![0.0f32; 64]; // m*n = 64
 
     executor
         .gemm_cached("cached_weight", &input, &mut output, 1, 64, 64)

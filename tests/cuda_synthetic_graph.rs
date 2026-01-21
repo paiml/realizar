@@ -153,7 +153,10 @@ fn test_sg012_execution_graph_ascii() {
         "SG-012: ASCII should be a valid string"
     );
 
-    eprintln!("SG-012: PASS - execution graph ASCII ({} chars)", ascii.len());
+    eprintln!(
+        "SG-012: PASS - execution graph ASCII ({} chars)",
+        ascii.len()
+    );
 }
 
 #[test]
@@ -275,7 +278,7 @@ fn test_sg030_sequential_softmax_state_isolation() {
     let result1 = executor.softmax(&mut data1);
     assert!(result1.is_ok(), "SG-030: first softmax should succeed");
 
-    let mut data2 = original.clone();
+    let mut data2 = original;
     let result2 = executor.softmax(&mut data2);
     assert!(result2.is_ok(), "SG-030: second softmax should succeed");
 
@@ -404,7 +407,10 @@ fn test_sg041_executor_cleanup_after_work() {
     // Verify GPU is clean
     let executor2 = CudaExecutor::new(0).expect("SG-041: GPU should be usable after cleanup");
     let (free, _total) = executor2.memory_info().expect("memory_info should work");
-    assert!(free > 0, "SG-041: GPU should have free memory after cleanup");
+    assert!(
+        free > 0,
+        "SG-041: GPU should have free memory after cleanup"
+    );
 
     eprintln!("SG-041: PASS - executor cleanup (after work)");
 }

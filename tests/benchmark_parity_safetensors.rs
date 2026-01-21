@@ -35,7 +35,7 @@ use std::time::Instant;
 fn simulate_q4k_memory_access(size: usize) -> Vec<f32> {
     let block_size = 256;
     let bytes_per_block = 144;
-    let num_blocks = (size + block_size - 1) / block_size;
+    let num_blocks = size.div_ceil(block_size);
     let total_bytes = num_blocks * bytes_per_block;
 
     // Simulate reading Q4_K data
@@ -140,26 +140,17 @@ fn test_tqa021_memory_access_throughput() {
     for &size in &sizes {
         println!("Size: {} elements", size);
 
-        let q4k_throughput = measure_throughput(
-            "Q4_K ",
-            size,
-            iterations,
-            || simulate_q4k_memory_access(size),
-        );
+        let q4k_throughput = measure_throughput("Q4_K ", size, iterations, || {
+            simulate_q4k_memory_access(size)
+        });
 
-        let bf16_throughput = measure_throughput(
-            "BF16 ",
-            size,
-            iterations,
-            || simulate_bf16_memory_access(size),
-        );
+        let bf16_throughput = measure_throughput("BF16 ", size, iterations, || {
+            simulate_bf16_memory_access(size)
+        });
 
-        let f32_throughput = measure_throughput(
-            "F32  ",
-            size,
-            iterations,
-            || simulate_f32_memory_access(size),
-        );
+        let f32_throughput = measure_throughput("F32  ", size, iterations, || {
+            simulate_f32_memory_access(size)
+        });
 
         // Calculate ratios
         let bf16_to_q4k = bf16_throughput / q4k_throughput * 100.0;
@@ -284,28 +275,18 @@ fn test_tqa021_bf16_to_f32_conversion_throughput() {
         println!("Size: {} BF16 values ({} bytes)", size, bf16_data.len());
 
         // Scalar baseline
-        let scalar_throughput = measure_throughput(
-            "Scalar",
-            size,
-            iterations,
-            || bf16_to_f32_scalar(&bf16_data),
-        );
+        let scalar_throughput = measure_throughput("Scalar", size, iterations, || {
+            bf16_to_f32_scalar(&bf16_data)
+        });
 
         // Fast bit manipulation
-        let fast_throughput = measure_throughput(
-            "Fast  ",
-            size,
-            iterations,
-            || bf16_to_f32_fast(&bf16_data),
-        );
+        let fast_throughput =
+            measure_throughput("Fast  ", size, iterations, || bf16_to_f32_fast(&bf16_data));
 
         // SIMD AVX2
-        let simd_throughput = measure_throughput(
-            "SIMD  ",
-            size,
-            iterations,
-            || bf16_to_f32_simd_avx2(&bf16_data),
-        );
+        let simd_throughput = measure_throughput("SIMD  ", size, iterations, || {
+            bf16_to_f32_simd_avx2(&bf16_data)
+        });
 
         println!("  Fast/Scalar: {:.2}x", fast_throughput / scalar_throughput);
         println!("  SIMD/Scalar: {:.2}x", simd_throughput / scalar_throughput);
@@ -354,9 +335,9 @@ fn test_tqa021_matmul_throughput() {
 
     // Typical transformer dimensions
     let configs = [
-        (896, 896, "Qwen2.5-0.5B hidden"),      // Qwen2.5-0.5B
-        (896, 4864, "Qwen2.5-0.5B FFN up"),     // FFN up projection
-        (4864, 896, "Qwen2.5-0.5B FFN down"),   // FFN down projection
+        (896, 896, "Qwen2.5-0.5B hidden"),    // Qwen2.5-0.5B
+        (896, 4864, "Qwen2.5-0.5B FFN up"),   // FFN up projection
+        (4864, 896, "Qwen2.5-0.5B FFN down"), // FFN down projection
     ];
 
     let iterations = 100;
@@ -439,31 +420,67 @@ impl SyntheticTransformerLayer {
     /// Forward pass using F32 matmul (simulates SafeTensors BF16 path after conversion)
     fn forward_f32(&self, input: &[f32]) -> Vec<f32> {
         // QKV projection
-        let qkv = matmul_f32_simd(input, &self.attn_qkv_weight, self.hidden_dim, self.hidden_dim * 3);
+        let qkv = matmul_f32_simd(
+            input,
+            &self.attn_qkv_weight,
+            self.hidden_dim,
+            self.hidden_dim * 3,
+        );
 
         // Simplified attention (just use Q as output)
         let attn_out = &qkv[..self.hidden_dim];
 
         // Output projection
-        let projected = matmul_f32_simd(attn_out, &self.attn_out_weight, self.hidden_dim, self.hidden_dim);
+        let projected = matmul_f32_simd(
+            attn_out,
+            &self.attn_out_weight,
+            self.hidden_dim,
+            self.hidden_dim,
+        );
 
         // Residual
-        let mut hidden: Vec<f32> = input.iter().zip(projected.iter()).map(|(a, b)| a + b).collect();
+        let mut hidden: Vec<f32> = input
+            .iter()
+            .zip(projected.iter())
+            .map(|(a, b)| a + b)
+            .collect();
 
         // FFN
-        let gate = matmul_f32_simd(&hidden, &self.ffn_gate_weight, self.hidden_dim, self.intermediate_dim);
-        let up = matmul_f32_simd(&hidden, &self.ffn_up_weight, self.hidden_dim, self.intermediate_dim);
+        let gate = matmul_f32_simd(
+            &hidden,
+            &self.ffn_gate_weight,
+            self.hidden_dim,
+            self.intermediate_dim,
+        );
+        let up = matmul_f32_simd(
+            &hidden,
+            &self.ffn_up_weight,
+            self.hidden_dim,
+            self.intermediate_dim,
+        );
 
         // SwiGLU: gate * sigmoid(gate) * up
-        let ffn_hidden: Vec<f32> = gate.iter().zip(up.iter()).map(|(g, u)| {
-            let sigmoid = 1.0 / (1.0 + (-g).exp());
-            g * sigmoid * u
-        }).collect();
+        let ffn_hidden: Vec<f32> = gate
+            .iter()
+            .zip(up.iter())
+            .map(|(g, u)| {
+                let sigmoid = 1.0 / (1.0 + (-g).exp());
+                g * sigmoid * u
+            })
+            .collect();
 
-        let ffn_out = matmul_f32_simd(&ffn_hidden, &self.ffn_down_weight, self.intermediate_dim, self.hidden_dim);
+        let ffn_out = matmul_f32_simd(
+            &ffn_hidden,
+            &self.ffn_down_weight,
+            self.intermediate_dim,
+            self.hidden_dim,
+        );
 
         // Final residual
-        hidden.iter_mut().zip(ffn_out.iter()).for_each(|(h, f)| *h += f);
+        hidden
+            .iter_mut()
+            .zip(ffn_out.iter())
+            .for_each(|(h, f)| *h += f);
 
         hidden
     }
@@ -497,7 +514,10 @@ fn test_tqa021_synthetic_layer_throughput() {
     let layers_per_sec = iterations as f64 / elapsed.as_secs_f64();
     let ms_per_layer = elapsed.as_secs_f64() * 1000.0 / iterations as f64;
 
-    println!("Qwen2.5-0.5B layer dimensions: {}x{}", hidden_dim, intermediate_dim);
+    println!(
+        "Qwen2.5-0.5B layer dimensions: {}x{}",
+        hidden_dim, intermediate_dim
+    );
     println!("Throughput: {layers_per_sec:.1} layers/sec");
     println!("Latency: {ms_per_layer:.2} ms/layer");
 
@@ -555,7 +575,10 @@ fn test_tqa021_parity_gate_critical() {
     println!();
     println!("Results:");
     println!("  SIMD F32 matmul: {simd_gflops:.2} GFLOPS");
-    println!("  Time per matmul: {:.2} µs", simd_elapsed.as_micros() as f64 / iterations as f64);
+    println!(
+        "  Time per matmul: {:.2} µs",
+        simd_elapsed.as_micros() as f64 / iterations as f64
+    );
     println!();
 
     // The parity gate: SafeTensors (after BF16→F32 conversion) should use the
@@ -648,7 +671,10 @@ fn test_tqa021_bf16_streaming_conversion() {
 
     println!("Streaming conversion: {streaming_throughput:.2e} values/sec");
     println!("Full conversion:      {full_throughput:.2e} values/sec");
-    println!("Streaming/Full ratio: {:.2}", streaming_throughput / full_throughput);
+    println!(
+        "Streaming/Full ratio: {:.2}",
+        streaming_throughput / full_throughput
+    );
 
     // Both approaches should have similar throughput
     // (streaming may be slightly slower due to loop overhead)
@@ -735,17 +761,29 @@ fn test_tqa021_safetensors_vs_gguf_inference_parity() {
         (ops_per_iter * iterations) as f64 / gguf_inference_elapsed.as_secs_f64() / 1e9;
 
     println!("SafeTensors BF16 Path:");
-    println!("  Load time (BF16→F32): {:.2} ms", load_elapsed.as_secs_f64() * 1000.0);
+    println!(
+        "  Load time (BF16→F32): {:.2} ms",
+        load_elapsed.as_secs_f64() * 1000.0
+    );
     println!("  Inference: {safetensors_gflops:.2} GFLOPS");
-    println!("  Time: {:.2} ms", safetensors_inference_elapsed.as_secs_f64() * 1000.0);
+    println!(
+        "  Time: {:.2} ms",
+        safetensors_inference_elapsed.as_secs_f64() * 1000.0
+    );
     println!();
     println!("GGUF Q4_K Path (simulated with BF16):");
     println!("  Inference: {gguf_gflops:.2} GFLOPS");
-    println!("  Time: {:.2} ms", gguf_inference_elapsed.as_secs_f64() * 1000.0);
+    println!(
+        "  Time: {:.2} ms",
+        gguf_inference_elapsed.as_secs_f64() * 1000.0
+    );
     println!();
 
     let inference_parity = safetensors_gflops / gguf_gflops;
-    println!("Inference parity (SafeTensors/GGUF): {:.1}x", inference_parity);
+    println!(
+        "Inference parity (SafeTensors/GGUF): {:.1}x",
+        inference_parity
+    );
 
     if inference_parity >= 1.0 {
         println!("RESULT: PASS ✓ SafeTensors matches or exceeds GGUF");
@@ -756,18 +794,24 @@ fn test_tqa021_safetensors_vs_gguf_inference_parity() {
     }
 
     // Amortization analysis: how many inferences to amortize load cost?
-    let inference_time_ms = safetensors_inference_elapsed.as_secs_f64() * 1000.0 / iterations as f64;
+    let inference_time_ms =
+        safetensors_inference_elapsed.as_secs_f64() * 1000.0 / iterations as f64;
     let load_time_ms = load_elapsed.as_secs_f64() * 1000.0;
-    let amortization_inferences = (load_time_ms / (inference_time_ms * (inference_parity - 1.0).max(0.001))).ceil() as usize;
+    let amortization_inferences =
+        (load_time_ms / (inference_time_ms * (inference_parity - 1.0).max(0.001))).ceil() as usize;
 
     println!();
     println!("Amortization:");
     println!("  Load cost: {load_time_ms:.2} ms");
-    println!("  Per-inference gain: {:.2} ms", inference_time_ms * (inference_parity - 1.0).max(0.0));
+    println!(
+        "  Per-inference gain: {:.2} ms",
+        inference_time_ms * (inference_parity - 1.0).max(0.0)
+    );
     println!("  Break-even after: {amortization_inferences} inferences");
 
     // Accuracy check
-    let safetensors_result = matmul_f32_simd(&input, &converted_weights, hidden_dim, intermediate_dim);
+    let safetensors_result =
+        matmul_f32_simd(&input, &converted_weights, hidden_dim, intermediate_dim);
     let gguf_result = fused_bf16_matmul(&input, &weight_bf16, hidden_dim, intermediate_dim);
 
     let max_error: f32 = safetensors_result

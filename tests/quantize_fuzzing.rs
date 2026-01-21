@@ -40,7 +40,7 @@ const F16_BYTES_PER_VALUE: usize = 2;
 /// Create valid Q8_0 quantized data for N values
 fn create_q8_0_data(num_values: usize) -> Vec<u8> {
     // Round up to nearest block
-    let num_blocks = (num_values + Q8_0_BLOCK_VALUES - 1) / Q8_0_BLOCK_VALUES;
+    let num_blocks = num_values.div_ceil(Q8_0_BLOCK_VALUES);
     let mut data = vec![0u8; num_blocks * Q8_0_BLOCK_BYTES];
 
     for block_idx in 0..num_blocks {
@@ -63,7 +63,7 @@ fn create_q8_0_data(num_values: usize) -> Vec<u8> {
 /// Create valid Q4_K quantized data for N values
 fn create_q4_k_data(num_values: usize) -> Vec<u8> {
     // Round up to nearest super-block (256 values)
-    let num_super_blocks = (num_values + Q4_K_SUPER_BLOCK_VALUES - 1) / Q4_K_SUPER_BLOCK_VALUES;
+    let num_super_blocks = num_values.div_ceil(Q4_K_SUPER_BLOCK_VALUES);
     let mut data = vec![0u8; num_super_blocks * Q4_K_SUPER_BLOCK_BYTES];
 
     for sb_idx in 0..num_super_blocks {
@@ -576,7 +576,10 @@ fn test_f16_denormalized_numbers() {
     let result = dequantize_f16(&data);
     assert!(result.is_ok());
     let value = result.unwrap()[0];
-    assert!(value > 0.0 && value < 1e-6, "Denormalized number should be tiny positive");
+    assert!(
+        value > 0.0 && value < 1e-6,
+        "Denormalized number should be tiny positive"
+    );
 }
 
 // ============================================================================
