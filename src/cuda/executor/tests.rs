@@ -9194,3 +9194,313 @@ fn test_cov025_clear_weights() {
     executor.clear_weights();
     assert_eq!(executor.cached_weight_count(), 0, "Should have 0 after clear");
 }
+
+// =============================================================================
+// COV-026: Coalesced/Vectorized/DP4A GEMV variants coverage
+// =============================================================================
+
+#[test]
+#[serial]
+fn test_cov026_coalesced_q4k_gemv_into_basic() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Q4_K: 144 bytes per 256 values (super-block)
+    let n = 32u32; // output dim
+    let k = 256u32; // input dim (must be divisible by 256)
+
+    // Load quantized weights to get a GPU pointer
+    let weight_bytes = (n as usize) * 144; // n rows of Q4_K data
+    let weights = vec![0u8; weight_bytes];
+    executor.load_quantized_weights("test_coalesced", &weights).expect("load weights");
+
+    // Get weight pointer
+    let weight_ptr = executor.get_quantized_weight_ptr("test_coalesced").expect("get ptr");
+
+    // Create input/output buffers
+    let input_data = vec![0.1f32; k as usize];
+    let input = GpuBuffer::from_host(executor.context(), &input_data).expect("input");
+    let output = GpuBuffer::new(executor.context(), n as usize).expect("output");
+
+    let result = executor.coalesced_q4k_gemv_into(weight_ptr, &input, &output, n, k);
+    assert!(result.is_ok(), "coalesced_q4k_gemv_into should succeed: {:?}", result.err());
+}
+
+#[test]
+#[serial]
+fn test_cov026_vectorized_q4k_gemv_into_basic() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    let n = 32u32; // output dim
+    let k = 256u32; // input dim (must be divisible by 256)
+
+    // Load quantized weights
+    let weight_bytes = (n as usize) * 144;
+    let weights = vec![0u8; weight_bytes];
+    executor.load_quantized_weights("test_vectorized", &weights).expect("load weights");
+
+    let weight_ptr = executor.get_quantized_weight_ptr("test_vectorized").expect("get ptr");
+
+    // Create input/output buffers
+    let input_data = vec![0.1f32; k as usize];
+    let input = GpuBuffer::from_host(executor.context(), &input_data).expect("input");
+    let output = GpuBuffer::new(executor.context(), n as usize).expect("output");
+
+    let result = executor.vectorized_q4k_gemv_into(weight_ptr, &input, &output, n, k);
+    assert!(result.is_ok(), "vectorized_q4k_gemv_into should succeed: {:?}", result.err());
+}
+
+#[test]
+#[serial]
+fn test_cov026_dp4a_q4k_gemv_into_basic() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    let n = 32u32; // output dim
+    let k = 256u32; // input dim (must be divisible by 256)
+
+    // Load quantized weights
+    let weight_bytes = (n as usize) * 144;
+    let weights = vec![0u8; weight_bytes];
+    executor.load_quantized_weights("test_dp4a", &weights).expect("load weights");
+
+    let weight_ptr = executor.get_quantized_weight_ptr("test_dp4a").expect("get ptr");
+
+    // Create input/output buffers
+    let input_data = vec![0.1f32; k as usize];
+    let input = GpuBuffer::from_host(executor.context(), &input_data).expect("input");
+    let output = GpuBuffer::new(executor.context(), n as usize).expect("output");
+
+    let result = executor.dp4a_q4k_gemv_into(weight_ptr, &input, &output, n, k);
+    assert!(result.is_ok(), "dp4a_q4k_gemv_into should succeed: {:?}", result.err());
+}
+
+#[test]
+#[serial]
+fn test_cov026_coalesced_q6k_gemv_into_basic() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Q6_K: 210 bytes per 256 values
+    let n = 32u32; // output dim
+    let k = 256u32; // input dim (must be divisible by 256)
+
+    // Load quantized weights
+    let weight_bytes = (n as usize) * 210;
+    let weights = vec![0u8; weight_bytes];
+    executor.load_quantized_weights_with_type("test_coalesced_q6k", &weights, 14).expect("load");
+
+    let weight_ptr = executor.get_quantized_weight_ptr("test_coalesced_q6k").expect("get ptr");
+
+    // Create input/output buffers
+    let input_data = vec![0.1f32; k as usize];
+    let input = GpuBuffer::from_host(executor.context(), &input_data).expect("input");
+    let output = GpuBuffer::new(executor.context(), n as usize).expect("output");
+
+    let result = executor.coalesced_q6k_gemv_into(weight_ptr, &input, &output, n, k);
+    assert!(result.is_ok(), "coalesced_q6k_gemv_into should succeed: {:?}", result.err());
+}
+
+#[test]
+#[serial]
+fn test_cov026_q4k_gemv_into_basic() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    let n = 32u32; // output dim
+    let k = 256u32; // input dim (must be divisible by 256)
+
+    // Load quantized weights
+    let weight_bytes = (n as usize) * 144;
+    let weights = vec![0u8; weight_bytes];
+    executor.load_quantized_weights("test_q4k_into", &weights).expect("load");
+
+    let weight_ptr = executor.get_quantized_weight_ptr("test_q4k_into").expect("get ptr");
+
+    // Create input/output buffers
+    let input_data = vec![0.1f32; k as usize];
+    let input = GpuBuffer::from_host(executor.context(), &input_data).expect("input");
+    let output = GpuBuffer::new(executor.context(), n as usize).expect("output");
+
+    let result = executor.q4k_gemv_into(weight_ptr, &input, &output, n, k);
+    assert!(result.is_ok(), "q4k_gemv_into should succeed: {:?}", result.err());
+}
+
+#[test]
+#[serial]
+fn test_cov026_q6k_gemv_into_basic() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    let n = 32u32; // output dim
+    let k = 256u32; // input dim (must be divisible by 256)
+
+    // Load quantized weights
+    let weight_bytes = (n as usize) * 210;
+    let weights = vec![0u8; weight_bytes];
+    executor.load_quantized_weights_with_type("test_q6k_into", &weights, 14).expect("load");
+
+    let weight_ptr = executor.get_quantized_weight_ptr("test_q6k_into").expect("get ptr");
+
+    // Create input/output buffers
+    let input_data = vec![0.1f32; k as usize];
+    let input = GpuBuffer::from_host(executor.context(), &input_data).expect("input");
+    let output = GpuBuffer::new(executor.context(), n as usize).expect("output");
+
+    let result = executor.q6k_gemv_into(weight_ptr, &input, &output, n, k);
+    assert!(result.is_ok(), "q6k_gemv_into should succeed: {:?}", result.err());
+}
+
+#[test]
+#[serial]
+fn test_cov026_q5k_gemv_into_basic() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Q5_K: 176 bytes per 256 values
+    let n = 32u32; // output dim
+    let k = 256u32; // input dim (must be divisible by 256)
+
+    // Load quantized weights
+    let weight_bytes = (n as usize) * 176;
+    let weights = vec![0u8; weight_bytes];
+    executor.load_quantized_weights_with_type("test_q5k_into", &weights, 13).expect("load");
+
+    let weight_ptr = executor.get_quantized_weight_ptr("test_q5k_into").expect("get ptr");
+
+    // Create input/output buffers
+    let input_data = vec![0.1f32; k as usize];
+    let input = GpuBuffer::from_host(executor.context(), &input_data).expect("input");
+    let output = GpuBuffer::new(executor.context(), n as usize).expect("output");
+
+    let result = executor.q5k_gemv_into(weight_ptr, &input, &output, n, k);
+    assert!(result.is_ok(), "q5k_gemv_into should succeed: {:?}", result.err());
+}
+
+#[test]
+#[serial]
+fn test_cov026_q8_0_gemv_into_basic() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Q8_0: 34 bytes per 32 values (2 bytes scale + 32 int8)
+    let n = 32u32; // output dim
+    let k = 256u32; // input dim (must be divisible by 32)
+
+    // Load quantized weights
+    // k=256 means 8 blocks of 32 values = 8 * 34 = 272 bytes per row
+    let weight_bytes = (n as usize) * (k as usize / 32) * 34;
+    let weights = vec![0u8; weight_bytes];
+    executor.load_quantized_weights_with_type("test_q8_0_into", &weights, 8).expect("load");
+
+    let weight_ptr = executor.get_quantized_weight_ptr("test_q8_0_into").expect("get ptr");
+
+    // Create input/output buffers
+    let input_data = vec![0.1f32; k as usize];
+    let input = GpuBuffer::from_host(executor.context(), &input_data).expect("input");
+    let output = GpuBuffer::new(executor.context(), n as usize).expect("output");
+
+    let result = executor.q8_0_gemv_into(weight_ptr, &input, &output, n, k);
+    assert!(result.is_ok(), "q8_0_gemv_into should succeed: {:?}", result.err());
+}
+
+#[test]
+#[serial]
+fn test_cov026_q4_0_gemv_into_basic() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Q4_0: 18 bytes per 32 values (2 bytes scale + 16 bytes of 4-bit)
+    let n = 32u32; // output dim
+    let k = 256u32; // input dim (must be divisible by 32)
+
+    // Load quantized weights
+    let weight_bytes = (n as usize) * (k as usize / 32) * 18;
+    let weights = vec![0u8; weight_bytes];
+    executor.load_quantized_weights_with_type("test_q4_0_into", &weights, 2).expect("load");
+
+    let weight_ptr = executor.get_quantized_weight_ptr("test_q4_0_into").expect("get ptr");
+
+    // Create input/output buffers
+    let input_data = vec![0.1f32; k as usize];
+    let input = GpuBuffer::from_host(executor.context(), &input_data).expect("input");
+    let output = GpuBuffer::new(executor.context(), n as usize).expect("output");
+
+    let result = executor.q4_0_gemv_into(weight_ptr, &input, &output, n, k);
+    assert!(result.is_ok(), "q4_0_gemv_into should succeed: {:?}", result.err());
+}
+
+#[test]
+#[serial]
+fn test_cov026_q4_1_gemv_into_basic() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Q4_1: 20 bytes per 32 values (2 scale + 2 min + 16 data)
+    let n = 32u32; // output dim
+    let k = 256u32; // input dim (must be divisible by 32)
+
+    // Load quantized weights
+    let weight_bytes = (n as usize) * (k as usize / 32) * 20;
+    let weights = vec![0u8; weight_bytes];
+    executor.load_quantized_weights_with_type("test_q4_1_into", &weights, 3).expect("load");
+
+    let weight_ptr = executor.get_quantized_weight_ptr("test_q4_1_into").expect("get ptr");
+
+    // Create input/output buffers
+    let input_data = vec![0.1f32; k as usize];
+    let input = GpuBuffer::from_host(executor.context(), &input_data).expect("input");
+    let output = GpuBuffer::new(executor.context(), n as usize).expect("output");
+
+    let result = executor.q4_1_gemv_into(weight_ptr, &input, &output, n, k);
+    assert!(result.is_ok(), "q4_1_gemv_into should succeed: {:?}", result.err());
+}
+
+#[test]
+#[serial]
+fn test_cov026_q5_0_gemv_into_basic() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Q5_0: 22 bytes per 32 values (2 scale + 4 high bits + 16 low bits)
+    let n = 32u32; // output dim
+    let k = 256u32; // input dim (must be divisible by 32)
+
+    // Load quantized weights
+    let weight_bytes = (n as usize) * (k as usize / 32) * 22;
+    let weights = vec![0u8; weight_bytes];
+    executor.load_quantized_weights_with_type("test_q5_0_into", &weights, 6).expect("load");
+
+    let weight_ptr = executor.get_quantized_weight_ptr("test_q5_0_into").expect("get ptr");
+
+    // Create input/output buffers
+    let input_data = vec![0.1f32; k as usize];
+    let input = GpuBuffer::from_host(executor.context(), &input_data).expect("input");
+    let output = GpuBuffer::new(executor.context(), n as usize).expect("output");
+
+    let result = executor.q5_0_gemv_into(weight_ptr, &input, &output, n, k);
+    assert!(result.is_ok(), "q5_0_gemv_into should succeed: {:?}", result.err());
+}
