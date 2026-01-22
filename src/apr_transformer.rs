@@ -2123,12 +2123,17 @@ impl AprTransformer {
             // K: [kv_size] = [num_kv_heads * head_dim]
             // V: [kv_size] = [num_kv_heads * head_dim]
             let kv_size = num_kv_heads * head_dim;
-            let q = &qkv[0..hidden_dim];
-            let k = &qkv[hidden_dim..hidden_dim + kv_size];
+            let mut q = qkv[0..hidden_dim].to_vec();
+            let mut k = qkv[hidden_dim..hidden_dim + kv_size].to_vec();
             let v = &qkv[hidden_dim + kv_size..hidden_dim + 2 * kv_size];
 
-            // 2c. Append K, V to cache
-            cache.append(layer_idx, k, v);
+            // PMAT-103: Apply RoPE to Q and K at current position
+            // This was missing, causing garbage output
+            self.apply_rope_f32(&mut q, position, num_heads, head_dim);
+            self.apply_rope_f32(&mut k, position, num_kv_heads, head_dim);
+
+            // 2c. Append K, V to cache (K now has RoPE applied)
+            cache.append(layer_idx, &k, v);
 
             // 2d. Compute attention with full cache
             let (k_cache, v_cache) = cache.get(layer_idx);
@@ -2140,7 +2145,7 @@ impl AprTransformer {
             for h in 0..num_heads {
                 let kv_head = h * num_kv_heads / num_heads; // GQA mapping
                 let q_start = h * head_dim;
-                let q_slice = &q[q_start..q_start + head_dim];
+                let q_slice = &q[q_start..q_start + head_dim]; // q is now Vec with RoPE applied
 
                 // Compute attention scores
                 let mut scores = Vec::with_capacity(seq_len);

@@ -405,12 +405,13 @@ fn run_apr_inference(config: &InferenceConfig) -> Result<InferenceResult> {
 
     let input_token_count = input_tokens.len();
 
-    // Run forward pass
+    // PMAT-103: Use non-cached forward() for correctness verification
+    // KV-cache version has issues - fall back to O(n²) for now
     let infer_start = Instant::now();
     let mut all_tokens = input_tokens.clone();
 
     for _ in 0..config.max_tokens.min(128) {
-        // Forward pass to get logits
+        // Forward pass to get logits for all tokens
         let logits = transformer.forward(&all_tokens)?;
 
         // Greedy sampling (argmax)
@@ -420,8 +421,8 @@ fn run_apr_inference(config: &InferenceConfig) -> Result<InferenceResult> {
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
             .map_or(0, |(i, _)| i as u32);
 
-        // Check for EOS (Qwen2 EOS=151645, BOS=151643)
-        if next_token == 151645 || next_token == 151643 {
+        // Check for EOS (Qwen2 EOS=151645, BOS=151643, standard=2)
+        if next_token == 151645 || next_token == 151643 || next_token == 2 {
             break;
         }
 
@@ -467,6 +468,7 @@ fn run_apr_inference(config: &InferenceConfig) -> Result<InferenceResult> {
 /// Run SafeTensors model inference (PAR-301)
 fn run_safetensors_inference(config: &InferenceConfig) -> Result<InferenceResult> {
     use crate::apr::AprV2Model;
+    use crate::apr_transformer::AprKVCache;
     use crate::safetensors_infer::SafetensorsToAprConverter;
 
     // Verbose: Show loading message BEFORE loading
@@ -502,27 +504,38 @@ fn run_safetensors_inference(config: &InferenceConfig) -> Result<InferenceResult
 
     let input_token_count = input_tokens.len();
 
-    // Run forward pass
+    // PMAT-103: Use KV-cached generation for O(n) instead of O(n²) complexity
+    // Previous code used forward() in a loop which recomputed all tokens each time
     let infer_start = Instant::now();
+    let mut cache = AprKVCache::new(&transformer.config);
     let mut all_tokens = input_tokens.clone();
 
-    for _ in 0..config.max_tokens.min(128) {
-        // Forward pass to get logits
-        let logits = transformer.forward(&all_tokens)?;
+    // Prefill phase: process all prompt tokens, get logits from last token
+    let mut logits = Vec::new();
+    for (pos, &token) in input_tokens.iter().enumerate() {
+        logits = transformer.forward_with_cache(token, &mut cache, pos)?;
+    }
 
-        // Greedy sampling (argmax)
+    // Decode phase: sample and generate new tokens
+    let max_gen = config.max_tokens.min(128);
+    for _ in 0..max_gen {
+        // Greedy sampling (argmax) from current logits
         let next_token = logits
             .iter()
             .enumerate()
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
             .map_or(0, |(i, _)| i as u32);
 
-        // Check for EOS (Qwen2 EOS=151645, BOS=151643)
-        if next_token == 151645 || next_token == 151643 {
+        // Check for EOS (Qwen2 EOS=151645, BOS=151643, standard=2)
+        if next_token == 151645 || next_token == 151643 || next_token == 2 {
             break;
         }
 
         all_tokens.push(next_token);
+
+        // Process newly generated token to get next logits
+        let pos = all_tokens.len() - 1; // Position of the just-added token
+        logits = transformer.forward_with_cache(next_token, &mut cache, pos)?;
     }
 
     let inference_ms = infer_start.elapsed().as_secs_f64() * 1000.0;
