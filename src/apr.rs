@@ -591,6 +591,17 @@ impl AprHeader {
             });
         }
 
+        // APR v1 (magic "APR1") has different header layout - not supported for inference
+        // APR v1 is used by Whisper models but has inline tensor index format
+        if version_byte == b'1' {
+            return Err(RealizarError::UnsupportedOperation {
+                operation: "load_apr_v1".to_string(),
+                reason: "APR v1 format not supported for inference. \
+                        Use 'apr convert model.apr -o model_v2.apr --format apr2' \
+                        to convert to APR v2 format, or use the GGUF version.".to_string(),
+            });
+        }
+
         let version = (data[4], data[5]);
         let flags = AprFlags::new(u16::from_le_bytes([data[6], data[7]]));
         let tensor_count = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
