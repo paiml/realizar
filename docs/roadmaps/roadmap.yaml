@@ -4033,3 +4033,37 @@ roadmap:
   estimated_effort: null
   labels: []
   notes: null
+- id: PMAT-803
+  github_issue: null
+  item_type: task
+  title: 'PMAT-094: RMSNorm fix for SafeTensors inference'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-01-22T10:19:41Z
+  updated: 2026-01-22T10:22:14.204234464+00:00
+  spec: null
+  acceptance_criteria:
+  - 'Five-whys analysis: layer_norm used LayerNorm instead of RMSNorm'
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels: []
+  notes: null
+- id: PMAT-804
+  github_issue: null
+  item_type: task
+  title: APR v1 format detection
+  status: planned
+  priority: medium
+  assigned_to: null
+  created: 2026-01-22T10:26:19Z
+  updated: 2026-01-22T10:26:19Z
+  spec: null
+  acceptance_criteria:
+  - Add clear error for APR v1 files not supported
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels: []
+  notes: null

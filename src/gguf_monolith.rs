@@ -9489,6 +9489,10 @@ impl OwnedQuantizedModel {
     }
 
     /// Apply layer normalization
+    /// RMSNorm (Root Mean Square Layer Normalization)
+    ///
+    /// PMAT-094 FIX: Qwen2, LLaMA, Mistral use RMSNorm, NOT LayerNorm.
+    /// Formula: output = x / sqrt(mean(x^2) + eps) * weight
     fn layer_norm(
         &self,
         input: &[f32],
@@ -9505,12 +9509,12 @@ impl OwnedQuantizedModel {
             let end = start + hidden_dim;
             let x = &input[start..end];
 
-            let mean: f32 = x.iter().sum::<f32>() / hidden_dim as f32;
-            let var: f32 = x.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / hidden_dim as f32;
-            let inv_std = (var + eps).sqrt().recip();
+            // RMSNorm: compute root mean square (no mean subtraction!)
+            let sum_sq: f32 = x.iter().map(|v| v * v).sum();
+            let rms = (sum_sq / hidden_dim as f32 + eps).sqrt();
 
             for j in 0..hidden_dim {
-                let normalized = (x[j] - mean) * inv_std;
+                let normalized = x[j] / rms;
                 let mut val = normalized * weight[j];
                 if let Some(b) = bias {
                     val += b[j];
@@ -9522,7 +9526,9 @@ impl OwnedQuantizedModel {
         output
     }
 
-    /// Apply layer normalization to pre-allocated buffer (IMP-131)
+    /// RMSNorm to pre-allocated buffer (IMP-131)
+    ///
+    /// PMAT-094 FIX: Uses RMSNorm, not LayerNorm.
     fn layer_norm_into(
         &self,
         input: &[f32],
@@ -9535,12 +9541,12 @@ impl OwnedQuantizedModel {
         // Single position case for generation
         let x = &input[..hidden_dim];
 
-        let mean: f32 = x.iter().sum::<f32>() / hidden_dim as f32;
-        let var: f32 = x.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / hidden_dim as f32;
-        let inv_std = (var + eps).sqrt().recip();
+        // RMSNorm: compute root mean square (no mean subtraction!)
+        let sum_sq: f32 = x.iter().map(|v| v * v).sum();
+        let rms = (sum_sq / hidden_dim as f32 + eps).sqrt();
 
         for j in 0..hidden_dim {
-            let normalized = (x[j] - mean) * inv_std;
+            let normalized = x[j] / rms;
             output[j] = normalized * weight[j];
             if let Some(b) = bias {
                 output[j] += b[j];
