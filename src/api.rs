@@ -1108,6 +1108,91 @@ pub struct TraceOperation {
     pub details: Option<String>,
 }
 
+/// Build trace data based on X-Trace-Level header
+///
+/// Returns (brick_trace, step_trace, layer_trace) tuple based on requested level.
+/// Used by all inference paths (GPU, cached, registry) for consistent tracing.
+#[must_use]
+pub fn build_trace_data(
+    trace_level: Option<&str>,
+    latency_us: u64,
+    prompt_tokens: usize,
+    completion_tokens: usize,
+    num_layers: usize,
+) -> (Option<TraceData>, Option<TraceData>, Option<TraceData>) {
+    match trace_level {
+        Some("brick") => (
+            Some(TraceData {
+                level: "brick".to_string(),
+                operations: completion_tokens,
+                total_time_us: latency_us,
+                breakdown: vec![
+                    TraceOperation {
+                        name: "embedding_lookup".to_string(),
+                        time_us: latency_us / 10,
+                        details: Some(format!("{} tokens", prompt_tokens)),
+                    },
+                    TraceOperation {
+                        name: "matmul_qkv".to_string(),
+                        time_us: latency_us / 3,
+                        details: None,
+                    },
+                    TraceOperation {
+                        name: "softmax".to_string(),
+                        time_us: latency_us / 5,
+                        details: None,
+                    },
+                ],
+            }),
+            None,
+            None,
+        ),
+        Some("step") => (
+            None,
+            Some(TraceData {
+                level: "step".to_string(),
+                operations: completion_tokens,
+                total_time_us: latency_us,
+                breakdown: vec![
+                    TraceOperation {
+                        name: "tokenize".to_string(),
+                        time_us: 100,
+                        details: Some(format!("{} input tokens", prompt_tokens)),
+                    },
+                    TraceOperation {
+                        name: "forward_pass".to_string(),
+                        time_us: latency_us.saturating_sub(200),
+                        details: Some(format!("{} layers", num_layers)),
+                    },
+                    TraceOperation {
+                        name: "decode".to_string(),
+                        time_us: 100,
+                        details: Some(format!("{} output tokens", completion_tokens)),
+                    },
+                ],
+            }),
+            None,
+        ),
+        Some("layer") => (
+            None,
+            None,
+            Some(TraceData {
+                level: "layer".to_string(),
+                operations: num_layers,
+                total_time_us: latency_us,
+                breakdown: (0..num_layers)
+                    .map(|i| TraceOperation {
+                        name: format!("layer_{}", i),
+                        time_us: latency_us / num_layers as u64,
+                        details: Some("attention+mlp".to_string()),
+                    })
+                    .collect(),
+            }),
+        ),
+        _ => (None, None, None),
+    }
+}
+
 /// Chat completion choice
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatChoice {
@@ -3186,6 +3271,15 @@ async fn openai_chat_completions_handler(
         let latency = start.elapsed();
         state.metrics.record_success(completion_tokens, latency);
 
+        // Build trace data based on X-Trace-Level header (GPU path)
+        let (brick_trace, step_trace, layer_trace) = build_trace_data(
+            trace_level.as_deref(),
+            latency.as_micros() as u64,
+            prompt_tokens,
+            completion_tokens,
+            28, // Default layer count for Qwen2 models
+        );
+
         return Json(ChatCompletionResponse {
             id: request_id,
             object: "chat.completion".to_string(),
@@ -3212,9 +3306,9 @@ async fn openai_chat_completions_handler(
                 completion_tokens,
                 total_tokens: prompt_tokens + completion_tokens,
             },
-            brick_trace: None,
-            step_trace: None,
-            layer_trace: None,
+            brick_trace,
+            step_trace,
+            layer_trace,
         })
         .into_response();
     }
@@ -3355,6 +3449,15 @@ async fn openai_chat_completions_handler(
         let latency = start.elapsed();
         state.metrics.record_success(completion_tokens, latency);
 
+        // Build trace data based on X-Trace-Level header (cached GPU path)
+        let (brick_trace, step_trace, layer_trace) = build_trace_data(
+            trace_level.as_deref(),
+            latency.as_micros() as u64,
+            prompt_tokens,
+            completion_tokens,
+            28, // Default layer count for Qwen2 models
+        );
+
         return Json(ChatCompletionResponse {
             id: request_id,
             object: "chat.completion".to_string(),
@@ -3381,9 +3484,9 @@ async fn openai_chat_completions_handler(
                 completion_tokens,
                 total_tokens: prompt_tokens + completion_tokens,
             },
-            brick_trace: None,
-            step_trace: None,
-            layer_trace: None,
+            brick_trace,
+            step_trace,
+            layer_trace,
         })
         .into_response();
     }
@@ -3572,6 +3675,15 @@ async fn openai_chat_completions_handler(
         let elapsed = start.elapsed();
         state.metrics.record_success(completion_tokens, elapsed);
 
+        // Build trace data based on X-Trace-Level header (CUDA optimized path)
+        let (brick_trace, step_trace, layer_trace) = build_trace_data(
+            trace_level.as_deref(),
+            elapsed.as_micros() as u64,
+            prompt_tokens,
+            completion_tokens,
+            28, // Default layer count for Qwen2 models
+        );
+
         return Json(ChatCompletionResponse {
             id: request_id,
             object: "chat.completion".to_string(),
@@ -3594,9 +3706,9 @@ async fn openai_chat_completions_handler(
                 completion_tokens,
                 total_tokens: prompt_tokens + completion_tokens,
             },
-            brick_trace: None,
-            step_trace: None,
-            layer_trace: None,
+            brick_trace,
+            step_trace,
+            layer_trace,
         })
         .into_response();
     }
@@ -3793,78 +3905,14 @@ async fn openai_chat_completions_handler(
         let latency = start.elapsed();
         state.metrics.record_success(completion_tokens, latency);
 
-        // Build trace data based on X-Trace-Level header
-        let (brick_trace, step_trace, layer_trace) = match trace_level.as_deref() {
-            Some("brick") => (
-                Some(TraceData {
-                    level: "brick".to_string(),
-                    operations: completion_tokens,
-                    total_time_us: latency.as_micros() as u64,
-                    breakdown: vec![
-                        TraceOperation {
-                            name: "embedding_lookup".to_string(),
-                            time_us: latency.as_micros() as u64 / 10,
-                            details: Some(format!("{} tokens", prompt_tokens)),
-                        },
-                        TraceOperation {
-                            name: "matmul_qkv".to_string(),
-                            time_us: latency.as_micros() as u64 / 3,
-                            details: None,
-                        },
-                        TraceOperation {
-                            name: "softmax".to_string(),
-                            time_us: latency.as_micros() as u64 / 5,
-                            details: None,
-                        },
-                    ],
-                }),
-                None,
-                None,
-            ),
-            Some("step") => (
-                None,
-                Some(TraceData {
-                    level: "step".to_string(),
-                    operations: completion_tokens,
-                    total_time_us: latency.as_micros() as u64,
-                    breakdown: vec![
-                        TraceOperation {
-                            name: "tokenize".to_string(),
-                            time_us: 100,
-                            details: Some(format!("{} input tokens", prompt_tokens)),
-                        },
-                        TraceOperation {
-                            name: "forward_pass".to_string(),
-                            time_us: latency.as_micros() as u64 - 200,
-                            details: Some(format!("{} layers", 28)),
-                        },
-                        TraceOperation {
-                            name: "decode".to_string(),
-                            time_us: 100,
-                            details: Some(format!("{} output tokens", completion_tokens)),
-                        },
-                    ],
-                }),
-                None,
-            ),
-            Some("layer") => (
-                None,
-                None,
-                Some(TraceData {
-                    level: "layer".to_string(),
-                    operations: 28, // layers
-                    total_time_us: latency.as_micros() as u64,
-                    breakdown: (0..28)
-                        .map(|i| TraceOperation {
-                            name: format!("layer_{}", i),
-                            time_us: latency.as_micros() as u64 / 28,
-                            details: Some("attention+mlp".to_string()),
-                        })
-                        .collect(),
-                }),
-            ),
-            _ => (None, None, None),
-        };
+        // Build trace data based on X-Trace-Level header (quantized model path)
+        let (brick_trace, step_trace, layer_trace) = build_trace_data(
+            trace_level.as_deref(),
+            latency.as_micros() as u64,
+            prompt_tokens,
+            completion_tokens,
+            28, // Default layer count for Qwen2 models
+        );
 
         return Json(ChatCompletionResponse {
             id: request_id,
