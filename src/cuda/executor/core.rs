@@ -481,6 +481,12 @@ impl CudaExecutor {
         &self.context
     }
 
+    /// Get reference to compute stream (WAPR-PERF-014: reuse stream for KV scatter/attention)
+    #[must_use]
+    pub fn compute_stream(&self) -> &CudaStream {
+        &self.compute_stream
+    }
+
     /// Synchronize the execution stream (wait for all pending operations)
     pub fn synchronize(&self) -> Result<(), GpuError> {
         self.stream.synchronize()
