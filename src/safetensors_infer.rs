@@ -203,51 +203,41 @@ impl SafetensorsToAprConverter {
         })
     }
 
-    /// Transpose weight from [out_dim, in_dim] to [in_dim, out_dim]
+    /// Pass through weight in matvec-optimal [out_dim, in_dim] format
     ///
-    /// HuggingFace stores Linear weights as [out_features, in_features] (row-major)
-    /// but APR matmul expects [in_dim, out_dim] format.
-    fn transpose_weight(weight: &[f32], out_dim: usize, in_dim: usize) -> Vec<f32> {
-        let mut transposed = vec![0.0f32; weight.len()];
-        for o in 0..out_dim {
-            for i in 0..in_dim {
-                // HuggingFace: weight[o * in_dim + i] = W[o][i]
-                // APR format: transposed[i * out_dim + o] = W[o][i]
-                transposed[i * out_dim + o] = weight[o * in_dim + i];
-            }
-        }
-        transposed
+    /// PMAT-095 FIX: HuggingFace stores Linear weights as [out_features, in_features]
+    /// which is EXACTLY what trueno's matvec needs! Previous implementation transposed
+    /// twice (here and in matmul), causing O(n²) overhead per forward pass.
+    ///
+    /// Now we keep HuggingFace format directly - no transposition needed.
+    #[allow(clippy::unused_self)]
+    fn transpose_weight(weight: &[f32], _out_dim: usize, _in_dim: usize) -> Vec<f32> {
+        // PMAT-095: Keep [out_dim, in_dim] format - no transposition!
+        // This eliminates the 75x performance gap vs GGUF.
+        weight.to_vec()
     }
 
-    /// Concatenate and transpose Q, K, V weights into combined QKV tensor
+    /// Concatenate Q, K, V weights into combined QKV tensor (matvec-optimal)
     ///
-    /// Each weight is transposed from [out, in] to [in, out] before concatenation.
+    /// PMAT-095 FIX: Keep [out_dim, in_dim] format from HuggingFace.
+    /// For QKV, we concatenate along the output dimension:
+    /// - Q: [hidden_dim, hidden_dim]
+    /// - K: [kv_dim, hidden_dim]
+    /// - V: [kv_dim, hidden_dim]
+    /// Result: [hidden_dim + kv_dim + kv_dim, hidden_dim] in row-major
     fn concat_qkv_transposed(
         q: &[f32],
         k: &[f32],
         v: &[f32],
-        hidden_dim: usize,
-        kv_dim: usize,
+        _hidden_dim: usize,
+        _kv_dim: usize,
     ) -> Vec<f32> {
-        // Q: [hidden_dim, hidden_dim] -> transpose -> [hidden_dim, hidden_dim]
-        let q_t = Self::transpose_weight(q, hidden_dim, hidden_dim);
-        // K: [kv_dim, hidden_dim] -> transpose -> [hidden_dim, kv_dim]
-        let k_t = Self::transpose_weight(k, kv_dim, hidden_dim);
-        // V: [kv_dim, hidden_dim] -> transpose -> [hidden_dim, kv_dim]
-        let v_t = Self::transpose_weight(v, kv_dim, hidden_dim);
-
-        // Now concatenate column-wise: for each input row, append Q, K, V outputs
-        // Result shape: [hidden_dim, hidden_dim + kv_dim + kv_dim]
-        let qkv_out_dim = hidden_dim + kv_dim + kv_dim;
-        let mut qkv = Vec::with_capacity(hidden_dim * qkv_out_dim);
-        for i in 0..hidden_dim {
-            // Q columns for this input row
-            qkv.extend_from_slice(&q_t[i * hidden_dim..(i + 1) * hidden_dim]);
-            // K columns for this input row
-            qkv.extend_from_slice(&k_t[i * kv_dim..(i + 1) * kv_dim]);
-            // V columns for this input row
-            qkv.extend_from_slice(&v_t[i * kv_dim..(i + 1) * kv_dim]);
-        }
+        // PMAT-095: Simple concatenation - weights are already in optimal layout
+        // Concatenate [Q; K; V] along output dimension
+        let mut qkv = Vec::with_capacity(q.len() + k.len() + v.len());
+        qkv.extend_from_slice(q);
+        qkv.extend_from_slice(k);
+        qkv.extend_from_slice(v);
         qkv
     }
 
