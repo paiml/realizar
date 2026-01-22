@@ -1069,7 +1069,7 @@ impl CudaKernels {
             KernelType::Gemv { .. } => "gemv_warp_reduce",
             KernelType::CoalescedGemv { .. } => "gemv_coalesced",
             KernelType::Softmax { .. } => "softmax_warp_shuffle",
-            KernelType::LayerNorm { .. } => "layernorm",
+            KernelType::LayerNorm { .. } => "layernorm_warp_shuffle",
             KernelType::Attention { causal, .. } => {
                 if *causal {
                     "flash_attention_causal"
