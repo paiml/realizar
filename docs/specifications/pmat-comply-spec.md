@@ -40,12 +40,14 @@ This structure prevents effective maintenance and hides bugs in "God Objects" li
 - [x] `layers.rs` -> Shattered (7 parts)
 
 ### Phase 2: The "Hard" Shatters (Current Focus)
-- [ ] **`api.rs` (14k lines):**
-    - *Blocker:* Private function access in tests.
-    - *Solution:* Expose helpers as `pub(crate)` or move tests to `tests/api_integration.rs`.
+- [x] **`api.rs` (14k lines):** ✅ DONE (2026-01-22)
+    - *Solution:* Created `src/api/` directory with test_helpers.rs and 5 test parts
+    - *Result:* mod.rs (5623 lines) + 5 test parts (<2000 lines each)
+    - *Note:* mod.rs still over 2000 lines - production code split is future target
 - [ ] **`gguf_monolith.rs` (54k lines):**
     - *Status:* CRITICAL. Largest file.
-    - *Action:* Break into `gguf/loader.rs`, `gguf/tensor.rs`, `gguf/metadata.rs`.
+    - *Blocker:* Test helpers (gpt2_unicode_to_byte, create_test_model_with_config) need extraction
+    - *Action:* Create gguf/test_helpers.rs, then split tests
 
 ### Phase 3: Safety & Metrics
 - [x] Fix 549 CB-020 warnings (Add `// SAFETY: ...`). ✅ DONE (2026-01-22)
@@ -67,6 +69,9 @@ This structure prevents effective maintenance and hides bugs in "God Objects" li
 2. Created `.pmat-metrics.toml` with PMAT-802 quality thresholds
 3. CB-020 warnings reduced from 549 to 0
 4. CB-021 warnings are false positives (doc comments mentioning intrinsic names)
+5. **api.rs shattered**: 14k lines → mod.rs (5623) + 5 test parts (<2000 each)
+   - Created test_helpers.rs with create_test_app() and create_test_quantized_model()
+   - All 5997 tests passing
 
 ## 7. Command Reference
 ```bash
