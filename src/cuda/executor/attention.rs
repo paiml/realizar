@@ -1034,6 +1034,8 @@ impl CudaExecutor {
             let mut max_len_val = max_len as u32;
 
             let scatter_module = self.modules.get_mut(&scatter_key).expect("module exists");
+            // SAFETY: Kernel launch with valid pointers - k_src/k_dst from GPU buffers,
+            // pos/head_dim/max_len are stack values with stable addresses during call
             unsafe {
                 self.compute_stream.launch_kernel(
                     scatter_module,
@@ -1058,6 +1060,8 @@ impl CudaExecutor {
             let mut v_dst = v_dst_ptr;
 
             let scatter_module = self.modules.get_mut(&scatter_key).expect("module exists");
+            // SAFETY: Kernel launch with valid pointers - v_src/v_dst from GPU buffers,
+            // pos/head_dim/max_len are stack values with stable addresses during call
             unsafe {
                 self.compute_stream.launch_kernel(
                     scatter_module,
@@ -1161,6 +1165,8 @@ impl CudaExecutor {
             .get_mut(&chunk_module_key)
             .expect("module just inserted");
 
+        // SAFETY: Kernel launch with valid pointers - all GPU buffer pointers derived from
+        // allocated GpuBuffers, max_chunks is stack value with stable address during call
         unsafe {
             self.compute_stream.launch_kernel(
                 chunk_module,
@@ -1203,6 +1209,8 @@ impl CudaExecutor {
             .get_mut(&reduce_module_key)
             .expect("module just inserted");
 
+        // SAFETY: Kernel launch with valid pointers - partials/out/seq_lens from GPU buffers,
+        // max_chunks is stack value with stable address during call
         unsafe {
             self.compute_stream.launch_kernel(
                 reduce_module,
