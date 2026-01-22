@@ -10033,3 +10033,188 @@ fn test_cov028_compute_stream() {
     // Just verify we can access it without panic
     assert!(std::ptr::from_ref(stream) as usize != 0, "stream should be valid");
 }
+
+// ============================================================================
+// COV-029: More weight and workspace tests
+// ============================================================================
+
+/// Test load_weights basic functionality
+#[test]
+#[serial]
+fn test_cov029_load_weights_basic() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    let weights = vec![0.1f32; 256];
+    let result = executor.load_weights("test_weight", &weights);
+    assert!(result.is_ok(), "load_weights should succeed: {:?}", result.err());
+
+    let bytes = result.unwrap();
+    assert_eq!(bytes, 256 * 4, "Should load 256 f32 values (1024 bytes)");
+}
+
+/// Test load_weights and has_weights
+#[test]
+#[serial]
+fn test_cov029_load_weights_and_has() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    assert!(!executor.has_weights("my_weight"), "Should not have weight initially");
+
+    let weights = vec![1.0f32; 128];
+    executor.load_weights("my_weight", &weights).expect("load");
+
+    assert!(executor.has_weights("my_weight"), "Should have weight after load");
+    assert!(!executor.has_weights("other_weight"), "Should not have unloaded weight");
+}
+
+/// Test cached_weight_count
+#[test]
+#[serial]
+fn test_cov029_cached_weight_count() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    assert_eq!(executor.cached_weight_count(), 0, "Initial count should be 0");
+
+    executor.load_weights("w1", &[1.0f32; 64]).expect("load w1");
+    assert_eq!(executor.cached_weight_count(), 1, "Count should be 1");
+
+    executor.load_weights("w2", &[1.0f32; 64]).expect("load w2");
+    assert_eq!(executor.cached_weight_count(), 2, "Count should be 2");
+}
+
+/// Test cached_weight_bytes
+#[test]
+#[serial]
+fn test_cov029_cached_weight_bytes() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    assert_eq!(executor.cached_weight_bytes(), 0, "Initial bytes should be 0");
+
+    executor.load_weights("w1", &[1.0f32; 100]).expect("load w1");
+    assert_eq!(executor.cached_weight_bytes(), 400, "Should be 400 bytes (100 * 4)");
+
+    executor.load_weights("w2", &[1.0f32; 50]).expect("load w2");
+    assert_eq!(executor.cached_weight_bytes(), 600, "Should be 600 bytes total");
+}
+
+/// Test has_indexed_weights
+#[test]
+#[serial]
+fn test_cov029_has_indexed_weights() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Initially should not have indexed weights
+    assert!(!executor.has_indexed_weights(), "Should not have indexed weights initially");
+}
+
+/// Test return_staging_buffer
+#[test]
+#[serial]
+fn test_cov029_return_staging_buffer() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Get a staging buffer
+    let buf = executor.get_staging_buffer(256);
+
+    // Return it to the pool
+    executor.return_staging_buffer(buf);
+
+    // Pool should have returned buffer
+    let stats = executor.staging_pool_stats();
+    assert!(stats.free_buffers >= 1, "Pool should have at least 1 buffer after return");
+}
+
+/// Test workspace_batch_size
+#[test]
+#[serial]
+fn test_cov029_workspace_batch_size() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Initially should be 0
+    assert_eq!(executor.workspace_batch_size(), 0, "Initial batch size should be 0");
+
+    // After init_workspace
+    executor.init_workspace(512, 256).expect("init workspace");
+    assert_eq!(executor.workspace_batch_size(), 1, "Batch size should be 1 after init");
+}
+
+/// Test workspace_batch_size after batched init
+#[test]
+#[serial]
+fn test_cov029_workspace_batch_size_batched() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    executor.init_workspace(512, 256).expect("init workspace");
+    executor.init_batched_workspace(512, 256, 4).expect("init batched");
+
+    assert_eq!(executor.workspace_batch_size(), 4, "Batch size should be 4");
+}
+
+/// Test profiler_mut
+#[test]
+#[serial]
+fn test_cov029_profiler_mut() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Get mutable profiler access
+    let profiler = executor.profiler_mut();
+    // Just verify we can access it
+    assert!(std::ptr::from_mut(profiler) as usize != 0, "profiler should be valid");
+}
+
+/// Test execution_graph_ascii
+#[test]
+#[serial]
+fn test_cov029_execution_graph_ascii() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    let ascii = executor.execution_graph_ascii();
+    // Just verify the function returns without panic - the actual format varies
+    // Empty graph or a tree structure are both valid
+    let _ = ascii.len();
+}
+
+/// Test tile_stats
+#[test]
+#[serial]
+fn test_cov029_tile_stats() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Access tile stats for different levels
+    let _macro_stats = executor.tile_stats(trueno::TileLevel::Macro);
+    let _midi_stats = executor.tile_stats(trueno::TileLevel::Midi);
+    // Just verify we can access without panic
+}
