@@ -1893,6 +1893,7 @@ fn simd_dot(a: &[f32], b: &[f32]) -> f32 {
     #[cfg(target_arch = "x86_64")]
     {
         if is_x86_feature_detected!("avx2") {
+            // SAFETY: AVX2 feature is runtime-checked above, simd_dot_avx2 requires AVX2
             return unsafe { simd_dot_avx2(a, b) };
         }
     }
@@ -2489,6 +2490,8 @@ impl AprV2ModelCuda {
                     // The forward path will handle F32 appropriately
                     if let Ok(w) = self.model.get_tensor_f32(&src_name) {
                         // Upload F32 weights directly (no transpose needed for GEMV)
+                        // SAFETY: f32 slice to u8 view - valid because f32 has no padding,
+                        // alignment requirement of u8 is 1, and lifetime is preserved
                         let w_bytes: &[u8] = unsafe {
                             std::slice::from_raw_parts(
                                 w.as_ptr().cast::<u8>(),
@@ -3309,6 +3312,7 @@ impl MappedAprModel {
             message: format!("Failed to open .apr file: {e}"),
         })?;
 
+        // SAFETY: File is opened read-only, callers validate format before trusting data
         let mmap = unsafe {
             Mmap::map(&file).map_err(|e| RealizarError::IoError {
                 message: format!("Failed to mmap .apr file: {e}"),

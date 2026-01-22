@@ -291,6 +291,8 @@ fn simd_bf16_to_f32_avx2(input: &[u8], count: usize) -> Vec<f32> {
     let chunks = count / 8;
     let remainder = count % 8;
 
+    // SAFETY: AVX2 target_feature is required by cfg, input bounds checked by chunks calculation,
+    // output vector pre-allocated to count elements
     unsafe {
         for i in 0..chunks {
             let in_offset = i * 16;
