@@ -8561,3 +8561,212 @@ fn test_cov022_preload_rmsnorm_weights_basic() {
     assert!(executor.has_rmsnorm_weights(1), "Layer 1 should have RMSNorm weights");
     assert!(!executor.has_rmsnorm_weights(2), "Layer 2 should not have RMSNorm weights");
 }
+
+// =============================================================================
+// COV-023: quantized.rs functions (Refs PMAT-802)
+// =============================================================================
+
+#[test]
+#[serial]
+fn test_cov023_q4k_gemv_cached_weight_not_cached() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    let n = 32u32;
+    let k = 256u32;
+
+    let input = vec![0.1f32; k as usize];
+    let mut output = vec![0.0f32; n as usize];
+
+    // Weight not cached - should fail
+    let result = executor.q4k_gemv_cached("nonexistent_weight", &input, &mut output, n, k);
+
+    assert!(result.is_err(), "Should fail when weight not cached");
+    let err_msg = format!("{:?}", result.err().unwrap());
+    assert!(
+        err_msg.contains("not cached"),
+        "Error should mention not cached: {}",
+        err_msg
+    );
+}
+
+#[test]
+#[serial]
+fn test_cov023_q5k_gemv_cached_weight_not_cached() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    let n = 32u32;
+    let k = 256u32;
+
+    let input = vec![0.1f32; k as usize];
+    let mut output = vec![0.0f32; n as usize];
+
+    // Weight not cached - should fail
+    let result = executor.q5k_gemv_cached("nonexistent_weight", &input, &mut output, n, k);
+
+    assert!(result.is_err(), "Should fail when weight not cached");
+    let err_msg = format!("{:?}", result.err().unwrap());
+    assert!(
+        err_msg.contains("not cached"),
+        "Error should mention not cached: {}",
+        err_msg
+    );
+}
+
+#[test]
+#[serial]
+fn test_cov023_q6k_gemv_cached_weight_not_cached() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    let n = 32u32;
+    let k = 256u32;
+
+    let input = vec![0.1f32; k as usize];
+    let mut output = vec![0.0f32; n as usize];
+
+    // Weight not cached - should fail
+    let result = executor.q6k_gemv_cached("nonexistent_weight", &input, &mut output, n, k);
+
+    assert!(result.is_err(), "Should fail when weight not cached");
+    let err_msg = format!("{:?}", result.err().unwrap());
+    assert!(
+        err_msg.contains("not cached"),
+        "Error should mention not cached: {}",
+        err_msg
+    );
+}
+
+#[test]
+#[serial]
+fn test_cov023_gelu_gpu_basic() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    let n = 256u32;
+
+    // Create GPU buffer with test data
+    let data = vec![0.5f32; n as usize];
+    let buffer = GpuBuffer::from_host(executor.context(), &data).expect("buffer");
+
+    // Apply GELU
+    let result = executor.gelu_gpu(&buffer, n);
+
+    assert!(result.is_ok(), "gelu_gpu should succeed: {:?}", result.err());
+}
+
+#[test]
+#[serial]
+fn test_cov023_rmsnorm_gpu_basic() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    let hidden_size = 256u32;
+    let epsilon = 1e-5f32;
+
+    // Create GPU buffers
+    let input_data = vec![0.5f32; hidden_size as usize];
+    let gamma_data = vec![1.0f32; hidden_size as usize];
+
+    let input = GpuBuffer::from_host(executor.context(), &input_data).expect("input");
+    let gamma = GpuBuffer::from_host(executor.context(), &gamma_data).expect("gamma");
+
+    // Apply RMSNorm
+    let result = executor.rmsnorm_gpu(&input, &gamma, hidden_size, epsilon);
+
+    assert!(result.is_ok(), "rmsnorm_gpu should succeed: {:?}", result.err());
+    let output = result.unwrap();
+    assert_eq!(output.len(), hidden_size as usize, "Output should have hidden_size elements");
+}
+
+// NOTE: layer_norm_gpu test skipped - LayerNorm kernel not available (FunctionNotFound)
+
+#[test]
+#[serial]
+fn test_cov023_rmsnorm_into_basic() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    let hidden_size = 256u32;
+    let epsilon = 1e-5f32;
+
+    // Create GPU buffers
+    let input_data = vec![0.5f32; hidden_size as usize];
+    let gamma_data = vec![1.0f32; hidden_size as usize];
+
+    let input = GpuBuffer::from_host(executor.context(), &input_data).expect("input");
+    let gamma = GpuBuffer::from_host(executor.context(), &gamma_data).expect("gamma");
+    let output = GpuBuffer::new(executor.context(), hidden_size as usize).expect("output");
+
+    // Apply RMSNorm into existing buffer
+    let result = executor.rmsnorm_into(&input, &gamma, &output, hidden_size, epsilon);
+
+    assert!(result.is_ok(), "rmsnorm_into should succeed: {:?}", result.err());
+}
+
+#[test]
+#[serial]
+fn test_cov023_q4k_gemv_cached_async_weight_not_cached() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    let n = 32u32;
+    let k = 256u32;
+
+    // Create GPU buffer for input
+    let input_data = vec![0.1f32; k as usize];
+    let input = GpuBuffer::from_host(executor.context(), &input_data).expect("input buf");
+
+    // Weight not cached - should fail
+    let result = executor.q4k_gemv_cached_async("nonexistent_weight", &input, n, k);
+
+    assert!(result.is_err(), "Should fail when weight not cached");
+    let err_msg = format!("{:?}", result.err().unwrap());
+    assert!(
+        err_msg.contains("not cached"),
+        "Error should mention not cached: {}",
+        err_msg
+    );
+}
+
+#[test]
+#[serial]
+fn test_cov023_q6k_gemv_cached_async_weight_not_cached() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    let n = 32u32;
+    let k = 256u32;
+
+    // Create GPU buffer for input
+    let input_data = vec![0.1f32; k as usize];
+    let input = GpuBuffer::from_host(executor.context(), &input_data).expect("input buf");
+
+    // Weight not cached - should fail
+    let result = executor.q6k_gemv_cached_async("nonexistent_weight", &input, n, k);
+
+    assert!(result.is_err(), "Should fail when weight not cached");
+    let err_msg = format!("{:?}", result.err().unwrap());
+    assert!(
+        err_msg.contains("not cached"),
+        "Error should mention not cached: {}",
+        err_msg
+    );
+}
