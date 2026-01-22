@@ -1,176 +1,71 @@
-# PMAT Comply A+ Specification
+# Specification: PMAT Compliance & Codebase Shattering (PMAT-802)
 
 **Status:** IN PROGRESS
 **Started:** 2025-01-22
 **Target:** A+ grade (95%+ coverage, all files <2000 lines)
 **Ticket:** PMAT-802
 
-## Executive Summary
+## 1. Problem Situation
+The `realizar` codebase (420K lines) is currently in a state of **Entropic Decay (Grade E)**.
+- **Complexity:** 22 files >2000 lines (violating modularity).
+- **Safety:** 549 CB-020 warnings (undocumented `unsafe` blocks).
+- **Opacity:** Coverage is stuck at 81% (Target: 95%).
+- **Metric:** `pmat comply` reports 54% file health.
 
-Realizar's codebase has grown to ~420K lines across ~200 files. PMAT comply reports **grade E** (54% file health) due to:
-- 22 files >2000 lines
-- 44 files >1000 lines
-- 549 CB-020 warnings (unsafe blocks without SAFETY comments)
-- Missing `.pmat-metrics.toml`
-- Coverage at ~81% (target: 95%)
+This structure prevents effective maintenance and hides bugs in "God Objects" like `gguf_monolith.rs` (54k lines).
 
-## Strategy: "Shattering"
+## 2. Conjectures (Hypotheses)
+*   **H1 (The Shattering Hypothesis):** We can decompose "God Objects" (e.g., `gguf_monolith.rs`, `api.rs`) into atomic sub-modules (`mod.rs` + `tests/`) without breaking the 5996 existing tests or reducing performance.
+    *   *Prediction:* File health > 90%, compile times reduce by >10%.
+*   **H2 (The Safety Documentation Hypothesis):** The 549 CB-020 warnings represent latent memory safety risks.
+    *   *Prediction:* Forcing SAFETY comments will reveal at least one actual soundness bug (to be fixed).
 
-Split large files into modules with tests in separate files (<2000 lines each).
+## 3. Methodological Rules
+1.  **Atomic Shattering:** Split files >2000 lines using the pattern: `src/module.rs` -> `src/module/mod.rs` + `src/module/tests/*.rs`.
+2.  **Invariant Preservation:** `cargo test` must PASS after every commit. **Never push broken code.**
+3.  **Coverage Ratchet:** Coverage must NOT decrease. Use `explode` strategies if needed to expose hidden paths.
+4.  **Traceability:** Every commit must reference `PMAT-802`.
+5.  **Root Cause Analysis:** Use "Five Whys" for any blocker (e.g., `api.rs` private access).
 
-**Pattern:**
-```
-src/module.rs (15,000 lines)
-  ↓ shatter
-src/module/
-  mod.rs (main code)
-  tests/
-    mod.rs
-    part_01.rs (<2000 lines)
-    part_02.rs (<2000 lines)
-    ...
-```
+## 4. Falsification Protocol
+*   **F-SHATTER-01:** If shattering `gguf_monolith.rs` introduces circular dependencies that require >3 days to resolve, **H1 is falsified** for that module. We must pivot to "Internal Partitioning" (inline modules) instead of file extraction.
+*   **F-SAFE-01:** If adding SAFETY comments takes >10 minutes per block due to unknown invariants, the code is deemed **Legacy Unsafe** and must be ticketed for rewrite (refuting the assumption it is just "undocumented").
 
-## Progress Tracker
+## 5. Execution Plan (The Experiment)
 
-### Completed Shatters
+### Phase 1: The "Easy" Shatters (Verified)
+- [x] `http_client.rs` -> Shattered (12 parts)
+- [x] `quantize.rs` -> Shattered (6 parts)
+- [x] `gpu.rs` -> Shattered (4 parts)
+- [x] `layers.rs` -> Shattered (7 parts)
 
-| File | Original | Result | Tests Pass |
-|------|----------|--------|------------|
-| `http_client.rs` | 19,721 lines | mod.rs (1,016) + 12 test parts | ✅ 5996 |
-| `quantize.rs` | 18,333 lines | mod.rs (7,908) + 6 test parts | ✅ 5996 |
-| `gpu.rs` | 15,680 lines | mod.rs (8,719) + 4 test parts | ✅ 5996 |
-| `layers.rs` | 15,292 lines | mod.rs (4,256) + 7 test parts | ✅ 5996 |
+### Phase 2: The "Hard" Shatters (Current Focus)
+- [ ] **`api.rs` (14k lines):**
+    - *Blocker:* Private function access in tests.
+    - *Solution:* Expose helpers as `pub(crate)` or move tests to `tests/api_integration.rs`.
+- [ ] **`gguf_monolith.rs` (54k lines):**
+    - *Status:* CRITICAL. Largest file.
+    - *Action:* Break into `gguf/loader.rs`, `gguf/tensor.rs`, `gguf/metadata.rs`.
 
-### In Progress
+### Phase 3: Safety & Metrics
+- [ ] Fix 549 CB-020 warnings (Add `// SAFETY: ...`).
+- [ ] Create `.pmat-metrics.toml`.
+- [ ] Verify 95% Coverage.
 
-| File | Original | Status | Blocker |
-|------|----------|--------|---------|
-| `api.rs` | 14,618 lines | Split attempted | 212 test errors (private access) |
-| `gguf_monolith.rs` | 54,882 lines | Split attempted | 165 test errors (private access, HashMap) |
+## 6. Current Metrics & Progress
 
-### Remaining Large Files
+| Metric | Start | Current | Target |
+|--------|-------|---------|--------|
+| Files >2000 lines | 23 | 22 | **0** |
+| File Health | 58% | 54% | **95%** |
+| Tests Passing | 5996 | 5996 | **5996+** |
 
-| File | Lines | Priority |
-|------|-------|----------|
-| `gguf_monolith.rs` | 54,882 | **CRITICAL** - largest file |
-| `api.rs` | 14,618 | High |
-| `apr_transformer.rs` | 11,141 | High |
-| `cuda/executor/tests.rs` | 10,880 | Medium |
-| `bench.rs` | 8,722 | Medium |
-| `gpu/mod.rs` | 8,719 | Low (tests split) |
-| `apr.rs` | 7,970 | Medium |
-| `quantize/mod.rs` | 7,908 | Low (tests split) |
-| `cuda/executor/layer.rs` | 6,654 | Medium |
-| `generate.rs` | 5,242 | Medium |
-| `scheduler.rs` | 4,269 | Low |
-| `layers/mod.rs` | 4,256 | Low (tests split) |
-| `brick.rs` | 3,999 | Low |
-| `cli.rs` | 3,841 | Low |
-| `grammar.rs` | 3,588 | Low |
-| `paged_kv.rs` | 3,375 | Low |
-| `cuda/executor/quantized.rs` | 3,351 | Low |
-| `cuda/executor/proptests.rs` | 3,105 | Low |
-
-## Blockers & Five-Whys Analysis
-
-### Blocker 1: Private Function Access in Shattered Tests
-
-**Symptom:** `error[E0425]: cannot find function 'gpt2_unicode_to_byte' in module 'super'`
-
-**Five Whys:**
-1. Why? Tests use `super::private_fn()` to access private functions
-2. Why? Tests were originally in same file, had access to private scope
-3. Why? Rust module privacy - `pub(crate)` needed for cross-module test access
-4. Why? Original design didn't anticipate module extraction
-5. Why? Monolith grew organically without module boundaries
-
-**Solution Options:**
-- A) Make helper functions `pub(crate)` (preferred)
-- B) Keep tests in monolith, only split main code
-- C) Use `#[cfg(test)]` visibility tricks
-
-### Blocker 2: Missing Imports in Test Files
-
-**Symptom:** `error[E0433]: failed to resolve: use of undeclared type 'HashMap'`
-
-**Root Cause:** Original tests relied on imports at top of monolith file.
-
-**Solution:** Add `use std::collections::HashMap;` to each test part.
-
-### Blocker 3: CB-020 Unsafe SAFETY Comments
-
-**Count:** 549 warnings
-
-**Pattern Needed:**
-```rust
-// SAFETY: [explanation of why this is safe]
-unsafe { ... }
-```
-
-**Files Affected:**
-- `cuda/executor/layer.rs`
-- `cuda/executor/attention.rs`
-- Many others in CUDA code
-
-## Next Steps
-
-1. **Revert api.rs split** - restore working state
-2. **Fix api.rs private access** - make test helpers `pub(crate)`
-3. **Re-attempt api.rs split**
-4. **Address gguf_monolith.rs** - largest file, most complex
-5. **Add CB-020 SAFETY comments** - 549 locations
-6. **Create `.pmat-metrics.toml`**
-7. **Run coverage** - verify 95% target
-
-## Git Commits (This Session)
-
-1. `bba9c4e` - refactor(http_client): Shatter into mod.rs + tests.rs
-2. `361cc17` - refactor(http_client): Shatter tests.rs into 12 parts
-3. `04fb089` - refactor(quantize): Shatter into mod.rs + 6 test parts
-4. `8dbc6f1` - refactor(gpu): Shatter into mod.rs + 4 test parts
-5. `4dbc86c` - refactor(layers): Shatter into mod.rs + 7 test parts
-
-## Metrics Before/After
-
-| Metric | Before | After | Target |
-|--------|--------|-------|--------|
-| Files >2000 lines | 23 | 22 | 0 |
-| Files >1000 lines | 16 | ~44 | <10 |
-| File Health Grade | E (58%) | E (54%) | A+ (95%) |
-| Test Coverage | 81% | ~81% | 95% |
-| CB-020 Warnings | 546 | 549 | 0 |
-| All Tests Pass | ✅ | ✅ | ✅ |
-
-## Constraints
-
-- **NEVER push broken code** - other team depends on trunk
-- **Push frequently** - incremental progress visible
-- **Maintain test pass** - all 5996 tests must pass
-- **Track with pmat work** - reference PMAT-802 in commits
-- **Five-whys for blockers** - root cause analysis
-
-## Dependencies
-
-- `trueno` - SIMD/GPU compute (path dependency)
-- `trueno-gpu` - CUDA kernels
-- `pmat` - quality tooling
-
-## Command Reference
-
+## 7. Command Reference
 ```bash
-# Check compliance
+# Verify Health
 pmat comply check
 
-# Run tests
+# Verify Invariants
 cargo test --lib
-
-# Check coverage
 make coverage
-
-# Find large files
-wc -l src/**/*.rs | sort -rn | head -30
-
-# Find CB-020 violations
-pmat comply check 2>&1 | grep CB-020
 ```
