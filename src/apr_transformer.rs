@@ -1301,7 +1301,8 @@ impl AprTransformer {
         //   - ndim (1 byte) + dims (8 bytes each)
         //   - offset (8 bytes)
         //   - size (8 bytes)
-        let mut tensors: std::collections::BTreeMap<String, (usize, usize, Vec<usize>)> =
+        // Tuple: (offset, size, dims, dtype)
+        let mut tensors: std::collections::BTreeMap<String, (usize, usize, Vec<usize>, u8)> =
             std::collections::BTreeMap::new();
 
         let mut pos = tensor_index_offset;
@@ -1322,7 +1323,7 @@ impl AprTransformer {
             pos += name_len;
 
             // Read dtype (1 byte)
-            let _dtype = data[pos];
+            let dtype = data[pos];
             pos += 1;
 
             // Read ndim (1 byte)
@@ -1378,38 +1379,122 @@ impl AprTransformer {
             ]) as usize;
             pos += 8;
 
-            tensors.insert(name, (data_offset + offset, size, dims));
+            tensors.insert(name, (data_offset + offset, size, dims, dtype));
         }
 
-        // Helper to extract f32 tensor
+        // Helper to extract f32 tensor (with Q4_K dequantization support)
         let get_f32_tensor = |name: &str| -> Option<Vec<f32>> {
-            tensors.get(name).map(|(offset, size, _)| {
+            tensors.get(name).map(|(offset, size, dims, dtype)| {
                 let end = offset + size;
                 if end > data.len() {
                     return Vec::new();
                 }
-                data[*offset..end]
-                    .chunks_exact(4)
-                    .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                    .collect()
+                let tensor_data = &data[*offset..end];
+
+                match dtype {
+                    // Q4_K (dtype=12): dequantize from GGUF K-quant format
+                    12 => {
+                        let num_elements: usize = dims.iter().product();
+                        dequantize_q4_k_apr(tensor_data, num_elements)
+                    }
+                    // Q6_K (dtype=14): dequantize from GGUF K-quant format
+                    14 => {
+                        let num_elements: usize = dims.iter().product();
+                        dequantize_q6_k_apr(tensor_data, num_elements)
+                    }
+                    // F32 (dtype=0) or other: interpret as raw F32
+                    _ => tensor_data
+                        .chunks_exact(4)
+                        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                        .collect(),
+                }
             })
         };
 
+        // Debug: print available tensor names
+        eprintln!("[DEBUG] APR v2 tensor count: {tensor_count}");
+        eprintln!("[DEBUG] Available tensor names (first 10):");
+        for (i, (name, (offset, size, dims, dtype))) in tensors.iter().enumerate() {
+            if i < 10 {
+                eprintln!("  {name}: offset={offset}, size={size}, dims={dims:?}, dtype={dtype}");
+            }
+        }
+
+        // PMAT-086 FIX: Transpose matrix from GGUF [in_dim, out_dim] to matmul [out_dim, in_dim]
+        // GGUF/APR stores weights as [rows, cols] = [in_dim, out_dim] for y = x @ W
+        // But our matmul expects [out_dim, in_dim] for y = W @ x (row-major GEMV)
+        let transpose_weight = |data: Vec<f32>, rows: usize, cols: usize| -> Vec<f32> {
+            let mut transposed = vec![0.0f32; rows * cols];
+            for r in 0..rows {
+                for c in 0..cols {
+                    // data[r, c] -> transposed[c, r]
+                    let src_idx = r * cols + c;
+                    let dst_idx = c * rows + r;
+                    if src_idx < data.len() && dst_idx < transposed.len() {
+                        transposed[dst_idx] = data[src_idx];
+                    }
+                }
+            }
+            transposed
+        };
+
+        // PMAT-086: Detect if using GGUF naming (output.weight, blk.X) or HF naming (lm_head.weight)
+        // GGUF uses [hidden_dim, vocab_size], HF uses [vocab_size, hidden_dim]
+        let is_gguf_model = tensors.contains_key("output.weight") || tensors.contains_key("blk.0.attn_q.weight");
+        eprintln!("[DEBUG] is_gguf_model={is_gguf_model}");
+
+        // PMAT-086: Debug - check which embedding tensor names exist
+        let embed_names = ["model.embed_tokens.weight", "token_embd.weight", "tok_embeddings.weight"];
+        for name in &embed_names {
+            if let Some((offset, size, dims, dtype)) = tensors.get(*name) {
+                eprintln!("[DEBUG] Found embedding {name}: offset={offset}, size={size}, dims={dims:?}, dtype={dtype}");
+            }
+        }
+
         // Try to load token embedding
-        let token_embedding = get_f32_tensor("model.embed_tokens.weight")
+        let token_embedding_raw = get_f32_tensor("model.embed_tokens.weight")
             .or_else(|| get_f32_tensor("token_embd.weight"))
             .or_else(|| get_f32_tensor("tok_embeddings.weight"))
-            .unwrap_or_else(|| vec![0.0; vocab_size * hidden_dim]);
+            .unwrap_or_else(|| {
+                eprintln!("[DEBUG] WARNING: No embedding tensor found! Using zeros.");
+                vec![0.0; vocab_size * hidden_dim]
+            });
+
+        // PMAT-086 FIX: APR stores GGUF data in row-major [vocab_size, hidden_dim] layout
+        // even though the dims metadata says [hidden_dim, vocab_size] (GGML column-major convention)
+        // The data is already correct - DO NOT transpose!
+        let token_embedding = token_embedding_raw;
+
+        eprintln!("[DEBUG] token_embedding loaded: {} elements, first 5: {:?}",
+                  token_embedding.len(),
+                  &token_embedding[..5.min(token_embedding.len())]);
 
         // Load output norm
         let output_norm_weight = get_f32_tensor("model.norm.weight")
             .or_else(|| get_f32_tensor("output_norm.weight"))
             .unwrap_or_else(|| vec![1.0; hidden_dim]);
 
+        // Debug: check output.weight / lm_head.weight
+        for name in &["output.weight", "lm_head.weight"] {
+            if let Some((offset, size, dims, dtype)) = tensors.get(*name) {
+                eprintln!("[DEBUG] Found lm_head {name}: offset={offset}, size={size}, dims={dims:?}, dtype={dtype}");
+            }
+        }
+
         // Load LM head
-        let lm_head_weight = get_f32_tensor("lm_head.weight")
+        let lm_head_raw = get_f32_tensor("lm_head.weight")
             .or_else(|| get_f32_tensor("output.weight"))
-            .unwrap_or_else(|| vec![0.0; hidden_dim * vocab_size]);
+            .unwrap_or_else(|| {
+                eprintln!("[DEBUG] WARNING: No lm_head tensor found! Using zeros.");
+                vec![0.0; hidden_dim * vocab_size]
+            });
+        eprintln!("[DEBUG] lm_head_raw: {} elements, first 5: {:?}",
+                  lm_head_raw.len(),
+                  &lm_head_raw[..5.min(lm_head_raw.len())]);
+        // PMAT-086 FIX: APR stores GGUF data in row-major [vocab_size, hidden_dim] layout
+        // even though the dims metadata says [hidden_dim, vocab_size] (GGML column-major convention)
+        // The data is already correct - DO NOT transpose!
+        let lm_head_weight = lm_head_raw;
 
         // Compute KV dimension from config
         let head_dim = hidden_dim / num_heads;
@@ -1423,36 +1508,40 @@ impl AprTransformer {
 
             // Try separate Q/K/V or combined QKV
             // Support both HuggingFace and GGUF naming conventions
+            // PMAT-086 FIX: HF uses [out_dim, in_dim], GGUF uses [in_dim, out_dim]
+            // Only transpose GGUF tensors, not HF tensors
             let qkv_out_dim = hidden_dim + kv_dim + kv_dim;
+
+            // Detect if using GGUF naming (blk.X) or HF naming (model.layers.X)
+            let is_gguf = tensors.contains_key(&format!("{gguf_prefix}.attn_q.weight"));
+
             let qkv_weight = if let Some(qkv) =
                 get_f32_tensor(&format!("{hf_prefix}.self_attn.qkv_proj.weight"))
             {
+                // HF fused QKV - already in [qkv_out_dim, hidden_dim] format
                 qkv
             } else {
-                // Get Q weight - [hidden_dim, hidden_dim]
-                let q = get_f32_tensor(&format!("{hf_prefix}.self_attn.q_proj.weight"))
+                // Get Q weight
+                let q_raw = get_f32_tensor(&format!("{hf_prefix}.self_attn.q_proj.weight"))
                     .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.attn_q.weight")))
                     .unwrap_or_else(|| vec![0.0; hidden_dim * hidden_dim]);
-                // Get K weight - [kv_dim, hidden_dim]
-                let k = get_f32_tensor(&format!("{hf_prefix}.self_attn.k_proj.weight"))
+                // Get K weight
+                let k_raw = get_f32_tensor(&format!("{hf_prefix}.self_attn.k_proj.weight"))
                     .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.attn_k.weight")))
                     .unwrap_or_else(|| vec![0.0; hidden_dim * kv_dim]);
-                // Get V weight - [kv_dim, hidden_dim]
-                let v = get_f32_tensor(&format!("{hf_prefix}.self_attn.v_proj.weight"))
+                // Get V weight
+                let v_raw = get_f32_tensor(&format!("{hf_prefix}.self_attn.v_proj.weight"))
                     .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.attn_v.weight")))
                     .unwrap_or_else(|| vec![0.0; hidden_dim * kv_dim]);
 
-                // Concatenate Q, K, V for each input row
-                // Output: [hidden_dim, hidden_dim + kv_dim + kv_dim]
-                let mut qkv = Vec::with_capacity(hidden_dim * qkv_out_dim);
-                for row in 0..hidden_dim {
-                    // Q: [hidden_dim, hidden_dim] -> row is hidden_dim values
-                    qkv.extend_from_slice(&q[row * hidden_dim..(row + 1) * hidden_dim]);
-                    // K: [kv_dim, hidden_dim] -> row is kv_dim values
-                    qkv.extend_from_slice(&k[row * kv_dim..(row + 1) * kv_dim]);
-                    // V: [kv_dim, hidden_dim] -> row is kv_dim values
-                    qkv.extend_from_slice(&v[row * kv_dim..(row + 1) * kv_dim]);
-                }
+                // PMAT-086 FIX: Both HF and GGUF data are in [out_dim, in_dim] layout
+                // GGUF dims say [in_dim, out_dim] but data is actually [out_dim, in_dim] due to GGML column-major convention
+                // Fuse Q, K, V by stacking rows (Q, then K, then V) - no transpose needed
+                let _ = is_gguf; // Suppress unused warning
+                let mut qkv = Vec::with_capacity(qkv_out_dim * hidden_dim);
+                qkv.extend_from_slice(&q_raw);
+                qkv.extend_from_slice(&k_raw);
+                qkv.extend_from_slice(&v_raw);
                 qkv
             };
 
@@ -1476,6 +1565,7 @@ impl AprTransformer {
                 _ => None,
             };
 
+            // PMAT-086 FIX: Both HF and GGUF data are in [out_dim, in_dim] layout - no transpose needed
             let attn_output = get_f32_tensor(&format!("{hf_prefix}.self_attn.o_proj.weight"))
                 .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.attn_output.weight")))
                 .unwrap_or_else(|| vec![0.0; hidden_dim * hidden_dim]);
@@ -1487,6 +1577,8 @@ impl AprTransformer {
             let ffn_norm = get_f32_tensor(&format!("{hf_prefix}.post_attention_layernorm.weight"))
                 .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.ffn_norm.weight")));
 
+            // PMAT-086 FIX: FFN weights - both HF and GGUF data are in [out_dim, in_dim] layout
+            // No transpose needed - GGML column-major dims but row-major data
             let ffn_gate = get_f32_tensor(&format!("{hf_prefix}.mlp.gate_proj.weight"))
                 .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.ffn_gate.weight")));
             let ffn_up = get_f32_tensor(&format!("{hf_prefix}.mlp.up_proj.weight"))
@@ -4057,6 +4149,217 @@ impl QuantizedAprTransformerQ4 {
             }
         }
     }
+}
+
+// =============================================================================
+// GGUF K-quant Dequantization Helpers (for APR Q4_K/Q6_K support)
+// =============================================================================
+
+/// Convert IEEE 754 half-precision (f16) bits to f32
+fn f16_to_f32(bits: u16) -> f32 {
+    let sign = u32::from((bits >> 15) & 1);
+    let exp = u32::from((bits >> 10) & 0x1F);
+    let mant = u32::from(bits & 0x3FF);
+
+    if exp == 0 {
+        if mant == 0 {
+            // Zero
+            f32::from_bits(sign << 31)
+        } else {
+            // Subnormal - convert to normalized f32
+            let mut m = mant;
+            let mut e = 0i32;
+            while (m & 0x400) == 0 {
+                m <<= 1;
+                e -= 1;
+            }
+            m &= 0x3FF;
+            let f32_exp = (127 - 15 + 1 + e) as u32;
+            f32::from_bits((sign << 31) | (f32_exp << 23) | (m << 13))
+        }
+    } else if exp == 31 {
+        // Inf or NaN
+        if mant == 0 {
+            f32::from_bits((sign << 31) | (0xFF << 23))
+        } else {
+            f32::from_bits((sign << 31) | (0xFF << 23) | (mant << 13))
+        }
+    } else {
+        // Normal number
+        let f32_exp = (exp as i32 - 15 + 127) as u32;
+        f32::from_bits((sign << 31) | (f32_exp << 23) | (mant << 13))
+    }
+}
+
+/// Extract scale and min from Q4_K 12-byte packed scales
+///
+/// PAR-001 FIX: Matches llama.cpp's get_scale_min_k4 packing scheme:
+/// - Blocks 0-3: scale = q[j] & 63, min = q[j+4] & 63
+/// - Blocks 4-7: scale = (q[j+4] & 0xF) | ((q[j-4] >> 6) << 4)
+///   min = (q[j+4] >> 4) | ((q[j] >> 6) << 4)
+#[inline]
+fn extract_scale_min_apr(scales: &[u8], block_idx: usize) -> (f32, f32) {
+    let j = block_idx;
+    let (scale_bits, min_bits) = if j < 4 {
+        // First 4 blocks: simple layout
+        let d = scales[j] & 63;
+        let m = scales[j + 4] & 63;
+        (d, m)
+    } else {
+        // Last 4 blocks: packed layout using high bits from first 4 bytes
+        let d = (scales[j + 4] & 0x0F) | ((scales[j - 4] >> 6) << 4);
+        let m = (scales[j + 4] >> 4) | ((scales[j] >> 6) << 4);
+        (d, m)
+    };
+
+    (f32::from(scale_bits), f32::from(min_bits))
+}
+
+/// Dequantize Q4_K format (K-quants) for APR tensors
+/// Q4_K: super blocks of 256 elements
+/// Each super block: d (f16) + dmin (f16) + scales (12 bytes) + qs (128 bytes) = 144 bytes
+///
+/// PMAT-086 FIX: Correct implementation matching llama.cpp/candle layout:
+/// - For each 64-value chunk, output 32 low nibbles THEN 32 high nibbles
+/// - Use sc1/dm1 for low nibbles, sc2/dm2 for high nibbles (different scales per half)
+fn dequantize_q4_k_apr(data: &[u8], num_elements: usize) -> Vec<f32> {
+    const QK_K: usize = 256; // Super-block size
+    const SUPER_BLOCK_BYTES: usize = 2 + 2 + 12 + 128; // 144 bytes
+
+    let num_blocks = (num_elements + QK_K - 1) / QK_K;
+    let total_bytes = num_blocks * SUPER_BLOCK_BYTES;
+
+    if total_bytes > data.len() {
+        // Return zeros if data is insufficient
+        return vec![0.0; num_elements];
+    }
+
+    let mut result = vec![0.0f32; num_blocks * QK_K];
+
+    for sb_idx in 0..num_blocks {
+        let sb_start = sb_idx * SUPER_BLOCK_BYTES;
+        let out_start = sb_idx * QK_K;
+
+        // Read d (f16 scale) and dmin (f16 min)
+        let d = f16_to_f32(u16::from_le_bytes([data[sb_start], data[sb_start + 1]]));
+        let dmin = f16_to_f32(u16::from_le_bytes([data[sb_start + 2], data[sb_start + 3]]));
+
+        // Read scales (12 bytes)
+        let scales = &data[sb_start + 4..sb_start + 16];
+
+        // Read qs (128 bytes)
+        let qs = &data[sb_start + 16..sb_start + 144];
+
+        // Dequantize following candle's layout:
+        // For each 64-value chunk, output 32 low nibbles then 32 high nibbles
+        let mut ys_index = out_start;
+
+        for j in (0..QK_K).step_by(64) {
+            let q = &qs[j / 2..j / 2 + 32];
+
+            // Get scales for the two 32-value halves
+            let is = j / 32;
+            let (sc1, m1) = extract_scale_min_apr(scales, is);
+            let d1 = d * sc1;
+            let dm1 = dmin * m1;
+
+            let (sc2, m2) = extract_scale_min_apr(scales, is + 1);
+            let d2 = d * sc2;
+            let dm2 = dmin * m2;
+
+            // First pass: 32 low nibbles
+            for &byte in q {
+                result[ys_index] = d1 * (byte & 0xF) as f32 - dm1;
+                ys_index += 1;
+            }
+
+            // Second pass: 32 high nibbles
+            for &byte in q {
+                result[ys_index] = d2 * (byte >> 4) as f32 - dm2;
+                ys_index += 1;
+            }
+        }
+    }
+
+    result.truncate(num_elements);
+    result
+}
+
+/// Dequantize Q6_K format (K-quants) for APR tensors
+/// Q6_K super-block layout (per llama.cpp block_q6_K and candle):
+/// - ql: 128 bytes (low 4 bits, 256 values, 2 per byte)
+/// - qh: 64 bytes (high 2 bits, 256 values, 4 per byte)
+/// - scales: 16 bytes (i8 signed scales for 16 blocks)
+/// - d: 2 bytes (f16)
+/// Total: 128 + 64 + 16 + 2 = 210 bytes
+fn dequantize_q6_k_apr(data: &[u8], num_elements: usize) -> Vec<f32> {
+    const QK_K: usize = 256;
+    const SUPER_BLOCK_BYTES: usize = 210;
+
+    let num_blocks = (num_elements + QK_K - 1) / QK_K;
+    let total_bytes = num_blocks * SUPER_BLOCK_BYTES;
+
+    if total_bytes > data.len() {
+        return vec![0.0; num_elements];
+    }
+
+    let mut result = vec![0.0f32; num_blocks * QK_K];
+
+    for sb_idx in 0..num_blocks {
+        let sb_start = sb_idx * SUPER_BLOCK_BYTES;
+        let out_start = sb_idx * QK_K;
+
+        // Read ql - low 4 bits (128 bytes) at offset 0
+        let ql = &data[sb_start..sb_start + 128];
+
+        // Read qh - high 2 bits (64 bytes) at offset 128
+        let qh = &data[sb_start + 128..sb_start + 192];
+
+        // Read scales (16 bytes, i8) at offset 192
+        let mut scales = [0i8; 16];
+        #[allow(clippy::cast_possible_wrap)]
+        for (i, scale) in scales.iter_mut().enumerate() {
+            *scale = data[sb_start + 192 + i] as i8;
+        }
+
+        // Read d (f16 -> f32) at offset 208 (last 2 bytes)
+        let d = f16_to_f32(u16::from_le_bytes([
+            data[sb_start + 208],
+            data[sb_start + 209],
+        ]));
+
+        // Dequantize 256 values following candle's exact layout
+        // Process 128 values at a time (n=0, n=128)
+        for n in (0..QK_K).step_by(128) {
+            let idx = n / 128;
+            let sc = &scales[8 * idx..];
+            let ql_slice = &ql[64 * idx..];
+            let qh_slice = &qh[32 * idx..];
+
+            for l in 0..32 {
+                let is = l / 16; // Scale index selector (0 or 1 within this 128-block)
+
+                // Extract 4 values per iteration (at positions l, l+32, l+64, l+96)
+                // q1: low 4 bits of ql[l] + bits 0-1 of qh[l]
+                let q1 = ((ql_slice[l] & 0xF) | ((qh_slice[l] & 3) << 4)) as i32 - 32;
+                // q2: low 4 bits of ql[l+32] + bits 2-3 of qh[l]
+                let q2 = ((ql_slice[l + 32] & 0xF) | (((qh_slice[l] >> 2) & 3) << 4)) as i32 - 32;
+                // q3: high 4 bits of ql[l] + bits 4-5 of qh[l]
+                let q3 = ((ql_slice[l] >> 4) | (((qh_slice[l] >> 4) & 3) << 4)) as i32 - 32;
+                // q4: high 4 bits of ql[l+32] + bits 6-7 of qh[l]
+                let q4 = ((ql_slice[l + 32] >> 4) | (((qh_slice[l] >> 6) & 3) << 4)) as i32 - 32;
+
+                // Write to output with correct scale indexing
+                result[out_start + n + l] = d * (sc[is] as f32) * (q1 as f32);
+                result[out_start + n + l + 32] = d * (sc[is + 2] as f32) * (q2 as f32);
+                result[out_start + n + l + 64] = d * (sc[is + 4] as f32) * (q3 as f32);
+                result[out_start + n + l + 96] = d * (sc[is + 6] as f32) * (q4 as f32);
+            }
+        }
+    }
+
+    result.truncate(num_elements);
+    result
 }
 
 #[cfg(test)]
@@ -10714,5 +11017,106 @@ mod tests {
         // Setting to 0 should clamp to 1
         runner.set_measure_iterations(0);
         assert_eq!(runner.measure_iterations(), 1);
+    }
+}
+
+#[cfg(test)]
+mod apr_dequant_tests {
+    use super::*;
+    use crate::quantize::{dequantize_q4_k, dequantize_q6_k};
+
+    #[test]
+    fn test_apr_q4k_dequant_matches_gguf() {
+        // Create test Q4_K data (one super-block = 144 bytes for 256 values)
+        // Format: d (f16) + dmin (f16) + scales (12 bytes) + qs (128 bytes)
+        let mut data = vec![0u8; 144];
+        
+        // Set d = 0.5 (f16)
+        let d_f16: u16 = 0x3800; // 0.5 in f16
+        data[0] = (d_f16 & 0xFF) as u8;
+        data[1] = (d_f16 >> 8) as u8;
+        
+        // Set dmin = 0.1 (f16)
+        let dmin_f16: u16 = 0x2E66; // ~0.1 in f16
+        data[2] = (dmin_f16 & 0xFF) as u8;
+        data[3] = (dmin_f16 >> 8) as u8;
+        
+        // Set some scales (12 bytes)
+        for i in 0..12 {
+            data[4 + i] = ((i + 1) * 5) as u8;
+        }
+        
+        // Set some qs values (128 bytes)
+        for i in 0..128 {
+            data[16 + i] = (i % 256) as u8;
+        }
+        
+        // Dequantize with APR function
+        let apr_result = dequantize_q4_k_apr(&data, 256);
+        
+        // Dequantize with GGUF function
+        let gguf_result = dequantize_q4_k(&data).expect("GGUF dequant should work");
+        
+        // Compare results
+        assert_eq!(apr_result.len(), gguf_result.len(), "Output lengths should match");
+        
+        for i in 0..apr_result.len() {
+            let diff = (apr_result[i] - gguf_result[i]).abs();
+            assert!(
+                diff < 0.001,
+                "Mismatch at index {}: APR={}, GGUF={}, diff={}",
+                i, apr_result[i], gguf_result[i], diff
+            );
+        }
+        
+        println!("APR Q4_K dequantization matches GGUF implementation!");
+    }
+
+    #[test]
+    fn test_apr_q6k_dequant_matches_gguf() {
+        // Create test Q6_K data (one super-block = 210 bytes for 256 values)
+        // Format: ql (128 bytes) + qh (64 bytes) + scales (16 bytes) + d (f16)
+        let mut data = vec![0u8; 210];
+
+        // Set ql (128 bytes at offset 0) - low 4 bits
+        for i in 0..128 {
+            data[i] = (i % 256) as u8;
+        }
+
+        // Set qh (64 bytes at offset 128) - high 2 bits
+        for i in 0..64 {
+            data[128 + i] = ((i * 3) % 256) as u8;
+        }
+
+        // Set scales (16 bytes at offset 192) - signed i8
+        for i in 0..16 {
+            // Use values that work as signed i8
+            data[192 + i] = ((i as i8 * 8) as u8).wrapping_add(10);
+        }
+
+        // Set d = 0.25 (f16) at offset 208
+        let d_f16: u16 = 0x3400; // 0.25 in f16
+        data[208] = (d_f16 & 0xFF) as u8;
+        data[209] = (d_f16 >> 8) as u8;
+
+        // Dequantize with APR function
+        let apr_result = dequantize_q6_k_apr(&data, 256);
+
+        // Dequantize with GGUF function
+        let gguf_result = dequantize_q6_k(&data).expect("GGUF dequant should work");
+
+        // Compare results
+        assert_eq!(apr_result.len(), gguf_result.len(), "Output lengths should match");
+
+        for i in 0..apr_result.len() {
+            let diff = (apr_result[i] - gguf_result[i]).abs();
+            assert!(
+                diff < 0.001,
+                "Mismatch at index {}: APR={}, GGUF={}, diff={}",
+                i, apr_result[i], gguf_result[i], diff
+            );
+        }
+
+        println!("APR Q6_K dequantization matches GGUF implementation!");
     }
 }
