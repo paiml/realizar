@@ -1629,7 +1629,13 @@ impl AprTransformer {
         embeddings
     }
 
-    /// Layer normalization
+    /// RMSNorm (Root Mean Square Layer Normalization)
+    ///
+    /// Used by Qwen2, LLaMA, Mistral, and most modern LLMs.
+    /// Formula: output = x / sqrt(mean(x^2) + eps) * weight
+    ///
+    /// PMAT-094: Fixed five-whys root cause - was using LayerNorm (mean subtraction)
+    /// instead of RMSNorm which caused garbage output for Qwen2 models.
     fn layer_norm(
         &self,
         input: &[f32],
@@ -1645,17 +1651,13 @@ impl AprTransformer {
             let start = s * hidden_dim;
             let slice = &input[start..start + hidden_dim];
 
-            // Calculate mean
-            let mean: f32 = slice.iter().sum::<f32>() / hidden_dim as f32;
+            // RMSNorm: compute root mean square (no mean subtraction!)
+            let sum_sq: f32 = slice.iter().map(|x| x * x).sum();
+            let rms = (sum_sq / hidden_dim as f32 + eps).sqrt();
 
-            // Calculate variance
-            let variance: f32 =
-                slice.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / hidden_dim as f32;
-
-            // Normalize
-            let std_dev = (variance + eps).sqrt();
+            // Normalize and scale
             for (i, &x) in slice.iter().enumerate() {
-                let normalized = (x - mean) / std_dev;
+                let normalized = x / rms;
                 let scaled = normalized * weight[i];
                 let shifted = if let Some(b) = bias {
                     scaled + b[i]
@@ -4229,6 +4231,7 @@ mod tests {
 
     #[test]
     fn test_layer_norm_identity() {
+        // Tests RMSNorm (not LayerNorm): output = x / sqrt(mean(x^2) + eps) * weight
         let config = AprTransformerConfig {
             hidden_dim: 4,
             ..Default::default()
@@ -4240,28 +4243,36 @@ mod tests {
 
         let output = transformer.layer_norm(&input, &weight, None, 1e-5);
 
-        // Normalized values should have mean ~0 and var ~1
-        let mean: f32 = output.iter().sum::<f32>() / 4.0;
-        assert!((mean).abs() < 0.001);
+        // RMSNorm: rms = sqrt((1+4+9+16)/4 + eps) = sqrt(7.5) ≈ 2.739
+        // Output: [1/2.739, 2/2.739, 3/2.739, 4/2.739]
+        let rms = (30.0_f32 / 4.0).sqrt();
+        assert!((output[0] - 1.0 / rms).abs() < 0.001);
+        assert!((output[1] - 2.0 / rms).abs() < 0.001);
+        assert!((output[2] - 3.0 / rms).abs() < 0.001);
+        assert!((output[3] - 4.0 / rms).abs() < 0.001);
     }
 
     #[test]
     fn test_layer_norm_with_bias() {
+        // Tests RMSNorm with bias: output = x / rms * weight + bias
         let config = AprTransformerConfig {
             hidden_dim: 2,
             ..Default::default()
         };
         let transformer = AprTransformer::new(config);
 
-        let input = vec![1.0, 3.0]; // mean=2, var=1
+        let input = vec![1.0, 3.0];
         let weight = vec![1.0, 1.0];
         let bias = vec![10.0, 20.0];
 
         let output = transformer.layer_norm(&input, &weight, Some(&bias), 1e-5);
 
-        // After norm: [-1, 1], after scale: [-1, 1], after bias: [9, 21]
-        assert!((output[0] - 9.0).abs() < 0.01);
-        assert!((output[1] - 21.0).abs() < 0.01);
+        // RMSNorm: rms = sqrt((1+9)/2 + eps) = sqrt(5) ≈ 2.236
+        // After norm: [1/2.236, 3/2.236] ≈ [0.447, 1.342]
+        // After bias: [10.447, 21.342]
+        let rms = (10.0_f32 / 2.0).sqrt();
+        assert!((output[0] - (1.0 / rms + 10.0)).abs() < 0.01);
+        assert!((output[1] - (3.0 / rms + 20.0)).abs() < 0.01);
     }
 
     // ==========================================================================
