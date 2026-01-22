@@ -48,9 +48,9 @@ This structure prevents effective maintenance and hides bugs in "God Objects" li
     - *Action:* Break into `gguf/loader.rs`, `gguf/tensor.rs`, `gguf/metadata.rs`.
 
 ### Phase 3: Safety & Metrics
-- [ ] Fix 549 CB-020 warnings (Add `// SAFETY: ...`).
-- [ ] Create `.pmat-metrics.toml`.
-- [ ] Verify 95% Coverage.
+- [x] Fix 549 CB-020 warnings (Add `// SAFETY: ...`). ✅ DONE (2026-01-22)
+- [x] Create `.pmat-metrics.toml`. ✅ DONE (2026-01-22)
+- [ ] Verify 95% Coverage. (In Progress)
 
 ## 6. Current Metrics & Progress
 
@@ -58,7 +58,15 @@ This structure prevents effective maintenance and hides bugs in "God Objects" li
 |--------|-------|---------|--------|
 | Files >2000 lines | 23 | 22 | **0** |
 | File Health | 58% | 54% | **95%** |
-| Tests Passing | 5996 | 5996 | **5996+** |
+| Tests Passing | 5996 | 6761 | **6761+** |
+| CB-020 Warnings | 549 | 0 | **0** ✅ |
+| CB-021 Warnings | N/A | 543 (false positives in docs) | **0** |
+
+### Session Progress (2026-01-22)
+1. Added SAFETY comments to 16 unsafe blocks across 4 files
+2. Created `.pmat-metrics.toml` with PMAT-802 quality thresholds
+3. CB-020 warnings reduced from 549 to 0
+4. CB-021 warnings are false positives (doc comments mentioning intrinsic names)
 
 ## 7. Command Reference
 ```bash
