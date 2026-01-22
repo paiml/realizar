@@ -9006,3 +9006,191 @@ fn test_cov024_set_rope_theta() {
     executor.set_rope_theta(500000.0);
     // No assertion needed - just ensuring it doesn't panic
 }
+
+// =============================================================================
+// COV-025: More device info, memory, and buffer management coverage
+// =============================================================================
+
+#[test]
+#[serial]
+fn test_cov025_device_name() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    let name = executor.device_name();
+    assert!(name.is_ok(), "device_name should succeed: {:?}", name.err());
+    let device_name = name.unwrap();
+    assert!(!device_name.is_empty(), "Device name should not be empty");
+}
+
+#[test]
+#[serial]
+fn test_cov025_memory_info() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    let info = executor.memory_info();
+    assert!(info.is_ok(), "memory_info should succeed: {:?}", info.err());
+    let (free, total) = info.unwrap();
+    assert!(total > 0, "Total memory should be > 0");
+    assert!(free <= total, "Free memory should be <= total");
+}
+
+#[test]
+#[serial]
+fn test_cov025_num_devices() {
+    // num_devices is a static function
+    let count = CudaExecutor::num_devices();
+    // On a system with CUDA, count should be >= 1
+    // We don't assert on the count since it depends on hardware
+    assert!(count >= 0, "num_devices should return >= 0");
+}
+
+#[test]
+#[serial]
+fn test_cov025_make_current() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    let result = executor.make_current();
+    assert!(result.is_ok(), "make_current should succeed: {:?}", result.err());
+}
+
+#[test]
+#[serial]
+fn test_cov025_clear_pool() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Clear pool should work even when empty
+    executor.clear_pool();
+
+    // Allocate some buffers, then clear
+    let _ = executor.allocate_buffer(1024);
+    let _ = executor.allocate_buffer(2048);
+    executor.clear_pool();
+}
+
+#[test]
+#[serial]
+fn test_cov025_get_staging_buffer() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Get a staging buffer
+    let buf = executor.get_staging_buffer(1024);
+    assert_eq!(buf.len(), 1024, "Staging buffer should have requested size");
+    // Note: is_pinned() may return false depending on pool implementation
+
+    // Return it
+    executor.return_staging_buffer(buf);
+}
+
+#[test]
+#[serial]
+fn test_cov025_staging_pool_stats() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Get initial stats
+    let stats1 = executor.staging_pool_stats();
+    assert_eq!(stats1.pool_hits, 0, "Initial hits should be 0");
+    assert_eq!(stats1.pool_misses, 0, "Initial misses should be 0");
+
+    // Allocate a buffer - should be a miss
+    let buf = executor.get_staging_buffer(1024);
+    let stats2 = executor.staging_pool_stats();
+    assert_eq!(stats2.pool_misses, 1, "Should have 1 miss");
+
+    // Return and get again - should be a hit
+    executor.return_staging_buffer(buf);
+    let _buf2 = executor.get_staging_buffer(1024);
+    let stats3 = executor.staging_pool_stats();
+    assert!(stats3.pool_hits >= 1, "Should have at least 1 hit");
+}
+
+#[test]
+#[serial]
+fn test_cov025_cached_weight_count() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Initially zero
+    assert_eq!(executor.cached_weight_count(), 0, "Initial count should be 0");
+
+    // Load a weight
+    let weights = vec![1.0f32; 256];
+    executor.load_weights("test_weight", &weights).expect("load");
+
+    assert_eq!(executor.cached_weight_count(), 1, "Count should be 1 after loading");
+}
+
+#[test]
+#[serial]
+fn test_cov025_cached_weight_bytes() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Initially zero
+    assert_eq!(executor.cached_weight_bytes(), 0, "Initial bytes should be 0");
+
+    // Load a weight (256 f32 = 1024 bytes)
+    let weights = vec![1.0f32; 256];
+    executor.load_weights("test_weight", &weights).expect("load");
+
+    let bytes = executor.cached_weight_bytes();
+    assert!(bytes >= 1024, "Should have at least 1024 bytes cached");
+}
+
+#[test]
+#[serial]
+fn test_cov025_cached_quantized_weight_count() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Initially zero
+    assert_eq!(executor.cached_quantized_weight_count(), 0, "Initial count should be 0");
+
+    // Load a quantized weight (Q4_K: 144 bytes per super-block)
+    let weights = vec![0u8; 144];
+    executor.load_quantized_weights("test_q4k", &weights).expect("load");
+
+    assert_eq!(executor.cached_quantized_weight_count(), 1, "Count should be 1 after loading");
+}
+
+#[test]
+#[serial]
+fn test_cov025_clear_weights() {
+    if !CudaExecutor::is_available() {
+        return;
+    }
+    let mut executor = CudaExecutor::new(0).expect("CUDA executor");
+
+    // Load some weights
+    let weights = vec![1.0f32; 256];
+    executor.load_weights("test1", &weights).expect("load1");
+    executor.load_weights("test2", &weights).expect("load2");
+    assert_eq!(executor.cached_weight_count(), 2, "Should have 2 weights");
+
+    // Clear
+    executor.clear_weights();
+    assert_eq!(executor.cached_weight_count(), 0, "Should have 0 after clear");
+}
