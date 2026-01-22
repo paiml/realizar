@@ -680,6 +680,6 @@ codegen-units = 4      # Balance between speed and optimization
 incremental = true     # Enable incremental compilation
 
 # CORRECTNESS-013: Override trueno-gpu with local version for PreciseRmsNormKernel
-# NOTE: Commented out for crates.io publishing - uncomment for local development
-# [patch.crates-io]
-# trueno-gpu = { path = "../trueno/trueno-gpu" }
+# NOTE: Using local path for rcp.approx fix - will revert after crates.io publish
+[patch.crates-io]
+trueno-gpu = { path = "../trueno/trueno-gpu" }
