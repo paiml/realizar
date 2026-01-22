@@ -92,10 +92,12 @@ impl std::fmt::Display for FormatError {
 
 impl std::error::Error for FormatError {}
 
-/// APR format magic bytes
+/// APR format magic bytes (first 3 bytes, 4th is version)
 ///
-/// ONE format. No versioning. Period.
-pub const APR_MAGIC: &[u8; 4] = b"APR\0";
+/// APR v1: `APR1` (0x41505231)
+/// APR v2: `APR2` (0x41505232)
+/// Legacy: `APR\0` (0x41505200)
+pub const APR_MAGIC: &[u8; 3] = b"APR";
 
 /// GGUF format magic bytes
 pub const GGUF_MAGIC: &[u8; 4] = b"GGUF";
@@ -140,9 +142,13 @@ pub fn detect_format(data: &[u8]) -> Result<ModelFormat, FormatError> {
         return Err(FormatError::TooShort { len: data.len() });
     }
 
-    // Check APR magic - ONE format, no versioning
-    if &data[0..4] == APR_MAGIC {
-        return Ok(ModelFormat::Apr);
+    // Check APR magic - first 3 bytes are "APR", 4th byte is version (1, 2, or 0 for legacy)
+    if &data[0..3] == APR_MAGIC {
+        let version = data[3];
+        // Accept version 1, 2, or legacy (0)
+        if version == b'1' || version == b'2' || version == 0 {
+            return Ok(ModelFormat::Apr);
+        }
     }
 
     // Check GGUF magic
@@ -251,8 +257,20 @@ mod tests {
     // ===== EXTREME TDD: Format Detection Tests =====
 
     #[test]
-    fn test_detect_apr_format() {
+    fn test_detect_apr_format_legacy() {
         let data = b"APR\0xxxxxxxxxxxxxxxx";
+        assert_eq!(detect_format(data).expect("test"), ModelFormat::Apr);
+    }
+
+    #[test]
+    fn test_detect_apr_format_v1() {
+        let data = b"APR1xxxxxxxxxxxxxxxx";
+        assert_eq!(detect_format(data).expect("test"), ModelFormat::Apr);
+    }
+
+    #[test]
+    fn test_detect_apr_format_v2() {
+        let data = b"APR2xxxxxxxxxxxxxxxx";
         assert_eq!(detect_format(data).expect("test"), ModelFormat::Apr);
     }
 
@@ -418,7 +436,8 @@ mod tests {
 
     #[test]
     fn test_magic_constants() {
-        assert_eq!(APR_MAGIC, b"APR\0");
+        // APR_MAGIC is now 3 bytes, version in 4th byte
+        assert_eq!(APR_MAGIC, b"APR");
         assert_eq!(GGUF_MAGIC, b"GGUF");
         assert_eq!(MAX_SAFETENSORS_HEADER, 100_000_000);
     }

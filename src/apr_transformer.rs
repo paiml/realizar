@@ -1181,12 +1181,14 @@ impl AprTransformer {
             });
         }
 
-        // Check magic
+        // Check magic - first 3 bytes must be "APR", 4th byte is version (0, '1', or '2')
         let magic = &data[0..4];
-        if magic != b"APR\0" {
+        if magic[0..3] != *b"APR"
+            || (magic[3] != 0 && magic[3] != b'1' && magic[3] != b'2')
+        {
             return Err(RealizarError::FormatError {
                 reason: format!(
-                    "Invalid APR magic: {:?}, expected APR",
+                    "Invalid APR magic: {:?}, expected APR followed by version byte",
                     String::from_utf8_lossy(magic)
                 ),
             });
