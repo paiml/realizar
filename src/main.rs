@@ -1151,8 +1151,14 @@ fn run_apr_inference(
     println!();
 
     // Run inference with timing
+    // PMAT-103 FIX: Use generate_with_cache for O(n) instead of O(n²) complexity
+    let gen_config = realizar::apr_transformer::GenerateConfig {
+        max_tokens,
+        temperature,
+        ..Default::default()
+    };
     let gen_start = Instant::now();
-    let generated = transformer.generate(&prompt_tokens, max_tokens)?;
+    let generated = transformer.generate_with_cache(&prompt_tokens, &gen_config)?;
     let gen_time = gen_start.elapsed();
 
     let tokens_generated = generated.len().saturating_sub(prompt_len);

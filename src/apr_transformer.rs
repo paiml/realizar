@@ -2359,48 +2359,47 @@ impl AprTransformer {
         let mut cache = AprKVCache::new(&self.config);
         let mut output = prompt.to_vec();
 
-        // Process prompt tokens
+        // PMAT-103 FIX: Process prompt tokens and KEEP the logits from the last one.
+        // Previously we threw away all logits (`let _ = ...`) and then reprocessed
+        // the last prompt token at the same position, corrupting the KV cache.
+        let mut logits = Vec::new();
         for (pos, &token) in prompt.iter().enumerate() {
-            let _ = self.forward_with_cache(token, &mut cache, pos)?;
+            logits = self.forward_with_cache(token, &mut cache, pos)?;
         }
 
-        // Generate new tokens
-        for _ in 0..config.max_tokens {
-            let last_token = *output.last().ok_or_else(|| RealizarError::InvalidShape {
-                reason: "Empty output".to_string(),
-            })?;
-
-            let logits = self.forward_with_cache(last_token, &mut cache, output.len() - 1)?;
-
-            // Sample next token
+        // Generate new tokens using the logits we already have
+        for i in 0..config.max_tokens {
+            // Sample from current logits (which predict the NEXT token)
             let next_token = if config.temperature == 0.0 {
-                // Greedy decoding
                 logits
                     .iter()
                     .enumerate()
                     .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                    .map_or(0, |(i, _)| i as u32)
+                    .map_or(0, |(idx, _)| idx as u32)
             } else {
-                // Temperature sampling (simplified)
                 let scaled: Vec<f32> = logits.iter().map(|l| l / config.temperature).collect();
                 let max_val = scaled.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
                 let exp_vals: Vec<f32> = scaled.iter().map(|s| (s - max_val).exp()).collect();
                 let sum: f32 = exp_vals.iter().sum();
                 let probs: Vec<f32> = exp_vals.iter().map(|e| e / sum).collect();
-
-                // Simple sampling: pick highest prob for determinism in tests
                 probs
                     .iter()
                     .enumerate()
                     .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                    .map_or(0, |(i, _)| i as u32)
+                    .map_or(0, |(idx, _)| idx as u32)
             };
 
             output.push(next_token);
 
-            // Check for EOS (optional: could add eos_token to config)
-            if next_token == 0 {
+            // Check for EOS tokens
+            if next_token == 0 || next_token == 2 || next_token == 151645 || next_token == 151643 {
                 break;
+            }
+
+            // If we need more tokens, process this one to get logits for the next
+            if i < config.max_tokens - 1 {
+                // Position is output.len() - 1 = prompt.len() + (i + 1) - 1 = prompt.len() + i
+                logits = self.forward_with_cache(next_token, &mut cache, output.len() - 1)?;
             }
         }
 
