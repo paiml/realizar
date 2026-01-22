@@ -1482,8 +1482,15 @@ impl AprTransformer {
         }
 
         // Load LM head
+        // For tied embeddings (common in Qwen, LLaMA models), use embed_tokens as fallback
         let lm_head_raw = get_f32_tensor("lm_head.weight")
             .or_else(|| get_f32_tensor("output.weight"))
+            .or_else(|| {
+                // Weight tying: use embedding weights for lm_head
+                eprintln!("[DEBUG] Using tied weights: embedding -> lm_head");
+                get_f32_tensor("model.embed_tokens.weight")
+            })
+            .or_else(|| get_f32_tensor("token_embd.weight"))
             .unwrap_or_else(|| {
                 eprintln!("[DEBUG] WARNING: No lm_head tensor found! Using zeros.");
                 vec![0.0; hidden_dim * vocab_size]
@@ -1766,51 +1773,64 @@ impl AprTransformer {
     /// Matrix multiplication: output[out_dim] = weight[out_dim, in_dim] @ input[in_dim]
     ///
     /// PMAT-095 FIX: Weights are now stored in matvec-optimal [out_dim, in_dim] format.
-    /// This eliminates the O(n²) transposition that caused 75x slowdown vs GGUF.
     ///
-    /// Uses trueno SIMD for ~10x speedup over scalar implementation.
+    /// PMAT-103 FIX: Zero-copy implementation using raw slice operations.
+    /// Previous implementations had O(n) allocation overhead per matmul call.
     #[allow(clippy::unused_self)]
     fn matmul(&self, input: &[f32], weight: &[f32], in_dim: usize, out_dim: usize) -> Vec<f32> {
         let seq_len = input.len() / in_dim;
         let expected_size = in_dim * out_dim;
 
-        // PMAT-095: Weights are in [out_dim, in_dim] format - use directly!
-        // No transposition needed - this is the key performance fix.
         if weight.len() != expected_size {
-            // Dimension mismatch - fall back to scalar
             return self.matmul_scalar(input, weight, in_dim, out_dim);
         }
 
-        let weight_matrix = match TruenoMatrix::from_vec(out_dim, in_dim, weight.to_vec()) {
-            Ok(m) => m,
-            Err(_) => {
-                // Fallback to scalar if trueno fails
-                return self.matmul_scalar(input, weight, in_dim, out_dim);
-            },
-        };
+        let mut output = vec![0.0f32; seq_len * out_dim];
 
-        let mut output = Vec::with_capacity(seq_len * out_dim);
         for s in 0..seq_len {
             let input_start = s * in_dim;
             let input_slice = &input[input_start..input_start + in_dim];
-            let x_vec = TruenoVector::from_slice(input_slice);
+            let out_start = s * out_dim;
 
-            match weight_matrix.matvec(&x_vec) {
-                Ok(r) => output.extend_from_slice(r.as_slice()),
-                Err(_) => {
-                    // Fallback to scalar for this sequence position
-                    for o in 0..out_dim {
-                        let mut sum = 0.0;
-                        for (i, &input_val) in input_slice.iter().enumerate() {
-                            // Weight is [out_dim, in_dim] row-major
-                            let weight_idx = o * in_dim + i;
-                            if weight_idx < weight.len() {
-                                sum += input_val * weight[weight_idx];
-                            }
-                        }
-                        output.push(sum);
-                    }
-                },
+            // PMAT-103: Unrolled dot product for better cache utilization
+            // Process 4 output elements at a time when possible
+            let out_chunks = out_dim / 4;
+            let out_remainder = out_dim % 4;
+
+            for o_chunk in 0..out_chunks {
+                let o_base = o_chunk * 4;
+                let mut sum0 = 0.0f32;
+                let mut sum1 = 0.0f32;
+                let mut sum2 = 0.0f32;
+                let mut sum3 = 0.0f32;
+
+                let w0_start = (o_base) * in_dim;
+                let w1_start = (o_base + 1) * in_dim;
+                let w2_start = (o_base + 2) * in_dim;
+                let w3_start = (o_base + 3) * in_dim;
+
+                for i in 0..in_dim {
+                    let x = input_slice[i];
+                    sum0 += x * weight[w0_start + i];
+                    sum1 += x * weight[w1_start + i];
+                    sum2 += x * weight[w2_start + i];
+                    sum3 += x * weight[w3_start + i];
+                }
+
+                output[out_start + o_base] = sum0;
+                output[out_start + o_base + 1] = sum1;
+                output[out_start + o_base + 2] = sum2;
+                output[out_start + o_base + 3] = sum3;
+            }
+
+            // Handle remainder
+            for o in (out_dim - out_remainder)..out_dim {
+                let w_start = o * in_dim;
+                let mut sum = 0.0f32;
+                for i in 0..in_dim {
+                    sum += input_slice[i] * weight[w_start + i];
+                }
+                output[out_start + o] = sum;
             }
         }
 
@@ -2290,28 +2310,73 @@ impl AprTransformer {
                 hidden[i] += attn_output[i];
             }
 
-            // 2g. FFN
-            let mut ffn_hidden = self.matmul(
-                &hidden,
-                &layer.ffn_up_weight,
-                hidden_dim,
-                self.config.intermediate_dim,
-            );
-            if let Some(ref bias) = layer.ffn_up_bias {
-                self.add_bias(&mut ffn_hidden, bias);
-            }
-            self.gelu(&mut ffn_hidden);
+            // 2g. Apply FFN norm if present (post_attention_layernorm)
+            let ffn_input = if let Some(ref ffn_norm) = layer.ffn_norm_weight {
+                self.layer_norm(
+                    &hidden,
+                    ffn_norm,
+                    layer.ffn_norm_bias.as_deref(),
+                    self.config.eps,
+                )
+            } else {
+                hidden.clone()
+            };
 
-            let mut ffn_output = self.matmul(
-                &ffn_hidden,
-                &layer.ffn_down_weight,
-                self.config.intermediate_dim,
-                hidden_dim,
-            );
-            if let Some(ref bias) = layer.ffn_down_bias {
-                self.add_bias(&mut ffn_output, bias);
-            }
+            // 2h. FFN projection (SwiGLU or standard GELU)
+            // PMAT-103 FIX: Added SwiGLU branch for Qwen2/LLaMA models
+            let ffn_output = if let Some(ref gate_weight) = layer.ffn_gate_weight {
+                // SwiGLU: down(SiLU(gate(x)) * up(x))
+                let gate = self.matmul(&ffn_input, gate_weight, hidden_dim, self.config.intermediate_dim);
+                let up = self.matmul(
+                    &ffn_input,
+                    &layer.ffn_up_weight,
+                    hidden_dim,
+                    self.config.intermediate_dim,
+                );
 
+                // SiLU(gate) * up, then down projection
+                let mut ffn_hidden = Vec::with_capacity(gate.len());
+                for (g, u) in gate.iter().zip(up.iter()) {
+                    let silu_g = g / (1.0 + (-g).exp()); // SiLU = x * sigmoid(x)
+                    ffn_hidden.push(silu_g * u);
+                }
+
+                let mut out = self.matmul(
+                    &ffn_hidden,
+                    &layer.ffn_down_weight,
+                    self.config.intermediate_dim,
+                    hidden_dim,
+                );
+                if let Some(ref bias) = layer.ffn_down_bias {
+                    self.add_bias(&mut out, bias);
+                }
+                out
+            } else {
+                // Standard MLP: down(GELU(up(x)))
+                let mut ffn_hidden = self.matmul(
+                    &ffn_input,
+                    &layer.ffn_up_weight,
+                    hidden_dim,
+                    self.config.intermediate_dim,
+                );
+                if let Some(ref bias) = layer.ffn_up_bias {
+                    self.add_bias(&mut ffn_hidden, bias);
+                }
+                self.gelu(&mut ffn_hidden);
+
+                let mut out = self.matmul(
+                    &ffn_hidden,
+                    &layer.ffn_down_weight,
+                    self.config.intermediate_dim,
+                    hidden_dim,
+                );
+                if let Some(ref bias) = layer.ffn_down_bias {
+                    self.add_bias(&mut out, bias);
+                }
+                out
+            };
+
+            // 2i. Residual connection
             for i in 0..hidden.len() {
                 hidden[i] += ffn_output[i];
             }
@@ -2363,8 +2428,19 @@ impl AprTransformer {
         // Previously we threw away all logits (`let _ = ...`) and then reprocessed
         // the last prompt token at the same position, corrupting the KV cache.
         let mut logits = Vec::new();
+
+        // PMAT-103 TRACE: Measure per-token timing to verify O(n) vs O(n²)
+        let trace_enabled = std::env::var("REALIZE_TRACE").is_ok();
+        if trace_enabled {
+            eprintln!("[TRACE] Processing {} prompt tokens...", prompt.len());
+        }
+
         for (pos, &token) in prompt.iter().enumerate() {
+            let start = std::time::Instant::now();
             logits = self.forward_with_cache(token, &mut cache, pos)?;
+            if trace_enabled {
+                eprintln!("[TRACE] Prompt token {}: {:?}", pos, start.elapsed());
+            }
         }
 
         // Generate new tokens using the logits we already have
@@ -2399,8 +2475,16 @@ impl AprTransformer {
             // If we need more tokens, process this one to get logits for the next
             if i < config.max_tokens - 1 {
                 // Position is output.len() - 1 = prompt.len() + (i + 1) - 1 = prompt.len() + i
+                let start = std::time::Instant::now();
                 logits = self.forward_with_cache(next_token, &mut cache, output.len() - 1)?;
+                if trace_enabled {
+                    eprintln!("[TRACE] Gen token {} (pos {}): {:?}", i, output.len() - 1, start.elapsed());
+                }
             }
+        }
+
+        if trace_enabled {
+            eprintln!("[TRACE] Generation complete. Total output tokens: {}", output.len());
         }
 
         Ok(output)
