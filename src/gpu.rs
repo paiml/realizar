@@ -6194,7 +6194,10 @@ impl GpuModel {
         Ok(output)
     }
 
-    /// Static layer normalization (avoids self borrow issues)
+    /// RMSNorm (Root Mean Square Layer Normalization)
+    ///
+    /// PMAT-094 FIX: Qwen2, LLaMA, Mistral use RMSNorm, NOT LayerNorm.
+    /// Formula: output = x / sqrt(mean(x^2) + eps) * weight + bias
     #[allow(clippy::cast_precision_loss)]
     fn layer_norm_static(
         input: &[f32],
@@ -6210,17 +6213,13 @@ impl GpuModel {
             let start = row * hidden_dim;
             let row_data = &input[start..start + hidden_dim];
 
-            // Compute mean
-            let mean: f32 = row_data.iter().sum::<f32>() / hidden_dim as f32;
+            // RMSNorm: compute root mean square (no mean subtraction!)
+            let sum_sq: f32 = row_data.iter().map(|&x| x * x).sum();
+            let rms = (sum_sq / hidden_dim as f32 + eps).sqrt();
 
-            // Compute variance
-            let var: f32 =
-                row_data.iter().map(|&x| (x - mean).powi(2)).sum::<f32>() / hidden_dim as f32;
-
-            // Normalize
-            let std = (var + eps).sqrt();
+            // Normalize and scale
             for (i, &x) in row_data.iter().enumerate() {
-                let normalized = (x - mean) / std;
+                let normalized = x / rms;
                 output.push(normalized * weight[i] + bias[i]);
             }
         }
