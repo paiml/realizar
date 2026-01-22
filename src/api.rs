@@ -797,7 +797,7 @@ impl AppState {
 }
 
 /// Create a demo APR v2 model for testing
-fn create_demo_apr_model(_input_dim: usize) -> Result<AprModel, RealizarError> {
+pub(crate) fn create_demo_apr_model(_input_dim: usize) -> Result<AprModel, RealizarError> {
     use crate::apr::TensorEntry;
 
     // Create minimal APR v2 file
@@ -1343,7 +1343,7 @@ pub struct PredictRequest {
     pub include_confidence: bool,
 }
 
-fn default_true() -> bool {
+pub(crate) fn default_true() -> bool {
     true
 }
 
@@ -1393,11 +1393,11 @@ pub struct ExplainRequest {
     pub method: String,
 }
 
-fn default_top_k_features() -> usize {
+pub(crate) fn default_top_k_features() -> usize {
     5
 }
 
-fn default_explain_method() -> String {
+pub(crate) fn default_explain_method() -> String {
     "shap".to_string()
 }
 
