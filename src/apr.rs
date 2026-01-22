@@ -225,7 +225,13 @@ impl ModelData {
     }
 }
 
-/// Magic number: "APR\0" - ONE format, no versioning
+/// Magic number: "APR" followed by version byte
+/// - Legacy: APR\0 (0x41, 0x50, 0x52, 0x00)
+/// - v1: APR1 (0x41, 0x50, 0x52, 0x31)
+/// - v2: APR2 (0x41, 0x50, 0x52, 0x32)
+pub const MAGIC_PREFIX: [u8; 3] = [0x41, 0x50, 0x52]; // "APR"
+
+/// Legacy magic for compatibility
 pub const MAGIC: [u8; 4] = [0x41, 0x50, 0x52, 0x00];
 
 /// Header size in bytes (64-byte aligned)
@@ -557,18 +563,30 @@ impl AprHeader {
             });
         }
 
-        // Check magic
+        // Check magic - first 3 bytes must be "APR", 4th byte is version
         let magic: [u8; 4] = data[0..4]
             .try_into()
             .map_err(|_| RealizarError::FormatError {
                 reason: "Failed to read magic bytes".to_string(),
             })?;
 
-        if magic != MAGIC {
+        // Validate magic prefix (APR)
+        if magic[0..3] != MAGIC_PREFIX {
             return Err(RealizarError::FormatError {
                 reason: format!(
                     "Invalid .apr magic: expected APR {:?}, got {:?}",
-                    MAGIC, magic
+                    MAGIC_PREFIX, &magic[0..3]
+                ),
+            });
+        }
+
+        // Validate version byte (0, '1', or '2')
+        let version_byte = magic[3];
+        if version_byte != 0 && version_byte != b'1' && version_byte != b'2' {
+            return Err(RealizarError::FormatError {
+                reason: format!(
+                    "Invalid .apr version byte: expected 0, '1', or '2', got {}",
+                    version_byte
                 ),
             });
         }
