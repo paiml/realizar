@@ -1671,33 +1671,25 @@ impl AprTransformer {
         output
     }
 
-    /// Matrix multiplication: output[out_dim] = input[in_dim] * weight[in_dim, out_dim]
+    /// Matrix multiplication: output[out_dim] = weight[out_dim, in_dim] @ input[in_dim]
+    ///
+    /// PMAT-095 FIX: Weights are now stored in matvec-optimal [out_dim, in_dim] format.
+    /// This eliminates the O(n²) transposition that caused 75x slowdown vs GGUF.
+    ///
     /// Uses trueno SIMD for ~10x speedup over scalar implementation.
     #[allow(clippy::unused_self)]
     fn matmul(&self, input: &[f32], weight: &[f32], in_dim: usize, out_dim: usize) -> Vec<f32> {
         let seq_len = input.len() / in_dim;
         let expected_size = in_dim * out_dim;
 
-        // Determine weight layout and create matrix for SIMD matvec
-        // Weight could be [in_dim, out_dim] or [out_dim, in_dim]
-        let weight_matrix = if weight.len() == expected_size {
-            // Weight is [in_dim, out_dim] - need to transpose for matvec
-            let mut weight_transposed = vec![0.0f32; expected_size];
-            for i in 0..in_dim {
-                for o in 0..out_dim {
-                    weight_transposed[o * in_dim + i] = weight[i * out_dim + o];
-                }
-            }
-            TruenoMatrix::from_vec(out_dim, in_dim, weight_transposed)
-        } else if weight.len() == out_dim * in_dim {
-            // Weight is already [out_dim, in_dim] - use directly
-            TruenoMatrix::from_vec(out_dim, in_dim, weight.to_vec())
-        } else {
+        // PMAT-095: Weights are in [out_dim, in_dim] format - use directly!
+        // No transposition needed - this is the key performance fix.
+        if weight.len() != expected_size {
             // Dimension mismatch - fall back to scalar
             return self.matmul_scalar(input, weight, in_dim, out_dim);
-        };
+        }
 
-        let weight_matrix = match weight_matrix {
+        let weight_matrix = match TruenoMatrix::from_vec(out_dim, in_dim, weight.to_vec()) {
             Ok(m) => m,
             Err(_) => {
                 // Fallback to scalar if trueno fails
@@ -1718,7 +1710,8 @@ impl AprTransformer {
                     for o in 0..out_dim {
                         let mut sum = 0.0;
                         for (i, &input_val) in input_slice.iter().enumerate() {
-                            let weight_idx = i * out_dim + o;
+                            // Weight is [out_dim, in_dim] row-major
+                            let weight_idx = o * in_dim + i;
                             if weight_idx < weight.len() {
                                 sum += input_val * weight[weight_idx];
                             }
@@ -1733,6 +1726,8 @@ impl AprTransformer {
     }
 
     /// Scalar fallback for matmul (used when trueno fails)
+    ///
+    /// PMAT-095: Weight is [out_dim, in_dim] row-major format
     #[allow(clippy::unused_self)]
     fn matmul_scalar(
         &self,
@@ -1751,7 +1746,8 @@ impl AprTransformer {
             for o in 0..out_dim {
                 let mut sum = 0.0;
                 for (i, &input_val) in input_slice.iter().enumerate() {
-                    let weight_idx = i * out_dim + o;
+                    // PMAT-095: Weight is [out_dim, in_dim] row-major
+                    let weight_idx = o * in_dim + i;
                     if weight_idx < weight.len() {
                         sum += input_val * weight[weight_idx];
                     }
@@ -4339,14 +4335,17 @@ mod tests {
         };
         let transformer = AprTransformer::new(config);
 
-        // input: [1, 2]
-        // weight: [[1, 2, 3], [4, 5, 6]] (2x3 row-major)
-        // output: [1*1+2*4, 1*2+2*5, 1*3+2*6] = [9, 12, 15]
+        // PMAT-095: Weight is now [out_dim, in_dim] format
+        // input: [1, 2] (in_dim=2)
+        // weight: [[1, 2], [3, 4], [5, 6]] ([out_dim=3, in_dim=2] row-major)
+        // output[0] = W[0,:] @ x = [1, 2] @ [1, 2] = 1*1 + 2*2 = 5
+        // output[1] = W[1,:] @ x = [3, 4] @ [1, 2] = 3*1 + 4*2 = 11
+        // output[2] = W[2,:] @ x = [5, 6] @ [1, 2] = 5*1 + 6*2 = 17
         let input = vec![1.0, 2.0];
-        let weight = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let weight = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]; // [3, 2] row-major
 
         let output = transformer.matmul(&input, &weight, 2, 3);
-        assert_eq!(output, vec![9.0, 12.0, 15.0]);
+        assert_eq!(output, vec![5.0, 11.0, 17.0]);
     }
 
     // ==========================================================================
@@ -7029,12 +7028,15 @@ mod tests {
         };
         let transformer = AprTransformer::new(config);
 
+        // PMAT-095: Weight is now [out_dim, in_dim] format
         let input = vec![1.0, 2.0];
-        let weight = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]; // 2x3
+        let weight = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]; // [3, 2] row-major
         let output = transformer.matmul_scalar(&input, &weight, 2, 3);
 
-        // [1,2] @ [[1,2,3],[4,5,6]] = [9, 12, 15]
-        assert_eq!(output, vec![9.0, 12.0, 15.0]);
+        // W[0,:] @ x = [1,2] @ [1,2] = 5
+        // W[1,:] @ x = [3,4] @ [1,2] = 11
+        // W[2,:] @ x = [5,6] @ [1,2] = 17
+        assert_eq!(output, vec![5.0, 11.0, 17.0]);
     }
 
     // ==========================================================================
@@ -8719,14 +8721,16 @@ mod tests {
         };
         let transformer = AprTransformer::new(config);
 
+        // PMAT-095: Weight is now [out_dim, in_dim] format
         let input = vec![1.0, 2.0];
-        let weight = vec![1.0, 2.0, 3.0, 4.0]; // 2x2
+        let weight = vec![1.0, 2.0, 3.0, 4.0]; // [2, 2] row-major
         let output = transformer.matmul_scalar(&input, &weight, 2, 2);
 
-        // [1, 2] x [[1, 2], [3, 4]] = [1*1+2*3, 1*2+2*4] = [7, 10]
+        // W[0,:] @ x = [1,2] @ [1,2] = 1*1 + 2*2 = 5
+        // W[1,:] @ x = [3,4] @ [1,2] = 3*1 + 4*2 = 11
         assert_eq!(output.len(), 2);
-        assert!((output[0] - 7.0).abs() < 0.001);
-        assert!((output[1] - 10.0).abs() < 0.001);
+        assert!((output[0] - 5.0).abs() < 0.001);
+        assert!((output[1] - 11.0).abs() < 0.001);
     }
 
     // ==========================================================================
