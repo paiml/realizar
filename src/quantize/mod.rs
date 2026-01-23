@@ -58,6 +58,17 @@
 
 use crate::error::{RealizarError, Result};
 
+// ============================================================================
+// Shattered submodules (PMAT-802)
+// ============================================================================
+
+pub mod simd;
+pub mod types;
+
+// Note: types and simd modules available as quantize::types and quantize::simd
+// Not re-exporting to avoid conflicts with local implementations that still exist in mod.rs
+// TODO(PMAT-802): Remove duplicate definitions from mod.rs to enable proper re-exports
+
 /// Pre-computed f16 to f32 lookup table (65536 entries = 256KB)
 ///
 /// Eliminates per-block f16 conversion overhead in hot paths.
