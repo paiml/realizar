@@ -89,6 +89,18 @@ impl AprKVCache {
         self.capacity
     }
 
+    /// Get number of KV heads
+    #[must_use]
+    pub fn num_kv_heads(&self) -> usize {
+        self.num_kv_heads
+    }
+
+    /// Get head dimension
+    #[must_use]
+    pub fn head_dim(&self) -> usize {
+        self.head_dim
+    }
+
     /// Append K and V for a single position
     ///
     /// # Arguments

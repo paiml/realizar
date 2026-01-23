@@ -9,8 +9,6 @@
 
 use super::{AprTransformerConfig, AprKVCache};
 use crate::error::{RealizarError, Result};
-use crate::gguf::OwnedQKVWeights;
-use crate::quantize::fused_q4_0_q8_0_parallel_matvec;
 
 // SIMD-Accelerated Quantized APR Transformer (Q4_0)
 // ============================================================================
