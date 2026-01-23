@@ -141,8 +141,9 @@ clippy-fix: ## Automatically fix clippy warnings
 
 # === Coverage (Memory-efficient: cargo test, not nextest) ===
 
-# Only exclude terminal-specific TUI code (requires actual terminal)
-COV_EXCLUDE := --ignore-filename-regex='(tui\.rs|bench_viz\.rs|viz\.rs)'
+# Exclude: trueno (external dep), terminal-specific TUI code (requires actual terminal)
+# PMAT-803: Strict isolation - we test realizar, not the universe
+COV_EXCLUDE := --ignore-filename-regex='(trueno/|tui\.rs|bench_viz\.rs|viz\.rs)'
 
 coverage: ## Generate HTML coverage report (target: >95%, memory-efficient)
 	@echo "$(GREEN)📊 Running coverage analysis (target: >95%)...$(NC)"
