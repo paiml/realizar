@@ -39,6 +39,7 @@ use std::time::Duration;
 
 // PMAT-802: Extracted modules
 pub mod scheduler;
+pub mod adapters;
 mod allocator;
 mod diagnostics;
 mod resilience;

@@ -41,25 +41,34 @@ pub struct GpuModel {
 }
 
 /// Weights for a single transformer block
-pub(crate) struct BlockWeights {
-    /// Attention layer norm
-    pub(crate) attn_norm_weight: Vec<f32>,
-    pub(crate) attn_norm_bias: Vec<f32>,
+///
+/// Used by adapters (PMAT-106) to construct GpuModel from various formats.
+pub struct BlockWeights {
+    /// Attention layer norm weight
+    pub attn_norm_weight: Vec<f32>,
+    /// Attention layer norm bias
+    pub attn_norm_bias: Vec<f32>,
     /// Combined QKV projection weights (hidden_dim x 3*hidden_dim)
-    pub(crate) qkv_weight: Vec<f32>,
-    #[allow(dead_code)] // Reserved for future bias support
-    pub(crate) qkv_bias: Vec<f32>,
-    /// Output projection (hidden_dim x hidden_dim)
-    pub(crate) out_weight: Vec<f32>,
-    pub(crate) out_bias: Vec<f32>,
-    /// FFN layer norm
-    pub(crate) ffn_norm_weight: Vec<f32>,
-    pub(crate) ffn_norm_bias: Vec<f32>,
-    /// FFN weights
-    pub(crate) ffn_fc1_weight: Vec<f32>,
-    pub(crate) ffn_fc1_bias: Vec<f32>,
-    pub(crate) ffn_fc2_weight: Vec<f32>,
-    pub(crate) ffn_fc2_bias: Vec<f32>,
+    pub qkv_weight: Vec<f32>,
+    /// QKV projection bias (reserved for future use)
+    #[allow(dead_code)]
+    pub qkv_bias: Vec<f32>,
+    /// Output projection weight (hidden_dim x hidden_dim)
+    pub out_weight: Vec<f32>,
+    /// Output projection bias
+    pub out_bias: Vec<f32>,
+    /// FFN layer norm weight
+    pub ffn_norm_weight: Vec<f32>,
+    /// FFN layer norm bias
+    pub ffn_norm_bias: Vec<f32>,
+    /// FFN first layer weight (up projection)
+    pub ffn_fc1_weight: Vec<f32>,
+    /// FFN first layer bias
+    pub ffn_fc1_bias: Vec<f32>,
+    /// FFN second layer weight (down projection)
+    pub ffn_fc2_weight: Vec<f32>,
+    /// FFN second layer bias
+    pub ffn_fc2_bias: Vec<f32>,
 }
 
 /// IMP-1007: Weight type for split-borrow matmul
@@ -1075,6 +1084,54 @@ impl GpuModel {
         // Pre-compute transposed LM head for fast CPU inference
         let lm_head_weight_t =
             Self::transpose_weights(&lm_head_weight, config.hidden_dim, config.vocab_size);
+
+        Ok(Self {
+            embedding_weights,
+            block_weights,
+            final_norm_weight,
+            final_norm_bias,
+            lm_head_weight,
+            lm_head_weight_t,
+            lm_head_bias,
+            scheduler,
+            #[cfg(feature = "cuda")]
+            cuda_scheduler: None,
+            config,
+            attention_buffers: None,
+        })
+    }
+
+    /// Create GpuModel from pre-extracted APR weights (PMAT-106)
+    ///
+    /// This constructor is used by `AprToGpuAdapter` to create a `GpuModel`
+    /// from dequantized APR weights.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - GPU model configuration
+    /// * `embedding_weights` - Token embedding weights
+    /// * `block_weights` - Transformer block weights
+    /// * `final_norm_weight` - Final layer norm weight
+    /// * `final_norm_bias` - Final layer norm bias
+    /// * `lm_head_weight` - LM head weight (row-major)
+    /// * `lm_head_weight_t` - LM head weight transposed (for fast CPU inference)
+    /// * `lm_head_bias` - LM head bias
+    ///
+    /// # Errors
+    ///
+    /// Returns error if GPU scheduler initialization fails
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_apr_weights(
+        config: GpuModelConfig,
+        embedding_weights: Vec<f32>,
+        block_weights: Vec<BlockWeights>,
+        final_norm_weight: Vec<f32>,
+        final_norm_bias: Vec<f32>,
+        lm_head_weight: Vec<f32>,
+        lm_head_weight_t: Vec<f32>,
+        lm_head_bias: Vec<f32>,
+    ) -> Result<Self> {
+        let scheduler = HybridScheduler::new()?;
 
         Ok(Self {
             embedding_weights,

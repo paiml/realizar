@@ -9,7 +9,7 @@ mod model;
 
 #[cfg(feature = "cuda")]
 pub use core::CudaScheduler;
-pub use model::{GpuModel, GpuModelConfig, GpuGenerateConfig, WeightType, AttentionBuffers};
+pub use model::{GpuModel, GpuModelConfig, GpuGenerateConfig, WeightType, AttentionBuffers, BlockWeights};
 
 // Re-export KV cache functions for external use (public API)
 #[allow(unused_imports)]
