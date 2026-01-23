@@ -40,8 +40,10 @@ use std::time::Duration;
 
 // PMAT-802: Extracted modules
 mod scheduler;
+// Types available without cuda feature
+pub use scheduler::{GpuModel, GpuModelConfig, GpuGenerateConfig, WeightType, AttentionBuffers};
 #[cfg(feature = "cuda")]
-pub use scheduler::{CudaScheduler, GpuModel, GpuModelConfig, GpuGenerateConfig, WeightType, AttentionBuffers};
+pub use scheduler::CudaScheduler;
 
 // ============================================================================
 // GPU Buffer Limits (IMP-090, IMP-091)
