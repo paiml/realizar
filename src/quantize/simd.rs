@@ -124,6 +124,9 @@ pub fn extract_scale_min_from_slice(scales: &[u8], idx: usize) -> (f32, f32) {
 // ============================================================================
 
 /// Fast horizontal sum of 4 i32 in __m128i
+///
+/// # Safety
+/// Requires AVX2 support. Caller must verify CPU feature availability.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[inline]
@@ -135,6 +138,9 @@ pub unsafe fn hsum_epi32_128(v: std::arch::x86_64::__m128i) -> i32 {
 }
 
 /// Fast horizontal sum of 8 i32 in __m256i
+///
+/// # Safety
+/// Requires AVX2 support. Caller must verify CPU feature availability.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[inline]
@@ -149,6 +155,9 @@ pub unsafe fn hsum_epi32_256(v: std::arch::x86_64::__m256i) -> i32 {
 }
 
 /// Helper: horizontal sum of 8 int32 values in a 256-bit register
+///
+/// # Safety
+/// Requires AVX2 support. Caller must verify CPU feature availability.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[inline]
@@ -171,6 +180,9 @@ pub unsafe fn horizontal_sum_epi32_256(v: std::arch::x86_64::__m256i) -> i32 {
 }
 
 /// Helper: horizontal sum of 16 int16 values in a 256-bit register
+///
+/// # Safety
+/// Requires AVX2 support. Caller must verify CPU feature availability.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[inline]
@@ -187,6 +199,9 @@ pub unsafe fn horizontal_sum_epi16_256(v: std::arch::x86_64::__m256i) -> i32 {
 }
 
 /// Helper: Horizontal sum of 8 i32 values to single i32
+///
+/// # Safety
+/// Requires AVX2 support. Caller must verify CPU feature availability.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[inline]

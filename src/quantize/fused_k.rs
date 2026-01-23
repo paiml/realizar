@@ -20,7 +20,7 @@
 use crate::error::{RealizarError, Result};
 use super::dequant::read_f16;
 use super::simd::extract_scale_min;
-use super::types::{QK_K, Q8_0Block};
+use super::types::QK_K;
 
 /// Fused Q4_K dequantize + dot product
 ///
@@ -580,42 +580,6 @@ unsafe fn fused_q4k_dot_avx2(q4k_data: &[u8], activations: &[f32]) -> Result<f32
     Ok(result)
 }
 
-/// Fused Q4_K × Q8_0 dot product
-///
-/// Computes the dot product of Q4_K quantized weights with Q8_0 quantized activations.
-/// This is the key optimization for Phase 3: both operands remain quantized,
-/// reducing memory traffic by ~7x compared to F32 activations.
-///
-/// # Arguments
-///
-/// * `q4k_data` - Raw Q4_K quantized data (super-blocks of 144 bytes)
-/// * `q8_blocks` - Q8_0 quantized activations (must match dequantized length / 32)
-///
-/// # Returns
-///
-/// The dot product as f32
-///
-/// # Performance
-///
-/// Memory traffic comparison (256 values):
-/// - F32 activations: 256 × 4 bytes = 1024 bytes
-/// - Q8_0 activations: 8 × 36 bytes = 288 bytes (3.6x reduction)
-/// - Combined with Q4_K weights: 7.1x × 3.6x = ~25x theoretical reduction
-///
-/// # Algorithm
-///
-/// For each 32-value block:
-/// 1. Read Q4_K weight nibbles and Q8_0 activation bytes
-/// 2. Compute: sum += (q4k_scale * q4 - q4k_min) * (q8_scale * q8)
-/// 3. Accumulate partial products
-///
-/// # Examples
-///
-/// ```rust,ignore
-/// let weights_q4k = load_q4k_weights();
-/// let activations_q8 = quantize_to_q8_blocks(&activations)?;
-/// let result = fused_q4k_q8_dot(&weights_q4k, &activations_q8)?;
-/// ```
 // ============================================================================
 // Q4_K × Q8_K KERNELS (Super-block aligned integer-only arithmetic)
 // ============================================================================

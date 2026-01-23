@@ -227,6 +227,7 @@ impl SafetensorsToAprConverter {
     /// - Q: [hidden_dim, hidden_dim]
     /// - K: [kv_dim, hidden_dim]
     /// - V: [kv_dim, hidden_dim]
+    ///
     /// Result: [hidden_dim + kv_dim + kv_dim, hidden_dim] in row-major
     fn concat_qkv_transposed(
         q: &[f32],

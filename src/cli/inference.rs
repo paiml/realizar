@@ -544,6 +544,8 @@ pub fn run_safetensors_inference(
 }
 
 /// Run APR inference with performance timing
+///
+/// Supports both CPU and GPU backends (PMAT-106).
 pub fn run_apr_inference(
     model_ref: &str,
     file_data: &[u8],
@@ -551,15 +553,33 @@ pub fn run_apr_inference(
     max_tokens: usize,
     temperature: f32,
     format: &str,
+    force_gpu: bool,
+    verbose: bool,
 ) -> Result<()> {
     use crate::apr::AprV2Model;
     use crate::apr_transformer::AprTransformer;
     use std::path::Path;
     use std::time::Instant;
 
+    // Handle --gpu flag warning when CUDA not available
+    #[cfg(not(feature = "cuda"))]
+    if force_gpu {
+        eprintln!("Warning: --gpu flag requires 'cuda' feature. Falling back to CPU.");
+        eprintln!("Build with: cargo build --features cuda");
+        eprintln!();
+    }
+    #[cfg(not(feature = "cuda"))]
+    let _ = (force_gpu, verbose);
+
+    // PMAT-106: GPU path for APR models
+    #[cfg(feature = "cuda")]
+    if force_gpu {
+        return run_apr_inference_gpu(model_ref, file_data, prompt, max_tokens, temperature, format, verbose);
+    }
+
     let load_start = Instant::now();
 
-    // Load APR transformer
+    // Load APR transformer (CPU path)
     let transformer = AprTransformer::from_apr_bytes(file_data).map_err(|e| {
         crate::error::RealizarError::UnsupportedOperation {
             operation: "parse_apr".to_string(),
@@ -568,7 +588,10 @@ pub fn run_apr_inference(
     })?;
 
     let load_time = load_start.elapsed();
-    println!("Model loaded in {:.2}ms", load_time.as_secs_f64() * 1000.0);
+    if verbose {
+        println!("Backend: CPU (AVX2 + SIMD)");
+        println!("Model loaded in {:.2}ms", load_time.as_secs_f64() * 1000.0);
+    }
 
     // Use proper tokenizer from sibling tokenizer.json
     let model_path = Path::new(model_ref);
@@ -578,9 +601,11 @@ pub fn run_apr_inference(
     });
     let prompt_len = prompt_tokens.len();
 
-    println!("Prompt tokens: {}", prompt_len);
-    println!("Temperature: {:.1} (using greedy decoding)", temperature);
-    println!();
+    if verbose {
+        println!("Prompt tokens: {}", prompt_len);
+        println!("Temperature: {:.1} (using greedy decoding)", temperature);
+        println!();
+    }
 
     // Run inference with timing
     // PMAT-103 FIX: Use generate_with_cache for O(n) instead of O(n²) complexity
@@ -617,6 +642,7 @@ pub fn run_apr_inference(
             let json = serde_json::json!({
                 "model": model_ref,
                 "format": "APR",
+                "backend": "CPU",
                 "prompt": prompt,
                 "generated_text": output_text,
                 "tokens_generated": tokens_generated,
@@ -630,13 +656,156 @@ pub fn run_apr_inference(
             );
         },
         _ => {
+            if verbose {
+                println!(
+                    "Generated ({tokens_generated} tokens in {:.2}ms):",
+                    gen_time.as_secs_f64() * 1000.0
+                );
+                println!("{output_text}");
+                println!();
+                println!("Performance: {:.1} tok/s", tokens_per_sec);
+            } else {
+                // Clean output: just the response
+                println!("{output_text}");
+            }
+        },
+    }
+
+    Ok(())
+}
+
+/// Run APR inference with CUDA GPU acceleration (PMAT-106)
+///
+/// Uses the APR F32 GPU adapter to convert weights to GpuModel format
+/// for high-performance inference.
+#[cfg(feature = "cuda")]
+#[allow(clippy::too_many_arguments)]
+pub fn run_apr_inference_gpu(
+    model_ref: &str,
+    file_data: &[u8],
+    prompt: &str,
+    max_tokens: usize,
+    temperature: f32,
+    format: &str,
+    verbose: bool,
+) -> Result<()> {
+    use crate::apr::AprV2Model;
+    use crate::apr_transformer::AprTransformer;
+    use crate::gpu::adapters::AprF32ToGpuAdapter;
+    use crate::gpu::GpuGenerateConfig;
+    use std::path::Path;
+    use std::time::Instant;
+
+    let load_start = Instant::now();
+
+    if verbose {
+        println!("Backend: CUDA (GPU)");
+        println!("Loading APR model for GPU inference...");
+    }
+
+    // Load APR as F32 transformer
+    let transformer = AprTransformer::from_apr_bytes(file_data).map_err(|e| {
+        crate::error::RealizarError::UnsupportedOperation {
+            operation: "parse_apr".to_string(),
+            reason: format!("Failed to parse APR: {e}"),
+        }
+    })?;
+
+    // Convert to GpuModel using F32 adapter
+    let mut gpu_model = AprF32ToGpuAdapter::to_gpu_model(&transformer).map_err(|e| {
+        crate::error::RealizarError::UnsupportedOperation {
+            operation: "apr_to_gpu".to_string(),
+            reason: format!("Failed to convert APR to GPU format: {e}"),
+        }
+    })?;
+
+    let load_time = load_start.elapsed();
+    if verbose {
+        println!("Model loaded in {:.2}ms", load_time.as_secs_f64() * 1000.0);
+    }
+
+    // Use proper tokenizer from sibling tokenizer.json
+    let model_path = Path::new(model_ref);
+    let prompt_tokens = AprV2Model::encode_text(model_path, prompt).unwrap_or_else(|| {
+        prompt.chars().map(|c| c as u32).collect()
+    });
+    let prompt_len = prompt_tokens.len();
+
+    if verbose {
+        println!("Prompt tokens: {}", prompt_len);
+        println!("Temperature: {:.1}", temperature);
+        println!();
+    }
+
+    // Configure generation
+    let gen_config = GpuGenerateConfig {
+        max_tokens,
+        temperature,
+        top_k: if temperature <= 0.01 { 1 } else { 40 },
+        stop_tokens: vec![],
+    };
+
+    // Convert prompt tokens to usize for GpuModel
+    let prompt_tokens_usize: Vec<usize> = prompt_tokens.iter().map(|&t| t as usize).collect();
+
+    // Run inference
+    let gen_start = Instant::now();
+    let generated = gpu_model.generate(&prompt_tokens_usize, &gen_config).map_err(|e| {
+        crate::error::RealizarError::UnsupportedOperation {
+            operation: "gpu_generate".to_string(),
+            reason: format!("GPU generation failed: {e}"),
+        }
+    })?;
+    let gen_time = gen_start.elapsed();
+
+    let tokens_generated = generated.len().saturating_sub(prompt_len);
+    let tokens_per_sec = if gen_time.as_secs_f64() > 0.0 {
+        tokens_generated as f64 / gen_time.as_secs_f64()
+    } else {
+        0.0
+    };
+
+    // Decode output (convert usize back to u32)
+    let output_tokens: Vec<u32> = generated[prompt_len..].iter().map(|&t| t as u32).collect();
+    let output_text = if let Some(tokenizer) = AprV2Model::load_tokenizer(model_path) {
+        tokenizer.decode(&output_tokens)
+    } else {
+        output_tokens
+            .iter()
+            .map(|&t| char::from_u32(t.min(127)).unwrap_or('?'))
+            .collect()
+    };
+
+    match format {
+        "json" => {
+            let json = serde_json::json!({
+                "model": model_ref,
+                "format": "APR",
+                "backend": "CUDA",
+                "prompt": prompt,
+                "generated_text": output_text,
+                "tokens_generated": tokens_generated,
+                "generation_time_ms": gen_time.as_secs_f64() * 1000.0,
+                "tokens_per_second": tokens_per_sec,
+                "temperature": temperature,
+            });
             println!(
-                "Generated ({tokens_generated} tokens in {:.2}ms):",
-                gen_time.as_secs_f64() * 1000.0
+                "{}",
+                serde_json::to_string_pretty(&json).unwrap_or_default()
             );
-            println!("{output_text}");
-            println!();
-            println!("Performance: {:.1} tok/s", tokens_per_sec);
+        },
+        _ => {
+            if verbose {
+                println!(
+                    "Generated ({tokens_generated} tokens in {:.2}ms):",
+                    gen_time.as_secs_f64() * 1000.0
+                );
+                println!("{output_text}");
+                println!();
+                println!("Performance: {:.1} tok/s (GPU)", tokens_per_sec);
+            } else {
+                println!("{output_text}");
+            }
         },
     }
 
