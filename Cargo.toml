@@ -33,7 +33,7 @@ useless_vec = "allow"
 # OUR ecosystem - SIMD/GPU compute primitives (we control this)
 # High-performance SIMD compute library with GPU support
 # PAR-073: Using crates.io version for reproducible builds
-trueno = { version = "0.13.0", features = ["gpu"] }
+trueno = { version = "0.14.0", features = ["gpu"] }
 # CUDA PTX generation and runtime for NVIDIA GPUs (optional, pure Rust, no LLVM/nvcc)
 # v0.4.7: BatchedQ6K, MultiWarp, RopeNeox, FlashDecoding kernels
 trueno-gpu = { version = "0.4.9", optional = true, features = ["cuda"] }
@@ -92,7 +92,7 @@ anyhow = "1.0"
 tracing = { version = "0.1", optional = true }
 
 # Audit logging (timestamps and UUIDs)
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { version = ">=0.4.26, <0.4.39", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 
 # Numerical traits (for generic code)
@@ -681,5 +681,7 @@ incremental = true     # Enable incremental compilation
 
 # CORRECTNESS-013: Override trueno-gpu with local version for PreciseRmsNormKernel
 # NOTE: Using local path for rcp.approx fix - will revert after crates.io publish
+# trueno patch: q4k/q6k modules added in 0.14.0
 [patch.crates-io]
+trueno = { path = "../trueno" }
 trueno-gpu = { path = "../trueno/trueno-gpu" }

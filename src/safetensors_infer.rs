@@ -129,6 +129,9 @@ impl SafetensorsToAprConverter {
             output_norm_bias: None,
             lm_head_weight,
             lm_head_bias: None,
+            q4k_layers: None,
+            lm_head_weight_q6k: None,
+            lm_head_weight_q4k: None,
         })
     }
 
