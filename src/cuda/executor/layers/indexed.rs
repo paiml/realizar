@@ -124,7 +124,7 @@ impl CudaExecutor {
     /// PAR-054: Transformer layer for graph capture (no debug output)
     /// PAR-070: Takes position but uses indirect mode (reads from position_buf) during graph capture
     #[allow(clippy::too_many_arguments)]
-    fn transformer_layer_workspace_for_capture(
+    pub(crate) fn transformer_layer_workspace_for_capture(
         &mut self,
         input: &GpuBuffer<f32>,
         layer_idx: usize,
@@ -147,7 +147,7 @@ impl CudaExecutor {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn transformer_layer_workspace(
+    pub(crate) fn transformer_layer_workspace(
         &mut self,
         input: &GpuBuffer<f32>,
         layer_idx: usize,
@@ -179,7 +179,7 @@ impl CudaExecutor {
     }
 
     #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
-    fn transformer_layer_workspace_inner(
+    pub(crate) fn transformer_layer_workspace_inner(
         &mut self,
         input: &GpuBuffer<f32>,
         layer_idx: usize,

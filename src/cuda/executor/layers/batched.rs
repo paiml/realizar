@@ -1556,7 +1556,7 @@ impl CudaExecutor {
     }
 
     /// PAR-023: RMSNorm using raw device pointer for gamma
-    fn rmsnorm_gpu_ptr(
+    pub(crate) fn rmsnorm_gpu_ptr(
         &mut self,
         input: &GpuBuffer<f32>,
         gamma_ptr: u64, // CUdeviceptr
@@ -1578,7 +1578,7 @@ impl CudaExecutor {
     }
 
     /// PAR-044: RMSNorm using raw pointer into existing output buffer
-    fn rmsnorm_ptr_into(
+    pub(crate) fn rmsnorm_ptr_into(
         &mut self,
         input: &GpuBuffer<f32>,
         gamma_ptr: u64,

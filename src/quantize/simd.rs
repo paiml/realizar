@@ -382,7 +382,7 @@ unsafe fn fused_swiglu_simd_avx2(gate: &mut [f32], up: &[f32]) {
 
     let len = gate.len();
     let chunks = len / 8;
-    let one = _mm256_set1_ps(1.0);
+    let _one = _mm256_set1_ps(1.0);
 
     for i in 0..chunks {
         let g = _mm256_loadu_ps(gate.as_ptr().add(i * 8));

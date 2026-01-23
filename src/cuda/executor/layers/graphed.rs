@@ -249,7 +249,7 @@ impl CudaExecutor {
     /// 4. Why does lazy loading allocate? PTX compilation requires driver memory
     /// 5. Why not pre-loaded? Missing pre-loading step before capture
     #[allow(clippy::too_many_lines)]
-    fn preload_modules_for_capture(
+    pub(crate) fn preload_modules_for_capture(
         &mut self,
         num_layers: usize,
         hidden_dim: u32,
