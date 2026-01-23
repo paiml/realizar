@@ -523,7 +523,7 @@ async fn process_batch(
 /// GPU warmup handler (PARITY-022)
 /// POST /v1/gpu/warmup - Warmup GPU cache for batch inference
 #[cfg(feature = "gpu")]
-pub(crate) async fn gpu_warmup_handler(
+pub async fn gpu_warmup_handler(
     State(state): State<AppState>,
 ) -> Result<Json<GpuWarmupResponse>, (StatusCode, Json<ErrorResponse>)> {
     if let Some(cached_model) = state.cached_model() {
@@ -558,7 +558,7 @@ pub(crate) async fn gpu_warmup_handler(
 
 /// GPU warmup handler stub for non-GPU builds
 #[cfg(not(feature = "gpu"))]
-pub(crate) async fn gpu_warmup_handler(
+pub async fn gpu_warmup_handler(
     State(_state): State<AppState>,
 ) -> Result<Json<GpuWarmupResponse>, (StatusCode, Json<ErrorResponse>)> {
     Err((
@@ -572,7 +572,7 @@ pub(crate) async fn gpu_warmup_handler(
 /// GPU status handler (PARITY-022)
 /// GET /v1/gpu/status - Check GPU cache status
 #[cfg(feature = "gpu")]
-pub(crate) async fn gpu_status_handler(
+pub async fn gpu_status_handler(
     State(state): State<AppState>,
 ) -> Result<Json<GpuStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
     if let Some(cached_model) = state.cached_model() {
@@ -594,7 +594,7 @@ pub(crate) async fn gpu_status_handler(
 
 /// GPU status handler stub for non-GPU builds
 #[cfg(not(feature = "gpu"))]
-pub(crate) async fn gpu_status_handler(
+pub async fn gpu_status_handler(
     State(_state): State<AppState>,
 ) -> Result<Json<GpuStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
     Ok(Json(GpuStatusResponse {
@@ -608,7 +608,7 @@ pub(crate) async fn gpu_status_handler(
 /// GPU batch completions handler (PARITY-022)
 /// POST /v1/batch/completions - GPU-accelerated batch inference
 #[cfg(feature = "gpu")]
-pub(crate) async fn gpu_batch_completions_handler(
+pub async fn gpu_batch_completions_handler(
     State(state): State<AppState>,
     Json(request): Json<GpuBatchRequest>,
 ) -> Result<Json<GpuBatchResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -728,7 +728,7 @@ pub(crate) async fn gpu_batch_completions_handler(
 
 /// GPU batch completions handler stub for non-GPU builds
 #[cfg(not(feature = "gpu"))]
-pub(crate) async fn gpu_batch_completions_handler(
+pub async fn gpu_batch_completions_handler(
     State(_state): State<AppState>,
     Json(_request): Json<GpuBatchRequest>,
 ) -> Result<Json<GpuBatchResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -741,7 +741,7 @@ pub(crate) async fn gpu_batch_completions_handler(
 }
 
 /// Models list handler - returns available models in multi-model mode
-pub(crate) async fn models_handler(
+pub async fn models_handler(
     State(state): State<AppState>,
 ) -> Result<Json<ModelsResponse>, (StatusCode, Json<ErrorResponse>)> {
     if let Some(registry) = &state.registry {
@@ -762,7 +762,7 @@ pub(crate) async fn models_handler(
 }
 
 /// Tokenize text handler
-pub(crate) async fn tokenize_handler(
+pub async fn tokenize_handler(
     State(state): State<AppState>,
     Json(request): Json<TokenizeRequest>,
 ) -> Result<Json<TokenizeResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -785,7 +785,7 @@ pub(crate) async fn tokenize_handler(
 }
 
 /// Generate text handler
-pub(crate) async fn generate_handler(
+pub async fn generate_handler(
     State(state): State<AppState>,
     Json(request): Json<GenerateRequest>,
 ) -> Result<Json<GenerateResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -892,7 +892,7 @@ pub(crate) async fn generate_handler(
 }
 
 /// Batch tokenize handler
-pub(crate) async fn batch_tokenize_handler(
+pub async fn batch_tokenize_handler(
     State(state): State<AppState>,
     Json(request): Json<BatchTokenizeRequest>,
 ) -> Result<Json<BatchTokenizeResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -933,7 +933,7 @@ pub(crate) async fn batch_tokenize_handler(
 }
 
 /// Batch generate handler
-pub(crate) async fn batch_generate_handler(
+pub async fn batch_generate_handler(
     State(state): State<AppState>,
     Json(request): Json<BatchGenerateRequest>,
 ) -> Result<Json<BatchGenerateResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -1044,7 +1044,7 @@ pub(crate) async fn batch_generate_handler(
 }
 
 /// Stream generate handler - generates tokens one by one via Server-Sent Events
-pub(crate) async fn stream_generate_handler(
+pub async fn stream_generate_handler(
     State(state): State<AppState>,
     Json(request): Json<GenerateRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {

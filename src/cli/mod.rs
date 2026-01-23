@@ -11,6 +11,10 @@
 
 use crate::error::{RealizarError, Result};
 
+// PMAT-802: Extracted inference runners
+pub mod inference;
+pub use inference::{run_gguf_inference, run_gguf_inference_gpu, run_safetensors_inference, run_apr_inference};
+
 /// Available benchmark suites
 pub const BENCHMARK_SUITES: &[(&str, &str)] = &[
     (

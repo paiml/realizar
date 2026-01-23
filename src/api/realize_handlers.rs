@@ -169,7 +169,7 @@ impl ContextWindowManager {
 ///
 /// Uses the chat_template module to format messages according to the model's
 /// expected format (ChatML, LLaMA2, Mistral, Phi, Alpaca, or Raw fallback).
-pub(crate) fn format_chat_messages(messages: &[ChatMessage], model_name: Option<&str>) -> String {
+pub fn format_chat_messages(messages: &[ChatMessage], model_name: Option<&str>) -> String {
     use crate::chat_template::{self, ChatMessage as TemplateMessage};
 
     // Convert API ChatMessage to template ChatMessage
@@ -194,7 +194,7 @@ pub(crate) fn format_chat_messages(messages: &[ChatMessage], model_name: Option<
 ///
 /// Stops output at the first stop sequence to prevent the model from
 /// generating additional conversation turns or injected content.
-pub(crate) fn clean_chat_output(text: &str) -> String {
+pub fn clean_chat_output(text: &str) -> String {
     // List of stop sequences that indicate end of assistant response
     const STOP_SEQUENCES: &[&str] = &[
         "<|im_end|>",      // ChatML (Qwen, OpenHermes, Yi)
@@ -386,7 +386,7 @@ pub struct CompletionChoice {
 }
 
 /// Native Realizar embedding handler (/realize/embed)
-pub(crate) async fn realize_embed_handler(
+pub async fn realize_embed_handler(
     State(state): State<AppState>,
     Json(request): Json<EmbeddingRequest>,
 ) -> Result<Json<EmbeddingResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -438,7 +438,7 @@ pub(crate) async fn realize_embed_handler(
 }
 
 /// Native Realizar model metadata handler (/realize/model)
-pub(crate) async fn realize_model_handler(
+pub async fn realize_model_handler(
     State(state): State<AppState>,
 ) -> Result<Json<ModelMetadataResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Get default model info
@@ -486,7 +486,7 @@ pub(crate) async fn realize_model_handler(
 ///
 /// Performs atomic model hot-reload via the ModelRegistry.
 /// Requires registry mode (multi-model serving) to be enabled.
-pub(crate) async fn realize_reload_handler(
+pub async fn realize_reload_handler(
     State(state): State<AppState>,
     Json(request): Json<ReloadRequest>,
 ) -> Result<Json<ReloadResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -560,7 +560,7 @@ pub(crate) async fn realize_reload_handler(
 }
 
 /// OpenAI-compatible completions handler (/v1/completions)
-pub(crate) async fn openai_completions_handler(
+pub async fn openai_completions_handler(
     State(state): State<AppState>,
     Json(request): Json<CompletionRequest>,
 ) -> Result<Json<CompletionResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -1095,7 +1095,7 @@ pub(crate) async fn openai_completions_handler(
 }
 
 /// OpenAI-compatible embeddings handler (/v1/embeddings)
-pub(crate) async fn openai_embeddings_handler(
+pub async fn openai_embeddings_handler(
     State(state): State<AppState>,
     Json(request): Json<EmbeddingRequest>,
 ) -> Result<Json<EmbeddingResponse>, (StatusCode, Json<ErrorResponse>)> {

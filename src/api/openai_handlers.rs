@@ -24,7 +24,10 @@ use super::{
 };
 use crate::generate::{GenerationConfig, SamplingStrategy};
 
-pub(crate) async fn openai_models_handler(State(state): State<AppState>) -> Json<OpenAIModelsResponse> {
+/// OpenAI-compatible models listing handler
+///
+/// Returns available models in OpenAI API format (GET /v1/models).
+pub async fn openai_models_handler(State(state): State<AppState>) -> Json<OpenAIModelsResponse> {
     let models = if let Some(registry) = &state.registry {
         registry
             .list()
@@ -59,7 +62,7 @@ pub(crate) async fn openai_models_handler(State(state): State<AppState>) -> Json
 }
 
 /// OpenAI-compatible /v1/chat/completions endpoint (supports streaming)
-pub(crate) async fn openai_chat_completions_handler(
+pub async fn openai_chat_completions_handler(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(request): Json<ChatCompletionRequest>,
@@ -1089,7 +1092,7 @@ pub(crate) async fn openai_chat_completions_handler(
 }
 
 /// OpenAI-compatible /v1/chat/completions streaming endpoint (SSE)
-pub(crate) async fn openai_chat_completions_stream_handler(
+pub async fn openai_chat_completions_stream_handler(
     State(state): State<AppState>,
     Json(request): Json<ChatCompletionRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
