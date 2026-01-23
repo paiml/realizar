@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::apr_transformer::*;
+    use crate::apr::MAGIC;  // APR format magic bytes
     use trueno::Matrix as TruenoMatrix;
 
     // ==========================================================================
@@ -531,8 +532,8 @@ mod tests {
         // KV cache should store num_kv_heads * head_dim per position
         // head_dim = 64 / 8 = 8
         // kv_size = 2 * 8 = 16 per position per layer
-        assert_eq!(cache.num_kv_heads, 2);
-        assert_eq!(cache.head_dim, 8);
+        assert_eq!(cache.num_kv_heads(), 2);
+        assert_eq!(cache.head_dim(), 8);
     }
 
     // ============ Additional coverage tests ============
@@ -3533,8 +3534,8 @@ mod tests {
         let cache = AprKVCache::new(&config);
 
         // head_dim = hidden_dim / num_heads = 128 / 16 = 8
-        assert_eq!(cache.head_dim, 8);
-        assert_eq!(cache.num_kv_heads, 4);
+        assert_eq!(cache.head_dim(), 8);
+        assert_eq!(cache.num_kv_heads(), 4);
     }
 
     // ==========================================================================
