@@ -27,22 +27,14 @@
 //! axum::serve(listener, app).await?;
 //! ```
 
-use std::{
-    convert::{Infallible, TryFrom},
-    sync::Arc,
-};
+use std::sync::Arc;
 
 use axum::{
-    extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
-    response::{
-        sse::{Event, Sse},
-        IntoResponse, Response,
-    },
+    extract::{Query, State},
+    http::StatusCode,
     routing::{get, post},
     Json, Router,
 };
-use futures::stream::Stream;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -51,7 +43,6 @@ use crate::{
     cache::{CacheKey, ModelCache},
     error::RealizarError,
     explain::ShapExplanation,
-    generate::{GenerationConfig, SamplingStrategy},
     layers::{Model, ModelConfig},
     metrics::MetricsCollector,
     registry::{ModelInfo, ModelRegistry},
@@ -67,10 +58,13 @@ mod gpu_handlers;
 pub(crate) use gpu_handlers::{
     gpu_warmup_handler, gpu_status_handler, gpu_batch_completions_handler,
     models_handler, tokenize_handler, generate_handler, batch_tokenize_handler,
-    batch_generate_handler, stream_generate_handler, ContinuousBatchRequest,
-    ContinuousBatchResponse, BatchProcessResult,
+    batch_generate_handler, stream_generate_handler,
+};
+// Public exports for tests
+pub use gpu_handlers::{
     GpuBatchRequest, GpuBatchResponse, GpuBatchResult, GpuBatchStats,
-    GpuWarmupResponse, GpuStatusResponse, BatchQueueStats,
+    GpuWarmupResponse, GpuStatusResponse, ContinuousBatchRequest, ContinuousBatchResponse,
+    BatchQueueStats, BatchProcessResult,
 };
 // Public exports for apr-cli CUDA integration (PMAT-GPU-001)
 pub use gpu_handlers::{BatchConfig, spawn_batch_processor};
@@ -78,10 +72,13 @@ mod realize_handlers;
 pub(crate) use realize_handlers::{
     realize_embed_handler, realize_model_handler, realize_reload_handler,
     openai_completions_handler, openai_embeddings_handler,
-    format_chat_messages, clean_chat_output, ContextWindowConfig, ContextWindowManager,
-    CompletionRequest, CompletionResponse, CompletionChoice,
-    EmbeddingRequest, EmbeddingResponse, EmbeddingData, EmbeddingUsage,
-    ModelMetadataResponse, ModelLineage, ReloadRequest, ReloadResponse,
+    format_chat_messages, clean_chat_output,
+};
+// Public exports for tests
+pub use realize_handlers::{
+    ContextWindowConfig, ContextWindowManager, EmbeddingRequest, EmbeddingResponse,
+    EmbeddingData, EmbeddingUsage, ModelMetadataResponse, ModelLineage,
+    ReloadRequest, ReloadResponse, CompletionRequest, CompletionResponse, CompletionChoice,
 };
 mod apr_handlers;
 pub(crate) use apr_handlers::{

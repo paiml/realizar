@@ -2,7 +2,7 @@
 //!
 //! Shattered from gpu/cuda_scheduler.rs
 
-mod batch;
+pub mod batch;
 mod core;
 mod kv;
 mod model;

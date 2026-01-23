@@ -84,7 +84,6 @@ pub use dequant::{
     dequantize_q4_k, dequantize_q5_0, dequantize_q5_1, dequantize_q5_k,
     dequantize_q6_k, dequantize_q8_0, f16_to_f32,
 };
-pub(crate) use dequant::read_f16;
 
 // Re-export fused K-quant operations (PMAT-802)
 pub use fused_k::{
@@ -114,7 +113,6 @@ pub use activation::{
     fused_swiglu_simd, softmax_simd,
     quantize_activations_q8_0,
 };
-pub(crate) use activation::{quantize_rmsnorm_q8_0_scalar, fused_swiglu_scalar, softmax_scalar};
 
 // Re-export parallel dequant operations (PMAT-802)
 pub use parallel_dequant::{
@@ -122,7 +120,15 @@ pub use parallel_dequant::{
     dequantize_q8_0_parallel, dequantize_q8_0_simd,
     apply_rope_rotation_simd,
 };
-pub(crate) use parallel_dequant::{dequantize_q4_k_superblock, dequantize_q8_0_block, apply_rope_rotation_scalar};
+pub(crate) use parallel_dequant::{
+    dequantize_q8_0_block, dequantize_q4_k_superblock, apply_rope_rotation_scalar,
+};
+pub(crate) use activation::{
+    softmax_scalar, fused_swiglu_scalar, quantize_rmsnorm_q8_0_scalar,
+};
+
+// Re-export SIMD utilities for tests
+pub use simd::read_f16;
 
 /// Pre-computed f16 to f32 lookup table (65536 entries = 256KB)
 ///

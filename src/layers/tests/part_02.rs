@@ -1,4 +1,6 @@
 use crate::layers::*;
+use crate::generate::GenerationConfig;
+
 #[test]
 fn test_kvcache_creation() {
     let cache = KVCache::new(4, 512, 64).expect("test");
