@@ -68,10 +68,12 @@ pub(crate) use gpu_handlers::{
     gpu_warmup_handler, gpu_status_handler, gpu_batch_completions_handler,
     models_handler, tokenize_handler, generate_handler, batch_tokenize_handler,
     batch_generate_handler, stream_generate_handler, ContinuousBatchRequest,
-    BatchConfig, spawn_batch_processor, ContinuousBatchResponse, BatchProcessResult,
+    ContinuousBatchResponse, BatchProcessResult,
     GpuBatchRequest, GpuBatchResponse, GpuBatchResult, GpuBatchStats,
     GpuWarmupResponse, GpuStatusResponse, BatchQueueStats,
 };
+// Public exports for apr-cli CUDA integration (PMAT-GPU-001)
+pub use gpu_handlers::{BatchConfig, spawn_batch_processor};
 mod realize_handlers;
 pub(crate) use realize_handlers::{
     realize_embed_handler, realize_model_handler, realize_reload_handler,

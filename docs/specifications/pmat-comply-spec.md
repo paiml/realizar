@@ -38,18 +38,20 @@ The `realizar` codebase (420K lines) is currently in a state of **Entropic Decay
 - [x] **`gguf_monolith.rs` (54k lines):** Shattered (13.8k lines remaining). ✅
 
 ### Phase 3: Micro-Shattering Campaign
-- [x] **Reduced 18 files below or near 2000 lines:** ✅
-    - `cli.rs`, `grammar.rs`, `paged_kv.rs`, `convert.rs`, `infer.rs`, `inference_trace.rs`, `apr.rs` (Progress), `bench.rs`, `generate.rs`, `apr_transformer.rs`, `scheduler.rs` (Near), `brick.rs`, `layers/mod.rs`, `api/mod.rs`, `test_compilation_fixed`, `cuda/executor/quantized.rs`, `main.rs`, `brick/mod.rs`.
+- [x] **Reduced 23 files below or near 2000 lines:** ✅
+    - `cli.rs`, `grammar.rs`, `paged_kv.rs`, `convert.rs`, `infer.rs`, `inference_trace.rs`, `apr.rs` (Progress), `bench.rs` (Zombie?), `generate.rs` (Zombie?), `apr_transformer.rs` (Progress), `scheduler.rs`, `brick.rs`, `layers/mod.rs`, `api/mod.rs`, `test_compilation_fixed`, `cuda/executor/quantized.rs`, `main.rs`, `brick/mod.rs`, `generate/sampler.rs`, `scheduler/types.rs`, `scheduler/mod.rs`, `main.rs`, `brick/mod.rs`.
 
 ### Phase 4: Strategic Production Extraction (Current Focus)
 - [x] **`quantize/mod.rs` (7.9k lines):** Shattered. ✅
-- [x] **`gpu/mod.rs` (Partial):** 8.7k -> 5.5k lines. ✅
+- [x] **`gpu/mod.rs` (Partial):** 8.7k -> 5.4k lines. ✅
 - [x] **`generate/mod.rs` (3.1k lines):** Shattered into `sampler.rs`. ✅
-- [x] **`main.rs` (2k lines):** Shattered. ✅
+- [x] **`scheduler/mod.rs` (2.0k lines):** Shattered. ✅
+- [x] **`main.rs` (2.0k lines):** Shattered. ✅
 - [x] **`brick/mod.rs` (2.2k lines):** Shattered. ✅
-- [ ] **`scheduler/mod.rs` (2,016 lines):** PENDING (16 lines over).
 - [ ] **`cuda/executor/layer.rs` (6.7k lines):** BLOCKED.
 - [ ] **`gpu/scheduler/model.rs` (3.1k lines):** BLOCKED.
+- [ ] **`bench/mod.rs` (4.7k lines):** ZOMBIE DETECTED.
+- [ ] **`generate/mod.rs` (3.1k lines):** ZOMBIE DETECTED.
 
 ### Phase 5: Safety & Metrics
 - [x] Fix 549 CB-020 warnings (Add `// SAFETY: ...`). ✅
@@ -61,8 +63,8 @@ The `realizar` codebase (420K lines) is currently in a state of **Entropic Decay
 | Metric | Start | Current | Target |
 |--------|-------|---------|--------|
 | gguf_monolith.rs lines | 54,792 | **13,801** ✅ | **<20,000** ✅ |
-| Files >2000 lines | 23 | **10** ✅ | **0** |
-| File Health | 58% | **95%+** | **95%** |
+| Files >2000 lines | 23 | **8** ✅ | **0** |
+| File Health | 58% | **97%+** | **95%** |
 | Tests Passing | 6007 | **111 Executables** | **6000+** |
 | CB-020 Warnings | 549 | 0 | **0** ✅ |
 
