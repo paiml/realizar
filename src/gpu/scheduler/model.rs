@@ -3,14 +3,12 @@
 //! GpuModel, GpuModelConfig, GpuGenerateConfig, AttentionBuffers
 
 use crate::error::{RealizarError, Result};
-use crate::tensor::Tensor;
 use super::super::{
     HybridScheduler, StreamingKVCache, exceeds_gpu_buffer_limit,
-    cpu_matmul_transposed_simd, cpu_matmul, TensorPool, ForwardArena,
+    cpu_matmul_transposed_simd, cpu_matmul,
 };
 #[cfg(feature = "cuda")]
 use super::core::CudaScheduler;
-use std::collections::HashMap;
 
 /// GPU-accelerated model for M3 parity (128 tok/s target)
 ///
@@ -18,50 +16,50 @@ use std::collections::HashMap;
 /// matrix multiplications in the forward pass.
 pub struct GpuModel {
     /// Embedding weights (vocab_size x hidden_dim)
-    embedding_weights: Vec<f32>,
+    pub(crate) embedding_weights: Vec<f32>,
     /// Linear layer weights for each block
     /// Each block has: attn_q, attn_k, attn_v, attn_out, ffn_fc1, ffn_fc2
-    block_weights: Vec<BlockWeights>,
+    pub(crate) block_weights: Vec<BlockWeights>,
     /// Final layer norm weights
-    final_norm_weight: Vec<f32>,
-    final_norm_bias: Vec<f32>,
+    pub(crate) final_norm_weight: Vec<f32>,
+    pub(crate) final_norm_bias: Vec<f32>,
     /// LM head weights (hidden_dim x vocab_size)
-    lm_head_weight: Vec<f32>,
+    pub(crate) lm_head_weight: Vec<f32>,
     /// LM head weights transposed (vocab_size x hidden_dim) for fast CPU inference
-    lm_head_weight_t: Vec<f32>,
-    lm_head_bias: Vec<f32>,
+    pub(crate) lm_head_weight_t: Vec<f32>,
+    pub(crate) lm_head_bias: Vec<f32>,
     /// GPU scheduler (HybridScheduler - may force CPU for m=1)
-    scheduler: HybridScheduler,
+    pub(crate) scheduler: HybridScheduler,
     /// IMP-1003: Optional CUDA-only scheduler that ALWAYS uses GPU
     /// When present, this scheduler is preferred over HybridScheduler for matmul
     #[cfg(feature = "cuda")]
-    cuda_scheduler: Option<CudaScheduler>,
+    pub(crate) cuda_scheduler: Option<CudaScheduler>,
     /// Model configuration
     pub config: GpuModelConfig,
     /// Pre-allocated attention buffers for optimized incremental decoding (M17)
-    attention_buffers: Option<AttentionBuffers>,
+    pub(crate) attention_buffers: Option<AttentionBuffers>,
 }
 
 /// Weights for a single transformer block
-struct BlockWeights {
+pub(crate) struct BlockWeights {
     /// Attention layer norm
-    attn_norm_weight: Vec<f32>,
-    attn_norm_bias: Vec<f32>,
+    pub(crate) attn_norm_weight: Vec<f32>,
+    pub(crate) attn_norm_bias: Vec<f32>,
     /// Combined QKV projection weights (hidden_dim x 3*hidden_dim)
-    qkv_weight: Vec<f32>,
+    pub(crate) qkv_weight: Vec<f32>,
     #[allow(dead_code)] // Reserved for future bias support
-    qkv_bias: Vec<f32>,
+    pub(crate) qkv_bias: Vec<f32>,
     /// Output projection (hidden_dim x hidden_dim)
-    out_weight: Vec<f32>,
-    out_bias: Vec<f32>,
+    pub(crate) out_weight: Vec<f32>,
+    pub(crate) out_bias: Vec<f32>,
     /// FFN layer norm
-    ffn_norm_weight: Vec<f32>,
-    ffn_norm_bias: Vec<f32>,
+    pub(crate) ffn_norm_weight: Vec<f32>,
+    pub(crate) ffn_norm_bias: Vec<f32>,
     /// FFN weights
-    ffn_fc1_weight: Vec<f32>,
-    ffn_fc1_bias: Vec<f32>,
-    ffn_fc2_weight: Vec<f32>,
-    ffn_fc2_bias: Vec<f32>,
+    pub(crate) ffn_fc1_weight: Vec<f32>,
+    pub(crate) ffn_fc1_bias: Vec<f32>,
+    pub(crate) ffn_fc2_weight: Vec<f32>,
+    pub(crate) ffn_fc2_bias: Vec<f32>,
 }
 
 /// IMP-1007: Weight type for split-borrow matmul
@@ -1659,659 +1657,34 @@ impl GpuModel {
     }
 
     // =========================================================================
-    // Phase 7: KV Cache Integration (M16) - IMP-031, IMP-032, IMP-033
+    // Phase 7: KV Cache Integration - Wrappers (extracted to kv.rs)
     // =========================================================================
 
-    /// Forward pass with KV cache population (IMP-031)
-    ///
-    /// Processes a prompt sequence and populates the KV cache with key/value
-    /// projections for each layer. Returns logits for the final position only.
-    ///
-    /// # Arguments
-    ///
-    /// * `token_ids` - Input token IDs (the prompt)
-    /// * `kv_cache` - Mutable reference to KV cache to populate
-    ///
-    /// # Returns
-    ///
-    /// Logits for the final position only (vocab_size elements)
-    ///
-    /// # Errors
-    ///
-    /// Returns error if forward pass fails
+    /// Forward pass with KV cache population (IMP-031) - delegates to kv module
     pub fn forward_gpu_with_cache(
         &mut self,
         token_ids: &[usize],
         kv_cache: &mut StreamingKVCache,
     ) -> Result<Vec<f32>> {
-        if token_ids.is_empty() {
-            return Err(RealizarError::InvalidShape {
-                reason: "Token IDs cannot be empty".to_string(),
-            });
-        }
-
-        let seq_len = token_ids.len();
-        let hidden_dim = self.config.hidden_dim;
-
-        // Step 1: Embed tokens
-        let mut hidden = Vec::with_capacity(seq_len * hidden_dim);
-        for &token_id in token_ids {
-            if token_id >= self.config.vocab_size {
-                return Err(RealizarError::InvalidShape {
-                    reason: format!(
-                        "Token ID {} out of bounds (vocab_size={})",
-                        token_id, self.config.vocab_size
-                    ),
-                });
-            }
-            let offset = token_id * hidden_dim;
-            hidden.extend_from_slice(&self.embedding_weights[offset..offset + hidden_dim]);
-        }
-
-        // Step 2: Pass through transformer blocks with KV cache population
-        for block_idx in 0..self.block_weights.len() {
-            hidden = self.forward_block_with_cache(&hidden, seq_len, block_idx, kv_cache)?;
-        }
-
-        // Step 3: Final layer norm
-        hidden = self.layer_norm(&hidden, &self.final_norm_weight, &self.final_norm_bias);
-
-        // Step 4: LM head projection - only for final position
-        // IMP-090, IMP-096: Use CPU fallback with SIMD for large vocab
-        let final_hidden = &hidden[(seq_len - 1) * hidden_dim..seq_len * hidden_dim];
-        let lm_head_elements = hidden_dim * self.config.vocab_size;
-        let output = if exceeds_gpu_buffer_limit(lm_head_elements) {
-            // IMP-096: CPU path with transposed weights + SIMD + fused bias
-            cpu_matmul_transposed_simd(
-                final_hidden,
-                &self.lm_head_weight_t,
-                &self.lm_head_bias,
-                hidden_dim,
-                self.config.vocab_size,
-            )
-        } else {
-            let logits = self.scheduler.matmul(
-                final_hidden,
-                &self.lm_head_weight,
-                1,
-                hidden_dim,
-                self.config.vocab_size,
-            )?;
-            // Add bias
-            let mut output = logits;
-            for (out_val, &bias_val) in output.iter_mut().zip(self.lm_head_bias.iter()) {
-                *out_val += bias_val;
-            }
-            output
-        };
-
-        Ok(output)
+        super::kv::forward_gpu_with_cache(self, token_ids, kv_cache)
     }
 
-    /// Incremental forward pass using cached KV (IMP-032)
-    ///
-    /// Processes a single token using the existing KV cache for attention.
-    /// Appends the new token's K/V projections to the cache.
-    ///
-    /// # Arguments
-    ///
-    /// * `token_id` - Single new token ID
-    /// * `kv_cache` - Mutable reference to KV cache
-    ///
-    /// # Returns
-    ///
-    /// Logits for the new position (vocab_size elements)
-    ///
-    /// # Errors
-    ///
-    /// Returns error if forward pass fails
+    /// Incremental forward pass using cached KV (IMP-032) - delegates to kv module
     pub fn forward_gpu_incremental(
         &mut self,
         token_id: usize,
         kv_cache: &mut StreamingKVCache,
     ) -> Result<Vec<f32>> {
-        if token_id >= self.config.vocab_size {
-            return Err(RealizarError::InvalidShape {
-                reason: format!(
-                    "Token ID {} out of bounds (vocab_size={})",
-                    token_id, self.config.vocab_size
-                ),
-            });
-        }
-
-        let hidden_dim = self.config.hidden_dim;
-
-        // Step 1: Embed single token
-        let offset = token_id * hidden_dim;
-        let mut hidden = self.embedding_weights[offset..offset + hidden_dim].to_vec();
-
-        // Step 2: Pass through transformer blocks with incremental attention
-        for block_idx in 0..self.block_weights.len() {
-            hidden = self.forward_block_incremental(&hidden, block_idx, kv_cache)?;
-        }
-
-        // Step 3: Final layer norm
-        hidden = self.layer_norm(&hidden, &self.final_norm_weight, &self.final_norm_bias);
-
-        // Step 4: LM head projection
-        // IMP-090, IMP-096: Use CPU fallback with SIMD for large vocab
-        let lm_head_elements = hidden_dim * self.config.vocab_size;
-        let output = if exceeds_gpu_buffer_limit(lm_head_elements) {
-            // IMP-096: CPU path with transposed weights + SIMD + fused bias
-            cpu_matmul_transposed_simd(
-                &hidden,
-                &self.lm_head_weight_t,
-                &self.lm_head_bias,
-                hidden_dim,
-                self.config.vocab_size,
-            )
-        } else {
-            let logits = self.scheduler.matmul(
-                &hidden,
-                &self.lm_head_weight,
-                1,
-                hidden_dim,
-                self.config.vocab_size,
-            )?;
-            // Add bias
-            let mut output = logits;
-            for (out_val, &bias_val) in output.iter_mut().zip(self.lm_head_bias.iter()) {
-                *out_val += bias_val;
-            }
-            output
-        };
-
-        Ok(output)
+        super::kv::forward_gpu_incremental(self, token_id, kv_cache)
     }
 
-    /// Forward pass through a single block with KV cache population
-    fn forward_block_with_cache(
-        &mut self,
-        input: &[f32],
-        seq_len: usize,
-        block_idx: usize,
-        kv_cache: &mut StreamingKVCache,
-    ) -> Result<Vec<f32>> {
-        let hidden_dim = self.config.hidden_dim;
-        let intermediate_dim = self.config.intermediate_dim;
-        let num_heads = self.config.num_heads;
-        let num_kv_heads = self.config.num_kv_heads;
-        let head_dim = self.config.head_dim();
-        let kv_dim = self.config.kv_dim();
-        let qkv_dim = self.config.qkv_dim();
-
-        let block = &self.block_weights[block_idx];
-
-        // Pre-norm
-        let normed = Self::layer_norm_static(
-            input,
-            &block.attn_norm_weight,
-            &block.attn_norm_bias,
-            hidden_dim,
-            self.config.eps,
-        );
-
-        // QKV projection (GQA: qkv_dim = hidden_dim + 2*kv_dim)
-        let qkv = self.scheduler.matmul(
-            &normed,
-            &self.block_weights[block_idx].qkv_weight,
-            seq_len,
-            hidden_dim,
-            qkv_dim,
-        )?;
-
-        // Split Q, K, V (GQA: K/V have kv_dim per position, not hidden_dim)
-        let q = &qkv[..seq_len * hidden_dim];
-        let k = &qkv[seq_len * hidden_dim..seq_len * hidden_dim + seq_len * kv_dim];
-        let v = &qkv[seq_len * hidden_dim + seq_len * kv_dim..];
-
-        // Cache K and V for each position (GQA: use kv_dim)
-        for pos in 0..seq_len {
-            let k_slice = &k[pos * kv_dim..(pos + 1) * kv_dim];
-            let v_slice = &v[pos * kv_dim..(pos + 1) * kv_dim];
-            kv_cache.append(block_idx, k_slice, v_slice);
-        }
-
-        // GQA attention computation with all positions
-        let attn_out =
-            self.gqa_attention_with_kv(q, k, v, seq_len, num_heads, num_kv_heads, head_dim)?;
-
-        // Output projection
-        let projected = self.scheduler.matmul(
-            &attn_out,
-            &self.block_weights[block_idx].out_weight,
-            seq_len,
-            hidden_dim,
-            hidden_dim,
-        )?;
-
-        // Residual 1
-        let mut residual1: Vec<f32> = input
-            .iter()
-            .zip(projected.iter())
-            .enumerate()
-            .map(|(i, (&inp, &proj))| {
-                inp + proj + self.block_weights[block_idx].out_bias[i % hidden_dim]
-            })
-            .collect();
-
-        // FFN pre-norm
-        let ffn_normed = Self::layer_norm_static(
-            &residual1,
-            &self.block_weights[block_idx].ffn_norm_weight,
-            &self.block_weights[block_idx].ffn_norm_bias,
-            hidden_dim,
-            self.config.eps,
-        );
-
-        // FFN: fc1
-        let fc1_out = self.scheduler.matmul(
-            &ffn_normed,
-            &self.block_weights[block_idx].ffn_fc1_weight,
-            seq_len,
-            hidden_dim,
-            intermediate_dim,
-        )?;
-
-        // GELU activation + bias
-        let activated: Vec<f32> = fc1_out
-            .iter()
-            .enumerate()
-            .map(|(i, &x)| {
-                let x = x + self.block_weights[block_idx].ffn_fc1_bias[i % intermediate_dim];
-                0.5 * x
-                    * (1.0
-                        + ((2.0f32 / std::f32::consts::PI).sqrt() * (x + 0.044_715 * x.powi(3)))
-                            .tanh())
-            })
-            .collect();
-
-        // FFN: fc2
-        let fc2_out = self.scheduler.matmul(
-            &activated,
-            &self.block_weights[block_idx].ffn_fc2_weight,
-            seq_len,
-            intermediate_dim,
-            hidden_dim,
-        )?;
-
-        // Residual 2
-        for (i, x) in residual1.iter_mut().enumerate() {
-            *x += fc2_out[i] + self.block_weights[block_idx].ffn_fc2_bias[i % hidden_dim];
-        }
-
-        Ok(residual1)
-    }
-
-    /// Incremental forward pass through a single block using cached KV
-    fn forward_block_incremental(
-        &mut self,
-        input: &[f32],
-        block_idx: usize,
-        kv_cache: &mut StreamingKVCache,
-    ) -> Result<Vec<f32>> {
-        let hidden_dim = self.config.hidden_dim;
-        let intermediate_dim = self.config.intermediate_dim;
-        let num_heads = self.config.num_heads;
-        let num_kv_heads = self.config.num_kv_heads;
-        let head_dim = self.config.head_dim();
-        let kv_dim = self.config.kv_dim();
-        let qkv_dim = self.config.qkv_dim();
-
-        let block = &self.block_weights[block_idx];
-
-        // Pre-norm (single position)
-        let normed = Self::layer_norm_static(
-            input,
-            &block.attn_norm_weight,
-            &block.attn_norm_bias,
-            hidden_dim,
-            self.config.eps,
-        );
-
-        // QKV projection for single token (GQA: qkv_dim = hidden_dim + 2*kv_dim)
-        let qkv = self.scheduler.matmul(
-            &normed,
-            &self.block_weights[block_idx].qkv_weight,
-            1,
-            hidden_dim,
-            qkv_dim,
-        )?;
-
-        // Split Q, K, V (GQA: K/V have kv_dim, not hidden_dim)
-        let q = &qkv[..hidden_dim];
-        let k_new = &qkv[hidden_dim..hidden_dim + kv_dim];
-        let v_new = &qkv[hidden_dim + kv_dim..];
-
-        // Get cached K, V for all previous positions (clone to release borrow)
-        let (cached_k, cached_v) = kv_cache.get_valid(block_idx);
-        let keys_cached = cached_k.to_vec();
-        let vals_cached = cached_v.to_vec();
-        let cached_len = keys_cached.len() / kv_dim; // GQA: use kv_dim
-
-        // Append new K, V to cache
-        kv_cache.append(block_idx, k_new, v_new);
-
-        // Build full K and V (cached + new)
-        let mut full_k = keys_cached;
-        full_k.extend_from_slice(k_new);
-        let mut full_v = vals_cached;
-        full_v.extend_from_slice(v_new);
-
-        let total_len = cached_len + 1;
-
-        // GQA attention: Q (1 position) attends to all K, V (total_len positions)
-        let attn_out = Self::gqa_incremental_attention(
-            q,
-            &full_k,
-            &full_v,
-            total_len,
-            num_heads,
-            num_kv_heads,
-            head_dim,
-        );
-
-        // Output projection
-        let projected = self.scheduler.matmul(
-            &attn_out,
-            &self.block_weights[block_idx].out_weight,
-            1,
-            hidden_dim,
-            hidden_dim,
-        )?;
-
-        // Residual 1
-        let mut residual1: Vec<f32> = input
-            .iter()
-            .zip(projected.iter())
-            .enumerate()
-            .map(|(i, (&inp, &proj))| inp + proj + self.block_weights[block_idx].out_bias[i])
-            .collect();
-
-        // FFN pre-norm
-        let ffn_normed = Self::layer_norm_static(
-            &residual1,
-            &self.block_weights[block_idx].ffn_norm_weight,
-            &self.block_weights[block_idx].ffn_norm_bias,
-            hidden_dim,
-            self.config.eps,
-        );
-
-        // FFN: fc1
-        let fc1_out = self.scheduler.matmul(
-            &ffn_normed,
-            &self.block_weights[block_idx].ffn_fc1_weight,
-            1,
-            hidden_dim,
-            intermediate_dim,
-        )?;
-
-        // GELU activation + bias
-        let activated: Vec<f32> = fc1_out
-            .iter()
-            .enumerate()
-            .map(|(i, &x)| {
-                let x = x + self.block_weights[block_idx].ffn_fc1_bias[i];
-                0.5 * x
-                    * (1.0
-                        + ((2.0f32 / std::f32::consts::PI).sqrt() * (x + 0.044_715 * x.powi(3)))
-                            .tanh())
-            })
-            .collect();
-
-        // FFN: fc2
-        let fc2_out = self.scheduler.matmul(
-            &activated,
-            &self.block_weights[block_idx].ffn_fc2_weight,
-            1,
-            intermediate_dim,
-            hidden_dim,
-        )?;
-
-        // Residual 2
-        for (i, x) in residual1.iter_mut().enumerate() {
-            *x += fc2_out[i] + self.block_weights[block_idx].ffn_fc2_bias[i];
-        }
-
-        Ok(residual1)
-    }
-
-    /// GQA attention computation with provided K, V tensors (IMP-089)
-    ///
-    /// Grouped Query Attention for sequence processing where K/V have fewer heads.
-    #[allow(clippy::too_many_arguments)] // All parameters necessary for GQA computation
-    fn gqa_attention_with_kv(
-        &mut self,
-        q: &[f32], // Q: [seq_len * hidden_dim]
-        k: &[f32], // K: [seq_len * kv_dim]
-        v: &[f32], // V: [seq_len * kv_dim]
-        seq_len: usize,
-        num_heads: usize,
-        num_kv_heads: usize,
-        head_dim: usize,
-    ) -> Result<Vec<f32>> {
-        let hidden_dim = num_heads * head_dim;
-        let kv_dim = num_kv_heads * head_dim;
-        let scale = 1.0 / (head_dim as f32).sqrt();
-        let heads_per_kv = num_heads / num_kv_heads;
-        let mut output = vec![0.0f32; seq_len * hidden_dim];
-
-        for head in 0..num_heads {
-            let kv_head = head / heads_per_kv;
-
-            // Extract Q for this head
-            let mut q_head = Vec::with_capacity(seq_len * head_dim);
-            for i in 0..seq_len {
-                let start = i * hidden_dim + head * head_dim;
-                q_head.extend_from_slice(&q[start..start + head_dim]);
-            }
-
-            // Extract K, V for the corresponding KV head (shared by multiple Q heads)
-            let mut keys_for_head = Vec::with_capacity(seq_len * head_dim);
-            let mut vals_for_head = Vec::with_capacity(seq_len * head_dim);
-            for i in 0..seq_len {
-                let start = i * kv_dim + kv_head * head_dim;
-                keys_for_head.extend_from_slice(&k[start..start + head_dim]);
-                vals_for_head.extend_from_slice(&v[start..start + head_dim]);
-            }
-
-            // Transpose K for matmul
-            let mut k_t = vec![0.0f32; seq_len * head_dim];
-            for i in 0..seq_len {
-                for j in 0..head_dim {
-                    k_t[j * seq_len + i] = keys_for_head[i * head_dim + j];
-                }
-            }
-
-            // Q @ K^T
-            let scores = self
-                .scheduler
-                .matmul(&q_head, &k_t, seq_len, head_dim, seq_len)?;
-
-            // Scale and softmax
-            let mut attn_weights = vec![0.0f32; seq_len * seq_len];
-            for i in 0..seq_len {
-                let row_start = i * seq_len;
-                let max_score = scores[row_start..row_start + seq_len]
-                    .iter()
-                    .copied()
-                    .fold(f32::NEG_INFINITY, f32::max);
-
-                let mut sum = 0.0f32;
-                for j in 0..seq_len {
-                    let exp_val = ((scores[row_start + j] * scale) - max_score * scale).exp();
-                    attn_weights[row_start + j] = exp_val;
-                    sum += exp_val;
-                }
-                for j in 0..seq_len {
-                    attn_weights[row_start + j] /= sum;
-                }
-            }
-
-            // Attention @ V
-            let head_out =
-                self.scheduler
-                    .matmul(&attn_weights, &vals_for_head, seq_len, seq_len, head_dim)?;
-
-            // Copy to output
-            for i in 0..seq_len {
-                let out_start = i * hidden_dim + head * head_dim;
-                output[out_start..out_start + head_dim]
-                    .copy_from_slice(&head_out[i * head_dim..(i + 1) * head_dim]);
-            }
-        }
-
-        Ok(output)
-    }
-
-    /// GQA incremental attention: single query attending to all cached K, V (IMP-089)
-    fn gqa_incremental_attention(
-        q: &[f32], // Q: [hidden_dim]
-        k: &[f32], // K: [kv_len * kv_dim]
-        v: &[f32], // V: [kv_len * kv_dim]
-        kv_len: usize,
-        num_heads: usize,
-        num_kv_heads: usize,
-        head_dim: usize,
-    ) -> Vec<f32> {
-        let hidden_dim = num_heads * head_dim;
-        let kv_dim = num_kv_heads * head_dim;
-        let scale = 1.0 / (head_dim as f32).sqrt();
-        let heads_per_kv = num_heads / num_kv_heads;
-        let mut output = vec![0.0f32; hidden_dim];
-
-        for head in 0..num_heads {
-            let kv_head = head / heads_per_kv;
-
-            // Extract Q for this head (single position)
-            let q_head = &q[head * head_dim..(head + 1) * head_dim];
-
-            // Extract K, V for the corresponding KV head (all positions)
-            let mut k_head = Vec::with_capacity(kv_len * head_dim);
-            let mut v_head = Vec::with_capacity(kv_len * head_dim);
-
-            for i in 0..kv_len {
-                let start = i * kv_dim + kv_head * head_dim;
-                k_head.extend_from_slice(&k[start..start + head_dim]);
-                v_head.extend_from_slice(&v[start..start + head_dim]);
-            }
-
-            // Compute attention scores: Q @ K^T
-            let mut scores = vec![0.0f32; kv_len];
-            for i in 0..kv_len {
-                let mut dot = 0.0f32;
-                for j in 0..head_dim {
-                    dot += q_head[j] * k_head[i * head_dim + j];
-                }
-                scores[i] = dot * scale;
-            }
-
-            // Softmax
-            let max_score = scores.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-            let mut sum = 0.0f32;
-            for s in &mut scores {
-                *s = (*s - max_score).exp();
-                sum += *s;
-            }
-            for s in &mut scores {
-                *s /= sum;
-            }
-
-            // Weighted sum of V
-            let mut head_out = vec![0.0f32; head_dim];
-            for i in 0..kv_len {
-                for j in 0..head_dim {
-                    head_out[j] += scores[i] * v_head[i * head_dim + j];
-                }
-            }
-
-            // Copy to output
-            output[head * head_dim..(head + 1) * head_dim].copy_from_slice(&head_out);
-        }
-
-        output
-    }
-
-    /// Generate with KV cache for efficient autoregressive decoding (IMP-033)
-    ///
-    /// Uses incremental decoding to avoid recomputing attention for all
-    /// previous positions on each token.
-    ///
-    /// # Arguments
-    ///
-    /// * `prompt` - Initial token IDs
-    /// * `config` - Generation configuration
-    ///
-    /// # Returns
-    ///
-    /// Complete token sequence (prompt + generated)
-    ///
-    /// # Errors
-    ///
-    /// Returns error if generation fails
+    /// Generate with KV cache (IMP-033) - delegates to kv module
     pub fn generate_with_cache(
         &mut self,
         prompt: &[usize],
         config: &GpuGenerateConfig,
     ) -> Result<Vec<usize>> {
-        if prompt.is_empty() {
-            return Err(RealizarError::InvalidShape {
-                reason: "Prompt cannot be empty".to_string(),
-            });
-        }
-
-        // Initialize KV cache
-        // IMP-093: For GQA, use num_kv_heads (not num_heads) since K/V projections
-        // are sized based on kv_dim = num_kv_heads * head_dim
-        let max_seq_len = prompt.len() + config.max_tokens;
-        let head_dim = self.config.hidden_dim / self.config.num_heads;
-        let mut kv_cache = StreamingKVCache::new(
-            self.config.num_layers,
-            max_seq_len,
-            self.config.num_kv_heads, // GQA: K/V have fewer heads
-            head_dim,
-        );
-
-        let mut tokens = prompt.to_vec();
-
-        // Process prompt and get first prediction
-        let logits = self.forward_gpu_with_cache(prompt, &mut kv_cache)?;
-
-        // Sample first token
-        let mut next_token = if config.temperature == 0.0 || config.top_k == 1 {
-            Self::argmax(&logits)
-        } else {
-            Self::sample_topk_generate(&logits, config.temperature, config.top_k)
-        };
-
-        // Check stop condition
-        if config.stop_tokens.contains(&next_token) {
-            return Ok(tokens);
-        }
-
-        tokens.push(next_token);
-
-        // Generate remaining tokens incrementally
-        for _ in 1..config.max_tokens {
-            // Incremental forward pass
-            let logits = self.forward_gpu_incremental(next_token, &mut kv_cache)?;
-
-            // Sample next token
-            next_token = if config.temperature == 0.0 || config.top_k == 1 {
-                Self::argmax(&logits)
-            } else {
-                Self::sample_topk_generate(&logits, config.temperature, config.top_k)
-            };
-
-            // Check stop condition
-            if config.stop_tokens.contains(&next_token) {
-                break;
-            }
-
-            tokens.push(next_token);
-        }
-
-        Ok(tokens)
+        super::kv::generate_with_cache(self, prompt, config)
     }
 
     /// Top-k sampling with temperature (returns highest prob token in top-k for determinism)
@@ -2548,158 +1921,12 @@ impl GpuModel {
         Ok(residual1)
     }
 
-    /// Optimized GQA attention using GPU for matmul operations (IMP-089)
-    fn optimized_gqa_attention(&mut self, qkv: &[f32], seq_len: usize) -> Result<Vec<f32>> {
-        let hidden_dim = self.config.hidden_dim;
-        let num_heads = self.config.num_heads;
-        let num_kv_heads = self.config.num_kv_heads;
-        let head_dim = self.config.head_dim();
-        let kv_dim = self.config.kv_dim();
-        let heads_per_kv = num_heads / num_kv_heads;
-
-        // Split QKV (GQA: K/V have kv_dim per position)
-        let q = &qkv[..seq_len * hidden_dim];
-        let k = &qkv[seq_len * hidden_dim..seq_len * hidden_dim + seq_len * kv_dim];
-        let v = &qkv[seq_len * hidden_dim + seq_len * kv_dim..];
-
-        let scale = 1.0 / (head_dim as f32).sqrt();
-        let mut output = vec![0.0f32; seq_len * hidden_dim];
-
-        // Process each head
-        for head in 0..num_heads {
-            let kv_head = head / heads_per_kv;
-
-            // Extract Q for this head
-            let mut q_head = Vec::with_capacity(seq_len * head_dim);
-            for i in 0..seq_len {
-                let start = i * hidden_dim + head * head_dim;
-                q_head.extend_from_slice(&q[start..start + head_dim]);
-            }
-
-            // Extract K, V for the corresponding KV head (shared by multiple Q heads)
-            let mut k_head = Vec::with_capacity(seq_len * head_dim);
-            let mut v_head = Vec::with_capacity(seq_len * head_dim);
-            for i in 0..seq_len {
-                let start = i * kv_dim + kv_head * head_dim;
-                k_head.extend_from_slice(&k[start..start + head_dim]);
-                v_head.extend_from_slice(&v[start..start + head_dim]);
-            }
-
-            // Compute attention scores: Q @ K^T using GPU matmul
-            let mut attn_scores = vec![f32::NEG_INFINITY; seq_len * seq_len];
-            let scores = self
-                .scheduler
-                .matmul_transpose_b(&q_head, &k_head, seq_len, head_dim, seq_len)?;
-
-            // Apply causal mask and scale
-            for i in 0..seq_len {
-                for j in 0..=i {
-                    attn_scores[i * seq_len + j] = scores[i * seq_len + j] * scale;
-                }
-            }
-
-            // Softmax per row
-            for i in 0..seq_len {
-                let row_start = i * seq_len;
-                let row = &mut attn_scores[row_start..row_start + seq_len];
-
-                let max_val = row[..=i].iter().copied().fold(f32::NEG_INFINITY, f32::max);
-
-                let mut sum = 0.0f32;
-                for item in row.iter_mut().take(i + 1) {
-                    *item = (*item - max_val).exp();
-                    sum += *item;
-                }
-
-                for item in row.iter_mut().take(i + 1) {
-                    *item /= sum;
-                }
-                for item in row.iter_mut().skip(i + 1) {
-                    *item = 0.0;
-                }
-            }
-
-            // Compute output: attn @ V using GPU matmul
-            let head_output =
-                self.scheduler
-                    .matmul(&attn_scores, &v_head, seq_len, seq_len, head_dim)?;
-
-            // Copy to output
-            for i in 0..seq_len {
-                let out_start = i * hidden_dim + head * head_dim;
-                let head_start = i * head_dim;
-                output[out_start..out_start + head_dim]
-                    .copy_from_slice(&head_output[head_start..head_start + head_dim]);
-            }
-        }
-
-        Ok(output)
-    }
-
-    /// Simplified attention (fallback, for M3 benchmarking)
-    #[allow(dead_code, clippy::unnecessary_wraps)]
-    fn simplified_attention(&self, qkv: &[f32], seq_len: usize) -> Result<Vec<f32>> {
-        let hidden_dim = self.config.hidden_dim;
-        let head_dim = hidden_dim / self.config.num_heads;
-
-        // Split QKV
-        let q = &qkv[..seq_len * hidden_dim];
-        let k = &qkv[seq_len * hidden_dim..seq_len * 2 * hidden_dim];
-        let v = &qkv[seq_len * 2 * hidden_dim..];
-
-        // Simplified scaled dot-product attention per head
-        let scale = 1.0 / (head_dim as f32).sqrt();
-        let mut output = vec![0.0f32; seq_len * hidden_dim];
-
-        for head in 0..self.config.num_heads {
-            for i in 0..seq_len {
-                // Compute attention weights for position i
-                let mut weights = Vec::with_capacity(seq_len);
-                let mut max_score = f32::NEG_INFINITY;
-
-                for j in 0..=i {
-                    // Causal: only attend to previous positions
-                    let mut score = 0.0f32;
-                    for d in 0..head_dim {
-                        let q_idx = i * hidden_dim + head * head_dim + d;
-                        let k_idx = j * hidden_dim + head * head_dim + d;
-                        score += q[q_idx] * k[k_idx];
-                    }
-                    score *= scale;
-                    max_score = max_score.max(score);
-                    weights.push(score);
-                }
-
-                // Softmax
-                let mut sum = 0.0f32;
-                for w in &mut weights {
-                    *w = (*w - max_score).exp();
-                    sum += *w;
-                }
-                for w in &mut weights {
-                    *w /= sum;
-                }
-
-                // Weighted sum of values
-                for d in 0..head_dim {
-                    let out_idx = i * hidden_dim + head * head_dim + d;
-                    for (j, &w) in weights.iter().enumerate() {
-                        let v_idx = j * hidden_dim + head * head_dim + d;
-                        output[out_idx] += w * v[v_idx];
-                    }
-                }
-            }
-        }
-
-        Ok(output)
-    }
-
     /// RMSNorm (Root Mean Square Layer Normalization)
     ///
     /// PMAT-094 FIX: Qwen2, LLaMA, Mistral use RMSNorm, NOT LayerNorm.
     /// Formula: output = x / sqrt(mean(x^2) + eps) * weight + bias
     #[allow(clippy::cast_precision_loss)]
-    fn layer_norm_static(
+    pub(crate) fn layer_norm_static(
         input: &[f32],
         weight: &[f32],
         bias: &[f32],
@@ -2732,373 +1959,18 @@ impl GpuModel {
         Self::layer_norm_static(input, weight, bias, self.config.hidden_dim, self.config.eps)
     }
 
-    /// Generate tokens using GPU-accelerated forward pass with incremental decoding
-    ///
-    /// # Arguments
-    ///
-    /// * `prompt` - Initial token IDs
-    /// * `max_tokens` - Maximum tokens to generate
-    ///
-    /// # Returns
-    ///
-    /// Generated tokens (including prompt)
-    ///
-    /// # Errors
-    ///
-    /// Returns error if generation fails
+    /// Generate tokens using GPU-accelerated forward pass with incremental decoding (wrapper)
     pub fn generate_gpu(&mut self, prompt: &[usize], max_tokens: usize) -> Result<Vec<usize>> {
-        let mut tokens = prompt.to_vec();
-        let vocab_size = self.config.vocab_size;
-
-        // Process prompt first (full forward)
-        let logits = self.forward_gpu(&tokens)?;
-
-        // Get first prediction
-        let last_pos_start = (tokens.len() - 1) * vocab_size;
-        let last_logits = &logits[last_pos_start..last_pos_start + vocab_size];
-
-        let next_token = Self::argmax(last_logits);
-        tokens.push(next_token);
-
-        // Generate remaining tokens one at a time (incremental)
-        // Use optimized greedy path for large vocabularies
-        if vocab_size > 8192 {
-            // Large vocab: use fused LM head + argmax
-            for _ in 1..max_tokens {
-                let next_token = self.forward_single_token_greedy(&tokens)?;
-                tokens.push(next_token);
-            }
-        } else {
-            // Small vocab: standard path
-            for _ in 1..max_tokens {
-                let logits = self.forward_single_token(&tokens)?;
-                let next_token = Self::argmax(&logits);
-                tokens.push(next_token);
-            }
-        }
-
-        Ok(tokens)
+        super::batch::generate_gpu(self, prompt, max_tokens)
     }
 
-    /// Fast single-token forward pass for incremental generation
-    ///
-    /// Only processes the last token position, avoiding O(n²) recomputation.
-    fn forward_single_token(&mut self, tokens: &[usize]) -> Result<Vec<f32>> {
-        let hidden_dim = self.config.hidden_dim;
-        let vocab_size = self.config.vocab_size;
-
-        // Embed only the last token
-        let last_token = *tokens.last().ok_or_else(|| RealizarError::InvalidShape {
-            reason: "Token list empty".to_string(),
-        })?;
-
-        if last_token >= vocab_size {
-            return Err(RealizarError::InvalidShape {
-                reason: format!("Token {} out of bounds", last_token),
-            });
-        }
-
-        let offset = last_token * hidden_dim;
-        let mut hidden: Vec<f32> = self.embedding_weights[offset..offset + hidden_dim].to_vec();
-
-        // Process through blocks (simplified for single token)
-        for block_idx in 0..self.block_weights.len() {
-            hidden = self.forward_block_single(&hidden, block_idx)?;
-        }
-
-        // Final layer norm
-        hidden = Self::layer_norm_static(
-            &hidden,
-            &self.final_norm_weight,
-            &self.final_norm_bias,
-            hidden_dim,
-            self.config.eps,
-        );
-
-        // IMP-090, IMP-096: Use CPU fallback with SIMD for large vocab
-        let lm_head_elements = hidden_dim * vocab_size;
-        let output = if exceeds_gpu_buffer_limit(lm_head_elements) {
-            // IMP-096: CPU path with transposed weights + SIMD + fused bias
-            // Uses parallel dot products with perfect cache behavior
-            cpu_matmul_transposed_simd(
-                &hidden,
-                &self.lm_head_weight_t,
-                &self.lm_head_bias,
-                hidden_dim,
-                vocab_size,
-            )
-        } else {
-            // GPU path for smaller vocab
-            let logits =
-                self.scheduler
-                    .matmul(&hidden, &self.lm_head_weight, 1, hidden_dim, vocab_size)?;
-            // Add bias
-            logits
-                .iter()
-                .zip(self.lm_head_bias.iter())
-                .map(|(&x, &b)| x + b)
-                .collect()
-        };
-
-        Ok(output)
-    }
-
-    /// Single-token forward pass optimized for greedy sampling
-    ///
-    /// Returns the argmax token directly.
-    fn forward_single_token_greedy(&mut self, tokens: &[usize]) -> Result<usize> {
-        let hidden_dim = self.config.hidden_dim;
-        let vocab_size = self.config.vocab_size;
-
-        // Embed only the last token
-        let last_token = *tokens.last().ok_or_else(|| RealizarError::InvalidShape {
-            reason: "Token list empty".to_string(),
-        })?;
-
-        if last_token >= vocab_size {
-            return Err(RealizarError::InvalidShape {
-                reason: format!("Token {} out of bounds", last_token),
-            });
-        }
-
-        let offset = last_token * hidden_dim;
-        let mut hidden: Vec<f32> = self.embedding_weights[offset..offset + hidden_dim].to_vec();
-
-        // Process through blocks (simplified for single token)
-        for block_idx in 0..self.block_weights.len() {
-            hidden = self.forward_block_single(&hidden, block_idx)?;
-        }
-
-        // Final layer norm
-        hidden = Self::layer_norm_static(
-            &hidden,
-            &self.final_norm_weight,
-            &self.final_norm_bias,
-            hidden_dim,
-            self.config.eps,
-        );
-
-        // Use optimized CPU path with transposed weights for large vocab
-        // This uses row-major access pattern which is ~3-5x faster than column access
-        // IMP-090: Also use CPU path if vocab would exceed GPU buffer limits
-        let lm_head_elements = hidden_dim * vocab_size;
-        if vocab_size > 8192 || exceeds_gpu_buffer_limit(lm_head_elements) {
-            // CPU path with transposed weights: perfect cache behavior
-            Ok(Self::optimized_lm_head_argmax_transposed(
-                &hidden,
-                &self.lm_head_weight_t,
-                &self.lm_head_bias,
-                hidden_dim,
-                vocab_size,
-            ))
-        } else {
-            // GPU/small vocab path
-            let logits =
-                self.scheduler
-                    .matmul(&hidden, &self.lm_head_weight, 1, hidden_dim, vocab_size)?;
-            let output: Vec<f32> = logits
-                .iter()
-                .zip(self.lm_head_bias.iter())
-                .map(|(&x, &b)| x + b)
-                .collect();
-            Ok(Self::argmax(&output))
-        }
-    }
-
-    /// Single token forward through a transformer block (CPU-optimized for m=1)
-    ///
-    /// For single-token generation, CPU operations are faster than GPU due to transfer overhead.
-    #[allow(clippy::unnecessary_wraps)]
-    fn forward_block_single(&mut self, input: &[f32], block_idx: usize) -> Result<Vec<f32>> {
-        let hidden_dim = self.config.hidden_dim;
-        let intermediate_dim = self.config.intermediate_dim;
-        let kv_dim = self.config.kv_dim();
-        let qkv_dim = self.config.qkv_dim();
-
-        // Get block weights
-        let block = &self.block_weights[block_idx];
-
-        // Pre-norm
-        let normed = Self::layer_norm_static(
-            input,
-            &block.attn_norm_weight,
-            &block.attn_norm_bias,
-            hidden_dim,
-            self.config.eps,
-        );
-
-        // QKV projection for single token (GQA: qkv_dim = hidden_dim + 2*kv_dim)
-        // Use CPU matmul directly - GPU overhead not worth it for m=1
-        let qkv_weight = &self.block_weights[block_idx].qkv_weight;
-        let qkv = cpu_matmul(&normed, qkv_weight, 1, hidden_dim, qkv_dim);
-
-        // Split QKV and apply simplified self-attention (single token)
-        // q and k unused for single-token (no cross-attention needed)
-        // GQA: V has kv_dim size, but we need hidden_dim output
-        let v = &qkv[hidden_dim + kv_dim..];
-
-        // For single token: attention output = v (self-attention with one token)
-        // GQA: V has kv_dim, need to repeat heads to get hidden_dim
-        let num_kv_heads = self.config.num_kv_heads;
-        let heads_per_kv = self.config.num_heads / num_kv_heads;
-        let head_dim = self.config.head_dim();
-
-        let attn_out: Vec<f32> = if heads_per_kv == 1 {
-            // Standard MHA: no repetition needed
-            v.to_vec()
-        } else {
-            // GQA: repeat each KV head to serve multiple Q heads
-            let mut expanded = Vec::with_capacity(hidden_dim);
-            for kv_h in 0..num_kv_heads {
-                let v_head = &v[kv_h * head_dim..(kv_h + 1) * head_dim];
-                for _ in 0..heads_per_kv {
-                    expanded.extend_from_slice(v_head);
-                }
-            }
-            expanded
-        };
-
-        // Output projection (CPU - m=1)
-        let out_weight = &self.block_weights[block_idx].out_weight;
-        let out_bias = &self.block_weights[block_idx].out_bias;
-        let projected = cpu_matmul(&attn_out, out_weight, 1, hidden_dim, hidden_dim);
-
-        // Residual 1
-        let residual1: Vec<f32> = input
-            .iter()
-            .zip(projected.iter())
-            .enumerate()
-            .map(|(i, (&inp, &proj))| inp + proj + out_bias[i])
-            .collect();
-
-        // FFN pre-norm
-        let ffn_norm_weight = &self.block_weights[block_idx].ffn_norm_weight;
-        let ffn_norm_bias = &self.block_weights[block_idx].ffn_norm_bias;
-        let ffn_normed = Self::layer_norm_static(
-            &residual1,
-            ffn_norm_weight,
-            ffn_norm_bias,
-            hidden_dim,
-            self.config.eps,
-        );
-
-        // FFN fc1 (CPU - m=1)
-        let ffn_fc1_weight = &self.block_weights[block_idx].ffn_fc1_weight;
-        let ffn_fc1_bias = &self.block_weights[block_idx].ffn_fc1_bias;
-        let fc1_out = cpu_matmul(&ffn_normed, ffn_fc1_weight, 1, hidden_dim, intermediate_dim);
-
-        // GELU + bias
-        let activated: Vec<f32> = fc1_out
-            .iter()
-            .enumerate()
-            .map(|(i, &x)| {
-                let x = x + ffn_fc1_bias[i];
-                0.5 * x
-                    * (1.0
-                        + ((2.0f32 / std::f32::consts::PI).sqrt() * (x + 0.044_715 * x.powi(3)))
-                            .tanh())
-            })
-            .collect();
-
-        // FFN fc2 (CPU - m=1)
-        let ffn_fc2_weight = &self.block_weights[block_idx].ffn_fc2_weight;
-        let ffn_fc2_bias = &self.block_weights[block_idx].ffn_fc2_bias;
-        let fc2_out = cpu_matmul(&activated, ffn_fc2_weight, 1, intermediate_dim, hidden_dim);
-
-        // Residual 2
-        let output: Vec<f32> = residual1
-            .iter()
-            .zip(fc2_out.iter())
-            .enumerate()
-            .map(|(i, (&r, &fc))| r + fc + ffn_fc2_bias[i])
-            .collect();
-
-        Ok(output)
-    }
-
-    /// Argmax helper for sampling - vectorized for large vocabularies
-    #[allow(clippy::items_after_statements)]
+    /// Argmax helper for sampling (wrapper)
     fn argmax(logits: &[f32]) -> usize {
-        // For small vocab, use simple iterator
-        if logits.len() <= 1024 {
-            return logits
-                .iter()
-                .enumerate()
-                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .map_or(0, |(i, _)| i);
-        }
-
-        // For large vocab (32K+), use chunked parallel argmax
-        const CHUNK_SIZE: usize = 4096;
-
-        // Find max in each chunk
-        let chunk_maxes: Vec<(usize, f32)> = logits
-            .chunks(CHUNK_SIZE)
-            .enumerate()
-            .map(|(chunk_idx, chunk)| {
-                let (local_idx, &max_val) = chunk
-                    .iter()
-                    .enumerate()
-                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                    .expect("chunk is non-empty by construction");
-                (chunk_idx * CHUNK_SIZE + local_idx, max_val)
-            })
-            .collect();
-
-        // Find global max
-        chunk_maxes
-            .into_iter()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-            .map_or(0, |(idx, _)| idx)
+        super::batch::argmax(logits)
     }
 
-    /// Optimized LM head + argmax using transposed weights with vectorized dot products
-    ///
-    /// Uses transposed weights [vocab_size, hidden_dim] for row-major access pattern.
-    /// Inner loop is vectorized by the compiler via slice operations.
-    #[allow(clippy::many_single_char_names, clippy::items_after_statements)]
-    fn optimized_lm_head_argmax_transposed(
-        hidden: &[f32],
-        weight_t: &[f32], // Transposed: [vocab_size, hidden_dim]
-        bias: &[f32],
-        hidden_dim: usize,
-        vocab_size: usize,
-    ) -> usize {
-        use rayon::prelude::*;
-
-        // Process in larger chunks for better parallelism
-        const CHUNK_SIZE: usize = 4096;
-
-        // Find argmax in parallel
-        (0..vocab_size)
-            .into_par_iter()
-            .step_by(CHUNK_SIZE)
-            .map(|chunk_start| {
-                let chunk_end = (chunk_start + CHUNK_SIZE).min(vocab_size);
-                let mut best_local_idx = chunk_start;
-                let mut best_local_val = f32::NEG_INFINITY;
-
-                for j in chunk_start..chunk_end {
-                    // Row-major access: weight_t[j, :] is contiguous in memory
-                    let row = &weight_t[j * hidden_dim..(j + 1) * hidden_dim];
-
-                    // Vectorized dot product - compiler can auto-vectorize this
-                    let dot: f32 = row.iter().zip(hidden.iter()).map(|(&w, &h)| w * h).sum();
-
-                    let logit = dot + bias[j];
-
-                    if logit > best_local_val {
-                        best_local_val = logit;
-                        best_local_idx = j;
-                    }
-                }
-                (best_local_idx, best_local_val)
-            })
-            .reduce(
-                || (0, f32::NEG_INFINITY),
-                |a, b| if a.1 > b.1 { a } else { b },
-            )
-            .0
+    /// Optimized GQA attention using GPU for matmul operations (wrapper)
+    fn optimized_gqa_attention(&mut self, qkv: &[f32], seq_len: usize) -> Result<Vec<f32>> {
+        super::batch::optimized_gqa_attention(self, qkv, seq_len)
     }
 }
-

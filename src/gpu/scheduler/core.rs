@@ -3,12 +3,11 @@
 //! Core CudaScheduler implementation for direct CUDA execution.
 
 #[cfg(feature = "cuda")]
+#[allow(unused_imports)]
 use crate::cuda::CudaExecutor;
+#[cfg(feature = "cuda")]
+#[allow(unused_imports)]
 use crate::error::{RealizarError, Result};
-use super::super::{
-    HybridScheduler, StreamingKVCache, exceeds_gpu_buffer_limit,
-    cpu_matmul_transposed_simd, cpu_matmul,
-};
 
 // Unlike HybridScheduler, this ALWAYS uses CUDA (even for m=1)
 // ============================================================================
