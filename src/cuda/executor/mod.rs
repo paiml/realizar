@@ -50,6 +50,8 @@ mod core;
 mod gemm;
 mod kv_cache;
 mod layer;
+mod q4k;
+mod q_basic;
 mod quantized;
 mod weights;
 mod workspace;

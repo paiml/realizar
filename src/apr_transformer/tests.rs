@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::apr_transformer::*;
+    use trueno::Matrix as TruenoMatrix;
 
     // ==========================================================================
     // Configuration Tests
