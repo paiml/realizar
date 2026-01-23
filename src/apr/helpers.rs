@@ -82,7 +82,7 @@ pub(crate) fn transpose_matrix(m: &[f32], rows: usize, cols: usize) -> Vec<f32> 
 
 /// SIMD-accelerated dot product
 #[inline]
-pub(crate) fn simd_dot(a: &[f32], b: &[f32]) -> f32 {
+pub fn simd_dot(a: &[f32], b: &[f32]) -> f32 {
     #[cfg(target_arch = "x86_64")]
     {
         if is_x86_feature_detected!("avx2") {

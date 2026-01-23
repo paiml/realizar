@@ -1277,6 +1277,7 @@ mod tests {
         assert_eq!(RuntimeType::parse("unknown"), None);
     }
 
+    #[cfg(feature = "bench-http")]
     #[test]
     fn test_inference_request_default() {
         let req = InferenceRequest::default();
@@ -1285,6 +1286,7 @@ mod tests {
         assert!(req.temperature > 0.0);
     }
 
+    #[cfg(feature = "bench-http")]
     #[test]
     fn test_inference_request_builder() {
         let req = InferenceRequest::new("Hello, world!")
@@ -1295,6 +1297,7 @@ mod tests {
         assert!((req.temperature - 0.5).abs() < 0.001);
     }
 
+    #[cfg(feature = "bench-http")]
     #[test]
     fn test_inference_response_tokens_per_second() {
         let response = InferenceResponse {
@@ -1307,6 +1310,7 @@ mod tests {
         assert!((response.tokens_per_second() - 100.0).abs() < 0.1);
     }
 
+    #[cfg(feature = "bench-http")]
     #[test]
     fn test_inference_response_tokens_per_second_zero_time() {
         let response = InferenceResponse {
@@ -1319,6 +1323,7 @@ mod tests {
         assert_eq!(response.tokens_per_second(), 0.0);
     }
 
+    #[cfg(feature = "bench-http")]
     #[test]
     fn test_mock_backend_inference() {
         let backend = MockBackend::new(42.0, 150.0);
@@ -1331,6 +1336,7 @@ mod tests {
         assert!(resp.tokens_generated > 0);
     }
 
+    #[cfg(feature = "bench-http")]
     #[test]
     fn test_mock_backend_info() {
         let backend = MockBackend::new(30.0, 140.0);
@@ -1341,12 +1347,14 @@ mod tests {
         assert!(info.supports_streaming);
     }
 
+    #[cfg(feature = "bench-http")]
     #[test]
     fn test_backend_registry_default() {
         let registry = BackendRegistry::new();
         assert!(registry.get(RuntimeType::Realizar).is_none());
     }
 
+    #[cfg(feature = "bench-http")]
     #[test]
     fn test_backend_registry_register_and_get() {
         let mut registry = BackendRegistry::new();
@@ -1357,6 +1365,7 @@ mod tests {
         assert!(registry.get(RuntimeType::LlamaCpp).is_none());
     }
 
+    #[cfg(feature = "bench-http")]
     #[test]
     fn test_backend_registry_list() {
         let mut registry = BackendRegistry::new();
@@ -1375,6 +1384,7 @@ mod tests {
         assert!(list.contains(&RuntimeType::LlamaCpp));
     }
 
+    #[cfg(feature = "bench-http")]
     #[test]
     fn test_llama_cpp_config_default() {
         let config = LlamaCppConfig::default();
@@ -1383,6 +1393,7 @@ mod tests {
         assert_eq!(config.ctx_size, 2048);
     }
 
+    #[cfg(feature = "bench-http")]
     #[test]
     fn test_llama_cpp_config_builder() {
         let config = LlamaCppConfig::new("/usr/bin/llama-cli")
@@ -1396,6 +1407,7 @@ mod tests {
         assert_eq!(config.ctx_size, 4096);
     }
 
+    #[cfg(feature = "bench-http")]
     #[test]
     fn test_vllm_config_default() {
         let config = VllmConfig::default();
@@ -1403,6 +1415,7 @@ mod tests {
         assert_eq!(config.api_version, "v1");
     }
 
+    #[cfg(feature = "bench-http")]
     #[test]
     fn test_vllm_config_builder() {
         let config = VllmConfig::new("http://gpu-server:8080")
@@ -1418,6 +1431,7 @@ mod tests {
     // LlamaCppBackend Tests (BENCH-002: Runtime Backend Integration)
     // =========================================================================
 
+    #[cfg(feature = "bench-http")]
     #[test]
     fn test_llama_cpp_backend_creation() {
         let config = LlamaCppConfig::new("llama-cli");
@@ -1427,6 +1441,7 @@ mod tests {
         assert!(!info.version.is_empty());
     }
 
+    #[cfg(feature = "bench-http")]
     #[test]
     fn test_llama_cpp_backend_info() {
         let config = LlamaCppConfig::new("llama-cli").with_model("test.gguf");
@@ -1437,6 +1452,7 @@ mod tests {
         assert!(!info.supports_streaming); // CLI doesn't support streaming
     }
 
+    #[cfg(feature = "bench-http")]
     #[test]
     fn test_llama_cpp_backend_missing_binary() {
         let config = LlamaCppConfig::new("/nonexistent/llama-cli");

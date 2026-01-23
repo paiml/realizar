@@ -89,7 +89,7 @@ pub(crate) fn bpe_encode(text: &str, vocab: &HashMap<String, u32>, merges: &[(St
 }
 
 /// Convert byte to BPE character representation
-pub(crate) fn byte_to_bpe_char(b: u8) -> String {
+pub fn byte_to_bpe_char(b: u8) -> String {
     // GPT-2/Qwen byte-level BPE uses specific unicode mappings
     // This is a simplified version - real tokenizers use a full byte-to-unicode table
     match b {
