@@ -30,10 +30,8 @@
 use std::fs::File;
 use std::path::Path;
 
-use memmap2::Mmap;
 use serde::{Deserialize, Serialize};
 
-use crate::apr::MAGIC;
 use crate::error::{RealizarError, Result};
 
 // PMAT-802: Extracted modules
@@ -416,7 +414,7 @@ impl AprTransformer {
         // PMAT-086 FIX: Transpose matrix from GGUF [in_dim, out_dim] to matmul [out_dim, in_dim]
         // GGUF/APR stores weights as [rows, cols] = [in_dim, out_dim] for y = x @ W
         // But our matmul expects [out_dim, in_dim] for y = W @ x (row-major GEMV)
-        let transpose_weight = |data: Vec<f32>, rows: usize, cols: usize| -> Vec<f32> {
+        let _transpose_weight = |data: Vec<f32>, rows: usize, cols: usize| -> Vec<f32> {
             let mut transposed = vec![0.0f32; rows * cols];
             for r in 0..rows {
                 for c in 0..cols {
@@ -1115,7 +1113,7 @@ impl AprTransformer {
 
             // 2d. Attention output projection
             // PMAT-103: Use Q4K fused kernel when available
-            let mut attn_output = if let Some(ref q4k_bytes) = q4k_layer
+            let mut attn_output = if let Some(q4k_bytes) = q4k_layer
                 .and_then(|q| q.attn_output_weight.as_ref())
             {
                 if layer_idx == 0 {
@@ -1164,7 +1162,7 @@ impl AprTransformer {
             let ffn_output = if let Some(ref _gate_weight) = layer.ffn_gate_weight {
                 // SwiGLU: down(SiLU(gate(x)) * up(x))
                 // PMAT-103: Check for Q4K gate weight
-                let gate = if let Some(ref q4k_bytes) = q4k_layer
+                let gate = if let Some(q4k_bytes) = q4k_layer
                     .and_then(|q| q.ffn_gate_weight.as_ref())
                 {
                     if layer_idx == 0 {
@@ -1184,7 +1182,7 @@ impl AprTransformer {
                 };
 
                 // PMAT-103: Check for Q4K up weight
-                let up = if let Some(ref q4k_bytes) = q4k_layer
+                let up = if let Some(q4k_bytes) = q4k_layer
                     .and_then(|q| q.ffn_up_weight.as_ref())
                 {
                     if layer_idx == 0 {
@@ -1214,7 +1212,7 @@ impl AprTransformer {
                 }
 
                 // PMAT-103: Check for Q4K or Q6K down weight
-                let mut out = if let Some(ref q4k_bytes) = q4k_layer
+                let mut out = if let Some(q4k_bytes) = q4k_layer
                     .and_then(|q| q.ffn_down_weight.as_ref())
                 {
                     if layer_idx == 0 {
@@ -1227,7 +1225,7 @@ impl AprTransformer {
                         output.extend(pos_out);
                     }
                     output
-                } else if let Some(ref q6k_bytes) = q4k_layer
+                } else if let Some(q6k_bytes) = q4k_layer
                     .and_then(|q| q.ffn_down_weight_q6k.as_ref())
                 {
                     if layer_idx == 0 {
@@ -1253,7 +1251,7 @@ impl AprTransformer {
             } else {
                 // Standard MLP: down(GELU(up(x)))
                 // PMAT-103: Check for Q4K up weight
-                let mut ffn_hidden = if let Some(ref q4k_bytes) = q4k_layer
+                let mut ffn_hidden = if let Some(q4k_bytes) = q4k_layer
                     .and_then(|q| q.ffn_up_weight.as_ref())
                 {
                     let mut output = Vec::with_capacity(seq_len * intermediate_dim);
@@ -1274,7 +1272,7 @@ impl AprTransformer {
                 self.gelu(&mut ffn_hidden);
 
                 // PMAT-103: Check for Q4K down weight
-                let mut out = if let Some(ref q4k_bytes) = q4k_layer
+                let mut out = if let Some(q4k_bytes) = q4k_layer
                     .and_then(|q| q.ffn_down_weight.as_ref())
                 {
                     let mut output = Vec::with_capacity(seq_len * hidden_dim);
@@ -1400,7 +1398,7 @@ impl AprTransformer {
             // 2b. QKV projection (single token)
             // PMAT-103: Use fused Q4K kernels for separate Q, K, V weights when available
             let kv_size = num_kv_heads * head_dim;
-            let (mut q, mut k, v) = if let Some(ref q4k) = q4k_layer {
+            let (mut q, mut k, v) = if let Some(q4k) = q4k_layer {
                 // Try Q4K fused kernels for Q, K
                 let q = if let Some(ref q_bytes) = q4k.attn_q_weight {
                     if layer_idx == 0 && position == 0 {
@@ -1542,7 +1540,7 @@ impl AprTransformer {
             // 2e. Attention output projection
             // PMAT-103: Use Q4K fused kernel when available (single token path)
             let mut attn_output = if !force_f32 {
-                if let Some(ref q4k_bytes) = q4k_layer
+                if let Some(q4k_bytes) = q4k_layer
                     .and_then(|q| q.attn_output_weight.as_ref())
                 {
                     if layer_idx == 0 && position == 0 {
@@ -1589,7 +1587,7 @@ impl AprTransformer {
                 // SwiGLU: down(SiLU(gate(x)) * up(x))
                 // PMAT-103: Check for Q4K gate weight
                 let gate = if !force_f32 {
-                    if let Some(ref q4k_bytes) = q4k_layer
+                    if let Some(q4k_bytes) = q4k_layer
                         .and_then(|q| q.ffn_gate_weight.as_ref())
                     {
                         if layer_idx == 0 && position == 0 {
@@ -1611,14 +1609,14 @@ impl AprTransformer {
 
                 // PMAT-103: Check for Q4K/Q6K up weight
                 let up = if !force_f32 {
-                    if let Some(ref q4k_bytes) = q4k_layer
+                    if let Some(q4k_bytes) = q4k_layer
                         .and_then(|q| q.ffn_up_weight.as_ref())
                     {
                         if layer_idx == 0 && position == 0 {
                             eprintln!("[TRACE-CACHE] Layer 0: ffn_up using Q4K fused kernel");
                         }
                         matmul_q4k_rowmajor(q4k_bytes, &ffn_input, intermediate_dim, hidden_dim)
-                    } else if let Some(ref q6k_bytes) = q4k_layer
+                    } else if let Some(q6k_bytes) = q4k_layer
                         .and_then(|q| q.ffn_up_weight_q6k.as_ref())
                     {
                         if layer_idx == 0 && position == 0 {
@@ -1647,14 +1645,14 @@ impl AprTransformer {
 
                 // PMAT-103: Check for Q4K or Q6K down weight
                 let mut out = if !force_f32 {
-                    if let Some(ref q4k_bytes) = q4k_layer
+                    if let Some(q4k_bytes) = q4k_layer
                         .and_then(|q| q.ffn_down_weight.as_ref())
                     {
                         if layer_idx == 0 && position == 0 {
                             eprintln!("[TRACE-CACHE] Layer 0: ffn_down using Q4K fused kernel");
                         }
                         matmul_q4k_rowmajor(q4k_bytes, &ffn_hidden, hidden_dim, intermediate_dim)
-                    } else if let Some(ref q6k_bytes) = q4k_layer
+                    } else if let Some(q6k_bytes) = q4k_layer
                         .and_then(|q| q.ffn_down_weight_q6k.as_ref())
                     {
                         if layer_idx == 0 && position == 0 {
@@ -1680,7 +1678,7 @@ impl AprTransformer {
             } else {
                 // Standard MLP: down(GELU(up(x)))
                 // PMAT-103: Check for Q4K up weight
-                let mut ffn_hidden = if let Some(ref q4k_bytes) = q4k_layer
+                let mut ffn_hidden = if let Some(q4k_bytes) = q4k_layer
                     .and_then(|q| q.ffn_up_weight.as_ref())
                 {
                     matmul_q4k_rowmajor(q4k_bytes, &ffn_input, intermediate_dim, hidden_dim)
@@ -1693,7 +1691,7 @@ impl AprTransformer {
                 self.gelu(&mut ffn_hidden);
 
                 // PMAT-103: Check for Q4K down weight
-                let mut out = if let Some(ref q4k_bytes) = q4k_layer
+                let mut out = if let Some(q4k_bytes) = q4k_layer
                     .and_then(|q| q.ffn_down_weight.as_ref())
                 {
                     matmul_q4k_rowmajor(q4k_bytes, &ffn_hidden, hidden_dim, intermediate_dim)

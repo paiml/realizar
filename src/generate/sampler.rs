@@ -10,14 +10,11 @@
 //! - Token healing
 
 use crate::tensor::Tensor;
-use crate::error::{RealizarError, Result};
-use crate::layers::softmax;
+use crate::error::Result;
 use super::{
-    sample_from_distribution, logits_to_probs, build_nucleus,
-    GenerationConfig, SamplingStrategy, apply_temperature, sample_greedy,
-    sample_top_k, sample_top_p, sample_token,
+    GenerationConfig, apply_temperature, sample_greedy, sample_token,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 // ==================== Advanced Sampling Features ====================
 
@@ -373,23 +370,6 @@ pub fn apply_logit_bias(logits: &Tensor<f32>, bias: &LogitBias) -> Tensor<f32> {
     Tensor::from_vec(logits.shape().to_vec(), biased).expect("Shape should match original logits")
 }
 
-/// Min-P sampling: filter tokens below a probability threshold relative to max
-///
-/// Keeps tokens where prob >= min_p * max_prob
-///
-/// # Arguments
-///
-/// * `logits` - Logits for the vocabulary
-/// * `min_p` - Minimum probability ratio (0.0 to 1.0)
-/// * `rng_value` - Random value in [0, 1) for sampling
-///
-/// # Returns
-///
-/// Index of the selected token
-///
-/// # Errors
-///
-/// Returns error if min_p is not in [0, 1] or logits are empty
 // ===== Prompt Caching =====
 
 /// Prompt cache entry

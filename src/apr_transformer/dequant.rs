@@ -77,7 +77,7 @@ pub(crate) fn dequantize_q4_k_apr(data: &[u8], num_elements: usize) -> Vec<f32> 
     const QK_K: usize = 256; // Super-block size
     const SUPER_BLOCK_BYTES: usize = 2 + 2 + 12 + 128; // 144 bytes
 
-    let num_blocks = (num_elements + QK_K - 1) / QK_K;
+    let num_blocks = num_elements.div_ceil(QK_K);
     let total_bytes = num_blocks * SUPER_BLOCK_BYTES;
 
     if total_bytes > data.len() {
@@ -142,12 +142,13 @@ pub(crate) fn dequantize_q4_k_apr(data: &[u8], num_elements: usize) -> Vec<f32> 
 /// - qh: 64 bytes (high 2 bits, 256 values, 4 per byte)
 /// - scales: 16 bytes (i8 signed scales for 16 blocks)
 /// - d: 2 bytes (f16)
+///
 /// Total: 128 + 64 + 16 + 2 = 210 bytes
 pub(crate) fn dequantize_q6_k_apr(data: &[u8], num_elements: usize) -> Vec<f32> {
     const QK_K: usize = 256;
     const SUPER_BLOCK_BYTES: usize = 210;
 
-    let num_blocks = (num_elements + QK_K - 1) / QK_K;
+    let num_blocks = num_elements.div_ceil(QK_K);
     let total_bytes = num_blocks * SUPER_BLOCK_BYTES;
 
     if total_bytes > data.len() {

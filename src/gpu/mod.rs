@@ -49,7 +49,7 @@ mod metrics;
 mod batch_scheduling;
 
 // Types available without cuda feature
-pub use scheduler::{GpuModel, GpuModelConfig, GpuGenerateConfig, WeightType, AttentionBuffers};
+pub use scheduler::{GpuModel, GpuModelConfig, GpuGenerateConfig, WeightType, AttentionBuffers, BlockWeights};
 #[cfg(feature = "cuda")]
 pub use scheduler::CudaScheduler;
 

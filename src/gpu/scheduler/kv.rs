@@ -294,7 +294,7 @@ fn forward_block_incremental(
     let cache_len = all_k.len() / kv_dim;
 
     // GQA incremental attention
-    let attn_out = gqa_incremental_attention(model, q, &all_k, &all_v, cache_len, num_heads, num_kv_heads, head_dim)?;
+    let attn_out = gqa_incremental_attention(model, q, all_k, all_v, cache_len, num_heads, num_kv_heads, head_dim)?;
 
     // Output projection
     let projected = model.scheduler.matmul(

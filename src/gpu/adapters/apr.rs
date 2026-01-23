@@ -1,23 +1,26 @@
 //! APR to GpuModel Adapter (PMAT-106)
 //!
-//! Converts `QuantizedAprTransformerQ4` to `GpuModel` for GPU inference.
+//! Converts APR transformers to `GpuModel` for GPU inference.
 //!
 //! # Overview
 //!
-//! The APR format stores weights in Q4_0 quantization. This adapter:
-//! 1. Dequantizes Q4_0 weights to F32
-//! 2. Restructures weights into GpuModel format
-//! 3. Initializes GPU schedulers
+//! This module provides adapters for both F32 and Q4 APR formats:
+//! - [`AprF32ToGpuAdapter`] - For `.apr` files with F32 weights (direct copy)
+//! - [`AprToGpuAdapter`] - For GGUF Q4_0 models (dequantizes to F32)
 //!
 //! # Coverage Impact
 //!
-//! Testing this adapter exercises:
-//! - `apr_transformer/q4_simd.rs` - Weight extraction
+//! Testing these adapters exercises:
+//! - `apr_transformer/mod.rs` - F32 weight extraction
+//! - `apr_transformer/q4_simd.rs` - Q4 weight extraction
 //! - `gpu/scheduler/model.rs` - GpuModel creation
 //! - `quantize/dequant.rs` - Q4_0 dequantization
 
-use crate::apr_transformer::{QuantizedAprTransformerQ4, QuantizedAprLayerQ4, AprTransformerConfig};
-use crate::gpu::scheduler::{GpuModel, GpuModelConfig};
+use crate::apr_transformer::{
+    AprTransformer, AprTransformerConfig, AprTransformerLayer,
+    QuantizedAprTransformerQ4, QuantizedAprLayerQ4,
+};
+use crate::gpu::scheduler::{GpuModel, GpuModelConfig, BlockWeights};
 use crate::quantize::dequantize_q4_0;
 use crate::error::Result;
 use thiserror::Error;
@@ -43,7 +46,95 @@ pub enum AprGpuError {
     GpuModelError(String),
 }
 
-/// Adapter for converting APR models to GPU format
+/// Adapter for converting F32 APR models to GPU format
+///
+/// Used for `.apr` files which contain F32 weights. No dequantization needed.
+pub struct AprF32ToGpuAdapter;
+
+impl AprF32ToGpuAdapter {
+    /// Convert F32 APR transformer to GpuModel
+    ///
+    /// # Arguments
+    ///
+    /// * `apr` - Source APR transformer with F32 weights
+    ///
+    /// # Returns
+    ///
+    /// `GpuModel` ready for GPU inference
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use realizar::apr_transformer::AprTransformer;
+    /// use realizar::gpu::adapters::AprF32ToGpuAdapter;
+    ///
+    /// let apr = AprTransformer::from_apr_bytes(&data)?;
+    /// let gpu_model = AprF32ToGpuAdapter::to_gpu_model(&apr)?;
+    /// ```
+    pub fn to_gpu_model(apr: &AprTransformer) -> Result<GpuModel> {
+        let config = AprToGpuAdapter::config_to_gpu(&apr.config);
+        let hidden_dim = config.hidden_dim;
+        let intermediate_dim = config.intermediate_dim;
+
+        // Embedding weights (already F32)
+        let embedding_weights = apr.token_embedding.clone();
+
+        // LM head weights (already F32)
+        let lm_head_weight = apr.lm_head_weight.clone();
+
+        // Transpose LM head for fast CPU inference
+        let lm_head_weight_t = transpose_matrix(&lm_head_weight, hidden_dim, config.vocab_size);
+
+        // Convert each layer
+        let mut block_weights = Vec::with_capacity(apr.layers.len());
+        for layer in &apr.layers {
+            block_weights.push(Self::convert_layer(layer, hidden_dim, intermediate_dim));
+        }
+
+        // Final norm
+        let final_norm_weight = apr.output_norm_weight.clone();
+        let final_norm_bias = apr.output_norm_bias.clone().unwrap_or_else(|| vec![0.0; hidden_dim]);
+
+        // LM head bias
+        let lm_head_bias = apr.lm_head_bias.clone().unwrap_or_else(|| vec![0.0; config.vocab_size]);
+
+        // Create GpuModel using internal constructor
+        GpuModel::from_apr_weights(
+            config,
+            embedding_weights,
+            block_weights,
+            final_norm_weight,
+            final_norm_bias,
+            lm_head_weight,
+            lm_head_weight_t,
+            lm_head_bias,
+        )
+    }
+
+    /// Convert a single F32 layer to BlockWeights
+    fn convert_layer(
+        layer: &AprTransformerLayer,
+        hidden_dim: usize,
+        intermediate_dim: usize,
+    ) -> BlockWeights {
+        BlockWeights {
+            attn_norm_weight: layer.attn_norm_weight.clone(),
+            attn_norm_bias: layer.attn_norm_bias.clone().unwrap_or_else(|| vec![0.0; hidden_dim]),
+            qkv_weight: layer.qkv_weight.clone(),
+            qkv_bias: layer.qkv_bias.clone().unwrap_or_default(),
+            out_weight: layer.attn_output_weight.clone(),
+            out_bias: layer.attn_output_bias.clone().unwrap_or_else(|| vec![0.0; hidden_dim]),
+            ffn_norm_weight: vec![1.0; hidden_dim], // APR F32 may not have ffn_norm, use identity
+            ffn_norm_bias: vec![0.0; hidden_dim],
+            ffn_fc1_weight: layer.ffn_up_weight.clone(),
+            ffn_fc1_bias: layer.ffn_up_bias.clone().unwrap_or_else(|| vec![0.0; intermediate_dim]),
+            ffn_fc2_weight: layer.ffn_down_weight.clone(),
+            ffn_fc2_bias: layer.ffn_down_bias.clone().unwrap_or_else(|| vec![0.0; hidden_dim]),
+        }
+    }
+}
+
+/// Adapter for converting Q4 APR models to GPU format
 pub struct AprToGpuAdapter;
 
 impl AprToGpuAdapter {
@@ -173,7 +264,7 @@ impl AprToGpuAdapter {
             let out = Self::extract_out_weights(layer, hidden_dim)?;
             let (fc1, fc2) = Self::extract_ffn_weights(layer, hidden_dim, intermediate_dim)?;
 
-            block_weights.push(crate::gpu::scheduler::BlockWeights {
+            block_weights.push(BlockWeights {
                 attn_norm_weight: layer.attn_norm_weight.clone(),
                 attn_norm_bias: vec![0.0; hidden_dim], // APR doesn't use bias
                 qkv_weight: qkv,

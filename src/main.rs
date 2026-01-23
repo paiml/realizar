@@ -711,6 +711,8 @@ async fn run_model(
                     max_tokens,
                     temperature,
                     format,
+                    force_gpu,
+                    verbose,
                 )?;
             },
             ModelFormat::SafeTensors => {
