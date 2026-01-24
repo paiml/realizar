@@ -27,6 +27,10 @@ mod fused;
 #[cfg(feature = "cuda")]
 pub use fused::{CoalescedDp4aBrick, FusedFfnBrick};
 
+// Phase 14: BrickTracer for GPU/CPU parity debugging
+pub mod tracer;
+pub use tracer::{BrickTracer, TraceEvent, TraceComparison, TraceDiff};
+
 // ============================================================================
 // Core Types
 // ============================================================================

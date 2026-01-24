@@ -200,6 +200,9 @@ bench-http = ["dep:reqwest"]  # Real HTTP benchmarking of external model servers
 load-test-enabled = ["server"]  # Enable load tests (requires running server)
 heavy-tests = []  # Include 29k lines of gguf.rs tests (OOMs on <16GB RAM)
 
+# Debugging features
+trace = []  # Phase 14: Enable BrickTracer for GPU/CPU parity debugging
+
 # Convenience meta-features
 full = ["server", "cli", "gpu", "cuda", "registry"]  # Everything enabled
 minimal = []  # Only core inference engine
