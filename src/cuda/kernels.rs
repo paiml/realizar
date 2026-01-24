@@ -1038,9 +1038,10 @@ impl CudaKernels {
             KernelType::BatchedQ4KGemv { m, k, n } => {
                 BatchedQ4KGemvKernel::new(*k, *n, *m).emit_ptx()
             },
-            // PAR-129: Multi-warp batched Q4K GEMV - deprecated, fallback to BatchedQ4KGemv
+            // PAR-129: Multi-warp batched Q4K GEMV - uses BatchedQ4KGemv with m = warps * 8
+            // Each warp handles 8 batch elements, so warps=2 means m=16, warps=4 means m=32
             KernelType::MultiWarpBatchedQ4KGemv { k, n, warps } => {
-                BatchedQ4KGemvKernel::new(*k, *n, *warps).emit_ptx()
+                BatchedQ4KGemvKernel::new(*k, *n, *warps * 8).emit_ptx()
             },
             // PAR-063-V4: Q8 Quantization kernel for activations (f32 → Q8_1)
             KernelType::Q8Quantize { n } => Q8QuantizeKernel { n: *n }.emit_ptx(),
@@ -1199,7 +1200,8 @@ impl CudaKernels {
             // PAR-108: Batched Q4K GEMV for 2x Ollama
             KernelType::BatchedQ4KGemv { .. } => "batched_q4k_gemv_warp_reduce",
             // PAR-129: Multi-warp batched Q4K GEMV for M=16
-            KernelType::MultiWarpBatchedQ4KGemv { .. } => "multi_warp_batched_q4k_gemv",
+            // Uses same trueno kernel as BatchedQ4KGemv (just different warps parameter)
+            KernelType::MultiWarpBatchedQ4KGemv { .. } => "batched_q4k_gemv_warp_reduce",
             // PAR-063-V4: Q8 Quantization kernel
             KernelType::Q8Quantize { .. } => "q8_quantize",
             // PAR-063-V5: Q4K × Q8 dot product

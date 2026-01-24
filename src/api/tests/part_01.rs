@@ -961,12 +961,11 @@ fn test_format_chat_messages_llama2() {
         },
     ];
 
-    // TinyLlama uses LLaMA2 format
+    // TinyLlama uses Zephyr format (not Llama2!)
     let result = format_chat_messages(&messages, Some("TinyLlama-1.1B"));
-    assert!(result.contains("[INST]"));
-    assert!(result.contains("<<SYS>>"));
+    assert!(result.contains("<|system|>"), "Expected Zephyr system tag");
+    assert!(result.contains("<|user|>"), "Expected Zephyr user tag");
     assert!(result.contains("You are helpful."));
-    assert!(result.contains("<</SYS>>"));
     assert!(result.contains("Hi"));
 }
 

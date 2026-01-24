@@ -1176,13 +1176,18 @@ impl CudaExecutor {
         let threads_per_block = warps * 32;
         let config = LaunchConfig::grid_2d(n, 1, threads_per_block, 1);
 
+        // m_dim = warps * 8 (each warp handles 8 batch elements)
+        let m = warps * 8;
+
         let mut ptr_output = output.as_ptr();
         let mut ptr_weights = weight_ptr;
         let mut ptr_input = input.as_ptr();
         let mut k_val = k;
         let mut n_val = n;
+        let mut m_val = m;
 
-        // Kernel signature: multi_warp_batched_q4k_gemv(y_ptr, w_ptr, x_ptr, k_dim, n_dim)
+        // Kernel signature: batched_q4k_gemv_warp_reduce(y_ptr, w_ptr, x_ptr, k_dim, n_dim, m_dim)
+        // Same signature as BatchedQ4KGemv since we use the same trueno kernel
         // SAFETY: Memory safety ensured by bounds checking and alignment
         unsafe {
             self.stream.launch_kernel(
@@ -1195,6 +1200,7 @@ impl CudaExecutor {
                     std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
                     std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
                     std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut m_val) as *mut std::ffi::c_void,
                 ],
             )?;
         }
