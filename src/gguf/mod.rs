@@ -46,6 +46,7 @@ mod owned;
 mod quantized;
 mod runtime;
 mod types;
+pub(crate) mod utils;
 
 // Re-export types from organized modules
 pub use config::*;

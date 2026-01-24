@@ -15,11 +15,15 @@
 //! - Quantized weights for 8x bandwidth reduction (`OwnedQuantizedModel`)
 //! - Lazy dequantization during computation
 
+use std::fs::File;
+use std::path::Path;
+
 use memmap2::Mmap;
 
 use super::config::GGUFConfig;
 use super::quantized::{OwnedQKVWeights, OwnedQuantizedLayer, OwnedQuantizedTensor};
 use super::types::GGUFModel;
+use crate::error::{RealizarError, Result};
 
 // ============================================================================
 // MappedGGUFModel - Zero-copy memory-mapped model
@@ -41,6 +45,151 @@ pub struct MappedGGUFModel {
     pub model: GGUFModel,
     /// Memory-mapped file contents
     pub(crate) mmap: Mmap,
+}
+
+impl MappedGGUFModel {
+    /// Load GGUF model via memory mapping (zero-copy)
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to GGUF model file
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// - File cannot be opened
+    /// - Memory mapping fails
+    /// - GGUF parsing fails (invalid format)
+    ///
+    /// # Performance
+    ///
+    /// Memory-mapped loading is faster than `std::fs::read` for large models:
+    /// - No file content copy to heap memory
+    /// - Kernel handles page management
+    /// - Model remains accessible even if larger than RAM (via swap)
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let model = MappedGGUFModel::from_path("phi-2-q4_k_m.gguf")?;
+    /// println!("Loaded {} tensors", model.model.tensors.len());
+    /// ```
+    pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let file = File::open(path.as_ref()).map_err(|e| RealizarError::UnsupportedOperation {
+            operation: "open_model_file".to_string(),
+            reason: format!("Failed to open {}: {}", path.as_ref().display(), e),
+        })?;
+
+        // SAFETY: Memory mapping is safe as long as the file isn't modified
+        // while mapped. We only read from the mapping, never write.
+        let mmap = unsafe {
+            Mmap::map(&file).map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "mmap_model_file".to_string(),
+                reason: format!("Failed to mmap {}: {}", path.as_ref().display(), e),
+            })?
+        };
+
+        // Parse the memory-mapped data
+        let model = GGUFModel::from_bytes(&mmap)?;
+
+        Ok(Self { model, mmap })
+    }
+
+    /// Get the raw memory-mapped file data
+    ///
+    /// This provides direct access to the file contents without copying.
+    /// Use this with tensor offsets to read quantized weights directly.
+    #[must_use]
+    pub fn data(&self) -> &[u8] {
+        &self.mmap
+    }
+
+    /// Get tensor data slice by offset and size
+    ///
+    /// Returns a slice pointing directly into the memory-mapped file.
+    /// No data is copied.
+    ///
+    /// # Arguments
+    ///
+    /// * `offset` - Byte offset from start of file
+    /// * `size` - Size in bytes
+    ///
+    /// # Returns
+    ///
+    /// Slice of tensor data, or None if out of bounds
+    #[must_use]
+    pub fn tensor_slice(&self, offset: usize, size: usize) -> Option<&[u8]> {
+        let end = offset.checked_add(size)?;
+        if end <= self.mmap.len() {
+            Some(&self.mmap[offset..end])
+        } else {
+            None
+        }
+    }
+
+    /// Get the size of the memory-mapped file
+    #[must_use]
+    pub fn file_size(&self) -> usize {
+        self.mmap.len()
+    }
+
+    /// Advise kernel to prefetch model data sequentially
+    ///
+    /// Per llama.cpp: Use madvise(MADV_SEQUENTIAL) to hint that the model
+    /// will be read sequentially during loading. This improves prefetching.
+    #[cfg(unix)]
+    pub fn advise_sequential(&self) {
+        // SAFETY: Memory safety ensured by mmap lifetime
+        unsafe {
+            libc::madvise(
+                self.mmap.as_ptr().cast_mut().cast::<libc::c_void>(),
+                self.mmap.len(),
+                libc::MADV_SEQUENTIAL,
+            );
+        }
+    }
+
+    /// Advise kernel for random access pattern during inference
+    ///
+    /// Per llama.cpp: Use madvise(MADV_RANDOM) during inference when
+    /// accessing weights non-sequentially.
+    #[cfg(unix)]
+    pub fn advise_random(&self) {
+        // SAFETY: Memory safety ensured by mmap lifetime
+        unsafe {
+            libc::madvise(
+                self.mmap.as_ptr().cast_mut().cast::<libc::c_void>(),
+                self.mmap.len(),
+                libc::MADV_RANDOM,
+            );
+        }
+    }
+
+    /// Advise kernel to keep model in memory (reduce swap pressure)
+    ///
+    /// Per llama.cpp: Use madvise(MADV_WILLNEED) to hint that the model
+    /// will be needed soon, triggering prefetch.
+    #[cfg(unix)]
+    pub fn advise_willneed(&self) {
+        // SAFETY: Memory safety ensured by mmap lifetime
+        unsafe {
+            libc::madvise(
+                self.mmap.as_ptr().cast_mut().cast::<libc::c_void>(),
+                self.mmap.len(),
+                libc::MADV_WILLNEED,
+            );
+        }
+    }
+
+    /// Lock model in memory to prevent swapping (requires privileges)
+    ///
+    /// Per llama.cpp: Use mlock() to ensure model stays in RAM.
+    /// Returns true if successful, false if failed (often due to ulimit).
+    #[cfg(unix)]
+    pub fn lock_memory(&self) -> bool {
+        // SAFETY: Memory safety ensured by mmap lifetime
+        unsafe { libc::mlock(self.mmap.as_ptr().cast::<libc::c_void>(), self.mmap.len()) == 0 }
+    }
 }
 
 // ============================================================================
