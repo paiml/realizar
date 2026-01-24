@@ -51,6 +51,10 @@ mod runtime;
 mod types;
 pub(crate) mod utils;
 
+// Test helpers module - shared utilities for GGUF tests
+#[cfg(test)]
+pub(crate) mod test_helpers;
+
 // Re-export types from organized modules
 pub use config::*;
 #[cfg(feature = "cuda")]
@@ -66,3 +70,7 @@ pub use types::*;
 // Re-export everything from monolith for backward compatibility
 // (this ensures any types not yet organized are still available)
 pub use monolith::*;
+
+// Tests module - shattered from monolith into focused part files
+#[cfg(test)]
+mod tests;
