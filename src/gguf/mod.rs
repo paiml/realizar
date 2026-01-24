@@ -44,6 +44,7 @@ mod config;
 mod model;
 mod owned;
 mod quantized;
+mod runtime;
 mod types;
 
 // Re-export types from organized modules
@@ -51,6 +52,7 @@ pub use config::*;
 pub use model::*;
 pub use owned::*;
 pub use quantized::*;
+pub use runtime::*;
 pub use types::*;
 
 // Re-export everything from monolith for backward compatibility
