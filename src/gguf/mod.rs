@@ -41,6 +41,9 @@ mod monolith;
 
 // Modular structure (re-exports from monolith during migration)
 mod config;
+#[cfg(feature = "cuda")]
+mod cuda_model;
+mod inference_types;
 mod model;
 mod owned;
 mod quantized;
@@ -50,6 +53,10 @@ pub(crate) mod utils;
 
 // Re-export types from organized modules
 pub use config::*;
+#[cfg(feature = "cuda")]
+pub use cuda_model::*;
+// Note: inference_types re-exports are currently redundant with monolith::*
+// They will become the primary exports once extraction is complete
 pub use model::*;
 pub use owned::*;
 pub use quantized::*;

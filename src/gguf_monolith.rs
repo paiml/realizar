@@ -24,16 +24,14 @@
 
 use std::{
     collections::HashMap,
-    fs::File,
     io::{Cursor, Read},
-    path::Path,
 };
 
 use rand::Rng;
 
 // verbose() moved to utils.rs
+// memmap2::Mmap moved to model.rs
 
-use memmap2::Mmap;
 use trueno::{Matrix as TruenoMatrix, Vector as TruenoVector};
 
 // CUDA PTX generation for NVIDIA GPUs (IMP-311)
@@ -47,12 +45,13 @@ use crate::error::{RealizarError, Result};
 // These types are now defined in src/gguf/types.rs
 // ============================================================================
 pub use super::types::{
-    // Constants
+    // Buffer types (used in inference and tests)
     AttentionBuffer, HiddenBuffer, TokenBuffer, ATTENTION_BUFFER_INLINE_CAP, BUFFER_HW_SIZE,
-    BUFFER_LW_SIZE, BUFFER_MAX_SIZE, GGUF_ALIGNMENT, GGUF_MAGIC, GGUF_TYPE_F16, GGUF_TYPE_F32,
-    GGUF_TYPE_Q2_K, GGUF_TYPE_Q3_K, GGUF_TYPE_Q4_0, GGUF_TYPE_Q4_1, GGUF_TYPE_Q4_K,
-    GGUF_TYPE_Q5_0, GGUF_TYPE_Q5_1, GGUF_TYPE_Q5_K, GGUF_TYPE_Q6_K, GGUF_TYPE_Q8_0,
-    GGUF_VERSION_V3, HIDDEN_BUFFER_INLINE_CAP, TOKEN_BUFFER_INLINE_CAP,
+    BUFFER_LW_SIZE, BUFFER_MAX_SIZE, HIDDEN_BUFFER_INLINE_CAP, TOKEN_BUFFER_INLINE_CAP,
+    // GGUF constants
+    GGUF_ALIGNMENT, GGUF_MAGIC, GGUF_TYPE_F16, GGUF_TYPE_F32, GGUF_TYPE_Q2_K, GGUF_TYPE_Q4_0,
+    GGUF_TYPE_Q4_1, GGUF_TYPE_Q4_K, GGUF_TYPE_Q5_0, GGUF_TYPE_Q5_1, GGUF_TYPE_Q5_K, GGUF_TYPE_Q6_K,
+    GGUF_TYPE_Q8_0, GGUF_VERSION_V3,
     // Core types
     GGUFHeader, GGUFModel, GGUFValue, TensorInfo,
 };
@@ -76,6 +75,9 @@ pub use super::model::{
 // Utility functions moved to utils.rs
 use super::utils::gpt2_unicode_to_byte;
 pub(crate) use super::utils::verbose;
+
+// Inference types: OwnedInferenceScratchBuffer, ContiguousKVCache, DispatchMetrics
+// defined here, re-exported from inference_types.rs
 
 // ============================================================================
 // Phase 23: GGUFValue, GGUFHeader, TensorInfo, GGUFModel moved to types.rs
