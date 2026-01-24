@@ -34,13 +34,25 @@
 //
 // Migration Strategy: Include monolith, gradually extract, re-export all
 
-// Additional tests for constants (will contain extracted code later)
-mod types;
-
 // Temporary: include the monolith during migration
 // Code will be moved to proper modules incrementally
 #[path = "../gguf_monolith.rs"]
 mod monolith;
 
+// Modular structure (re-exports from monolith during migration)
+mod config;
+mod model;
+mod owned;
+mod quantized;
+mod types;
+
+// Re-export types from organized modules
+pub use config::*;
+pub use model::*;
+pub use owned::*;
+pub use quantized::*;
+pub use types::*;
+
 // Re-export everything from monolith for backward compatibility
+// (this ensures any types not yet organized are still available)
 pub use monolith::*;
