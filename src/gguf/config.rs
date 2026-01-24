@@ -5,6 +5,9 @@
 //! This module defines `GGUFConfig` which holds the transformer
 //! architecture parameters needed for inference.
 
+use super::types::GGUFModel;
+use crate::error::{RealizarError, Result};
+
 /// Configuration for GGUF transformer inference
 #[derive(Debug, Clone)]
 pub struct GGUFConfig {
@@ -30,6 +33,86 @@ pub struct GGUFConfig {
     pub eps: f32,
     /// RoPE type: 0 = NORM (adjacent pairs), 2 = NEOX (split halves)
     pub rope_type: u32,
+}
+
+impl GGUFConfig {
+    /// Extract configuration from GGUF model metadata
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if required metadata fields are missing from the GGUF model.
+    pub fn from_gguf(model: &GGUFModel) -> Result<Self> {
+        let architecture = model
+            .architecture()
+            .ok_or_else(|| RealizarError::InvalidShape {
+                reason: "Missing general.architecture in GGUF metadata".to_string(),
+            })?
+            .to_string();
+
+        let hidden_dim = model
+            .embedding_dim()
+            .ok_or_else(|| RealizarError::InvalidShape {
+                reason: "Missing embedding_length in GGUF metadata".to_string(),
+            })?;
+
+        let num_layers = model
+            .num_layers()
+            .ok_or_else(|| RealizarError::InvalidShape {
+                reason: "Missing block_count in GGUF metadata".to_string(),
+            })?;
+
+        // Try to get num_heads, default based on hidden_dim if not found
+        let num_heads = model.num_heads().unwrap_or(hidden_dim / 64);
+
+        // Get vocab_size from token_embd tensor
+        // After dims.reverse(), shape is [vocab_size, hidden_dim] - vocab is at index 0
+        let vocab_size = model
+            .tensors
+            .iter()
+            .find(|t| t.name == "token_embd.weight")
+            .map_or(32000, |t| t.dims.first().copied().unwrap_or(32000) as usize);
+
+        // Infer intermediate_dim from ffn_up tensor
+        // After dims.reverse(), shape is [intermediate_dim, hidden_dim] - intermediate is at index 0
+        let intermediate_dim = model
+            .tensors
+            .iter()
+            .find(|t| t.name == "blk.0.ffn_up.weight")
+            .map_or(hidden_dim * 4, |t| {
+                t.dims.first().copied().unwrap_or(hidden_dim as u64 * 4) as usize
+            });
+
+        let context_length = model.context_length().unwrap_or(2048);
+
+        // Read rope_theta from metadata, or use default (10000.0 for LLaMA-style)
+        // Qwen2 uses 1000000.0, which is read from qwen2.rope.freq_base
+        let rope_theta = model.rope_freq_base().unwrap_or(10000.0);
+
+        // Read RMSNorm epsilon from metadata, or use default (1e-5 for LLaMA-style)
+        // Qwen2 uses 1e-6, which is read from qwen2.attention.layer_norm_rms_epsilon
+        let eps = model.rms_epsilon().unwrap_or(1e-5);
+
+        // num_kv_heads (for GQA - e.g., Qwen uses fewer KV heads than Q heads)
+        let num_kv_heads = model.num_kv_heads().unwrap_or(num_heads);
+
+        // Read rope_type: 0 = NORM (adjacent pairs, default for LLaMA), 2 = NEOX (split halves)
+        // LLaMA models use type 0 (adjacent pairs) per llama.cpp's LLAMA_ROPE_TYPE_NORM
+        let rope_type = model.rope_type().unwrap_or(0);
+
+        Ok(Self {
+            architecture,
+            hidden_dim,
+            num_layers,
+            num_heads,
+            num_kv_heads,
+            vocab_size,
+            intermediate_dim,
+            context_length,
+            rope_theta,
+            eps,
+            rope_type,
+        })
+    }
 }
 
 #[cfg(test)]
