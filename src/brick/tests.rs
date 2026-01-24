@@ -3,6 +3,7 @@ mod tests {
     use crate::brick::*;
 
     // F001: All bricks implement ComputeBrick trait
+    #[cfg(feature = "cuda")]
     #[test]
     fn f001_brick_trait_implemented() {
         let _ = RmsNormBrick::new(vec![1.0; 64], 1e-5);
@@ -18,6 +19,7 @@ mod tests {
 
     // F002: assertions().len() > 0 for all bricks
     #[test]
+    #[cfg(feature = "cuda")]
     fn f002_brick_assertions_nonempty() {
         assert!(!RmsNormBrick::new(vec![1.0; 64], 1e-5)
             .assertions()
@@ -34,6 +36,7 @@ mod tests {
 
     // F004: budget() returns non-zero value
     #[test]
+    #[cfg(feature = "cuda")]
     fn f004_budget_nonzero() {
         assert!(RmsNormBrick::new(vec![1.0; 64], 1e-5).budget().us_per_token > 0.0);
         assert!(QkvBrick::new(64, 64, 64, 64).budget().us_per_token > 0.0);
@@ -46,6 +49,7 @@ mod tests {
 
     // F005: name() is unique per brick type
     #[test]
+    #[cfg(feature = "cuda")]
     fn f005_brick_names_unique() {
         let names = [
             RmsNormBrick::new(vec![1.0; 64], 1e-5).name(),
@@ -440,6 +444,7 @@ mod tests {
 
     // F055: FusedFfnBrick FLOPs calculation
     #[test]
+    #[cfg(feature = "cuda")]
     fn f055_fused_ffn_flops() {
         let brick = FusedFfnBrick::new(64, 256);
         let expected = 6 * 64 * 256; // 6 * hidden * intermediate
@@ -448,6 +453,7 @@ mod tests {
 
     // F056: FusedFfnBrick with DP4A enabled
     #[test]
+    #[cfg(feature = "cuda")]
     fn f056_fused_ffn_dp4a() {
         let brick = FusedFfnBrick::with_packed_dp4a(64, 256);
         assert!(brick.use_packed_dp4a, "DP4A should be enabled");
@@ -459,6 +465,7 @@ mod tests {
 
     // F057: FusedFfnBrick has custom assertions
     #[test]
+    #[cfg(feature = "cuda")]
     fn f057_fused_ffn_assertions() {
         let brick = FusedFfnBrick::new(64, 256);
         let assertions = brick.assertions();
@@ -580,6 +587,7 @@ mod tests {
 
     // F065: Indirect kernel infrastructure ready
     #[test]
+    #[cfg(feature = "cuda")]
     fn f065_indirect_kernel_ready() {
         // CoalescedDp4aBrick supports coalesced memory access
         let brick = CoalescedDp4aBrick::new(1024, 256);
@@ -593,6 +601,7 @@ mod tests {
 
     // F066: DP4A instruction infrastructure ready
     #[test]
+    #[cfg(feature = "cuda")]
     fn f066_dp4a_instruction_ready() {
         // CoalescedDp4aBrick name indicates DP4A usage
         let brick = CoalescedDp4aBrick::new(1024, 256);
@@ -609,6 +618,7 @@ mod tests {
 
     // F067: Memory coalescing infrastructure ready
     #[test]
+    #[cfg(feature = "cuda")]
     fn f067_memory_coalescing_ready() {
         let brick = CoalescedDp4aBrick::new(1024, 256);
 
@@ -862,6 +872,7 @@ mod tests {
 
     // R005: CoalescedDp4aBrick real GEMV
     #[test]
+    #[cfg(feature = "cuda")]
     fn r005_coalesced_dp4a_real_gemv() {
         let brick = CoalescedDp4aBrick::new(256, 4); // K=256, N=4
 
@@ -885,6 +896,7 @@ mod tests {
 
     // R006: FusedFfnBrick real SwiGLU FFN
     #[test]
+    #[cfg(feature = "cuda")]
     fn r006_fused_ffn_real_swiglu() {
         let brick = FusedFfnBrick::new(4, 8); // hidden=4, intermediate=8
 
@@ -904,6 +916,7 @@ mod tests {
 
     // R007: FusedFfnBrick SwiGLU activation verification
     #[test]
+    #[cfg(feature = "cuda")]
     fn r007_fused_ffn_swiglu_activation() {
         // Verify SiLU activation: silu(x) = x * sigmoid(x)
         let brick = FusedFfnBrick::new(1, 1);
@@ -971,6 +984,7 @@ mod tests {
 
     // R010: FusedFfn timed execution
     #[test]
+    #[cfg(feature = "cuda")]
     fn r010_fused_ffn_timed() {
         let hidden = 64;
         let intermediate = 256;
@@ -998,6 +1012,7 @@ mod tests {
     // ========================================================================
 
     // F009: Brick composition is type-safe
+    #[cfg(feature = "cuda")]
     #[test]
     fn f009_brick_composition_typesafe() {
         // Compile-time verification: bricks with different Output types
@@ -1030,6 +1045,7 @@ mod tests {
 
     // F020: All bricks have deterministic output for same input
     #[test]
+    #[cfg(feature = "cuda")]
     fn f020_brick_determinism() {
         let brick = FusedFfnBrick::new(4, 8);
         let input = vec![1.0f32; 4];
@@ -1084,6 +1100,7 @@ mod tests {
 
     // F029: Fused FFN budget
     #[test]
+    #[cfg(feature = "cuda")]
     fn f029_fused_ffn_budget() {
         let brick = FusedFfnBrick::new(1536, 8960);
         assert!(
@@ -1109,6 +1126,7 @@ mod tests {
 
     // F041: CPU output consistency (no CUDA comparison)
     #[test]
+    #[cfg(feature = "cuda")]
     fn f041_cpu_consistency() {
         let brick = FusedFfnBrick::new(4, 8);
         let input = vec![1.0f32; 4];
@@ -1174,6 +1192,7 @@ mod tests {
 
     // F047: SwiGLU activation correctness
     #[test]
+    #[cfg(feature = "cuda")]
     fn f047_swiglu_correctness() {
         // SwiGLU(x, y) = SiLU(x) * y = x * sigmoid(x) * y
         let brick = FusedFfnBrick::new(1, 1);
@@ -1236,6 +1255,7 @@ mod tests {
 
     // F069: Warp-level infrastructure ready
     #[test]
+    #[cfg(feature = "cuda")]
     fn f069_warp_infrastructure_ready() {
         // Coalesced DP4A processes in groups (warp-aligned)
         let brick = CoalescedDp4aBrick::new(256, 4);
@@ -1359,6 +1379,7 @@ mod tests {
 
     // F089: Arithmetic intensity tracking
     #[test]
+    #[cfg(feature = "cuda")]
     fn f089_arithmetic_intensity() {
         let brick = FusedFfnBrick::new(1536, 8960);
         let ai = brick.arithmetic_intensity();
@@ -1383,6 +1404,7 @@ mod tests {
 
     // F095: Model size scaling
     #[test]
+    #[cfg(feature = "cuda")]
     fn f095_model_size_scaling() {
         // Larger models should have proportionally larger budgets
         let small = FusedFfnBrick::new(1536, 8960); // 1.5B scale
@@ -1397,6 +1419,7 @@ mod tests {
 
     // F096: PMAT score infrastructure
     #[test]
+    #[cfg(feature = "cuda")]
     fn f096_pmat_score_ready() {
         // This test verifies we track metrics needed for PMAT scoring
         let brick = FusedFfnBrick::new(64, 256);

@@ -9,7 +9,11 @@
 use std::time::Instant;
 
 use super::{ComputeBrick, TokenBudget, TokenResult, BrickError, BrickAssertion, AssertionKind};
+#[cfg(feature = "cuda")]
+#[allow(unused_imports)]
 use crate::cuda::CudaExecutor;
+#[cfg(feature = "cuda")]
+#[allow(unused_imports)]
 use crate::error::RealizarError;
 
 // ============================================================================

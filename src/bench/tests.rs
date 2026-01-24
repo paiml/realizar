@@ -2033,6 +2033,7 @@ mod tests {
     // ========================================================================
 
     #[test]
+    #[cfg(feature = "distributed-bench")]
     fn test_distributed_bench_config_default() {
         let config = DistributedBenchConfig::default();
         assert_eq!(config.gpu_counts, vec![1, 2, 4, 8]);
@@ -2045,6 +2046,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "distributed-bench")]
     fn test_distributed_bench_config_small_model() {
         let config = DistributedBenchConfig::for_small_model();
         assert_eq!(config.gpu_counts, vec![1, 2]);
@@ -2053,6 +2055,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "distributed-bench")]
     fn test_distributed_bench_config_large_model() {
         let config = DistributedBenchConfig::for_large_model();
         assert_eq!(config.gpu_counts, vec![2, 4, 8]);
@@ -2061,6 +2064,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "distributed-bench")]
     fn test_distributed_bench_suite_new() {
         let config = DistributedBenchConfig::default();
         let suite = DistributedBenchSuite::new(config.clone());
@@ -2072,6 +2076,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "distributed-bench")]
     fn test_distributed_bench_scaling() {
         let config = DistributedBenchConfig::default();
         let mut suite = DistributedBenchSuite::new(config);
@@ -2101,6 +2106,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "distributed-bench")]
     fn test_scaling_efficiency_result_meets_threshold() {
         let result = ScalingEfficiencyResult {
             gpu_count: 4,
@@ -2119,6 +2125,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "distributed-bench")]
     fn test_scaling_efficiency_parallel_fraction() {
         let result = ScalingEfficiencyResult {
             gpu_count: 4,
@@ -2150,6 +2157,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "distributed-bench")]
     fn test_distributed_bench_tensor_parallel() {
         let config = DistributedBenchConfig::default();
         let mut suite = DistributedBenchSuite::new(config);
@@ -2173,6 +2181,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "distributed-bench")]
     fn test_distributed_bench_pipeline_parallel() {
         let config = DistributedBenchConfig::default();
         let mut suite = DistributedBenchSuite::new(config);
@@ -2198,6 +2207,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "distributed-bench")]
     fn test_distributed_bench_communication() {
         let config = DistributedBenchConfig::default();
         let mut suite = DistributedBenchSuite::new(config);
@@ -2228,6 +2238,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "distributed-bench")]
     fn test_distributed_bench_run_all() {
         let config = DistributedBenchConfig::for_small_model();
         let mut suite = DistributedBenchSuite::new(config);
@@ -2240,6 +2251,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "distributed-bench")]
     fn test_distributed_bench_summary() {
         let config = DistributedBenchConfig::default();
         let mut suite = DistributedBenchSuite::new(config);
@@ -2256,6 +2268,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "distributed-bench")]
     fn test_distributed_bench_all_meet_threshold() {
         // Use small model config (only 1-2 GPUs) where efficiency stays high
         let config = DistributedBenchConfig::for_small_model();
@@ -2267,6 +2280,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "distributed-bench")]
     fn test_distributed_bench_fail_threshold() {
         let config = DistributedBenchConfig {
             efficiency_threshold: 0.99, // Very high threshold
@@ -2280,6 +2294,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "distributed-bench")]
     fn test_distributed_bench_empty_summary() {
         let config = DistributedBenchConfig::default();
         let suite = DistributedBenchSuite::new(config);
@@ -2408,6 +2423,7 @@ mod tests {
     // ========================================================================
 
     #[test]
+    #[cfg(feature = "bench-http")]
     fn test_parse_llama_cli_timing_prompt_eval() {
         let output = r"llama_perf_context_print: prompt eval time =      12.34 ms /    10 tokens (    1.23 ms per token,   810.37 tokens per second)";
         let timing = LlamaCppBackend::parse_timing_line(output, "prompt eval time");
@@ -2418,6 +2434,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "bench-http")]
     fn test_parse_llama_cli_timing_eval() {
         let output = r"llama_perf_context_print:        eval time =      22.60 ms /     5 runs   (    4.52 ms per token,   221.28 tokens per second)";
         let timing = LlamaCppBackend::parse_timing_line(output, "eval time");
@@ -2428,6 +2445,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "bench-http")]
     fn test_parse_llama_cli_timing_total() {
         let output = r"llama_perf_context_print:       total time =      23.27 ms /     6 tokens";
         let timing = LlamaCppBackend::parse_timing_line(output, "total time");
@@ -2438,6 +2456,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "bench-http")]
     fn test_parse_llama_cli_full_output() {
         let output = r#"Hello world",
 ```
@@ -2462,6 +2481,7 @@ llama_perf_context_print:       total time =      27.60 ms /     6 tokens"#;
     }
 
     #[test]
+    #[cfg(feature = "bench-http")]
     fn test_parse_llama_cli_extract_generated_text() {
         let output =
             "The answer is 42.\n\nllama_perf_context_print: total time = 100.0 ms / 10 tokens";
@@ -2470,6 +2490,7 @@ llama_perf_context_print:       total time =      27.60 ms /     6 tokens"#;
     }
 
     #[test]
+    #[cfg(feature = "bench-http")]
     fn test_llama_cpp_backend_build_command() {
         let config = LlamaCppConfig {
             binary_path: "/path/to/llama-cli".to_string(),
@@ -2501,6 +2522,7 @@ llama_perf_context_print:       total time =      27.60 ms /     6 tokens"#;
         assert!(args.contains(&"8".to_string()));
     }
 
+    #[cfg(feature = "bench-http")]
     #[test]
     fn test_llama_cpp_backend_no_model_path_error() {
         let config = LlamaCppConfig {

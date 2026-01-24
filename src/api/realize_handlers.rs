@@ -3,12 +3,10 @@
 //! Extracted from api/mod.rs (PMAT-802) to reduce module size.
 //! Contains context window management and native Realize API endpoints.
 
-use std::sync::Arc;
 
 use axum::{
     extract::State,
     http::StatusCode,
-    response::IntoResponse,
     Json,
 };
 use serde::{Deserialize, Serialize};

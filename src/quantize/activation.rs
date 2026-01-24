@@ -9,7 +9,6 @@
 //! - `softmax_simd` - SIMD-accelerated softmax
 
 use crate::error::{RealizarError, Result};
-use super::types::{BLOCK_SIZE, Q4_0Block};
 use super::fused_q4_0_q8_0_dot_simd;
 
 // ============================================================================

@@ -81,7 +81,6 @@
 
 use crate::{
     error::{RealizarError, Result},
-    generate::{sample_token, GenerationConfig},
     tensor::Tensor,
 };
 

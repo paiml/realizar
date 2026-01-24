@@ -17,9 +17,9 @@ use axum::{
 use futures::stream::Stream;
 
 use super::{
-    AppState, ChatChoice, ChatChunkChoice, ChatCompletionChunk, ChatCompletionRequest,
-    ChatCompletionResponse, ChatDelta, ChatMessage, ErrorResponse, OpenAIModel,
-    OpenAIModelsResponse, TraceData, TraceOperation, Usage, build_trace_data,
+    AppState, ChatChoice, ChatCompletionChunk, ChatCompletionRequest,
+    ChatCompletionResponse, ChatMessage, ErrorResponse, OpenAIModel,
+    OpenAIModelsResponse, Usage, build_trace_data,
     format_chat_messages, clean_chat_output,
 };
 use crate::generate::{GenerationConfig, SamplingStrategy};

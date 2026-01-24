@@ -1399,6 +1399,7 @@ fn test_gpu_model_config_derived_values() {
         num_layers: 32,
         intermediate_dim: 11008,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     assert_eq!(config.head_dim(), 128);
@@ -1419,6 +1420,7 @@ fn test_gpu_model_config_non_gqa() {
         num_layers: 12,
         intermediate_dim: 3072,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     assert!(!config.is_gqa());
@@ -3026,6 +3028,7 @@ fn test_gpu_model_config_small_model() {
         num_layers: 4,
         intermediate_dim: 1024,
         eps: 1e-6,
+        rope_theta: 10000.0,
     };
 
     assert_eq!(config.head_dim(), 64); // 256/4
@@ -3045,6 +3048,7 @@ fn test_gpu_model_config_gqa_ratios() {
         num_layers: 1,
         intermediate_dim: 1024,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     assert!(config2to1.is_gqa());
@@ -3088,6 +3092,7 @@ fn test_gpu_model_creation() {
         num_layers: 2,
         intermediate_dim: 256,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let model = realizar::gpu::GpuModel::new(config);
@@ -3104,6 +3109,7 @@ fn test_gpu_model_config_accessor() {
         num_layers: 3,
         intermediate_dim: 512,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let model = realizar::gpu::GpuModel::new(config).unwrap();
@@ -3580,6 +3586,7 @@ fn test_attention_buffers_creation() {
         num_layers: 2,
         intermediate_dim: 256,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let buffers = realizar::gpu::AttentionBuffers::new(&config, 512);
@@ -3602,6 +3609,7 @@ fn test_attention_buffers_reset() {
         num_layers: 1,
         intermediate_dim: 128,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut buffers = realizar::gpu::AttentionBuffers::new(&config, 256);
@@ -3634,6 +3642,7 @@ fn test_attention_buffers_debug() {
         num_layers: 1,
         intermediate_dim: 64,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let buffers = realizar::gpu::AttentionBuffers::new(&config, 64);
@@ -3655,6 +3664,7 @@ fn test_gpu_model_with_attention_buffers() {
         num_layers: 1,
         intermediate_dim: 64,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let model = realizar::gpu::GpuModel::with_attention_buffers(config, 128).unwrap();
@@ -3671,6 +3681,7 @@ fn test_gpu_model_without_attention_buffers() {
         num_layers: 1,
         intermediate_dim: 64,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let model = realizar::gpu::GpuModel::new(config).unwrap();
@@ -3691,6 +3702,7 @@ fn test_gpu_model_forward_gpu_single_token() {
         num_layers: 1,
         intermediate_dim: 64,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut model = realizar::gpu::GpuModel::new(config).unwrap();
@@ -3711,6 +3723,7 @@ fn test_gpu_model_forward_gpu_multiple_tokens() {
         num_layers: 1,
         intermediate_dim: 64,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut model = realizar::gpu::GpuModel::new(config).unwrap();
@@ -3732,6 +3745,7 @@ fn test_gpu_model_forward_gpu_empty_input_error() {
         num_layers: 1,
         intermediate_dim: 64,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut model = realizar::gpu::GpuModel::new(config).unwrap();
@@ -3750,6 +3764,7 @@ fn test_gpu_model_forward_gpu_out_of_bounds_token() {
         num_layers: 1,
         intermediate_dim: 64,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut model = realizar::gpu::GpuModel::new(config).unwrap();
@@ -3768,6 +3783,7 @@ fn test_gpu_model_has_gpu() {
         num_layers: 1,
         intermediate_dim: 64,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let model = realizar::gpu::GpuModel::new(config).unwrap();
@@ -3785,6 +3801,7 @@ fn test_gpu_model_from_gguf_config() {
         num_layers: 2,
         intermediate_dim: 256,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let model = realizar::gpu::GpuModel::from_gguf_config(config);
@@ -3805,6 +3822,7 @@ fn test_gpu_model_generate_with_cache() {
         num_layers: 1,
         intermediate_dim: 64,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut model = realizar::gpu::GpuModel::new(config).unwrap();
@@ -3827,6 +3845,7 @@ fn test_gpu_model_generate_with_cache_empty_prompt_error() {
         num_layers: 1,
         intermediate_dim: 64,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut model = realizar::gpu::GpuModel::new(config).unwrap();
@@ -3847,6 +3866,7 @@ fn test_gpu_model_generate_optimized() {
         num_layers: 1,
         intermediate_dim: 64,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut model = realizar::gpu::GpuModel::with_attention_buffers(config, 128).unwrap();
@@ -3867,6 +3887,7 @@ fn test_gpu_model_generate_optimized_empty_prompt_error() {
         num_layers: 1,
         intermediate_dim: 64,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut model = realizar::gpu::GpuModel::with_attention_buffers(config, 128).unwrap();
@@ -3887,6 +3908,7 @@ fn test_gpu_model_generate_with_stop_token() {
         num_layers: 1,
         intermediate_dim: 64,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut model = realizar::gpu::GpuModel::new(config).unwrap();
@@ -4120,6 +4142,7 @@ fn test_gpu_model_config_mha() {
         num_layers: 4,
         intermediate_dim: 2048,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     assert!(!config.is_gqa());
@@ -4138,6 +4161,7 @@ fn test_gpu_model_config_gqa_4to1() {
         num_layers: 4,
         intermediate_dim: 2048,
         eps: 1e-6,
+        rope_theta: 10000.0,
     };
 
     assert!(config.is_gqa());

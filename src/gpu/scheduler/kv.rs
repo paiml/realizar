@@ -7,6 +7,55 @@ use crate::error::{RealizarError, Result};
 use super::super::{StreamingKVCache, exceeds_gpu_buffer_limit, cpu_matmul_transposed_simd};
 use super::model::{GpuModel, GpuGenerateConfig};
 
+/// Apply Rotary Position Embedding (RoPE) to Q or K vectors (Phase 21)
+///
+/// RoPE encodes position information by rotating pairs of elements
+/// with position-dependent angles. This is CRITICAL for transformer attention.
+///
+/// # Arguments
+/// * `x` - Mutable slice of Q or K vectors [seq_len * num_heads * head_dim]
+/// * `seq_len` - Number of positions to encode
+/// * `num_heads` - Number of attention heads in this tensor
+/// * `head_dim` - Dimension per head
+/// * `rope_theta` - Base frequency (typically 10000.0)
+/// * `start_pos` - Starting position for RoPE (0 for prefill, cache_len for incremental)
+fn apply_rope(
+    x: &mut [f32],
+    seq_len: usize,
+    num_heads: usize,
+    head_dim: usize,
+    rope_theta: f32,
+    start_pos: usize,
+) {
+    let half_dim = head_dim / 2;
+    let head_dim_f32 = head_dim as f32;
+    let total_dim = num_heads * head_dim;
+
+    for pos in 0..seq_len {
+        let position = start_pos + pos;
+        let pos_f32 = position as f32;
+        let pos_offset = pos * total_dim;
+
+        for h in 0..num_heads {
+            let head_start = pos_offset + h * head_dim;
+            let idx2_start = head_start + half_dim;
+
+            for i in 0..half_dim {
+                let freq = 1.0 / rope_theta.powf(2.0 * i as f32 / head_dim_f32);
+                let angle = pos_f32 * freq;
+                let (sin_val, cos_val) = angle.sin_cos();
+
+                let x1 = x[head_start + i];
+                let x2 = x[idx2_start + i];
+
+                // Apply rotation: [cos -sin; sin cos] * [x1; x2]
+                x[head_start + i] = x1 * cos_val - x2 * sin_val;
+                x[idx2_start + i] = x1 * sin_val + x2 * cos_val;
+            }
+        }
+    }
+}
+
 /// Forward pass with KV cache population (IMP-031)
 pub fn forward_gpu_with_cache(
     model: &mut GpuModel,
@@ -159,7 +208,7 @@ fn forward_block_with_cache(
     );
 
     // QKV projection
-    let qkv = model.scheduler.matmul(
+    let mut qkv = model.scheduler.matmul(
         &normed,
         &model.block_weights[block_idx].qkv_weight,
         seq_len,
@@ -167,12 +216,26 @@ fn forward_block_with_cache(
         qkv_dim,
     )?;
 
-    // Split Q, K, V
-    let q = &qkv[..seq_len * hidden_dim];
-    let k = &qkv[seq_len * hidden_dim..seq_len * hidden_dim + seq_len * kv_dim];
-    let v = &qkv[seq_len * hidden_dim + seq_len * kv_dim..];
+    // Split Q, K, V (mutable for RoPE application)
+    let q_end = seq_len * hidden_dim;
+    let k_end = q_end + seq_len * kv_dim;
 
-    // Cache K and V
+    // Phase 21: Apply RoPE to Q and K BEFORE caching
+    // This is CRITICAL - without RoPE, attention has no position information
+    let rope_theta = model.config.rope_theta;
+
+    // Apply RoPE to Q (all heads)
+    apply_rope(&mut qkv[..q_end], seq_len, num_heads, head_dim, rope_theta, 0);
+
+    // Apply RoPE to K (KV heads)
+    apply_rope(&mut qkv[q_end..k_end], seq_len, num_kv_heads, head_dim, rope_theta, 0);
+
+    // Now split (after RoPE applied)
+    let q = &qkv[..q_end];
+    let k = &qkv[q_end..k_end];
+    let v = &qkv[k_end..];
+
+    // Cache K (with RoPE) and V
     for pos in 0..seq_len {
         let k_slice = &k[pos * kv_dim..(pos + 1) * kv_dim];
         let v_slice = &v[pos * kv_dim..(pos + 1) * kv_dim];
@@ -210,24 +273,52 @@ fn forward_block_with_cache(
         model.config.eps,
     );
 
-    // FFN: fc1
-    let fc1_out = model.scheduler.matmul(
-        &ffn_normed,
-        &model.block_weights[block_idx].ffn_fc1_weight,
-        seq_len,
-        hidden_dim,
-        intermediate_dim,
-    )?;
+    // FFN: SwiGLU when gate weight exists, otherwise GELU
+    let activated: Vec<f32> = if let Some(ref gate_weight) = model.block_weights[block_idx].ffn_gate_weight {
+        // SwiGLU: silu(gate(x)) * up(x)
+        let up_out = model.scheduler.matmul(
+            &ffn_normed,
+            &model.block_weights[block_idx].ffn_fc1_weight,
+            seq_len,
+            hidden_dim,
+            intermediate_dim,
+        )?;
+        let gate_out = model.scheduler.matmul(
+            &ffn_normed,
+            gate_weight,
+            seq_len,
+            hidden_dim,
+            intermediate_dim,
+        )?;
 
-    // GELU activation + bias
-    let activated: Vec<f32> = fc1_out
-        .iter()
-        .enumerate()
-        .map(|(i, &x)| {
-            let x = x + model.block_weights[block_idx].ffn_fc1_bias[i % intermediate_dim];
-            0.5 * x * (1.0 + ((2.0f32 / std::f32::consts::PI).sqrt() * (x + 0.044_715 * x.powi(3))).tanh())
-        })
-        .collect();
+        // SwiGLU: silu(gate) * up
+        up_out
+            .iter()
+            .zip(gate_out.iter())
+            .map(|(&u, &g)| {
+                let silu_g = g / (1.0 + (-g).exp());
+                silu_g * u
+            })
+            .collect()
+    } else {
+        // Standard GELU FFN
+        let fc1_out = model.scheduler.matmul(
+            &ffn_normed,
+            &model.block_weights[block_idx].ffn_fc1_weight,
+            seq_len,
+            hidden_dim,
+            intermediate_dim,
+        )?;
+
+        fc1_out
+            .iter()
+            .enumerate()
+            .map(|(i, &x)| {
+                let x = x + model.block_weights[block_idx].ffn_fc1_bias[i % intermediate_dim];
+                0.5 * x * (1.0 + ((2.0f32 / std::f32::consts::PI).sqrt() * (x + 0.044_715 * x.powi(3))).tanh())
+            })
+            .collect()
+    };
 
     // FFN: fc2
     let fc2_out = model.scheduler.matmul(
@@ -273,7 +364,7 @@ fn forward_block_incremental(
     );
 
     // QKV projection (single position)
-    let qkv = model.scheduler.matmul(
+    let mut qkv = model.scheduler.matmul(
         &normed,
         &model.block_weights[block_idx].qkv_weight,
         1,
@@ -281,15 +372,28 @@ fn forward_block_incremental(
         qkv_dim,
     )?;
 
-    // Split Q, K, V (single position)
+    // Get current position BEFORE caching (this is where new token goes)
+    let (existing_k, _) = kv_cache.get_valid(block_idx);
+    let current_pos = existing_k.len() / kv_dim;
+
+    // Phase 21: Apply RoPE to Q and K at current position BEFORE caching
+    let rope_theta = model.config.rope_theta;
+
+    // Apply RoPE to Q (single position, all heads)
+    apply_rope(&mut qkv[..hidden_dim], 1, num_heads, head_dim, rope_theta, current_pos);
+
+    // Apply RoPE to K (single position, KV heads)
+    apply_rope(&mut qkv[hidden_dim..hidden_dim + kv_dim], 1, num_kv_heads, head_dim, rope_theta, current_pos);
+
+    // Split Q, K, V (single position, after RoPE)
     let q = &qkv[..hidden_dim];
     let k = &qkv[hidden_dim..hidden_dim + kv_dim];
     let v = &qkv[hidden_dim + kv_dim..];
 
-    // Cache new K/V
+    // Cache new K (with RoPE) and V
     kv_cache.append(block_idx, k, v);
 
-    // Get all cached K/V for attention
+    // Get all cached K/V for attention (now includes new K/V)
     let (all_k, all_v) = kv_cache.get_valid(block_idx);
     let cache_len = all_k.len() / kv_dim;
 
@@ -324,24 +428,52 @@ fn forward_block_incremental(
         model.config.eps,
     );
 
-    // FFN: fc1
-    let fc1_out = model.scheduler.matmul(
-        &ffn_normed,
-        &model.block_weights[block_idx].ffn_fc1_weight,
-        1,
-        hidden_dim,
-        intermediate_dim,
-    )?;
+    // FFN: SwiGLU when gate weight exists, otherwise GELU
+    let activated: Vec<f32> = if let Some(ref gate_weight) = model.block_weights[block_idx].ffn_gate_weight {
+        // SwiGLU: silu(gate(x)) * up(x)
+        let up_out = model.scheduler.matmul(
+            &ffn_normed,
+            &model.block_weights[block_idx].ffn_fc1_weight,
+            1,
+            hidden_dim,
+            intermediate_dim,
+        )?;
+        let gate_out = model.scheduler.matmul(
+            &ffn_normed,
+            gate_weight,
+            1,
+            hidden_dim,
+            intermediate_dim,
+        )?;
 
-    // GELU + bias
-    let activated: Vec<f32> = fc1_out
-        .iter()
-        .enumerate()
-        .map(|(i, &x)| {
-            let x = x + model.block_weights[block_idx].ffn_fc1_bias[i];
-            0.5 * x * (1.0 + ((2.0f32 / std::f32::consts::PI).sqrt() * (x + 0.044_715 * x.powi(3))).tanh())
-        })
-        .collect();
+        // SwiGLU: silu(gate) * up
+        up_out
+            .iter()
+            .zip(gate_out.iter())
+            .map(|(&u, &g)| {
+                let silu_g = g / (1.0 + (-g).exp());
+                silu_g * u
+            })
+            .collect()
+    } else {
+        // Standard GELU FFN
+        let fc1_out = model.scheduler.matmul(
+            &ffn_normed,
+            &model.block_weights[block_idx].ffn_fc1_weight,
+            1,
+            hidden_dim,
+            intermediate_dim,
+        )?;
+
+        fc1_out
+            .iter()
+            .enumerate()
+            .map(|(i, &x)| {
+                let x = x + model.block_weights[block_idx].ffn_fc1_bias[i];
+                0.5 * x * (1.0 + ((2.0f32 / std::f32::consts::PI).sqrt() * (x + 0.044_715 * x.powi(3))).tanh())
+            })
+            .collect()
+    };
 
     // FFN: fc2
     let fc2_out = model.scheduler.matmul(

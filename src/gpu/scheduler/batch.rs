@@ -260,20 +260,38 @@ pub fn forward_block_single(model: &mut GpuModel, input: &[f32], block_idx: usiz
     // FFN fc1 (CPU - m=1)
     let ffn_fc1_weight = &model.block_weights[block_idx].ffn_fc1_weight;
     let ffn_fc1_bias = &model.block_weights[block_idx].ffn_fc1_bias;
-    let fc1_out = cpu_matmul(&ffn_normed, ffn_fc1_weight, 1, hidden_dim, intermediate_dim);
 
-    // GELU + bias
-    let activated: Vec<f32> = fc1_out
-        .iter()
-        .enumerate()
-        .map(|(i, &x)| {
-            let x = x + ffn_fc1_bias[i];
-            0.5 * x
-                * (1.0
-                    + ((2.0f32 / std::f32::consts::PI).sqrt() * (x + 0.044_715 * x.powi(3)))
-                        .tanh())
-        })
-        .collect();
+    // FFN: SwiGLU when gate weight exists, otherwise GELU
+    let activated: Vec<f32> = if let Some(ref gate_weight) = model.block_weights[block_idx].ffn_gate_weight {
+        // SwiGLU: silu(gate(x)) * up(x)
+        let up_out = cpu_matmul(&ffn_normed, ffn_fc1_weight, 1, hidden_dim, intermediate_dim);
+        let gate_out = cpu_matmul(&ffn_normed, gate_weight, 1, hidden_dim, intermediate_dim);
+
+        // SwiGLU: silu(gate) * up
+        up_out
+            .iter()
+            .zip(gate_out.iter())
+            .map(|(&u, &g)| {
+                let silu_g = g / (1.0 + (-g).exp());
+                silu_g * u
+            })
+            .collect()
+    } else {
+        // Standard GELU FFN
+        let fc1_out = cpu_matmul(&ffn_normed, ffn_fc1_weight, 1, hidden_dim, intermediate_dim);
+
+        fc1_out
+            .iter()
+            .enumerate()
+            .map(|(i, &x)| {
+                let x = x + ffn_fc1_bias[i];
+                0.5 * x
+                    * (1.0
+                        + ((2.0f32 / std::f32::consts::PI).sqrt() * (x + 0.044_715 * x.powi(3)))
+                            .tanh())
+            })
+            .collect()
+    };
 
     // FFN fc2 (CPU - m=1)
     let ffn_fc2_weight = &model.block_weights[block_idx].ffn_fc2_weight;

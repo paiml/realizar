@@ -10,7 +10,6 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::percentile as compute_percentile;
 
 // ============================================================================
 // Load Testing (Section 14.1)

@@ -1018,6 +1018,7 @@ fn test_imp_088_gqa_config_num_kv_heads() {
         num_layers: 28,
         intermediate_dim: 8960,
         eps: 1e-6,
+        rope_theta: 10000.0,
     };
 
     assert_eq!(config.num_heads, 12, "IMP-088: Should have 12 Q heads");
@@ -1049,6 +1050,7 @@ fn test_imp_089_gqa_attention_forward() {
         num_layers: 2,
         intermediate_dim: 256,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut model = GpuModel::new(config).expect("Failed to create GQA model");
@@ -1092,6 +1094,7 @@ fn test_imp_090_cpu_embedding_large_vocab() {
         num_layers: 2,
         intermediate_dim: 512,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     // This should NOT fail due to GPU buffer limits

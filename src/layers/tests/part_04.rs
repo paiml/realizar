@@ -123,6 +123,7 @@ fn test_imp_026_gguf_gpu_weight_loading() {
         num_layers: 2,
         intermediate_dim: 128,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     // Test 1: GpuModel::from_gguf_config creates model with correct dimensions
@@ -243,6 +244,7 @@ fn test_imp_027_gpu_text_generation() {
         num_layers: 2,
         intermediate_dim: 128,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut model = GpuModel::from_gguf_config(config).expect("IMP-027: Should create model");
@@ -330,6 +332,7 @@ fn test_imp_028_real_forward_pass() {
         num_layers: 2,
         intermediate_dim: 128,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut model =
@@ -405,6 +408,7 @@ fn test_imp_029_text_generation() {
         num_layers: 2,
         intermediate_dim: 128,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut model = GpuModel::from_gguf_config(config).expect("IMP-029: Should create model");
@@ -434,6 +438,7 @@ fn test_imp_029_text_generation() {
         num_layers: 2,
         intermediate_dim: 128,
         eps: 1e-5,
+        rope_theta: 10000.0,
     })
     .expect("IMP-029: Should create second model");
 
@@ -497,6 +502,7 @@ fn test_imp_030_benchmark_harness() {
         num_layers: 2,
         intermediate_dim: 128,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut model = GpuModel::from_gguf_config(config).expect("IMP-030: Should create model");
@@ -555,6 +561,7 @@ fn test_imp_030_benchmark_harness() {
         num_layers: 2,
         intermediate_dim: 128,
         eps: 1e-5,
+        rope_theta: 10000.0,
     })
     .expect("IMP-030: Should create model");
 
@@ -632,6 +639,7 @@ fn test_imp_031_forward_with_cache() {
         num_layers: 2,
         intermediate_dim: 128,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut model =
@@ -693,6 +701,7 @@ fn test_imp_032_forward_incremental() {
         num_layers: 2,
         intermediate_dim: 128,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut model =
@@ -767,6 +776,7 @@ fn test_imp_033_generate_with_cache() {
         num_layers: 2,
         intermediate_dim: 128,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut model = GpuModel::from_gguf_config(config).expect("IMP-033: Should create model");
@@ -854,6 +864,7 @@ fn test_imp_034_preallocated_attention() {
         num_layers: 2,
         intermediate_dim: 128,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     // Test 1: AttentionBuffers can be created from config
@@ -916,6 +927,7 @@ fn test_imp_035_batched_multihead() {
         num_layers: 4,
         intermediate_dim: 256,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut model = GpuModel::with_attention_buffers(config.clone(), 256)
@@ -969,6 +981,7 @@ fn test_imp_036_optimized_kv_access() {
         num_layers: 4,
         intermediate_dim: 256,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut model = GpuModel::with_attention_buffers(config.clone(), 256)
@@ -1043,6 +1056,7 @@ fn test_imp_037_fused_qkv() {
         num_layers: 4,
         intermediate_dim: 256,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut model = GpuModel::with_attention_buffers(config.clone(), 256)
@@ -1177,6 +1191,7 @@ fn test_imp_039_fused_attn_proj() {
         num_layers: 4,
         intermediate_dim: 256,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut model = GpuModel::with_attention_buffers(config.clone(), 256)
@@ -1250,6 +1265,7 @@ fn test_imp_040_contiguous_attention() {
         num_layers: 4,
         intermediate_dim: 256,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let max_seq_len = 256;
@@ -1391,6 +1407,7 @@ fn test_imp_042_fused_output_residual() {
         num_layers: 4,
         intermediate_dim: 256,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut model = GpuModel::with_attention_buffers(config.clone(), 256)
@@ -1478,6 +1495,7 @@ fn test_imp_043_batch_embedding() {
         num_layers: 4,
         intermediate_dim: 512,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     // Create embedding table

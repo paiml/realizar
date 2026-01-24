@@ -214,7 +214,4 @@ pub(crate) fn dequantize_q6_k_apr(data: &[u8], num_elements: usize) -> Vec<f32> 
     result
 }
 
-// Tests extracted to tests.rs (PMAT-802)
-#[cfg(test)]
-#[path = "tests.rs"]
-mod apr_transformer_tests;
+// Tests moved to tests/ directory (PMAT-803)
