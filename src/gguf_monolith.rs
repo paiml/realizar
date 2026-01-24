@@ -48,84 +48,20 @@ use trueno_gpu::kernels::{AttentionKernel, Kernel, QuantizeKernel};
 
 use crate::error::{RealizarError, Result};
 
-/// GGUF magic number: "GGUF" in little-endian
-pub const GGUF_MAGIC: u32 = 0x4655_4747;
-
-/// Supported GGUF versions
-pub const GGUF_VERSION_V3: u32 = 3;
-
-/// GGUF quantization type: F32 (unquantized float32)
-pub const GGUF_TYPE_F32: u32 = 0;
-
-/// GGUF quantization type: F16 (half precision float16)
-pub const GGUF_TYPE_F16: u32 = 1;
-
-/// GGUF quantization type: `Q4_0` (4-bit quantization, block size 32)
-pub const GGUF_TYPE_Q4_0: u32 = 2;
-
-/// GGUF quantization type: `Q4_1` (4-bit quantization with min, block size 32)
-pub const GGUF_TYPE_Q4_1: u32 = 3;
-
-/// GGUF quantization type: `Q5_0` (5-bit quantization, block size 32)
-pub const GGUF_TYPE_Q5_0: u32 = 6;
-
-/// GGUF quantization type: `Q5_1` (5-bit quantization with min, block size 32)
-pub const GGUF_TYPE_Q5_1: u32 = 7;
-
-/// GGUF quantization type: `Q8_0` (8-bit quantization, block size 32)
-pub const GGUF_TYPE_Q8_0: u32 = 8;
-
-/// GGUF quantization type: `Q2_K` (2-bit K-quantization, super-block size 256)
-pub const GGUF_TYPE_Q2_K: u32 = 10;
-
-/// GGUF quantization type: `Q3_K` (3-bit K-quantization, super-block size 256)
-pub const GGUF_TYPE_Q3_K: u32 = 11;
-
-/// GGUF quantization type: `Q4_K` (4-bit K-quantization, super-block size 256)
-pub const GGUF_TYPE_Q4_K: u32 = 12;
-
-/// GGUF quantization type: `Q5_K` (5-bit K-quantization, super-block size 256)
-pub const GGUF_TYPE_Q5_K: u32 = 13;
-
-/// GGUF quantization type: `Q6_K` (6-bit K-quantization, super-block size 256)
-pub const GGUF_TYPE_Q6_K: u32 = 14;
-
 // ============================================================================
-// IMP-117: Small Buffer Optimization Constants (per spec Section 4.1-4.2)
+// Phase 23: Import core types from extracted types module
+// These types are now defined in src/gguf/types.rs
 // ============================================================================
-
-/// Small buffer inline capacity for token IDs (IMP-117)
-/// Most prompts are < 32 tokens, avoiding heap allocation
-pub const TOKEN_BUFFER_INLINE_CAP: usize = 32;
-
-/// Small buffer inline capacity for attention scores (IMP-117)
-/// Stack-allocated for short sequences (per-head, small context)
-pub const ATTENTION_BUFFER_INLINE_CAP: usize = 64;
-
-/// Small buffer inline capacity for hidden states (IMP-117)
-/// Inline storage for small models (hidden_dim <= 128)
-pub const HIDDEN_BUFFER_INLINE_CAP: usize = 128;
-
-/// Buffer watermark: Low mark for inline/stack allocation
-pub const BUFFER_LW_SIZE: usize = 1024;
-
-/// Buffer watermark: High mark for pooled allocations
-pub const BUFFER_HW_SIZE: usize = 8 * 1024;
-
-/// Buffer watermark: Maximum before chunking
-pub const BUFFER_MAX_SIZE: usize = 32 * 1024;
-
-/// Token buffer with inline storage (IMP-117)
-/// Uses SmallVec for stack allocation when size <= TOKEN_BUFFER_INLINE_CAP
-pub type TokenBuffer = smallvec::SmallVec<[u32; TOKEN_BUFFER_INLINE_CAP]>;
-
-/// Attention score buffer with inline storage (IMP-117)
-/// Uses SmallVec for stack allocation when size <= ATTENTION_BUFFER_INLINE_CAP
-pub type AttentionBuffer = smallvec::SmallVec<[f32; ATTENTION_BUFFER_INLINE_CAP]>;
-
-/// Hidden state buffer with inline storage (IMP-117)
-/// Uses SmallVec for stack allocation when size <= HIDDEN_BUFFER_INLINE_CAP
-pub type HiddenBuffer = smallvec::SmallVec<[f32; HIDDEN_BUFFER_INLINE_CAP]>;
+pub use super::types::{
+    // Constants
+    AttentionBuffer, HiddenBuffer, TokenBuffer, ATTENTION_BUFFER_INLINE_CAP, BUFFER_HW_SIZE,
+    BUFFER_LW_SIZE, BUFFER_MAX_SIZE, GGUF_ALIGNMENT, GGUF_MAGIC, GGUF_TYPE_F16, GGUF_TYPE_F32,
+    GGUF_TYPE_Q2_K, GGUF_TYPE_Q3_K, GGUF_TYPE_Q4_0, GGUF_TYPE_Q4_1, GGUF_TYPE_Q4_K,
+    GGUF_TYPE_Q5_0, GGUF_TYPE_Q5_1, GGUF_TYPE_Q5_K, GGUF_TYPE_Q6_K, GGUF_TYPE_Q8_0,
+    GGUF_VERSION_V3, HIDDEN_BUFFER_INLINE_CAP, TOKEN_BUFFER_INLINE_CAP,
+    // Core types
+    GGUFHeader, GGUFModel, GGUFValue, TensorInfo,
+};
 
 /// Convert GPT-2 style byte-level BPE unicode character back to raw byte.
 ///
@@ -180,80 +116,10 @@ fn gpt2_unicode_to_byte(c: char) -> Option<u8> {
     }
 }
 
-/// GGUF metadata value types
-#[derive(Debug, Clone, PartialEq)]
-pub enum GGUFValue {
-    /// Unsigned 8-bit integer
-    UInt8(u8),
-    /// Signed 8-bit integer
-    Int8(i8),
-    /// Unsigned 16-bit integer
-    UInt16(u16),
-    /// Signed 16-bit integer
-    Int16(i16),
-    /// Unsigned 32-bit integer
-    UInt32(u32),
-    /// Signed 32-bit integer
-    Int32(i32),
-    /// 32-bit floating point
-    Float32(f32),
-    /// Boolean
-    Bool(bool),
-    /// UTF-8 string
-    String(String),
-    /// Array of values
-    Array(Vec<GGUFValue>),
-    /// Unsigned 64-bit integer
-    UInt64(u64),
-    /// Signed 64-bit integer
-    Int64(i64),
-    /// 64-bit floating point
-    Float64(f64),
-}
-
-/// GGUF file header
-#[derive(Debug, Clone, PartialEq)]
-pub struct GGUFHeader {
-    /// Magic number (must be `GGUF_MAGIC`)
-    pub magic: u32,
-    /// Format version
-    pub version: u32,
-    /// Number of tensors in the file
-    pub tensor_count: u64,
-    /// Number of metadata key-value pairs
-    pub metadata_count: u64,
-}
-
-/// Tensor information
-#[derive(Debug, Clone, PartialEq)]
-pub struct TensorInfo {
-    /// Tensor name
-    pub name: String,
-    /// Number of dimensions
-    pub n_dims: u32,
-    /// Dimensions (shape)
-    pub dims: Vec<u64>,
-    /// Quantization type
-    pub qtype: u32,
-    /// Offset in the file where tensor data starts
-    pub offset: u64,
-}
-
-/// GGUF alignment requirement (32 bytes)
-pub const GGUF_ALIGNMENT: usize = 32;
-
-/// GGUF model container
-#[derive(Debug, Clone)]
-pub struct GGUFModel {
-    /// File header
-    pub header: GGUFHeader,
-    /// Metadata key-value pairs
-    pub metadata: HashMap<String, GGUFValue>,
-    /// Tensor information
-    pub tensors: Vec<TensorInfo>,
-    /// Offset where tensor data starts (after header/metadata/tensor_info + alignment)
-    pub tensor_data_start: usize,
-}
+// ============================================================================
+// Phase 23: GGUFValue, GGUFHeader, TensorInfo, GGUFModel moved to types.rs
+// GGUF_ALIGNMENT constant also moved to types.rs
+// ============================================================================
 
 /// Memory-mapped GGUF model for zero-copy loading
 ///
