@@ -27,17 +27,11 @@ use std::{
     fs::File,
     io::{Cursor, Read},
     path::Path,
-    sync::OnceLock,
 };
 
 use rand::Rng;
 
-/// Check if verbose mode is enabled (REALIZAR_VERBOSE=1)
-/// Default is quiet - only errors are printed
-fn verbose() -> bool {
-    static VERBOSE: OnceLock<bool> = OnceLock::new();
-    *VERBOSE.get_or_init(|| std::env::var("REALIZAR_VERBOSE").is_ok())
-}
+// verbose() moved to utils.rs
 
 use memmap2::Mmap;
 use trueno::{Matrix as TruenoMatrix, Vector as TruenoVector};
@@ -79,214 +73,16 @@ pub use super::model::{
     GGUFTransformer, GGUFTransformerLayer, MappedGGUFModel, OwnedQuantizedModel,
 };
 
-/// Convert GPT-2 style byte-level BPE unicode character back to raw byte.
-///
-/// GPT-2's byte-level BPE uses a mapping where:
-/// - Printable ASCII (0x21-0x7E) and Latin-1 (0xA1-0xAC, 0xAE-0xFF) map to themselves
-/// - Other bytes (0x00-0x20, 0x7F-0xA0, 0xAD) map to U+0100-U+0143
-///
-/// This function returns the original byte value for a GPT-2 BPE token character.
-#[inline]
-fn gpt2_unicode_to_byte(c: char) -> Option<u8> {
-    let cp = c as u32;
-
-    // Special encoded bytes: U+0100 to U+0143 map back to non-printable/special bytes
-    // The mapping fills in the "gaps" in the printable range
-    if (0x0100..=0x0143).contains(&cp) {
-        // Build the inverse mapping for these special chars
-        // Gaps: 0x00-0x20 (33 bytes), 0x7F (1 byte), 0x80-0xA0 (33 bytes), 0xAD (1 byte) = 68 total
-        // But GPT-2 only maps 33+1+33 = 67 chars, plus special handling
-        let offset = (cp - 0x0100) as u8;
-        // The special bytes in order: 0x00-0x20 (0-32), then 0x7F (33), then 0x80-0xA0 (34-66), then 0xAD (67)
-        let byte = if offset <= 32 {
-            offset // 0x00-0x20
-        } else if offset == 33 {
-            0x7F // DEL
-        } else if offset <= 66 {
-            0x80 + (offset - 34) // 0x80-0xA0
-        } else if offset == 67 {
-            0xAD // Soft hyphen
-        } else {
-            return None; // Invalid
-        };
-        return Some(byte);
-    }
-
-    // Printable ASCII range: 0x21-0x7E maps to itself
-    if (0x21..=0x7E).contains(&cp) {
-        return Some(cp as u8);
-    }
-
-    // Latin-1 supplement ranges that map to themselves:
-    // 0xA1-0xAC and 0xAE-0xFF
-    if (0xA1..=0xAC).contains(&cp) || (0xAE..=0xFF).contains(&cp) {
-        return Some(cp as u8);
-    }
-
-    // Fallback: try direct conversion for any other character
-    // This handles edge cases and allows partial decoding
-    if cp < 256 {
-        Some(cp as u8)
-    } else {
-        None // Character doesn't map to a byte
-    }
-}
+// Utility functions moved to utils.rs
+use super::utils::gpt2_unicode_to_byte;
+pub(crate) use super::utils::verbose;
 
 // ============================================================================
 // Phase 23: GGUFValue, GGUFHeader, TensorInfo, GGUFModel moved to types.rs
 // GGUF_ALIGNMENT constant also moved to types.rs
 // ============================================================================
 
-// MappedGGUFModel struct moved to model.rs - impl block remains here
-
-impl MappedGGUFModel {
-    /// Load GGUF model via memory mapping (zero-copy)
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - Path to GGUF model file
-    ///
-    /// # Errors
-    ///
-    /// Returns error if:
-    /// - File cannot be opened
-    /// - Memory mapping fails
-    /// - GGUF parsing fails (invalid format)
-    ///
-    /// # Performance
-    ///
-    /// Memory-mapped loading is faster than `std::fs::read` for large models:
-    /// - No file content copy to heap memory
-    /// - Kernel handles page management
-    /// - Model remains accessible even if larger than RAM (via swap)
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// let model = MappedGGUFModel::from_path("phi-2-q4_k_m.gguf")?;
-    /// println!("Loaded {} tensors", model.model.tensors.len());
-    /// ```
-    pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let file = File::open(path.as_ref()).map_err(|e| RealizarError::UnsupportedOperation {
-            operation: "open_model_file".to_string(),
-            reason: format!("Failed to open {}: {}", path.as_ref().display(), e),
-        })?;
-
-        // SAFETY: Memory mapping is safe as long as the file isn't modified
-        // while mapped. We only read from the mapping, never write.
-        // SAFETY: Memory safety ensured by bounds checking and alignment
-        let mmap = unsafe {
-            Mmap::map(&file).map_err(|e| RealizarError::UnsupportedOperation {
-                operation: "mmap_model_file".to_string(),
-                reason: format!("Failed to mmap {}: {}", path.as_ref().display(), e),
-            })?
-        };
-
-        // Parse the memory-mapped data
-        let model = GGUFModel::from_bytes(&mmap)?;
-
-        Ok(Self { model, mmap })
-    }
-
-    /// Get the raw memory-mapped file data
-    ///
-    /// This provides direct access to the file contents without copying.
-    /// Use this with tensor offsets to read quantized weights directly.
-    #[must_use]
-    pub fn data(&self) -> &[u8] {
-        &self.mmap
-    }
-
-    /// Get tensor data slice by offset and size
-    ///
-    /// Returns a slice pointing directly into the memory-mapped file.
-    /// No data is copied.
-    ///
-    /// # Arguments
-    ///
-    /// * `offset` - Byte offset from start of file
-    /// * `size` - Size in bytes
-    ///
-    /// # Returns
-    ///
-    /// Slice of tensor data, or None if out of bounds
-    #[must_use]
-    pub fn tensor_slice(&self, offset: usize, size: usize) -> Option<&[u8]> {
-        let end = offset.checked_add(size)?;
-        if end <= self.mmap.len() {
-            Some(&self.mmap[offset..end])
-        } else {
-            None
-        }
-    }
-
-    /// Get the size of the memory-mapped file
-    #[must_use]
-    pub fn file_size(&self) -> usize {
-        self.mmap.len()
-    }
-
-    /// Advise kernel to prefetch model data sequentially
-    ///
-    /// Per llama.cpp: Use madvise(MADV_SEQUENTIAL) to hint that the model
-    /// will be read sequentially during loading. This improves prefetching.
-    #[cfg(unix)]
-    pub fn advise_sequential(&self) {
-        // MADV_SEQUENTIAL = 2 on Linux
-        // SAFETY: Memory safety ensured by bounds checking and alignment
-        unsafe {
-            libc::madvise(
-                self.mmap.as_ptr().cast_mut().cast::<libc::c_void>(),
-                self.mmap.len(),
-                libc::MADV_SEQUENTIAL,
-            );
-        }
-    }
-
-    /// Advise kernel for random access pattern during inference
-    ///
-    /// Per llama.cpp: Use madvise(MADV_RANDOM) during inference when
-    /// accessing weights non-sequentially.
-    #[cfg(unix)]
-    pub fn advise_random(&self) {
-        // MADV_RANDOM = 1 on Linux
-        // SAFETY: Memory safety ensured by bounds checking and alignment
-        unsafe {
-            libc::madvise(
-                self.mmap.as_ptr().cast_mut().cast::<libc::c_void>(),
-                self.mmap.len(),
-                libc::MADV_RANDOM,
-            );
-        }
-    }
-
-    /// Advise kernel to keep model in memory (reduce swap pressure)
-    ///
-    /// Per llama.cpp: Use madvise(MADV_WILLNEED) to hint that the model
-    /// will be needed soon, triggering prefetch.
-    #[cfg(unix)]
-    pub fn advise_willneed(&self) {
-        // MADV_WILLNEED = 3 on Linux
-        // SAFETY: Memory safety ensured by bounds checking and alignment
-        unsafe {
-            libc::madvise(
-                self.mmap.as_ptr().cast_mut().cast::<libc::c_void>(),
-                self.mmap.len(),
-                libc::MADV_WILLNEED,
-            );
-        }
-    }
-
-    /// Lock model in memory to prevent swapping (requires privileges)
-    ///
-    /// Per llama.cpp: Use mlock() to ensure model stays in RAM.
-    /// Returns true if successful, false if failed (often due to ulimit).
-    #[cfg(unix)]
-    pub fn lock_memory(&self) -> bool {
-        // SAFETY: Memory safety ensured by bounds checking and alignment
-        unsafe { libc::mlock(self.mmap.as_ptr().cast::<libc::c_void>(), self.mmap.len()) == 0 }
-    }
-}
+// MappedGGUFModel struct + impl moved to model.rs
 
 impl GGUFModel {
     /// Parse GGUF file from bytes
