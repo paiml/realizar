@@ -401,10 +401,14 @@ impl BrickTracer {
     }
 }
 
-/// Global tracer for CPU path (thread-local to avoid contention)
+// Global tracers for CPU and GPU paths (thread-local to avoid contention).
+// Used by trace_cpu! and trace_gpu! macros when "trace" feature is enabled.
 #[cfg(feature = "trace")]
+#[allow(missing_docs)]
 thread_local! {
+    /// Thread-local tracer for CPU inference path
     pub static CPU_TRACER: std::cell::RefCell<BrickTracer> = std::cell::RefCell::new(BrickTracer::new());
+    /// Thread-local tracer for GPU inference path
     pub static GPU_TRACER: std::cell::RefCell<BrickTracer> = std::cell::RefCell::new(BrickTracer::new());
 }
 

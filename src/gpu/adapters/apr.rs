@@ -82,13 +82,20 @@ impl AprF32ToGpuAdapter {
         // LM head weights (already F32)
         let lm_head_weight = apr.lm_head_weight.clone();
 
-        // Transpose LM head for fast CPU inference
-        let lm_head_weight_t = transpose_matrix(&lm_head_weight, hidden_dim, config.vocab_size);
+        // Phase 22 FIX: Transpose LM head from APR [vocab_size, hidden_dim] to GPU [hidden_dim, vocab_size]
+        // APR stores weights as [out_dim, in_dim], GPU matmul expects [in_dim, out_dim]
+        let lm_head_weight_t = transpose_matrix(&lm_head_weight, config.vocab_size, hidden_dim);
 
         // Convert each layer
         let mut block_weights = Vec::with_capacity(apr.layers.len());
         for layer in &apr.layers {
-            block_weights.push(Self::convert_layer(layer, hidden_dim, intermediate_dim));
+            block_weights.push(Self::convert_layer(
+                layer,
+                hidden_dim,
+                intermediate_dim,
+                config.num_heads,
+                config.num_kv_heads,
+            ));
         }
 
         // Final norm
@@ -116,20 +123,48 @@ impl AprF32ToGpuAdapter {
         layer: &AprTransformerLayer,
         hidden_dim: usize,
         intermediate_dim: usize,
+        num_heads: usize,
+        num_kv_heads: usize,
     ) -> BlockWeights {
+        // Phase 21 FIX: APR stores weights as [out_dim, in_dim] row-major,
+        // but GPU gemm expects [in_dim, out_dim]. Transpose all projection weights.
+        let head_dim = hidden_dim / num_heads;
+        let kv_dim = num_kv_heads * head_dim;
+        let qkv_out_dim = hidden_dim + 2 * kv_dim;
+
+        // Transpose QKV: [qkv_out_dim, hidden_dim] -> [hidden_dim, qkv_out_dim]
+        let qkv_weight_t = transpose_matrix(&layer.qkv_weight, qkv_out_dim, hidden_dim);
+
+        // Transpose output projection: [hidden_dim, hidden_dim] -> [hidden_dim, hidden_dim]
+        let out_weight_t = transpose_matrix(&layer.attn_output_weight, hidden_dim, hidden_dim);
+
+        // Transpose FFN up (fc1): [intermediate_dim, hidden_dim] -> [hidden_dim, intermediate_dim]
+        let fc1_weight_t = transpose_matrix(&layer.ffn_up_weight, intermediate_dim, hidden_dim);
+
+        // Transpose FFN down (fc2): [hidden_dim, intermediate_dim] -> [intermediate_dim, hidden_dim]
+        let fc2_weight_t = transpose_matrix(&layer.ffn_down_weight, hidden_dim, intermediate_dim);
+
+        // Transpose gate weight if present: [intermediate_dim, hidden_dim] -> [hidden_dim, intermediate_dim]
+        let gate_weight_t = layer.ffn_gate_weight.as_ref().map(|w| {
+            transpose_matrix(w, intermediate_dim, hidden_dim)
+        });
+
         BlockWeights {
             attn_norm_weight: layer.attn_norm_weight.clone(),
             attn_norm_bias: layer.attn_norm_bias.clone().unwrap_or_else(|| vec![0.0; hidden_dim]),
-            qkv_weight: layer.qkv_weight.clone(),
+            qkv_weight: qkv_weight_t,
             qkv_bias: layer.qkv_bias.clone().unwrap_or_default(),
-            out_weight: layer.attn_output_weight.clone(),
+            out_weight: out_weight_t,
             out_bias: layer.attn_output_bias.clone().unwrap_or_else(|| vec![0.0; hidden_dim]),
-            ffn_norm_weight: vec![1.0; hidden_dim], // APR F32 may not have ffn_norm, use identity
-            ffn_norm_bias: vec![0.0; hidden_dim],
-            ffn_fc1_weight: layer.ffn_up_weight.clone(),
+            // Use actual FFN norm if available, otherwise identity (Phase 21 fix)
+            ffn_norm_weight: layer.ffn_norm_weight.clone().unwrap_or_else(|| vec![1.0; hidden_dim]),
+            ffn_norm_bias: layer.ffn_norm_bias.clone().unwrap_or_else(|| vec![0.0; hidden_dim]),
+            ffn_fc1_weight: fc1_weight_t,
             ffn_fc1_bias: layer.ffn_up_bias.clone().unwrap_or_else(|| vec![0.0; intermediate_dim]),
-            ffn_fc2_weight: layer.ffn_down_weight.clone(),
+            ffn_fc2_weight: fc2_weight_t,
             ffn_fc2_bias: layer.ffn_down_bias.clone().unwrap_or_else(|| vec![0.0; hidden_dim]),
+            // SwiGLU gate weight - critical for Qwen/LLaMA models
+            ffn_gate_weight: gate_weight_t,
         }
     }
 }
@@ -149,6 +184,7 @@ impl AprToGpuAdapter {
             num_layers: apr_config.num_layers,
             intermediate_dim: apr_config.intermediate_dim,
             eps: apr_config.eps,
+            rope_theta: apr_config.rope_theta,
         }
     }
 
@@ -254,8 +290,9 @@ impl AprToGpuAdapter {
         let lm_head_expected = hidden_dim * config.vocab_size;
         let lm_head_weight = Self::dequantize_tensor(&apr.lm_head_weight.data, lm_head_expected)?;
 
-        // Transpose LM head for fast CPU inference
-        let lm_head_weight_t = transpose_matrix(&lm_head_weight, hidden_dim, config.vocab_size);
+        // Phase 22 FIX: Transpose LM head from APR [vocab_size, hidden_dim] to GPU [hidden_dim, vocab_size]
+        // APR stores weights as [out_dim, in_dim], GPU matmul expects [in_dim, out_dim]
+        let lm_head_weight_t = transpose_matrix(&lm_head_weight, config.vocab_size, hidden_dim);
 
         // Convert each layer
         let mut block_weights = Vec::with_capacity(apr.layers.len());
@@ -263,6 +300,14 @@ impl AprToGpuAdapter {
             let qkv = Self::extract_qkv_weights(layer, hidden_dim, config.num_heads, config.num_kv_heads)?;
             let out = Self::extract_out_weights(layer, hidden_dim)?;
             let (fc1, fc2) = Self::extract_ffn_weights(layer, hidden_dim, intermediate_dim)?;
+
+            // Extract gate weight for SwiGLU (optional)
+            let ffn_gate_weight = if let Some(ref gate) = layer.ffn_gate_weight {
+                let gate_expected = hidden_dim * intermediate_dim;
+                Some(Self::dequantize_tensor(&gate.data, gate_expected)?)
+            } else {
+                None
+            };
 
             block_weights.push(BlockWeights {
                 attn_norm_weight: layer.attn_norm_weight.clone(),
@@ -277,6 +322,7 @@ impl AprToGpuAdapter {
                 ffn_fc1_bias: vec![0.0; intermediate_dim],
                 ffn_fc2_weight: fc2,
                 ffn_fc2_bias: vec![0.0; hidden_dim],
+                ffn_gate_weight,
             });
         }
 
