@@ -11,11 +11,11 @@ use trueno_gpu::kernels::{
     BatchedResidualAddKernel, BatchedRopeKernel, BatchedSwigluKernel,
     BatchedVectorizedRmsNormKernel, BiasActivationKernel, ChunkedTiledQ4KGemvKernel,
     CoalescedGemvKernel, CoalescedQ4KGemvKernel, CoalescedQ6KGemvKernel, Dp4aQ4KGemvKernel,
-    Dp4aSIMDQ4KGemvKernel, ElementwiseMulKernel, Fp16Q4KGemvKernel, FusedGateUpKernel,
+    ElementwiseMulKernel, Fp16Q4KGemvKernel, FusedGateUpKernel,
     FusedGateUpQ4KGemvKernel, FusedQKVKernel, FusedResidualRmsNormKernel,
     FusedRmsNormQ4KGemvKernel, FusedSwigluKernel, GeluKernel, GemmKernel, GemvKernel,
     IncrementalAttentionKernel, Kernel, KvCacheScatterIndirectKernel, KvCacheScatterKernel,
-    LayerNormKernel, MultiWarpBatchedQ4KGemvKernel, MultiWarpIncrementalAttentionKernel,
+    LayerNormKernel, MultiWarpIncrementalAttentionKernel,
     PackedDp4aQ4KQ8Kernel, PreciseRmsNormKernel, PreciseRopeIndirectKernel, Q4KGemvKernel,
     Q4KQ8DotKernel, Q4_0GemvKernel, Q4_1GemvKernel, Q5KGemvKernel, Q5KKernel, Q5_0GemvKernel,
     Q6KGemvKernel, Q6KKernel, Q8QuantizeKernel, Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel,
@@ -856,8 +856,8 @@ impl CudaKernels {
             },
             // PAR-063: DP4A Q4K GEMV with 4x instruction reduction
             KernelType::Dp4aQ4KGemv { k, n } => Dp4aQ4KGemvKernel::new(*k, *n).emit_ptx(),
-            // PAR-063-V2: DP4A SIMD Q4K GEMV with integer accumulation
-            KernelType::Dp4aSIMDQ4KGemv { k, n } => Dp4aSIMDQ4KGemvKernel::new(*k, *n).emit_ptx(),
+            // PAR-063-V2: DP4A SIMD Q4K GEMV - deprecated, fallback to Dp4aQ4KGemv
+            KernelType::Dp4aSIMDQ4KGemv { k, n } => Dp4aQ4KGemvKernel::new(*k, *n).emit_ptx(),
             KernelType::Q5KGemv { k, n } => Q5KGemvKernel::new(*k, *n).emit_ptx(),
             KernelType::Q6KGemv { k, n } => Q6KGemvKernel::new(*k, *n).emit_ptx(),
             // PAR-066: Coalesced Q6K GEMV - vectorized scale loading
@@ -1038,9 +1038,9 @@ impl CudaKernels {
             KernelType::BatchedQ4KGemv { m, k, n } => {
                 BatchedQ4KGemvKernel::new(*k, *n, *m).emit_ptx()
             },
-            // PAR-129: Multi-warp batched Q4K GEMV for M=16/32 (2-4 warps × 8 batch elements)
+            // PAR-129: Multi-warp batched Q4K GEMV - deprecated, fallback to BatchedQ4KGemv
             KernelType::MultiWarpBatchedQ4KGemv { k, n, warps } => {
-                MultiWarpBatchedQ4KGemvKernel::new(*k, *n, *warps).emit_ptx()
+                BatchedQ4KGemvKernel::new(*k, *n, *warps).emit_ptx()
             },
             // PAR-063-V4: Q8 Quantization kernel for activations (f32 → Q8_1)
             KernelType::Q8Quantize { n } => Q8QuantizeKernel { n: *n }.emit_ptx(),
