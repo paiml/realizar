@@ -51,6 +51,9 @@ mod runtime;
 mod types;
 pub(crate) mod utils;
 
+// Pure math operations (shared between CPU and GPU paths)
+pub(crate) mod ops;
+
 // Test helpers module - shared utilities for GGUF tests
 #[cfg(test)]
 pub(crate) mod test_helpers;
