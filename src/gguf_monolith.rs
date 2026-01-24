@@ -74,6 +74,11 @@ pub use super::quantized::{
 // Runtime types moved to runtime.rs
 pub use super::runtime::{OwnedQuantizedKVCache, QuantizedGenerateConfig};
 
+// Model types moved to model.rs
+pub use super::model::{
+    GGUFTransformer, GGUFTransformerLayer, MappedGGUFModel, OwnedQuantizedModel,
+};
+
 /// Convert GPT-2 style byte-level BPE unicode character back to raw byte.
 ///
 /// GPT-2's byte-level BPE uses a mapping where:
@@ -132,31 +137,7 @@ fn gpt2_unicode_to_byte(c: char) -> Option<u8> {
 // GGUF_ALIGNMENT constant also moved to types.rs
 // ============================================================================
 
-/// Memory-mapped GGUF model for zero-copy loading
-///
-/// Per Dean & Barroso (2013) "The Tail at Scale", memory-mapped I/O eliminates
-/// the need to copy file data into process memory, reducing load time and
-/// allowing the OS to manage the page cache efficiently.
-///
-/// # Performance Benefits
-///
-/// - **Zero-copy loading**: File contents accessed directly via virtual memory
-/// - **Lazy loading**: Only pages accessed are read from disk
-/// - **Page cache sharing**: Multiple processes can share the same physical pages
-/// - **Reduced memory pressure**: Large models don't need to be fully resident
-///
-/// # Examples
-///
-/// ```rust,ignore
-/// let model = MappedGGUFModel::from_path("model.gguf")?;
-/// let tensor_data = model.tensor_data(&tensor_info);
-/// ```
-pub struct MappedGGUFModel {
-    /// Parsed model metadata (header, tensors, etc.)
-    pub model: GGUFModel,
-    /// Memory-mapped file contents
-    mmap: Mmap,
-}
+// MappedGGUFModel struct moved to model.rs - impl block remains here
 
 impl MappedGGUFModel {
     /// Load GGUF model via memory mapping (zero-copy)
@@ -1544,58 +1525,7 @@ impl GGUFConfig {
     }
 }
 
-/// GGUF Transformer for inference
-///
-/// Holds loaded weights and configuration for transformer inference.
-/// Supports phi-2, llama, qwen2, and similar architectures.
-pub struct GGUFTransformer {
-    /// Model configuration
-    pub config: GGUFConfig,
-    /// Token embedding weights [vocab_size, hidden_dim]
-    pub token_embedding: Vec<f32>,
-    /// Attention weights per layer
-    pub layers: Vec<GGUFTransformerLayer>,
-    /// Output norm weight
-    pub output_norm_weight: Vec<f32>,
-    /// Output norm bias (optional)
-    pub output_norm_bias: Option<Vec<f32>>,
-    /// LM head / output projection weight
-    pub lm_head_weight: Vec<f32>,
-    /// LM head bias (optional)
-    pub lm_head_bias: Option<Vec<f32>>,
-}
-
-/// Weights for a single transformer layer
-pub struct GGUFTransformerLayer {
-    /// Attention norm weight
-    pub attn_norm_weight: Vec<f32>,
-    /// Attention norm bias
-    pub attn_norm_bias: Option<Vec<f32>>,
-    /// QKV projection weights (combined for phi-2, concatenated Q+K+V for llama)
-    pub qkv_weight: Vec<f32>,
-    /// QKV bias (phi-2 has bias, llama doesn't)
-    pub qkv_bias: Option<Vec<f32>>,
-    /// Attention output projection weight
-    pub attn_output_weight: Vec<f32>,
-    /// Attention output projection bias
-    pub attn_output_bias: Option<Vec<f32>>,
-    /// FFN gate projection weight (SwiGLU models like llama)
-    pub ffn_gate_weight: Option<Vec<f32>>,
-    /// FFN gate projection bias
-    pub ffn_gate_bias: Option<Vec<f32>>,
-    /// FFN up projection weight
-    pub ffn_up_weight: Vec<f32>,
-    /// FFN up projection bias
-    pub ffn_up_bias: Option<Vec<f32>>,
-    /// FFN down projection weight
-    pub ffn_down_weight: Vec<f32>,
-    /// FFN down projection bias
-    pub ffn_down_bias: Option<Vec<f32>>,
-    /// FFN norm weight (for models with separate FFN normalization)
-    pub ffn_norm_weight: Option<Vec<f32>>,
-    /// FFN norm bias
-    pub ffn_norm_bias: Option<Vec<f32>>,
-}
+// GGUFTransformer and GGUFTransformerLayer structs moved to model.rs - impl block remains here
 
 #[allow(clippy::unused_self)]
 #[allow(clippy::similar_names)]
@@ -2306,101 +2236,7 @@ impl OwnedQuantizedLayer {
     }
 }
 
-/// Owned quantized transformer model for HTTP serving
-///
-/// IMP-100: This is the key struct that enables fused Q4_K inference
-/// in the HTTP serving path without lifetime complexity.
-///
-/// Performance benefit: 1.37x faster than dequantized f32 due to
-/// 7x memory bandwidth reduction (Q4_K = 4.5 bits/weight).
-/// OwnedQuantizedModel - The main inference model with optional CUDA acceleration
-///
-/// PARITY-113: This struct now supports direct CUDA routing for all matmul operations
-/// when the `cuda` feature is enabled and CUDA is available.
-pub struct OwnedQuantizedModel {
-    /// Model configuration
-    pub config: GGUFConfig,
-    /// Token embedding (f32 for fast lookup)
-    pub token_embedding: Vec<f32>,
-    /// Owned quantized layers
-    pub layers: Vec<OwnedQuantizedLayer>,
-    /// Output norm weight (f32)
-    pub output_norm_weight: Vec<f32>,
-    /// Output norm bias (optional)
-    pub output_norm_bias: Option<Vec<f32>>,
-    /// LM head weight (owned quantized)
-    pub lm_head_weight: OwnedQuantizedTensor,
-    /// LM head bias (optional, f32)
-    pub lm_head_bias: Option<Vec<f32>>,
-    /// PARITY-113: Optional CUDA executor for GPU acceleration
-    /// When present, fused_matmul routes to CUDA GEMM kernels
-    /// Uses Mutex for thread-safety in async handlers
-    #[cfg(feature = "cuda")]
-    pub(crate) cuda_executor: Option<std::sync::Mutex<crate::cuda::CudaExecutor>>,
-    /// Track CUDA kernel execution count for metrics
-    /// Uses AtomicU64 for thread-safe counting
-    #[cfg(feature = "cuda")]
-    pub(crate) cuda_kernel_count: std::sync::atomic::AtomicU64,
-    /// PARITY-003: Set of weight names that have been cached on GPU
-    /// Used to avoid repeated dequantization for the same weight
-    #[cfg(feature = "cuda")]
-    pub(crate) cached_weight_names: std::sync::Mutex<std::collections::HashSet<String>>,
-}
-
-// Manual Debug implementation (skip CUDA executor which doesn't impl Debug)
-impl std::fmt::Debug for OwnedQuantizedModel {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut s = f.debug_struct("OwnedQuantizedModel");
-        s.field("config", &self.config)
-            .field("token_embedding_len", &self.token_embedding.len())
-            .field("layers_count", &self.layers.len())
-            .field("output_norm_weight_len", &self.output_norm_weight.len())
-            .field("has_output_norm_bias", &self.output_norm_bias.is_some())
-            .field("lm_head_weight", &self.lm_head_weight)
-            .field("has_lm_head_bias", &self.lm_head_bias.is_some());
-
-        #[cfg(feature = "cuda")]
-        s.field("cuda_enabled", &self.cuda_executor.is_some())
-            .field(
-                "cuda_kernel_count",
-                &self
-                    .cuda_kernel_count
-                    .load(std::sync::atomic::Ordering::Relaxed),
-            )
-            .field(
-                "cached_weight_count",
-                &self
-                    .cached_weight_names
-                    .lock()
-                    .map(|g| g.len())
-                    .unwrap_or(0),
-            );
-
-        s.finish()
-    }
-}
-
-// Manual Clone implementation due to Mutex
-impl Clone for OwnedQuantizedModel {
-    fn clone(&self) -> Self {
-        Self {
-            config: self.config.clone(),
-            token_embedding: self.token_embedding.clone(),
-            layers: self.layers.clone(),
-            output_norm_weight: self.output_norm_weight.clone(),
-            output_norm_bias: self.output_norm_bias.clone(),
-            lm_head_weight: self.lm_head_weight.clone(),
-            lm_head_bias: self.lm_head_bias.clone(),
-            // CUDA executor is not cloned - new instance must enable CUDA separately
-            #[cfg(feature = "cuda")]
-            cuda_executor: None,
-            #[cfg(feature = "cuda")]
-            cuda_kernel_count: std::sync::atomic::AtomicU64::new(0),
-            #[cfg(feature = "cuda")]
-            cached_weight_names: std::sync::Mutex::new(std::collections::HashSet::new()),
-        }
-    }
-}
+// OwnedQuantizedModel struct + Debug + Clone impls moved to model.rs - impl block remains below
 
 // =============================================================================
 // IMP-112: HybridScheduler Caching Wrapper
