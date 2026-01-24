@@ -63,6 +63,9 @@ pub use super::types::{
     GGUFHeader, GGUFModel, GGUFValue, TensorInfo,
 };
 
+// GGUFConfig struct moved to config.rs
+pub use super::config::GGUFConfig;
+
 /// Convert GPT-2 style byte-level BPE unicode character back to raw byte.
 ///
 /// GPT-2's byte-level BPE uses a mapping where:
@@ -1448,32 +1451,10 @@ impl GGUFModel {
     }
 }
 
-/// Configuration for GGUF transformer inference
-#[derive(Debug, Clone)]
-pub struct GGUFConfig {
-    /// Model architecture (e.g., "phi2", "llama", "qwen2")
-    pub architecture: String,
-    /// Embedding dimension (hidden size)
-    pub hidden_dim: usize,
-    /// Number of transformer layers
-    pub num_layers: usize,
-    /// Number of attention heads
-    pub num_heads: usize,
-    /// Number of key-value heads (for GQA, often num_heads or num_heads/8)
-    pub num_kv_heads: usize,
-    /// Vocabulary size
-    pub vocab_size: usize,
-    /// FFN intermediate dimension
-    pub intermediate_dim: usize,
-    /// Context length
-    pub context_length: usize,
-    /// RoPE theta (position encoding base)
-    pub rope_theta: f32,
-    /// Layer norm epsilon
-    pub eps: f32,
-    /// RoPE type: 0 = NORM (adjacent pairs), 2 = NEOX (split halves)
-    pub rope_type: u32,
-}
+// ============================================================================
+// Phase 23: GGUFConfig struct moved to config.rs
+// impl block remains here as it depends on GGUFModel methods
+// ============================================================================
 
 impl GGUFConfig {
     /// Extract configuration from GGUF model metadata
