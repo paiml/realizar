@@ -373,7 +373,11 @@ pub fn run_gguf_inference_gpu(
     // PAR-057: Use GPU-resident path for maximum performance (pre-uploads weights, minimal syncs)
     // Falls back to generate_full_cuda_with_cache if architecture not supported
     // PAR-058: Test GPU-resident vs standard CUDA path
-    let generated = if cuda_model.supports_gpu_resident() {
+    // PHASE-13: Skip GPU-resident if SKIP_GPU_RESIDENT=1 (for debugging)
+    let skip_gpu_resident = std::env::var("SKIP_GPU_RESIDENT")
+        .map(|v| v == "1")
+        .unwrap_or(false);
+    let generated = if cuda_model.supports_gpu_resident() && !skip_gpu_resident {
         if verbose {
             println!("Using GPU-resident path (pre-uploaded weights, ~2 syncs/token)");
         }

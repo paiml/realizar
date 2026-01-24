@@ -113,8 +113,10 @@ impl ChatMessage {
 pub enum TemplateFormat {
     /// ChatML format (Qwen2, OpenHermes, Yi)
     ChatML,
-    /// LLaMA 2 format (TinyLlama, Vicuna)
+    /// LLaMA 2 format (Vicuna, LLaMA 2 Chat)
     Llama2,
+    /// Zephyr format (TinyLlama, Zephyr, StableLM)
+    Zephyr,
     /// Mistral format (Mistral, Mixtral)
     Mistral,
     /// Alpaca instruction format
@@ -559,6 +561,90 @@ impl ChatTemplateEngine for MistralTemplate {
     }
 }
 
+/// Zephyr Template (TinyLlama, Zephyr, StableLM)
+///
+/// Format: `<|user|>\n{content}</s>\n<|assistant|>\n`
+///
+/// This is the correct template for TinyLlama-1.1B-Chat-v1.0.
+/// Note: TinyLlama is NOT Llama2 format despite the name!
+#[derive(Debug, Clone)]
+pub struct ZephyrTemplate {
+    special_tokens: SpecialTokens,
+}
+
+impl ZephyrTemplate {
+    /// Create a new Zephyr template
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            special_tokens: SpecialTokens {
+                bos_token: Some("<s>".to_string()),
+                eos_token: Some("</s>".to_string()),
+                ..Default::default()
+            },
+        }
+    }
+}
+
+impl Default for ZephyrTemplate {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ChatTemplateEngine for ZephyrTemplate {
+    fn format_message(&self, role: &str, content: &str) -> Result<String, RealizarError> {
+        match role {
+            "system" => Ok(format!("<|system|>\n{content}</s>\n")),
+            "user" => Ok(format!("<|user|>\n{content}</s>\n")),
+            "assistant" => Ok(format!("<|assistant|>\n{content}</s>\n")),
+            _ => Ok(content.to_string()),
+        }
+    }
+
+    fn format_conversation(&self, messages: &[ChatMessage]) -> Result<String, RealizarError> {
+        let mut result = String::new();
+
+        for msg in messages {
+            match msg.role.as_str() {
+                "system" => {
+                    result.push_str("<|system|>\n");
+                    result.push_str(&msg.content);
+                    result.push_str("</s>\n");
+                },
+                "user" => {
+                    result.push_str("<|user|>\n");
+                    result.push_str(&msg.content);
+                    result.push_str("</s>\n");
+                },
+                "assistant" => {
+                    result.push_str("<|assistant|>\n");
+                    result.push_str(&msg.content);
+                    result.push_str("</s>\n");
+                },
+                _ => {},
+            }
+        }
+
+        // Add generation prompt
+        result.push_str("<|assistant|>\n");
+
+        Ok(result)
+    }
+
+    fn special_tokens(&self) -> &SpecialTokens {
+        &self.special_tokens
+    }
+
+    fn format(&self) -> TemplateFormat {
+        TemplateFormat::Zephyr
+    }
+
+    fn supports_system_prompt(&self) -> bool {
+        true
+    }
+}
+
 /// Phi Template (Phi-2, Phi-3)
 ///
 /// Format: `Instruct: {content}\nOutput:`
@@ -747,7 +833,7 @@ impl ChatTemplateEngine for RawTemplate {
 /// ```
 /// use realizar::chat_template::{detect_format_from_name, TemplateFormat};
 ///
-/// assert_eq!(detect_format_from_name("TinyLlama-1.1B-Chat"), TemplateFormat::Llama2);
+/// assert_eq!(detect_format_from_name("TinyLlama-1.1B-Chat"), TemplateFormat::Zephyr);
 /// assert_eq!(detect_format_from_name("Qwen2-0.5B-Instruct"), TemplateFormat::ChatML);
 /// ```
 #[must_use]
@@ -762,16 +848,22 @@ pub fn detect_format_from_name(model_name: &str) -> TemplateFormat {
         return TemplateFormat::ChatML;
     }
 
+    // Zephyr format models (check BEFORE llama - TinyLlama uses Zephyr, not Llama2!)
+    // TinyLlama-1.1B-Chat uses <|user|>, <|assistant|>, <|system|> tokens
+    if name_lower.contains("tinyllama")
+        || name_lower.contains("zephyr")
+        || name_lower.contains("stablelm")
+    {
+        return TemplateFormat::Zephyr;
+    }
+
     // Mistral (check before LLaMA since both use [INST])
     if name_lower.contains("mistral") || name_lower.contains("mixtral") {
         return TemplateFormat::Mistral;
     }
 
-    // LLaMA 2 / TinyLlama / Vicuna
-    if name_lower.contains("llama")
-        || name_lower.contains("vicuna")
-        || name_lower.contains("tinyllama")
-    {
+    // LLaMA 2 / Vicuna (note: TinyLlama is handled above as Zephyr)
+    if name_lower.contains("llama") || name_lower.contains("vicuna") {
         return TemplateFormat::Llama2;
     }
 
@@ -809,6 +901,7 @@ pub fn create_template(format: TemplateFormat) -> Box<dyn ChatTemplateEngine> {
     match format {
         TemplateFormat::ChatML => Box::new(ChatMLTemplate::new()),
         TemplateFormat::Llama2 => Box::new(Llama2Template::new()),
+        TemplateFormat::Zephyr => Box::new(ZephyrTemplate::new()),
         TemplateFormat::Mistral => Box::new(MistralTemplate::new()),
         TemplateFormat::Phi => Box::new(PhiTemplate::new()),
         TemplateFormat::Alpaca => Box::new(AlpacaTemplate::new()),
@@ -925,11 +1018,23 @@ mod tests {
     }
 
     #[test]
-    fn test_detect_llama2() {
+    fn test_detect_zephyr() {
         assert_eq!(
             detect_format_from_name("TinyLlama-1.1B-Chat"),
-            TemplateFormat::Llama2
+            TemplateFormat::Zephyr
         );
+        assert_eq!(
+            detect_format_from_name("zephyr-7b-beta"),
+            TemplateFormat::Zephyr
+        );
+        assert_eq!(
+            detect_format_from_name("stablelm-3b-4e1t"),
+            TemplateFormat::Zephyr
+        );
+    }
+
+    #[test]
+    fn test_detect_llama2() {
         assert_eq!(
             detect_format_from_name("vicuna-7b-v1.5"),
             TemplateFormat::Llama2
@@ -983,7 +1088,7 @@ mod tests {
     fn test_detection_case_insensitive() {
         assert_eq!(
             detect_format_from_name("TINYLLAMA-1.1B-CHAT"),
-            TemplateFormat::Llama2
+            TemplateFormat::Zephyr
         );
         assert_eq!(
             detect_format_from_name("qwen2-0.5b-instruct"),
@@ -1078,6 +1183,54 @@ mod tests {
     }
 
     // ========================================================================
+    // Zephyr Template Tests (TinyLlama, Zephyr, StableLM)
+    // ========================================================================
+
+    #[test]
+    fn test_zephyr_format_conversation() {
+        let template = ZephyrTemplate::new();
+        let messages = vec![
+            ChatMessage::system("You are helpful."),
+            ChatMessage::user("Hello!"),
+        ];
+        let output = template
+            .format_conversation(&messages)
+            .expect("operation failed");
+
+        // Zephyr format: <|role|>\ncontent</s>\n
+        assert!(output.contains("<|system|>\n"));
+        assert!(output.contains("You are helpful."));
+        assert!(output.contains("</s>\n"));
+        assert!(output.contains("<|user|>\n"));
+        assert!(output.contains("Hello!"));
+        assert!(output.ends_with("<|assistant|>\n"));
+    }
+
+    #[test]
+    fn test_zephyr_multi_turn() {
+        let template = ZephyrTemplate::new();
+        let messages = vec![
+            ChatMessage::user("Hello!"),
+            ChatMessage::assistant("Hi there!"),
+            ChatMessage::user("How are you?"),
+        ];
+        let output = template
+            .format_conversation(&messages)
+            .expect("operation failed");
+
+        assert!(output.contains("<|user|>\nHello!</s>\n"));
+        assert!(output.contains("<|assistant|>\nHi there!</s>\n"));
+        assert!(output.contains("<|user|>\nHow are you?</s>\n"));
+        assert!(output.ends_with("<|assistant|>\n"));
+    }
+
+    #[test]
+    fn test_zephyr_supports_system() {
+        let template = ZephyrTemplate::new();
+        assert!(template.supports_system_prompt());
+    }
+
+    // ========================================================================
     // Mistral Template Tests
     // ========================================================================
 
@@ -1163,8 +1316,10 @@ mod tests {
         let output = format_messages(&messages, Some("Qwen2-0.5B")).expect("operation failed");
         assert!(output.contains("<|im_start|>"));
 
+        // TinyLlama uses Zephyr format, NOT Llama2
         let output = format_messages(&messages, Some("TinyLlama")).expect("operation failed");
-        assert!(output.contains("[INST]"));
+        assert!(output.contains("<|user|>"));
+        assert!(output.contains("<|assistant|>"));
     }
 
     #[test]
@@ -1317,6 +1472,7 @@ mod tests {
         let formats = [
             TemplateFormat::ChatML,
             TemplateFormat::Llama2,
+            TemplateFormat::Zephyr,
             TemplateFormat::Mistral,
             TemplateFormat::Phi,
             TemplateFormat::Alpaca,
@@ -1340,6 +1496,7 @@ mod tests {
         let formats = [
             TemplateFormat::ChatML,
             TemplateFormat::Llama2,
+            TemplateFormat::Zephyr,
             TemplateFormat::Mistral,
             TemplateFormat::Phi,
             TemplateFormat::Alpaca,
@@ -1643,10 +1800,11 @@ mod proptests {
 
         /// Property: Template format enum is exhaustive in create_template
         #[test]
-        fn prop_all_formats_creatable(format_idx in 0usize..7) {
+        fn prop_all_formats_creatable(format_idx in 0usize..8) {
             let formats = [
                 TemplateFormat::ChatML,
                 TemplateFormat::Llama2,
+                TemplateFormat::Zephyr,
                 TemplateFormat::Mistral,
                 TemplateFormat::Phi,
                 TemplateFormat::Alpaca,
