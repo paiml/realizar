@@ -21,7 +21,7 @@ use std::path::Path;
 use memmap2::Mmap;
 
 use super::config::GGUFConfig;
-use super::quantized::{OwnedQKVWeights, OwnedQuantizedLayer, OwnedQuantizedTensor};
+use super::quantized::{OwnedQuantizedLayer, OwnedQuantizedTensor};
 use super::types::GGUFModel;
 use crate::error::{RealizarError, Result};
 

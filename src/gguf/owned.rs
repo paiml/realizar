@@ -6,10 +6,7 @@
 //! This module re-exports them for organization.
 
 // Re-export from monolith during migration
-pub use super::monolith::{
-    OwnedQuantizedKVCache, OwnedQuantizedModel, OwnedQuantizedModelCached,
-    OwnedQuantizedModelCachedSync, QuantizedGenerateConfig,
-};
-
-#[cfg(feature = "cuda")]
-pub use super::monolith::OwnedQuantizedModelCuda;
+// Note: OwnedQuantizedModel is now in model.rs
+// Note: OwnedQuantizedModelCuda is now in cuda_model.rs
+// Note: OwnedQuantizedKVCache, QuantizedGenerateConfig accessed via monolith::*
+pub use super::monolith::{OwnedQuantizedModelCached, OwnedQuantizedModelCachedSync};
