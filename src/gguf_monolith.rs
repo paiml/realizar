@@ -76,6 +76,9 @@ pub use super::model::{
 use super::utils::gpt2_unicode_to_byte;
 pub(crate) use super::utils::verbose;
 
+// Math operations extracted to ops.rs (Phase 27)
+use super::ops;
+
 // Inference types: OwnedInferenceScratchBuffer, ContiguousKVCache, DispatchMetrics
 // defined here, re-exported from inference_types.rs
 
@@ -8385,7 +8388,7 @@ impl OwnedQuantizedModel {
         }
 
         // Fallback to separate RMSNorm + matmul for other types
-        let normed = self.rms_norm(input, norm_weight, eps);
+        let normed = ops::rms_norm(input, norm_weight, eps);
         self.fused_matmul(&normed, weight)
     }
 
@@ -8411,7 +8414,7 @@ impl OwnedQuantizedModel {
             } => {
                 // For separate Q/K/V, we need to normalize once and reuse
                 // (Can't easily fuse since we need same normalized input for all three)
-                let normed = self.rms_norm(input, norm_weight, eps);
+                let normed = ops::rms_norm(input, norm_weight, eps);
 
                 let q_out = self.fused_matmul(&normed, q)?;
                 let k_out = self.fused_matmul(&normed, k)?;
@@ -8464,7 +8467,7 @@ impl OwnedQuantizedModel {
         }
 
         // Fallback to separate RMSNorm + matmuls for other types
-        let normed = self.rms_norm(input, norm_weight, eps);
+        let normed = ops::rms_norm(input, norm_weight, eps);
         let up_out = self.fused_matmul(&normed, up_weight)?;
         let gate_out = self.fused_matmul(&normed, gate_weight)?;
         Ok((up_out, gate_out))
@@ -8491,7 +8494,7 @@ impl OwnedQuantizedModel {
         }
 
         // Fallback to separate RMSNorm + matmul for other types
-        let normed = self.rms_norm(input, &self.output_norm_weight, self.config.eps);
+        let normed = ops::rms_norm(input, &self.output_norm_weight, self.config.eps);
 
         // PAR-060-DEBUG: Removed unconditional print from hot path (was causing 100x slowdown)
 
@@ -9070,9 +9073,9 @@ impl OwnedQuantizedModel {
         for (layer_idx, layer) in self.layers.iter().enumerate() {
             // 2a. Attention layer norm (RMSNorm for LLaMA, LayerNorm for others)
             let normed = if use_rmsnorm {
-                self.rms_norm(&hidden, &layer.attn_norm_weight, self.config.eps)
+                ops::rms_norm(&hidden, &layer.attn_norm_weight, self.config.eps)
             } else {
-                self.layer_norm(
+                ops::layer_norm(
                     &hidden,
                     &layer.attn_norm_weight,
                     layer.attn_norm_bias.as_deref(),
@@ -9103,7 +9106,7 @@ impl OwnedQuantizedModel {
             };
             let mut qkv = self.qkv_matmul(&normed, &layer.qkv_weight)?;
             if let Some(ref bias) = layer.qkv_bias {
-                self.add_bias(&mut qkv, bias);
+                ops::add_bias(&mut qkv, bias);
             }
 
             // CORRECTNESS-011: Q, K, V before RoPE (after bias)
@@ -9192,7 +9195,7 @@ impl OwnedQuantizedModel {
             // Input is q_dim (attention output), projects back to hidden_dim
             let mut attn_output = self.fused_matmul(&attn_out, &layer.attn_output_weight)?;
             if let Some(ref bias) = layer.attn_output_bias {
-                self.add_bias(&mut attn_output, bias);
+                ops::add_bias(&mut attn_output, bias);
             }
 
             // 2e. Residual connection
@@ -9204,9 +9207,9 @@ impl OwnedQuantizedModel {
             let ffn_input = if let Some(ref ffn_norm) = layer.ffn_norm_weight {
                 // LLaMA-style: separate FFN layer norm (use RMSNorm for LLaMA)
                 if use_rmsnorm {
-                    self.rms_norm(&hidden, ffn_norm, self.config.eps)
+                    ops::rms_norm(&hidden, ffn_norm, self.config.eps)
                 } else {
-                    self.layer_norm(
+                    ops::layer_norm(
                         &hidden,
                         ffn_norm,
                         layer.ffn_norm_bias.as_deref(),
@@ -9225,17 +9228,17 @@ impl OwnedQuantizedModel {
                 // output = down(gate(x) * silu(up(x)))
                 let mut ffn_up = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
                 if let Some(ref bias) = layer.ffn_up_bias {
-                    self.add_bias(&mut ffn_up, bias);
+                    ops::add_bias(&mut ffn_up, bias);
                 }
 
                 let mut ffn_gate = self.fused_matmul(&ffn_input, gate_weight)?;
                 if let Some(ref bias) = layer.ffn_gate_bias {
-                    self.add_bias(&mut ffn_gate, bias);
+                    ops::add_bias(&mut ffn_gate, bias);
                 }
 
                 // SwiGLU: down(silu(gate(x)) * up(x))
                 // Apply SiLU to GATE projection, not up
-                self.silu(&mut ffn_gate);
+                ops::silu(&mut ffn_gate);
 
                 // Element-wise multiply: silu(gate) * up
                 for i in 0..ffn_gate.len() {
@@ -9247,16 +9250,16 @@ impl OwnedQuantizedModel {
                 // GELU path (phi-2, GPT-2, etc.)
                 let mut ffn_hidden = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
                 if let Some(ref bias) = layer.ffn_up_bias {
-                    self.add_bias(&mut ffn_hidden, bias);
+                    ops::add_bias(&mut ffn_hidden, bias);
                 }
-                self.gelu(&mut ffn_hidden);
+                ops::gelu(&mut ffn_hidden);
                 ffn_hidden
             };
 
             // 2g. FFN down projection with FUSED ops
             let mut ffn_output = self.fused_matmul(&ffn_activated, &layer.ffn_down_weight)?;
             if let Some(ref bias) = layer.ffn_down_bias {
-                self.add_bias(&mut ffn_output, bias);
+                ops::add_bias(&mut ffn_output, bias);
             }
 
             // Residual connection
@@ -9300,9 +9303,9 @@ impl OwnedQuantizedModel {
 
         // 3. Final layer norm (RMSNorm for LLaMA, LayerNorm for others)
         let normed = if use_rmsnorm {
-            self.rms_norm(&hidden, &self.output_norm_weight, self.config.eps)
+            ops::rms_norm(&hidden, &self.output_norm_weight, self.config.eps)
         } else {
-            self.layer_norm(
+            ops::layer_norm(
                 &hidden,
                 &self.output_norm_weight,
                 self.output_norm_bias.as_deref(),
@@ -9335,7 +9338,7 @@ impl OwnedQuantizedModel {
         let mut logits = self.fused_matmul(last_hidden, &self.lm_head_weight)?;
 
         if let Some(ref bias) = self.lm_head_bias {
-            self.add_bias(&mut logits, bias);
+            ops::add_bias(&mut logits, bias);
         }
 
         Ok(logits)
@@ -9504,9 +9507,9 @@ impl OwnedQuantizedModel {
         for (layer_idx, layer) in self.layers.iter().enumerate() {
             // 2a. Attention layer norm (RMSNorm for LLaMA, LayerNorm for phi-2)
             let normed = if use_rmsnorm {
-                self.rms_norm(&hidden, &layer.attn_norm_weight, self.config.eps)
+                ops::rms_norm(&hidden, &layer.attn_norm_weight, self.config.eps)
             } else {
-                self.layer_norm(
+                ops::layer_norm(
                     &hidden,
                     &layer.attn_norm_weight,
                     layer.attn_norm_bias.as_deref(),
@@ -9541,7 +9544,7 @@ impl OwnedQuantizedModel {
 
             let mut qkv = self.qkv_matmul(&normed, &layer.qkv_weight)?;
             if let Some(ref bias) = layer.qkv_bias {
-                self.add_bias(&mut qkv, bias);
+                ops::add_bias(&mut qkv, bias);
             }
 
             // PAR-052: Debug QKV after projection
@@ -9609,7 +9612,7 @@ impl OwnedQuantizedModel {
             // 2f. Attention output projection
             let mut attn_output = self.fused_matmul(&attn_out, &layer.attn_output_weight)?;
             if let Some(ref bias) = layer.attn_output_bias {
-                self.add_bias(&mut attn_output, bias);
+                ops::add_bias(&mut attn_output, bias);
             }
 
             // 2g. Residual connection
@@ -9620,9 +9623,9 @@ impl OwnedQuantizedModel {
             // 2h. Pre-FFN layer norm (LLaMA has separate ffn_norm)
             let ffn_input = if let Some(ref ffn_norm) = layer.ffn_norm_weight {
                 if use_rmsnorm {
-                    self.rms_norm(&hidden, ffn_norm, self.config.eps)
+                    ops::rms_norm(&hidden, ffn_norm, self.config.eps)
                 } else {
-                    self.layer_norm(
+                    ops::layer_norm(
                         &hidden,
                         ffn_norm,
                         layer.ffn_norm_bias.as_deref(),
@@ -9638,36 +9641,36 @@ impl OwnedQuantizedModel {
                 // SwiGLU path (LLaMA)
                 let mut ffn_up = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
                 if let Some(ref bias) = layer.ffn_up_bias {
-                    self.add_bias(&mut ffn_up, bias);
+                    ops::add_bias(&mut ffn_up, bias);
                 }
 
                 let mut ffn_gate = self.fused_matmul(&ffn_input, gate_weight)?;
                 if let Some(ref bias) = layer.ffn_gate_bias {
-                    self.add_bias(&mut ffn_gate, bias);
+                    ops::add_bias(&mut ffn_gate, bias);
                 }
 
                 // SiLU on gate, then multiply with up
-                self.silu(&mut ffn_gate);
+                ops::silu(&mut ffn_gate);
                 for i in 0..ffn_gate.len() {
                     ffn_gate[i] *= ffn_up[i];
                 }
 
                 let mut output = self.fused_matmul(&ffn_gate, &layer.ffn_down_weight)?;
                 if let Some(ref bias) = layer.ffn_down_bias {
-                    self.add_bias(&mut output, bias);
+                    ops::add_bias(&mut output, bias);
                 }
                 output
             } else {
                 // GELU path (phi-2)
                 let mut ffn_hidden = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
                 if let Some(ref bias) = layer.ffn_up_bias {
-                    self.add_bias(&mut ffn_hidden, bias);
+                    ops::add_bias(&mut ffn_hidden, bias);
                 }
-                self.gelu(&mut ffn_hidden);
+                ops::gelu(&mut ffn_hidden);
 
                 let mut output = self.fused_matmul(&ffn_hidden, &layer.ffn_down_weight)?;
                 if let Some(ref bias) = layer.ffn_down_bias {
-                    self.add_bias(&mut output, bias);
+                    ops::add_bias(&mut output, bias);
                 }
                 output
             };
@@ -9683,9 +9686,9 @@ impl OwnedQuantizedModel {
 
         // 3. Final layer norm
         let normed = if use_rmsnorm {
-            self.rms_norm(&hidden, &self.output_norm_weight, self.config.eps)
+            ops::rms_norm(&hidden, &self.output_norm_weight, self.config.eps)
         } else {
-            self.layer_norm(
+            ops::layer_norm(
                 &hidden,
                 &self.output_norm_weight,
                 self.output_norm_bias.as_deref(),
@@ -9720,7 +9723,7 @@ impl OwnedQuantizedModel {
         // 4. LM head projection
         let mut logits = self.fused_matmul(&normed, &self.lm_head_weight)?;
         if let Some(ref bias) = self.lm_head_bias {
-            self.add_bias(&mut logits, bias);
+            ops::add_bias(&mut logits, bias);
         }
 
         // PAR-052: Debug final logits
@@ -10454,7 +10457,7 @@ impl OwnedQuantizedModel {
                     &layer.qkv_weight,
                 )?
             } else {
-                let normed = self.layer_norm(
+                let normed = ops::layer_norm(
                     &hidden,
                     &layer.attn_norm_weight,
                     layer.attn_norm_bias.as_deref(),
@@ -10463,7 +10466,7 @@ impl OwnedQuantizedModel {
                 self.qkv_matmul(&normed, &layer.qkv_weight)?
             };
             if let Some(ref bias) = layer.qkv_bias {
-                self.add_bias(&mut qkv, bias);
+                ops::add_bias(&mut qkv, bias);
             }
 
             // 2c. Extract Q, K, V with GQA-aware sizes and apply RoPE
@@ -10533,7 +10536,7 @@ impl OwnedQuantizedModel {
             // 2f. Attention output projection
             let mut attn_output = self.fused_matmul(&attn_out_buffer, &layer.attn_output_weight)?;
             if let Some(ref bias) = layer.attn_output_bias {
-                self.add_bias(&mut attn_output, bias);
+                ops::add_bias(&mut attn_output, bias);
             }
 
             // 2g. Residual connection
@@ -10555,14 +10558,14 @@ impl OwnedQuantizedModel {
                     )?;
 
                     if let Some(ref bias) = layer.ffn_up_bias {
-                        self.add_bias(&mut ffn_up, bias);
+                        ops::add_bias(&mut ffn_up, bias);
                     }
                     if let Some(ref bias) = layer.ffn_gate_bias {
-                        self.add_bias(&mut ffn_gate, bias);
+                        ops::add_bias(&mut ffn_gate, bias);
                     }
 
                     // SwiGLU: silu(gate) * up
-                    self.silu(&mut ffn_gate);
+                    ops::silu(&mut ffn_gate);
                     for i in 0..ffn_gate.len() {
                         ffn_gate[i] *= ffn_up[i];
                     }
@@ -10572,7 +10575,7 @@ impl OwnedQuantizedModel {
                 // Non-fused SwiGLU (LayerNorm models with gate)
                 (ffn_norm_opt, Some(ref gate_weight)) => {
                     let ffn_input = if let Some(ref ffn_norm) = ffn_norm_opt {
-                        self.layer_norm(
+                        ops::layer_norm(
                             &hidden,
                             ffn_norm,
                             layer.ffn_norm_bias.as_deref(),
@@ -10584,16 +10587,16 @@ impl OwnedQuantizedModel {
 
                     let mut ffn_up = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
                     if let Some(ref bias) = layer.ffn_up_bias {
-                        self.add_bias(&mut ffn_up, bias);
+                        ops::add_bias(&mut ffn_up, bias);
                     }
 
                     let mut ffn_gate = self.fused_matmul(&ffn_input, gate_weight)?;
                     if let Some(ref bias) = layer.ffn_gate_bias {
-                        self.add_bias(&mut ffn_gate, bias);
+                        ops::add_bias(&mut ffn_gate, bias);
                     }
 
                     // SwiGLU: silu(gate) * up
-                    self.silu(&mut ffn_gate);
+                    ops::silu(&mut ffn_gate);
                     for i in 0..ffn_gate.len() {
                         ffn_gate[i] *= ffn_up[i];
                     }
@@ -10604,9 +10607,9 @@ impl OwnedQuantizedModel {
                 (ffn_norm_opt, None) => {
                     let ffn_input = if let Some(ref ffn_norm) = ffn_norm_opt {
                         if use_rmsnorm {
-                            self.rms_norm(&hidden, ffn_norm, self.config.eps)
+                            ops::rms_norm(&hidden, ffn_norm, self.config.eps)
                         } else {
-                            self.layer_norm(
+                            ops::layer_norm(
                                 &hidden,
                                 ffn_norm,
                                 layer.ffn_norm_bias.as_deref(),
@@ -10619,9 +10622,9 @@ impl OwnedQuantizedModel {
 
                     let mut ffn_hidden = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
                     if let Some(ref bias) = layer.ffn_up_bias {
-                        self.add_bias(&mut ffn_hidden, bias);
+                        ops::add_bias(&mut ffn_hidden, bias);
                     }
-                    self.gelu(&mut ffn_hidden);
+                    ops::gelu(&mut ffn_hidden);
                     ffn_hidden
                 },
             };
@@ -10629,7 +10632,7 @@ impl OwnedQuantizedModel {
             // 2j. FFN down projection
             let mut ffn_output = self.fused_matmul(&ffn_activated, &layer.ffn_down_weight)?;
             if let Some(ref bias) = layer.ffn_down_bias {
-                self.add_bias(&mut ffn_output, bias);
+                ops::add_bias(&mut ffn_output, bias);
             }
 
             // Residual
@@ -10686,7 +10689,7 @@ impl OwnedQuantizedModel {
         let mut logits = if use_rmsnorm {
             self.fused_rmsnorm_lm_head(&hidden)?
         } else {
-            let normed = self.layer_norm(
+            let normed = ops::layer_norm(
                 &hidden,
                 &self.output_norm_weight,
                 self.output_norm_bias.as_deref(),
@@ -10698,7 +10701,7 @@ impl OwnedQuantizedModel {
         // DEBUG: Verify Q8_0 matmul by manual computation
         if debug_forward {
             // Get the normalized hidden state
-            let normed = self.rms_norm(&hidden, &self.output_norm_weight, self.config.eps);
+            let normed = ops::rms_norm(&hidden, &self.output_norm_weight, self.config.eps);
             eprintln!(
                 "[DEBUG-VERIFY] Normed hidden[0..8]: {:?}",
                 &normed[..8.min(normed.len())]
@@ -10750,7 +10753,7 @@ impl OwnedQuantizedModel {
         }
 
         if let Some(ref bias) = self.lm_head_bias {
-            self.add_bias(&mut logits, bias);
+            ops::add_bias(&mut logits, bias);
         }
 
         Ok(logits)
@@ -10815,9 +10818,9 @@ impl OwnedQuantizedModel {
         for (layer_idx, layer) in self.layers.iter().enumerate() {
             // 2a. Attention layer norm (RMSNorm for LLaMA, LayerNorm for others)
             let normed = if use_rmsnorm {
-                self.rms_norm(&hidden, &layer.attn_norm_weight, self.config.eps)
+                ops::rms_norm(&hidden, &layer.attn_norm_weight, self.config.eps)
             } else {
-                self.layer_norm(
+                ops::layer_norm(
                     &hidden,
                     &layer.attn_norm_weight,
                     layer.attn_norm_bias.as_deref(),
@@ -10835,7 +10838,7 @@ impl OwnedQuantizedModel {
                 metrics.record_gpu_latency(start.elapsed());
                 let mut qkv = qkv_result;
                 if let Some(ref bias) = layer.qkv_bias {
-                    self.add_bias(&mut qkv, bias);
+                    ops::add_bias(&mut qkv, bias);
                 }
 
                 // 2c. Extract Q, K, V with GQA-aware sizes and apply RoPE
@@ -10880,7 +10883,7 @@ impl OwnedQuantizedModel {
                 metrics.record_gpu_dispatch();
                 metrics.record_gpu_latency(start.elapsed());
                 if let Some(ref bias) = layer.attn_output_bias {
-                    self.add_bias(&mut attn_output, bias);
+                    ops::add_bias(&mut attn_output, bias);
                 }
 
                 // 2g. Residual connection
@@ -10891,9 +10894,9 @@ impl OwnedQuantizedModel {
                 // 2h. Pre-FFN layer norm (LLaMA uses separate ffn_norm with RMSNorm)
                 let ffn_input = if let Some(ref ffn_norm) = layer.ffn_norm_weight {
                     if use_rmsnorm {
-                        self.rms_norm(&hidden, ffn_norm, self.config.eps)
+                        ops::rms_norm(&hidden, ffn_norm, self.config.eps)
                     } else {
-                        self.layer_norm(
+                        ops::layer_norm(
                             &hidden,
                             ffn_norm,
                             layer.ffn_norm_bias.as_deref(),
@@ -10912,7 +10915,7 @@ impl OwnedQuantizedModel {
                     metrics.record_gpu_dispatch();
                     metrics.record_gpu_latency(start.elapsed());
                     if let Some(ref bias) = layer.ffn_up_bias {
-                        self.add_bias(&mut ffn_up, bias);
+                        ops::add_bias(&mut ffn_up, bias);
                     }
 
                     let start = std::time::Instant::now();
@@ -10920,10 +10923,10 @@ impl OwnedQuantizedModel {
                     metrics.record_gpu_dispatch();
                     metrics.record_gpu_latency(start.elapsed());
                     if let Some(ref bias) = layer.ffn_gate_bias {
-                        self.add_bias(&mut ffn_gate, bias);
+                        ops::add_bias(&mut ffn_gate, bias);
                     }
 
-                    self.silu(&mut ffn_gate);
+                    ops::silu(&mut ffn_gate);
                     for i in 0..ffn_gate.len() {
                         ffn_gate[i] *= ffn_up[i];
                     }
@@ -10935,9 +10938,9 @@ impl OwnedQuantizedModel {
                     metrics.record_gpu_dispatch();
                     metrics.record_gpu_latency(start.elapsed());
                     if let Some(ref bias) = layer.ffn_up_bias {
-                        self.add_bias(&mut ffn_hidden, bias);
+                        ops::add_bias(&mut ffn_hidden, bias);
                     }
-                    self.gelu(&mut ffn_hidden);
+                    ops::gelu(&mut ffn_hidden);
                     ffn_hidden
                 };
 
@@ -10947,7 +10950,7 @@ impl OwnedQuantizedModel {
                 metrics.record_gpu_dispatch();
                 metrics.record_gpu_latency(start.elapsed());
                 if let Some(ref bias) = layer.ffn_down_bias {
-                    self.add_bias(&mut ffn_output, bias);
+                    ops::add_bias(&mut ffn_output, bias);
                 }
 
                 // Residual
@@ -10961,7 +10964,7 @@ impl OwnedQuantizedModel {
             // CPU path (non-CUDA)
             let mut qkv = self.qkv_matmul(&normed, &layer.qkv_weight)?;
             if let Some(ref bias) = layer.qkv_bias {
-                self.add_bias(&mut qkv, bias);
+                ops::add_bias(&mut qkv, bias);
             }
 
             // 2c. Extract Q, K, V with GQA-aware sizes and apply RoPE
@@ -11015,7 +11018,7 @@ impl OwnedQuantizedModel {
             // 2f. Attention output projection
             let mut attn_output = self.fused_matmul(&attn_out, &layer.attn_output_weight)?;
             if let Some(ref bias) = layer.attn_output_bias {
-                self.add_bias(&mut attn_output, bias);
+                ops::add_bias(&mut attn_output, bias);
             }
 
             // 2g. Residual connection
@@ -11026,9 +11029,9 @@ impl OwnedQuantizedModel {
             // 2h. Pre-FFN layer norm (LLaMA uses separate ffn_norm with RMSNorm)
             let ffn_input = if let Some(ref ffn_norm) = layer.ffn_norm_weight {
                 if use_rmsnorm {
-                    self.rms_norm(&hidden, ffn_norm, self.config.eps)
+                    ops::rms_norm(&hidden, ffn_norm, self.config.eps)
                 } else {
-                    self.layer_norm(
+                    ops::layer_norm(
                         &hidden,
                         ffn_norm,
                         layer.ffn_norm_bias.as_deref(),
@@ -11044,15 +11047,15 @@ impl OwnedQuantizedModel {
                 // SwiGLU path
                 let mut ffn_up = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
                 if let Some(ref bias) = layer.ffn_up_bias {
-                    self.add_bias(&mut ffn_up, bias);
+                    ops::add_bias(&mut ffn_up, bias);
                 }
 
                 let mut ffn_gate = self.fused_matmul(&ffn_input, gate_weight)?;
                 if let Some(ref bias) = layer.ffn_gate_bias {
-                    self.add_bias(&mut ffn_gate, bias);
+                    ops::add_bias(&mut ffn_gate, bias);
                 }
 
-                self.silu(&mut ffn_gate);
+                ops::silu(&mut ffn_gate);
                 for i in 0..ffn_gate.len() {
                     ffn_gate[i] *= ffn_up[i];
                 }
@@ -11061,16 +11064,16 @@ impl OwnedQuantizedModel {
                 // GELU path
                 let mut ffn_hidden = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
                 if let Some(ref bias) = layer.ffn_up_bias {
-                    self.add_bias(&mut ffn_hidden, bias);
+                    ops::add_bias(&mut ffn_hidden, bias);
                 }
-                self.gelu(&mut ffn_hidden);
+                ops::gelu(&mut ffn_hidden);
                 ffn_hidden
             };
 
             // 2j. FFN down projection
             let mut ffn_output = self.fused_matmul(&ffn_activated, &layer.ffn_down_weight)?;
             if let Some(ref bias) = layer.ffn_down_bias {
-                self.add_bias(&mut ffn_output, bias);
+                ops::add_bias(&mut ffn_output, bias);
             }
 
             // Residual
@@ -11084,9 +11087,9 @@ impl OwnedQuantizedModel {
 
         // 3. Final layer norm (RMSNorm for LLaMA, LayerNorm for others)
         let normed = if use_rmsnorm {
-            self.rms_norm(&hidden, &self.output_norm_weight, self.config.eps)
+            ops::rms_norm(&hidden, &self.output_norm_weight, self.config.eps)
         } else {
-            self.layer_norm(
+            ops::layer_norm(
                 &hidden,
                 &self.output_norm_weight,
                 self.output_norm_bias.as_deref(),
@@ -11103,14 +11106,14 @@ impl OwnedQuantizedModel {
             metrics.record_gpu_dispatch();
             metrics.record_gpu_latency(start.elapsed());
             if let Some(ref bias) = self.lm_head_bias {
-                self.add_bias(&mut logits, bias);
+                ops::add_bias(&mut logits, bias);
             }
             return Ok(logits);
         }
 
         let mut logits = self.fused_matmul(&normed, &self.lm_head_weight)?;
         if let Some(ref bias) = self.lm_head_bias {
-            self.add_bias(&mut logits, bias);
+            ops::add_bias(&mut logits, bias);
         }
 
         Ok(logits)
@@ -11685,7 +11688,7 @@ impl OwnedQuantizedModel {
                 }
 
                 // SiLU on gate, multiply with up
-                self.silu(&mut scratch.ffn_gate[..intermediate_dim]);
+                ops::silu(&mut scratch.ffn_gate[..intermediate_dim]);
                 for i in 0..intermediate_dim {
                     scratch.ffn_gate[i] *= scratch.ffn_up[i];
                 }
@@ -11756,7 +11759,7 @@ impl OwnedQuantizedModel {
                         scratch.ffn_up[i] += bias[i];
                     }
                 }
-                self.gelu(&mut scratch.ffn_up[..intermediate_dim]);
+                ops::gelu(&mut scratch.ffn_up[..intermediate_dim]);
 
                 if use_q8k_gelu_down {
                     use crate::quantize::{
@@ -11940,7 +11943,7 @@ impl OwnedQuantizedModel {
 
             for (pos, hidden) in hidden_states.iter().enumerate() {
                 // 2a. Attention layer norm
-                let normed = self.layer_norm(
+                let normed = ops::layer_norm(
                     hidden,
                     &layer.attn_norm_weight,
                     layer.attn_norm_bias.as_deref(),
@@ -11950,7 +11953,7 @@ impl OwnedQuantizedModel {
                 // 2b. QKV projection
                 let mut qkv = self.qkv_matmul(&normed, &layer.qkv_weight)?;
                 if let Some(ref bias) = layer.qkv_bias {
-                    self.add_bias(&mut qkv, bias);
+                    ops::add_bias(&mut qkv, bias);
                 }
 
                 // 2c. Extract Q, K, V and apply RoPE
@@ -11982,7 +11985,7 @@ impl OwnedQuantizedModel {
             for (pos, attn_out) in attn_outputs.iter().enumerate() {
                 let mut attn_output = self.fused_matmul(attn_out, &layer.attn_output_weight)?;
                 if let Some(ref bias) = layer.attn_output_bias {
-                    self.add_bias(&mut attn_output, bias);
+                    ops::add_bias(&mut attn_output, bias);
                 }
 
                 // Residual connection
@@ -11995,13 +11998,13 @@ impl OwnedQuantizedModel {
             for hidden in &mut hidden_states {
                 let mut ffn_hidden = self.fused_matmul(hidden, &layer.ffn_up_weight)?;
                 if let Some(ref bias) = layer.ffn_up_bias {
-                    self.add_bias(&mut ffn_hidden, bias);
+                    ops::add_bias(&mut ffn_hidden, bias);
                 }
-                self.gelu(&mut ffn_hidden);
+                ops::gelu(&mut ffn_hidden);
 
                 let mut ffn_output = self.fused_matmul(&ffn_hidden, &layer.ffn_down_weight)?;
                 if let Some(ref bias) = layer.ffn_down_bias {
-                    self.add_bias(&mut ffn_output, bias);
+                    ops::add_bias(&mut ffn_output, bias);
                 }
 
                 // Residual
@@ -12018,7 +12021,7 @@ impl OwnedQuantizedModel {
 
         // 3. Final layer norm and LM head for LAST token only
         let last_hidden = &hidden_states[seq_len - 1];
-        let normed = self.layer_norm(
+        let normed = ops::layer_norm(
             last_hidden,
             &self.output_norm_weight,
             self.output_norm_bias.as_deref(),
@@ -12028,7 +12031,7 @@ impl OwnedQuantizedModel {
         // 4. LM head projection
         let mut logits = self.fused_matmul(&normed, &self.lm_head_weight)?;
         if let Some(ref bias) = self.lm_head_bias {
-            self.add_bias(&mut logits, bias);
+            ops::add_bias(&mut logits, bias);
         }
 
         Ok(logits)
@@ -12487,7 +12490,7 @@ impl OwnedQuantizedModel {
         // 2. Process through transformer layers
         for layer in &self.layers {
             // Pre-attention LayerNorm
-            let normed = self.layer_norm(
+            let normed = ops::layer_norm(
                 &hidden,
                 &layer.attn_norm_weight,
                 layer.attn_norm_bias.as_deref(),
@@ -12547,7 +12550,7 @@ impl OwnedQuantizedModel {
 
             // FFN (pre-norm style)
             let ffn_normed =
-                self.layer_norm(&hidden, &layer.attn_norm_weight, None, self.config.eps);
+                ops::layer_norm(&hidden, &layer.attn_norm_weight, None, self.config.eps);
             let up = self.fused_matmul(&ffn_normed, &layer.ffn_up_weight)?;
 
             // GELU activation
@@ -12565,7 +12568,7 @@ impl OwnedQuantizedModel {
         }
 
         // 3. Final LayerNorm
-        let normed = self.layer_norm(
+        let normed = ops::layer_norm(
             &hidden,
             &self.output_norm_weight,
             self.output_norm_bias.as_deref(),
@@ -12649,7 +12652,7 @@ impl OwnedQuantizedModel {
         // 2. Process through transformer layers
         for layer in &self.layers {
             // Pre-attention LayerNorm
-            let normed = self.layer_norm(
+            let normed = ops::layer_norm(
                 &hidden,
                 &layer.attn_norm_weight,
                 layer.attn_norm_bias.as_deref(),
@@ -12701,7 +12704,7 @@ impl OwnedQuantizedModel {
             }
 
             // FFN (pre-norm style)
-            let ffn_normed = self.layer_norm(
+            let ffn_normed = ops::layer_norm(
                 &hidden,
                 &layer.attn_norm_weight,
                 layer.attn_norm_bias.as_deref(),
@@ -12719,7 +12722,7 @@ impl OwnedQuantizedModel {
             )?;
 
             // GELU activation
-            self.gelu(&mut ffn_hidden);
+            ops::gelu(&mut ffn_hidden);
 
             // FFN down projection - use GPU
             let ffn_output = self.batch_matmul_gpu(
@@ -12738,7 +12741,7 @@ impl OwnedQuantizedModel {
         }
 
         // 3. Final layer norm
-        let normed = self.layer_norm(
+        let normed = ops::layer_norm(
             &hidden,
             &self.output_norm_weight,
             self.output_norm_bias.as_deref(),
