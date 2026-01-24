@@ -8,9 +8,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
-use std::time::Instant;
 
-use super::{SchedulerRequest, SchedulerOutput, MicroBatch, BatchType, Priority};
 
 // ============================================================================
 // CHUNKED PREFILL (per Sarathi-Serve / vLLM)

@@ -17,5 +17,9 @@
 //! - `api/openai_handlers.rs`
 
 mod apr;
+#[cfg(feature = "cuda")]
+mod apr_q4;
 
 pub use apr::{AprF32ToGpuAdapter, AprToGpuAdapter, AprGpuError};
+#[cfg(feature = "cuda")]
+pub use apr_q4::{AprQ4ToGpuAdapter, GpuModelQ4, LayerNorms};

@@ -243,6 +243,7 @@ fn test_block_weights_creation() {
         ffn_fc1_bias: vec![0.0; intermediate_dim],
         ffn_fc2_weight: vec![0.0; intermediate_dim * hidden_dim],
         ffn_fc2_bias: vec![0.0; hidden_dim],
+        ffn_gate_weight: None, // No SwiGLU gate for this test
     };
 
     assert_eq!(block.attn_norm_weight.len(), hidden_dim);
@@ -264,6 +265,7 @@ fn test_gpu_model_config_derived() {
         num_layers: 32,
         intermediate_dim: 11008,
         eps: 1e-6,
+        rope_theta: 10000.0,
     };
 
     // Test derived dimensions
@@ -282,6 +284,7 @@ fn test_gpu_model_config_mha() {
         num_layers: 12,
         intermediate_dim: 3072,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     assert_eq!(config.head_dim(), 64);
@@ -448,4 +451,286 @@ fn test_apr_gpu_error_display() {
 
     let err = AprGpuError::GpuModelError("gpu error".to_string());
     assert!(err.to_string().contains("gpu error"));
+}
+
+// ============================================================================
+// AprF32ToGpuAdapter Tests (Coverage for apr.rs F32 path)
+// ============================================================================
+
+use realizar::apr_transformer::{AprTransformer, AprTransformerLayer};
+use realizar::gpu::adapters::AprF32ToGpuAdapter;
+
+#[test]
+fn test_f32_adapter_to_gpu_model_basic() {
+    let apr = create_f32_transformer(1);
+    let result = AprF32ToGpuAdapter::to_gpu_model(&apr);
+
+    assert!(result.is_ok());
+    let model = result.unwrap();
+
+    assert_eq!(model.config().hidden_dim, 64);
+    assert_eq!(model.config().vocab_size, 100);
+    assert_eq!(model.config().num_layers, 1);
+}
+
+#[test]
+fn test_f32_adapter_to_gpu_model_multi_layer() {
+    let apr = create_f32_transformer(4);
+    let result = AprF32ToGpuAdapter::to_gpu_model(&apr);
+
+    assert!(result.is_ok());
+    let model = result.unwrap();
+
+    assert_eq!(model.config().num_layers, 4);
+}
+
+#[test]
+fn test_f32_adapter_with_all_biases() {
+    let hidden_dim = 64;
+    let vocab_size = 100;
+    let intermediate_dim = 128;
+
+    // Create layer with all optional biases
+    let layer = AprTransformerLayer {
+        attn_norm_weight: vec![1.0; hidden_dim],
+        attn_norm_bias: Some(vec![0.1; hidden_dim]),
+        qkv_weight: vec![0.0; hidden_dim * 3 * hidden_dim],
+        qkv_bias: Some(vec![0.02; 3 * hidden_dim]),
+        attn_output_weight: vec![0.0; hidden_dim * hidden_dim],
+        attn_output_bias: Some(vec![0.03; hidden_dim]),
+        ffn_gate_weight: None,
+        ffn_gate_bias: None,
+        ffn_up_weight: vec![0.0; hidden_dim * intermediate_dim],
+        ffn_up_bias: Some(vec![0.04; intermediate_dim]),
+        ffn_down_weight: vec![0.0; intermediate_dim * hidden_dim],
+        ffn_down_bias: Some(vec![0.05; hidden_dim]),
+        ffn_norm_weight: None,
+        ffn_norm_bias: None,
+    };
+
+    let apr = AprTransformer {
+        config: AprTransformerConfig {
+            architecture: "test".to_string(),
+            hidden_dim,
+            num_layers: 1,
+            num_heads: 4,
+            num_kv_heads: 4,
+            vocab_size,
+            intermediate_dim,
+            context_length: 128,
+            rope_theta: 10000.0,
+            eps: 1e-5,
+        },
+        token_embedding: vec![0.0; vocab_size * hidden_dim],
+        layers: vec![layer],
+        output_norm_weight: vec![1.0; hidden_dim],
+        output_norm_bias: Some(vec![0.06; hidden_dim]),
+        lm_head_weight: vec![0.0; hidden_dim * vocab_size],
+        lm_head_bias: Some(vec![0.07; vocab_size]),
+        q4k_layers: None,
+        lm_head_weight_q6k: None,
+        lm_head_weight_q4k: None,
+    };
+
+    let result = AprF32ToGpuAdapter::to_gpu_model(&apr);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_f32_adapter_without_biases() {
+    let hidden_dim = 64;
+    let vocab_size = 100;
+    let intermediate_dim = 128;
+
+    // Create layer without optional biases (should use defaults)
+    let layer = AprTransformerLayer {
+        attn_norm_weight: vec![1.0; hidden_dim],
+        attn_norm_bias: None,
+        qkv_weight: vec![0.0; hidden_dim * 3 * hidden_dim],
+        qkv_bias: None,
+        attn_output_weight: vec![0.0; hidden_dim * hidden_dim],
+        attn_output_bias: None,
+        ffn_gate_weight: None,
+        ffn_gate_bias: None,
+        ffn_up_weight: vec![0.0; hidden_dim * intermediate_dim],
+        ffn_up_bias: None,
+        ffn_down_weight: vec![0.0; intermediate_dim * hidden_dim],
+        ffn_down_bias: None,
+        ffn_norm_weight: None,
+        ffn_norm_bias: None,
+    };
+
+    let apr = AprTransformer {
+        config: AprTransformerConfig {
+            architecture: "test".to_string(),
+            hidden_dim,
+            num_layers: 1,
+            num_heads: 4,
+            num_kv_heads: 4,
+            vocab_size,
+            intermediate_dim,
+            context_length: 128,
+            rope_theta: 10000.0,
+            eps: 1e-5,
+        },
+        token_embedding: vec![0.0; vocab_size * hidden_dim],
+        layers: vec![layer],
+        output_norm_weight: vec![1.0; hidden_dim],
+        output_norm_bias: None,
+        lm_head_weight: vec![0.0; hidden_dim * vocab_size],
+        lm_head_bias: None,
+        q4k_layers: None,
+        lm_head_weight_q6k: None,
+        lm_head_weight_q4k: None,
+    };
+
+    let result = AprF32ToGpuAdapter::to_gpu_model(&apr);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_f32_adapter_gqa_config() {
+    // Test GQA configuration (num_kv_heads < num_heads)
+    let hidden_dim = 128;
+    let vocab_size = 200;
+    let intermediate_dim = 512;
+    let num_heads = 8;
+    let num_kv_heads = 2;  // GQA: 4x fewer KV heads
+    let head_dim = hidden_dim / num_heads;
+    let kv_dim = num_kv_heads * head_dim;
+    let qkv_out_dim = hidden_dim + 2 * kv_dim;
+
+    let layer = AprTransformerLayer {
+        attn_norm_weight: vec![1.0; hidden_dim],
+        attn_norm_bias: None,
+        qkv_weight: vec![0.0; hidden_dim * qkv_out_dim],
+        qkv_bias: None,
+        attn_output_weight: vec![0.0; hidden_dim * hidden_dim],
+        attn_output_bias: None,
+        ffn_gate_weight: None,
+        ffn_gate_bias: None,
+        ffn_up_weight: vec![0.0; hidden_dim * intermediate_dim],
+        ffn_up_bias: None,
+        ffn_down_weight: vec![0.0; intermediate_dim * hidden_dim],
+        ffn_down_bias: None,
+        ffn_norm_weight: None,
+        ffn_norm_bias: None,
+    };
+
+    let apr = AprTransformer {
+        config: AprTransformerConfig {
+            architecture: "test".to_string(),
+            hidden_dim,
+            num_layers: 2,
+            num_heads,
+            num_kv_heads,
+            vocab_size,
+            intermediate_dim,
+            context_length: 2048,
+            rope_theta: 10000.0,
+            eps: 1e-5,
+        },
+        token_embedding: vec![0.0; vocab_size * hidden_dim],
+        layers: vec![layer.clone(), layer],
+        output_norm_weight: vec![1.0; hidden_dim],
+        output_norm_bias: None,
+        lm_head_weight: vec![0.0; hidden_dim * vocab_size],
+        lm_head_bias: None,
+        q4k_layers: None,
+        lm_head_weight_q6k: None,
+        lm_head_weight_q4k: None,
+    };
+
+    let result = AprF32ToGpuAdapter::to_gpu_model(&apr);
+    assert!(result.is_ok());
+
+    let model = result.unwrap();
+    assert_eq!(model.config().num_heads, num_heads);
+    assert_eq!(model.config().num_kv_heads, num_kv_heads);
+}
+
+#[test]
+fn test_f32_adapter_larger_model() {
+    // Test with dimensions closer to real models
+    let apr = create_f32_transformer_large();
+    let result = AprF32ToGpuAdapter::to_gpu_model(&apr);
+
+    assert!(result.is_ok());
+    let model = result.unwrap();
+
+    assert_eq!(model.config().hidden_dim, 512);
+    assert_eq!(model.config().num_layers, 6);
+}
+
+// ============================================================================
+// F32 Adapter Helper Functions
+// ============================================================================
+
+fn create_f32_transformer(num_layers: usize) -> AprTransformer {
+    let hidden_dim = 64;
+    let vocab_size = 100;
+    let intermediate_dim = 128;
+
+    let layers: Vec<AprTransformerLayer> = (0..num_layers)
+        .map(|_| AprTransformerLayer::empty(hidden_dim, intermediate_dim))
+        .collect();
+
+    AprTransformer {
+        config: AprTransformerConfig {
+            architecture: "test".to_string(),
+            hidden_dim,
+            num_layers,
+            num_heads: 4,
+            num_kv_heads: 4,
+            vocab_size,
+            intermediate_dim,
+            context_length: 128,
+            rope_theta: 10000.0,
+            eps: 1e-5,
+        },
+        token_embedding: vec![0.0; vocab_size * hidden_dim],
+        layers,
+        output_norm_weight: vec![1.0; hidden_dim],
+        output_norm_bias: None,
+        lm_head_weight: vec![0.0; hidden_dim * vocab_size],
+        lm_head_bias: None,
+        q4k_layers: None,
+        lm_head_weight_q6k: None,
+        lm_head_weight_q4k: None,
+    }
+}
+
+fn create_f32_transformer_large() -> AprTransformer {
+    let hidden_dim = 512;
+    let vocab_size = 1000;
+    let intermediate_dim = 2048;
+    let num_layers = 6;
+
+    let layers: Vec<AprTransformerLayer> = (0..num_layers)
+        .map(|_| AprTransformerLayer::empty(hidden_dim, intermediate_dim))
+        .collect();
+
+    AprTransformer {
+        config: AprTransformerConfig {
+            architecture: "test".to_string(),
+            hidden_dim,
+            num_layers,
+            num_heads: 8,
+            num_kv_heads: 8,
+            vocab_size,
+            intermediate_dim,
+            context_length: 2048,
+            rope_theta: 10000.0,
+            eps: 1e-5,
+        },
+        token_embedding: vec![0.0; vocab_size * hidden_dim],
+        layers,
+        output_norm_weight: vec![1.0; hidden_dim],
+        output_norm_bias: None,
+        lm_head_weight: vec![0.0; hidden_dim * vocab_size],
+        lm_head_bias: None,
+        q4k_layers: None,
+        lm_head_weight_q6k: None,
+        lm_head_weight_q4k: None,
+    }
 }

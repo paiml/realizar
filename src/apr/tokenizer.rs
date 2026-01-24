@@ -3,7 +3,6 @@
 //! Byte Pair Encoding tokenizer supporting APR v2 format models.
 
 use std::collections::HashMap;
-use crate::error::{RealizarError, Result};
 use super::AprV2Model;
 
 /// BPE Tokenizer for encoding and decoding text

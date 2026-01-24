@@ -127,6 +127,7 @@ fn test_imp_1004c_full_forward_benchmark() {
         num_layers: 4,
         intermediate_dim: 1024,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut cuda_model =
@@ -194,6 +195,7 @@ fn test_imp_1004d_token_generation_throughput() {
         num_layers: 4,
         intermediate_dim: 1024,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut cuda_model =
@@ -420,6 +422,7 @@ fn test_imp_1005a_do_matmul_uses_cuda_scheduler() {
         num_layers: 1,
         intermediate_dim: 128,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut cuda_model =
@@ -471,6 +474,7 @@ fn test_imp_1005b_forward_gpu_speedup_with_cuda() {
         num_layers: 4,
         intermediate_dim: 1024,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut cuda_model =
@@ -546,6 +550,7 @@ fn test_imp_1005c_token_generation_with_cuda_forward() {
         num_layers: 4,
         intermediate_dim: 1024,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut cuda_model = GpuModel::new_with_cuda(config).expect("Failed to create CUDA model");
@@ -603,6 +608,7 @@ fn test_imp_1005d_forward_block_uses_do_matmul() {
         num_layers: 2,
         intermediate_dim: 512,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut cuda_model =
@@ -677,6 +683,7 @@ fn test_imp_1006a_incremental_forward_uses_cuda() {
         num_layers: 2,
         intermediate_dim: 512,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut cuda_model =
@@ -770,6 +777,7 @@ fn test_imp_1006b_block_incremental_uses_cuda() {
         num_layers: 2,
         intermediate_dim: 512,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut cuda_model =
@@ -868,6 +876,7 @@ fn test_imp_1006c_generate_throughput_improved() {
         num_layers: 4, // More layers to see impact
         intermediate_dim: 512,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut cuda_model = GpuModel::new_with_cuda(config).expect("Failed to create CUDA model");
@@ -925,6 +934,7 @@ fn test_imp_1006d_all_matmuls_routed_to_cuda() {
         num_layers: 2,
         intermediate_dim: 512,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut cuda_model = GpuModel::new_with_cuda(config).expect("Failed to create CUDA model");
@@ -978,6 +988,7 @@ fn test_imp_1007a_no_clone_matmul() {
         num_layers: 2,
         intermediate_dim: 512,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut model = GpuModel::new_with_cuda(config).expect("Failed to create model");
@@ -1012,6 +1023,7 @@ fn test_imp_1007b_incremental_no_clone_speedup() {
         num_layers: 2,
         intermediate_dim: 512,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut model = GpuModel::new_with_cuda(config.clone()).expect("Failed to create model");
@@ -1083,6 +1095,7 @@ fn test_imp_1007c_generate_throughput_improved() {
         num_layers: 4,
         intermediate_dim: 512,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut model = GpuModel::new_with_cuda(config).expect("Failed to create model");
@@ -1138,6 +1151,7 @@ fn test_imp_1008a_refcell_scheduler_matmul() {
         num_layers: 2,
         intermediate_dim: 512,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let model = GpuModel::new_with_cuda(config).expect("Failed to create CUDA model");
@@ -1185,6 +1199,7 @@ fn test_imp_1008b_zero_clone_forward_block() {
         num_layers: 2,
         intermediate_dim: 512,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let model = GpuModel::new_with_cuda(config.clone()).expect("Failed to create CUDA model");
@@ -1252,6 +1267,7 @@ fn test_imp_1008c_generate_throughput_refcell() {
         num_layers: 4,
         intermediate_dim: 512,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let model = GpuModel::new_with_cuda(config).expect("Failed to create CUDA model");
@@ -1309,6 +1325,7 @@ fn test_imp_1008d_compare_clone_vs_refcell() {
         num_layers: 4,
         intermediate_dim: 512,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut clone_model =
@@ -1378,6 +1395,7 @@ fn test_imp_1009a_main_generate_uses_refcell() {
         num_layers: 4,
         intermediate_dim: 512,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut model = GpuModel::new_with_cuda(config).expect("Failed to create CUDA model");
@@ -1438,6 +1456,7 @@ fn test_imp_1009b_generate_parity_with_refcell() {
         num_layers: 4,
         intermediate_dim: 512,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut clone_model =

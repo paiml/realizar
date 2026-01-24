@@ -54,6 +54,8 @@ mod tokenizer;
 pub use cuda::AprV2ModelCuda;
 pub use helpers::{is_apr_file, detect_format, simd_dot};
 use helpers::{rms_norm, matmul, simple_attention};
+#[cfg(feature = "cuda")]
+use helpers::transpose_matrix;
 pub use tokenizer::{BpeTokenizer, byte_to_bpe_char};
 use tokenizer::bpe_encode;
 

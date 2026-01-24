@@ -1340,6 +1340,7 @@ fn test_imp_1001d_gpu_model_with_cuda_backend() {
         num_kv_heads: 4,
         intermediate_dim: 512,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     // Create model
@@ -1586,6 +1587,7 @@ fn test_imp_1003a_gpu_model_with_cuda_scheduler() {
         num_layers: 2,
         intermediate_dim: 128,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     // Create model with CUDA scheduler
@@ -1621,6 +1623,7 @@ fn test_imp_1003b_cuda_scheduler_used_for_forward() {
         num_layers: 1,
         intermediate_dim: 128,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut model = GpuModel::new_with_cuda(config).expect("Failed to create CUDA model");
@@ -1655,6 +1658,7 @@ fn test_imp_1003c_cuda_scheduler_vs_hybrid_single_token() {
         num_layers: 4,
         intermediate_dim: 1024,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     // Create both models
@@ -1714,6 +1718,7 @@ fn test_imp_1003d_cuda_scheduler_matmul_dispatch() {
         num_layers: 1,
         intermediate_dim: 128,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut model = GpuModel::new_with_cuda(config).expect("Failed to create CUDA model");

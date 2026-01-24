@@ -4,20 +4,15 @@
 //! Contains batch completions, warmup, and status handlers for GPU inference.
 
 use std::convert::Infallible;
-use std::sync::Arc;
 
 use axum::{
     extract::State,
     http::StatusCode,
-    response::{
-        sse::{Event, Sse},
-        IntoResponse, Response,
-    },
+    response::sse::{Event, Sse},
     Json,
 };
 use futures::stream::Stream;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc, oneshot};
 
 use super::{
     AppState, ErrorResponse, GenerateRequest, GenerateResponse, BatchGenerateResponse,

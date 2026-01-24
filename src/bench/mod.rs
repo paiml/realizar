@@ -16,7 +16,6 @@
 
 #![allow(clippy::cast_precision_loss)] // Statistical functions need usize->f64
 
-use std::fmt::Write;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -47,17 +46,17 @@ pub use statistics::{
     Regression, RegressionReport, RegressionDetector, WelchTTestResult, welch_t_test,
 };
 
-pub use load_testing::{LoadTestConfig, LoadTestResult};
+pub use load_testing::{LoadTestConfig, LoadTestResult, LoadTestRunner};
 
 pub use matrix::{
     MatrixBenchmarkEntry, BenchmarkMatrix, MatrixBenchmarkConfig,
-    BackendSummary, MatrixSummary,
+    BackendSummary, MatrixSummary, ComputeBackendType,
 };
 
 pub use gpu_parity::{
     GpuParityBenchmark, GpuParityResult, GapAnalysis, FalsifiableClaim,
     OptimizedGemmConfig, GemmPerformanceResult, OptimizedGemmBenchmark,
-    FusedOpType, FusedOpSpec, FlashAttentionConfig,
+    FusedOpType, FusedOpSpec, FlashAttentionConfig, Imp900Result, MemoryPoolConfig,
 };
 
 // ============================================================================

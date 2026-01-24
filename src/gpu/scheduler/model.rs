@@ -976,9 +976,11 @@ impl GpuModel {
     ///     vocab_size: 32000,
     ///     hidden_dim: 4096,
     ///     num_heads: 32,
+    ///     num_kv_heads: 32,
     ///     num_layers: 32,
     ///     intermediate_dim: 11008,
     ///     eps: 1e-5,
+    ///     rope_theta: 10000.0,
     /// };
     /// let model = GpuModel::from_gguf_config(config)?;
     /// ```

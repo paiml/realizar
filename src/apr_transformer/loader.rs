@@ -12,19 +12,15 @@
 #![allow(non_camel_case_types)]
 
 use std::fs::File;
-use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
 
 use memmap2::Mmap;
 use serde::{Deserialize, Serialize};
 
-use crate::apr::{AprHeader, MAGIC};
+use crate::apr::MAGIC;
 use crate::error::{RealizarError, Result};
-use crate::tensor::Tensor;
-use crate::layers::softmax;
-use crate::generate::sample_top_k;
 
-use super::{GenerateConfig, AprKVCache, AprTransformerConfig, AprTransformer};
+use super::{AprKVCache, AprTransformerConfig, AprTransformer};
 
 // ============================================================================
 // APR Transformer Binary Format (Y1-Y5 Format Parity)

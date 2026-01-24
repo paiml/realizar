@@ -715,6 +715,20 @@ pub fn run_apr_inference_gpu(
         }
     })?;
 
+    // Debug: Check if gate weights exist in the loaded transformer
+    if verbose {
+        let has_gate = transformer.layers.first().map_or(false, |l| l.ffn_gate_weight.is_some());
+        eprintln!("[DEBUG-SwiGLU] APR transformer has gate weight: {}", has_gate);
+        if has_gate {
+            let gate_len = transformer.layers[0].ffn_gate_weight.as_ref().map_or(0, |v| v.len());
+            eprintln!("[DEBUG-SwiGLU] Gate weight elements: {} (expected: {}x{}={})",
+                gate_len,
+                transformer.config.hidden_dim,
+                transformer.config.intermediate_dim,
+                transformer.config.hidden_dim * transformer.config.intermediate_dim);
+        }
+    }
+
     // Convert to GpuModel using F32 adapter
     let mut gpu_model = AprF32ToGpuAdapter::to_gpu_model(&transformer).map_err(|e| {
         crate::error::RealizarError::UnsupportedOperation {
@@ -722,6 +736,61 @@ pub fn run_apr_inference_gpu(
             reason: format!("Failed to convert APR to GPU format: {e}"),
         }
     })?;
+
+    // Debug: Check if gate weights exist in GpuModel
+    if verbose {
+        let has_gpu_gate = gpu_model.block_weights.first().map_or(false, |b| b.ffn_gate_weight.is_some());
+        eprintln!("[DEBUG-SwiGLU] GpuModel has gate weight: {}", has_gpu_gate);
+
+        // Compare weights: CPU vs GPU
+        if let Some(layer0) = transformer.layers.first() {
+            eprintln!("[DEBUG-WEIGHT] CPU qkv_weight first 5: {:?}", &layer0.qkv_weight[0..5.min(layer0.qkv_weight.len())]);
+            eprintln!("[DEBUG-WEIGHT] GPU qkv_weight first 5: {:?}", &gpu_model.block_weights[0].qkv_weight[0..5.min(gpu_model.block_weights[0].qkv_weight.len())]);
+            eprintln!("[DEBUG-WEIGHT] CPU fc1 (up) first 5: {:?}", &layer0.ffn_up_weight[0..5.min(layer0.ffn_up_weight.len())]);
+            eprintln!("[DEBUG-WEIGHT] GPU fc1 (up) first 5: {:?}", &gpu_model.block_weights[0].ffn_fc1_weight[0..5.min(gpu_model.block_weights[0].ffn_fc1_weight.len())]);
+
+            // Debug: Compare matmul output for first token embedding
+            let hidden_dim = transformer.config.hidden_dim;
+            let test_embedding = &transformer.token_embedding[0..hidden_dim];
+
+            // CPU matmul: y = x @ W where W is [out_dim, in_dim] (transposed internally)
+            let cpu_qkv_dim = layer0.qkv_weight.len() / hidden_dim;
+            let mut cpu_qkv = vec![0.0f32; cpu_qkv_dim];
+            for o in 0..cpu_qkv_dim {
+                let w_start = o * hidden_dim;
+                let mut sum = 0.0f32;
+                for i in 0..hidden_dim {
+                    sum += test_embedding[i] * layer0.qkv_weight[w_start + i];
+                }
+                cpu_qkv[o] = sum;
+            }
+
+            // GPU matmul: y = x @ W_t where W_t is [in_dim, out_dim] (already transposed)
+            let gpu_qkv_weight = &gpu_model.block_weights[0].qkv_weight;
+            let gpu_qkv_dim = gpu_qkv_weight.len() / hidden_dim;
+            let mut gpu_qkv = vec![0.0f32; gpu_qkv_dim];
+            for j in 0..gpu_qkv_dim {
+                let mut sum = 0.0f32;
+                for i in 0..hidden_dim {
+                    // GPU weight is [hidden_dim, qkv_dim] row-major: W_t[i,j] = W_t[i * qkv_dim + j]
+                    sum += test_embedding[i] * gpu_qkv_weight[i * gpu_qkv_dim + j];
+                }
+                gpu_qkv[j] = sum;
+            }
+
+            eprintln!("[DEBUG-MATMUL] CPU QKV first 5: {:?}", &cpu_qkv[0..5.min(cpu_qkv.len())]);
+            eprintln!("[DEBUG-MATMUL] GPU QKV first 5: {:?}", &gpu_qkv[0..5.min(gpu_qkv.len())]);
+
+            // Compare
+            let max_diff: f32 = cpu_qkv.iter().zip(gpu_qkv.iter())
+                .map(|(c, g)| (c - g).abs())
+                .fold(0.0f32, f32::max);
+            eprintln!("[DEBUG-MATMUL] Max diff: {}", max_diff);
+            if max_diff > 0.01 {
+                eprintln!("[DEBUG-MATMUL] WARNING: CPU vs GPU QKV mismatch!");
+            }
+        }
+    }
 
     let load_time = load_start.elapsed();
     if verbose {

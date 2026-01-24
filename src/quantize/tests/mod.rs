@@ -4,3 +4,4 @@ mod part_03;
 mod part_04;
 mod part_05;
 mod part_06;
+mod part_07;

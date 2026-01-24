@@ -72,6 +72,10 @@ enum Commands {
         /// Show verbose output (loading details, performance stats)
         #[arg(short, long)]
         verbose: bool,
+
+        /// Enable inference tracing for debugging (e.g., --trace or --trace=attention,ffn)
+        #[arg(long, value_name = "STEPS")]
+        trace: Option<Option<String>>,
     },
     /// Interactive chat mode (like `ollama chat`)
     Chat {
@@ -263,6 +267,7 @@ async fn main() -> Result<()> {
             raw,
             gpu,
             verbose,
+            trace,
         } => {
             run_model(
                 &model,
@@ -274,6 +279,7 @@ async fn main() -> Result<()> {
                 raw,
                 gpu,
                 verbose,
+                trace,
             )
             .await?;
         },
@@ -408,9 +414,35 @@ async fn run_model(
     raw_mode: bool,
     force_gpu: bool,
     verbose: bool,
+    trace: Option<Option<String>>,
 ) -> Result<()> {
     use presentar_terminal::cli::Spinner;
     use realizar::chat_template::{auto_detect_template, ChatMessage};
+    use realizar::inference_trace::TraceConfig;
+
+    // Parse trace configuration
+    let trace_config = match trace {
+        Some(Some(steps)) => {
+            // --trace=step1,step2
+            let mut config = TraceConfig::enabled();
+            config.steps = TraceConfig::parse_steps(&steps);
+            config.verbose = true;
+            Some(config)
+        }
+        Some(None) => {
+            // --trace (no value, trace all)
+            let mut config = TraceConfig::enabled();
+            config.verbose = true;
+            Some(config)
+        }
+        None => None,
+    };
+
+    // If tracing enabled, set GPU_DEBUG environment for layer-by-layer output
+    if trace_config.is_some() {
+        std::env::set_var("GPU_DEBUG", "1");
+        eprintln!("[TRACE] Inference tracing enabled - GPU_DEBUG=1");
+    }
 
     // Ollama-style: spinner while loading, then just the response
     let spinner = if !verbose {
@@ -591,9 +623,16 @@ async fn run_model(
     raw_mode: bool,
     force_gpu: bool,
     verbose: bool,
+    trace: Option<Option<String>>,
 ) -> Result<()> {
     use presentar_terminal::cli::Spinner;
     use realizar::chat_template::{auto_detect_template, ChatMessage};
+
+    // If tracing enabled, set GPU_DEBUG environment for layer-by-layer output
+    if trace.is_some() {
+        std::env::set_var("GPU_DEBUG", "1");
+        eprintln!("[TRACE] Inference tracing enabled - GPU_DEBUG=1");
+    }
 
     // Ollama-style: spinner while loading, then just the response
     let spinner = if !verbose {

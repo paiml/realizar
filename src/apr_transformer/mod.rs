@@ -1895,7 +1895,6 @@ impl From<&crate::gguf::GGUFTransformer> for AprTransformer {
         }
     }
 }
-// Tests extracted to tests.rs (PMAT-802)
+// Tests shattered to tests/ directory (PMAT-803)
 #[cfg(test)]
-#[path = "tests.rs"]
-mod apr_transformer_tests;
+mod tests;

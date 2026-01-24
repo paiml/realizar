@@ -8,7 +8,6 @@
 
 #![allow(clippy::cast_precision_loss)]
 
-use std::collections::HashMap;
 use std::fmt::Write;
 
 use serde::{Deserialize, Serialize};

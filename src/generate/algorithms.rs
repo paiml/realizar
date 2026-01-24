@@ -15,7 +15,6 @@ use crate::error::{RealizarError, Result};
 use crate::layers::softmax;
 use crate::tensor::Tensor;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 use super::{sample_greedy, sample_from_distribution};
 
 /// Sample using min-p (minimum probability) sampling.
