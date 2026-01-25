@@ -348,7 +348,8 @@ impl AprToGpuAdapter {
 }
 
 /// Transpose a row-major matrix
-fn transpose_matrix(data: &[f32], rows: usize, cols: usize) -> Vec<f32> {
+#[must_use]
+pub fn transpose_matrix(data: &[f32], rows: usize, cols: usize) -> Vec<f32> {
     let mut transposed = vec![0.0; rows * cols];
     for i in 0..rows {
         for j in 0..cols {
