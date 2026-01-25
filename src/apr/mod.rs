@@ -868,7 +868,7 @@ impl AprMetadata {
     pub fn get_embedded_bos_token_id(&self) -> Option<u32> {
         self.extra
             .get("tokenizer.bos_token_id")
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .map(|v| v as u32)
     }
 
@@ -877,7 +877,7 @@ impl AprMetadata {
     pub fn get_embedded_eos_token_id(&self) -> Option<u32> {
         self.extra
             .get("tokenizer.eos_token_id")
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .map(|v| v as u32)
     }
 }

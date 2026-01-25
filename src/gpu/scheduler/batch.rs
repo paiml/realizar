@@ -434,10 +434,10 @@ pub fn optimized_gqa_attention(model: &mut GpuModel, qkv: &[f32], seq_len: usize
         }
 
         // Compute attention scores: Q @ K^T using GPU matmul
+        // Phase 44: Use do_matmul_transpose_b() to enable MockExecutor testing
         let mut attn_scores = vec![f32::NEG_INFINITY; seq_len * seq_len];
         let scores = model
-            .scheduler
-            .matmul_transpose_b(&q_head, &k_head, seq_len, head_dim, seq_len)?;
+            .do_matmul_transpose_b(&q_head, &k_head, seq_len, head_dim, seq_len)?;
 
         // Apply causal mask and scale
         for i in 0..seq_len {
@@ -468,9 +468,9 @@ pub fn optimized_gqa_attention(model: &mut GpuModel, qkv: &[f32], seq_len: usize
         }
 
         // Compute output: attn @ V using GPU matmul
+        // Phase 44: Use do_matmul() to enable MockExecutor testing
         let head_output =
-            model.scheduler
-                .matmul(&attn_scores, &v_head, seq_len, seq_len, head_dim)?;
+            model.do_matmul(&attn_scores, &v_head, seq_len, seq_len, head_dim)?;
 
         // Copy to output
         for i in 0..seq_len {

@@ -268,7 +268,7 @@ impl ContiguousKVCache {
     /// Check if data is cache-line aligned
     #[must_use]
     pub fn is_cache_aligned(&self) -> bool {
-        self.layer_stride % FLOATS_PER_CACHE_LINE == 0
+        self.layer_stride.is_multiple_of(FLOATS_PER_CACHE_LINE)
     }
 
     /// Get the layer stride

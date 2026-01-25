@@ -10,8 +10,9 @@ use realizar::gpu::scheduler::{
 
 // Re-export batch functions for testing (they're in the scheduler module)
 use realizar::gpu::scheduler::batch::{
-    argmax, forward_single_token, forward_single_token_greedy, generate_gpu,
-    optimized_lm_head_argmax_transposed,
+    argmax, forward_block_single, forward_single_token, forward_single_token_greedy,
+    generate_gpu, optimized_gqa_attention, optimized_lm_head_argmax_transposed,
+    simplified_attention,
 };
 
 // ============================================================================
@@ -424,4 +425,278 @@ fn test_greedy_generation_deterministic() {
 
     // With identical models and inputs, output should be identical
     assert_eq!(r1.unwrap(), r2.unwrap());
+}
+
+// ============================================================================
+// forward_block_single Tests
+// ============================================================================
+
+#[test]
+fn test_forward_block_single_basic() {
+    let mut model = create_model_with_cpu();
+
+    // Create a simple input hidden state
+    let hidden = vec![0.1f32; 64]; // hidden_dim = 64
+
+    // Forward through block 0
+    let result = forward_block_single(&mut model, &hidden, 0);
+
+    assert!(result.is_ok());
+    let output = result.unwrap();
+    assert_eq!(output.len(), 64); // Should maintain hidden_dim
+
+    // Output should be finite
+    assert!(output.iter().all(|&x| x.is_finite()));
+}
+
+#[test]
+fn test_forward_block_single_all_blocks() {
+    let mut model = create_model_with_cpu();
+    let mut hidden = vec![0.1f32; 64];
+
+    // Process through all blocks sequentially
+    for block_idx in 0..2 {
+        let result = forward_block_single(&mut model, &hidden, block_idx);
+        assert!(result.is_ok(), "Block {} failed", block_idx);
+        hidden = result.unwrap();
+        assert_eq!(hidden.len(), 64);
+    }
+}
+
+#[test]
+fn test_forward_block_single_output_differs() {
+    let mut model = create_model_with_cpu();
+
+    // Different inputs should produce different outputs
+    let hidden1 = vec![0.1f32; 64];
+    let hidden2 = vec![0.5f32; 64];
+
+    let r1 = forward_block_single(&mut model, &hidden1, 0).unwrap();
+    let r2 = forward_block_single(&mut model, &hidden2, 0).unwrap();
+
+    // Outputs should differ
+    let diff: f32 = r1.iter().zip(r2.iter()).map(|(a, b)| (a - b).abs()).sum();
+    assert!(diff > 0.001, "Outputs should differ for different inputs");
+}
+
+// ============================================================================
+// simplified_attention Tests
+// ============================================================================
+
+#[test]
+fn test_simplified_attention_basic() {
+    let config = create_small_config();
+
+    // Create QKV tensor for seq_len=2
+    // Format: [Q for all positions, K for all positions, V for all positions]
+    let seq_len = 2;
+    let hidden_dim = config.hidden_dim; // 64
+
+    // Q, K, V each have [seq_len * hidden_dim] elements
+    // Total: 3 * seq_len * hidden_dim = 3 * 2 * 64 = 384
+    let mut qkv = vec![0.0f32; 3 * seq_len * hidden_dim];
+
+    // Set Q values (first seq_len * hidden_dim elements)
+    for i in 0..seq_len * hidden_dim {
+        qkv[i] = 0.1;
+    }
+    // Set K values (next seq_len * hidden_dim elements)
+    for i in 0..seq_len * hidden_dim {
+        qkv[seq_len * hidden_dim + i] = 0.1;
+    }
+    // Set V values (last seq_len * hidden_dim elements)
+    for i in 0..seq_len * hidden_dim {
+        qkv[2 * seq_len * hidden_dim + i] = 0.5;
+    }
+
+    let result = simplified_attention(&config, &qkv, seq_len);
+
+    assert!(result.is_ok());
+    let output = result.unwrap();
+    assert_eq!(output.len(), seq_len * hidden_dim);
+
+    // Output should be influenced by V values
+    assert!(output.iter().any(|&x| x.abs() > 0.0));
+}
+
+#[test]
+fn test_simplified_attention_single_position() {
+    let config = create_small_config();
+
+    // Single position attention (seq_len = 1)
+    let seq_len = 1;
+    let hidden_dim = config.hidden_dim;
+
+    let qkv = vec![0.1f32; 3 * seq_len * hidden_dim];
+
+    let result = simplified_attention(&config, &qkv, seq_len);
+
+    assert!(result.is_ok());
+    let output = result.unwrap();
+    assert_eq!(output.len(), hidden_dim);
+}
+
+// ============================================================================
+// optimized_gqa_attention Tests with MockExecutor
+// ============================================================================
+
+#[test]
+fn test_optimized_gqa_attention_with_cpu() {
+    let mut model = create_model_with_cpu();
+
+    let seq_len = 2;
+    let hidden_dim = model.config.hidden_dim;
+    let kv_dim = model.config.kv_dim();
+
+    // GQA format: Q has hidden_dim, K/V have kv_dim
+    // Total: seq_len * (hidden_dim + 2 * kv_dim)
+    let qkv_len = seq_len * (hidden_dim + 2 * kv_dim);
+    let qkv = vec![0.1f32; qkv_len];
+
+    let result = optimized_gqa_attention(&mut model, &qkv, seq_len);
+
+    assert!(result.is_ok());
+    let output = result.unwrap();
+    assert_eq!(output.len(), seq_len * hidden_dim);
+}
+
+#[test]
+fn test_optimized_gqa_attention_routes_through_test_executor() {
+    // Verify that optimized_gqa_attention uses the test_executor path
+    // by checking with CpuExecutor (which actually works)
+    let mut model = create_model_with_cpu();
+
+    let seq_len = 1; // Use seq_len=1 to simplify
+    let hidden_dim = model.config.hidden_dim;
+    let kv_dim = model.config.kv_dim();
+
+    // GQA format: Q has hidden_dim, K/V have kv_dim
+    let qkv_len = seq_len * (hidden_dim + 2 * kv_dim);
+    let qkv = vec![0.1f32; qkv_len];
+
+    // This exercises the do_matmul_transpose_b and do_matmul paths via CpuExecutor
+    let result = optimized_gqa_attention(&mut model, &qkv, seq_len);
+
+    // Should succeed with CpuExecutor
+    assert!(result.is_ok());
+    let output = result.unwrap();
+    assert_eq!(output.len(), seq_len * hidden_dim);
+
+    // Output should be finite
+    assert!(output.iter().all(|&x| x.is_finite()));
+}
+
+// ============================================================================
+// optimized_lm_head_argmax_transposed Additional Tests
+// ============================================================================
+
+#[test]
+fn test_optimized_lm_head_argmax_large_vocab() {
+    // Test with large vocabulary to exercise parallel chunking
+    let hidden_dim = 64;
+    let vocab_size = 10000;
+
+    let hidden = vec![0.1f32; hidden_dim];
+    let weight_t = vec![0.01f32; vocab_size * hidden_dim];
+    let mut bias = vec![0.0f32; vocab_size];
+
+    // Make token 7777 the winner
+    bias[7777] = 100.0;
+
+    let result = optimized_lm_head_argmax_transposed(&hidden, &weight_t, &bias, hidden_dim, vocab_size);
+    assert_eq!(result, 7777);
+}
+
+#[test]
+fn test_optimized_lm_head_argmax_negative_logits() {
+    let hidden_dim = 4;
+    let vocab_size = 3;
+
+    let hidden = vec![1.0, -1.0, 1.0, -1.0];
+    let weight_t = vec![
+        -1.0, -1.0, -1.0, -1.0,  // token 0: all negative weights
+        0.0, 0.0, 0.0, 0.0,      // token 1: zero weights
+        1.0, -1.0, 1.0, -1.0,    // token 2: alternating weights
+    ];
+    let bias = vec![-10.0, -5.0, -1.0]; // All negative biases
+
+    let result = optimized_lm_head_argmax_transposed(&hidden, &weight_t, &bias, hidden_dim, vocab_size);
+
+    // Token 2 should have highest score:
+    // token 0: (-1*1 + -1*-1 + -1*1 + -1*-1) + -10 = 0 - 10 = -10
+    // token 1: (0*1 + 0*-1 + 0*1 + 0*-1) + -5 = 0 - 5 = -5
+    // token 2: (1*1 + -1*-1 + 1*1 + -1*-1) + -1 = 4 - 1 = 3
+    assert_eq!(result, 2);
+}
+
+// ============================================================================
+// argmax Additional Tests
+// ============================================================================
+
+#[test]
+fn test_argmax_exactly_1024_elements() {
+    // Test at the boundary of the chunked path
+    let mut logits = vec![0.0f32; 1024];
+    logits[512] = 1.0;
+    assert_eq!(argmax(&logits), 512);
+}
+
+#[test]
+fn test_argmax_just_over_1024_elements() {
+    // Test just above the boundary to trigger chunked path
+    let mut logits = vec![0.0f32; 1025];
+    logits[1024] = 1.0;
+    assert_eq!(argmax(&logits), 1024);
+}
+
+#[test]
+fn test_argmax_nan_handling() {
+    // NaN values should be handled gracefully
+    let logits = vec![1.0, f32::NAN, 2.0, 0.5];
+    let result = argmax(&logits);
+    // Implementation-defined behavior with NaN, but should not panic
+    assert!(result < 4);
+}
+
+// ============================================================================
+// Model Configuration Tests
+// ============================================================================
+
+#[test]
+fn test_model_config_head_dim() {
+    let config = create_small_config();
+    assert_eq!(config.head_dim(), 32); // hidden_dim / num_heads = 64 / 2
+}
+
+#[test]
+fn test_model_config_kv_dim() {
+    let config = create_small_config();
+    assert_eq!(config.kv_dim(), 64); // num_kv_heads * head_dim = 2 * 32
+}
+
+#[test]
+fn test_model_config_qkv_dim() {
+    let config = create_small_config();
+    // hidden_dim + 2 * kv_dim = 64 + 2 * 64 = 192
+    assert_eq!(config.qkv_dim(), 192);
+}
+
+#[test]
+fn test_model_config_is_gqa() {
+    // Standard MHA (num_kv_heads == num_heads)
+    let mha_config = create_small_config();
+    assert!(!mha_config.is_gqa());
+
+    // GQA config (num_kv_heads < num_heads)
+    let gqa_config = GpuModelConfig {
+        vocab_size: 100,
+        hidden_dim: 64,
+        num_heads: 4,
+        num_kv_heads: 2, // GQA: fewer KV heads
+        num_layers: 2,
+        intermediate_dim: 128,
+        eps: 1e-5,
+        rope_theta: 10000.0,
+    };
+    assert!(gqa_config.is_gqa());
 }

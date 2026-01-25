@@ -498,7 +498,7 @@ impl OwnedQuantizedModel {
     /// GELU activation
     pub fn gelu(&self, input: &mut [f32]) {
         for x in input.iter_mut() {
-            *x = 0.5 * *x * (1.0 + (*x * 0.7978845608 * (1.0 + 0.044715 * *x * *x)).tanh());
+            *x = 0.5 * *x * (1.0 + (*x * 0.797_884_6 * (1.0 + 0.044715 * *x * *x)).tanh());
         }
     }
 

@@ -52,6 +52,21 @@ pub trait GpuExecutorTrait: Send + Sync {
 
     /// Synchronize execution (wait for pending operations)
     fn synchronize(&self) -> Result<()>;
+
+    /// Perform matrix multiplication with transposed B: C = A @ B^T
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Left matrix [m, k]
+    /// * `b` - Right matrix [n, k] (will be transposed to [k, n])
+    /// * `m` - Rows in A
+    /// * `k` - Columns in A / Columns in B (before transpose)
+    /// * `n` - Rows in B (becomes columns after transpose)
+    ///
+    /// # Returns
+    ///
+    /// Result matrix [m, n]
+    fn matmul_transpose_b(&mut self, a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> Result<Vec<f32>>;
 }
 
 /// Call record for MockExecutor
@@ -62,6 +77,19 @@ pub enum ExecutorCall {
         /// Input A dimensions
         a_len: usize,
         /// Input B dimensions
+        b_len: usize,
+        /// M dimension
+        m: usize,
+        /// K dimension
+        k: usize,
+        /// N dimension
+        n: usize,
+    },
+    /// Matrix multiplication with transposed B call
+    MatmulTransposeB {
+        /// Input A dimensions
+        a_len: usize,
+        /// Input B dimensions (before transpose)
         b_len: usize,
         /// M dimension
         m: usize,
@@ -219,6 +247,35 @@ impl GpuExecutorTrait for MockExecutor {
         // For testing, we skip recording in synchronize since it takes &self
         Ok(())
     }
+
+    #[allow(clippy::many_single_char_names)]
+    fn matmul_transpose_b(&mut self, a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> Result<Vec<f32>> {
+        // Record the call (thread-safe via Mutex)
+        let call = ExecutorCall::MatmulTransposeB {
+            a_len: a.len(),
+            b_len: b.len(),
+            m,
+            k,
+            n,
+        };
+        self.calls.lock().unwrap().push(call);
+        self.call_counter.fetch_add(1, Ordering::SeqCst);
+
+        // Check for configured failure
+        if self.matmul_should_fail {
+            return Err(crate::error::RealizarError::GpuError {
+                reason: "MockExecutor configured to fail".to_string(),
+            });
+        }
+
+        // Return custom result or zeros
+        if let Some(ref result) = self.matmul_result {
+            Ok(result.clone())
+        } else {
+            // Default: return zeros of correct size
+            Ok(vec![0.0f32; m * n])
+        }
+    }
 }
 
 impl std::fmt::Debug for MockExecutor {
@@ -296,6 +353,36 @@ impl GpuExecutorTrait for CpuExecutor {
 
     fn synchronize(&self) -> Result<()> {
         Ok(()) // No-op for CPU
+    }
+
+    #[allow(clippy::many_single_char_names)]
+    fn matmul_transpose_b(&mut self, a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> Result<Vec<f32>> {
+        // Validate dimensions: A is [m, k], B is [n, k] (to be transposed to [k, n])
+        if a.len() != m * k {
+            return Err(crate::error::RealizarError::InvalidShape {
+                reason: format!("A size {} != m*k {}", a.len(), m * k),
+            });
+        }
+        if b.len() != n * k {
+            return Err(crate::error::RealizarError::InvalidShape {
+                reason: format!("B size {} != n*k {}", b.len(), n * k),
+            });
+        }
+
+        // Naive matmul with B transposed: C = A @ B^T
+        // A is [m, k], B is [n, k], C is [m, n]
+        // B^T is [k, n], so C[i,j] = sum over p of A[i,p] * B[j,p]
+        let mut c = vec![0.0f32; m * n];
+        for i in 0..m {
+            for j in 0..n {
+                let mut sum = 0.0f32;
+                for p in 0..k {
+                    sum += a[i * k + p] * b[j * k + p]; // Note: b[j, p] not b[p, j]
+                }
+                c[i * n + j] = sum;
+            }
+        }
+        Ok(c)
     }
 }
 
