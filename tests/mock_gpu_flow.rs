@@ -474,7 +474,7 @@ fn test_simulated_forward_flow() {
             assert_eq!(*k, hidden_dim);
             assert_eq!(*n, qkv_dim);
         }
-        ExecutorCall::Synchronize => panic!("Expected Matmul"),
+        _ => panic!("Expected Matmul"),
     }
 
     // Output projection
@@ -484,7 +484,7 @@ fn test_simulated_forward_flow() {
             assert_eq!(*k, hidden_dim);
             assert_eq!(*n, hidden_dim);
         }
-        ExecutorCall::Synchronize => panic!("Expected Matmul"),
+        _ => panic!("Expected Matmul"),
     }
 }
 

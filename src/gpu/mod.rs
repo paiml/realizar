@@ -43,6 +43,7 @@ pub mod adapters;
 pub mod backend;
 pub mod mock_backend;
 pub mod executor;
+pub mod planner;  // Phase 47: Plan/Execute separation
 mod allocator;
 mod diagnostics;
 mod resilience;
@@ -55,6 +56,13 @@ mod batch_scheduling;
 pub use scheduler::{GpuModel, GpuModelConfig, GpuGenerateConfig, WeightType, AttentionBuffers, BlockWeights};
 #[cfg(feature = "cuda")]
 pub use scheduler::CudaScheduler;
+
+// Planner exports (Phase 47: Plan/Execute separation)
+pub use planner::{
+    BatchPlanner, GenerationConfig, GenerationStep,
+    BlockForwardPlan, SamplingStrategy,
+    plan_sampling, plan_lm_head_path, LmHeadPath,
+};
 
 // Allocator exports (M21, M22)
 pub use allocator::{
