@@ -42,6 +42,7 @@ pub mod scheduler;
 pub mod adapters;
 pub mod backend;
 pub mod mock_backend;
+pub mod executor;
 mod allocator;
 mod diagnostics;
 mod resilience;

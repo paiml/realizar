@@ -14,6 +14,12 @@ use super::core::CudaScheduler;
 ///
 /// Wraps standard Model and uses HybridScheduler for GPU-accelerated
 /// matrix multiplications in the forward pass.
+///
+/// # Phase 43: Test Executor Support
+///
+/// The model supports dependency injection via `test_executor` for testing
+/// the forward pass without actual GPU hardware. Use `with_test_executor()`
+/// to inject a mock executor.
 pub struct GpuModel {
     /// Embedding weights (vocab_size x hidden_dim)
     pub(crate) embedding_weights: Vec<f32>,
@@ -38,6 +44,11 @@ pub struct GpuModel {
     pub config: GpuModelConfig,
     /// Pre-allocated attention buffers for optimized incremental decoding (M17)
     pub(crate) attention_buffers: Option<AttentionBuffers>,
+    /// Phase 43: Test executor for dependency injection
+    ///
+    /// When present, this executor is used instead of HybridScheduler or CudaScheduler.
+    /// Enables testing forward pass logic without actual GPU hardware.
+    pub(crate) test_executor: Option<Box<dyn super::super::executor::GpuExecutorTrait>>,
 }
 
 /// Weights for a single transformer block
@@ -303,6 +314,7 @@ impl GpuModel {
             cuda_scheduler: None,
             config,
             attention_buffers: None,
+            test_executor: None,
         })
     }
 
@@ -361,6 +373,7 @@ impl GpuModel {
             cuda_scheduler,
             config,
             attention_buffers: None,
+            test_executor: None,
         })
     }
 
@@ -369,6 +382,40 @@ impl GpuModel {
     #[must_use]
     pub fn has_cuda_scheduler(&self) -> bool {
         self.cuda_scheduler.is_some()
+    }
+
+    /// Phase 43: Inject test executor for dependency injection
+    ///
+    /// When a test executor is set, it takes priority over all other schedulers
+    /// in `do_matmul()`. This enables testing forward pass logic without GPU.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use realizar::gpu::executor::MockExecutor;
+    ///
+    /// let mut model = GpuModel::new(config)?;
+    /// let mock = MockExecutor::new("test");
+    /// model.with_test_executor(Box::new(mock));
+    ///
+    /// // Now model.do_matmul() uses the mock
+    /// ```
+    pub fn with_test_executor(
+        &mut self,
+        executor: Box<dyn super::super::executor::GpuExecutorTrait>,
+    ) {
+        self.test_executor = Some(executor);
+    }
+
+    /// Phase 43: Check if test executor is set
+    #[must_use]
+    pub fn has_test_executor(&self) -> bool {
+        self.test_executor.is_some()
+    }
+
+    /// Phase 43: Clear test executor (restore normal operation)
+    pub fn clear_test_executor(&mut self) {
+        self.test_executor = None;
     }
 
     /// IMP-1003: Perform matmul using CUDA scheduler (always GPU, even for m=1)
@@ -399,6 +446,13 @@ impl GpuModel {
     /// This method is used throughout forward_gpu() and forward_block_idx() to
     /// ensure CUDA is used for all matmul operations when cuda_scheduler is present.
     ///
+    /// # Phase 43: Test Executor Support
+    ///
+    /// Priority order:
+    /// 1. `test_executor` (if present) - for testing without GPU
+    /// 2. `cuda_scheduler` (if present) - for CUDA acceleration
+    /// 3. `scheduler` (HybridScheduler) - default fallback
+    ///
     /// # Errors
     ///
     /// Returns error if matmul fails
@@ -411,6 +465,11 @@ impl GpuModel {
         k: usize,
         n: usize,
     ) -> Result<Vec<f32>> {
+        // Phase 43: Test executor takes priority (for testing without GPU)
+        if let Some(ref mut test_exec) = self.test_executor {
+            return test_exec.matmul(a, b, m, k, n);
+        }
+
         #[cfg(feature = "cuda")]
         if let Some(ref mut cuda_sched) = self.cuda_scheduler {
             return cuda_sched.matmul(a, b, m, k, n);
@@ -1197,6 +1256,7 @@ impl GpuModel {
             cuda_scheduler: None,
             config,
             attention_buffers: None,
+            test_executor: None,
         })
     }
 
@@ -1258,6 +1318,7 @@ impl GpuModel {
             cuda_scheduler,
             config,
             attention_buffers: None,
+            test_executor: None,
         })
     }
 
