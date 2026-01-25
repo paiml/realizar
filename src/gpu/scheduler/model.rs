@@ -48,7 +48,10 @@ pub struct GpuModel {
     ///
     /// When present, this executor is used instead of HybridScheduler or CudaScheduler.
     /// Enables testing forward pass logic without actual GPU hardware.
-    pub(crate) test_executor: Option<Box<dyn super::super::executor::GpuExecutorTrait>>,
+    ///
+    /// Note: Explicit `+ Send + Sync` bounds required for axum Router compatibility.
+    /// The trait already requires Send + Sync, but trait objects need explicit bounds.
+    pub(crate) test_executor: Option<Box<dyn super::super::executor::GpuExecutorTrait + Send + Sync>>,
 }
 
 /// Weights for a single transformer block
@@ -402,7 +405,7 @@ impl GpuModel {
     /// ```
     pub fn with_test_executor(
         &mut self,
-        executor: Box<dyn super::super::executor::GpuExecutorTrait>,
+        executor: Box<dyn super::super::executor::GpuExecutorTrait + Send + Sync>,
     ) {
         self.test_executor = Some(executor);
     }
