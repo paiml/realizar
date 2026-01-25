@@ -16,17 +16,17 @@ fn test_quantize_activations_q8_0_empty_cov() {
 }
 
 // =========================================================================
-// Deep Coverage Tests: apply_rope_rotation_scalar
+// Deep Coverage Tests: apply_rope_rotation_simd
 // =========================================================================
 
 #[test]
-fn test_apply_rope_rotation_scalar_identity_cov() {
+fn test_apply_rope_rotation_simd_identity_cov() {
     let mut x1 = vec![1.0, 2.0, 3.0, 4.0];
     let mut x2 = vec![5.0, 6.0, 7.0, 8.0];
     let cos_vals = vec![1.0, 1.0, 1.0, 1.0]; // cos(0) = 1
     let sin_vals = vec![0.0, 0.0, 0.0, 0.0]; // sin(0) = 0
 
-    apply_rope_rotation_scalar(&mut x1, &mut x2, &cos_vals, &sin_vals);
+    apply_rope_rotation_simd(&mut x1, &mut x2, &cos_vals, &sin_vals);
 
     // With cos=1, sin=0: x1' = x1, x2' = x2
     assert_eq!(x1, vec![1.0, 2.0, 3.0, 4.0]);
@@ -34,13 +34,13 @@ fn test_apply_rope_rotation_scalar_identity_cov() {
 }
 
 #[test]
-fn test_apply_rope_rotation_scalar_ninety_deg_cov() {
+fn test_apply_rope_rotation_simd_ninety_deg_cov() {
     let mut x1 = vec![1.0, 0.0];
     let mut x2 = vec![0.0, 1.0];
     let cos_vals = vec![0.0, 0.0]; // cos(90) = 0
     let sin_vals = vec![1.0, 1.0]; // sin(90) = 1
 
-    apply_rope_rotation_scalar(&mut x1, &mut x2, &cos_vals, &sin_vals);
+    apply_rope_rotation_simd(&mut x1, &mut x2, &cos_vals, &sin_vals);
 
     // x1' = x1*0 - x2*1 = -x2
     // x2' = x1*1 + x2*0 = x1

@@ -4,5 +4,7 @@
 //!
 //! Part organization:
 //! - q4_simd: Quantized Q4_0 SIMD transformer tests
+//! - coverage: Comprehensive coverage tests for loader, dequant, config, helpers
 
+mod coverage;
 mod q4_simd;

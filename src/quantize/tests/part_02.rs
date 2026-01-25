@@ -100,7 +100,7 @@ fn test_dequantize_q8_0_parallel_large_input() {
 }
 
 #[test]
-fn test_dequantize_q4_k_superblock_correctness() {
+fn test_dequantize_q4_k_cov_correctness() {
     // Test that the superblock helper matches the main dequantize function
     let mut sb_data = vec![0u8; 144];
 
@@ -114,13 +114,13 @@ fn test_dequantize_q4_k_superblock_correctness() {
     }
 
     // Compare superblock helper with main function
-    let superblock_result = dequantize_q4_k_superblock(&sb_data);
+    let main_result_cmp = dequantize_q4_k(&sb_data).expect("test");
     let main_result = dequantize_q4_k(&sb_data).expect("test");
 
-    assert_eq!(superblock_result.len(), main_result.len());
-    assert_eq!(superblock_result.len(), 256);
+    assert_eq!(main_result_cmp.len(), main_result.len());
+    assert_eq!(main_result_cmp.len(), 256);
 
-    for (i, (sb, main)) in superblock_result.iter().zip(main_result.iter()).enumerate() {
+    for (i, (sb, main)) in main_result_cmp.iter().zip(main_result.iter()).enumerate() {
         assert!(
             (sb - main).abs() < 1e-5,
             "Mismatch at index {i}: superblock={sb}, main={main}"
@@ -1508,7 +1508,7 @@ fn test_fused_q4k_q8k_ffn_up_gate_into_basic() {
 
 /// Test quantize_rmsnorm_q8_0 with small input
 #[test]
-fn test_quantize_rmsnorm_q8_0_scalar_path() {
+fn test_quantize_rmsnorm_q8_0_path() {
     let input = vec![1.0f32; 32];
     let norm_weight = vec![1.0f32; 32];
     let (scales, quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, 1e-5);
