@@ -40,7 +40,10 @@ fn test_fused_q4k_dot_invalid_length_not_multiple() {
     let result = fused_q4k_dot(&q4k_data, &activations);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(matches!(err, crate::error::RealizarError::InvalidShape { .. }));
+    assert!(matches!(
+        err,
+        crate::error::RealizarError::InvalidShape { .. }
+    ));
 }
 
 #[test]
@@ -256,7 +259,12 @@ fn test_fused_q4k_dot_scalar_simd_equivalence_zero() {
     let scalar = fused_q4k_dot(&q4k_data, &activations).unwrap();
     let simd = fused_q4k_dot_simd(&q4k_data, &activations).unwrap();
 
-    assert!((scalar - simd).abs() < 1e-5, "scalar={} simd={}", scalar, simd);
+    assert!(
+        (scalar - simd).abs() < 1e-5,
+        "scalar={} simd={}",
+        scalar,
+        simd
+    );
 }
 
 #[test]
@@ -273,7 +281,13 @@ fn test_fused_q4k_dot_scalar_simd_equivalence_ones() {
     } else {
         (scalar - simd).abs()
     };
-    assert!(rel_diff < 0.01, "scalar={} simd={} rel_diff={}", scalar, simd, rel_diff);
+    assert!(
+        rel_diff < 0.01,
+        "scalar={} simd={} rel_diff={}",
+        scalar,
+        simd,
+        rel_diff
+    );
 }
 
 #[test]
@@ -513,7 +527,12 @@ fn test_fused_q4k_q8k_dot_scalar_simd_equivalence_zero() {
     let scalar = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).unwrap();
     let simd = fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants).unwrap();
 
-    assert!((scalar - simd).abs() < 1e-5, "scalar={} simd={}", scalar, simd);
+    assert!(
+        (scalar - simd).abs() < 1e-5,
+        "scalar={} simd={}",
+        scalar,
+        simd
+    );
 }
 
 #[test]
@@ -542,7 +561,9 @@ fn test_fused_q4k_q8k_dot_scalar_simd_equivalence_varied() {
     q4k_data[3] = 0x38;
 
     let q8k_scales: Vec<f32> = (0..8).map(|i| 0.1 + i as f32 * 0.1).collect();
-    let q8k_quants: Vec<i8> = (0..QK_K).map(|i| ((i % 256) as i8).wrapping_sub(64)).collect();
+    let q8k_quants: Vec<i8> = (0..QK_K)
+        .map(|i| ((i % 256) as i8).wrapping_sub(64))
+        .collect();
 
     let scalar = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).unwrap();
     let simd = fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants).unwrap();

@@ -6,12 +6,11 @@
 //! - config.rs: AprKVCache, GenerateConfig, AprTransformerConfig, AprTransformerLayer, Q4KLayerWeights
 //! - helpers.rs: SIMD primitives
 
-use crate::apr_transformer::{
-    AprKVCache, AprQuantizationType, AprTransformerConfig, AprTransformerLayer,
-    GenerateConfig, MmapAprTransformer, Q4KLayerWeights, QuantizedAprTransformer,
-    APR_TRANSFORMER_HEADER_SIZE,
-};
 use crate::apr::MAGIC;
+use crate::apr_transformer::{
+    AprKVCache, AprQuantizationType, AprTransformerConfig, AprTransformerLayer, GenerateConfig,
+    MmapAprTransformer, Q4KLayerWeights, QuantizedAprTransformer, APR_TRANSFORMER_HEADER_SIZE,
+};
 
 // ============================================================================
 // Part 1: AprQuantizationType Tests
@@ -53,9 +52,18 @@ fn test_quantization_type_to_byte() {
 
 #[test]
 fn test_quantization_type_from_byte_valid() {
-    assert_eq!(AprQuantizationType::from_byte(0), Some(AprQuantizationType::F32));
-    assert_eq!(AprQuantizationType::from_byte(1), Some(AprQuantizationType::Q4_K));
-    assert_eq!(AprQuantizationType::from_byte(2), Some(AprQuantizationType::Q8_0));
+    assert_eq!(
+        AprQuantizationType::from_byte(0),
+        Some(AprQuantizationType::F32)
+    );
+    assert_eq!(
+        AprQuantizationType::from_byte(1),
+        Some(AprQuantizationType::Q4_K)
+    );
+    assert_eq!(
+        AprQuantizationType::from_byte(2),
+        Some(AprQuantizationType::Q8_0)
+    );
 }
 
 #[test]
@@ -66,7 +74,11 @@ fn test_quantization_type_from_byte_invalid() {
 
 #[test]
 fn test_quantization_type_roundtrip() {
-    for qt in [AprQuantizationType::F32, AprQuantizationType::Q4_K, AprQuantizationType::Q8_0] {
+    for qt in [
+        AprQuantizationType::F32,
+        AprQuantizationType::Q4_K,
+        AprQuantizationType::Q8_0,
+    ] {
         let byte = qt.to_byte();
         let recovered = AprQuantizationType::from_byte(byte);
         assert_eq!(recovered, Some(qt));
@@ -553,7 +565,10 @@ fn test_layer_empty() {
     let layer = AprTransformerLayer::empty(64, 128);
 
     assert_eq!(layer.attn_norm_weight.len(), 64);
-    assert!(layer.attn_norm_weight.iter().all(|&x| (x - 1.0).abs() < 1e-6));
+    assert!(layer
+        .attn_norm_weight
+        .iter()
+        .all(|&x| (x - 1.0).abs() < 1e-6));
 
     assert_eq!(layer.qkv_weight.len(), 64 * 3 * 64);
     assert!(layer.qkv_weight.iter().all(|&x| x == 0.0));
@@ -574,7 +589,8 @@ fn test_layer_empty_gqa() {
     let num_kv_heads = 2;
     let intermediate_dim = 128;
 
-    let layer = AprTransformerLayer::empty_gqa(hidden_dim, num_heads, num_kv_heads, intermediate_dim);
+    let layer =
+        AprTransformerLayer::empty_gqa(hidden_dim, num_heads, num_kv_heads, intermediate_dim);
 
     // For GQA: QKV = Q + K + V = hidden_dim + kv_dim + kv_dim
     let head_dim = hidden_dim / num_heads;
@@ -623,7 +639,10 @@ fn test_layer_serialization() {
     // Deserialize
     let recovered: AprTransformerLayer = serde_json::from_str(&json).unwrap();
 
-    assert_eq!(layer.attn_norm_weight.len(), recovered.attn_norm_weight.len());
+    assert_eq!(
+        layer.attn_norm_weight.len(),
+        recovered.attn_norm_weight.len()
+    );
     assert_eq!(layer.qkv_weight.len(), recovered.qkv_weight.len());
 }
 
@@ -777,9 +796,18 @@ fn test_extract_scale_min_first_4_blocks() {
 
     // 12-byte scales array
     let scales = [
-        0b00111111u8, 0b00111110, 0b00111101, 0b00111100, // first 4 bytes (low 6 bits)
-        0b00101010, 0b00101011, 0b00101100, 0b00101101,   // second 4 bytes (min values)
-        0, 0, 0, 0                                         // last 4 bytes (high bits)
+        0b00111111u8,
+        0b00111110,
+        0b00111101,
+        0b00111100, // first 4 bytes (low 6 bits)
+        0b00101010,
+        0b00101011,
+        0b00101100,
+        0b00101101, // second 4 bytes (min values)
+        0,
+        0,
+        0,
+        0, // last 4 bytes (high bits)
     ];
 
     // Block 0: scale = scales[0] & 63 = 63, min = scales[4] & 63 = 42
@@ -799,9 +827,18 @@ fn test_extract_scale_min_last_4_blocks() {
 
     // Construct scales for blocks 4-7 (packed layout)
     let scales = [
-        0b11_000001u8, 0b11_000010, 0b11_000011, 0b11_000100, // first 4 (high bits used for 4-7)
-        0b11_000101, 0b11_000110, 0b11_000111, 0b11_001000,   // second 4 (mins for 0-3)
-        0x15, 0x26, 0x37, 0x48                                 // last 4 (scale/min for 4-7 low bits)
+        0b11_000001u8,
+        0b11_000010,
+        0b11_000011,
+        0b11_000100, // first 4 (high bits used for 4-7)
+        0b11_000101,
+        0b11_000110,
+        0b11_000111,
+        0b11_001000, // second 4 (mins for 0-3)
+        0x15,
+        0x26,
+        0x37,
+        0x48, // last 4 (scale/min for 4-7 low bits)
     ];
 
     // Block 4: uses packed layout
@@ -1064,7 +1101,7 @@ fn test_mmap_transformer_get_tensor_bytes_out_of_bounds() {
     data[4..8].copy_from_slice(&1u32.to_le_bytes());
 
     // Set minimal config
-    data[8..12].copy_from_slice(&64u32.to_le_bytes());  // hidden_dim
+    data[8..12].copy_from_slice(&64u32.to_le_bytes()); // hidden_dim
     data[12..16].copy_from_slice(&1u32.to_le_bytes()); // num_layers
     data[16..20].copy_from_slice(&4u32.to_le_bytes()); // num_heads
     data[20..24].copy_from_slice(&4u32.to_le_bytes()); // num_kv_heads

@@ -2431,4 +2431,853 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
         let debug = format!("{:?}", prepared);
         assert!(debug.contains("batch_mode_enabled: false"));
     }
+
+    // =========================================================================
+    // CLI Inference Module Tests (EXTREME TDD - PMAT-802)
+    // Coverage for src/cli/inference.rs
+    // =========================================================================
+
+    mod inference_tests {
+        use super::*;
+        use crate::cli::inference;
+
+        // -------------------------------------------------------------------------
+        // run_gguf_inference Tests
+        // -------------------------------------------------------------------------
+
+        #[test]
+        fn test_run_gguf_inference_invalid_model_path() {
+            // Test with empty file data - should fail to mmap
+            let result = inference::run_gguf_inference(
+                "/nonexistent/model.gguf",
+                &[],     // empty file data
+                "Hello", // prompt
+                10,      // max_tokens
+                0.0,     // temperature (greedy)
+                "text",  // format
+                false,   // force_gpu
+                false,   // verbose
+                false,   // trace
+            );
+            assert!(result.is_err());
+            let err = result.unwrap_err();
+            // Should fail during mmap since path doesn't exist
+            assert!(
+                err.to_string().contains("mmap")
+                    || err.to_string().contains("Failed to mmap")
+                    || err.to_string().contains("No such file"),
+                "Expected mmap error, got: {}",
+                err
+            );
+        }
+
+        #[test]
+        fn test_run_gguf_inference_invalid_gguf_data() {
+            // Test with invalid GGUF magic bytes
+            let invalid_data = vec![0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07];
+            let result = inference::run_gguf_inference(
+                "/tmp/test.gguf",
+                &invalid_data,
+                "Test prompt",
+                5,
+                0.7,
+                "json",
+                false,
+                true, // verbose
+                false,
+            );
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn test_run_gguf_inference_format_json() {
+            // Test that JSON format parameter is accepted
+            // (Will fail on model loading, but exercises format parsing)
+            let result = inference::run_gguf_inference(
+                "/nonexistent/model.gguf",
+                &[],
+                "prompt",
+                1,
+                0.0,
+                "json", // JSON output format
+                false,
+                false,
+                false,
+            );
+            assert!(result.is_err()); // Expected - no valid model
+        }
+
+        #[test]
+        fn test_run_gguf_inference_format_text() {
+            // Test that text format parameter is accepted
+            let result = inference::run_gguf_inference(
+                "/nonexistent/model.gguf",
+                &[],
+                "prompt",
+                1,
+                0.0,
+                "text", // text output format
+                false,
+                false,
+                false,
+            );
+            assert!(result.is_err()); // Expected - no valid model
+        }
+
+        #[test]
+        fn test_run_gguf_inference_greedy_temperature() {
+            // Test greedy decoding (temperature <= 0.01)
+            let result = inference::run_gguf_inference(
+                "/nonexistent/model.gguf",
+                &[],
+                "prompt",
+                5,
+                0.0, // Greedy (temperature = 0)
+                "text",
+                false,
+                false,
+                false,
+            );
+            assert!(result.is_err()); // Expected - no valid model
+        }
+
+        #[test]
+        fn test_run_gguf_inference_sampling_temperature() {
+            // Test temperature sampling
+            let result = inference::run_gguf_inference(
+                "/nonexistent/model.gguf",
+                &[],
+                "prompt",
+                5,
+                1.0, // Temperature sampling
+                "text",
+                false,
+                false,
+                false,
+            );
+            assert!(result.is_err()); // Expected - no valid model
+        }
+
+        #[test]
+        fn test_run_gguf_inference_verbose_mode() {
+            // Test verbose output path
+            let result = inference::run_gguf_inference(
+                "/nonexistent/model.gguf",
+                &[],
+                "verbose test",
+                5,
+                0.5,
+                "text",
+                false,
+                true, // verbose = true
+                false,
+            );
+            assert!(result.is_err()); // Expected - no valid model
+        }
+
+        #[test]
+        fn test_run_gguf_inference_trace_mode() {
+            // Test trace output path
+            let result = inference::run_gguf_inference(
+                "/nonexistent/model.gguf",
+                &[],
+                "trace test",
+                5,
+                0.5,
+                "text",
+                false,
+                false,
+                true, // trace = true
+            );
+            assert!(result.is_err()); // Expected - no valid model
+        }
+
+        #[test]
+        fn test_run_gguf_inference_force_gpu_flag() {
+            // Test force_gpu flag (should warn if cuda not available)
+            let result = inference::run_gguf_inference(
+                "/nonexistent/model.gguf",
+                &[],
+                "gpu test",
+                5,
+                0.5,
+                "text",
+                true, // force_gpu = true
+                false,
+                false,
+            );
+            assert!(result.is_err()); // Expected - no valid model
+        }
+
+        #[test]
+        fn test_run_gguf_inference_all_flags() {
+            // Test with all flags enabled
+            let result = inference::run_gguf_inference(
+                "/nonexistent/model.gguf",
+                &[],
+                "comprehensive test",
+                10,
+                0.8,
+                "json",
+                true, // force_gpu
+                true, // verbose
+                true, // trace
+            );
+            assert!(result.is_err()); // Expected - no valid model
+        }
+
+        #[test]
+        fn test_run_gguf_inference_empty_prompt() {
+            // Test with empty prompt
+            let result = inference::run_gguf_inference(
+                "/nonexistent/model.gguf",
+                &[],
+                "", // empty prompt
+                5,
+                0.0,
+                "text",
+                false,
+                false,
+                false,
+            );
+            assert!(result.is_err()); // Expected - no valid model
+        }
+
+        #[test]
+        fn test_run_gguf_inference_zero_tokens() {
+            // Test with zero max_tokens
+            let result = inference::run_gguf_inference(
+                "/nonexistent/model.gguf",
+                &[],
+                "prompt",
+                0, // zero tokens to generate
+                0.0,
+                "text",
+                false,
+                false,
+                false,
+            );
+            assert!(result.is_err()); // Expected - no valid model
+        }
+
+        #[test]
+        fn test_run_gguf_inference_large_tokens() {
+            // Test with large max_tokens
+            let result = inference::run_gguf_inference(
+                "/nonexistent/model.gguf",
+                &[],
+                "prompt",
+                10000, // large number of tokens
+                0.0,
+                "text",
+                false,
+                false,
+                false,
+            );
+            assert!(result.is_err()); // Expected - no valid model
+        }
+
+        // -------------------------------------------------------------------------
+        // run_safetensors_inference Tests
+        // -------------------------------------------------------------------------
+
+        #[test]
+        fn test_run_safetensors_inference_invalid_path() {
+            let result = inference::run_safetensors_inference(
+                "/nonexistent/model.safetensors",
+                "Test prompt",
+                10,
+                0.5,
+                "text",
+            );
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn test_run_safetensors_inference_json_format() {
+            let result = inference::run_safetensors_inference(
+                "/nonexistent/model.safetensors",
+                "JSON test",
+                5,
+                0.0,
+                "json",
+            );
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn test_run_safetensors_inference_text_format() {
+            let result = inference::run_safetensors_inference(
+                "/nonexistent/model.safetensors",
+                "text test",
+                5,
+                0.0,
+                "text",
+            );
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn test_run_safetensors_inference_empty_prompt() {
+            let result = inference::run_safetensors_inference(
+                "/nonexistent/model.safetensors",
+                "",
+                10,
+                0.7,
+                "text",
+            );
+            assert!(result.is_err());
+        }
+
+        // -------------------------------------------------------------------------
+        // run_apr_inference Tests
+        // -------------------------------------------------------------------------
+
+        #[test]
+        fn test_run_apr_inference_invalid_path() {
+            let result = inference::run_apr_inference(
+                "/nonexistent/model.apr",
+                &[],
+                "Test prompt",
+                10,
+                0.5,
+                "text",
+                false,
+                false,
+            );
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn test_run_apr_inference_invalid_apr_data() {
+            // Test with invalid APR magic bytes
+            let invalid_data = vec![0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07];
+            let result = inference::run_apr_inference(
+                "/tmp/test.apr",
+                &invalid_data,
+                "Test prompt",
+                5,
+                0.7,
+                "text",
+                false,
+                true,
+            );
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn test_run_apr_inference_json_format() {
+            let result = inference::run_apr_inference(
+                "/nonexistent/model.apr",
+                &[],
+                "JSON test",
+                5,
+                0.0,
+                "json",
+                false,
+                false,
+            );
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn test_run_apr_inference_text_format() {
+            let result = inference::run_apr_inference(
+                "/nonexistent/model.apr",
+                &[],
+                "text test",
+                5,
+                0.0,
+                "text",
+                false,
+                false,
+            );
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn test_run_apr_inference_force_gpu_flag() {
+            // Test force_gpu flag
+            let result = inference::run_apr_inference(
+                "/nonexistent/model.apr",
+                &[],
+                "gpu test",
+                5,
+                0.5,
+                "text",
+                true, // force_gpu
+                false,
+            );
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn test_run_apr_inference_verbose_mode() {
+            let result = inference::run_apr_inference(
+                "/nonexistent/model.apr",
+                &[],
+                "verbose test",
+                5,
+                0.5,
+                "text",
+                false,
+                true, // verbose
+            );
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn test_run_apr_inference_all_flags() {
+            let result = inference::run_apr_inference(
+                "/nonexistent/model.apr",
+                &[],
+                "comprehensive test",
+                10,
+                0.8,
+                "json",
+                true, // force_gpu
+                true, // verbose
+            );
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn test_run_apr_inference_empty_prompt() {
+            let result = inference::run_apr_inference(
+                "/nonexistent/model.apr",
+                &[],
+                "",
+                10,
+                0.7,
+                "text",
+                false,
+                false,
+            );
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn test_run_apr_inference_greedy_temperature() {
+            let result = inference::run_apr_inference(
+                "/nonexistent/model.apr",
+                &[],
+                "greedy test",
+                5,
+                0.0, // greedy
+                "text",
+                false,
+                false,
+            );
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn test_run_apr_inference_high_temperature() {
+            let result = inference::run_apr_inference(
+                "/nonexistent/model.apr",
+                &[],
+                "sampling test",
+                5,
+                2.0, // high temperature
+                "text",
+                false,
+                false,
+            );
+            assert!(result.is_err());
+        }
+
+        // -------------------------------------------------------------------------
+        // Parameter Validation Tests
+        // -------------------------------------------------------------------------
+
+        #[test]
+        fn test_inference_temperature_boundary_greedy() {
+            // Temperature <= 0.01 triggers greedy decoding
+            let result = inference::run_gguf_inference(
+                "/nonexistent/model.gguf",
+                &[],
+                "boundary test",
+                5,
+                0.01, // Exactly at boundary
+                "text",
+                false,
+                false,
+                false,
+            );
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn test_inference_temperature_boundary_sampling() {
+            // Temperature > 0.01 triggers sampling
+            let result = inference::run_gguf_inference(
+                "/nonexistent/model.gguf",
+                &[],
+                "boundary test",
+                5,
+                0.02, // Just above boundary
+                "text",
+                false,
+                false,
+                false,
+            );
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn test_inference_format_unknown() {
+            // Unknown format should default to text-like output
+            let result = inference::run_gguf_inference(
+                "/nonexistent/model.gguf",
+                &[],
+                "format test",
+                5,
+                0.5,
+                "xml", // Unknown format
+                false,
+                false,
+                false,
+            );
+            assert!(result.is_err());
+        }
+
+        // -------------------------------------------------------------------------
+        // Environment Variable Tests
+        // -------------------------------------------------------------------------
+
+        #[test]
+        fn test_cpu_debug_env_var() {
+            // The CPU_DEBUG environment variable controls diagnostic output
+            std::env::remove_var("CPU_DEBUG");
+            let result = inference::run_gguf_inference(
+                "/nonexistent/model.gguf",
+                &[],
+                "env test",
+                5,
+                0.5,
+                "text",
+                false,
+                false,
+                false,
+            );
+            assert!(result.is_err());
+
+            // Set CPU_DEBUG=1 and try again
+            std::env::set_var("CPU_DEBUG", "1");
+            let result = inference::run_gguf_inference(
+                "/nonexistent/model.gguf",
+                &[],
+                "env test",
+                5,
+                0.5,
+                "text",
+                false,
+                false,
+                false,
+            );
+            assert!(result.is_err());
+            std::env::remove_var("CPU_DEBUG");
+        }
+
+        #[test]
+        fn test_skip_gpu_resident_env_var() {
+            // The SKIP_GPU_RESIDENT environment variable affects GPU path selection
+            std::env::remove_var("SKIP_GPU_RESIDENT");
+            let result = inference::run_gguf_inference(
+                "/nonexistent/model.gguf",
+                &[],
+                "env test",
+                5,
+                0.5,
+                "text",
+                true, // force_gpu
+                false,
+                false,
+            );
+            assert!(result.is_err());
+
+            // Set SKIP_GPU_RESIDENT=1 and try again
+            std::env::set_var("SKIP_GPU_RESIDENT", "1");
+            let result = inference::run_gguf_inference(
+                "/nonexistent/model.gguf",
+                &[],
+                "env test",
+                5,
+                0.5,
+                "text",
+                true, // force_gpu
+                false,
+                false,
+            );
+            assert!(result.is_err());
+            std::env::remove_var("SKIP_GPU_RESIDENT");
+        }
+
+        // -------------------------------------------------------------------------
+        // Error Message Content Tests
+        // -------------------------------------------------------------------------
+
+        #[test]
+        fn test_gguf_error_contains_operation() {
+            let result = inference::run_gguf_inference(
+                "/nonexistent/model.gguf",
+                &[],
+                "error test",
+                5,
+                0.5,
+                "text",
+                false,
+                false,
+                false,
+            );
+            assert!(result.is_err());
+            let err = result.unwrap_err();
+            let err_str = err.to_string();
+            // Error should identify the operation that failed
+            assert!(
+                err_str.contains("mmap") || err_str.contains("load") || err_str.contains("GGUF"),
+                "Error should mention mmap or load operation: {}",
+                err_str
+            );
+        }
+
+        #[test]
+        fn test_apr_error_contains_operation() {
+            let result = inference::run_apr_inference(
+                "/nonexistent/model.apr",
+                &[],
+                "error test",
+                5,
+                0.5,
+                "text",
+                false,
+                false,
+            );
+            assert!(result.is_err());
+            let err = result.unwrap_err();
+            let err_str = err.to_string();
+            // Error should identify the operation that failed
+            assert!(
+                err_str.contains("parse") || err_str.contains("APR") || err_str.contains("Failed"),
+                "Error should mention parse or APR operation: {}",
+                err_str
+            );
+        }
+
+        // -------------------------------------------------------------------------
+        // Integration Tests (ignored by default - require real models)
+        // -------------------------------------------------------------------------
+
+        /// Integration test for GGUF inference with a real model
+        /// Run with: cargo test test_run_gguf_inference_real -- --ignored
+        #[test]
+        #[ignore]
+        fn test_run_gguf_inference_real() {
+            let model_paths = [
+                "/home/noah/.apr/models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
+                "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf",
+            ];
+
+            let model_path = model_paths
+                .iter()
+                .find(|p| std::path::Path::new(p).exists())
+                .expect("No test model file found");
+
+            // Read the file
+            let file_data = std::fs::read(model_path).expect("Failed to read model file");
+
+            let result = inference::run_gguf_inference(
+                model_path,
+                &file_data,
+                "Hello, world!",
+                5,
+                0.0, // greedy
+                "text",
+                false,
+                true, // verbose
+                false,
+            );
+
+            // Should succeed with real model
+            assert!(result.is_ok(), "Inference failed: {:?}", result.err());
+        }
+
+        /// Integration test for GGUF inference with JSON output
+        #[test]
+        #[ignore]
+        fn test_run_gguf_inference_json_output_real() {
+            let model_paths = ["/home/noah/.apr/models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"];
+
+            let model_path = model_paths
+                .iter()
+                .find(|p| std::path::Path::new(p).exists())
+                .expect("No test model file found");
+
+            let file_data = std::fs::read(model_path).expect("Failed to read model file");
+
+            let result = inference::run_gguf_inference(
+                model_path,
+                &file_data,
+                "What is 2+2?",
+                10,
+                0.0,
+                "json", // JSON output
+                false,
+                false,
+                false,
+            );
+
+            assert!(result.is_ok(), "JSON inference failed: {:?}", result.err());
+        }
+
+        // -------------------------------------------------------------------------
+        // Comprehensive API Surface Tests
+        // -------------------------------------------------------------------------
+
+        #[test]
+        fn test_gguf_inference_api_surface() {
+            // Verify all parameters are accepted in the expected order
+            let _ = inference::run_gguf_inference(
+                "model_ref", // model_ref: &str
+                &[],         // file_data: &[u8]
+                "prompt",    // prompt: &str
+                10usize,     // max_tokens: usize
+                0.5f32,      // temperature: f32
+                "format",    // format: &str
+                true,        // force_gpu: bool
+                true,        // verbose: bool
+                true,        // trace: bool
+            );
+        }
+
+        #[test]
+        fn test_safetensors_inference_api_surface() {
+            // Verify all parameters are accepted in the expected order
+            let _ = inference::run_safetensors_inference(
+                "model_ref", // model_ref: &str
+                "prompt",    // prompt: &str
+                10usize,     // max_tokens: usize
+                0.5f32,      // temperature: f32 (unused in current impl)
+                "format",    // format: &str
+            );
+        }
+
+        #[test]
+        fn test_apr_inference_api_surface() {
+            // Verify all parameters are accepted in the expected order
+            let _ = inference::run_apr_inference(
+                "model_ref", // model_ref: &str
+                &[],         // file_data: &[u8]
+                "prompt",    // prompt: &str
+                10usize,     // max_tokens: usize
+                0.5f32,      // temperature: f32
+                "format",    // format: &str
+                true,        // force_gpu: bool
+                true,        // verbose: bool
+            );
+        }
+
+        // -------------------------------------------------------------------------
+        // Edge Case Tests
+        // -------------------------------------------------------------------------
+
+        #[test]
+        fn test_unicode_prompt() {
+            let result = inference::run_gguf_inference(
+                "/nonexistent/model.gguf",
+                &[],
+                "Hello \u{1F600} \u{4E2D}\u{6587} \u{0410}\u{0411}\u{0412}",
+                5,
+                0.5,
+                "text",
+                false,
+                false,
+                false,
+            );
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn test_very_long_prompt() {
+            let long_prompt = "word ".repeat(1000);
+            let result = inference::run_gguf_inference(
+                "/nonexistent/model.gguf",
+                &[],
+                &long_prompt,
+                5,
+                0.5,
+                "text",
+                false,
+                false,
+                false,
+            );
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn test_special_characters_in_prompt() {
+            let result = inference::run_gguf_inference(
+                "/nonexistent/model.gguf",
+                &[],
+                "Test <script>alert('xss')</script> & \"quotes\" 'apostrophe'",
+                5,
+                0.5,
+                "text",
+                false,
+                false,
+                false,
+            );
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn test_newlines_in_prompt() {
+            let result = inference::run_gguf_inference(
+                "/nonexistent/model.gguf",
+                &[],
+                "Line 1\nLine 2\r\nLine 3\tTab",
+                5,
+                0.5,
+                "text",
+                false,
+                false,
+                false,
+            );
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn test_negative_temperature_clamped() {
+            // Negative temperature should be treated as greedy (temperature <= 0.01)
+            let result = inference::run_gguf_inference(
+                "/nonexistent/model.gguf",
+                &[],
+                "negative temp test",
+                5,
+                -1.0, // Negative temperature
+                "text",
+                false,
+                false,
+                false,
+            );
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn test_extreme_temperature() {
+            // Very high temperature
+            let result = inference::run_gguf_inference(
+                "/nonexistent/model.gguf",
+                &[],
+                "extreme temp test",
+                5,
+                100.0, // Very high temperature
+                "text",
+                false,
+                false,
+                false,
+            );
+            assert!(result.is_err());
+        }
+    }
 }

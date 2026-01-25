@@ -804,8 +804,7 @@ fn test_imp_1006b_block_incremental_uses_cuda() {
         head_dim,
     );
     let _ = cuda_model.forward_block_incremental_optimized(&input, block_idx, &mut cuda_cache);
-    let _ =
-        hybrid_model.forward_block_incremental_optimized(&input, block_idx, &mut hybrid_cache);
+    let _ = hybrid_model.forward_block_incremental_optimized(&input, block_idx, &mut hybrid_cache);
 
     let iterations = 20;
 
@@ -818,8 +817,7 @@ fn test_imp_1006b_block_incremental_uses_cuda() {
     );
     let start = Instant::now();
     for _ in 0..iterations {
-        let _ =
-            cuda_model.forward_block_incremental_optimized(&input, block_idx, &mut cuda_cache2);
+        let _ = cuda_model.forward_block_incremental_optimized(&input, block_idx, &mut cuda_cache2);
     }
     let cuda_time = start.elapsed();
 
@@ -832,11 +830,8 @@ fn test_imp_1006b_block_incremental_uses_cuda() {
     );
     let start = Instant::now();
     for _ in 0..iterations {
-        let _ = hybrid_model.forward_block_incremental_optimized(
-            &input,
-            block_idx,
-            &mut hybrid_cache2,
-        );
+        let _ =
+            hybrid_model.forward_block_incremental_optimized(&input, block_idx, &mut hybrid_cache2);
     }
     let hybrid_time = start.elapsed();
 
@@ -1330,8 +1325,7 @@ fn test_imp_1008d_compare_clone_vs_refcell() {
 
     let mut clone_model =
         GpuModel::new_with_cuda(config.clone()).expect("Failed to create clone model");
-    let refcell_model =
-        GpuModel::new_with_cuda(config).expect("Failed to create refcell model");
+    let refcell_model = GpuModel::new_with_cuda(config).expect("Failed to create refcell model");
 
     let prompt: Vec<usize> = vec![1, 2, 3, 4, 5];
     let gen_config = GpuGenerateConfig::deterministic(10);
@@ -1459,8 +1453,7 @@ fn test_imp_1009b_generate_parity_with_refcell() {
         rope_theta: 10000.0,
     };
 
-    let mut clone_model =
-        GpuModel::new_with_cuda(config.clone()).expect("Failed to create model");
+    let mut clone_model = GpuModel::new_with_cuda(config.clone()).expect("Failed to create model");
     let refcell_model = GpuModel::new_with_cuda(config).expect("Failed to create model");
 
     let prompt: Vec<usize> = vec![1, 2, 3, 4, 5];
@@ -1722,4 +1715,3 @@ fn test_standard_layernorm_basic() {
     let mean: f32 = output.iter().sum::<f32>() / output.len() as f32;
     assert!(mean.abs() < 1e-4, "Mean should be ~0 after layernorm");
 }
-

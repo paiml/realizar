@@ -5,7 +5,9 @@
 //! - `optimized_lm_head_argmax_transposed` - Parallel argmax with transposed weights
 //! - `simplified_attention` - Fallback attention implementation
 
-use crate::gpu::scheduler::batch::{argmax, optimized_lm_head_argmax_transposed, simplified_attention};
+use crate::gpu::scheduler::batch::{
+    argmax, optimized_lm_head_argmax_transposed, simplified_attention,
+};
 use crate::gpu::scheduler::GpuModelConfig;
 
 // ============================================================================
@@ -60,7 +62,10 @@ fn test_argmax_small_vocab_all_equal() {
     let result = argmax(&logits);
     // When all values are equal, any index is valid - just verify it points to max value
     assert!(result < logits.len(), "Index should be in bounds");
-    assert!((logits[result] - 5.0).abs() < 1e-6, "Should point to a max value");
+    assert!(
+        (logits[result] - 5.0).abs() < 1e-6,
+        "Should point to a max value"
+    );
 }
 
 #[test]
@@ -153,10 +158,10 @@ fn test_argmax_large_vocab_max_in_first_chunk() {
 fn test_argmax_large_vocab_multiple_local_maxes() {
     // Each chunk has a local max, but one is global
     let mut logits = vec![0.0f32; 16384];
-    logits[1000] = 50.0;   // First chunk max
-    logits[5000] = 75.0;   // Second chunk max
-    logits[9000] = 100.0;  // Third chunk max (global)
-    logits[13000] = 60.0;  // Fourth chunk max
+    logits[1000] = 50.0; // First chunk max
+    logits[5000] = 75.0; // Second chunk max
+    logits[9000] = 100.0; // Third chunk max (global)
+    logits[13000] = 60.0; // Fourth chunk max
     let result = argmax(&logits);
     assert_eq!(result, 9000);
 }
@@ -171,10 +176,10 @@ fn test_optimized_lm_head_argmax_simple() {
     // weight_t[1] = [0, 1, 0, 0] -> dot = 0
     let hidden = vec![1.0, 0.0, 0.0, 0.0];
     let weight_t = vec![
-        1.0, 0.0, 0.0, 0.0,  // Row 0: dot product = 1
-        0.0, 1.0, 0.0, 0.0,  // Row 1: dot product = 0
-        0.0, 0.0, 1.0, 0.0,  // Row 2: dot product = 0
-        0.0, 0.0, 0.0, 1.0,  // Row 3: dot product = 0
+        1.0, 0.0, 0.0, 0.0, // Row 0: dot product = 1
+        0.0, 1.0, 0.0, 0.0, // Row 1: dot product = 0
+        0.0, 0.0, 1.0, 0.0, // Row 2: dot product = 0
+        0.0, 0.0, 0.0, 1.0, // Row 3: dot product = 0
     ];
     let bias = vec![0.0, 0.0, 0.0, 0.0];
 
@@ -188,12 +193,12 @@ fn test_optimized_lm_head_argmax_with_bias() {
     // All weight rows give dot = 1, but bias makes index 2 largest
     let hidden = vec![1.0, 0.0, 0.0, 0.0];
     let weight_t = vec![
-        1.0, 0.0, 0.0, 0.0,  // Row 0: dot = 1
-        1.0, 0.0, 0.0, 0.0,  // Row 1: dot = 1
-        1.0, 0.0, 0.0, 0.0,  // Row 2: dot = 1
-        1.0, 0.0, 0.0, 0.0,  // Row 3: dot = 1
+        1.0, 0.0, 0.0, 0.0, // Row 0: dot = 1
+        1.0, 0.0, 0.0, 0.0, // Row 1: dot = 1
+        1.0, 0.0, 0.0, 0.0, // Row 2: dot = 1
+        1.0, 0.0, 0.0, 0.0, // Row 3: dot = 1
     ];
-    let bias = vec![0.0, 0.0, 10.0, 0.0];  // bias[2] = 10
+    let bias = vec![0.0, 0.0, 10.0, 0.0]; // bias[2] = 10
 
     let result = optimized_lm_head_argmax_transposed(&hidden, &weight_t, &bias, 4, 4);
     assert_eq!(result, 2);
@@ -214,14 +219,15 @@ fn test_optimized_lm_head_argmax_larger_vocab() {
         weight_t[2500 * hidden_dim + i] = hidden[i]; // Dot product = sum of squares
     }
 
-    let result = optimized_lm_head_argmax_transposed(&hidden, &weight_t, &bias, hidden_dim, vocab_size);
+    let result =
+        optimized_lm_head_argmax_transposed(&hidden, &weight_t, &bias, hidden_dim, vocab_size);
     assert_eq!(result, 2500);
 }
 
 #[test]
 fn test_optimized_lm_head_argmax_single_vocab() {
     let hidden = vec![1.0, 2.0, 3.0, 4.0];
-    let weight_t = vec![1.0, 1.0, 1.0, 1.0];  // Vocab size 1
+    let weight_t = vec![1.0, 1.0, 1.0, 1.0]; // Vocab size 1
     let bias = vec![0.0];
 
     let result = optimized_lm_head_argmax_transposed(&hidden, &weight_t, &bias, 4, 1);
@@ -232,8 +238,8 @@ fn test_optimized_lm_head_argmax_single_vocab() {
 fn test_optimized_lm_head_argmax_negative_logits() {
     let hidden = vec![1.0, 1.0];
     let weight_t = vec![
-        -1.0, -1.0,  // Row 0: dot = -2
-        -0.5, -0.5,  // Row 1: dot = -1 (largest)
+        -1.0, -1.0, // Row 0: dot = -2
+        -0.5, -0.5, // Row 1: dot = -1 (largest)
     ];
     let bias = vec![0.0, 0.0];
 
@@ -279,7 +285,10 @@ fn test_simplified_attention_single_token() {
 
     // For single token: softmax of single element = 1.0, so output = v
     for (i, &val) in output.iter().enumerate() {
-        assert!((val - v[i]).abs() < 1e-5, "Output should equal V for single token");
+        assert!(
+            (val - v[i]).abs() < 1e-5,
+            "Output should equal V for single token"
+        );
     }
 }
 
@@ -287,7 +296,7 @@ fn test_simplified_attention_single_token() {
 fn test_simplified_attention_two_tokens() {
     let config = GpuModelConfig {
         vocab_size: 100,
-        hidden_dim: 4,  // Small for easy verification
+        hidden_dim: 4, // Small for easy verification
         num_heads: 2,
         num_kv_heads: 2,
         num_layers: 2,
@@ -328,8 +337,10 @@ fn test_simplified_attention_two_tokens() {
 
     // Position 0: can only attend to itself (causal), output = v0
     for i in 0..hidden_dim {
-        assert!((output[i] - v0[i]).abs() < 1e-5,
-            "Position 0 should only attend to itself");
+        assert!(
+            (output[i] - v0[i]).abs() < 1e-5,
+            "Position 0 should only attend to itself"
+        );
     }
 
     // Position 1: attends to both positions with some weighting
@@ -337,9 +348,12 @@ fn test_simplified_attention_two_tokens() {
     // Expected: 0.5 * v0 + 0.5 * v1 = 0.5 * 1.0 + 0.5 * 2.0 = 1.5
     for i in 0..hidden_dim {
         let expected = 0.5 * v0[i] + 0.5 * v1[i];
-        assert!((output[hidden_dim + i] - expected).abs() < 1e-4,
+        assert!(
+            (output[hidden_dim + i] - expected).abs() < 1e-4,
             "Position 1 should be weighted average: got {} expected {}",
-            output[hidden_dim + i], expected);
+            output[hidden_dim + i],
+            expected
+        );
     }
 }
 
@@ -418,8 +432,7 @@ fn test_argmax_with_subnormal_numbers() {
 #[test]
 fn test_argmax_very_close_values() {
     let logits = vec![
-        1.0000001,
-        1.0000002,  // Slightly larger
+        1.0000001, 1.0000002, // Slightly larger
         1.0000000,
     ];
     let result = argmax(&logits);
@@ -429,15 +442,12 @@ fn test_argmax_very_close_values() {
 #[test]
 fn test_optimized_lm_head_argmax_zero_hidden() {
     let hidden = vec![0.0, 0.0, 0.0, 0.0];
-    let weight_t = vec![
-        1.0, 2.0, 3.0, 4.0,
-        0.0, 0.0, 0.0, 0.0,
-    ];
+    let weight_t = vec![1.0, 2.0, 3.0, 4.0, 0.0, 0.0, 0.0, 0.0];
     // Bias determines the result
     let bias = vec![5.0, 10.0];
 
     let result = optimized_lm_head_argmax_transposed(&hidden, &weight_t, &bias, 4, 2);
-    assert_eq!(result, 1);  // Higher bias
+    assert_eq!(result, 1); // Higher bias
 }
 
 // ============================================================================

@@ -8,10 +8,10 @@ use axum::{
 };
 use tower::util::ServiceExt;
 
-use crate::api::*;
 use crate::api::test_helpers::create_test_app;
 #[cfg(feature = "gpu")]
 use crate::api::test_helpers::create_test_quantized_model;
+use crate::api::*;
 
 #[test]
 fn test_openai_models_response_serialize_more_cov() {
@@ -405,8 +405,7 @@ async fn test_openai_chat_completions_empty_messages_more_cov() {
 #[tokio::test]
 async fn test_openai_chat_completions_valid_more_cov() {
     let app = create_test_app();
-    let json =
-        r#"{"model":"default","messages":[{"role":"user","content":"Hi"}],"max_tokens":5}"#;
+    let json = r#"{"model":"default","messages":[{"role":"user","content":"Hi"}],"max_tokens":5}"#;
 
     let response = app
         .oneshot(
@@ -446,8 +445,7 @@ async fn test_openai_chat_completions_stream_empty_more_cov() {
 #[tokio::test]
 async fn test_openai_chat_completions_stream_valid_more_cov() {
     let app = create_test_app();
-    let json =
-        r#"{"model":"default","messages":[{"role":"user","content":"Hi"}],"max_tokens":3}"#;
+    let json = r#"{"model":"default","messages":[{"role":"user","content":"Hi"}],"max_tokens":3}"#;
 
     let response = app
         .oneshot(
@@ -1013,8 +1011,7 @@ async fn test_deep_apicov_chat_completions_empty_messages() {
 #[tokio::test]
 async fn test_deep_apicov_chat_completions_with_top_p() {
     let app = create_test_app();
-    let json =
-        r#"{"model":"default","messages":[{"role":"user","content":"hello"}],"top_p":0.9}"#;
+    let json = r#"{"model":"default","messages":[{"role":"user","content":"hello"}],"top_p":0.9}"#;
 
     let response = app
         .oneshot(
@@ -1094,8 +1091,7 @@ async fn test_deep_apicov_stream_generate_top_k_strategy() {
 #[tokio::test]
 async fn test_deep_apicov_stream_generate_top_p_strategy() {
     let app = create_test_app();
-    let json =
-        r#"{"prompt":"token1","max_tokens":2,"strategy":"top_p","top_p":0.9,"seed":456}"#;
+    let json = r#"{"prompt":"token1","max_tokens":2,"strategy":"top_p","top_p":0.9,"seed":456}"#;
 
     let response = app
         .oneshot(
@@ -1115,8 +1111,7 @@ async fn test_deep_apicov_stream_generate_top_p_strategy() {
 #[tokio::test]
 async fn test_deep_apicov_chat_completions_stream_endpoint() {
     let app = create_test_app();
-    let json =
-        r#"{"model":"default","messages":[{"role":"user","content":"hi"}],"stream":true}"#;
+    let json = r#"{"model":"default","messages":[{"role":"user","content":"hi"}],"stream":true}"#;
 
     let response = app
         .oneshot(

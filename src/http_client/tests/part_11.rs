@@ -245,8 +245,7 @@ impl GELUVerificationResult {
     /// GELU approximation (tanh version used by GPT-2)
     pub fn compute_gelu(x: f32) -> f32 {
         0.5 * x
-            * (1.0
-                + ((2.0_f32 / std::f32::consts::PI).sqrt() * (x + 0.044715 * x.powi(3))).tanh())
+            * (1.0 + ((2.0_f32 / std::f32::consts::PI).sqrt() * (x + 0.044715 * x.powi(3))).tanh())
     }
 }
 
@@ -1679,4 +1678,3 @@ fn test_imp_305d_norm_softmax_combined() {
     };
     println!("  Status: {} (target: <{}ms)", status, target_ms);
 }
-

@@ -14,12 +14,9 @@
 
 #![allow(clippy::needless_range_loop)]
 
-use crate::gguf::{
-    DequantizedFFNWeights, DequantizedWeightCache,
-    QuantizedGenerateConfig,
-};
 #[cfg(feature = "gpu")]
 use crate::gguf::{BatchGenerationStats, BatchingConfig};
+use crate::gguf::{DequantizedFFNWeights, DequantizedWeightCache, QuantizedGenerateConfig};
 
 // ========================================================================
 // PARITY-018: Production GPU Batch FFN Integration
@@ -98,9 +95,7 @@ fn test_parity018a_dequantized_weight_cache_production() {
 
         fn memory_bytes(&self) -> usize {
             let cache = self.layers.read().expect("test");
-            cache.len()
-                * (self.hidden_dim * self.intermediate_dim * 2)
-                * std::mem::size_of::<f32>()
+            cache.len() * (self.hidden_dim * self.intermediate_dim * 2) * std::mem::size_of::<f32>()
         }
     }
 
@@ -206,9 +201,7 @@ fn test_parity018b_batch_ffn_gpu_method() {
         // GELU activation
         for x in &mut intermediate {
             let x64 = *x as f64;
-            *x = (x64
-                * 0.5
-                * (1.0 + (x64 * 0.7978845608 * (1.0 + 0.044715 * x64 * x64)).tanh()))
+            *x = (x64 * 0.5 * (1.0 + (x64 * 0.7978845608 * (1.0 + 0.044715 * x64 * x64)).tanh()))
                 as f32;
         }
 
@@ -1805,8 +1798,7 @@ fn test_parity024d_batch_attention_speedup_analysis() {
     // Speedup = 1 / 0.775 = 1.29x additional
     let attn_portion = 0.25;
     let combined_gpu_portion = attn_portion + 0.50; // 50% from FFN
-    let gpu_time_factor =
-        combined_gpu_portion / gpu_gemm_speedup + (1.0 - combined_gpu_portion);
+    let gpu_time_factor = combined_gpu_portion / gpu_gemm_speedup + (1.0 - combined_gpu_portion);
     let combined_speedup = 1.0 / gpu_time_factor;
 
     println!("\n  Speedup Analysis:");

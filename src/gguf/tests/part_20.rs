@@ -10,11 +10,11 @@
 //! Located in lib tests to be included in `cargo test --lib` coverage
 
 use crate::gguf::test_helpers::create_test_model_with_config;
-use crate::gguf::{GGUFConfig, OwnedQuantizedTensor};
 use crate::gguf::types::{
-    GGUF_TYPE_Q4_0, GGUF_TYPE_Q4_1, GGUF_TYPE_Q4_K, GGUF_TYPE_Q5_0, GGUF_TYPE_Q5_K,
-    GGUF_TYPE_Q6_K, GGUF_TYPE_Q8_0,
+    GGUF_TYPE_Q4_0, GGUF_TYPE_Q4_1, GGUF_TYPE_Q4_K, GGUF_TYPE_Q5_0, GGUF_TYPE_Q5_K, GGUF_TYPE_Q6_K,
+    GGUF_TYPE_Q8_0,
 };
+use crate::gguf::{GGUFConfig, OwnedQuantizedTensor};
 
 // =============================================================================
 // Embed Tests
@@ -244,7 +244,11 @@ fn test_phase34_fused_matmul_q4_0_single_seq() {
     let weight = create_q4_0_weight(in_dim, out_dim);
 
     let result = model.fused_matmul(&input, &weight);
-    assert!(result.is_ok(), "Q4_0 fused_matmul failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Q4_0 fused_matmul failed: {:?}",
+        result.err()
+    );
 
     let output = result.unwrap();
     assert_eq!(output.len(), out_dim);
@@ -276,7 +280,11 @@ fn test_phase34_fused_matmul_q4_0_multi_seq() {
     let weight = create_q4_0_weight(in_dim, out_dim);
 
     let result = model.fused_matmul(&input, &weight);
-    assert!(result.is_ok(), "Q4_0 multi-seq fused_matmul failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Q4_0 multi-seq fused_matmul failed: {:?}",
+        result.err()
+    );
 
     let output = result.unwrap();
     assert_eq!(output.len(), out_dim * seq_len);
@@ -334,7 +342,11 @@ fn test_phase34_fused_matmul_q8_0_single_seq() {
     let weight = create_q8_0_weight(in_dim, out_dim);
 
     let result = model.fused_matmul(&input, &weight);
-    assert!(result.is_ok(), "Q8_0 fused_matmul failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Q8_0 fused_matmul failed: {:?}",
+        result.err()
+    );
 
     let output = result.unwrap();
     assert_eq!(output.len(), out_dim);
@@ -420,7 +432,11 @@ fn test_phase34_fused_matmul_q4_1() {
     let weight = create_q4_1_weight(in_dim, out_dim);
 
     let result = model.fused_matmul(&input, &weight);
-    assert!(result.is_ok(), "Q4_1 fused_matmul failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Q4_1 fused_matmul failed: {:?}",
+        result.err()
+    );
     assert_eq!(result.unwrap().len(), out_dim);
 }
 
@@ -467,7 +483,7 @@ fn create_q5_0_weight(in_dim: usize, out_dim: usize) -> OwnedQuantizedTensor {
     for _ in 0..num_blocks {
         let scale = half::f16::from_f32(0.1);
         data.extend_from_slice(&scale.to_le_bytes());
-        data.extend([0u8; 4]);  // high bits
+        data.extend([0u8; 4]); // high bits
         data.extend([0x00u8; 16]); // quants
     }
 
@@ -503,7 +519,11 @@ fn test_phase34_fused_matmul_q5_0() {
     let weight = create_q5_0_weight(in_dim, out_dim);
 
     let result = model.fused_matmul(&input, &weight);
-    assert!(result.is_ok(), "Q5_0 fused_matmul failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Q5_0 fused_matmul failed: {:?}",
+        result.err()
+    );
     assert_eq!(result.unwrap().len(), out_dim);
 }
 
@@ -606,7 +626,11 @@ fn test_phase34_fused_matmul_q4_k_single() {
     let weight = create_q4_k_weight(in_dim, out_dim);
 
     let result = model.fused_matmul(&input, &weight);
-    assert!(result.is_ok(), "Q4_K fused_matmul failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Q4_K fused_matmul failed: {:?}",
+        result.err()
+    );
     assert_eq!(result.unwrap().len(), out_dim);
 }
 
@@ -663,7 +687,11 @@ fn test_phase34_fused_matmul_q5_k() {
     let weight = create_q5_k_weight(in_dim, out_dim);
 
     let result = model.fused_matmul(&input, &weight);
-    assert!(result.is_ok(), "Q5_K fused_matmul failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Q5_K fused_matmul failed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -719,7 +747,11 @@ fn test_phase34_fused_matmul_q6_k() {
     let weight = create_q6_k_weight(in_dim, out_dim);
 
     let result = model.fused_matmul(&input, &weight);
-    assert!(result.is_ok(), "Q6_K fused_matmul failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Q6_K fused_matmul failed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -787,7 +819,11 @@ fn test_phase34_fused_matmul_unsupported_qtype() {
     let result = model.fused_matmul(&input, &weight);
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("255") || err.contains("Unsupported") || err.contains("supports"), "Error: {}", err);
+    assert!(
+        err.contains("255") || err.contains("Unsupported") || err.contains("supports"),
+        "Error: {}",
+        err
+    );
 }
 
 // =============================================================================
@@ -853,9 +889,18 @@ fn test_phase34_fused_matmul_all_qtypes_comprehensive() {
 
     for (name, weight) in qtypes {
         let result = model.fused_matmul(&input, &weight);
-        assert!(result.is_ok(), "{} fused_matmul failed: {:?}", name, result.err());
+        assert!(
+            result.is_ok(),
+            "{} fused_matmul failed: {:?}",
+            name,
+            result.err()
+        );
         let output = result.unwrap();
         assert_eq!(output.len(), out_dim, "{} output size mismatch", name);
-        assert!(output.iter().all(|x| x.is_finite()), "{} produced non-finite values", name);
+        assert!(
+            output.iter().all(|x| x.is_finite()),
+            "{} produced non-finite values",
+            name
+        );
     }
 }

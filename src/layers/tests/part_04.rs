@@ -196,8 +196,8 @@ fn test_imp_026_real_gguf_gpu_loading() {
     use crate::gpu::GpuModel;
 
     // Load real GGUF model
-    let gguf_path = std::env::var("GGUF_MODEL_PATH")
-        .unwrap_or_else(|_| "models/phi-2-q4_k_m.gguf".to_string());
+    let gguf_path =
+        std::env::var("GGUF_MODEL_PATH").unwrap_or_else(|_| "models/phi-2-q4_k_m.gguf".to_string());
 
     if !std::path::Path::new(&gguf_path).exists() {
         eprintln!("IMP-026: Skipping - GGUF model not found at {}", gguf_path);
@@ -205,8 +205,7 @@ fn test_imp_026_real_gguf_gpu_loading() {
     }
 
     // Load and convert to GPU model
-    let mapped =
-        MappedGGUFModel::from_path(&gguf_path).expect("IMP-026: Should load GGUF model");
+    let mapped = MappedGGUFModel::from_path(&gguf_path).expect("IMP-026: Should load GGUF model");
 
     let mut model =
         GpuModel::from_mapped_gguf(&mapped).expect("IMP-026: Should convert to GPU model");
@@ -462,8 +461,7 @@ fn test_imp_029_text_generation() {
 
     // Test 4: Generation with stop token
     let stop_token = tokens[prompt.len()]; // First generated token
-    let gen_config_stop =
-        GpuGenerateConfig::deterministic(50).with_stop_tokens(vec![stop_token]);
+    let gen_config_stop = GpuGenerateConfig::deterministic(50).with_stop_tokens(vec![stop_token]);
     let tokens_stopped = model
         .generate(&prompt, &gen_config_stop)
         .expect("IMP-029: Generation with stop should succeed");
@@ -989,8 +987,7 @@ fn test_imp_036_optimized_kv_access() {
 
     // Initialize KV cache
     let head_dim = config.hidden_dim / config.num_heads;
-    let mut kv_cache =
-        StreamingKVCache::new(config.num_layers, 256, config.num_heads, head_dim);
+    let mut kv_cache = StreamingKVCache::new(config.num_layers, 256, config.num_heads, head_dim);
 
     // Fill cache with some data (simulate prompt processing)
     let prompt = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
@@ -1199,8 +1196,7 @@ fn test_imp_039_fused_attn_proj() {
 
     // Initialize KV cache
     let head_dim = config.hidden_dim / config.num_heads;
-    let mut kv_cache =
-        StreamingKVCache::new(config.num_layers, 256, config.num_heads, head_dim);
+    let mut kv_cache = StreamingKVCache::new(config.num_layers, 256, config.num_heads, head_dim);
 
     // Fill cache
     let prompt = vec![1, 2, 3, 4, 5, 6, 7, 8];
@@ -1415,8 +1411,7 @@ fn test_imp_042_fused_output_residual() {
 
     // Initialize KV cache
     let head_dim = config.hidden_dim / config.num_heads;
-    let mut kv_cache =
-        StreamingKVCache::new(config.num_layers, 256, config.num_heads, head_dim);
+    let mut kv_cache = StreamingKVCache::new(config.num_layers, 256, config.num_heads, head_dim);
 
     // Fill cache
     let prompt = vec![1, 2, 3, 4, 5, 6, 7, 8];
@@ -1603,8 +1598,7 @@ fn test_imp_044_parallel_ffn() {
     let input: Vec<f32> = (0..hidden_dim).map(|i| (i as f32) * 0.01).collect();
 
     // Test 1: Sequential and parallel should produce same results
-    let sequential_result =
-        sequential_ffn(&input, &w_up, &w_down, hidden_dim, intermediate_dim);
+    let sequential_result = sequential_ffn(&input, &w_up, &w_down, hidden_dim, intermediate_dim);
     let parallel_result = parallel_ffn(&input, &w_up, &w_down, hidden_dim, intermediate_dim);
 
     assert_eq!(
@@ -1754,4 +1748,3 @@ fn test_imp_045_optimized_layernorm() {
 // ============================================================================
 // Phase 12: Cache Efficiency & Prefetch (M21) - IMP-046/047/048
 // ============================================================================
-

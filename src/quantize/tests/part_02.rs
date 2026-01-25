@@ -91,8 +91,7 @@ fn test_dequantize_q8_0_parallel_large_input() {
     // Set varied scales
     for block in 0..1000 {
         let scale = 0.001 * (block as f32);
-        data[block * 34..block * 34 + 2]
-            .copy_from_slice(&half::f16::from_f32(scale).to_le_bytes());
+        data[block * 34..block * 34 + 2].copy_from_slice(&half::f16::from_f32(scale).to_le_bytes());
     }
 
     let result = dequantize_q8_0_parallel(&data).expect("test");
@@ -224,9 +223,9 @@ fn test_imp_147b_simd_nibble_extraction_avx2() {
 
     // Create test bytes with known pattern
     let bytes: [u8; 32] = [
-        0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x10, 0x32, 0x54, 0x76, 0x98, 0xBA,
-        0xDC, 0xFE, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB,
-        0xCC, 0xDD, 0xEE, 0xFF,
+        0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x10, 0x32, 0x54, 0x76, 0x98, 0xBA, 0xDC,
+        0xFE, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD,
+        0xEE, 0xFF,
     ];
 
     // Compute expected values with scalar code
@@ -1163,9 +1162,8 @@ fn test_fused_rmsnorm_q4_0_matmul_basic() {
     // Create Q4_0 weight data: 1 block per row (32 values = 1 block), 2 rows
     let weight_data = vec![0u8; 18 * 2]; // 2 rows of Q4_0 blocks
 
-    let result =
-        fused_rmsnorm_q4_0_matmul(&input, &norm_weight, 1e-5, &weight_data, hidden_dim, 2)
-            .expect("test");
+    let result = fused_rmsnorm_q4_0_matmul(&input, &norm_weight, 1e-5, &weight_data, hidden_dim, 2)
+        .expect("test");
     assert_eq!(result.len(), 2);
     assert!(result.iter().all(|v| v.is_finite()));
 }
@@ -1705,14 +1703,8 @@ fn test_fused_q8_0_q8_0_parallel_matvec_into_basic() {
     let activations = vec![1.0f32; in_dim];
     let mut output = vec![0.0f32; out_dim];
 
-    fused_q8_0_q8_0_parallel_matvec_into(
-        &weight_data,
-        &activations,
-        in_dim,
-        out_dim,
-        &mut output,
-    )
-    .expect("should succeed");
+    fused_q8_0_q8_0_parallel_matvec_into(&weight_data, &activations, in_dim, out_dim, &mut output)
+        .expect("should succeed");
     assert_eq!(output.len(), out_dim);
 }
 
@@ -1793,4 +1785,3 @@ fn test_q8k_superblock_quantize_near_zero() {
     // Should use fallback scale
     assert!((block.scale - 1.0 / 127.0).abs() < 1e-6);
 }
-

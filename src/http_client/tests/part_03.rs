@@ -309,8 +309,7 @@ fn test_imp_158d_comparison_validation() {
         "IMP-158d: Should reject negative throughput"
     );
 
-    let ratio_errors =
-        ComparisonResultValidator::validate_comparison(1.0, 100000.0).unwrap_err();
+    let ratio_errors = ComparisonResultValidator::validate_comparison(1.0, 100000.0).unwrap_err();
     assert!(
         ratio_errors.iter().any(|e| e.contains("unreasonable")),
         "IMP-158d: Should flag extreme ratios"
@@ -817,8 +816,7 @@ fn test_imp_160a_multirun_aggregation() {
     let run4 = ThroughputWithVariance::from_samples(&[255.0, 257.0, 254.0, 256.0, 256.0]);
     let run5 = ThroughputWithVariance::from_samples(&[250.0, 252.0, 251.0, 253.0, 249.0]);
 
-    let multirun =
-        MultiRunBenchmark::from_runs("llama.cpp", vec![run1, run2, run3, run4, run5]);
+    let multirun = MultiRunBenchmark::from_runs("llama.cpp", vec![run1, run2, run3, run4, run5]);
 
     // IMP-160a: Should have 5 runs
     assert_eq!(multirun.run_count, 5, "IMP-160a: Should have 5 runs");
@@ -992,12 +990,7 @@ pub struct BenchmarkPowerAnalysis {
 impl BenchmarkPowerAnalysis {
     /// Estimate power for given effect size and sample size
     /// Uses simplified power calculation (normal approximation)
-    pub fn estimate(
-        effect_size: f64,
-        sample_size: usize,
-        alpha: f64,
-        _desired_power: f64,
-    ) -> Self {
+    pub fn estimate(effect_size: f64, sample_size: usize, alpha: f64, _desired_power: f64) -> Self {
         // Z-score for alpha (two-tailed)
         let z_alpha = 1.96; // For alpha = 0.05
 
@@ -1193,9 +1186,7 @@ impl WarmupDetector {
         let mut best_split = 0;
         let mut best_ratio = f64::MAX;
 
-        for split in
-            self.min_iterations..n.saturating_sub(self.window_size).min(self.max_warmup)
-        {
+        for split in self.min_iterations..n.saturating_sub(self.window_size).min(self.max_warmup) {
             let warmup = &samples[..split];
             let steady = &samples[split..];
 

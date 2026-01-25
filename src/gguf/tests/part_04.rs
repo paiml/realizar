@@ -874,8 +874,7 @@ fn test_imp_114a_flattened_batched_gemm_correctness() {
             for j in 0..n {
                 let mut expected = 0.0f32;
                 for kk in 0..k {
-                    expected +=
-                        batched_a[a_start + i * k + kk] * batched_b[b_start + kk * n + j];
+                    expected += batched_a[a_start + i * k + kk] * batched_b[b_start + kk * n + j];
                 }
                 let actual = result[out_start + i * n + j];
                 let diff = (expected - actual).abs();

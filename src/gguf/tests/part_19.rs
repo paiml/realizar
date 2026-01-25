@@ -139,9 +139,7 @@ fn test_phase34_cached_sync_send_sync_bounds() {
     // Actually use it in a thread to verify Send
     let arc_sync = Arc::new(cached_sync);
     let arc_clone = Arc::clone(&arc_sync);
-    let handle = std::thread::spawn(move || {
-        arc_clone.model().config.hidden_dim
-    });
+    let handle = std::thread::spawn(move || arc_clone.model().config.hidden_dim);
     assert_eq!(handle.join().unwrap(), 64);
 }
 
@@ -167,7 +165,11 @@ fn test_phase34_cached_sync_multiple_configs() {
             context_length: 256,
             rope_theta: 10000.0,
             eps: 1e-5,
-            rope_type: if arch == "qwen2" || arch == "phi3" { 2 } else { 0 },
+            rope_type: if arch == "qwen2" || arch == "phi3" {
+                2
+            } else {
+                0
+            },
         };
 
         let model = create_test_model_with_config(&config);

@@ -374,8 +374,7 @@ fn test_fused_q8_0_q8_0_parallel_matvec_into_valid_cov() {
 
     let activations = vec![1.0f32; 32];
     let mut output = vec![0.0f32; 2];
-    let result =
-        fused_q8_0_q8_0_parallel_matvec_into(&weights, &activations, 32, 2, &mut output);
+    let result = fused_q8_0_q8_0_parallel_matvec_into(&weights, &activations, 32, 2, &mut output);
     assert!(result.is_ok());
 }
 
@@ -391,14 +390,8 @@ fn test_fused_q4k_q8k_parallel_matvec_into_valid_cov() {
     let q8k_quants = vec![0i8; 256];
     let mut output = vec![0.0f32; 2];
 
-    let result = fused_q4k_q8k_parallel_matvec_into(
-        &weights,
-        &q8k_scales,
-        &q8k_quants,
-        256,
-        2,
-        &mut output,
-    );
+    let result =
+        fused_q4k_q8k_parallel_matvec_into(&weights, &q8k_scales, &q8k_quants, 256, 2, &mut output);
     assert!(result.is_ok());
 }
 
@@ -1246,14 +1239,8 @@ fn test_fused_q4k_q8k_parallel_matvec_into_error_weight_deep_qcov_048() {
     let q8k_quants = vec![0i8; 256];
     let mut output = vec![0.0f32; 2];
 
-    let result = fused_q4k_q8k_parallel_matvec_into(
-        &weights,
-        &q8k_scales,
-        &q8k_quants,
-        256,
-        2,
-        &mut output,
-    );
+    let result =
+        fused_q4k_q8k_parallel_matvec_into(&weights, &q8k_scales, &q8k_quants, 256, 2, &mut output);
     assert!(result.is_err());
 }
 

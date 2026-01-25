@@ -877,12 +877,7 @@ pub struct DocUpdateResult {
 }
 
 impl DocUpdateResult {
-    pub fn new(
-        section: DocSection,
-        path: impl Into<String>,
-        updated: bool,
-        lines: usize,
-    ) -> Self {
+    pub fn new(section: DocSection, path: impl Into<String>, updated: bool, lines: usize) -> Self {
         Self {
             section,
             file_path: path.into(),
@@ -1208,8 +1203,7 @@ fn test_imp_204b_deterministic_verifier() {
         "IMP-204b: Should be identical"
     );
 
-    let partial =
-        verifier.compare_outputs("The quick brown fox jumps", "The quick brown dog runs");
+    let partial = verifier.compare_outputs("The quick brown fox jumps", "The quick brown dog runs");
     assert!(
         partial > 0.0 && partial < 1.0,
         "IMP-204b: Should be partial match"
@@ -1230,13 +1224,8 @@ fn test_imp_204c_similarity_edge_cases() {
     assert!(empty.meets_qa001, "IMP-204c: Empty should meet QA-001");
 
     // Different lengths
-    let diff_len = OutputComparisonResult::new(
-        "a",
-        "b",
-        "test",
-        "one two three",
-        "one two three four five",
-    );
+    let diff_len =
+        OutputComparisonResult::new("a", "b", "test", "one two three", "one two three four five");
     assert!(
         diff_len.similarity_score < 1.0,
         "IMP-204c: Should have lower similarity"
@@ -1699,4 +1688,3 @@ fn test_imp_207d_realworld_rope() {
         if result.meets_qa004 { "PASS" } else { "FAIL" }
     );
 }
-

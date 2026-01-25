@@ -36,7 +36,10 @@ fn test_phase33_forward_basic() {
     assert!(result.is_ok(), "forward() should succeed");
     let logits = result.unwrap();
     assert_eq!(logits.len(), config.vocab_size);
-    assert!(logits.iter().all(|x| x.is_finite()), "Logits should be finite");
+    assert!(
+        logits.iter().all(|x| x.is_finite()),
+        "Logits should be finite"
+    );
 }
 
 #[test]
@@ -138,7 +141,11 @@ fn test_phase33_forward_cached_sequence() {
     // Simulate autoregressive generation
     for i in 0..10 {
         let result = model.forward_cached((i % config.vocab_size) as u32, &mut cache, i);
-        assert!(result.is_ok(), "forward_cached at position {} should succeed", i);
+        assert!(
+            result.is_ok(),
+            "forward_cached at position {} should succeed",
+            i
+        );
     }
 }
 

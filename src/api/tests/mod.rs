@@ -10,6 +10,10 @@
 //! - part_05: Additional coverage tests
 //! - part_06: Error response coverage (PMAT-803)
 //! - part_07: Realize handlers coverage (Phase 37 - Scenario Blitz)
+//! - part_08: OpenAI handlers coverage
+//! - part_09: OpenAI handlers extended coverage
+//! - part_10: Realize handlers extended coverage (ModelLineage, ReloadResponse, etc.)
+//! - part_11: GPU handlers coverage (GpuBatchRequest, GpuBatchResponse, BatchConfig, etc.)
 
 mod part_01;
 mod part_02;
@@ -18,3 +22,7 @@ mod part_04;
 mod part_05;
 mod part_06;
 mod part_07;
+mod part_08;
+mod part_09;
+mod part_10;
+mod part_11;

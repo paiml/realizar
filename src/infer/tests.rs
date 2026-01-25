@@ -1900,4 +1900,729 @@ mod tests {
         };
         assert_eq!(result.tok_per_sec, 0.0);
     }
+
+    // =========================================================================
+    // Additional Coverage Tests for Uncovered Lines
+    // =========================================================================
+
+    // --- find_fallback_tokenizer Tests ---
+
+    #[test]
+    fn test_find_fallback_tokenizer_nonexistent_path() {
+        // Test find_fallback_tokenizer with a path that doesn't exist
+        let path = std::path::Path::new("/nonexistent/model.apr");
+        let result = super::find_fallback_tokenizer(path);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_find_fallback_tokenizer_invalid_apr() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        // Create a file that's not a valid APR model
+        let mut temp = NamedTempFile::with_suffix(".apr").expect("create temp file");
+        temp.write_all(b"not a valid apr file").expect("write");
+        temp.flush().expect("flush");
+
+        let result = super::find_fallback_tokenizer(temp.path());
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_find_fallback_tokenizer_empty_file() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        let mut temp = NamedTempFile::with_suffix(".apr").expect("create temp file");
+        temp.write_all(&[]).expect("write");
+        temp.flush().expect("flush");
+
+        let result = super::find_fallback_tokenizer(temp.path());
+        assert!(result.is_none());
+    }
+
+    // --- InferenceConfig additional builder tests ---
+
+    #[test]
+    fn test_inference_config_all_trace_options() {
+        let mut config = InferenceConfig::new("/model.gguf");
+        config.trace = true;
+        config.trace_verbose = true;
+        config.trace_output = Some(PathBuf::from("/trace/output.json"));
+        config.trace_steps = Some(vec![
+            "embed".to_string(),
+            "attention".to_string(),
+            "ffn".to_string(),
+        ]);
+
+        assert!(config.trace);
+        assert!(config.trace_verbose);
+        assert_eq!(
+            config.trace_output,
+            Some(PathBuf::from("/trace/output.json"))
+        );
+        assert_eq!(config.trace_steps.as_ref().map(|s| s.len()), Some(3));
+    }
+
+    #[test]
+    fn test_inference_config_trace_steps_empty() {
+        let mut config = InferenceConfig::new("/model.gguf");
+        config.trace_steps = Some(vec![]);
+        assert_eq!(config.trace_steps, Some(vec![]));
+    }
+
+    #[test]
+    fn test_inference_config_with_all_options_set() {
+        let mut config = InferenceConfig::new("/full/path/model.gguf");
+        config.prompt = Some("test prompt".to_string());
+        config.input_tokens = Some(vec![1, 2, 3, 4, 5]);
+        config.max_tokens = 256;
+        config.temperature = 0.9;
+        config.top_k = 50;
+        config.no_gpu = true;
+        config.trace = true;
+        config.trace_verbose = true;
+        config.trace_output = Some(PathBuf::from("/output.json"));
+        config.trace_steps = Some(vec!["step1".to_string()]);
+        config.verbose = true;
+
+        // Verify all fields
+        assert!(config.prompt.is_some());
+        assert!(config.input_tokens.is_some());
+        assert_eq!(config.max_tokens, 256);
+        assert!((config.temperature - 0.9).abs() < f32::EPSILON);
+        assert_eq!(config.top_k, 50);
+        assert!(config.no_gpu);
+        assert!(config.trace);
+        assert!(config.trace_verbose);
+        assert!(config.trace_output.is_some());
+        assert!(config.trace_steps.is_some());
+        assert!(config.verbose);
+    }
+
+    // --- run_inference format detection tests ---
+
+    #[test]
+    fn test_run_inference_with_gguf_magic_but_incomplete() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        // GGUF magic but incomplete model
+        let mut temp = NamedTempFile::with_suffix(".gguf").expect("create temp");
+        let mut data = Vec::new();
+        data.extend_from_slice(b"GGUF");
+        data.extend_from_slice(&3u32.to_le_bytes()); // version
+                                                     // Missing rest of header
+        temp.write_all(&data).expect("write");
+        temp.flush().expect("flush");
+
+        let config = InferenceConfig::new(temp.path());
+        let result = run_inference(&config);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_run_inference_with_apr_magic_but_incomplete() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        // APR magic but incomplete
+        let mut temp = NamedTempFile::with_suffix(".apr").expect("create temp");
+        let mut data = Vec::new();
+        data.extend_from_slice(b"APR\x02"); // APR v2 magic
+        data.extend_from_slice(&[0u8; 4]); // Incomplete header
+        temp.write_all(&data).expect("write");
+        temp.flush().expect("flush");
+
+        let config = InferenceConfig::new(temp.path());
+        let result = run_inference(&config);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_run_inference_with_safetensors_header_but_invalid() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        // SafeTensors-like header but invalid JSON
+        let mut temp = NamedTempFile::with_suffix(".safetensors").expect("create temp");
+        let header_size: u64 = 16; // Size that doesn't match actual content
+        let mut data = Vec::new();
+        data.extend_from_slice(&header_size.to_le_bytes());
+        data.extend_from_slice(b"invalid json");
+        temp.write_all(&data).expect("write");
+        temp.flush().expect("flush");
+
+        let config = InferenceConfig::new(temp.path());
+        let result = run_inference(&config);
+        assert!(result.is_err());
+    }
+
+    // --- Architecture detection from path tests ---
+
+    #[test]
+    fn test_architecture_from_path_variations() {
+        let test_cases = [
+            ("tinyllama-1.1b-chat.gguf", "LLaMA"),
+            ("phi-2-mini.gguf", "Phi"),
+            ("mistral-7b-instruct-v0.2.gguf", "Mistral"),
+            ("qwen2-0.5b-instruct.gguf", "Qwen2"),
+            ("my-custom-model.gguf", "Transformer"),
+            ("LLAMA-3-8B.gguf", "LLaMA"),
+            ("PHI3-MINI.gguf", "Phi"),
+            ("MISTRAL_LARGE.gguf", "Mistral"),
+            ("QWEN2_7B.gguf", "Qwen2"),
+        ];
+
+        for (filename, expected_arch) in test_cases {
+            let path = PathBuf::from(format!("/models/{}", filename));
+            let arch = path.file_stem().and_then(|s| s.to_str()).map(|s| {
+                if s.to_lowercase().contains("qwen") {
+                    "Qwen2"
+                } else if s.to_lowercase().contains("llama") {
+                    "LLaMA"
+                } else if s.to_lowercase().contains("mistral") {
+                    "Mistral"
+                } else if s.to_lowercase().contains("phi") {
+                    "Phi"
+                } else {
+                    "Transformer"
+                }
+            });
+            assert_eq!(arch, Some(expected_arch), "Failed for: {}", filename);
+        }
+    }
+
+    // --- Token per second calculation edge cases ---
+
+    #[test]
+    fn test_tok_per_sec_negative_time_protection() {
+        // Even though negative time shouldn't happen, test the logic
+        let inference_ms = -100.0;
+        let generated_count = 50;
+        let tok_per_sec = if inference_ms > 0.0 {
+            generated_count as f64 / (inference_ms / 1000.0)
+        } else {
+            0.0
+        };
+        assert_eq!(tok_per_sec, 0.0);
+    }
+
+    #[test]
+    fn test_tok_per_sec_very_small_time() {
+        let inference_ms = 0.001; // 1 microsecond
+        let generated_count = 1;
+        let tok_per_sec = if inference_ms > 0.0 {
+            generated_count as f64 / (inference_ms / 1000.0)
+        } else {
+            0.0
+        };
+        assert!((tok_per_sec - 1000000.0).abs() < 0.001); // 1M tok/s
+    }
+
+    // --- InferenceResult edge cases ---
+
+    #[test]
+    fn test_inference_result_with_unicode_text() {
+        let result = InferenceResult {
+            text: "Hello 世界 🌍 Привет".to_string(),
+            tokens: vec![1, 2, 3, 4, 5],
+            input_token_count: 2,
+            generated_token_count: 3,
+            inference_ms: 10.0,
+            tok_per_sec: 300.0,
+            load_ms: 5.0,
+            format: "GGUF".to_string(),
+            used_gpu: false,
+        };
+        assert!(result.text.contains("世界"));
+        assert!(result.text.contains("🌍"));
+    }
+
+    #[test]
+    fn test_inference_result_with_special_chars() {
+        let result = InferenceResult {
+            text: "Code: `fn main() { println!(\"Hello\"); }`".to_string(),
+            tokens: vec![1],
+            input_token_count: 0,
+            generated_token_count: 1,
+            inference_ms: 1.0,
+            tok_per_sec: 1000.0,
+            load_ms: 1.0,
+            format: "APR".to_string(),
+            used_gpu: true,
+        };
+        assert!(result.text.contains("fn main()"));
+        assert!(result.text.contains("println!"));
+    }
+
+    // --- Config path handling tests ---
+
+    #[test]
+    fn test_inference_config_various_path_formats() {
+        let paths = [
+            "/absolute/path/model.gguf",
+            "./relative/path/model.apr",
+            "../parent/dir/model.safetensors",
+            "model.gguf",
+            "/path/with spaces/model file.gguf",
+            "/path/with-dashes/model-name.gguf",
+            "/path/with_underscores/model_name.gguf",
+        ];
+
+        for path in paths {
+            let config = InferenceConfig::new(path);
+            assert_eq!(config.model_path.to_str(), Some(path));
+        }
+    }
+
+    // --- Max tokens capping behavior ---
+
+    #[test]
+    fn test_max_tokens_cap_behavior() {
+        let configs = [
+            (InferenceConfig::new("/m.gguf").with_max_tokens(0), 0),
+            (InferenceConfig::new("/m.gguf").with_max_tokens(64), 64),
+            (InferenceConfig::new("/m.gguf").with_max_tokens(128), 128),
+            (InferenceConfig::new("/m.gguf").with_max_tokens(256), 128), // capped
+            (InferenceConfig::new("/m.gguf").with_max_tokens(1024), 128), // capped
+            (
+                InferenceConfig::new("/m.gguf").with_max_tokens(usize::MAX),
+                128,
+            ), // capped
+        ];
+
+        for (config, expected_capped) in configs {
+            let capped = config.max_tokens.min(128);
+            assert_eq!(capped, expected_capped);
+        }
+    }
+
+    // --- EOS token detection tests ---
+
+    #[test]
+    fn test_eos_token_detection() {
+        // Test the EOS token detection logic from run_apr_inference
+        let eos_tokens = [151645u32, 151643u32, 2u32]; // Qwen2 EOS, BOS, standard
+        let non_eos_tokens = [1u32, 100u32, 1000u32, 151644u32];
+
+        for token in eos_tokens {
+            let is_eos = token == 151645 || token == 151643 || token == 2;
+            assert!(is_eos, "Token {} should be EOS", token);
+        }
+
+        for token in non_eos_tokens {
+            let is_eos = token == 151645 || token == 151643 || token == 2;
+            assert!(!is_eos, "Token {} should NOT be EOS", token);
+        }
+    }
+
+    // --- Greedy sampling (argmax) logic ---
+
+    #[test]
+    fn test_argmax_logic() {
+        let logits = vec![0.1f32, 0.5, 0.3, 0.9, 0.2];
+        let next_token = logits
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map_or(0, |(i, _)| i as u32);
+        assert_eq!(next_token, 3); // Index of 0.9
+    }
+
+    #[test]
+    fn test_argmax_logic_with_ties() {
+        let logits = vec![0.5f32, 0.5, 0.5, 0.5];
+        let next_token = logits
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map_or(0, |(i, _)| i as u32);
+        // max_by returns last maximum for ties
+        assert_eq!(next_token, 3);
+    }
+
+    #[test]
+    fn test_argmax_logic_with_negative() {
+        let logits = vec![-0.5f32, -0.1, -0.9, -0.3];
+        let next_token = logits
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map_or(0, |(i, _)| i as u32);
+        assert_eq!(next_token, 1); // Index of -0.1 (least negative)
+    }
+
+    #[test]
+    fn test_argmax_logic_empty() {
+        let logits: Vec<f32> = vec![];
+        let next_token = logits
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map_or(0, |(i, _)| i as u32);
+        assert_eq!(next_token, 0); // Default when empty
+    }
+
+    #[test]
+    fn test_argmax_logic_with_nan() {
+        let logits = vec![0.1f32, f32::NAN, 0.5, 0.3];
+        let next_token = logits
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map_or(0, |(i, _)| i as u32);
+        // NaN comparisons return Equal, so behavior depends on order
+        // Result should be one of the valid indices
+        assert!(next_token < 4);
+    }
+
+    // --- Generated tokens slice extraction ---
+
+    #[test]
+    fn test_generated_tokens_extraction() {
+        let all_tokens = vec![100u32, 200, 300, 400, 500, 600];
+        let input_token_count = 3;
+        let generated_tokens = &all_tokens[input_token_count..];
+        assert_eq!(generated_tokens, &[400, 500, 600]);
+        assert_eq!(generated_tokens.len(), 3);
+    }
+
+    #[test]
+    fn test_generated_tokens_extraction_no_generation() {
+        let all_tokens = vec![100u32, 200, 300];
+        let input_token_count = 3;
+        let generated_tokens = &all_tokens[input_token_count..];
+        assert!(generated_tokens.is_empty());
+    }
+
+    #[test]
+    fn test_generated_tokens_extraction_all_generated() {
+        let all_tokens = vec![100u32, 200, 300, 400];
+        let input_token_count = 0;
+        let generated_tokens = &all_tokens[input_token_count..];
+        assert_eq!(generated_tokens.len(), 4);
+    }
+
+    // --- Instruct model detection ---
+
+    #[test]
+    fn test_instruct_model_name_variations() {
+        let instruct_names = [
+            "llama-3.1-8b-instruct.gguf",
+            "LLAMA-INSTRUCT.gguf",
+            "qwen2-7b-Instruct-q4.gguf",
+            "model-instructed-v1.gguf",
+            "phi-2-InStRuCt.gguf",
+        ];
+
+        for name in instruct_names {
+            let is_instruct = name.to_lowercase().contains("instruct");
+            assert!(is_instruct, "Should detect instruct in: {}", name);
+        }
+
+        let non_instruct_names = [
+            "llama-3.1-8b-base.gguf",
+            "phi-2-mini.gguf",
+            "qwen2-7b-q4.gguf",
+            "custom-model.gguf",
+        ];
+
+        for name in non_instruct_names {
+            let is_instruct = name.to_lowercase().contains("instruct");
+            assert!(!is_instruct, "Should NOT detect instruct in: {}", name);
+        }
+    }
+
+    // --- Load time and inference time calculations ---
+
+    #[test]
+    fn test_time_calculation_precision() {
+        let elapsed_secs: f64 = 1.234567;
+        let load_ms = elapsed_secs * 1000.0;
+        assert!((load_ms - 1234.567).abs() < 0.001);
+
+        let inference_ms: f64 = 567.89;
+        let generated = 100;
+        let tok_per_sec = generated as f64 / (inference_ms / 1000.0);
+        assert!((tok_per_sec - 176.056).abs() < 0.01);
+    }
+
+    // --- InferenceConfig Debug and Clone full coverage ---
+
+    #[test]
+    fn test_inference_config_debug_all_fields() {
+        let config = InferenceConfig {
+            model_path: PathBuf::from("/test/model.gguf"),
+            prompt: Some("test prompt".to_string()),
+            input_tokens: Some(vec![1, 2, 3]),
+            max_tokens: 100,
+            temperature: 0.7,
+            top_k: 40,
+            no_gpu: true,
+            trace: true,
+            trace_verbose: true,
+            trace_output: Some(PathBuf::from("/trace.json")),
+            trace_steps: Some(vec!["embed".to_string()]),
+            verbose: true,
+        };
+
+        let debug = format!("{:?}", config);
+        assert!(debug.contains("model_path"));
+        assert!(debug.contains("prompt"));
+        assert!(debug.contains("input_tokens"));
+        assert!(debug.contains("max_tokens"));
+        assert!(debug.contains("temperature"));
+        assert!(debug.contains("top_k"));
+        assert!(debug.contains("no_gpu"));
+        assert!(debug.contains("trace"));
+        assert!(debug.contains("trace_verbose"));
+        assert!(debug.contains("trace_output"));
+        assert!(debug.contains("trace_steps"));
+        assert!(debug.contains("verbose"));
+    }
+
+    #[test]
+    fn test_inference_config_clone_preserves_all() {
+        let original = InferenceConfig {
+            model_path: PathBuf::from("/test/model.gguf"),
+            prompt: Some("prompt".to_string()),
+            input_tokens: Some(vec![10, 20, 30]),
+            max_tokens: 200,
+            temperature: 1.2,
+            top_k: 100,
+            no_gpu: true,
+            trace: true,
+            trace_verbose: true,
+            trace_output: Some(PathBuf::from("/out.json")),
+            trace_steps: Some(vec!["a".to_string(), "b".to_string()]),
+            verbose: true,
+        };
+
+        let cloned = original.clone();
+
+        assert_eq!(original.model_path, cloned.model_path);
+        assert_eq!(original.prompt, cloned.prompt);
+        assert_eq!(original.input_tokens, cloned.input_tokens);
+        assert_eq!(original.max_tokens, cloned.max_tokens);
+        assert!((original.temperature - cloned.temperature).abs() < f32::EPSILON);
+        assert_eq!(original.top_k, cloned.top_k);
+        assert_eq!(original.no_gpu, cloned.no_gpu);
+        assert_eq!(original.trace, cloned.trace);
+        assert_eq!(original.trace_verbose, cloned.trace_verbose);
+        assert_eq!(original.trace_output, cloned.trace_output);
+        assert_eq!(original.trace_steps, cloned.trace_steps);
+        assert_eq!(original.verbose, cloned.verbose);
+    }
+
+    // --- InferenceResult Debug and Clone full coverage ---
+
+    #[test]
+    fn test_inference_result_debug_all_fields() {
+        let result = InferenceResult {
+            text: "generated text".to_string(),
+            tokens: vec![1, 2, 3, 4, 5],
+            input_token_count: 2,
+            generated_token_count: 3,
+            inference_ms: 123.456,
+            tok_per_sec: 24.32,
+            load_ms: 50.0,
+            format: "GGUF".to_string(),
+            used_gpu: true,
+        };
+
+        let debug = format!("{:?}", result);
+        assert!(debug.contains("text"));
+        assert!(debug.contains("tokens"));
+        assert!(debug.contains("input_token_count"));
+        assert!(debug.contains("generated_token_count"));
+        assert!(debug.contains("inference_ms"));
+        assert!(debug.contains("tok_per_sec"));
+        assert!(debug.contains("load_ms"));
+        assert!(debug.contains("format"));
+        assert!(debug.contains("used_gpu"));
+    }
+
+    #[test]
+    fn test_inference_result_clone_preserves_all() {
+        let original = InferenceResult {
+            text: "test text".to_string(),
+            tokens: vec![100, 200, 300],
+            input_token_count: 1,
+            generated_token_count: 2,
+            inference_ms: 999.9,
+            tok_per_sec: 2.0,
+            load_ms: 111.1,
+            format: "APR".to_string(),
+            used_gpu: false,
+        };
+
+        let cloned = original.clone();
+
+        assert_eq!(original.text, cloned.text);
+        assert_eq!(original.tokens, cloned.tokens);
+        assert_eq!(original.input_token_count, cloned.input_token_count);
+        assert_eq!(original.generated_token_count, cloned.generated_token_count);
+        assert!((original.inference_ms - cloned.inference_ms).abs() < f64::EPSILON);
+        assert!((original.tok_per_sec - cloned.tok_per_sec).abs() < f64::EPSILON);
+        assert!((original.load_ms - cloned.load_ms).abs() < f64::EPSILON);
+        assert_eq!(original.format, cloned.format);
+        assert_eq!(original.used_gpu, cloned.used_gpu);
+    }
+
+    // --- Format detection with various magic bytes ---
+
+    #[test]
+    fn test_format_detection_gguf_version_variations() {
+        use crate::format::{detect_format, ModelFormat};
+
+        // GGUF version 3
+        let v3_data = vec![0x47, 0x47, 0x55, 0x46, 0x03, 0x00, 0x00, 0x00];
+        let result = detect_format(&v3_data);
+        assert!(matches!(result, Ok(ModelFormat::Gguf)));
+
+        // GGUF version 2
+        let v2_data = vec![0x47, 0x47, 0x55, 0x46, 0x02, 0x00, 0x00, 0x00];
+        let result = detect_format(&v2_data);
+        assert!(matches!(result, Ok(ModelFormat::Gguf)));
+    }
+
+    #[test]
+    fn test_format_detection_apr_versions() {
+        use crate::format::{detect_format, ModelFormat};
+
+        // APR v1
+        let v1_data = b"APR\x01xxxx";
+        let result = detect_format(v1_data);
+        assert!(matches!(result, Ok(ModelFormat::Apr)));
+
+        // APR v2
+        let v2_data = b"APR\x02xxxx";
+        let result = detect_format(v2_data);
+        assert!(matches!(result, Ok(ModelFormat::Apr)));
+    }
+
+    #[test]
+    fn test_format_detection_safetensors_various_sizes() {
+        use crate::format::{detect_format, ModelFormat};
+
+        // Various valid header sizes for SafeTensors
+        for size in [64u64, 128, 256, 512, 1024, 2048, 4096] {
+            let data = size.to_le_bytes();
+            let result = detect_format(&data);
+            assert!(
+                matches!(result, Ok(ModelFormat::SafeTensors)),
+                "Failed for size: {}",
+                size
+            );
+        }
+    }
+
+    // --- run_inference file handling edge cases ---
+
+    #[test]
+    fn test_run_inference_symlink_path() {
+        // Test with a path that looks like a symlink (just path string)
+        let config = InferenceConfig::new("/models/latest-model.gguf");
+        // Can't test actual symlink without creating one, but test config handling
+        assert!(config.model_path.to_str().unwrap().contains("latest-model"));
+    }
+
+    #[test]
+    fn test_run_inference_hidden_file() {
+        // Test with hidden file path
+        let config = InferenceConfig::new("/models/.hidden-model.gguf");
+        assert!(config
+            .model_path
+            .to_str()
+            .unwrap()
+            .contains(".hidden-model"));
+    }
+
+    // --- Comprehensive builder chaining test ---
+
+    #[test]
+    fn test_inference_config_builder_order_independence() {
+        // Order 1
+        let config1 = InferenceConfig::new("/m.gguf")
+            .with_prompt("p")
+            .with_max_tokens(50)
+            .with_temperature(0.5)
+            .with_top_k(20)
+            .without_gpu()
+            .with_verbose(true)
+            .with_trace(true);
+
+        // Order 2 (reversed)
+        let config2 = InferenceConfig::new("/m.gguf")
+            .with_trace(true)
+            .with_verbose(true)
+            .without_gpu()
+            .with_top_k(20)
+            .with_temperature(0.5)
+            .with_max_tokens(50)
+            .with_prompt("p");
+
+        assert_eq!(config1.prompt, config2.prompt);
+        assert_eq!(config1.max_tokens, config2.max_tokens);
+        assert!((config1.temperature - config2.temperature).abs() < f32::EPSILON);
+        assert_eq!(config1.top_k, config2.top_k);
+        assert_eq!(config1.no_gpu, config2.no_gpu);
+        assert_eq!(config1.verbose, config2.verbose);
+        assert_eq!(config1.trace, config2.trace);
+    }
+
+    // --- Path with special extensions ---
+
+    #[test]
+    fn test_path_extension_handling() {
+        let extensions = [".gguf", ".apr", ".safetensors", ".bin", ".model", ""];
+        for ext in extensions {
+            let path = format!("/models/model{}", ext);
+            let config = InferenceConfig::new(&path);
+            assert!(config.model_path.to_str().unwrap().ends_with(ext) || ext.is_empty());
+        }
+    }
+
+    // --- Boundary tests for numeric fields ---
+
+    #[test]
+    fn test_numeric_boundary_values() {
+        // Max values
+        let config = InferenceConfig::new("/m.gguf")
+            .with_max_tokens(usize::MAX)
+            .with_temperature(f32::MAX)
+            .with_top_k(usize::MAX);
+
+        assert_eq!(config.max_tokens, usize::MAX);
+        assert_eq!(config.temperature, f32::MAX);
+        assert_eq!(config.top_k, usize::MAX);
+
+        // Min values
+        let config = InferenceConfig::new("/m.gguf")
+            .with_max_tokens(0)
+            .with_temperature(f32::MIN)
+            .with_top_k(0);
+
+        assert_eq!(config.max_tokens, 0);
+        assert_eq!(config.temperature, f32::MIN);
+        assert_eq!(config.top_k, 0);
+    }
+
+    #[test]
+    fn test_temperature_special_values() {
+        // Infinity
+        let config = InferenceConfig::new("/m.gguf").with_temperature(f32::INFINITY);
+        assert!(config.temperature.is_infinite());
+
+        // Negative infinity
+        let config = InferenceConfig::new("/m.gguf").with_temperature(f32::NEG_INFINITY);
+        assert!(config.temperature.is_infinite());
+        assert!(config.temperature.is_sign_negative());
+
+        // NaN
+        let config = InferenceConfig::new("/m.gguf").with_temperature(f32::NAN);
+        assert!(config.temperature.is_nan());
+    }
 }

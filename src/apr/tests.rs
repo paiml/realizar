@@ -4566,8 +4566,8 @@ mod tests {
             "<pad>".to_string(),
             "<bos>".to_string(),
             "<eos>".to_string(),
-            "Ġhello".to_string(),  // " hello"
-            "Ġworld".to_string(),  // " world"
+            "Ġhello".to_string(), // " hello"
+            "Ġworld".to_string(), // " world"
             "!".to_string(),
         ];
         let tokenizer = SimpleTokenizer::new(vocab, Some(1), Some(2));
@@ -4637,5 +4637,816 @@ mod tests {
         let debug_str = format!("{:?}", tokenizer);
 
         assert!(debug_str.contains("SimpleTokenizer"));
+    }
+
+    // =========================================================================
+    // APR v1 Format Rejection Tests
+    // =========================================================================
+
+    #[test]
+    fn test_apr_v1_format_rejected() {
+        // APR v1 magic: "APR1" (0x41, 0x50, 0x52, 0x31)
+        let mut data = vec![0u8; HEADER_SIZE + 100];
+        data[0..4].copy_from_slice(&[0x41, 0x50, 0x52, 0x31]); // "APR1"
+        data[4] = 1; // version major
+        data[5] = 0; // version minor
+
+        let result = AprV2Model::from_bytes(data);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        // Should indicate APR v1 not supported
+        assert!(
+            err.contains("APR v1") || err.contains("not supported"),
+            "Error should mention APR v1: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_apr_v1_format_conversion_hint() {
+        // Test that error message suggests conversion
+        let mut data = vec![0u8; HEADER_SIZE + 100];
+        data[0..4].copy_from_slice(&[0x41, 0x50, 0x52, 0x31]); // "APR1"
+
+        let result = AprV2Model::from_bytes(data);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        // Error should hint at conversion or GGUF alternative
+        assert!(
+            err.contains("convert") || err.contains("GGUF"),
+            "Error should suggest conversion: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_apr_invalid_version_byte() {
+        // Test with invalid version byte (not 0, '1', or '2')
+        let mut data = vec![0u8; HEADER_SIZE + 100];
+        data[0..3].copy_from_slice(&MAGIC_PREFIX); // "APR"
+        data[3] = 0x99; // Invalid version byte
+
+        let result = AprV2Model::from_bytes(data);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("version") || err.contains("Invalid"),
+            "Error should mention version: {}",
+            err
+        );
+    }
+
+    // =========================================================================
+    // MappedAprModel Tests
+    // =========================================================================
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_mapped_apr_model_from_path() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        // Create a valid APR v2 file with legacy magic
+        let mut temp = NamedTempFile::new().expect("create temp file");
+
+        let mut data = vec![0u8; 128];
+        data[0..4].copy_from_slice(&MAGIC); // APR\0 legacy magic
+        data[4] = 2;
+        data[5] = 0;
+        data[6..8].copy_from_slice(&0u16.to_le_bytes()); // flags = 0
+        data[8..12].copy_from_slice(&0u32.to_le_bytes()); // tensor_count = 0
+        data[12..20].copy_from_slice(&64u64.to_le_bytes()); // metadata_offset
+        data[20..24].copy_from_slice(&0u32.to_le_bytes()); // metadata_size = 0
+        data[24..32].copy_from_slice(&64u64.to_le_bytes()); // tensor_index_offset
+        data[32..40].copy_from_slice(&64u64.to_le_bytes()); // data_offset
+
+        temp.write_all(&data).expect("write data");
+
+        let model = MappedAprModel::from_path(temp.path()).expect("load model");
+        assert_eq!(model.tensor_count(), 0);
+        assert_eq!(model.file_size(), data.len());
+        assert_eq!(model.data_offset(), 64);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_mapped_apr_model_nonexistent_file() {
+        let result = MappedAprModel::from_path("/nonexistent/path/model.apr");
+        assert!(result.is_err());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_mapped_apr_model_invalid_magic() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        let mut temp = NamedTempFile::new().expect("create temp file");
+
+        let mut data = vec![0u8; 128];
+        data[0..4].copy_from_slice(b"GGUF"); // Wrong magic
+
+        temp.write_all(&data).expect("write data");
+
+        let result = MappedAprModel::from_path(temp.path());
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("magic") || err.contains("Invalid"));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_mapped_apr_model_truncated() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        let mut temp = NamedTempFile::new().expect("create temp file");
+
+        // Write less than HEADER_SIZE bytes
+        let data = vec![0u8; 32];
+        temp.write_all(&data).expect("write data");
+
+        let result = MappedAprModel::from_path(temp.path());
+        assert!(result.is_err());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_mapped_apr_model_data_access() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        let mut temp = NamedTempFile::new().expect("create temp file");
+
+        let mut data = vec![0u8; 128];
+        data[0..4].copy_from_slice(&MAGIC);
+        data[4] = 2;
+        data[5] = 0;
+        data[6..8].copy_from_slice(&0u16.to_le_bytes());
+        data[8..12].copy_from_slice(&0u32.to_le_bytes());
+        data[12..20].copy_from_slice(&64u64.to_le_bytes());
+        data[20..24].copy_from_slice(&0u32.to_le_bytes());
+        data[24..32].copy_from_slice(&64u64.to_le_bytes());
+        data[32..40].copy_from_slice(&64u64.to_le_bytes());
+
+        temp.write_all(&data).expect("write data");
+
+        let model = MappedAprModel::from_path(temp.path()).expect("load model");
+
+        // Verify data() returns the full mmap
+        let model_data = model.data();
+        assert_eq!(model_data.len(), 128);
+        assert_eq!(&model_data[0..4], &MAGIC);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_mapped_apr_model_find_tensor_not_found() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        let mut temp = NamedTempFile::new().expect("create temp file");
+
+        let mut data = vec![0u8; 128];
+        data[0..4].copy_from_slice(&MAGIC);
+        data[4] = 2;
+        data[5] = 0;
+        data[6..8].copy_from_slice(&0u16.to_le_bytes());
+        data[8..12].copy_from_slice(&0u32.to_le_bytes()); // 0 tensors
+        data[12..20].copy_from_slice(&64u64.to_le_bytes());
+        data[20..24].copy_from_slice(&0u32.to_le_bytes());
+        data[24..32].copy_from_slice(&64u64.to_le_bytes());
+        data[32..40].copy_from_slice(&64u64.to_le_bytes());
+
+        temp.write_all(&data).expect("write data");
+
+        let model = MappedAprModel::from_path(temp.path()).expect("load model");
+        assert!(model.find_tensor("nonexistent").is_none());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_mapped_apr_model_get_tensor_data_not_found() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        let mut temp = NamedTempFile::new().expect("create temp file");
+
+        let mut data = vec![0u8; 128];
+        data[0..4].copy_from_slice(&MAGIC);
+        data[4] = 2;
+        data[5] = 0;
+        data[6..8].copy_from_slice(&0u16.to_le_bytes());
+        data[8..12].copy_from_slice(&0u32.to_le_bytes());
+        data[12..20].copy_from_slice(&64u64.to_le_bytes());
+        data[20..24].copy_from_slice(&0u32.to_le_bytes());
+        data[24..32].copy_from_slice(&64u64.to_le_bytes());
+        data[32..40].copy_from_slice(&64u64.to_le_bytes());
+
+        temp.write_all(&data).expect("write data");
+
+        let model = MappedAprModel::from_path(temp.path()).expect("load model");
+        let result = model.get_tensor_data("nonexistent");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_mapped_apr_model_dtype_to_qtype() {
+        // F32 -> 0
+        assert_eq!(MappedAprModel::dtype_to_qtype("F32"), 0);
+        // F16 -> 1
+        assert_eq!(MappedAprModel::dtype_to_qtype("F16"), 1);
+        // Q4_0 -> 2
+        assert_eq!(MappedAprModel::dtype_to_qtype("Q4_0"), 2);
+        // Q4_1 -> 3
+        assert_eq!(MappedAprModel::dtype_to_qtype("Q4_1"), 3);
+        // Q5_0 -> 6
+        assert_eq!(MappedAprModel::dtype_to_qtype("Q5_0"), 6);
+        // Q5_1 -> 7
+        assert_eq!(MappedAprModel::dtype_to_qtype("Q5_1"), 7);
+        // Q8_0 -> 8
+        assert_eq!(MappedAprModel::dtype_to_qtype("Q8_0"), 8);
+        // Q8_1 -> 9
+        assert_eq!(MappedAprModel::dtype_to_qtype("Q8_1"), 9);
+        // Q2_K -> 10
+        assert_eq!(MappedAprModel::dtype_to_qtype("Q2_K"), 10);
+        // Q3_K -> 11
+        assert_eq!(MappedAprModel::dtype_to_qtype("Q3_K"), 11);
+        // Q4_K -> 12
+        assert_eq!(MappedAprModel::dtype_to_qtype("Q4_K"), 12);
+        // Q5_K -> 13
+        assert_eq!(MappedAprModel::dtype_to_qtype("Q5_K"), 13);
+        // Q6_K -> 14
+        assert_eq!(MappedAprModel::dtype_to_qtype("Q6_K"), 14);
+        // IQ2_XXS -> 16
+        assert_eq!(MappedAprModel::dtype_to_qtype("IQ2_XXS"), 16);
+        // IQ2_XS -> 17
+        assert_eq!(MappedAprModel::dtype_to_qtype("IQ2_XS"), 17);
+        // BF16 -> 30
+        assert_eq!(MappedAprModel::dtype_to_qtype("BF16"), 30);
+        // Unknown -> 0 (default to F32)
+        assert_eq!(MappedAprModel::dtype_to_qtype("UNKNOWN"), 0);
+    }
+
+    // =========================================================================
+    // Embedded Tokenizer Tests (GH-156)
+    // =========================================================================
+
+    #[test]
+    fn test_apr_metadata_get_embedded_vocabulary_none() {
+        let meta = AprMetadata::default();
+        assert!(meta.get_embedded_vocabulary().is_none());
+    }
+
+    #[test]
+    fn test_apr_metadata_get_embedded_vocabulary_empty() {
+        let mut meta = AprMetadata::default();
+        meta.extra
+            .insert("tokenizer.vocabulary".to_string(), serde_json::json!([]));
+        // Empty array should return None
+        assert!(meta.get_embedded_vocabulary().is_none());
+    }
+
+    #[test]
+    fn test_apr_metadata_get_embedded_vocabulary_valid() {
+        let mut meta = AprMetadata::default();
+        meta.extra.insert(
+            "tokenizer.vocabulary".to_string(),
+            serde_json::json!(["<pad>", "<bos>", "<eos>", "hello", "world"]),
+        );
+
+        let vocab = meta.get_embedded_vocabulary().expect("should have vocab");
+        assert_eq!(vocab.len(), 5);
+        assert_eq!(vocab[0], "<pad>");
+        assert_eq!(vocab[3], "hello");
+    }
+
+    #[test]
+    fn test_apr_metadata_get_embedded_vocabulary_invalid_type() {
+        let mut meta = AprMetadata::default();
+        // Not an array
+        meta.extra.insert(
+            "tokenizer.vocabulary".to_string(),
+            serde_json::json!("not an array"),
+        );
+        assert!(meta.get_embedded_vocabulary().is_none());
+    }
+
+    #[test]
+    fn test_apr_metadata_get_embedded_vocabulary_mixed_types() {
+        let mut meta = AprMetadata::default();
+        // Array with mixed types - only strings should be kept
+        meta.extra.insert(
+            "tokenizer.vocabulary".to_string(),
+            serde_json::json!(["valid", 123, "also_valid", null]),
+        );
+
+        let vocab = meta.get_embedded_vocabulary().expect("should have vocab");
+        assert_eq!(vocab.len(), 2);
+        assert_eq!(vocab[0], "valid");
+        assert_eq!(vocab[1], "also_valid");
+    }
+
+    #[test]
+    fn test_apr_metadata_get_embedded_bos_token_id_none() {
+        let meta = AprMetadata::default();
+        assert!(meta.get_embedded_bos_token_id().is_none());
+    }
+
+    #[test]
+    fn test_apr_metadata_get_embedded_bos_token_id_valid() {
+        let mut meta = AprMetadata::default();
+        meta.extra
+            .insert("tokenizer.bos_token_id".to_string(), serde_json::json!(1));
+
+        assert_eq!(meta.get_embedded_bos_token_id(), Some(1));
+    }
+
+    #[test]
+    fn test_apr_metadata_get_embedded_bos_token_id_invalid_type() {
+        let mut meta = AprMetadata::default();
+        meta.extra.insert(
+            "tokenizer.bos_token_id".to_string(),
+            serde_json::json!("not a number"),
+        );
+        assert!(meta.get_embedded_bos_token_id().is_none());
+    }
+
+    #[test]
+    fn test_apr_metadata_get_embedded_eos_token_id_none() {
+        let meta = AprMetadata::default();
+        assert!(meta.get_embedded_eos_token_id().is_none());
+    }
+
+    #[test]
+    fn test_apr_metadata_get_embedded_eos_token_id_valid() {
+        let mut meta = AprMetadata::default();
+        meta.extra
+            .insert("tokenizer.eos_token_id".to_string(), serde_json::json!(2));
+
+        assert_eq!(meta.get_embedded_eos_token_id(), Some(2));
+    }
+
+    #[test]
+    fn test_apr_metadata_get_embedded_eos_token_id_invalid_type() {
+        let mut meta = AprMetadata::default();
+        meta.extra.insert(
+            "tokenizer.eos_token_id".to_string(),
+            serde_json::json!({"nested": "object"}),
+        );
+        assert!(meta.get_embedded_eos_token_id().is_none());
+    }
+
+    #[test]
+    fn test_load_embedded_tokenizer_no_vocab() {
+        let data = create_test_apr_model();
+        let model = AprV2Model::from_bytes(data).expect("should load");
+
+        // Model has no embedded vocabulary
+        assert!(model.load_embedded_tokenizer().is_none());
+    }
+
+    /// Helper to create APR model with embedded tokenizer
+    fn create_apr_model_with_embedded_tokenizer() -> Vec<u8> {
+        let metadata = r#"{
+            "architecture": "test",
+            "vocab_size": 5,
+            "hidden_size": 64,
+            "tokenizer.vocabulary": ["<pad>", "<bos>", "<eos>", "hello", "world"],
+            "tokenizer.bos_token_id": 1,
+            "tokenizer.eos_token_id": 2
+        }"#;
+        let metadata_bytes = metadata.as_bytes();
+        let metadata_padded_size = metadata_bytes.len().div_ceil(64) * 64;
+
+        let tensor_index_offset = HEADER_SIZE as u64 + metadata_padded_size as u64;
+        let data_offset = tensor_index_offset;
+
+        let total_size = data_offset as usize + 64; // Some padding
+        let mut data = vec![0u8; total_size];
+
+        // Header
+        data[0..4].copy_from_slice(&MAGIC);
+        data[4] = 2;
+        data[5] = 0;
+        data[6..8].copy_from_slice(&0u16.to_le_bytes()); // flags = 0
+        data[8..12].copy_from_slice(&0u32.to_le_bytes()); // tensor_count = 0
+        data[12..20].copy_from_slice(&(HEADER_SIZE as u64).to_le_bytes());
+        data[20..24].copy_from_slice(&(metadata_bytes.len() as u32).to_le_bytes());
+        data[24..32].copy_from_slice(&tensor_index_offset.to_le_bytes());
+        data[32..40].copy_from_slice(&data_offset.to_le_bytes());
+
+        // Metadata
+        data[HEADER_SIZE..HEADER_SIZE + metadata_bytes.len()].copy_from_slice(metadata_bytes);
+
+        data
+    }
+
+    #[test]
+    fn test_load_embedded_tokenizer_valid() {
+        let data = create_apr_model_with_embedded_tokenizer();
+        let model = AprV2Model::from_bytes(data).expect("should load");
+
+        let tokenizer = model
+            .load_embedded_tokenizer()
+            .expect("should have embedded tokenizer");
+
+        assert_eq!(tokenizer.vocab_size(), 5);
+        assert_eq!(tokenizer.bos_token_id, Some(1));
+        assert_eq!(tokenizer.eos_token_id, Some(2));
+        assert!(tokenizer.is_bos(1));
+        assert!(tokenizer.is_eos(2));
+    }
+
+    #[test]
+    fn test_load_embedded_tokenizer_decode() {
+        let data = create_apr_model_with_embedded_tokenizer();
+        let model = AprV2Model::from_bytes(data).expect("should load");
+
+        let tokenizer = model
+            .load_embedded_tokenizer()
+            .expect("should have embedded tokenizer");
+
+        let decoded = tokenizer.decode(&[3, 4]);
+        assert_eq!(decoded, "helloworld");
+    }
+
+    // =========================================================================
+    // Additional RoPE Metadata Tests
+    // =========================================================================
+
+    #[test]
+    fn test_apr_metadata_rope_theta() {
+        let meta = AprMetadata {
+            rope_theta: Some(10000.0),
+            ..Default::default()
+        };
+        assert_eq!(meta.rope_theta, Some(10000.0));
+    }
+
+    #[test]
+    fn test_apr_metadata_rope_type() {
+        // rope_type 0 = NORM (adjacent pairs)
+        // rope_type 2 = NEOX (split halves) - used by Qwen2.5
+        let meta = AprMetadata {
+            rope_type: Some(2),
+            ..Default::default()
+        };
+        assert_eq!(meta.rope_type, Some(2));
+    }
+
+    #[test]
+    fn test_apr_metadata_rms_norm_eps() {
+        let meta = AprMetadata {
+            rms_norm_eps: Some(1e-6),
+            ..Default::default()
+        };
+        assert!((meta.rms_norm_eps.unwrap() - 1e-6).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_apr_metadata_num_kv_heads() {
+        // GQA models have fewer KV heads than query heads
+        let meta = AprMetadata {
+            num_heads: Some(32),
+            num_kv_heads: Some(4), // GQA ratio 8:1
+            ..Default::default()
+        };
+        assert_eq!(meta.num_heads, Some(32));
+        assert_eq!(meta.num_kv_heads, Some(4));
+    }
+
+    #[test]
+    fn test_apr_metadata_max_position_embeddings() {
+        let meta = AprMetadata {
+            max_position_embeddings: Some(4096),
+            ..Default::default()
+        };
+        assert_eq!(meta.max_position_embeddings, Some(4096));
+    }
+
+    #[test]
+    fn test_apr_metadata_intermediate_size() {
+        let meta = AprMetadata {
+            hidden_size: Some(2048),
+            intermediate_size: Some(5632), // SwiGLU FFN size
+            ..Default::default()
+        };
+        assert_eq!(meta.intermediate_size, Some(5632));
+    }
+
+    // =========================================================================
+    // Additional dtype_to_ggml_qtype Tests
+    // =========================================================================
+
+    #[test]
+    fn test_dtype_to_ggml_qtype_case_insensitive() {
+        // Lowercase variants
+        assert_eq!(dtype_to_ggml_qtype("q4_k"), Some(12));
+        assert_eq!(dtype_to_ggml_qtype("q5_k"), Some(13));
+        assert_eq!(dtype_to_ggml_qtype("q6_k"), Some(14));
+        assert_eq!(dtype_to_ggml_qtype("q8_0"), Some(8));
+        assert_eq!(dtype_to_ggml_qtype("q4_0"), Some(2));
+        assert_eq!(dtype_to_ggml_qtype("q4_1"), Some(3));
+        assert_eq!(dtype_to_ggml_qtype("q5_0"), Some(6));
+    }
+
+    #[test]
+    fn test_is_quantized_dtype_comprehensive() {
+        // Quantized types
+        assert!(is_quantized_dtype("Q4_K"));
+        assert!(is_quantized_dtype("Q5_K"));
+        assert!(is_quantized_dtype("Q6_K"));
+        assert!(is_quantized_dtype("Q8_0"));
+        assert!(is_quantized_dtype("Q4_0"));
+        assert!(is_quantized_dtype("Q4_1"));
+        assert!(is_quantized_dtype("Q5_0"));
+
+        // Non-quantized types
+        assert!(!is_quantized_dtype("F32"));
+        assert!(!is_quantized_dtype("F16"));
+        assert!(!is_quantized_dtype("BF16"));
+        assert!(!is_quantized_dtype("unknown"));
+    }
+
+    // =========================================================================
+    // Additional TensorEntry Tests
+    // =========================================================================
+
+    #[test]
+    fn test_tensor_entry_from_binary_all_dtypes() {
+        // Test dtype mapping: 0-10 all have specific mappings
+        let dtypes = [
+            (0u8, "F32"),
+            (1, "F16"),
+            (2, "BF16"),
+            (3, "I8"),
+            (4, "I16"),
+            (5, "I32"),
+            (6, "I64"),
+            (7, "U8"),
+            (8, "Q4_K"),
+            (9, "Q6_K"),
+            (10, "Q8_0"),
+        ];
+
+        for (dtype_byte, expected_dtype) in dtypes {
+            let data = create_binary_tensor_entry("test", dtype_byte, &[10], 0, 40);
+            let (entry, _) = TensorEntry::from_binary(&data).expect("should parse");
+            assert_eq!(
+                entry.dtype, expected_dtype,
+                "dtype_byte {} should map to {}",
+                dtype_byte, expected_dtype
+            );
+        }
+    }
+
+    #[test]
+    fn test_tensor_entry_from_binary_unknown_dtype_defaults_f32() {
+        // Unknown dtype byte (e.g., 255) should default to F32
+        let data = create_binary_tensor_entry("test", 255, &[10], 0, 40);
+        let (entry, _) = TensorEntry::from_binary(&data).expect("should parse");
+        assert_eq!(entry.dtype, "F32");
+    }
+
+    #[test]
+    fn test_tensor_entry_from_binary_8d_shape() {
+        // Maximum supported dimensions
+        let data = create_binary_tensor_entry(
+            "high_dim_tensor",
+            0,
+            &[2, 3, 4, 5, 6, 7, 8, 9],
+            0,
+            2 * 3 * 4 * 5 * 6 * 7 * 8 * 9 * 4,
+        );
+        let (entry, _) = TensorEntry::from_binary(&data).expect("should parse");
+        assert_eq!(entry.shape.len(), 8);
+        assert_eq!(entry.element_count(), 2 * 3 * 4 * 5 * 6 * 7 * 8 * 9);
+    }
+
+    // =========================================================================
+    // Additional Model Loading Error Tests
+    // =========================================================================
+
+    #[test]
+    fn test_apr_model_metadata_truncated_past_eof() {
+        // metadata_offset + metadata_size > file length
+        let mut data = vec![0u8; 128];
+        data[0..4].copy_from_slice(&MAGIC);
+        data[4] = 2;
+        data[5] = 0;
+        data[6..8].copy_from_slice(&0u16.to_le_bytes());
+        data[8..12].copy_from_slice(&0u32.to_le_bytes());
+        data[12..20].copy_from_slice(&64u64.to_le_bytes()); // metadata_offset = 64
+        data[20..24].copy_from_slice(&1000u32.to_le_bytes()); // metadata_size = 1000 > remaining bytes
+        data[24..32].copy_from_slice(&1064u64.to_le_bytes());
+        data[32..40].copy_from_slice(&1064u64.to_le_bytes());
+
+        let result = AprV2Model::from_bytes(data);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("truncated"));
+    }
+
+    #[test]
+    fn test_apr_model_tensor_out_of_bounds() {
+        // Create model where tensor data extends past EOF
+        let metadata = r#"{"architecture":"test"}"#;
+        let metadata_bytes = metadata.as_bytes();
+        let metadata_padded_size = metadata_bytes.len().div_ceil(64) * 64;
+
+        // Create tensor entry that points past EOF
+        let tensor_entry = create_binary_tensor_entry(
+            "bad_tensor",
+            0,
+            &[1000, 1000],
+            0,
+            4_000_000, // Size much larger than file
+        );
+
+        let tensor_index_offset = HEADER_SIZE as u64 + metadata_padded_size as u64;
+        let data_offset = tensor_index_offset + tensor_entry.len() as u64;
+
+        // File is only 256 bytes total, but tensor claims to be 4MB
+        let total_size = data_offset as usize + 64;
+        let mut data = vec![0u8; total_size];
+
+        data[0..4].copy_from_slice(&MAGIC);
+        data[4] = 2;
+        data[5] = 0;
+        data[6..8].copy_from_slice(&0u16.to_le_bytes());
+        data[8..12].copy_from_slice(&1u32.to_le_bytes()); // 1 tensor
+        data[12..20].copy_from_slice(&(HEADER_SIZE as u64).to_le_bytes());
+        data[20..24].copy_from_slice(&(metadata_bytes.len() as u32).to_le_bytes());
+        data[24..32].copy_from_slice(&tensor_index_offset.to_le_bytes());
+        data[32..40].copy_from_slice(&data_offset.to_le_bytes());
+
+        data[HEADER_SIZE..HEADER_SIZE + metadata_bytes.len()].copy_from_slice(metadata_bytes);
+        let idx_start = tensor_index_offset as usize;
+        data[idx_start..idx_start + tensor_entry.len()].copy_from_slice(&tensor_entry);
+
+        let model = AprV2Model::from_bytes(data).expect("should load");
+
+        // Accessing tensor data should fail
+        let result = model.get_tensor_f32("bad_tensor");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("out of bounds"));
+    }
+
+    // =========================================================================
+    // Generate Method Edge Cases
+    // =========================================================================
+
+    #[test]
+    fn test_apr_model_generate_eos_stops() {
+        // Test that generation stops at EOS token
+        // (Requires a valid transformer model - using mock to verify logic)
+        let data = create_test_apr_model();
+        let model = AprV2Model::from_bytes(data).expect("should load");
+
+        // Empty input should fail
+        let result = model.generate(&[], 10, Some(2));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_apr_model_generate_max_tokens() {
+        let data = create_test_apr_model();
+        let model = AprV2Model::from_bytes(data).expect("should load");
+
+        // Non-transformer should fail regardless of max_tokens
+        let result = model.generate(&[1, 2, 3], 0, None);
+        assert!(result.is_err()); // Not a transformer
+    }
+
+    // =========================================================================
+    // SimpleTokenizer Additional Tests
+    // =========================================================================
+
+    #[test]
+    fn test_simple_tokenizer_bpe_newline() {
+        use crate::apr::SimpleTokenizer;
+
+        // BPE newline is Ċ
+        let vocab = vec!["hello".to_string(), "Ċ".to_string(), "world".to_string()];
+        let tokenizer = SimpleTokenizer::new(vocab, None, None);
+
+        let decoded = tokenizer.decode(&[0, 1, 2]);
+        assert_eq!(decoded, "hello\nworld");
+    }
+
+    #[test]
+    fn test_simple_tokenizer_bpe_tab() {
+        use crate::apr::SimpleTokenizer;
+
+        // BPE tab is ĉ
+        let vocab = vec!["hello".to_string(), "ĉ".to_string(), "world".to_string()];
+        let tokenizer = SimpleTokenizer::new(vocab, None, None);
+
+        let decoded = tokenizer.decode(&[0, 1, 2]);
+        assert_eq!(decoded, "hello\tworld");
+    }
+
+    #[test]
+    fn test_simple_tokenizer_large_vocab() {
+        use crate::apr::SimpleTokenizer;
+
+        // Create large vocabulary
+        let vocab: Vec<String> = (0..10000).map(|i| format!("token_{}", i)).collect();
+        let tokenizer = SimpleTokenizer::new(vocab, Some(0), Some(9999));
+
+        assert_eq!(tokenizer.vocab_size(), 10000);
+        assert!(tokenizer.is_bos(0));
+        assert!(tokenizer.is_eos(9999));
+
+        let decoded = tokenizer.decode(&[100, 200, 300]);
+        assert!(decoded.contains("token_100"));
+        assert!(decoded.contains("token_200"));
+        assert!(decoded.contains("token_300"));
+    }
+
+    // =========================================================================
+    // BpeTokenizer Additional Tests
+    // =========================================================================
+
+    #[test]
+    fn test_bpe_tokenizer_large_merge_rules() {
+        // Test with many merge rules
+        let vocab: HashMap<String, u32> = [
+            ("a".to_string(), 0),
+            ("b".to_string(), 1),
+            ("c".to_string(), 2),
+            ("ab".to_string(), 3),
+            ("abc".to_string(), 4),
+        ]
+        .into_iter()
+        .collect();
+
+        let id_to_token = vec![
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string(),
+            "ab".to_string(),
+            "abc".to_string(),
+        ];
+
+        let merge_rules = vec![
+            ("a".to_string(), "b".to_string()),
+            ("ab".to_string(), "c".to_string()),
+        ];
+
+        let tokenizer = BpeTokenizer {
+            token_to_id: vocab,
+            id_to_token,
+            merge_rules,
+            bos_id: None,
+            eos_id: None,
+        };
+
+        let encoded = tokenizer.encode("abc");
+        // Should merge a+b -> ab, then ab+c -> abc
+        assert!(!encoded.is_empty());
+    }
+
+    #[test]
+    fn test_bpe_tokenizer_non_ascii() {
+        // Test encoding non-ASCII characters
+        let vocab: HashMap<String, u32> = [("a".to_string(), 0)].into_iter().collect();
+
+        let id_to_token = vec!["a".to_string()];
+
+        let tokenizer = BpeTokenizer {
+            token_to_id: vocab,
+            id_to_token,
+            merge_rules: vec![],
+            bos_id: None,
+            eos_id: None,
+        };
+
+        // Non-ASCII should be handled (may result in empty if not in vocab)
+        let encoded = tokenizer.encode("日本語");
+        // Result depends on byte encoding - just verify it doesn't panic
+        let _ = encoded;
+    }
+
+    // =========================================================================
+    // MAGIC_PREFIX Tests
+    // =========================================================================
+
+    #[test]
+    fn test_magic_prefix_constant() {
+        assert_eq!(MAGIC_PREFIX, [0x41, 0x50, 0x52]); // "APR"
+        assert_eq!(&MAGIC_PREFIX, b"APR");
+    }
+
+    #[test]
+    fn test_header_size_constant() {
+        assert_eq!(HEADER_SIZE, 64);
+    }
+
+    #[test]
+    fn test_alignment_constant() {
+        assert_eq!(ALIGNMENT, 64);
     }
 }

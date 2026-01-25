@@ -84,13 +84,11 @@ fn test_imp_306c_backend_selection() {
     println!("  Best available: {:?}", backend);
 
     // For large matmul, compute-bound operations prefer AVX-512 or GPU
-    let compute_backend =
-        trueno::select_backend_for_operation(trueno::OperationType::ComputeBound);
+    let compute_backend = trueno::select_backend_for_operation(trueno::OperationType::ComputeBound);
     println!("  Compute-bound (large matmul): {:?}", compute_backend);
 
     // Memory-bound operations prefer AVX2 for cache efficiency
-    let memory_backend =
-        trueno::select_backend_for_operation(trueno::OperationType::MemoryBound);
+    let memory_backend = trueno::select_backend_for_operation(trueno::OperationType::MemoryBound);
     println!("  Memory-bound: {:?}", memory_backend);
 }
 

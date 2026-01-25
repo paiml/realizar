@@ -31,6 +31,9 @@ mod norm;
 mod simd;
 mod thread;
 
+#[cfg(test)]
+mod coverage_tests;
+
 // Re-exports for public API
 pub use kv_cache::{attention_with_cache, attention_with_transposed_v, KVCache, OptimizedKVCache};
 pub use norm::{apply_rope, simd_layer_norm, simd_rms_norm};

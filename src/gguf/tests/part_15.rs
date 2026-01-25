@@ -532,8 +532,7 @@ fn test_parity028b_scheduler_creation() {
     let hidden_dim = 2560;
     let max_seq_len = 2048;
 
-    let scheduler =
-        ContinuousBatchScheduler::new(num_slots, num_layers, hidden_dim, max_seq_len);
+    let scheduler = ContinuousBatchScheduler::new(num_slots, num_layers, hidden_dim, max_seq_len);
 
     println!("  Scheduler configuration:");
     println!("    Slots: {}", scheduler.num_slots);

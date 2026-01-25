@@ -1236,3 +1236,655 @@ fn test_chat_completion_response_multiple_choices() {
     assert!(json.contains("Response 1"));
     assert!(json.contains("Response 2"));
 }
+
+// =============================================================================
+// Phase 49: OpenAI Handlers Coverage - Request Variations
+// =============================================================================
+
+#[tokio::test]
+async fn test_chat_completions_with_temperature_very_low() {
+    // Temperature 0.0 is rejected by apply_temperature (must be positive)
+    // Use a very small positive value instead for near-greedy sampling
+    let app = create_test_app();
+
+    let req_body = serde_json::json!({
+        "model": "default",
+        "messages": [{"role": "user", "content": "Test"}],
+        "temperature": 0.01
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_chat_completions_with_high_temperature() {
+    let app = create_test_app();
+
+    let req_body = serde_json::json!({
+        "model": "default",
+        "messages": [{"role": "user", "content": "Test"}],
+        "temperature": 1.5
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_chat_completions_with_top_p() {
+    let app = create_test_app();
+
+    let req_body = serde_json::json!({
+        "model": "default",
+        "messages": [{"role": "user", "content": "Test"}],
+        "top_p": 0.9
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_chat_completions_with_max_tokens() {
+    let app = create_test_app();
+
+    let req_body = serde_json::json!({
+        "model": "default",
+        "messages": [{"role": "user", "content": "Test"}],
+        "max_tokens": 5
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_chat_completions_with_stop_tokens() {
+    let app = create_test_app();
+
+    let req_body = serde_json::json!({
+        "model": "default",
+        "messages": [{"role": "user", "content": "Test"}],
+        "stop": ["</s>", "<|im_end|>"]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_chat_completions_with_user_field() {
+    let app = create_test_app();
+
+    let req_body = serde_json::json!({
+        "model": "default",
+        "messages": [{"role": "user", "content": "Test"}],
+        "user": "test-user-123"
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_chat_completions_with_n_parameter() {
+    let app = create_test_app();
+
+    let req_body = serde_json::json!({
+        "model": "default",
+        "messages": [{"role": "user", "content": "Test"}],
+        "n": 1
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_chat_completions_all_parameters() {
+    let app = create_test_app();
+
+    let req_body = serde_json::json!({
+        "model": "default",
+        "messages": [
+            {"role": "system", "content": "You are helpful."},
+            {"role": "user", "content": "Hello", "name": "TestUser"}
+        ],
+        "max_tokens": 50,
+        "temperature": 0.8,
+        "top_p": 0.95,
+        "n": 1,
+        "stream": false,
+        "stop": ["</s>"],
+        "user": "integration-test"
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+// =============================================================================
+// Phase 49: X-Trace-Level Header Tests
+// =============================================================================
+
+#[tokio::test]
+async fn test_chat_completions_with_trace_level_brick() {
+    let app = create_test_app();
+
+    let req_body = serde_json::json!({
+        "model": "default",
+        "messages": [{"role": "user", "content": "Test"}]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header("content-type", "application/json")
+                .header("X-Trace-Level", "brick")
+                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_chat_completions_with_trace_level_step() {
+    let app = create_test_app();
+
+    let req_body = serde_json::json!({
+        "model": "default",
+        "messages": [{"role": "user", "content": "Test"}]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header("content-type", "application/json")
+                .header("X-Trace-Level", "step")
+                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_chat_completions_with_trace_level_layer() {
+    let app = create_test_app();
+
+    let req_body = serde_json::json!({
+        "model": "default",
+        "messages": [{"role": "user", "content": "Test"}]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header("content-type", "application/json")
+                .header("X-Trace-Level", "layer")
+                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_chat_completions_with_trace_level_invalid() {
+    let app = create_test_app();
+
+    let req_body = serde_json::json!({
+        "model": "default",
+        "messages": [{"role": "user", "content": "Test"}]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header("content-type", "application/json")
+                .header("X-Trace-Level", "invalid_level")
+                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Should still succeed, just no trace data
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+// =============================================================================
+// Phase 49: Multi-turn Conversation Tests
+// =============================================================================
+
+#[tokio::test]
+async fn test_chat_completions_multi_turn_conversation() {
+    let app = create_test_app();
+
+    let req_body = serde_json::json!({
+        "model": "default",
+        "messages": [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "What is 2+2?"},
+            {"role": "assistant", "content": "2+2 equals 4."},
+            {"role": "user", "content": "And what is 3+3?"}
+        ]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_chat_completions_long_conversation() {
+    let app = create_test_app();
+
+    // Build a 10-turn conversation
+    let mut messages = vec![serde_json::json!({"role": "system", "content": "You are helpful."})];
+    for i in 0..10 {
+        messages.push(serde_json::json!({"role": "user", "content": format!("Turn {i}")}));
+        messages.push(serde_json::json!({"role": "assistant", "content": format!("Response {i}")}));
+    }
+    messages.push(serde_json::json!({"role": "user", "content": "Final question"}));
+
+    let req_body = serde_json::json!({
+        "model": "default",
+        "messages": messages
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+// =============================================================================
+// Phase 49: Edge Case Content Tests
+// =============================================================================
+
+#[tokio::test]
+async fn test_chat_completions_unicode_content() {
+    let app = create_test_app();
+
+    let req_body = serde_json::json!({
+        "model": "default",
+        "messages": [{"role": "user", "content": "こんにちは世界 🌍 مرحبا 你好"}]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_chat_completions_special_chars() {
+    let app = create_test_app();
+
+    let req_body = serde_json::json!({
+        "model": "default",
+        "messages": [{"role": "user", "content": "Test with \"quotes\", 'apostrophes', and\nnewlines\ttabs"}]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_chat_completions_empty_model_name() {
+    let app = create_test_app();
+
+    let req_body = serde_json::json!({
+        "model": "",
+        "messages": [{"role": "user", "content": "Test"}]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Empty model should use default
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_chat_completions_whitespace_content() {
+    let app = create_test_app();
+
+    let req_body = serde_json::json!({
+        "model": "default",
+        "messages": [{"role": "user", "content": "   spaces   "}]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+// =============================================================================
+// Phase 49: Response Validation Tests
+// =============================================================================
+
+#[tokio::test]
+async fn test_chat_completions_response_has_usage() {
+    let app = create_test_app();
+
+    let req_body = serde_json::json!({
+        "model": "default",
+        "messages": [{"role": "user", "content": "Test"}]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let result: ChatCompletionResponse = serde_json::from_slice(&body).unwrap();
+
+    assert!(result.usage.prompt_tokens > 0);
+    assert_eq!(
+        result.usage.total_tokens,
+        result.usage.prompt_tokens + result.usage.completion_tokens
+    );
+}
+
+#[tokio::test]
+async fn test_chat_completions_response_has_finish_reason() {
+    let app = create_test_app();
+
+    let req_body = serde_json::json!({
+        "model": "default",
+        "messages": [{"role": "user", "content": "Test"}]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let result: ChatCompletionResponse = serde_json::from_slice(&body).unwrap();
+
+    assert!(!result.choices[0].finish_reason.is_empty());
+    // Common finish reasons: "stop", "length"
+    assert!(
+        result.choices[0].finish_reason == "stop" || result.choices[0].finish_reason == "length"
+    );
+}
+
+#[tokio::test]
+async fn test_chat_completions_response_timestamps() {
+    let app = create_test_app();
+
+    let req_body = serde_json::json!({
+        "model": "default",
+        "messages": [{"role": "user", "content": "Test"}]
+    });
+
+    let before = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let after = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let result: ChatCompletionResponse = serde_json::from_slice(&body).unwrap();
+
+    // Timestamp should be between before and after
+    assert!(result.created >= before - 1); // Allow 1 second margin
+    assert!(result.created <= after + 1);
+}
+
+// =============================================================================
+// Phase 49: Models Endpoint Variations
+// =============================================================================
+
+#[tokio::test]
+async fn test_models_endpoint_returns_list_object() {
+    let app = create_test_app();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/models")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let result: OpenAIModelsResponse = serde_json::from_slice(&body).unwrap();
+
+    assert_eq!(result.object, "list");
+}
+
+#[tokio::test]
+async fn test_models_endpoint_model_fields() {
+    let app = create_test_app();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/models")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let result: OpenAIModelsResponse = serde_json::from_slice(&body).unwrap();
+
+    for model in &result.data {
+        assert!(!model.id.is_empty());
+        assert_eq!(model.object, "model");
+        assert!(model.created > 0);
+        assert!(!model.owned_by.is_empty());
+    }
+}

@@ -716,9 +716,7 @@ fn test_parity051d_batch_processor_task() {
     println!("          ");
     println!("          // Process batch when ready");
     println!("          let should_process = batch.len() >= config.optimal_batch");
-    println!(
-        "              || window_start.elapsed() >= Duration::from_millis(config.window_ms);"
-    );
+    println!("              || window_start.elapsed() >= Duration::from_millis(config.window_ms);");
     println!("          ");
     println!("          if should_process && !batch.is_empty() {{");
     println!("              process_batch(&scheduler, &model, &mut batch).await;");

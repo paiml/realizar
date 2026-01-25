@@ -232,8 +232,8 @@ fn test_qa_027_special_token_handling() {
 fn test_qa_029_deterministic_output() {
     let attention = Attention::new(16).expect("test");
 
-    let q = Tensor::from_vec(vec![4, 16], (0..64).map(|i| i as f32 * 0.01).collect())
-        .expect("test");
+    let q =
+        Tensor::from_vec(vec![4, 16], (0..64).map(|i| i as f32 * 0.01).collect()).expect("test");
     let k = q.clone();
     let v = q.clone();
 
@@ -634,8 +634,7 @@ fn test_qa_020_context_scaling() {
 
     // Measure small context
     let small_len = 16;
-    let small_q =
-        Tensor::from_vec(vec![small_len, 32], vec![0.1; small_len * 32]).expect("test");
+    let small_q = Tensor::from_vec(vec![small_len, 32], vec![0.1; small_len * 32]).expect("test");
     let small_k = small_q.clone();
     let small_v = small_q.clone();
 
@@ -649,8 +648,7 @@ fn test_qa_020_context_scaling() {
 
     // Measure larger context (4x)
     let large_len = 64;
-    let large_q =
-        Tensor::from_vec(vec![large_len, 32], vec![0.1; large_len * 32]).expect("test");
+    let large_q = Tensor::from_vec(vec![large_len, 32], vec![0.1; large_len * 32]).expect("test");
     let large_k = large_q.clone();
     let large_v = large_q.clone();
 
@@ -830,8 +828,8 @@ fn test_qa_028_thread_safety() {
         .map(|i| {
             let ln = Arc::clone(&layer_norm);
             thread::spawn(move || {
-                let input = Tensor::from_vec(vec![4, 64], vec![(i as f32) * 0.1; 4 * 64])
-                    .expect("test");
+                let input =
+                    Tensor::from_vec(vec![4, 64], vec![(i as f32) * 0.1; 4 * 64]).expect("test");
 
                 // Run inference from multiple threads
                 for _ in 0..10 {
@@ -970,8 +968,8 @@ fn test_imp_003_fused_attention() {
     // Create separate attention for comparison (kept for future comparison tests)
     let _attention = Attention::new(head_dim).expect("test");
 
-    let input = Tensor::from_vec(vec![seq_len, hidden_dim], vec![0.1; seq_len * hidden_dim])
-        .expect("test");
+    let input =
+        Tensor::from_vec(vec![seq_len, hidden_dim], vec![0.1; seq_len * hidden_dim]).expect("test");
 
     // Fused attention should work
     let fused_output = fused.forward(&input).expect("test");
@@ -1433,8 +1431,7 @@ fn test_imp_016_flash_attention() {
     let seq_len = 64; // Simulating longer context
     let head_dim = 32;
 
-    let q =
-        Tensor::from_vec(vec![seq_len, head_dim], vec![0.1; seq_len * head_dim]).expect("test");
+    let q = Tensor::from_vec(vec![seq_len, head_dim], vec![0.1; seq_len * head_dim]).expect("test");
     let k = q.clone();
     let v = q.clone();
 
@@ -1488,12 +1485,9 @@ fn test_imp_018_sliding_window() {
 
     // Simulate long context by testing window behavior
     let seq_len = 256;
-    let q =
-        Tensor::from_vec(vec![seq_len, head_dim], vec![0.1; seq_len * head_dim]).expect("test");
-    let k =
-        Tensor::from_vec(vec![seq_len, head_dim], vec![0.2; seq_len * head_dim]).expect("test");
-    let v =
-        Tensor::from_vec(vec![seq_len, head_dim], vec![0.3; seq_len * head_dim]).expect("test");
+    let q = Tensor::from_vec(vec![seq_len, head_dim], vec![0.1; seq_len * head_dim]).expect("test");
+    let k = Tensor::from_vec(vec![seq_len, head_dim], vec![0.2; seq_len * head_dim]).expect("test");
+    let v = Tensor::from_vec(vec![seq_len, head_dim], vec![0.3; seq_len * head_dim]).expect("test");
 
     let result = attention.forward(&q, &k, &v);
     assert!(
@@ -1545,12 +1539,9 @@ fn test_imp_020_sparse_attention() {
     // Create standard attention
     let attention = Attention::new(head_dim).expect("test");
 
-    let q =
-        Tensor::from_vec(vec![seq_len, head_dim], vec![0.1; seq_len * head_dim]).expect("test");
-    let k =
-        Tensor::from_vec(vec![seq_len, head_dim], vec![0.2; seq_len * head_dim]).expect("test");
-    let v =
-        Tensor::from_vec(vec![seq_len, head_dim], vec![0.3; seq_len * head_dim]).expect("test");
+    let q = Tensor::from_vec(vec![seq_len, head_dim], vec![0.1; seq_len * head_dim]).expect("test");
+    let k = Tensor::from_vec(vec![seq_len, head_dim], vec![0.2; seq_len * head_dim]).expect("test");
+    let v = Tensor::from_vec(vec![seq_len, head_dim], vec![0.3; seq_len * head_dim]).expect("test");
 
     let result = attention.forward(&q, &k, &v);
     assert!(result.is_ok(), "IMP-020: Attention baseline should work");
@@ -1732,4 +1723,3 @@ fn test_imp_024_weight_caching() {
     let output = model.forward(&[1, 2, 3]).expect("test");
     assert!(output.size() > 0, "IMP-024: Model should be functional");
 }
-

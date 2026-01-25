@@ -124,9 +124,7 @@ fn test_imp_181a_thread_safety_result() {
     );
     println!(
         "  Failures: {}/{} -> meets_qa028={}",
-        with_failures.successful_requests,
-        with_failures.num_requests,
-        with_failures.meets_qa028
+        with_failures.successful_requests, with_failures.num_requests, with_failures.meets_qa028
     );
     println!(
         "  Data race: detected={} -> meets_qa028={}",
@@ -867,8 +865,8 @@ fn test_imp_184d_realworld_cv_stopping() {
 
     // Simulate benchmark latencies (ms)
     let latencies = vec![
-        105.2, 103.1, 104.5, 102.8, 105.0, 103.5, 104.1, 103.9, 104.2, 103.8, 104.0, 103.7,
-        104.3, 103.6, 104.1,
+        105.2, 103.1, 104.5, 102.8, 105.0, 103.5, 104.1, 103.9, 104.2, 103.8, 104.0, 103.7, 104.3,
+        103.6, 104.1,
     ];
 
     let result = criterion.check(&latencies);
@@ -1448,8 +1446,7 @@ fn test_imp_187c_outlier_detection() {
 fn test_imp_187d_realworld_outlier_detection() {
     // Simulate benchmark latencies with an outlier
     let latencies = vec![
-        100.0, 102.0, 99.0, 101.0, 100.5, 99.5, 101.5, 100.2, 500.0,
-        100.1, // 500.0 is outlier
+        100.0, 102.0, 99.0, 101.0, 100.5, 99.5, 101.5, 100.2, 500.0, 100.1, // 500.0 is outlier
     ];
 
     let result = detect_outliers_mad(&latencies, 3.0);

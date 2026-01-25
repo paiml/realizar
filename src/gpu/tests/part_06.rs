@@ -11,9 +11,8 @@
 
 use crate::gpu::executor::MockExecutor;
 use crate::gpu::scheduler::batch::{
-    argmax, forward_block_single, forward_single_token, forward_single_token_greedy,
-    generate_gpu, optimized_gqa_attention, optimized_lm_head_argmax_transposed,
-    simplified_attention,
+    argmax, forward_block_single, forward_single_token, forward_single_token_greedy, generate_gpu,
+    optimized_gqa_attention, optimized_lm_head_argmax_transposed, simplified_attention,
 };
 use crate::gpu::scheduler::{GpuModel, GpuModelConfig};
 
@@ -638,8 +637,7 @@ fn test_gpu_generate_config_with_stop_tokens() {
 
 #[test]
 fn test_gpu_generate_config_chained() {
-    let config = GpuGenerateConfig::with_sampling(128, 0.9, 50)
-        .with_stop_tokens(vec![0, 1]);
+    let config = GpuGenerateConfig::with_sampling(128, 0.9, 50).with_stop_tokens(vec![0, 1]);
 
     assert_eq!(config.max_tokens, 128);
     assert_eq!(config.temperature, 0.9);
@@ -953,12 +951,17 @@ fn test_block_weights_with_gate() {
 // KV Cache Forward Pass Tests (gpu/scheduler/kv.rs)
 // ============================================================================
 
-use crate::gpu::scheduler::{forward_gpu_with_cache, forward_gpu_incremental, generate_with_cache};
+use crate::gpu::scheduler::{forward_gpu_incremental, forward_gpu_with_cache, generate_with_cache};
 use crate::gpu::StreamingKVCache;
 
 fn create_kv_cache_for_model(config: &GpuModelConfig, max_seq_len: usize) -> StreamingKVCache {
     let head_dim = config.hidden_dim / config.num_heads;
-    StreamingKVCache::new(config.num_layers, max_seq_len, config.num_kv_heads, head_dim)
+    StreamingKVCache::new(
+        config.num_layers,
+        max_seq_len,
+        config.num_kv_heads,
+        head_dim,
+    )
 }
 
 #[test]
@@ -1239,12 +1242,7 @@ fn test_streaming_kv_cache_multiple_layers() {
     let head_dim = config.hidden_dim / config.num_heads;
     let kv_dim = config.num_kv_heads * head_dim;
 
-    let mut cache = StreamingKVCache::new(
-        config.num_layers,
-        32,
-        config.num_kv_heads,
-        head_dim,
-    );
+    let mut cache = StreamingKVCache::new(config.num_layers, 32, config.num_kv_heads, head_dim);
 
     let k = vec![0.1f32; kv_dim];
     let v = vec![0.2f32; kv_dim];
@@ -1267,12 +1265,7 @@ fn test_streaming_kv_cache_clear() {
     let head_dim = config.hidden_dim / config.num_heads;
     let kv_dim = config.num_kv_heads * head_dim;
 
-    let mut cache = StreamingKVCache::new(
-        config.num_layers,
-        32,
-        config.num_kv_heads,
-        head_dim,
-    );
+    let mut cache = StreamingKVCache::new(config.num_layers, 32, config.num_kv_heads, head_dim);
 
     // Populate cache - must append to ALL layers for position to increment
     let k = vec![0.1f32; kv_dim];

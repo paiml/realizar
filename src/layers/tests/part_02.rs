@@ -1,5 +1,5 @@
-use crate::layers::*;
 use crate::generate::GenerationConfig;
+use crate::layers::*;
 
 #[test]
 fn test_kvcache_creation() {
@@ -880,12 +880,9 @@ fn test_phase3_flash_attention_v2_performance() {
     let attn = Attention::new(head_dim).expect("test");
 
     // Create QKV tensors
-    let q =
-        Tensor::from_vec(vec![seq_len, head_dim], vec![0.1; seq_len * head_dim]).expect("test");
-    let k =
-        Tensor::from_vec(vec![seq_len, head_dim], vec![0.2; seq_len * head_dim]).expect("test");
-    let v =
-        Tensor::from_vec(vec![seq_len, head_dim], vec![0.3; seq_len * head_dim]).expect("test");
+    let q = Tensor::from_vec(vec![seq_len, head_dim], vec![0.1; seq_len * head_dim]).expect("test");
+    let k = Tensor::from_vec(vec![seq_len, head_dim], vec![0.2; seq_len * head_dim]).expect("test");
+    let v = Tensor::from_vec(vec![seq_len, head_dim], vec![0.3; seq_len * head_dim]).expect("test");
 
     // Warmup
     let _ = attn.flash_forward_v2(&q, &k, &v, 8).expect("test");
@@ -1400,8 +1397,8 @@ fn test_fused_qkv_attention_numerical_stability() {
 fn test_fused_qkv_attention_causal_mask() {
     // Causal attention: position i can only attend to positions <= i
     let fused = FusedQKVAttention::new(4, 16).expect("test");
-    let input = Tensor::from_vec(vec![4, 16], (0..64).map(|i| (i as f32) * 0.1).collect())
-        .expect("test");
+    let input =
+        Tensor::from_vec(vec![4, 16], (0..64).map(|i| (i as f32) * 0.1).collect()).expect("test");
 
     let output = fused.forward(&input).expect("test");
 
@@ -1529,8 +1526,7 @@ fn test_qa_006_layer_norm_unit_variance() {
 
     // Calculate variance of output
     let mean: f32 = data.iter().sum::<f32>() / (hidden_dim as f32);
-    let variance: f32 =
-        data.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / (hidden_dim as f32);
+    let variance: f32 = data.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / (hidden_dim as f32);
 
     // Mean should be near 0 (before gamma/beta adjustment)
     // Variance should be near 1 (normalized)
@@ -1705,4 +1701,3 @@ fn test_qa_010_quantized_vs_f32_tolerance() {
 // QA Checklist Section B: Performance Tests (QA-011 to QA-020)
 // Per spec: performance-parity-ollama-llamacpp-gpu-inference-llms.md §5
 // ========================================================================
-

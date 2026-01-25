@@ -48,3 +48,4 @@ mod part_18;
 mod part_19;
 mod part_20;
 mod part_21;
+mod part_22;

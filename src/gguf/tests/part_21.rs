@@ -9,8 +9,8 @@
 
 use crate::gguf::quantized::QuantizedTensorRef;
 use crate::gguf::types::{
-    GGUF_TYPE_F32, GGUF_TYPE_Q2_K, GGUF_TYPE_Q4_0, GGUF_TYPE_Q4_1, GGUF_TYPE_Q4_K,
-    GGUF_TYPE_Q5_0, GGUF_TYPE_Q5_K, GGUF_TYPE_Q6_K, GGUF_TYPE_Q8_0,
+    GGUF_TYPE_F32, GGUF_TYPE_Q2_K, GGUF_TYPE_Q4_0, GGUF_TYPE_Q4_1, GGUF_TYPE_Q4_K, GGUF_TYPE_Q5_0,
+    GGUF_TYPE_Q5_K, GGUF_TYPE_Q6_K, GGUF_TYPE_Q8_0,
 };
 
 // =============================================================================
@@ -353,7 +353,7 @@ fn test_phase34_llama_style_layers() {
     let v_elements = k_elements;
 
     assert_eq!(q_elements, 16_777_216); // 4096 * 4096
-    assert_eq!(k_elements, 4_194_304);   // 4096 * 1024
+    assert_eq!(k_elements, 4_194_304); // 4096 * 1024
     assert_eq!(v_elements, 4_194_304);
 }
 
@@ -400,7 +400,11 @@ fn test_phase34_contiguous_layout() {
             qtype: *qtype,
         };
 
-        assert_eq!(tensor_ref.offset, current_offset, "Offset mismatch for {}", name);
+        assert_eq!(
+            tensor_ref.offset, current_offset,
+            "Offset mismatch for {}",
+            name
+        );
         current_offset += byte_size;
     }
 
@@ -424,11 +428,11 @@ use crate::gguf::GGUFModel;
 fn test_phase35_transformer_from_minimal_llama() {
     // Build a minimal LLaMA-style GGUF
     let data = build_minimal_llama_gguf(
-        100,  // vocab_size
-        64,   // hidden_dim (must be divisible by num_heads)
-        128,  // intermediate_dim
-        4,    // num_heads
-        4,    // num_kv_heads
+        100, // vocab_size
+        64,  // hidden_dim (must be divisible by num_heads)
+        128, // intermediate_dim
+        4,   // num_heads
+        4,   // num_kv_heads
     );
 
     // Parse the GGUF model
@@ -469,7 +473,7 @@ fn test_phase35_transformer_from_minimal_llama() {
             // K, V: hidden -> kv_dim (64*64 since num_kv_heads = num_heads)
             assert_eq!(k.num_elements, 64 * 64);
             assert_eq!(v.num_elements, 64 * 64);
-        }
+        },
         QKVWeights::Fused(_) => panic!("Expected Separate QKV for LLaMA style"),
     }
 
@@ -483,10 +487,10 @@ fn test_phase35_transformer_from_minimal_llama() {
 fn test_phase35_transformer_from_minimal_phi2() {
     // Build a minimal Phi-2 style GGUF (fused QKV)
     let data = build_minimal_phi2_gguf(
-        100,  // vocab_size
-        64,   // hidden_dim
-        128,  // intermediate_dim
-        4,    // num_heads
+        100, // vocab_size
+        64,  // hidden_dim
+        128, // intermediate_dim
+        4,   // num_heads
     );
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse minimal Phi-2 GGUF");
@@ -507,7 +511,7 @@ fn test_phase35_transformer_from_minimal_phi2() {
             assert_eq!(fused.qtype, GGUF_TYPE_Q4_K);
             // Fused: hidden -> 3 * hidden
             assert_eq!(fused.num_elements, 64 * (3 * 64));
-        }
+        },
         QKVWeights::Separate { .. } => panic!("Expected Fused QKV for Phi-2 style"),
     }
 
@@ -606,7 +610,7 @@ fn test_phase35_transformer_with_gqa() {
             assert_eq!(q.num_elements, 64 * 64); // full
             assert_eq!(k.num_elements, 64 * 16); // reduced
             assert_eq!(v.num_elements, 64 * 16); // reduced
-        }
+        },
         _ => panic!("Expected Separate"),
     }
 }
@@ -780,8 +784,7 @@ fn test_phase35_get_tensor_ref_q4_0() {
         .build();
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse Q4_0 model");
-    let transformer =
-        QuantizedGGUFTransformer::from_gguf(&model, &data).expect("Should load Q4_0");
+    let transformer = QuantizedGGUFTransformer::from_gguf(&model, &data).expect("Should load Q4_0");
 
     // Verify Q4_0 type was preserved
     match &transformer.layers[0].qkv_weight {
@@ -793,7 +796,7 @@ fn test_phase35_get_tensor_ref_q4_0() {
             // Q4_0 byte size: 18 bytes per 32 elements
             // 64*64 = 4096 elements => 128 blocks => 2304 bytes
             assert_eq!(q.byte_size, 128 * 18);
-        }
+        },
         _ => panic!("Expected Separate"),
     }
 }
@@ -864,8 +867,7 @@ fn test_phase35_get_tensor_ref_q8_0() {
         .build();
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse Q8_0 model");
-    let transformer =
-        QuantizedGGUFTransformer::from_gguf(&model, &data).expect("Should load Q8_0");
+    let transformer = QuantizedGGUFTransformer::from_gguf(&model, &data).expect("Should load Q8_0");
 
     match &transformer.layers[0].qkv_weight {
         QKVWeights::Separate { q, .. } => {
@@ -873,7 +875,7 @@ fn test_phase35_get_tensor_ref_q8_0() {
             // Q8_0: 34 bytes per 32 elements
             // 4096 elements => 128 blocks => 4352 bytes
             assert_eq!(q.byte_size, 128 * 34);
-        }
+        },
         _ => panic!("Expected Separate"),
     }
 }
@@ -944,8 +946,7 @@ fn test_phase35_get_tensor_ref_q5_k() {
         .build();
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse Q5_K model");
-    let transformer =
-        QuantizedGGUFTransformer::from_gguf(&model, &data).expect("Should load Q5_K");
+    let transformer = QuantizedGGUFTransformer::from_gguf(&model, &data).expect("Should load Q5_K");
 
     match &transformer.layers[0].qkv_weight {
         QKVWeights::Separate { q, .. } => {
@@ -953,7 +954,7 @@ fn test_phase35_get_tensor_ref_q5_k() {
             // Q5_K: 176 bytes per 256 elements
             // 256*256 = 65536 elements => 256 super-blocks => 45056 bytes
             assert_eq!(q.byte_size, 256 * 176);
-        }
+        },
         _ => panic!("Expected Separate"),
     }
 }
@@ -1024,8 +1025,7 @@ fn test_phase35_get_tensor_ref_q6_k() {
         .build();
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse Q6_K model");
-    let transformer =
-        QuantizedGGUFTransformer::from_gguf(&model, &data).expect("Should load Q6_K");
+    let transformer = QuantizedGGUFTransformer::from_gguf(&model, &data).expect("Should load Q6_K");
 
     match &transformer.layers[0].qkv_weight {
         QKVWeights::Separate { q, .. } => {
@@ -1033,7 +1033,7 @@ fn test_phase35_get_tensor_ref_q6_k() {
             // Q6_K: 210 bytes per 256 elements
             // 65536 elements => 256 super-blocks => 53760 bytes
             assert_eq!(q.byte_size, 256 * 210);
-        }
+        },
         _ => panic!("Expected Separate"),
     }
 }
@@ -1054,18 +1054,23 @@ fn test_phase35_transformer_missing_tensor_error() {
     let model = GGUFModel::from_bytes(&data).expect("Should parse empty model");
     let result = QuantizedGGUFTransformer::from_gguf(&model, &data);
 
-    assert!(result.is_err(), "Should fail when token_embd.weight is missing");
+    assert!(
+        result.is_err(),
+        "Should fail when token_embd.weight is missing"
+    );
 
     // Extract error message
     match result {
         Err(e) => {
             let err = e.to_string();
             assert!(
-                err.contains("token_embd.weight") || err.contains("Tensor") || err.contains("not found"),
+                err.contains("token_embd.weight")
+                    || err.contains("Tensor")
+                    || err.contains("not found"),
                 "Error should mention missing tensor: {}",
                 err
             );
-        }
+        },
         Ok(_) => panic!("Expected error for missing tensor"),
     }
 }

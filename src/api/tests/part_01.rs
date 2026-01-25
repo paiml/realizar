@@ -8,10 +8,10 @@ use axum::{
 };
 use tower::util::ServiceExt;
 
-use crate::api::*;
 use crate::api::test_helpers::create_test_app;
 #[cfg(feature = "gpu")]
 use crate::api::test_helpers::create_test_quantized_model;
+use crate::api::*;
 
 // ========================================================================
 // PMAT-088: clean_chat_output tests
