@@ -593,6 +593,7 @@ async fn run_model(
             format,
             force_gpu,
             verbose,
+            trace_config.is_some(), // PMAT-TRACE-GGUF-001: Pass trace flag
         )?;
     } else {
         println!("Interactive mode (Ctrl+D to exit)");
@@ -773,6 +774,7 @@ async fn run_model(
                     format,
                     force_gpu,
                     verbose,
+                    trace.is_some(), // PMAT-TRACE-GGUF-001: Pass trace flag
                 )?;
             },
         }

@@ -975,6 +975,7 @@ fn test_parity020c_generation_config() {
         temperature: 0.0,
         top_k: 1,
         stop_tokens: vec![0, 2], // EOS tokens
+        trace: false,
     };
 
     assert_eq!(config.max_tokens, 50);
@@ -988,6 +989,7 @@ fn test_parity020c_generation_config() {
         temperature: 0.0,
         top_k: 1,
         stop_tokens: vec![],
+        trace: false,
     };
     assert!(greedy_config.temperature == 0.0 || greedy_config.top_k == 1);
 
@@ -996,6 +998,7 @@ fn test_parity020c_generation_config() {
         temperature: 0.7,
         top_k: 40,
         stop_tokens: vec![],
+        trace: false,
     };
     assert!(sampling_config.temperature > 0.0);
     assert!(sampling_config.top_k > 1);

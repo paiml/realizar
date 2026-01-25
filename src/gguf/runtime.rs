@@ -28,6 +28,9 @@ pub struct QuantizedGenerateConfig {
     pub top_k: usize,
     /// Stop token IDs
     pub stop_tokens: Vec<u32>,
+    /// Enable inference tracing (PMAT-TRACE-GGUF-001)
+    /// When true, outputs [TRACE-CACHE] messages showing per-position timing
+    pub trace: bool,
 }
 
 impl Default for QuantizedGenerateConfig {
@@ -37,6 +40,7 @@ impl Default for QuantizedGenerateConfig {
             temperature: 0.0,
             top_k: 1,
             stop_tokens: Vec::new(),
+            trace: false,
         }
     }
 }
@@ -50,7 +54,15 @@ impl QuantizedGenerateConfig {
             temperature: 0.0,
             top_k: 1,
             stop_tokens: Vec::new(),
+            trace: false,
         }
+    }
+
+    /// Builder method to enable tracing (PMAT-TRACE-GGUF-001)
+    #[must_use]
+    pub fn with_trace(mut self, trace: bool) -> Self {
+        self.trace = trace;
+        self
     }
 
     /// Builder method to set max tokens

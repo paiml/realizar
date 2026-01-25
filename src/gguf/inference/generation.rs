@@ -155,16 +155,38 @@ impl OwnedQuantizedModel {
         let mut cache = OwnedQuantizedKVCache::from_config(&self.config, max_seq_len);
         let mut tokens = prompt.to_vec();
 
+        // PMAT-TRACE-GGUF-001: Trace config info
+        if config.trace {
+            eprintln!(
+                "[TRACE-CACHE] GGUF model: {} layers, hidden_dim={}, vocab={}",
+                self.config.num_layers, self.config.hidden_dim, self.config.vocab_size
+            );
+            eprintln!(
+                "[TRACE-CACHE] Prefill: {} tokens, max_gen={}",
+                prompt.len(),
+                config.max_tokens
+            );
+        }
+
         // Process prompt tokens (prefill), keeping the logits from the last position
         // The logits from processing token[n-1] at position n-1 predict token[n]
+        let prefill_start = std::time::Instant::now();
         let mut logits = Vec::new();
         for (pos, &token_id) in prompt.iter().enumerate() {
             logits = self.forward_single_with_cache(token_id, &mut cache, pos)?;
+        }
+        if config.trace {
+            eprintln!(
+                "[TRACE-CACHE] Prefill complete: {} tokens in {:?}",
+                prompt.len(),
+                prefill_start.elapsed()
+            );
         }
 
         // Generate new tokens
         // First iteration uses logits from prefill, subsequent use logits from forward pass
         for gen_idx in 0..config.max_tokens {
+            let token_start = std::time::Instant::now();
             // DEBUG: Print logits info for first generated token
             if gen_idx == 0 && std::env::var("REALIZAR_DEBUG_LOGITS").is_ok() {
                 let sum: f32 = logits.iter().sum();
@@ -224,6 +246,16 @@ impl OwnedQuantizedModel {
             // Position is prompt.len() + gen_idx (where token was just added)
             let position = prompt.len() + gen_idx;
             logits = self.forward_single_with_cache(next_token, &mut cache, position)?;
+
+            // PMAT-TRACE-GGUF-001: Per-token timing
+            if config.trace {
+                eprintln!(
+                    "[TRACE-CACHE] pos={}: {} layers took {:?}",
+                    position,
+                    self.config.num_layers,
+                    token_start.elapsed()
+                );
+            }
         }
 
         Ok(tokens)
@@ -263,14 +295,36 @@ impl OwnedQuantizedModel {
         let mut cache = OwnedQuantizedKVCache::from_config(&self.config, max_seq_len);
         let mut tokens = prompt.to_vec();
 
+        // PMAT-TRACE-GGUF-001: Trace config info
+        if config.trace {
+            eprintln!(
+                "[TRACE-CACHE] GGUF streaming: {} layers, hidden_dim={}, vocab={}",
+                self.config.num_layers, self.config.hidden_dim, self.config.vocab_size
+            );
+            eprintln!(
+                "[TRACE-CACHE] Prefill: {} tokens, max_gen={}",
+                prompt.len(),
+                config.max_tokens
+            );
+        }
+
         // Process prompt tokens (prefill)
+        let prefill_start = std::time::Instant::now();
         let mut logits = Vec::new();
         for (pos, &token_id) in prompt.iter().enumerate() {
             logits = self.forward_single_with_cache(token_id, &mut cache, pos)?;
         }
+        if config.trace {
+            eprintln!(
+                "[TRACE-CACHE] Prefill complete: {} tokens in {:?}",
+                prompt.len(),
+                prefill_start.elapsed()
+            );
+        }
 
         // Generate new tokens with streaming
         for gen_idx in 0..config.max_tokens {
+            let token_start = std::time::Instant::now();
             // Sample next token
             let next_token = if config.temperature == 0.0 || config.top_k == 1 {
                 ops::argmax(&logits)
@@ -298,6 +352,16 @@ impl OwnedQuantizedModel {
             // Get logits for next iteration
             let position = prompt.len() + gen_idx;
             logits = self.forward_single_with_cache(next_token, &mut cache, position)?;
+
+            // PMAT-TRACE-GGUF-001: Per-token timing
+            if config.trace {
+                eprintln!(
+                    "[TRACE-CACHE] pos={}: {} layers took {:?}",
+                    position,
+                    self.config.num_layers,
+                    token_start.elapsed()
+                );
+            }
         }
 
         Ok(tokens)
@@ -339,9 +403,30 @@ impl OwnedQuantizedModel {
         let mut scratch = InferenceScratchBuffer::from_config(&self.config);
         let mut tokens = prompt.to_vec();
 
+        // PMAT-TRACE-GGUF-001: Trace config info
+        if config.trace {
+            eprintln!(
+                "[TRACE-CACHE] GGUF scratch: {} layers, hidden_dim={}, vocab={}",
+                self.config.num_layers, self.config.hidden_dim, self.config.vocab_size
+            );
+            eprintln!(
+                "[TRACE-CACHE] Prefill: {} tokens, max_gen={}",
+                prompt.len(),
+                config.max_tokens
+            );
+        }
+
         // Process prompt tokens (prefill) - uses scratch buffers
+        let prefill_start = std::time::Instant::now();
         for (pos, &token_id) in prompt.iter().enumerate() {
             self.forward_single_with_scratch(token_id, &mut cache, pos, &mut scratch)?;
+        }
+        if config.trace {
+            eprintln!(
+                "[TRACE-CACHE] Prefill complete: {} tokens in {:?}",
+                prompt.len(),
+                prefill_start.elapsed()
+            );
         }
 
         // Generate new tokens - zero allocations per token
@@ -349,6 +434,7 @@ impl OwnedQuantizedModel {
         // 1. Sample from current logits (prefill on first iter, previous forward otherwise)
         // 2. Then run forward on the new token to get logits for next iteration
         for gen_idx in 0..config.max_tokens {
+            let token_start = std::time::Instant::now();
             // Sample next token from current logits (prefill logits on first iter)
             let next_token = if config.temperature == 0.0 || config.top_k == 1 {
                 ops::argmax(&scratch.logits)
@@ -371,6 +457,16 @@ impl OwnedQuantizedModel {
             // Get logits for next iteration by forwarding the new token
             let position = prompt.len() + gen_idx;
             self.forward_single_with_scratch(next_token, &mut cache, position, &mut scratch)?;
+
+            // PMAT-TRACE-GGUF-001: Per-token timing
+            if config.trace {
+                eprintln!(
+                    "[TRACE-CACHE] pos={}: {} layers took {:?}",
+                    position,
+                    self.config.num_layers,
+                    token_start.elapsed()
+                );
+            }
         }
 
         Ok(tokens)
@@ -409,15 +505,37 @@ impl OwnedQuantizedModel {
         let mut cache = OwnedQuantizedKVCache::from_config(&self.config, max_seq_len);
         let mut tokens = prompt.to_vec();
 
+        // PMAT-TRACE-GGUF-001: Trace config info
+        if config.trace {
+            eprintln!(
+                "[TRACE-CACHE] GGUF adaptive: {} layers, hidden_dim={}, vocab={}",
+                self.config.num_layers, self.config.hidden_dim, self.config.vocab_size
+            );
+            eprintln!(
+                "[TRACE-CACHE] Prefill: {} tokens, max_gen={}",
+                prompt.len(),
+                config.max_tokens
+            );
+        }
+
         // Process prompt tokens (prefill) with adaptive attention
         // Keep the logits from the last position for the first generated token
+        let prefill_start = std::time::Instant::now();
         let mut logits = Vec::new();
         for (pos, &token_id) in prompt.iter().enumerate() {
             logits = self.forward_single_with_cache_adaptive(token_id, &mut cache, pos, metrics)?;
         }
+        if config.trace {
+            eprintln!(
+                "[TRACE-CACHE] Prefill complete: {} tokens in {:?}",
+                prompt.len(),
+                prefill_start.elapsed()
+            );
+        }
 
         // Generate new tokens with adaptive attention
         for gen_idx in 0..config.max_tokens {
+            let token_start = std::time::Instant::now();
             // Sample next token from current logits
             let next_token = if config.temperature == 0.0 || config.top_k == 1 {
                 ops::argmax(&logits)
@@ -441,6 +559,16 @@ impl OwnedQuantizedModel {
             let position = prompt.len() + gen_idx;
             logits =
                 self.forward_single_with_cache_adaptive(next_token, &mut cache, position, metrics)?;
+
+            // PMAT-TRACE-GGUF-001: Per-token timing
+            if config.trace {
+                eprintln!(
+                    "[TRACE-CACHE] pos={}: {} layers took {:?}",
+                    position,
+                    self.config.num_layers,
+                    token_start.elapsed()
+                );
+            }
         }
 
         Ok(tokens)

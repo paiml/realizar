@@ -425,6 +425,7 @@ async fn process_batch(
             temperature: first.temperature,
             top_k: first.top_k,
             stop_tokens: Vec::new(),
+            trace: false,
         };
 
         // Run batch generation with GPU FFN (PARITY-021)
@@ -476,6 +477,7 @@ async fn process_batch(
                     temperature: request.temperature,
                     top_k: request.top_k,
                     stop_tokens: Vec::new(),
+                    trace: false,
                 };
 
                 // Generate
@@ -649,6 +651,7 @@ pub async fn gpu_batch_completions_handler(
         temperature: request.temperature,
         top_k: request.top_k,
         stop_tokens: vec![],
+        trace: false,
     };
 
     let start = Instant::now();

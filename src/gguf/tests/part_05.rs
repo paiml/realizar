@@ -402,6 +402,7 @@ fn test_imp_117f_generate_with_token_buffer() {
         temperature: 0.0,
         top_k: 1,
         stop_tokens: Vec::new(),
+            trace: false,
     };
 
     let result = model.generate_with_smallvec(&prompt, &gen_config);

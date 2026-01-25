@@ -314,6 +314,7 @@ fn test_parity006a_batch_generate_exists() {
         temperature: 0.0,
         top_k: 1,
         stop_tokens: vec![],
+        trace: false,
     };
 
     let results = cached
@@ -355,6 +356,7 @@ fn test_parity006b_single_prompt_optimization() {
         temperature: 0.0, // Deterministic
         top_k: 1,
         stop_tokens: vec![],
+        trace: false,
     };
 
     // Non-batch generation
@@ -408,6 +410,7 @@ fn test_parity006c_batch_output_validity() {
         temperature: 0.0,
         top_k: 1,
         stop_tokens: vec![],
+        trace: false,
     };
 
     let results = cached
@@ -484,6 +487,7 @@ fn test_parity006e_batch_performance_comparison() {
         temperature: 0.0,
         top_k: 1,
         stop_tokens: vec![],
+        trace: false,
     };
 
     let prompts = vec![
@@ -545,6 +549,7 @@ fn test_parity006f_empty_prompts_error() {
         temperature: 0.0,
         top_k: 1,
         stop_tokens: vec![],
+        trace: false,
     };
 
     // Empty batch should error
@@ -703,6 +708,7 @@ fn test_parity007f_realizar_benchmark() {
         temperature: 0.0,
         top_k: 1,
         stop_tokens: vec![],
+        trace: false,
     };
 
     let prompt = vec![1u32, 2, 3, 4, 5];
@@ -915,6 +921,7 @@ fn test_parity008e_benchmark_reproducibility() {
         temperature: 0.0,
         top_k: 1,
         stop_tokens: vec![],
+        trace: false,
     };
 
     let prompt = vec![1u32, 2, 3];
