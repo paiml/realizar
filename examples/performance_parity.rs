@@ -872,6 +872,7 @@ fn bench_gpu_token_generation() -> BenchResult {
         num_layers: 2,
         intermediate_dim: 512,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut gpu_model = GpuModel::new(config).expect("test");
@@ -925,6 +926,7 @@ fn bench_large_model_simulation() -> BenchResult {
         num_layers,              // 1/8 of 7B layers (32 -> 4)
         intermediate_dim,        // 1/4 of 7B intermediate (11008 -> 2752)
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut gpu_model = GpuModel::new(config).expect("test");
@@ -1102,6 +1104,7 @@ fn bench_production_parity() -> BenchResult {
         num_layers,
         intermediate_dim,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let mut gpu_model = GpuModel::new(config).expect("test");
@@ -1502,6 +1505,7 @@ fn bench_gguf_gpu_loading() -> BenchResult {
         num_layers: 16,         // 1B-scale layers
         intermediate_dim: 5504, // 1B-scale FFN (~2.7x hidden)
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let start = Instant::now();
@@ -1551,6 +1555,7 @@ fn bench_e2e_text_generation() -> BenchResult {
         num_layers: 4,          // 4 layers for benchmark
         intermediate_dim: 1024, // 2x hidden
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let model_result = GpuModel::from_gguf_config(config);
@@ -1612,6 +1617,7 @@ fn bench_apples_to_apples() -> BenchResult {
         num_layers: 6,          // 6 layers
         intermediate_dim: 1024, // 2x hidden
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let model_result = GpuModel::from_gguf_config(config);
@@ -1703,6 +1709,7 @@ fn bench_kv_cached_generation() -> BenchResult {
         num_layers: 8, // More layers = more benefit from KV cache
         intermediate_dim: 1024,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     let model_result = GpuModel::from_gguf_config(config);
@@ -2695,6 +2702,7 @@ fn bench_memory_compute_optimization() -> BenchResult {
         num_layers: 4,
         intermediate_dim: 512,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     // Test 1: Contiguous attention buffer
@@ -2787,6 +2795,7 @@ fn bench_fused_kernels() -> BenchResult {
         num_layers: 4,
         intermediate_dim: 512,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     // Create model with attention buffers
@@ -2916,6 +2925,7 @@ fn bench_optimized_generation() -> BenchResult {
         num_layers: 4,
         intermediate_dim: 512,
         eps: 1e-5,
+        rope_theta: 10000.0,
     };
 
     // Create model with pre-allocated attention buffers (M17)
