@@ -104,9 +104,11 @@ pub fn forward_single_token(model: &mut GpuModel, tokens: &[usize]) -> Result<Ve
         )
     } else {
         // GPU path for smaller vocab
+        // Extract weights to avoid borrow conflict with scheduler.matmul(&mut self)
+        let lm_head_weight = model.lm_head_weight.clone();
         let logits =
             model.scheduler
-                .matmul(&hidden, &model.lm_head_weight, 1, hidden_dim, vocab_size)?;
+                .matmul(&hidden, &lm_head_weight, 1, hidden_dim, vocab_size)?;
         // Add bias
         logits
             .iter()
@@ -168,9 +170,11 @@ pub fn forward_single_token_greedy(model: &mut GpuModel, tokens: &[usize]) -> Re
         ))
     } else {
         // GPU/small vocab path
+        // Extract weights to avoid borrow conflict with scheduler.matmul(&mut self)
+        let lm_head_weight = model.lm_head_weight.clone();
         let logits =
             model.scheduler
-                .matmul(&hidden, &model.lm_head_weight, 1, hidden_dim, vocab_size)?;
+                .matmul(&hidden, &lm_head_weight, 1, hidden_dim, vocab_size)?;
         let output: Vec<f32> = logits
             .iter()
             .zip(model.lm_head_bias.iter())
