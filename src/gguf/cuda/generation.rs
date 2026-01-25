@@ -325,11 +325,34 @@ impl OwnedQuantizedModelCuda {
 
         let mut tokens = prompt.to_vec();
 
+        // PMAT-TRACE-GGUF-001: Trace config info for GPU path
+        if config.trace {
+            eprintln!(
+                "[TRACE-CACHE] GGUF model (GPU): {} layers, hidden_dim={}, vocab={}",
+                self.model.config.num_layers,
+                self.model.config.hidden_dim,
+                self.model.config.vocab_size
+            );
+            eprintln!(
+                "[TRACE-CACHE] Prefill: {} tokens, max_gen={}",
+                prompt.len(),
+                config.max_tokens
+            );
+        }
+
         // Process prompt tokens (prefill)
+        let prefill_start = std::time::Instant::now();
         for (pos, &token_id) in prompt.iter().enumerate() {
             if pos < prompt.len() - 1 {
                 let _ = self.forward_gpu_resident(token_id, &mut cache, pos)?;
             }
+        }
+        if config.trace {
+            eprintln!(
+                "[TRACE-CACHE] Prefill complete: {} tokens in {:?}",
+                prompt.len(),
+                prefill_start.elapsed()
+            );
         }
 
         // Generate from last prompt token
@@ -337,6 +360,7 @@ impl OwnedQuantizedModelCuda {
         let mut last_token = prompt[prompt.len() - 1];
 
         for _token_num in 0..config.max_tokens {
+            let token_start = std::time::Instant::now();
             // PAR-062: Use GPU argmax path for greedy sampling (150,000x data transfer reduction)
             let next_token = if config.temperature == 0.0 || config.top_k == 1 {
                 // Greedy sampling - use GPU-side argmax (4 bytes transfer vs 600KB)
@@ -347,6 +371,16 @@ impl OwnedQuantizedModelCuda {
                 let logits = self.forward_gpu_resident(last_token, &mut cache, position)?;
                 OwnedQuantizedModel::sample_topk(&logits, config.temperature, config.top_k)
             };
+
+            // PMAT-TRACE-GGUF-001: Per-token timing for GPU path
+            if config.trace {
+                eprintln!(
+                    "[TRACE-CACHE] pos={}: {} layers took {:?}",
+                    position,
+                    self.model.config.num_layers,
+                    token_start.elapsed()
+                );
+            }
 
             // Check stop tokens
             if config.stop_tokens.contains(&next_token) {
