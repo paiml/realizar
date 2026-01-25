@@ -56,7 +56,7 @@ pub use helpers::{is_apr_file, detect_format, simd_dot};
 use helpers::{rms_norm, matmul, simple_attention};
 #[cfg(feature = "cuda")]
 use helpers::transpose_matrix;
-pub use tokenizer::{BpeTokenizer, byte_to_bpe_char};
+pub use tokenizer::{BpeTokenizer, SimpleTokenizer, byte_to_bpe_char};
 use tokenizer::bpe_encode;
 
 // ============================================================================
@@ -836,6 +836,49 @@ impl AprMetadata {
             && self.num_layers.is_some()
             && self.num_heads.is_some()
             && self.vocab_size.is_some()
+    }
+
+    /// Extract embedded tokenizer vocabulary from APR metadata (GH-156)
+    ///
+    /// APR files can contain embedded tokenizer data in the metadata section.
+    /// This is the preferred way to decode tokens - no sibling files needed.
+    ///
+    /// # Returns
+    /// - `Some(vocab)` if tokenizer.vocabulary is present in metadata
+    /// - `None` if no embedded tokenizer
+    #[must_use]
+    pub fn get_embedded_vocabulary(&self) -> Option<Vec<String>> {
+        let vocab_value = self.extra.get("tokenizer.vocabulary")?;
+        let vocab_array = vocab_value.as_array()?;
+
+        let vocab: Vec<String> = vocab_array
+            .iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect();
+
+        if vocab.is_empty() {
+            None
+        } else {
+            Some(vocab)
+        }
+    }
+
+    /// Get embedded BOS token ID from APR metadata
+    #[must_use]
+    pub fn get_embedded_bos_token_id(&self) -> Option<u32> {
+        self.extra
+            .get("tokenizer.bos_token_id")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u32)
+    }
+
+    /// Get embedded EOS token ID from APR metadata
+    #[must_use]
+    pub fn get_embedded_eos_token_id(&self) -> Option<u32> {
+        self.extra
+            .get("tokenizer.eos_token_id")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u32)
     }
 }
 
@@ -1658,9 +1701,28 @@ impl AprV2Model {
         Some(tokens)
     }
 
+    /// Load tokenizer from embedded APR metadata (GH-156)
+    ///
+    /// APR files can contain embedded tokenizer data - this is the preferred
+    /// way to decode tokens since it doesn't require sibling files.
+    ///
+    /// Returns a simple decode-only tokenizer (no BPE encoding support).
+    pub fn load_embedded_tokenizer(&self) -> Option<SimpleTokenizer> {
+        let vocab = self.metadata.get_embedded_vocabulary()?;
+        let bos_id = self.metadata.get_embedded_bos_token_id();
+        let eos_id = self.metadata.get_embedded_eos_token_id();
+
+        Some(SimpleTokenizer {
+            id_to_token: vocab,
+            bos_token_id: bos_id,
+            eos_token_id: eos_id,
+        })
+    }
+
     /// Load a full tokenizer struct from sibling tokenizer.json
     ///
     /// Returns a BpeTokenizer that can be reused for multiple encode/decode calls.
+    /// For decode-only operations, prefer `load_embedded_tokenizer()` first.
     pub fn load_tokenizer(model_path: &Path) -> Option<BpeTokenizer> {
         let tokenizer_path = model_path.with_file_name("tokenizer.json");
         if !tokenizer_path.exists() {

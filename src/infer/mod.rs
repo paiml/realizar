@@ -443,8 +443,11 @@ fn run_apr_inference(config: &InferenceConfig) -> Result<InferenceResult> {
     let inference_ms = infer_start.elapsed().as_secs_f64() * 1000.0;
 
     // Decode output tokens
+    // GH-156: Try multiple tokenizer sources for APR models
     let generated_tokens = &all_tokens[input_token_count..];
     let text = if let Some(tokenizer) = AprV2Model::load_tokenizer(&config.model_path) {
+        tokenizer.decode(generated_tokens)
+    } else if let Some(tokenizer) = find_fallback_tokenizer(&config.model_path) {
         tokenizer.decode(generated_tokens)
     } else {
         format!(
@@ -593,6 +596,42 @@ fn prefault_mmap(data: &[u8]) {
         checksum = checksum.wrapping_add(data[i]);
     }
     std::hint::black_box(checksum);
+}
+
+/// Find a fallback tokenizer for APR models (GH-156)
+///
+/// This function tries to load the embedded tokenizer from the APR model.
+/// APR files can contain the vocabulary in metadata, so we don't need
+/// a sibling tokenizer.json file.
+///
+/// # Arguments
+/// * `model_path` - Path to the APR model file
+///
+/// # Returns
+/// * `Some(BpeTokenizer)` - If embedded tokenizer found and converted
+/// * `None` - If no embedded tokenizer available
+fn find_fallback_tokenizer(model_path: &std::path::Path) -> Option<crate::apr::BpeTokenizer> {
+    use crate::apr::AprV2Model;
+
+    // Try to load the APR model and extract embedded tokenizer
+    let model = AprV2Model::load(model_path).ok()?;
+    let simple_tokenizer = model.load_embedded_tokenizer()?;
+
+    // Convert SimpleTokenizer to BpeTokenizer for compatibility
+    // SimpleTokenizer is decode-only, but BpeTokenizer has encode support
+    // For fallback purposes, we only need decode, so this is fine
+    Some(crate::apr::BpeTokenizer {
+        token_to_id: simple_tokenizer
+            .id_to_token
+            .iter()
+            .enumerate()
+            .map(|(id, token)| (token.clone(), id as u32))
+            .collect(),
+        id_to_token: simple_tokenizer.id_to_token,
+        merge_rules: Vec::new(), // No merge rules for embedded tokenizer
+        bos_id: simple_tokenizer.bos_token_id,
+        eos_id: simple_tokenizer.eos_token_id,
+    })
 }
 
 /// Clean model output by stripping ChatML markers

@@ -1,9 +1,86 @@
 //! BPE Tokenizer for APR models (PMAT-802)
 //!
 //! Byte Pair Encoding tokenizer supporting APR v2 format models.
+//!
+//! ## Tokenizer Types
+//!
+//! - `BpeTokenizer`: Full tokenizer with encode/decode, requires tokenizer.json
+//! - `SimpleTokenizer`: Decode-only tokenizer using embedded vocabulary (GH-156)
+//!
+//! For APR models, prefer `SimpleTokenizer` via `AprV2Model::load_embedded_tokenizer()`
+//! as it uses the vocabulary embedded in the .apr file - no sibling files needed.
 
 use std::collections::HashMap;
 use super::AprV2Model;
+
+// ============================================================================
+// SimpleTokenizer (GH-156): Decode-only tokenizer from embedded APR vocabulary
+// ============================================================================
+
+/// Simple decode-only tokenizer for APR models with embedded vocabulary.
+///
+/// Unlike `BpeTokenizer`, this doesn't require tokenizer.json - it uses
+/// the vocabulary embedded directly in the APR file's metadata section.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let model = AprV2Model::load("model.apr")?;
+/// if let Some(tokenizer) = model.load_embedded_tokenizer() {
+///     let text = tokenizer.decode(&[1, 2, 3]);
+/// }
+/// ```
+#[derive(Debug, Clone)]
+pub struct SimpleTokenizer {
+    /// Vocabulary: index = token ID, value = token string
+    pub id_to_token: Vec<String>,
+    /// Beginning-of-sequence token ID (optional)
+    pub bos_token_id: Option<u32>,
+    /// End-of-sequence token ID (optional)
+    pub eos_token_id: Option<u32>,
+}
+
+impl SimpleTokenizer {
+    /// Create a new simple tokenizer from vocabulary
+    #[must_use]
+    pub fn new(vocab: Vec<String>, bos_id: Option<u32>, eos_id: Option<u32>) -> Self {
+        Self {
+            id_to_token: vocab,
+            bos_token_id: bos_id,
+            eos_token_id: eos_id,
+        }
+    }
+
+    /// Decode token IDs to text
+    ///
+    /// Handles byte-level BPE encoding (Ġ = space prefix, Ċ = newline, etc.)
+    #[must_use]
+    pub fn decode(&self, token_ids: &[u32]) -> String {
+        AprV2Model::decode_tokens(&self.id_to_token, token_ids)
+    }
+
+    /// Get vocabulary size
+    #[must_use]
+    pub fn vocab_size(&self) -> usize {
+        self.id_to_token.len()
+    }
+
+    /// Check if token ID is end-of-sequence
+    #[must_use]
+    pub fn is_eos(&self, token_id: u32) -> bool {
+        self.eos_token_id.map_or(false, |eos| token_id == eos)
+    }
+
+    /// Check if token ID is beginning-of-sequence
+    #[must_use]
+    pub fn is_bos(&self, token_id: u32) -> bool {
+        self.bos_token_id.map_or(false, |bos| token_id == bos)
+    }
+}
+
+// ============================================================================
+// BpeTokenizer: Full encode/decode from tokenizer.json
+// ============================================================================
 
 /// BPE Tokenizer for encoding and decoding text
 #[derive(Debug, Clone)]

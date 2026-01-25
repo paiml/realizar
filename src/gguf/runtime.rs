@@ -52,6 +52,34 @@ impl QuantizedGenerateConfig {
             stop_tokens: Vec::new(),
         }
     }
+
+    /// Builder method to set max tokens
+    #[must_use]
+    pub fn with_max_tokens(mut self, max_tokens: usize) -> Self {
+        self.max_tokens = max_tokens;
+        self
+    }
+
+    /// Builder method to set temperature
+    #[must_use]
+    pub fn with_temperature(mut self, temperature: f32) -> Self {
+        self.temperature = temperature;
+        self
+    }
+
+    /// Builder method to set top_k
+    #[must_use]
+    pub fn with_top_k(mut self, top_k: usize) -> Self {
+        self.top_k = top_k;
+        self
+    }
+
+    /// Builder method to set stop tokens
+    #[must_use]
+    pub fn with_stop_tokens(mut self, stop_tokens: Vec<u32>) -> Self {
+        self.stop_tokens = stop_tokens;
+        self
+    }
 }
 
 // ============================================================================

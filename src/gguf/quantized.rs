@@ -235,6 +235,58 @@ pub struct OwnedQuantizedLayer {
     pub ffn_norm_bias: Option<Vec<f32>>,
 }
 
+impl OwnedQuantizedLayer {
+    /// Convert from borrowed layer with data reference and model config
+    #[must_use]
+    pub fn from_borrowed(
+        layer: &crate::gguf::QuantizedGGUFTransformerLayer,
+        data: &[u8],
+        config: &crate::gguf::GGUFConfig,
+    ) -> Self {
+        let hidden_dim = config.hidden_dim;
+        let intermediate_dim = config.intermediate_dim;
+
+        Self {
+            attn_norm_weight: layer.attn_norm_weight.clone(),
+            attn_norm_bias: layer.attn_norm_bias.clone(),
+            qkv_weight: OwnedQKVWeights::from_borrowed(&layer.qkv_weight, data, hidden_dim),
+            qkv_bias: layer.qkv_bias.clone(),
+            attn_output_weight: OwnedQuantizedTensor::from_ref_with_dims(
+                &layer.attn_output_weight,
+                data,
+                hidden_dim,
+                hidden_dim,
+            ),
+            attn_output_bias: layer.attn_output_bias.clone(),
+            ffn_up_weight: OwnedQuantizedTensor::from_ref_with_dims(
+                &layer.ffn_up_weight,
+                data,
+                hidden_dim,
+                intermediate_dim,
+            ),
+            ffn_up_bias: layer.ffn_up_bias.clone(),
+            ffn_down_weight: OwnedQuantizedTensor::from_ref_with_dims(
+                &layer.ffn_down_weight,
+                data,
+                intermediate_dim,
+                hidden_dim,
+            ),
+            ffn_down_bias: layer.ffn_down_bias.clone(),
+            ffn_gate_weight: layer.ffn_gate_weight.as_ref().map(|gate_ref| {
+                OwnedQuantizedTensor::from_ref_with_dims(
+                    gate_ref,
+                    data,
+                    hidden_dim,
+                    intermediate_dim,
+                )
+            }),
+            ffn_gate_bias: layer.ffn_gate_bias.clone(),
+            ffn_norm_weight: layer.ffn_norm_weight.clone(),
+            ffn_norm_bias: layer.ffn_norm_bias.clone(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

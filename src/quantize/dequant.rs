@@ -226,6 +226,11 @@ pub fn dequantize_f16(data: &[u8]) -> Result<Vec<f32>> {
 }
 
 /// Dequantize `Q4_1` format weights
+///
+/// Q4_1 format: 2 bytes (f16 scale) + 2 bytes (f16 min) + 16 bytes (quants) = 20 bytes
+/// GGUF/candle layout:
+/// - Positions 0-15: low nibbles of bytes 0-15
+/// - Positions 16-31: high nibbles of bytes 0-15
 pub fn dequantize_q4_1(data: &[u8]) -> Result<Vec<f32>> {
     const BLOCK_BYTES: usize = 20;
 
@@ -240,10 +245,12 @@ pub fn dequantize_q4_1(data: &[u8]) -> Result<Vec<f32>> {
     }
 
     let num_blocks = data.len() / BLOCK_BYTES;
-    let mut result = Vec::with_capacity(num_blocks * BLOCK_SIZE);
+    // Pre-allocate with correct size for candle layout
+    let mut result = vec![0.0f32; num_blocks * BLOCK_SIZE];
 
     for block_idx in 0..num_blocks {
         let block_start = block_idx * BLOCK_BYTES;
+        let out_start = block_idx * BLOCK_SIZE;
 
         let d_bytes = &data[block_start..block_start + 2];
         let d = f16_to_f32(u16::from_le_bytes([d_bytes[0], d_bytes[1]]));
@@ -253,11 +260,17 @@ pub fn dequantize_q4_1(data: &[u8]) -> Result<Vec<f32>> {
 
         let quants = &data[block_start + 4..block_start + 20];
 
-        for &byte in quants {
+        // Use candle layout (same as Q4_0):
+        // - Low nibbles (byte & 0xF) at positions 0-15
+        // - High nibbles (byte >> 4) at positions 16-31
+        for (j, &byte) in quants.iter().enumerate() {
+            // Low 4 bits go to position j (0-15)
             let low = byte & 0x0F;
-            result.push(d * f32::from(low) + min);
+            result[out_start + j] = d * f32::from(low) + min;
+
+            // High 4 bits go to position j + 16 (16-31)
             let high = (byte >> 4) & 0x0F;
-            result.push(d * f32::from(high) + min);
+            result[out_start + j + 16] = d * f32::from(high) + min;
         }
     }
 
@@ -265,6 +278,11 @@ pub fn dequantize_q4_1(data: &[u8]) -> Result<Vec<f32>> {
 }
 
 /// Dequantize `Q5_0` format weights
+///
+/// Q5_0 format: 2 bytes (f16 scale) + 4 bytes (high bits) + 16 bytes (quants) = 22 bytes
+/// GGUF/candle layout:
+/// - Positions 0-15: low nibbles + high bits from qh
+/// - Positions 16-31: high nibbles + high bits from qh
 pub fn dequantize_q5_0(data: &[u8]) -> Result<Vec<f32>> {
     const BLOCK_BYTES: usize = 22;
 
@@ -279,10 +297,12 @@ pub fn dequantize_q5_0(data: &[u8]) -> Result<Vec<f32>> {
     }
 
     let num_blocks = data.len() / BLOCK_BYTES;
-    let mut result = Vec::with_capacity(num_blocks * BLOCK_SIZE);
+    // Pre-allocate with correct size for candle layout
+    let mut result = vec![0.0f32; num_blocks * BLOCK_SIZE];
 
     for block_idx in 0..num_blocks {
         let block_start = block_idx * BLOCK_BYTES;
+        let out_start = block_idx * BLOCK_SIZE;
 
         let d_bytes = &data[block_start..block_start + 2];
         let d = f16_to_f32(u16::from_le_bytes([d_bytes[0], d_bytes[1]]));
@@ -296,20 +316,25 @@ pub fn dequantize_q5_0(data: &[u8]) -> Result<Vec<f32>> {
 
         let qs = &data[block_start + 6..block_start + 22];
 
+        // Use candle layout:
+        // - Low nibbles (byte & 0xF) at positions 0-15
+        // - High nibbles (byte >> 4) at positions 16-31
         for (i, &byte) in qs.iter().enumerate() {
+            // Low 4 bits + 5th bit go to position i (0-15)
             let low_q = byte & 0x0F;
-            let high_bit_low = ((qh >> (i * 2)) & 1) as u8;
+            let high_bit_low = ((qh >> i) & 1) as u8;
             let q_low = low_q | (high_bit_low << 4);
             #[allow(clippy::cast_possible_wrap)]
             let value_low = q_low as i8 - 16;
-            result.push(d * f32::from(value_low));
+            result[out_start + i] = d * f32::from(value_low);
 
+            // High 4 bits + 5th bit go to position i + 16 (16-31)
             let high_q = (byte >> 4) & 0x0F;
-            let high_bit_high = ((qh >> (i * 2 + 1)) & 1) as u8;
+            let high_bit_high = ((qh >> (i + 16)) & 1) as u8;
             let q_high = high_q | (high_bit_high << 4);
             #[allow(clippy::cast_possible_wrap)]
             let value_high = q_high as i8 - 16;
-            result.push(d * f32::from(value_high));
+            result[out_start + i + 16] = d * f32::from(value_high);
         }
     }
 
@@ -317,6 +342,11 @@ pub fn dequantize_q5_0(data: &[u8]) -> Result<Vec<f32>> {
 }
 
 /// Dequantize `Q5_1` format weights
+///
+/// Q5_1 format: 2 bytes (f16 scale) + 2 bytes (f16 min) + 4 bytes (high bits) + 16 bytes (quants) = 24 bytes
+/// GGUF/candle layout:
+/// - Positions 0-15: low nibbles + high bits from qh
+/// - Positions 16-31: high nibbles + high bits from qh
 pub fn dequantize_q5_1(data: &[u8]) -> Result<Vec<f32>> {
     const BLOCK_BYTES: usize = 24;
 
@@ -331,10 +361,12 @@ pub fn dequantize_q5_1(data: &[u8]) -> Result<Vec<f32>> {
     }
 
     let num_blocks = data.len() / BLOCK_BYTES;
-    let mut result = Vec::with_capacity(num_blocks * BLOCK_SIZE);
+    // Pre-allocate with correct size for candle layout
+    let mut result = vec![0.0f32; num_blocks * BLOCK_SIZE];
 
     for block_idx in 0..num_blocks {
         let block_start = block_idx * BLOCK_BYTES;
+        let out_start = block_idx * BLOCK_SIZE;
 
         let d_bytes = &data[block_start..block_start + 2];
         let d = f16_to_f32(u16::from_le_bytes([d_bytes[0], d_bytes[1]]));
@@ -351,16 +383,21 @@ pub fn dequantize_q5_1(data: &[u8]) -> Result<Vec<f32>> {
 
         let qs = &data[block_start + 8..block_start + 24];
 
+        // Use candle layout:
+        // - Low nibbles (byte & 0xF) at positions 0-15
+        // - High nibbles (byte >> 4) at positions 16-31
         for (i, &byte) in qs.iter().enumerate() {
+            // Low 4 bits + 5th bit go to position i (0-15)
             let low_q = byte & 0x0F;
-            let high_bit_low = ((qh >> (i * 2)) & 1) as u8;
+            let high_bit_low = ((qh >> i) & 1) as u8;
             let q_low = low_q | (high_bit_low << 4);
-            result.push(d * f32::from(q_low) + min);
+            result[out_start + i] = d * f32::from(q_low) + min;
 
+            // High 4 bits + 5th bit go to position i + 16 (16-31)
             let high_q = (byte >> 4) & 0x0F;
-            let high_bit_high = ((qh >> (i * 2 + 1)) & 1) as u8;
+            let high_bit_high = ((qh >> (i + 16)) & 1) as u8;
             let q_high = high_q | (high_bit_high << 4);
-            result.push(d * f32::from(q_high) + min);
+            result[out_start + i + 16] = d * f32::from(q_high) + min;
         }
     }
 

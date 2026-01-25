@@ -24,7 +24,7 @@
 #![allow(clippy::similar_names)]
 
 
-use super::monolith::OwnedQuantizedKVCache;
+use super::runtime::OwnedQuantizedKVCache;
 
 /// Statistics for batch generation configuration
 #[derive(Debug, Clone)]
