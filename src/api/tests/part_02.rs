@@ -141,6 +141,7 @@ fn test_imp_126b_cached_sync_has_generate_adaptive() {
         temperature: 0.0,
         top_k: 1,
         stop_tokens: vec![],
+        trace: false,
     };
 
     // Verify method exists by calling it (result may fail due to test model size)
@@ -1343,6 +1344,7 @@ fn test_imp_132a_adaptive_attention_records_cpu_latency() {
         temperature: 0.0,
         top_k: 1,
         stop_tokens: vec![],
+        trace: false,
     };
 
     // Generate tokens to trigger CPU dispatches (cache < 64 tokens)
@@ -1389,6 +1391,7 @@ fn test_imp_132b_latency_values_are_reasonable() {
         temperature: 0.0,
         top_k: 1,
         stop_tokens: vec![],
+        trace: false,
     };
 
     // Generate tokens
@@ -1435,6 +1438,7 @@ fn test_imp_132c_latency_count_matches_dispatch_count() {
         temperature: 0.0,
         top_k: 1,
         stop_tokens: vec![],
+        trace: false,
     };
 
     // Generate tokens
@@ -1483,6 +1487,7 @@ fn test_imp_132d_gpu_dispatches_record_latency() {
         temperature: 0.0,
         top_k: 1,
         stop_tokens: vec![],
+        trace: false,
     };
 
     // Generate enough tokens to trigger GPU dispatch (cache >= 64 tokens)

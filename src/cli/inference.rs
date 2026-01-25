@@ -19,6 +19,7 @@ pub fn run_gguf_inference(
     format: &str,
     force_gpu: bool,
     verbose: bool,
+    trace: bool,
 ) -> Result<()> {
     use crate::gguf::{MappedGGUFModel, OwnedQuantizedKVCache, OwnedQuantizedModel};
     use std::time::Instant;
@@ -121,11 +122,32 @@ pub fn run_gguf_inference(
     let mut cache = OwnedQuantizedKVCache::from_config(config, max_seq_len);
     let mut all_tokens = prompt_tokens.clone();
 
+    // PMAT-TRACE-GGUF-001: Trace config info
+    if trace {
+        eprintln!(
+            "[TRACE-CACHE] GGUF model: {} layers, hidden_dim={}, vocab={}",
+            config.num_layers, config.hidden_dim, config.vocab_size
+        );
+        eprintln!(
+            "[TRACE-CACHE] Prefill: {} tokens, max_gen={}",
+            prompt_tokens.len(),
+            max_tokens
+        );
+    }
+
     // Prefill: process prompt tokens to populate KV cache
     // We process all tokens but keep the logits from the last one
+    let prefill_start = Instant::now();
     let mut logits: Vec<f32> = vec![];
     for (pos, &token_id) in prompt_tokens.iter().enumerate() {
         logits = model.forward_cached(token_id, &mut cache, pos)?;
+    }
+    if trace {
+        eprintln!(
+            "[TRACE-CACHE] Prefill complete: {} tokens in {:?}",
+            prompt_tokens.len(),
+            prefill_start.elapsed()
+        );
     }
 
     // PAR-051: Diagnostic - show top5 logits after prefill
@@ -177,6 +199,7 @@ pub fn run_gguf_inference(
     // Decode: generate new tokens one at a time
     // First iteration uses logits from prefill, subsequent use new logits
     for i in 0..max_tokens {
+        let token_start = Instant::now();
         // For first iteration, use logits from prefill; otherwise compute new ones
         if i > 0 {
             let position = prompt_tokens.len() + i - 1;
@@ -198,6 +221,17 @@ pub fn run_gguf_inference(
             // Temperature sampling
             OwnedQuantizedModel::sample_topk(&logits, temperature, 40)
         };
+
+        // PMAT-TRACE-GGUF-001: Per-token timing
+        if trace && i > 0 {
+            let position = prompt_tokens.len() + i - 1;
+            eprintln!(
+                "[TRACE-CACHE] pos={}: {} layers took {:?}",
+                position,
+                config.num_layers,
+                token_start.elapsed()
+            );
+        }
 
         // PERF-002: Debug code removed (was PAR-058-DEBUG and PAR-060)
 
@@ -363,6 +397,7 @@ pub fn run_gguf_inference_gpu(
         temperature,
         top_k: if temperature <= 0.01 { 1 } else { 40 },
         stop_tokens,
+        trace: false,
     };
 
     // PAR-047: Use generate_full_cuda_with_cache for maximum GPU acceleration

@@ -331,6 +331,7 @@ pub async fn openai_chat_completions_handler(
             temperature,
             top_k: if temperature == 0.0 { 1 } else { 40 },
             stop_tokens: vec![eos_token_id],
+            trace: false,
         };
 
         let generated = match cached_model
@@ -509,6 +510,7 @@ pub async fn openai_chat_completions_handler(
             temperature,
             top_k: if temperature == 0.0 { 1 } else { 40 },
             stop_tokens: vec![eos_token_id],
+            trace: false,
         };
 
         // PAR-112: True streaming - handle streaming vs non-streaming with different paths
@@ -731,6 +733,7 @@ pub async fn openai_chat_completions_handler(
             temperature,
             top_k: if temperature == 0.0 { 1 } else { 40 },
             stop_tokens: vec![eos_token_id],
+            trace: false,
         };
 
         // PMAT-087: True streaming - handle streaming vs non-streaming with different paths

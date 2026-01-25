@@ -135,6 +135,7 @@ fn test_imp_121c_generate_with_adaptive_attention() {
         temperature: 0.0,
         top_k: 1,
         stop_tokens: Vec::new(),
+            trace: false,
     };
 
     // Generate with adaptive attention (should use CPU for short prompts)
@@ -822,6 +823,7 @@ fn test_imp_125a_generate_with_cache_adaptive() {
         temperature: 0.0, // Greedy for determinism
         top_k: 1,
         stop_tokens: vec![],
+        trace: false,
     };
 
     let prompt = vec![1u32, 2, 3]; // 3-token prompt
@@ -866,6 +868,7 @@ fn test_imp_125b_adaptive_matches_standard() {
         temperature: 0.0, // Greedy for determinism
         top_k: 1,
         stop_tokens: vec![],
+        trace: false,
     };
 
     let prompt = vec![1u32, 2, 3];
@@ -910,6 +913,7 @@ fn test_imp_125c_tracks_metrics_during_generation() {
         temperature: 0.0,
         top_k: 1,
         stop_tokens: vec![],
+        trace: false,
     };
 
     let prompt = vec![1u32, 2, 3, 4, 5];
@@ -954,6 +958,7 @@ fn test_imp_125d_long_generation_uses_gpu() {
         temperature: 0.0,
         top_k: 1,
         stop_tokens: vec![],
+        trace: false,
     };
 
     let prompt = vec![1u32, 2, 3, 4, 5];
@@ -1184,6 +1189,7 @@ fn test_parity002e_generate_with_batched_prefill() {
         temperature: 0.0,
         top_k: 1,
         stop_tokens: vec![],
+        trace: false,
     };
 
     let prompt = vec![1u32, 2, 3, 4];

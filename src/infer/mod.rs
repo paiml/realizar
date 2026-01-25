@@ -279,11 +279,12 @@ fn run_gguf_inference(config: &InferenceConfig) -> Result<InferenceResult> {
 
     let input_token_count = input_tokens.len();
 
-    // Configure generation
+    // Configure generation (PMAT-TRACE-GGUF-001: pass trace flag)
     let gen_config = QuantizedGenerateConfig {
         max_tokens: config.max_tokens.min(128),
         temperature: config.temperature,
         top_k: config.top_k,
+        trace: config.trace,
         ..Default::default()
     };
 
