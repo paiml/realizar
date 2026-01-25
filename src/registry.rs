@@ -627,7 +627,7 @@ mod tests {
         match result {
             Err(RealizarError::ModelAlreadyExists(id)) => {
                 assert_eq!(id, "test-model");
-            }
+            },
             _ => panic!("Expected ModelAlreadyExists error"),
         }
     }
@@ -753,7 +753,7 @@ mod tests {
         match result {
             Err(RealizarError::ModelNotFound(id)) => {
                 assert_eq!(id, "nonexistent-model-xyz");
-            }
+            },
             _ => panic!("Expected ModelNotFound error"),
         }
     }
@@ -766,7 +766,7 @@ mod tests {
         match result {
             Err(RealizarError::ModelNotFound(id)) => {
                 assert_eq!(id, "another-nonexistent");
-            }
+            },
             _ => panic!("Expected ModelNotFound error"),
         }
     }
@@ -779,7 +779,7 @@ mod tests {
         match result {
             Err(RealizarError::ModelNotFound(id)) => {
                 assert_eq!(id, "missing-model");
-            }
+            },
             _ => panic!("Expected ModelNotFound error"),
         }
     }
@@ -793,7 +793,7 @@ mod tests {
         match result {
             Err(RealizarError::ModelNotFound(id)) => {
                 assert_eq!(id, "nonexistent");
-            }
+            },
             _ => panic!("Expected ModelNotFound error"),
         }
     }
@@ -812,7 +812,7 @@ mod tests {
         match result {
             Err(RealizarError::ModelAlreadyExists(id)) => {
                 assert_eq!(id, "duplicate");
-            }
+            },
             _ => panic!("Expected ModelAlreadyExists error"),
         }
     }

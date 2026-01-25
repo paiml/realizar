@@ -11,9 +11,9 @@ use tower::util::ServiceExt;
 
 use crate::api::test_helpers::create_test_app;
 use crate::api::{
-    create_router, AppState, ChatChoice, ChatChunkChoice, ChatCompletionChunk,
-    ChatCompletionRequest, ChatCompletionResponse, ChatDelta, ChatMessage, ErrorResponse,
-    OpenAIModel, OpenAIModelsResponse, TraceData, TraceOperation, Usage,
+    ChatChoice, ChatChunkChoice, ChatCompletionChunk, ChatCompletionResponse, ChatDelta,
+    ChatMessage, ErrorResponse, OpenAIModel, OpenAIModelsResponse, TraceData, TraceOperation,
+    Usage,
 };
 
 // =============================================================================

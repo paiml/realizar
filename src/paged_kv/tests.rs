@@ -1720,7 +1720,10 @@ mod tests {
 
         // Verify parent data unchanged
         let parent_page = cache.get_page(parent_id, 0).expect("parent");
-        assert_eq!(parent_page.keys[0], 123.0, "Parent data should be preserved");
+        assert_eq!(
+            parent_page.keys[0], 123.0,
+            "Parent data should be preserved"
+        );
 
         // Verify child has new data
         let child_page = cache.get_page(child_id, 0).expect("child");
@@ -1807,7 +1810,7 @@ mod tests {
         // Create multiple sequences with low fill rates
         for _ in 0..10 {
             let seq = cache.allocate_sequence(32).expect("alloc"); // 2 pages each
-            // Only fill 1 token per sequence (high waste)
+                                                                   // Only fill 1 token per sequence (high waste)
             cache.update_tokens(seq, 1).expect("update");
         }
 

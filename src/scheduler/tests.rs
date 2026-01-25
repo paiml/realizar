@@ -2293,7 +2293,7 @@ mod tests {
         let mut output = SchedulerOutput::default();
         assert!(output.is_empty());
 
-        output.scheduled_seq_ids.push(crate::paged_kv::SeqId(1));
+        output.scheduled_seq_ids.push(crate::paged_kv::SeqId::new());
         assert!(!output.is_empty());
     }
 

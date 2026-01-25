@@ -367,13 +367,14 @@ fn test_forward_with_cache_swiglu() {
 #[test]
 fn test_predict_next_basic() {
     let config = create_test_config();
+    let vocab_size = config.vocab_size;
     let transformer = AprTransformer::new(config);
 
     let result = transformer.predict_next(&[0, 1, 2]);
     assert!(result.is_ok());
 
     let token = result.unwrap();
-    assert!(token < config.vocab_size as u32);
+    assert!(token < vocab_size as u32);
 }
 
 #[test]
