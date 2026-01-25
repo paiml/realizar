@@ -47,6 +47,8 @@ use crate::error::{RealizarError, Result};
 // PMAT-802: Extracted modules
 #[cfg(feature = "cuda")]
 mod cuda;
+#[cfg(all(test, feature = "cuda"))]
+mod cuda_tests;
 mod helpers;
 mod tokenizer;
 
