@@ -73,6 +73,7 @@ fn create_f32_layer(config: &AprTransformerConfig) -> AprTransformerLayer {
         ffn_down_weight: vec![0.01; intermediate_dim * hidden_dim],
         ffn_down_bias: None,
         ffn_gate_weight: Some(vec![0.01; hidden_dim * intermediate_dim]),
+        ffn_gate_bias: None,
     }
 }
 
@@ -90,6 +91,9 @@ fn create_minimal_f32_apr() -> AprTransformer {
         output_norm_bias: None,
         lm_head_weight: vec![0.01; vocab_size * hidden_dim],
         lm_head_bias: None,
+        q4k_layers: None,
+        lm_head_weight_q6k: None,
+        lm_head_weight_q4k: None,
     }
 }
 
@@ -107,6 +111,9 @@ fn create_gqa_f32_apr() -> AprTransformer {
         output_norm_bias: None,
         lm_head_weight: vec![0.01; vocab_size * hidden_dim],
         lm_head_bias: None,
+        q4k_layers: None,
+        lm_head_weight_q6k: None,
+        lm_head_weight_q4k: None,
     }
 }
 
@@ -241,11 +248,15 @@ fn test_apr_f32_to_gpu_with_optional_biases() {
             ffn_down_weight: vec![0.01; 128 * hidden_dim],
             ffn_down_bias: Some(vec![0.01; hidden_dim]),
             ffn_gate_weight: None,
+            ffn_gate_bias: None,
         }],
         output_norm_weight: vec![1.0; hidden_dim],
         output_norm_bias: Some(vec![0.1; hidden_dim]),
         lm_head_weight: vec![0.01; vocab_size * hidden_dim],
         lm_head_bias: Some(vec![0.001; vocab_size]),
+        q4k_layers: None,
+        lm_head_weight_q6k: None,
+        lm_head_weight_q4k: None,
     };
 
     let result = AprF32ToGpuAdapter::to_gpu_model(&apr);
@@ -276,11 +287,15 @@ fn test_apr_f32_to_gpu_without_optional_biases() {
             ffn_down_weight: vec![0.01; 128 * hidden_dim],
             ffn_down_bias: None,
             ffn_gate_weight: None,
+            ffn_gate_bias: None,
         }],
         output_norm_weight: vec![1.0; hidden_dim],
         output_norm_bias: None,
         lm_head_weight: vec![0.01; vocab_size * hidden_dim],
         lm_head_bias: None,
+        q4k_layers: None,
+        lm_head_weight_q6k: None,
+        lm_head_weight_q4k: None,
     };
 
     let result = AprF32ToGpuAdapter::to_gpu_model(&apr);
@@ -319,11 +334,15 @@ fn test_apr_f32_to_gpu_without_swiglu_gate() {
             ffn_down_weight: vec![0.01; 128 * hidden_dim],
             ffn_down_bias: None,
             ffn_gate_weight: None, // No gate
+            ffn_gate_bias: None,
         }],
         output_norm_weight: vec![1.0; hidden_dim],
         output_norm_bias: None,
         lm_head_weight: vec![0.01; vocab_size * hidden_dim],
         lm_head_bias: None,
+        q4k_layers: None,
+        lm_head_weight_q6k: None,
+        lm_head_weight_q4k: None,
     };
 
     let result = AprF32ToGpuAdapter::to_gpu_model(&apr);
@@ -641,6 +660,9 @@ fn test_apr_f32_to_gpu_multiple_layers() {
         output_norm_bias: None,
         lm_head_weight: vec![0.01; vocab_size * hidden_dim],
         lm_head_bias: None,
+        q4k_layers: None,
+        lm_head_weight_q6k: None,
+        lm_head_weight_q4k: None,
     };
 
     let result = AprF32ToGpuAdapter::to_gpu_model(&apr);

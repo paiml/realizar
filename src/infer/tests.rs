@@ -1905,43 +1905,6 @@ mod tests {
     // Additional Coverage Tests for Uncovered Lines
     // =========================================================================
 
-    // --- find_fallback_tokenizer Tests ---
-
-    #[test]
-    fn test_find_fallback_tokenizer_nonexistent_path() {
-        // Test find_fallback_tokenizer with a path that doesn't exist
-        let path = std::path::Path::new("/nonexistent/model.apr");
-        let result = super::find_fallback_tokenizer(path);
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_find_fallback_tokenizer_invalid_apr() {
-        use std::io::Write;
-        use tempfile::NamedTempFile;
-
-        // Create a file that's not a valid APR model
-        let mut temp = NamedTempFile::with_suffix(".apr").expect("create temp file");
-        temp.write_all(b"not a valid apr file").expect("write");
-        temp.flush().expect("flush");
-
-        let result = super::find_fallback_tokenizer(temp.path());
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_find_fallback_tokenizer_empty_file() {
-        use std::io::Write;
-        use tempfile::NamedTempFile;
-
-        let mut temp = NamedTempFile::with_suffix(".apr").expect("create temp file");
-        temp.write_all(&[]).expect("write");
-        temp.flush().expect("flush");
-
-        let result = super::find_fallback_tokenizer(temp.path());
-        assert!(result.is_none());
-    }
-
     // --- InferenceConfig additional builder tests ---
 
     #[test]

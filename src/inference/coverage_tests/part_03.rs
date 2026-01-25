@@ -620,8 +620,8 @@ fn test_q4k_weight_invalid_data_size() {
 
 #[test]
 fn test_q4k_weight_memory_stats_consistency() {
-    let in_dim = 512;
-    let out_dim = 2;
+    let in_dim: usize = 512;
+    let out_dim: usize = 2;
     let blocks_per_row = in_dim.div_ceil(256);
     let bytes_per_row = blocks_per_row * 144;
     let data = vec![0u8; out_dim * bytes_per_row];

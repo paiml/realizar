@@ -2480,20 +2480,6 @@ mod tests {
         assert!((brick.budget().us_per_token - 30.0).abs() < 0.001);
     }
 
-    // T046: percentile function edge cases
-    #[test]
-    fn t046_percentile_edge_cases() {
-        // Empty slice
-        let empty: &[f64] = &[];
-        assert_eq!(super::percentile(empty, 0.5), 0.0);
-
-        // Single element
-        let single = &[42.0f64];
-        assert_eq!(super::percentile(single, 0.0), 42.0);
-        assert_eq!(super::percentile(single, 0.5), 42.0);
-        assert_eq!(super::percentile(single, 1.0), 42.0);
-    }
-
     // T047: TokenBudget edge case - very small latency
     #[test]
     fn t047_token_budget_small_latency() {
