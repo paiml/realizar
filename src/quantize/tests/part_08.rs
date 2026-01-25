@@ -549,3 +549,362 @@ proptest! {
         );
     }
 }
+
+// =============================================================================
+// Phase 49: Multi-Block Tests for SIMD Loop Coverage
+// =============================================================================
+
+/// Generate multiple Q4_K super-blocks for multi-block testing
+fn gen_multi_q4k_blocks(num_blocks: usize) -> Vec<u8> {
+    (0..num_blocks)
+        .flat_map(|b| {
+            (0..144).map(move |i| ((i + b * 31) % 256) as u8)
+        })
+        .collect()
+}
+
+/// Generate multi-block Q8_K data
+fn gen_multi_q8k_data(num_blocks: usize) -> (Vec<f32>, Vec<i8>) {
+    let scales: Vec<f32> = (0..num_blocks)
+        .map(|b| 0.3 + (b as f32) * 0.1)
+        .collect();
+    let quants: Vec<i8> = (0..num_blocks * QK_K)
+        .map(|i| ((i % 127) as i8) - 64)
+        .collect();
+    (scales, quants)
+}
+
+// -----------------------------------------------------------------------------
+// fused_q4k_dot Multi-Block Tests
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_fused_q4k_dot_two_blocks() {
+    let q4k_data = gen_multi_q4k_blocks(2);
+    let activations = vec![0.1f32; 2 * QK_K];
+
+    let result = fused_q4k_dot(&q4k_data, &activations);
+    assert!(result.is_ok(), "2-block Q4K dot should succeed");
+}
+
+#[test]
+fn test_fused_q4k_dot_four_blocks() {
+    let q4k_data = gen_multi_q4k_blocks(4);
+    let activations: Vec<f32> = (0..4 * QK_K)
+        .map(|i| (i as f32 * 0.01) - 1.28)
+        .collect();
+
+    let result = fused_q4k_dot(&q4k_data, &activations);
+    assert!(result.is_ok(), "4-block Q4K dot should succeed");
+}
+
+#[test]
+fn test_fused_q4k_dot_eight_blocks() {
+    let q4k_data = gen_multi_q4k_blocks(8);
+    let activations: Vec<f32> = (0..8 * QK_K)
+        .map(|i| if i % 2 == 0 { 1.0 } else { -1.0 })
+        .collect();
+
+    let result = fused_q4k_dot(&q4k_data, &activations);
+    assert!(result.is_ok(), "8-block Q4K dot should succeed");
+}
+
+#[test]
+fn test_fused_q4k_dot_simd_two_blocks() {
+    let q4k_data = gen_multi_q4k_blocks(2);
+    let activations = vec![0.5f32; 2 * QK_K];
+
+    let result = fused_q4k_dot_simd(&q4k_data, &activations);
+    assert!(result.is_ok(), "2-block SIMD Q4K dot should succeed");
+}
+
+#[test]
+fn test_fused_q4k_dot_simd_four_blocks() {
+    let q4k_data = gen_multi_q4k_blocks(4);
+    let activations: Vec<f32> = (0..4 * QK_K)
+        .map(|i| (i as f32).sin() * 0.5)
+        .collect();
+
+    let result = fused_q4k_dot_simd(&q4k_data, &activations);
+    assert!(result.is_ok(), "4-block SIMD Q4K dot should succeed");
+}
+
+#[test]
+fn test_fused_q4k_dot_simd_eight_blocks() {
+    let q4k_data = gen_multi_q4k_blocks(8);
+    let activations = vec![0.25f32; 8 * QK_K];
+
+    let result = fused_q4k_dot_simd(&q4k_data, &activations);
+    assert!(result.is_ok(), "8-block SIMD Q4K dot should succeed");
+}
+
+#[test]
+fn test_fused_q4k_dot_simd_sixteen_blocks() {
+    let q4k_data = gen_multi_q4k_blocks(16);
+    let activations: Vec<f32> = (0..16 * QK_K)
+        .map(|i| ((i % 64) as f32 - 32.0) * 0.1)
+        .collect();
+
+    let result = fused_q4k_dot_simd(&q4k_data, &activations);
+    assert!(result.is_ok(), "16-block SIMD Q4K dot should succeed");
+}
+
+#[test]
+fn test_fused_q4k_dot_multi_block_simd_vs_scalar() {
+    for num_blocks in [2, 4, 8] {
+        let q4k_data = gen_multi_q4k_blocks(num_blocks);
+        let activations: Vec<f32> = (0..num_blocks * QK_K)
+            .map(|i| (i as f32 * 0.001) - 0.128)
+            .collect();
+
+        let scalar = fused_q4k_dot(&q4k_data, &activations).expect("scalar");
+        let simd = fused_q4k_dot_simd(&q4k_data, &activations).expect("simd");
+
+        if scalar.is_finite() && simd.is_finite() {
+            let tolerance = scalar.abs() * 0.01 + simd.abs() * 0.01 + 0.01;
+            assert!(
+                (scalar - simd).abs() <= tolerance,
+                "{}-block: scalar={}, simd={}, diff={}",
+                num_blocks, scalar, simd, (scalar - simd).abs()
+            );
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// fused_q4k_q8k_dot Multi-Block Tests
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_fused_q4k_q8k_dot_two_blocks() {
+    let q4k_data = gen_multi_q4k_blocks(2);
+    let (q8k_scales, q8k_quants) = gen_multi_q8k_data(2);
+
+    let result = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants);
+    assert!(result.is_ok(), "2-block Q4K×Q8K dot should succeed");
+}
+
+#[test]
+fn test_fused_q4k_q8k_dot_four_blocks() {
+    let q4k_data = gen_multi_q4k_blocks(4);
+    let (q8k_scales, q8k_quants) = gen_multi_q8k_data(4);
+
+    let result = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants);
+    assert!(result.is_ok(), "4-block Q4K×Q8K dot should succeed");
+}
+
+#[test]
+fn test_fused_q4k_q8k_dot_eight_blocks() {
+    let q4k_data = gen_multi_q4k_blocks(8);
+    let (q8k_scales, q8k_quants) = gen_multi_q8k_data(8);
+
+    let result = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants);
+    assert!(result.is_ok(), "8-block Q4K×Q8K dot should succeed");
+}
+
+#[test]
+fn test_fused_q4k_q8k_dot_simd_two_blocks() {
+    let q4k_data = gen_multi_q4k_blocks(2);
+    let (q8k_scales, q8k_quants) = gen_multi_q8k_data(2);
+
+    let result = fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants);
+    assert!(result.is_ok(), "2-block SIMD Q4K×Q8K dot should succeed");
+}
+
+#[test]
+fn test_fused_q4k_q8k_dot_simd_four_blocks() {
+    let q4k_data = gen_multi_q4k_blocks(4);
+    let (q8k_scales, q8k_quants) = gen_multi_q8k_data(4);
+
+    let result = fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants);
+    assert!(result.is_ok(), "4-block SIMD Q4K×Q8K dot should succeed");
+}
+
+#[test]
+fn test_fused_q4k_q8k_dot_simd_eight_blocks() {
+    let q4k_data = gen_multi_q4k_blocks(8);
+    let (q8k_scales, q8k_quants) = gen_multi_q8k_data(8);
+
+    let result = fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants);
+    assert!(result.is_ok(), "8-block SIMD Q4K×Q8K dot should succeed");
+}
+
+#[test]
+fn test_fused_q4k_q8k_dot_simd_sixteen_blocks() {
+    let q4k_data = gen_multi_q4k_blocks(16);
+    let (q8k_scales, q8k_quants) = gen_multi_q8k_data(16);
+
+    let result = fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants);
+    assert!(result.is_ok(), "16-block SIMD Q4K×Q8K dot should succeed");
+}
+
+#[test]
+fn test_fused_q4k_q8k_dot_multi_block_simd_vs_scalar() {
+    for num_blocks in [2, 4, 8] {
+        let q4k_data = gen_multi_q4k_blocks(num_blocks);
+        let (q8k_scales, q8k_quants) = gen_multi_q8k_data(num_blocks);
+
+        let scalar = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).expect("scalar");
+        let simd = fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants).expect("simd");
+
+        if scalar.is_finite() && simd.is_finite() {
+            let tolerance = scalar.abs() * 0.01 + simd.abs() * 0.01 + 1.0;
+            assert!(
+                (scalar - simd).abs() <= tolerance,
+                "{}-block Q4K×Q8K: scalar={}, simd={}, diff={}",
+                num_blocks, scalar, simd, (scalar - simd).abs()
+            );
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Edge Case Activation Patterns
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_fused_q4k_dot_all_negative_activations() {
+    let q4k_data = gen_multi_q4k_blocks(1);
+    let activations = vec![-0.5f32; QK_K];
+
+    let result = fused_q4k_dot(&q4k_data, &activations);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_fused_q4k_dot_alternating_activations() {
+    let q4k_data = gen_multi_q4k_blocks(2);
+    let activations: Vec<f32> = (0..2 * QK_K)
+        .map(|i| if i % 2 == 0 { 1.0 } else { -1.0 })
+        .collect();
+
+    let scalar = fused_q4k_dot(&q4k_data, &activations).expect("scalar");
+    let simd = fused_q4k_dot_simd(&q4k_data, &activations).expect("simd");
+
+    assert!(scalar.is_finite());
+    assert!(simd.is_finite());
+}
+
+#[test]
+fn test_fused_q4k_dot_sparse_activations() {
+    let q4k_data = gen_multi_q4k_blocks(2);
+    // Only every 8th activation is non-zero
+    let activations: Vec<f32> = (0..2 * QK_K)
+        .map(|i| if i % 8 == 0 { 1.0 } else { 0.0 })
+        .collect();
+
+    let result = fused_q4k_dot_simd(&q4k_data, &activations);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_fused_q4k_dot_large_values() {
+    let q4k_data = gen_multi_q4k_blocks(1);
+    let activations = vec![100.0f32; QK_K];
+
+    let result = fused_q4k_dot_simd(&q4k_data, &activations);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_fused_q4k_dot_small_values() {
+    let q4k_data = gen_multi_q4k_blocks(1);
+    let activations = vec![1e-6f32; QK_K];
+
+    let result = fused_q4k_dot_simd(&q4k_data, &activations);
+    assert!(result.is_ok());
+}
+
+// -----------------------------------------------------------------------------
+// Q8K Edge Cases
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_fused_q4k_q8k_dot_all_negative_quants() {
+    let q4k_data = gen_multi_q4k_blocks(1);
+    let q8k_scales = vec![1.0f32];
+    let q8k_quants = vec![-64i8; QK_K];
+
+    let result = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_fused_q4k_q8k_dot_max_quant_values() {
+    let q4k_data = gen_multi_q4k_blocks(1);
+    let q8k_scales = vec![1.0f32];
+    let q8k_quants = vec![127i8; QK_K];
+
+    let result = fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_fused_q4k_q8k_dot_min_quant_values() {
+    let q4k_data = gen_multi_q4k_blocks(1);
+    let q8k_scales = vec![1.0f32];
+    let q8k_quants = vec![-128i8; QK_K];
+
+    let result = fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_fused_q4k_q8k_dot_alternating_quants() {
+    let q4k_data = gen_multi_q4k_blocks(2);
+    let q8k_scales = vec![0.5f32, 1.5f32];
+    let q8k_quants: Vec<i8> = (0..2 * QK_K)
+        .map(|i| if i % 2 == 0 { 100 } else { -100 })
+        .collect();
+
+    let scalar = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).expect("scalar");
+    let simd = fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants).expect("simd");
+
+    assert!(scalar.is_finite());
+    assert!(simd.is_finite());
+}
+
+#[test]
+fn test_fused_q4k_q8k_dot_zero_scales() {
+    let q4k_data = gen_multi_q4k_blocks(2);
+    let q8k_scales = vec![0.0f32, 0.0f32];
+    let q8k_quants: Vec<i8> = (0..2 * QK_K).map(|i| (i % 127) as i8).collect();
+
+    let result = fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants);
+    assert!(result.is_ok());
+    // With zero scales, result should be zero or very small
+}
+
+#[test]
+fn test_fused_q4k_q8k_dot_large_scales() {
+    let q4k_data = gen_multi_q4k_blocks(1);
+    let q8k_scales = vec![1000.0f32];
+    let q8k_quants = vec![10i8; QK_K];
+
+    let result = fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants);
+    assert!(result.is_ok());
+}
+
+// -----------------------------------------------------------------------------
+// Stress Tests
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_fused_q4k_dot_simd_32_blocks() {
+    let q4k_data = gen_multi_q4k_blocks(32);
+    let activations: Vec<f32> = (0..32 * QK_K)
+        .map(|i| (i as f32 * 0.001).sin())
+        .collect();
+
+    let result = fused_q4k_dot_simd(&q4k_data, &activations);
+    assert!(result.is_ok(), "32-block stress test should succeed");
+}
+
+#[test]
+fn test_fused_q4k_q8k_dot_simd_32_blocks() {
+    let q4k_data = gen_multi_q4k_blocks(32);
+    let (q8k_scales, q8k_quants) = gen_multi_q8k_data(32);
+
+    let result = fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants);
+    assert!(result.is_ok(), "32-block Q4K×Q8K stress test should succeed");
+}
