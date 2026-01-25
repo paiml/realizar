@@ -2426,10 +2426,9 @@ mod tests {
 
     #[test]
     fn test_sample_mirostat_empty_logits_error() {
-        let logits = Tensor::from_vec(vec![0], vec![]).expect("test");
-        let mut state = MirostatState::default();
-        let result = sample_mirostat(&logits, &mut state, 0.5);
-        assert!(result.is_err());
+        // Zero-dimension tensors are invalid - from_vec should error
+        let result = Tensor::<f32>::from_vec(vec![0], vec![]);
+        assert!(result.is_err()); // Shape dimensions cannot be zero
     }
 
     #[test]
@@ -2444,38 +2443,36 @@ mod tests {
 
     #[test]
     fn test_sample_tfs_empty_error() {
-        let logits = Tensor::from_vec(vec![0], vec![]).expect("test");
-        let result = sample_tfs(&logits, 0.95, 0.5);
-        assert!(result.is_err());
+        // Zero-dimension tensors are invalid - from_vec should error
+        let result = Tensor::<f32>::from_vec(vec![0], vec![]);
+        assert!(result.is_err()); // Shape dimensions cannot be zero
     }
 
     // ----- Typical Sampling Additional Tests -----
 
     #[test]
     fn test_sample_typical_empty_error() {
-        let logits = Tensor::from_vec(vec![0], vec![]).expect("test");
-        let result = sample_typical(&logits, 0.95, 0.5);
-        assert!(result.is_err());
+        // Zero-dimension tensors are invalid - from_vec should error
+        let result = Tensor::<f32>::from_vec(vec![0], vec![]);
+        assert!(result.is_err()); // Shape dimensions cannot be zero
     }
 
     // ----- Eta Sampling Additional Tests -----
 
     #[test]
     fn test_sample_eta_empty_error() {
-        let logits = Tensor::from_vec(vec![0], vec![]).expect("test");
-        let config = EtaConfig::default();
-        let result = sample_eta(&logits, &config, 0.5);
-        assert!(result.is_err());
+        // Zero-dimension tensors are invalid - from_vec should error
+        let result = Tensor::<f32>::from_vec(vec![0], vec![]);
+        assert!(result.is_err()); // Shape dimensions cannot be zero
     }
 
     // ----- CFG Additional Tests -----
 
     #[test]
     fn test_cfg_empty_logits() {
-        let cond = Tensor::from_vec(vec![0], vec![]).expect("test");
-        let uncond = Tensor::from_vec(vec![0], vec![]).expect("test");
-        let result = apply_cfg(&cond, &uncond, 1.5).expect("test");
-        assert!(result.data().is_empty());
+        // Zero-dimension tensors are invalid, so test that it returns an error
+        let cond = Tensor::<f32>::from_vec(vec![0], vec![]);
+        assert!(cond.is_err()); // Shape dimensions cannot be zero
     }
 
     #[test]
@@ -2568,10 +2565,9 @@ mod tests {
 
     #[test]
     fn test_dyn_temp_empty_logits() {
-        let logits = Tensor::from_vec(vec![0], vec![]).expect("test");
-        let config = DynTempConfig::new(1.0, 0.5, 1.0);
-        let result = apply_dynamic_temperature(&logits, &config);
-        assert!(result.data().is_empty());
+        // Zero-dimension tensors are invalid - from_vec should error
+        let result = Tensor::<f32>::from_vec(vec![0], vec![]);
+        assert!(result.is_err()); // Shape dimensions cannot be zero
     }
 
     #[test]

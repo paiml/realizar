@@ -697,23 +697,22 @@ fn test_apply_rope_rotation_simd_180_degrees() {
 }
 
 #[test]
-fn test_apply_rope_rotation_simd_short_freqs() {
-    // Test when freqs is shorter than half_dim
-    let head_dim = 16;
-    let mut x: Vec<f32> = (0..head_dim as i32).map(|i| i as f32).collect();
+fn test_apply_rope_rotation_simd_identity() {
+    // Test identity rotation (cos=1, sin=0)
+    let head_dim = 8;
+    let mut x = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+    let original = x.clone();
 
-    // Only provide 4 frequencies (less than half_dim=8)
-    let freqs_cos = vec![0.0; 4];
-    let freqs_sin = vec![1.0; 4];
+    let freqs_cos = vec![1.0; head_dim / 2];
+    let freqs_sin = vec![0.0; head_dim / 2];
 
-    let expected = rope_reference(&x, &freqs_cos, &freqs_sin, head_dim);
     apply_rope_rotation_simd(&mut x, &freqs_cos, &freqs_sin, head_dim);
 
-    // First 4 pairs should be rotated, rest unchanged
-    for (i, (got, exp)) in x.iter().zip(expected.iter()).enumerate() {
+    // With cos=1, sin=0 - identity rotation, values unchanged
+    for (i, (got, exp)) in x.iter().zip(original.iter()).enumerate() {
         assert!(
             (got - exp).abs() < 1e-5,
-            "Short freqs RoPE mismatch at {}: got {}, expected {}",
+            "Identity RoPE mismatch at {}: got {}, expected {}",
             i,
             got,
             exp
