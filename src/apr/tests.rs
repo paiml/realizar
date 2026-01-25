@@ -4514,4 +4514,128 @@ mod tests {
             err_msg
         );
     }
+
+    // =========================================================================
+    // SimpleTokenizer Tests (GH-156)
+    // =========================================================================
+
+    #[test]
+    fn test_simple_tokenizer_new() {
+        use crate::apr::SimpleTokenizer;
+
+        let vocab = vec![
+            "<pad>".to_string(),
+            "<bos>".to_string(),
+            "<eos>".to_string(),
+            "hello".to_string(),
+            "world".to_string(),
+        ];
+        let tokenizer = SimpleTokenizer::new(vocab, Some(1), Some(2));
+
+        assert_eq!(tokenizer.vocab_size(), 5);
+        assert!(tokenizer.is_bos(1));
+        assert!(tokenizer.is_eos(2));
+        assert!(!tokenizer.is_bos(0));
+        assert!(!tokenizer.is_eos(0));
+    }
+
+    #[test]
+    fn test_simple_tokenizer_decode_basic() {
+        use crate::apr::SimpleTokenizer;
+
+        let vocab = vec![
+            "<pad>".to_string(),
+            "<bos>".to_string(),
+            "<eos>".to_string(),
+            "hello".to_string(),
+            "world".to_string(),
+        ];
+        let tokenizer = SimpleTokenizer::new(vocab, Some(1), Some(2));
+
+        // Decode tokens [3, 4] -> "helloworld"
+        let decoded = tokenizer.decode(&[3, 4]);
+        assert_eq!(decoded, "helloworld");
+    }
+
+    #[test]
+    fn test_simple_tokenizer_decode_bpe_space() {
+        use crate::apr::SimpleTokenizer;
+
+        // BPE-style tokens with Ġ prefix (represents space)
+        let vocab = vec![
+            "<pad>".to_string(),
+            "<bos>".to_string(),
+            "<eos>".to_string(),
+            "Ġhello".to_string(),  // " hello"
+            "Ġworld".to_string(),  // " world"
+            "!".to_string(),
+        ];
+        let tokenizer = SimpleTokenizer::new(vocab, Some(1), Some(2));
+
+        // Decode tokens [3, 4, 5] -> " hello world!"
+        let decoded = tokenizer.decode(&[3, 4, 5]);
+        assert_eq!(decoded, " hello world!");
+    }
+
+    #[test]
+    fn test_simple_tokenizer_decode_out_of_bounds() {
+        use crate::apr::SimpleTokenizer;
+
+        let vocab = vec!["a".to_string(), "b".to_string()];
+        let tokenizer = SimpleTokenizer::new(vocab, None, None);
+
+        // Token 99 is out of bounds - should be skipped or handled gracefully
+        let decoded = tokenizer.decode(&[0, 99, 1]);
+        // Should contain "a" and "b", may have placeholder for 99
+        assert!(decoded.contains('a'));
+        assert!(decoded.contains('b'));
+    }
+
+    #[test]
+    fn test_simple_tokenizer_no_special_tokens() {
+        use crate::apr::SimpleTokenizer;
+
+        let vocab = vec!["x".to_string(), "y".to_string()];
+        let tokenizer = SimpleTokenizer::new(vocab, None, None);
+
+        // No BOS/EOS defined
+        assert!(!tokenizer.is_bos(0));
+        assert!(!tokenizer.is_bos(1));
+        assert!(!tokenizer.is_eos(0));
+        assert!(!tokenizer.is_eos(1));
+    }
+
+    #[test]
+    fn test_simple_tokenizer_empty_decode() {
+        use crate::apr::SimpleTokenizer;
+
+        let vocab = vec!["a".to_string()];
+        let tokenizer = SimpleTokenizer::new(vocab, None, None);
+
+        let decoded = tokenizer.decode(&[]);
+        assert_eq!(decoded, "");
+    }
+
+    #[test]
+    fn test_simple_tokenizer_clone() {
+        use crate::apr::SimpleTokenizer;
+
+        let vocab = vec!["test".to_string()];
+        let tokenizer = SimpleTokenizer::new(vocab, Some(0), None);
+        let cloned = tokenizer.clone();
+
+        assert_eq!(tokenizer.vocab_size(), cloned.vocab_size());
+        assert_eq!(tokenizer.bos_token_id, cloned.bos_token_id);
+    }
+
+    #[test]
+    fn test_simple_tokenizer_debug() {
+        use crate::apr::SimpleTokenizer;
+
+        let vocab = vec!["a".to_string()];
+        let tokenizer = SimpleTokenizer::new(vocab, None, None);
+        let debug_str = format!("{:?}", tokenizer);
+
+        assert!(debug_str.contains("SimpleTokenizer"));
+    }
 }

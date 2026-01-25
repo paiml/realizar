@@ -21,6 +21,11 @@
 //! - `part_14.rs`: PARITY-018 - PARITY-025 (GPU Batch FFN & Request Infrastructure)
 //! - `part_15.rs`: PARITY-026 - PARITY-034 (FlashAttention & Infrastructure)
 //! - `part_16.rs`: PARITY-035 (Chunked Prefill for Long Contexts)
+//! - `part_17.rs`: Phase 33 - Forward Pass Coverage (forward/core.rs)
+//! - `part_18.rs`: Phase 33 - GGUF Loader Coverage (loader.rs)
+//! - `part_19.rs`: Phase 34 - Thread-safe Cache (cached/sync.rs)
+//! - `part_20.rs`: Phase 34 - Matmul Coverage (matmul.rs)
+//! - `part_21.rs`: Phase 34 - Transformer Structure (transformer.rs)
 
 mod part_01;
 mod part_02;
@@ -38,3 +43,8 @@ mod part_13;
 mod part_14;
 mod part_15;
 mod part_16;
+mod part_17;
+mod part_18;
+mod part_19;
+mod part_20;
+mod part_21;

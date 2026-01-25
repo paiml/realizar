@@ -1,0 +1,575 @@
+//! Token generation methods for CUDA-accelerated inference
+//!
+//! This module contains all generation loop implementations:
+//! - `generate_cuda`: Basic CUDA generation
+//! - `generate_cuda_with_cache`: Generation with KV cache
+//! - `generate_full_cuda_with_cache`: Full GPU generation with cache
+//! - `generate_gpu_resident`: GPU-resident generation (minimal transfers)
+//! - `generate_gpu_resident_streaming`: Streaming generation with callback
+//! - `generate_batch_gpu_resident`: Batch generation for multiple prompts
+
+use crate::error::{RealizarError, Result};
+use super::{OwnedQuantizedModelCuda, OwnedQuantizedKVCache, QuantizedGenerateConfig};
+use super::super::model::OwnedQuantizedModel;
+use super::verbose;
+
+impl OwnedQuantizedModelCuda {
+    /// Generate tokens using CUDA acceleration
+    ///
+    /// Uses `forward_cuda` for each token generation step.
+    ///
+    /// # Arguments
+    ///
+    /// * `prompt` - Initial token IDs
+    /// * `config` - Generation configuration (max_tokens, temperature, etc.)
+    ///
+    /// # Returns
+    ///
+    /// Generated token sequence including prompt
+    pub fn generate_cuda(
+        &mut self,
+        prompt: &[u32],
+        config: &QuantizedGenerateConfig,
+    ) -> Result<Vec<u32>> {
+        if prompt.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut tokens = prompt.to_vec();
+
+        for _ in 0..config.max_tokens {
+            let logits = self.forward_cuda(&tokens)?;
+
+            // Greedy sampling (temperature=0)
+            let next_token = if config.temperature == 0.0 || config.top_k == 1 {
+                logits
+                    .iter()
+                    .enumerate()
+                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                    .map_or(0, |(idx, _)| idx as u32)
+            } else {
+                // Top-k sampling
+                let mut indexed: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
+                indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                indexed.truncate(config.top_k);
+
+                // Apply temperature and sample (simplified - take max after temperature)
+                let max_logit = indexed[0].1;
+                let _exp_sum: f32 = indexed
+                    .iter()
+                    .map(|(_, l)| ((l - max_logit) / config.temperature).exp())
+                    .sum();
+
+                // Take argmax (proper probabilistic sampling would use exp_sum for normalization)
+                indexed[0].0 as u32
+            };
+
+            // Check stop tokens
+            if config.stop_tokens.contains(&next_token) {
+                break;
+            }
+
+            tokens.push(next_token);
+        }
+
+        Ok(tokens)
+    }
+
+    /// Generate tokens using CUDA with KV cache
+    ///
+    /// Uses `forward_single_cuda_with_cache` for incremental decoding with KV cache.
+    ///
+    /// # Arguments
+    ///
+    /// * `prompt` - Initial token IDs
+    /// * `config` - Generation configuration
+    ///
+    /// # Returns
+    ///
+    /// Generated token sequence including prompt
+    pub fn generate_cuda_with_cache(
+        &mut self,
+        prompt: &[u32],
+        config: &QuantizedGenerateConfig,
+    ) -> Result<Vec<u32>> {
+        if prompt.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // PAR-045: Create KV cache with GQA-aware dimensions
+        // For GQA models, K/V have kv_dim = num_kv_heads * head_dim (smaller than hidden_dim)
+        let num_kv_heads = self.model.config.num_kv_heads;
+        let head_dim = self.model.config.hidden_dim / self.model.config.num_heads;
+        let kv_dim = num_kv_heads * head_dim;
+        let mut cache = OwnedQuantizedKVCache::new(
+            self.model.config.num_layers,
+            kv_dim, // GQA: use kv_dim instead of hidden_dim
+            prompt.len() + config.max_tokens,
+        );
+
+        let mut tokens = prompt.to_vec();
+
+        // Process prompt tokens
+        for (pos, &token_id) in prompt.iter().enumerate() {
+            if pos < prompt.len() - 1 {
+                // Just populate the cache
+                let _ = self.forward_single_cuda_with_cache(token_id, &mut cache, pos)?;
+            }
+        }
+
+        // Generate from last prompt token
+        let mut position = prompt.len() - 1;
+        let mut last_token = prompt[prompt.len() - 1];
+
+        for _ in 0..config.max_tokens {
+            let logits = self.forward_single_cuda_with_cache(last_token, &mut cache, position)?;
+
+            // Greedy sampling (temperature=0)
+            let next_token = if config.temperature == 0.0 || config.top_k == 1 {
+                logits
+                    .iter()
+                    .enumerate()
+                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                    .map_or(0, |(idx, _)| idx as u32)
+            } else {
+                // Top-k sampling
+                let mut indexed: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
+                indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                indexed.truncate(config.top_k);
+                indexed[0].0 as u32
+            };
+
+            // Check stop tokens
+            if config.stop_tokens.contains(&next_token) {
+                break;
+            }
+
+            tokens.push(next_token);
+            last_token = next_token;
+            position += 1;
+        }
+
+        Ok(tokens)
+    }
+
+    /// IMP-1010: Full GPU-accelerated token generation
+    ///
+    /// Uses `forward_single_full_cuda_with_cache` for maximum GPU utilization.
+    /// All matmul operations (5 per layer) run on GPU.
+    ///
+    /// # Performance Target
+    ///
+    /// - CPU path: ~5 tok/s (limited by memory bandwidth)
+    /// - Full GPU path: ~200 tok/s (matching Ollama)
+    ///
+    /// # Arguments
+    ///
+    /// * `prompt` - Initial token IDs
+    /// * `config` - Generation configuration
+    ///
+    /// # Returns
+    ///
+    /// Generated token sequence including prompt
+    pub fn generate_full_cuda_with_cache(
+        &mut self,
+        prompt: &[u32],
+        config: &QuantizedGenerateConfig,
+    ) -> Result<Vec<u32>> {
+        if prompt.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // PAR-045: Create KV cache with GQA-aware dimensions
+        // For GQA models, K/V have kv_dim = num_kv_heads * head_dim (smaller than hidden_dim)
+        let num_kv_heads = self.model.config.num_kv_heads;
+        let head_dim = self.model.config.hidden_dim / self.model.config.num_heads;
+        let kv_dim = num_kv_heads * head_dim;
+        let mut cache = OwnedQuantizedKVCache::new(
+            self.model.config.num_layers,
+            kv_dim, // GQA: use kv_dim instead of hidden_dim
+            prompt.len() + config.max_tokens,
+        );
+
+        let mut tokens = prompt.to_vec();
+
+        // Process prompt tokens (prefill) - use full GPU path
+        for (pos, &token_id) in prompt.iter().enumerate() {
+            if pos < prompt.len() - 1 {
+                // Just populate the cache
+                let _ = self.forward_single_full_cuda_with_cache(token_id, &mut cache, pos)?;
+            }
+        }
+
+        // Generate from last prompt token
+        let mut position = prompt.len() - 1;
+        let mut last_token = prompt[prompt.len() - 1];
+
+        for _ in 0..config.max_tokens {
+            let logits =
+                self.forward_single_full_cuda_with_cache(last_token, &mut cache, position)?;
+
+            // Greedy sampling (temperature=0)
+            let next_token = if config.temperature == 0.0 || config.top_k == 1 {
+                logits
+                    .iter()
+                    .enumerate()
+                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                    .map_or(0, |(idx, _)| idx as u32)
+            } else {
+                // Top-k sampling
+                let mut indexed: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
+                indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                indexed.truncate(config.top_k);
+                indexed[0].0 as u32
+            };
+
+            // Check stop tokens
+            if config.stop_tokens.contains(&next_token) {
+                break;
+            }
+
+            // PAR-050-DEBUG: Print sampled tokens
+            if tokens.len() <= 15 {
+                eprintln!(
+                    "[PAR-050] Generated token {}: {} (position {})",
+                    tokens.len() - prompt.len() + 1,
+                    next_token,
+                    position
+                );
+            }
+
+            tokens.push(next_token);
+            last_token = next_token;
+            position += 1;
+        }
+
+        Ok(tokens)
+    }
+
+    /// PAR-100: Speculative decoding with GPU-resident forward
+    ///
+    /// Uses GPU-resident path for fast single-token drafting, then verifies.
+    ///
+    /// # Theory (Five-Whys Root Cause)
+    ///
+    /// WHY is single-token decode limited to ~430 tok/s?
+    /// → Memory bandwidth bound: each token reads ALL weights from VRAM
+    ///
+    /// NOTE: Self-speculative decoding (same model for draft and verify) doesn't
+    /// improve throughput because draft phase still requires k weight reads.
+    /// True speedup requires either:
+    /// 1. Smaller draft model (e.g., 0.5B → 1.5B)
+    /// 2. Layer-skipping during draft (skip last N/2 layers)
+    ///
+    /// This implementation uses GPU-resident path for drafting to at least match
+    /// standard generation throughput as a baseline.
+    ///
+    /// # Arguments
+    ///
+    /// * `prompt` - Initial token IDs
+    /// * `config` - Generation configuration (uses max_tokens)
+    /// * `speculation_k` - Number of tokens to draft speculatively (typically 4-8)
+    ///
+    /// # Returns
+    ///
+    /// Generated token sequence including prompt
+    pub fn generate_gpu_resident(
+        &mut self,
+        prompt: &[u32],
+        config: &QuantizedGenerateConfig,
+    ) -> Result<Vec<u32>> {
+        if prompt.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // THREAD-RESOLVED: Ensure CUDA context is current for this thread
+        // (context may have been created on a different thread, e.g., main vs tokio worker)
+        self.executor
+            .make_current()
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "cuda_make_current".to_string(),
+                reason: format!("Failed to set CUDA context current: {e}"),
+            })?;
+
+        // Check architecture support
+        if !self.supports_gpu_resident() {
+            return Err(RealizarError::UnsupportedOperation {
+                operation: "generate_gpu_resident".to_string(),
+                reason: "Model architecture not supported for GPU-resident path (requires separate Q/K/V, SwiGLU, RMSNorm)".to_string(),
+            });
+        }
+
+        // Pre-upload all weights to GPU
+        let bytes_uploaded = self.preload_weights_gpu()?;
+        if verbose() {
+            eprintln!(
+                "PAR-023: Pre-uploaded {} MB of weights to GPU",
+                bytes_uploaded / (1024 * 1024)
+            );
+        }
+
+        // PAR-045: Create KV cache with GQA-aware dimensions
+        // For GQA models, K/V have kv_dim = num_kv_heads * head_dim (smaller than hidden_dim)
+        let num_kv_heads = self.model.config.num_kv_heads;
+        let head_dim = self.model.config.hidden_dim / self.model.config.num_heads;
+        let kv_dim = num_kv_heads * head_dim;
+        let mut cache = OwnedQuantizedKVCache::new(
+            self.model.config.num_layers,
+            kv_dim, // GQA: use kv_dim instead of hidden_dim
+            prompt.len() + config.max_tokens,
+        );
+
+        // PAR-055 FIX: Reset GPU KV cache positions before new generation
+        // Without this, cache positions accumulate across generate calls causing degradation
+        self.executor.reset_kv_cache_gpu();
+
+        let mut tokens = prompt.to_vec();
+
+        // Process prompt tokens (prefill)
+        for (pos, &token_id) in prompt.iter().enumerate() {
+            if pos < prompt.len() - 1 {
+                let _ = self.forward_gpu_resident(token_id, &mut cache, pos)?;
+            }
+        }
+
+        // Generate from last prompt token
+        let mut position = prompt.len() - 1;
+        let mut last_token = prompt[prompt.len() - 1];
+
+        for _token_num in 0..config.max_tokens {
+            // PAR-062: Use GPU argmax path for greedy sampling (150,000x data transfer reduction)
+            let next_token = if config.temperature == 0.0 || config.top_k == 1 {
+                // Greedy sampling - use GPU-side argmax (4 bytes transfer vs 600KB)
+                self.forward_gpu_resident_to_token_id(last_token, &mut cache, position)?
+            } else {
+                // Non-greedy sampling - need full logits for proper temperature + top-k sampling
+                // PAR-063: Resolved issue where GPU path always took top token instead of sampling
+                let logits = self.forward_gpu_resident(last_token, &mut cache, position)?;
+                OwnedQuantizedModel::sample_topk(&logits, config.temperature, config.top_k)
+            };
+
+            // Check stop tokens
+            if config.stop_tokens.contains(&next_token) {
+                break;
+            }
+
+            tokens.push(next_token);
+            last_token = next_token;
+            position += 1;
+        }
+
+        Ok(tokens)
+    }
+
+    /// PAR-112: True token-by-token streaming generation
+    ///
+    /// Generates tokens one at a time and calls the callback after each token.
+    /// The callback receives the token ID and can return `false` to stop generation early.
+    ///
+    /// This enables true real-time streaming where each token is delivered
+    /// as soon as it's generated, rather than pseudo-streaming where all tokens
+    /// are generated first then iterated.
+    ///
+    /// # Arguments
+    ///
+    /// * `prompt` - Initial token IDs
+    /// * `config` - Generation configuration
+    /// * `on_token` - Callback called for each generated token, returns `false` to stop
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// model.generate_gpu_resident_streaming(&prompt, &config, |token_id| {
+    ///     println!("Generated: {}", token_id);
+    ///     true // continue generation
+    /// })?;
+    /// ```
+    pub fn generate_gpu_resident_streaming<F>(
+        &mut self,
+        prompt: &[u32],
+        config: &QuantizedGenerateConfig,
+        mut on_token: F,
+    ) -> Result<Vec<u32>>
+    where
+        F: FnMut(u32) -> bool,
+    {
+        if prompt.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // THREAD-RESOLVED: Ensure CUDA context is current for this thread
+        self.executor
+            .make_current()
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "cuda_make_current".to_string(),
+                reason: format!("Failed to set CUDA context current: {e}"),
+            })?;
+
+        // Check architecture support
+        if !self.supports_gpu_resident() {
+            return Err(RealizarError::UnsupportedOperation {
+                operation: "generate_gpu_resident_streaming".to_string(),
+                reason: "Model architecture not supported for GPU-resident path".to_string(),
+            });
+        }
+
+        // Pre-upload all weights to GPU
+        let _ = self.preload_weights_gpu()?;
+
+        // Create KV cache with GQA-aware dimensions
+        let num_kv_heads = self.model.config.num_kv_heads;
+        let head_dim = self.model.config.hidden_dim / self.model.config.num_heads;
+        let kv_dim = num_kv_heads * head_dim;
+        let mut cache = OwnedQuantizedKVCache::new(
+            self.model.config.num_layers,
+            kv_dim,
+            prompt.len() + config.max_tokens,
+        );
+
+        // Reset GPU KV cache positions
+        self.executor.reset_kv_cache_gpu();
+
+        let mut tokens = prompt.to_vec();
+
+        // Process prompt tokens (prefill)
+        for (pos, &token_id) in prompt.iter().enumerate() {
+            if pos < prompt.len() - 1 {
+                let _ = self.forward_gpu_resident(token_id, &mut cache, pos)?;
+            }
+        }
+
+        // Generate from last prompt token
+        let mut position = prompt.len() - 1;
+        let mut last_token = prompt[prompt.len() - 1];
+
+        for _token_num in 0..config.max_tokens {
+            let next_token = if config.temperature == 0.0 || config.top_k == 1 {
+                self.forward_gpu_resident_to_token_id(last_token, &mut cache, position)?
+            } else {
+                let logits = self.forward_gpu_resident(last_token, &mut cache, position)?;
+                OwnedQuantizedModel::sample_topk(&logits, config.temperature, config.top_k)
+            };
+
+            // Check stop tokens
+            if config.stop_tokens.contains(&next_token) {
+                break;
+            }
+
+            tokens.push(next_token);
+
+            // PAR-112: Call the streaming callback IMMEDIATELY after generating each token
+            // If callback returns false, stop generation early
+            if !on_token(next_token) {
+                break;
+            }
+
+            last_token = next_token;
+            position += 1;
+        }
+
+        Ok(tokens)
+    }
+
+    /// PAR-106: Batched GPU-resident generation for continuous batching
+    ///
+    /// Processes multiple prompts concurrently with true weight sharing:
+    /// - Single weight read produces N tokens (one per active request)
+    /// - Target: 400 tok/s (2x Ollama) with 4+ concurrent requests
+    ///
+    /// Key optimization: Uses `forward_batch_with_cache_cuda_native` which
+    /// amortizes memory bandwidth across the batch.
+    pub fn generate_batch_gpu_resident(
+        &mut self,
+        prompts: &[Vec<u32>],
+        config: &QuantizedGenerateConfig,
+    ) -> Result<Vec<Vec<u32>>> {
+        if prompts.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Check architecture support
+        if !self.supports_gpu_resident() {
+            return Err(RealizarError::UnsupportedOperation {
+                operation: "generate_batch_gpu_resident".to_string(),
+                reason: "Model architecture not supported for GPU-resident path".to_string(),
+            });
+        }
+
+        let num_prompts = prompts.len();
+        let max_prompt_len = prompts.iter().map(Vec::len).max().unwrap_or(0);
+        let max_seq_len = max_prompt_len + config.max_tokens;
+
+        // Pre-upload all weights to GPU (once for entire batch)
+        let _ = self.preload_weights_gpu()?;
+
+        // PAR-045: Create KV caches with GQA-aware dimensions
+        let num_kv_heads = self.model.config.num_kv_heads;
+        let head_dim = self.model.config.hidden_dim / self.model.config.num_heads;
+        let kv_dim = num_kv_heads * head_dim;
+
+        let mut caches: Vec<OwnedQuantizedKVCache> = (0..num_prompts)
+            .map(|_| OwnedQuantizedKVCache::new(self.model.config.num_layers, kv_dim, max_seq_len))
+            .collect();
+
+        // Reset GPU KV cache positions
+        self.executor.reset_kv_cache_gpu();
+
+        // Initialize token sequences
+        let mut sequences: Vec<Vec<u32>> = prompts.to_vec();
+        let mut done: Vec<bool> = vec![false; num_prompts];
+
+        // Prefill: Process each prompt's tokens (can't batch different lengths easily)
+        for (prompt_idx, prompt) in prompts.iter().enumerate() {
+            for (pos, &token_id) in prompt.iter().enumerate() {
+                if pos < prompt.len() - 1 {
+                    // PAR-106: Use single-token forward for prefill
+                    // (batched prefill would require padding/masking complexity)
+                    let _ = self.forward_gpu_resident(token_id, &mut caches[prompt_idx], pos)?;
+                }
+            }
+        }
+
+        // Track positions per prompt
+        let mut positions: Vec<usize> = prompts.iter().map(|p| p.len() - 1).collect();
+        let mut last_tokens: Vec<u32> = prompts.iter().map(|p| p[p.len() - 1]).collect();
+
+        // PAR-106: Batched decode loop with weight sharing
+        for _gen_idx in 0..config.max_tokens {
+            // Collect active prompts
+            let active_indices: Vec<usize> = (0..num_prompts).filter(|&i| !done[i]).collect();
+
+            if active_indices.is_empty() {
+                break;
+            }
+
+            // PAR-106/PAR-108: Sequential CUDA graphs outperform batched CPU path.
+            // The batched GEMV kernel is 15x faster, but CUDA graphs amortize
+            // kernel launch overhead which is more impactful. Batched path achieves
+            // ~225 tok/s vs ~360 tok/s for sequential graphs.
+            //
+            // To achieve 2x Ollama (400 tok/s), need multi-token CUDA graph capture
+            // that batches M tokens into a single graph execution.
+            for &prompt_idx in &active_indices {
+                let next_token = self.forward_gpu_resident_to_token_id(
+                    last_tokens[prompt_idx],
+                    &mut caches[prompt_idx],
+                    positions[prompt_idx],
+                )?;
+
+                if config.stop_tokens.contains(&next_token) {
+                    done[prompt_idx] = true;
+                } else {
+                    sequences[prompt_idx].push(next_token);
+                    last_tokens[prompt_idx] = next_token;
+                    positions[prompt_idx] += 1;
+
+                    if sequences[prompt_idx].len() >= max_seq_len {
+                        done[prompt_idx] = true;
+                    }
+                }
+            }
+        }
+
+        Ok(sequences)
+    }
+}

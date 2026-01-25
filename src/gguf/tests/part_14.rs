@@ -14,7 +14,7 @@
 
 #![allow(clippy::needless_range_loop)]
 
-use crate::gguf::monolith::{
+use crate::gguf::{
     DequantizedFFNWeights, DequantizedWeightCache,
     QuantizedGenerateConfig,
 };

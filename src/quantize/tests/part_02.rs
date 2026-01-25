@@ -905,10 +905,11 @@ fn test_dequantize_q4_1_basic() {
         result[0]
     );
     // value = d * q + min = 1.0 * 1 + 0.5 = 1.5
+    // Note: High nibble goes to position 16 (candle layout: low=0-15, high=16-31)
     assert!(
-        (result[1] - 1.5).abs() < 1e-3,
+        (result[16] - 1.5).abs() < 1e-3,
         "Expected 1.5, got {}",
-        result[1]
+        result[16]
     );
 }
 

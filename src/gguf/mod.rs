@@ -34,20 +34,22 @@
 //
 // Migration Strategy: Include monolith, gradually extract, re-export all
 
-// Temporary: include the monolith during migration
-// Code will be moved to proper modules incrementally
-#[path = "../gguf_monolith.rs"]
-mod monolith;
 
-// Modular structure (re-exports from monolith during migration)
+// Modular structure
+mod batch_scheduler;
 mod config;
 #[cfg(feature = "cuda")]
+mod cuda;
+#[cfg(feature = "cuda")]
 mod cuda_model;
+mod inference;
 mod inference_types;
+mod loader;
 mod model;
 mod owned;
 mod quantized;
 mod runtime;
+mod transformer;
 mod types;
 pub(crate) mod utils;
 
@@ -58,21 +60,36 @@ pub(crate) mod ops;
 #[cfg(test)]
 pub(crate) mod test_helpers;
 
+// Test factory module - synthesize valid GGUF files in memory
+#[cfg(test)]
+pub(crate) mod test_factory;
+
+// Rosetta format factory - synthesize all model formats (GGUF, SafeTensors, APR)
+#[cfg(test)]
+pub(crate) mod format_factory;
+
 // Re-export types from organized modules
+pub use batch_scheduler::*;
 pub use config::*;
 #[cfg(feature = "cuda")]
 pub use cuda_model::*;
-// Note: inference_types re-exports are currently redundant with monolith::*
-// They will become the primary exports once extraction is complete
+#[cfg(feature = "cuda")]
+pub use cuda::CudaBackend;
 pub use model::*;
-pub use owned::*;
 pub use quantized::*;
 pub use runtime::*;
+pub use transformer::*;
 pub use types::*;
 
-// Re-export everything from monolith for backward compatibility
-// (this ensures any types not yet organized are still available)
-pub use monolith::*;
+// Re-export inference types
+pub use inference_types::*;
+
+// Re-export cached model types from inference module
+#[cfg(any(feature = "gpu", feature = "cuda"))]
+pub use inference::{
+    DequantizedFFNWeights, DequantizedWeightCache, OwnedQuantizedModelCached,
+    OwnedQuantizedModelCachedSync,
+};
 
 // Tests module - shattered from monolith into focused part files
 #[cfg(test)]

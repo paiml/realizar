@@ -120,12 +120,6 @@ pub use parallel_dequant::{
     dequantize_q8_0_parallel, dequantize_q8_0_simd,
     apply_rope_rotation_simd,
 };
-pub(crate) use parallel_dequant::{
-    dequantize_q8_0_block, dequantize_q4_k_superblock, apply_rope_rotation_scalar,
-};
-pub(crate) use activation::{
-    softmax_scalar, fused_swiglu_scalar, quantize_rmsnorm_q8_0_scalar,
-};
 
 // Re-export SIMD utilities for tests
 pub use simd::read_f16;
