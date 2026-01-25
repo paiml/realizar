@@ -481,6 +481,32 @@ impl GpuModel {
         self.scheduler.matmul(a, b, m, k, n)
     }
 
+    /// Matmul with transposed B: C[m,n] = A[m,k] @ B[n,k]^T
+    ///
+    /// Routes through test_executor if present, enabling mock testing of
+    /// attention score computation (Q @ K^T).
+    #[allow(clippy::many_single_char_names)]
+    pub fn do_matmul_transpose_b(
+        &mut self,
+        a: &[f32],
+        b: &[f32],
+        m: usize,
+        k: usize,
+        n: usize,
+    ) -> Result<Vec<f32>> {
+        // Test executor takes priority (for testing without GPU)
+        if let Some(ref mut test_exec) = self.test_executor {
+            // Transpose B and use standard matmul
+            let b_t: Vec<f32> = (0..k)
+                .flat_map(|i| (0..n).map(move |j| b[j * k + i]))
+                .collect();
+            return test_exec.matmul(a, &b_t, m, k, n);
+        }
+
+        // Use HybridScheduler which has matmul_transpose_b
+        self.scheduler.matmul_transpose_b(a, b, m, k, n)
+    }
+
     /// IMP-1007: Zero-clone matmul using split borrow pattern
     ///
     /// This method eliminates weight cloning by using Rust's split borrow pattern.

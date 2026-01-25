@@ -68,13 +68,13 @@ impl SimpleTokenizer {
     /// Check if token ID is end-of-sequence
     #[must_use]
     pub fn is_eos(&self, token_id: u32) -> bool {
-        self.eos_token_id.map_or(false, |eos| token_id == eos)
+        self.eos_token_id.is_some_and(|eos| token_id == eos)
     }
 
     /// Check if token ID is beginning-of-sequence
     #[must_use]
     pub fn is_bos(&self, token_id: u32) -> bool {
-        self.bos_token_id.map_or(false, |bos| token_id == bos)
+        self.bos_token_id.is_some_and(|bos| token_id == bos)
     }
 }
 
