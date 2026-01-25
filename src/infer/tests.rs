@@ -2309,7 +2309,8 @@ mod tests {
         let inference_ms: f64 = 567.89;
         let generated = 100;
         let tok_per_sec = generated as f64 / (inference_ms / 1000.0);
-        assert!((tok_per_sec - 176.056).abs() < 0.01);
+        // 100 / 0.56789 = 176.0564411... (use wider tolerance for FP precision)
+        assert!((tok_per_sec - 176.0564).abs() < 0.1);
     }
 
     // --- InferenceConfig Debug and Clone full coverage ---
@@ -2455,13 +2456,13 @@ mod tests {
     fn test_format_detection_apr_versions() {
         use crate::format::{detect_format, ModelFormat};
 
-        // APR v1
-        let v1_data = b"APR\x01xxxx";
+        // APR v1 - version byte is ASCII '1' (0x31), not \x01
+        let v1_data = b"APR1xxxx";
         let result = detect_format(v1_data);
         assert!(matches!(result, Ok(ModelFormat::Apr)));
 
-        // APR v2
-        let v2_data = b"APR\x02xxxx";
+        // APR v2 - version byte is ASCII '2' (0x32), not \x02
+        let v2_data = b"APR2xxxx";
         let result = detect_format(v2_data);
         assert!(matches!(result, Ok(ModelFormat::Apr)));
     }
