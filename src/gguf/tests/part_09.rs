@@ -1038,8 +1038,7 @@ fn test_parity015a_gpu_batch_matmul_actual() {
 
         // Perform actual matmul
         let start = std::time::Instant::now();
-        let result =
-            scheduler.matmul(&input, &weight, batch_size, hidden_dim, intermediate_dim);
+        let result = scheduler.matmul(&input, &weight, batch_size, hidden_dim, intermediate_dim);
         let elapsed = start.elapsed();
 
         match result {
@@ -1184,8 +1183,7 @@ fn test_parity015c_batched_layer_norm() {
             let mean: f32 = x.iter().sum::<f32>() / hidden_dim as f32;
 
             // Compute variance
-            let var: f32 =
-                x.iter().map(|&v| (v - mean).powi(2)).sum::<f32>() / hidden_dim as f32;
+            let var: f32 = x.iter().map(|&v| (v - mean).powi(2)).sum::<f32>() / hidden_dim as f32;
 
             let std = (var + eps).sqrt();
 
@@ -1456,8 +1454,7 @@ fn test_parity016a_gpu_batch_ffn_function() {
     // Check if GPU would be used
     if let Ok(scheduler) = HybridScheduler::new() {
         let should_gpu_up = scheduler.should_use_gpu(batch_size, hidden_dim, intermediate_dim);
-        let should_gpu_down =
-            scheduler.should_use_gpu(batch_size, intermediate_dim, hidden_dim);
+        let should_gpu_down = scheduler.should_use_gpu(batch_size, intermediate_dim, hidden_dim);
 
         println!("\nPARITY-016a: GPU Batch FFN Function Design");
         println!("  Batch size: {}", batch_size);
@@ -1608,8 +1605,7 @@ fn test_parity016c_batch_ffn_with_scheduler() {
 
         // Time the matmul
         let start = Instant::now();
-        let result =
-            scheduler.matmul(&input, &up_weight, batch_size, hidden_dim, intermediate_dim);
+        let result = scheduler.matmul(&input, &up_weight, batch_size, hidden_dim, intermediate_dim);
         let elapsed = start.elapsed();
 
         if let Ok(output) = result {
@@ -1619,9 +1615,8 @@ fn test_parity016c_batch_ffn_with_scheduler() {
                 "PARITY-016c: Output should be [batch, intermediate]"
             );
 
-            let gflops =
-                (2.0 * batch_size as f64 * hidden_dim as f64 * intermediate_dim as f64)
-                    / (elapsed.as_secs_f64() * 1e9);
+            let gflops = (2.0 * batch_size as f64 * hidden_dim as f64 * intermediate_dim as f64)
+                / (elapsed.as_secs_f64() * 1e9);
 
             println!("  Output shape: [{}x{}]", batch_size, intermediate_dim);
             println!("  Time: {:?}", elapsed);
@@ -1633,8 +1628,7 @@ fn test_parity016c_batch_ffn_with_scheduler() {
                 .map(|&x| {
                     // Approximate GELU
                     let x64 = x as f64;
-                    (x64 * 0.5
-                        * (1.0 + (x64 * 0.7978845608 * (1.0 + 0.044715 * x64 * x64)).tanh()))
+                    (x64 * 0.5 * (1.0 + (x64 * 0.7978845608 * (1.0 + 0.044715 * x64 * x64)).tanh()))
                         as f32
                 })
                 .collect();
@@ -2152,9 +2146,7 @@ fn test_parity017d_dequant_cache_struct() {
 
         fn memory_bytes(&self) -> usize {
             let cache = self.layers.lock().expect("mutex poisoned");
-            cache.len()
-                * (self.hidden_dim * self.intermediate_dim * 2)
-                * std::mem::size_of::<f32>()
+            cache.len() * (self.hidden_dim * self.intermediate_dim * 2) * std::mem::size_of::<f32>()
         }
 
         fn clear(&self) {
@@ -2179,8 +2171,8 @@ fn test_parity017d_dequant_cache_struct() {
         });
     }
 
-    let per_layer_mb = (hidden_dim * intermediate_dim * 2 * std::mem::size_of::<f32>()) as f64
-        / (1024.0 * 1024.0);
+    let per_layer_mb =
+        (hidden_dim * intermediate_dim * 2 * std::mem::size_of::<f32>()) as f64 / (1024.0 * 1024.0);
     let total_mb = cache.memory_bytes() as f64 / (1024.0 * 1024.0);
     let full_mb = per_layer_mb * num_layers as f64;
 
@@ -2268,8 +2260,7 @@ fn test_parity017e_end_to_end_batch_throughput() {
                 .iter()
                 .map(|&x| {
                     let x64 = x as f64;
-                    (x64 * 0.5
-                        * (1.0 + (x64 * 0.7978845608 * (1.0 + 0.044715 * x64 * x64)).tanh()))
+                    (x64 * 0.5 * (1.0 + (x64 * 0.7978845608 * (1.0 + 0.044715 * x64 * x64)).tanh()))
                         as f32
                 })
                 .collect();

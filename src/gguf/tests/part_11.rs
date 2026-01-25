@@ -1384,9 +1384,7 @@ fn test_parity060d_generation_loop() {
     println!("        let draft = generate_draft_tokens(&logits, config.speculation_length);");
     println!();
     println!("        // Verify with batch forward");
-    println!(
-        "        let (all_logits, accepted) = verify_draft_batch(&draft, &mut kv_cache)?;"
-    );
+    println!("        let (all_logits, accepted) = verify_draft_batch(&draft, &mut kv_cache)?;");
     println!();
     println!("        // Update stats");
     println!("        stats.total_draft_tokens += config.speculation_length;");

@@ -12,9 +12,7 @@ fn test_gpu_compute_auto_creation() {
     assert!(compute.is_ok(), "Auto creation should succeed");
     let compute = compute.expect("test");
     // Either GPU or CPU should be active
-    assert!(
-        compute.backend() == ComputeBackend::Gpu || compute.backend() == ComputeBackend::Cpu
-    );
+    assert!(compute.backend() == ComputeBackend::Gpu || compute.backend() == ComputeBackend::Cpu);
 }
 
 #[test]
@@ -1736,4 +1734,3 @@ fn test_imp_1003d_cuda_scheduler_matmul_dispatch() {
 // ========================================================================
 // IMP-1004: Benchmark CUDA vs CPU Inference
 // ========================================================================
-

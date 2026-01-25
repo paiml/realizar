@@ -9,15 +9,14 @@ use axum::{
 };
 use tower::util::ServiceExt;
 
-use crate::api::{
-    build_trace_data, create_router, format_chat_messages,
-    AppState, ChatChoice, ChatChunkChoice, ChatCompletionChunk, ChatCompletionRequest,
-    ChatCompletionResponse, ChatDelta, ChatMessage, ErrorResponse,
-    GenerateRequest, HealthResponse, OpenAIModel, OpenAIModelsResponse,
-    StreamDoneEvent, StreamTokenEvent, TokenizeResponse, TraceData, TraceOperation,
-    Usage, GenerateResponse,
-};
 use crate::api::test_helpers::create_test_app;
+use crate::api::{
+    build_trace_data, create_router, format_chat_messages, AppState, ChatChoice, ChatChunkChoice,
+    ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, ChatDelta, ChatMessage,
+    ErrorResponse, GenerateRequest, GenerateResponse, HealthResponse, OpenAIModel,
+    OpenAIModelsResponse, StreamDoneEvent, StreamTokenEvent, TokenizeResponse, TraceData,
+    TraceOperation, Usage,
+};
 
 // ============================================================================
 // ErrorResponse Coverage Tests
@@ -96,14 +95,12 @@ async fn test_openai_models_handler_demo_mode() {
 async fn test_openai_models_response_format() {
     let response = OpenAIModelsResponse {
         object: "list".to_string(),
-        data: vec![
-            OpenAIModel {
-                id: "test-model".to_string(),
-                object: "model".to_string(),
-                created: 1234567890,
-                owned_by: "test-owner".to_string(),
-            },
-        ],
+        data: vec![OpenAIModel {
+            id: "test-model".to_string(),
+            object: "model".to_string(),
+            created: 1234567890,
+            owned_by: "test-owner".to_string(),
+        }],
     };
 
     let json = serde_json::to_string(&response).expect("serialize");
@@ -271,13 +268,11 @@ fn test_chat_completion_response_with_traces() {
         level: "brick".to_string(),
         operations: 5,
         total_time_us: 1000,
-        breakdown: vec![
-            TraceOperation {
-                name: "embedding".to_string(),
-                time_us: 100,
-                details: Some("5 tokens".to_string()),
-            },
-        ],
+        breakdown: vec![TraceOperation {
+            name: "embedding".to_string(),
+            time_us: 100,
+            details: Some("5 tokens".to_string()),
+        }],
     };
 
     let response = ChatCompletionResponse {
@@ -447,13 +442,11 @@ fn test_format_chat_messages_chatml() {
 
 #[test]
 fn test_format_chat_messages_alpaca() {
-    let messages = vec![
-        ChatMessage {
-            role: "user".to_string(),
-            content: "Hello".to_string(),
-            name: None,
-        },
-    ];
+    let messages = vec![ChatMessage {
+        role: "user".to_string(),
+        content: "Hello".to_string(),
+        name: None,
+    }];
 
     let formatted = format_chat_messages(&messages, Some("alpaca"));
     assert!(formatted.contains("### Instruction:"));
@@ -560,8 +553,10 @@ async fn test_generate_invalid_json() {
         .expect("test");
 
     // Should get a 400 or 422 for invalid JSON
-    assert!(response.status() == StatusCode::BAD_REQUEST ||
-            response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::BAD_REQUEST
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -581,8 +576,10 @@ async fn test_generate_missing_required_field() {
         .expect("test");
 
     // Missing required 'prompt' field
-    assert!(response.status() == StatusCode::BAD_REQUEST ||
-            response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::BAD_REQUEST
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 // ============================================================================
@@ -685,9 +682,11 @@ async fn test_generate_wrong_content_type() {
         .expect("test");
 
     // Should get error for wrong content type
-    assert!(response.status() == StatusCode::BAD_REQUEST ||
-            response.status() == StatusCode::UNSUPPORTED_MEDIA_TYPE ||
-            response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::BAD_REQUEST
+            || response.status() == StatusCode::UNSUPPORTED_MEDIA_TYPE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 // ============================================================================

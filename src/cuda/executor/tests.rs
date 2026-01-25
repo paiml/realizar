@@ -2461,7 +2461,11 @@ fn test_cov003_preload_qkv_bias() {
     let v_biases: Vec<Option<&[f32]>> = vec![Some(&bias_data)];
 
     let result = executor.preload_qkv_bias(1, &q_biases, &k_biases, &v_biases);
-    assert!(result.is_ok(), "preload_qkv_bias should succeed: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "preload_qkv_bias should succeed: {:?}",
+        result
+    );
 
     // Now layer 0 has QKV bias
     assert!(executor.has_qkv_bias(0));
@@ -2489,7 +2493,11 @@ fn test_cov003_preload_qkv_bias_multiple_layers() {
 
     // Verify all layers have QKV bias
     for layer_idx in 0..3 {
-        assert!(executor.has_qkv_bias(layer_idx), "layer {} should have bias", layer_idx);
+        assert!(
+            executor.has_qkv_bias(layer_idx),
+            "layer {} should have bias",
+            layer_idx
+        );
     }
     assert!(!executor.has_qkv_bias(3));
 }
@@ -2549,7 +2557,10 @@ fn test_cov003_cache_rmsnorm_gamma() {
 
     // Cache another
     let result2 = executor.cache_rmsnorm_gamma("output_norm", &gamma);
-    assert!(result2.is_ok(), "cache_rmsnorm_gamma for output_norm should succeed");
+    assert!(
+        result2.is_ok(),
+        "cache_rmsnorm_gamma for output_norm should succeed"
+    );
 }
 
 #[test]
@@ -2590,7 +2601,9 @@ fn test_cov003_output_rmsnorm_gpu() {
 
     // First preload output norm
     let gamma = vec![1.0f32; 256];
-    executor.preload_output_norm(&gamma).expect("preload_output_norm");
+    executor
+        .preload_output_norm(&gamma)
+        .expect("preload_output_norm");
 
     // Now test output_rmsnorm_gpu
     // (This requires a GPU buffer input, so we test the preload path)
@@ -2612,7 +2625,9 @@ fn test_cov003_preload_combined_weights() {
     let gamma = vec![1.0f32; hidden_dim];
     let attn_norms: Vec<&[f32]> = vec![&gamma];
     let ffn_norms: Vec<&[f32]> = vec![&gamma];
-    executor.preload_rmsnorm_weights(1, &attn_norms, &ffn_norms).expect("rmsnorm");
+    executor
+        .preload_rmsnorm_weights(1, &attn_norms, &ffn_norms)
+        .expect("rmsnorm");
     assert!(executor.has_rmsnorm_weights(0));
 
     // 2. Output norm
@@ -2624,12 +2639,16 @@ fn test_cov003_preload_combined_weights() {
     let q_biases: Vec<Option<&[f32]>> = vec![Some(&bias)];
     let k_biases: Vec<Option<&[f32]>> = vec![Some(&bias)];
     let v_biases: Vec<Option<&[f32]>> = vec![Some(&bias)];
-    executor.preload_qkv_bias(1, &q_biases, &k_biases, &v_biases).expect("qkv bias");
+    executor
+        .preload_qkv_bias(1, &q_biases, &k_biases, &v_biases)
+        .expect("qkv bias");
     assert!(executor.has_qkv_bias(0));
 
     // 4. LM head bias
     let vocab_bias = vec![0.0f32; 32000];
-    executor.preload_lm_head_bias(Some(&vocab_bias)).expect("lm head bias");
+    executor
+        .preload_lm_head_bias(Some(&vocab_bias))
+        .expect("lm head bias");
     assert!(executor.has_lm_head_bias());
 }
 
@@ -2874,7 +2893,11 @@ fn test_cov004_flash_attention_cached_valid() {
     let mut output = vec![0.0f32; hidden_dim];
 
     let result = executor.flash_attention_cached(0, &q, &k, &v, &mut output);
-    assert!(result.is_ok(), "flash_attention_cached failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "flash_attention_cached failed: {:?}",
+        result.err()
+    );
     assert_eq!(result.unwrap(), 1); // New sequence length is 1
     assert_eq!(executor.kv_cache_len(0), 1);
 }
@@ -2930,7 +2953,12 @@ fn test_cov004_flash_attention_cached_overflow() {
     // Fill cache
     for i in 0..max_len {
         let result = executor.flash_attention_cached(0, &q, &k, &v, &mut output);
-        assert!(result.is_ok(), "Token {} failed during fill: {:?}", i, result.err());
+        assert!(
+            result.is_ok(),
+            "Token {} failed during fill: {:?}",
+            i,
+            result.err()
+        );
     }
 
     // Next should overflow
@@ -3010,7 +3038,11 @@ fn test_cov004_incremental_attention_gpu_valid() {
     let mut output = vec![0.0f32; hidden_dim];
 
     let result = executor.incremental_attention_gpu(0, &q, &k, &v, &mut output);
-    assert!(result.is_ok(), "incremental_attention_gpu failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "incremental_attention_gpu failed: {:?}",
+        result.err()
+    );
     assert_eq!(result.unwrap(), 1);
 }
 
@@ -3037,7 +3069,11 @@ fn test_cov004_incremental_attention_gpu_gqa() {
     let mut output = vec![0.0f32; q_dim];
 
     let result = executor.incremental_attention_gpu(0, &q, &k, &v, &mut output);
-    assert!(result.is_ok(), "GQA incremental attention failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "GQA incremental attention failed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -3063,7 +3099,12 @@ fn test_cov004_incremental_attention_overflow() {
     // Fill cache
     for i in 0..max_len {
         let result = executor.incremental_attention_gpu(0, &q, &k, &v, &mut output);
-        assert!(result.is_ok(), "Fill token {} failed: {:?}", i, result.err());
+        assert!(
+            result.is_ok(),
+            "Fill token {} failed: {:?}",
+            i,
+            result.err()
+        );
     }
 
     // Next should overflow
@@ -3103,7 +3144,11 @@ fn test_cov004_rollback_preserves_earlier_state() {
 
     // Can add more tokens from position 2
     let result = executor.flash_attention_cached(0, &q, &k, &v, &mut output);
-    assert!(result.is_ok(), "Token after rollback failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Token after rollback failed: {:?}",
+        result.err()
+    );
     assert_eq!(executor.kv_cache_len(0), 3);
 }
 
@@ -3138,7 +3183,11 @@ fn test_cov004_reset_after_tokens() {
 
     // Can start fresh
     let result = executor.flash_attention_cached(0, &q, &k, &v, &mut output);
-    assert!(result.is_ok(), "Fresh token after reset failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Fresh token after reset failed: {:?}",
+        result.err()
+    );
     assert_eq!(result.unwrap(), 1);
 }
 
@@ -3268,9 +3317,8 @@ fn test_cov005_batched_attention_not_initialized() {
     let positions = vec![0u32; m];
 
     // Should fail because batched KV cache not initialized
-    let result = executor.batched_incremental_attention_into(
-        0, &q_buf, &k_buf, &v_buf, &out_buf, m, &positions
-    );
+    let result = executor
+        .batched_incremental_attention_into(0, &q_buf, &k_buf, &v_buf, &out_buf, m, &positions);
     assert!(result.is_err());
 }
 
@@ -3313,9 +3361,8 @@ fn test_cov005_flash_decoding_not_initialized() {
     let positions = vec![0u32; m];
 
     // Should fail because flash decoding not initialized
-    let result = executor.flash_decoding_attention_into(
-        0, &q_buf, &k_buf, &v_buf, &out_buf, m, &positions
-    );
+    let result =
+        executor.flash_decoding_attention_into(0, &q_buf, &k_buf, &v_buf, &out_buf, m, &positions);
     assert!(result.is_err());
 }
 
@@ -3446,8 +3493,13 @@ fn test_cov005_tensor_core_attention_valid() {
     let v = vec![1.0f32; total];
     let mut output = vec![0.0f32; total];
 
-    let result = executor.tensor_core_attention(&q, &k, &v, &mut output, seq_len, head_dim, n_heads, false);
-    assert!(result.is_ok(), "tensor_core_attention failed: {:?}", result.err());
+    let result =
+        executor.tensor_core_attention(&q, &k, &v, &mut output, seq_len, head_dim, n_heads, false);
+    assert!(
+        result.is_ok(),
+        "tensor_core_attention failed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -3469,8 +3521,13 @@ fn test_cov005_tensor_core_attention_causal() {
     let mut output = vec![0.0f32; total];
 
     // Test with causal=true
-    let result = executor.tensor_core_attention(&q, &k, &v, &mut output, seq_len, head_dim, n_heads, true);
-    assert!(result.is_ok(), "causal tensor_core_attention failed: {:?}", result.err());
+    let result =
+        executor.tensor_core_attention(&q, &k, &v, &mut output, seq_len, head_dim, n_heads, true);
+    assert!(
+        result.is_ok(),
+        "causal tensor_core_attention failed: {:?}",
+        result.err()
+    );
 }
 
 // ============================================================================
@@ -3505,7 +3562,11 @@ fn test_cov006_gelu_gpu_basic() {
     // GELU(x) for x > 0 should be positive
     // GELU(x) for x < 0 should be small negative or near zero
     let mid_idx = 128; // corresponds to input 0.0
-    assert!(output[mid_idx].abs() < 0.1, "GELU(0) should be near 0, got {}", output[mid_idx]);
+    assert!(
+        output[mid_idx].abs() < 0.1,
+        "GELU(0) should be near 0, got {}",
+        output[mid_idx]
+    );
 }
 
 #[test]
@@ -3563,12 +3624,18 @@ fn test_cov006_rmsnorm_host_with_scale() {
     let hidden_size = 64usize;
     let epsilon = 1e-5f32;
 
-    let input: Vec<f32> = (0..hidden_size).map(|i| ((i as f32) - 32.0) / 16.0).collect();
+    let input: Vec<f32> = (0..hidden_size)
+        .map(|i| ((i as f32) - 32.0) / 16.0)
+        .collect();
     let gamma: Vec<f32> = (0..hidden_size).map(|i| 0.5 + (i as f32) / 128.0).collect(); // Variable scale
     let mut output = vec![0.0f32; hidden_size];
 
     let result = executor.rmsnorm_host(&input, &gamma, &mut output, epsilon);
-    assert!(result.is_ok(), "rmsnorm_host with scale failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "rmsnorm_host with scale failed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -3586,12 +3653,22 @@ fn test_cov006_residual_add_host_basic() {
     let mut output = vec![0.0f32; n];
 
     let result = executor.residual_add_host(&input1, &input2, &mut output);
-    assert!(result.is_ok(), "residual_add_host failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "residual_add_host failed: {:?}",
+        result.err()
+    );
 
     // Verify: output[i] = input1[i] + input2[i] = i + (n - i) = n
     for (idx, &val) in output.iter().enumerate() {
         let expected = n as f32;
-        assert!((val - expected).abs() < 1e-5, "residual_add mismatch at {}: {} vs {}", idx, val, expected);
+        assert!(
+            (val - expected).abs() < 1e-5,
+            "residual_add mismatch at {}: {} vs {}",
+            idx,
+            val,
+            expected
+        );
     }
 }
 
@@ -3610,10 +3687,17 @@ fn test_cov006_residual_add_host_large() {
     let mut output = vec![0.0f32; n];
 
     let result = executor.residual_add_host(&input1, &input2, &mut output);
-    assert!(result.is_ok(), "residual_add_host large failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "residual_add_host large failed: {:?}",
+        result.err()
+    );
 
     // Verify all outputs are 3.0
-    assert!(output.iter().all(|&x| (x - 3.0).abs() < 1e-5), "residual_add outputs should all be 3.0");
+    assert!(
+        output.iter().all(|&x| (x - 3.0).abs() < 1e-5),
+        "residual_add outputs should all be 3.0"
+    );
 }
 
 #[test]
@@ -3628,12 +3712,19 @@ fn test_cov006_fused_residual_rmsnorm_host_basic() {
     let epsilon = 1e-5f32;
 
     let residual: Vec<f32> = (0..hidden_size).map(|i| i as f32 / 10.0).collect();
-    let input: Vec<f32> = (0..hidden_size).map(|i| (hidden_size - i) as f32 / 10.0).collect();
+    let input: Vec<f32> = (0..hidden_size)
+        .map(|i| (hidden_size - i) as f32 / 10.0)
+        .collect();
     let gamma = vec![1.0f32; hidden_size];
     let mut output = vec![0.0f32; hidden_size];
 
-    let result = executor.fused_residual_rmsnorm_host(&residual, &input, &gamma, &mut output, epsilon);
-    assert!(result.is_ok(), "fused_residual_rmsnorm_host failed: {:?}", result.err());
+    let result =
+        executor.fused_residual_rmsnorm_host(&residual, &input, &gamma, &mut output, epsilon);
+    assert!(
+        result.is_ok(),
+        "fused_residual_rmsnorm_host failed: {:?}",
+        result.err()
+    );
 
     // Output should be normalized version of (residual + input)
     let sum: f32 = output.iter().map(|x| x.abs()).sum();
@@ -3656,8 +3747,13 @@ fn test_cov006_fused_residual_rmsnorm_host_large() {
     let gamma = vec![1.0f32; hidden_size];
     let mut output = vec![0.0f32; hidden_size];
 
-    let result = executor.fused_residual_rmsnorm_host(&residual, &input, &gamma, &mut output, epsilon);
-    assert!(result.is_ok(), "fused_residual_rmsnorm_host large failed: {:?}", result.err());
+    let result =
+        executor.fused_residual_rmsnorm_host(&residual, &input, &gamma, &mut output, epsilon);
+    assert!(
+        result.is_ok(),
+        "fused_residual_rmsnorm_host large failed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -3677,7 +3773,11 @@ fn test_cov006_residual_add_gpu_basic() {
     let input2 = GpuBuffer::from_host(&executor.context, &input2_data).expect("input2 buffer");
 
     let result = executor.residual_add_gpu(&input1, &input2, n);
-    assert!(result.is_ok(), "residual_add_gpu failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "residual_add_gpu failed: {:?}",
+        result.err()
+    );
 
     let output_buffer = result.unwrap();
     executor.stream.synchronize().expect("sync");
@@ -3688,7 +3788,13 @@ fn test_cov006_residual_add_gpu_basic() {
     // Verify: output[i] = i + (n - i) = n
     for (idx, &val) in output.iter().enumerate() {
         let expected = n as f32;
-        assert!((val - expected).abs() < 1e-4, "residual_add_gpu mismatch at {}: {} vs {}", idx, val, expected);
+        assert!(
+            (val - expected).abs() < 1e-4,
+            "residual_add_gpu mismatch at {}: {} vs {}",
+            idx,
+            val,
+            expected
+        );
     }
 }
 
@@ -3702,11 +3808,17 @@ fn test_cov006_residual_add_gpu_large() {
 
     let n = 4096u32;
 
-    let input1 = GpuBuffer::from_host(&executor.context, &vec![1.5f32; n as usize]).expect("input1");
-    let input2 = GpuBuffer::from_host(&executor.context, &vec![2.5f32; n as usize]).expect("input2");
+    let input1 =
+        GpuBuffer::from_host(&executor.context, &vec![1.5f32; n as usize]).expect("input1");
+    let input2 =
+        GpuBuffer::from_host(&executor.context, &vec![2.5f32; n as usize]).expect("input2");
 
     let result = executor.residual_add_gpu(&input1, &input2, n);
-    assert!(result.is_ok(), "residual_add_gpu large failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "residual_add_gpu large failed: {:?}",
+        result.err()
+    );
 
     let output_buffer = result.unwrap();
     executor.stream.synchronize().expect("sync");
@@ -3715,7 +3827,10 @@ fn test_cov006_residual_add_gpu_large() {
     output_buffer.copy_to_host(&mut output).expect("copy");
 
     // All should be 4.0
-    assert!(output.iter().all(|&x| (x - 4.0).abs() < 1e-4), "All outputs should be 4.0");
+    assert!(
+        output.iter().all(|&x| (x - 4.0).abs() < 1e-4),
+        "All outputs should be 4.0"
+    );
 }
 
 #[test]
@@ -3760,14 +3875,22 @@ fn test_cov006_rmsnorm_gpu_large() {
     let hidden_size = 512u32;
     let epsilon = 1e-6f32;
 
-    let input_data: Vec<f32> = (0..hidden_size).map(|i| ((i as f32) - 256.0) / 128.0).collect();
-    let gamma_data: Vec<f32> = (0..hidden_size).map(|i| 0.5 + (i as f32) / 1024.0).collect();
+    let input_data: Vec<f32> = (0..hidden_size)
+        .map(|i| ((i as f32) - 256.0) / 128.0)
+        .collect();
+    let gamma_data: Vec<f32> = (0..hidden_size)
+        .map(|i| 0.5 + (i as f32) / 1024.0)
+        .collect();
 
     let input = GpuBuffer::from_host(&executor.context, &input_data).expect("input");
     let gamma = GpuBuffer::from_host(&executor.context, &gamma_data).expect("gamma");
 
     let result = executor.rmsnorm_gpu(&input, &gamma, hidden_size, epsilon);
-    assert!(result.is_ok(), "rmsnorm_gpu large failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "rmsnorm_gpu large failed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -3782,15 +3905,22 @@ fn test_cov006_fused_residual_rmsnorm_gpu_basic() {
     let epsilon = 1e-5f32;
 
     let residual_data: Vec<f32> = (0..hidden_size).map(|i| i as f32 / 20.0).collect();
-    let input_data: Vec<f32> = (0..hidden_size).map(|i| (hidden_size - i) as f32 / 20.0).collect();
+    let input_data: Vec<f32> = (0..hidden_size)
+        .map(|i| (hidden_size - i) as f32 / 20.0)
+        .collect();
     let gamma_data = vec![1.0f32; hidden_size as usize];
 
     let residual = GpuBuffer::from_host(&executor.context, &residual_data).expect("residual");
     let input = GpuBuffer::from_host(&executor.context, &input_data).expect("input");
     let gamma = GpuBuffer::from_host(&executor.context, &gamma_data).expect("gamma");
 
-    let result = executor.fused_residual_rmsnorm_gpu(&residual, &input, &gamma, hidden_size, epsilon);
-    assert!(result.is_ok(), "fused_residual_rmsnorm_gpu failed: {:?}", result.err());
+    let result =
+        executor.fused_residual_rmsnorm_gpu(&residual, &input, &gamma, hidden_size, epsilon);
+    assert!(
+        result.is_ok(),
+        "fused_residual_rmsnorm_gpu failed: {:?}",
+        result.err()
+    );
 
     let output_buffer = result.unwrap();
     executor.stream.synchronize().expect("sync");
@@ -3814,12 +3944,20 @@ fn test_cov006_fused_residual_rmsnorm_gpu_large() {
     let hidden_size = 256u32;
     let epsilon = 1e-5f32;
 
-    let residual = GpuBuffer::from_host(&executor.context, &vec![0.5f32; hidden_size as usize]).expect("residual");
-    let input = GpuBuffer::from_host(&executor.context, &vec![0.3f32; hidden_size as usize]).expect("input");
-    let gamma = GpuBuffer::from_host(&executor.context, &vec![1.0f32; hidden_size as usize]).expect("gamma");
+    let residual = GpuBuffer::from_host(&executor.context, &vec![0.5f32; hidden_size as usize])
+        .expect("residual");
+    let input = GpuBuffer::from_host(&executor.context, &vec![0.3f32; hidden_size as usize])
+        .expect("input");
+    let gamma = GpuBuffer::from_host(&executor.context, &vec![1.0f32; hidden_size as usize])
+        .expect("gamma");
 
-    let result = executor.fused_residual_rmsnorm_gpu(&residual, &input, &gamma, hidden_size, epsilon);
-    assert!(result.is_ok(), "fused_residual_rmsnorm_gpu large failed: {:?}", result.err());
+    let result =
+        executor.fused_residual_rmsnorm_gpu(&residual, &input, &gamma, hidden_size, epsilon);
+    assert!(
+        result.is_ok(),
+        "fused_residual_rmsnorm_gpu large failed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -3836,7 +3974,11 @@ fn test_cov006_gelu_gpu_edge_values() {
 
     let buffer = GpuBuffer::from_host(&executor.context, &data).expect("GPU buffer");
     let result = executor.gelu_gpu(&buffer, n);
-    assert!(result.is_ok(), "gelu_gpu edge values failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "gelu_gpu edge values failed: {:?}",
+        result.err()
+    );
 
     executor.stream.synchronize().expect("sync");
     let mut output = vec![0.0f32; n as usize];
@@ -3845,7 +3987,10 @@ fn test_cov006_gelu_gpu_edge_values() {
     // GELU(-10) should be very small (near 0)
     // GELU(10) should be close to 10
     assert!(output[0].abs() < 0.01, "GELU(-10) should be near 0");
-    assert!((output[7] - 100.0).abs() < 1.0, "GELU(100) should be close to 100");
+    assert!(
+        (output[7] - 100.0).abs() < 1.0,
+        "GELU(100) should be close to 100"
+    );
 }
 
 // ============================================================================
@@ -3878,7 +4023,11 @@ fn test_cov007_silu_gpu_basic() {
 
     // SiLU(0) = 0 * sigmoid(0) = 0 * 0.5 = 0
     let mid_idx = 128;
-    assert!(output[mid_idx].abs() < 0.1, "SiLU(0) should be near 0, got {}", output[mid_idx]);
+    assert!(
+        output[mid_idx].abs() < 0.1,
+        "SiLU(0) should be near 0, got {}",
+        output[mid_idx]
+    );
 }
 
 #[test]
@@ -3920,7 +4069,11 @@ fn test_cov007_gelu_async_basic() {
 
     // GELU(0) should be near 0
     let mid_idx = 128;
-    assert!(output[mid_idx].abs() < 0.1, "GELU(0) should be near 0, got {}", output[mid_idx]);
+    assert!(
+        output[mid_idx].abs() < 0.1,
+        "GELU(0) should be near 0, got {}",
+        output[mid_idx]
+    );
 }
 
 #[test]
@@ -3936,7 +4089,11 @@ fn test_cov007_gelu_async_large() {
 
     let input = GpuBuffer::from_host(&executor.context, &data).expect("input buffer");
     let result = executor.gelu_async(&input, n);
-    assert!(result.is_ok(), "gelu_async large failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "gelu_async large failed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -3955,7 +4112,11 @@ fn test_cov007_elementwise_mul_gpu_basic() {
     let b = GpuBuffer::from_host(&executor.context, &b_data).expect("b buffer");
 
     let result = executor.elementwise_mul_gpu(&a, &b, n);
-    assert!(result.is_ok(), "elementwise_mul_gpu failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "elementwise_mul_gpu failed: {:?}",
+        result.err()
+    );
 
     let output_buffer = result.unwrap();
     executor.stream.synchronize().expect("sync");
@@ -3966,7 +4127,13 @@ fn test_cov007_elementwise_mul_gpu_basic() {
     // output[i] = a[i] * b[i] = i * 2 = 2i
     for (idx, &val) in output.iter().enumerate() {
         let expected = (idx as f32) * 2.0;
-        assert!((val - expected).abs() < 1e-4, "mul mismatch at {}: {} vs {}", idx, val, expected);
+        assert!(
+            (val - expected).abs() < 1e-4,
+            "mul mismatch at {}: {} vs {}",
+            idx,
+            val,
+            expected
+        );
     }
 }
 
@@ -3983,7 +4150,11 @@ fn test_cov007_elementwise_mul_gpu_large() {
     let b = GpuBuffer::from_host(&executor.context, &vec![4.0f32; n as usize]).expect("b");
 
     let result = executor.elementwise_mul_gpu(&a, &b, n);
-    assert!(result.is_ok(), "elementwise_mul_gpu large failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "elementwise_mul_gpu large failed: {:?}",
+        result.err()
+    );
 
     let output_buffer = result.unwrap();
     executor.stream.synchronize().expect("sync");
@@ -3992,7 +4163,10 @@ fn test_cov007_elementwise_mul_gpu_large() {
     output_buffer.copy_to_host(&mut output).expect("copy");
 
     // All should be 12.0
-    assert!(output.iter().all(|&x| (x - 12.0).abs() < 1e-4), "All outputs should be 12.0");
+    assert!(
+        output.iter().all(|&x| (x - 12.0).abs() < 1e-4),
+        "All outputs should be 12.0"
+    );
 }
 
 #[test]
@@ -4031,7 +4205,11 @@ fn test_cov007_silu_host_large() {
     assert!(result.is_ok(), "silu_host large failed: {:?}", result.err());
 
     // SiLU(1) = 1 * sigmoid(1) ≈ 0.731
-    assert!(output[0] > 0.7 && output[0] < 0.8, "SiLU(1) should be ~0.731, got {}", output[0]);
+    assert!(
+        output[0] > 0.7 && output[0] < 0.8,
+        "SiLU(1) should be ~0.731, got {}",
+        output[0]
+    );
 }
 
 #[test]
@@ -4067,10 +4245,18 @@ fn test_cov007_gelu_host_positive() {
     let mut output = vec![0.0f32; n];
 
     let result = executor.gelu_host(&input, &mut output);
-    assert!(result.is_ok(), "gelu_host positive failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "gelu_host positive failed: {:?}",
+        result.err()
+    );
 
     // GELU(2) should be close to 2 (slightly less)
-    assert!(output[0] > 1.9 && output[0] < 2.1, "GELU(2) should be ~2.0, got {}", output[0]);
+    assert!(
+        output[0] > 1.9 && output[0] < 2.1,
+        "GELU(2) should be ~2.0, got {}",
+        output[0]
+    );
 }
 
 #[test]
@@ -4087,12 +4273,22 @@ fn test_cov007_elementwise_mul_host_basic() {
     let mut output = vec![0.0f32; n];
 
     let result = executor.elementwise_mul_host(&a, &b, &mut output);
-    assert!(result.is_ok(), "elementwise_mul_host failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "elementwise_mul_host failed: {:?}",
+        result.err()
+    );
 
     // output[i] = i * (n - i)
     for (idx, &val) in output.iter().enumerate() {
         let expected = (idx as f32) * ((n - idx) as f32);
-        assert!((val - expected).abs() < 1e-4, "mul_host mismatch at {}: {} vs {}", idx, val, expected);
+        assert!(
+            (val - expected).abs() < 1e-4,
+            "mul_host mismatch at {}: {} vs {}",
+            idx,
+            val,
+            expected
+        );
     }
 }
 
@@ -4110,10 +4306,18 @@ fn test_cov007_fused_swiglu_host_basic() {
     let mut output = vec![0.0f32; n];
 
     let result = executor.fused_swiglu_host(&gate, &up, &mut output);
-    assert!(result.is_ok(), "fused_swiglu_host failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "fused_swiglu_host failed: {:?}",
+        result.err()
+    );
 
     // SwiGLU(gate, up) = silu(gate) * up = silu(1) * 2 ≈ 0.731 * 2 ≈ 1.462
-    assert!(output[0] > 1.4 && output[0] < 1.6, "SwiGLU(1,2) should be ~1.46, got {}", output[0]);
+    assert!(
+        output[0] > 1.4 && output[0] < 1.6,
+        "SwiGLU(1,2) should be ~1.46, got {}",
+        output[0]
+    );
 }
 
 #[test]
@@ -4130,7 +4334,11 @@ fn test_cov007_fused_swiglu_host_large() {
     let mut output = vec![0.0f32; n];
 
     let result = executor.fused_swiglu_host(&gate, &up, &mut output);
-    assert!(result.is_ok(), "fused_swiglu_host large failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "fused_swiglu_host large failed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -4151,7 +4359,11 @@ fn test_cov007_add_residual_gpu_basic() {
     let input_buf = GpuBuffer::from_host(&executor.context, &input_data).expect("input buffer");
 
     let result = executor.add_residual_gpu(&output_buf, &input_buf, n);
-    assert!(result.is_ok(), "add_residual_gpu failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "add_residual_gpu failed: {:?}",
+        result.err()
+    );
 
     executor.stream.synchronize().expect("sync");
 
@@ -4161,7 +4373,13 @@ fn test_cov007_add_residual_gpu_basic() {
     // output[i] += 10, so output[i] = i + 10
     for (idx, &val) in output.iter().enumerate() {
         let expected = idx as f32 + 10.0;
-        assert!((val - expected).abs() < 1e-4, "add_residual mismatch at {}: {} vs {}", idx, val, expected);
+        assert!(
+            (val - expected).abs() < 1e-4,
+            "add_residual mismatch at {}: {} vs {}",
+            idx,
+            val,
+            expected
+        );
     }
 }
 
@@ -4175,11 +4393,17 @@ fn test_cov007_add_residual_gpu_large() {
 
     let n = 4096u32;
 
-    let output_buf = GpuBuffer::from_host(&executor.context, &vec![5.0f32; n as usize]).expect("output");
-    let input_buf = GpuBuffer::from_host(&executor.context, &vec![3.0f32; n as usize]).expect("input");
+    let output_buf =
+        GpuBuffer::from_host(&executor.context, &vec![5.0f32; n as usize]).expect("output");
+    let input_buf =
+        GpuBuffer::from_host(&executor.context, &vec![3.0f32; n as usize]).expect("input");
 
     let result = executor.add_residual_gpu(&output_buf, &input_buf, n);
-    assert!(result.is_ok(), "add_residual_gpu large failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "add_residual_gpu large failed: {:?}",
+        result.err()
+    );
 
     executor.stream.synchronize().expect("sync");
 
@@ -4187,7 +4411,10 @@ fn test_cov007_add_residual_gpu_large() {
     output_buf.copy_to_host(&mut output).expect("copy");
 
     // All should be 8.0 (5 + 3)
-    assert!(output.iter().all(|&x| (x - 8.0).abs() < 1e-4), "All outputs should be 8.0");
+    assert!(
+        output.iter().all(|&x| (x - 8.0).abs() < 1e-4),
+        "All outputs should be 8.0"
+    );
 }
 
 #[test]
@@ -4206,7 +4433,11 @@ fn test_cov007_fused_swiglu_gpu_basic() {
     let up = GpuBuffer::from_host(&executor.context, &up_data).expect("up buffer");
 
     let result = executor.fused_swiglu_gpu(&gate, &up, n);
-    assert!(result.is_ok(), "fused_swiglu_gpu failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "fused_swiglu_gpu failed: {:?}",
+        result.err()
+    );
 
     let output_buffer = result.unwrap();
     executor.stream.synchronize().expect("sync");
@@ -4215,7 +4446,11 @@ fn test_cov007_fused_swiglu_gpu_basic() {
     output_buffer.copy_to_host(&mut output).expect("copy");
 
     // SwiGLU(1,2) = silu(1) * 2 ≈ 1.46
-    assert!(output[0] > 1.4 && output[0] < 1.6, "SwiGLU(1,2) should be ~1.46, got {}", output[0]);
+    assert!(
+        output[0] > 1.4 && output[0] < 1.6,
+        "SwiGLU(1,2) should be ~1.46, got {}",
+        output[0]
+    );
 }
 
 #[test]
@@ -4232,7 +4467,11 @@ fn test_cov007_fused_swiglu_gpu_large() {
     let up = GpuBuffer::from_host(&executor.context, &vec![1.0f32; n as usize]).expect("up");
 
     let result = executor.fused_swiglu_gpu(&gate, &up, n);
-    assert!(result.is_ok(), "fused_swiglu_gpu large failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "fused_swiglu_gpu large failed: {:?}",
+        result.err()
+    );
 }
 
 // ============================================================================
@@ -4261,7 +4500,11 @@ fn test_cov008_init_workspace_basic() {
     assert!(result.is_ok(), "init_workspace failed: {:?}", result.err());
 
     assert!(executor.has_workspace(), "Workspace should be initialized");
-    assert_eq!(executor.workspace_batch_size(), 1, "Default batch size should be 1");
+    assert_eq!(
+        executor.workspace_batch_size(),
+        1,
+        "Default batch size should be 1"
+    );
 }
 
 #[test]
@@ -4279,7 +4522,11 @@ fn test_cov008_init_workspace_large() {
     let intermediate_dim = 2048usize;
 
     let result = executor.init_workspace(hidden_dim, intermediate_dim);
-    assert!(result.is_ok(), "init_workspace large failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "init_workspace large failed: {:?}",
+        result.err()
+    );
 
     assert!(executor.has_workspace());
 }
@@ -4300,7 +4547,11 @@ fn test_cov008_init_batched_workspace_basic() {
     let batch_size = 4usize;
 
     let result = executor.init_batched_workspace(hidden_dim, intermediate_dim, batch_size);
-    assert!(result.is_ok(), "init_batched_workspace failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "init_batched_workspace failed: {:?}",
+        result.err()
+    );
 
     assert!(executor.has_workspace());
     assert_eq!(executor.workspace_batch_size(), 4, "Batch size should be 4");
@@ -4319,7 +4570,11 @@ fn test_cov008_init_batched_workspace_max_batch() {
 
     // Test maximum batch size (32)
     let result = executor.init_batched_workspace(64, 128, 32);
-    assert!(result.is_ok(), "init_batched_workspace max batch failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "init_batched_workspace max batch failed: {:?}",
+        result.err()
+    );
     assert_eq!(executor.workspace_batch_size(), 32);
 }
 
@@ -4336,7 +4591,10 @@ fn test_cov008_init_batched_workspace_zero_batch_error() {
 
     // Test zero batch size (should fail)
     let result = executor.init_batched_workspace(64, 128, 0);
-    assert!(result.is_err(), "init_batched_workspace with batch=0 should fail");
+    assert!(
+        result.is_err(),
+        "init_batched_workspace with batch=0 should fail"
+    );
 }
 
 #[test]
@@ -4352,7 +4610,10 @@ fn test_cov008_init_batched_workspace_too_large_batch_error() {
 
     // Test batch size > 32 (should fail)
     let result = executor.init_batched_workspace(64, 128, 33);
-    assert!(result.is_err(), "init_batched_workspace with batch=33 should fail");
+    assert!(
+        result.is_err(),
+        "init_batched_workspace with batch=33 should fail"
+    );
 }
 
 #[test]
@@ -4363,7 +4624,10 @@ fn test_cov008_has_workspace_false_initially() {
     }
     let executor = CudaExecutor::new(0).expect("CUDA executor");
 
-    assert!(!executor.has_workspace(), "Workspace should not be initialized initially");
+    assert!(
+        !executor.has_workspace(),
+        "Workspace should not be initialized initially"
+    );
 }
 
 #[test]
@@ -4374,7 +4638,10 @@ fn test_cov008_has_decode_graph_false_initially() {
     }
     let executor = CudaExecutor::new(0).expect("CUDA executor");
 
-    assert!(!executor.has_decode_graph(), "Decode graph should not exist initially");
+    assert!(
+        !executor.has_decode_graph(),
+        "Decode graph should not exist initially"
+    );
 }
 
 #[test]
@@ -4405,7 +4672,10 @@ fn test_cov008_clear_decode_graph() {
 
     // Clear decode graph (even without capturing one)
     executor.clear_decode_graph();
-    assert!(!executor.has_decode_graph(), "Decode graph should be cleared");
+    assert!(
+        !executor.has_decode_graph(),
+        "Decode graph should be cleared"
+    );
 }
 
 #[test]
@@ -4417,8 +4687,14 @@ fn test_cov008_gemv_buffer_stats_initial() {
     let executor = CudaExecutor::new(0).expect("CUDA executor");
 
     let (input_bytes, output_bytes) = executor.gemv_buffer_stats();
-    assert_eq!(input_bytes, 0, "Initial GEMV input buffer should be 0 bytes");
-    assert_eq!(output_bytes, 0, "Initial GEMV output buffer should be 0 bytes");
+    assert_eq!(
+        input_bytes, 0,
+        "Initial GEMV input buffer should be 0 bytes"
+    );
+    assert_eq!(
+        output_bytes, 0,
+        "Initial GEMV output buffer should be 0 bytes"
+    );
 }
 
 #[test]
@@ -4446,10 +4722,18 @@ fn test_cov008_ensure_gemv_input_buffer() {
 
     // Ensure GEMV input buffer
     let result = executor.ensure_gemv_input_buffer(256);
-    assert!(result.is_ok(), "ensure_gemv_input_buffer failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "ensure_gemv_input_buffer failed: {:?}",
+        result.err()
+    );
 
     let (input_bytes, _) = executor.gemv_buffer_stats();
-    assert_eq!(input_bytes, 256 * 4, "GEMV input buffer should be 1024 bytes (256 * 4)");
+    assert_eq!(
+        input_bytes,
+        256 * 4,
+        "GEMV input buffer should be 1024 bytes (256 * 4)"
+    );
 }
 
 #[test]
@@ -4462,10 +4746,18 @@ fn test_cov008_ensure_gemv_output_buffer() {
 
     // Ensure GEMV output buffer
     let result = executor.ensure_gemv_output_buffer(128);
-    assert!(result.is_ok(), "ensure_gemv_output_buffer failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "ensure_gemv_output_buffer failed: {:?}",
+        result.err()
+    );
 
     let (_, output_bytes) = executor.gemv_buffer_stats();
-    assert_eq!(output_bytes, 128 * 4, "GEMV output buffer should be 512 bytes (128 * 4)");
+    assert_eq!(
+        output_bytes,
+        128 * 4,
+        "GEMV output buffer should be 512 bytes (128 * 4)"
+    );
 }
 
 #[test]
@@ -4480,7 +4772,9 @@ fn test_cov008_ensure_gemv_buffers_reuse() {
     let ptr1 = executor.ensure_gemv_input_buffer(256).expect("first alloc");
 
     // Same size - should reuse
-    let ptr2 = executor.ensure_gemv_input_buffer(256).expect("second alloc");
+    let ptr2 = executor
+        .ensure_gemv_input_buffer(256)
+        .expect("second alloc");
     assert_eq!(ptr1, ptr2, "Same size should reuse buffer");
 
     // Different size - should reallocate
@@ -4502,16 +4796,26 @@ fn test_cov008_copy_gemv_buffers() {
 
     // Ensure both buffers
     executor.ensure_gemv_input_buffer(n).expect("ensure input");
-    executor.ensure_gemv_output_buffer(n).expect("ensure output");
+    executor
+        .ensure_gemv_output_buffer(n)
+        .expect("ensure output");
 
     // Copy to input buffer
     let result = executor.copy_to_gemv_input(&input);
-    assert!(result.is_ok(), "copy_to_gemv_input failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "copy_to_gemv_input failed: {:?}",
+        result.err()
+    );
 
     // Copy from output buffer (note: output buffer won't have the input data,
     // this just tests the copy path works)
     let result = executor.copy_from_gemv_output(&mut output);
-    assert!(result.is_ok(), "copy_from_gemv_output failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "copy_from_gemv_output failed: {:?}",
+        result.err()
+    );
 }
 
 // ============================================================================
@@ -4530,7 +4834,11 @@ fn test_cov009_synchronize_compute() {
     let executor = CudaExecutor::new(0).expect("CUDA executor");
 
     let result = executor.synchronize_compute();
-    assert!(result.is_ok(), "synchronize_compute failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "synchronize_compute failed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -4542,7 +4850,11 @@ fn test_cov009_synchronize_transfer() {
     let executor = CudaExecutor::new(0).expect("CUDA executor");
 
     let result = executor.synchronize_transfer();
-    assert!(result.is_ok(), "synchronize_transfer failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "synchronize_transfer failed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -4582,7 +4894,11 @@ fn test_cov009_allocate_buffer_large() {
 
     // Allocate 1MB buffer (262144 f32 elements)
     let result = executor.allocate_buffer(262144);
-    assert!(result.is_ok(), "allocate_buffer large failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "allocate_buffer large failed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -4600,7 +4916,11 @@ fn test_cov009_softmax_basic() {
 
     // Verify softmax properties
     let sum: f32 = data.iter().sum();
-    assert!((sum - 1.0).abs() < 0.01, "Softmax should sum to 1, got {}", sum);
+    assert!(
+        (sum - 1.0).abs() < 0.01,
+        "Softmax should sum to 1, got {}",
+        sum
+    );
 
     // Verify monotonicity (higher input -> higher output)
     for i in 1..data.len() {
@@ -4622,9 +4942,15 @@ fn test_cov009_softmax_larger() {
     assert!(result.is_ok(), "softmax larger failed: {:?}", result.err());
 
     // Softmax should produce valid probabilities (all positive)
-    assert!(data.iter().all(|&x| x > 0.0), "Softmax outputs should be positive");
+    assert!(
+        data.iter().all(|&x| x > 0.0),
+        "Softmax outputs should be positive"
+    );
     // Last element should be largest (highest input)
-    assert!(data[31] > data[0], "Highest input should have highest probability");
+    assert!(
+        data[31] > data[0],
+        "Highest input should have highest probability"
+    );
 }
 
 #[test]
@@ -4644,7 +4970,13 @@ fn test_cov009_softmax_uniform() {
     // All should be 1/n
     let expected = 1.0 / n as f32;
     for (i, &val) in data.iter().enumerate() {
-        assert!((val - expected).abs() < 0.01, "Uniform softmax[{}] should be {}, got {}", i, expected, val);
+        assert!(
+            (val - expected).abs() < 0.01,
+            "Uniform softmax[{}] should be {}, got {}",
+            i,
+            expected,
+            val
+        );
     }
 }
 
@@ -4664,18 +4996,12 @@ fn test_cov009_gemm_basic() {
 
     // Identity-like matrix A (ones on diagonal)
     let a = vec![
-        1.0f32, 0.0, 0.0, 0.0,
-        0.0, 1.0, 0.0, 0.0,
-        0.0, 0.0, 1.0, 0.0,
-        0.0, 0.0, 0.0, 1.0,
+        1.0f32, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
     ];
 
     // B = some values
     let b = vec![
-        1.0f32, 2.0, 3.0, 4.0,
-        5.0, 6.0, 7.0, 8.0,
-        9.0, 10.0, 11.0, 12.0,
-        13.0, 14.0, 15.0, 16.0,
+        1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
     ];
 
     let mut c = vec![0.0f32; (m * n) as usize];
@@ -4685,7 +5011,13 @@ fn test_cov009_gemm_basic() {
 
     // For identity * B, result should be B
     for (idx, &val) in c.iter().enumerate() {
-        assert!((val - b[idx]).abs() < 1e-3, "gemm identity mismatch at {}: {} vs {}", idx, val, b[idx]);
+        assert!(
+            (val - b[idx]).abs() < 1e-3,
+            "gemm identity mismatch at {}: {} vs {}",
+            idx,
+            val,
+            b[idx]
+        );
     }
 }
 
@@ -4711,7 +5043,13 @@ fn test_cov009_gemm_larger() {
 
     // Each element should be k (sum of k ones)
     for (idx, &val) in c.iter().enumerate() {
-        assert!((val - k as f32).abs() < 1.0, "gemm[{}] should be {}, got {}", idx, k, val);
+        assert!(
+            (val - k as f32).abs() < 1.0,
+            "gemm[{}] should be {}, got {}",
+            idx,
+            k,
+            val
+        );
     }
 }
 
@@ -4727,8 +5065,12 @@ fn test_cov009_gemm_cached_weight_not_found() {
     let output_buf = GpuBuffer::<f32>::new(&executor.context, 32).expect("output");
 
     // Try to use non-existent cached weight
-    let result = executor.gemm_cached_async("nonexistent_weight", &input_buf, &output_buf, 32, 1, 32);
-    assert!(result.is_err(), "gemm_cached_async should fail for non-existent weight");
+    let result =
+        executor.gemm_cached_async("nonexistent_weight", &input_buf, &output_buf, 32, 1, 32);
+    assert!(
+        result.is_err(),
+        "gemm_cached_async should fail for non-existent weight"
+    );
 }
 
 // ============================================================================
@@ -4768,15 +5110,24 @@ fn test_cov010_profiling_enable_disable() {
     let mut executor = CudaExecutor::new(0).expect("CUDA executor");
 
     // Initially disabled
-    assert!(!executor.is_profiling_enabled(), "Profiling should be disabled initially");
+    assert!(
+        !executor.is_profiling_enabled(),
+        "Profiling should be disabled initially"
+    );
 
     // Enable
     executor.enable_profiling();
-    assert!(executor.is_profiling_enabled(), "Profiling should be enabled");
+    assert!(
+        executor.is_profiling_enabled(),
+        "Profiling should be enabled"
+    );
 
     // Disable
     executor.disable_profiling();
-    assert!(!executor.is_profiling_enabled(), "Profiling should be disabled again");
+    assert!(
+        !executor.is_profiling_enabled(),
+        "Profiling should be disabled again"
+    );
 }
 
 #[test]
@@ -4860,15 +5211,24 @@ fn test_cov010_graph_tracking_enable_disable() {
     let mut executor = CudaExecutor::new(0).expect("CUDA executor");
 
     // Initially disabled
-    assert!(!executor.is_graph_tracking_enabled(), "Graph tracking should be disabled initially");
+    assert!(
+        !executor.is_graph_tracking_enabled(),
+        "Graph tracking should be disabled initially"
+    );
 
     // Enable
     executor.enable_graph_tracking();
-    assert!(executor.is_graph_tracking_enabled(), "Graph tracking should be enabled");
+    assert!(
+        executor.is_graph_tracking_enabled(),
+        "Graph tracking should be enabled"
+    );
 
     // Disable
     executor.disable_graph_tracking();
-    assert!(!executor.is_graph_tracking_enabled(), "Graph tracking should be disabled again");
+    assert!(
+        !executor.is_graph_tracking_enabled(),
+        "Graph tracking should be disabled again"
+    );
 }
 
 #[test]
@@ -4907,15 +5267,24 @@ fn test_cov010_tile_profiling_enable_disable() {
     let mut executor = CudaExecutor::new(0).expect("CUDA executor");
 
     // Initially disabled
-    assert!(!executor.is_tile_profiling_enabled(), "Tile profiling should be disabled initially");
+    assert!(
+        !executor.is_tile_profiling_enabled(),
+        "Tile profiling should be disabled initially"
+    );
 
     // Enable
     executor.enable_tile_profiling();
-    assert!(executor.is_tile_profiling_enabled(), "Tile profiling should be enabled");
+    assert!(
+        executor.is_tile_profiling_enabled(),
+        "Tile profiling should be enabled"
+    );
 
     // Disable
     executor.disable_tile_profiling();
-    assert!(!executor.is_tile_profiling_enabled(), "Tile profiling should be disabled again");
+    assert!(
+        !executor.is_tile_profiling_enabled(),
+        "Tile profiling should be disabled again"
+    );
 }
 
 #[test]
@@ -5047,7 +5416,10 @@ fn test_cov010_staging_buffer_roundtrip() {
 
     // Get a staging buffer (minimum size is 1024)
     let buf = executor.get_staging_buffer(256);
-    assert!(buf.len() >= 256, "Staging buffer should be at least 256 elements");
+    assert!(
+        buf.len() >= 256,
+        "Staging buffer should be at least 256 elements"
+    );
 
     // Return it to the pool
     executor.return_staging_buffer(buf);
@@ -5081,9 +5453,16 @@ fn test_cov011_preload_output_norm() {
 
     let gamma = vec![1.0f32; 64];
     let result = executor.preload_output_norm(&gamma);
-    assert!(result.is_ok(), "preload_output_norm failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "preload_output_norm failed: {:?}",
+        result.err()
+    );
 
-    assert!(executor.has_output_norm(), "Should have output norm after preload");
+    assert!(
+        executor.has_output_norm(),
+        "Should have output norm after preload"
+    );
 }
 
 #[test]
@@ -5094,7 +5473,10 @@ fn test_cov011_has_output_norm_false_initially() {
     }
     let executor = CudaExecutor::new(0).expect("CUDA executor");
 
-    assert!(!executor.has_output_norm(), "Should not have output norm initially");
+    assert!(
+        !executor.has_output_norm(),
+        "Should not have output norm initially"
+    );
 }
 
 #[test]
@@ -5107,7 +5489,11 @@ fn test_cov011_cache_rmsnorm_gamma() {
 
     let gamma = vec![1.0f32; 128];
     let result = executor.cache_rmsnorm_gamma("test_layer_0_attn_norm", &gamma);
-    assert!(result.is_ok(), "cache_rmsnorm_gamma failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "cache_rmsnorm_gamma failed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -5130,7 +5516,11 @@ fn test_cov011_preload_qkv_bias() {
 
     // Pass 1 as num_layers (not layer index 0)
     let result = executor.preload_qkv_bias(1, &q_biases, &k_biases, &v_biases);
-    assert!(result.is_ok(), "preload_qkv_bias failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "preload_qkv_bias failed: {:?}",
+        result.err()
+    );
 
     assert!(executor.has_qkv_bias(0), "Should have QKV bias for layer 0");
 }
@@ -5143,8 +5533,14 @@ fn test_cov011_has_qkv_bias_false_initially() {
     }
     let executor = CudaExecutor::new(0).expect("CUDA executor");
 
-    assert!(!executor.has_qkv_bias(0), "Should not have QKV bias initially");
-    assert!(!executor.has_qkv_bias(5), "Should not have QKV bias for any layer");
+    assert!(
+        !executor.has_qkv_bias(0),
+        "Should not have QKV bias initially"
+    );
+    assert!(
+        !executor.has_qkv_bias(5),
+        "Should not have QKV bias for any layer"
+    );
 }
 
 #[test]
@@ -5158,9 +5554,16 @@ fn test_cov011_preload_lm_head_bias() {
     // Preload with Some bias
     let bias = vec![0.1f32; 1024];
     let result = executor.preload_lm_head_bias(Some(&bias));
-    assert!(result.is_ok(), "preload_lm_head_bias failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "preload_lm_head_bias failed: {:?}",
+        result.err()
+    );
 
-    assert!(executor.has_lm_head_bias(), "Should have LM head bias after preload");
+    assert!(
+        executor.has_lm_head_bias(),
+        "Should have LM head bias after preload"
+    );
 }
 
 #[test]
@@ -5173,9 +5576,16 @@ fn test_cov011_preload_lm_head_bias_none() {
 
     // Preload with None (no bias)
     let result = executor.preload_lm_head_bias(None);
-    assert!(result.is_ok(), "preload_lm_head_bias None failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "preload_lm_head_bias None failed: {:?}",
+        result.err()
+    );
 
-    assert!(!executor.has_lm_head_bias(), "Should not have LM head bias when None");
+    assert!(
+        !executor.has_lm_head_bias(),
+        "Should not have LM head bias when None"
+    );
 }
 
 #[test]
@@ -5186,7 +5596,10 @@ fn test_cov011_has_lm_head_bias_false_initially() {
     }
     let executor = CudaExecutor::new(0).expect("CUDA executor");
 
-    assert!(!executor.has_lm_head_bias(), "Should not have LM head bias initially");
+    assert!(
+        !executor.has_lm_head_bias(),
+        "Should not have LM head bias initially"
+    );
 }
 
 #[test]
@@ -5197,7 +5610,10 @@ fn test_cov011_workspace_output_none_initially() {
     }
     let executor = CudaExecutor::new(0).expect("CUDA executor");
 
-    assert!(executor.workspace_output().is_none(), "Workspace output should be None initially");
+    assert!(
+        executor.workspace_output().is_none(),
+        "Workspace output should be None initially"
+    );
 }
 
 #[test]
@@ -5240,7 +5656,11 @@ fn test_cov011_gpu_argmax_basic() {
 
     let argmax_idx = result.unwrap();
     // The maximum value is at index vocab_size-1 (255)
-    assert_eq!(argmax_idx, vocab_size - 1, "Argmax should return index of max value");
+    assert_eq!(
+        argmax_idx,
+        vocab_size - 1,
+        "Argmax should return index of max value"
+    );
 }
 
 #[test]
@@ -5260,7 +5680,11 @@ fn test_cov011_gpu_argmax_middle() {
     executor.stream.synchronize().expect("sync");
 
     let result = executor.gpu_argmax(logits_buf.as_ptr(), vocab_size);
-    assert!(result.is_ok(), "gpu_argmax middle failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "gpu_argmax middle failed: {:?}",
+        result.err()
+    );
 
     let argmax_idx = result.unwrap();
     assert_eq!(argmax_idx, 64, "Argmax should return 64");
@@ -5284,7 +5708,8 @@ fn test_cov012_rmsnorm_into_basic() {
 
     let input_gpu = GpuBuffer::from_host(&executor.context, &input).expect("input buffer");
     let gamma_gpu = GpuBuffer::from_host(&executor.context, &gamma).expect("gamma buffer");
-    let output_gpu = GpuBuffer::<f32>::new(&executor.context, hidden_size as usize).expect("output buffer");
+    let output_gpu =
+        GpuBuffer::<f32>::new(&executor.context, hidden_size as usize).expect("output buffer");
 
     let result = executor.rmsnorm_into(&input_gpu, &gamma_gpu, &output_gpu, hidden_size, 1e-5);
     assert!(result.is_ok(), "rmsnorm_into failed: {:?}", result.err());
@@ -5326,7 +5751,11 @@ fn test_cov012_batched_rmsnorm_into_basic() {
         batch_size,
         1e-5,
     );
-    assert!(result.is_ok(), "batched_rmsnorm_into failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "batched_rmsnorm_into failed: {:?}",
+        result.err()
+    );
 
     executor.stream.synchronize().expect("sync");
     let mut output = vec![0.0f32; total];
@@ -5370,7 +5799,11 @@ fn test_cov012_batched_rmsnorm_ptr_into() {
         batch_size,
         1e-5,
     );
-    assert!(result.is_ok(), "batched_rmsnorm_ptr_into failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "batched_rmsnorm_ptr_into failed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -5390,7 +5823,11 @@ fn test_cov012_residual_add_into_basic() {
     let output_gpu = GpuBuffer::<f32>::new(&executor.context, n as usize).expect("output buffer");
 
     let result = executor.residual_add_into(&input1_gpu, &input2_gpu, &output_gpu, n);
-    assert!(result.is_ok(), "residual_add_into failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "residual_add_into failed: {:?}",
+        result.err()
+    );
 
     executor.stream.synchronize().expect("sync");
     let mut output = vec![0.0f32; n as usize];
@@ -5418,7 +5855,8 @@ fn test_cov012_fused_residual_rmsnorm_into_basic() {
     let residual_gpu = GpuBuffer::from_host(&executor.context, &residual).expect("residual buffer");
     let input_gpu = GpuBuffer::from_host(&executor.context, &input).expect("input buffer");
     let gamma_gpu = GpuBuffer::from_host(&executor.context, &gamma).expect("gamma buffer");
-    let output_gpu = GpuBuffer::<f32>::new(&executor.context, hidden_size as usize).expect("output buffer");
+    let output_gpu =
+        GpuBuffer::<f32>::new(&executor.context, hidden_size as usize).expect("output buffer");
 
     // fused_residual_rmsnorm_into takes gamma_ptr as usize (raw device pointer)
     let result = executor.fused_residual_rmsnorm_into(
@@ -5429,7 +5867,11 @@ fn test_cov012_fused_residual_rmsnorm_into_basic() {
         hidden_size,
         1e-5,
     );
-    assert!(result.is_ok(), "fused_residual_rmsnorm_into failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "fused_residual_rmsnorm_into failed: {:?}",
+        result.err()
+    );
 
     executor.stream.synchronize().expect("sync");
     let mut output = vec![0.0f32; hidden_size as usize];
@@ -5466,7 +5908,11 @@ fn test_cov012_batched_residual_add_into() {
         hidden_size,
         batch_size,
     );
-    assert!(result.is_ok(), "batched_residual_add_into failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "batched_residual_add_into failed: {:?}",
+        result.err()
+    );
 
     executor.stream.synchronize().expect("sync");
     let mut output = vec![0.0f32; total];
@@ -5475,7 +5921,13 @@ fn test_cov012_batched_residual_add_into() {
     // Check: output[i] = input1[i] + input2[i] = i + i*0.5 = i*1.5
     for (i, &val) in output.iter().enumerate() {
         let expected = (i as f32) * 1.5;
-        assert!((val - expected).abs() < 1e-4, "At {}: expected {}, got {}", i, expected, val);
+        assert!(
+            (val - expected).abs() < 1e-4,
+            "At {}: expected {}, got {}",
+            i,
+            expected,
+            val
+        );
     }
 }
 
@@ -5506,7 +5958,11 @@ fn test_cov012_batched_swiglu_into() {
         intermediate_dim,
         batch_size,
     );
-    assert!(result.is_ok(), "batched_swiglu_into failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "batched_swiglu_into failed: {:?}",
+        result.err()
+    );
 
     executor.stream.synchronize().expect("sync");
     let mut output = vec![0.0f32; total];
@@ -5537,7 +5993,8 @@ fn test_cov012_batched_rope_into() {
 
     let input_gpu = GpuBuffer::from_host(&executor.context, &input).expect("input buffer");
     let output_gpu = GpuBuffer::<f32>::new(&executor.context, total).expect("output buffer");
-    let positions_gpu = GpuBuffer::from_host(&executor.context, &positions).expect("positions buffer");
+    let positions_gpu =
+        GpuBuffer::from_host(&executor.context, &positions).expect("positions buffer");
 
     let result = executor.batched_rope_into(
         &input_gpu,
@@ -5548,7 +6005,11 @@ fn test_cov012_batched_rope_into() {
         batch_size,
         10000.0, // Standard theta
     );
-    assert!(result.is_ok(), "batched_rope_into failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "batched_rope_into failed: {:?}",
+        result.err()
+    );
 
     executor.stream.synchronize().expect("sync");
     let mut output = vec![0.0f32; total];
@@ -5581,7 +6042,10 @@ fn test_cov014_load_quantized_weights_with_type_q4k() {
     // Q4K block is 144 bytes (256 values)
     let weights = vec![0u8; 144];
     let result = executor.load_quantized_weights_with_type("test_q4k", &weights, 12);
-    assert!(result.is_ok(), "load_quantized_weights_with_type Q4K failed");
+    assert!(
+        result.is_ok(),
+        "load_quantized_weights_with_type Q4K failed"
+    );
 
     assert!(executor.has_quantized_weights("test_q4k"));
     assert_eq!(executor.get_quantized_weight_type("test_q4k"), Some(12));
@@ -5598,7 +6062,10 @@ fn test_cov014_load_quantized_weights_with_type_q5k() {
     // Q5K uses different block size
     let weights = vec![0u8; 176]; // Q5K block size
     let result = executor.load_quantized_weights_with_type("test_q5k", &weights, 13);
-    assert!(result.is_ok(), "load_quantized_weights_with_type Q5K failed");
+    assert!(
+        result.is_ok(),
+        "load_quantized_weights_with_type Q5K failed"
+    );
 
     assert!(executor.has_quantized_weights("test_q5k"));
     assert_eq!(executor.get_quantized_weight_type("test_q5k"), Some(13));
@@ -5615,7 +6082,10 @@ fn test_cov014_load_quantized_weights_with_type_q6k() {
     // Q6K block is 210 bytes
     let weights = vec![0u8; 210];
     let result = executor.load_quantized_weights_with_type("test_q6k", &weights, 14);
-    assert!(result.is_ok(), "load_quantized_weights_with_type Q6K failed");
+    assert!(
+        result.is_ok(),
+        "load_quantized_weights_with_type Q6K failed"
+    );
 
     assert!(executor.has_quantized_weights("test_q6k"));
     assert_eq!(executor.get_quantized_weight_type("test_q6k"), Some(14));
@@ -5653,7 +6123,9 @@ fn test_cov014_get_quantized_weight_ptr() {
     let mut executor = CudaExecutor::new(0).expect("CUDA executor");
 
     let weights = vec![1u8; 256];
-    executor.load_quantized_weights("ptr_test", &weights).expect("load");
+    executor
+        .load_quantized_weights("ptr_test", &weights)
+        .expect("load");
 
     let ptr_result = executor.get_quantized_weight_ptr("ptr_test");
     assert!(ptr_result.is_ok(), "get_quantized_weight_ptr failed");
@@ -5684,13 +6156,19 @@ fn test_cov014_cached_quantized_weight_count_multiple() {
 
     assert_eq!(executor.cached_quantized_weight_count(), 0);
 
-    executor.load_quantized_weights("w1", &vec![0u8; 144]).expect("load w1");
+    executor
+        .load_quantized_weights("w1", &vec![0u8; 144])
+        .expect("load w1");
     assert_eq!(executor.cached_quantized_weight_count(), 1);
 
-    executor.load_quantized_weights("w2", &vec![0u8; 144]).expect("load w2");
+    executor
+        .load_quantized_weights("w2", &vec![0u8; 144])
+        .expect("load w2");
     assert_eq!(executor.cached_quantized_weight_count(), 2);
 
-    executor.load_quantized_weights("w3", &vec![0u8; 144]).expect("load w3");
+    executor
+        .load_quantized_weights("w3", &vec![0u8; 144])
+        .expect("load w3");
     assert_eq!(executor.cached_quantized_weight_count(), 3);
 }
 
@@ -5704,11 +6182,15 @@ fn test_cov014_cached_quantized_weight_bytes_multiple() {
 
     assert_eq!(executor.cached_quantized_weight_bytes(), 0);
 
-    executor.load_quantized_weights("w1", &vec![0u8; 256]).expect("load w1");
+    executor
+        .load_quantized_weights("w1", &vec![0u8; 256])
+        .expect("load w1");
     let bytes1 = executor.cached_quantized_weight_bytes();
     assert!(bytes1 >= 256, "Should have at least 256 bytes");
 
-    executor.load_quantized_weights("w2", &vec![0u8; 512]).expect("load w2");
+    executor
+        .load_quantized_weights("w2", &vec![0u8; 512])
+        .expect("load w2");
     let bytes2 = executor.cached_quantized_weight_bytes();
     assert!(bytes2 >= 256 + 512, "Should have at least 768 bytes");
 }
@@ -5721,9 +6203,15 @@ fn test_cov014_clear_quantized_weights_multiple() {
     }
     let mut executor = CudaExecutor::new(0).expect("CUDA executor");
 
-    executor.load_quantized_weights("w1", &vec![0u8; 144]).expect("load");
-    executor.load_quantized_weights("w2", &vec![0u8; 144]).expect("load");
-    executor.load_quantized_weights("w3", &vec![0u8; 144]).expect("load");
+    executor
+        .load_quantized_weights("w1", &vec![0u8; 144])
+        .expect("load");
+    executor
+        .load_quantized_weights("w2", &vec![0u8; 144])
+        .expect("load");
+    executor
+        .load_quantized_weights("w3", &vec![0u8; 144])
+        .expect("load");
     assert_eq!(executor.cached_quantized_weight_count(), 3);
 
     executor.clear_quantized_weights();
@@ -5745,9 +6233,18 @@ fn test_cov015_has_rmsnorm_weights_false_initially() {
     let executor = CudaExecutor::new(0).expect("CUDA executor");
 
     // Should return false for any layer when no weights cached
-    assert!(!executor.has_rmsnorm_weights(0), "Layer 0 should have no RMSNorm weights");
-    assert!(!executor.has_rmsnorm_weights(5), "Layer 5 should have no RMSNorm weights");
-    assert!(!executor.has_rmsnorm_weights(100), "Layer 100 should have no RMSNorm weights");
+    assert!(
+        !executor.has_rmsnorm_weights(0),
+        "Layer 0 should have no RMSNorm weights"
+    );
+    assert!(
+        !executor.has_rmsnorm_weights(5),
+        "Layer 5 should have no RMSNorm weights"
+    );
+    assert!(
+        !executor.has_rmsnorm_weights(100),
+        "Layer 100 should have no RMSNorm weights"
+    );
 }
 
 #[test]
@@ -5762,10 +6259,18 @@ fn test_cov015_has_rmsnorm_weights_after_preload() {
     let attn_norms: Vec<&[f32]> = vec![gamma.as_slice()];
     let ffn_norms: Vec<&[f32]> = vec![gamma.as_slice()];
 
-    executor.preload_rmsnorm_weights(1, &attn_norms, &ffn_norms).expect("preload");
+    executor
+        .preload_rmsnorm_weights(1, &attn_norms, &ffn_norms)
+        .expect("preload");
 
-    assert!(executor.has_rmsnorm_weights(0), "Layer 0 should have RMSNorm weights after preload");
-    assert!(!executor.has_rmsnorm_weights(1), "Layer 1 should not have weights");
+    assert!(
+        executor.has_rmsnorm_weights(0),
+        "Layer 0 should have RMSNorm weights after preload"
+    );
+    assert!(
+        !executor.has_rmsnorm_weights(1),
+        "Layer 1 should not have weights"
+    );
 }
 
 #[test]
@@ -5787,7 +6292,7 @@ fn test_cov015_forward_all_layers_missing_attn_norm() {
         0, // position
         1, // num_layers
         hidden_dim,
-        128, // intermediate_dim
+        128,  // intermediate_dim
         1e-5, // epsilon
     );
 
@@ -5812,20 +6317,14 @@ fn test_cov015_forward_all_layers_missing_ffn_norm() {
     let gamma = vec![1.0f32; hidden_dim as usize];
 
     // Only cache attn_norm, not ffn_norm
-    executor.cache_rmsnorm_gamma("blk.0.attn_norm.gamma", &gamma).expect("cache attn");
+    executor
+        .cache_rmsnorm_gamma("blk.0.attn_norm.gamma", &gamma)
+        .expect("cache attn");
 
     let input = vec![0.1f32; hidden_dim as usize];
     let mut output = vec![0.0f32; hidden_dim as usize];
 
-    let result = executor.forward_all_layers_gpu(
-        &input,
-        &mut output,
-        0,
-        1,
-        hidden_dim,
-        128,
-        1e-5,
-    );
+    let result = executor.forward_all_layers_gpu(&input, &mut output, 0, 1, hidden_dim, 128, 1e-5);
 
     assert!(result.is_err(), "Should fail without cached ffn_norm");
     let err_msg = format!("{:?}", result.err().unwrap());
@@ -5849,8 +6348,12 @@ fn test_cov015_forward_to_logits_missing_output_norm() {
     let gamma = vec![1.0f32; hidden_dim as usize];
 
     // Cache layer norms but not output norm
-    executor.cache_rmsnorm_gamma("blk.0.attn_norm.gamma", &gamma).expect("cache attn");
-    executor.cache_rmsnorm_gamma("blk.0.ffn_norm.gamma", &gamma).expect("cache ffn");
+    executor
+        .cache_rmsnorm_gamma("blk.0.attn_norm.gamma", &gamma)
+        .expect("cache attn");
+    executor
+        .cache_rmsnorm_gamma("blk.0.ffn_norm.gamma", &gamma)
+        .expect("cache ffn");
 
     let input = vec![0.1f32; hidden_dim as usize];
     let mut logits = vec![0.0f32; vocab_size as usize];
@@ -5887,15 +6390,8 @@ fn test_cov015_forward_batched_batch_size_zero() {
     let inputs: Vec<f32> = vec![]; // Empty - batch size 0
     let positions: Vec<u32> = vec![]; // Empty positions
 
-    let result = executor.forward_batched_to_token_ids(
-        &inputs,
-        &positions,
-        1,
-        hidden_dim,
-        128,
-        256,
-        1e-5,
-    );
+    let result =
+        executor.forward_batched_to_token_ids(&inputs, &positions, 1, hidden_dim, 128, 256, 1e-5);
 
     assert!(result.is_err(), "Should fail with batch size 0");
     let err_msg = format!("{:?}", result.err().unwrap());
@@ -5919,15 +6415,8 @@ fn test_cov015_forward_batched_batch_size_exceeds_max() {
     let inputs = vec![0.1f32; m * hidden_dim as usize];
     let positions: Vec<u32> = (0..m as u32).collect();
 
-    let result = executor.forward_batched_to_token_ids(
-        &inputs,
-        &positions,
-        1,
-        hidden_dim,
-        128,
-        256,
-        1e-5,
-    );
+    let result =
+        executor.forward_batched_to_token_ids(&inputs, &positions, 1, hidden_dim, 128, 256, 1e-5);
 
     assert!(result.is_err(), "Should fail with batch size > 32");
     let err_msg = format!("{:?}", result.err().unwrap());
@@ -5950,15 +6439,8 @@ fn test_cov015_forward_batched_wrong_input_length() {
     let positions: Vec<u32> = vec![0, 1]; // M=2
     let inputs = vec![0.1f32; 50]; // Wrong length: should be 2 * 64 = 128
 
-    let result = executor.forward_batched_to_token_ids(
-        &inputs,
-        &positions,
-        1,
-        hidden_dim,
-        128,
-        256,
-        1e-5,
-    );
+    let result =
+        executor.forward_batched_to_token_ids(&inputs, &positions, 1, hidden_dim, 128, 256, 1e-5);
 
     assert!(result.is_err(), "Should fail with wrong input length");
     let err_msg = format!("{:?}", result.err().unwrap());
@@ -5983,15 +6465,8 @@ fn test_cov015_forward_batched_workspace_not_initialized() {
     let positions: Vec<u32> = vec![0, 1];
 
     // Don't initialize workspace - should fail
-    let result = executor.forward_batched_to_token_ids(
-        &inputs,
-        &positions,
-        1,
-        hidden_dim,
-        128,
-        256,
-        1e-5,
-    );
+    let result =
+        executor.forward_batched_to_token_ids(&inputs, &positions, 1, hidden_dim, 128, 256, 1e-5);
 
     assert!(result.is_err(), "Should fail without initialized workspace");
     let err_msg = format!("{:?}", result.err().unwrap());
@@ -6013,9 +6488,15 @@ fn test_cov015_preload_lm_head_bias_empty() {
     // Preload with empty bias (should return 0 bytes, not error)
     let empty_bias: Vec<f32> = vec![];
     let result = executor.preload_lm_head_bias(Some(&empty_bias));
-    assert!(result.is_ok(), "preload_lm_head_bias with empty should succeed");
+    assert!(
+        result.is_ok(),
+        "preload_lm_head_bias with empty should succeed"
+    );
     assert_eq!(result.unwrap(), 0, "Empty bias should upload 0 bytes");
-    assert!(!executor.has_lm_head_bias(), "Should not have LM head bias with empty input");
+    assert!(
+        !executor.has_lm_head_bias(),
+        "Should not have LM head bias with empty input"
+    );
 }
 
 #[test]
@@ -6103,9 +6584,19 @@ fn test_cov015_preload_qkv_bias_with_none_values() {
     let v_biases: Vec<Option<&[f32]>> = vec![None];
 
     let result = executor.preload_qkv_bias(1, &q_biases, &k_biases, &v_biases);
-    assert!(result.is_ok(), "preload_qkv_bias with None values should succeed");
-    assert_eq!(result.unwrap(), 0, "No bytes should be uploaded for None biases");
-    assert!(!executor.has_qkv_bias(0), "Should not have QKV bias when all None");
+    assert!(
+        result.is_ok(),
+        "preload_qkv_bias with None values should succeed"
+    );
+    assert_eq!(
+        result.unwrap(),
+        0,
+        "No bytes should be uploaded for None biases"
+    );
+    assert!(
+        !executor.has_qkv_bias(0),
+        "Should not have QKV bias when all None"
+    );
 }
 
 #[test]
@@ -6140,15 +6631,8 @@ fn test_cov015_forward_batched_graphed_batch_size_zero() {
     let inputs: Vec<f32> = vec![];
     let positions: Vec<u32> = vec![];
 
-    let result = executor.forward_batched_to_token_ids_graphed(
-        &inputs,
-        &positions,
-        1,
-        64,
-        128,
-        256,
-        1e-5,
-    );
+    let result =
+        executor.forward_batched_to_token_ids_graphed(&inputs, &positions, 1, 64, 128, 256, 1e-5);
 
     assert!(result.is_err(), "Should fail with batch size 0");
     let err_msg = format!("{:?}", result.err().unwrap());
@@ -6172,15 +6656,8 @@ fn test_cov015_forward_batched_graphed_batch_size_exceeds_max() {
     let inputs = vec![0.1f32; m * hidden_dim as usize];
     let positions: Vec<u32> = (0..m as u32).collect();
 
-    let result = executor.forward_batched_to_token_ids_graphed(
-        &inputs,
-        &positions,
-        1,
-        hidden_dim,
-        128,
-        256,
-        1e-5,
-    );
+    let result = executor
+        .forward_batched_to_token_ids_graphed(&inputs, &positions, 1, hidden_dim, 128, 256, 1e-5);
 
     assert!(result.is_err(), "Should fail with batch size > 32");
     let err_msg = format!("{:?}", result.err().unwrap());
@@ -6218,7 +6695,10 @@ fn test_cov016_silu_gpu_basic() {
 
     // SiLU: x * sigmoid(x) - check that non-zero inputs produce non-zero outputs
     let non_zero_count = output.iter().filter(|&&x| x.abs() > 1e-6).count();
-    assert!(non_zero_count > n as usize / 2, "SiLU should produce many non-zero outputs");
+    assert!(
+        non_zero_count > n as usize / 2,
+        "SiLU should produce many non-zero outputs"
+    );
 }
 
 #[test]
@@ -6243,7 +6723,10 @@ fn test_cov016_gelu_async_basic() {
 
     // GELU should have non-zero outputs for most non-zero inputs
     let non_zero_count = output.iter().filter(|&&x| x.abs() > 1e-6).count();
-    assert!(non_zero_count > n as usize / 3, "GELU should produce non-zero outputs");
+    assert!(
+        non_zero_count > n as usize / 3,
+        "GELU should produce non-zero outputs"
+    );
 }
 
 #[test]
@@ -6262,7 +6745,11 @@ fn test_cov016_elementwise_mul_gpu_basic() {
     let input2_gpu = GpuBuffer::from_host(&executor.context, &input2).expect("input2 buffer");
 
     let result = executor.elementwise_mul_gpu(&input1_gpu, &input2_gpu, n);
-    assert!(result.is_ok(), "elementwise_mul_gpu failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "elementwise_mul_gpu failed: {:?}",
+        result.err()
+    );
 
     executor.stream.synchronize().expect("sync");
     let output_gpu = result.unwrap();
@@ -6291,7 +6778,11 @@ fn test_cov016_fused_swiglu_gpu_basic() {
     let up_gpu = GpuBuffer::from_host(&executor.context, &up).expect("up buffer");
 
     let result = executor.fused_swiglu_gpu(&gate_gpu, &up_gpu, n);
-    assert!(result.is_ok(), "fused_swiglu_gpu failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "fused_swiglu_gpu failed: {:?}",
+        result.err()
+    );
 
     executor.stream.synchronize().expect("sync");
     let output_gpu = result.unwrap();
@@ -6320,7 +6811,11 @@ fn test_cov016_fused_swiglu_into_basic() {
     let output_gpu = GpuBuffer::<f32>::new(&executor.context, n as usize).expect("output buffer");
 
     let result = executor.fused_swiglu_into(&gate_gpu, &up_gpu, &output_gpu, n);
-    assert!(result.is_ok(), "fused_swiglu_into failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "fused_swiglu_into failed: {:?}",
+        result.err()
+    );
 
     executor.stream.synchronize().expect("sync");
     let mut output = vec![0.0f32; n as usize];
@@ -6328,7 +6823,11 @@ fn test_cov016_fused_swiglu_into_basic() {
 
     // silu(1.0) * 2.0 ≈ 0.731 * 2 ≈ 1.462
     for val in &output {
-        assert!(val.abs() > 1.0 && val.abs() < 2.0, "Expected ~1.46, got {}", val);
+        assert!(
+            val.abs() > 1.0 && val.abs() < 2.0,
+            "Expected ~1.46, got {}",
+            val
+        );
     }
 }
 
@@ -6350,7 +6849,11 @@ fn test_cov016_silu_gpu_cached_module() {
 
     // Second call reuses cached module
     let result2 = executor.silu_gpu(&input_gpu, n);
-    assert!(result2.is_ok(), "cached silu_gpu failed: {:?}", result2.err());
+    assert!(
+        result2.is_ok(),
+        "cached silu_gpu failed: {:?}",
+        result2.err()
+    );
 }
 
 #[test]
@@ -6366,12 +6869,18 @@ fn test_cov016_gelu_async_cached_module() {
     let input_gpu = GpuBuffer::from_host(&executor.context, &input).expect("input buffer");
 
     // First call compiles
-    let _result1 = executor.gelu_async(&input_gpu, n).expect("first gelu_async");
+    let _result1 = executor
+        .gelu_async(&input_gpu, n)
+        .expect("first gelu_async");
     executor.stream.synchronize().expect("sync");
 
     // Second call reuses cached module
     let result2 = executor.gelu_async(&input_gpu, n);
-    assert!(result2.is_ok(), "cached gelu_async failed: {:?}", result2.err());
+    assert!(
+        result2.is_ok(),
+        "cached gelu_async failed: {:?}",
+        result2.err()
+    );
 }
 
 #[test]
@@ -6390,7 +6899,11 @@ fn test_cov016_elementwise_mul_varying_values() {
     let input2_gpu = GpuBuffer::from_host(&executor.context, &input2).expect("input2 buffer");
 
     let result = executor.elementwise_mul_gpu(&input1_gpu, &input2_gpu, n);
-    assert!(result.is_ok(), "elementwise_mul varying failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "elementwise_mul varying failed: {:?}",
+        result.err()
+    );
 
     executor.stream.synchronize().expect("sync");
     let output_gpu = result.unwrap();
@@ -6400,7 +6913,13 @@ fn test_cov016_elementwise_mul_varying_values() {
     // Verify: output[i] = i * (n - i)
     for i in 0..n as usize {
         let expected = (i as f32) * ((n as usize - i) as f32);
-        assert!((output[i] - expected).abs() < 1e-4, "Mismatch at {}: expected {}, got {}", i, expected, output[i]);
+        assert!(
+            (output[i] - expected).abs() < 1e-4,
+            "Mismatch at {}: expected {}, got {}",
+            i,
+            expected,
+            output[i]
+        );
     }
 }
 
@@ -6429,7 +6948,11 @@ fn test_cov016_fused_swiglu_gpu_negative_inputs() {
 
     // SiLU(-2.0) is small negative, so silu(-2) * 1.0 should be small negative
     for val in &output {
-        assert!(*val < 0.1, "SwiGLU of negative gate should be small/negative: {}", val);
+        assert!(
+            *val < 0.1,
+            "SwiGLU of negative gate should be small/negative: {}",
+            val
+        );
     }
 }
 
@@ -6472,15 +6995,24 @@ fn test_cov017_profiler_enable_disable() {
     let mut executor = CudaExecutor::new(0).expect("CUDA executor");
 
     // Initially disabled
-    assert!(!executor.is_profiling_enabled(), "Profiling should be disabled initially");
+    assert!(
+        !executor.is_profiling_enabled(),
+        "Profiling should be disabled initially"
+    );
 
     // Enable
     executor.enable_profiling();
-    assert!(executor.is_profiling_enabled(), "Profiling should be enabled");
+    assert!(
+        executor.is_profiling_enabled(),
+        "Profiling should be enabled"
+    );
 
     // Disable
     executor.disable_profiling();
-    assert!(!executor.is_profiling_enabled(), "Profiling should be disabled");
+    assert!(
+        !executor.is_profiling_enabled(),
+        "Profiling should be disabled"
+    );
 }
 
 #[test]
@@ -6520,7 +7052,10 @@ fn test_cov017_profiler_summary() {
 
     let summary = executor.profiler_summary();
     // Summary should be a non-empty string
-    assert!(!summary.is_empty() || summary.is_empty(), "Summary should return string"); // Always passes
+    assert!(
+        !summary.is_empty() || summary.is_empty(),
+        "Summary should return string"
+    ); // Always passes
 }
 
 #[test]
@@ -6567,7 +7102,11 @@ fn test_cov017_residual_add_gpu_basic() {
     let input2_gpu = GpuBuffer::from_host(&executor.context, &input2).expect("input2 buffer");
 
     let result = executor.residual_add_gpu(&input1_gpu, &input2_gpu, n);
-    assert!(result.is_ok(), "residual_add_gpu failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "residual_add_gpu failed: {:?}",
+        result.err()
+    );
 
     executor.stream.synchronize().expect("sync");
     let output_gpu = result.unwrap();
@@ -6589,16 +7128,23 @@ fn test_cov017_init_kv_cache_gpu() {
     let mut executor = CudaExecutor::new(0).expect("CUDA executor");
 
     let result = executor.init_kv_cache_gpu(
-        2,   // num_layers
-        4,   // num_heads
-        4,   // num_kv_heads
-        8,   // head_dim
-        16,  // max_seq_len
+        2,  // num_layers
+        4,  // num_heads
+        4,  // num_kv_heads
+        8,  // head_dim
+        16, // max_seq_len
     );
-    assert!(result.is_ok(), "init_kv_cache_gpu failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "init_kv_cache_gpu failed: {:?}",
+        result.err()
+    );
 
     // Verify KV cache was initialized
-    assert!(executor.kv_cache_max_len > 0, "KV cache max len should be set");
+    assert!(
+        executor.kv_cache_max_len > 0,
+        "KV cache max len should be set"
+    );
     assert_eq!(executor.kv_num_heads, 4, "num_heads should be 4");
     assert_eq!(executor.kv_num_kv_heads, 4, "num_kv_heads should be 4");
     assert_eq!(executor.kv_head_dim, 8, "head_dim should be 8");
@@ -6616,7 +7162,10 @@ fn test_cov017_init_workspace() {
     assert!(result.is_ok(), "init_workspace failed: {:?}", result.err());
 
     // Check workspace was initialized
-    assert!(executor.workspace.initialized, "Workspace should be initialized");
+    assert!(
+        executor.workspace.initialized,
+        "Workspace should be initialized"
+    );
 }
 
 #[test]
@@ -6627,7 +7176,10 @@ fn test_cov017_has_indexed_weights_false() {
     }
     let executor = CudaExecutor::new(0).expect("CUDA executor");
 
-    assert!(!executor.has_indexed_weights(), "Should not have indexed weights initially");
+    assert!(
+        !executor.has_indexed_weights(),
+        "Should not have indexed weights initially"
+    );
 }
 
 #[test]
@@ -6638,7 +7190,10 @@ fn test_cov017_has_workspace_false() {
     }
     let executor = CudaExecutor::new(0).expect("CUDA executor");
 
-    assert!(!executor.has_workspace(), "Should not have workspace initially");
+    assert!(
+        !executor.has_workspace(),
+        "Should not have workspace initially"
+    );
 }
 
 #[test]
@@ -6662,7 +7217,10 @@ fn test_cov017_set_rope_theta() {
     let mut executor = CudaExecutor::new(0).expect("CUDA executor");
 
     executor.set_rope_theta(500000.0);
-    assert_eq!(executor.rope_theta, 500000.0, "RoPE theta should be updated");
+    assert_eq!(
+        executor.rope_theta, 500000.0,
+        "RoPE theta should be updated"
+    );
 }
 
 #[test]
@@ -6715,7 +7273,11 @@ fn test_cov018_q4k_gemv_cached_missing_weight() {
     let result = executor.q4k_gemv_cached("nonexistent_weight", &input, &mut output, 64, 256);
     assert!(result.is_err(), "Should fail without cached weight");
     let err = format!("{:?}", result.err().unwrap());
-    assert!(err.contains("not cached"), "Error should mention not cached: {}", err);
+    assert!(
+        err.contains("not cached"),
+        "Error should mention not cached: {}",
+        err
+    );
 }
 
 #[test]
@@ -6783,7 +7345,11 @@ fn test_cov018_residual_add_host_basic() {
     let mut output = vec![0.0f32; n as usize];
 
     let result = executor.residual_add_host(&input1, &input2, &mut output);
-    assert!(result.is_ok(), "residual_add_host failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "residual_add_host failed: {:?}",
+        result.err()
+    );
 
     // 1.5 + 2.5 = 4.0
     for val in &output {
@@ -6806,7 +7372,11 @@ fn test_cov018_fused_residual_rmsnorm_host_basic() {
     let mut output = vec![0.0f32; n as usize];
 
     let result = executor.fused_residual_rmsnorm_host(&residual, &input, &gamma, &mut output, 1e-5);
-    assert!(result.is_ok(), "fused_residual_rmsnorm_host failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "fused_residual_rmsnorm_host failed: {:?}",
+        result.err()
+    );
 
     // Should have normalized residual + input
     let l2: f32 = output.iter().map(|x| x * x).sum::<f32>().sqrt();
@@ -6937,8 +7507,13 @@ fn test_cov018_fused_residual_rmsnorm_gpu_basic() {
     let input_gpu = GpuBuffer::from_host(&executor.context, &input).expect("input");
     let gamma_gpu = GpuBuffer::from_host(&executor.context, &gamma).expect("gamma");
 
-    let result = executor.fused_residual_rmsnorm_gpu(&residual_gpu, &input_gpu, &gamma_gpu, n, 1e-5);
-    assert!(result.is_ok(), "fused_residual_rmsnorm_gpu failed: {:?}", result.err());
+    let result =
+        executor.fused_residual_rmsnorm_gpu(&residual_gpu, &input_gpu, &gamma_gpu, n, 1e-5);
+    assert!(
+        result.is_ok(),
+        "fused_residual_rmsnorm_gpu failed: {:?}",
+        result.err()
+    );
 
     executor.stream.synchronize().expect("sync");
     let output_gpu = result.unwrap();
@@ -6976,7 +7551,11 @@ fn test_cov018_fused_residual_rmsnorm_into_basic() {
         n,
         1e-5,
     );
-    assert!(result.is_ok(), "fused_residual_rmsnorm_into failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "fused_residual_rmsnorm_into failed: {:?}",
+        result.err()
+    );
 }
 
 // NOTE: q8_quantize_async has PTX compilation issues
@@ -6999,7 +7578,11 @@ fn test_cov019_flash_attention_memory_bytes() {
     assert_eq!(naive, 512 * 512 * 4, "Naive memory should be seq_len^2 * 4");
 
     // Flash: block_size^2 * 4 * 2 (block_size=64)
-    assert_eq!(flash, 64 * 64 * 4 * 2, "Flash memory should be block_size^2 * 4 * 2");
+    assert_eq!(
+        flash,
+        64 * 64 * 4 * 2,
+        "Flash memory should be block_size^2 * 4 * 2"
+    );
 
     // Flash should use much less memory
     assert!(flash < naive, "Flash should use less memory than naive");
@@ -7020,7 +7603,10 @@ fn test_cov019_flash_attention_memory_bytes_large_seq() {
     assert_eq!(flash, 64 * 64 * 4 * 2);
 
     // Flash savings are huge for large sequences
-    assert!(flash < naive / 1000, "Flash should save >1000x memory for large sequences");
+    assert!(
+        flash < naive / 1000,
+        "Flash should save >1000x memory for large sequences"
+    );
 }
 
 #[test]
@@ -7042,11 +7628,19 @@ fn test_cov019_tensor_core_attention_dimension_not_multiple_16() {
     let v = vec![0.1f32; size];
     let mut output = vec![0.0f32; size];
 
-    let result = executor.tensor_core_attention(&q, &k, &v, &mut output, seq_len, head_dim, n_heads, false);
+    let result =
+        executor.tensor_core_attention(&q, &k, &v, &mut output, seq_len, head_dim, n_heads, false);
 
-    assert!(result.is_err(), "Should fail with dimension not multiple of 16");
+    assert!(
+        result.is_err(),
+        "Should fail with dimension not multiple of 16"
+    );
     let err_msg = format!("{:?}", result.err().unwrap());
-    assert!(err_msg.contains("multiple of 16"), "Error should mention multiple of 16: {}", err_msg);
+    assert!(
+        err_msg.contains("multiple of 16"),
+        "Error should mention multiple of 16: {}",
+        err_msg
+    );
 }
 
 #[test]
@@ -7068,11 +7662,19 @@ fn test_cov019_tensor_core_attention_head_dim_not_multiple_16() {
     let v = vec![0.1f32; size];
     let mut output = vec![0.0f32; size];
 
-    let result = executor.tensor_core_attention(&q, &k, &v, &mut output, seq_len, head_dim, n_heads, true);
+    let result =
+        executor.tensor_core_attention(&q, &k, &v, &mut output, seq_len, head_dim, n_heads, true);
 
-    assert!(result.is_err(), "Should fail with head_dim not multiple of 16");
+    assert!(
+        result.is_err(),
+        "Should fail with head_dim not multiple of 16"
+    );
     let err_msg = format!("{:?}", result.err().unwrap());
-    assert!(err_msg.contains("multiple of 16"), "Error should mention multiple of 16: {}", err_msg);
+    assert!(
+        err_msg.contains("multiple of 16"),
+        "Error should mention multiple of 16: {}",
+        err_msg
+    );
 }
 
 #[test]
@@ -7095,11 +7697,16 @@ fn test_cov019_tensor_core_attention_size_mismatch() {
     let v = vec![0.1f32; expected_size];
     let mut output = vec![0.0f32; expected_size];
 
-    let result = executor.tensor_core_attention(&q, &k, &v, &mut output, seq_len, head_dim, n_heads, false);
+    let result =
+        executor.tensor_core_attention(&q, &k, &v, &mut output, seq_len, head_dim, n_heads, false);
 
     assert!(result.is_err(), "Should fail with size mismatch");
     let err_msg = format!("{:?}", result.err().unwrap());
-    assert!(err_msg.contains("size mismatch") || err_msg.contains("expected"), "Error should mention size mismatch: {}", err_msg);
+    assert!(
+        err_msg.contains("size mismatch") || err_msg.contains("expected"),
+        "Error should mention size mismatch: {}",
+        err_msg
+    );
 }
 
 #[test]
@@ -7121,9 +7728,16 @@ fn test_cov019_gemm_fp16_dimension_not_multiple_16() {
 
     let result = executor.gemm_fp16(&a, &b, &mut c, m, n, k);
 
-    assert!(result.is_err(), "Should fail with dimension not multiple of 16");
+    assert!(
+        result.is_err(),
+        "Should fail with dimension not multiple of 16"
+    );
     let err_msg = format!("{:?}", result.err().unwrap());
-    assert!(err_msg.contains("multiple of 16"), "Error should mention multiple of 16: {}", err_msg);
+    assert!(
+        err_msg.contains("multiple of 16"),
+        "Error should mention multiple of 16: {}",
+        err_msg
+    );
 }
 
 #[test]
@@ -7147,7 +7761,11 @@ fn test_cov019_gemm_fp16_size_mismatch() {
 
     assert!(result.is_err(), "Should fail with size mismatch");
     let err_msg = format!("{:?}", result.err().unwrap());
-    assert!(err_msg.contains("mismatch") || err_msg.contains("expected"), "Error should mention mismatch: {}", err_msg);
+    assert!(
+        err_msg.contains("mismatch") || err_msg.contains("expected"),
+        "Error should mention mismatch: {}",
+        err_msg
+    );
 }
 
 #[test]
@@ -7167,7 +7785,8 @@ fn test_cov019_batched_incremental_attention_not_initialized() {
     let q_batched = GpuBuffer::<f32>::new(&executor.context, m * num_heads * head_dim).expect("q");
     let k_batched = GpuBuffer::<f32>::new(&executor.context, m * num_heads * head_dim).expect("k");
     let v_batched = GpuBuffer::<f32>::new(&executor.context, m * num_heads * head_dim).expect("v");
-    let out_batched = GpuBuffer::<f32>::new(&executor.context, m * num_heads * head_dim).expect("out");
+    let out_batched =
+        GpuBuffer::<f32>::new(&executor.context, m * num_heads * head_dim).expect("out");
 
     let result = executor.batched_incremental_attention_into(
         0, // layer_idx
@@ -7181,7 +7800,11 @@ fn test_cov019_batched_incremental_attention_not_initialized() {
 
     assert!(result.is_err(), "Should fail without batched KV cache init");
     let err_msg = format!("{:?}", result.err().unwrap());
-    assert!(err_msg.contains("not initialized") || err_msg.contains("PAR-119"), "Error should mention not initialized: {}", err_msg);
+    assert!(
+        err_msg.contains("not initialized") || err_msg.contains("PAR-119"),
+        "Error should mention not initialized: {}",
+        err_msg
+    );
 }
 
 #[test]
@@ -7201,7 +7824,8 @@ fn test_cov019_flash_decoding_not_initialized() {
     let q_batched = GpuBuffer::<f32>::new(&executor.context, m * num_heads * head_dim).expect("q");
     let k_batched = GpuBuffer::<f32>::new(&executor.context, m * num_heads * head_dim).expect("k");
     let v_batched = GpuBuffer::<f32>::new(&executor.context, m * num_heads * head_dim).expect("v");
-    let out_batched = GpuBuffer::<f32>::new(&executor.context, m * num_heads * head_dim).expect("out");
+    let out_batched =
+        GpuBuffer::<f32>::new(&executor.context, m * num_heads * head_dim).expect("out");
 
     let result = executor.flash_decoding_attention_into(
         0, // layer_idx
@@ -7215,7 +7839,11 @@ fn test_cov019_flash_decoding_not_initialized() {
 
     assert!(result.is_err(), "Should fail without flash decoding init");
     let err_msg = format!("{:?}", result.err().unwrap());
-    assert!(err_msg.contains("not initialized") || err_msg.contains("PAR-118"), "Error should mention not initialized: {}", err_msg);
+    assert!(
+        err_msg.contains("not initialized") || err_msg.contains("PAR-118"),
+        "Error should mention not initialized: {}",
+        err_msg
+    );
 }
 
 #[test]
@@ -7233,8 +7861,15 @@ fn test_cov019_init_flash_decoding_basic() {
 
     let result = executor.init_flash_decoding(num_heads, head_dim, max_seq_len, batch_size);
 
-    assert!(result.is_ok(), "init_flash_decoding should succeed: {:?}", result.err());
-    assert!(executor.flash_decode_enabled, "flash_decode_enabled should be true");
+    assert!(
+        result.is_ok(),
+        "init_flash_decoding should succeed: {:?}",
+        result.err()
+    );
+    assert!(
+        executor.flash_decode_enabled,
+        "flash_decode_enabled should be true"
+    );
     assert_eq!(executor.flash_decode_max_seq_len, max_seq_len);
 }
 
@@ -7263,7 +7898,11 @@ fn test_cov019_incremental_attention_async_kv_not_initialized() {
 
     assert!(result.is_err(), "Should fail without KV cache init");
     let err_msg = format!("{:?}", result.err().unwrap());
-    assert!(err_msg.contains("not initialized") || err_msg.contains("PAR-023"), "Error should mention not initialized: {}", err_msg);
+    assert!(
+        err_msg.contains("not initialized") || err_msg.contains("PAR-023"),
+        "Error should mention not initialized: {}",
+        err_msg
+    );
 }
 
 #[test]
@@ -7292,7 +7931,11 @@ fn test_cov019_incremental_attention_into_kv_not_initialized() {
 
     assert!(result.is_err(), "Should fail without KV cache init");
     let err_msg = format!("{:?}", result.err().unwrap());
-    assert!(err_msg.contains("not initialized") || err_msg.contains("PAR-052"), "Error should mention not initialized: {}", err_msg);
+    assert!(
+        err_msg.contains("not initialized") || err_msg.contains("PAR-052"),
+        "Error should mention not initialized: {}",
+        err_msg
+    );
 }
 
 #[test]
@@ -7315,9 +7958,14 @@ fn test_cov019_tensor_core_attention_valid_run() {
     let mut output = vec![0.0f32; size];
 
     // This should succeed (dimensions are valid)
-    let result = executor.tensor_core_attention(&q, &k, &v, &mut output, seq_len, head_dim, n_heads, false);
+    let result =
+        executor.tensor_core_attention(&q, &k, &v, &mut output, seq_len, head_dim, n_heads, false);
 
-    assert!(result.is_ok(), "tensor_core_attention should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "tensor_core_attention should succeed: {:?}",
+        result.err()
+    );
 
     // Output should have some non-zero values
     let has_nonzero = output.iter().any(|&x| x.abs() > 1e-10);
@@ -7344,7 +7992,11 @@ fn test_cov019_gemm_fp16_valid_run() {
     // This should succeed
     let result = executor.gemm_fp16(&a, &b, &mut c, m, n, k);
 
-    assert!(result.is_ok(), "gemm_fp16 should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "gemm_fp16 should succeed: {:?}",
+        result.err()
+    );
 
     // Output should have non-zero values
     let has_nonzero = c.iter().any(|&x| x.abs() > 1e-10);
@@ -7365,7 +8017,11 @@ fn test_cov020_synchronize_compute() {
     let executor = CudaExecutor::new(0).expect("CUDA executor");
 
     let result = executor.synchronize_compute();
-    assert!(result.is_ok(), "synchronize_compute should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "synchronize_compute should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -7377,7 +8033,11 @@ fn test_cov020_synchronize_transfer() {
     let executor = CudaExecutor::new(0).expect("CUDA executor");
 
     let result = executor.synchronize_transfer();
-    assert!(result.is_ok(), "synchronize_transfer should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "synchronize_transfer should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -7389,7 +8049,11 @@ fn test_cov020_synchronize_all() {
     let executor = CudaExecutor::new(0).expect("CUDA executor");
 
     let result = executor.synchronize_all();
-    assert!(result.is_ok(), "synchronize_all should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "synchronize_all should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -7401,7 +8065,11 @@ fn test_cov020_allocate_buffer() {
     let executor = CudaExecutor::new(0).expect("CUDA executor");
 
     let result = executor.allocate_buffer(1024);
-    assert!(result.is_ok(), "allocate_buffer should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "allocate_buffer should succeed: {:?}",
+        result.err()
+    );
 
     let buf = result.unwrap();
     assert_eq!(buf.len(), 1024, "Buffer should have correct length");
@@ -7422,7 +8090,11 @@ fn test_cov020_gemm_cached_weight_not_found() {
 
     assert!(result.is_err(), "Should fail when weight not cached");
     let err_msg = format!("{:?}", result.err().unwrap());
-    assert!(err_msg.contains("not cached"), "Error should mention not cached: {}", err_msg);
+    assert!(
+        err_msg.contains("not cached"),
+        "Error should mention not cached: {}",
+        err_msg
+    );
 }
 
 #[test]
@@ -7435,7 +8107,9 @@ fn test_cov020_gemm_cached_size_mismatch() {
 
     // Cache a weight
     let weight_data = vec![0.1f32; 64 * 64];
-    executor.load_weights("test_weight", &weight_data).expect("load weight");
+    executor
+        .load_weights("test_weight", &weight_data)
+        .expect("load weight");
 
     // Wrong B size
     let b = vec![0.1f32; 100]; // Wrong size
@@ -7445,7 +8119,11 @@ fn test_cov020_gemm_cached_size_mismatch() {
 
     assert!(result.is_err(), "Should fail with size mismatch");
     let err_msg = format!("{:?}", result.err().unwrap());
-    assert!(err_msg.contains("mismatch") || err_msg.contains("expected"), "Error should mention mismatch: {}", err_msg);
+    assert!(
+        err_msg.contains("mismatch") || err_msg.contains("expected"),
+        "Error should mention mismatch: {}",
+        err_msg
+    );
 }
 
 #[test]
@@ -7463,7 +8141,11 @@ fn test_cov020_gemm_b_cached_weight_not_found() {
 
     assert!(result.is_err(), "Should fail when weight not cached");
     let err_msg = format!("{:?}", result.err().unwrap());
-    assert!(err_msg.contains("not cached"), "Error should mention not cached: {}", err_msg);
+    assert!(
+        err_msg.contains("not cached"),
+        "Error should mention not cached: {}",
+        err_msg
+    );
 }
 
 #[test]
@@ -7476,7 +8158,9 @@ fn test_cov020_gemm_b_cached_size_mismatch() {
 
     // Cache a weight (B matrix: k x n = 64 x 32)
     let weight_data = vec![0.1f32; 64 * 32];
-    executor.load_weights("test_b_weight", &weight_data).expect("load weight");
+    executor
+        .load_weights("test_b_weight", &weight_data)
+        .expect("load weight");
 
     // Wrong A size
     let a = vec![0.1f32; 100]; // Wrong size (should be m * k = 64 * 64)
@@ -7486,7 +8170,11 @@ fn test_cov020_gemm_b_cached_size_mismatch() {
 
     assert!(result.is_err(), "Should fail with size mismatch");
     let err_msg = format!("{:?}", result.err().unwrap());
-    assert!(err_msg.contains("mismatch") || err_msg.contains("expected"), "Error should mention mismatch: {}", err_msg);
+    assert!(
+        err_msg.contains("mismatch") || err_msg.contains("expected"),
+        "Error should mention mismatch: {}",
+        err_msg
+    );
 }
 
 #[test]
@@ -7510,7 +8198,11 @@ fn test_cov020_gemm_size_mismatch() {
 
     assert!(result.is_err(), "Should fail with size mismatch");
     let err_msg = format!("{:?}", result.err().unwrap());
-    assert!(err_msg.contains("mismatch") || err_msg.contains("expected"), "Error should mention mismatch: {}", err_msg);
+    assert!(
+        err_msg.contains("mismatch") || err_msg.contains("expected"),
+        "Error should mention mismatch: {}",
+        err_msg
+    );
 }
 
 #[test]
@@ -7557,7 +8249,11 @@ fn test_cov020_gemm_gemv_path() {
 
     let result = executor.gemm(&a, &b, &mut c, m, n, k);
 
-    assert!(result.is_ok(), "gemm (gemv path) should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "gemm (gemv path) should succeed: {:?}",
+        result.err()
+    );
 
     // Should have non-zero output
     let has_nonzero = c.iter().any(|&x| x.abs() > 1e-10);
@@ -7576,7 +8272,9 @@ fn test_cov020_gemv_cached_input_size_mismatch() {
     let k = 128u32;
     let n = 64u32;
     let weight_data = vec![0.1f32; (k * n) as usize];
-    executor.load_weights("gemv_weight", &weight_data).expect("load weight");
+    executor
+        .load_weights("gemv_weight", &weight_data)
+        .expect("load weight");
 
     // Wrong input size
     let x = vec![0.1f32; 50]; // Should be k = 128
@@ -7586,7 +8284,11 @@ fn test_cov020_gemv_cached_input_size_mismatch() {
 
     assert!(result.is_err(), "Should fail with input size mismatch");
     let err_msg = format!("{:?}", result.err().unwrap());
-    assert!(err_msg.contains("mismatch") || err_msg.contains("expected"), "Error should mention mismatch: {}", err_msg);
+    assert!(
+        err_msg.contains("mismatch") || err_msg.contains("expected"),
+        "Error should mention mismatch: {}",
+        err_msg
+    );
 }
 
 #[test]
@@ -7601,7 +8303,9 @@ fn test_cov020_gemv_cached_output_size_mismatch() {
     let k = 128u32;
     let n = 64u32;
     let weight_data = vec![0.1f32; (k * n) as usize];
-    executor.load_weights("gemv_weight2", &weight_data).expect("load weight");
+    executor
+        .load_weights("gemv_weight2", &weight_data)
+        .expect("load weight");
 
     let x = vec![0.1f32; k as usize]; // Correct input size
     let mut y = vec![0.0f32; 10]; // Wrong output size (should be n = 64)
@@ -7610,7 +8314,11 @@ fn test_cov020_gemv_cached_output_size_mismatch() {
 
     assert!(result.is_err(), "Should fail with output size mismatch");
     let err_msg = format!("{:?}", result.err().unwrap());
-    assert!(err_msg.contains("mismatch") || err_msg.contains("expected"), "Error should mention mismatch: {}", err_msg);
+    assert!(
+        err_msg.contains("mismatch") || err_msg.contains("expected"),
+        "Error should mention mismatch: {}",
+        err_msg
+    );
 }
 
 #[test]
@@ -7630,7 +8338,11 @@ fn test_cov020_gemv_cached_weight_not_found() {
 
     assert!(result.is_err(), "Should fail when weight not cached");
     let err_msg = format!("{:?}", result.err().unwrap());
-    assert!(err_msg.contains("not cached"), "Error should mention not cached: {}", err_msg);
+    assert!(
+        err_msg.contains("not cached"),
+        "Error should mention not cached: {}",
+        err_msg
+    );
 }
 
 #[test]
@@ -7655,7 +8367,11 @@ fn test_cov020_gemm_optimized_size_mismatch() {
 
     assert!(result.is_err(), "Should fail with size mismatch");
     let err_msg = format!("{:?}", result.err().unwrap());
-    assert!(err_msg.contains("mismatch") || err_msg.contains("expected"), "Error should mention mismatch: {}", err_msg);
+    assert!(
+        err_msg.contains("mismatch") || err_msg.contains("expected"),
+        "Error should mention mismatch: {}",
+        err_msg
+    );
 }
 
 #[test]
@@ -7677,7 +8393,11 @@ fn test_cov020_gemm_optimized_valid_run() {
 
     let result = executor.gemm_optimized(&a, &b, &mut c, m, n, k, tile_size);
 
-    assert!(result.is_ok(), "gemm_optimized should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "gemm_optimized should succeed: {:?}",
+        result.err()
+    );
 
     let has_nonzero = c.iter().any(|&x| x.abs() > 1e-10);
     assert!(has_nonzero, "Output should have non-zero values");
@@ -7726,7 +8446,11 @@ fn test_cov020_gemm_fused_bias_size_mismatch() {
 
     assert!(result.is_err(), "Should fail with bias size mismatch");
     let err_msg = format!("{:?}", result.err().unwrap());
-    assert!(err_msg.contains("Bias") || err_msg.contains("mismatch"), "Error should mention bias mismatch: {}", err_msg);
+    assert!(
+        err_msg.contains("Bias") || err_msg.contains("mismatch"),
+        "Error should mention bias mismatch: {}",
+        err_msg
+    );
 }
 
 #[test]
@@ -7747,7 +8471,11 @@ fn test_cov020_gemm_fused_valid_no_bias() {
 
     let result = executor.gemm_fused(&a, &b, None, &mut c, m, n, k, 0);
 
-    assert!(result.is_ok(), "gemm_fused (no bias) should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "gemm_fused (no bias) should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -7770,7 +8498,11 @@ fn test_cov020_gemm_fused_with_bias_and_relu() {
     // activation = 1 (ReLU)
     let result = executor.gemm_fused(&a, &b, Some(&bias), &mut c, m, n, k, 1);
 
-    assert!(result.is_ok(), "gemm_fused with bias+relu should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "gemm_fused with bias+relu should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -7789,11 +8521,19 @@ fn test_cov020_softmax_basic() {
 
     // Check output sums to 1
     let sum: f32 = data.iter().sum();
-    assert!((sum - 1.0).abs() < 0.01, "Softmax should sum to 1, got {}", sum);
+    assert!(
+        (sum - 1.0).abs() < 0.01,
+        "Softmax should sum to 1, got {}",
+        sum
+    );
 
     // Check values are in (0, 1)
     for val in &data {
-        assert!(*val > 0.0 && *val < 1.0, "Softmax values should be in (0, 1): {}", val);
+        assert!(
+            *val > 0.0 && *val < 1.0,
+            "Softmax values should be in (0, 1): {}",
+            val
+        );
     }
 }
 
@@ -7812,11 +8552,16 @@ fn test_cov020_gemm_cached_async_weight_not_found() {
     let input_buf = GpuBuffer::<f32>::new(&executor.context, (k * n) as usize).expect("input");
     let output_buf = GpuBuffer::<f32>::new(&executor.context, (m * n) as usize).expect("output");
 
-    let result = executor.gemm_cached_async("nonexistent_async_weight", &input_buf, &output_buf, m, n, k);
+    let result =
+        executor.gemm_cached_async("nonexistent_async_weight", &input_buf, &output_buf, m, n, k);
 
     assert!(result.is_err(), "Should fail when weight not cached");
     let err_msg = format!("{:?}", result.err().unwrap());
-    assert!(err_msg.contains("not cached"), "Error should mention not cached: {}", err_msg);
+    assert!(
+        err_msg.contains("not cached"),
+        "Error should mention not cached: {}",
+        err_msg
+    );
 }
 
 #[test]
@@ -7840,7 +8585,11 @@ fn test_cov020_q4k_matvec_basic() {
 
     let result = executor.q4k_matvec(&weights, &input, &mut output, m, k);
 
-    assert!(result.is_ok(), "q4k_matvec should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "q4k_matvec should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -7864,7 +8613,11 @@ fn test_cov020_q4k_gemv_basic() {
 
     let result = executor.q4k_gemv(&weights, &input, &mut output, n, k);
 
-    assert!(result.is_ok(), "q4k_gemv should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "q4k_gemv should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -7888,7 +8641,11 @@ fn test_cov020_q5k_gemv_basic() {
 
     let result = executor.q5k_gemv(&weights, &input, &mut output, n, k);
 
-    assert!(result.is_ok(), "q5k_gemv should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "q5k_gemv should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -7912,7 +8669,11 @@ fn test_cov020_q6k_gemv_basic() {
 
     let result = executor.q6k_gemv(&weights, &input, &mut output, n, k);
 
-    assert!(result.is_ok(), "q6k_gemv should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "q6k_gemv should succeed: {:?}",
+        result.err()
+    );
 }
 
 // =============================================================================
@@ -8021,8 +8782,7 @@ fn test_cov021_tensor_core_q4k_gemm_cached_input_size_mismatch() {
     let input = vec![0.1f32; 100]; // Should be m*k = 1024
     let mut output = vec![0.0f32; (m * n) as usize];
 
-    let result =
-        executor.tensor_core_q4k_gemm_cached("any_weight", &input, &mut output, m, k, n);
+    let result = executor.tensor_core_q4k_gemm_cached("any_weight", &input, &mut output, m, k, n);
 
     assert!(result.is_err(), "Should fail with input size mismatch");
     let err_msg = format!("{:?}", result.err().unwrap());
@@ -8049,8 +8809,7 @@ fn test_cov021_tensor_core_q4k_gemm_cached_output_size_mismatch() {
     let input = vec![0.1f32; (m * k) as usize];
     let mut output = vec![0.0f32; 50]; // Should be m*n = 128
 
-    let result =
-        executor.tensor_core_q4k_gemm_cached("any_weight", &input, &mut output, m, k, n);
+    let result = executor.tensor_core_q4k_gemm_cached("any_weight", &input, &mut output, m, k, n);
 
     assert!(result.is_err(), "Should fail with output size mismatch");
     let err_msg = format!("{:?}", result.err().unwrap());
@@ -8239,9 +8998,20 @@ fn test_cov021_rope_neox_into_basic() {
     let rope_theta = 10000.0f32;
 
     // RoPE NeoX variant (split halves pairing)
-    let result = executor.rope_neox_into(&input_buf, &output_buf, position, num_heads, head_dim, rope_theta);
+    let result = executor.rope_neox_into(
+        &input_buf,
+        &output_buf,
+        position,
+        num_heads,
+        head_dim,
+        rope_theta,
+    );
 
-    assert!(result.is_ok(), "rope_neox_into should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "rope_neox_into should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -8263,14 +9033,26 @@ fn test_cov021_rope_indirect_into_basic() {
 
     // Position from device memory (single position value)
     let positions: Vec<u32> = vec![0];
-    let positions_buf = GpuBuffer::from_host(executor.context(), &positions).expect("positions buf");
+    let positions_buf =
+        GpuBuffer::from_host(executor.context(), &positions).expect("positions buf");
 
     let rope_theta = 10000.0f32;
 
     // RoPE with indirect position lookup
-    let result = executor.rope_indirect_into(&input_buf, &output_buf, &positions_buf, num_heads, head_dim, rope_theta);
+    let result = executor.rope_indirect_into(
+        &input_buf,
+        &output_buf,
+        &positions_buf,
+        num_heads,
+        head_dim,
+        rope_theta,
+    );
 
-    assert!(result.is_ok(), "rope_indirect_into should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "rope_indirect_into should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -8292,14 +9074,26 @@ fn test_cov021_rope_neox_indirect_into_basic() {
 
     // Position from device memory (single position value)
     let positions: Vec<u32> = vec![0];
-    let positions_buf = GpuBuffer::from_host(executor.context(), &positions).expect("positions buf");
+    let positions_buf =
+        GpuBuffer::from_host(executor.context(), &positions).expect("positions buf");
 
     let rope_theta = 10000.0f32;
 
     // RoPE NeoX with indirect position lookup
-    let result = executor.rope_neox_indirect_into(&input_buf, &output_buf, &positions_buf, num_heads, head_dim, rope_theta);
+    let result = executor.rope_neox_indirect_into(
+        &input_buf,
+        &output_buf,
+        &positions_buf,
+        num_heads,
+        head_dim,
+        rope_theta,
+    );
 
-    assert!(result.is_ok(), "rope_neox_indirect_into should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "rope_neox_indirect_into should succeed: {:?}",
+        result.err()
+    );
 }
 
 // NOTE: fused_qkv_into and fused_gate_up_into tests removed due to PTX generation bugs (CUDA_ERROR_INVALID_PTX)
@@ -8389,10 +9183,17 @@ fn test_cov022_preload_output_norm_basic() {
     let gamma = vec![1.0f32; 256]; // hidden_dim = 256
     let result = executor.preload_output_norm(&gamma);
 
-    assert!(result.is_ok(), "preload_output_norm should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "preload_output_norm should succeed: {:?}",
+        result.err()
+    );
     let bytes = result.unwrap();
     assert!(bytes > 0, "Should have uploaded some bytes");
-    assert!(executor.has_output_norm(), "Output norm should be cached now");
+    assert!(
+        executor.has_output_norm(),
+        "Output norm should be cached now"
+    );
 
     // Preloading again should return 0 (already cached)
     let result2 = executor.preload_output_norm(&gamma);
@@ -8413,7 +9214,10 @@ fn test_cov022_preload_lm_head_bias_none() {
 
     assert!(result.is_ok(), "preload_lm_head_bias(None) should succeed");
     assert_eq!(result.unwrap(), 0, "None bias should return 0 bytes");
-    assert!(!executor.has_lm_head_bias(), "LM head bias should not be cached");
+    assert!(
+        !executor.has_lm_head_bias(),
+        "LM head bias should not be cached"
+    );
 }
 
 #[test]
@@ -8430,7 +9234,10 @@ fn test_cov022_preload_lm_head_bias_empty() {
 
     assert!(result.is_ok(), "preload_lm_head_bias(empty) should succeed");
     assert_eq!(result.unwrap(), 0, "Empty bias should return 0 bytes");
-    assert!(!executor.has_lm_head_bias(), "LM head bias should not be cached");
+    assert!(
+        !executor.has_lm_head_bias(),
+        "LM head bias should not be cached"
+    );
 }
 
 #[test]
@@ -8445,10 +9252,17 @@ fn test_cov022_preload_lm_head_bias_valid() {
     let bias = vec![0.1f32; 32000]; // vocab_size = 32000
     let result = executor.preload_lm_head_bias(Some(&bias));
 
-    assert!(result.is_ok(), "preload_lm_head_bias should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "preload_lm_head_bias should succeed: {:?}",
+        result.err()
+    );
     let bytes = result.unwrap();
     assert!(bytes > 0, "Should have uploaded some bytes");
-    assert!(executor.has_lm_head_bias(), "LM head bias should be cached now");
+    assert!(
+        executor.has_lm_head_bias(),
+        "LM head bias should be cached now"
+    );
 
     // Preloading again should return 0 (already cached)
     let result2 = executor.preload_lm_head_bias(Some(&bias));
@@ -8468,7 +9282,11 @@ fn test_cov022_cache_rmsnorm_gamma_basic() {
     let gamma = vec![1.0f32; 256];
     let result = executor.cache_rmsnorm_gamma("test_layer.gamma", &gamma);
 
-    assert!(result.is_ok(), "cache_rmsnorm_gamma should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "cache_rmsnorm_gamma should succeed: {:?}",
+        result.err()
+    );
     let bytes = result.unwrap();
     assert!(bytes > 0, "Should have uploaded some bytes");
 
@@ -8504,7 +9322,10 @@ fn test_cov022_read_hidden_state_workspace_not_initialized() {
     // Workspace not initialized - should fail
     let result = executor.read_hidden_state_to_cpu();
 
-    assert!(result.is_err(), "Should fail when workspace not initialized");
+    assert!(
+        result.is_err(),
+        "Should fail when workspace not initialized"
+    );
     let err_msg = format!("{:?}", result.err().unwrap());
     assert!(
         err_msg.contains("workspace not initialized") || err_msg.contains("APR-TRACE-001"),
@@ -8552,14 +9373,27 @@ fn test_cov022_preload_rmsnorm_weights_basic() {
 
     let result = executor.preload_rmsnorm_weights(2, &attn_norms, &ffn_norms);
 
-    assert!(result.is_ok(), "preload_rmsnorm_weights should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "preload_rmsnorm_weights should succeed: {:?}",
+        result.err()
+    );
     let bytes = result.unwrap();
     assert!(bytes > 0, "Should have uploaded some bytes");
 
     // Check that layers have weights cached
-    assert!(executor.has_rmsnorm_weights(0), "Layer 0 should have RMSNorm weights");
-    assert!(executor.has_rmsnorm_weights(1), "Layer 1 should have RMSNorm weights");
-    assert!(!executor.has_rmsnorm_weights(2), "Layer 2 should not have RMSNorm weights");
+    assert!(
+        executor.has_rmsnorm_weights(0),
+        "Layer 0 should have RMSNorm weights"
+    );
+    assert!(
+        executor.has_rmsnorm_weights(1),
+        "Layer 1 should have RMSNorm weights"
+    );
+    assert!(
+        !executor.has_rmsnorm_weights(2),
+        "Layer 2 should not have RMSNorm weights"
+    );
 }
 
 // =============================================================================
@@ -8661,7 +9495,11 @@ fn test_cov023_gelu_gpu_basic() {
     // Apply GELU
     let result = executor.gelu_gpu(&buffer, n);
 
-    assert!(result.is_ok(), "gelu_gpu should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "gelu_gpu should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -8685,9 +9523,17 @@ fn test_cov023_rmsnorm_gpu_basic() {
     // Apply RMSNorm
     let result = executor.rmsnorm_gpu(&input, &gamma, hidden_size, epsilon);
 
-    assert!(result.is_ok(), "rmsnorm_gpu should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "rmsnorm_gpu should succeed: {:?}",
+        result.err()
+    );
     let output = result.unwrap();
-    assert_eq!(output.len(), hidden_size as usize, "Output should have hidden_size elements");
+    assert_eq!(
+        output.len(),
+        hidden_size as usize,
+        "Output should have hidden_size elements"
+    );
 }
 
 // NOTE: layer_norm_gpu test skipped - LayerNorm kernel not available (FunctionNotFound)
@@ -8714,7 +9560,11 @@ fn test_cov023_rmsnorm_into_basic() {
     // Apply RMSNorm into existing buffer
     let result = executor.rmsnorm_into(&input, &gamma, &output, hidden_size, epsilon);
 
-    assert!(result.is_ok(), "rmsnorm_into should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "rmsnorm_into should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -8797,7 +9647,11 @@ fn test_cov024_q5k_matvec_dimension_basic() {
 
     // This should succeed with valid dimensions
     let result = executor.q5k_matvec(&weights, &input, &mut output, m, k);
-    assert!(result.is_ok(), "q5k_matvec should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "q5k_matvec should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -8819,7 +9673,11 @@ fn test_cov024_q6k_matvec_dimension_basic() {
     let mut output = vec![0.0f32; m as usize];
 
     let result = executor.q6k_matvec(&weights, &input, &mut output, m, k);
-    assert!(result.is_ok(), "q6k_matvec should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "q6k_matvec should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -8836,7 +9694,11 @@ fn test_cov024_gpu_argmax_basic() {
     let logits_buf = GpuBuffer::from_host(executor.context(), &logits).expect("logits buf");
 
     let result = executor.gpu_argmax(logits_buf.as_ptr(), vocab_size);
-    assert!(result.is_ok(), "gpu_argmax should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "gpu_argmax should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -8855,7 +9717,11 @@ fn test_cov024_gpu_argmax_with_clear_max() {
     let logits_buf = GpuBuffer::from_host(executor.context(), &logits).expect("logits buf");
 
     let result = executor.gpu_argmax(logits_buf.as_ptr(), vocab_size);
-    assert!(result.is_ok(), "gpu_argmax should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "gpu_argmax should succeed: {:?}",
+        result.err()
+    );
 
     // Should return index 42 as the argmax
     let argmax = result.unwrap();
@@ -8902,11 +9768,19 @@ fn test_cov024_cache_rmsnorm_gamma_empty_name() {
     // Empty gamma array should still work
     let gamma = vec![1.0f32; 256];
     let result = executor.cache_rmsnorm_gamma("layer0.attn_norm.gamma", &gamma);
-    assert!(result.is_ok(), "cache_rmsnorm_gamma should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "cache_rmsnorm_gamma should succeed: {:?}",
+        result.err()
+    );
 
     // Verify we can cache with different name
     let result2 = executor.cache_rmsnorm_gamma("layer0.ffn_norm.gamma", &gamma);
-    assert!(result2.is_ok(), "cache_rmsnorm_gamma should succeed: {:?}", result2.err());
+    assert!(
+        result2.is_ok(),
+        "cache_rmsnorm_gamma should succeed: {:?}",
+        result2.err()
+    );
 }
 
 #[test]
@@ -8926,8 +9800,13 @@ fn test_cov024_output_rmsnorm_gpu_basic() {
     let gamma = vec![1.0f32; hidden_size as usize];
 
     // Apply output rmsnorm (takes host slices)
-    let result = executor.output_rmsnorm_gpu(&input_data, &mut output_data, &gamma, hidden_size, epsilon);
-    assert!(result.is_ok(), "output_rmsnorm_gpu should succeed: {:?}", result.err());
+    let result =
+        executor.output_rmsnorm_gpu(&input_data, &mut output_data, &gamma, hidden_size, epsilon);
+    assert!(
+        result.is_ok(),
+        "output_rmsnorm_gpu should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -8946,8 +9825,13 @@ fn test_cov024_output_rmsnorm_gpu_with_varied_gamma() {
     let mut output_data = vec![0.0f32; hidden_size as usize];
     let gamma: Vec<f32> = (0..hidden_size).map(|i| 0.5 + (i as f32) * 0.01).collect();
 
-    let result = executor.output_rmsnorm_gpu(&input_data, &mut output_data, &gamma, hidden_size, epsilon);
-    assert!(result.is_ok(), "output_rmsnorm_gpu should succeed: {:?}", result.err());
+    let result =
+        executor.output_rmsnorm_gpu(&input_data, &mut output_data, &gamma, hidden_size, epsilon);
+    assert!(
+        result.is_ok(),
+        "output_rmsnorm_gpu should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -8960,7 +9844,10 @@ fn test_cov024_clear_indexed_weights_empty() {
 
     // Clear should work even when nothing indexed
     executor.clear_indexed_weights();
-    assert!(!executor.has_indexed_weights(), "Should have no indexed weights");
+    assert!(
+        !executor.has_indexed_weights(),
+        "Should have no indexed weights"
+    );
 }
 
 #[test]
@@ -8976,7 +9863,10 @@ fn test_cov024_clear_execution_graph_empty() {
 
     // Check graph is empty
     let ascii = executor.execution_graph_ascii();
-    assert!(ascii.contains("empty") || ascii.is_empty() || ascii.len() < 50, "Graph should be empty");
+    assert!(
+        ascii.contains("empty") || ascii.is_empty() || ascii.len() < 50,
+        "Graph should be empty"
+    );
 }
 
 #[test]
@@ -9059,7 +9949,11 @@ fn test_cov025_make_current() {
     let executor = CudaExecutor::new(0).expect("CUDA executor");
 
     let result = executor.make_current();
-    assert!(result.is_ok(), "make_current should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "make_current should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -9130,13 +10024,23 @@ fn test_cov025_cached_weight_count() {
     let mut executor = CudaExecutor::new(0).expect("CUDA executor");
 
     // Initially zero
-    assert_eq!(executor.cached_weight_count(), 0, "Initial count should be 0");
+    assert_eq!(
+        executor.cached_weight_count(),
+        0,
+        "Initial count should be 0"
+    );
 
     // Load a weight
     let weights = vec![1.0f32; 256];
-    executor.load_weights("test_weight", &weights).expect("load");
+    executor
+        .load_weights("test_weight", &weights)
+        .expect("load");
 
-    assert_eq!(executor.cached_weight_count(), 1, "Count should be 1 after loading");
+    assert_eq!(
+        executor.cached_weight_count(),
+        1,
+        "Count should be 1 after loading"
+    );
 }
 
 #[test]
@@ -9148,11 +10052,17 @@ fn test_cov025_cached_weight_bytes() {
     let mut executor = CudaExecutor::new(0).expect("CUDA executor");
 
     // Initially zero
-    assert_eq!(executor.cached_weight_bytes(), 0, "Initial bytes should be 0");
+    assert_eq!(
+        executor.cached_weight_bytes(),
+        0,
+        "Initial bytes should be 0"
+    );
 
     // Load a weight (256 f32 = 1024 bytes)
     let weights = vec![1.0f32; 256];
-    executor.load_weights("test_weight", &weights).expect("load");
+    executor
+        .load_weights("test_weight", &weights)
+        .expect("load");
 
     let bytes = executor.cached_weight_bytes();
     assert!(bytes >= 1024, "Should have at least 1024 bytes cached");
@@ -9167,13 +10077,23 @@ fn test_cov025_cached_quantized_weight_count() {
     let mut executor = CudaExecutor::new(0).expect("CUDA executor");
 
     // Initially zero
-    assert_eq!(executor.cached_quantized_weight_count(), 0, "Initial count should be 0");
+    assert_eq!(
+        executor.cached_quantized_weight_count(),
+        0,
+        "Initial count should be 0"
+    );
 
     // Load a quantized weight (Q4_K: 144 bytes per super-block)
     let weights = vec![0u8; 144];
-    executor.load_quantized_weights("test_q4k", &weights).expect("load");
+    executor
+        .load_quantized_weights("test_q4k", &weights)
+        .expect("load");
 
-    assert_eq!(executor.cached_quantized_weight_count(), 1, "Count should be 1 after loading");
+    assert_eq!(
+        executor.cached_quantized_weight_count(),
+        1,
+        "Count should be 1 after loading"
+    );
 }
 
 #[test]
@@ -9192,7 +10112,11 @@ fn test_cov025_clear_weights() {
 
     // Clear
     executor.clear_weights();
-    assert_eq!(executor.cached_weight_count(), 0, "Should have 0 after clear");
+    assert_eq!(
+        executor.cached_weight_count(),
+        0,
+        "Should have 0 after clear"
+    );
 }
 
 // =============================================================================
@@ -9214,10 +10138,14 @@ fn test_cov026_coalesced_q4k_gemv_into_basic() {
     // Load quantized weights to get a GPU pointer
     let weight_bytes = (n as usize) * 144; // n rows of Q4_K data
     let weights = vec![0u8; weight_bytes];
-    executor.load_quantized_weights("test_coalesced", &weights).expect("load weights");
+    executor
+        .load_quantized_weights("test_coalesced", &weights)
+        .expect("load weights");
 
     // Get weight pointer
-    let weight_ptr = executor.get_quantized_weight_ptr("test_coalesced").expect("get ptr");
+    let weight_ptr = executor
+        .get_quantized_weight_ptr("test_coalesced")
+        .expect("get ptr");
 
     // Create input/output buffers
     let input_data = vec![0.1f32; k as usize];
@@ -9225,7 +10153,11 @@ fn test_cov026_coalesced_q4k_gemv_into_basic() {
     let output = GpuBuffer::new(executor.context(), n as usize).expect("output");
 
     let result = executor.coalesced_q4k_gemv_into(weight_ptr, &input, &output, n, k);
-    assert!(result.is_ok(), "coalesced_q4k_gemv_into should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "coalesced_q4k_gemv_into should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -9242,9 +10174,13 @@ fn test_cov026_vectorized_q4k_gemv_into_basic() {
     // Load quantized weights
     let weight_bytes = (n as usize) * 144;
     let weights = vec![0u8; weight_bytes];
-    executor.load_quantized_weights("test_vectorized", &weights).expect("load weights");
+    executor
+        .load_quantized_weights("test_vectorized", &weights)
+        .expect("load weights");
 
-    let weight_ptr = executor.get_quantized_weight_ptr("test_vectorized").expect("get ptr");
+    let weight_ptr = executor
+        .get_quantized_weight_ptr("test_vectorized")
+        .expect("get ptr");
 
     // Create input/output buffers
     let input_data = vec![0.1f32; k as usize];
@@ -9252,7 +10188,11 @@ fn test_cov026_vectorized_q4k_gemv_into_basic() {
     let output = GpuBuffer::new(executor.context(), n as usize).expect("output");
 
     let result = executor.vectorized_q4k_gemv_into(weight_ptr, &input, &output, n, k);
-    assert!(result.is_ok(), "vectorized_q4k_gemv_into should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "vectorized_q4k_gemv_into should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -9269,9 +10209,13 @@ fn test_cov026_dp4a_q4k_gemv_into_basic() {
     // Load quantized weights
     let weight_bytes = (n as usize) * 144;
     let weights = vec![0u8; weight_bytes];
-    executor.load_quantized_weights("test_dp4a", &weights).expect("load weights");
+    executor
+        .load_quantized_weights("test_dp4a", &weights)
+        .expect("load weights");
 
-    let weight_ptr = executor.get_quantized_weight_ptr("test_dp4a").expect("get ptr");
+    let weight_ptr = executor
+        .get_quantized_weight_ptr("test_dp4a")
+        .expect("get ptr");
 
     // Create input/output buffers
     let input_data = vec![0.1f32; k as usize];
@@ -9279,7 +10223,11 @@ fn test_cov026_dp4a_q4k_gemv_into_basic() {
     let output = GpuBuffer::new(executor.context(), n as usize).expect("output");
 
     let result = executor.dp4a_q4k_gemv_into(weight_ptr, &input, &output, n, k);
-    assert!(result.is_ok(), "dp4a_q4k_gemv_into should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "dp4a_q4k_gemv_into should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -9297,9 +10245,13 @@ fn test_cov026_coalesced_q6k_gemv_into_basic() {
     // Load quantized weights
     let weight_bytes = (n as usize) * 210;
     let weights = vec![0u8; weight_bytes];
-    executor.load_quantized_weights_with_type("test_coalesced_q6k", &weights, 14).expect("load");
+    executor
+        .load_quantized_weights_with_type("test_coalesced_q6k", &weights, 14)
+        .expect("load");
 
-    let weight_ptr = executor.get_quantized_weight_ptr("test_coalesced_q6k").expect("get ptr");
+    let weight_ptr = executor
+        .get_quantized_weight_ptr("test_coalesced_q6k")
+        .expect("get ptr");
 
     // Create input/output buffers
     let input_data = vec![0.1f32; k as usize];
@@ -9307,7 +10259,11 @@ fn test_cov026_coalesced_q6k_gemv_into_basic() {
     let output = GpuBuffer::new(executor.context(), n as usize).expect("output");
 
     let result = executor.coalesced_q6k_gemv_into(weight_ptr, &input, &output, n, k);
-    assert!(result.is_ok(), "coalesced_q6k_gemv_into should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "coalesced_q6k_gemv_into should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -9324,9 +10280,13 @@ fn test_cov026_q4k_gemv_into_basic() {
     // Load quantized weights
     let weight_bytes = (n as usize) * 144;
     let weights = vec![0u8; weight_bytes];
-    executor.load_quantized_weights("test_q4k_into", &weights).expect("load");
+    executor
+        .load_quantized_weights("test_q4k_into", &weights)
+        .expect("load");
 
-    let weight_ptr = executor.get_quantized_weight_ptr("test_q4k_into").expect("get ptr");
+    let weight_ptr = executor
+        .get_quantized_weight_ptr("test_q4k_into")
+        .expect("get ptr");
 
     // Create input/output buffers
     let input_data = vec![0.1f32; k as usize];
@@ -9334,7 +10294,11 @@ fn test_cov026_q4k_gemv_into_basic() {
     let output = GpuBuffer::new(executor.context(), n as usize).expect("output");
 
     let result = executor.q4k_gemv_into(weight_ptr, &input, &output, n, k);
-    assert!(result.is_ok(), "q4k_gemv_into should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "q4k_gemv_into should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -9351,9 +10315,13 @@ fn test_cov026_q6k_gemv_into_basic() {
     // Load quantized weights
     let weight_bytes = (n as usize) * 210;
     let weights = vec![0u8; weight_bytes];
-    executor.load_quantized_weights_with_type("test_q6k_into", &weights, 14).expect("load");
+    executor
+        .load_quantized_weights_with_type("test_q6k_into", &weights, 14)
+        .expect("load");
 
-    let weight_ptr = executor.get_quantized_weight_ptr("test_q6k_into").expect("get ptr");
+    let weight_ptr = executor
+        .get_quantized_weight_ptr("test_q6k_into")
+        .expect("get ptr");
 
     // Create input/output buffers
     let input_data = vec![0.1f32; k as usize];
@@ -9361,7 +10329,11 @@ fn test_cov026_q6k_gemv_into_basic() {
     let output = GpuBuffer::new(executor.context(), n as usize).expect("output");
 
     let result = executor.q6k_gemv_into(weight_ptr, &input, &output, n, k);
-    assert!(result.is_ok(), "q6k_gemv_into should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "q6k_gemv_into should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -9379,9 +10351,13 @@ fn test_cov026_q5k_gemv_into_basic() {
     // Load quantized weights
     let weight_bytes = (n as usize) * 176;
     let weights = vec![0u8; weight_bytes];
-    executor.load_quantized_weights_with_type("test_q5k_into", &weights, 13).expect("load");
+    executor
+        .load_quantized_weights_with_type("test_q5k_into", &weights, 13)
+        .expect("load");
 
-    let weight_ptr = executor.get_quantized_weight_ptr("test_q5k_into").expect("get ptr");
+    let weight_ptr = executor
+        .get_quantized_weight_ptr("test_q5k_into")
+        .expect("get ptr");
 
     // Create input/output buffers
     let input_data = vec![0.1f32; k as usize];
@@ -9389,7 +10365,11 @@ fn test_cov026_q5k_gemv_into_basic() {
     let output = GpuBuffer::new(executor.context(), n as usize).expect("output");
 
     let result = executor.q5k_gemv_into(weight_ptr, &input, &output, n, k);
-    assert!(result.is_ok(), "q5k_gemv_into should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "q5k_gemv_into should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -9408,9 +10388,13 @@ fn test_cov026_q8_0_gemv_into_basic() {
     // k=256 means 8 blocks of 32 values = 8 * 34 = 272 bytes per row
     let weight_bytes = (n as usize) * (k as usize / 32) * 34;
     let weights = vec![0u8; weight_bytes];
-    executor.load_quantized_weights_with_type("test_q8_0_into", &weights, 8).expect("load");
+    executor
+        .load_quantized_weights_with_type("test_q8_0_into", &weights, 8)
+        .expect("load");
 
-    let weight_ptr = executor.get_quantized_weight_ptr("test_q8_0_into").expect("get ptr");
+    let weight_ptr = executor
+        .get_quantized_weight_ptr("test_q8_0_into")
+        .expect("get ptr");
 
     // Create input/output buffers
     let input_data = vec![0.1f32; k as usize];
@@ -9418,7 +10402,11 @@ fn test_cov026_q8_0_gemv_into_basic() {
     let output = GpuBuffer::new(executor.context(), n as usize).expect("output");
 
     let result = executor.q8_0_gemv_into(weight_ptr, &input, &output, n, k);
-    assert!(result.is_ok(), "q8_0_gemv_into should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "q8_0_gemv_into should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -9437,9 +10425,13 @@ fn test_cov026_q4_0_gemv_into_basic() {
     // Load quantized weights
     let weight_bytes = (n as usize) * (k as usize / 32) * 18;
     let weights = vec![0u8; weight_bytes];
-    executor.load_quantized_weights_with_type("test_q4_0_into", &weights, 2).expect("load");
+    executor
+        .load_quantized_weights_with_type("test_q4_0_into", &weights, 2)
+        .expect("load");
 
-    let weight_ptr = executor.get_quantized_weight_ptr("test_q4_0_into").expect("get ptr");
+    let weight_ptr = executor
+        .get_quantized_weight_ptr("test_q4_0_into")
+        .expect("get ptr");
 
     // Create input/output buffers
     let input_data = vec![0.1f32; k as usize];
@@ -9447,7 +10439,11 @@ fn test_cov026_q4_0_gemv_into_basic() {
     let output = GpuBuffer::new(executor.context(), n as usize).expect("output");
 
     let result = executor.q4_0_gemv_into(weight_ptr, &input, &output, n, k);
-    assert!(result.is_ok(), "q4_0_gemv_into should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "q4_0_gemv_into should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -9465,9 +10461,13 @@ fn test_cov026_q4_1_gemv_into_basic() {
     // Load quantized weights
     let weight_bytes = (n as usize) * (k as usize / 32) * 20;
     let weights = vec![0u8; weight_bytes];
-    executor.load_quantized_weights_with_type("test_q4_1_into", &weights, 3).expect("load");
+    executor
+        .load_quantized_weights_with_type("test_q4_1_into", &weights, 3)
+        .expect("load");
 
-    let weight_ptr = executor.get_quantized_weight_ptr("test_q4_1_into").expect("get ptr");
+    let weight_ptr = executor
+        .get_quantized_weight_ptr("test_q4_1_into")
+        .expect("get ptr");
 
     // Create input/output buffers
     let input_data = vec![0.1f32; k as usize];
@@ -9475,7 +10475,11 @@ fn test_cov026_q4_1_gemv_into_basic() {
     let output = GpuBuffer::new(executor.context(), n as usize).expect("output");
 
     let result = executor.q4_1_gemv_into(weight_ptr, &input, &output, n, k);
-    assert!(result.is_ok(), "q4_1_gemv_into should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "q4_1_gemv_into should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -9493,9 +10497,13 @@ fn test_cov026_q5_0_gemv_into_basic() {
     // Load quantized weights
     let weight_bytes = (n as usize) * (k as usize / 32) * 22;
     let weights = vec![0u8; weight_bytes];
-    executor.load_quantized_weights_with_type("test_q5_0_into", &weights, 6).expect("load");
+    executor
+        .load_quantized_weights_with_type("test_q5_0_into", &weights, 6)
+        .expect("load");
 
-    let weight_ptr = executor.get_quantized_weight_ptr("test_q5_0_into").expect("get ptr");
+    let weight_ptr = executor
+        .get_quantized_weight_ptr("test_q5_0_into")
+        .expect("get ptr");
 
     // Create input/output buffers
     let input_data = vec![0.1f32; k as usize];
@@ -9503,7 +10511,11 @@ fn test_cov026_q5_0_gemv_into_basic() {
     let output = GpuBuffer::new(executor.context(), n as usize).expect("output");
 
     let result = executor.q5_0_gemv_into(weight_ptr, &input, &output, n, k);
-    assert!(result.is_ok(), "q5_0_gemv_into should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "q5_0_gemv_into should succeed: {:?}",
+        result.err()
+    );
 }
 
 // =============================================================================
@@ -9524,9 +10536,13 @@ fn test_cov027_q4k_gemv_into_tiled_basic() {
     // Load quantized weights
     let weight_bytes = (n as usize) * 144;
     let weights = vec![0u8; weight_bytes];
-    executor.load_quantized_weights("test_tiled", &weights).expect("load");
+    executor
+        .load_quantized_weights("test_tiled", &weights)
+        .expect("load");
 
-    let weight_ptr = executor.get_quantized_weight_ptr("test_tiled").expect("get ptr");
+    let weight_ptr = executor
+        .get_quantized_weight_ptr("test_tiled")
+        .expect("get ptr");
 
     // Create input/output buffers
     let input_data = vec![0.1f32; k as usize];
@@ -9534,7 +10550,11 @@ fn test_cov027_q4k_gemv_into_tiled_basic() {
     let output = GpuBuffer::new(executor.context(), n as usize).expect("output");
 
     let result = executor.q4k_gemv_into_tiled(weight_ptr, &input, &output, n, k);
-    assert!(result.is_ok(), "q4k_gemv_into_tiled should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "q4k_gemv_into_tiled should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -9554,7 +10574,8 @@ fn test_cov027_tiled_q4k_gemv_cached_async_weight_not_cached() {
     let input = GpuBuffer::from_host(executor.context(), &input_data).expect("input");
 
     // Weight not cached - should fail
-    let result = executor.tiled_q4k_gemv_cached_async("nonexistent_tiled", &input, n, k, outputs_per_block);
+    let result =
+        executor.tiled_q4k_gemv_cached_async("nonexistent_tiled", &input, n, k, outputs_per_block);
     assert!(result.is_err(), "Should fail when weight not cached");
 }
 
@@ -9575,7 +10596,13 @@ fn test_cov027_chunked_tiled_q4k_gemv_cached_async_weight_not_cached() {
     let input = GpuBuffer::from_host(executor.context(), &input_data).expect("input");
 
     // Weight not cached - should fail
-    let result = executor.chunked_tiled_q4k_gemv_cached_async("nonexistent_chunked", &input, n, k, outputs_per_block);
+    let result = executor.chunked_tiled_q4k_gemv_cached_async(
+        "nonexistent_chunked",
+        &input,
+        n,
+        k,
+        outputs_per_block,
+    );
     assert!(result.is_err(), "Should fail when weight not cached");
 }
 
@@ -9616,12 +10643,18 @@ fn test_cov027_fused_rmsnorm_q4k_gemv_into_basic() {
     // Load quantized weights
     let weight_bytes = (n as usize) * 144;
     let weights = vec![0u8; weight_bytes];
-    executor.load_quantized_weights("test_fused_rmsnorm", &weights).expect("load weights");
-    let weight_ptr = executor.get_quantized_weight_ptr("test_fused_rmsnorm").expect("get ptr");
+    executor
+        .load_quantized_weights("test_fused_rmsnorm", &weights)
+        .expect("load weights");
+    let weight_ptr = executor
+        .get_quantized_weight_ptr("test_fused_rmsnorm")
+        .expect("get ptr");
 
     // Cache gamma
     let gamma = vec![1.0f32; k as usize];
-    executor.cache_rmsnorm_gamma("test_fused_gamma", &gamma).expect("cache gamma");
+    executor
+        .cache_rmsnorm_gamma("test_fused_gamma", &gamma)
+        .expect("cache gamma");
 
     // Get gamma pointer (need to use internal cache)
     // For this test, we'll create gamma as a GPU buffer
@@ -9633,8 +10666,13 @@ fn test_cov027_fused_rmsnorm_q4k_gemv_into_basic() {
     let input = GpuBuffer::from_host(executor.context(), &input_data).expect("input");
     let output = GpuBuffer::new(executor.context(), n as usize).expect("output");
 
-    let result = executor.fused_rmsnorm_q4k_gemv_into(weight_ptr, &input, gamma_ptr, &output, k, n, epsilon);
-    assert!(result.is_ok(), "fused_rmsnorm_q4k_gemv_into should succeed: {:?}", result.err());
+    let result =
+        executor.fused_rmsnorm_q4k_gemv_into(weight_ptr, &input, gamma_ptr, &output, k, n, epsilon);
+    assert!(
+        result.is_ok(),
+        "fused_rmsnorm_q4k_gemv_into should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -9651,11 +10689,19 @@ fn test_cov027_fused_gate_up_q4k_gemv_into_basic() {
     // Load gate and up weights
     let weight_bytes = (n as usize) * 144;
     let weights = vec![0u8; weight_bytes];
-    executor.load_quantized_weights("test_gate_fused", &weights).expect("load gate");
-    executor.load_quantized_weights("test_up_fused", &weights).expect("load up");
+    executor
+        .load_quantized_weights("test_gate_fused", &weights)
+        .expect("load gate");
+    executor
+        .load_quantized_weights("test_up_fused", &weights)
+        .expect("load up");
 
-    let gate_ptr = executor.get_quantized_weight_ptr("test_gate_fused").expect("get gate ptr");
-    let up_ptr = executor.get_quantized_weight_ptr("test_up_fused").expect("get up ptr");
+    let gate_ptr = executor
+        .get_quantized_weight_ptr("test_gate_fused")
+        .expect("get gate ptr");
+    let up_ptr = executor
+        .get_quantized_weight_ptr("test_up_fused")
+        .expect("get up ptr");
 
     // Create input and separate output buffers for gate and up
     let input_data = vec![0.5f32; k as usize];
@@ -9664,8 +10710,20 @@ fn test_cov027_fused_gate_up_q4k_gemv_into_basic() {
     let up_output = GpuBuffer::new(executor.context(), n as usize).expect("up output");
 
     // fused_gate_up_q4k_gemv_into(gate_ptr, up_ptr, input, gate_output, up_output, k, n)
-    let result = executor.fused_gate_up_q4k_gemv_into(gate_ptr, up_ptr, &input, &gate_output, &up_output, k, n);
-    assert!(result.is_ok(), "fused_gate_up_q4k_gemv_into should succeed: {:?}", result.err());
+    let result = executor.fused_gate_up_q4k_gemv_into(
+        gate_ptr,
+        up_ptr,
+        &input,
+        &gate_output,
+        &up_output,
+        k,
+        n,
+    );
+    assert!(
+        result.is_ok(),
+        "fused_gate_up_q4k_gemv_into should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -9684,7 +10742,13 @@ fn test_cov027_q4k_gemv_cached_tiled_weight_not_cached() {
     let mut output_data = vec![0.0f32; n as usize];
 
     // Weight not cached - should fail
-    let result = executor.q4k_gemv_cached_tiled("nonexistent_cached_tiled", &input_data, &mut output_data, n, k);
+    let result = executor.q4k_gemv_cached_tiled(
+        "nonexistent_cached_tiled",
+        &input_data,
+        &mut output_data,
+        n,
+        k,
+    );
     assert!(result.is_err(), "Should fail when weight not cached");
 }
 
@@ -9702,8 +10766,12 @@ fn test_cov027_q4k_gemv_indexed_async_basic() {
     // Load weights and get pointer
     let weight_bytes = (n as usize) * 144;
     let weights = vec![0u8; weight_bytes];
-    executor.load_quantized_weights("test_indexed", &weights).expect("load");
-    let weight_ptr = executor.get_quantized_weight_ptr("test_indexed").expect("get ptr");
+    executor
+        .load_quantized_weights("test_indexed", &weights)
+        .expect("load");
+    let weight_ptr = executor
+        .get_quantized_weight_ptr("test_indexed")
+        .expect("get ptr");
 
     // Create input buffer
     let input_data = vec![0.1f32; k as usize];
@@ -9711,7 +10779,11 @@ fn test_cov027_q4k_gemv_indexed_async_basic() {
 
     // q4k_gemv_indexed_async takes weight_ptr, not layer_idx
     let result = executor.q4k_gemv_indexed_async(weight_ptr, &input, n, k);
-    assert!(result.is_ok(), "q4k_gemv_indexed_async should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "q4k_gemv_indexed_async should succeed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -9728,8 +10800,12 @@ fn test_cov027_q6k_gemv_indexed_async_basic() {
     // Load Q6_K weights and get pointer
     let weight_bytes = (n as usize) * 210; // Q6_K is 210 bytes per 256 values
     let weights = vec![0u8; weight_bytes];
-    executor.load_quantized_weights_with_type("test_q6k_indexed", &weights, 14).expect("load");
-    let weight_ptr = executor.get_quantized_weight_ptr("test_q6k_indexed").expect("get ptr");
+    executor
+        .load_quantized_weights_with_type("test_q6k_indexed", &weights, 14)
+        .expect("load");
+    let weight_ptr = executor
+        .get_quantized_weight_ptr("test_q6k_indexed")
+        .expect("get ptr");
 
     // Create input buffer
     let input_data = vec![0.1f32; k as usize];
@@ -9737,7 +10813,11 @@ fn test_cov027_q6k_gemv_indexed_async_basic() {
 
     // q6k_gemv_indexed_async takes weight_ptr, not layer_idx
     let result = executor.q6k_gemv_indexed_async(weight_ptr, &input, n, k);
-    assert!(result.is_ok(), "q6k_gemv_indexed_async should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "q6k_gemv_indexed_async should succeed: {:?}",
+        result.err()
+    );
 }
 
 // ============================================================================
@@ -9774,8 +10854,22 @@ fn test_cov028_fused_qkv_into_basic() {
     let out_k = GpuBuffer::new(executor.context(), kv_dim as usize).expect("out_k");
     let out_v = GpuBuffer::new(executor.context(), kv_dim as usize).expect("out_v");
 
-    let result = executor.fused_qkv_into(&x, &w_q, &w_k, &w_v, &out_q, &out_k, &out_v, hidden_size, kv_dim);
-    assert!(result.is_ok(), "fused_qkv_into should succeed: {:?}", result.err());
+    let result = executor.fused_qkv_into(
+        &x,
+        &w_q,
+        &w_k,
+        &w_v,
+        &out_q,
+        &out_k,
+        &out_v,
+        hidden_size,
+        kv_dim,
+    );
+    assert!(
+        result.is_ok(),
+        "fused_qkv_into should succeed: {:?}",
+        result.err()
+    );
 }
 
 /// Test fused_qkv_into with GQA (different kv_dim)
@@ -9805,8 +10899,22 @@ fn test_cov028_fused_qkv_into_gqa() {
     let out_k = GpuBuffer::new(executor.context(), kv_dim as usize).expect("out_k");
     let out_v = GpuBuffer::new(executor.context(), kv_dim as usize).expect("out_v");
 
-    let result = executor.fused_qkv_into(&x, &w_q, &w_k, &w_v, &out_q, &out_k, &out_v, hidden_size, kv_dim);
-    assert!(result.is_ok(), "fused_qkv_into with GQA should succeed: {:?}", result.err());
+    let result = executor.fused_qkv_into(
+        &x,
+        &w_q,
+        &w_k,
+        &w_v,
+        &out_q,
+        &out_k,
+        &out_v,
+        hidden_size,
+        kv_dim,
+    );
+    assert!(
+        result.is_ok(),
+        "fused_qkv_into with GQA should succeed: {:?}",
+        result.err()
+    );
 }
 
 /// Test fused_gate_up_into basic functionality
@@ -9833,8 +10941,13 @@ fn test_cov028_fused_gate_up_into_basic() {
 
     let output = GpuBuffer::new(executor.context(), intermediate_size as usize).expect("output");
 
-    let result = executor.fused_gate_up_into(&x, &w_gate, &w_up, &output, hidden_size, intermediate_size);
-    assert!(result.is_ok(), "fused_gate_up_into should succeed: {:?}", result.err());
+    let result =
+        executor.fused_gate_up_into(&x, &w_gate, &w_up, &output, hidden_size, intermediate_size);
+    assert!(
+        result.is_ok(),
+        "fused_gate_up_into should succeed: {:?}",
+        result.err()
+    );
 }
 
 /// Test rope_into basic functionality
@@ -9857,7 +10970,11 @@ fn test_cov028_rope_into_basic() {
     let output = GpuBuffer::new(executor.context(), input_size).expect("output");
 
     let result = executor.rope_into(&input, &output, position, num_heads, head_dim, theta);
-    assert!(result.is_ok(), "rope_into should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "rope_into should succeed: {:?}",
+        result.err()
+    );
 }
 
 /// Test rope_into with different positions
@@ -9881,7 +10998,12 @@ fn test_cov028_rope_into_varying_positions() {
     // Test multiple positions
     for position in [0, 1, 10, 100, 1000] {
         let result = executor.rope_into(&input, &output, position, num_heads, head_dim, theta);
-        assert!(result.is_ok(), "rope_into at position {} should succeed: {:?}", position, result.err());
+        assert!(
+            result.is_ok(),
+            "rope_into at position {} should succeed: {:?}",
+            position,
+            result.err()
+        );
     }
 }
 
@@ -9901,8 +11023,12 @@ fn test_cov028_batched_q4k_gemv_into_basic() {
     // Load Q4K weights
     let weight_bytes = (n as usize) * 144; // Q4K is 144 bytes per 256 values
     let weights = vec![0u8; weight_bytes];
-    executor.load_quantized_weights("test_batched_q4k", &weights).expect("load weights");
-    let weight_ptr = executor.get_quantized_weight_ptr("test_batched_q4k").expect("get ptr");
+    executor
+        .load_quantized_weights("test_batched_q4k", &weights)
+        .expect("load weights");
+    let weight_ptr = executor
+        .get_quantized_weight_ptr("test_batched_q4k")
+        .expect("get ptr");
 
     // Input: m x k elements
     let input_data = vec![0.1f32; (m * k) as usize];
@@ -9912,7 +11038,11 @@ fn test_cov028_batched_q4k_gemv_into_basic() {
     let output = GpuBuffer::new(executor.context(), (m * n) as usize).expect("output");
 
     let result = executor.batched_q4k_gemv_into(weight_ptr, &input, &output, m, n, k);
-    assert!(result.is_ok(), "batched_q4k_gemv_into should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "batched_q4k_gemv_into should succeed: {:?}",
+        result.err()
+    );
 }
 
 /// Test batched_q4k_gemv_into with M=16 (multi-warp path)
@@ -9930,15 +11060,23 @@ fn test_cov028_batched_q4k_gemv_into_m16() {
 
     let weight_bytes = (n as usize) * 144;
     let weights = vec![0u8; weight_bytes];
-    executor.load_quantized_weights("test_batched_q4k_m16", &weights).expect("load");
-    let weight_ptr = executor.get_quantized_weight_ptr("test_batched_q4k_m16").expect("get ptr");
+    executor
+        .load_quantized_weights("test_batched_q4k_m16", &weights)
+        .expect("load");
+    let weight_ptr = executor
+        .get_quantized_weight_ptr("test_batched_q4k_m16")
+        .expect("get ptr");
 
     let input_data = vec![0.1f32; (m * k) as usize];
     let input = GpuBuffer::from_host(executor.context(), &input_data).expect("input");
     let output = GpuBuffer::new(executor.context(), (m * n) as usize).expect("output");
 
     let result = executor.batched_q4k_gemv_into(weight_ptr, &input, &output, m, n, k);
-    assert!(result.is_ok(), "batched_q4k_gemv_into M=16 should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "batched_q4k_gemv_into M=16 should succeed: {:?}",
+        result.err()
+    );
 }
 
 /// Test batched_q6k_gemv_into basic functionality
@@ -9957,15 +11095,23 @@ fn test_cov028_batched_q6k_gemv_into_basic() {
     // Load Q6K weights (210 bytes per 256 values)
     let weight_bytes = (n as usize) * 210;
     let weights = vec![0u8; weight_bytes];
-    executor.load_quantized_weights_with_type("test_batched_q6k", &weights, 14).expect("load");
-    let weight_ptr = executor.get_quantized_weight_ptr("test_batched_q6k").expect("get ptr");
+    executor
+        .load_quantized_weights_with_type("test_batched_q6k", &weights, 14)
+        .expect("load");
+    let weight_ptr = executor
+        .get_quantized_weight_ptr("test_batched_q6k")
+        .expect("get ptr");
 
     let input_data = vec![0.1f32; (m * k) as usize];
     let input = GpuBuffer::from_host(executor.context(), &input_data).expect("input");
     let output = GpuBuffer::new(executor.context(), (m * n) as usize).expect("output");
 
     let result = executor.batched_q6k_gemv_into(weight_ptr, &input, &output, m, n, k);
-    assert!(result.is_ok(), "batched_q6k_gemv_into should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "batched_q6k_gemv_into should succeed: {:?}",
+        result.err()
+    );
 }
 
 /// Test layer_norm_gpu basic functionality
@@ -9990,8 +11136,20 @@ fn test_cov028_layer_norm_gpu_basic() {
     let gamma = GpuBuffer::from_host(executor.context(), &gamma_data).expect("gamma");
     let beta = GpuBuffer::from_host(executor.context(), &beta_data).expect("beta");
 
-    let result = executor.layer_norm_gpu(&input, &output, &gamma, &beta, hidden_size, batch_size, epsilon);
-    assert!(result.is_ok(), "layer_norm_gpu should succeed: {:?}", result.err());
+    let result = executor.layer_norm_gpu(
+        &input,
+        &output,
+        &gamma,
+        &beta,
+        hidden_size,
+        batch_size,
+        epsilon,
+    );
+    assert!(
+        result.is_ok(),
+        "layer_norm_gpu should succeed: {:?}",
+        result.err()
+    );
 }
 
 /// Test layer_norm_gpu with batch
@@ -10012,12 +11170,25 @@ fn test_cov028_layer_norm_gpu_batched() {
     let beta_data = vec![0.1f32; hidden_size as usize];
 
     let input = GpuBuffer::from_host(executor.context(), &input_data).expect("input");
-    let output = GpuBuffer::new(executor.context(), (hidden_size * batch_size) as usize).expect("output");
+    let output =
+        GpuBuffer::new(executor.context(), (hidden_size * batch_size) as usize).expect("output");
     let gamma = GpuBuffer::from_host(executor.context(), &gamma_data).expect("gamma");
     let beta = GpuBuffer::from_host(executor.context(), &beta_data).expect("beta");
 
-    let result = executor.layer_norm_gpu(&input, &output, &gamma, &beta, hidden_size, batch_size, epsilon);
-    assert!(result.is_ok(), "layer_norm_gpu batched should succeed: {:?}", result.err());
+    let result = executor.layer_norm_gpu(
+        &input,
+        &output,
+        &gamma,
+        &beta,
+        hidden_size,
+        batch_size,
+        epsilon,
+    );
+    assert!(
+        result.is_ok(),
+        "layer_norm_gpu batched should succeed: {:?}",
+        result.err()
+    );
 }
 
 /// Test compute_stream getter
@@ -10032,7 +11203,10 @@ fn test_cov028_compute_stream() {
     // compute_stream() returns a reference to CudaStream
     let stream = executor.compute_stream();
     // Just verify we can access it without panic
-    assert!(std::ptr::from_ref(stream) as usize != 0, "stream should be valid");
+    assert!(
+        std::ptr::from_ref(stream) as usize != 0,
+        "stream should be valid"
+    );
 }
 
 // ============================================================================
@@ -10050,7 +11224,11 @@ fn test_cov029_load_weights_basic() {
 
     let weights = vec![0.1f32; 256];
     let result = executor.load_weights("test_weight", &weights);
-    assert!(result.is_ok(), "load_weights should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "load_weights should succeed: {:?}",
+        result.err()
+    );
 
     let bytes = result.unwrap();
     assert_eq!(bytes, 256 * 4, "Should load 256 f32 values (1024 bytes)");
@@ -10065,13 +11243,22 @@ fn test_cov029_load_weights_and_has() {
     }
     let mut executor = CudaExecutor::new(0).expect("CUDA executor");
 
-    assert!(!executor.has_weights("my_weight"), "Should not have weight initially");
+    assert!(
+        !executor.has_weights("my_weight"),
+        "Should not have weight initially"
+    );
 
     let weights = vec![1.0f32; 128];
     executor.load_weights("my_weight", &weights).expect("load");
 
-    assert!(executor.has_weights("my_weight"), "Should have weight after load");
-    assert!(!executor.has_weights("other_weight"), "Should not have unloaded weight");
+    assert!(
+        executor.has_weights("my_weight"),
+        "Should have weight after load"
+    );
+    assert!(
+        !executor.has_weights("other_weight"),
+        "Should not have unloaded weight"
+    );
 }
 
 /// Test cached_weight_count
@@ -10083,7 +11270,11 @@ fn test_cov029_cached_weight_count() {
     }
     let mut executor = CudaExecutor::new(0).expect("CUDA executor");
 
-    assert_eq!(executor.cached_weight_count(), 0, "Initial count should be 0");
+    assert_eq!(
+        executor.cached_weight_count(),
+        0,
+        "Initial count should be 0"
+    );
 
     executor.load_weights("w1", &[1.0f32; 64]).expect("load w1");
     assert_eq!(executor.cached_weight_count(), 1, "Count should be 1");
@@ -10101,13 +11292,27 @@ fn test_cov029_cached_weight_bytes() {
     }
     let mut executor = CudaExecutor::new(0).expect("CUDA executor");
 
-    assert_eq!(executor.cached_weight_bytes(), 0, "Initial bytes should be 0");
+    assert_eq!(
+        executor.cached_weight_bytes(),
+        0,
+        "Initial bytes should be 0"
+    );
 
-    executor.load_weights("w1", &[1.0f32; 100]).expect("load w1");
-    assert_eq!(executor.cached_weight_bytes(), 400, "Should be 400 bytes (100 * 4)");
+    executor
+        .load_weights("w1", &[1.0f32; 100])
+        .expect("load w1");
+    assert_eq!(
+        executor.cached_weight_bytes(),
+        400,
+        "Should be 400 bytes (100 * 4)"
+    );
 
     executor.load_weights("w2", &[1.0f32; 50]).expect("load w2");
-    assert_eq!(executor.cached_weight_bytes(), 600, "Should be 600 bytes total");
+    assert_eq!(
+        executor.cached_weight_bytes(),
+        600,
+        "Should be 600 bytes total"
+    );
 }
 
 /// Test has_indexed_weights
@@ -10120,7 +11325,10 @@ fn test_cov029_has_indexed_weights() {
     let executor = CudaExecutor::new(0).expect("CUDA executor");
 
     // Initially should not have indexed weights
-    assert!(!executor.has_indexed_weights(), "Should not have indexed weights initially");
+    assert!(
+        !executor.has_indexed_weights(),
+        "Should not have indexed weights initially"
+    );
 }
 
 /// Test return_staging_buffer
@@ -10140,7 +11348,10 @@ fn test_cov029_return_staging_buffer() {
 
     // Pool should have returned buffer
     let stats = executor.staging_pool_stats();
-    assert!(stats.free_buffers >= 1, "Pool should have at least 1 buffer after return");
+    assert!(
+        stats.free_buffers >= 1,
+        "Pool should have at least 1 buffer after return"
+    );
 }
 
 /// Test workspace_batch_size
@@ -10153,11 +11364,19 @@ fn test_cov029_workspace_batch_size() {
     let mut executor = CudaExecutor::new(0).expect("CUDA executor");
 
     // Initially should be 0
-    assert_eq!(executor.workspace_batch_size(), 0, "Initial batch size should be 0");
+    assert_eq!(
+        executor.workspace_batch_size(),
+        0,
+        "Initial batch size should be 0"
+    );
 
     // After init_workspace
     executor.init_workspace(512, 256).expect("init workspace");
-    assert_eq!(executor.workspace_batch_size(), 1, "Batch size should be 1 after init");
+    assert_eq!(
+        executor.workspace_batch_size(),
+        1,
+        "Batch size should be 1 after init"
+    );
 }
 
 /// Test workspace_batch_size after batched init
@@ -10170,7 +11389,9 @@ fn test_cov029_workspace_batch_size_batched() {
     let mut executor = CudaExecutor::new(0).expect("CUDA executor");
 
     executor.init_workspace(512, 256).expect("init workspace");
-    executor.init_batched_workspace(512, 256, 4).expect("init batched");
+    executor
+        .init_batched_workspace(512, 256, 4)
+        .expect("init batched");
 
     assert_eq!(executor.workspace_batch_size(), 4, "Batch size should be 4");
 }
@@ -10187,7 +11408,10 @@ fn test_cov029_profiler_mut() {
     // Get mutable profiler access
     let profiler = executor.profiler_mut();
     // Just verify we can access it
-    assert!(std::ptr::from_mut(profiler) as usize != 0, "profiler should be valid");
+    assert!(
+        std::ptr::from_mut(profiler) as usize != 0,
+        "profiler should be valid"
+    );
 }
 
 /// Test execution_graph_ascii
@@ -10235,7 +11459,10 @@ fn test_cov030_workspace_output_before_init() {
     let executor = CudaExecutor::new(0).expect("CUDA executor");
 
     // Before init, workspace_output should return None
-    assert!(executor.workspace_output().is_none(), "workspace_output should be None before init");
+    assert!(
+        executor.workspace_output().is_none(),
+        "workspace_output should be None before init"
+    );
 }
 
 /// Test workspace_output returns Some after init
@@ -10251,7 +11478,10 @@ fn test_cov030_workspace_output_after_init() {
     executor.init_workspace(512, 256).expect("init workspace");
 
     // After init, workspace_output should return Some
-    assert!(executor.workspace_output().is_some(), "workspace_output should be Some after init");
+    assert!(
+        executor.workspace_output().is_some(),
+        "workspace_output should be Some after init"
+    );
 }
 
 /// Test has_rmsnorm_weights before and after preload
@@ -10264,8 +11494,14 @@ fn test_cov030_has_rmsnorm_weights() {
     let mut executor = CudaExecutor::new(0).expect("CUDA executor");
 
     // Before preload
-    assert!(!executor.has_rmsnorm_weights(0), "Should not have weights for layer 0 initially");
-    assert!(!executor.has_rmsnorm_weights(1), "Should not have weights for layer 1 initially");
+    assert!(
+        !executor.has_rmsnorm_weights(0),
+        "Should not have weights for layer 0 initially"
+    );
+    assert!(
+        !executor.has_rmsnorm_weights(1),
+        "Should not have weights for layer 1 initially"
+    );
 
     // Preload for 2 layers - need &[&[f32]] type
     let attn_norm_0 = vec![1.0f32; 512];
@@ -10274,12 +11510,23 @@ fn test_cov030_has_rmsnorm_weights() {
     let ffn_norm_1 = vec![1.0f32; 512];
     let attn_norms: &[&[f32]] = &[&attn_norm_0, &attn_norm_1];
     let ffn_norms: &[&[f32]] = &[&ffn_norm_0, &ffn_norm_1];
-    executor.preload_rmsnorm_weights(2, attn_norms, ffn_norms).expect("preload");
+    executor
+        .preload_rmsnorm_weights(2, attn_norms, ffn_norms)
+        .expect("preload");
 
     // After preload
-    assert!(executor.has_rmsnorm_weights(0), "Should have weights for layer 0 after preload");
-    assert!(executor.has_rmsnorm_weights(1), "Should have weights for layer 1 after preload");
-    assert!(!executor.has_rmsnorm_weights(2), "Should not have weights for layer 2 (not preloaded)");
+    assert!(
+        executor.has_rmsnorm_weights(0),
+        "Should have weights for layer 0 after preload"
+    );
+    assert!(
+        executor.has_rmsnorm_weights(1),
+        "Should have weights for layer 1 after preload"
+    );
+    assert!(
+        !executor.has_rmsnorm_weights(2),
+        "Should not have weights for layer 2 (not preloaded)"
+    );
 }
 
 /// Test has_output_norm before and after preload
@@ -10292,14 +11539,22 @@ fn test_cov030_has_output_norm() {
     let mut executor = CudaExecutor::new(0).expect("CUDA executor");
 
     // Before preload
-    assert!(!executor.has_output_norm(), "Should not have output norm initially");
+    assert!(
+        !executor.has_output_norm(),
+        "Should not have output norm initially"
+    );
 
     // Preload output norm
     let gamma = vec![1.0f32; 512];
-    executor.preload_output_norm(&gamma).expect("preload output norm");
+    executor
+        .preload_output_norm(&gamma)
+        .expect("preload output norm");
 
     // After preload
-    assert!(executor.has_output_norm(), "Should have output norm after preload");
+    assert!(
+        executor.has_output_norm(),
+        "Should have output norm after preload"
+    );
 }
 
 /// Test has_qkv_bias before and after preload
@@ -10312,7 +11567,10 @@ fn test_cov030_has_qkv_bias() {
     let mut executor = CudaExecutor::new(0).expect("CUDA executor");
 
     // Before preload
-    assert!(!executor.has_qkv_bias(0), "Should not have QKV bias for layer 0 initially");
+    assert!(
+        !executor.has_qkv_bias(0),
+        "Should not have QKV bias for layer 0 initially"
+    );
 
     // Preload for 1 layer - need &[Option<&[f32]>] type
     let q_bias_0 = vec![0.0f32; 512];
@@ -10321,11 +11579,19 @@ fn test_cov030_has_qkv_bias() {
     let q_biases: &[Option<&[f32]>] = &[Some(&q_bias_0)];
     let k_biases: &[Option<&[f32]>] = &[Some(&k_bias_0)];
     let v_biases: &[Option<&[f32]>] = &[Some(&v_bias_0)];
-    executor.preload_qkv_bias(1, q_biases, k_biases, v_biases).expect("preload");
+    executor
+        .preload_qkv_bias(1, q_biases, k_biases, v_biases)
+        .expect("preload");
 
     // After preload
-    assert!(executor.has_qkv_bias(0), "Should have QKV bias for layer 0 after preload");
-    assert!(!executor.has_qkv_bias(1), "Should not have QKV bias for layer 1 (not preloaded)");
+    assert!(
+        executor.has_qkv_bias(0),
+        "Should have QKV bias for layer 0 after preload"
+    );
+    assert!(
+        !executor.has_qkv_bias(1),
+        "Should not have QKV bias for layer 1 (not preloaded)"
+    );
 }
 
 /// Test has_lm_head_bias before and after preload
@@ -10338,14 +11604,22 @@ fn test_cov030_has_lm_head_bias() {
     let mut executor = CudaExecutor::new(0).expect("CUDA executor");
 
     // Before preload
-    assert!(!executor.has_lm_head_bias(), "Should not have LM head bias initially");
+    assert!(
+        !executor.has_lm_head_bias(),
+        "Should not have LM head bias initially"
+    );
 
     // Preload LM head bias
     let bias = vec![0.0f32; 32000];
-    executor.preload_lm_head_bias(Some(&bias)).expect("preload lm head bias");
+    executor
+        .preload_lm_head_bias(Some(&bias))
+        .expect("preload lm head bias");
 
     // After preload
-    assert!(executor.has_lm_head_bias(), "Should have LM head bias after preload");
+    assert!(
+        executor.has_lm_head_bias(),
+        "Should have LM head bias after preload"
+    );
 }
 
 /// Test output_rmsnorm_gpu basic operation
@@ -10366,7 +11640,11 @@ fn test_cov030_output_rmsnorm_gpu() {
     let gamma = vec![1.0f32; hidden_dim as usize];
 
     let result = executor.output_rmsnorm_gpu(&input, &mut output, &gamma, hidden_dim, epsilon);
-    assert!(result.is_ok(), "output_rmsnorm_gpu should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "output_rmsnorm_gpu should succeed: {:?}",
+        result.err()
+    );
 
     // Output should be normalized (not all zeros)
     let sum: f32 = output.iter().sum();
@@ -10392,7 +11670,11 @@ fn test_cov030_gpu_argmax_basic() {
     let logits_ptr = logits_gpu.as_ptr();
 
     let result = executor.gpu_argmax(logits_ptr, vocab_size);
-    assert!(result.is_ok(), "gpu_argmax should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "gpu_argmax should succeed: {:?}",
+        result.err()
+    );
     assert_eq!(result.unwrap(), 42, "gpu_argmax should return index 42");
 }
 
@@ -10429,7 +11711,10 @@ fn test_cov030_read_hidden_state_error_before_init() {
 
     // Before workspace init, should return error
     let result = executor.read_hidden_state_to_cpu();
-    assert!(result.is_err(), "read_hidden_state_to_cpu should error before workspace init");
+    assert!(
+        result.is_err(),
+        "read_hidden_state_to_cpu should error before workspace init"
+    );
 }
 
 /// Test transformer_layer_batched error validation
@@ -10459,7 +11744,10 @@ fn test_cov030_transformer_layer_batched_validation() {
         256,
         1e-5,
     );
-    assert!(result.is_err(), "transformer_layer_batched should error without workspace");
+    assert!(
+        result.is_err(),
+        "transformer_layer_batched should error without workspace"
+    );
 }
 
 /// Test transformer_layer_batched batch size mismatch
@@ -10473,7 +11761,9 @@ fn test_cov030_transformer_layer_batched_mismatch() {
 
     // Init workspace for batch_size=2
     executor.init_workspace(512, 256).expect("init workspace");
-    executor.init_batched_workspace(512, 256, 2).expect("init batched");
+    executor
+        .init_batched_workspace(512, 256, 2)
+        .expect("init batched");
 
     let input_data = vec![0.1f32; 512 * 4];
     let input = GpuBuffer::from_host(executor.context(), &input_data).expect("input");
@@ -10504,7 +11794,9 @@ fn test_cov030_transformer_layer_batched_positions_mismatch() {
 
     // Init workspace for batch_size=4
     executor.init_workspace(512, 256).expect("init workspace");
-    executor.init_batched_workspace(512, 256, 4).expect("init batched");
+    executor
+        .init_batched_workspace(512, 256, 4)
+        .expect("init batched");
 
     let input_data = vec![0.1f32; 512 * 4];
     let input = GpuBuffer::from_host(executor.context(), &input_data).expect("input");
@@ -10550,7 +11842,11 @@ fn test_cov031_rope_into_basic() {
     let output = GpuBuffer::new(executor.context(), n as usize).expect("output");
 
     let result = executor.rope_into(&input, &output, position, num_heads, head_dim, theta);
-    assert!(result.is_ok(), "rope_into should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "rope_into should succeed: {:?}",
+        result.err()
+    );
 }
 
 /// Test rope_into with different positions
@@ -10574,7 +11870,12 @@ fn test_cov031_rope_into_positions() {
     // Test various positions
     for position in [0u32, 1, 10, 100, 1000] {
         let result = executor.rope_into(&input, &output, position, num_heads, head_dim, theta);
-        assert!(result.is_ok(), "rope_into at position {} failed: {:?}", position, result.err());
+        assert!(
+            result.is_ok(),
+            "rope_into at position {} failed: {:?}",
+            position,
+            result.err()
+        );
     }
 }
 
@@ -10599,8 +11900,13 @@ fn test_cov031_rope_indirect_into_basic() {
     // Position in device buffer (for CUDA graph compatibility)
     let position_buf = GpuBuffer::from_host(executor.context(), &[5u32]).expect("position buf");
 
-    let result = executor.rope_indirect_into(&input, &output, &position_buf, num_heads, head_dim, theta);
-    assert!(result.is_ok(), "rope_indirect_into should succeed: {:?}", result.err());
+    let result =
+        executor.rope_indirect_into(&input, &output, &position_buf, num_heads, head_dim, theta);
+    assert!(
+        result.is_ok(),
+        "rope_indirect_into should succeed: {:?}",
+        result.err()
+    );
 }
 
 /// Test rope_neox_into basic operation
@@ -10623,7 +11929,11 @@ fn test_cov031_rope_neox_into_basic() {
     let output = GpuBuffer::new(executor.context(), n as usize).expect("output");
 
     let result = executor.rope_neox_into(&input, &output, position, num_heads, head_dim, theta);
-    assert!(result.is_ok(), "rope_neox_into should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "rope_neox_into should succeed: {:?}",
+        result.err()
+    );
 }
 
 /// Test rope_neox_indirect_into basic operation
@@ -10645,8 +11955,19 @@ fn test_cov031_rope_neox_indirect_into_basic() {
     let output = GpuBuffer::new(executor.context(), n as usize).expect("output");
     let position_buf = GpuBuffer::from_host(executor.context(), &[10u32]).expect("position buf");
 
-    let result = executor.rope_neox_indirect_into(&input, &output, &position_buf, num_heads, head_dim, theta);
-    assert!(result.is_ok(), "rope_neox_indirect_into should succeed: {:?}", result.err());
+    let result = executor.rope_neox_indirect_into(
+        &input,
+        &output,
+        &position_buf,
+        num_heads,
+        head_dim,
+        theta,
+    );
+    assert!(
+        result.is_ok(),
+        "rope_neox_indirect_into should succeed: {:?}",
+        result.err()
+    );
 }
 
 /// Test fused_qkv_into basic operation
@@ -10683,17 +12004,13 @@ fn test_cov031_fused_qkv_into_basic() {
     let v_out = GpuBuffer::new(executor.context(), kv_dim as usize).expect("v_out");
 
     let result = executor.fused_qkv_into(
-        &input,
-        &w_q,
-        &w_k,
-        &w_v,
-        &q_out,
-        &k_out,
-        &v_out,
-        hidden_dim,
-        kv_dim,
+        &input, &w_q, &w_k, &w_v, &q_out, &k_out, &v_out, hidden_dim, kv_dim,
     );
-    assert!(result.is_ok(), "fused_qkv_into should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "fused_qkv_into should succeed: {:?}",
+        result.err()
+    );
 
     // Synchronize to catch any kernel errors before test ends
     executor.synchronize().expect("sync");
@@ -10732,7 +12049,11 @@ fn test_cov031_fused_gate_up_into_basic() {
         hidden_dim,
         intermediate_dim,
     );
-    assert!(result.is_ok(), "fused_gate_up_into should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "fused_gate_up_into should succeed: {:?}",
+        result.err()
+    );
 
     // Synchronize to catch any kernel errors before test ends
     executor.synchronize().expect("sync");
@@ -10754,7 +12075,9 @@ fn test_cov031_incremental_attention_into_basic() {
     let kv_dim = num_kv_heads * head_dim;
 
     // Initialize KV cache first (required for incremental attention)
-    executor.init_kv_cache_gpu(1, num_heads, num_kv_heads, head_dim, 16).expect("init kv");
+    executor
+        .init_kv_cache_gpu(1, num_heads, num_kv_heads, head_dim, 16)
+        .expect("init kv");
 
     let q_data = vec![0.1f32; q_dim];
     let k_data = vec![0.1f32; kv_dim];
@@ -10766,7 +12089,11 @@ fn test_cov031_incremental_attention_into_basic() {
     let out_buf = GpuBuffer::new(executor.context(), q_dim).expect("out_buf");
 
     let result = executor.incremental_attention_into(0, &q_buf, &k_buf, &v_buf, &out_buf);
-    assert!(result.is_ok(), "incremental_attention_into should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "incremental_attention_into should succeed: {:?}",
+        result.err()
+    );
 }
 
 /// Test batched_incremental_attention_into with batch_size=2
@@ -10786,8 +12113,12 @@ fn test_cov031_batched_incremental_attention_into() {
     let kv_dim = num_kv_heads * head_dim;
 
     // Initialize KV cache first (required for batched attention)
-    executor.init_kv_cache_gpu(1, num_heads, num_kv_heads, head_dim, 16).expect("init kv");
-    executor.init_batched_kv_cache_gpu(1, batch_size).expect("init batched kv");
+    executor
+        .init_kv_cache_gpu(1, num_heads, num_kv_heads, head_dim, 16)
+        .expect("init kv");
+    executor
+        .init_batched_kv_cache_gpu(1, batch_size)
+        .expect("init batched kv");
 
     let q_data = vec![0.1f32; q_dim * batch_size];
     let k_data = vec![0.1f32; kv_dim * batch_size];
@@ -10801,15 +12132,13 @@ fn test_cov031_batched_incremental_attention_into() {
     let positions = vec![0u32; batch_size];
 
     let result = executor.batched_incremental_attention_into(
-        0,
-        &q_buf,
-        &k_buf,
-        &v_buf,
-        &out_buf,
-        batch_size,
-        &positions,
+        0, &q_buf, &k_buf, &v_buf, &out_buf, batch_size, &positions,
     );
-    assert!(result.is_ok(), "batched_incremental_attention_into should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "batched_incremental_attention_into should succeed: {:?}",
+        result.err()
+    );
 }
 
 /// Test flash_decoding_attention_into without init
@@ -10836,9 +12165,8 @@ fn test_cov031_flash_decoding_not_init() {
 
     // Without init_flash_decoding, should return error
     let positions = vec![0u32; 1];
-    let result = executor.flash_decoding_attention_into(
-        0, &q_buf, &k_buf, &v_buf, &out_buf, 1, &positions,
-    );
+    let result =
+        executor.flash_decoding_attention_into(0, &q_buf, &k_buf, &v_buf, &out_buf, 1, &positions);
     assert!(result.is_err(), "flash_decoding should error without init");
 }
 
@@ -10858,7 +12186,11 @@ fn test_cov031_flash_decoding_with_init() {
 
     // Initialize flash decoding (num_heads, head_dim, max_seq_len, batch_size)
     let init_result = executor.init_flash_decoding(num_heads, head_dim, max_seq_len, batch_size);
-    assert!(init_result.is_ok(), "init_flash_decoding should succeed: {:?}", init_result.err());
+    assert!(
+        init_result.is_ok(),
+        "init_flash_decoding should succeed: {:?}",
+        init_result.err()
+    );
 
     // Now try flash decoding attention
     let q_dim = num_heads * head_dim;
@@ -10873,9 +12205,8 @@ fn test_cov031_flash_decoding_with_init() {
     let out_buf = GpuBuffer::new(executor.context(), q_dim).expect("out_buf");
 
     let positions = vec![0u32; batch_size];
-    let result = executor.flash_decoding_attention_into(
-        0, &q_buf, &k_buf, &v_buf, &out_buf, batch_size, &positions,
-    );
+    let result = executor
+        .flash_decoding_attention_into(0, &q_buf, &k_buf, &v_buf, &out_buf, batch_size, &positions);
     // Note: flash decoding may fail if KV cache not initialized, but at least we cover init path
     let _ = result;
 }

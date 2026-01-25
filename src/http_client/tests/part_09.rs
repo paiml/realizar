@@ -429,9 +429,7 @@ impl ModelCache {
     pub fn check(&self, source: &ModelSource) -> ModelDownloadResult {
         // Simulate cache check
         match source {
-            ModelSource::LocalPath { path } => {
-                ModelDownloadResult::cached(source.clone(), path, 0)
-            },
+            ModelSource::LocalPath { path } => ModelDownloadResult::cached(source.clone(), path, 0),
             ModelSource::HuggingFace { repo, file } => {
                 let cache_path = format!("{}/hf/{}/{}", self.cache_dir, repo, file);
                 ModelDownloadResult::completed(source.clone(), &cache_path, 0)
@@ -1064,8 +1062,7 @@ fn test_imp_195a_framework_comparison() {
         "IMP-195a: Ratio should be < 1 when A is better"
     );
 
-    let throughput =
-        FrameworkComparison::new("realizar", "pytorch", "throughput", 143.0, 100.0);
+    let throughput = FrameworkComparison::new("realizar", "pytorch", "throughput", 143.0, 100.0);
     // For throughput, higher is better but our comparison treats lower as better
     // This tests the raw comparison logic
 
@@ -1433,10 +1430,7 @@ impl WgpuBenchRunner {
             BenchSuiteResult::success(config, 30.0)
         } else {
             let config = BenchSuiteConfig::new("wgpu", true, 60).optional();
-            BenchSuiteResult::skipped(
-                config,
-                availability.reason.as_deref().unwrap_or("Unknown"),
-            )
+            BenchSuiteResult::skipped(config, availability.reason.as_deref().unwrap_or("Unknown"))
         }
     }
 }
@@ -1725,4 +1719,3 @@ fn test_imp_198d_realworld_gguf_gpu() {
         if report.meets_qa045 { "PASS" } else { "FAIL" }
     );
 }
-

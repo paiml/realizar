@@ -10,9 +10,9 @@ use axum::{
 use tower::util::ServiceExt;
 
 use crate::api::realize_handlers::{
-    clean_chat_output, format_chat_messages, ContextWindowConfig, ContextWindowManager,
-    EmbeddingData, EmbeddingRequest, EmbeddingResponse, EmbeddingUsage,
-    ModelMetadataResponse, CompletionRequest, CompletionResponse, ReloadRequest,
+    clean_chat_output, format_chat_messages, CompletionRequest, CompletionResponse,
+    ContextWindowConfig, ContextWindowManager, EmbeddingData, EmbeddingRequest, EmbeddingResponse,
+    EmbeddingUsage, ModelMetadataResponse, ReloadRequest,
 };
 use crate::api::test_helpers::create_test_app;
 use crate::api::ChatMessage;
@@ -123,10 +123,7 @@ fn test_context_window_manager_needs_truncation_true() {
 #[test]
 fn test_context_window_manager_truncate_no_truncation_needed() {
     let manager = ContextWindowManager::default_manager();
-    let messages = vec![
-        chat_msg("user", "Hello"),
-        chat_msg("assistant", "Hi!"),
-    ];
+    let messages = vec![chat_msg("user", "Hello"), chat_msg("assistant", "Hi!")];
 
     let (result, truncated) = manager.truncate_messages(&messages);
     assert!(!truncated);
@@ -634,9 +631,9 @@ async fn test_realize_reload_endpoint() {
     // Reload may fail without actual model or be unimplemented, but exercises the handler
     assert!(
         status == StatusCode::OK
-        || status == StatusCode::NOT_FOUND
-        || status == StatusCode::BAD_REQUEST
-        || status == StatusCode::NOT_IMPLEMENTED,
+            || status == StatusCode::NOT_FOUND
+            || status == StatusCode::BAD_REQUEST
+            || status == StatusCode::NOT_IMPLEMENTED,
         "Unexpected status: {}",
         status
     );
@@ -666,7 +663,9 @@ async fn test_openai_completions_endpoint() {
 
     let status = response.status();
     assert!(
-        status == StatusCode::OK || status == StatusCode::NOT_FOUND || status == StatusCode::INTERNAL_SERVER_ERROR,
+        status == StatusCode::OK
+            || status == StatusCode::NOT_FOUND
+            || status == StatusCode::INTERNAL_SERVER_ERROR,
         "Unexpected status: {}",
         status
     );
@@ -751,7 +750,10 @@ fn test_reload_request_serialization() {
 
 #[test]
 fn test_reload_request_empty() {
-    let req = ReloadRequest { model: None, path: None };
+    let req = ReloadRequest {
+        model: None,
+        path: None,
+    };
 
     let json = serde_json::to_string(&req).expect("serialize");
     let parsed: ReloadRequest = serde_json::from_str(&json).expect("deserialize");

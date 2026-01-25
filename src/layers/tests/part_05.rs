@@ -1729,4 +1729,3 @@ fn test_imp_071_graceful_degradation() {
         "IMP-071: Low load should restore Normal mode"
     );
 }
-

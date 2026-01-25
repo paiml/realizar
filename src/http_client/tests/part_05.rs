@@ -118,8 +118,7 @@ impl ColdStartBreakdown {
     pub fn analyze(model_load_ms: f64, first_inference_ms: f64, total_ttft_ms: f64) -> Self {
         let overhead_ms = (total_ttft_ms - model_load_ms - first_inference_ms).max(0.0);
 
-        let bottleneck = if model_load_ms >= first_inference_ms && model_load_ms >= overhead_ms
-        {
+        let bottleneck = if model_load_ms >= first_inference_ms && model_load_ms >= overhead_ms {
             "model_loading"
         } else if first_inference_ms >= model_load_ms && first_inference_ms >= overhead_ms {
             "first_inference"

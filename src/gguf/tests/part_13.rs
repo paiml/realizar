@@ -729,14 +729,10 @@ fn test_parity_080b_wmma_ptx_instructions() {
     println!("    .reg .f32 %fragC<8>;     // Accumulator");
     println!();
     println!("    ; Load Q tile");
-    println!(
-        "    wmma.load.a.sync.aligned.m16n16k16.row.f16 {{%fragA0, ...}}, [%q_ptr], %ldq;"
-    );
+    println!("    wmma.load.a.sync.aligned.m16n16k16.row.f16 {{%fragA0, ...}}, [%q_ptr], %ldq;");
     println!();
     println!("    ; Load K tile (transposed)");
-    println!(
-        "    wmma.load.b.sync.aligned.m16n16k16.col.f16 {{%fragB0, ...}}, [%k_ptr], %ldk;"
-    );
+    println!("    wmma.load.b.sync.aligned.m16n16k16.col.f16 {{%fragB0, ...}}, [%k_ptr], %ldk;");
     println!();
     println!("    ; Matrix multiply-accumulate");
     println!("    wmma.mma.sync.aligned.m16n16k16.row.col.f32.f16.f16.f32");

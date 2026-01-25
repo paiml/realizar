@@ -257,8 +257,7 @@ impl KLDivergenceAnalysis {
 fn test_imp_171a_quantized_quality() {
     // High quality quantization (small differences)
     let f32_output: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
-    let quantized_good: Vec<f32> =
-        vec![1.01, 2.02, 2.98, 4.01, 5.0, 5.99, 7.02, 7.98, 9.01, 10.0];
+    let quantized_good: Vec<f32> = vec![1.01, 2.02, 2.98, 4.01, 5.0, 5.99, 7.02, 7.98, 9.01, 10.0];
 
     let good_comparison = QuantizedQualityComparison::compare(&f32_output, &quantized_good);
 
@@ -743,9 +742,7 @@ fn test_imp_172b_batch_regression() {
     );
     println!(
         "  Sublinear: slope={:.2}, intercept={:.2}, R²={:.4}",
-        sublinear_regression.slope,
-        sublinear_regression.intercept,
-        sublinear_regression.r_squared
+        sublinear_regression.slope, sublinear_regression.intercept, sublinear_regression.r_squared
     );
 }
 

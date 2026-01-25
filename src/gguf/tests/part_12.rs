@@ -523,8 +523,7 @@ fn test_parity071d_error_analysis() {
     println!("    |--------------|-----------|-----------|");
 
     for (scale, name) in test_cases {
-        let values: [f32; 32] =
-            core::array::from_fn(|i| scale * ((i as f32) / 31.0 * 2.0 - 1.0));
+        let values: [f32; 32] = core::array::from_fn(|i| scale * ((i as f32) / 31.0 * 2.0 - 1.0));
 
         let block = Q8_0Block::quantize(&values);
         let abs_error = block.quantization_error(&values);
@@ -729,8 +728,7 @@ fn test_parity072b_correctness() {
     let reference = fused_q4k_dot(&q4k_data, &f32_activations).expect("fused_q4k_dot failed");
 
     // Quantize activations to Q8
-    let q8_blocks =
-        quantize_to_q8_blocks(&f32_activations).expect("quantize_to_q8_blocks failed");
+    let q8_blocks = quantize_to_q8_blocks(&f32_activations).expect("quantize_to_q8_blocks failed");
 
     // Compute with fused_q4k_q8_dot
     let result = fused_q4k_q8_dot(&q4k_data, &q8_blocks).expect("fused_q4k_q8_dot failed");
@@ -1676,8 +1674,8 @@ fn test_parity_075a_attention_score_quantization() {
 
     // Simulate typical attention scores
     let scores: [f32; 32] = [
-        -2.5, -1.8, -0.5, 0.3, 1.2, 2.1, 3.0, -1.0, 0.0, 0.5, 1.0, 1.5, 2.0, -2.0, -1.5, -0.8,
-        0.8, 1.8, 2.5, -0.3, 0.1, -0.1, 0.2, -0.2, 3.5, -3.0, 2.8, -2.2, 1.7, -1.3, 0.9, -0.7,
+        -2.5, -1.8, -0.5, 0.3, 1.2, 2.1, 3.0, -1.0, 0.0, 0.5, 1.0, 1.5, 2.0, -2.0, -1.5, -0.8, 0.8,
+        1.8, 2.5, -0.3, 0.1, -0.1, 0.2, -0.2, 3.5, -3.0, 2.8, -2.2, 1.7, -1.3, 0.9, -0.7,
     ];
 
     let q8_block = Q8_0Block::quantize(&scores);
@@ -2042,8 +2040,7 @@ fn test_parity_075e_end_to_end_attention() {
                 .map(|(&q, &k)| (q as i32) * (k as i32))
                 .sum();
             // Scale to F32
-            scores[i][j] =
-                int8_dot as f32 * q_blocks[i].scale * k_blocks[j].scale * scale_factor;
+            scores[i][j] = int8_dot as f32 * q_blocks[i].scale * k_blocks[j].scale * scale_factor;
         }
     }
 

@@ -8,10 +8,10 @@ use axum::{
 };
 use tower::util::ServiceExt;
 
-use crate::api::*;
 use crate::api::test_helpers::create_test_app;
 #[cfg(feature = "gpu")]
 use crate::api::test_helpers::create_test_quantized_model;
+use crate::api::*;
 
 #[test]
 fn test_chat_delta_debug_clone_cov() {
@@ -1812,4 +1812,3 @@ fn test_stream_done_event_serialize_more_cov() {
     let json = serde_json::to_string(&event).expect("serialize");
     assert!(json.contains("15"));
 }
-

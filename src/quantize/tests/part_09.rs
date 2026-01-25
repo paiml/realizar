@@ -107,11 +107,7 @@ fn test_read_f16_basic() {
     // Test read_f16 helper
     let bytes = 0x3C00u16.to_le_bytes();
     let result = read_f16(&bytes);
-    assert!(
-        (result - 1.0).abs() < 1e-6,
-        "read_f16(1.0): got {}",
-        result
-    );
+    assert!((result - 1.0).abs() < 1e-6, "read_f16(1.0): got {}", result);
 }
 
 proptest! {
@@ -148,8 +144,8 @@ fn test_extract_scale_min_first_four_blocks() {
     // First 4 blocks use simple layout: scale = q[j] & 63, min = q[j+4] & 63
     let scales: [u8; 12] = [
         10, 20, 30, 40, // scales for blocks 0-3
-        5, 15, 25, 35,  // mins for blocks 0-3
-        0, 0, 0, 0,     // high bits (unused for first 4)
+        5, 15, 25, 35, // mins for blocks 0-3
+        0, 0, 0, 0, // high bits (unused for first 4)
     ];
 
     let (s0, m0) = extract_scale_min(&scales, 0);
@@ -261,7 +257,10 @@ fn test_softmax_simd_empty() {
 fn test_softmax_simd_single() {
     let mut x = vec![1.0f32];
     softmax_simd(&mut x);
-    assert!((x[0] - 1.0).abs() < 1e-6, "Softmax of single element should be 1.0");
+    assert!(
+        (x[0] - 1.0).abs() < 1e-6,
+        "Softmax of single element should be 1.0"
+    );
 }
 
 #[test]
@@ -281,11 +280,7 @@ fn test_softmax_simd_large_difference() {
     // When one value is much larger, it should dominate
     let mut x = vec![0.0, 0.0, 0.0, 100.0];
     softmax_simd(&mut x);
-    assert!(
-        x[3] > 0.99,
-        "Largest value should dominate: {:?}",
-        x
-    );
+    assert!(x[3] > 0.99, "Largest value should dominate: {:?}", x);
 }
 
 #[test]
@@ -477,7 +472,6 @@ fn test_softmax_simd_deterministic() {
     }
 }
 
-
 // =============================================================================
 // Fused SwiGLU Tests
 // =============================================================================
@@ -540,12 +534,7 @@ fn test_fused_swiglu_simd_large_positive() {
 
     // gate * sigmoid(gate) * up ≈ 100 * 1 * 2 = 200
     for (i, g) in gate.iter().enumerate() {
-        assert!(
-            (g - 200.0).abs() < 1.0,
-            "Large gate SwiGLU at {}: {}",
-            i,
-            g
-        );
+        assert!((g - 200.0).abs() < 1.0, "Large gate SwiGLU at {}: {}", i, g);
     }
 }
 
@@ -588,7 +577,6 @@ fn test_fused_swiglu_simd_deterministic() {
         assert_eq!(a, b, "SwiGLU should be deterministic at index {}", i);
     }
 }
-
 
 // =============================================================================
 // RoPE Rotation Tests
@@ -672,12 +660,8 @@ fn test_apply_rope_rotation_simd_larger_dim() {
     let head_dim = 16;
     let mut x: Vec<f32> = (0..head_dim as i32).map(|i| i as f32).collect();
 
-    let freqs_cos: Vec<f32> = (0..head_dim / 2)
-        .map(|i| (i as f32 * 0.5).cos())
-        .collect();
-    let freqs_sin: Vec<f32> = (0..head_dim / 2)
-        .map(|i| (i as f32 * 0.5).sin())
-        .collect();
+    let freqs_cos: Vec<f32> = (0..head_dim / 2).map(|i| (i as f32 * 0.5).cos()).collect();
+    let freqs_sin: Vec<f32> = (0..head_dim / 2).map(|i| (i as f32 * 0.5).sin()).collect();
 
     let expected = rope_reference(&x, &freqs_cos, &freqs_sin, head_dim);
     apply_rope_rotation_simd(&mut x, &freqs_cos, &freqs_sin, head_dim);
@@ -721,7 +705,6 @@ fn test_apply_rope_rotation_simd_empty() {
     apply_rope_rotation_simd(&mut x, &freqs_cos, &freqs_sin, 4);
     assert!(x.is_empty());
 }
-
 
 // =============================================================================
 // Proptest for SwiGLU and RoPE

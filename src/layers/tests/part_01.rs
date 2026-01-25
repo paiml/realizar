@@ -487,8 +487,7 @@ fn test_gelu_negative() {
 
 #[test]
 fn test_gelu_batched() {
-    let input =
-        Tensor::from_vec(vec![2, 3], vec![-2.0, -1.0, 0.0, 1.0, 2.0, 3.0]).expect("test");
+    let input = Tensor::from_vec(vec![2, 3], vec![-2.0, -1.0, 0.0, 1.0, 2.0, 3.0]).expect("test");
     let output = gelu(&input).expect("test");
 
     assert_eq!(output.shape(), &[2, 3]);
@@ -871,10 +870,10 @@ fn test_flash_attention_large_sequence() {
 fn test_flash_attention_shape_errors() {
     let attn = Attention::new(4).expect("test");
 
-    let q = Tensor::from_vec(vec![2, 4], vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0])
-        .expect("test");
-    let k = Tensor::from_vec(vec![2, 4], vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0])
-        .expect("test");
+    let q =
+        Tensor::from_vec(vec![2, 4], vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]).expect("test");
+    let k =
+        Tensor::from_vec(vec![2, 4], vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]).expect("test");
     let v_wrong = Tensor::from_vec(
         vec![3, 4],
         vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0],
@@ -1703,4 +1702,3 @@ fn test_alibi_bias_long_sequence() {
 }
 
 // KVCache tests
-

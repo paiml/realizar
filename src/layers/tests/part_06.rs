@@ -595,8 +595,7 @@ fn test_imp_080_performance_diagnostics() {
         "IMP-080: Should track inference"
     );
     assert!(
-        *breakdown.get("inference").expect("test")
-            > *breakdown.get("tokenization").expect("test"),
+        *breakdown.get("inference").expect("test") > *breakdown.get("tokenization").expect("test"),
         "IMP-080: Inference should take longer"
     );
 
@@ -1704,4 +1703,3 @@ fn test_sliding_window_attention_debug_clone() {
     let cloned = swa.clone();
     assert_eq!(cloned.window_size(), swa.window_size());
 }
-

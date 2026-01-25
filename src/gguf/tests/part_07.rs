@@ -61,7 +61,9 @@ fn test_parity005b_cache_line_alignment() {
         assert!(
             cache.is_cache_aligned(),
             "PARITY-005b: Cache should be aligned for num_layers={}, hidden_dim={}, max_seq_len={}",
-            num_layers, hidden_dim, max_seq_len
+            num_layers,
+            hidden_dim,
+            max_seq_len
         );
 
         // Verify stride is at least raw size
@@ -319,7 +321,10 @@ fn test_parity006a_batch_generate_exists() {
 
     let results = cached
         .model()
-        .batch_generate(&prompts.iter().map(|p| p.as_slice()).collect::<Vec<_>>(), &gen_config)
+        .batch_generate(
+            &prompts.iter().map(|p| p.as_slice()).collect::<Vec<_>>(),
+            &gen_config,
+        )
         .expect("PARITY-006a: batch_generate should exist and succeed");
 
     assert_eq!(
@@ -370,7 +375,10 @@ fn test_parity006b_single_prompt_optimization() {
     let prompts = vec![prompt.clone()];
     let batch_results = cached
         .model()
-        .batch_generate(&prompts.iter().map(|p| p.as_slice()).collect::<Vec<_>>(), &gen_config)
+        .batch_generate(
+            &prompts.iter().map(|p| p.as_slice()).collect::<Vec<_>>(),
+            &gen_config,
+        )
         .expect("Batch generate should work");
 
     // Results should match (deterministic sampling)
@@ -400,11 +408,7 @@ fn test_parity006c_batch_output_validity() {
     let cached = OwnedQuantizedModelCached::new(model);
 
     // Multiple prompts of different lengths
-    let prompts = vec![
-        vec![1u32, 2, 3],
-        vec![4u32, 5, 6, 7, 8],
-        vec![9u32],
-    ];
+    let prompts = vec![vec![1u32, 2, 3], vec![4u32, 5, 6, 7, 8], vec![9u32]];
     let gen_config = QuantizedGenerateConfig {
         max_tokens: 5,
         temperature: 0.0,
@@ -415,7 +419,10 @@ fn test_parity006c_batch_output_validity() {
 
     let results = cached
         .model()
-        .batch_generate(&prompts.iter().map(|p| p.as_slice()).collect::<Vec<_>>(), &gen_config)
+        .batch_generate(
+            &prompts.iter().map(|p| p.as_slice()).collect::<Vec<_>>(),
+            &gen_config,
+        )
         .expect("PARITY-006c: Batch generate should succeed");
 
     assert_eq!(results.len(), 3, "PARITY-006c: Should have 3 results");
@@ -507,7 +514,10 @@ fn test_parity006e_batch_performance_comparison() {
     // Batch generation
     let cached = OwnedQuantizedModelCached::new(model);
     let start = Instant::now();
-    let _ = cached.model().batch_generate(&prompts.iter().map(|p| p.as_slice()).collect::<Vec<_>>(), &gen_config);
+    let _ = cached.model().batch_generate(
+        &prompts.iter().map(|p| p.as_slice()).collect::<Vec<_>>(),
+        &gen_config,
+    );
     let batch_time = start.elapsed();
 
     println!("PARITY-006e: Performance Comparison");
@@ -571,7 +581,8 @@ fn test_parity007a_cv_calculation() {
     // CV = (std_dev / mean) * 100
     let values: Vec<f64> = vec![10.0, 12.0, 11.0, 9.0, 11.0];
     let mean: f64 = values.iter().sum::<f64>() / values.len() as f64;
-    let variance: f64 = values.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / values.len() as f64;
+    let variance: f64 =
+        values.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / values.len() as f64;
     let std_dev = variance.sqrt();
     let cv = (std_dev / mean) * 100.0;
 
@@ -611,7 +622,10 @@ fn test_parity007b_benchmark_metrics() {
         cv_percent: 8.5,
     };
 
-    assert!(metrics.throughput_toks > 0.0, "PARITY-007b: Throughput should be positive");
+    assert!(
+        metrics.throughput_toks > 0.0,
+        "PARITY-007b: Throughput should be positive"
+    );
     assert!(
         metrics.latency_p50_ms < metrics.latency_p95_ms,
         "PARITY-007b: p50 should be < p95"
@@ -640,7 +654,10 @@ fn test_parity007c_hardware_info() {
         gpu_name: Some("NVIDIA RTX 4090".to_string()),
     };
 
-    assert!(!info.cpu_model.is_empty(), "PARITY-007c: CPU model should not be empty");
+    assert!(
+        !info.cpu_model.is_empty(),
+        "PARITY-007c: CPU model should not be empty"
+    );
     assert!(info.cpu_cores >= 1, "PARITY-007c: CPU cores should be >= 1");
     assert!(info.ram_gb >= 1, "PARITY-007c: RAM should be >= 1 GB");
 }
@@ -870,16 +887,16 @@ fn test_parity008d_explicit_thresholds() {
 
     let throughput_threshold = AcceptanceThreshold {
         metric: "tok/s".to_string(),
-        minimum: 64.0,   // Current baseline
-        target: 225.0,   // Ollama parity
-        stretch: 300.0,  // Exceeds Ollama
+        minimum: 64.0,  // Current baseline
+        target: 225.0,  // Ollama parity
+        stretch: 300.0, // Exceeds Ollama
     };
 
     let latency_threshold = AcceptanceThreshold {
         metric: "ms/token".to_string(),
-        minimum: 50.0,   // Maximum acceptable
-        target: 4.4,     // Ollama parity (1000/225)
-        stretch: 3.3,    // Exceeds Ollama
+        minimum: 50.0, // Maximum acceptable
+        target: 4.4,   // Ollama parity (1000/225)
+        stretch: 3.3,  // Exceeds Ollama
     };
 
     assert!(
@@ -1545,10 +1562,7 @@ fn test_parity010a_preflight_server_checks() {
             if server_available {
                 PreflightStatus::Pass
             } else if self.required {
-                PreflightStatus::Fail(format!(
-                    "{} not available at {}",
-                    self.name, self.endpoint
-                ))
+                PreflightStatus::Fail(format!("{} not available at {}", self.name, self.endpoint))
             } else {
                 PreflightStatus::Skip(format!("{} optional, skipping", self.name))
             }
@@ -1670,7 +1684,7 @@ fn test_parity010b_model_download() {
         Cached(String),     // Already in cache
         Downloaded(String), // Freshly downloaded
         #[allow(dead_code)]
-        Failed(String),     // Download failed
+        Failed(String), // Download failed
     }
 
     /// Model downloader (test)
@@ -1689,11 +1703,7 @@ fn test_parity010b_model_download() {
         }
 
         /// Simulate download check
-        fn check_or_download(
-            &self,
-            config: &ModelDownloadConfig,
-            cached: bool,
-        ) -> DownloadStatus {
+        fn check_or_download(&self, config: &ModelDownloadConfig, cached: bool) -> DownloadStatus {
             if cached {
                 DownloadStatus::Cached(config.cache_path())
             } else {

@@ -596,8 +596,7 @@ fn test_fused_q4_0_q8_0_parallel_matvec_into_weight_error() {
     let weight_data = vec![0u8; 10]; // Too small
     let activations = vec![1.0f32; 32];
     let mut output = vec![0.0f32; 2];
-    let result =
-        fused_q4_0_q8_0_parallel_matvec_into(&weight_data, &activations, 32, &mut output);
+    let result = fused_q4_0_q8_0_parallel_matvec_into(&weight_data, &activations, 32, &mut output);
     assert!(result.is_err());
 }
 
@@ -1712,4 +1711,3 @@ fn test_quantize_to_q8_blocks_one_block_cov() {
 // =========================================================================
 // Coverage Tests: dequantize_q8_blocks
 // =========================================================================
-

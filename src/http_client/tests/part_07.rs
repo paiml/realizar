@@ -254,9 +254,7 @@ fn test_imp_175c_recovery_planning() {
     println!("\nIMP-175c: Timeout Recovery Planning:");
     println!(
         "  Default: retries={}, initial={}ms, backoff={:.1}x",
-        default_plan.max_retries,
-        default_plan.initial_timeout_ms,
-        default_plan.backoff_multiplier
+        default_plan.max_retries, default_plan.initial_timeout_ms, default_plan.backoff_multiplier
     );
     println!(
         "  Aggressive: retries={}, initial={}ms, backoff={:.1}x",
@@ -296,8 +294,7 @@ fn test_imp_175d_realworld_timeout_recovery() {
             };
 
             let recovery_client = ModelHttpClient::with_timeout(30);
-            match recovery_client.llamacpp_completion("http://127.0.0.1:8082", &simple_request)
-            {
+            match recovery_client.llamacpp_completion("http://127.0.0.1:8082", &simple_request) {
                 Ok(_) => GpuTimeoutResult::timeout_recovered(elapsed),
                 Err(_) => GpuTimeoutResult::timeout_failed(elapsed),
             }
@@ -396,10 +393,8 @@ fn test_imp_176a_gguf_validation_errors() {
     assert!(valid.is_valid, "IMP-176a: Valid file should be valid");
     assert!(valid.meets_qa023, "IMP-176a: Valid file should meet QA-023");
 
-    let invalid_magic = GgufValidationResult::invalid_graceful(
-        "bad.gguf",
-        vec![GgufValidationError::InvalidMagic],
-    );
+    let invalid_magic =
+        GgufValidationResult::invalid_graceful("bad.gguf", vec![GgufValidationError::InvalidMagic]);
     assert!(
         !invalid_magic.is_valid,
         "IMP-176a: Invalid magic should be invalid"
@@ -566,10 +561,7 @@ fn test_imp_176d_realworld_malformed_gguf() {
         Ok(_) => GgufValidationResult::valid("test"),
         Err(_) => {
             // Error is expected but should be graceful
-            GgufValidationResult::invalid_graceful(
-                "test",
-                vec![GgufValidationError::InvalidMagic],
-            )
+            GgufValidationResult::invalid_graceful("test", vec![GgufValidationError::InvalidMagic])
         },
     };
 

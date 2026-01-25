@@ -8,11 +8,10 @@ use axum::{
 };
 use tower::util::ServiceExt;
 
-use crate::api::*;
 use crate::api::test_helpers::create_test_app;
 #[cfg(feature = "gpu")]
 use crate::api::test_helpers::create_test_quantized_model;
-
+use crate::api::*;
 
 /// IMP-116d: Test cached model can be accessed multiple times (scheduler reuse)
 #[tokio::test]

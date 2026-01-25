@@ -796,4 +796,544 @@ mod tests {
         };
         assert_eq!(trigger.response(), AndonResponse::Notify);
     }
+
+    // ========================================================================
+    // Additional Coverage Tests - Edge Cases and Error Paths
+    // ========================================================================
+
+    #[test]
+    fn test_capacity_factor_router_single_expert_at_capacity() {
+        // Test the edge case where there's only one expert and it's at capacity
+        let router = CapacityFactorRouter::new(CapacityConfig {
+            capacity: 1,
+            num_experts: 1,
+        });
+        router.record_start(0); // Fill the only expert
+
+        let scores = vec![0.9];
+        let result = router.route(&scores);
+
+        // Should return ExpertCapacityExceeded error
+        assert!(result.is_err());
+        match result {
+            Err(RealizarError::ExpertCapacityExceeded {
+                expert_id,
+                queue_depth,
+                capacity,
+            }) => {
+                assert_eq!(expert_id, 0);
+                assert_eq!(queue_depth, 1);
+                assert_eq!(capacity, 1);
+            }
+            _ => panic!("Expected ExpertCapacityExceeded error"),
+        }
+    }
+
+    #[test]
+    fn test_capacity_factor_router_both_top_experts_at_capacity() {
+        // Test fallback when both top-2 experts are at capacity
+        let router = CapacityFactorRouter::new(CapacityConfig {
+            capacity: 1,
+            num_experts: 4,
+        });
+
+        // Fill top 2 experts (index 1 and 2 based on scores)
+        router.record_start(1);
+        router.record_start(2);
+
+        let scores = vec![0.1, 0.9, 0.8, 0.2];
+        let result = router.route(&scores);
+
+        // Primary (1) is full, fallback (2) is also full, should error
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_power_of_two_choices_wrong_score_count() {
+        let router = PowerOfTwoChoicesRouter::new(PowerOfTwoConfig {
+            num_experts: 4,
+            capacity: 10,
+        });
+
+        // Pass wrong number of scores
+        let scores = vec![0.5, 0.5]; // Only 2, expecting 4
+        let result = router.route(&scores);
+
+        assert!(result.is_err());
+        match result {
+            Err(RealizarError::MoeError(msg)) => {
+                assert!(msg.contains("Expected 4 scores, got 2"));
+            }
+            _ => panic!("Expected MoeError"),
+        }
+    }
+
+    #[test]
+    fn test_power_of_two_choices_queue_depth_tracking() {
+        let router = PowerOfTwoChoicesRouter::new(PowerOfTwoConfig {
+            num_experts: 3,
+            capacity: 10,
+        });
+
+        assert_eq!(router.queue_depth(0), 0);
+        assert_eq!(router.queue_depth(1), 0);
+
+        router.record_start(1);
+        router.record_start(1);
+        assert_eq!(router.queue_depth(1), 2);
+
+        router.record_end(1);
+        assert_eq!(router.queue_depth(1), 1);
+
+        router.record_end(1);
+        assert_eq!(router.queue_depth(1), 0);
+    }
+
+    #[test]
+    fn test_circuit_breaker_success_resets_failure_count_in_closed() {
+        let cb = CircuitBreaker::new(CircuitBreakerConfig {
+            failure_threshold: 3,
+            success_threshold: 2,
+            timeout_ms: 1000,
+        });
+
+        // Record some failures but not enough to open
+        cb.record_failure();
+        cb.record_failure();
+        assert_eq!(cb.state(), CircuitState::Closed);
+
+        // Success should reset failure count
+        cb.record_success();
+
+        // Now we need 3 more failures to open
+        cb.record_failure();
+        cb.record_failure();
+        assert_eq!(cb.state(), CircuitState::Closed);
+
+        cb.record_failure();
+        assert_eq!(cb.state(), CircuitState::Open);
+    }
+
+    #[test]
+    fn test_circuit_breaker_success_while_open_no_effect() {
+        let cb = CircuitBreaker::new(CircuitBreakerConfig {
+            failure_threshold: 1,
+            success_threshold: 2,
+            timeout_ms: 100_000, // Long timeout so stays open
+        });
+
+        cb.record_failure();
+        assert_eq!(cb.state(), CircuitState::Open);
+
+        // Recording success while open should have no effect
+        cb.record_success();
+        assert_eq!(cb.state(), CircuitState::Open);
+        assert!(!cb.allow_request()); // Still blocked
+    }
+
+    #[test]
+    fn test_circuit_breaker_partial_success_in_half_open() {
+        let cb = CircuitBreaker::new(CircuitBreakerConfig {
+            failure_threshold: 1,
+            success_threshold: 3, // Need 3 successes
+            timeout_ms: 1,
+        });
+
+        cb.record_failure();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        assert_eq!(cb.state(), CircuitState::HalfOpen);
+
+        // One success, still half-open
+        cb.record_success();
+        assert_eq!(cb.state(), CircuitState::HalfOpen);
+
+        // Two successes, still half-open
+        cb.record_success();
+        assert_eq!(cb.state(), CircuitState::HalfOpen);
+
+        // Three successes, now closed
+        cb.record_success();
+        assert_eq!(cb.state(), CircuitState::Closed);
+    }
+
+    #[test]
+    fn test_heijunka_target_latency_getter() {
+        let controller = HeijunkaController::new(HeijunkaConfig {
+            target_latency_ms: 150.0,
+            max_concurrency: 50,
+        });
+
+        assert!((controller.target_latency_ms() - 150.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_heijunka_minimum_concurrency_floor() {
+        let controller = HeijunkaController::new(HeijunkaConfig {
+            target_latency_ms: 100.0,
+            max_concurrency: 100,
+        });
+
+        // Very low arrival rate should still give at least 1
+        let concurrency = controller.optimal_concurrency(0.001, 1.0);
+        assert_eq!(concurrency, 1);
+
+        // Zero arrival rate (edge case)
+        let concurrency = controller.optimal_concurrency(0.0, 100.0);
+        assert_eq!(concurrency, 1);
+    }
+
+    #[test]
+    fn test_heijunka_recommended_concurrency_bounds() {
+        let controller = HeijunkaController::new(HeijunkaConfig {
+            target_latency_ms: 100.0,
+            max_concurrency: 10,
+        });
+
+        // Very high latency relative to target should recommend low concurrency
+        let decision = controller.should_shed_load(1000.0, 10);
+        assert!(decision.shed_load);
+        assert!(decision.recommended_concurrency >= 1);
+        assert!(decision.recommended_concurrency <= 10);
+
+        // Very low latency should recommend higher concurrency (capped at current)
+        let decision = controller.should_shed_load(10.0, 5);
+        assert!(!decision.shed_load);
+        assert!(decision.recommended_concurrency >= 1);
+        assert!(decision.recommended_concurrency <= 10);
+    }
+
+    #[test]
+    fn test_heijunka_no_shed_when_under_max_concurrency() {
+        let controller = HeijunkaController::new(HeijunkaConfig {
+            target_latency_ms: 100.0,
+            max_concurrency: 50,
+        });
+
+        // High latency but under max concurrency - should not shed
+        let decision = controller.should_shed_load(200.0, 30);
+        assert!(!decision.shed_load);
+    }
+
+    #[test]
+    fn test_andon_expert_imbalance_triggers_notify() {
+        let trigger = AndonTrigger::ExpertImbalance {
+            imbalance_ratio: 3.5,
+        };
+        assert_eq!(trigger.response(), AndonResponse::Notify);
+        assert!(!trigger.is_critical());
+    }
+
+    #[test]
+    fn test_andon_error_rate_exactly_at_threshold() {
+        // Rate equal to threshold (not exceeding 2x) should notify
+        let trigger = AndonTrigger::ErrorRateThreshold {
+            rate: 0.1,
+            threshold: 0.1,
+        };
+        assert_eq!(trigger.response(), AndonResponse::Notify);
+        assert!(!trigger.is_critical());
+    }
+
+    #[test]
+    fn test_andon_error_rate_exactly_2x_threshold() {
+        // Rate exactly 2x threshold should still notify (not strictly greater)
+        let trigger = AndonTrigger::ErrorRateThreshold {
+            rate: 0.2,
+            threshold: 0.1,
+        };
+        assert_eq!(trigger.response(), AndonResponse::Notify);
+        assert!(!trigger.is_critical());
+
+        // Rate slightly above 2x should quarantine
+        let trigger = AndonTrigger::ErrorRateThreshold {
+            rate: 0.21,
+            threshold: 0.1,
+        };
+        assert_eq!(trigger.response(), AndonResponse::Quarantine);
+        assert!(trigger.is_critical());
+    }
+
+    #[test]
+    fn test_capacity_factor_top_k_with_nan_scores() {
+        // Test handling of NaN values in scores (via partial_cmp fallback)
+        let router = CapacityFactorRouter::new(CapacityConfig {
+            capacity: 10,
+            num_experts: 3,
+        });
+
+        let scores = vec![f32::NAN, 0.5, 0.3];
+        // This should not panic - NaN comparison falls back to Equal
+        let result = router.route(&scores);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_power_of_two_choices_with_nan_scores() {
+        let router = PowerOfTwoChoicesRouter::new(PowerOfTwoConfig {
+            num_experts: 3,
+            capacity: 10,
+        });
+
+        let scores = vec![f32::NAN, 0.5, 0.3];
+        // Should not panic
+        let result = router.route(&scores);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_capacity_factor_all_equal_scores() {
+        let router = CapacityFactorRouter::new(CapacityConfig {
+            capacity: 10,
+            num_experts: 4,
+        });
+
+        let scores = vec![0.5, 0.5, 0.5, 0.5];
+        let result = router.route(&scores);
+        assert!(result.is_ok());
+        // When all scores are equal, should return a valid index
+        assert!(result.unwrap() < 4);
+    }
+
+    #[test]
+    fn test_power_of_two_single_expert() {
+        let router = PowerOfTwoChoicesRouter::new(PowerOfTwoConfig {
+            num_experts: 1,
+            capacity: 5,
+        });
+
+        let scores = vec![0.9];
+        let result = router.route(&scores);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0);
+
+        // Fill to capacity
+        for _ in 0..5 {
+            router.record_start(0);
+        }
+
+        let result = router.route(&scores);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_circuit_breaker_failure_in_half_open_reopens() {
+        let cb = CircuitBreaker::new(CircuitBreakerConfig {
+            failure_threshold: 1,
+            success_threshold: 3,
+            timeout_ms: 1,
+        });
+
+        // Get to half-open state
+        cb.record_failure();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        assert_eq!(cb.state(), CircuitState::HalfOpen);
+
+        // Failure in half-open should re-open the circuit
+        cb.record_failure();
+        assert_eq!(cb.state(), CircuitState::Open);
+    }
+
+    #[test]
+    fn test_capacity_config_debug() {
+        let config = CapacityConfig {
+            capacity: 10,
+            num_experts: 4,
+        };
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("capacity: 10"));
+        assert!(debug_str.contains("num_experts: 4"));
+    }
+
+    #[test]
+    fn test_power_of_two_config_debug() {
+        let config = PowerOfTwoConfig {
+            num_experts: 8,
+            capacity: 20,
+        };
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("num_experts: 8"));
+        assert!(debug_str.contains("capacity: 20"));
+    }
+
+    #[test]
+    fn test_circuit_breaker_config_debug() {
+        let config = CircuitBreakerConfig {
+            failure_threshold: 5,
+            success_threshold: 3,
+            timeout_ms: 1000,
+        };
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("failure_threshold: 5"));
+        assert!(debug_str.contains("success_threshold: 3"));
+        assert!(debug_str.contains("timeout_ms: 1000"));
+    }
+
+    #[test]
+    fn test_heijunka_config_debug() {
+        let config = HeijunkaConfig {
+            target_latency_ms: 100.0,
+            max_concurrency: 50,
+        };
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("target_latency_ms: 100.0"));
+        assert!(debug_str.contains("max_concurrency: 50"));
+    }
+
+    #[test]
+    fn test_circuit_state_debug_and_eq() {
+        assert_eq!(CircuitState::Closed, CircuitState::Closed);
+        assert_eq!(CircuitState::Open, CircuitState::Open);
+        assert_eq!(CircuitState::HalfOpen, CircuitState::HalfOpen);
+        assert_ne!(CircuitState::Closed, CircuitState::Open);
+
+        let debug_str = format!("{:?}", CircuitState::HalfOpen);
+        assert_eq!(debug_str, "HalfOpen");
+    }
+
+    #[test]
+    fn test_load_shedding_decision_debug() {
+        let decision = LoadSheddingDecision {
+            shed_load: true,
+            recommended_concurrency: 5,
+        };
+        let debug_str = format!("{:?}", decision);
+        assert!(debug_str.contains("shed_load: true"));
+        assert!(debug_str.contains("recommended_concurrency: 5"));
+    }
+
+    #[test]
+    fn test_andon_trigger_debug_and_clone() {
+        let trigger = AndonTrigger::ModelChecksumMismatch {
+            model_id: "test-model".to_string(),
+        };
+        let cloned = trigger.clone();
+        assert_eq!(trigger, cloned);
+
+        let debug_str = format!("{:?}", trigger);
+        assert!(debug_str.contains("ModelChecksumMismatch"));
+        assert!(debug_str.contains("test-model"));
+    }
+
+    #[test]
+    fn test_andon_response_debug_and_eq() {
+        assert_eq!(AndonResponse::Rollback, AndonResponse::Rollback);
+        assert_eq!(AndonResponse::Notify, AndonResponse::Notify);
+        assert_eq!(AndonResponse::Quarantine, AndonResponse::Quarantine);
+        assert_ne!(AndonResponse::Rollback, AndonResponse::Notify);
+
+        let debug_str = format!("{:?}", AndonResponse::Quarantine);
+        assert_eq!(debug_str, "Quarantine");
+    }
+
+    #[test]
+    fn test_capacity_config_clone() {
+        let config = CapacityConfig {
+            capacity: 10,
+            num_experts: 4,
+        };
+        let cloned = config.clone();
+        assert_eq!(config.capacity, cloned.capacity);
+        assert_eq!(config.num_experts, cloned.num_experts);
+    }
+
+    #[test]
+    fn test_power_of_two_config_clone() {
+        let config = PowerOfTwoConfig {
+            num_experts: 8,
+            capacity: 20,
+        };
+        let cloned = config.clone();
+        assert_eq!(config.num_experts, cloned.num_experts);
+        assert_eq!(config.capacity, cloned.capacity);
+    }
+
+    #[test]
+    fn test_circuit_breaker_config_clone() {
+        let config = CircuitBreakerConfig {
+            failure_threshold: 5,
+            success_threshold: 3,
+            timeout_ms: 1000,
+        };
+        let cloned = config.clone();
+        assert_eq!(config.failure_threshold, cloned.failure_threshold);
+        assert_eq!(config.success_threshold, cloned.success_threshold);
+        assert_eq!(config.timeout_ms, cloned.timeout_ms);
+    }
+
+    #[test]
+    fn test_heijunka_config_clone() {
+        let config = HeijunkaConfig {
+            target_latency_ms: 100.0,
+            max_concurrency: 50,
+        };
+        let cloned = config.clone();
+        assert!((config.target_latency_ms - cloned.target_latency_ms).abs() < f64::EPSILON);
+        assert_eq!(config.max_concurrency, cloned.max_concurrency);
+    }
+
+    #[test]
+    fn test_load_shedding_decision_clone() {
+        let decision = LoadSheddingDecision {
+            shed_load: true,
+            recommended_concurrency: 5,
+        };
+        let cloned = decision.clone();
+        assert_eq!(decision.shed_load, cloned.shed_load);
+        assert_eq!(
+            decision.recommended_concurrency,
+            cloned.recommended_concurrency
+        );
+    }
+
+    #[test]
+    fn test_andon_trigger_latency_clone_and_eq() {
+        let trigger = AndonTrigger::LatencyExceeded {
+            p99_ms: 150.0,
+            threshold_ms: 100.0,
+        };
+        let cloned = trigger.clone();
+        assert_eq!(trigger, cloned);
+    }
+
+    #[test]
+    fn test_andon_trigger_error_rate_clone_and_eq() {
+        let trigger = AndonTrigger::ErrorRateThreshold {
+            rate: 0.15,
+            threshold: 0.1,
+        };
+        let cloned = trigger.clone();
+        assert_eq!(trigger, cloned);
+    }
+
+    #[test]
+    fn test_andon_trigger_imbalance_clone_and_eq() {
+        let trigger = AndonTrigger::ExpertImbalance {
+            imbalance_ratio: 2.5,
+        };
+        let cloned = trigger.clone();
+        assert_eq!(trigger, cloned);
+    }
+
+    #[test]
+    fn test_circuit_state_copy() {
+        let state = CircuitState::Closed;
+        let copied = state;
+        assert_eq!(state, copied);
+    }
+
+    #[test]
+    fn test_andon_response_clone_all_variants() {
+        // Test clone behavior for all AndonResponse variants
+        let rollback = AndonResponse::Rollback;
+        let rollback_cloned = rollback.clone();
+        assert_eq!(rollback, rollback_cloned);
+
+        let notify = AndonResponse::Notify;
+        let notify_cloned = notify.clone();
+        assert_eq!(notify, notify_cloned);
+
+        let quarantine = AndonResponse::Quarantine;
+        let quarantine_cloned = quarantine.clone();
+        assert_eq!(quarantine, quarantine_cloned);
+    }
 }

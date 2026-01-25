@@ -2,11 +2,8 @@
 //!
 //! Tests CPU-only logic in adapters without requiring CUDA.
 
-use super::apr::{AprToGpuAdapter, AprGpuError, transpose_matrix};
-use crate::apr_transformer::{
-    AprTransformerConfig,
-    QuantizedAprLayerQ4, QuantizedAprTensorQ4,
-};
+use super::apr::{transpose_matrix, AprGpuError, AprToGpuAdapter};
+use crate::apr_transformer::{AprTransformerConfig, QuantizedAprLayerQ4, QuantizedAprTensorQ4};
 
 // ============================================================================
 // AprGpuError Tests
@@ -106,9 +103,9 @@ fn test_transpose_large() {
     assert_eq!(result.len(), 32);
 
     // Verify specific elements: (0,0) -> (0,0), (0,7) -> (7,0), (3,0) -> (0,3)
-    assert_eq!(result[0], 0.0);  // (0,0)
-    assert_eq!(result[4 * 7], 7.0);  // (7,0) was (0,7)
-    assert_eq!(result[3], 24.0);  // (0,3) was (3,0)
+    assert_eq!(result[0], 0.0); // (0,0)
+    assert_eq!(result[4 * 7], 7.0); // (7,0) was (0,7)
+    assert_eq!(result[3], 24.0); // (0,3) was (3,0)
 }
 
 #[test]
@@ -164,7 +161,7 @@ fn test_config_to_gpu_gqa() {
         hidden_dim: 4096,
         num_layers: 32,
         num_heads: 32,
-        num_kv_heads: 8,  // GQA
+        num_kv_heads: 8, // GQA
         vocab_size: 32000,
         intermediate_dim: 14336,
         context_length: 32768,
@@ -187,7 +184,7 @@ fn test_config_to_gpu_mha() {
         hidden_dim: 768,
         num_layers: 12,
         num_heads: 12,
-        num_kv_heads: 12,  // MHA
+        num_kv_heads: 12, // MHA
         vocab_size: 50257,
         intermediate_dim: 3072,
         context_length: 1024,
@@ -244,7 +241,7 @@ fn test_dequantize_tensor_padding() {
     let result = AprToGpuAdapter::dequantize_tensor(&data, 64);
     assert!(result.is_ok());
     let values = result.unwrap();
-    assert_eq!(values.len(), 64);  // Padded to expected
+    assert_eq!(values.len(), 64); // Padded to expected
 }
 
 #[test]
@@ -259,7 +256,7 @@ fn test_dequantize_tensor_truncation() {
     let result = AprToGpuAdapter::dequantize_tensor(&data, 32);
     assert!(result.is_ok());
     let values = result.unwrap();
-    assert_eq!(values.len(), 32);  // Truncated to expected
+    assert_eq!(values.len(), 32); // Truncated to expected
 }
 
 #[test]
@@ -294,7 +291,7 @@ fn test_extract_qkv_weights_dimensions() {
 
 #[test]
 fn test_extract_qkv_weights_gqa() {
-    let layer = create_test_q4_layer(256, 8, 2, 512);  // GQA: 8 heads, 2 kv heads
+    let layer = create_test_q4_layer(256, 8, 2, 512); // GQA: 8 heads, 2 kv heads
 
     // QKV: hidden_dim + 2 * kv_dim = 256 + 2*64 = 384
     let result = AprToGpuAdapter::extract_qkv_weights(&layer, 256, 8, 2);
@@ -324,8 +321,8 @@ fn test_extract_ffn_weights() {
     assert!(result.is_ok());
 
     let (fc1, fc2) = result.unwrap();
-    assert_eq!(fc1.len(), 256 * 512);  // up projection
-    assert_eq!(fc2.len(), 512 * 256);  // down projection
+    assert_eq!(fc1.len(), 256 * 512); // up projection
+    assert_eq!(fc2.len(), 512 * 256); // down projection
 }
 
 #[test]
@@ -347,8 +344,8 @@ fn test_extract_ffn_weights_large() {
 #[cfg(feature = "cuda")]
 mod gpu_model_q4_tests {
     use super::*;
-    use crate::gpu::adapters::apr_q4::{GpuModelQ4, LayerNorms, AprQ4ToGpuAdapter};
     use crate::apr_transformer::QuantizedAprTransformerQ4;
+    use crate::gpu::adapters::apr_q4::{AprQ4ToGpuAdapter, GpuModelQ4, LayerNorms};
 
     fn create_test_gpu_model_q4() -> GpuModelQ4 {
         GpuModelQ4 {

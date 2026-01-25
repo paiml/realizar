@@ -402,7 +402,7 @@ fn test_imp_117f_generate_with_token_buffer() {
         temperature: 0.0,
         top_k: 1,
         stop_tokens: Vec::new(),
-            trace: false,
+        trace: false,
     };
 
     let result = model.generate_with_smallvec(&prompt, &gen_config);
@@ -483,8 +483,7 @@ fn test_imp_118a_true_batched_gemm_correctness() {
             for j in 0..n {
                 let mut expected = 0.0f32;
                 for kk in 0..k {
-                    expected +=
-                        batched_a[a_start + i * k + kk] * batched_b[b_start + kk * n + j];
+                    expected += batched_a[a_start + i * k + kk] * batched_b[b_start + kk * n + j];
                 }
                 let actual = result[out_start + i * n + j];
                 let diff = (expected - actual).abs();

@@ -12,7 +12,9 @@
 use proptest::prelude::*;
 
 use crate::quantize::dequant::dequantize_q4_k;
-use crate::quantize::fused_k::{fused_q4k_dot, fused_q4k_dot_simd, fused_q4k_q8k_dot, fused_q4k_q8k_dot_simd};
+use crate::quantize::fused_k::{
+    fused_q4k_dot, fused_q4k_dot_simd, fused_q4k_q8k_dot, fused_q4k_q8k_dot_simd,
+};
 use crate::quantize::types::QK_K;
 
 // =============================================================================
@@ -144,7 +146,6 @@ proptest! {
     }
 }
 
-
 // =============================================================================
 // Edge Case Tests
 // =============================================================================
@@ -202,7 +203,6 @@ fn test_fused_q4k_dot_activation_mismatch() {
     assert!(result.is_err(), "Activation mismatch should error");
 }
 
-
 // =============================================================================
 // Determinism Tests
 // =============================================================================
@@ -222,7 +222,6 @@ fn test_fused_q4k_dot_deterministic() {
         result1, result2
     );
 }
-
 
 // =============================================================================
 // Scale Sensitivity Tests
@@ -270,7 +269,6 @@ fn test_fused_q4k_dot_scale_sensitivity() {
         );
     }
 }
-
 
 // =============================================================================
 // SIMD Variant Tests
@@ -349,7 +347,6 @@ fn test_fused_q4k_dot_simd_deterministic() {
     );
 }
 
-
 // =============================================================================
 // Q4_K × Q8_K Dot Product Tests
 // =============================================================================
@@ -415,7 +412,10 @@ fn test_fused_q4k_q8k_dot_invalid_q8k_quants_length() {
     let q8k_quants = vec![0i8; 128]; // Wrong length
 
     let result = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants);
-    assert!(result.is_err(), "Q4K×Q8K: Invalid Q8K quants length should error");
+    assert!(
+        result.is_err(),
+        "Q4K×Q8K: Invalid Q8K quants length should error"
+    );
 }
 
 #[test]
@@ -434,7 +434,6 @@ fn test_fused_q4k_q8k_dot_deterministic() {
     );
 }
 
-
 // =============================================================================
 // Q4_K × Q8_K SIMD Variant Tests
 // =============================================================================
@@ -445,7 +444,8 @@ fn test_fused_q4k_q8k_dot_simd_zero_inputs() {
     let q8k_scales = gen_q8k_scales();
     let q8k_quants = gen_q8k_quants();
 
-    let result = fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants).expect("Should succeed");
+    let result =
+        fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants).expect("Should succeed");
     assert!(
         result.abs() < 1e-10,
         "Q4K×Q8K SIMD: Zero inputs should give zero result: {}",
@@ -464,8 +464,10 @@ fn test_fused_q4k_q8k_dot_simd_matches_scalar() {
     let q8k_scales: Vec<f32> = (0..8).map(|i| (i as f32) * 0.1 + 0.5).collect();
     let q8k_quants: Vec<i8> = (0..QK_K).map(|i| ((i % 100) as i8) - 50).collect();
 
-    let scalar = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).expect("Scalar should succeed");
-    let simd = fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants).expect("SIMD should succeed");
+    let scalar =
+        fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).expect("Scalar should succeed");
+    let simd =
+        fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants).expect("SIMD should succeed");
 
     let tolerance = scalar.abs() * 1e-3 + 1e-4;
     assert!(
@@ -493,8 +495,10 @@ fn test_fused_q4k_q8k_dot_simd_deterministic() {
     let q8k_scales: Vec<f32> = (0..8).map(|i| (i as f32) * 0.2 + 0.3).collect();
     let q8k_quants: Vec<i8> = (0..QK_K).map(|i| ((i % 80) as i8) - 40).collect();
 
-    let result1 = fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants).expect("Should succeed");
-    let result2 = fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants).expect("Should succeed");
+    let result1 =
+        fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants).expect("Should succeed");
+    let result2 =
+        fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants).expect("Should succeed");
 
     assert_eq!(
         result1, result2,
@@ -502,7 +506,6 @@ fn test_fused_q4k_q8k_dot_simd_deterministic() {
         result1, result2
     );
 }
-
 
 // =============================================================================
 // Proptest for SIMD Variants
@@ -557,17 +560,13 @@ proptest! {
 /// Generate multiple Q4_K super-blocks for multi-block testing
 fn gen_multi_q4k_blocks(num_blocks: usize) -> Vec<u8> {
     (0..num_blocks)
-        .flat_map(|b| {
-            (0..144).map(move |i| ((i + b * 31) % 256) as u8)
-        })
+        .flat_map(|b| (0..144).map(move |i| ((i + b * 31) % 256) as u8))
         .collect()
 }
 
 /// Generate multi-block Q8_K data
 fn gen_multi_q8k_data(num_blocks: usize) -> (Vec<f32>, Vec<i8>) {
-    let scales: Vec<f32> = (0..num_blocks)
-        .map(|b| 0.3 + (b as f32) * 0.1)
-        .collect();
+    let scales: Vec<f32> = (0..num_blocks).map(|b| 0.3 + (b as f32) * 0.1).collect();
     let quants: Vec<i8> = (0..num_blocks * QK_K)
         .map(|i| ((i % 127) as i8) - 64)
         .collect();
@@ -590,9 +589,7 @@ fn test_fused_q4k_dot_two_blocks() {
 #[test]
 fn test_fused_q4k_dot_four_blocks() {
     let q4k_data = gen_multi_q4k_blocks(4);
-    let activations: Vec<f32> = (0..4 * QK_K)
-        .map(|i| (i as f32 * 0.01) - 1.28)
-        .collect();
+    let activations: Vec<f32> = (0..4 * QK_K).map(|i| (i as f32 * 0.01) - 1.28).collect();
 
     let result = fused_q4k_dot(&q4k_data, &activations);
     assert!(result.is_ok(), "4-block Q4K dot should succeed");
@@ -621,9 +618,7 @@ fn test_fused_q4k_dot_simd_two_blocks() {
 #[test]
 fn test_fused_q4k_dot_simd_four_blocks() {
     let q4k_data = gen_multi_q4k_blocks(4);
-    let activations: Vec<f32> = (0..4 * QK_K)
-        .map(|i| (i as f32).sin() * 0.5)
-        .collect();
+    let activations: Vec<f32> = (0..4 * QK_K).map(|i| (i as f32).sin() * 0.5).collect();
 
     let result = fused_q4k_dot_simd(&q4k_data, &activations);
     assert!(result.is_ok(), "4-block SIMD Q4K dot should succeed");
@@ -665,7 +660,10 @@ fn test_fused_q4k_dot_multi_block_simd_vs_scalar() {
             assert!(
                 (scalar - simd).abs() <= tolerance,
                 "{}-block: scalar={}, simd={}, diff={}",
-                num_blocks, scalar, simd, (scalar - simd).abs()
+                num_blocks,
+                scalar,
+                simd,
+                (scalar - simd).abs()
             );
         }
     }
@@ -752,7 +750,10 @@ fn test_fused_q4k_q8k_dot_multi_block_simd_vs_scalar() {
             assert!(
                 (scalar - simd).abs() <= tolerance,
                 "{}-block Q4K×Q8K: scalar={}, simd={}, diff={}",
-                num_blocks, scalar, simd, (scalar - simd).abs()
+                num_blocks,
+                scalar,
+                simd,
+                (scalar - simd).abs()
             );
         }
     }
@@ -892,9 +893,7 @@ fn test_fused_q4k_q8k_dot_large_scales() {
 #[test]
 fn test_fused_q4k_dot_simd_32_blocks() {
     let q4k_data = gen_multi_q4k_blocks(32);
-    let activations: Vec<f32> = (0..32 * QK_K)
-        .map(|i| (i as f32 * 0.001).sin())
-        .collect();
+    let activations: Vec<f32> = (0..32 * QK_K).map(|i| (i as f32 * 0.001).sin()).collect();
 
     let result = fused_q4k_dot_simd(&q4k_data, &activations);
     assert!(result.is_ok(), "32-block stress test should succeed");
@@ -906,5 +905,8 @@ fn test_fused_q4k_q8k_dot_simd_32_blocks() {
     let (q8k_scales, q8k_quants) = gen_multi_q8k_data(32);
 
     let result = fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants);
-    assert!(result.is_ok(), "32-block Q4K×Q8K stress test should succeed");
+    assert!(
+        result.is_ok(),
+        "32-block Q4K×Q8K stress test should succeed"
+    );
 }

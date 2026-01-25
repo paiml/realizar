@@ -57,8 +57,7 @@ fn test_completion_response_deserialization() {
         "usage": {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3}
     }"#;
 
-    let response: CompletionResponse =
-        serde_json::from_str(json).expect("deserialization failed");
+    let response: CompletionResponse = serde_json::from_str(json).expect("deserialization failed");
 
     assert_eq!(response.id, "cmpl-123");
     assert_eq!(response.choices.len(), 1);
@@ -248,8 +247,7 @@ fn test_llamacpp_response_deserialization() {
         }
     }"#;
 
-    let response: LlamaCppResponse =
-        serde_json::from_str(json).expect("deserialization failed");
+    let response: LlamaCppResponse = serde_json::from_str(json).expect("deserialization failed");
 
     assert_eq!(response.content, "Machine learning is a subset of AI.");
     assert_eq!(response.tokens_predicted, 8);
@@ -267,8 +265,7 @@ fn test_llamacpp_response_minimal() {
     // llama.cpp response with only required field
     let json = r#"{"content": "Hello world"}"#;
 
-    let response: LlamaCppResponse =
-        serde_json::from_str(json).expect("deserialization failed");
+    let response: LlamaCppResponse = serde_json::from_str(json).expect("deserialization failed");
 
     assert_eq!(response.content, "Hello world");
     assert_eq!(response.tokens_predicted, 0); // default
@@ -398,12 +395,8 @@ fn test_compute_results_basic() {
     let cold_start = 120.0;
     let cv_threshold = 0.10;
 
-    let result = HttpBenchmarkRunner::compute_results(
-        &latencies,
-        &throughputs,
-        cold_start,
-        cv_threshold,
-    );
+    let result =
+        HttpBenchmarkRunner::compute_results(&latencies, &throughputs, cold_start, cv_threshold);
 
     assert_eq!(result.sample_count, 5);
     assert!((result.mean_latency_ms - 100.0).abs() < 0.01);
@@ -421,12 +414,8 @@ fn test_compute_results_percentiles() {
     let cold_start = 1.0;
     let cv_threshold = 0.10;
 
-    let result = HttpBenchmarkRunner::compute_results(
-        &latencies,
-        &throughputs,
-        cold_start,
-        cv_threshold,
-    );
+    let result =
+        HttpBenchmarkRunner::compute_results(&latencies, &throughputs, cold_start, cv_threshold);
 
     // p50 at index 5 = 6.0
     assert!((result.p50_latency_ms - 6.0).abs() < 0.1);
@@ -488,12 +477,8 @@ fn test_quality_metrics_in_result() {
     let cold_start = 110.0;
     let cv_threshold = 0.10;
 
-    let result = HttpBenchmarkRunner::compute_results(
-        &latencies,
-        &throughputs,
-        cold_start,
-        cv_threshold,
-    );
+    let result =
+        HttpBenchmarkRunner::compute_results(&latencies, &throughputs, cold_start, cv_threshold);
 
     // Check quality metrics are populated
     assert!(result.quality_metrics.cv_at_stop < 0.10);

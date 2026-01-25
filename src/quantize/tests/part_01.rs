@@ -827,8 +827,8 @@ fn test_fused_q4k_tiled_matvec_basic() {
     }
 
     // Tiled result
-    let tiled = fused_q4k_tiled_matvec(&weight_data, &activations, in_dim, out_dim, None)
-        .expect("test");
+    let tiled =
+        fused_q4k_tiled_matvec(&weight_data, &activations, in_dim, out_dim, None).expect("test");
 
     // Compare
     assert_eq!(tiled.len(), out_dim);
@@ -881,8 +881,8 @@ fn test_fused_q4k_tiled_matvec_large() {
     }
 
     // Tiled with default tile size (64)
-    let tiled = fused_q4k_tiled_matvec(&weight_data, &activations, in_dim, out_dim, None)
-        .expect("test");
+    let tiled =
+        fused_q4k_tiled_matvec(&weight_data, &activations, in_dim, out_dim, None).expect("test");
 
     assert_eq!(tiled.len(), out_dim);
     for i in 0..out_dim {
@@ -922,18 +922,12 @@ fn test_fused_q4k_tiled_matvec_custom_tile_size() {
     // Test with different tile sizes
     let tile_sizes = [1, 8, 16, 32, 64, 100, 128];
     let reference =
-        fused_q4k_tiled_matvec(&weight_data, &activations, in_dim, out_dim, Some(1))
-            .expect("test");
+        fused_q4k_tiled_matvec(&weight_data, &activations, in_dim, out_dim, Some(1)).expect("test");
 
     for &tile_size in &tile_sizes[1..] {
-        let result = fused_q4k_tiled_matvec(
-            &weight_data,
-            &activations,
-            in_dim,
-            out_dim,
-            Some(tile_size),
-        )
-        .expect("test");
+        let result =
+            fused_q4k_tiled_matvec(&weight_data, &activations, in_dim, out_dim, Some(tile_size))
+                .expect("test");
         assert_eq!(result.len(), out_dim);
         for i in 0..out_dim {
             assert_ulp_eq(
@@ -1281,13 +1275,8 @@ fn test_phase1_acceptance_fused_q4k_inference() {
     for _ in 0..num_passes {
         for _ in 0..num_layers {
             // FFN forward: hidden -> intermediate -> hidden (2 matmuls per layer)
-            let _ = fused_q4k_tiled_matvec(
-                &weight_data,
-                &input,
-                hidden_dim,
-                intermediate_dim,
-                None,
-            );
+            let _ =
+                fused_q4k_tiled_matvec(&weight_data, &input, hidden_dim, intermediate_dim, None);
         }
     }
     let elapsed = start.elapsed();
@@ -1376,14 +1365,9 @@ fn test_phase2_acceptance_memory_hierarchy() {
         // test attention over context (memory-bound operation)
         // In real implementation: KV cache lookup + attention computation
         for _ in 0..num_layers {
-            let _ = fused_q4k_tiled_matvec(
-                &ffn_up_weights,
-                &input,
-                hidden_dim,
-                intermediate_dim,
-                None,
-            )
-            .expect("test");
+            let _ =
+                fused_q4k_tiled_matvec(&ffn_up_weights, &input, hidden_dim, intermediate_dim, None)
+                    .expect("test");
         }
     }
     let long_context_elapsed = start.elapsed();
@@ -1792,4 +1776,3 @@ fn test_dequantize_q4_k_simd_invalid_length() {
     let result = dequantize_q4_k_simd(&data);
     assert!(result.is_err());
 }
-

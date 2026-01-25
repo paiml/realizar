@@ -49,8 +49,7 @@ impl MadOutlierDetector {
             return 0.0;
         }
         let median = Self::median(samples);
-        let absolute_deviations: Vec<f64> =
-            samples.iter().map(|x| (x - median).abs()).collect();
+        let absolute_deviations: Vec<f64> = samples.iter().map(|x| (x - median).abs()).collect();
         Self::median(&absolute_deviations) * self.consistency_constant
     }
 
@@ -930,10 +929,7 @@ impl ThroughputRegressionTracker {
         } else {
             format!(
                 "❌ REGRESSION: {:.1} tok/s ({:.1}% below baseline {:.1}, threshold {:.1}%)",
-                self.current_tps,
-                -self.change_percent,
-                self.baseline_tps,
-                self.threshold_percent
+                self.current_tps, -self.change_percent, self.baseline_tps, self.threshold_percent
             )
         }
     }
@@ -1443,8 +1439,8 @@ impl MemoryEfficiencyComparison {
             };
         }
 
-        let avg = measurements.iter().map(|m| m.overhead_ratio).sum::<f64>()
-            / measurements.len() as f64;
+        let avg =
+            measurements.iter().map(|m| m.overhead_ratio).sum::<f64>() / measurements.len() as f64;
 
         let most = measurements
             .iter()
@@ -1510,11 +1506,7 @@ fn test_imp_165b_memory_comparison() {
     for m in &comparison.measurements {
         println!(
             "  {}: {:.0} MB peak ({:.2}x), score={:.1}, QA-013={}",
-            m.server_name,
-            m.peak_memory_mb,
-            m.overhead_ratio,
-            m.efficiency_score,
-            m.meets_qa013
+            m.server_name, m.peak_memory_mb, m.overhead_ratio, m.efficiency_score, m.meets_qa013
         );
     }
     println!("  Most efficient: {}", comparison.most_efficient);

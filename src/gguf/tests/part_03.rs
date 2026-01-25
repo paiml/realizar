@@ -148,7 +148,9 @@ fn test_imp_109b_fused_batch_matmul_gpu() {
         assert!(
             (fused_output[i] - fused_output2[i]).abs() < 1e-6,
             "IMP-109b: Fused batch matmul should be deterministic at position {}: run1={}, run2={}",
-            i, fused_output[i], fused_output2[i]
+            i,
+            fused_output[i],
+            fused_output2[i]
         );
     }
 
@@ -239,9 +241,8 @@ fn test_imp_109c_fused_vs_separate_performance_baseline() {
             .collect();
 
         // Fused operation
-        let fused_result =
-            fused_q4k_parallel_matvec(weight_data, &activations, in_dim, out_dim)
-                .expect("Fused should succeed");
+        let fused_result = fused_q4k_parallel_matvec(weight_data, &activations, in_dim, out_dim)
+            .expect("Fused should succeed");
 
         // Verify results match
         let max_diff: f32 = separate_result

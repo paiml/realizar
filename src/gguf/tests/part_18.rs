@@ -90,7 +90,11 @@ fn test_phase33_loader_invalid_magic() {
     let result = GGUFModel::from_bytes(&data);
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("magic") || err.contains("Magic"), "Error should mention magic: {}", err);
+    assert!(
+        err.contains("magic") || err.contains("Magic"),
+        "Error should mention magic: {}",
+        err
+    );
 }
 
 #[test]
@@ -108,7 +112,11 @@ fn test_phase33_loader_wrong_version() {
     let result = GGUFModel::from_bytes(&data);
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("version") || err.contains("Version"), "Error should mention version: {}", err);
+    assert!(
+        err.contains("version") || err.contains("Version"),
+        "Error should mention version: {}",
+        err
+    );
 }
 
 #[test]
@@ -142,7 +150,11 @@ fn test_phase33_loader_metadata_uint8() {
 #[test]
 fn test_phase33_loader_metadata_int8() {
     let mut data = build_gguf_header(0, 1);
-    data.extend(build_gguf_metadata("test_i8", 1, &[(-10i8).to_le_bytes()[0]]));
+    data.extend(build_gguf_metadata(
+        "test_i8",
+        1,
+        &[(-10i8).to_le_bytes()[0]],
+    ));
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     let value = model.metadata.get("test_i8").expect("Key should exist");
@@ -182,7 +194,11 @@ fn test_phase33_loader_metadata_uint32() {
 #[test]
 fn test_phase33_loader_metadata_int32() {
     let mut data = build_gguf_header(0, 1);
-    data.extend(build_gguf_metadata("test_i32", 5, &(-50000i32).to_le_bytes()));
+    data.extend(build_gguf_metadata(
+        "test_i32",
+        5,
+        &(-50000i32).to_le_bytes(),
+    ));
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     let value = model.metadata.get("test_i32").expect("Key should exist");
@@ -241,7 +257,11 @@ fn test_phase33_loader_metadata_string() {
 #[test]
 fn test_phase33_loader_metadata_uint64() {
     let mut data = build_gguf_header(0, 1);
-    data.extend(build_gguf_metadata("test_u64", 10, &999999999u64.to_le_bytes()));
+    data.extend(build_gguf_metadata(
+        "test_u64",
+        10,
+        &999999999u64.to_le_bytes(),
+    ));
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     let value = model.metadata.get("test_u64").expect("Key should exist");
@@ -251,7 +271,11 @@ fn test_phase33_loader_metadata_uint64() {
 #[test]
 fn test_phase33_loader_metadata_int64() {
     let mut data = build_gguf_header(0, 1);
-    data.extend(build_gguf_metadata("test_i64", 11, &(-999999999i64).to_le_bytes()));
+    data.extend(build_gguf_metadata(
+        "test_i64",
+        11,
+        &(-999999999i64).to_le_bytes(),
+    ));
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     let value = model.metadata.get("test_i64").expect("Key should exist");
@@ -261,7 +285,11 @@ fn test_phase33_loader_metadata_int64() {
 #[test]
 fn test_phase33_loader_metadata_float64() {
     let mut data = build_gguf_header(0, 1);
-    data.extend(build_gguf_metadata("test_f64", 12, &2.71828f64.to_le_bytes()));
+    data.extend(build_gguf_metadata(
+        "test_f64",
+        12,
+        &2.71828f64.to_le_bytes(),
+    ));
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     let value = model.metadata.get("test_f64").expect("Key should exist");
@@ -305,7 +333,11 @@ fn test_phase33_loader_metadata_unsupported_type() {
     let result = GGUFModel::from_bytes(&data);
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("99") || err.contains("type"), "Error should mention bad type: {}", err);
+    assert!(
+        err.contains("99") || err.contains("type"),
+        "Error should mention bad type: {}",
+        err
+    );
 }
 
 #[test]
@@ -313,12 +345,22 @@ fn test_phase33_loader_multiple_metadata() {
     let mut data = build_gguf_header(0, 3);
     data.extend(build_gguf_metadata("hidden_dim", 4, &256u32.to_le_bytes()));
     data.extend(build_gguf_metadata("num_layers", 4, &12u32.to_le_bytes()));
-    data.extend(build_gguf_metadata("rope_theta", 6, &10000.0f32.to_le_bytes()));
+    data.extend(build_gguf_metadata(
+        "rope_theta",
+        6,
+        &10000.0f32.to_le_bytes(),
+    ));
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     assert_eq!(model.metadata.len(), 3);
-    assert!(matches!(model.metadata.get("hidden_dim"), Some(GGUFValue::UInt32(256))));
-    assert!(matches!(model.metadata.get("num_layers"), Some(GGUFValue::UInt32(12))));
+    assert!(matches!(
+        model.metadata.get("hidden_dim"),
+        Some(GGUFValue::UInt32(256))
+    ));
+    assert!(matches!(
+        model.metadata.get("num_layers"),
+        Some(GGUFValue::UInt32(12))
+    ));
 }
 
 // =============================================================================
@@ -387,7 +429,11 @@ fn test_phase33_loader_get_tensor_f32_not_found() {
     let result = model.get_tensor_f32("nonexistent", &data);
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("nonexistent") || err.contains("not found"), "Error: {}", err);
+    assert!(
+        err.contains("nonexistent") || err.contains("not found"),
+        "Error: {}",
+        err
+    );
 }
 
 #[test]
@@ -423,7 +469,7 @@ fn test_phase33_loader_get_tensor_f32_out_of_bounds() {
     // Build GGUF claiming tensor data that doesn't exist
     let mut data = build_gguf_header(1, 0);
     data.extend(build_tensor_info("test", &[1000000], 0, 0)); // 1M elements
-    // No actual tensor data - should fail
+                                                              // No actual tensor data - should fail
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     let result = model.get_tensor_f32("test", &data);
@@ -455,7 +501,11 @@ fn test_phase33_loader_empty_tensor_name() {
 #[test]
 fn test_phase33_loader_unicode_metadata_key() {
     let mut data = build_gguf_header(0, 1);
-    data.extend(build_gguf_metadata("test_\u{1F600}", 4, &42u32.to_le_bytes())); // emoji
+    data.extend(build_gguf_metadata(
+        "test_\u{1F600}",
+        4,
+        &42u32.to_le_bytes(),
+    )); // emoji
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     assert!(model.metadata.contains_key("test_\u{1F600}"));
@@ -467,7 +517,12 @@ fn test_phase33_loader_large_tensor_count() {
     let mut data = build_gguf_header(100, 0);
     // Add 100 tensor infos
     for i in 0..100 {
-        data.extend(build_tensor_info(&format!("t{i}"), &[32], 0, i as u64 * 128));
+        data.extend(build_tensor_info(
+            &format!("t{i}"),
+            &[32],
+            0,
+            i as u64 * 128,
+        ));
     }
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
@@ -478,7 +533,11 @@ fn test_phase33_loader_large_tensor_count() {
 fn test_phase33_loader_large_metadata_count() {
     let mut data = build_gguf_header(0, 50);
     for i in 0..50 {
-        data.extend(build_gguf_metadata(&format!("key_{i}"), 4, &(i as u32).to_le_bytes()));
+        data.extend(build_gguf_metadata(
+            &format!("key_{i}"),
+            4,
+            &(i as u32).to_le_bytes(),
+        ));
     }
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
@@ -534,7 +593,11 @@ fn test_phase33_loader_embedding_dim() {
     let mut data = build_gguf_header(0, 2);
     let arch_value = build_gguf_string("llama");
     data.extend(build_gguf_metadata("general.architecture", 8, &arch_value));
-    data.extend(build_gguf_metadata("llama.embedding_length", 4, &256u32.to_le_bytes()));
+    data.extend(build_gguf_metadata(
+        "llama.embedding_length",
+        4,
+        &256u32.to_le_bytes(),
+    ));
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     assert_eq!(model.embedding_dim(), Some(256));
@@ -545,7 +608,11 @@ fn test_phase33_loader_num_layers() {
     let mut data = build_gguf_header(0, 2);
     let arch_value = build_gguf_string("qwen2");
     data.extend(build_gguf_metadata("general.architecture", 8, &arch_value));
-    data.extend(build_gguf_metadata("qwen2.block_count", 4, &24u32.to_le_bytes()));
+    data.extend(build_gguf_metadata(
+        "qwen2.block_count",
+        4,
+        &24u32.to_le_bytes(),
+    ));
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     assert_eq!(model.num_layers(), Some(24));
@@ -556,7 +623,11 @@ fn test_phase33_loader_num_heads() {
     let mut data = build_gguf_header(0, 2);
     let arch_value = build_gguf_string("llama");
     data.extend(build_gguf_metadata("general.architecture", 8, &arch_value));
-    data.extend(build_gguf_metadata("llama.attention.head_count", 4, &32u32.to_le_bytes()));
+    data.extend(build_gguf_metadata(
+        "llama.attention.head_count",
+        4,
+        &32u32.to_le_bytes(),
+    ));
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     assert_eq!(model.num_heads(), Some(32));
@@ -567,7 +638,11 @@ fn test_phase33_loader_context_length() {
     let mut data = build_gguf_header(0, 2);
     let arch_value = build_gguf_string("llama");
     data.extend(build_gguf_metadata("general.architecture", 8, &arch_value));
-    data.extend(build_gguf_metadata("llama.context_length", 4, &4096u32.to_le_bytes()));
+    data.extend(build_gguf_metadata(
+        "llama.context_length",
+        4,
+        &4096u32.to_le_bytes(),
+    ));
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     assert_eq!(model.context_length(), Some(4096));
@@ -578,7 +653,11 @@ fn test_phase33_loader_num_kv_heads() {
     let mut data = build_gguf_header(0, 2);
     let arch_value = build_gguf_string("llama");
     data.extend(build_gguf_metadata("general.architecture", 8, &arch_value));
-    data.extend(build_gguf_metadata("llama.attention.head_count_kv", 4, &8u32.to_le_bytes()));
+    data.extend(build_gguf_metadata(
+        "llama.attention.head_count_kv",
+        4,
+        &8u32.to_le_bytes(),
+    ));
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     assert_eq!(model.num_kv_heads(), Some(8));
@@ -589,7 +668,11 @@ fn test_phase33_loader_rope_freq_base() {
     let mut data = build_gguf_header(0, 2);
     let arch_value = build_gguf_string("llama");
     data.extend(build_gguf_metadata("general.architecture", 8, &arch_value));
-    data.extend(build_gguf_metadata("llama.rope.freq_base", 6, &10000.0f32.to_le_bytes()));
+    data.extend(build_gguf_metadata(
+        "llama.rope.freq_base",
+        6,
+        &10000.0f32.to_le_bytes(),
+    ));
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     let rope = model.rope_freq_base().expect("Should have rope");
@@ -601,7 +684,11 @@ fn test_phase33_loader_rms_epsilon() {
     let mut data = build_gguf_header(0, 2);
     let arch_value = build_gguf_string("llama");
     data.extend(build_gguf_metadata("general.architecture", 8, &arch_value));
-    data.extend(build_gguf_metadata("llama.attention.layer_norm_rms_epsilon", 6, &1e-5f32.to_le_bytes()));
+    data.extend(build_gguf_metadata(
+        "llama.attention.layer_norm_rms_epsilon",
+        6,
+        &1e-5f32.to_le_bytes(),
+    ));
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     let eps = model.rms_epsilon().expect("Should have epsilon");
@@ -634,7 +721,11 @@ fn test_phase33_loader_get_tensor_q4_0() {
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     let result = model.get_tensor_f32("test", &data);
-    assert!(result.is_ok(), "Q4_0 extraction should work: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Q4_0 extraction should work: {:?}",
+        result.err()
+    );
     let tensor = result.unwrap();
     assert_eq!(tensor.len(), 32);
 }
@@ -659,7 +750,11 @@ fn test_phase33_loader_get_tensor_q8_0() {
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     let result = model.get_tensor_f32("test", &data);
-    assert!(result.is_ok(), "Q8_0 extraction should work: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Q8_0 extraction should work: {:?}",
+        result.err()
+    );
     let tensor = result.unwrap();
     assert_eq!(tensor.len(), 32);
 }
@@ -686,7 +781,11 @@ fn test_phase33_loader_get_tensor_f16() {
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     let result = model.get_tensor_f32("test", &data);
-    assert!(result.is_ok(), "F16 extraction should work: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "F16 extraction should work: {:?}",
+        result.err()
+    );
     let tensor = result.unwrap();
     assert_eq!(tensor.len(), 4);
     assert!((tensor[0] - 1.0).abs() < 0.01);
@@ -714,7 +813,11 @@ fn test_phase33_loader_get_tensor_q4_1() {
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     let result = model.get_tensor_f32("test", &data);
-    assert!(result.is_ok(), "Q4_1 extraction should work: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Q4_1 extraction should work: {:?}",
+        result.err()
+    );
     let tensor = result.unwrap();
     assert_eq!(tensor.len(), 32);
 }
@@ -735,12 +838,16 @@ fn test_phase33_loader_get_tensor_q5_0() {
     // Add Q5_0 block
     let scale = half::f16::from_f32(1.0);
     data.extend_from_slice(&scale.to_le_bytes());
-    data.extend([0u8; 4]);  // high bits
+    data.extend([0u8; 4]); // high bits
     data.extend([0x00u8; 16]); // quants
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     let result = model.get_tensor_f32("test", &data);
-    assert!(result.is_ok(), "Q5_0 extraction should work: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Q5_0 extraction should work: {:?}",
+        result.err()
+    );
     let tensor = result.unwrap();
     assert_eq!(tensor.len(), 32);
 }
@@ -763,12 +870,16 @@ fn test_phase33_loader_get_tensor_q5_1() {
     let min = half::f16::from_f32(0.0);
     data.extend_from_slice(&scale.to_le_bytes());
     data.extend_from_slice(&min.to_le_bytes());
-    data.extend([0u8; 4]);  // high bits
+    data.extend([0u8; 4]); // high bits
     data.extend([0x00u8; 16]); // quants
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     let result = model.get_tensor_f32("test", &data);
-    assert!(result.is_ok(), "Q5_1 extraction should work: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Q5_1 extraction should work: {:?}",
+        result.err()
+    );
     let tensor = result.unwrap();
     assert_eq!(tensor.len(), 32);
 }
@@ -789,7 +900,11 @@ fn test_phase33_loader_get_tensor_unsupported_qtype() {
     let result = model.get_tensor_f32("test", &data);
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("255") || err.contains("Unsupported"), "Error: {}", err);
+    assert!(
+        err.contains("255") || err.contains("Unsupported"),
+        "Error: {}",
+        err
+    );
 }
 
 #[test]
@@ -810,7 +925,11 @@ fn test_phase33_loader_get_tensor_q2_k() {
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     let result = model.get_tensor_f32("test", &data);
-    assert!(result.is_ok(), "Q2_K extraction should work: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Q2_K extraction should work: {:?}",
+        result.err()
+    );
     let tensor = result.unwrap();
     assert_eq!(tensor.len(), 256);
 }
@@ -833,7 +952,11 @@ fn test_phase33_loader_get_tensor_q4_k() {
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     let result = model.get_tensor_f32("test", &data);
-    assert!(result.is_ok(), "Q4_K extraction should work: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Q4_K extraction should work: {:?}",
+        result.err()
+    );
     let tensor = result.unwrap();
     assert_eq!(tensor.len(), 256);
 }
@@ -856,7 +979,11 @@ fn test_phase33_loader_get_tensor_q5_k() {
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     let result = model.get_tensor_f32("test", &data);
-    assert!(result.is_ok(), "Q5_K extraction should work: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Q5_K extraction should work: {:?}",
+        result.err()
+    );
     let tensor = result.unwrap();
     assert_eq!(tensor.len(), 256);
 }
@@ -879,7 +1006,11 @@ fn test_phase33_loader_get_tensor_q6_k() {
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     let result = model.get_tensor_f32("test", &data);
-    assert!(result.is_ok(), "Q6_K extraction should work: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Q6_K extraction should work: {:?}",
+        result.err()
+    );
     let tensor = result.unwrap();
     assert_eq!(tensor.len(), 256);
 }
@@ -924,7 +1055,11 @@ fn test_phase33_loader_rope_type_from_scaling() {
     let arch_value = build_gguf_string("custom");
     data.extend(build_gguf_metadata("general.architecture", 8, &arch_value));
     let yarn_value = build_gguf_string("yarn");
-    data.extend(build_gguf_metadata("custom.rope.scaling.type", 8, &yarn_value));
+    data.extend(build_gguf_metadata(
+        "custom.rope.scaling.type",
+        8,
+        &yarn_value,
+    ));
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     assert_eq!(model.rope_type(), Some(2)); // NEOX from yarn scaling
@@ -936,7 +1071,11 @@ fn test_phase33_loader_rope_type_linear_scaling() {
     let arch_value = build_gguf_string("custom");
     data.extend(build_gguf_metadata("general.architecture", 8, &arch_value));
     let linear_value = build_gguf_string("linear");
-    data.extend(build_gguf_metadata("custom.rope.scaling.type", 8, &linear_value));
+    data.extend(build_gguf_metadata(
+        "custom.rope.scaling.type",
+        8,
+        &linear_value,
+    ));
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     assert_eq!(model.rope_type(), Some(0)); // NORM from linear scaling
@@ -949,7 +1088,11 @@ fn test_phase33_loader_rope_type_linear_scaling() {
 #[test]
 fn test_phase33_loader_bos_token_id() {
     let mut data = build_gguf_header(0, 1);
-    data.extend(build_gguf_metadata("tokenizer.ggml.bos_token_id", 4, &1u32.to_le_bytes()));
+    data.extend(build_gguf_metadata(
+        "tokenizer.ggml.bos_token_id",
+        4,
+        &1u32.to_le_bytes(),
+    ));
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     assert_eq!(model.bos_token_id(), Some(1));
@@ -965,7 +1108,11 @@ fn test_phase33_loader_bos_token_id_missing() {
 #[test]
 fn test_phase33_loader_eos_token_id() {
     let mut data = build_gguf_header(0, 1);
-    data.extend(build_gguf_metadata("tokenizer.ggml.eos_token_id", 4, &2u32.to_le_bytes()));
+    data.extend(build_gguf_metadata(
+        "tokenizer.ggml.eos_token_id",
+        4,
+        &2u32.to_le_bytes(),
+    ));
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     assert_eq!(model.eos_token_id(), Some(2));
@@ -985,7 +1132,11 @@ fn test_phase33_loader_vocabulary() {
     array_bytes.extend(build_gguf_string("hello"));
     array_bytes.extend(build_gguf_string("world"));
     array_bytes.extend(build_gguf_string("!"));
-    data.extend(build_gguf_metadata("tokenizer.ggml.tokens", 9, &array_bytes));
+    data.extend(build_gguf_metadata(
+        "tokenizer.ggml.tokens",
+        9,
+        &array_bytes,
+    ));
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     let vocab = model.vocabulary().expect("Should have vocabulary");
@@ -1015,7 +1166,11 @@ fn test_phase33_loader_decode_basic() {
     array_bytes.extend(build_gguf_string("hello"));
     array_bytes.extend(build_gguf_string("▁world")); // SentencePiece space
     array_bytes.extend(build_gguf_string("!"));
-    data.extend(build_gguf_metadata("tokenizer.ggml.tokens", 9, &array_bytes));
+    data.extend(build_gguf_metadata(
+        "tokenizer.ggml.tokens",
+        9,
+        &array_bytes,
+    ));
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     let decoded = model.decode(&[0, 1, 2]);
@@ -1038,7 +1193,11 @@ fn test_phase33_loader_decode_byte_tokens() {
     array_bytes.extend_from_slice(&2u64.to_le_bytes());
     array_bytes.extend(build_gguf_string("<0x48>")); // 'H'
     array_bytes.extend(build_gguf_string("<0x69>")); // 'i'
-    data.extend(build_gguf_metadata("tokenizer.ggml.tokens", 9, &array_bytes));
+    data.extend(build_gguf_metadata(
+        "tokenizer.ggml.tokens",
+        9,
+        &array_bytes,
+    ));
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     let decoded = model.decode(&[0, 1]);
@@ -1058,7 +1217,11 @@ fn test_phase33_loader_encode_basic() {
     array_bytes.extend(build_gguf_string("▁hello")); // SentencePiece prefix
     array_bytes.extend(build_gguf_string("▁world"));
     array_bytes.extend(build_gguf_string("!"));
-    data.extend(build_gguf_metadata("tokenizer.ggml.tokens", 9, &array_bytes));
+    data.extend(build_gguf_metadata(
+        "tokenizer.ggml.tokens",
+        9,
+        &array_bytes,
+    ));
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     let tokens = model.encode("hello world!").expect("Should encode");

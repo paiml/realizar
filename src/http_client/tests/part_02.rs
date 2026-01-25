@@ -540,24 +540,21 @@ impl PerformanceGate {
 #[test]
 fn test_imp_154a_performance_gate() {
     // Throughput gate: Pass if >= 120 tok/s, Warn if >= 100, Fail otherwise
-    let pass_gate =
-        PerformanceGate::higher_is_better("Throughput", 130.0, 120.0, 100.0, " tok/s");
+    let pass_gate = PerformanceGate::higher_is_better("Throughput", 130.0, 120.0, 100.0, " tok/s");
     assert_eq!(
         pass_gate.status,
         GateStatus::Pass,
         "IMP-154a: 130 should pass 120 threshold"
     );
 
-    let warn_gate =
-        PerformanceGate::higher_is_better("Throughput", 110.0, 120.0, 100.0, " tok/s");
+    let warn_gate = PerformanceGate::higher_is_better("Throughput", 110.0, 120.0, 100.0, " tok/s");
     assert_eq!(
         warn_gate.status,
         GateStatus::Warn,
         "IMP-154a: 110 should warn (100-120)"
     );
 
-    let fail_gate =
-        PerformanceGate::higher_is_better("Throughput", 90.0, 120.0, 100.0, " tok/s");
+    let fail_gate = PerformanceGate::higher_is_better("Throughput", 90.0, 120.0, 100.0, " tok/s");
     assert_eq!(
         fail_gate.status,
         GateStatus::Fail,
@@ -579,8 +576,7 @@ fn test_imp_154a_performance_gate() {
         "IMP-154a: 70ms should warn"
     );
 
-    let latency_fail =
-        PerformanceGate::lower_is_better("P50 Latency", 150.0, 50.0, 100.0, "ms");
+    let latency_fail = PerformanceGate::lower_is_better("P50 Latency", 150.0, 50.0, 100.0, "ms");
     assert_eq!(
         latency_fail.status,
         GateStatus::Fail,

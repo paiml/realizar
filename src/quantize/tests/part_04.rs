@@ -362,8 +362,7 @@ fn test_scalar_fused_q8_0_q8_0_dot_direct() {
     let q8_act_scales = vec![1.0f32];
     let q8_act_quants = vec![1i8; 32];
 
-    let result =
-        fused_q8_0_q8_0_dot_scalar(&q8_weight_data, &q8_act_scales, &q8_act_quants, 32);
+    let result = fused_q8_0_q8_0_dot_scalar(&q8_weight_data, &q8_act_scales, &q8_act_quants, 32);
 
     // Dot product of 32 ones with scale 1.0 * 1.0 = 32
     assert!((result - 32.0).abs() < 1e-3, "expected ~32, got {}", result);
@@ -1749,4 +1748,3 @@ fn test_dequantize_q4_0_one_block_ext_cov() {
     let vals = result.expect("quantization failed");
     assert_eq!(vals.len(), 32);
 }
-

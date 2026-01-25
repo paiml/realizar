@@ -21,8 +21,8 @@
 //! - Part 8: Memory and utility tests
 
 use crate::apr_transformer::{
-    AprInferenceScratch, AprTransformerConfig, QuantizedAprLayerQ4,
-    QuantizedAprTensorQ4, QuantizedAprTransformerQ4,
+    AprInferenceScratch, AprTransformerConfig, QuantizedAprLayerQ4, QuantizedAprTensorQ4,
+    QuantizedAprTransformerQ4,
 };
 
 // ============================================================================
@@ -328,7 +328,10 @@ fn test_forward_empty_tokens() {
 
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(matches!(err, crate::error::RealizarError::InvalidShape { .. }));
+    assert!(matches!(
+        err,
+        crate::error::RealizarError::InvalidShape { .. }
+    ));
 }
 
 #[test]
@@ -669,7 +672,11 @@ fn create_test_config(
     }
 }
 
-fn create_test_layer_q4(hidden_dim: usize, intermediate_dim: usize, with_gate: bool) -> QuantizedAprLayerQ4 {
+fn create_test_layer_q4(
+    hidden_dim: usize,
+    intermediate_dim: usize,
+    with_gate: bool,
+) -> QuantizedAprLayerQ4 {
     QuantizedAprLayerQ4 {
         attn_norm_weight: vec![1.0; hidden_dim],
         qkv_weight: QuantizedAprTensorQ4::zeros(hidden_dim, hidden_dim * 3),

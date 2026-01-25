@@ -1093,12 +1093,7 @@ fn test_parity011j_docs_auto_update() {
             table
         }
 
-        fn update_content(
-            &self,
-            content: &str,
-            section: &DocSection,
-            new_table: &str,
-        ) -> String {
+        fn update_content(&self, content: &str, section: &DocSection, new_table: &str) -> String {
             if let (Some(start), Some(end)) = (
                 content.find(&section.start_marker),
                 content.find(&section.end_marker),
@@ -1155,7 +1150,6 @@ fn test_parity011j_docs_auto_update() {
     println!("  Sections: {}", updater.sections.len());
     println!("  Generated table rows: {}", results.len());
 }
-
 
 // PARITY-012: GPU Optimization for Performance Parity
 // ============================================================================
@@ -1418,10 +1412,7 @@ fn test_parity012b_gpu_dispatch_threshold() {
                     }
                 },
                 MatmulType::Gemm => {
-                    if m >= self.min_batch
-                        && k >= self.gemm_threshold
-                        && n >= self.gemm_threshold
-                    {
+                    if m >= self.min_batch && k >= self.gemm_threshold && n >= self.gemm_threshold {
                         // GPU wins for large GEMM (IMP-600c: 57x verified)
                         let speedup = if k >= 1024 && n >= 1024 { 57.0 } else { 10.0 };
                         DispatchDecision {
