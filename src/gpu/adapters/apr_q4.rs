@@ -211,7 +211,7 @@ impl GpuModelQ4 {
                 hidden.extend_from_slice(&self.token_embedding[start..end]);
             } else {
                 // Out of vocab, use zeros
-                hidden.extend(std::iter::repeat(0.0).take(hidden_dim));
+                hidden.extend(std::iter::repeat_n(0.0, hidden_dim));
             }
         }
 

@@ -717,7 +717,7 @@ pub fn run_apr_inference_gpu(
 
     // Debug: Check if gate weights exist in the loaded transformer
     if verbose {
-        let has_gate = transformer.layers.first().map_or(false, |l| l.ffn_gate_weight.is_some());
+        let has_gate = transformer.layers.first().is_some_and(|l| l.ffn_gate_weight.is_some());
         eprintln!("[DEBUG-SwiGLU] APR transformer has gate weight: {}", has_gate);
         if has_gate {
             let gate_len = transformer.layers[0].ffn_gate_weight.as_ref().map_or(0, |v| v.len());
@@ -739,7 +739,7 @@ pub fn run_apr_inference_gpu(
 
     // Debug: Check if gate weights exist in GpuModel
     if verbose {
-        let has_gpu_gate = gpu_model.block_weights.first().map_or(false, |b| b.ffn_gate_weight.is_some());
+        let has_gpu_gate = gpu_model.block_weights.first().is_some_and(|b| b.ffn_gate_weight.is_some());
         eprintln!("[DEBUG-SwiGLU] GpuModel has gate weight: {}", has_gpu_gate);
 
         // Compare weights: CPU vs GPU

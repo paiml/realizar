@@ -49,6 +49,11 @@ pub struct AprV2ModelCuda {
     hidden_dim: usize,
     /// Current KV cache position (increments with each decoded token)
     kv_position: u32,
+    /// Phase 45: Test executor for dependency injection
+    ///
+    /// When present, this executor is used instead of CudaExecutor for GEMM operations.
+    /// Enables testing forward pass logic without actual CUDA hardware.
+    test_executor: Option<Box<dyn crate::gpu::executor::GpuExecutorTrait + Send + Sync>>,
 }
 
 #[cfg(feature = "cuda")]
@@ -136,6 +141,7 @@ impl AprV2ModelCuda {
             embedding_cache: None, // Lazy-loaded on first forward
             hidden_dim,
             kv_position: 0, // Start at position 0
+            test_executor: None, // Phase 45: No test executor by default
         };
 
         // Pre-cache all transposed weights on GPU for 2x performance
@@ -157,6 +163,33 @@ impl AprV2ModelCuda {
     #[must_use]
     pub fn num_devices() -> usize {
         crate::cuda::CudaExecutor::num_devices()
+    }
+
+    /// Phase 45: Inject a test executor for dependency injection.
+    ///
+    /// When present, GEMM operations are routed through the test executor
+    /// instead of the CUDA executor, enabling testing without actual GPU hardware.
+    ///
+    /// # Arguments
+    ///
+    /// * `executor` - Test executor (typically `MockExecutor` or `CpuExecutor`)
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use realizar::gpu::executor::{MockExecutor, CpuExecutor};
+    ///
+    /// let mut cuda_model = AprV2ModelCuda::new(model, 0)?;
+    /// cuda_model.with_test_executor(Box::new(CpuExecutor::new()));
+    /// ```
+    pub fn with_test_executor(&mut self, executor: Box<dyn crate::gpu::executor::GpuExecutorTrait + Send + Sync>) {
+        self.test_executor = Some(executor);
+    }
+
+    /// Check if a test executor is set.
+    #[must_use]
+    pub fn has_test_executor(&self) -> bool {
+        self.test_executor.is_some()
     }
 
     /// Get GPU device name.
@@ -569,7 +602,8 @@ impl AprV2ModelCuda {
         let vocab_size = self.model.metadata.vocab_size.unwrap_or(0);
 
         // Use indexed Q4K path with GPU argmax (no 600KB logits transfer)
-        if self.executor.has_indexed_weights() {
+        // Phase 45: Skip fast path when test_executor is present
+        if self.test_executor.is_none() && self.executor.has_indexed_weights() {
             let position = self.kv_position;
 
             // Embedding lookup from cache
@@ -693,8 +727,9 @@ impl AprV2ModelCuda {
         // FAST PATH: Use indexed Q4K GEMV kernels with CUDA graph capture
         // This path uses fused dequant+matmul kernels + graph replay for
         // 500x reduction in kernel launch overhead (5.6ms → 0.01ms per token)
+        // Phase 45: Skip fast path when test_executor is present
         // =========================================================================
-        if self.executor.has_indexed_weights() && seq_len == 1 {
+        if self.test_executor.is_none() && self.executor.has_indexed_weights() && seq_len == 1 {
             // Single-token decode: use the optimized Q4K GEMV path with graphs
             let token_id = token_ids[0];
             let position = self.kv_position;
@@ -1083,8 +1118,16 @@ impl AprV2ModelCuda {
     }
 
     /// GPU GEMM helper: C[m, n] = A[m, k] × B[k, n]
+    ///
+    /// Phase 45: Routes through test_executor when present for testability.
     #[allow(clippy::many_single_char_names)] // Standard matrix notation
     fn gemm_gpu(&mut self, a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> Result<Vec<f32>> {
+        // Phase 45: Route through test executor if present
+        if let Some(ref mut test_exec) = self.test_executor {
+            return test_exec.matmul(a, b, m, k, n);
+        }
+
+        // Normal CUDA path
         let mut c = vec![0.0f32; m * n];
         self.executor
             .gemm(a, b, &mut c, m as u32, n as u32, k as u32)
@@ -1099,6 +1142,9 @@ impl AprV2ModelCuda {
     ///
     /// Uses pre-cached weight matrix B to avoid repeated GPU uploads.
     /// This is the optimized path for transformer inference.
+    ///
+    /// Phase 45: When test_executor is present, falls back to returning zeros
+    /// (since test executors don't have cached weights).
     #[allow(clippy::many_single_char_names)] // Standard matrix notation
     fn gemm_cached_gpu(
         &mut self,
@@ -1108,6 +1154,14 @@ impl AprV2ModelCuda {
         k: usize,
         n: usize,
     ) -> Result<Vec<f32>> {
+        // Phase 45: Test executor can't use cached weights, return zeros
+        if self.test_executor.is_some() {
+            // For testing, return zeros of correct size
+            // The test executor can use with_matmul_result() for custom values if needed
+            return Ok(vec![0.0f32; m * n]);
+        }
+
+        // Normal CUDA path
         let mut c = vec![0.0f32; m * n];
         self.executor
             .gemm_b_cached(weight_name, a, &mut c, m as u32, n as u32, k as u32)
@@ -1119,7 +1173,13 @@ impl AprV2ModelCuda {
     }
 
     /// Check if a weight is cached on GPU.
+    ///
+    /// Phase 45: Returns false when test_executor is present, forcing the
+    /// uncached GEMM path which routes through the test executor.
     fn has_cached_weight(&self, name: &str) -> bool {
+        if self.test_executor.is_some() {
+            return false; // Force uncached path for testing
+        }
         self.executor.has_weights(name)
     }
 
