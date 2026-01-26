@@ -404,6 +404,67 @@ impl GgufToAprQ4KConverter {
         }
     }
 
+    /// PMAT-107: Infer rope_type from architecture (matches llama.cpp llama-model.cpp:7763-7811)
+    ///
+    /// Returns:
+    /// - 0 = NORM style (adjacent pairs) - default for LLaMA, TinyLlama
+    /// - 2 = NEOX style (split halves) - for Qwen2, Phi3, Gemma, etc.
+    fn infer_rope_type(
+        architecture: &str,
+        metadata: &std::collections::HashMap<String, crate::gguf::GGUFValue>,
+    ) -> u32 {
+        // First check for explicit rope.scaling.type in metadata
+        let scaling_key = format!("{}.rope.scaling.type", architecture);
+        if let Some(crate::gguf::GGUFValue::String(s)) = metadata.get(&scaling_key) {
+            match s.as_str() {
+                "none" | "linear" => return 0, // NORM style
+                "yarn" | "neox" => return 2,   // NEOX style
+                _ => {}
+            }
+        }
+
+        // Infer from architecture name (matches llama.cpp neox-style architectures)
+        let arch_lower = architecture.to_lowercase();
+        let neox_architectures = [
+            "qwen",
+            "qwen2",
+            "qwen3",
+            "stablelm",
+            "phi2",
+            "phi3",
+            "gemma",
+            "gemma2",
+            "gemma3",
+            "starcoder2",
+            "gptneox",
+            "falcon",
+            "codeshell",
+            "orion",
+            "bert",
+            "nomic-bert",
+            "dbrx",
+            "olmo2",
+            "olmoe",
+            "plamo",
+            "plamo2",
+            "openelm",
+            "exaone",
+            "minicpm3",
+            "nemotron",
+            "internlm2",
+            "deepseek2",
+        ];
+
+        for neox_arch in neox_architectures {
+            if arch_lower.contains(neox_arch) {
+                return 2; // NEOX style
+            }
+        }
+
+        // Default to NORM style (LLaMA, TinyLlama, etc.)
+        0
+    }
+
     /// Convert GGUF file to APR v2 with preserved Q4K quantization
     ///
     /// # Arguments
@@ -485,6 +546,10 @@ impl GgufToAprQ4KConverter {
         )
         .unwrap_or(1e-5);
 
+        // PMAT-107: Infer rope_type from architecture (matches llama.cpp llama-model.cpp:7763-7811)
+        // NEOX style (type 2) uses split-halves, NORM style (type 0) uses adjacent pairs
+        let rope_type = Self::infer_rope_type(&architecture, &gguf_model.metadata);
+
         // Build metadata JSON
         let metadata = serde_json::json!({
             "model_type": "transformer_lm_q4k",
@@ -497,6 +562,7 @@ impl GgufToAprQ4KConverter {
             "intermediate_dim": intermediate_size,
             "context_length": context_length,
             "rope_theta": rope_theta,
+            "rope_type": rope_type,
             "eps": eps,
             "quantization": "Q4_K_M",
         });
