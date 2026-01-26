@@ -60,6 +60,9 @@ pub struct InferenceConfig {
     pub trace_steps: Option<Vec<String>>,
     /// Show verbose loading/progress output
     pub verbose: bool,
+    /// INTERNAL: Use mock backend for testing (PMAT-COV-95)
+    #[doc(hidden)]
+    pub use_mock_backend: bool,
 }
 
 impl InferenceConfig {
@@ -79,6 +82,7 @@ impl InferenceConfig {
             trace_output: None,
             trace_steps: None,
             verbose: false,
+            use_mock_backend: false,
         }
     }
 
@@ -185,6 +189,11 @@ pub struct InferenceResult {
 /// - Model format is unsupported
 /// - Generation fails
 pub fn run_inference(config: &InferenceConfig) -> Result<InferenceResult> {
+    // PMAT-COV-95: Mock backend for testing without disk I/O
+    if config.use_mock_backend {
+        return run_mock_inference(config);
+    }
+
     // Read model file header for format detection
     let data = std::fs::read(&config.model_path).map_err(|e| RealizarError::IoError {
         message: format!("Failed to read model: {}", e),
@@ -708,6 +717,127 @@ fn clean_model_output(raw: &str) -> String {
     cleaned.trim().to_string()
 }
 
+// ============================================================================
+// MOCK BACKEND (PMAT-COV-95: Testing without disk I/O)
+// ============================================================================
+
+/// Run mock inference for testing (PMAT-COV-95)
+///
+/// This function returns deterministic results without reading disk or
+/// performing actual model inference. It exercises the full InferenceResult
+/// construction, token counting, timing calculation, and formatting logic.
+///
+/// # Mock Behavior
+///
+/// - Input tokens: parsed from prompt or used directly from config
+/// - Generated tokens: deterministic sequence [100, 101, 102, ...]
+/// - Text output: "mock response for: <prompt>"
+/// - Timing: simulated 10ms load, 50ms inference
+/// - Format: "Mock"
+pub fn run_mock_inference(config: &InferenceConfig) -> Result<InferenceResult> {
+    // Simulate model loading time
+    let load_ms = 10.0;
+
+    // Parse input tokens
+    let input_tokens = if let Some(ref tokens) = config.input_tokens {
+        tokens.clone()
+    } else if let Some(ref prompt) = config.prompt {
+        // Mock tokenization: each word becomes a token ID
+        prompt
+            .split_whitespace()
+            .enumerate()
+            .map(|(i, _)| (i + 1) as u32)
+            .collect()
+    } else {
+        vec![1u32] // BOS token
+    };
+
+    let input_token_count = input_tokens.len();
+
+    // Generate deterministic output tokens
+    let num_to_generate = config.max_tokens.min(32);
+    let generated_tokens: Vec<u32> = (0..num_to_generate).map(|i| 100 + i as u32).collect();
+
+    // Combine input and generated tokens
+    let mut all_tokens = input_tokens;
+    all_tokens.extend(&generated_tokens);
+
+    // Mock text output
+    let prompt_text = config.prompt.as_deref().unwrap_or("(no prompt)");
+    let text = format!("mock response for: {}", prompt_text);
+
+    // Simulate inference timing
+    let inference_ms = 50.0 + (num_to_generate as f64 * 2.0);
+    let generated_token_count = generated_tokens.len();
+    let tok_per_sec = if inference_ms > 0.0 {
+        generated_token_count as f64 / (inference_ms / 1000.0)
+    } else {
+        0.0
+    };
+
+    // Validate configuration constraints
+    if config.temperature < 0.0 {
+        return Err(RealizarError::InvalidConfiguration(
+            "temperature cannot be negative".to_string(),
+        ));
+    }
+
+    if config.max_tokens == 0 {
+        return Err(RealizarError::InvalidConfiguration(
+            "max_tokens must be > 0".to_string(),
+        ));
+    }
+
+    // Write trace output if requested
+    if let Some(ref trace_path) = config.trace_output {
+        let trace_json = format!(
+            r#"{{
+  "version": "1.0",
+  "mock": true,
+  "input_tokens": {},
+  "generated_tokens": {},
+  "load_ms": {:.2},
+  "inference_ms": {:.2}
+}}
+"#,
+            input_token_count, generated_token_count, load_ms, inference_ms
+        );
+        std::fs::write(trace_path, trace_json).map_err(|e| RealizarError::IoError {
+            message: format!("Failed to write trace: {}", e),
+        })?;
+    }
+
+    Ok(InferenceResult {
+        text,
+        tokens: all_tokens,
+        input_token_count,
+        generated_token_count,
+        inference_ms,
+        tok_per_sec,
+        load_ms,
+        format: "Mock".to_string(),
+        used_gpu: false,
+    })
+}
+
+/// Create a mock inference config for testing
+#[must_use]
+pub fn mock_config(prompt: &str) -> InferenceConfig {
+    InferenceConfig::new("/dev/null")
+        .with_prompt(prompt)
+        .with_max_tokens(16)
+        .with_mock_backend()
+}
+
+impl InferenceConfig {
+    /// Enable mock backend for testing (PMAT-COV-95)
+    #[must_use]
+    pub fn with_mock_backend(mut self) -> Self {
+        self.use_mock_backend = true;
+        self
+    }
+}
+
 // Tests extracted to tests.rs (PMAT-802)
 #[cfg(test)]
 #[path = "tests.rs"]
@@ -722,3 +852,8 @@ mod infer_tests_part_02;
 #[cfg(test)]
 #[path = "tests_part_03.rs"]
 mod infer_tests_part_03;
+
+// Mock backend tests (PMAT-COV-95)
+#[cfg(test)]
+#[path = "tests_mock.rs"]
+mod infer_tests_mock;
