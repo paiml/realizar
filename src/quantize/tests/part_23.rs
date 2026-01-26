@@ -653,8 +653,9 @@ fn test_swiglu_simd_exactly_8() {
 
     let expected: Vec<f32> = gate
         .iter()
-        .map(|g| {
-            let sigmoid = 1.0 / (1.0 + (-g).exp());
+        .copied()
+        .map(|g: f32| {
+            let sigmoid = 1.0_f32 / (1.0_f32 + (-g).exp());
             g * sigmoid
         })
         .collect();
