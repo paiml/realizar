@@ -65,16 +65,23 @@ impl OwnedQuantizedModel {
             // 2b. QKV projection with FUSED dequant+dot (1.37x faster)
             // Note: qkv_dim may differ from 3*hidden_dim for GQA models
             let qkv_dim = layer.qkv_weight.out_dim();
-            let q_dim = layer.qkv_weight.q_dim();
-            // For GQA, k_dim and v_dim may be smaller than q_dim
-            let k_dim = match &layer.qkv_weight {
-                OwnedQKVWeights::Fused(_) => q_dim,
-                OwnedQKVWeights::Separate { k, .. } => k.out_dim,
-            };
-            let v_dim = match &layer.qkv_weight {
-                OwnedQKVWeights::Fused(_) => q_dim,
-                OwnedQKVWeights::Separate { v, .. } => v.out_dim,
-            };
+            // GQA-aware dimension computation (fixes PARITY-GQA bug)
+            // For GQA: q_dim = hidden_dim, k_dim = v_dim = num_kv_heads * head_dim
+            let q_dim = layer.qkv_weight.q_dim_for_config(
+                self.config.num_heads,
+                self.config.num_kv_heads,
+                self.config.hidden_dim,
+            );
+            let k_dim = layer.qkv_weight.k_dim_for_config(
+                self.config.num_heads,
+                self.config.num_kv_heads,
+                self.config.hidden_dim,
+            );
+            let v_dim = layer.qkv_weight.v_dim_for_config(
+                self.config.num_heads,
+                self.config.num_kv_heads,
+                self.config.hidden_dim,
+            );
             let mut qkv = self.qkv_matmul(&normed, &layer.qkv_weight)?;
             if let Some(ref bias) = layer.qkv_bias {
                 ops::add_bias(&mut qkv, bias);
@@ -388,16 +395,23 @@ impl OwnedQuantizedModel {
             }
 
             // 2b. QKV projection
+            // GQA-aware dimension computation (fixes PARITY-GQA bug)
             let _qkv_dim = layer.qkv_weight.out_dim();
-            let q_dim = layer.qkv_weight.q_dim();
-            let k_dim = match &layer.qkv_weight {
-                OwnedQKVWeights::Fused(_) => q_dim,
-                OwnedQKVWeights::Separate { k, .. } => k.out_dim,
-            };
-            let v_dim = match &layer.qkv_weight {
-                OwnedQKVWeights::Fused(_) => q_dim,
-                OwnedQKVWeights::Separate { v, .. } => v.out_dim,
-            };
+            let q_dim = layer.qkv_weight.q_dim_for_config(
+                self.config.num_heads,
+                self.config.num_kv_heads,
+                self.config.hidden_dim,
+            );
+            let k_dim = layer.qkv_weight.k_dim_for_config(
+                self.config.num_heads,
+                self.config.num_kv_heads,
+                self.config.hidden_dim,
+            );
+            let v_dim = layer.qkv_weight.v_dim_for_config(
+                self.config.num_heads,
+                self.config.num_kv_heads,
+                self.config.hidden_dim,
+            );
 
             let mut qkv = self.qkv_matmul(&normed, &layer.qkv_weight)?;
             if let Some(ref bias) = layer.qkv_bias {

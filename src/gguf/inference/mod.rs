@@ -18,6 +18,13 @@ mod forward;
 mod generation;
 mod matmul;
 
+#[cfg(test)]
+mod attention_gqa_tests;
+#[cfg(test)]
+mod matmul_tests;
+#[cfg(test)]
+mod generation_tests;
+
 // Re-export cached model types for external use
 #[cfg(any(feature = "gpu", feature = "cuda"))]
 pub use cached::{
