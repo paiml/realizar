@@ -210,6 +210,19 @@ pub mod error;
 /// - KernelSHAP: Model-agnostic with weighted linear regression
 /// - Feature importance: Top-k features by absolute SHAP value
 pub mod explain;
+/// Test fixtures for model loading with RAII-based cleanup.
+///
+/// Provides standardized test fixtures for GGUF, SafeTensors, and APR formats
+/// with automatic temporary file cleanup via TempDir.
+#[cfg(test)]
+pub mod fixtures;
+/// Model fixture testing infrastructure with PyTorch-style patterns.
+///
+/// Provides standardized testing for model formats (GGUF, APR, SafeTensors)
+/// across devices (CPU, CUDA) with combinatorial coverage and Popperian falsification.
+/// Per spec: docs/specifications/model-fixture-setup-teardown.md
+#[cfg(test)]
+pub mod testing;
 /// Unified model format detection (APR, GGUF, SafeTensors)
 ///
 /// Per spec §3: Format Support Matrix - auto-detect from magic bytes.
@@ -251,6 +264,21 @@ pub mod sampling;
 /// **NO MOCK DATA** - measures real network latency and inference timing.
 #[cfg(feature = "bench-http")]
 pub mod http_client;
+/// High-level inference API for CLI tools
+///
+/// Per spec APR-CLI-DELEGATE-001: All inference in `apr run` and `apr chat`
+/// delegates to this module. This eliminates ~1800 lines of duplicated code.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use realizar::infer::{InferenceConfig, run_inference};
+///
+/// let result = run_inference(&InferenceConfig::new("model.gguf")
+///     .with_prompt("Hello!"))?;
+/// println!("{}", result.text);
+/// ```
+pub mod infer;
 /// SIMD-accelerated inference engine using trueno
 ///
 /// Provides high-performance transformer inference competing with llama.cpp.
@@ -276,6 +304,10 @@ pub mod metrics;
 /// Per spec §3.2 and §5: Combines format detection with model loading.
 /// Supports all 18 APR model types.
 pub mod model_loader;
+#[cfg(test)]
+mod model_loader_tests_part_02;
+#[cfg(test)]
+mod model_loader_tests_part_03;
 pub mod moe;
 /// Observability: metrics, tracing, and A/B testing
 ///
@@ -308,7 +340,14 @@ pub mod parallel;
 pub mod quantize;
 #[cfg(feature = "server")]
 pub mod registry;
+#[cfg(all(test, feature = "server"))]
+mod registry_tests_part_02;
 pub mod safetensors;
+/// SafeTensors inference support (PAR-301)
+///
+/// Converts HuggingFace SafeTensors models to AprTransformer for inference.
+/// Requires config.json and tokenizer.json in the same directory.
+pub mod safetensors_infer;
 /// Continuous batching scheduler
 ///
 /// Per spec §8: Implements continuous batching for LLM serving based on vLLM/Orca.
@@ -365,7 +404,10 @@ pub mod uri;
 
 // Re-exports for convenience
 pub use error::{RealizarError, Result};
+pub use infer::{run_inference, InferenceConfig, InferenceResult};
 pub use inference_trace::{InferenceTracer, ModelInfo, TraceConfig, TraceStep};
+#[cfg(not(target_arch = "wasm32"))]
+pub use safetensors::MappedSafeTensorsModel;
 pub use safetensors::SafetensorsConfig;
 pub use tensor::Tensor;
 

@@ -23,10 +23,12 @@ fn test_health_response_creation() {
     let resp = HealthResponse {
         status: "healthy".to_string(),
         version: "1.0.0".to_string(),
+        compute_mode: "cpu".to_string(),
     };
 
     assert_eq!(resp.status, "healthy");
     assert_eq!(resp.version, "1.0.0");
+    assert_eq!(resp.compute_mode, "cpu");
 }
 
 #[test]
@@ -34,6 +36,7 @@ fn test_health_response_serialization() {
     let resp = HealthResponse {
         status: "ok".to_string(),
         version: "2.0.0".to_string(),
+        compute_mode: "cpu".to_string(),
     };
 
     let json = serde_json::to_string(&resp).unwrap();
@@ -51,7 +54,7 @@ proptest! {
         status in "[a-z]{3,20}",
         version in "[0-9]+\\.[0-9]+\\.[0-9]+"
     ) {
-        let resp = HealthResponse { status: status.clone(), version: version.clone() };
+        let resp = HealthResponse { status: status.clone(), version: version.clone(), compute_mode: "cpu".to_string() };
         let json = serde_json::to_string(&resp).unwrap();
         let parsed: HealthResponse = serde_json::from_str(&json).unwrap();
         prop_assert_eq!(parsed.status, status);
@@ -122,7 +125,7 @@ proptest! {
     #[test]
     fn prop_tokenize_response_valid(tokens in proptest::collection::vec(0u32..50000, 0..100)) {
         let len = tokens.len();
-        let resp = TokenizeResponse { token_ids: tokens.clone(), num_tokens: len };
+        let resp = TokenizeResponse { token_ids: tokens, num_tokens: len };
         prop_assert_eq!(resp.num_tokens, len);
         prop_assert_eq!(resp.token_ids.len(), len);
     }
@@ -275,7 +278,7 @@ proptest! {
     fn prop_batch_request_sizes(n in 1usize..10) {
         let prompts: Vec<String> = (0..n).map(|i| format!("prompt_{}", i)).collect();
         let req = BatchGenerateRequest {
-            prompts: prompts.clone(),
+            prompts: prompts,
             max_tokens: 10,
             temperature: 1.0,
             strategy: "greedy".to_string(),
@@ -416,6 +419,9 @@ fn test_chat_completion_response() {
             completion_tokens: 5,
             total_tokens: 15,
         },
+        brick_trace: None,
+        step_trace: None,
+        layer_trace: None,
     };
 
     let json = serde_json::to_string(&resp).unwrap();
@@ -869,7 +875,7 @@ fn test_temperature_high() {
 fn test_large_token_list() {
     let tokens: Vec<u32> = (0..10000).collect();
     let resp = TokenizeResponse {
-        token_ids: tokens.clone(),
+        token_ids: tokens,
         num_tokens: 10000,
     };
 

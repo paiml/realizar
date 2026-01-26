@@ -7,8 +7,7 @@ use realizar::apr_transformer::{
     AprBenchmarkResult, AprBenchmarkRunner, AprInferenceScratch, AprKVCache, AprLoadResult,
     AprParityComparison, AprPrefillResult, AprQuantizationType, AprTransformer,
     AprTransformerConfig, AprTransformerLayer, GenerateConfig, MmapAprTransformer,
-    QuantizedAprLayerQ4, QuantizedAprTensorQ4, QuantizedAprTransformer,
-    QuantizedAprTransformerQ4, APR_TRANSFORMER_HEADER_SIZE,
+    QuantizedAprTensorQ4, QuantizedAprTransformer, APR_TRANSFORMER_HEADER_SIZE,
 };
 
 // ============================================================================
@@ -31,7 +30,6 @@ fn test_quantization_type_all_variants_bits() {
     assert!(AprQuantizationType::F32.bits_per_weight() >= 32.0);
 }
 
-
 #[test]
 fn test_quantization_type_q8_0_bits() {
     assert_eq!(AprQuantizationType::Q8_0.bits_per_weight(), 8.0);
@@ -46,7 +44,6 @@ fn test_quantization_type_f32_bytes_per_block() {
 fn test_quantization_type_q4_k_bytes_per_block() {
     assert_eq!(AprQuantizationType::Q4_K.bytes_per_block(), 144);
 }
-
 
 #[test]
 fn test_quantization_type_q8_0_bytes_per_block() {
@@ -67,7 +64,6 @@ fn test_quantization_type_q4_k_values_per_block() {
     assert_eq!(AprQuantizationType::Q4_K.values_per_block(), 256);
 }
 
-
 #[test]
 fn test_quantization_type_q8_0_values_per_block() {
     assert_eq!(AprQuantizationType::Q8_0.values_per_block(), 32);
@@ -83,7 +79,6 @@ fn test_quantization_type_to_byte_q4_k() {
     assert_eq!(AprQuantizationType::Q4_K.to_byte(), 1);
 }
 
-
 #[test]
 fn test_quantization_type_to_byte_q8_0() {
     assert_eq!(AprQuantizationType::Q8_0.to_byte(), 2);
@@ -95,17 +90,26 @@ fn test_quantization_type_to_byte_q8_0() {
 
 #[test]
 fn test_quantization_type_from_byte_0() {
-    assert_eq!(AprQuantizationType::from_byte(0), Some(AprQuantizationType::F32));
+    assert_eq!(
+        AprQuantizationType::from_byte(0),
+        Some(AprQuantizationType::F32)
+    );
 }
 
 #[test]
 fn test_quantization_type_from_byte_1() {
-    assert_eq!(AprQuantizationType::from_byte(1), Some(AprQuantizationType::Q4_K));
+    assert_eq!(
+        AprQuantizationType::from_byte(1),
+        Some(AprQuantizationType::Q4_K)
+    );
 }
 
 #[test]
 fn test_quantization_type_from_byte_2() {
-    assert_eq!(AprQuantizationType::from_byte(2), Some(AprQuantizationType::Q8_0));
+    assert_eq!(
+        AprQuantizationType::from_byte(2),
+        Some(AprQuantizationType::Q8_0)
+    );
 }
 
 #[test]
@@ -239,7 +243,7 @@ fn test_transformer_new_creates_valid_model() {
         num_kv_heads: 4,
         ..Default::default()
     };
-    let transformer = AprTransformer::new(config.clone());
+    let transformer = AprTransformer::new(config);
     assert_eq!(transformer.config().hidden_dim, 32);
     assert_eq!(transformer.config().num_layers, 2);
     assert_eq!(transformer.layers.len(), 2);
@@ -651,7 +655,7 @@ fn test_quantized_transformer_config_access() {
         vocab_size: 100,
         ..Default::default()
     };
-    let qt = QuantizedAprTransformer::new(config.clone(), AprQuantizationType::F32);
+    let qt = QuantizedAprTransformer::new(config, AprQuantizationType::F32);
     assert_eq!(qt.config().hidden_dim, 64);
     assert_eq!(qt.config().num_layers, 2);
     assert_eq!(qt.config().vocab_size, 100);
@@ -861,7 +865,9 @@ fn test_load_result_default_values() {
 
 #[test]
 fn test_load_result_clone() {
-    let result = AprLoadResult { load_time_ms: 100.0 };
+    let result = AprLoadResult {
+        load_time_ms: 100.0,
+    };
     let cloned = result.clone();
     assert_eq!(result.load_time_ms, cloned.load_time_ms);
 }

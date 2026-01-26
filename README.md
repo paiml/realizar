@@ -444,6 +444,48 @@ curl http://localhost:8080/health     # Health check
 curl http://localhost:8080/metrics    # Prometheus
 ```
 
+### OpenAI-Compatible API
+
+```bash
+# Chat completions
+curl -X POST http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"default","messages":[{"role":"user","content":"Hello!"}],"max_tokens":50}'
+
+# Streaming
+curl -X POST http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"default","messages":[{"role":"user","content":"Hello!"}],"stream":true}'
+```
+
+### Debugging with Tracing
+
+Use the `X-Trace-Level` header for inference debugging:
+
+```bash
+# Brick-level: token-by-token timing
+curl -H "X-Trace-Level: brick" -X POST http://localhost:8080/v1/chat/completions ...
+
+# Step-level: forward pass steps (embed, attention, mlp, lm_head)
+curl -H "X-Trace-Level: step" -X POST http://localhost:8080/v1/chat/completions ...
+
+# Layer-level: per-layer timing breakdown
+curl -H "X-Trace-Level: layer" -X POST http://localhost:8080/v1/chat/completions ...
+```
+
+Response includes trace data:
+```json
+{
+  "choices": [...],
+  "brick_trace": {
+    "level": "brick",
+    "operations": 5,
+    "total_time_us": 12345,
+    "breakdown": [{"name": "token_0", "time_us": 2469}, ...]
+  }
+}
+```
+
 ## Install
 
 ```bash

@@ -16,11 +16,11 @@ use realizar::api::{
     ChatDelta, ChatMessage, CompletionChoice, CompletionRequest, CompletionResponse,
     ContextWindowConfig, ContextWindowManager, DispatchMetricsResponse, DispatchResetResponse,
     EmbeddingData, EmbeddingRequest, EmbeddingResponse, EmbeddingUsage, ErrorResponse,
-    ExplainRequest, ExplainResponse, GenerateRequest, GenerateResponse, GpuBatchRequest,
-    GpuBatchResponse, GpuBatchResult, GpuBatchStats, GpuStatusResponse, GpuWarmupResponse,
-    HealthResponse, ModelLineage, ModelMetadataResponse, PredictRequest, PredictResponse,
-    PredictionWithScore, ReloadRequest, ReloadResponse, ServerMetricsResponse, StreamDoneEvent,
-    StreamTokenEvent, TokenizeRequest, TokenizeResponse, Usage,
+    ExplainRequest, GenerateRequest, GenerateResponse, GpuBatchRequest, GpuBatchResponse,
+    GpuBatchResult, GpuBatchStats, GpuStatusResponse, GpuWarmupResponse, HealthResponse,
+    ModelLineage, ModelMetadataResponse, PredictRequest, PredictResponse, PredictionWithScore,
+    ReloadRequest, ReloadResponse, ServerMetricsResponse, StreamDoneEvent, StreamTokenEvent,
+    TokenizeRequest, TokenizeResponse, Usage,
 };
 
 // ============================================================================
@@ -257,7 +257,10 @@ fn test_context_window_manager_truncate_preserves_order() {
                 msgs.iter()
                     .position(|m| m.content == result[i - 1].content)
                     .unwrap()
-                    < msgs.iter().position(|m| m.content == result[i].content).unwrap()
+                    < msgs
+                        .iter()
+                        .position(|m| m.content == result[i].content)
+                        .unwrap()
             );
         }
     }
@@ -358,7 +361,7 @@ fn test_gpu_batch_result_many_tokens() {
     let tokens: Vec<u32> = (0..1000).collect();
     let result = GpuBatchResult {
         index: 5,
-        token_ids: tokens.clone(),
+        token_ids: tokens,
         text: "x".repeat(1000),
         num_generated: 1000,
     };
@@ -853,6 +856,9 @@ fn test_chat_completion_response_full() {
             completion_tokens: 5,
             total_tokens: 15,
         },
+        brick_trace: None,
+        layer_trace: None,
+        step_trace: None,
     };
     let json = serde_json::to_string(&response).expect("serialize");
     assert!(json.contains("chat.completion"));
@@ -916,6 +922,7 @@ fn test_health_response_roundtrip_custom() {
     let response = HealthResponse {
         status: "degraded".to_string(),
         version: "0.5.0-beta".to_string(),
+        compute_mode: "cpu".to_string(),
     };
     let json = serde_json::to_string(&response).expect("serialize");
     let rt: HealthResponse = serde_json::from_str(&json).expect("deserialize");
@@ -976,7 +983,10 @@ fn test_usage_large_prompt() {
         completion_tokens: 1000,
         total_tokens: 101000,
     };
-    assert_eq!(usage.prompt_tokens + usage.completion_tokens, usage.total_tokens);
+    assert_eq!(
+        usage.prompt_tokens + usage.completion_tokens,
+        usage.total_tokens
+    );
 }
 
 #[test]
@@ -993,7 +1003,7 @@ fn test_tokenize_request_empty_text() {
 fn test_tokenize_response_large_array() {
     let token_ids: Vec<u32> = (0..10000).collect();
     let response = TokenizeResponse {
-        token_ids: token_ids.clone(),
+        token_ids,
         num_tokens: 10000,
     };
     let json = serde_json::to_string(&response).expect("serialize");
@@ -1231,7 +1241,7 @@ fn test_context_window_config_debug() {
 #[test]
 fn test_context_window_config_clone() {
     let config = ContextWindowConfig::new(8192).with_reserved_output(512);
-    let cloned = config.clone();
+    let cloned = config;
     assert_eq!(cloned.max_tokens, 8192);
     assert_eq!(cloned.reserved_output_tokens, 512);
 }
@@ -1243,7 +1253,7 @@ fn test_chat_message_clone() {
         content: "Test".to_string(),
         name: Some("Bob".to_string()),
     };
-    let cloned = msg.clone();
+    let cloned = msg;
     assert_eq!(cloned.role, "user");
     assert_eq!(cloned.name, Some("Bob".to_string()));
 }
@@ -1349,8 +1359,16 @@ fn test_complete_chat_completion_flow() {
         usage: Usage {
             prompt_tokens: request.messages.iter().map(|m| m.content.len() / 4).sum(),
             completion_tokens: 3,
-            total_tokens: request.messages.iter().map(|m| m.content.len() / 4).sum::<usize>() + 3,
+            total_tokens: request
+                .messages
+                .iter()
+                .map(|m| m.content.len() / 4)
+                .sum::<usize>()
+                + 3,
         },
+        brick_trace: None,
+        layer_trace: None,
+        step_trace: None,
     };
 
     // Serialize response
@@ -1508,7 +1526,7 @@ fn test_max_u64_in_metrics() {
     };
     // Should serialize without overflow
     let json = serde_json::to_string(&response).expect("serialize");
-    assert!(json.len() > 0);
+    assert!(!json.is_empty());
 }
 
 #[test]
@@ -1516,6 +1534,7 @@ fn test_empty_strings_everywhere() {
     let response = HealthResponse {
         status: String::new(),
         version: String::new(),
+        compute_mode: "cpu".to_string(),
     };
     let json = serde_json::to_string(&response).expect("serialize");
     let rt: HealthResponse = serde_json::from_str(&json).expect("deserialize");
@@ -1552,7 +1571,7 @@ fn test_very_long_content() {
     let long_content = "x".repeat(1_000_000);
     let msg = ChatMessage {
         role: "user".to_string(),
-        content: long_content.clone(),
+        content: long_content,
         name: None,
     };
     let json = serde_json::to_string(&msg).expect("serialize");
@@ -1661,7 +1680,7 @@ fn test_dispatch_metrics_response_clone() {
         throughput_rps: 50.0,
         elapsed_seconds: 1.0,
     };
-    let cloned = response.clone();
+    let cloned = response;
     assert_eq!(cloned.total_dispatches, 30);
 }
 
@@ -1799,6 +1818,9 @@ fn test_chat_completion_response_empty_choices() {
             completion_tokens: 0,
             total_tokens: 0,
         },
+        brick_trace: None,
+        layer_trace: None,
+        step_trace: None,
     };
     let json = serde_json::to_string(&response).expect("serialize");
     assert!(json.contains(r#""choices":[]"#));

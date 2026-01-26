@@ -294,14 +294,8 @@ fn test_gguf_value_partial_eq() {
 #[test]
 fn test_gguf_value_nested_array() {
     let nested = GGUFValue::Array(vec![
-        GGUFValue::Array(vec![
-            GGUFValue::UInt32(1),
-            GGUFValue::UInt32(2),
-        ]),
-        GGUFValue::Array(vec![
-            GGUFValue::UInt32(3),
-            GGUFValue::UInt32(4),
-        ]),
+        GGUFValue::Array(vec![GGUFValue::UInt32(1), GGUFValue::UInt32(2)]),
+        GGUFValue::Array(vec![GGUFValue::UInt32(3), GGUFValue::UInt32(4)]),
     ]);
     let debug_str = format!("{:?}", nested);
     assert!(debug_str.contains("Array"));
@@ -357,7 +351,10 @@ fn test_embedding_dim_some() {
         "general.architecture".to_string(),
         GGUFValue::String("llama".to_string()),
     );
-    metadata.insert("llama.embedding_length".to_string(), GGUFValue::UInt32(4096));
+    metadata.insert(
+        "llama.embedding_length".to_string(),
+        GGUFValue::UInt32(4096),
+    );
     let model = create_mock_gguf_model_with_metadata(metadata);
     assert_eq!(model.embedding_dim(), Some(4096));
 }
@@ -365,7 +362,10 @@ fn test_embedding_dim_some() {
 #[test]
 fn test_embedding_dim_no_arch() {
     let mut metadata = HashMap::new();
-    metadata.insert("llama.embedding_length".to_string(), GGUFValue::UInt32(4096));
+    metadata.insert(
+        "llama.embedding_length".to_string(),
+        GGUFValue::UInt32(4096),
+    );
     let model = create_mock_gguf_model_with_metadata(metadata);
     assert_eq!(model.embedding_dim(), None);
 }
@@ -475,7 +475,10 @@ fn test_rope_freq_base_some() {
         "general.architecture".to_string(),
         GGUFValue::String("llama".to_string()),
     );
-    metadata.insert("llama.rope.freq_base".to_string(), GGUFValue::Float32(10000.0));
+    metadata.insert(
+        "llama.rope.freq_base".to_string(),
+        GGUFValue::Float32(10000.0),
+    );
     let model = create_mock_gguf_model_with_metadata(metadata);
     assert_eq!(model.rope_freq_base(), Some(10000.0));
 }
@@ -670,7 +673,10 @@ fn test_rope_type_internlm2_neox() {
 #[test]
 fn test_bos_token_id_some() {
     let mut metadata = HashMap::new();
-    metadata.insert("tokenizer.ggml.bos_token_id".to_string(), GGUFValue::UInt32(1));
+    metadata.insert(
+        "tokenizer.ggml.bos_token_id".to_string(),
+        GGUFValue::UInt32(1),
+    );
     let model = create_mock_gguf_model_with_metadata(metadata);
     assert_eq!(model.bos_token_id(), Some(1));
 }
@@ -684,7 +690,10 @@ fn test_bos_token_id_none() {
 #[test]
 fn test_eos_token_id_some() {
     let mut metadata = HashMap::new();
-    metadata.insert("tokenizer.ggml.eos_token_id".to_string(), GGUFValue::UInt32(2));
+    metadata.insert(
+        "tokenizer.ggml.eos_token_id".to_string(),
+        GGUFValue::UInt32(2),
+    );
     let model = create_mock_gguf_model_with_metadata(metadata);
     assert_eq!(model.eos_token_id(), Some(2));
 }
@@ -706,17 +715,37 @@ fn test_gguf_config_from_model_with_full_metadata() {
         "general.architecture".to_string(),
         GGUFValue::String("llama".to_string()),
     );
-    metadata.insert("llama.embedding_length".to_string(), GGUFValue::UInt32(4096));
+    metadata.insert(
+        "llama.embedding_length".to_string(),
+        GGUFValue::UInt32(4096),
+    );
     metadata.insert("llama.block_count".to_string(), GGUFValue::UInt32(32));
-    metadata.insert("llama.attention.head_count".to_string(), GGUFValue::UInt32(32));
-    metadata.insert("llama.attention.head_count_kv".to_string(), GGUFValue::UInt32(8));
-    metadata.insert("llama.feed_forward_length".to_string(), GGUFValue::UInt32(11008));
+    metadata.insert(
+        "llama.attention.head_count".to_string(),
+        GGUFValue::UInt32(32),
+    );
+    metadata.insert(
+        "llama.attention.head_count_kv".to_string(),
+        GGUFValue::UInt32(8),
+    );
+    metadata.insert(
+        "llama.feed_forward_length".to_string(),
+        GGUFValue::UInt32(11008),
+    );
     metadata.insert("llama.context_length".to_string(), GGUFValue::UInt32(4096));
-    metadata.insert("llama.rope.freq_base".to_string(), GGUFValue::Float32(10000.0));
-    metadata.insert("llama.attention.layer_norm_rms_epsilon".to_string(), GGUFValue::Float32(1e-5));
+    metadata.insert(
+        "llama.rope.freq_base".to_string(),
+        GGUFValue::Float32(10000.0),
+    );
+    metadata.insert(
+        "llama.attention.layer_norm_rms_epsilon".to_string(),
+        GGUFValue::Float32(1e-5),
+    );
 
     // Add vocab - needed for config creation
-    let vocab: Vec<GGUFValue> = (0..32000).map(|i| GGUFValue::String(format!("tok{}", i))).collect();
+    let vocab: Vec<GGUFValue> = (0..32000)
+        .map(|i| GGUFValue::String(format!("tok{}", i)))
+        .collect();
     metadata.insert("tokenizer.ggml.tokens".to_string(), GGUFValue::Array(vocab));
 
     let model = create_mock_gguf_model_with_metadata(metadata);
@@ -855,7 +884,7 @@ fn test_many_metadata_entries() {
 fn test_long_string_metadata() {
     let mut metadata = HashMap::new();
     let long_string = "a".repeat(10000);
-    metadata.insert("long_key".to_string(), GGUFValue::String(long_string.clone()));
+    metadata.insert("long_key".to_string(), GGUFValue::String(long_string));
     let model = create_mock_gguf_model_with_metadata(metadata);
     if let Some(GGUFValue::String(s)) = model.metadata.get("long_key") {
         assert_eq!(s.len(), 10000);
@@ -879,7 +908,7 @@ fn test_empty_string_metadata() {
 #[test]
 fn test_large_array_metadata() {
     let mut metadata = HashMap::new();
-    let large_array: Vec<GGUFValue> = (0..1000).map(|i| GGUFValue::UInt32(i)).collect();
+    let large_array: Vec<GGUFValue> = (0..1000).map(GGUFValue::UInt32).collect();
     metadata.insert("large_array".to_string(), GGUFValue::Array(large_array));
     let model = create_mock_gguf_model_with_metadata(metadata);
     if let Some(GGUFValue::Array(arr)) = model.metadata.get("large_array") {

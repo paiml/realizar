@@ -6,7 +6,7 @@
 .DELETE_ON_ERROR:
 .PHONY: help build test test-fast lint quality-gates deploy clean
 .PHONY: tier1 tier2 test-cuda-fast test-probar
-.PHONY: coverage coverage-open coverage-clean clean-coverage coverage-summary
+.PHONY: cov coverage coverage-open coverage-clean clean-coverage coverage-summary
 .PHONY: mutants mutants-quick mutants-quantize mutants-layers mutants-tokenizer
 .PHONY: mutants-generate mutants-report mutants-clean mutation-file mutate mutate-fast
 .PHONY: fmt bench doc dev book book-build book-open book-serve book-clean book-validate
@@ -141,28 +141,43 @@ clippy-fix: ## Automatically fix clippy warnings
 
 # === Coverage (Memory-efficient: cargo test, not nextest) ===
 
-coverage: ## Generate HTML coverage report (target: >95%, memory-efficient)
-	@echo "$(GREEN)📊 Running coverage analysis (target: >95%)...$(NC)"
+# Exclude: trueno (external dep), terminal-specific TUI code (requires actual terminal)
+# PMAT-803: Strict isolation - we test realizar, not the universe
+# Phase 38: Exclude fused_k.rs (35 arch-specific #[cfg] blocks = ~60% dead code on any single arch)
+COV_EXCLUDE := --ignore-filename-regex='(trueno/|tui\.rs|bench_viz\.rs|viz\.rs|fused_k\.rs)'
+
+cov: ## FAST coverage (~2 min) - core lib only, no CUDA, no heavy-tests
+	@echo "$(GREEN)⚡ FAST coverage (core lib only, ~2 min)...$(NC)"
+	@which cargo-llvm-cov > /dev/null 2>&1 || cargo install cargo-llvm-cov --locked
+	@mkdir -p target/coverage
+	@env RUSTFLAGS="" CARGO_BUILD_RUSTFLAGS="" PROPTEST_CASES=3 QUICKCHECK_TESTS=3 \
+		cargo llvm-cov test --lib --no-report $(COV_EXCLUDE) \
+		-- --test-threads=2 2>&1 | tail -20
+	@cargo llvm-cov report --html --output-dir target/coverage/html $(COV_EXCLUDE)
+	@echo ""
+	@cargo llvm-cov report --summary-only $(COV_EXCLUDE)
+	@echo "$(GREEN)✅ Fast coverage: target/coverage/html/index.html$(NC)"
+
+coverage: ## Generate HTML coverage report (FAST incremental, target: >95%)
+	@echo "$(GREEN)📊 Running coverage analysis (INCREMENTAL - use coverage-clean for fresh start)...$(NC)"
 	@echo "   - Uses 'cargo test' (1 profraw/binary) NOT 'nextest' (1 profraw/test)"
-	@echo "   - This reduces thousands of profraw files to ~5 = low memory"
+	@echo "   - Features: cuda,heavy-tests (for maximum coverage)"
 	@which cargo-llvm-cov > /dev/null 2>&1 || (echo "$(YELLOW)📦 Installing cargo-llvm-cov...$(NC)" && cargo install cargo-llvm-cov --locked)
 	@mkdir -p target/coverage
-	@cargo llvm-cov clean --workspace
-	@echo "$(GREEN)🧪 Running tests with instrumentation...$(NC)"
-	@# Memory-safe settings (ruchy-style):
-	@# - PROPTEST_CASES=2: Minimal property test iterations
-	@# - cargo test: 1 profraw per binary (not per test like nextest)
-	@# - --test-threads=4: Limit parallel test execution
-	@# - --lib only: Skip integration tests for faster coverage
-	@# - RUSTFLAGS="": Disable mold linker (breaks LLVM instrumentation)
-	@env RUSTFLAGS="" CARGO_BUILD_RUSTFLAGS="" PROPTEST_CASES=2 QUICKCHECK_TESTS=2 \
-		cargo llvm-cov test --lib --no-report \
+	@echo "$(GREEN)🧪 Running lib tests with instrumentation (PROPTEST_CASES=5)...$(NC)"
+	@env RUSTFLAGS="" CARGO_BUILD_RUSTFLAGS="" PROPTEST_CASES=5 QUICKCHECK_TESTS=5 \
+		cargo llvm-cov test --lib --features "cuda,heavy-tests" --no-report $(COV_EXCLUDE) \
 		-- --test-threads=4 2>&1 | tail -30
+	@echo "$(GREEN)🧪 Running CUDA integration tests (--test-threads=1 for GPU)...$(NC)"
+	@env RUSTFLAGS="" CARGO_BUILD_RUSTFLAGS="" PROPTEST_CASES=5 QUICKCHECK_TESTS=5 \
+		cargo llvm-cov test --test cuda_heavy_integration --test cuda_combinatorial_coverage \
+		--features "cuda,heavy-tests" --no-report $(COV_EXCLUDE) \
+		-- --test-threads=1 2>&1 | tail -30
 	@echo "$(GREEN)📊 Generating reports...$(NC)"
-	@cargo llvm-cov report --html --output-dir target/coverage/html
-	@cargo llvm-cov report --lcov --output-path target/coverage/lcov.info
+	@cargo llvm-cov report --html --output-dir target/coverage/html $(COV_EXCLUDE)
+	@cargo llvm-cov report --lcov --output-path target/coverage/lcov.info $(COV_EXCLUDE)
 	@echo ""
-	@cargo llvm-cov report --summary-only
+	@cargo llvm-cov report --summary-only $(COV_EXCLUDE)
 	@echo "$(GREEN)✅ Coverage report: target/coverage/html/index.html$(NC)"
 
 coverage-full: ## Full coverage with all features (requires 16GB+ RAM)

@@ -1593,11 +1593,11 @@ fn test_cov_model_forward_multiple_tokens() {
 }
 
 #[test]
-#[should_panic(expected = "attempt to subtract with overflow")]
+#[should_panic(expected = "subtract with overflow")]
 fn test_cov_model_forward_empty_tokens() {
     let model = create_inference_test_model();
 
-    // Forward pass with empty token list panics due to internal seq_len - 1 calculation
+    // Forward pass with empty token list panics due to seq_len - 1 underflow
     let token_ids: [u32; 0] = [];
     let _ = model.forward(&token_ids);
 }

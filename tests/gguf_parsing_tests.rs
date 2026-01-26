@@ -4,8 +4,7 @@
 
 use realizar::error::RealizarError;
 use realizar::gguf::{
-    GGUFModel, GGUFValue, GGUF_ALIGNMENT, GGUF_MAGIC, GGUF_TYPE_F32, GGUF_TYPE_Q4_0,
-    GGUF_TYPE_Q8_0,
+    GGUFModel, GGUFValue, GGUF_ALIGNMENT, GGUF_MAGIC, GGUF_TYPE_F32, GGUF_TYPE_Q4_0, GGUF_TYPE_Q8_0,
 };
 
 #[test]

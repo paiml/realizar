@@ -631,6 +631,9 @@ fn test_transformer_forward_gqa_config() {
         output_norm_bias: None,
         lm_head_weight: vec![0.0; config.hidden_dim * config.vocab_size],
         lm_head_bias: None,
+        q4k_layers: None,
+        lm_head_weight_q4k: None,
+        lm_head_weight_q6k: None,
     };
 
     let result = transformer.forward(&[1, 2, 3]);

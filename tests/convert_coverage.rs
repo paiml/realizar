@@ -114,6 +114,9 @@ fn create_minimal_apr_transformer(
         output_norm_bias: None,
         lm_head_weight: vec![0.01; hidden_dim * vocab_size],
         lm_head_bias: None,
+        q4k_layers: None,
+        lm_head_weight_q4k: None,
+        lm_head_weight_q6k: None,
     }
 }
 
@@ -795,6 +798,9 @@ fn test_conversion_with_bias_weights() {
         output_norm_bias: Some(vec![0.0; 8]),
         lm_head_weight: vec![0.01; 8 * 10],
         lm_head_bias: Some(vec![0.0; 10]),
+        q4k_layers: None,
+        lm_head_weight_q4k: None,
+        lm_head_weight_q6k: None,
     };
 
     let bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialize");
@@ -968,6 +974,9 @@ fn test_roundtrip_with_different_architectures() {
             output_norm_bias: None,
             lm_head_weight: vec![0.01; 8 * 10],
             lm_head_bias: None,
+            q4k_layers: None,
+            lm_head_weight_q4k: None,
+            lm_head_weight_q6k: None,
         };
 
         let bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialize");
@@ -1617,6 +1626,9 @@ fn test_roundtrip_with_special_rope_theta() {
         output_norm_bias: None,
         lm_head_weight: vec![0.01; 8 * 10],
         lm_head_bias: None,
+        q4k_layers: None,
+        lm_head_weight_q4k: None,
+        lm_head_weight_q6k: None,
     };
 
     let bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialize");
@@ -1664,6 +1676,9 @@ fn test_roundtrip_with_long_context() {
         output_norm_bias: None,
         lm_head_weight: vec![0.01; 8 * 10],
         lm_head_bias: None,
+        q4k_layers: None,
+        lm_head_weight_q4k: None,
+        lm_head_weight_q6k: None,
     };
 
     let bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialize");
@@ -2446,6 +2461,9 @@ fn test_roundtrip_empty_architecture() {
         output_norm_bias: None,
         lm_head_weight: vec![0.01; 8 * 10],
         lm_head_bias: None,
+        q4k_layers: None,
+        lm_head_weight_q4k: None,
+        lm_head_weight_q6k: None,
     };
 
     let bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialize");
@@ -2492,6 +2510,9 @@ fn test_roundtrip_very_small_eps() {
         output_norm_bias: None,
         lm_head_weight: vec![0.01; 8 * 10],
         lm_head_bias: None,
+        q4k_layers: None,
+        lm_head_weight_q4k: None,
+        lm_head_weight_q6k: None,
     };
 
     let bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialize");
@@ -2538,6 +2559,9 @@ fn test_roundtrip_single_head() {
         output_norm_bias: None,
         lm_head_weight: vec![0.01; 8 * 10],
         lm_head_bias: None,
+        q4k_layers: None,
+        lm_head_weight_q4k: None,
+        lm_head_weight_q6k: None,
     };
 
     let bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialize");
@@ -2775,6 +2799,9 @@ fn test_metadata_preservation_all_fields() {
         output_norm_bias: None,
         lm_head_weight: vec![0.01; 512 * 32000],
         lm_head_bias: None,
+        q4k_layers: None,
+        lm_head_weight_q4k: None,
+        lm_head_weight_q6k: None,
     };
 
     let bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialize");
@@ -2831,6 +2858,9 @@ fn test_metadata_unicode_architecture() {
         output_norm_bias: None,
         lm_head_weight: vec![0.01; 8 * 10],
         lm_head_bias: None,
+        q4k_layers: None,
+        lm_head_weight_q4k: None,
+        lm_head_weight_q6k: None,
     };
 
     let bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialize");
@@ -3039,6 +3069,9 @@ fn test_apr_roundtrip_weight_values_exact() {
         output_norm_bias: None,
         lm_head_weight: vec![0.01; 4 * 5],
         lm_head_bias: None,
+        q4k_layers: None,
+        lm_head_weight_q4k: None,
+        lm_head_weight_q6k: None,
     };
 
     let bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialize");
@@ -3315,6 +3348,9 @@ fn test_apr_with_all_optional_fields_none() {
         output_norm_bias: None, // Optional
         lm_head_weight: vec![0.01; 4 * 5],
         lm_head_bias: None, // Optional
+        q4k_layers: None,
+        lm_head_weight_q4k: None,
+        lm_head_weight_q6k: None,
     };
 
     let bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialize");
@@ -3363,6 +3399,9 @@ fn test_apr_with_all_optional_fields_some() {
         output_norm_bias: Some(vec![0.09; 4]),
         lm_head_weight: vec![0.01; 4 * 5],
         lm_head_bias: Some(vec![0.1; 5]),
+        q4k_layers: None,
+        lm_head_weight_q4k: None,
+        lm_head_weight_q6k: None,
     };
 
     let bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("serialize");

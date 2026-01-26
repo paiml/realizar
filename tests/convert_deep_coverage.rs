@@ -3,8 +3,8 @@
 //! This module provides additional coverage for conversion functions
 //! not covered by existing tests. Targets 95%+ coverage.
 
-use realizar::convert::{ConversionStats, GgufToAprConverter, Q4KConversionStats, RawTensor};
 use realizar::apr_transformer::{AprTransformer, AprTransformerConfig};
+use realizar::convert::{ConversionStats, GgufToAprConverter, Q4KConversionStats, RawTensor};
 
 // ============================================================================
 // Test 1-10: ConversionStats tests
@@ -476,7 +476,7 @@ fn test_converter_apr_bytes_header_version() {
     // Check version field (bytes 4-8)
     let version = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
     // Version should be reasonable (1-10)
-    assert!(version >= 1 && version <= 10);
+    assert!((1..=10).contains(&version));
 }
 
 #[test]

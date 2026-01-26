@@ -4,18 +4,16 @@
 //! SIMD backends, RoPE rotation, and helper types not covered by existing tests.
 
 use realizar::quantize::{
-    detect_simd_backend, dequantize_f16, dequantize_q4_0, dequantize_q4_1, dequantize_q4_k,
-    dequantize_q4_k_parallel, dequantize_q4_k_simd, dequantize_q5_0, dequantize_q5_1,
-    dequantize_q5_k, dequantize_q6_k, dequantize_q8_0, dequantize_q8_0_parallel,
-    dequantize_q8_0_simd, f16_to_f32, fused_q4k_dot, fused_q4k_dot_simd,
-    fused_q4k_parallel_matvec, fused_q4k_parallel_matvec_into,
-    fused_q4k_tiled_matvec, fused_q5k_dot,
-    fused_q5k_dot_simd, fused_q5k_parallel_matvec, fused_q5k_parallel_matvec_into,
-    fused_q6k_dot, fused_q6k_dot_simd, fused_q6k_parallel_matvec,
-    fused_q6k_parallel_matvec_into, fused_swiglu_simd, quantize_activations_q8_0,
-    quantize_rmsnorm_q8_0, quantize_rmsnorm_q8_0_into, quantize_to_q8_blocks, softmax_simd,
-    DequantStats, Q4_0Block, Q4_KBlock, Q5_KBlock, Q6_KBlock, Q8KSuperBlock, Q8_0Block,
-    SimdBackend, BLOCK_SIZE, QK_K,
+    dequantize_f16, dequantize_q4_0, dequantize_q4_1, dequantize_q4_k, dequantize_q4_k_parallel,
+    dequantize_q4_k_simd, dequantize_q5_0, dequantize_q5_1, dequantize_q5_k, dequantize_q6_k,
+    dequantize_q8_0, dequantize_q8_0_parallel, dequantize_q8_0_simd, detect_simd_backend,
+    f16_to_f32, fused_q4k_dot, fused_q4k_dot_simd, fused_q4k_parallel_matvec,
+    fused_q4k_parallel_matvec_into, fused_q4k_tiled_matvec, fused_q5k_dot, fused_q5k_dot_simd,
+    fused_q5k_parallel_matvec, fused_q5k_parallel_matvec_into, fused_q6k_dot, fused_q6k_dot_simd,
+    fused_q6k_parallel_matvec, fused_q6k_parallel_matvec_into, fused_swiglu_simd,
+    quantize_activations_q8_0, quantize_rmsnorm_q8_0, quantize_rmsnorm_q8_0_into,
+    quantize_to_q8_blocks, softmax_simd, DequantStats, Q4_0Block, Q4_KBlock, Q5_KBlock, Q6_KBlock,
+    Q8KSuperBlock, Q8_0Block, SimdBackend, BLOCK_SIZE, QK_K,
 };
 
 // ============================================================================
@@ -93,7 +91,7 @@ fn test_dequant_stats_clone() {
         bytes_processed: 1600,
         simd_backend: SimdBackend::Avx2,
     };
-    let cloned = stats.clone();
+    let cloned = stats;
     assert_eq!(cloned.blocks_processed, 100);
     assert_eq!(cloned.bytes_processed, 1600);
     assert_eq!(cloned.simd_backend, SimdBackend::Avx2);
@@ -847,7 +845,7 @@ fn test_q4_0_block_clone() {
         scale: 2.0,
         quants: [0xFF; 16],
     };
-    let cloned = block.clone();
+    let cloned = block;
     assert_eq!(cloned.scale, 2.0);
     assert_eq!(cloned.quants[0], 0xFF);
 }
@@ -858,7 +856,7 @@ fn test_q8_0_block_clone() {
         scale: 1.0,
         quants: [127i8; 32],
     };
-    let cloned = block.clone();
+    let cloned = block;
     assert_eq!(cloned.scale, 1.0);
     assert_eq!(cloned.quants[0], 127);
 }
@@ -869,7 +867,7 @@ fn test_q8k_super_block_clone() {
         scale: 0.5,
         quants: [64i8; 256],
     };
-    let cloned = block.clone();
+    let cloned = block;
     assert_eq!(cloned.scale, 0.5);
     assert_eq!(cloned.quants[0], 64);
 }

@@ -4,12 +4,22 @@
 //!
 //! Run with: CUDA_GRAPH_DISABLE=1 cargo run --release --features cuda --example debug_single_row
 
-use realizar::gguf::{
-    MappedGGUFModel, OwnedQuantizedKVCache, OwnedQuantizedModel, OwnedQuantizedModelCuda,
-};
-use realizar::quantize::fused_q6k_dot;
+#[cfg(not(feature = "cuda"))]
+fn main() {
+    eprintln!("This example requires the 'cuda' feature. Run with: cargo run --features cuda --example debug_single_row");
+}
 
+#[cfg(feature = "cuda")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    cuda_main()
+}
+
+#[cfg(feature = "cuda")]
+fn cuda_main() -> Result<(), Box<dyn std::error::Error>> {
+    use realizar::gguf::{
+        MappedGGUFModel, OwnedQuantizedKVCache, OwnedQuantizedModel, OwnedQuantizedModelCuda,
+    };
+    use realizar::quantize::fused_q6k_dot;
     let model_path =
         "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf";
 

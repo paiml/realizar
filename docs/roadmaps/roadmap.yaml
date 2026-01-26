@@ -4001,3 +4001,69 @@ roadmap:
   estimated_effort: null
   labels: []
   notes: null
+- id: Enable cuda,heavy-tests features in coverage target for 95% coverage
+  github_issue: null
+  item_type: task
+  title: 'New task: Enable cuda,heavy-tests features in coverage target for 95% coverage'
+  status: inprogress
+  priority: medium
+  assigned_to: null
+  created: 2026-01-21T09:01:05.298976136+00:00
+  updated: 2026-01-21T09:01:05.298976136+00:00
+  spec: null
+  acceptance_criteria: []
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels: []
+  notes: null
+- id: 'T-QA-012: Single Layer Harness for cuda.rs transformer_layer coverage'
+  github_issue: null
+  item_type: task
+  title: 'New task: T-QA-012: Single Layer Harness for cuda.rs transformer_layer coverage'
+  status: inprogress
+  priority: medium
+  assigned_to: null
+  created: 2026-01-21T09:42:41.062913377+00:00
+  updated: 2026-01-21T09:42:41.062913377+00:00
+  spec: null
+  acceptance_criteria: []
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels: []
+  notes: null
+- id: PMAT-803
+  github_issue: null
+  item_type: task
+  title: 'PMAT-094: RMSNorm fix for SafeTensors inference'
+  status: completed
+  priority: high
+  assigned_to: null
+  created: 2026-01-22T10:19:41Z
+  updated: 2026-01-22T10:22:14.204234464+00:00
+  spec: null
+  acceptance_criteria:
+  - 'Five-whys analysis: layer_norm used LayerNorm instead of RMSNorm'
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels: []
+  notes: null
+- id: PMAT-804
+  github_issue: null
+  item_type: task
+  title: APR v1 format detection
+  status: planned
+  priority: medium
+  assigned_to: null
+  created: 2026-01-22T10:26:19Z
+  updated: 2026-01-22T10:26:19Z
+  spec: null
+  acceptance_criteria:
+  - Add clear error for APR v1 files not supported
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels: []
+  notes: null

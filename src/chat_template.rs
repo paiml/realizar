@@ -26,7 +26,7 @@
 //!
 //! let template = ChatMLTemplate::new();
 //! let messages = vec![ChatMessage::user("Hello!")];
-//! let output = template.format_conversation(&messages).unwrap();
+//! let output = template.format_conversation(&messages).expect("operation failed");
 //! assert!(output.contains("<|im_start|>user"));
 //! ```
 //!
@@ -113,12 +113,14 @@ impl ChatMessage {
 pub enum TemplateFormat {
     /// ChatML format (Qwen2, OpenHermes, Yi)
     ChatML,
-    /// LLaMA 2 format (TinyLlama, Vicuna)
+    /// LLaMA 2 format (Vicuna, LLaMA 2 Chat)
     Llama2,
     /// LLaMA 3 format (Meta-Llama-3)
     Llama3,
     /// Groq Tool-Use format (Llama-3-Groq-8B-Tool-Use)
     GroqTool,
+    /// Zephyr format (TinyLlama, Zephyr, StableLM)
+    Zephyr,
     /// Mistral format (Mistral, Mixtral)
     Mistral,
     /// Alpaca instruction format
@@ -563,6 +565,90 @@ impl ChatTemplateEngine for MistralTemplate {
     }
 }
 
+/// Zephyr Template (TinyLlama, Zephyr, StableLM)
+///
+/// Format: `<|user|>\n{content}</s>\n<|assistant|>\n`
+///
+/// This is the correct template for TinyLlama-1.1B-Chat-v1.0.
+/// Note: TinyLlama is NOT Llama2 format despite the name!
+#[derive(Debug, Clone)]
+pub struct ZephyrTemplate {
+    special_tokens: SpecialTokens,
+}
+
+impl ZephyrTemplate {
+    /// Create a new Zephyr template
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            special_tokens: SpecialTokens {
+                bos_token: Some("<s>".to_string()),
+                eos_token: Some("</s>".to_string()),
+                ..Default::default()
+            },
+        }
+    }
+}
+
+impl Default for ZephyrTemplate {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ChatTemplateEngine for ZephyrTemplate {
+    fn format_message(&self, role: &str, content: &str) -> Result<String, RealizarError> {
+        match role {
+            "system" => Ok(format!("<|system|>\n{content}</s>\n")),
+            "user" => Ok(format!("<|user|>\n{content}</s>\n")),
+            "assistant" => Ok(format!("<|assistant|>\n{content}</s>\n")),
+            _ => Ok(content.to_string()),
+        }
+    }
+
+    fn format_conversation(&self, messages: &[ChatMessage]) -> Result<String, RealizarError> {
+        let mut result = String::new();
+
+        for msg in messages {
+            match msg.role.as_str() {
+                "system" => {
+                    result.push_str("<|system|>\n");
+                    result.push_str(&msg.content);
+                    result.push_str("</s>\n");
+                },
+                "user" => {
+                    result.push_str("<|user|>\n");
+                    result.push_str(&msg.content);
+                    result.push_str("</s>\n");
+                },
+                "assistant" => {
+                    result.push_str("<|assistant|>\n");
+                    result.push_str(&msg.content);
+                    result.push_str("</s>\n");
+                },
+                _ => {},
+            }
+        }
+
+        // Add generation prompt
+        result.push_str("<|assistant|>\n");
+
+        Ok(result)
+    }
+
+    fn special_tokens(&self) -> &SpecialTokens {
+        &self.special_tokens
+    }
+
+    fn format(&self) -> TemplateFormat {
+        TemplateFormat::Zephyr
+    }
+
+    fn supports_system_prompt(&self) -> bool {
+        true
+    }
+}
+
 /// Phi Template (Phi-2, Phi-3)
 ///
 /// Format: `Instruct: {content}\nOutput:`
@@ -887,7 +973,7 @@ impl ChatTemplateEngine for RawTemplate {
 /// ```
 /// use realizar::chat_template::{detect_format_from_name, TemplateFormat};
 ///
-/// assert_eq!(detect_format_from_name("TinyLlama-1.1B-Chat"), TemplateFormat::Llama2);
+/// assert_eq!(detect_format_from_name("TinyLlama-1.1B-Chat"), TemplateFormat::Zephyr);
 /// assert_eq!(detect_format_from_name("Qwen2-0.5B-Instruct"), TemplateFormat::ChatML);
 /// ```
 #[must_use]
@@ -907,6 +993,15 @@ pub fn detect_format_from_name(model_name: &str) -> TemplateFormat {
         return TemplateFormat::ChatML;
     }
 
+    // Zephyr format models (check BEFORE llama - TinyLlama uses Zephyr, not Llama2!)
+    // TinyLlama-1.1B-Chat uses <|user|>, <|assistant|>, <|system|> tokens
+    if name_lower.contains("tinyllama")
+        || name_lower.contains("zephyr")
+        || name_lower.contains("stablelm")
+    {
+        return TemplateFormat::Zephyr;
+    }
+
     // Mistral (check before LLaMA since both use [INST])
     if name_lower.contains("mistral") || name_lower.contains("mixtral") {
         return TemplateFormat::Mistral;
@@ -917,11 +1012,8 @@ pub fn detect_format_from_name(model_name: &str) -> TemplateFormat {
         return TemplateFormat::Llama3;
     }
 
-    // LLaMA 2 / TinyLlama / Vicuna
-    if name_lower.contains("llama")
-        || name_lower.contains("vicuna")
-        || name_lower.contains("tinyllama")
-    {
+    // LLaMA 2 / Vicuna (note: TinyLlama is handled above as Zephyr)
+    if name_lower.contains("llama") || name_lower.contains("vicuna") {
         return TemplateFormat::Llama2;
     }
 
@@ -961,6 +1053,7 @@ pub fn create_template(format: TemplateFormat) -> Box<dyn ChatTemplateEngine> {
         TemplateFormat::Llama2 => Box::new(Llama2Template::new()),
         TemplateFormat::Llama3 => Box::new(Llama3Template::new()),
         TemplateFormat::GroqTool => Box::new(GroqToolChatTemplate::new()),
+        TemplateFormat::Zephyr => Box::new(ZephyrTemplate::new()),
         TemplateFormat::Mistral => Box::new(MistralTemplate::new()),
         TemplateFormat::Phi => Box::new(PhiTemplate::new()),
         TemplateFormat::Alpaca => Box::new(AlpacaTemplate::new()),
@@ -1077,11 +1170,23 @@ mod tests {
     }
 
     #[test]
-    fn test_detect_llama2() {
+    fn test_detect_zephyr() {
         assert_eq!(
             detect_format_from_name("TinyLlama-1.1B-Chat"),
-            TemplateFormat::Llama2
+            TemplateFormat::Zephyr
         );
+        assert_eq!(
+            detect_format_from_name("zephyr-7b-beta"),
+            TemplateFormat::Zephyr
+        );
+        assert_eq!(
+            detect_format_from_name("stablelm-3b-4e1t"),
+            TemplateFormat::Zephyr
+        );
+    }
+
+    #[test]
+    fn test_detect_llama2() {
         assert_eq!(
             detect_format_from_name("vicuna-7b-v1.5"),
             TemplateFormat::Llama2
@@ -1135,7 +1240,7 @@ mod tests {
     fn test_detection_case_insensitive() {
         assert_eq!(
             detect_format_from_name("TINYLLAMA-1.1B-CHAT"),
-            TemplateFormat::Llama2
+            TemplateFormat::Zephyr
         );
         assert_eq!(
             detect_format_from_name("qwen2-0.5b-instruct"),
@@ -1150,7 +1255,9 @@ mod tests {
     #[test]
     fn test_chatml_format_message() {
         let template = ChatMLTemplate::new();
-        let result = template.format_message("user", "Hello!").unwrap();
+        let result = template
+            .format_message("user", "Hello!")
+            .expect("operation failed");
         assert_eq!(result, "<|im_start|>user\nHello!<|im_end|>\n");
     }
 
@@ -1161,7 +1268,9 @@ mod tests {
             ChatMessage::system("You are helpful."),
             ChatMessage::user("Hello!"),
         ];
-        let output = template.format_conversation(&messages).unwrap();
+        let output = template
+            .format_conversation(&messages)
+            .expect("operation failed");
 
         assert!(output.contains("<|im_start|>system"));
         assert!(output.contains("You are helpful."));
@@ -1194,7 +1303,9 @@ mod tests {
             ChatMessage::system("You are helpful."),
             ChatMessage::user("Hello!"),
         ];
-        let output = template.format_conversation(&messages).unwrap();
+        let output = template
+            .format_conversation(&messages)
+            .expect("operation failed");
 
         assert!(output.starts_with("<s>"));
         assert!(output.contains("[INST]"));
@@ -1213,12 +1324,62 @@ mod tests {
             ChatMessage::assistant("Hi there!"),
             ChatMessage::user("How are you?"),
         ];
-        let output = template.format_conversation(&messages).unwrap();
+        let output = template
+            .format_conversation(&messages)
+            .expect("operation failed");
 
         assert!(output.contains("Hello!"));
         assert!(output.contains("Hi there!"));
         assert!(output.contains("How are you?"));
         assert!(output.contains("</s>"));
+    }
+
+    // ========================================================================
+    // Zephyr Template Tests (TinyLlama, Zephyr, StableLM)
+    // ========================================================================
+
+    #[test]
+    fn test_zephyr_format_conversation() {
+        let template = ZephyrTemplate::new();
+        let messages = vec![
+            ChatMessage::system("You are helpful."),
+            ChatMessage::user("Hello!"),
+        ];
+        let output = template
+            .format_conversation(&messages)
+            .expect("operation failed");
+
+        // Zephyr format: <|role|>\ncontent</s>\n
+        assert!(output.contains("<|system|>\n"));
+        assert!(output.contains("You are helpful."));
+        assert!(output.contains("</s>\n"));
+        assert!(output.contains("<|user|>\n"));
+        assert!(output.contains("Hello!"));
+        assert!(output.ends_with("<|assistant|>\n"));
+    }
+
+    #[test]
+    fn test_zephyr_multi_turn() {
+        let template = ZephyrTemplate::new();
+        let messages = vec![
+            ChatMessage::user("Hello!"),
+            ChatMessage::assistant("Hi there!"),
+            ChatMessage::user("How are you?"),
+        ];
+        let output = template
+            .format_conversation(&messages)
+            .expect("operation failed");
+
+        assert!(output.contains("<|user|>\nHello!</s>\n"));
+        assert!(output.contains("<|assistant|>\nHi there!</s>\n"));
+        assert!(output.contains("<|user|>\nHow are you?</s>\n"));
+        assert!(output.ends_with("<|assistant|>\n"));
+    }
+
+    #[test]
+    fn test_zephyr_supports_system() {
+        let template = ZephyrTemplate::new();
+        assert!(template.supports_system_prompt());
     }
 
     // ========================================================================
@@ -1234,7 +1395,9 @@ mod tests {
             ChatMessage::system("System prompt"),
             ChatMessage::user("Hello!"),
         ];
-        let output = template.format_conversation(&messages).unwrap();
+        let output = template
+            .format_conversation(&messages)
+            .expect("operation failed");
 
         // System prompt should be ignored
         assert!(!output.contains("System prompt"));
@@ -1250,7 +1413,9 @@ mod tests {
     fn test_phi_format() {
         let template = PhiTemplate::new();
         let messages = vec![ChatMessage::user("Hello!")];
-        let output = template.format_conversation(&messages).unwrap();
+        let output = template
+            .format_conversation(&messages)
+            .expect("operation failed");
 
         assert!(output.contains("Instruct: Hello!"));
         assert!(output.ends_with("Output:"));
@@ -1264,7 +1429,9 @@ mod tests {
     fn test_alpaca_format() {
         let template = AlpacaTemplate::new();
         let messages = vec![ChatMessage::user("Hello!")];
-        let output = template.format_conversation(&messages).unwrap();
+        let output = template
+            .format_conversation(&messages)
+            .expect("operation failed");
 
         assert!(output.contains("### Instruction:"));
         assert!(output.contains("Hello!"));
@@ -1283,7 +1450,9 @@ mod tests {
             ChatMessage::user("User"),
             ChatMessage::assistant("Assistant"),
         ];
-        let output = template.format_conversation(&messages).unwrap();
+        let output = template
+            .format_conversation(&messages)
+            .expect("operation failed");
 
         assert_eq!(output, "SystemUserAssistant");
     }
@@ -1296,17 +1465,19 @@ mod tests {
     fn test_format_messages_with_model() {
         let messages = vec![ChatMessage::user("Hello!")];
 
-        let output = format_messages(&messages, Some("Qwen2-0.5B")).unwrap();
+        let output = format_messages(&messages, Some("Qwen2-0.5B")).expect("operation failed");
         assert!(output.contains("<|im_start|>"));
 
-        let output = format_messages(&messages, Some("TinyLlama")).unwrap();
-        assert!(output.contains("[INST]"));
+        // TinyLlama uses Zephyr format, NOT Llama2
+        let output = format_messages(&messages, Some("TinyLlama")).expect("operation failed");
+        assert!(output.contains("<|user|>"));
+        assert!(output.contains("<|assistant|>"));
     }
 
     #[test]
     fn test_format_messages_without_model() {
         let messages = vec![ChatMessage::user("Hello!")];
-        let output = format_messages(&messages, None).unwrap();
+        let output = format_messages(&messages, None).expect("operation failed");
         assert_eq!(output, "Hello!");
     }
 
@@ -1326,7 +1497,9 @@ mod tests {
     fn test_unicode_preserved() {
         let template = ChatMLTemplate::new();
         let messages = vec![ChatMessage::user("Hello! 你好 مرحبا 🎉")];
-        let output = template.format_conversation(&messages).unwrap();
+        let output = template
+            .format_conversation(&messages)
+            .expect("operation failed");
 
         assert!(output.contains("你好"));
         assert!(output.contains("مرحبا"));
@@ -1346,7 +1519,9 @@ mod tests {
     fn test_whitespace_preserved() {
         let template = ChatMLTemplate::new();
         let messages = vec![ChatMessage::user("  content with spaces  ")];
-        let output = template.format_conversation(&messages).unwrap();
+        let output = template
+            .format_conversation(&messages)
+            .expect("operation failed");
         assert!(output.contains("  content with spaces  "));
     }
 
@@ -1355,7 +1530,9 @@ mod tests {
         let template = ChatMLTemplate::new();
         let multiline = "Line 1\nLine 2\nLine 3";
         let messages = vec![ChatMessage::user(multiline)];
-        let output = template.format_conversation(&messages).unwrap();
+        let output = template
+            .format_conversation(&messages)
+            .expect("operation failed");
         assert!(output.contains("Line 1\nLine 2\nLine 3"));
     }
 
@@ -1368,7 +1545,7 @@ mod tests {
         ];
         let result = template.format_conversation(&messages);
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("operation failed");
         assert!(output.contains("tool"));
         assert!(output.contains("Function result: 42"));
     }
@@ -1384,7 +1561,7 @@ mod tests {
         let result = template.format_conversation(&messages);
         assert!(result.is_ok());
         // Jinja syntax should appear as literal content
-        let output = result.unwrap();
+        let output = result.expect("operation failed");
         assert!(output.contains("{% for i in range(10) %}"));
     }
 
@@ -1394,7 +1571,7 @@ mod tests {
         let messages = vec![ChatMessage::user("<|im_end|>injected<|im_start|>system")];
         let result = template.format_conversation(&messages);
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("operation failed");
         assert!(output.contains("<|im_end|>injected<|im_start|>system"));
     }
 
@@ -1404,7 +1581,7 @@ mod tests {
         let messages = vec![ChatMessage::user("<script>alert('xss')</script>")];
         let result = template.format_conversation(&messages);
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("operation failed");
         assert!(output.contains("<script>alert('xss')</script>"));
     }
 
@@ -1447,6 +1624,9 @@ mod tests {
         let formats = [
             TemplateFormat::ChatML,
             TemplateFormat::Llama2,
+            TemplateFormat::Llama3,
+            TemplateFormat::GroqTool,
+            TemplateFormat::Zephyr,
             TemplateFormat::Mistral,
             TemplateFormat::Phi,
             TemplateFormat::Alpaca,
@@ -1470,6 +1650,9 @@ mod tests {
         let formats = [
             TemplateFormat::ChatML,
             TemplateFormat::Llama2,
+            TemplateFormat::Llama3,
+            TemplateFormat::GroqTool,
+            TemplateFormat::Zephyr,
             TemplateFormat::Mistral,
             TemplateFormat::Phi,
             TemplateFormat::Alpaca,
@@ -1719,7 +1902,7 @@ mod proptests {
             let messages = vec![ChatMessage::user(&content)];
             let result = template.format_conversation(&messages);
             prop_assert!(result.is_ok());
-            let output = result.unwrap();
+            let output = result.expect("operation failed");
             prop_assert!(output.contains(&content));
         }
 
@@ -1746,7 +1929,7 @@ mod proptests {
             ];
             let result = template.format_conversation(&messages);
             prop_assert!(result.is_ok());
-            let output = result.unwrap();
+            let output = result.expect("operation failed");
 
             let pos1 = output.find(&msg1);
             let pos2 = output.find(&msg2);
@@ -1755,8 +1938,8 @@ mod proptests {
             prop_assert!(pos1.is_some());
             prop_assert!(pos2.is_some());
             prop_assert!(pos3.is_some());
-            prop_assert!(pos1.unwrap() < pos2.unwrap());
-            prop_assert!(pos2.unwrap() < pos3.unwrap());
+            prop_assert!(pos1.expect("operation failed") < pos2.expect("operation failed"));
+            prop_assert!(pos2.expect("operation failed") < pos3.expect("operation failed"));
         }
 
         /// Property: Serde roundtrip preserves ChatMessage
@@ -1766,17 +1949,20 @@ mod proptests {
             content in ".*"
         ) {
             let msg = ChatMessage::new(&role, &content);
-            let json = serde_json::to_string(&msg).unwrap();
-            let restored: ChatMessage = serde_json::from_str(&json).unwrap();
+            let json = serde_json::to_string(&msg).expect("invalid UTF-8");
+            let restored: ChatMessage = serde_json::from_str(&json).expect("parse failed");
             prop_assert_eq!(msg, restored);
         }
 
         /// Property: Template format enum is exhaustive in create_template
         #[test]
-        fn prop_all_formats_creatable(format_idx in 0usize..7) {
+        fn prop_all_formats_creatable(format_idx in 0usize..10) {
             let formats = [
                 TemplateFormat::ChatML,
                 TemplateFormat::Llama2,
+                TemplateFormat::Llama3,
+                TemplateFormat::GroqTool,
+                TemplateFormat::Zephyr,
                 TemplateFormat::Mistral,
                 TemplateFormat::Phi,
                 TemplateFormat::Alpaca,
@@ -1798,7 +1984,7 @@ mod proptests {
             let messages = vec![ChatMessage::user(&content)];
             let result = template.format_conversation(&messages);
             prop_assert!(result.is_ok());
-            let output = result.unwrap();
+            let output = result.expect("operation failed");
             prop_assert!(output.ends_with("<|im_start|>assistant\n"));
         }
 
@@ -1809,7 +1995,7 @@ mod proptests {
             let messages = vec![ChatMessage::user(&content)];
             let result = template.format_conversation(&messages);
             prop_assert!(result.is_ok());
-            let output = result.unwrap();
+            let output = result.expect("operation failed");
             prop_assert!(output.starts_with("<s>"));
         }
 
@@ -1826,7 +2012,7 @@ mod proptests {
             ];
             let result = template.format_conversation(&messages);
             prop_assert!(result.is_ok());
-            let output = result.unwrap();
+            let output = result.expect("operation failed");
             // Mistral doesn't support system prompts
             prop_assert!(!output.contains("<<SYS>>"));
             prop_assert!(!output.contains("<</SYS>>"));

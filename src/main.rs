@@ -14,18 +14,13 @@
 //! - `viz` - Visualize benchmark results
 //! - `info` - Show version info
 
-use std::net::SocketAddr;
-
 use clap::{Parser, Subcommand};
 #[cfg(feature = "registry")]
 use pacha::resolver::{ModelResolver, ModelSource};
 #[cfg(feature = "registry")]
 use pacha::uri::ModelUri;
-use realizar::{
-    api::{create_router, AppState},
-    cli,
-    error::Result,
-};
+use realizar::cli::inference::{run_apr_inference, run_gguf_inference, run_safetensors_inference};
+use realizar::{cli, error::Result};
 
 /// Realizar - Pure Rust ML inference engine
 ///
@@ -73,6 +68,14 @@ enum Commands {
         /// Force GPU acceleration (requires CUDA feature)
         #[arg(long)]
         gpu: bool,
+
+        /// Show verbose output (loading details, performance stats)
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Enable inference tracing for debugging (e.g., --trace or --trace=attention,ffn)
+        #[arg(long, value_name = "STEPS")]
+        trace: Option<Option<String>>,
     },
     /// Interactive chat mode (like `ollama chat`)
     Chat {
@@ -263,6 +266,8 @@ async fn main() -> Result<()> {
             system,
             raw,
             gpu,
+            verbose,
+            trace,
         } => {
             run_model(
                 &model,
@@ -273,6 +278,8 @@ async fn main() -> Result<()> {
                 system.as_deref(),
                 raw,
                 gpu,
+                verbose,
+                trace,
             )
             .await?;
         },
@@ -372,44 +379,15 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// Demo server - delegates to cli::serve_demo for testability
 async fn serve_demo(host: &str, port: u16) -> Result<()> {
-    println!("Starting Realizar inference server (demo mode)...");
-
-    let state = AppState::demo()?;
-    let app = create_router(state);
-
-    let addr: SocketAddr = format!("{host}:{port}").parse().map_err(|e| {
-        realizar::error::RealizarError::InvalidShape {
-            reason: format!("Invalid address: {e}"),
-        }
-    })?;
-
-    println!("Server listening on http://{addr}");
-    println!();
-    println!("Endpoints:");
-    println!("  GET  /health   - Health check");
-    println!("  POST /tokenize - Tokenize text");
-    println!("  POST /generate - Generate text");
-    println!();
-    println!("Example:");
-    println!("  curl http://{addr}/health");
-    println!();
-
-    let listener = tokio::net::TcpListener::bind(addr).await.map_err(|e| {
-        realizar::error::RealizarError::InvalidShape {
-            reason: format!("Failed to bind: {e}"),
-        }
-    })?;
-
-    axum::serve(listener, app)
-        .await
-        .map_err(|e| realizar::error::RealizarError::InvalidShape {
-            reason: format!("Server error: {e}"),
-        })?;
-
-    Ok(())
+    cli::serve_demo(host, port).await
 }
 
+/// Serve a model - delegates to cli::serve_model for testability
+///
+/// This is a thin wrapper that calls the library function.
+/// All logic is in cli.rs where it can be unit tested.
 async fn serve_model(
     host: &str,
     port: u16,
@@ -417,227 +395,7 @@ async fn serve_model(
     batch_mode: bool,
     force_gpu: bool,
 ) -> Result<()> {
-    use realizar::gguf::MappedGGUFModel;
-
-    println!("Loading model from: {model_path}");
-    if batch_mode {
-        println!("Mode: BATCH (PARITY-093 M4 parity)");
-    } else {
-        println!("Mode: SINGLE-REQUEST");
-    }
-    if force_gpu {
-        println!("GPU: FORCED (--gpu flag)");
-    }
-    println!();
-
-    if model_path.ends_with(".gguf") {
-        // Load GGUF model
-        println!("Parsing GGUF file...");
-        let mapped = MappedGGUFModel::from_path(model_path).map_err(|e| {
-            realizar::error::RealizarError::UnsupportedOperation {
-                operation: "load_gguf".to_string(),
-                reason: format!("Failed to load GGUF: {e}"),
-            }
-        })?;
-
-        println!("Successfully loaded GGUF model");
-        println!("  Tensors: {}", mapped.model.tensors.len());
-        println!("  Metadata: {} entries", mapped.model.metadata.len());
-        println!();
-
-        // IMP-100: Use OwnedQuantizedModel with fused Q4_K ops (1.37x faster for single-token)
-        println!("Creating quantized model (fused Q4_K ops)...");
-        let quantized_model =
-            realizar::gguf::OwnedQuantizedModel::from_mapped(&mapped).map_err(|e| {
-                realizar::error::RealizarError::UnsupportedOperation {
-                    operation: "create_quantized".to_string(),
-                    reason: format!("Failed to create quantized model: {e}"),
-                }
-            })?;
-
-        println!("Quantized model created successfully!");
-        println!("  Vocab size: {}", quantized_model.config.vocab_size);
-        println!("  Hidden dim: {}", quantized_model.config.hidden_dim);
-        println!("  Layers: {}", quantized_model.layers.len());
-        println!();
-
-        // PARITY-113: Enable CUDA backend via --gpu flag or REALIZAR_BACKEND environment variable
-        #[cfg(feature = "cuda")]
-        let mut quantized_model = quantized_model;
-        #[cfg(feature = "cuda")]
-        let use_cuda = force_gpu
-            || std::env::var("REALIZAR_BACKEND")
-                .map(|v| v.eq_ignore_ascii_case("cuda"))
-                .unwrap_or(false);
-        #[cfg(feature = "cuda")]
-        if use_cuda {
-            let source = if force_gpu {
-                "--gpu flag"
-            } else {
-                "REALIZAR_BACKEND=cuda"
-            };
-            println!("Enabling CUDA backend ({source})...");
-            match quantized_model.enable_cuda(0) {
-                Ok(()) => {
-                    println!("  CUDA enabled on GPU 0");
-                    println!("  cuda_enabled: {}", quantized_model.cuda_enabled());
-                },
-                Err(e) => {
-                    eprintln!("  Warning: CUDA enable failed: {}. Falling back to CPU.", e);
-                },
-            }
-            println!();
-        }
-        #[cfg(not(feature = "cuda"))]
-        if force_gpu {
-            eprintln!("Warning: --gpu flag requires 'cuda' feature. Falling back to CPU.");
-            eprintln!("Build with: cargo build --features cuda");
-            eprintln!();
-        }
-
-        // PARITY-093: Use cached model with batch support for M4 parity
-        let state = {
-            #[cfg(feature = "gpu")]
-            {
-                if batch_mode {
-                    use realizar::gguf::OwnedQuantizedModelCachedSync;
-
-                    println!("Initializing batch inference mode (PARITY-093/094)...");
-
-                    // Create cached model for scheduler reuse (10.6x speedup - IMP-112)
-                    let cached_model = OwnedQuantizedModelCachedSync::new(quantized_model);
-
-                    // PARITY-094: Warmup GPU cache for batch_generate_gpu
-                    // This dequantizes FFN weights to GPU memory (~6GB for phi-2)
-                    println!("  Warming up GPU cache (dequantizing FFN weights)...");
-                    match cached_model.warmup_gpu_cache() {
-                        Ok((memory_bytes, num_layers)) => {
-                            println!(
-                                "  GPU cache ready: {:.2} GB ({} layers)",
-                                memory_bytes as f64 / 1e9,
-                                num_layers
-                            );
-                        },
-                        Err(e) => {
-                            eprintln!(
-                                "  Warning: GPU cache warmup failed: {}. Falling back to CPU batch.",
-                                e
-                            );
-                        },
-                    }
-
-                    // Create state first (this wraps model in Arc internally)
-                    let state = realizar::api::AppState::with_cached_model(cached_model)?;
-
-                    // Get Arc'd model back for batch processor
-                    let cached_model_arc = state
-                        .cached_model()
-                        .expect("cached_model should exist")
-                        .clone();
-
-                    // Configure batch processing (PARITY-095: aligned thresholds)
-                    let batch_config = realizar::api::BatchConfig::default();
-                    println!("  Batch window: {}ms", batch_config.window_ms);
-                    println!("  Min batch size: {}", batch_config.min_batch);
-                    println!("  Optimal batch: {}", batch_config.optimal_batch);
-                    println!("  Max batch size: {}", batch_config.max_batch);
-                    println!(
-                        "  GPU threshold: {} (GPU GEMM for batch >= this)",
-                        batch_config.gpu_threshold
-                    );
-
-                    // Spawn batch processor task
-                    let batch_tx = realizar::api::spawn_batch_processor(
-                        cached_model_arc,
-                        batch_config.clone(),
-                    );
-
-                    println!("  Batch processor: RUNNING");
-                    println!();
-
-                    // Add batch support to state
-                    state.with_batch_config(batch_tx, batch_config)
-                } else {
-                    // Use quantized model for serving (fused CPU ops are faster for m=1)
-                    realizar::api::AppState::with_quantized_model(quantized_model)?
-                }
-            }
-
-            #[cfg(not(feature = "gpu"))]
-            {
-                if batch_mode {
-                    eprintln!(
-                        "Warning: --batch requires 'gpu' feature. Falling back to single-request mode."
-                    );
-                }
-                realizar::api::AppState::with_quantized_model(quantized_model)?
-            }
-        };
-
-        let app = realizar::api::create_router(state);
-
-        let addr: std::net::SocketAddr = format!("{host}:{port}").parse().map_err(|e| {
-            realizar::error::RealizarError::InvalidShape {
-                reason: format!("Invalid address: {e}"),
-            }
-        })?;
-
-        println!("Server listening on http://{addr}");
-        println!();
-        println!("Endpoints:");
-        println!("  GET  /health         - Health check");
-        println!("  POST /v1/completions - OpenAI-compatible completions");
-        if batch_mode {
-            println!("  POST /v1/batch/completions - GPU batch completions (PARITY-022)");
-            println!("  POST /v1/gpu/warmup  - Warmup GPU cache");
-            println!("  GET  /v1/gpu/status  - GPU status");
-        }
-        println!("  POST /generate       - Generate text (Q4_K fused)");
-        println!();
-
-        if batch_mode {
-            println!("M4 Parity Target: 192 tok/s at concurrency >= 4");
-            println!("Benchmark with: wrk -t4 -c4 -d30s http://{addr}/v1/completions");
-            println!();
-        }
-
-        let listener = tokio::net::TcpListener::bind(addr).await.map_err(|e| {
-            realizar::error::RealizarError::UnsupportedOperation {
-                operation: "bind".to_string(),
-                reason: format!("Failed to bind: {e}"),
-            }
-        })?;
-
-        axum::serve(listener, app).await.map_err(|e| {
-            realizar::error::RealizarError::UnsupportedOperation {
-                operation: "serve".to_string(),
-                reason: format!("Server error: {e}"),
-            }
-        })?;
-    } else if model_path.ends_with(".safetensors") {
-        let file_data = std::fs::read(model_path).map_err(|e| {
-            realizar::error::RealizarError::UnsupportedOperation {
-                operation: "read_model_file".to_string(),
-                reason: format!("Failed to read {model_path}: {e}"),
-            }
-        })?;
-        cli::load_safetensors_model(&file_data)?;
-    } else if model_path.ends_with(".apr") {
-        let file_data = std::fs::read(model_path).map_err(|e| {
-            realizar::error::RealizarError::UnsupportedOperation {
-                operation: "read_model_file".to_string(),
-                reason: format!("Failed to read {model_path}: {e}"),
-            }
-        })?;
-        cli::load_apr_model(&file_data)?;
-    } else {
-        return Err(realizar::error::RealizarError::UnsupportedOperation {
-            operation: "detect_model_type".to_string(),
-            reason: "Unsupported file extension. Expected .gguf, .safetensors, or .apr".to_string(),
-        });
-    }
-
-    Ok(())
+    cli::serve_model(host, port, model_path, batch_mode, force_gpu).await
 }
 
 // ============================================================================
@@ -655,13 +413,47 @@ async fn run_model(
     system_prompt: Option<&str>,
     raw_mode: bool,
     force_gpu: bool,
+    verbose: bool,
+    trace: Option<Option<String>>,
 ) -> Result<()> {
+    use presentar_terminal::cli::Spinner;
     use realizar::chat_template::{auto_detect_template, ChatMessage};
+    use realizar::inference_trace::TraceConfig;
 
-    println!("Loading model: {model_ref}");
-    if force_gpu {
-        println!("GPU: FORCED (--gpu flag)");
+    // Parse trace configuration
+    let trace_config = match trace {
+        Some(Some(steps)) => {
+            // --trace=step1,step2
+            let mut config = TraceConfig::enabled();
+            config.steps = TraceConfig::parse_steps(&steps);
+            config.verbose = true;
+            Some(config)
+        },
+        Some(None) => {
+            // --trace (no value, trace all)
+            let mut config = TraceConfig::enabled();
+            config.verbose = true;
+            Some(config)
+        },
+        None => None,
+    };
+
+    // If tracing enabled, set GPU_DEBUG environment for layer-by-layer output
+    if trace_config.is_some() {
+        std::env::set_var("GPU_DEBUG", "1");
+        eprintln!("[TRACE] Inference tracing enabled - GPU_DEBUG=1");
     }
+
+    // Ollama-style: spinner while loading, then just the response
+    let spinner = if !verbose {
+        Some(Spinner::new().start())
+    } else {
+        println!("Loading model: {model_ref}");
+        if force_gpu {
+            println!("GPU: FORCED (--gpu flag)");
+        }
+        None
+    };
 
     let file_data = match ModelUri::parse(model_ref) {
         Ok(uri) => {
@@ -674,24 +466,26 @@ async fn run_model(
 
             match resolver.resolve(&uri) {
                 Ok(resolved) => {
-                    match &resolved.source {
-                        ModelSource::LocalFile(path) => {
-                            println!("  Source: local file ({path})");
-                        },
-                        ModelSource::PachaLocal { name, version } => {
-                            println!("  Source: Pacha registry ({name}:{version})");
-                        },
-                        ModelSource::PachaRemote {
-                            host,
-                            name,
-                            version,
-                        } => {
-                            println!("  Source: Remote registry {host} ({name}:{version})");
-                        },
-                        ModelSource::HuggingFace { repo_id, revision } => {
-                            let rev = revision.as_deref().unwrap_or("main");
-                            println!("  Source: HuggingFace ({repo_id}@{rev})");
-                        },
+                    if verbose {
+                        match &resolved.source {
+                            ModelSource::LocalFile(path) => {
+                                println!("  Source: local file ({path})");
+                            },
+                            ModelSource::PachaLocal { name, version } => {
+                                println!("  Source: Pacha registry ({name}:{version})");
+                            },
+                            ModelSource::PachaRemote {
+                                host,
+                                name,
+                                version,
+                            } => {
+                                println!("  Source: Remote registry {host} ({name}:{version})");
+                            },
+                            ModelSource::HuggingFace { repo_id, revision } => {
+                                let rev = revision.as_deref().unwrap_or("main");
+                                println!("  Source: HuggingFace ({repo_id}@{rev})");
+                            },
+                        }
                     }
                     resolved.data
                 },
@@ -729,18 +523,24 @@ async fn run_model(
         },
     };
 
-    cli::display_model_info(model_ref, &file_data)?;
-    println!();
+    if verbose {
+        cli::display_model_info(model_ref, &file_data)?;
+        println!();
+    }
 
     if let Some(prompt_text) = prompt {
         // Apply chat template formatting unless --raw mode
         let formatted_prompt = if raw_mode {
-            println!("Prompt (raw): {prompt_text}");
+            if verbose {
+                println!("Prompt (raw): {prompt_text}");
+            }
             prompt_text.to_string()
         } else {
             // Auto-detect template from model name
             let template = auto_detect_template(model_ref);
-            println!("Chat template: {:?}", template.format());
+            if verbose {
+                println!("Chat template: {:?}", template.format());
+            }
 
             // Build messages
             let mut messages = Vec::new();
@@ -752,14 +552,16 @@ async fn run_model(
             // Format using detected template
             match template.format_conversation(&messages) {
                 Ok(formatted) => {
-                    println!("Prompt (formatted):");
-                    // Show first 200 chars of formatted prompt
-                    let preview: String = formatted.chars().take(200).collect();
-                    println!(
-                        "  {}{}",
-                        preview,
-                        if formatted.len() > 200 { "..." } else { "" }
-                    );
+                    if verbose {
+                        println!("Prompt (formatted):");
+                        // Show first 200 chars of formatted prompt
+                        let preview: String = formatted.chars().take(200).collect();
+                        println!(
+                            "  {}{}",
+                            preview,
+                            if formatted.len() > 200 { "..." } else { "" }
+                        );
+                    }
                     formatted
                 },
                 Err(e) => {
@@ -769,10 +571,17 @@ async fn run_model(
             }
         };
 
-        println!("Max tokens: {max_tokens}");
-        println!("Temperature: {temperature}");
-        println!("Format: {format}");
-        println!();
+        if verbose {
+            println!("Max tokens: {max_tokens}");
+            println!("Temperature: {temperature}");
+            println!("Format: {format}");
+            println!();
+        }
+
+        // Stop spinner before inference output
+        if let Some(sp) = spinner {
+            sp.stop();
+        }
 
         // Run actual GGUF inference with TruenoInferenceEngine
         run_gguf_inference(
@@ -783,6 +592,8 @@ async fn run_model(
             temperature,
             format,
             force_gpu,
+            verbose,
+            trace_config.is_some(), // PMAT-TRACE-GGUF-001: Pass trace flag
         )?;
     } else {
         println!("Interactive mode (Ctrl+D to exit)");
@@ -800,495 +611,7 @@ async fn run_model(
 /// IMP-130: Zero-copy model loading for <500ms startup time.
 /// Uses OwnedQuantizedModel for fast CPU inference.
 /// When `force_gpu` is true, uses OwnedQuantizedModelCuda with CUDA acceleration.
-fn run_gguf_inference(
-    model_ref: &str,
-    _file_data: &[u8],
-    prompt: &str,
-    max_tokens: usize,
-    temperature: f32,
-    format: &str,
-    force_gpu: bool,
-) -> Result<()> {
-    use realizar::gguf::{MappedGGUFModel, OwnedQuantizedKVCache, OwnedQuantizedModel};
-    use std::time::Instant;
-
-    // Handle --gpu flag warning when CUDA not available
-    #[cfg(not(feature = "cuda"))]
-    if force_gpu {
-        eprintln!("Warning: --gpu flag requires 'cuda' feature. Falling back to CPU.");
-        eprintln!("Build with: cargo build --features cuda");
-        eprintln!();
-    }
-    // Suppress unused warning when cuda feature not enabled
-    #[cfg(not(feature = "cuda"))]
-    let _ = force_gpu;
-
-    let load_start = Instant::now();
-
-    // Load model using memory-mapped file (same path as working examples)
-    let mapped = MappedGGUFModel::from_path(model_ref).map_err(|e| {
-        realizar::error::RealizarError::UnsupportedOperation {
-            operation: "mmap_gguf".to_string(),
-            reason: format!("Failed to mmap GGUF: {e}"),
-        }
-    })?;
-
-    // GPU path: Use OwnedQuantizedModel with CUDA acceleration
-    #[cfg(feature = "cuda")]
-    if force_gpu {
-        return run_gguf_inference_gpu(
-            &mapped,
-            prompt,
-            max_tokens,
-            temperature,
-            format,
-            load_start,
-        );
-    }
-
-    // PAR-126: Five-Whys fix - use OwnedQuantizedModel for fast CPU inference
-    // Root cause analysis:
-    //   Why-1: CPU path was 14 tok/s vs Ollama's 200 tok/s
-    //   Why-2: Old mmap-based transformers use per-matmul allocations
-    //   Why-3: Each of 196 matmuls per token allocates/frees Vec
-    //   Why-4: Vec allocation overhead + cache pollution from mmap page faults
-    //   Why-5: OwnedQuantizedModel copies weights to RAM but uses _into methods
-    // Solution: Use OwnedQuantizedModel - slower loading but faster inference
-    let model = realizar::gguf::OwnedQuantizedModel::from_mapped(&mapped).map_err(|e| {
-        realizar::error::RealizarError::UnsupportedOperation {
-            operation: "load_model".to_string(),
-            reason: format!("Failed to load model: {e}"),
-        }
-    })?;
-
-    let load_time = load_start.elapsed();
-    println!("Backend: CPU (AVX2 + SIMD)");
-    println!("Model loaded in {:.2}ms", load_time.as_secs_f64() * 1000.0);
-
-    // Tokenize prompt using GGUF vocabulary
-    let mut prompt_tokens: Vec<u32> = mapped
-        .model
-        .encode(prompt)
-        .unwrap_or_else(|| prompt.chars().map(|c| c as u32).collect());
-
-    // Prepend BOS token if available
-    if let Some(bos) = mapped.model.bos_token_id() {
-        prompt_tokens.insert(0, bos);
-    }
-    let prompt_len = prompt_tokens.len();
-
-    // Get EOS token for stopping
-    let eos_token_id = mapped.model.eos_token_id();
-
-    // Debug: show model info and encoded tokens
-    let config = model.config();
-    println!(
-        "Architecture: {:?}, Hidden: {}, Layers: {}, Heads: {}/{} (KV)",
-        mapped.model.architecture(),
-        config.hidden_dim,
-        config.num_layers,
-        config.num_heads,
-        config.num_kv_heads
-    );
-    println!(
-        "Prompt tokens: {} (BOS={:?}, EOS={:?})",
-        prompt_len,
-        mapped.model.bos_token_id(),
-        eos_token_id
-    );
-    println!("Temperature: {:.1}", temperature);
-    println!();
-
-    // Run inference with KV cache for O(n) per-token cost
-    let gen_start = Instant::now();
-    let max_seq_len = prompt_tokens.len() + max_tokens;
-    let mut cache = OwnedQuantizedKVCache::from_config(config, max_seq_len);
-    let mut all_tokens = prompt_tokens.clone();
-
-    // Prefill: process prompt tokens to populate KV cache
-    // We process all tokens but keep the logits from the last one
-    let mut logits: Vec<f32> = vec![];
-    for (pos, &token_id) in prompt_tokens.iter().enumerate() {
-        logits = model.forward_cached(token_id, &mut cache, pos)?;
-    }
-
-    // PAR-051: Diagnostic - show top5 logits after prefill
-    // Re-enable by changing `false` to `true` for debugging
-    #[allow(clippy::never_loop)]
-    if std::env::var("CPU_DEBUG")
-        .map(|v| v == "1")
-        .unwrap_or(false)
-    {
-        let mut top5: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
-        top5.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        top5.truncate(5);
-        eprintln!("[PAR-051] Prompt tokens: {:?}", prompt_tokens);
-        eprintln!("[PAR-051] Logits top5 after prefill: {:?}", top5);
-        let greedy_token = top5[0].0 as u32;
-        let decoded = mapped.model.decode(&[greedy_token]);
-        eprintln!(
-            "[PAR-051] Greedy next token: {} = {:?}",
-            greedy_token, decoded
-        );
-
-        // Check embedding - compare first 5 values
-        let last_token = prompt_tokens[prompt_tokens.len() - 1];
-        let embed = model.embed(&[last_token]);
-        eprintln!(
-            "[PAR-051] Last token {} embed[0..5]: {:?}",
-            last_token,
-            &embed[..5.min(embed.len())]
-        );
-        eprintln!("[PAR-051] embed sum: {:.6}", embed.iter().sum::<f32>());
-
-        // Check model config
-        let cfg = model.config();
-        eprintln!(
-            "[PAR-051] Config: hidden={}, heads={}/{}, layers={}, vocab={}, eps={:e}",
-            cfg.hidden_dim,
-            cfg.num_heads,
-            cfg.num_kv_heads,
-            cfg.num_layers,
-            cfg.vocab_size,
-            cfg.eps
-        );
-
-        // Check logit at index 29906 (token "2")
-        let logit_2 = logits.get(29906).copied().unwrap_or(f32::NAN);
-        eprintln!("[PAR-051] Logit for token 29906 ('2'): {:.6}", logit_2);
-    }
-
-    // Decode: generate new tokens one at a time
-    // First iteration uses logits from prefill, subsequent use new logits
-    for i in 0..max_tokens {
-        // For first iteration, use logits from prefill; otherwise compute new ones
-        if i > 0 {
-            let position = prompt_tokens.len() + i - 1;
-            let last_token = *all_tokens
-                .last()
-                .expect("all_tokens should not be empty during generation");
-            logits = model.forward_cached(last_token, &mut cache, position)?;
-        }
-
-        // Sample next token
-        let next_token = if temperature <= 0.01 {
-            // Greedy decoding
-            logits
-                .iter()
-                .enumerate()
-                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .map_or(0, |(idx, _)| idx as u32)
-        } else {
-            // Temperature sampling
-            OwnedQuantizedModel::sample_topk(&logits, temperature, 40)
-        };
-
-        // PERF-002: Debug code removed (was PAR-058-DEBUG and PAR-060)
-
-        // Stop on EOS
-        if let Some(eos) = eos_token_id {
-            if next_token == eos {
-                // PERF-002: eprintln removed for performance
-                break;
-            }
-        }
-
-        all_tokens.push(next_token);
-    }
-
-    let generated = all_tokens;
-    let gen_time = gen_start.elapsed();
-
-    let tokens_generated = generated.len() - prompt_len;
-    let tokens_per_sec = if gen_time.as_secs_f64() > 0.0 {
-        tokens_generated as f64 / gen_time.as_secs_f64()
-    } else {
-        0.0
-    };
-
-    // Decode output using GGUF vocabulary, replacing SentencePiece markers with spaces
-    let output_text = mapped
-        .model
-        .decode(&generated[prompt_len..])
-        .replace('▁', " ");
-
-    match format {
-        "json" => {
-            let json = serde_json::json!({
-                "model": model_ref,
-                "prompt": prompt,
-                "generated_text": output_text,
-                "tokens_generated": tokens_generated,
-                "generation_time_ms": gen_time.as_secs_f64() * 1000.0,
-                "tokens_per_second": tokens_per_sec,
-                "temperature": temperature,
-            });
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&json).unwrap_or_default()
-            );
-        },
-        _ => {
-            println!(
-                "Generated ({tokens_generated} tokens in {:.2}ms):",
-                gen_time.as_secs_f64() * 1000.0
-            );
-            println!("{prompt}{output_text}");
-            println!();
-            println!("Performance: {:.1} tok/s", tokens_per_sec);
-        },
-    }
-
-    Ok(())
-}
-
-/// Run GGUF inference with CUDA GPU acceleration
-///
-/// Uses OwnedQuantizedModel with CUDA backend for high-performance inference.
-/// Called when --gpu flag is specified and CUDA feature is enabled.
-#[cfg(feature = "cuda")]
-fn run_gguf_inference_gpu(
-    mapped: &realizar::gguf::MappedGGUFModel,
-    prompt: &str,
-    max_tokens: usize,
-    temperature: f32,
-    format: &str,
-    load_start: std::time::Instant,
-) -> Result<()> {
-    use realizar::gguf::{OwnedQuantizedModel, OwnedQuantizedModelCuda, QuantizedGenerateConfig};
-    use std::time::Instant;
-
-    println!("Backend: CUDA (GPU)");
-    println!("Creating quantized model with CUDA acceleration...");
-
-    // Create owned quantized model (required for CUDA - can't use borrowed mmap data)
-    let quantized_model = OwnedQuantizedModel::from_mapped(mapped).map_err(|e| {
-        realizar::error::RealizarError::UnsupportedOperation {
-            operation: "create_quantized".to_string(),
-            reason: format!("Failed to create quantized model: {e}"),
-        }
-    })?;
-
-    // Get config info before wrapping
-    let vocab_size = quantized_model.config.vocab_size;
-    let hidden_dim = quantized_model.config.hidden_dim;
-    let num_layers = quantized_model.layers.len();
-
-    // PAR-046: Create OwnedQuantizedModelCuda wrapper for actual GPU acceleration
-    // The previous implementation used OwnedQuantizedModel.enable_cuda() which only
-    // initialized the executor but forward_cached still used CPU code paths.
-    let max_seq_len = 256 + max_tokens; // Allow for prompt + generation
-    let mut cuda_model = OwnedQuantizedModelCuda::with_max_seq_len(quantized_model, 0, max_seq_len)
-        .map_err(|e| realizar::error::RealizarError::UnsupportedOperation {
-            operation: "OwnedQuantizedModelCuda::new".to_string(),
-            reason: format!("CUDA initialization failed: {e}"),
-        })?;
-    println!("  CUDA enabled on GPU: {}", cuda_model.device_name());
-
-    let load_time = load_start.elapsed();
-    println!("Model loaded in {:.2}ms", load_time.as_secs_f64() * 1000.0);
-
-    // Tokenize prompt using GGUF vocabulary
-    let mut prompt_tokens: Vec<u32> = mapped
-        .model
-        .encode(prompt)
-        .unwrap_or_else(|| prompt.chars().map(|c| c as u32).collect());
-
-    // Prepend BOS token if available
-    if let Some(bos) = mapped.model.bos_token_id() {
-        prompt_tokens.insert(0, bos);
-    }
-    let prompt_len = prompt_tokens.len();
-
-    // Get EOS token for stopping
-    let eos_token_id = mapped.model.eos_token_id();
-
-    println!(
-        "Vocab size: {}, Hidden dim: {}, Layers: {}",
-        vocab_size, hidden_dim, num_layers
-    );
-    println!(
-        "Prompt tokens: {} (BOS={:?}, EOS={:?})",
-        prompt_len,
-        mapped.model.bos_token_id(),
-        eos_token_id
-    );
-    println!("Temperature: {:.1}", temperature);
-    println!();
-
-    // PAR-046: Use CUDA-accelerated generation with GPU-resident KV cache
-    // This calls generate_cuda_with_cache -> forward_single_cuda_with_cache -> GPU kernels
-    let gen_start = Instant::now();
-
-    // Build stop tokens list
-    let mut stop_tokens = Vec::new();
-    if let Some(eos) = eos_token_id {
-        stop_tokens.push(eos);
-    }
-
-    // Configure CUDA generation
-    let gen_config = QuantizedGenerateConfig {
-        max_tokens,
-        temperature,
-        top_k: if temperature <= 0.01 { 1 } else { 40 },
-        stop_tokens,
-    };
-
-    // PAR-047: Use generate_full_cuda_with_cache for maximum GPU acceleration
-    // This path uses:
-    // - GPU matmul for QKV, output projection, and FFN
-    // - GPU incremental_attention_gpu with GQA support (PAR-021)
-    // - Proper SwiGLU activation (PAR-015)
-    // PAR-057: Use GPU-resident path for maximum performance (pre-uploads weights, minimal syncs)
-    // Falls back to generate_full_cuda_with_cache if architecture not supported
-    // PAR-058: Test GPU-resident vs standard CUDA path
-    let generated = if cuda_model.supports_gpu_resident() {
-        println!("Using GPU-resident path (pre-uploaded weights, ~2 syncs/token)");
-        cuda_model
-            .generate_gpu_resident(&prompt_tokens, &gen_config)
-            .map_err(|e| realizar::error::RealizarError::UnsupportedOperation {
-                operation: "generate_gpu_resident".to_string(),
-                reason: format!("GPU-resident generation failed: {e}"),
-            })?
-    } else {
-        println!("Using standard CUDA path");
-        cuda_model
-            .generate_full_cuda_with_cache(&prompt_tokens, &gen_config)
-            .map_err(|e| realizar::error::RealizarError::UnsupportedOperation {
-                operation: "generate_full_cuda_with_cache".to_string(),
-                reason: format!("CUDA generation failed: {e}"),
-            })?
-    };
-    let gen_time = gen_start.elapsed();
-
-    let tokens_generated = generated.len().saturating_sub(prompt_len);
-    let tokens_per_sec = if gen_time.as_secs_f64() > 0.0 {
-        tokens_generated as f64 / gen_time.as_secs_f64()
-    } else {
-        0.0
-    };
-
-    // Decode output using GGUF vocabulary, replacing SentencePiece markers with spaces
-    let output_text = mapped
-        .model
-        .decode(&generated[prompt_len..])
-        .replace('▁', " ");
-
-    match format {
-        "json" => {
-            let json = serde_json::json!({
-                "model": "GGUF (CUDA)",
-                "backend": "GPU",
-                "prompt": prompt,
-                "generated_text": output_text,
-                "tokens_generated": tokens_generated,
-                "generation_time_ms": gen_time.as_secs_f64() * 1000.0,
-                "tokens_per_second": tokens_per_sec,
-                "temperature": temperature,
-                "cuda_enabled": true,
-                "cuda_device": cuda_model.device_name(),
-            });
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&json).unwrap_or_default()
-            );
-        },
-        _ => {
-            println!(
-                "Generated ({tokens_generated} tokens in {:.2}ms):",
-                gen_time.as_secs_f64() * 1000.0
-            );
-            println!("{prompt}{output_text}");
-            println!();
-            println!("Performance: {:.1} tok/s (GPU)", tokens_per_sec);
-        },
-    }
-
-    Ok(())
-}
-
-/// Run APR inference with performance timing
-fn run_apr_inference(
-    model_ref: &str,
-    file_data: &[u8],
-    prompt: &str,
-    max_tokens: usize,
-    temperature: f32,
-    format: &str,
-) -> Result<()> {
-    use realizar::apr_transformer::AprTransformer;
-    use std::time::Instant;
-
-    let load_start = Instant::now();
-
-    // Load APR transformer
-    let transformer = AprTransformer::from_apr_bytes(file_data).map_err(|e| {
-        realizar::error::RealizarError::UnsupportedOperation {
-            operation: "parse_apr".to_string(),
-            reason: format!("Failed to parse APR: {e}"),
-        }
-    })?;
-
-    let load_time = load_start.elapsed();
-    println!("Model loaded in {:.2}ms", load_time.as_secs_f64() * 1000.0);
-
-    // Simple tokenization (split by chars for now - real tokenizer would be better)
-    let prompt_tokens: Vec<u32> = prompt.chars().map(|c| c as u32).collect();
-    let prompt_len = prompt_tokens.len();
-
-    println!("Prompt tokens: {}", prompt_len);
-    println!("Temperature: {:.1} (using greedy decoding)", temperature);
-    println!();
-
-    // Run inference with timing
-    let gen_start = Instant::now();
-    let generated = transformer.generate(&prompt_tokens, max_tokens)?;
-    let gen_time = gen_start.elapsed();
-
-    let tokens_generated = generated.len().saturating_sub(prompt_len);
-    let tokens_per_sec = if gen_time.as_secs_f64() > 0.0 {
-        tokens_generated as f64 / gen_time.as_secs_f64()
-    } else {
-        0.0
-    };
-
-    // Decode output (simple ASCII for now)
-    let output_text: String = generated[prompt_len..]
-        .iter()
-        .map(|&t| char::from_u32(t.min(127)).unwrap_or('?'))
-        .collect();
-
-    match format {
-        "json" => {
-            let json = serde_json::json!({
-                "model": model_ref,
-                "format": "APR",
-                "prompt": prompt,
-                "generated_text": output_text,
-                "tokens_generated": tokens_generated,
-                "generation_time_ms": gen_time.as_secs_f64() * 1000.0,
-                "tokens_per_second": tokens_per_sec,
-                "temperature": temperature,
-            });
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&json).unwrap_or_default()
-            );
-        },
-        _ => {
-            println!(
-                "Generated ({tokens_generated} tokens in {:.2}ms):",
-                gen_time.as_secs_f64() * 1000.0
-            );
-            println!("{prompt}{output_text}");
-            println!();
-            println!("Performance: {:.1} tok/s", tokens_per_sec);
-        },
-    }
-
-    Ok(())
-}
-
+#[allow(clippy::too_many_arguments)]
 #[cfg(not(feature = "registry"))]
 #[allow(clippy::too_many_arguments)]
 async fn run_model(
@@ -1300,13 +623,28 @@ async fn run_model(
     system_prompt: Option<&str>,
     raw_mode: bool,
     force_gpu: bool,
+    verbose: bool,
+    trace: Option<Option<String>>,
 ) -> Result<()> {
+    use presentar_terminal::cli::Spinner;
     use realizar::chat_template::{auto_detect_template, ChatMessage};
 
-    println!("Loading model: {model_ref}");
-    if force_gpu {
-        println!("GPU: FORCED (--gpu flag)");
+    // If tracing enabled, set GPU_DEBUG environment for layer-by-layer output
+    if trace.is_some() {
+        std::env::set_var("GPU_DEBUG", "1");
+        eprintln!("[TRACE] Inference tracing enabled - GPU_DEBUG=1");
     }
+
+    // Ollama-style: spinner while loading, then just the response
+    let spinner = if !verbose {
+        Some(Spinner::new().start())
+    } else {
+        println!("Loading model: {model_ref}");
+        if force_gpu {
+            println!("GPU: FORCED (--gpu flag)");
+        }
+        None
+    };
 
     if cli::is_local_file_path(model_ref) {
         if !std::path::Path::new(model_ref).exists() {
@@ -1314,7 +652,9 @@ async fn run_model(
                 model_ref.to_string(),
             ));
         }
-        println!("  Source: local file");
+        if verbose {
+            println!("  Source: local file");
+        }
     } else if model_ref.starts_with("pacha://") || model_ref.contains(':') {
         println!("  Source: Pacha registry");
         println!();
@@ -1338,18 +678,24 @@ async fn run_model(
         }
     })?;
 
-    cli::display_model_info(model_ref, &file_data)?;
-    println!();
+    if verbose {
+        cli::display_model_info(model_ref, &file_data)?;
+        println!();
+    }
 
     if let Some(prompt_text) = prompt {
         // Apply chat template formatting unless --raw mode
         let formatted_prompt = if raw_mode {
-            println!("Prompt (raw): {prompt_text}");
+            if verbose {
+                println!("Prompt (raw): {prompt_text}");
+            }
             prompt_text.to_string()
         } else {
             // Auto-detect template from model name
             let template = auto_detect_template(model_ref);
-            println!("Chat template: {:?}", template.format());
+            if verbose {
+                println!("Chat template: {:?}", template.format());
+            }
 
             // Build messages
             let mut messages = Vec::new();
@@ -1361,14 +707,16 @@ async fn run_model(
             // Format using detected template
             match template.format_conversation(&messages) {
                 Ok(formatted) => {
-                    println!("Prompt (formatted):");
-                    // Show first 200 chars of formatted prompt
-                    let preview: String = formatted.chars().take(200).collect();
-                    println!(
-                        "  {}{}",
-                        preview,
-                        if formatted.len() > 200 { "..." } else { "" }
-                    );
+                    if verbose {
+                        println!("Prompt (formatted):");
+                        // Show first 200 chars of formatted prompt
+                        let preview: String = formatted.chars().take(200).collect();
+                        println!(
+                            "  {}{}",
+                            preview,
+                            if formatted.len() > 200 { "..." } else { "" }
+                        );
+                    }
                     formatted
                 },
                 Err(e) => {
@@ -1378,10 +726,17 @@ async fn run_model(
             }
         };
 
-        println!("Max tokens: {max_tokens}");
-        println!("Temperature: {temperature}");
-        println!("Format: {format}");
-        println!();
+        if verbose {
+            println!("Max tokens: {max_tokens}");
+            println!("Temperature: {temperature}");
+            println!("Format: {format}");
+            println!();
+        }
+
+        // Stop spinner before inference output
+        if let Some(sp) = spinner {
+            sp.stop();
+        }
 
         // Detect format and run appropriate inference
         use realizar::format::{detect_format, ModelFormat};
@@ -1396,9 +751,20 @@ async fn run_model(
                     max_tokens,
                     temperature,
                     format,
+                    force_gpu,
+                    verbose,
                 )?;
             },
-            ModelFormat::Gguf | ModelFormat::SafeTensors => {
+            ModelFormat::SafeTensors => {
+                run_safetensors_inference(
+                    model_ref,
+                    &formatted_prompt,
+                    max_tokens,
+                    temperature,
+                    format,
+                )?;
+            },
+            ModelFormat::Gguf => {
                 run_gguf_inference(
                     model_ref,
                     &file_data,
@@ -1407,10 +773,16 @@ async fn run_model(
                     temperature,
                     format,
                     force_gpu,
+                    verbose,
+                    trace.is_some(), // PMAT-TRACE-GGUF-001: Pass trace flag
                 )?;
             },
         }
     } else {
+        // Stop spinner before interactive mode message
+        if let Some(sp) = spinner {
+            sp.stop();
+        }
         println!("Interactive mode (Ctrl+D to exit)");
         println!();
         println!("Model loaded ({} bytes)", file_data.len());

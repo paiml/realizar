@@ -502,10 +502,40 @@ pub trait HttpServer {
 - CUDA Cores: 16384
 - Memory Bandwidth: 1008 GB/s
 
+**⚠️ CRITICAL: CUDA IS ALWAYS AVAILABLE**
+
+99% of development happens on RTX 4090. CUDA hardware is ALWAYS present.
+
+- **NEVER** say "CUDA not available" or "skipping because no GPU"
+- **NEVER** use `CudaExecutor::is_available()` as a pre-check - it can return false even when GPU exists
+- **ALWAYS** try `CudaExecutor::new(0)` directly and inspect the actual error if it fails
+- If CUDA tests fail, **investigate the real error** - don't assume hardware is missing
+
+```rust
+// ❌ WRONG - Don't pre-check availability
+if !CudaExecutor::is_available() {
+    println!("Skipping: CUDA not available");  // WRONG ASSUMPTION
+    return;
+}
+
+// ✅ CORRECT - Try to create and show actual error
+match CudaExecutor::new(0) {
+    Ok(exec) => { /* use it */ },
+    Err(e) => {
+        eprintln!("CUDA init failed: {:?}", e);  // Shows REAL problem
+        // Investigate: library path? permissions? driver version?
+    }
+}
+```
+
 **⚠️ MANDATORY GPU TESTING:**
 ```bash
 # ALWAYS run GPU tests - RTX 4090 is available
 cargo test --lib --features cuda
+
+# For integration tests with multiple CudaExecutor instances, use single thread
+# to avoid CUDA_ERROR_NOT_INITIALIZED race condition:
+cargo test --test cuda_combinatorial_coverage --features cuda -- --test-threads=1
 
 # DO NOT use #[ignore] for GPU tests
 # ALL GPU tests must execute, not be skipped
@@ -623,16 +653,16 @@ Simple unit tests would NOT have caught this - only sequential TUI simulation re
 
 ---
 
-**Last Updated:** 2025-12-30
+**Last Updated:** 2026-01-21
 **Realizar Version:** 0.3.5 (KV Cache for context-aware generation)
-**GPU Spec Version:** v5.1.0 (QA Suite Complete + 95% Coverage)
+**GPU Spec Version:** v5.2.0 (CUDA Monolith Shattered + Lint Zero)
 **Trueno Version:** 0.4.2
 **Aprender Version:** 0.1.0
 **paiml-mcp-agent-toolkit Version:** v2.200.0 (with Known Defects Scorer, SATD Detector, Defect Analyzer)
 **TDG Score:** 93.9/100 (A)
 **Rust Project Score:** 137.9/134 (103%, Grade A+)
-**Test Coverage:** 92.02% (region), 95.00% (function)
-**Total Tests:** 2315 (all passing), 44 GPU-only ignored, 50 QA tests (QA-001 to QA-050)
+**Test Coverage:** 80.97% (region), 88.75% (function), 80.08% (lines)
+**Total Tests:** 6324 (all passing), 32 ignored
 **Mutation Score:** 100% on api.rs (18/18 viable mutants caught)
 **Documentation:** 15.0/15 (100%) ✅ Perfect score!
 **Known Defects:** 20.0/20 (100%) ✅ Perfect score!
@@ -669,5 +699,11 @@ Simple unit tests would NOT have caught this - only sequential TUI simulation re
     - `forward_with_cache()` for context-aware generation
     - `causal_attention_cached()` with parallel head processing
   - **13-19 tok/s** context-aware generation (32-45% of llama.cpp)
-**Latest Achievement:** KV Cache enables efficient context-aware generation
-**Completed:** Weeks 1-8 + GPU parity M1-M32 + APR Q4_0 (M2) + Rayon (M3) + KV Cache (M4)
+**CUDA Refactor (v5.2.0):**
+  - Shattered 23K-line cuda.rs monolith into 9 atomic modules
+  - Split 21K-line executor.rs into domain submodules (activations, core, gemm, layer, quantized, workspace)
+  - Split 15K-line impl_main.rs into 9 focused submodules
+  - 65 files cleaned for zero clippy warnings
+  - Fixed broken benchmarks (GGUFTransformer → AprTransformer)
+**Latest Achievement:** CUDA monolith shattered + comprehensive lint cleanup (65 files, 2089 insertions, 1040 deletions)
+**Completed:** Weeks 1-8 + GPU parity M1-M32 + APR Q4_0 (M2) + Rayon (M3) + KV Cache (M4) + CUDA Refactor (v5.2.0)

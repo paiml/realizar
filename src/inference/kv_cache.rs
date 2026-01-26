@@ -586,7 +586,8 @@ mod tests {
         let current_k = vec![1.0; hidden_dim];
         let current_v = vec![2.0; hidden_dim];
 
-        let output = attention_with_cache(&q, &k_cache, &v_cache, &current_k, &current_v, num_heads);
+        let output =
+            attention_with_cache(&q, &k_cache, &v_cache, &current_k, &current_v, num_heads);
 
         assert_eq!(output.len(), hidden_dim);
         // With no history and uniform attention, output should equal current_v
@@ -607,7 +608,8 @@ mod tests {
         let current_k = vec![1.0; hidden_dim];
         let current_v = vec![3.0; hidden_dim];
 
-        let output = attention_with_cache(&q, &k_cache, &v_cache, &current_k, &current_v, num_heads);
+        let output =
+            attention_with_cache(&q, &k_cache, &v_cache, &current_k, &current_v, num_heads);
 
         assert_eq!(output.len(), hidden_dim);
         // With uniform K, attention is 0.5 to each position
@@ -636,7 +638,8 @@ mod tests {
         let current_k = vec![1.0; hidden_dim];
         let current_v = vec![1.0; hidden_dim];
 
-        let output = attention_with_cache(&q, &k_cache, &v_cache, &current_k, &current_v, num_heads);
+        let output =
+            attention_with_cache(&q, &k_cache, &v_cache, &current_k, &current_v, num_heads);
 
         assert_eq!(output.len(), hidden_dim);
         // All outputs should be 1.0 (current_v with softmax weight 1.0)
@@ -712,7 +715,7 @@ mod tests {
         // Transposed V: v[i] at pos j is at index i * max_seq_len + j
         let mut v_cache_transposed = vec![0.0; hidden_dim * max_seq_len];
         for i in 0..hidden_dim {
-            v_cache_transposed[i * max_seq_len + 0] = 1.0; // v[i] = 1.0 at pos 0
+            v_cache_transposed[i * max_seq_len] = 1.0; // v[i] = 1.0 at pos 0
         }
 
         let current_k = vec![1.0; hidden_dim];
@@ -825,7 +828,8 @@ mod tests {
         let current_k = vec![1.0; hidden_dim];
         let current_v = vec![5.0; hidden_dim];
 
-        let output = attention_with_cache(&q, &k_cache, &v_cache, &current_k, &current_v, num_heads);
+        let output =
+            attention_with_cache(&q, &k_cache, &v_cache, &current_k, &current_v, num_heads);
 
         for &v in &output {
             assert!((v - 5.0).abs() < 1e-5);
@@ -843,7 +847,8 @@ mod tests {
         let current_k = vec![0.1; hidden_dim];
         let current_v = vec![1.0; hidden_dim];
 
-        let output = attention_with_cache(&q, &k_cache, &v_cache, &current_k, &current_v, num_heads);
+        let output =
+            attention_with_cache(&q, &k_cache, &v_cache, &current_k, &current_v, num_heads);
 
         assert_eq!(output.len(), hidden_dim);
         for &v in &output {

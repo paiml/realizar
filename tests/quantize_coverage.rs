@@ -22,8 +22,8 @@ use realizar::quantize::{
     fused_q8_0_q8_0_parallel_matvec_into, fused_rmsnorm_ffn_up_gate, fused_rmsnorm_q4_0_matmul,
     fused_swiglu_simd, quantize_activations_q8_0, quantize_activations_q8k_into,
     quantize_rmsnorm_q8_0, quantize_rmsnorm_q8_0_into, quantize_to_q8_blocks, softmax_simd,
-    DequantStats, Q4_0Block, Q4_KBlock, Q5_KBlock, Q6_KBlock, Q8KSuperBlock, Q8_0Block, QK_K,
-    SimdBackend,
+    DequantStats, Q4_0Block, Q4_KBlock, Q5_KBlock, Q6_KBlock, Q8KSuperBlock, Q8_0Block,
+    SimdBackend, QK_K,
 };
 
 // ============================================================================
@@ -816,7 +816,6 @@ fn test_qk_k_constant() {
 // ============================================================================
 // Q8_0Block Method Tests
 // ============================================================================
-
 
 #[test]
 fn test_q8_0_block_quantize_basic() {

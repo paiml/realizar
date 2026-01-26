@@ -1,6 +1,6 @@
 [package]
 name = "realizar"
-version = "0.6.0"
+version = "0.6.10"
 edition = "2021"
 rust-version = "1.89"
 authors = ["Pragmatic AI Labs <contact@paiml.com>"]
@@ -32,17 +32,17 @@ useless_vec = "allow"
 [dependencies]
 # OUR ecosystem - SIMD/GPU compute primitives (we control this)
 # High-performance SIMD compute library with GPU support
-# PAR-073: Using crates.io version for reproducible builds
-trueno = { version = "0.13.0", features = ["gpu"] }
+# PAR-073: Using local path for development, version for crates.io
+trueno = { version = "0.14", path = "../trueno", features = ["gpu"] }
 # CUDA PTX generation and runtime for NVIDIA GPUs (optional, pure Rust, no LLVM/nvcc)
-# v0.4.7: BatchedQ6K, MultiWarp, RopeNeox, FlashDecoding kernels
-trueno-gpu = { version = "0.4.7", optional = true, features = ["cuda"] }
+# v0.4.12: BatchedQ6K, MultiWarp, RopeNeox, FlashDecoding kernels
+trueno-gpu = { version = "0.4", path = "../trueno/trueno-gpu", optional = true, features = ["cuda"] }
 # KV cache storage (for attention caching)
-trueno-db = { version = "0.3.10", optional = true }
+trueno-db = { version = "0.3", optional = true }
 
 # ML algorithms and .apr model format (optional for aprender model serving)
-# v0.23: chat templates, GGUF tokenizer preservation
-aprender = { version = "0.24", optional = true }
+# v0.24.1: chat templates, GGUF tokenizer preservation (local may be newer)
+aprender = { version = ">=0.24", optional = true }
 
 # Data loading library (optional for data pipeline examples)
 alimentar = { version = "0.2", optional = true, default-features = false, features = ["local", "shuffle"] }
@@ -51,7 +51,7 @@ alimentar = { version = "0.2", optional = true, default-features = false, featur
 pacha = { version = "0.2", optional = true }
 
 # Terminal/PNG visualization for benchmarks and metrics
-trueno-viz = { version = "0.1.18", optional = true, features = ["terminal"] }
+trueno-viz = { version = "0.1", optional = true, features = ["terminal"] }
 
 # HTTP server ONLY (swappable via HttpServer trait)
 axum = { version = "0.8.8", optional = true }
@@ -63,6 +63,9 @@ async-stream = { version = "0.3", optional = true }
 
 # CLI
 clap = { version = "4", features = ["derive"], optional = true }
+
+# Terminal UI and CLI utilities (Ollama-style spinners, progress)
+presentar-terminal = { version = "0.3.2", optional = true }
 
 # Lambda runtime (lightweight HTTP client)
 ureq = { version = "3.1.4", features = ["json"], optional = true }
@@ -89,7 +92,7 @@ anyhow = "1.0"
 tracing = { version = "0.1", optional = true }
 
 # Audit logging (timestamps and UUIDs)
-chrono = { version = "0.4.43", features = ["serde"] }
+chrono = { version = ">=0.4.26", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 
 # Numerical traits (for generic code)
@@ -184,7 +187,7 @@ apr-compression = ["dep:lz4_flex", "dep:zstd"]  # LZ4/ZSTD decompression for APR
 
 # Optional components
 server = ["dep:axum", "dep:tokio", "dep:tokio-stream", "dep:tower", "dep:futures", "dep:async-stream", "dep:arc-swap"]  # HTTP server support
-cli = ["dep:clap", "server"]  # CLI binary (requires server)
+cli = ["dep:clap", "dep:presentar-terminal", "server"]  # CLI binary (requires server, with Ollama-style progress)
 aprender-serve = ["dep:aprender", "server"]  # Aprender ML model serving (requires server)
 lambda = ["dep:ureq"]  # AWS Lambda handler (lightweight HTTP runtime)
 alimentar-data = ["dep:alimentar"]  # Data loading with alimentar
@@ -196,6 +199,9 @@ bench-http = ["dep:reqwest"]  # Real HTTP benchmarking of external model servers
 # Testing features
 load-test-enabled = ["server"]  # Enable load tests (requires running server)
 heavy-tests = []  # Include 29k lines of gguf.rs tests (OOMs on <16GB RAM)
+
+# Debugging features
+trace = []  # Phase 14: Enable BrickTracer for GPU/CPU parity debugging
 
 # Convenience meta-features
 full = ["server", "cli", "gpu", "cuda", "registry"]  # Everything enabled
@@ -344,6 +350,310 @@ required-features = ["cuda"]
 name = "bench_flash_decoding"
 required-features = ["cuda"]
 
+[[example]]
+name = "cuda_chat_completions"
+required-features = ["cuda"]
+
+[[example]]
+name = "bench_batched_forward"
+required-features = ["cuda"]
+
+[[example]]
+name = "bench_batched_gemv"
+required-features = ["cuda"]
+
+[[example]]
+name = "bench_continuous_batching"
+required-features = ["cuda"]
+
+[[example]]
+name = "bench_multisequence_graph"
+required-features = ["cuda"]
+
+[[example]]
+name = "bench_speculative"
+required-features = ["cuda"]
+
+[[example]]
+name = "check_token_74403"
+required-features = ["cuda"]
+
+[[example]]
+name = "compare_cpu_gpu"
+required-features = ["cuda"]
+
+[[example]]
+name = "compare_layer0_full"
+required-features = ["cuda"]
+
+[[example]]
+name = "compare_lm_head_input"
+required-features = ["cuda"]
+
+[[example]]
+name = "compare_q_projection"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_cpu_gpu_divergence"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_gpu_divergence"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_hidden_state"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_layer0_compare"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_layer_by_layer"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_lm_head_divergence"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_lm_head"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_normed_hidden_compare"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_normed_hidden"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_pos1"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_q4k_gemv"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_q4k_gemv_tiled"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_q4k_rmsnorm_input"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_q6k_lm_head_test"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_single_row"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_speculative"
+required-features = ["cuda"]
+
+[[example]]
+name = "final_hidden_compare"
+required-features = ["cuda"]
+
+[[example]]
+name = "hidden_compare"
+required-features = ["cuda"]
+
+[[example]]
+name = "layer0_attention_compare"
+required-features = ["cuda"]
+
+[[example]]
+name = "layer0_step_compare"
+required-features = ["cuda"]
+
+[[example]]
+name = "pmat_benchmark_matrix"
+required-features = ["cuda"]
+
+[[example]]
+name = "profile_7b"
+required-features = ["cuda"]
+
+[[example]]
+name = "test_generation"
+required-features = ["cuda"]
+
+[[example]]
+name = "test_gpu_bias"
+required-features = ["cuda"]
+
+[[example]]
+name = "test_graphed"
+required-features = ["cuda"]
+
+[[example]]
+name = "test_lm_head_only"
+required-features = ["cuda"]
+
+[[example]]
+name = "test_m16"
+required-features = ["cuda"]
+
+[[example]]
+name = "test_q6k_correctness"
+required-features = ["cuda"]
+
+[[example]]
+name = "apr_gpu_benchmark"
+required-features = ["cuda"]
+
+[[example]]
+name = "bench_apr_gpu"
+required-features = ["cuda"]
+
+[[example]]
+name = "bench_apr_vs_gguf"
+required-features = ["cuda"]
+
+[[example]]
+name = "bench_tiled_q4k"
+required-features = ["cuda"]
+
+[[example]]
+name = "brick_divergence_trace"
+required-features = ["cuda"]
+
+[[example]]
+name = "check_gpu_logits"
+required-features = ["cuda"]
+
+[[example]]
+name = "compare_hidden_before_norm"
+required-features = ["cuda"]
+
+[[example]]
+name = "compare_layers"
+required-features = ["cuda"]
+
+[[example]]
+name = "compare_weights"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_layer0_divergence"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_layer0_stepwise"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_lm_head_direct"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_q4k_controlled"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_q4k_gemv_layer0"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_q4k_real_input"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_q6k_controlled"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_q6k_gemv"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_q6k_row"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_rmsnorm_layer0"
+required-features = ["cuda"]
+
+[[example]]
+name = "debug_tiled_q4k"
+required-features = ["cuda"]
+
+[[example]]
+name = "dump_q6k_ptx"
+required-features = ["cuda"]
+
+[[example]]
+name = "fresh_compare"
+required-features = ["cuda"]
+
+[[example]]
+name = "gpu_showcase_benchmark"
+required-features = ["cuda"]
+
+[[example]]
+name = "layer_by_layer_trace"
+required-features = ["cuda"]
+
+[[example]]
+name = "test_attention_debug"
+required-features = ["cuda"]
+
+[[example]]
+name = "test_attention_phi2_dims"
+required-features = ["cuda"]
+
+[[example]]
+name = "test_q4k_phi2_dims"
+required-features = ["cuda"]
+
+[[example]]
+name = "test_q6k_gemv_direct"
+required-features = ["cuda"]
+
+[[example]]
+name = "test_q6k_single_row"
+required-features = ["cuda"]
+
+[[example]]
+name = "test_tc_attention"
+required-features = ["cuda"]
+
+[[example]]
+name = "test_tiled_vs_cpu"
+required-features = ["cuda"]
+
+[[example]]
+name = "trace_all_layers"
+required-features = ["cuda"]
+
+[[example]]
+name = "trace_final"
+required-features = ["cuda"]
+
+[[example]]
+name = "trace_pos1_divergence"
+required-features = ["cuda"]
+
+[[example]]
+name = "test_cuda_minimal"
+required-features = ["cuda"]
+
+[[example]]
+name = "verify_attention_kernel"
+required-features = ["cuda"]
+
+[[example]]
+name = "test_apr_quantized_cache"
+required-features = ["cuda"]
+
 [profile.release]
 opt-level = 3
 lto = "fat"           # Link-time optimization for maximum performance
@@ -372,6 +682,4 @@ lto = false            # Disable LTO for faster compile
 codegen-units = 4      # Balance between speed and optimization
 incremental = true     # Enable incremental compilation
 
-# CORRECTNESS-013: Override trueno-gpu with local version for PreciseRmsNormKernel
-[patch.crates-io]
-trueno-gpu = { path = "../trueno/trueno-gpu" }
+# trueno dependencies now using crates.io versions (0.14.1, 0.4.11)

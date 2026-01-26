@@ -956,4 +956,108 @@ mod tests {
         assert_eq!(restored.method, "Q4_K_M");
         assert_eq!(restored.bits, 4);
     }
+
+    // -------------------------------------------------------------------------
+    // JsonFileAuditSink Tests (95% coverage push)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_json_file_audit_sink_new() {
+        // Just verify sink can be created without panic
+        let _sink = JsonFileAuditSink::new("/tmp/test_audit.jsonl");
+    }
+
+    #[test]
+    fn test_json_file_audit_sink_write_batch() {
+        use std::fs;
+        let path = std::env::temp_dir().join("audit_test_write_batch.jsonl");
+        let sink = JsonFileAuditSink::new(&path);
+
+        let records = vec![
+            AuditRecord::new(Uuid::new_v4(), "hash1", "LR")
+                .with_prediction(serde_json::json!({"class": 0})),
+            AuditRecord::new(Uuid::new_v4(), "hash2", "RF")
+                .with_prediction(serde_json::json!({"class": 1})),
+        ];
+
+        sink.write_batch(&records).expect("write_batch");
+        sink.flush().expect("flush");
+
+        // Verify file was written
+        let content = fs::read_to_string(&path).expect("read file");
+        assert!(content.contains("hash1"));
+        assert!(content.contains("hash2"));
+        assert!(content.lines().count() == 2);
+
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_json_file_audit_sink_append() {
+        use std::fs;
+        let path = std::env::temp_dir().join("audit_test_append.jsonl");
+        let sink = JsonFileAuditSink::new(&path);
+
+        // Write first batch
+        let records1 = vec![AuditRecord::new(Uuid::new_v4(), "h1", "T1")];
+        sink.write_batch(&records1).expect("write 1");
+
+        // Write second batch (should append)
+        let records2 = vec![AuditRecord::new(Uuid::new_v4(), "h2", "T2")];
+        sink.write_batch(&records2).expect("write 2");
+
+        let content = fs::read_to_string(&path).expect("read");
+        assert_eq!(content.lines().count(), 2);
+
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_json_file_audit_sink_flush_noop() {
+        let sink = JsonFileAuditSink::new("/tmp/nonexistent_audit.jsonl");
+        // Flush does nothing but returns Ok
+        assert!(sink.flush().is_ok());
+    }
+
+    #[test]
+    fn test_audit_logger_with_file_sink() {
+        use std::fs;
+        let path = std::env::temp_dir().join("audit_test_logger_file.jsonl");
+        let sink = JsonFileAuditSink::new(&path);
+        let logger = AuditLogger::new(Box::new(sink));
+
+        let id = logger.log_request("FileTest", &[100, 200]);
+        logger.log_response(
+            id,
+            serde_json::json!(42),
+            Duration::from_millis(10),
+            Some(0.99),
+        );
+        logger.flush().expect("flush");
+
+        let content = fs::read_to_string(&path).expect("read");
+        assert!(content.contains("FileTest"));
+        assert!(content.contains("100"));
+        assert!(content.contains("200"));
+
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_audit_record_with_explanation_summary() {
+        let record = AuditRecord::new(Uuid::new_v4(), "h", "T");
+        // Verify explanation_summary is None by default
+        assert!(record.explanation_summary.is_none());
+    }
+
+    #[test]
+    fn test_audit_options_default_values() {
+        let apr_opts = AuditOptions::apr(false, None);
+        assert!(!apr_opts.explain);
+        assert!(apr_opts.confidence_threshold.is_none());
+
+        let llm_opts = AuditOptions::llm(100, 1.0);
+        assert_eq!(llm_opts.max_tokens, Some(100));
+        assert_eq!(llm_opts.temperature, Some(1.0));
+    }
 }
