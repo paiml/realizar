@@ -5,7 +5,7 @@
 //! ## Contents
 //! - `AprV2ModelCuda` - CUDA wrapper for APR models (2x Ollama target)
 
-use super::{dtype_to_ggml_qtype, rms_norm, simple_attention, transpose_matrix, AprV2Model};
+use super::{apply_rope_norm, dtype_to_ggml_qtype, rms_norm, simple_attention, transpose_matrix, AprV2Model};
 use crate::error::{RealizarError, Result};
 
 // ============================================================================
@@ -49,6 +49,9 @@ pub struct AprV2ModelCuda {
     hidden_dim: usize,
     /// Current KV cache position (increments with each decoded token)
     kv_position: u32,
+    /// PMAT-110: Track if KV cache was populated via FALLBACK PATH
+    /// When true, decode must also use FALLBACK PATH for consistency
+    fallback_kv_used: bool,
     /// Phase 45: Test executor for dependency injection
     ///
     /// When present, this executor is used instead of CudaExecutor for GEMM operations.
@@ -140,8 +143,9 @@ impl AprV2ModelCuda {
             weight_cache: std::collections::HashMap::new(),
             embedding_cache: None, // Lazy-loaded on first forward
             hidden_dim,
-            kv_position: 0,      // Start at position 0
-            test_executor: None, // Phase 45: No test executor by default
+            kv_position: 0,         // Start at position 0
+            fallback_kv_used: false, // PMAT-110: No fallback KV yet
+            test_executor: None,    // Phase 45: No test executor by default
         };
 
         // Pre-cache all transposed weights on GPU for 2x performance
@@ -256,6 +260,7 @@ impl AprV2ModelCuda {
     /// KV cache state from the previous conversation.
     pub fn reset_kv_cache(&mut self) {
         self.kv_position = 0;
+        self.fallback_kv_used = false; // PMAT-110: Reset fallback flag
         self.executor.reset_kv_cache_gpu();
     }
 
@@ -731,8 +736,10 @@ impl AprV2ModelCuda {
         // This path uses fused dequant+matmul kernels + graph replay for
         // 500x reduction in kernel launch overhead (5.6ms → 0.01ms per token)
         // Phase 45: Skip fast path when test_executor is present
+        // PMAT-110: Skip fast path if KV cache was populated via fallback path
+        //           (RoPE numerical differences cause inconsistency)
         // =========================================================================
-        if self.test_executor.is_none() && self.executor.has_indexed_weights() && seq_len == 1 {
+        if self.test_executor.is_none() && self.executor.has_indexed_weights() && seq_len == 1 && !self.fallback_kv_used {
             // Single-token decode: use the optimized Q4K GEMV path with graphs
             let token_id = token_ids[0];
             let position = self.kv_position;
@@ -903,13 +910,65 @@ impl AprV2ModelCuda {
                 self.executor.profiler_mut().stop(t, seq_len as u64);
             }
 
-            // Attention (CPU for now - complex control flow)
+            // PMAT-110: Attention with KV cache for proper generation
+            // Process each token position and use incremental_attention_gpu to:
+            // 1. Apply RoPE to Q and K
+            // 2. Append K/V to GPU cache
+            // 3. Compute attention against all cached K/V
             let timer_attn = if profiling {
                 Some(self.executor.profiler_mut().start("apr.Attention"))
             } else {
                 None
             };
-            let attn_out = simple_attention(&q, &k, &v, seq_len, num_heads, num_kv_heads, head_dim);
+
+            let rope_theta = self.model.metadata.rope_theta.unwrap_or(10000.0);
+            let rope_type = self.model.metadata.rope_type.unwrap_or(0);
+            let mut attn_out = vec![0.0f32; seq_len * hidden_dim];
+
+            for pos in 0..seq_len {
+                // Extract Q, K, V for this position
+                let q_pos_start = pos * hidden_dim;
+                let k_pos_start = pos * kv_dim;
+                let v_pos_start = pos * kv_dim;
+
+                let mut q_pos = q[q_pos_start..q_pos_start + hidden_dim].to_vec();
+                let mut k_pos = k[k_pos_start..k_pos_start + kv_dim].to_vec();
+                let v_pos = v[v_pos_start..v_pos_start + kv_dim].to_vec();
+
+                // Apply RoPE to Q and K (position = kv_position + pos)
+                // CORRECTNESS-011: Use correct RoPE style based on rope_type
+                let abs_position = self.kv_position as usize + pos;
+                if rope_type == 2 {
+                    // NEOX style: split halves (i, i + half_dim) - used by Qwen2.5, etc.
+                    crate::inference::apply_rope(&mut q_pos, hidden_dim, num_heads, abs_position, rope_theta);
+                    crate::inference::apply_rope(&mut k_pos, kv_dim, num_kv_heads, abs_position, rope_theta);
+                } else {
+                    // NORM style: adjacent pairs (2*i, 2*i+1) - standard RoPE
+                    apply_rope_norm(&mut q_pos, num_heads, head_dim, abs_position, rope_theta);
+                    apply_rope_norm(&mut k_pos, num_kv_heads, head_dim, abs_position, rope_theta);
+                }
+
+                // Use incremental_attention_gpu to append K/V to cache and compute attention
+                let mut out_pos = vec![0.0f32; hidden_dim];
+                if let Err(e) = self.executor.incremental_attention_gpu(
+                    layer_idx,
+                    &q_pos,
+                    &k_pos,
+                    &v_pos,
+                    &mut out_pos,
+                ) {
+                    // Fallback to simple_attention if GPU KV cache fails
+                    // This shouldn't happen if init_kv_cache_gpu succeeded
+                    eprintln!("PMAT-110 WARNING: incremental_attention_gpu failed: {e}, using fallback");
+                    let simple_out = simple_attention(&q, &k, &v, seq_len, num_heads, num_kv_heads, head_dim);
+                    attn_out = simple_out;
+                    break;
+                }
+
+                // Copy output to attn_out
+                attn_out[q_pos_start..q_pos_start + hidden_dim].copy_from_slice(&out_pos);
+            }
+
             if let Some(t) = timer_attn {
                 self.executor.profiler_mut().stop(t, seq_len as u64);
             }
@@ -1067,6 +1126,13 @@ impl AprV2ModelCuda {
                 self.executor.profiler_mut().stop(t, seq_len as u64);
             }
         }
+
+        // PMAT-110: Update KV cache position after processing all tokens
+        // This ensures subsequent forward_single_cuda calls have correct context
+        self.kv_position += seq_len as u32;
+        // PMAT-110: Mark that FALLBACK PATH was used for KV cache
+        // Subsequent decode calls must also use FALLBACK PATH for consistency
+        self.fallback_kv_used = true;
 
         // 3. Final layer norm (CPU)
         let timer_finalnorm = if profiling {
