@@ -745,6 +745,7 @@ mod tests {
             trace_output: Some(PathBuf::from("/trace.json")),
             trace_steps: Some(vec!["embedding".to_string(), "attention".to_string()]),
             verbose: false,
+            use_mock_backend: false,
         };
         let debug_str = format!("{:?}", config);
         assert!(debug_str.contains("trace_verbose"));
@@ -767,6 +768,7 @@ mod tests {
             trace_output: None,
             trace_steps: None,
             verbose: true,
+            use_mock_backend: false,
         };
         let cloned = config.clone();
         assert_eq!(cloned.trace_verbose, config.trace_verbose);
@@ -2330,6 +2332,7 @@ mod tests {
             trace_output: Some(PathBuf::from("/trace.json")),
             trace_steps: Some(vec!["embed".to_string()]),
             verbose: true,
+            use_mock_backend: false,
         };
 
         let debug = format!("{:?}", config);
@@ -2362,6 +2365,7 @@ mod tests {
             trace_output: Some(PathBuf::from("/out.json")),
             trace_steps: Some(vec!["a".to_string(), "b".to_string()]),
             verbose: true,
+            use_mock_backend: false,
         };
 
         let cloned = original.clone();
@@ -3034,6 +3038,7 @@ fn main() {
             trace_output: Some(PathBuf::from("/trace.json")),
             trace_steps: Some(vec!["a".to_string()]),
             verbose: true,
+            use_mock_backend: false,
         };
 
         let debug = format!("{:?}", config);
