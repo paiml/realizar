@@ -1885,5 +1885,7 @@ pub fn load_gguf_to_gpu(
 }
 
 #[cfg(test)]
-#[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod planner_tests;

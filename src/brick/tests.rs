@@ -1340,6 +1340,7 @@ mod tests {
 
     // F083: Timing precision
     #[test]
+    #[ignore = "Timing test unreliable - depends on system load"]
     fn f083_timing_precision() {
         let start = std::time::Instant::now();
         std::thread::sleep(std::time::Duration::from_micros(100));

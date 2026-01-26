@@ -8,3 +8,4 @@ mod part_07;
 mod part_08;
 mod part_09;
 // mod part_10; // TODO: Fix compilation errors in this file
+mod part_11;
