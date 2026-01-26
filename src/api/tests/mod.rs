@@ -16,6 +16,8 @@
 //! - part_11: GPU handlers coverage (GpuBatchRequest, GpuBatchResponse, BatchConfig, etc.)
 //! - part_12: OpenAI/Realize handlers - Request/Response type serialization
 //! - part_13: OpenAI/Realize handlers - HTTP endpoint error paths and streaming
+//! - part_14: Additional coverage tests
+//! - part_15: T-COV-95 Directive 2: In-Process API Falsification (GPU/CUDA/quantized paths)
 
 mod part_01;
 mod part_02;
@@ -30,3 +32,5 @@ mod part_10;
 mod part_11;
 mod part_12;
 mod part_13;
+mod part_14;
+mod part_15;
