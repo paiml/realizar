@@ -1458,7 +1458,7 @@ impl CudaExecutor {
             // Find argmax
             let mut full_logits = vec![0.0f32; logits_len];
             logits_output.copy_to_host(&mut full_logits)?;
-            let argmax = full_logits.iter().enumerate().max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal)).map(|(i, _)| i).unwrap_or(0);
+            let argmax = full_logits.iter().enumerate().max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal)).map_or(0, |(i, _)| i);
             eprintln!("[GQA-DEBUG] Argmax token = {}, logit = {:.4}", argmax, full_logits[argmax]);
         }
 

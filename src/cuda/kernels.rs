@@ -1263,7 +1263,7 @@ fn generate_q4_0_candle_ptx(k: u32, n: u32) -> String {
     // Note: num_blocks is computed dynamically in PTX from k_dim parameter
     // This allows the same kernel to work for any K dimension
     String::from(
-        r#"
+        r"
 .version 7.5
 .target sm_80
 .address_size 64
@@ -1403,7 +1403,7 @@ $L_blk_loop_end:
 $L_exit:
     ret;
 }
-"#,
+",
     )
 }
 
@@ -1429,7 +1429,7 @@ fn generate_q5_0_candle_ptx(k: u32, n: u32) -> String {
     // Q5_0 block: 2 bytes (d fp16) + 4 bytes (qh) + 16 bytes (qs) = 22 bytes
     // Note: num_blocks is computed dynamically in PTX from k_dim parameter
     String::from(
-        r#"
+        r"
 .version 7.5
 .target sm_80
 .address_size 64
@@ -1595,6 +1595,6 @@ $L_blk_loop_end:
 $L_exit:
     ret;
 }
-"#,
+",
     )
 }

@@ -1,6 +1,6 @@
 [package]
 name = "realizar"
-version = "0.6.8"
+version = "0.6.9"
 edition = "2021"
 rust-version = "1.89"
 authors = ["Pragmatic AI Labs <contact@paiml.com>"]
@@ -32,17 +32,17 @@ useless_vec = "allow"
 [dependencies]
 # OUR ecosystem - SIMD/GPU compute primitives (we control this)
 # High-performance SIMD compute library with GPU support
-# PAR-073: Using local path for development
-trueno = { path = "../trueno", features = ["gpu"] }
+# PAR-073: Using local path for development, version for crates.io
+trueno = { version = "0.14", path = "../trueno", features = ["gpu"] }
 # CUDA PTX generation and runtime for NVIDIA GPUs (optional, pure Rust, no LLVM/nvcc)
-# v0.4.7: BatchedQ6K, MultiWarp, RopeNeox, FlashDecoding kernels
-trueno-gpu = { path = "../trueno/trueno-gpu", optional = true, features = ["cuda"] }
+# v0.4.11: BatchedQ6K, MultiWarp, RopeNeox, FlashDecoding kernels
+trueno-gpu = { version = "0.4", path = "../trueno/trueno-gpu", optional = true, features = ["cuda"] }
 # KV cache storage (for attention caching)
-trueno-db = { path = "../trueno-db", optional = true }
+trueno-db = { version = "0.3", path = "../trueno-db", optional = true }
 
 # ML algorithms and .apr model format (optional for aprender model serving)
-# v0.23: chat templates, GGUF tokenizer preservation
-aprender = { path = "../aprender", optional = true }
+# v0.24.1: chat templates, GGUF tokenizer preservation (local may be newer)
+aprender = { version = ">=0.24", path = "../aprender", optional = true }
 
 # Data loading library (optional for data pipeline examples)
 alimentar = { version = "0.2", optional = true, default-features = false, features = ["local", "shuffle"] }
@@ -51,7 +51,7 @@ alimentar = { version = "0.2", optional = true, default-features = false, featur
 pacha = { version = "0.2", optional = true }
 
 # Terminal/PNG visualization for benchmarks and metrics
-trueno-viz = { path = "../trueno-viz", optional = true, features = ["terminal"] }
+trueno-viz = { version = "0.1", path = "../trueno-viz", optional = true, features = ["terminal"] }
 
 # HTTP server ONLY (swappable via HttpServer trait)
 axum = { version = "0.7", optional = true }

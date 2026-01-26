@@ -857,6 +857,7 @@ impl OwnedQuantizedModelCached {
     /// 3. Output [batch, m, n]
     ///
     /// This reduces dispatch overhead for large batch sizes.
+    #[allow(clippy::many_single_char_names)] // Standard BLAS parameter naming convention
     pub fn flattened_batched_gemm(
         &self,
         a: &[f32],
@@ -1126,6 +1127,7 @@ impl OwnedQuantizedModelCached {
     ///
     /// # Returns
     /// Output tensor [batch_size, m, n]
+    #[allow(clippy::many_single_char_names)] // Standard BLAS parameter naming convention
     pub fn true_batched_gemm(
         &self,
         a: &[f32],

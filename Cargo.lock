@@ -164,7 +164,7 @@ dependencies = [
 
 [[package]]
 name = "aprender"
-version = "0.24.1"
+version = "0.25.0"
 dependencies = [
  "bincode",
  "getrandom 0.2.17",
@@ -3942,7 +3942,7 @@ dependencies = [
 
 [[package]]
 name = "realizar"
-version = "0.6.8"
+version = "0.6.9"
 dependencies = [
  "alimentar",
  "anyhow",
