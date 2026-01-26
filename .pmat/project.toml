@@ -1,6 +1,6 @@
 [pmat]
 version = "2.213.7"
-last_compliance_check = "2026-01-26T18:13:22.232400756Z"
+last_compliance_check = "2026-01-26T20:57:06.297525667Z"
 auto_update = false
 
 [tickets.T-COV-001]
