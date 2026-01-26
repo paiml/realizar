@@ -205,6 +205,12 @@ pub mod error;
 /// - KernelSHAP: Model-agnostic with weighted linear regression
 /// - Feature importance: Top-k features by absolute SHAP value
 pub mod explain;
+/// Test fixtures for model loading with RAII-based cleanup.
+///
+/// Provides standardized test fixtures for GGUF, SafeTensors, and APR formats
+/// with automatic temporary file cleanup via TempDir.
+#[cfg(test)]
+pub mod fixtures;
 /// Unified model format detection (APR, GGUF, SafeTensors)
 ///
 /// Per spec §3: Format Support Matrix - auto-detect from magic bytes.

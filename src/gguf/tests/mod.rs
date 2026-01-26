@@ -28,6 +28,8 @@
 //! - `part_21.rs`: Phase 34 - Transformer Structure (transformer.rs)
 //! - `part_22.rs`: Phase 35 - GGUF Edge Cases (loader.rs, types.rs)
 //! - `part_23.rs`: Phase 36 - GGUF Parsing and Error Handling (mod.rs coverage)
+//! - `part_24.rs`: Phase 52 - GGUF Loader Metadata Types (state-space exhaustion)
+//! - `part_25.rs`: Phase 54 - Fixture-Based Loader Tests (ModelFixture pattern)
 
 mod part_01;
 mod part_02;
@@ -53,3 +55,4 @@ mod part_21;
 mod part_22;
 mod part_23;
 mod part_24;
+mod part_25;
