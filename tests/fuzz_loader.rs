@@ -41,7 +41,11 @@ fn test_fuzz_loader_wrong_magic() {
 
     let err = result.unwrap_err();
     let err_str = format!("{:?}", err);
-    assert!(err_str.contains("magic") || err_str.contains("Invalid"), "Error should mention magic: {}", err_str);
+    assert!(
+        err_str.contains("magic") || err_str.contains("Invalid"),
+        "Error should mention magic: {}",
+        err_str
+    );
 }
 
 #[test]
@@ -72,7 +76,11 @@ fn test_fuzz_loader_wrong_version() {
 
     let err = result.unwrap_err();
     let err_str = format!("{:?}", err);
-    assert!(err_str.contains("version") || err_str.contains("Unsupported"), "Error should mention version: {}", err_str);
+    assert!(
+        err_str.contains("version") || err_str.contains("Unsupported"),
+        "Error should mention version: {}",
+        err_str
+    );
 }
 
 #[test]
@@ -122,7 +130,7 @@ fn test_fuzz_loader_truncated_after_tensor_count() {
     data[0..4].copy_from_slice(&GGUF_MAGIC.to_le_bytes());
     data[4..8].copy_from_slice(&GGUF_VERSION_V3.to_le_bytes());
     data[8..16].copy_from_slice(&0u64.to_le_bytes()); // tensor_count
-    // Missing metadata_count
+                                                      // Missing metadata_count
 
     let result = GGUFModel::from_bytes(&data);
     assert!(result.is_err(), "Missing metadata_count should fail");
@@ -143,7 +151,7 @@ fn test_fuzz_loader_metadata_truncated_key() {
 
     // Metadata starts but is truncated
     data.extend_from_slice(&100u64.to_le_bytes()); // key length = 100 bytes
-    // But no actual key data
+                                                   // But no actual key data
 
     let result = GGUFModel::from_bytes(&data);
     assert!(result.is_err(), "Truncated metadata key should fail");
@@ -163,7 +171,10 @@ fn test_fuzz_loader_metadata_huge_key_length() {
 
     // This may panic with capacity overflow - that's a bug but we catch it for coverage
     let result = std::panic::catch_unwind(|| GGUFModel::from_bytes(&data));
-    assert!(result.is_err() || matches!(result, Ok(Err(_))), "Huge key length should fail or panic");
+    assert!(
+        result.is_err() || matches!(result, Ok(Err(_))),
+        "Huge key length should fail or panic"
+    );
 }
 
 #[test]
@@ -283,7 +294,10 @@ fn test_fuzz_loader_array_huge_length() {
 
     // This may panic with capacity overflow - that's a bug but we catch it for coverage
     let result = std::panic::catch_unwind(|| GGUFModel::from_bytes(&data));
-    assert!(result.is_err() || matches!(result, Ok(Err(_))), "Huge array length should fail or panic");
+    assert!(
+        result.is_err() || matches!(result, Ok(Err(_))),
+        "Huge array length should fail or panic"
+    );
 }
 
 // =============================================================================

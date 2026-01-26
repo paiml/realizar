@@ -37,8 +37,10 @@ use thiserror::Error;
 // PMAT-802: Extracted modules
 mod chunked_prefill;
 mod types;
-pub use chunked_prefill::{ChunkedPrefillConfig, ChunkedPrefillScheduler, ChunkedPrefillState, ChunkedPrefillStats};
-pub use types::{Priority, SequenceState, SchedulerStats};
+pub use chunked_prefill::{
+    ChunkedPrefillConfig, ChunkedPrefillScheduler, ChunkedPrefillState, ChunkedPrefillStats,
+};
+pub use types::{Priority, SchedulerStats, SequenceState};
 
 /// Error type for scheduler operations
 #[derive(Debug, Error)]
@@ -1963,3 +1965,8 @@ impl DynamicPriorityScheduler {
 #[cfg(test)]
 #[path = "tests.rs"]
 mod scheduler_tests;
+
+// Additional tests for coverage (Part 02)
+#[cfg(test)]
+#[path = "tests_part_02.rs"]
+mod scheduler_tests_part_02;

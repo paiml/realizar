@@ -737,4 +737,3 @@ impl RuntimeBackend for OllamaBackend {
         })
     }
 }
-

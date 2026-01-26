@@ -408,8 +408,8 @@ fn test_gpu_model_do_matmul_transpose_b_with_mock() {
     let mock = MockExecutor::new("transpose_test").with_matmul_result(vec![10.0, 20.0]);
     model.with_test_executor(Box::new(mock));
 
-    let a = vec![1.0f32; 2];  // m=1, k=2
-    let b = vec![1.0f32; 4];  // n=2, k=2
+    let a = vec![1.0f32; 2]; // m=1, k=2
+    let b = vec![1.0f32; 4]; // n=2, k=2
     let result = model.do_matmul_transpose_b(&a, &b, 1, 2, 2);
 
     assert!(result.is_ok());

@@ -3,17 +3,10 @@
 //! Extracted from api/mod.rs (PMAT-802) to reduce module size.
 //! Contains context window management and native Realize API endpoints.
 
-
-use axum::{
-    extract::State,
-    http::StatusCode,
-    Json,
-};
+use axum::{extract::State, http::StatusCode, Json};
 use serde::{Deserialize, Serialize};
 
-use super::{
-    AppState, ErrorResponse, ChatMessage, Usage, ContinuousBatchRequest,
-};
+use super::{AppState, ChatMessage, ContinuousBatchRequest, ErrorResponse, Usage};
 use crate::generate::{GenerationConfig, SamplingStrategy};
 use crate::registry::ModelInfo;
 
@@ -195,15 +188,15 @@ pub fn format_chat_messages(messages: &[ChatMessage], model_name: Option<&str>) 
 pub fn clean_chat_output(text: &str) -> String {
     // List of stop sequences that indicate end of assistant response
     const STOP_SEQUENCES: &[&str] = &[
-        "<|im_end|>",      // ChatML (Qwen, OpenHermes, Yi)
-        "<|endoftext|>",   // GPT-style
-        "<|end|>",         // Alternative
-        "</s>",            // LLaMA style
-        "\nHuman:",        // Anthropic/Claude style
-        "\nUser:",         // Alternative user turn
-        "\n\nHuman:",      // With extra newline
-        "\n\nUser:",       // With extra newline
-        "<|im_start|>",    // Start of new turn in ChatML
+        "<|im_end|>",    // ChatML (Qwen, OpenHermes, Yi)
+        "<|endoftext|>", // GPT-style
+        "<|end|>",       // Alternative
+        "</s>",          // LLaMA style
+        "\nHuman:",      // Anthropic/Claude style
+        "\nUser:",       // Alternative user turn
+        "\n\nHuman:",    // With extra newline
+        "\n\nUser:",     // With extra newline
+        "<|im_start|>",  // Start of new turn in ChatML
     ];
 
     let mut result = text.to_string();
@@ -1102,4 +1095,3 @@ pub async fn openai_embeddings_handler(
     // Delegate to native handler
     realize_embed_handler(State(state), Json(request)).await
 }
-

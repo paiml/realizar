@@ -5,7 +5,9 @@ use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
 
 fn correlation(a: &[f32], b: &[f32]) -> f64 {
     let n = a.len().min(b.len());
-    if n == 0 { return 0.0; }
+    if n == 0 {
+        return 0.0;
+    }
     let a_mean: f64 = a.iter().map(|&x| x as f64).sum::<f64>() / n as f64;
     let b_mean: f64 = b.iter().map(|&x| x as f64).sum::<f64>() / n as f64;
     let mut cov = 0.0f64;
@@ -18,12 +20,17 @@ fn correlation(a: &[f32], b: &[f32]) -> f64 {
         a_var += a_d * a_d;
         b_var += b_d * b_d;
     }
-    if a_var > 0.0 && b_var > 0.0 { cov / (a_var.sqrt() * b_var.sqrt()) } else { 0.0 }
+    if a_var > 0.0 && b_var > 0.0 {
+        cov / (a_var.sqrt() * b_var.sqrt())
+    } else {
+        0.0
+    }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let apr_path = "/home/noah/models/qwen2.5-coder-1.5b-q4k.apr";
-    let gguf_path = "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf";
+    let gguf_path =
+        "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf";
 
     println!("Loading models...");
     let apr_model = AprTransformer::from_apr_file(apr_path)?;
@@ -37,8 +44,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let kv_dim = num_kv_heads * head_dim;
     let eps = apr_model.config.eps;
 
-    println!("hidden_dim: {}, num_heads: {}, num_kv_heads: {}, head_dim: {}",
-             hidden_dim, num_heads, num_kv_heads, head_dim);
+    println!(
+        "hidden_dim: {}, num_heads: {}, num_kv_heads: {}, head_dim: {}",
+        hidden_dim, num_heads, num_kv_heads, head_dim
+    );
 
     // Get normalized embedding
     let bos: u32 = 151643;
@@ -46,7 +55,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let norm_weight = &apr_model.layers[0].attn_norm_weight;
     let sum_sq: f32 = embed.iter().map(|x| x * x).sum();
     let rms = (sum_sq / hidden_dim as f32 + eps).sqrt();
-    let normed: Vec<f32> = embed.iter()
+    let normed: Vec<f32> = embed
+        .iter()
         .zip(norm_weight.iter())
         .map(|(h, w)| h / rms * w)
         .collect();
@@ -81,7 +91,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== QKV (after bias) ===");
     println!("APR first 10: {:?}", &apr_qkv_out[..10]);
     println!("GGUF first 10: {:?}", &gguf_qkv[..10]);
-    println!("QKV correlation: {:.6}", correlation(&apr_qkv_out, &gguf_qkv));
+    println!(
+        "QKV correlation: {:.6}",
+        correlation(&apr_qkv_out, &gguf_qkv)
+    );
 
     // Apply RoPE to Q and K
     // Extract Q, K, V
@@ -99,7 +112,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("V correlation: {:.6}", correlation(&v, &gguf_v));
 
     // Apply RoPE (simplified - position 0)
-    fn apply_rope(data: &[f32], num_heads: usize, head_dim: usize, pos: usize, rope_base: f32) -> Vec<f32> {
+    fn apply_rope(
+        data: &[f32],
+        num_heads: usize,
+        head_dim: usize,
+        pos: usize,
+        rope_base: f32,
+    ) -> Vec<f32> {
         let mut out = data.to_vec();
         for h in 0..num_heads {
             let head_start = h * head_dim;
@@ -125,8 +144,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let gguf_k_rope = apply_rope(&gguf_k, num_kv_heads, head_dim, 0, rope_base);
 
     println!("\n=== Q, K (after RoPE) ===");
-    println!("Q correlation: {:.6}", correlation(&apr_q_rope, &gguf_q_rope));
-    println!("K correlation: {:.6}", correlation(&apr_k_rope, &gguf_k_rope));
+    println!(
+        "Q correlation: {:.6}",
+        correlation(&apr_q_rope, &gguf_q_rope)
+    );
+    println!(
+        "K correlation: {:.6}",
+        correlation(&apr_k_rope, &gguf_k_rope)
+    );
 
     // Compute attention scores (single token, so just Q @ K^T / sqrt(head_dim))
     let scale = 1.0 / (head_dim as f32).sqrt();
@@ -164,17 +189,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== Attention Output (before projection) ===");
     println!("APR first 10: {:?}", &apr_attn_out[..10]);
     println!("GGUF first 10: {:?}", &gguf_attn_out[..10]);
-    println!("Correlation: {:.6}", correlation(&apr_attn_out, &gguf_attn_out));
+    println!(
+        "Correlation: {:.6}",
+        correlation(&apr_attn_out, &gguf_attn_out)
+    );
 
     // Now apply attn_output projection using Q4K kernel
     use trueno::backends::q4k::matmul_q4k_f32_colmajor_dispatch;
 
     let q4k_layers = apr_model.q4k_layers.as_ref().expect("No Q4K layers");
-    let apr_q4k_attn_out = q4k_layers[0].attn_output_weight.as_ref().expect("No Q4K attn_output");
+    let apr_q4k_attn_out = q4k_layers[0]
+        .attn_output_weight
+        .as_ref()
+        .expect("No Q4K attn_output");
     let gguf_q4k_attn_out = &gguf_model.layers[0].attn_output_weight;
 
-    let apr_proj = matmul_q4k_f32_colmajor_dispatch(apr_q4k_attn_out, &apr_attn_out, hidden_dim, hidden_dim);
-    let gguf_proj = matmul_q4k_f32_colmajor_dispatch(&gguf_q4k_attn_out.data, &gguf_attn_out, hidden_dim, hidden_dim);
+    let apr_proj =
+        matmul_q4k_f32_colmajor_dispatch(apr_q4k_attn_out, &apr_attn_out, hidden_dim, hidden_dim);
+    let gguf_proj = matmul_q4k_f32_colmajor_dispatch(
+        &gguf_q4k_attn_out.data,
+        &gguf_attn_out,
+        hidden_dim,
+        hidden_dim,
+    );
 
     println!("\n=== After attn_output projection (Q4K) ===");
     println!("APR first 10: {:?}", &apr_proj[..10]);
@@ -182,8 +219,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Correlation: {:.6}", correlation(&apr_proj, &gguf_proj));
 
     // Add residual connection (embed + attn_output)
-    let mut apr_hidden: Vec<f32> = embed.iter().zip(apr_proj.iter()).map(|(e, p)| e + p).collect();
-    let mut gguf_hidden: Vec<f32> = embed.iter().zip(gguf_proj.iter()).map(|(e, p)| e + p).collect();
+    let mut apr_hidden: Vec<f32> = embed
+        .iter()
+        .zip(apr_proj.iter())
+        .map(|(e, p)| e + p)
+        .collect();
+    let mut gguf_hidden: Vec<f32> = embed
+        .iter()
+        .zip(gguf_proj.iter())
+        .map(|(e, p)| e + p)
+        .collect();
 
     println!("\n=== After residual (embed + attn_proj) ===");
     println!("APR first 10: {:?}", &apr_hidden[..10]);
@@ -191,39 +236,75 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Correlation: {:.6}", correlation(&apr_hidden, &gguf_hidden));
 
     // FFN norm
-    let ffn_norm = apr_model.layers[0].ffn_norm_weight.as_ref().expect("No FFN norm");
-    let gguf_ffn_norm = gguf_model.layers[0].ffn_norm_weight.as_ref().expect("No GGUF FFN norm");
+    let ffn_norm = apr_model.layers[0]
+        .ffn_norm_weight
+        .as_ref()
+        .expect("No FFN norm");
+    let gguf_ffn_norm = gguf_model.layers[0]
+        .ffn_norm_weight
+        .as_ref()
+        .expect("No GGUF FFN norm");
 
     let apr_ssq: f32 = apr_hidden.iter().map(|x| x * x).sum();
     let apr_ffn_rms = (apr_ssq / hidden_dim as f32 + eps).sqrt();
-    let apr_ffn_normed: Vec<f32> = apr_hidden.iter().zip(ffn_norm.iter()).map(|(h, w)| h / apr_ffn_rms * w).collect();
+    let apr_ffn_normed: Vec<f32> = apr_hidden
+        .iter()
+        .zip(ffn_norm.iter())
+        .map(|(h, w)| h / apr_ffn_rms * w)
+        .collect();
 
     let gguf_ssq: f32 = gguf_hidden.iter().map(|x| x * x).sum();
     let gguf_ffn_rms = (gguf_ssq / hidden_dim as f32 + eps).sqrt();
-    let gguf_ffn_normed: Vec<f32> = gguf_hidden.iter().zip(gguf_ffn_norm.iter()).map(|(h, w)| h / gguf_ffn_rms * w).collect();
+    let gguf_ffn_normed: Vec<f32> = gguf_hidden
+        .iter()
+        .zip(gguf_ffn_norm.iter())
+        .map(|(h, w)| h / gguf_ffn_rms * w)
+        .collect();
 
     println!("\n=== FFN input (after FFN norm) ===");
     println!("APR first 10: {:?}", &apr_ffn_normed[..10]);
     println!("GGUF first 10: {:?}", &gguf_ffn_normed[..10]);
-    println!("Correlation: {:.6}", correlation(&apr_ffn_normed, &gguf_ffn_normed));
+    println!(
+        "Correlation: {:.6}",
+        correlation(&apr_ffn_normed, &gguf_ffn_normed)
+    );
 
     // FFN gate and up projections (Q4K)
     use trueno::backends::q6k::matmul_q6k_f32_colmajor_dispatch;
 
-    let apr_ffn_gate = q4k_layers[0].ffn_gate_weight.as_ref().expect("No Q4K ffn_gate");
+    let apr_ffn_gate = q4k_layers[0]
+        .ffn_gate_weight
+        .as_ref()
+        .expect("No Q4K ffn_gate");
     let apr_ffn_up = q4k_layers[0].ffn_up_weight.as_ref().expect("No Q4K ffn_up");
 
     let intermediate_dim = apr_model.config.intermediate_dim;
     println!("intermediate_dim: {}", intermediate_dim);
 
-    let apr_gate = matmul_q4k_f32_colmajor_dispatch(apr_ffn_gate, &apr_ffn_normed, intermediate_dim, hidden_dim);
-    let apr_up = matmul_q4k_f32_colmajor_dispatch(apr_ffn_up, &apr_ffn_normed, intermediate_dim, hidden_dim);
+    let apr_gate = matmul_q4k_f32_colmajor_dispatch(
+        apr_ffn_gate,
+        &apr_ffn_normed,
+        intermediate_dim,
+        hidden_dim,
+    );
+    let apr_up =
+        matmul_q4k_f32_colmajor_dispatch(apr_ffn_up, &apr_ffn_normed, intermediate_dim, hidden_dim);
 
     // GGUF FFN gate and up
     let gguf_ffn_gate = gguf_model.layers[0].ffn_gate_weight.as_ref().expect("gate");
     let gguf_ffn_up = &gguf_model.layers[0].ffn_up_weight;
-    let gguf_gate = matmul_q4k_f32_colmajor_dispatch(&gguf_ffn_gate.data, &gguf_ffn_normed, intermediate_dim, hidden_dim);
-    let gguf_up = matmul_q4k_f32_colmajor_dispatch(&gguf_ffn_up.data, &gguf_ffn_normed, intermediate_dim, hidden_dim);
+    let gguf_gate = matmul_q4k_f32_colmajor_dispatch(
+        &gguf_ffn_gate.data,
+        &gguf_ffn_normed,
+        intermediate_dim,
+        hidden_dim,
+    );
+    let gguf_up = matmul_q4k_f32_colmajor_dispatch(
+        &gguf_ffn_up.data,
+        &gguf_ffn_normed,
+        intermediate_dim,
+        hidden_dim,
+    );
 
     println!("\n=== FFN gate output ===");
     println!("APR first 10: {:?}", &apr_gate[..10]);
@@ -236,14 +317,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Correlation: {:.6}", correlation(&apr_up, &gguf_up));
 
     // SwiGLU: silu(gate) * up
-    let apr_swiglu: Vec<f32> = apr_gate.iter().zip(apr_up.iter()).map(|(g, u)| {
-        let silu_g = g / (1.0 + (-g).exp());
-        silu_g * u
-    }).collect();
-    let gguf_swiglu: Vec<f32> = gguf_gate.iter().zip(gguf_up.iter()).map(|(g, u)| {
-        let silu_g = g / (1.0 + (-g).exp());
-        silu_g * u
-    }).collect();
+    let apr_swiglu: Vec<f32> = apr_gate
+        .iter()
+        .zip(apr_up.iter())
+        .map(|(g, u)| {
+            let silu_g = g / (1.0 + (-g).exp());
+            silu_g * u
+        })
+        .collect();
+    let gguf_swiglu: Vec<f32> = gguf_gate
+        .iter()
+        .zip(gguf_up.iter())
+        .map(|(g, u)| {
+            let silu_g = g / (1.0 + (-g).exp());
+            silu_g * u
+        })
+        .collect();
 
     println!("\n=== FFN SwiGLU output ===");
     println!("APR first 10: {:?}", &apr_swiglu[..10]);
@@ -263,7 +352,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let gguf_ffn_down = &gguf_model.layers[0].ffn_down_weight;
-    let gguf_down = matmul_q6k_f32_colmajor_dispatch(&gguf_ffn_down.data, &gguf_swiglu, hidden_dim, intermediate_dim);
+    let gguf_down = matmul_q6k_f32_colmajor_dispatch(
+        &gguf_ffn_down.data,
+        &gguf_swiglu,
+        hidden_dim,
+        intermediate_dim,
+    );
 
     println!("\n=== FFN down output ===");
     println!("APR first 10: {:?}", &apr_down[..10]);
@@ -271,13 +365,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Correlation: {:.6}", correlation(&apr_down, &gguf_down));
 
     // Final layer output (hidden + ffn_down)
-    let apr_layer_out: Vec<f32> = apr_hidden.iter().zip(apr_down.iter()).map(|(h, d)| h + d).collect();
-    let gguf_layer_out: Vec<f32> = gguf_hidden.iter().zip(gguf_down.iter()).map(|(h, d)| h + d).collect();
+    let apr_layer_out: Vec<f32> = apr_hidden
+        .iter()
+        .zip(apr_down.iter())
+        .map(|(h, d)| h + d)
+        .collect();
+    let gguf_layer_out: Vec<f32> = gguf_hidden
+        .iter()
+        .zip(gguf_down.iter())
+        .map(|(h, d)| h + d)
+        .collect();
 
     println!("\n=== Layer 0 final output ===");
     println!("APR first 10: {:?}", &apr_layer_out[..10]);
     println!("GGUF first 10: {:?}", &gguf_layer_out[..10]);
-    println!("Correlation: {:.6}", correlation(&apr_layer_out, &gguf_layer_out));
+    println!(
+        "Correlation: {:.6}",
+        correlation(&apr_layer_out, &gguf_layer_out)
+    );
 
     Ok(())
 }

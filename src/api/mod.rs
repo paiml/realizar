@@ -52,38 +52,35 @@ use crate::{
 // PMAT-802: Extracted handlers
 mod openai_handlers;
 pub(crate) use openai_handlers::{
-    openai_models_handler, openai_chat_completions_handler, openai_chat_completions_stream_handler,
+    openai_chat_completions_handler, openai_chat_completions_stream_handler, openai_models_handler,
 };
 mod gpu_handlers;
 pub(crate) use gpu_handlers::{
-    gpu_warmup_handler, gpu_status_handler, gpu_batch_completions_handler,
-    models_handler, tokenize_handler, generate_handler, batch_tokenize_handler,
-    batch_generate_handler, stream_generate_handler,
+    batch_generate_handler, batch_tokenize_handler, generate_handler,
+    gpu_batch_completions_handler, gpu_status_handler, gpu_warmup_handler, models_handler,
+    stream_generate_handler, tokenize_handler,
 };
 // Public exports for tests
 pub use gpu_handlers::{
-    GpuBatchRequest, GpuBatchResponse, GpuBatchResult, GpuBatchStats,
-    GpuWarmupResponse, GpuStatusResponse, ContinuousBatchRequest, ContinuousBatchResponse,
-    BatchQueueStats, BatchProcessResult,
+    BatchProcessResult, BatchQueueStats, ContinuousBatchRequest, ContinuousBatchResponse,
+    GpuBatchRequest, GpuBatchResponse, GpuBatchResult, GpuBatchStats, GpuStatusResponse,
+    GpuWarmupResponse,
 };
 // Public exports for apr-cli CUDA integration (PMAT-GPU-001)
-pub use gpu_handlers::{BatchConfig, spawn_batch_processor};
+pub use gpu_handlers::{spawn_batch_processor, BatchConfig};
 mod realize_handlers;
 pub(crate) use realize_handlers::{
+    clean_chat_output, format_chat_messages, openai_completions_handler, openai_embeddings_handler,
     realize_embed_handler, realize_model_handler, realize_reload_handler,
-    openai_completions_handler, openai_embeddings_handler,
-    format_chat_messages, clean_chat_output,
 };
 // Public exports for tests
 pub use realize_handlers::{
-    ContextWindowConfig, ContextWindowManager, EmbeddingRequest, EmbeddingResponse,
-    EmbeddingData, EmbeddingUsage, ModelMetadataResponse, ModelLineage,
-    ReloadRequest, ReloadResponse, CompletionRequest, CompletionResponse, CompletionChoice,
+    CompletionChoice, CompletionRequest, CompletionResponse, ContextWindowConfig,
+    ContextWindowManager, EmbeddingData, EmbeddingRequest, EmbeddingResponse, EmbeddingUsage,
+    ModelLineage, ModelMetadataResponse, ReloadRequest, ReloadResponse,
 };
 mod apr_handlers;
-pub(crate) use apr_handlers::{
-    apr_predict_handler, apr_explain_handler, apr_audit_handler,
-};
+pub(crate) use apr_handlers::{apr_audit_handler, apr_explain_handler, apr_predict_handler};
 
 /// Application state shared across handlers
 #[derive(Clone)]
@@ -1951,7 +1948,6 @@ async fn dispatch_metrics_handler(
     )
         .into_response()
 }
-
 
 // Test helpers module (compiled only in tests)
 #[cfg(test)]

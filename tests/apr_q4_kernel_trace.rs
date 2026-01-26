@@ -84,13 +84,21 @@ mod tests {
         }
         if exp == 31 {
             if frac == 0 {
-                return if sign == 1 { f32::NEG_INFINITY } else { f32::INFINITY };
+                return if sign == 1 {
+                    f32::NEG_INFINITY
+                } else {
+                    f32::INFINITY
+                };
             }
             return f32::NAN;
         }
 
         let f = (1.0 + frac as f32 / 1024.0) * 2.0f32.powi(exp as i32 - 15);
-        if sign == 1 { -f } else { f }
+        if sign == 1 {
+            -f
+        } else {
+            f
+        }
     }
 
     /// Test 1: Verify scale conversion round-trip
@@ -106,10 +114,16 @@ mod tests {
             let f16_bits = f32_to_f16(scale);
             let roundtrip = f16_to_f32(f16_bits);
             let diff = (scale - roundtrip).abs();
-            let rel = if scale.abs() > 1e-6 { diff / scale.abs() } else { diff };
+            let rel = if scale.abs() > 1e-6 {
+                diff / scale.abs()
+            } else {
+                diff
+            };
 
-            eprintln!("scale={:8.4} -> f16=0x{:04X} -> roundtrip={:8.4} (diff={:.6e})",
-                     scale, f16_bits, roundtrip, diff);
+            eprintln!(
+                "scale={:8.4} -> f16=0x{:04X} -> roundtrip={:8.4} (diff={:.6e})",
+                scale, f16_bits, roundtrip, diff
+            );
 
             // f16 has ~3 decimal digits precision
             assert!(rel < 0.01, "Round-trip error too large for scale={}", scale);
@@ -134,8 +148,10 @@ mod tests {
         // Verify scale bytes (1.0 in f16 = 0x3C00)
         let scale_bits = u16::from_le_bytes([block[0], block[1]]);
         let scale_f32 = f16_to_f32(scale_bits);
-        eprintln!("Scale bytes: 0x{:02X}{:02X} = 0x{:04X} = {}",
-                 block[1], block[0], scale_bits, scale_f32);
+        eprintln!(
+            "Scale bytes: 0x{:02X}{:02X} = 0x{:04X} = {}",
+            block[1], block[0], scale_bits, scale_f32
+        );
 
         assert!((scale_f32 - 1.0).abs() < 0.01, "Scale should be ~1.0");
 
@@ -180,7 +196,10 @@ mod tests {
         eprintln!("CPU result: {:?}", result);
         eprintln!("Expected: 0.0 (all weights are centered to 0)");
 
-        assert!(result[0].abs() < 0.1, "Result should be ~0 for centered=0 weights");
+        assert!(
+            result[0].abs() < 0.1,
+            "Result should be ~0 for centered=0 weights"
+        );
 
         // Now test with non-zero weights
         // Nibbles: 0x99 = (9, 9), means centered = (1, 1)
@@ -225,11 +244,13 @@ mod tests {
             Ok(mut executor) => {
                 // Upload weight
                 let cache_key = "test_weight".to_string();
-                executor.load_quantized_weights_with_type(&cache_key, &block, 2) // Q4_0 = type 2
+                executor
+                    .load_quantized_weights_with_type(&cache_key, &block, 2) // Q4_0 = type 2
                     .expect("Failed to upload weight");
 
                 // Get weight pointer
-                let weight_ptr = executor.get_quantized_weight_ptr(&cache_key)
+                let weight_ptr = executor
+                    .get_quantized_weight_ptr(&cache_key)
                     .expect("Weight not cached");
 
                 eprintln!("Weight uploaded to GPU, ptr=0x{:016X}", weight_ptr);
@@ -243,17 +264,19 @@ mod tests {
                     .expect("Failed to upload activations");
 
                 // Allocate output
-                let output_gpu = GpuBuffer::new(executor.context(), 1)
-                    .expect("Failed to allocate output");
+                let output_gpu =
+                    GpuBuffer::new(executor.context(), 1).expect("Failed to allocate output");
 
                 // Run kernel
-                executor.q4_0_gemv_into(
-                    weight_ptr,
-                    &input_gpu,
-                    &output_gpu,
-                    1,  // n = 1 output
-                    32, // k = 32 input
-                ).expect("GPU GEMV failed");
+                executor
+                    .q4_0_gemv_into(
+                        weight_ptr,
+                        &input_gpu,
+                        &output_gpu,
+                        1,  // n = 1 output
+                        32, // k = 32 input
+                    )
+                    .expect("GPU GEMV failed");
 
                 // Sync and read result
                 executor.synchronize().expect("Sync failed");
@@ -287,10 +310,10 @@ mod tests {
                 }
 
                 assert!(rel < 0.20, "GPU diverges too much from CPU");
-            }
+            },
             Err(e) => {
                 eprintln!("⚠️ CUDA not available: {:?}", e);
-            }
+            },
         }
     }
 
@@ -302,8 +325,8 @@ mod tests {
         eprintln!("╚══════════════════════════════════════════════════════════════════════╝\n");
 
         // Try to load a real APR model
-        let model_path = std::path::Path::new(env!("HOME"))
-            .join("models/TinyLlama-1.1B-Chat-v1.0.apr");
+        let model_path =
+            std::path::Path::new(env!("HOME")).join("models/TinyLlama-1.1B-Chat-v1.0.apr");
 
         if !model_path.exists() {
             eprintln!("⚠️ Skipping: APR model not found at {:?}", model_path);

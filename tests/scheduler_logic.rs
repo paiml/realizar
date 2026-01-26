@@ -207,7 +207,9 @@ fn test_resource_tracker_allocate() {
     let mut tracker = ResourceTracker::new(1024 * 1024, 100); // 1MB
 
     // Allocate 512KB
-    let id = tracker.allocate(512 * 1024, 50).expect("allocation should succeed");
+    let id = tracker
+        .allocate(512 * 1024, 50)
+        .expect("allocation should succeed");
     assert_eq!(tracker.memory_usage(), 512 * 1024);
     assert_eq!(tracker.compute_usage(), 50);
 
@@ -221,8 +223,12 @@ fn test_resource_tracker_allocate() {
 fn test_resource_tracker_multiple_allocations() {
     let mut tracker = ResourceTracker::new(1024 * 1024, 100);
 
-    let id1 = tracker.allocate(256 * 1024, 25).expect("allocation 1 should succeed");
-    let id2 = tracker.allocate(256 * 1024, 25).expect("allocation 2 should succeed");
+    let id1 = tracker
+        .allocate(256 * 1024, 25)
+        .expect("allocation 1 should succeed");
+    let id2 = tracker
+        .allocate(256 * 1024, 25)
+        .expect("allocation 2 should succeed");
 
     assert_eq!(tracker.memory_usage(), 512 * 1024);
     assert_eq!(tracker.compute_usage(), 50);
@@ -250,7 +256,9 @@ fn test_resource_tracker_allocation_fail_compute() {
     let mut tracker = ResourceTracker::new(1024 * 1024, 100);
 
     // Allocate 90% compute
-    tracker.allocate(1024, 90).expect("first allocation should succeed");
+    tracker
+        .allocate(1024, 90)
+        .expect("first allocation should succeed");
 
     // Try to allocate another 20% (would exceed 100%)
     let result = tracker.allocate(1024, 20);
@@ -267,7 +275,9 @@ fn test_resource_tracker_can_allocate() {
     assert!(!tracker.can_allocate(512, 150)); // Compute overflow
 
     // After allocation, less capacity
-    tracker.allocate(512, 50).expect("allocation should succeed");
+    tracker
+        .allocate(512, 50)
+        .expect("allocation should succeed");
     assert!(tracker.can_allocate(512, 50));
     assert!(!tracker.can_allocate(1024, 50)); // Memory would overflow
 }
@@ -285,7 +295,9 @@ fn test_resource_tracker_release_invalid() {
 fn test_resource_tracker_release_twice() {
     let mut tracker = ResourceTracker::new(1024, 100);
 
-    let id = tracker.allocate(512, 50).expect("allocation should succeed");
+    let id = tracker
+        .allocate(512, 50)
+        .expect("allocation should succeed");
     tracker.release(id);
 
     // Second release should not panic or change state
@@ -302,7 +314,9 @@ fn test_resource_tracker_usage_percentage() {
     assert!((mem_pct - 0.0).abs() < 0.01);
     assert!((compute_pct - 0.0).abs() < 0.01);
 
-    tracker.allocate(500, 50).expect("allocation should succeed");
+    tracker
+        .allocate(500, 50)
+        .expect("allocation should succeed");
     let (mem_pct, compute_pct) = tracker.usage_percentage();
     assert!((mem_pct - 50.0).abs() < 0.01);
     assert!((compute_pct - 50.0).abs() < 0.01);
@@ -326,7 +340,9 @@ fn test_resource_tracker_edge_exact_fit() {
     let mut tracker = ResourceTracker::new(1000, 100);
 
     // Exact fit allocation
-    let id = tracker.allocate(1000, 100).expect("exact fit should succeed");
+    let id = tracker
+        .allocate(1000, 100)
+        .expect("exact fit should succeed");
     assert_eq!(tracker.memory_usage(), 1000);
     assert_eq!(tracker.compute_usage(), 100);
 

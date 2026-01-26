@@ -3,7 +3,6 @@
 //! Stores pre-dequantized f32 weights for GPU GEMM to avoid
 //! repeated dequantization on every forward pass.
 
-
 /// Dequantized FFN weights for a single transformer layer
 ///
 /// Stores pre-dequantized f32 weights for GPU GEMM operations.

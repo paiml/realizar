@@ -86,11 +86,11 @@ use crate::{
 
 // PMAT-802: Extracted modules
 mod position;
-pub use position::{RoPE, RopeScalingType, ScaledRoPE, ALiBi};
+pub use position::{ALiBi, RoPE, RopeScalingType, ScaledRoPE};
 mod model;
-pub use model::{KVCache, TransformerBlock, Embedding, Model, ModelConfig};
+pub use model::{Embedding, KVCache, Model, ModelConfig, TransformerBlock};
 mod attention;
-pub use attention::{Attention, SlidingWindowAttention, FusedQKVAttention, MultiHeadAttention};
+pub use attention::{Attention, FusedQKVAttention, MultiHeadAttention, SlidingWindowAttention};
 
 /// Apply softmax activation function
 ///
@@ -1125,6 +1125,5 @@ impl FeedForward {
 }
 
 #[cfg(test)]
-
 #[cfg(test)]
 mod tests;

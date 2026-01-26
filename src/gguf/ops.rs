@@ -63,13 +63,13 @@ pub fn rms_norm(input: &[f32], weight: &[f32], eps: f32) -> Vec<f32> {
         {
             Ok(result) => {
                 output.extend_from_slice(result.as_slice());
-            }
+            },
             Err(_) => {
                 // Fallback to scalar
                 for j in 0..hidden_dim {
                     output.push(x[j] * inv_rms * weight[j]);
                 }
-            }
+            },
         }
     }
 
@@ -103,12 +103,12 @@ pub fn rms_norm_into(input: &[f32], weight: &[f32], eps: f32, output: &mut [f32]
     {
         Ok(result) => {
             output[..hidden_dim].copy_from_slice(result.as_slice());
-        }
+        },
         Err(_) => {
             for j in 0..hidden_dim {
                 output[j] = x[j] * inv_rms * weight[j];
             }
-        }
+        },
     }
 }
 

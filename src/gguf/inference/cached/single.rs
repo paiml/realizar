@@ -5,8 +5,7 @@
 
 use crate::error::{RealizarError, Result};
 use crate::gguf::{
-    OwnedQKVWeights,
-    OwnedQuantizedModel, OwnedQuantizedTensor, QuantizedGenerateConfig,
+    OwnedQKVWeights, OwnedQuantizedModel, OwnedQuantizedTensor, QuantizedGenerateConfig,
 };
 
 /// Single-threaded cached model wrapper with RefCell-based scheduler caching

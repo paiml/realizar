@@ -2,9 +2,9 @@
 //!
 //! M28: InferenceMetrics, HealthChecker, ShutdownCoordinator, GpuCompute, HybridScheduler.
 
+use super::MatmulOp;
 use crate::error::{RealizarError, Result};
 use crate::tensor::Tensor;
-use super::MatmulOp;
 
 // =============================================================================
 // M28: Metrics & Health Monitoring (Phase 19)
@@ -588,7 +588,13 @@ fn cpu_vector_matmul_seq(a: &[f32], b: &[f32], _k: usize, n: usize) -> Vec<f32> 
 /// CPU matmul with B transposed: A @ B^T
 /// a[m,k] @ b[n,k]^T -> c[m,n]
 #[allow(clippy::many_single_char_names)]
-pub(crate) fn cpu_matmul_transpose_b(a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> Vec<f32> {
+pub(crate) fn cpu_matmul_transpose_b(
+    a: &[f32],
+    b: &[f32],
+    m: usize,
+    k: usize,
+    n: usize,
+) -> Vec<f32> {
     let mut c = vec![0.0; m * n];
     for i in 0..m {
         for j in 0..n {
@@ -1014,4 +1020,3 @@ impl HybridScheduler {
         }
     }
 }
-

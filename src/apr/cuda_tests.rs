@@ -4,10 +4,16 @@
 
 #[cfg(all(test, feature = "cuda"))]
 mod tests {
-    use crate::apr::{AprV2Model, AprV2ModelCuda, MAGIC, HEADER_SIZE};
+    use crate::apr::{AprV2Model, AprV2ModelCuda, HEADER_SIZE, MAGIC};
 
     /// Helper to write a tensor entry in APR v2 binary format
-    fn write_tensor_entry_binary(name: &str, dtype: u8, shape: &[usize], offset: u64, size: u64) -> Vec<u8> {
+    fn write_tensor_entry_binary(
+        name: &str,
+        dtype: u8,
+        shape: &[usize],
+        offset: u64,
+        size: u64,
+    ) -> Vec<u8> {
         let mut buf = Vec::new();
         // Name length (u16 LE)
         buf.extend_from_slice(&(name.len() as u16).to_le_bytes());
@@ -81,7 +87,8 @@ mod tests {
             .copy_from_slice(metadata.as_bytes());
 
         // Tensor index (binary format)
-        data[tensor_index_offset as usize..tensor_index_offset as usize + tensor_index_binary.len()]
+        data[tensor_index_offset as usize
+            ..tensor_index_offset as usize + tensor_index_binary.len()]
             .copy_from_slice(&tensor_index_binary);
 
         // Tensor data
@@ -106,7 +113,10 @@ mod tests {
 
         // Verify the embedding tensor exists
         let embedding = model.get_tensor("model.embed_tokens.weight");
-        assert!(embedding.is_some(), "Should have model.embed_tokens.weight tensor");
+        assert!(
+            embedding.is_some(),
+            "Should have model.embed_tokens.weight tensor"
+        );
     }
 
     #[test]
@@ -124,11 +134,11 @@ mod tests {
                 if !cuda_model.device_name().is_empty() {
                     println!("GPU: {}", cuda_model.device_name());
                 }
-            }
+            },
             Err(e) => {
                 // Expected if no GPU or under heavy instrumentation
                 println!("CUDA init result: {:?}", e);
-            }
+            },
         }
     }
 
@@ -143,10 +153,10 @@ mod tests {
         match result {
             Ok(_cuda_model) => {
                 println!("CUDA model created with max_seq_len=512");
-            }
+            },
             Err(e) => {
                 println!("CUDA init result: {:?}", e);
-            }
+            },
         }
     }
 
@@ -431,18 +441,38 @@ mod tests {
         // Define tensors with their offsets (all dtype 0 = F32)
         // Hidden dim = 32, vocab = 100, intermediate = 64
         let tensors = [
-            ("model.embed_tokens.weight", &[100_usize, 32][..], 0_u64),                                           // 12800 bytes
-            ("model.layers.0.input_layernorm.weight", &[32][..], 12800),                                          // 128 bytes
-            ("model.layers.0.self_attn.q_proj.weight", &[32, 32][..], 12928),                                     // 4096 bytes
-            ("model.layers.0.self_attn.k_proj.weight", &[32, 32][..], 17024),                                     // 4096 bytes
-            ("model.layers.0.self_attn.v_proj.weight", &[32, 32][..], 21120),                                     // 4096 bytes
-            ("model.layers.0.self_attn.o_proj.weight", &[32, 32][..], 25216),                                     // 4096 bytes
-            ("model.layers.0.post_attention_layernorm.weight", &[32][..], 29312),                                 // 128 bytes
-            ("model.layers.0.mlp.gate_proj.weight", &[64, 32][..], 29440),                                        // 8192 bytes
-            ("model.layers.0.mlp.up_proj.weight", &[64, 32][..], 37632),                                          // 8192 bytes
-            ("model.layers.0.mlp.down_proj.weight", &[32, 64][..], 45824),                                        // 8192 bytes
-            ("model.norm.weight", &[32][..], 54016),                                                               // 128 bytes
-            ("lm_head.weight", &[100, 32][..], 54144),                                                             // 12800 bytes
+            ("model.embed_tokens.weight", &[100_usize, 32][..], 0_u64), // 12800 bytes
+            ("model.layers.0.input_layernorm.weight", &[32][..], 12800), // 128 bytes
+            (
+                "model.layers.0.self_attn.q_proj.weight",
+                &[32, 32][..],
+                12928,
+            ), // 4096 bytes
+            (
+                "model.layers.0.self_attn.k_proj.weight",
+                &[32, 32][..],
+                17024,
+            ), // 4096 bytes
+            (
+                "model.layers.0.self_attn.v_proj.weight",
+                &[32, 32][..],
+                21120,
+            ), // 4096 bytes
+            (
+                "model.layers.0.self_attn.o_proj.weight",
+                &[32, 32][..],
+                25216,
+            ), // 4096 bytes
+            (
+                "model.layers.0.post_attention_layernorm.weight",
+                &[32][..],
+                29312,
+            ), // 128 bytes
+            ("model.layers.0.mlp.gate_proj.weight", &[64, 32][..], 29440), // 8192 bytes
+            ("model.layers.0.mlp.up_proj.weight", &[64, 32][..], 37632), // 8192 bytes
+            ("model.layers.0.mlp.down_proj.weight", &[32, 64][..], 45824), // 8192 bytes
+            ("model.norm.weight", &[32][..], 54016),                    // 128 bytes
+            ("lm_head.weight", &[100, 32][..], 54144),                  // 12800 bytes
         ];
 
         // Build binary tensor index
@@ -486,7 +516,8 @@ mod tests {
             .copy_from_slice(metadata.as_bytes());
 
         // Tensor index (binary format)
-        data[tensor_index_offset as usize..tensor_index_offset as usize + tensor_index_binary.len()]
+        data[tensor_index_offset as usize
+            ..tensor_index_offset as usize + tensor_index_binary.len()]
             .copy_from_slice(&tensor_index_binary);
 
         // Tensor data

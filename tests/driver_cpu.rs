@@ -186,10 +186,17 @@ fn test_driver_cpu_forward_llama_single_token() {
 
     assert!(result.is_ok(), "forward() should succeed");
     let logits = result.unwrap();
-    assert_eq!(logits.len(), config.vocab_size, "Should return vocab_size logits");
+    assert_eq!(
+        logits.len(),
+        config.vocab_size,
+        "Should return vocab_size logits"
+    );
 
     // Logits may be all zeros with test data - just verify they're finite
-    assert!(logits.iter().all(|x| x.is_finite()), "Logits should be finite");
+    assert!(
+        logits.iter().all(|x| x.is_finite()),
+        "Logits should be finite"
+    );
 }
 
 #[test]
@@ -213,7 +220,10 @@ fn test_driver_cpu_forward_llama_multi_token() {
     let tokens = [1u32, 2, 3, 4, 5]; // 5 token sequence
     let result = model.forward(&tokens);
 
-    assert!(result.is_ok(), "forward() with multiple tokens should succeed");
+    assert!(
+        result.is_ok(),
+        "forward() with multiple tokens should succeed"
+    );
     let logits = result.unwrap();
     assert_eq!(logits.len(), config.vocab_size);
 }
@@ -241,7 +251,10 @@ fn test_driver_cpu_forward_phi2_single_token() {
     assert!(result.is_ok(), "forward() with LayerNorm should succeed");
     let logits = result.unwrap();
     assert_eq!(logits.len(), config.vocab_size);
-    assert!(logits.iter().all(|x| x.is_finite()), "Logits should be finite");
+    assert!(
+        logits.iter().all(|x| x.is_finite()),
+        "Logits should be finite"
+    );
 }
 
 #[test]
@@ -266,9 +279,8 @@ fn test_driver_cpu_forward_gqa_attention() {
     let model = create_llama_style_test_model(&config);
 
     // Catch potential indexing bugs in GQA code path
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        model.forward(&[1, 2, 3])
-    }));
+    let result =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| model.forward(&[1, 2, 3])));
 
     // Either succeeds or reveals a bug - both illuminate code paths
     if let Ok(Ok(logits)) = result {
@@ -331,11 +343,19 @@ fn test_driver_cpu_forward_cached_sequence() {
     for i in 0..10 {
         let token = (i % config.vocab_size) as u32;
         let result = model.forward_cached(token, &mut cache, i);
-        assert!(result.is_ok(), "forward_cached() at position {} should succeed", i);
+        assert!(
+            result.is_ok(),
+            "forward_cached() at position {} should succeed",
+            i
+        );
 
         let logits = result.unwrap();
         assert_eq!(logits.len(), config.vocab_size);
-        assert!(logits.iter().all(|x| x.is_finite()), "Logits at position {} should be finite", i);
+        assert!(
+            logits.iter().all(|x| x.is_finite()),
+            "Logits at position {} should be finite",
+            i
+        );
     }
 }
 
@@ -475,7 +495,10 @@ fn test_driver_cpu_forward_max_context() {
     // Process sequence at boundary (less than context_length)
     let tokens: Vec<u32> = (0..32).map(|i| i % 50).collect();
     let result = model.forward(&tokens);
-    assert!(result.is_ok(), "Should handle sequence near context boundary");
+    assert!(
+        result.is_ok(),
+        "Should handle sequence near context boundary"
+    );
 }
 
 #[test]

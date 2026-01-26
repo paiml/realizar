@@ -5,7 +5,7 @@
 //! ## Contents
 //! - `AprV2ModelCuda` - CUDA wrapper for APR models (2x Ollama target)
 
-use super::{AprV2Model, dtype_to_ggml_qtype, rms_norm, transpose_matrix, simple_attention};
+use super::{dtype_to_ggml_qtype, rms_norm, simple_attention, transpose_matrix, AprV2Model};
 use crate::error::{RealizarError, Result};
 
 // ============================================================================
@@ -140,7 +140,7 @@ impl AprV2ModelCuda {
             weight_cache: std::collections::HashMap::new(),
             embedding_cache: None, // Lazy-loaded on first forward
             hidden_dim,
-            kv_position: 0, // Start at position 0
+            kv_position: 0,      // Start at position 0
             test_executor: None, // Phase 45: No test executor by default
         };
 
@@ -182,7 +182,10 @@ impl AprV2ModelCuda {
     /// let mut cuda_model = AprV2ModelCuda::new(model, 0)?;
     /// cuda_model.with_test_executor(Box::new(CpuExecutor::new()));
     /// ```
-    pub fn with_test_executor(&mut self, executor: Box<dyn crate::gpu::executor::GpuExecutorTrait + Send + Sync>) {
+    pub fn with_test_executor(
+        &mut self,
+        executor: Box<dyn crate::gpu::executor::GpuExecutorTrait + Send + Sync>,
+    ) {
         self.test_executor = Some(executor);
     }
 
@@ -1290,4 +1293,3 @@ impl AprV2ModelCuda {
         Ok(tokens)
     }
 }
-

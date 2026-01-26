@@ -147,7 +147,7 @@ impl BatchPlanner {
                 GenerationStep::Done {
                     tokens: self.tokens.clone(),
                 }
-            }
+            },
 
             PlannerState::Generating => {
                 // Add the token from the previous step
@@ -169,7 +169,7 @@ impl BatchPlanner {
                     tokens: self.tokens.clone(),
                     use_greedy_optimization: self.config.use_greedy_path(),
                 }
-            }
+            },
 
             PlannerState::Done => GenerationStep::Done {
                 tokens: self.tokens.clone(),
@@ -356,7 +356,11 @@ pub enum LmHeadPath {
 
 /// Plan which compute path to use for LM head
 #[must_use]
-pub fn plan_lm_head_path(vocab_size: usize, hidden_dim: usize, gpu_buffer_limit: usize) -> LmHeadPath {
+pub fn plan_lm_head_path(
+    vocab_size: usize,
+    hidden_dim: usize,
+    gpu_buffer_limit: usize,
+) -> LmHeadPath {
     let elements = vocab_size * hidden_dim;
 
     // Use CPU for large vocab (better cache behavior)
@@ -450,7 +454,11 @@ mod tests {
         let _ = planner.start_with_prompt(&[1]);
         let step = planner.plan_next(Some(100));
 
-        if let GenerationStep::GenerateToken { use_greedy_optimization, .. } = step {
+        if let GenerationStep::GenerateToken {
+            use_greedy_optimization,
+            ..
+        } = step
+        {
             assert!(use_greedy_optimization);
         } else {
             panic!("Expected GenerateToken");
@@ -466,7 +474,11 @@ mod tests {
         let _ = planner.start_with_prompt(&[1]);
         let step = planner.plan_next(Some(100));
 
-        if let GenerationStep::GenerateToken { use_greedy_optimization, .. } = step {
+        if let GenerationStep::GenerateToken {
+            use_greedy_optimization,
+            ..
+        } = step
+        {
             assert!(!use_greedy_optimization);
         } else {
             panic!("Expected GenerateToken");
@@ -516,8 +528,14 @@ mod tests {
     #[test]
     fn test_plan_sampling_greedy() {
         assert_eq!(plan_sampling(None, None, None), SamplingStrategy::Greedy);
-        assert_eq!(plan_sampling(Some(1.0), None, None), SamplingStrategy::Greedy);
-        assert_eq!(plan_sampling(Some(0.0), None, None), SamplingStrategy::Greedy);
+        assert_eq!(
+            plan_sampling(Some(1.0), None, None),
+            SamplingStrategy::Greedy
+        );
+        assert_eq!(
+            plan_sampling(Some(0.0), None, None),
+            SamplingStrategy::Greedy
+        );
     }
 
     #[test]

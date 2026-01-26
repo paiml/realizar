@@ -613,7 +613,15 @@ pub fn run_apr_inference(
     // PMAT-106: GPU path for APR models
     #[cfg(feature = "cuda")]
     if force_gpu {
-        return run_apr_inference_gpu(model_ref, file_data, prompt, max_tokens, temperature, format, verbose);
+        return run_apr_inference_gpu(
+            model_ref,
+            file_data,
+            prompt,
+            max_tokens,
+            temperature,
+            format,
+            verbose,
+        );
     }
 
     let load_start = Instant::now();
@@ -752,15 +760,26 @@ pub fn run_apr_inference_gpu(
 
     // Debug: Check if gate weights exist in the loaded transformer
     if verbose {
-        let has_gate = transformer.layers.first().is_some_and(|l| l.ffn_gate_weight.is_some());
-        eprintln!("[DEBUG-SwiGLU] APR transformer has gate weight: {}", has_gate);
+        let has_gate = transformer
+            .layers
+            .first()
+            .is_some_and(|l| l.ffn_gate_weight.is_some());
+        eprintln!(
+            "[DEBUG-SwiGLU] APR transformer has gate weight: {}",
+            has_gate
+        );
         if has_gate {
-            let gate_len = transformer.layers[0].ffn_gate_weight.as_ref().map_or(0, |v| v.len());
-            eprintln!("[DEBUG-SwiGLU] Gate weight elements: {} (expected: {}x{}={})",
+            let gate_len = transformer.layers[0]
+                .ffn_gate_weight
+                .as_ref()
+                .map_or(0, |v| v.len());
+            eprintln!(
+                "[DEBUG-SwiGLU] Gate weight elements: {} (expected: {}x{}={})",
                 gate_len,
                 transformer.config.hidden_dim,
                 transformer.config.intermediate_dim,
-                transformer.config.hidden_dim * transformer.config.intermediate_dim);
+                transformer.config.hidden_dim * transformer.config.intermediate_dim
+            );
         }
     }
 
@@ -774,15 +793,32 @@ pub fn run_apr_inference_gpu(
 
     // Debug: Check if gate weights exist in GpuModel
     if verbose {
-        let has_gpu_gate = gpu_model.block_weights.first().is_some_and(|b| b.ffn_gate_weight.is_some());
+        let has_gpu_gate = gpu_model
+            .block_weights
+            .first()
+            .is_some_and(|b| b.ffn_gate_weight.is_some());
         eprintln!("[DEBUG-SwiGLU] GpuModel has gate weight: {}", has_gpu_gate);
 
         // Compare weights: CPU vs GPU
         if let Some(layer0) = transformer.layers.first() {
-            eprintln!("[DEBUG-WEIGHT] CPU qkv_weight first 5: {:?}", &layer0.qkv_weight[0..5.min(layer0.qkv_weight.len())]);
-            eprintln!("[DEBUG-WEIGHT] GPU qkv_weight first 5: {:?}", &gpu_model.block_weights[0].qkv_weight[0..5.min(gpu_model.block_weights[0].qkv_weight.len())]);
-            eprintln!("[DEBUG-WEIGHT] CPU fc1 (up) first 5: {:?}", &layer0.ffn_up_weight[0..5.min(layer0.ffn_up_weight.len())]);
-            eprintln!("[DEBUG-WEIGHT] GPU fc1 (up) first 5: {:?}", &gpu_model.block_weights[0].ffn_fc1_weight[0..5.min(gpu_model.block_weights[0].ffn_fc1_weight.len())]);
+            eprintln!(
+                "[DEBUG-WEIGHT] CPU qkv_weight first 5: {:?}",
+                &layer0.qkv_weight[0..5.min(layer0.qkv_weight.len())]
+            );
+            eprintln!(
+                "[DEBUG-WEIGHT] GPU qkv_weight first 5: {:?}",
+                &gpu_model.block_weights[0].qkv_weight
+                    [0..5.min(gpu_model.block_weights[0].qkv_weight.len())]
+            );
+            eprintln!(
+                "[DEBUG-WEIGHT] CPU fc1 (up) first 5: {:?}",
+                &layer0.ffn_up_weight[0..5.min(layer0.ffn_up_weight.len())]
+            );
+            eprintln!(
+                "[DEBUG-WEIGHT] GPU fc1 (up) first 5: {:?}",
+                &gpu_model.block_weights[0].ffn_fc1_weight
+                    [0..5.min(gpu_model.block_weights[0].ffn_fc1_weight.len())]
+            );
 
             // Debug: Compare matmul output for first token embedding
             let hidden_dim = transformer.config.hidden_dim;
@@ -813,11 +849,19 @@ pub fn run_apr_inference_gpu(
                 gpu_qkv[j] = sum;
             }
 
-            eprintln!("[DEBUG-MATMUL] CPU QKV first 5: {:?}", &cpu_qkv[0..5.min(cpu_qkv.len())]);
-            eprintln!("[DEBUG-MATMUL] GPU QKV first 5: {:?}", &gpu_qkv[0..5.min(gpu_qkv.len())]);
+            eprintln!(
+                "[DEBUG-MATMUL] CPU QKV first 5: {:?}",
+                &cpu_qkv[0..5.min(cpu_qkv.len())]
+            );
+            eprintln!(
+                "[DEBUG-MATMUL] GPU QKV first 5: {:?}",
+                &gpu_qkv[0..5.min(gpu_qkv.len())]
+            );
 
             // Compare
-            let max_diff: f32 = cpu_qkv.iter().zip(gpu_qkv.iter())
+            let max_diff: f32 = cpu_qkv
+                .iter()
+                .zip(gpu_qkv.iter())
                 .map(|(c, g)| (c - g).abs())
                 .fold(0.0f32, f32::max);
             eprintln!("[DEBUG-MATMUL] Max diff: {}", max_diff);
@@ -834,9 +878,8 @@ pub fn run_apr_inference_gpu(
 
     // Use proper tokenizer from sibling tokenizer.json
     let model_path = Path::new(model_ref);
-    let prompt_tokens = AprV2Model::encode_text(model_path, prompt).unwrap_or_else(|| {
-        prompt.chars().map(|c| c as u32).collect()
-    });
+    let prompt_tokens = AprV2Model::encode_text(model_path, prompt)
+        .unwrap_or_else(|| prompt.chars().map(|c| c as u32).collect());
     let prompt_len = prompt_tokens.len();
 
     if verbose {
@@ -858,12 +901,12 @@ pub fn run_apr_inference_gpu(
 
     // Run inference
     let gen_start = Instant::now();
-    let generated = gpu_model.generate(&prompt_tokens_usize, &gen_config).map_err(|e| {
-        crate::error::RealizarError::UnsupportedOperation {
+    let generated = gpu_model
+        .generate(&prompt_tokens_usize, &gen_config)
+        .map_err(|e| crate::error::RealizarError::UnsupportedOperation {
             operation: "gpu_generate".to_string(),
             reason: format!("GPU generation failed: {e}"),
-        }
-    })?;
+        })?;
     let gen_time = gen_start.elapsed();
 
     let tokens_generated = generated.len().saturating_sub(prompt_len);
@@ -919,4 +962,3 @@ pub fn run_apr_inference_gpu(
 
     Ok(())
 }
-

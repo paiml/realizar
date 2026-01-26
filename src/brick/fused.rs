@@ -8,7 +8,7 @@
 
 use std::time::Instant;
 
-use super::{ComputeBrick, TokenBudget, TokenResult, BrickError, BrickAssertion, AssertionKind};
+use super::{AssertionKind, BrickAssertion, BrickError, ComputeBrick, TokenBudget, TokenResult};
 #[cfg(feature = "cuda")]
 #[allow(unused_imports)]
 use crate::cuda::CudaExecutor;
@@ -484,4 +484,3 @@ impl ComputeBrick for FusedFfnBrick {
         self.hidden_dim > 0 && self.intermediate_dim > 0
     }
 }
-

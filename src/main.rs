@@ -19,8 +19,8 @@ use clap::{Parser, Subcommand};
 use pacha::resolver::{ModelResolver, ModelSource};
 #[cfg(feature = "registry")]
 use pacha::uri::ModelUri;
+use realizar::cli::inference::{run_apr_inference, run_gguf_inference, run_safetensors_inference};
 use realizar::{cli, error::Result};
-use realizar::cli::inference::{run_gguf_inference, run_safetensors_inference, run_apr_inference};
 
 /// Realizar - Pure Rust ML inference engine
 ///
@@ -428,13 +428,13 @@ async fn run_model(
             config.steps = TraceConfig::parse_steps(&steps);
             config.verbose = true;
             Some(config)
-        }
+        },
         Some(None) => {
             // --trace (no value, trace all)
             let mut config = TraceConfig::enabled();
             config.verbose = true;
             Some(config)
-        }
+        },
         None => None,
     };
 

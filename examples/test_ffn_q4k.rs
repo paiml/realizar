@@ -22,15 +22,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         None => {
             println!("No Q4K layers found!");
             return Ok(());
-        }
+        },
     };
 
     println!("\n=== Layer 0 Q4K Status ===");
     let q4k = &q4k_layers[0];
-    println!("ffn_gate_weight: {} bytes", q4k.ffn_gate_weight.as_ref().map_or(0, |v| v.len()));
-    println!("ffn_up_weight: {} bytes", q4k.ffn_up_weight.as_ref().map_or(0, |v| v.len()));
-    println!("ffn_down_weight: {} bytes", q4k.ffn_down_weight.as_ref().map_or(0, |v| v.len()));
-    println!("ffn_down_weight_q6k: {} bytes", q4k.ffn_down_weight_q6k.as_ref().map_or(0, |v| v.len()));
+    println!(
+        "ffn_gate_weight: {} bytes",
+        q4k.ffn_gate_weight.as_ref().map_or(0, |v| v.len())
+    );
+    println!(
+        "ffn_up_weight: {} bytes",
+        q4k.ffn_up_weight.as_ref().map_or(0, |v| v.len())
+    );
+    println!(
+        "ffn_down_weight: {} bytes",
+        q4k.ffn_down_weight.as_ref().map_or(0, |v| v.len())
+    );
+    println!(
+        "ffn_down_weight_q6k: {} bytes",
+        q4k.ffn_down_weight_q6k.as_ref().map_or(0, |v| v.len())
+    );
 
     // Create a test input vector (normalized random values to simulate RMSNorm output)
     let test_input: Vec<f32> = (0..hidden_dim)
@@ -39,14 +51,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("\n=== Test Input ===");
     println!("First 8: {:?}", &test_input[..8]);
-    println!("Input norm: {:.6}", test_input.iter().map(|x| x * x).sum::<f32>().sqrt());
+    println!(
+        "Input norm: {:.6}",
+        test_input.iter().map(|x| x * x).sum::<f32>().sqrt()
+    );
 
     // Test F32 path: FFN gate projection
     let f32_layer = &apr.layers[0];
     let f32_ffn_gate = f32_layer.ffn_gate_weight.as_ref().expect("no ffn_gate");
 
     println!("\n=== F32 FFN Gate ===");
-    println!("Weight len: {} (expected: {})", f32_ffn_gate.len(), hidden_dim * intermediate_dim);
+    println!(
+        "Weight len: {} (expected: {})",
+        f32_ffn_gate.len(),
+        hidden_dim * intermediate_dim
+    );
 
     // F32 matmul: output[i] = sum_j(weight[i*in_dim + j] * input[j])
     // Weight is [out_dim, in_dim] = [intermediate_dim, hidden_dim]
@@ -57,7 +76,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     println!("F32 gate output first 8: {:?}", &f32_gate_out[..8]);
-    println!("F32 gate output norm: {:.6}", f32_gate_out.iter().map(|x| x * x).sum::<f32>().sqrt());
+    println!(
+        "F32 gate output norm: {:.6}",
+        f32_gate_out.iter().map(|x| x * x).sum::<f32>().sqrt()
+    );
 
     // Test Q4K path: FFN gate projection
     if let Some(ref q4k_gate) = q4k.ffn_gate_weight {
@@ -71,14 +93,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let q4k_gate_out = matmul_q4k_f32(q4k_gate, &test_input, intermediate_dim, hidden_dim);
 
         println!("Q4K gate output first 8: {:?}", &q4k_gate_out[..8]);
-        println!("Q4K gate output norm: {:.6}", q4k_gate_out.iter().map(|x| x * x).sum::<f32>().sqrt());
+        println!(
+            "Q4K gate output norm: {:.6}",
+            q4k_gate_out.iter().map(|x| x * x).sum::<f32>().sqrt()
+        );
 
         // Compare F32 vs Q4K
-        let diff: f32 = f32_gate_out.iter()
+        let diff: f32 = f32_gate_out
+            .iter()
             .zip(q4k_gate_out.iter())
             .map(|(&a, &b)| (a - b).abs())
-            .sum::<f32>() / intermediate_dim as f32;
-        let max_diff: f32 = f32_gate_out.iter()
+            .sum::<f32>()
+            / intermediate_dim as f32;
+        let max_diff: f32 = f32_gate_out
+            .iter()
             .zip(q4k_gate_out.iter())
             .map(|(&a, &b)| (a - b).abs())
             .fold(0.0f32, f32::max);
@@ -88,8 +116,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("  Max absolute diff: {:.6}", max_diff);
 
         // Correlation
-        let dot: f64 = f32_gate_out.iter().zip(q4k_gate_out.iter())
-            .map(|(&a, &b)| (a as f64) * (b as f64)).sum();
+        let dot: f64 = f32_gate_out
+            .iter()
+            .zip(q4k_gate_out.iter())
+            .map(|(&a, &b)| (a as f64) * (b as f64))
+            .sum();
         let f32_sq: f64 = f32_gate_out.iter().map(|&x| (x as f64).powi(2)).sum();
         let q4k_sq: f64 = q4k_gate_out.iter().map(|&x| (x as f64).powi(2)).sum();
         let corr = dot / (f32_sq.sqrt() * q4k_sq.sqrt());
@@ -115,10 +146,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("F32 up output first 8: {:?}", &f32_up_out[..8]);
         println!("Q4K up output first 8: {:?}", &q4k_up_out[..8]);
 
-        let diff: f32 = f32_up_out.iter()
+        let diff: f32 = f32_up_out
+            .iter()
             .zip(q4k_up_out.iter())
             .map(|(&a, &b)| (a - b).abs())
-            .sum::<f32>() / intermediate_dim as f32;
+            .sum::<f32>()
+            / intermediate_dim as f32;
         println!("Mean absolute diff: {:.6}", diff);
     }
 
@@ -142,16 +175,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // Q6K path: ne0=hidden_dim (1536), ne1=intermediate_dim (8960)
-        let q6k_down_out = matmul_q6k_f32(q6k_down, &intermediate_input, hidden_dim, intermediate_dim);
+        let q6k_down_out =
+            matmul_q6k_f32(q6k_down, &intermediate_input, hidden_dim, intermediate_dim);
 
         println!("F32 down output first 8: {:?}", &f32_down_out[..8]);
         println!("Q6K down output first 8: {:?}", &q6k_down_out[..8]);
 
-        let diff: f32 = f32_down_out.iter()
+        let diff: f32 = f32_down_out
+            .iter()
             .zip(q6k_down_out.iter())
             .map(|(&a, &b)| (a - b).abs())
-            .sum::<f32>() / hidden_dim as f32;
-        let max_diff: f32 = f32_down_out.iter()
+            .sum::<f32>()
+            / hidden_dim as f32;
+        let max_diff: f32 = f32_down_out
+            .iter()
             .zip(q6k_down_out.iter())
             .map(|(&a, &b)| (a - b).abs())
             .fold(0.0f32, f32::max);
@@ -159,8 +196,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Max absolute diff: {:.6}", max_diff);
 
         // Correlation
-        let dot: f64 = f32_down_out.iter().zip(q6k_down_out.iter())
-            .map(|(&a, &b)| (a as f64) * (b as f64)).sum();
+        let dot: f64 = f32_down_out
+            .iter()
+            .zip(q6k_down_out.iter())
+            .map(|(&a, &b)| (a as f64) * (b as f64))
+            .sum();
         let f32_sq: f64 = f32_down_out.iter().map(|&x| (x as f64).powi(2)).sum();
         let q6k_sq: f64 = q6k_down_out.iter().map(|&x| (x as f64).powi(2)).sum();
         let corr = dot / (f32_sq.sqrt() * q6k_sq.sqrt());

@@ -704,8 +704,6 @@ impl CudaExecutor {
         self.lm_head_bias_ptr != 0
     }
 
-
-
     /// PAR-023: Transformer layer with cached gamma pointers
     ///
     /// Like `transformer_layer_gpu` but takes raw device pointers for gamma weights
@@ -803,7 +801,6 @@ impl CudaExecutor {
         Ok(output)
     }
 
-
     /// PAR-044: Get reference to workspace output buffer
     ///
     /// After calling `transformer_layer_workspace`, the output is in hidden_buf2.
@@ -832,7 +829,6 @@ impl CudaExecutor {
 
         Ok(hidden_cpu)
     }
-
 
     /// PAR-023: GPU RMSNorm for output layer
     ///

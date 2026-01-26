@@ -34,7 +34,6 @@
 //
 // Migration Strategy: Include monolith, gradually extract, re-export all
 
-
 // Modular structure
 mod batch_scheduler;
 mod config;
@@ -72,9 +71,9 @@ pub(crate) mod format_factory;
 pub use batch_scheduler::*;
 pub use config::*;
 #[cfg(feature = "cuda")]
-pub use cuda_model::*;
-#[cfg(feature = "cuda")]
 pub use cuda::CudaBackend;
+#[cfg(feature = "cuda")]
+pub use cuda_model::*;
 pub use model::*;
 pub use quantized::*;
 pub use runtime::*;

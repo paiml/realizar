@@ -29,7 +29,7 @@ pub use fused::{CoalescedDp4aBrick, FusedFfnBrick};
 
 // Phase 14: BrickTracer for GPU/CPU parity debugging
 pub mod tracer;
-pub use tracer::{BrickTracer, TraceEvent, TraceComparison, TraceDiff};
+pub use tracer::{BrickTracer, TraceComparison, TraceDiff, TraceEvent};
 
 // ============================================================================
 // Core Types
@@ -1759,3 +1759,13 @@ impl ComputeBrick for CudaGraphBrick {
 #[cfg(test)]
 #[path = "tests.rs"]
 mod brick_tests;
+
+// Additional tests in tests_part_02.rs
+#[cfg(test)]
+#[path = "tests_part_02.rs"]
+mod brick_tests_part_02;
+
+// Additional tests in tests_part_03.rs
+#[cfg(test)]
+#[path = "tests_part_03.rs"]
+mod brick_tests_part_03;

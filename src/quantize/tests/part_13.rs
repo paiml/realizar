@@ -1090,7 +1090,8 @@ fn test_fused_q4_0_q8_0_parallel_matvec_into_mod_success() {
     let activations = vec![1.0f32; in_dim];
     let mut output = vec![0.0f32; out_dim];
 
-    let result = fused_q4_0_q8_0_parallel_matvec_into(&weight_data, &activations, in_dim, &mut output);
+    let result =
+        fused_q4_0_q8_0_parallel_matvec_into(&weight_data, &activations, in_dim, &mut output);
     assert!(result.is_ok());
 
     for (i, &v) in output.iter().enumerate() {

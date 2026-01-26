@@ -14,6 +14,8 @@
 //! - part_09: OpenAI handlers extended coverage
 //! - part_10: Realize handlers extended coverage (ModelLineage, ReloadResponse, etc.)
 //! - part_11: GPU handlers coverage (GpuBatchRequest, GpuBatchResponse, BatchConfig, etc.)
+//! - part_12: OpenAI/Realize handlers - Request/Response type serialization
+//! - part_13: OpenAI/Realize handlers - HTTP endpoint error paths and streaming
 
 mod part_01;
 mod part_02;
@@ -26,3 +28,5 @@ mod part_08;
 mod part_09;
 mod part_10;
 mod part_11;
+mod part_12;
+mod part_13;

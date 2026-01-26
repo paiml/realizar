@@ -73,52 +73,41 @@ pub mod types;
 
 // Re-export types from submodules (PMAT-802)
 pub use types::{
-    BLOCK_SIZE, QK_K, Q4_0Block, Q4_KBlock, Q5_KBlock, Q6_KBlock,
-    Q8_0Block, Q8KSuperBlock,
-    DequantStats, SimdBackend, detect_simd_backend,
+    detect_simd_backend, DequantStats, Q4_0Block, Q4_KBlock, Q5_KBlock, Q6_KBlock, Q8KSuperBlock,
+    Q8_0Block, SimdBackend, BLOCK_SIZE, QK_K,
 };
 
 // Re-export dequantization functions (PMAT-802)
 pub use dequant::{
-    dequantize_f16, dequantize_q2_k, dequantize_q4_0, dequantize_q4_1,
-    dequantize_q4_k, dequantize_q5_0, dequantize_q5_1, dequantize_q5_k,
-    dequantize_q6_k, dequantize_q8_0, f16_to_f32,
+    dequantize_f16, dequantize_q2_k, dequantize_q4_0, dequantize_q4_1, dequantize_q4_k,
+    dequantize_q5_0, dequantize_q5_1, dequantize_q5_k, dequantize_q6_k, dequantize_q8_0,
+    f16_to_f32,
 };
 
 // Re-export fused K-quant operations (PMAT-802)
-pub use fused_k::{
-    fused_q4k_dot, fused_q4k_dot_simd,
-    fused_q4k_q8k_dot, fused_q4k_q8k_dot_simd,
-};
+pub use fused_k::{fused_q4k_dot, fused_q4k_dot_simd, fused_q4k_q8k_dot, fused_q4k_q8k_dot_simd};
 pub use fused_q5k_q6k::{
-    fused_q4k_q8_dot,
-    fused_q6k_dot, fused_q6k_dot_simd,
-    fused_q5k_dot, fused_q5k_dot_simd,
+    fused_q4k_q8_dot, fused_q5k_dot, fused_q5k_dot_simd, fused_q6k_dot, fused_q6k_dot_simd,
 };
 
 // Re-export parallel K-quant operations (PMAT-802)
 pub use parallel_k::{
-    fused_q4k_tiled_matvec,
-    fused_q4k_parallel_matvec, fused_q4k_parallel_matvec_into,
-    fused_q5k_parallel_matvec, fused_q5k_parallel_matvec_into,
+    fused_q4k_auto_matvec_into, fused_q4k_parallel_matvec, fused_q4k_parallel_matvec_into,
+    fused_q4k_q8k_ffn_up_gate_into, fused_q4k_q8k_parallel_matvec_into, fused_q4k_tiled_matvec,
+    fused_q5k_parallel_matvec, fused_q5k_parallel_matvec_into, fused_q6k_colmajor_matvec,
     fused_q6k_parallel_matvec, fused_q6k_parallel_matvec_into,
-    fused_q6k_colmajor_matvec, fused_q4k_auto_matvec_into,
-    fused_q4k_q8k_parallel_matvec_into, fused_q4k_q8k_ffn_up_gate_into,
 };
 
 // Re-export activation functions (PMAT-802)
 pub use activation::{
-    quantize_rmsnorm_q8_0, quantize_rmsnorm_q8_0_into,
-    fused_rmsnorm_q4_0_matmul, fused_rmsnorm_ffn_up_gate,
-    fused_swiglu_simd, softmax_simd,
-    quantize_activations_q8_0,
+    fused_rmsnorm_ffn_up_gate, fused_rmsnorm_q4_0_matmul, fused_swiglu_simd,
+    quantize_activations_q8_0, quantize_rmsnorm_q8_0, quantize_rmsnorm_q8_0_into, softmax_simd,
 };
 
 // Re-export parallel dequant operations (PMAT-802)
 pub use parallel_dequant::{
-    dequantize_q4_k_parallel, dequantize_q4_k_simd,
+    apply_rope_rotation_simd, dequantize_q4_k_parallel, dequantize_q4_k_simd,
     dequantize_q8_0_parallel, dequantize_q8_0_simd,
-    apply_rope_rotation_simd,
 };
 
 // Re-export SIMD utilities for tests
@@ -621,9 +610,6 @@ pub(crate) fn extract_scale_min_from_slice(scales: &[u8], idx: usize) -> (f32, f
 }
 
 // Basic dequantization functions moved to dequant.rs (PMAT-802)
-
-
-
 
 /// SIMD-accelerated Q4_0 × Q8_0 integer dot product
 ///
@@ -1988,9 +1974,6 @@ pub(crate) fn extract_scale_min(scales: &[u8; 12], block_idx: usize) -> (f32, f3
     (scale, min)
 }
 
-
-
 #[cfg(test)]
-
 #[cfg(test)]
 mod tests;

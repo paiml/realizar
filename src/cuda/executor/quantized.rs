@@ -13,7 +13,6 @@
 use super::*;
 
 impl CudaExecutor {
-
     /// PAR-041: Execute Tiled Q4_K GEMV with shared memory caching (async, no sync)
     ///
     /// This variant uses 256 threads per block (vs 32 in q4k_gemv_cached_async) for

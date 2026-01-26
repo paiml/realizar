@@ -11,17 +11,17 @@ use trueno_gpu::kernels::{
     BatchedResidualAddKernel, BatchedRopeKernel, BatchedSwigluKernel,
     BatchedVectorizedRmsNormKernel, BiasActivationKernel, ChunkedTiledQ4KGemvKernel,
     CoalescedGemvKernel, CoalescedQ4KGemvKernel, CoalescedQ6KGemvKernel, Dp4aQ4KGemvKernel,
-    ElementwiseMulKernel, Fp16Q4KGemvKernel, FusedGateUpKernel,
-    FusedGateUpQ4KGemvKernel, FusedQKVKernel, FusedResidualRmsNormKernel,
-    FusedRmsNormQ4KGemvKernel, FusedSwigluKernel, GeluKernel, GemmKernel, GemvKernel,
-    IncrementalAttentionKernel, Kernel, KvCacheScatterIndirectKernel, KvCacheScatterKernel,
-    LayerNormKernel, MultiWarpIncrementalAttentionKernel,
-    PackedDp4aQ4KQ8Kernel, PreciseRmsNormKernel, PreciseRopeIndirectKernel, Q4KGemvKernel,
-    Q4KQ8DotKernel, Q4_0GemvKernel, Q4_1GemvKernel, Q5KGemvKernel, Q5KKernel, Q5_0GemvKernel,
-    Q6KGemvKernel, Q6KKernel, Q8QuantizeKernel, Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel,
-    RmsNormKernel, RopeIndirectKernel, RopeKernel, RopeNeoxIndirectKernel, RopeNeoxKernel,
-    SiluKernel, SoftmaxKernel, TensorCoreQ4KGemmKernel, TiledQ4KGemvKernel, TrueDp4aQ4KGemvKernel,
-    VectorizedQ4KGemvKernel, VectorizedRmsNormKernel,
+    ElementwiseMulKernel, Fp16Q4KGemvKernel, FusedGateUpKernel, FusedGateUpQ4KGemvKernel,
+    FusedQKVKernel, FusedResidualRmsNormKernel, FusedRmsNormQ4KGemvKernel, FusedSwigluKernel,
+    GeluKernel, GemmKernel, GemvKernel, IncrementalAttentionKernel, Kernel,
+    KvCacheScatterIndirectKernel, KvCacheScatterKernel, LayerNormKernel,
+    MultiWarpIncrementalAttentionKernel, PackedDp4aQ4KQ8Kernel, PreciseRmsNormKernel,
+    PreciseRopeIndirectKernel, Q4KGemvKernel, Q4KQ8DotKernel, Q4_0GemvKernel, Q4_1GemvKernel,
+    Q5KGemvKernel, Q5KKernel, Q5_0GemvKernel, Q6KGemvKernel, Q6KKernel, Q8QuantizeKernel,
+    Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel, RmsNormKernel, RopeIndirectKernel,
+    RopeKernel, RopeNeoxIndirectKernel, RopeNeoxKernel, SiluKernel, SoftmaxKernel,
+    TensorCoreQ4KGemmKernel, TiledQ4KGemvKernel, TrueDp4aQ4KGemvKernel, VectorizedQ4KGemvKernel,
+    VectorizedRmsNormKernel,
 };
 
 /// CUDA kernel types supported by realizar
@@ -1257,7 +1257,8 @@ fn generate_q4_0_candle_ptx(k: u32, n: u32) -> String {
 
     // Note: num_blocks is computed dynamically in PTX from k_dim parameter
     // This allows the same kernel to work for any K dimension
-    String::from(r#"
+    String::from(
+        r#"
 .version 7.5
 .target sm_80
 .address_size 64
@@ -1396,5 +1397,6 @@ $L_blk_loop_end:
 $L_exit:
     ret;
 }
-"#)
+"#,
+    )
 }

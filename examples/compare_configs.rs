@@ -1,16 +1,16 @@
-use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel, OwnedQKVWeights};
+use realizar::gguf::{MappedGGUFModel, OwnedQKVWeights, OwnedQuantizedModel};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Model Config Comparison ===\n");
-    
+
     let path_05b = "/home/noah/.cache/huggingface/hub/models--Qwen--Qwen2-0.5B-Instruct-GGUF/snapshots/198f08841147e5196a6a69bd0053690fb1fd3857/qwen2-0_5b-instruct-q4_0.gguf";
     let path_15b = "/home/noah/.cache/huggingface/models/qwen2.5-coder-1.5b-gguf/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf";
-    
+
     for (name, path) in [("Qwen2-0.5B", path_05b), ("Qwen2.5-Coder-1.5B", path_15b)] {
         println!("=== {} ===", name);
         let mapped = MappedGGUFModel::from_path(path)?;
         let model = OwnedQuantizedModel::from_mapped(&mapped)?;
-        
+
         let c = &model.config;
         println!("  architecture: {}", c.architecture);
         println!("  hidden_dim: {}", c.hidden_dim);
@@ -22,7 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("  eps: {:e}", c.eps);
         println!("  rope_theta: {}", c.rope_theta);
         println!("  rope_type: {}", c.rope_type);
-        
+
         // Check QKV weight shapes
         let layer0 = &model.layers[0];
         match &layer0.qkv_weight {
@@ -34,9 +34,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
             OwnedQKVWeights::Fused(w) => {
                 println!("  QKV: fused {}x{} qtype={}", w.in_dim, w.out_dim, w.qtype);
-            }
+            },
         }
-        
+
         // Check head dimensions
         let head_dim = c.hidden_dim / c.num_heads;
         let kv_dim = c.num_kv_heads * head_dim;
@@ -45,6 +45,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("  GQA ratio: {}:1", c.num_heads / c.num_kv_heads);
         println!();
     }
-    
+
     Ok(())
 }

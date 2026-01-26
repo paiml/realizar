@@ -66,7 +66,14 @@ pub trait GpuExecutorTrait: Send + Sync {
     /// # Returns
     ///
     /// Result matrix [m, n]
-    fn matmul_transpose_b(&mut self, a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> Result<Vec<f32>>;
+    fn matmul_transpose_b(
+        &mut self,
+        a: &[f32],
+        b: &[f32],
+        m: usize,
+        k: usize,
+        n: usize,
+    ) -> Result<Vec<f32>>;
 }
 
 /// Call record for MockExecutor
@@ -249,7 +256,14 @@ impl GpuExecutorTrait for MockExecutor {
     }
 
     #[allow(clippy::many_single_char_names)]
-    fn matmul_transpose_b(&mut self, a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> Result<Vec<f32>> {
+    fn matmul_transpose_b(
+        &mut self,
+        a: &[f32],
+        b: &[f32],
+        m: usize,
+        k: usize,
+        n: usize,
+    ) -> Result<Vec<f32>> {
         // Record the call (thread-safe via Mutex)
         let call = ExecutorCall::MatmulTransposeB {
             a_len: a.len(),
@@ -356,7 +370,14 @@ impl GpuExecutorTrait for CpuExecutor {
     }
 
     #[allow(clippy::many_single_char_names)]
-    fn matmul_transpose_b(&mut self, a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> Result<Vec<f32>> {
+    fn matmul_transpose_b(
+        &mut self,
+        a: &[f32],
+        b: &[f32],
+        m: usize,
+        k: usize,
+        n: usize,
+    ) -> Result<Vec<f32>> {
         // Validate dimensions: A is [m, k], B is [n, k] (to be transposed to [k, n])
         if a.len() != m * k {
             return Err(crate::error::RealizarError::InvalidShape {

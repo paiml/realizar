@@ -126,7 +126,8 @@ impl ComputeBackend for MockBackend {
         qtype: u32,
     ) -> BackendResult<usize> {
         let len = data.len();
-        self.quantized_weights.insert(name.to_string(), data.to_vec());
+        self.quantized_weights
+            .insert(name.to_string(), data.to_vec());
         self.quantized_types.insert(name.to_string(), qtype);
         Ok(len)
     }
@@ -245,21 +246,14 @@ impl ComputeBackend for MockBackend {
         }
 
         // Verify quantization type (Q4_K = 3 in GGML, but we accept various types for mock)
-        let _qtype = self.quantized_types.get(weight_name).ok_or_else(|| {
-            format!(
-                "Quantization type not found for weight '{}'",
-                weight_name
-            )
-        })?;
+        let _qtype = self
+            .quantized_types
+            .get(weight_name)
+            .ok_or_else(|| format!("Quantization type not found for weight '{}'", weight_name))?;
 
         // Validate input dimensions
         if input.len() != k {
-            return Err(format!(
-                "Input has {} elements, expected {}",
-                input.len(),
-                k
-            )
-            .into());
+            return Err(format!("Input has {} elements, expected {}", input.len(), k).into());
         }
 
         // Mock implementation: return zeros of correct size
@@ -348,7 +342,9 @@ mod tests {
     fn test_clear_weights() {
         let mut backend = MockBackend::new_mock();
         backend.load_weights("test", &[1.0, 2.0]).unwrap();
-        backend.load_quantized_weights("q_test", &[0u8; 18], 2).unwrap();
+        backend
+            .load_quantized_weights("q_test", &[0u8; 18], 2)
+            .unwrap();
 
         assert_eq!(backend.cached_weight_count(), 2);
 
@@ -488,10 +484,14 @@ mod tests {
 
         // Load quantized weight
         let q_data = vec![0u8; 256]; // Dummy quantized data
-        backend.load_quantized_weights("q_weight", &q_data, 3).unwrap(); // 3 = Q4_K
+        backend
+            .load_quantized_weights("q_weight", &q_data, 3)
+            .unwrap(); // 3 = Q4_K
 
         let input = vec![1.0f32; 768];
-        let result = backend.q4k_gemv_cached("q_weight", &input, 3072, 768).unwrap();
+        let result = backend
+            .q4k_gemv_cached("q_weight", &input, 3072, 768)
+            .unwrap();
 
         assert_eq!(result.len(), 3072);
         // Result should be finite (no NaN/Inf)

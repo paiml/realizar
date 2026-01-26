@@ -4,8 +4,8 @@
 //! These are the core inference entry points.
 
 use crate::error::Result;
-use crate::gguf::OwnedQKVWeights;
 use crate::gguf::ops;
+use crate::gguf::OwnedQKVWeights;
 use crate::gguf::OwnedQuantizedModel;
 
 impl OwnedQuantizedModel {

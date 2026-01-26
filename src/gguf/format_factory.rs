@@ -87,16 +87,24 @@ impl SafetensorsBuilder {
     /// Add an F16 tensor
     #[must_use]
     pub fn add_f16_tensor(mut self, name: &str, shape: &[usize], data: &[u8]) -> Self {
-        self.tensors
-            .push((name.to_string(), "F16".to_string(), shape.to_vec(), data.to_vec()));
+        self.tensors.push((
+            name.to_string(),
+            "F16".to_string(),
+            shape.to_vec(),
+            data.to_vec(),
+        ));
         self
     }
 
     /// Add a BF16 tensor
     #[must_use]
     pub fn add_bf16_tensor(mut self, name: &str, shape: &[usize], data: &[u8]) -> Self {
-        self.tensors
-            .push((name.to_string(), "BF16".to_string(), shape.to_vec(), data.to_vec()));
+        self.tensors.push((
+            name.to_string(),
+            "BF16".to_string(),
+            shape.to_vec(),
+            data.to_vec(),
+        ));
         self
     }
 
@@ -148,7 +156,11 @@ impl SafetensorsBuilder {
         let norm_data = create_f32_norm_weights(hidden_dim);
 
         Self::new()
-            .add_f32_tensor("model.embed_tokens.weight", &[vocab_size, hidden_dim], &embed_data)
+            .add_f32_tensor(
+                "model.embed_tokens.weight",
+                &[vocab_size, hidden_dim],
+                &embed_data,
+            )
             .add_f32_tensor("model.norm.weight", &[hidden_dim], &norm_data)
             .build()
     }
@@ -241,16 +253,24 @@ impl AprBuilder {
     /// Add a Q4_0 tensor
     #[must_use]
     pub fn add_q4_0_tensor(mut self, name: &str, shape: &[usize], data: &[u8]) -> Self {
-        self.tensors
-            .push((name.to_string(), shape.to_vec(), APR_DTYPE_Q4_0, data.to_vec()));
+        self.tensors.push((
+            name.to_string(),
+            shape.to_vec(),
+            APR_DTYPE_Q4_0,
+            data.to_vec(),
+        ));
         self
     }
 
     /// Add a Q8_0 tensor
     #[must_use]
     pub fn add_q8_0_tensor(mut self, name: &str, shape: &[usize], data: &[u8]) -> Self {
-        self.tensors
-            .push((name.to_string(), shape.to_vec(), APR_DTYPE_Q8_0, data.to_vec()));
+        self.tensors.push((
+            name.to_string(),
+            shape.to_vec(),
+            APR_DTYPE_Q8_0,
+            data.to_vec(),
+        ));
         self
     }
 

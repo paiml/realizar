@@ -275,6 +275,10 @@ pub mod metrics;
 /// Per spec §3.2 and §5: Combines format detection with model loading.
 /// Supports all 18 APR model types.
 pub mod model_loader;
+#[cfg(test)]
+mod model_loader_tests_part_02;
+#[cfg(test)]
+mod model_loader_tests_part_03;
 pub mod moe;
 /// Observability: metrics, tracing, and A/B testing
 ///
@@ -307,6 +311,8 @@ pub mod parallel;
 pub mod quantize;
 #[cfg(feature = "server")]
 pub mod registry;
+#[cfg(all(test, feature = "server"))]
+mod registry_tests_part_02;
 pub mod safetensors;
 /// SafeTensors inference support (PAR-301)
 ///

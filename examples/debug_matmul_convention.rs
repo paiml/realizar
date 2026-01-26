@@ -7,7 +7,9 @@ use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
 
 fn correlation(a: &[f32], b: &[f32]) -> f64 {
     let n = a.len().min(b.len());
-    if n == 0 { return 0.0; }
+    if n == 0 {
+        return 0.0;
+    }
 
     let a_mean: f64 = a.iter().map(|&x| x as f64).sum::<f64>() / n as f64;
     let b_mean: f64 = b.iter().map(|&x| x as f64).sum::<f64>() / n as f64;
@@ -33,7 +35,8 @@ fn correlation(a: &[f32], b: &[f32]) -> f64 {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let apr_path = "/home/noah/models/qwen2.5-coder-1.5b-q4k.apr";
-    let gguf_path = "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf";
+    let gguf_path =
+        "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf";
 
     println!("Loading APR model...");
     let apr_model = AprTransformer::from_apr_file(apr_path)?;
@@ -53,7 +56,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== Embedding ===");
     println!("APR embed first 5: {:?}", &apr_embed[..5]);
     println!("GGUF embed first 5: {:?}", &gguf_embed[..5]);
-    println!("Embed correlation: {:.6}", correlation(&apr_embed, &gguf_embed));
+    println!(
+        "Embed correlation: {:.6}",
+        correlation(&apr_embed, &gguf_embed)
+    );
 
     // Test RMSNorm
     println!("\n=== RMSNorm ===");
@@ -63,7 +69,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let apr_norm_weight = &apr_model.layers[0].attn_norm_weight;
     let sum_sq: f32 = apr_embed.iter().map(|x| x * x).sum();
     let rms = (sum_sq / hidden_dim as f32 + eps).sqrt();
-    let apr_normed: Vec<f32> = apr_embed.iter()
+    let apr_normed: Vec<f32> = apr_embed
+        .iter()
         .zip(apr_norm_weight.iter())
         .map(|(h, w)| h / rms * w)
         .collect();
@@ -72,14 +79,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let gguf_norm_weight = &gguf_model.layers[0].attn_norm_weight;
     let sum_sq: f32 = gguf_embed.iter().map(|x| x * x).sum();
     let rms = (sum_sq / hidden_dim as f32 + eps).sqrt();
-    let gguf_normed: Vec<f32> = gguf_embed.iter()
+    let gguf_normed: Vec<f32> = gguf_embed
+        .iter()
         .zip(gguf_norm_weight.iter())
         .map(|(h, w)| h / rms * w)
         .collect();
 
     println!("APR normed first 5: {:?}", &apr_normed[..5]);
     println!("GGUF normed first 5: {:?}", &gguf_normed[..5]);
-    println!("Normed correlation: {:.6}", correlation(&apr_normed, &gguf_normed));
+    println!(
+        "Normed correlation: {:.6}",
+        correlation(&apr_normed, &gguf_normed)
+    );
 
     // Now test QKV projection with F32 matmul
     println!("\n=== QKV Projection (F32 matmul) ===");
@@ -87,7 +98,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // APR QKV
     let apr_qkv_weight = &apr_model.layers[0].qkv_weight;
     let qkv_dim = apr_qkv_weight.len() / hidden_dim;
-    println!("APR qkv_weight size: {} ({} x {})", apr_qkv_weight.len(), qkv_dim, hidden_dim);
+    println!(
+        "APR qkv_weight size: {} ({} x {})",
+        apr_qkv_weight.len(),
+        qkv_dim,
+        hidden_dim
+    );
 
     // Manual F32 matmul (APR style: weight[o * in_dim + i])
     let mut apr_qkv = vec![0.0f32; qkv_dim];
@@ -136,13 +152,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Q4K: 144 bytes per 256 elements = 4.5 bits per element
             let expected_f32_size = hidden_dim * hidden_dim;
             let expected_q4k_bytes = (expected_f32_size / 256) * 144;
-            println!("Expected Q4K bytes for {}x{}: {}", hidden_dim, hidden_dim, expected_q4k_bytes);
+            println!(
+                "Expected Q4K bytes for {}x{}: {}",
+                hidden_dim, hidden_dim, expected_q4k_bytes
+            );
 
             // Check if Q4K bytes match expected
             if q4k_attn_out.len() == expected_q4k_bytes {
                 println!("Q4K size matches expected!");
             } else {
-                println!("Q4K size MISMATCH: got {} expected {}", q4k_attn_out.len(), expected_q4k_bytes);
+                println!(
+                    "Q4K size MISMATCH: got {} expected {}",
+                    q4k_attn_out.len(),
+                    expected_q4k_bytes
+                );
             }
         }
     }

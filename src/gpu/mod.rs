@@ -38,72 +38,70 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 // PMAT-802: Extracted modules
-pub mod scheduler;
 pub mod adapters;
-pub mod backend;
-pub mod mock_backend;
-pub mod executor;
-pub mod planner;  // Phase 47: Plan/Execute separation
 mod allocator;
+pub mod backend;
+mod batch_scheduling;
 mod diagnostics;
+pub mod executor;
+mod metrics;
+pub mod mock_backend;
+pub mod planner; // Phase 47: Plan/Execute separation
 mod resilience;
+pub mod scheduler;
 mod simd_ops;
 mod streaming_kv;
-mod metrics;
-mod batch_scheduling;
 
 // Types available without cuda feature
-pub use scheduler::{GpuModel, GpuModelConfig, GpuGenerateConfig, WeightType, AttentionBuffers, BlockWeights};
 #[cfg(feature = "cuda")]
 pub use scheduler::CudaScheduler;
+pub use scheduler::{
+    AttentionBuffers, BlockWeights, GpuGenerateConfig, GpuModel, GpuModelConfig, WeightType,
+};
 
 // Planner exports (Phase 47: Plan/Execute separation)
 pub use planner::{
-    BatchPlanner, GenerationConfig, GenerationStep,
-    BlockForwardPlan, SamplingStrategy,
-    plan_sampling, plan_lm_head_path, LmHeadPath,
+    plan_lm_head_path, plan_sampling, BatchPlanner, BlockForwardPlan, GenerationConfig,
+    GenerationStep, LmHeadPath, SamplingStrategy,
 };
 
 // Allocator exports (M21, M22)
 pub use allocator::{
-    CacheAlignedBuffer, TensorPool, ForwardArena, ScratchBuffer,
-    prefetch_read, sequential_sum, sum_with_prefetch, naive_matmul, blocked_matmul,
+    blocked_matmul, naive_matmul, prefetch_read, sequential_sum, sum_with_prefetch,
+    CacheAlignedBuffer, ForwardArena, ScratchBuffer, TensorPool,
 };
 
 // Diagnostics exports (M32)
 pub use diagnostics::{
-    LogLevel, LogEntry, LogConfig, Logger, PhaseTimer,
-    MemoryReport, MemoryTracker, DiagnosticsSummary, DiagnosticsCollector,
-    DebugMode, RequestCapture, StateDump,
+    DebugMode, DiagnosticsCollector, DiagnosticsSummary, LogConfig, LogEntry, LogLevel, Logger,
+    MemoryReport, MemoryTracker, PhaseTimer, RequestCapture, StateDump,
 };
 
 // Resilience exports (M31)
 pub use resilience::{
-    ErrorCategory, RetryDecision, RetryConfig, RetryPolicy,
-    CircuitState, CircuitConfig, CircuitBreaker,
-    RequestType, BulkheadPermit, BulkheadConfig, BulkheadStats, BulkheadManager,
+    BulkheadConfig, BulkheadManager, BulkheadPermit, BulkheadStats, CircuitBreaker, CircuitConfig,
+    CircuitState, ErrorCategory, RequestType, RetryConfig, RetryDecision, RetryPolicy,
 };
 
 // SIMD ops exports (M18)
-pub use simd_ops::{scalar_softmax, simd_softmax, scalar_rope, simd_rope};
+pub use simd_ops::{scalar_rope, scalar_softmax, simd_rope, simd_softmax};
 
 // Streaming KV cache exports (M6)
 pub use streaming_kv::{StreamingKVCache, StreamingKVCacheFp16};
 
 // Metrics exports (M28)
 pub use metrics::{
-    InferenceMetrics, HealthChecker, ShutdownCoordinator, ComputeBackend,
-    GpuCompute, GpuBufferPool, GpuPoolStats, AsyncGpuResult, HybridScheduler,
+    AsyncGpuResult, ComputeBackend, GpuBufferPool, GpuCompute, GpuPoolStats, HealthChecker,
+    HybridScheduler, InferenceMetrics, ShutdownCoordinator,
 };
 // Internal-only matmul functions (used by scheduler module)
 pub(crate) use metrics::{cpu_matmul, cpu_matmul_transposed_simd};
 
 // Batch scheduling exports (M25, M26, M27)
 pub use batch_scheduling::{
-    TokenBatch, SpeculativeBuffer, InferenceBatchScheduler, BatchId,
-    AsyncRequestQueue, InferenceEventNotifier, InferenceCompletionHandler,
-    TimeoutManager, RequestId, PriorityRequest, PriorityRequestQueue, Priority,
-    TokenRateLimiter, ResourceTracker, AllocationId,
+    AllocationId, AsyncRequestQueue, BatchId, InferenceBatchScheduler, InferenceCompletionHandler,
+    InferenceEventNotifier, Priority, PriorityRequest, PriorityRequestQueue, RequestId,
+    ResourceTracker, SpeculativeBuffer, TimeoutManager, TokenBatch, TokenRateLimiter,
 };
 
 // ============================================================================
@@ -1887,6 +1885,5 @@ pub fn load_gguf_to_gpu(
 }
 
 #[cfg(test)]
-
 #[cfg(test)]
 mod tests;

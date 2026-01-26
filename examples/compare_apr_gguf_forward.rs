@@ -6,7 +6,8 @@ use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let apr_path = "/home/noah/models/qwen2.5-coder-1.5b-q4k.apr";
-    let gguf_path = "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf";
+    let gguf_path =
+        "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf";
 
     println!("Loading APR model...");
     let apr_model = AprTransformer::from_apr_file(apr_path)?;
@@ -27,7 +28,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
         .map(|(i, _)| i)
         .unwrap();
-    println!("APR argmax: {} logit={:.4}", apr_argmax, apr_logits[apr_argmax]);
+    println!(
+        "APR argmax: {} logit={:.4}",
+        apr_argmax, apr_logits[apr_argmax]
+    );
 
     // GGUF forward
     let gguf_logits = gguf_model.forward(&[bos])?;
@@ -37,7 +41,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
         .map(|(i, _)| i)
         .unwrap();
-    println!("GGUF argmax: {} logit={:.4}", gguf_argmax, gguf_logits[gguf_argmax]);
+    println!(
+        "GGUF argmax: {} logit={:.4}",
+        gguf_argmax, gguf_logits[gguf_argmax]
+    );
 
     // Compare logits
     println!("\n=== Logit Comparison ===");
@@ -70,14 +77,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nCorrelation: {:.6}", corr);
 
     // Max difference
-    let max_diff = apr_logits.iter()
+    let max_diff = apr_logits
+        .iter()
         .zip(gguf_logits.iter())
         .map(|(&a, &b)| (a - b).abs())
         .fold(0.0f32, f32::max);
-    let mean_diff: f32 = apr_logits.iter()
+    let mean_diff: f32 = apr_logits
+        .iter()
         .zip(gguf_logits.iter())
         .map(|(&a, &b)| (a - b).abs())
-        .sum::<f32>() / n as f32;
+        .sum::<f32>()
+        / n as f32;
 
     println!("Mean absolute diff: {:.4}", mean_diff);
     println!("Max absolute diff: {:.4}", max_diff);
@@ -86,9 +96,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== Specific Token Logits ===");
     for &tok in &[0, 1, 10, 100, 1000, 10000, 100000] {
         if tok < n {
-            println!("Token {}: APR={:.4}, GGUF={:.4}, diff={:.4}",
-                tok, apr_logits[tok], gguf_logits[tok],
-                (apr_logits[tok] - gguf_logits[tok]).abs());
+            println!(
+                "Token {}: APR={:.4}, GGUF={:.4}, diff={:.4}",
+                tok,
+                apr_logits[tok],
+                gguf_logits[tok],
+                (apr_logits[tok] - gguf_logits[tok]).abs()
+            );
         }
     }
 

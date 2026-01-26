@@ -22,22 +22,22 @@ mod sampler;
 
 // Re-exports from algorithms (unique sampling algorithms)
 pub use algorithms::{
-    sample_min_p, MirostatState, sample_mirostat, sample_tfs, sample_typical,
-    DryConfig, apply_dry_penalty, XtcConfig, apply_xtc, EtaConfig, sample_eta,
-    TokenHealingConfig, TokenHealingResult, analyze_token_healing, CfgConfig, apply_cfg,
+    analyze_token_healing, apply_cfg, apply_dry_penalty, apply_xtc, sample_eta, sample_min_p,
+    sample_mirostat, sample_tfs, sample_typical, CfgConfig, DryConfig, EtaConfig, MirostatState,
+    TokenHealingConfig, TokenHealingResult, XtcConfig,
 };
 
 // Re-exports from sampler (advanced sampling infrastructure)
 pub use sampler::{
-    StopSequenceDetector, RepetitionPenaltyConfig, apply_repetition_penalty,
-    PresenceFrequencyPenalty, apply_presence_frequency_penalty, LogitBias, apply_logit_bias,
-    PromptCache, PromptCacheEntry, PromptCacheStats, BeamHypothesis, BeamSearchConfig,
-    BeamSearchState, StreamingGenerator, AdvancedGenerationConfig, apply_all_penalties,
-    DynTempConfig, apply_dynamic_temperature, InfillConfig, InfillResult, apply_infill_sampling,
-    SamplerContext, SamplerChain, Sampler, TemperatureSampler, DynTempSampler, TopKSampler,
-    TopPSampler, RepetitionPenaltySampler, InfillSampler, LogitProcessorContext,
-    LogitProcessor, TokenSuppressor, RepetitionPenalty, TemperatureScaler,
-    LogitProcessorChain, GenerativeModel, GenerationPipeline,
+    apply_all_penalties, apply_dynamic_temperature, apply_infill_sampling, apply_logit_bias,
+    apply_presence_frequency_penalty, apply_repetition_penalty, AdvancedGenerationConfig,
+    BeamHypothesis, BeamSearchConfig, BeamSearchState, DynTempConfig, DynTempSampler,
+    GenerationPipeline, GenerativeModel, InfillConfig, InfillResult, InfillSampler, LogitBias,
+    LogitProcessor, LogitProcessorChain, LogitProcessorContext, PresenceFrequencyPenalty,
+    PromptCache, PromptCacheEntry, PromptCacheStats, RepetitionPenalty, RepetitionPenaltyConfig,
+    RepetitionPenaltySampler, Sampler, SamplerChain, SamplerContext, StopSequenceDetector,
+    StreamingGenerator, TemperatureSampler, TemperatureScaler, TokenSuppressor, TopKSampler,
+    TopPSampler,
 };
 
 /// Sample from a probability distribution using a random value
@@ -389,8 +389,12 @@ pub fn sample_token(
     }
 }
 
-
 // Tests extracted to tests.rs (PMAT-802)
 #[cfg(test)]
 #[path = "tests.rs"]
 mod generate_tests;
+
+// Additional tests for coverage (Part 2)
+#[cfg(test)]
+#[path = "tests_part_02.rs"]
+mod generate_tests_part_02;

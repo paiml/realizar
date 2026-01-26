@@ -11,8 +11,8 @@
 //! 2. Verifying all K tokens in one forward pass of target model
 //! 3. Accepting prefix of matching tokens, rejecting rest
 
+use super::{OwnedQuantizedKVCache, OwnedQuantizedModelCuda, QuantizedGenerateConfig};
 use crate::error::{RealizarError, Result};
-use super::{OwnedQuantizedModelCuda, OwnedQuantizedKVCache, QuantizedGenerateConfig};
 
 impl OwnedQuantizedModelCuda {
     /// PAR-100: Self-speculative decoding with layer-skipping draft

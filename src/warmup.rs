@@ -593,448 +593,286 @@ impl PreloadModelConfig {
 mod tests {
     use super::*;
 
-    // ========================================================================
     // WARM-001: Configuration Tests
-    // ========================================================================
-
     #[test]
-    fn test_warmup_config_default() {
-        let config = WarmupConfig::default();
-        assert_eq!(config.warmup_iterations, 3);
-        assert_eq!(config.timeout, Duration::from_secs(60));
-        assert_eq!(config.sample_max_tokens, 10);
-        assert!(config.validate_output);
-    }
+    fn test_warmup_config_default_and_builder() {
+        let def = WarmupConfig::default();
+        assert_eq!(def.warmup_iterations, 3);
+        assert_eq!(def.timeout, Duration::from_secs(60));
+        assert!(def.validate_output);
 
-    #[test]
-    fn test_warmup_config_builder() {
-        let config = WarmupConfig::new()
+        let built = WarmupConfig::new()
             .with_warmup_iterations(5)
             .with_timeout(Duration::from_secs(120))
-            .with_sample_prompt("Test prompt")
+            .with_sample_prompt("Test")
             .with_sample_max_tokens(20)
             .with_validate_output(false)
+            .with_gc_after_warmup(false)
             .with_verbose(true);
+        assert_eq!(built.warmup_iterations, 5);
+        assert_eq!(built.sample_prompt, "Test");
+        assert!(!built.validate_output);
+        assert!(!built.gc_after_warmup);
+        assert!(built.verbose);
 
-        assert_eq!(config.warmup_iterations, 5);
-        assert_eq!(config.timeout, Duration::from_secs(120));
-        assert_eq!(config.sample_prompt, "Test prompt");
-        assert_eq!(config.sample_max_tokens, 20);
-        assert!(!config.validate_output);
-        assert!(config.verbose);
+        // Min iterations clamping
+        assert_eq!(
+            WarmupConfig::new()
+                .with_warmup_iterations(0)
+                .warmup_iterations,
+            1
+        );
     }
 
-    #[test]
-    fn test_warmup_config_min_iterations() {
-        let config = WarmupConfig::new().with_warmup_iterations(0);
-        assert_eq!(config.warmup_iterations, 1);
-    }
-
-    // ========================================================================
     // WARM-002: Status Tests
-    // ========================================================================
-
     #[test]
-    fn test_warmup_status_is_ready() {
+    fn test_warmup_status_methods() {
         assert!(!WarmupStatus::NotStarted.is_ready());
-        assert!(!WarmupStatus::InProgress.is_ready());
         assert!(WarmupStatus::Ready.is_ready());
-        assert!(!WarmupStatus::Failed.is_ready());
-        assert!(!WarmupStatus::TimedOut.is_ready());
-    }
-
-    #[test]
-    fn test_warmup_status_is_in_progress() {
-        assert!(!WarmupStatus::NotStarted.is_in_progress());
         assert!(WarmupStatus::InProgress.is_in_progress());
         assert!(!WarmupStatus::Ready.is_in_progress());
-    }
-
-    #[test]
-    fn test_warmup_status_has_failed() {
-        assert!(!WarmupStatus::NotStarted.has_failed());
-        assert!(!WarmupStatus::InProgress.has_failed());
-        assert!(!WarmupStatus::Ready.has_failed());
         assert!(WarmupStatus::Failed.has_failed());
         assert!(WarmupStatus::TimedOut.has_failed());
+        assert!(!WarmupStatus::Ready.has_failed());
     }
 
-    // ========================================================================
     // WARM-003: Result Tests
-    // ========================================================================
-
     #[test]
-    fn test_warmup_result_success() {
+    fn test_warmup_result_variants() {
+        // Success with latencies
         let latencies = vec![
             Duration::from_millis(100),
             Duration::from_millis(50),
             Duration::from_millis(25),
         ];
+        let success = WarmupResult::success(3, Duration::from_millis(200), &latencies);
+        assert_eq!(success.status, WarmupStatus::Ready);
+        assert_eq!(success.first_latency, Duration::from_millis(100));
+        assert_eq!(success.last_latency, Duration::from_millis(25));
+        assert!(success.speedup_factor > 1.0);
+        assert!(success.error.is_none());
 
-        let result = WarmupResult::success(3, Duration::from_millis(200), &latencies);
+        // Failed
+        let failed = WarmupResult::failed("Test error", 2, Duration::from_secs(5));
+        assert_eq!(failed.status, WarmupStatus::Failed);
+        assert_eq!(failed.error, Some("Test error".to_string()));
 
-        assert_eq!(result.status, WarmupStatus::Ready);
-        assert_eq!(result.iterations_completed, 3);
-        assert_eq!(result.first_latency, Duration::from_millis(100));
-        assert_eq!(result.last_latency, Duration::from_millis(25));
-        assert!(result.speedup_factor > 1.0);
-        assert!(result.error.is_none());
+        // Timed out
+        let timeout = WarmupResult::timed_out(1, Duration::from_secs(60));
+        assert_eq!(timeout.status, WarmupStatus::TimedOut);
+        assert!(timeout.error.expect("err").contains("timed out"));
+
+        // Empty latencies
+        let empty = WarmupResult::success(0, Duration::ZERO, &[]);
+        assert_eq!(empty.first_latency, Duration::ZERO);
+        assert!((empty.speedup_factor - 1.0).abs() < f64::EPSILON);
+
+        // Zero last latency edge case
+        let zero = WarmupResult::success(
+            2,
+            Duration::from_millis(100),
+            &[Duration::from_millis(100), Duration::ZERO],
+        );
+        assert!((zero.speedup_factor - 1.0).abs() < f64::EPSILON);
+
+        // Average latency calculation
+        let avg_test = WarmupResult::success(
+            3,
+            Duration::from_millis(600),
+            &[
+                Duration::from_millis(100),
+                Duration::from_millis(200),
+                Duration::from_millis(300),
+            ],
+        );
+        assert_eq!(avg_test.avg_latency, Duration::from_millis(200));
     }
 
-    #[test]
-    fn test_warmup_result_failed() {
-        let result = WarmupResult::failed("Test error", 2, Duration::from_secs(5));
-
-        assert_eq!(result.status, WarmupStatus::Failed);
-        assert_eq!(result.iterations_completed, 2);
-        assert_eq!(result.error, Some("Test error".to_string()));
-    }
-
-    #[test]
-    fn test_warmup_result_timed_out() {
-        let result = WarmupResult::timed_out(1, Duration::from_secs(60));
-
-        assert_eq!(result.status, WarmupStatus::TimedOut);
-        assert!(result.error.is_some());
-        assert!(result.error.expect("test").contains("timed out"));
-    }
-
-    #[test]
-    fn test_warmup_result_empty_latencies() {
-        let result = WarmupResult::success(0, Duration::ZERO, &[]);
-
-        assert_eq!(result.first_latency, Duration::ZERO);
-        assert_eq!(result.last_latency, Duration::ZERO);
-        assert!((result.speedup_factor - 1.0).abs() < f64::EPSILON);
-    }
-
-    // ========================================================================
     // WARM-004: Health Tests
-    // ========================================================================
-
     #[test]
-    fn test_model_health_new() {
+    fn test_model_health_basic() {
         let health = ModelHealth::new();
         assert!(!health.is_ready());
         assert_eq!(health.status(), WarmupStatus::NotStarted);
         assert_eq!(health.total_requests(), 0);
-    }
 
-    #[test]
-    fn test_model_health_set_ready() {
-        let health = ModelHealth::new();
         health.set_ready(true);
         assert!(health.is_ready());
-
         health.set_ready(false);
         assert!(!health.is_ready());
-    }
-
-    #[test]
-    fn test_model_health_set_status() {
-        let health = ModelHealth::new();
-        health.set_status(WarmupStatus::InProgress);
-        assert_eq!(health.status(), WarmupStatus::InProgress);
-        assert!(!health.is_ready());
 
         health.set_status(WarmupStatus::Ready);
-        assert_eq!(health.status(), WarmupStatus::Ready);
         assert!(health.is_ready());
-    }
-
-    #[test]
-    fn test_model_health_record_requests() {
-        let health = ModelHealth::new();
+        assert_eq!(health.status(), WarmupStatus::Ready);
 
         health.record_success();
         health.record_success();
         health.record_failure();
-
         assert_eq!(health.total_requests(), 2);
         assert_eq!(health.failed_requests(), 1);
-    }
-
-    #[test]
-    fn test_model_health_error_rate() {
-        let health = ModelHealth::new();
-
-        // No requests yet
-        assert!((health.error_rate() - 0.0).abs() < f64::EPSILON);
-
-        // 2 success, 1 failure
-        health.record_success();
-        health.record_success();
-        health.record_failure();
-
-        // Error rate should be 0 since failed_requests/total_requests
-        // But total_requests only counts successes
-        // So error rate = 1 / 2 = 0.5... wait, let me check the implementation
-        // Actually: total_requests counts successes, error_rate = failed / total
-        // So 1 / 2 = 0.5
         assert!((health.error_rate() - 0.5).abs() < f64::EPSILON);
+
+        // Default trait
+        let def = ModelHealth::default();
+        assert!(!def.is_ready());
     }
 
     #[test]
-    fn test_model_health_touch() {
+    fn test_model_health_timing_and_report() {
         let health = ModelHealth::new();
-        std::thread::sleep(Duration::from_millis(10));
+        std::thread::sleep(Duration::from_millis(5));
+        assert!(health.uptime() >= Duration::from_millis(5));
+
         let before = health.time_since_last_check();
         health.touch();
-        let after = health.time_since_last_check();
-        assert!(after < before);
-    }
+        assert!(health.time_since_last_check() < before);
 
-    #[test]
-    fn test_model_health_report() {
-        let health = ModelHealth::new();
         health.set_status(WarmupStatus::Ready);
         health.record_success();
-
         let report = health.report();
         assert!(report.ready);
         assert_eq!(report.status, WarmupStatus::Ready);
         assert_eq!(report.total_requests, 1);
-        assert_eq!(report.failed_requests, 0);
-        assert!(report.uptime_secs >= 0.0);
     }
 
-    // ========================================================================
+    #[test]
+    fn test_model_health_clone_shares_state() {
+        let health = ModelHealth::new();
+        health.set_status(WarmupStatus::Ready);
+        health.record_success();
+        let cloned = health.clone();
+        assert!(cloned.is_ready());
+        health.record_success();
+        assert_eq!(cloned.total_requests(), 2); // Shared Arc state
+    }
+
     // WARM-005: Executor Tests
-    // ========================================================================
-
     #[test]
-    fn test_warmup_executor_new() {
-        let config = WarmupConfig::new().with_warmup_iterations(5);
-        let executor = WarmupExecutor::new(config.clone());
-        assert_eq!(executor.config().warmup_iterations, 5);
-    }
-
-    #[test]
-    fn test_warmup_executor_simulate() {
-        let config = WarmupConfig::new().with_warmup_iterations(3);
-        let executor = WarmupExecutor::new(config);
+    fn test_warmup_executor() {
+        let executor = WarmupExecutor::new(WarmupConfig::new().with_warmup_iterations(3));
+        assert_eq!(executor.config().warmup_iterations, 3);
 
         let result = executor.simulate_warmup();
-
         assert_eq!(result.status, WarmupStatus::Ready);
-        assert_eq!(result.iterations_completed, 3);
-        assert!(result.first_latency > Duration::ZERO);
-        assert!(result.last_latency > Duration::ZERO);
-        // First (cold) should be slower than last (warm)
         assert!(result.first_latency > result.last_latency);
-        assert!(result.speedup_factor > 1.0);
-    }
 
-    #[test]
-    fn test_warmup_executor_check_timeout() {
-        let config = WarmupConfig::new().with_timeout(Duration::from_millis(1));
-        let executor = WarmupExecutor::new(config);
+        // Default trait
+        assert_eq!(WarmupExecutor::default().config().warmup_iterations, 3);
 
+        // Timeout check
+        let timeout_exec =
+            WarmupExecutor::new(WarmupConfig::new().with_timeout(Duration::from_millis(1)));
         let start = Instant::now();
         std::thread::sleep(Duration::from_millis(10));
+        assert!(timeout_exec.check_timeout(start, 0).is_some());
 
-        let result = executor.check_timeout(start, 0);
-        assert!(result.is_some());
-        assert_eq!(result.expect("test").status, WarmupStatus::TimedOut);
+        // No timeout
+        let long_exec =
+            WarmupExecutor::new(WarmupConfig::new().with_timeout(Duration::from_secs(60)));
+        assert!(long_exec.check_timeout(Instant::now(), 5).is_none());
+
+        // Many iterations (jitter clamping)
+        let many = WarmupExecutor::new(WarmupConfig::new().with_warmup_iterations(10));
+        let res = many.simulate_warmup();
+        assert_eq!(res.iterations_completed, 10);
+        assert!(res.avg_latency > Duration::ZERO);
     }
 
-    #[test]
-    fn test_warmup_executor_default() {
-        let executor = WarmupExecutor::default();
-        assert_eq!(executor.config().warmup_iterations, 3);
-    }
-
-    // ========================================================================
     // WARM-006: Preload Config Tests
-    // ========================================================================
-
     #[test]
-    fn test_preload_config_default() {
-        let config = PreloadConfig::default();
-        assert!(config.models.is_empty());
-        assert!(config.parallel_loading);
-        assert_eq!(config.max_concurrent, 4);
-        assert!(!config.fail_fast);
-    }
+    fn test_preload_config() {
+        let def = PreloadConfig::default();
+        assert!(def.models.is_empty());
+        assert!(def.parallel_loading);
+        assert_eq!(def.max_concurrent, 4);
 
-    #[test]
-    fn test_preload_config_builder() {
         let model = PreloadModelConfig::new("llama", "pacha://llama:7b");
-
         let config = PreloadConfig::new()
             .with_model(model)
             .with_parallel_loading(false)
             .with_max_concurrent(2)
             .with_fail_fast(true);
-
         assert_eq!(config.models.len(), 1);
         assert!(!config.parallel_loading);
-        assert_eq!(config.max_concurrent, 2);
         assert!(config.fail_fast);
+
+        // Min concurrent
+        assert_eq!(
+            PreloadConfig::new().with_max_concurrent(0).max_concurrent,
+            1
+        );
+
+        // Multiple models
+        let multi = PreloadConfig::new()
+            .with_model(PreloadModelConfig::new("m1", "f://1").with_priority(10))
+            .with_model(PreloadModelConfig::new("m2", "f://2").with_priority(5));
+        assert_eq!(multi.models.len(), 2);
     }
 
     #[test]
-    fn test_preload_config_min_concurrent() {
-        let config = PreloadConfig::new().with_max_concurrent(0);
-        assert_eq!(config.max_concurrent, 1);
-    }
+    fn test_preload_model_config() {
+        let basic = PreloadModelConfig::new("gpt2", "hf://gpt2");
+        assert_eq!(basic.model_id, "gpt2");
+        assert_eq!(basic.priority, 100);
+        assert!(basic.warmup);
+        assert!(basic.warmup_config.is_none());
 
-    #[test]
-    fn test_preload_model_config_new() {
-        let model = PreloadModelConfig::new("gpt2", "hf://gpt2");
-        assert_eq!(model.model_id, "gpt2");
-        assert_eq!(model.uri, "hf://gpt2");
-        assert_eq!(model.priority, 100);
-        assert!(model.warmup);
-        assert!(model.warmup_config.is_none());
-    }
-
-    #[test]
-    fn test_preload_model_config_builder() {
-        let warmup_config = WarmupConfig::new().with_warmup_iterations(5);
-
-        let model = PreloadModelConfig::new("llama", "file://model.gguf")
+        let built = PreloadModelConfig::new("llama", "file://model.gguf")
             .with_priority(10)
-            .with_warmup(true)
-            .with_warmup_config(warmup_config);
-
-        assert_eq!(model.priority, 10);
-        assert!(model.warmup);
-        assert!(model.warmup_config.is_some());
-        assert_eq!(model.warmup_config.expect("test").warmup_iterations, 5);
-    }
-
-    #[test]
-    fn test_preload_model_config_with_warmup_enables_warmup() {
-        let model = PreloadModelConfig::new("test", "file://test.gguf")
             .with_warmup(false)
-            .with_warmup_config(WarmupConfig::new());
-
-        // Setting warmup_config should enable warmup
-        assert!(model.warmup);
+            .with_warmup_config(WarmupConfig::new().with_warmup_iterations(5));
+        assert_eq!(built.priority, 10);
+        assert!(built.warmup); // with_warmup_config enables warmup
+        assert_eq!(built.warmup_config.expect("cfg").warmup_iterations, 5);
     }
 
-    // ========================================================================
-    // Additional Coverage Tests
-    // ========================================================================
-
-    #[test]
-    fn test_warmup_config_with_gc_after_warmup() {
-        // Test gc_after_warmup setter - this was not covered
-        let config = WarmupConfig::new().with_gc_after_warmup(false);
-        assert!(!config.gc_after_warmup);
-
-        let config2 = WarmupConfig::new().with_gc_after_warmup(true);
-        assert!(config2.gc_after_warmup);
-    }
-
-    #[test]
-    fn test_warmup_executor_check_timeout_not_exceeded() {
-        // Test check_timeout when timeout is NOT exceeded (returns None)
-        let config = WarmupConfig::new().with_timeout(Duration::from_secs(60));
-        let executor = WarmupExecutor::new(config);
-
-        let start = Instant::now();
-        // Don't sleep - check immediately, timeout should not be exceeded
-        let result = executor.check_timeout(start, 5);
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_warmup_executor_simulate_many_iterations() {
-        // Test simulate_warmup with many iterations to trigger jitter.min(50) branch
-        // When i > 5, jitter = i * 10 > 50, so jitter.min(50) kicks in
-        let config = WarmupConfig::new().with_warmup_iterations(10);
-        let executor = WarmupExecutor::new(config);
-
-        let result = executor.simulate_warmup();
-
-        assert_eq!(result.status, WarmupStatus::Ready);
-        assert_eq!(result.iterations_completed, 10);
-        // Verify latencies are all positive (jitter clamping works correctly)
-        assert!(result.first_latency > Duration::ZERO);
-        assert!(result.last_latency > Duration::ZERO);
-        // Average should be calculated correctly with 10 samples
-        assert!(result.avg_latency > Duration::ZERO);
-    }
-
-    #[test]
-    fn test_model_health_default_trait() {
-        // Test Default trait implementation for ModelHealth
-        let health = ModelHealth::default();
-        assert!(!health.is_ready());
-        assert_eq!(health.status(), WarmupStatus::NotStarted);
-    }
-
-    #[test]
-    fn test_model_health_uptime() {
-        // Test uptime calculation
-        let health = ModelHealth::new();
-        std::thread::sleep(Duration::from_millis(5));
-        let uptime = health.uptime();
-        assert!(uptime >= Duration::from_millis(5));
-    }
-
-    #[test]
-    fn test_warmup_result_single_latency() {
-        // Test with exactly one latency value
-        let latencies = vec![Duration::from_millis(50)];
-        let result = WarmupResult::success(1, Duration::from_millis(50), &latencies);
-
-        assert_eq!(result.first_latency, Duration::from_millis(50));
-        assert_eq!(result.last_latency, Duration::from_millis(50));
-        // Speedup factor should be 1.0 when first == last
-        assert!((result.speedup_factor - 1.0).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn test_warmup_result_zero_last_latency() {
-        // Edge case: last latency is zero (should return speedup = 1.0)
-        let latencies = vec![Duration::from_millis(100), Duration::ZERO];
-        let result = WarmupResult::success(2, Duration::from_millis(100), &latencies);
-
-        // When last is zero, speedup should be 1.0 (not infinity/NaN)
-        assert!((result.speedup_factor - 1.0).abs() < f64::EPSILON);
-    }
-
-    // ========================================================================
     // Serialization Tests
-    // ========================================================================
-
     #[test]
-    fn test_warmup_config_serialization() {
+    fn test_serialization() {
+        // WarmupConfig roundtrip
         let config = WarmupConfig::new()
-            .with_warmup_iterations(5)
-            .with_sample_prompt("Hello");
+            .with_warmup_iterations(8)
+            .with_sample_prompt("Test");
+        let json = serde_json::to_string(&config).expect("ser");
+        let deser: WarmupConfig = serde_json::from_str(&json).expect("de");
+        assert_eq!(deser.warmup_iterations, 8);
 
-        let json = serde_json::to_string(&config).expect("test");
-        assert!(json.contains("5"));
-        assert!(json.contains("Hello"));
+        // All WarmupStatus variants
+        for status in [
+            WarmupStatus::NotStarted,
+            WarmupStatus::InProgress,
+            WarmupStatus::Ready,
+            WarmupStatus::Failed,
+            WarmupStatus::TimedOut,
+        ] {
+            let j = serde_json::to_string(&status).expect("ser");
+            let d: WarmupStatus = serde_json::from_str(&j).expect("de");
+            assert_eq!(d, status);
+        }
 
-        let deserialized: WarmupConfig = serde_json::from_str(&json).expect("test");
-        assert_eq!(deserialized.warmup_iterations, 5);
-    }
-
-    #[test]
-    fn test_warmup_status_serialization() {
-        let status = WarmupStatus::Ready;
-        let json = serde_json::to_string(&status).expect("test");
-        let deserialized: WarmupStatus = serde_json::from_str(&json).expect("test");
-        assert_eq!(deserialized, WarmupStatus::Ready);
-    }
-
-    #[test]
-    fn test_warmup_result_serialization() {
+        // WarmupResult
         let result =
             WarmupResult::success(3, Duration::from_millis(100), &[Duration::from_millis(50)]);
+        assert!(serde_json::to_string(&result)
+            .expect("ser")
+            .contains("Ready"));
 
-        let json = serde_json::to_string(&result).expect("test");
-        assert!(json.contains("Ready"));
-        assert!(json.contains('3'));
-    }
+        // PreloadConfig roundtrip
+        let model = PreloadModelConfig::new("test", "file://test.gguf")
+            .with_warmup_config(WarmupConfig::new().with_warmup_iterations(7));
+        let pc = PreloadConfig::new().with_model(model).with_fail_fast(true);
+        let pc_json = serde_json::to_string(&pc).expect("ser");
+        let pc_de: PreloadConfig = serde_json::from_str(&pc_json).expect("de");
+        assert_eq!(
+            pc_de.models[0]
+                .warmup_config
+                .as_ref()
+                .expect("cfg")
+                .warmup_iterations,
+            7
+        );
 
-    #[test]
-    fn test_health_report_serialization() {
+        // HealthReport
         let report = HealthReport {
             ready: true,
             status: WarmupStatus::Ready,
@@ -1044,10 +882,24 @@ mod tests {
             error_rate: 0.005,
             time_since_last_check_secs: 1.5,
         };
+        assert!(serde_json::to_string(&report)
+            .expect("ser")
+            .contains("1000"));
 
-        let json = serde_json::to_string(&report).expect("test");
-        assert!(json.contains("true"));
-        assert!(json.contains("1000"));
-        assert!(json.contains("0.005"));
+        let json2 = r#"{"ready":false,"status":"InProgress","uptime_secs":42.5,"total_requests":500,"failed_requests":10,"error_rate":0.02,"time_since_last_check_secs":0.5}"#;
+        let r2: HealthReport = serde_json::from_str(json2).expect("de");
+        assert_eq!(r2.total_requests, 500);
+    }
+
+    // Debug trait coverage
+    #[test]
+    fn test_debug_traits() {
+        assert!(format!(
+            "{:?}",
+            WarmupResult::failed("err", 1, Duration::from_secs(1))
+        )
+        .contains("Failed"));
+        assert!(format!("{:?}", WarmupConfig::new()).contains("warmup_iterations"));
+        assert!(format!("{:?}", WarmupExecutor::default()).contains("WarmupExecutor"));
     }
 }

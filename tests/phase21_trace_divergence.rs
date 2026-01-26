@@ -14,8 +14,8 @@
 
 #[cfg(all(test, feature = "cuda"))]
 mod tests {
-    use realizar::brick::BrickTracer;
     use realizar::apr_transformer::{AprTransformer, AprTransformerConfig, AprTransformerLayer};
+    use realizar::brick::BrickTracer;
     use realizar::gpu::adapters::AprF32ToGpuAdapter;
 
     /// Create a small synthetic model for deterministic testing.
@@ -32,7 +32,7 @@ mod tests {
         let num_heads = 4;
         let num_kv_heads = 2;
         let head_dim = hidden_dim / num_heads; // 16
-        let kv_dim = num_kv_heads * head_dim;   // 32
+        let kv_dim = num_kv_heads * head_dim; // 32
         let intermediate_dim = 128;
         let vocab_size = 256;
 
@@ -139,7 +139,10 @@ mod tests {
         eprintln!("  - num_heads: {}", apr_model.config.num_heads);
         eprintln!("  - num_kv_heads: {}", apr_model.config.num_kv_heads);
         eprintln!("  - num_layers: {}", apr_model.config.num_layers);
-        eprintln!("  - intermediate_dim: {}", apr_model.config.intermediate_dim);
+        eprintln!(
+            "  - intermediate_dim: {}",
+            apr_model.config.intermediate_dim
+        );
 
         // 2. Convert to GPU model
         eprintln!("\nStep 2: Converting to GpuModel via AprF32ToGpuAdapter...");
@@ -148,7 +151,7 @@ mod tests {
             Err(e) => {
                 eprintln!("  ERROR: Failed to create GPU model: {:?}", e);
                 return;
-            }
+            },
         };
         eprintln!("  - GPU model created successfully");
 
@@ -173,8 +176,10 @@ mod tests {
         cpu_tracer.log("embedding", cpu_embedding);
         let cpu_embed_l2 = cpu_embedding.iter().map(|x| x * x).sum::<f32>().sqrt();
         eprintln!("  embedding L2: {:.6}", cpu_embed_l2);
-        eprintln!("  embedding[0..4]: [{:.6}, {:.6}, {:.6}, {:.6}]",
-                 cpu_embedding[0], cpu_embedding[1], cpu_embedding[2], cpu_embedding[3]);
+        eprintln!(
+            "  embedding[0..4]: [{:.6}, {:.6}, {:.6}, {:.6}]",
+            cpu_embedding[0], cpu_embedding[1], cpu_embedding[2], cpu_embedding[3]
+        );
 
         // CPU: Full forward pass via APR
         let cpu_logits = apr_model.forward(&[token_id as u32]).unwrap();
@@ -182,7 +187,8 @@ mod tests {
         let cpu_logits_l2 = cpu_logits.iter().map(|x| x * x).sum::<f32>().sqrt();
         eprintln!("  final_logits L2: {:.6}", cpu_logits_l2);
 
-        let cpu_argmax = cpu_logits.iter()
+        let cpu_argmax = cpu_logits
+            .iter()
             .enumerate()
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
             .map(|(i, _)| i)
@@ -204,13 +210,14 @@ mod tests {
             Err(e) => {
                 eprintln!("  ERROR: GPU forward failed: {:?}", e);
                 return;
-            }
+            },
         };
         gpu_tracer.log("final_logits", &gpu_logits);
         let gpu_logits_l2 = gpu_logits.iter().map(|x| x * x).sum::<f32>().sqrt();
         eprintln!("  final_logits L2: {:.6}", gpu_logits_l2);
 
-        let gpu_argmax = gpu_logits.iter()
+        let gpu_argmax = gpu_logits
+            .iter()
             .enumerate()
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
             .map(|(i, _)| i)
@@ -245,7 +252,10 @@ mod tests {
             let cpu_val = cpu_logits[i];
             let gpu_val = gpu_logits[i];
             let diff = (cpu_val - gpu_val).abs();
-            eprintln!("  {:3} | {:9.4} | {:9.4} | {:9.6}", i, cpu_val, gpu_val, diff);
+            eprintln!(
+                "  {:3} | {:9.4} | {:9.4} | {:9.6}",
+                i, cpu_val, gpu_val, diff
+            );
         }
     }
 
@@ -258,7 +268,7 @@ mod tests {
         eprintln!("╚══════════════════════════════════════════════════════════════════════╝\n");
 
         // Small dimensions for easy debugging
-        let m = 1;  // batch
+        let m = 1; // batch
         let k = 64; // input dim
         let n = 128; // output dim
 
@@ -266,9 +276,12 @@ mod tests {
         let a: Vec<f32> = (0..m * k).map(|i| ((i as f32) * 0.01).sin()).collect();
         let b: Vec<f32> = (0..k * n).map(|i| ((i as f32) * 0.02).cos()).collect();
 
-        eprintln!("Matrix dimensions: A[{},{}] @ B[{},{}] = C[{},{}]", m, k, k, n, m, n);
-        eprintln!("A L2: {:.6}", a.iter().map(|x| x*x).sum::<f32>().sqrt());
-        eprintln!("B L2: {:.6}", b.iter().map(|x| x*x).sum::<f32>().sqrt());
+        eprintln!(
+            "Matrix dimensions: A[{},{}] @ B[{},{}] = C[{},{}]",
+            m, k, k, n, m, n
+        );
+        eprintln!("A L2: {:.6}", a.iter().map(|x| x * x).sum::<f32>().sqrt());
+        eprintln!("B L2: {:.6}", b.iter().map(|x| x * x).sum::<f32>().sqrt());
 
         // CPU matmul: C[m,n] = A[m,k] @ B[k,n]
         let mut cpu_output = vec![0.0f32; m * n];
@@ -284,8 +297,10 @@ mod tests {
 
         let cpu_l2 = cpu_output.iter().map(|x| x * x).sum::<f32>().sqrt();
         eprintln!("\nCPU matmul L2: {:.6}", cpu_l2);
-        eprintln!("CPU output[0..4]: [{:.6}, {:.6}, {:.6}, {:.6}]",
-                 cpu_output[0], cpu_output[1], cpu_output[2], cpu_output[3]);
+        eprintln!(
+            "CPU output[0..4]: [{:.6}, {:.6}, {:.6}, {:.6}]",
+            cpu_output[0], cpu_output[1], cpu_output[2], cpu_output[3]
+        );
 
         // GPU matmul via CudaScheduler
         use realizar::gpu::CudaScheduler;
@@ -295,20 +310,23 @@ mod tests {
             Err(e) => {
                 eprintln!("CUDA not available: {:?}", e);
                 return;
-            }
+            },
         };
 
         let gpu_output = scheduler.matmul(&a, &b, m, k, n).unwrap();
         let gpu_l2 = gpu_output.iter().map(|x| x * x).sum::<f32>().sqrt();
         eprintln!("GPU matmul L2: {:.6}", gpu_l2);
-        eprintln!("GPU output[0..4]: [{:.6}, {:.6}, {:.6}, {:.6}]",
-                 gpu_output[0], gpu_output[1], gpu_output[2], gpu_output[3]);
+        eprintln!(
+            "GPU output[0..4]: [{:.6}, {:.6}, {:.6}, {:.6}]",
+            gpu_output[0], gpu_output[1], gpu_output[2], gpu_output[3]
+        );
 
         let diff = (cpu_l2 - gpu_l2).abs() / cpu_l2.max(1e-10);
         eprintln!("\nL2 diff: {:.6}%", diff * 100.0);
 
         // Element-wise comparison
-        let max_elem_diff = cpu_output.iter()
+        let max_elem_diff = cpu_output
+            .iter()
             .zip(gpu_output.iter())
             .map(|(c, g)| (c - g).abs())
             .fold(0.0f32, f32::max);
@@ -324,7 +342,13 @@ mod tests {
             for i in 0..n.min(16) {
                 let cpu_val = cpu_output[i];
                 let gpu_val = gpu_output[i];
-                eprintln!("  {:3} | {:9.6} | {:9.6} | {:9.6}", i, cpu_val, gpu_val, (cpu_val - gpu_val).abs());
+                eprintln!(
+                    "  {:3} | {:9.6} | {:9.6} | {:9.6}",
+                    i,
+                    cpu_val,
+                    gpu_val,
+                    (cpu_val - gpu_val).abs()
+                );
             }
         } else {
             eprintln!("\nMatmul matches within tolerance.");
@@ -332,7 +356,10 @@ mod tests {
 
         // Don't assert - just report
         if diff > 0.05 {
-            eprintln!("\nWARNING: Matmul mismatch {:.4}% exceeds 5% threshold", diff * 100.0);
+            eprintln!(
+                "\nWARNING: Matmul mismatch {:.4}% exceeds 5% threshold",
+                diff * 100.0
+            );
         }
     }
 
@@ -352,7 +379,8 @@ mod tests {
         // CPU RMSNorm: y = x / sqrt(mean(x^2) + eps) * weight + bias
         let sum_sq: f32 = input.iter().map(|x| x * x).sum();
         let rms = (sum_sq / hidden_dim as f32 + eps).sqrt();
-        let cpu_output: Vec<f32> = input.iter()
+        let cpu_output: Vec<f32> = input
+            .iter()
             .zip(weight.iter())
             .zip(bias.iter())
             .map(|((&x, &w), &b)| (x / rms) * w + b)
@@ -365,10 +393,15 @@ mod tests {
         // The GPU uses the same formula in layer_norm_static, so this should match
         // We can't call the private function, but we verify the formula is correct
         eprintln!("\nRMSNorm formula verification:");
-        eprintln!("  input L2: {:.6}", input.iter().map(|x| x*x).sum::<f32>().sqrt());
+        eprintln!(
+            "  input L2: {:.6}",
+            input.iter().map(|x| x * x).sum::<f32>().sqrt()
+        );
         eprintln!("  output L2: {:.6}", cpu_l2);
-        eprintln!("  output[0..4]: [{:.6}, {:.6}, {:.6}, {:.6}]",
-                 cpu_output[0], cpu_output[1], cpu_output[2], cpu_output[3]);
+        eprintln!(
+            "  output[0..4]: [{:.6}, {:.6}, {:.6}, {:.6}]",
+            cpu_output[0], cpu_output[1], cpu_output[2], cpu_output[3]
+        );
     }
 
     /// DEEP DIVE: Test each step of the forward pass to find exact divergence point
@@ -384,7 +417,8 @@ mod tests {
 
         // Test embedding parity (should match)
         let token_id = 42usize;
-        let cpu_embed = &apr_model.token_embedding[token_id * hidden_dim..(token_id + 1) * hidden_dim];
+        let cpu_embed =
+            &apr_model.token_embedding[token_id * hidden_dim..(token_id + 1) * hidden_dim];
         let cpu_embed_l2 = cpu_embed.iter().map(|x| x * x).sum::<f32>().sqrt();
         eprintln!("Step 1: EMBEDDING");
         eprintln!("  CPU embedding L2: {:.6}", cpu_embed_l2);
@@ -399,9 +433,14 @@ mod tests {
         eprintln!("  Comparing weight dimensions...");
 
         // APR QKV weight: [qkv_out_dim, hidden_dim]
-        let qkv_out_dim = hidden_dim + 2 * (apr_model.config.num_kv_heads * hidden_dim / apr_model.config.num_heads);
-        eprintln!("  APR QKV weight: [{}, {}] = {} elements",
-                 qkv_out_dim, hidden_dim, apr_model.layers[0].qkv_weight.len());
+        let qkv_out_dim = hidden_dim
+            + 2 * (apr_model.config.num_kv_heads * hidden_dim / apr_model.config.num_heads);
+        eprintln!(
+            "  APR QKV weight: [{}, {}] = {} elements",
+            qkv_out_dim,
+            hidden_dim,
+            apr_model.layers[0].qkv_weight.len()
+        );
 
         // The GPU model transposes during conversion:
         // GPU QKV weight should be: [hidden_dim, qkv_out_dim]
@@ -430,7 +469,9 @@ mod tests {
         // This means APR's matmul must be treating the weight as transposed!
 
         eprintln!("\nDIAGNOSIS:");
-        eprintln!("  APR stores QKV weight as [qkv_out, hidden] but uses matmul(in, W, hidden, qkv_out)");
+        eprintln!(
+            "  APR stores QKV weight as [qkv_out, hidden] but uses matmul(in, W, hidden, qkv_out)"
+        );
         eprintln!("  This implies APR matmul does: input @ W where W is read as [hidden, qkv_out]");
         eprintln!("  But W is stored as [qkv_out, hidden], so APR must be transposing internally");
         eprintln!("");
@@ -461,12 +502,14 @@ mod tests {
 
         // Let's compute a small manual test
         let a = vec![1.0f32, 2.0, 3.0, 4.0]; // [1, 4]
-        let b = vec![1.0f32, 0.0, 0.0, 1.0, // [4, 2] stored row-major
-                     2.0, 0.0, 0.0, 2.0];
-        let b_transposed = vec![1.0f32, 2.0, // [2, 4] stored row-major
-                                0.0, 0.0,
-                                0.0, 0.0,
-                                1.0, 2.0];
+        let b = vec![
+            1.0f32, 0.0, 0.0, 1.0, // [4, 2] stored row-major
+            2.0, 0.0, 0.0, 2.0,
+        ];
+        let b_transposed = vec![
+            1.0f32, 2.0, // [2, 4] stored row-major
+            0.0, 0.0, 0.0, 0.0, 1.0, 2.0,
+        ];
 
         // Standard matmul A[1,4] @ B[4,2] = C[1,2]
         // c[0] = a[0]*b[0] + a[1]*b[2] + a[2]*b[4] + a[3]*b[6]

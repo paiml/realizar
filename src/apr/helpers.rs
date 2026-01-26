@@ -9,9 +9,9 @@
 //! - Simple attention computation
 //! - Format detection utilities
 
-use std::path::Path;
-use std::fs;
 use super::MAGIC;
+use std::fs;
+use std::path::Path;
 
 /// RMS normalization
 pub(crate) fn rms_norm(x: &[f32], weight: &[f32], eps: f32) -> Vec<f32> {
@@ -37,7 +37,13 @@ pub(crate) fn rms_norm(x: &[f32], weight: &[f32], eps: f32) -> Vec<f32> {
 
 /// Matrix multiplication with SIMD dot products
 /// [seq, in_dim] @ [out_dim, in_dim]^T -> [seq, out_dim]
-pub(crate) fn matmul(x: &[f32], w: &[f32], seq_len: usize, in_dim: usize, out_dim: usize) -> Vec<f32> {
+pub(crate) fn matmul(
+    x: &[f32],
+    w: &[f32],
+    seq_len: usize,
+    in_dim: usize,
+    out_dim: usize,
+) -> Vec<f32> {
     let mut output = vec![0.0; seq_len * out_dim];
 
     for s in 0..seq_len {

@@ -26,6 +26,8 @@
 //! - `part_19.rs`: Phase 34 - Thread-safe Cache (cached/sync.rs)
 //! - `part_20.rs`: Phase 34 - Matmul Coverage (matmul.rs)
 //! - `part_21.rs`: Phase 34 - Transformer Structure (transformer.rs)
+//! - `part_22.rs`: Phase 35 - GGUF Edge Cases (loader.rs, types.rs)
+//! - `part_23.rs`: Phase 36 - GGUF Parsing and Error Handling (mod.rs coverage)
 
 mod part_01;
 mod part_02;
@@ -49,3 +51,4 @@ mod part_19;
 mod part_20;
 mod part_21;
 mod part_22;
+mod part_23;

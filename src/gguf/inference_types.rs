@@ -252,7 +252,11 @@ impl ContiguousKVCache {
     #[inline]
     fn align_to_cache_line(size: usize) -> usize {
         let remainder = size % FLOATS_PER_CACHE_LINE;
-        if remainder == 0 { size } else { size + FLOATS_PER_CACHE_LINE - remainder }
+        if remainder == 0 {
+            size
+        } else {
+            size + FLOATS_PER_CACHE_LINE - remainder
+        }
     }
 
     /// Create cache from model configuration
@@ -263,7 +267,9 @@ impl ContiguousKVCache {
 
     /// Check if this cache has contiguous layout
     #[must_use]
-    pub const fn is_contiguous(&self) -> bool { true }
+    pub const fn is_contiguous(&self) -> bool {
+        true
+    }
 
     /// Check if data is cache-line aligned
     #[must_use]
@@ -273,14 +279,20 @@ impl ContiguousKVCache {
 
     /// Get the layer stride
     #[must_use]
-    pub fn layer_stride(&self) -> usize { self.layer_stride }
+    pub fn layer_stride(&self) -> usize {
+        self.layer_stride
+    }
 
     #[inline]
-    fn layer_offset(&self, layer: usize) -> usize { layer * self.layer_stride }
+    fn layer_offset(&self, layer: usize) -> usize {
+        layer * self.layer_stride
+    }
 
     /// Append K and V vectors for a single position to a layer's cache
     pub fn append(&mut self, layer: usize, k: &[f32], v: &[f32]) {
-        if layer >= self.num_layers || self.seq_len >= self.max_seq_len { return; }
+        if layer >= self.num_layers || self.seq_len >= self.max_seq_len {
+            return;
+        }
         let start = self.layer_offset(layer) + self.seq_len * self.hidden_dim;
         let end = start + self.hidden_dim;
         if end <= self.k_data.len() {
@@ -291,13 +303,17 @@ impl ContiguousKVCache {
 
     /// Advance the sequence position
     pub fn advance(&mut self) {
-        if self.seq_len < self.max_seq_len { self.seq_len += 1; }
+        if self.seq_len < self.max_seq_len {
+            self.seq_len += 1;
+        }
     }
 
     /// Get cached keys for a layer
     #[must_use]
     pub fn get_k(&self, layer: usize) -> &[f32] {
-        if layer >= self.num_layers { return &[]; }
+        if layer >= self.num_layers {
+            return &[];
+        }
         let start = self.layer_offset(layer);
         &self.k_data[start..start + self.seq_len * self.hidden_dim]
     }
@@ -305,14 +321,18 @@ impl ContiguousKVCache {
     /// Get cached values for a layer
     #[must_use]
     pub fn get_v(&self, layer: usize) -> &[f32] {
-        if layer >= self.num_layers { return &[]; }
+        if layer >= self.num_layers {
+            return &[];
+        }
         let start = self.layer_offset(layer);
         &self.v_data[start..start + self.seq_len * self.hidden_dim]
     }
 
     /// Get mutable cached keys for a layer
     pub fn get_k_mut(&mut self, layer: usize) -> &mut [f32] {
-        if layer >= self.num_layers { return &mut []; }
+        if layer >= self.num_layers {
+            return &mut [];
+        }
         let start = self.layer_offset(layer);
         let len = self.seq_len * self.hidden_dim;
         &mut self.k_data[start..start + len]
@@ -320,7 +340,9 @@ impl ContiguousKVCache {
 
     /// Get mutable cached values for a layer
     pub fn get_v_mut(&mut self, layer: usize) -> &mut [f32] {
-        if layer >= self.num_layers { return &mut []; }
+        if layer >= self.num_layers {
+            return &mut [];
+        }
         let start = self.layer_offset(layer);
         let len = self.seq_len * self.hidden_dim;
         &mut self.v_data[start..start + len]
@@ -328,14 +350,20 @@ impl ContiguousKVCache {
 
     /// Current sequence length
     #[must_use]
-    pub fn len(&self) -> usize { self.seq_len }
+    pub fn len(&self) -> usize {
+        self.seq_len
+    }
 
     /// Check if cache is empty
     #[must_use]
-    pub fn is_empty(&self) -> bool { self.seq_len == 0 }
+    pub fn is_empty(&self) -> bool {
+        self.seq_len == 0
+    }
 
     /// Reset cache for new generation
-    pub fn reset(&mut self) { self.seq_len = 0; }
+    pub fn reset(&mut self) {
+        self.seq_len = 0;
+    }
 
     /// Reset cache and zero all data
     pub fn reset_and_zero(&mut self) {
@@ -346,7 +374,9 @@ impl ContiguousKVCache {
 
     /// Get maximum sequence length
     #[must_use]
-    pub fn max_len(&self) -> usize { self.max_seq_len }
+    pub fn max_len(&self) -> usize {
+        self.max_seq_len
+    }
 
     /// Get total memory usage in bytes
     #[must_use]
@@ -442,53 +472,75 @@ impl DispatchMetrics {
 
     fn bucket_index(latency_us: u64) -> usize {
         for (i, &boundary) in Self::BUCKET_BOUNDARIES.iter().enumerate() {
-            if latency_us < boundary { return i; }
+            if latency_us < boundary {
+                return i;
+            }
         }
         4
     }
 
     /// Record a CPU dispatch
     pub fn record_cpu_dispatch(&self) {
-        self.cpu_dispatches.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.cpu_dispatches
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Record a GPU dispatch
     pub fn record_gpu_dispatch(&self) {
-        self.gpu_dispatches.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.gpu_dispatches
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Record CPU dispatch latency
     pub fn record_cpu_latency(&self, latency: std::time::Duration) {
         let latency_us = latency.as_micros() as u64;
-        self.cpu_latency_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        self.cpu_latency_sum_us.fetch_add(latency_us, std::sync::atomic::Ordering::Relaxed);
-        self.cpu_latency_buckets[Self::bucket_index(latency_us)].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        self.cpu_latency_min_us.fetch_min(latency_us, std::sync::atomic::Ordering::Relaxed);
-        self.cpu_latency_max_us.fetch_max(latency_us, std::sync::atomic::Ordering::Relaxed);
-        self.cpu_latency_sum_sq_us.fetch_add(latency_us * latency_us, std::sync::atomic::Ordering::Relaxed);
+        self.cpu_latency_count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.cpu_latency_sum_us
+            .fetch_add(latency_us, std::sync::atomic::Ordering::Relaxed);
+        self.cpu_latency_buckets[Self::bucket_index(latency_us)]
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.cpu_latency_min_us
+            .fetch_min(latency_us, std::sync::atomic::Ordering::Relaxed);
+        self.cpu_latency_max_us
+            .fetch_max(latency_us, std::sync::atomic::Ordering::Relaxed);
+        self.cpu_latency_sum_sq_us.fetch_add(
+            latency_us * latency_us,
+            std::sync::atomic::Ordering::Relaxed,
+        );
     }
 
     /// Record GPU dispatch latency
     pub fn record_gpu_latency(&self, latency: std::time::Duration) {
         let latency_us = latency.as_micros() as u64;
-        self.gpu_latency_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        self.gpu_latency_sum_us.fetch_add(latency_us, std::sync::atomic::Ordering::Relaxed);
-        self.gpu_latency_buckets[Self::bucket_index(latency_us)].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        self.gpu_latency_min_us.fetch_min(latency_us, std::sync::atomic::Ordering::Relaxed);
-        self.gpu_latency_max_us.fetch_max(latency_us, std::sync::atomic::Ordering::Relaxed);
-        self.gpu_latency_sum_sq_us.fetch_add(latency_us * latency_us, std::sync::atomic::Ordering::Relaxed);
+        self.gpu_latency_count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.gpu_latency_sum_us
+            .fetch_add(latency_us, std::sync::atomic::Ordering::Relaxed);
+        self.gpu_latency_buckets[Self::bucket_index(latency_us)]
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.gpu_latency_min_us
+            .fetch_min(latency_us, std::sync::atomic::Ordering::Relaxed);
+        self.gpu_latency_max_us
+            .fetch_max(latency_us, std::sync::atomic::Ordering::Relaxed);
+        self.gpu_latency_sum_sq_us.fetch_add(
+            latency_us * latency_us,
+            std::sync::atomic::Ordering::Relaxed,
+        );
     }
 
     /// Get CPU dispatch count
     #[must_use]
     pub fn cpu_dispatches(&self) -> usize {
-        self.cpu_dispatches.load(std::sync::atomic::Ordering::Relaxed)
+        self.cpu_dispatches
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Get GPU dispatch count
     #[must_use]
     pub fn gpu_dispatches(&self) -> usize {
-        self.gpu_dispatches.load(std::sync::atomic::Ordering::Relaxed)
+        self.gpu_dispatches
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Get total dispatches
@@ -501,27 +553,37 @@ impl DispatchMetrics {
     #[must_use]
     pub fn gpu_ratio(&self) -> f64 {
         let total = self.total_dispatches();
-        if total == 0 { 0.0 } else { self.gpu_dispatches() as f64 / total as f64 }
+        if total == 0 {
+            0.0
+        } else {
+            self.gpu_dispatches() as f64 / total as f64
+        }
     }
 
     /// Get CPU latency count
     #[must_use]
     pub fn cpu_latency_count(&self) -> usize {
-        self.cpu_latency_count.load(std::sync::atomic::Ordering::Relaxed)
+        self.cpu_latency_count
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Get GPU latency count
     #[must_use]
     pub fn gpu_latency_count(&self) -> usize {
-        self.gpu_latency_count.load(std::sync::atomic::Ordering::Relaxed)
+        self.gpu_latency_count
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Get mean CPU latency in microseconds
     #[must_use]
     pub fn cpu_latency_mean_us(&self) -> f64 {
         let count = self.cpu_latency_count();
-        if count == 0 { 0.0 } else {
-            self.cpu_latency_sum_us.load(std::sync::atomic::Ordering::Relaxed) as f64 / count as f64
+        if count == 0 {
+            0.0
+        } else {
+            self.cpu_latency_sum_us
+                .load(std::sync::atomic::Ordering::Relaxed) as f64
+                / count as f64
         }
     }
 
@@ -529,80 +591,110 @@ impl DispatchMetrics {
     #[must_use]
     pub fn gpu_latency_mean_us(&self) -> f64 {
         let count = self.gpu_latency_count();
-        if count == 0 { 0.0 } else {
-            self.gpu_latency_sum_us.load(std::sync::atomic::Ordering::Relaxed) as f64 / count as f64
+        if count == 0 {
+            0.0
+        } else {
+            self.gpu_latency_sum_us
+                .load(std::sync::atomic::Ordering::Relaxed) as f64
+                / count as f64
         }
     }
 
     /// Get CPU latency sum
     #[must_use]
     pub fn cpu_latency_sum_us(&self) -> u64 {
-        self.cpu_latency_sum_us.load(std::sync::atomic::Ordering::Relaxed)
+        self.cpu_latency_sum_us
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Get GPU latency sum
     #[must_use]
     pub fn gpu_latency_sum_us(&self) -> u64 {
-        self.gpu_latency_sum_us.load(std::sync::atomic::Ordering::Relaxed)
+        self.gpu_latency_sum_us
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Get CPU latency min
     #[must_use]
     pub fn cpu_latency_min_us(&self) -> u64 {
-        if self.cpu_latency_count() == 0 { 0 } else {
-            self.cpu_latency_min_us.load(std::sync::atomic::Ordering::Relaxed)
+        if self.cpu_latency_count() == 0 {
+            0
+        } else {
+            self.cpu_latency_min_us
+                .load(std::sync::atomic::Ordering::Relaxed)
         }
     }
 
     /// Get CPU latency max
     #[must_use]
     pub fn cpu_latency_max_us(&self) -> u64 {
-        self.cpu_latency_max_us.load(std::sync::atomic::Ordering::Relaxed)
+        self.cpu_latency_max_us
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Get GPU latency min
     #[must_use]
     pub fn gpu_latency_min_us(&self) -> u64 {
-        if self.gpu_latency_count() == 0 { 0 } else {
-            self.gpu_latency_min_us.load(std::sync::atomic::Ordering::Relaxed)
+        if self.gpu_latency_count() == 0 {
+            0
+        } else {
+            self.gpu_latency_min_us
+                .load(std::sync::atomic::Ordering::Relaxed)
         }
     }
 
     /// Get GPU latency max
     #[must_use]
     pub fn gpu_latency_max_us(&self) -> u64 {
-        self.gpu_latency_max_us.load(std::sync::atomic::Ordering::Relaxed)
+        self.gpu_latency_max_us
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Get CPU latency variance
     #[must_use]
     pub fn cpu_latency_variance_us(&self) -> f64 {
         let count = self.cpu_latency_count();
-        if count < 2 { return 0.0; }
-        let sum = self.cpu_latency_sum_us.load(std::sync::atomic::Ordering::Relaxed) as f64;
-        let sum_sq = self.cpu_latency_sum_sq_us.load(std::sync::atomic::Ordering::Relaxed) as f64;
+        if count < 2 {
+            return 0.0;
+        }
+        let sum = self
+            .cpu_latency_sum_us
+            .load(std::sync::atomic::Ordering::Relaxed) as f64;
+        let sum_sq = self
+            .cpu_latency_sum_sq_us
+            .load(std::sync::atomic::Ordering::Relaxed) as f64;
         let n = count as f64;
         (sum_sq / n) - (sum / n).powi(2)
     }
 
     /// Get CPU latency stddev
     #[must_use]
-    pub fn cpu_latency_stddev_us(&self) -> f64 { self.cpu_latency_variance_us().sqrt() }
+    pub fn cpu_latency_stddev_us(&self) -> f64 {
+        self.cpu_latency_variance_us().sqrt()
+    }
 
     /// Get GPU latency variance
     #[must_use]
     pub fn gpu_latency_variance_us(&self) -> f64 {
         let count = self.gpu_latency_count();
-        if count < 2 { return 0.0; }
-        let sum = self.gpu_latency_sum_us.load(std::sync::atomic::Ordering::Relaxed) as f64;
-        let sum_sq = self.gpu_latency_sum_sq_us.load(std::sync::atomic::Ordering::Relaxed) as f64;
+        if count < 2 {
+            return 0.0;
+        }
+        let sum = self
+            .gpu_latency_sum_us
+            .load(std::sync::atomic::Ordering::Relaxed) as f64;
+        let sum_sq = self
+            .gpu_latency_sum_sq_us
+            .load(std::sync::atomic::Ordering::Relaxed) as f64;
         let n = count as f64;
         (sum_sq / n) - (sum / n).powi(2)
     }
 
     /// Get GPU latency stddev
     #[must_use]
-    pub fn gpu_latency_stddev_us(&self) -> f64 { self.gpu_latency_variance_us().sqrt() }
+    pub fn gpu_latency_stddev_us(&self) -> f64 {
+        self.gpu_latency_variance_us().sqrt()
+    }
 
     /// Get CPU latency histogram buckets
     #[must_use]
@@ -632,16 +724,21 @@ impl DispatchMetrics {
         const BUCKET_UPPER_BOUNDS: [f64; 5] = [100.0, 500.0, 1000.0, 5000.0, 10000.0];
         const BUCKET_LOWER_BOUNDS: [f64; 5] = [0.0, 100.0, 500.0, 1000.0, 5000.0];
         let total: usize = buckets.iter().sum();
-        if total == 0 { return 0.0; }
+        if total == 0 {
+            return 0.0;
+        }
         let target_rank = (percentile / 100.0) * total as f64;
         let mut cumulative: f64 = 0.0;
         for (i, &count) in buckets.iter().enumerate() {
             let prev_cumulative = cumulative;
             cumulative += count as f64;
             if cumulative >= target_rank {
-                if count == 0 { return BUCKET_LOWER_BOUNDS[i]; }
+                if count == 0 {
+                    return BUCKET_LOWER_BOUNDS[i];
+                }
                 let fraction = (target_rank - prev_cumulative) / count as f64;
-                return BUCKET_LOWER_BOUNDS[i] + fraction * (BUCKET_UPPER_BOUNDS[i] - BUCKET_LOWER_BOUNDS[i]);
+                return BUCKET_LOWER_BOUNDS[i]
+                    + fraction * (BUCKET_UPPER_BOUNDS[i] - BUCKET_LOWER_BOUNDS[i]);
             }
         }
         BUCKET_UPPER_BOUNDS[4]
@@ -649,36 +746,60 @@ impl DispatchMetrics {
 
     /// Get CPU p50 latency
     #[must_use]
-    pub fn cpu_latency_p50_us(&self) -> f64 { Self::estimate_percentile_from_buckets(&self.cpu_latency_buckets(), 50.0) }
+    pub fn cpu_latency_p50_us(&self) -> f64 {
+        Self::estimate_percentile_from_buckets(&self.cpu_latency_buckets(), 50.0)
+    }
 
     /// Get CPU p95 latency
     #[must_use]
-    pub fn cpu_latency_p95_us(&self) -> f64 { Self::estimate_percentile_from_buckets(&self.cpu_latency_buckets(), 95.0) }
+    pub fn cpu_latency_p95_us(&self) -> f64 {
+        Self::estimate_percentile_from_buckets(&self.cpu_latency_buckets(), 95.0)
+    }
 
     /// Get CPU p99 latency
     #[must_use]
-    pub fn cpu_latency_p99_us(&self) -> f64 { Self::estimate_percentile_from_buckets(&self.cpu_latency_buckets(), 99.0) }
+    pub fn cpu_latency_p99_us(&self) -> f64 {
+        Self::estimate_percentile_from_buckets(&self.cpu_latency_buckets(), 99.0)
+    }
 
     /// Get GPU p50 latency
     #[must_use]
-    pub fn gpu_latency_p50_us(&self) -> f64 { Self::estimate_percentile_from_buckets(&self.gpu_latency_buckets(), 50.0) }
+    pub fn gpu_latency_p50_us(&self) -> f64 {
+        Self::estimate_percentile_from_buckets(&self.gpu_latency_buckets(), 50.0)
+    }
 
     /// Get GPU p95 latency
     #[must_use]
-    pub fn gpu_latency_p95_us(&self) -> f64 { Self::estimate_percentile_from_buckets(&self.gpu_latency_buckets(), 95.0) }
+    pub fn gpu_latency_p95_us(&self) -> f64 {
+        Self::estimate_percentile_from_buckets(&self.gpu_latency_buckets(), 95.0)
+    }
 
     /// Get GPU p99 latency
     #[must_use]
-    pub fn gpu_latency_p99_us(&self) -> f64 { Self::estimate_percentile_from_buckets(&self.gpu_latency_buckets(), 99.0) }
+    pub fn gpu_latency_p99_us(&self) -> f64 {
+        Self::estimate_percentile_from_buckets(&self.gpu_latency_buckets(), 99.0)
+    }
 
     /// Get bucket boundaries as strings
     #[must_use]
     pub fn bucket_boundaries_us(&self) -> Vec<String> {
         vec![
             format!("0-{}", Self::BUCKET_BOUNDARIES[0]),
-            format!("{}-{}", Self::BUCKET_BOUNDARIES[0], Self::BUCKET_BOUNDARIES[1]),
-            format!("{}-{}", Self::BUCKET_BOUNDARIES[1], Self::BUCKET_BOUNDARIES[2]),
-            format!("{}-{}", Self::BUCKET_BOUNDARIES[2], Self::BUCKET_BOUNDARIES[3]),
+            format!(
+                "{}-{}",
+                Self::BUCKET_BOUNDARIES[0],
+                Self::BUCKET_BOUNDARIES[1]
+            ),
+            format!(
+                "{}-{}",
+                Self::BUCKET_BOUNDARIES[1],
+                Self::BUCKET_BOUNDARIES[2]
+            ),
+            format!(
+                "{}-{}",
+                Self::BUCKET_BOUNDARIES[2],
+                Self::BUCKET_BOUNDARIES[3]
+            ),
             format!("{}+", Self::BUCKET_BOUNDARIES[3]),
         ]
     }
@@ -686,7 +807,8 @@ impl DispatchMetrics {
     /// Get start time
     #[must_use]
     pub fn start_time_ms(&self) -> u64 {
-        self.start_time_ms.load(std::sync::atomic::Ordering::Relaxed)
+        self.start_time_ms
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Get elapsed seconds
@@ -704,44 +826,72 @@ impl DispatchMetrics {
     #[must_use]
     pub fn throughput_rps(&self) -> f64 {
         let elapsed = self.elapsed_seconds();
-        if elapsed < 0.001 { 0.0 } else { self.total_dispatches() as f64 / elapsed }
+        if elapsed < 0.001 {
+            0.0
+        } else {
+            self.total_dispatches() as f64 / elapsed
+        }
     }
 
     /// Get CPU latency CV
     #[must_use]
     pub fn cpu_latency_cv(&self) -> f64 {
         let mean = self.cpu_latency_mean_us();
-        if mean < 0.001 { 0.0 } else { (self.cpu_latency_stddev_us() / mean) * 100.0 }
+        if mean < 0.001 {
+            0.0
+        } else {
+            (self.cpu_latency_stddev_us() / mean) * 100.0
+        }
     }
 
     /// Get GPU latency CV
     #[must_use]
     pub fn gpu_latency_cv(&self) -> f64 {
         let mean = self.gpu_latency_mean_us();
-        if mean < 0.001 { 0.0 } else { (self.gpu_latency_stddev_us() / mean) * 100.0 }
+        if mean < 0.001 {
+            0.0
+        } else {
+            (self.gpu_latency_stddev_us() / mean) * 100.0
+        }
     }
 
     /// Get CPU/GPU speedup
     #[must_use]
     pub fn cpu_gpu_speedup(&self) -> f64 {
         let gpu_mean = self.gpu_latency_mean_us();
-        if gpu_mean < 0.001 { 0.0 } else { self.cpu_latency_mean_us() / gpu_mean }
+        if gpu_mean < 0.001 {
+            0.0
+        } else {
+            self.cpu_latency_mean_us() / gpu_mean
+        }
     }
 
     /// Reset all metrics
     pub fn reset(&self) {
-        self.cpu_dispatches.store(0, std::sync::atomic::Ordering::Relaxed);
-        self.gpu_dispatches.store(0, std::sync::atomic::Ordering::Relaxed);
-        self.cpu_latency_count.store(0, std::sync::atomic::Ordering::Relaxed);
-        self.cpu_latency_sum_us.store(0, std::sync::atomic::Ordering::Relaxed);
-        self.gpu_latency_count.store(0, std::sync::atomic::Ordering::Relaxed);
-        self.gpu_latency_sum_us.store(0, std::sync::atomic::Ordering::Relaxed);
-        self.cpu_latency_min_us.store(u64::MAX, std::sync::atomic::Ordering::Relaxed);
-        self.cpu_latency_max_us.store(0, std::sync::atomic::Ordering::Relaxed);
-        self.gpu_latency_min_us.store(u64::MAX, std::sync::atomic::Ordering::Relaxed);
-        self.gpu_latency_max_us.store(0, std::sync::atomic::Ordering::Relaxed);
-        self.cpu_latency_sum_sq_us.store(0, std::sync::atomic::Ordering::Relaxed);
-        self.gpu_latency_sum_sq_us.store(0, std::sync::atomic::Ordering::Relaxed);
+        self.cpu_dispatches
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+        self.gpu_dispatches
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+        self.cpu_latency_count
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+        self.cpu_latency_sum_us
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+        self.gpu_latency_count
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+        self.gpu_latency_sum_us
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+        self.cpu_latency_min_us
+            .store(u64::MAX, std::sync::atomic::Ordering::Relaxed);
+        self.cpu_latency_max_us
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+        self.gpu_latency_min_us
+            .store(u64::MAX, std::sync::atomic::Ordering::Relaxed);
+        self.gpu_latency_max_us
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+        self.cpu_latency_sum_sq_us
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+        self.gpu_latency_sum_sq_us
+            .store(0, std::sync::atomic::Ordering::Relaxed);
         for bucket in &self.cpu_latency_buckets {
             bucket.store(0, std::sync::atomic::Ordering::Relaxed);
         }
@@ -752,10 +902,13 @@ impl DispatchMetrics {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
-        self.start_time_ms.store(now, std::sync::atomic::Ordering::Relaxed);
+        self.start_time_ms
+            .store(now, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
 impl Default for DispatchMetrics {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }

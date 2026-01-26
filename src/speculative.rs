@@ -842,7 +842,7 @@ mod tests {
             max_spec_length: 8,
         };
         config.adapt_spec_length(0.95); // Very high acceptance
-        // Should not exceed max
+                                        // Should not exceed max
         assert_eq!(config.spec_length, 8);
     }
 
@@ -855,7 +855,7 @@ mod tests {
             max_spec_length: 8,
         };
         config.adapt_spec_length(0.1); // Very low acceptance
-        // Should not go below 1
+                                       // Should not go below 1
         assert_eq!(config.spec_length, 1);
     }
 
@@ -885,7 +885,9 @@ mod tests {
 
     #[test]
     fn test_speculative_config_clone() {
-        let config = SpeculativeConfig::new().with_spec_length(5).with_adaptive(false);
+        let config = SpeculativeConfig::new()
+            .with_spec_length(5)
+            .with_adaptive(false);
         let cloned = config.clone();
         assert_eq!(config.spec_length, cloned.spec_length);
         assert_eq!(config.adaptive, cloned.adaptive);
@@ -958,7 +960,10 @@ mod tests {
 
     impl EosModel {
         fn new(vocab_size: usize, eos_token: u32) -> Self {
-            Self { vocab_size, eos_token }
+            Self {
+                vocab_size,
+                eos_token,
+            }
         }
     }
 
@@ -998,7 +1003,9 @@ mod tests {
 
     impl SpeculativeModel for FailingForwardModel {
         fn forward(&self, _input_ids: &[u32]) -> Result<Vec<f32>, SpeculativeError> {
-            Err(SpeculativeError::DraftModelError("forward failed".to_string()))
+            Err(SpeculativeError::DraftModelError(
+                "forward failed".to_string(),
+            ))
         }
 
         fn sample(&self, _logits: &[f32]) -> Result<TokenProb, SpeculativeError> {
@@ -1022,10 +1029,7 @@ mod tests {
         let mut decoder = SpeculativeDecoder::new(draft, target, 4).expect("create");
         let result = decoder.decode_iteration(&[10]);
 
-        assert!(matches!(
-            result,
-            Err(SpeculativeError::DraftModelError(_))
-        ));
+        assert!(matches!(result, Err(SpeculativeError::DraftModelError(_))));
     }
 
     /// Mock model that fails on sample
@@ -1037,7 +1041,9 @@ mod tests {
         }
 
         fn sample(&self, _logits: &[f32]) -> Result<TokenProb, SpeculativeError> {
-            Err(SpeculativeError::DraftModelError("sample failed".to_string()))
+            Err(SpeculativeError::DraftModelError(
+                "sample failed".to_string(),
+            ))
         }
 
         fn vocab_size(&self) -> usize {
@@ -1057,10 +1063,7 @@ mod tests {
         let mut decoder = SpeculativeDecoder::new(draft, target, 4).expect("create");
         let result = decoder.decode_iteration(&[10]);
 
-        assert!(matches!(
-            result,
-            Err(SpeculativeError::DraftModelError(_))
-        ));
+        assert!(matches!(result, Err(SpeculativeError::DraftModelError(_))));
     }
 
     /// Mock model that fails target forward
@@ -1068,7 +1071,9 @@ mod tests {
 
     impl SpeculativeModel for FailingTargetModel {
         fn forward(&self, _input_ids: &[u32]) -> Result<Vec<f32>, SpeculativeError> {
-            Err(SpeculativeError::TargetModelError("target forward failed".to_string()))
+            Err(SpeculativeError::TargetModelError(
+                "target forward failed".to_string(),
+            ))
         }
 
         fn sample(&self, _logits: &[f32]) -> Result<TokenProb, SpeculativeError> {
@@ -1092,10 +1097,7 @@ mod tests {
         let mut decoder = SpeculativeDecoder::new(draft, target, 4).expect("create");
         let result = decoder.decode_iteration(&[10]);
 
-        assert!(matches!(
-            result,
-            Err(SpeculativeError::TargetModelError(_))
-        ));
+        assert!(matches!(result, Err(SpeculativeError::TargetModelError(_))));
     }
 
     /// Mock model that fails on target sample (after successful forward)
@@ -1110,7 +1112,9 @@ mod tests {
 
         fn sample(&self, _logits: &[f32]) -> Result<TokenProb, SpeculativeError> {
             if self.sample_fail {
-                Err(SpeculativeError::TargetModelError("target sample failed".to_string()))
+                Err(SpeculativeError::TargetModelError(
+                    "target sample failed".to_string(),
+                ))
             } else {
                 Ok(TokenProb::new(1, -1.0))
             }
@@ -1133,10 +1137,7 @@ mod tests {
         let mut decoder = SpeculativeDecoder::new(draft, target, 4).expect("create");
         let result = decoder.decode_iteration(&[10]);
 
-        assert!(matches!(
-            result,
-            Err(SpeculativeError::TargetModelError(_))
-        ));
+        assert!(matches!(result, Err(SpeculativeError::TargetModelError(_))));
     }
 
     /// Mock model that returns different tokens (for rejection testing)
@@ -1173,7 +1174,7 @@ mod tests {
     fn test_speculative_decoder_rejection_resamples() {
         // Draft returns token 5 with low probability
         let draft = DifferentTokenModel::new(5, -10.0); // Very low prob
-        // Target returns token 10 with high probability
+                                                        // Target returns token 10 with high probability
         let target = DifferentTokenModel::new(10, -0.1); // High prob
 
         let mut decoder = SpeculativeDecoder::new(draft, target, 4).expect("create");
@@ -1397,5 +1398,601 @@ mod tests {
         // Just below min_acceptance_rate - should decrease
         config.adapt_spec_length(0.49);
         assert_eq!(config.spec_length, 3);
+    }
+
+    // ============================================================================
+    // Part 02: Additional Coverage Tests for Edge Cases
+    // ============================================================================
+
+    // === SpeculativeStats Debug Trait ===
+
+    #[test]
+    fn test_speculative_stats_debug() {
+        let stats = SpeculativeStats {
+            iterations: 10,
+            tokens_speculated: 40,
+            tokens_accepted: 32,
+            acceptance_rate: 0.8,
+            avg_spec_length: 4.0,
+            time_saved_ms: 120.5,
+            draft_time_ms: 15.0,
+            target_time_ms: 150.0,
+        };
+        let debug_str = format!("{:?}", stats);
+        assert!(debug_str.contains("iterations"));
+        assert!(debug_str.contains("tokens_speculated"));
+        assert!(debug_str.contains("acceptance_rate"));
+        assert!(debug_str.contains("time_saved_ms"));
+    }
+
+    // === SpeculativeStats Edge Cases ===
+
+    #[test]
+    fn test_speculative_stats_speedup_zero_iterations_zero_speculated() {
+        // Edge case: manually created stats with no activity
+        let stats = SpeculativeStats {
+            iterations: 0,
+            tokens_speculated: 0,
+            tokens_accepted: 0,
+            acceptance_rate: 0.0,
+            avg_spec_length: 0.0,
+            time_saved_ms: 0.0,
+            draft_time_ms: 0.0,
+            target_time_ms: 0.0,
+        };
+        // tokens_accepted == 0 means early return with 1.0
+        assert_eq!(stats.speedup(), 1.0);
+    }
+
+    #[test]
+    fn test_speculative_stats_speedup_actual_time_calculation() {
+        // Test the actual speedup calculation path
+        let mut stats = SpeculativeStats::default();
+        // 10 speculated, 8 accepted, 1 iteration
+        // draft_tokens_equivalent = 10 * 0.1 = 1.0
+        // baseline_time = 8
+        // actual_time = 1.0 + 1 = 2.0
+        // speedup = 8 / 2 = 4.0
+        stats.record_iteration(10, 8, 1.0, 10.0);
+        let speedup = stats.speedup();
+        assert!((speedup - 4.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_speculative_stats_multiple_records_accumulate() {
+        let mut stats = SpeculativeStats::default();
+        stats.record_iteration(4, 3, 1.0, 10.0);
+        stats.record_iteration(4, 4, 1.5, 12.0);
+        stats.record_iteration(4, 2, 0.8, 8.0);
+
+        assert_eq!(stats.iterations, 3);
+        assert_eq!(stats.tokens_speculated, 12);
+        assert_eq!(stats.tokens_accepted, 9);
+        assert!((stats.draft_time_ms - 3.3).abs() < 0.01);
+        assert!((stats.target_time_ms - 30.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_speculative_stats_acceptance_rate_precision() {
+        let mut stats = SpeculativeStats::default();
+        stats.record_iteration(3, 2, 1.0, 10.0);
+        // 2/3 = 0.6666...
+        assert!((stats.acceptance_rate - 0.6666667).abs() < 0.0001);
+    }
+
+    // === SpeculativeResult Edge Cases ===
+
+    #[test]
+    fn test_speculative_result_partial_acceptance() {
+        let result = SpeculativeResult {
+            accepted_tokens: vec![100, 200],
+            num_speculated: 5,
+            num_accepted: 2,
+            resampled_token: Some(300),
+            draft_time_ms: 2.5,
+            target_time_ms: 25.0,
+        };
+        // 2/5 = 0.4
+        assert!((result.acceptance_rate() - 0.4).abs() < 0.001);
+        assert!(!result.all_accepted());
+    }
+
+    #[test]
+    fn test_speculative_result_100_percent_acceptance() {
+        let result = SpeculativeResult {
+            accepted_tokens: vec![10, 20, 30, 40, 50],
+            num_speculated: 5,
+            num_accepted: 5,
+            resampled_token: None,
+            draft_time_ms: 1.0,
+            target_time_ms: 10.0,
+        };
+        assert!((result.acceptance_rate() - 1.0).abs() < 0.001);
+        assert!(result.all_accepted());
+    }
+
+    // === TokenProb Edge Cases ===
+
+    #[test]
+    fn test_token_prob_zero_log_prob() {
+        // log_prob = 0 means prob = exp(0) = 1.0
+        let tp = TokenProb::new(999, 0.0);
+        assert!((tp.prob() - 1.0).abs() < 0.0001);
+    }
+
+    #[test]
+    fn test_token_prob_very_positive_log_prob() {
+        // Edge case: positive log_prob (prob > 1, mathematically unusual but handled)
+        let tp = TokenProb::new(1, 2.0);
+        let expected = std::f32::consts::E.powi(2);
+        assert!((tp.prob() - expected).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_token_prob_negative_infinity_log_prob() {
+        // Very negative log_prob approximates zero probability
+        let tp = TokenProb::new(1, f32::NEG_INFINITY);
+        assert_eq!(tp.prob(), 0.0);
+    }
+
+    // === SpeculativeConfig Edge Cases ===
+
+    #[test]
+    fn test_speculative_config_adapt_spec_length_two_decreases() {
+        let mut config = SpeculativeConfig {
+            spec_length: 3,
+            min_acceptance_rate: 0.5,
+            adaptive: true,
+            max_spec_length: 8,
+        };
+        // First decrease
+        config.adapt_spec_length(0.3);
+        assert_eq!(config.spec_length, 2);
+        // Second decrease
+        config.adapt_spec_length(0.3);
+        assert_eq!(config.spec_length, 1);
+        // Third attempt - should stay at 1 (minimum)
+        config.adapt_spec_length(0.3);
+        assert_eq!(config.spec_length, 1);
+    }
+
+    #[test]
+    fn test_speculative_config_adapt_spec_length_two_increases() {
+        let mut config = SpeculativeConfig {
+            spec_length: 6,
+            min_acceptance_rate: 0.5,
+            adaptive: true,
+            max_spec_length: 8,
+        };
+        // First increase
+        config.adapt_spec_length(0.9);
+        assert_eq!(config.spec_length, 7);
+        // Second increase
+        config.adapt_spec_length(0.9);
+        assert_eq!(config.spec_length, 8);
+        // Third attempt - should stay at 8 (maximum)
+        config.adapt_spec_length(0.9);
+        assert_eq!(config.spec_length, 8);
+    }
+
+    #[test]
+    fn test_speculative_config_custom_min_acceptance_rate() {
+        let mut config = SpeculativeConfig {
+            spec_length: 4,
+            min_acceptance_rate: 0.7, // Custom higher threshold
+            adaptive: true,
+            max_spec_length: 8,
+        };
+        // 0.65 is below 0.7, should decrease
+        config.adapt_spec_length(0.65);
+        assert_eq!(config.spec_length, 3);
+    }
+
+    // === SpeculativeDecoder Edge Cases ===
+
+    /// Model that generates multiple tokens then hits EOS
+    struct DelayedEosModel {
+        vocab_size: usize,
+        eos_token: u32,
+        call_count: std::cell::RefCell<usize>,
+        eos_after: usize,
+    }
+
+    impl DelayedEosModel {
+        fn new(vocab_size: usize, eos_token: u32, eos_after: usize) -> Self {
+            Self {
+                vocab_size,
+                eos_token,
+                call_count: std::cell::RefCell::new(0),
+                eos_after,
+            }
+        }
+    }
+
+    impl SpeculativeModel for DelayedEosModel {
+        fn forward(&self, _input_ids: &[u32]) -> Result<Vec<f32>, SpeculativeError> {
+            Ok(vec![0.0; self.vocab_size])
+        }
+
+        fn sample(&self, _logits: &[f32]) -> Result<TokenProb, SpeculativeError> {
+            let mut count = self.call_count.borrow_mut();
+            *count += 1;
+            if *count > self.eos_after {
+                Ok(TokenProb::new(self.eos_token, -0.5))
+            } else {
+                Ok(TokenProb::new(42, -1.0)) // Non-EOS token
+            }
+        }
+
+        fn vocab_size(&self) -> usize {
+            self.vocab_size
+        }
+
+        fn eos_token(&self) -> u32 {
+            self.eos_token
+        }
+    }
+
+    #[test]
+    fn test_speculative_decoder_eos_after_two_tokens() {
+        let draft = DelayedEosModel::new(100, 0, 2); // EOS after 2 tokens
+        let target = MockModel::new(100, 42);
+
+        let mut decoder = SpeculativeDecoder::new(draft, target, 4).expect("create");
+        let result = decoder.decode_iteration(&[1]).expect("decode");
+
+        // Should have 3 tokens: 2 non-EOS + 1 EOS
+        assert_eq!(result.num_speculated, 3);
+    }
+
+    #[test]
+    fn test_speculative_decoder_large_context() {
+        let draft = MockModel::new(100, 1);
+        let target = MockModel::new(100, 1);
+
+        let mut decoder = SpeculativeDecoder::new(draft, target, 2).expect("create");
+        // Large context of 1000 tokens
+        let context: Vec<u32> = (0..1000).collect();
+        let result = decoder.decode_iteration(&context).expect("decode");
+
+        // Should still work with large context
+        assert!(result.num_speculated > 0);
+    }
+
+    #[test]
+    fn test_speculative_decoder_single_token_spec_length() {
+        let draft = MockModel::new(100, 1);
+        let target = MockModel::new(100, 1);
+
+        let mut decoder = SpeculativeDecoder::new(draft, target, 1).expect("create");
+        let result = decoder.decode_iteration(&[10, 20]).expect("decode");
+
+        // With spec_length=1, should only speculate 1 token
+        assert_eq!(result.num_speculated, 1);
+    }
+
+    #[test]
+    fn test_speculative_decoder_max_spec_length_32() {
+        // Model that doesn't hit EOS
+        struct NoEosModel {
+            vocab_size: usize,
+        }
+
+        impl SpeculativeModel for NoEosModel {
+            fn forward(&self, _input_ids: &[u32]) -> Result<Vec<f32>, SpeculativeError> {
+                Ok(vec![0.0; self.vocab_size])
+            }
+
+            fn sample(&self, _logits: &[f32]) -> Result<TokenProb, SpeculativeError> {
+                Ok(TokenProb::new(999, -1.0)) // Never EOS (EOS is 0)
+            }
+
+            fn vocab_size(&self) -> usize {
+                self.vocab_size
+            }
+
+            fn eos_token(&self) -> u32 {
+                0
+            }
+        }
+
+        let draft = NoEosModel { vocab_size: 100 };
+        let target = NoEosModel { vocab_size: 100 };
+
+        let mut decoder = SpeculativeDecoder::new(draft, target, 32).expect("create");
+        let result = decoder.decode_iteration(&[1]).expect("decode");
+
+        // Should speculate exactly 32 tokens (max spec_length)
+        assert_eq!(result.num_speculated, 32);
+    }
+
+    // === should_accept Comprehensive Tests ===
+
+    #[test]
+    fn test_should_accept_ratio_exactly_one() {
+        let draft = MockModel::new(100, 1);
+        let target = MockModel::new(100, 1);
+        let decoder = SpeculativeDecoder::new(draft, target, 4).expect("create");
+
+        // Same probability, different tokens
+        let draft_prob = TokenProb::new(5, -2.0);
+        let target_prob = TokenProb::new(10, -2.0);
+
+        // ratio = exp(-2) / exp(-2) = 1.0, should accept (ratio >= 1.0)
+        assert!(decoder.should_accept(&draft_prob, &target_prob));
+    }
+
+    #[test]
+    fn test_should_accept_ratio_slightly_above_half() {
+        let draft = MockModel::new(100, 1);
+        let target = MockModel::new(100, 1);
+        let decoder = SpeculativeDecoder::new(draft, target, 4).expect("create");
+
+        // Calculate log probs to get ratio just above 0.5
+        // draft_prob = 0.6, target_prob = 0.31 => ratio ≈ 0.517
+        let draft_prob = TokenProb::new(5, (-0.6_f32).ln());
+        let target_prob = TokenProb::new(10, (-0.31_f32).ln());
+
+        // This is a negative log prob scenario - let's use cleaner values
+        // draft prob = exp(-1) ≈ 0.368, target prob = exp(-1.3) ≈ 0.273
+        // ratio = 0.273 / 0.368 ≈ 0.74 > 0.5, should accept
+        let draft_prob = TokenProb::new(5, -1.0);
+        let target_prob = TokenProb::new(10, -1.3);
+        assert!(decoder.should_accept(&draft_prob, &target_prob));
+    }
+
+    #[test]
+    fn test_should_accept_ratio_exactly_half() {
+        let draft = MockModel::new(100, 1);
+        let target = MockModel::new(100, 1);
+        let decoder = SpeculativeDecoder::new(draft, target, 4).expect("create");
+
+        // We need ratio = 0.5 exactly
+        // target_prob / draft_prob = 0.5
+        // exp(target_log) / exp(draft_log) = 0.5
+        // exp(target_log - draft_log) = 0.5
+        // target_log - draft_log = ln(0.5) ≈ -0.693
+        // If draft_log = -1.0, target_log = -1.693
+        let draft_prob = TokenProb::new(5, -1.0);
+        let target_prob = TokenProb::new(10, -1.0 + (-0.5_f32).ln());
+
+        // ratio = 0.5, condition is ratio > 0.5, so should NOT accept
+        // But ratio >= 1.0 OR ratio > 0.5, so 0.5 exactly should NOT match > 0.5
+        assert!(!decoder.should_accept(&draft_prob, &target_prob));
+    }
+
+    #[test]
+    fn test_should_accept_ratio_below_half() {
+        let draft = MockModel::new(100, 1);
+        let target = MockModel::new(100, 1);
+        let decoder = SpeculativeDecoder::new(draft, target, 4).expect("create");
+
+        // ratio needs to be < 0.5
+        // target_prob / draft_prob < 0.5
+        // If draft is high and target is low
+        let draft_prob = TokenProb::new(5, 0.0); // prob = 1.0
+        let target_prob = TokenProb::new(10, -2.0); // prob ≈ 0.135
+
+        // ratio = 0.135 / 1.0 = 0.135 < 0.5, should NOT accept
+        assert!(!decoder.should_accept(&draft_prob, &target_prob));
+    }
+
+    // === Error Handling Edge Cases ===
+
+    #[test]
+    fn test_speculative_error_verification_failed_fields() {
+        let err = SpeculativeError::VerificationFailed { position: 42 };
+        if let SpeculativeError::VerificationFailed { position } = err {
+            assert_eq!(position, 42);
+        } else {
+            panic!("Expected VerificationFailed variant");
+        }
+    }
+
+    #[test]
+    fn test_speculative_error_draft_model_error_message() {
+        let err = SpeculativeError::DraftModelError("custom error message".to_string());
+        let display = format!("{}", err);
+        assert!(display.contains("Draft model error"));
+        assert!(display.contains("custom error message"));
+    }
+
+    #[test]
+    fn test_speculative_error_target_model_error_message() {
+        let err = SpeculativeError::TargetModelError("target failed".to_string());
+        let display = format!("{}", err);
+        assert!(display.contains("Target model error"));
+        assert!(display.contains("target failed"));
+    }
+
+    #[test]
+    fn test_speculative_error_invalid_spec_length_message() {
+        let err = SpeculativeError::InvalidSpecLength(100);
+        let display = format!("{}", err);
+        assert!(display.contains("Invalid speculation length"));
+        assert!(display.contains("100"));
+    }
+
+    // === Decoder with Rejection Scenarios ===
+
+    /// Model where draft and target always disagree with very low target probability
+    struct AlwaysRejectModel {
+        token: u32,
+        log_prob: f32,
+    }
+
+    impl SpeculativeModel for AlwaysRejectModel {
+        fn forward(&self, _input_ids: &[u32]) -> Result<Vec<f32>, SpeculativeError> {
+            Ok(vec![0.0; 100])
+        }
+
+        fn sample(&self, _logits: &[f32]) -> Result<TokenProb, SpeculativeError> {
+            Ok(TokenProb::new(self.token, self.log_prob))
+        }
+
+        fn vocab_size(&self) -> usize {
+            100
+        }
+
+        fn eos_token(&self) -> u32 {
+            0
+        }
+    }
+
+    #[test]
+    fn test_speculative_decoder_immediate_rejection() {
+        // Draft has token 5 with high prob, target has token 10 with very low prob
+        let draft = AlwaysRejectModel {
+            token: 5,
+            log_prob: 0.0, // prob = 1.0
+        };
+        let target = AlwaysRejectModel {
+            token: 10,
+            log_prob: -10.0, // prob ≈ 0.00005
+        };
+
+        let mut decoder = SpeculativeDecoder::new(draft, target, 4).expect("create");
+        let result = decoder.decode_iteration(&[1]).expect("decode");
+
+        // First token should be rejected and resampled
+        assert!(result.resampled_token.is_some());
+        // Only 1 token accepted (the resampled one)
+        assert_eq!(result.num_accepted, 1);
+    }
+
+    // === Stats Accumulation Verification ===
+
+    #[test]
+    fn test_speculative_stats_time_accumulation() {
+        let mut stats = SpeculativeStats::default();
+
+        stats.record_iteration(4, 3, 1.5, 15.0);
+        assert!((stats.draft_time_ms - 1.5).abs() < 0.001);
+        assert!((stats.target_time_ms - 15.0).abs() < 0.001);
+
+        stats.record_iteration(4, 4, 2.0, 20.0);
+        assert!((stats.draft_time_ms - 3.5).abs() < 0.001);
+        assert!((stats.target_time_ms - 35.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_speculative_stats_avg_spec_length_calculation() {
+        let mut stats = SpeculativeStats::default();
+
+        stats.record_iteration(2, 2, 1.0, 10.0);
+        assert!((stats.avg_spec_length - 2.0).abs() < 0.001);
+
+        stats.record_iteration(6, 4, 1.0, 10.0);
+        // Total speculated = 8, iterations = 2, avg = 4.0
+        assert!((stats.avg_spec_length - 4.0).abs() < 0.001);
+
+        stats.record_iteration(4, 3, 1.0, 10.0);
+        // Total speculated = 12, iterations = 3, avg = 4.0
+        assert!((stats.avg_spec_length - 4.0).abs() < 0.001);
+    }
+
+    // === Config with Custom max_spec_length ===
+
+    #[test]
+    fn test_speculative_config_custom_max_spec_length() {
+        let mut config = SpeculativeConfig {
+            spec_length: 10,
+            min_acceptance_rate: 0.5,
+            adaptive: true,
+            max_spec_length: 12,
+        };
+
+        config.adapt_spec_length(0.95);
+        assert_eq!(config.spec_length, 11);
+
+        config.adapt_spec_length(0.95);
+        assert_eq!(config.spec_length, 12);
+
+        config.adapt_spec_length(0.95);
+        assert_eq!(config.spec_length, 12); // Capped at max
+    }
+
+    // === Deserialization Tests ===
+
+    #[test]
+    fn test_speculative_stats_deserialize_from_json() {
+        let json = r#"{
+            "iterations": 5,
+            "tokens_speculated": 20,
+            "tokens_accepted": 15,
+            "acceptance_rate": 0.75,
+            "avg_spec_length": 4.0,
+            "time_saved_ms": 50.0,
+            "draft_time_ms": 5.0,
+            "target_time_ms": 50.0
+        }"#;
+
+        let stats: SpeculativeStats = serde_json::from_str(json).expect("deserialize");
+        assert_eq!(stats.iterations, 5);
+        assert_eq!(stats.tokens_speculated, 20);
+        assert_eq!(stats.tokens_accepted, 15);
+        assert!((stats.acceptance_rate - 0.75).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_speculative_config_deserialize_from_json() {
+        let json = r#"{
+            "spec_length": 8,
+            "min_acceptance_rate": 0.6,
+            "adaptive": false,
+            "max_spec_length": 16
+        }"#;
+
+        let config: SpeculativeConfig = serde_json::from_str(json).expect("deserialize");
+        assert_eq!(config.spec_length, 8);
+        assert!((config.min_acceptance_rate - 0.6).abs() < 0.001);
+        assert!(!config.adaptive);
+        assert_eq!(config.max_spec_length, 16);
+    }
+
+    // === Decoder Stats Integration ===
+
+    #[test]
+    fn test_speculative_decoder_stats_after_multiple_iterations() {
+        let draft = MockModel::new(100, 1);
+        let target = MockModel::new(100, 1);
+
+        let mut decoder = SpeculativeDecoder::new(draft, target, 3).expect("create");
+
+        for _ in 0..10 {
+            let _ = decoder.decode_iteration(&[1, 2, 3]).expect("decode");
+        }
+
+        let stats = decoder.stats();
+        assert_eq!(stats.iterations, 10);
+        assert!(stats.tokens_speculated >= 10);
+        assert!(stats.draft_time_ms >= 0.0);
+        assert!(stats.target_time_ms >= 0.0);
+    }
+
+    #[test]
+    fn test_speculative_decoder_reset_clears_all_stats() {
+        let draft = MockModel::new(100, 1);
+        let target = MockModel::new(100, 1);
+
+        let mut decoder = SpeculativeDecoder::new(draft, target, 4).expect("create");
+
+        // Run some iterations
+        for _ in 0..5 {
+            let _ = decoder.decode_iteration(&[1]).expect("decode");
+        }
+
+        // Reset
+        decoder.reset_stats();
+
+        let stats = decoder.stats();
+        assert_eq!(stats.iterations, 0);
+        assert_eq!(stats.tokens_speculated, 0);
+        assert_eq!(stats.tokens_accepted, 0);
+        assert_eq!(stats.acceptance_rate, 0.0);
+        assert_eq!(stats.avg_spec_length, 0.0);
+        assert_eq!(stats.time_saved_ms, 0.0);
+        assert_eq!(stats.draft_time_ms, 0.0);
+        assert_eq!(stats.target_time_ms, 0.0);
     }
 }

@@ -1,4 +1,4 @@
-use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel, GGUFModel};
+use realizar::gguf::{GGUFModel, MappedGGUFModel, OwnedQuantizedModel};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 0.5B Q4_0 model (produces garbage)
@@ -28,16 +28,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let layer = &model.layers[0];
     match &layer.qkv_weight {
         realizar::gguf::OwnedQKVWeights::Fused(t) => {
-            eprintln!("Fused: in_dim={}, out_dim={}, qtype={}, data_len={}",
-                t.in_dim, t.out_dim, t.qtype, t.data.len());
+            eprintln!(
+                "Fused: in_dim={}, out_dim={}, qtype={}, data_len={}",
+                t.in_dim,
+                t.out_dim,
+                t.qtype,
+                t.data.len()
+            );
         },
         realizar::gguf::OwnedQKVWeights::Separate { q, k, v } => {
-            eprintln!("Q: in_dim={}, out_dim={}, qtype={}, data_len={}",
-                q.in_dim, q.out_dim, q.qtype, q.data.len());
-            eprintln!("K: in_dim={}, out_dim={}, qtype={}, data_len={}",
-                k.in_dim, k.out_dim, k.qtype, k.data.len());
-            eprintln!("V: in_dim={}, out_dim={}, qtype={}, data_len={}",
-                v.in_dim, v.out_dim, v.qtype, v.data.len());
+            eprintln!(
+                "Q: in_dim={}, out_dim={}, qtype={}, data_len={}",
+                q.in_dim,
+                q.out_dim,
+                q.qtype,
+                q.data.len()
+            );
+            eprintln!(
+                "K: in_dim={}, out_dim={}, qtype={}, data_len={}",
+                k.in_dim,
+                k.out_dim,
+                k.qtype,
+                k.data.len()
+            );
+            eprintln!(
+                "V: in_dim={}, out_dim={}, qtype={}, data_len={}",
+                v.in_dim,
+                v.out_dim,
+                v.qtype,
+                v.data.len()
+            );
 
             // Verify expected sizes for Q4_0
             let q_expected = (q.in_dim * q.out_dim).div_ceil(32) * 18;
@@ -47,19 +67,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!("Q expected: {} (actual: {})", q_expected, q.data.len());
             eprintln!("K expected: {} (actual: {})", k_expected, k.data.len());
             eprintln!("V expected: {} (actual: {})", v_expected, v.data.len());
-        }
+        },
     }
 
     eprintln!("\n=== Layer 0 FFN ===");
-    eprintln!("ffn_up: in_dim={}, out_dim={}, qtype={}, data_len={}",
-        layer.ffn_up_weight.in_dim, layer.ffn_up_weight.out_dim,
-        layer.ffn_up_weight.qtype, layer.ffn_up_weight.data.len());
-    eprintln!("ffn_down: in_dim={}, out_dim={}, qtype={}, data_len={}",
-        layer.ffn_down_weight.in_dim, layer.ffn_down_weight.out_dim,
-        layer.ffn_down_weight.qtype, layer.ffn_down_weight.data.len());
+    eprintln!(
+        "ffn_up: in_dim={}, out_dim={}, qtype={}, data_len={}",
+        layer.ffn_up_weight.in_dim,
+        layer.ffn_up_weight.out_dim,
+        layer.ffn_up_weight.qtype,
+        layer.ffn_up_weight.data.len()
+    );
+    eprintln!(
+        "ffn_down: in_dim={}, out_dim={}, qtype={}, data_len={}",
+        layer.ffn_down_weight.in_dim,
+        layer.ffn_down_weight.out_dim,
+        layer.ffn_down_weight.qtype,
+        layer.ffn_down_weight.data.len()
+    );
     if let Some(gate) = &layer.ffn_gate_weight {
-        eprintln!("ffn_gate: in_dim={}, out_dim={}, qtype={}, data_len={}",
-            gate.in_dim, gate.out_dim, gate.qtype, gate.data.len());
+        eprintln!(
+            "ffn_gate: in_dim={}, out_dim={}, qtype={}, data_len={}",
+            gate.in_dim,
+            gate.out_dim,
+            gate.qtype,
+            gate.data.len()
+        );
     }
 
     // Also check the raw GGUF tensor info
@@ -68,7 +101,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let gguf_model = GGUFModel::from_bytes(&data)?;
     for tensor in &gguf_model.tensors {
         if tensor.name.contains("blk.0.") {
-            eprintln!("{}: dims={:?}, qtype={}", tensor.name, tensor.dims, tensor.qtype);
+            eprintln!(
+                "{}: dims={:?}, qtype={}",
+                tensor.name, tensor.dims, tensor.qtype
+            );
         }
     }
 

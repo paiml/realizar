@@ -3,9 +3,9 @@
 //! Extracted from model.rs to reduce module size.
 //! Contains KV cache forward pass and generation logic.
 
+use super::super::{cpu_matmul_transposed_simd, exceeds_gpu_buffer_limit, StreamingKVCache};
+use super::model::{GpuGenerateConfig, GpuModel};
 use crate::error::{RealizarError, Result};
-use super::super::{StreamingKVCache, exceeds_gpu_buffer_limit, cpu_matmul_transposed_simd};
-use super::model::{GpuModel, GpuGenerateConfig};
 
 /// Apply Rotary Position Embedding (RoPE) to Q or K vectors (Phase 21)
 ///
@@ -225,10 +225,24 @@ fn forward_block_with_cache(
     let rope_theta = model.config.rope_theta;
 
     // Apply RoPE to Q (all heads)
-    apply_rope(&mut qkv[..q_end], seq_len, num_heads, head_dim, rope_theta, 0);
+    apply_rope(
+        &mut qkv[..q_end],
+        seq_len,
+        num_heads,
+        head_dim,
+        rope_theta,
+        0,
+    );
 
     // Apply RoPE to K (KV heads)
-    apply_rope(&mut qkv[q_end..k_end], seq_len, num_kv_heads, head_dim, rope_theta, 0);
+    apply_rope(
+        &mut qkv[q_end..k_end],
+        seq_len,
+        num_kv_heads,
+        head_dim,
+        rope_theta,
+        0,
+    );
 
     // Now split (after RoPE applied)
     let q = &qkv[..q_end];
@@ -243,7 +257,8 @@ fn forward_block_with_cache(
     }
 
     // GQA attention
-    let attn_out = gqa_attention_with_kv(model, q, k, v, seq_len, num_heads, num_kv_heads, head_dim)?;
+    let attn_out =
+        gqa_attention_with_kv(model, q, k, v, seq_len, num_heads, num_kv_heads, head_dim)?;
 
     // Output projection
     let projected = model.scheduler.matmul(
@@ -274,7 +289,9 @@ fn forward_block_with_cache(
     );
 
     // FFN: SwiGLU when gate weight exists, otherwise GELU
-    let activated: Vec<f32> = if let Some(ref gate_weight) = model.block_weights[block_idx].ffn_gate_weight {
+    let activated: Vec<f32> = if let Some(ref gate_weight) =
+        model.block_weights[block_idx].ffn_gate_weight
+    {
         // SwiGLU: silu(gate(x)) * up(x)
         let up_out = model.scheduler.matmul(
             &ffn_normed,
@@ -315,7 +332,10 @@ fn forward_block_with_cache(
             .enumerate()
             .map(|(i, &x)| {
                 let x = x + model.block_weights[block_idx].ffn_fc1_bias[i % intermediate_dim];
-                0.5 * x * (1.0 + ((2.0f32 / std::f32::consts::PI).sqrt() * (x + 0.044_715 * x.powi(3))).tanh())
+                0.5 * x
+                    * (1.0
+                        + ((2.0f32 / std::f32::consts::PI).sqrt() * (x + 0.044_715 * x.powi(3)))
+                            .tanh())
             })
             .collect()
     };
@@ -380,10 +400,24 @@ fn forward_block_incremental(
     let rope_theta = model.config.rope_theta;
 
     // Apply RoPE to Q (single position, all heads)
-    apply_rope(&mut qkv[..hidden_dim], 1, num_heads, head_dim, rope_theta, current_pos);
+    apply_rope(
+        &mut qkv[..hidden_dim],
+        1,
+        num_heads,
+        head_dim,
+        rope_theta,
+        current_pos,
+    );
 
     // Apply RoPE to K (single position, KV heads)
-    apply_rope(&mut qkv[hidden_dim..hidden_dim + kv_dim], 1, num_kv_heads, head_dim, rope_theta, current_pos);
+    apply_rope(
+        &mut qkv[hidden_dim..hidden_dim + kv_dim],
+        1,
+        num_kv_heads,
+        head_dim,
+        rope_theta,
+        current_pos,
+    );
 
     // Split Q, K, V (single position, after RoPE)
     let q = &qkv[..hidden_dim];
@@ -398,7 +432,16 @@ fn forward_block_incremental(
     let cache_len = all_k.len() / kv_dim;
 
     // GQA incremental attention
-    let attn_out = gqa_incremental_attention(model, q, all_k, all_v, cache_len, num_heads, num_kv_heads, head_dim)?;
+    let attn_out = gqa_incremental_attention(
+        model,
+        q,
+        all_k,
+        all_v,
+        cache_len,
+        num_heads,
+        num_kv_heads,
+        head_dim,
+    )?;
 
     // Output projection
     let projected = model.scheduler.matmul(
@@ -414,9 +457,7 @@ fn forward_block_incremental(
         .iter()
         .zip(projected.iter())
         .enumerate()
-        .map(|(i, (&inp, &proj))| {
-            inp + proj + model.block_weights[block_idx].out_bias[i]
-        })
+        .map(|(i, (&inp, &proj))| inp + proj + model.block_weights[block_idx].out_bias[i])
         .collect();
 
     // FFN pre-norm
@@ -429,7 +470,9 @@ fn forward_block_incremental(
     );
 
     // FFN: SwiGLU when gate weight exists, otherwise GELU
-    let activated: Vec<f32> = if let Some(ref gate_weight) = model.block_weights[block_idx].ffn_gate_weight {
+    let activated: Vec<f32> = if let Some(ref gate_weight) =
+        model.block_weights[block_idx].ffn_gate_weight
+    {
         // SwiGLU: silu(gate(x)) * up(x)
         let up_out = model.scheduler.matmul(
             &ffn_normed,
@@ -438,13 +481,10 @@ fn forward_block_incremental(
             hidden_dim,
             intermediate_dim,
         )?;
-        let gate_out = model.scheduler.matmul(
-            &ffn_normed,
-            gate_weight,
-            1,
-            hidden_dim,
-            intermediate_dim,
-        )?;
+        let gate_out =
+            model
+                .scheduler
+                .matmul(&ffn_normed, gate_weight, 1, hidden_dim, intermediate_dim)?;
 
         // SwiGLU: silu(gate) * up
         up_out
@@ -470,7 +510,10 @@ fn forward_block_incremental(
             .enumerate()
             .map(|(i, &x)| {
                 let x = x + model.block_weights[block_idx].ffn_fc1_bias[i];
-                0.5 * x * (1.0 + ((2.0f32 / std::f32::consts::PI).sqrt() * (x + 0.044_715 * x.powi(3))).tanh())
+                0.5 * x
+                    * (1.0
+                        + ((2.0f32 / std::f32::consts::PI).sqrt() * (x + 0.044_715 * x.powi(3)))
+                            .tanh())
             })
             .collect()
     };
@@ -525,7 +568,11 @@ fn gqa_attention_with_kv(
                 let k_start = kpos * kv_dim + kv_head * head_dim;
                 let k_slice = &k[k_start..k_start + head_dim];
 
-                let score: f32 = q_slice.iter().zip(k_slice.iter()).map(|(&a, &b)| a * b).sum();
+                let score: f32 = q_slice
+                    .iter()
+                    .zip(k_slice.iter())
+                    .map(|(&a, &b)| a * b)
+                    .sum();
                 scores.push(score * scale);
             }
 
@@ -580,7 +627,11 @@ fn gqa_incremental_attention(
             let k_start = kpos * kv_dim + kv_head * head_dim;
             let k_slice = &all_k[k_start..k_start + head_dim];
 
-            let score: f32 = q_slice.iter().zip(k_slice.iter()).map(|(&a, &b)| a * b).sum();
+            let score: f32 = q_slice
+                .iter()
+                .zip(k_slice.iter())
+                .map(|(&a, &b)| a * b)
+                .sum();
             scores.push(score * scale);
         }
 

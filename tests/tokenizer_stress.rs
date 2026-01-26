@@ -2,7 +2,9 @@
 //!
 //! Goal: Push apr/tokenizer.rs from 33% to >90% coverage.
 
-use realizar::apr::{BpeTokenizer, SimpleTokenizer, byte_to_bpe_char, simd_dot, is_apr_file, detect_format};
+use realizar::apr::{
+    byte_to_bpe_char, detect_format, is_apr_file, simd_dot, BpeTokenizer, SimpleTokenizer,
+};
 use std::collections::HashMap;
 
 // ============================================================================
@@ -98,7 +100,8 @@ fn create_test_bpe_tokenizer() -> BpeTokenizer {
 
     let id_to_token: Vec<String> = (0..12)
         .map(|i| {
-            token_to_id.iter()
+            token_to_id
+                .iter()
                 .find(|(_, &v)| v == i)
                 .map(|(k, _)| k.clone())
                 .unwrap_or_default()
@@ -318,8 +321,11 @@ fn test_bpe_multiple_merges() {
     token_to_id.insert("abc".to_string(), 4);
 
     let id_to_token = vec![
-        "a".to_string(), "b".to_string(), "c".to_string(),
-        "ab".to_string(), "abc".to_string(),
+        "a".to_string(),
+        "b".to_string(),
+        "c".to_string(),
+        "ab".to_string(),
+        "abc".to_string(),
     ];
 
     let merge_rules = vec![
@@ -349,7 +355,10 @@ fn test_bpe_no_merge_when_not_adjacent() {
     token_to_id.insert("ab".to_string(), 3);
 
     let id_to_token = vec![
-        "a".to_string(), "b".to_string(), "c".to_string(), "ab".to_string(),
+        "a".to_string(),
+        "b".to_string(),
+        "c".to_string(),
+        "ab".to_string(),
     ];
 
     let merge_rules = vec![("a".to_string(), "b".to_string())];

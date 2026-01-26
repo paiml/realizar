@@ -5,8 +5,7 @@
 
 use proptest::prelude::*;
 use realizar::quantize::{
-    read_f16, softmax_simd, fused_swiglu_simd, apply_rope_rotation_simd,
-    simd::f16_to_f32,
+    apply_rope_rotation_simd, fused_swiglu_simd, read_f16, simd::f16_to_f32, softmax_simd,
 };
 
 // ============================================================================
@@ -390,8 +389,13 @@ fn test_softmax_simd_vs_reference() {
         softmax_reference(&mut ref_result);
 
         for (i, (&s, &r)) in simd_result.iter().zip(ref_result.iter()).enumerate() {
-            assert!((s - r).abs() < 1e-5,
-                "softmax mismatch at {}: SIMD {} vs ref {}", i, s, r);
+            assert!(
+                (s - r).abs() < 1e-5,
+                "softmax mismatch at {}: SIMD {} vs ref {}",
+                i,
+                s,
+                r
+            );
         }
     }
 }

@@ -13,3 +13,7 @@ mod part_12; // Phase 38: Deep coverage tests for activation.rs
 mod part_13; // Phase 39: Additional coverage for quantize/mod.rs uncovered paths
 mod part_14; // Phase 39: Parallel K-quantization coverage tests for parallel_k.rs
 mod part_15; // Activation function edge cases: special floats, boundaries, SIMD paths
+mod part_16; // F16 LUT, Q8K dequantize, SimdBackend Display, DequantStats, extract_scale_min blocks 4-7
+mod part_17; // Additional activation.rs coverage: AVX2 remainder loops, fused function edge cases
+mod part_18; // Phase 40: SIMD coverage enhancement (simd.rs edge cases, alignment, fallback paths)
+mod part_19; // Phase 45: Parallel dequantization coverage (parallel_dequant.rs)

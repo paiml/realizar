@@ -108,7 +108,7 @@ impl CudaExecutor {
                 None // Use input_buf directly
             } else {
                 // SAFETY: Pointer valid from allocation, length verified, used within scope
-            Some(unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_buf2_ptr, hidden_buf2_len) })
+                Some(unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_buf2_ptr, hidden_buf2_len) })
             };
 
             let layer_input = match &layer_input_buf {
@@ -568,7 +568,7 @@ impl CudaExecutor {
                 None
             } else {
                 // SAFETY: Pointer valid from allocation, length verified, used within scope
-            Some(unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_buf2_ptr, hidden_buf2_len) })
+                Some(unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_buf2_ptr, hidden_buf2_len) })
             };
 
             let layer_input = match &layer_input_buf {

@@ -17,12 +17,12 @@
 //! - `quantize/dequant.rs` - Q4_0 dequantization
 
 use crate::apr_transformer::{
-    AprTransformer, AprTransformerConfig, AprTransformerLayer,
-    QuantizedAprTransformerQ4, QuantizedAprLayerQ4,
+    AprTransformer, AprTransformerConfig, AprTransformerLayer, QuantizedAprLayerQ4,
+    QuantizedAprTransformerQ4,
 };
-use crate::gpu::scheduler::{GpuModel, GpuModelConfig, BlockWeights};
-use crate::quantize::dequantize_q4_0;
 use crate::error::Result;
+use crate::gpu::scheduler::{BlockWeights, GpuModel, GpuModelConfig};
+use crate::quantize::dequantize_q4_0;
 use thiserror::Error;
 
 /// Errors during APR to GPU conversion
@@ -100,10 +100,16 @@ impl AprF32ToGpuAdapter {
 
         // Final norm
         let final_norm_weight = apr.output_norm_weight.clone();
-        let final_norm_bias = apr.output_norm_bias.clone().unwrap_or_else(|| vec![0.0; hidden_dim]);
+        let final_norm_bias = apr
+            .output_norm_bias
+            .clone()
+            .unwrap_or_else(|| vec![0.0; hidden_dim]);
 
         // LM head bias
-        let lm_head_bias = apr.lm_head_bias.clone().unwrap_or_else(|| vec![0.0; config.vocab_size]);
+        let lm_head_bias = apr
+            .lm_head_bias
+            .clone()
+            .unwrap_or_else(|| vec![0.0; config.vocab_size]);
 
         // Create GpuModel using internal constructor
         GpuModel::from_apr_weights(
@@ -145,24 +151,43 @@ impl AprF32ToGpuAdapter {
         let fc2_weight_t = transpose_matrix(&layer.ffn_down_weight, hidden_dim, intermediate_dim);
 
         // Transpose gate weight if present: [intermediate_dim, hidden_dim] -> [hidden_dim, intermediate_dim]
-        let gate_weight_t = layer.ffn_gate_weight.as_ref().map(|w| {
-            transpose_matrix(w, intermediate_dim, hidden_dim)
-        });
+        let gate_weight_t = layer
+            .ffn_gate_weight
+            .as_ref()
+            .map(|w| transpose_matrix(w, intermediate_dim, hidden_dim));
 
         BlockWeights {
             attn_norm_weight: layer.attn_norm_weight.clone(),
-            attn_norm_bias: layer.attn_norm_bias.clone().unwrap_or_else(|| vec![0.0; hidden_dim]),
+            attn_norm_bias: layer
+                .attn_norm_bias
+                .clone()
+                .unwrap_or_else(|| vec![0.0; hidden_dim]),
             qkv_weight: qkv_weight_t,
             qkv_bias: layer.qkv_bias.clone().unwrap_or_default(),
             out_weight: out_weight_t,
-            out_bias: layer.attn_output_bias.clone().unwrap_or_else(|| vec![0.0; hidden_dim]),
+            out_bias: layer
+                .attn_output_bias
+                .clone()
+                .unwrap_or_else(|| vec![0.0; hidden_dim]),
             // Use actual FFN norm if available, otherwise identity (Phase 21 fix)
-            ffn_norm_weight: layer.ffn_norm_weight.clone().unwrap_or_else(|| vec![1.0; hidden_dim]),
-            ffn_norm_bias: layer.ffn_norm_bias.clone().unwrap_or_else(|| vec![0.0; hidden_dim]),
+            ffn_norm_weight: layer
+                .ffn_norm_weight
+                .clone()
+                .unwrap_or_else(|| vec![1.0; hidden_dim]),
+            ffn_norm_bias: layer
+                .ffn_norm_bias
+                .clone()
+                .unwrap_or_else(|| vec![0.0; hidden_dim]),
             ffn_fc1_weight: fc1_weight_t,
-            ffn_fc1_bias: layer.ffn_up_bias.clone().unwrap_or_else(|| vec![0.0; intermediate_dim]),
+            ffn_fc1_bias: layer
+                .ffn_up_bias
+                .clone()
+                .unwrap_or_else(|| vec![0.0; intermediate_dim]),
             ffn_fc2_weight: fc2_weight_t,
-            ffn_fc2_bias: layer.ffn_down_bias.clone().unwrap_or_else(|| vec![0.0; hidden_dim]),
+            ffn_fc2_bias: layer
+                .ffn_down_bias
+                .clone()
+                .unwrap_or_else(|| vec![0.0; hidden_dim]),
             // SwiGLU gate weight - critical for Qwen/LLaMA models
             ffn_gate_weight: gate_weight_t,
         }
@@ -231,10 +256,7 @@ impl AprToGpuAdapter {
     }
 
     /// Extract output projection weights
-    pub fn extract_out_weights(
-        layer: &QuantizedAprLayerQ4,
-        hidden_dim: usize,
-    ) -> Result<Vec<f32>> {
+    pub fn extract_out_weights(layer: &QuantizedAprLayerQ4, hidden_dim: usize) -> Result<Vec<f32>> {
         let expected = hidden_dim * hidden_dim;
         Self::dequantize_tensor(&layer.attn_output_weight.data, expected)
     }
@@ -297,7 +319,12 @@ impl AprToGpuAdapter {
         // Convert each layer
         let mut block_weights = Vec::with_capacity(apr.layers.len());
         for layer in &apr.layers {
-            let qkv = Self::extract_qkv_weights(layer, hidden_dim, config.num_heads, config.num_kv_heads)?;
+            let qkv = Self::extract_qkv_weights(
+                layer,
+                hidden_dim,
+                config.num_heads,
+                config.num_kv_heads,
+            )?;
             let out = Self::extract_out_weights(layer, hidden_dim)?;
             let (fc1, fc2) = Self::extract_ffn_weights(layer, hidden_dim, intermediate_dim)?;
 
@@ -316,7 +343,10 @@ impl AprToGpuAdapter {
                 qkv_bias: vec![], // No bias in APR
                 out_weight: out,
                 out_bias: vec![0.0; hidden_dim],
-                ffn_norm_weight: layer.ffn_norm_weight.clone().unwrap_or_else(|| vec![1.0; hidden_dim]),
+                ffn_norm_weight: layer
+                    .ffn_norm_weight
+                    .clone()
+                    .unwrap_or_else(|| vec![1.0; hidden_dim]),
                 ffn_norm_bias: vec![0.0; hidden_dim],
                 ffn_fc1_weight: fc1,
                 ffn_fc1_bias: vec![0.0; intermediate_dim],

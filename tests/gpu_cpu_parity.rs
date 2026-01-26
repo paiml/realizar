@@ -26,8 +26,8 @@ mod tests {
     #[test]
     fn test_gpu_cpu_first_token_logits_parity() {
         // Use TinyLlama Q4_K_M model
-        let model_path = std::path::Path::new(env!("HOME"))
-            .join("models/TinyLlama-1.1B-Chat-v1.0-Q4_K_M.gguf");
+        let model_path =
+            std::path::Path::new(env!("HOME")).join("models/TinyLlama-1.1B-Chat-v1.0-Q4_K_M.gguf");
 
         if !model_path.exists() {
             eprintln!("Skipping test: model not found at {:?}", model_path);
@@ -35,36 +35,45 @@ mod tests {
         }
 
         // Load model
-        let mapped = MappedGGUFModel::from_path(model_path.to_str().unwrap())
-            .expect("Failed to mmap GGUF");
-        let cpu_model = OwnedQuantizedModel::from_mapped(&mapped)
-            .expect("Failed to load CPU model");
+        let mapped =
+            MappedGGUFModel::from_path(model_path.to_str().unwrap()).expect("Failed to mmap GGUF");
+        let cpu_model =
+            OwnedQuantizedModel::from_mapped(&mapped).expect("Failed to load CPU model");
 
         // Encode simple prompt
         let prompt = "1+1=";
-        let mut tokens: Vec<u32> = mapped.model.encode(prompt)
+        let mut tokens: Vec<u32> = mapped
+            .model
+            .encode(prompt)
             .unwrap_or_else(|| prompt.chars().map(|c| c as u32).collect());
         if let Some(bos) = mapped.model.bos_token_id() {
             tokens.insert(0, bos);
         }
 
-        eprintln!("[PARITY] Testing with {} prompt tokens: {:?}", tokens.len(), tokens);
+        eprintln!(
+            "[PARITY] Testing with {} prompt tokens: {:?}",
+            tokens.len(),
+            tokens
+        );
 
         // CPU: Get logits after processing all prompt tokens
         let max_seq_len = tokens.len() + 10;
-        let mut cpu_cache = realizar::gguf::OwnedQuantizedKVCache::from_config(
-            cpu_model.config(), max_seq_len
-        );
+        let mut cpu_cache =
+            realizar::gguf::OwnedQuantizedKVCache::from_config(cpu_model.config(), max_seq_len);
         let mut cpu_logits = vec![];
         for (pos, &token_id) in tokens.iter().enumerate() {
-            cpu_logits = cpu_model.forward_cached(token_id, &mut cpu_cache, pos)
+            cpu_logits = cpu_model
+                .forward_cached(token_id, &mut cpu_cache, pos)
                 .expect("CPU forward failed");
         }
 
         // GPU: Get logits using generate_full_cuda_with_cache (standard path)
         let cuda_model = OwnedQuantizedModelCuda::with_max_seq_len(
-            OwnedQuantizedModel::from_mapped(&mapped).unwrap(), 0, max_seq_len
-        ).expect("Failed to create CUDA model");
+            OwnedQuantizedModel::from_mapped(&mapped).unwrap(),
+            0,
+            max_seq_len,
+        )
+        .expect("Failed to create CUDA model");
 
         // For GPU, we'll use generate_full_cuda_with_cache with 1 token
         // and compare the logits
@@ -76,7 +85,8 @@ mod tests {
         };
 
         // Can't easily get intermediate logits from generate, so let's compare top-k
-        let cpu_top1 = cpu_logits.iter()
+        let cpu_top1 = cpu_logits
+            .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
             .map(|(idx, _)| idx as u32)
@@ -89,7 +99,10 @@ mod tests {
         let cpu_mean: f32 = cpu_logits.iter().sum::<f32>() / cpu_logits.len() as f32;
         let cpu_max = cpu_logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
         let cpu_min = cpu_logits.iter().cloned().fold(f32::INFINITY, f32::min);
-        eprintln!("[PARITY] CPU logits: mean={:.4}, min={:.4}, max={:.4}", cpu_mean, cpu_min, cpu_max);
+        eprintln!(
+            "[PARITY] CPU logits: mean={:.4}, min={:.4}, max={:.4}",
+            cpu_mean, cpu_min, cpu_max
+        );
 
         // Top 5 CPU tokens
         let mut cpu_indexed: Vec<(usize, f32)> = cpu_logits.iter().copied().enumerate().collect();
@@ -135,7 +148,10 @@ mod tests {
         assert!(!comparison.is_equivalent(), "Should detect divergence");
 
         let first = comparison.first_divergence().unwrap();
-        assert_eq!(first.name, "layer0_rope_q", "First divergence should be at RoPE");
+        assert_eq!(
+            first.name, "layer0_rope_q",
+            "First divergence should be at RoPE"
+        );
     }
 
     /// Test that traces correctly identify matching computations
@@ -150,7 +166,10 @@ mod tests {
         gpu_tracer.log("embedding", &data);
 
         let comparison = BrickTracer::compare(&cpu_tracer, &gpu_tracer, 0.01);
-        assert!(comparison.is_equivalent(), "Should match when data is identical");
+        assert!(
+            comparison.is_equivalent(),
+            "Should match when data is identical"
+        );
     }
 
     /// Phase 14: The Golden Trace - Multi-position parity test
@@ -164,8 +183,8 @@ mod tests {
         eprintln!("╚══════════════════════════════════════════════════════════════════════╝\n");
 
         // Use TinyLlama Q4_K_M model
-        let model_path = std::path::Path::new(env!("HOME"))
-            .join("models/TinyLlama-1.1B-Chat-v1.0-Q4_K_M.gguf");
+        let model_path =
+            std::path::Path::new(env!("HOME")).join("models/TinyLlama-1.1B-Chat-v1.0-Q4_K_M.gguf");
 
         if !model_path.exists() {
             eprintln!("⚠️  Skipping test: model not found at {:?}", model_path);
@@ -173,14 +192,16 @@ mod tests {
         }
 
         // Load model
-        let mapped = MappedGGUFModel::from_path(model_path.to_str().unwrap())
-            .expect("Failed to mmap GGUF");
-        let cpu_model = OwnedQuantizedModel::from_mapped(&mapped)
-            .expect("Failed to load CPU model");
+        let mapped =
+            MappedGGUFModel::from_path(model_path.to_str().unwrap()).expect("Failed to mmap GGUF");
+        let cpu_model =
+            OwnedQuantizedModel::from_mapped(&mapped).expect("Failed to load CPU model");
 
         // Test prompt: "Once upon a time" - known to diverge at position > 1
         let prompt = "Once upon a time";
-        let mut tokens: Vec<u32> = mapped.model.encode(prompt)
+        let mut tokens: Vec<u32> = mapped
+            .model
+            .encode(prompt)
             .unwrap_or_else(|| prompt.chars().map(|c| c as u32).collect());
         if let Some(bos) = mapped.model.bos_token_id() {
             tokens.insert(0, bos);
@@ -196,9 +217,8 @@ mod tests {
 
         // CPU: Process each token and log hidden state at each position
         let max_seq_len = tokens.len() + 10;
-        let mut cpu_cache = realizar::gguf::OwnedQuantizedKVCache::from_config(
-            cpu_model.config(), max_seq_len
-        );
+        let mut cpu_cache =
+            realizar::gguf::OwnedQuantizedKVCache::from_config(cpu_model.config(), max_seq_len);
 
         let mut cpu_tracer = BrickTracer::new();
 
@@ -209,7 +229,8 @@ mod tests {
         for (pos, &token_id) in tokens.iter().enumerate() {
             cpu_tracer.set_position(pos);
 
-            let logits = cpu_model.forward_cached(token_id, &mut cpu_cache, pos)
+            let logits = cpu_model
+                .forward_cached(token_id, &mut cpu_cache, pos)
                 .expect("CPU forward failed");
 
             // Log logits at this position
@@ -217,7 +238,8 @@ mod tests {
             cpu_tracer.log(&event_name, &logits);
 
             // Get top prediction
-            let top1_idx = logits.iter()
+            let top1_idx = logits
+                .iter()
                 .enumerate()
                 .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
                 .map(|(idx, _)| idx as u32)
@@ -227,8 +249,10 @@ mod tests {
             // Calculate L2 norm
             let l2 = logits.iter().map(|x| x * x).sum::<f32>().sqrt();
 
-            eprintln!("📍 Position {} | Token: {} | L2: {:.4} | Top1: {} ({:?})",
-                     pos, token_id, l2, top1_idx, top1_decoded);
+            eprintln!(
+                "📍 Position {} | Token: {} | L2: {:.4} | Top1: {} ({:?})",
+                pos, token_id, l2, top1_idx, top1_decoded
+            );
         }
 
         // Print CPU trace summary
@@ -301,10 +325,16 @@ mod tests {
 
         // Should fail at 0.1% tolerance
         let strict = BrickTracer::compare(&cpu_tracer, &gpu_tracer, 0.001);
-        assert!(!strict.is_equivalent(), "0.1% tolerance should catch 0.5% error");
+        assert!(
+            !strict.is_equivalent(),
+            "0.1% tolerance should catch 0.5% error"
+        );
 
         // Should pass at 1% tolerance
         let relaxed = BrickTracer::compare(&cpu_tracer, &gpu_tracer, 0.01);
-        assert!(relaxed.is_equivalent(), "1% tolerance should accept 0.5% error");
+        assert!(
+            relaxed.is_equivalent(),
+            "1% tolerance should accept 0.5% error"
+        );
     }
 }

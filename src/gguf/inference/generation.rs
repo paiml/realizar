@@ -5,11 +5,11 @@
 
 use crate::error::{RealizarError, Result};
 use crate::gguf::ops;
+#[cfg(feature = "gpu")]
+use crate::gguf::DispatchMetrics;
 use crate::gguf::{
     InferenceScratchBuffer, OwnedQuantizedKVCache, OwnedQuantizedModel, QuantizedGenerateConfig,
 };
-#[cfg(feature = "gpu")]
-use crate::gguf::DispatchMetrics;
 use rand::Rng;
 
 impl OwnedQuantizedModel {
@@ -218,7 +218,11 @@ impl OwnedQuantizedModel {
             let next_token = if config.temperature == 0.0 || config.top_k == 1 {
                 ops::argmax(&logits)
             } else {
-                crate::gguf::OwnedQuantizedModel::sample_topk(&logits, config.temperature, config.top_k)
+                crate::gguf::OwnedQuantizedModel::sample_topk(
+                    &logits,
+                    config.temperature,
+                    config.top_k,
+                )
             };
 
             // DEBUG: Print selected token
@@ -329,7 +333,11 @@ impl OwnedQuantizedModel {
             let next_token = if config.temperature == 0.0 || config.top_k == 1 {
                 ops::argmax(&logits)
             } else {
-                crate::gguf::OwnedQuantizedModel::sample_topk(&logits, config.temperature, config.top_k)
+                crate::gguf::OwnedQuantizedModel::sample_topk(
+                    &logits,
+                    config.temperature,
+                    config.top_k,
+                )
             };
 
             // Check stop condition
@@ -439,7 +447,11 @@ impl OwnedQuantizedModel {
             let next_token = if config.temperature == 0.0 || config.top_k == 1 {
                 ops::argmax(&scratch.logits)
             } else {
-                crate::gguf::OwnedQuantizedModel::sample_topk(&scratch.logits, config.temperature, config.top_k)
+                crate::gguf::OwnedQuantizedModel::sample_topk(
+                    &scratch.logits,
+                    config.temperature,
+                    config.top_k,
+                )
             };
 
             // Check stop condition
@@ -540,7 +552,11 @@ impl OwnedQuantizedModel {
             let next_token = if config.temperature == 0.0 || config.top_k == 1 {
                 ops::argmax(&logits)
             } else {
-                crate::gguf::OwnedQuantizedModel::sample_topk(&logits, config.temperature, config.top_k)
+                crate::gguf::OwnedQuantizedModel::sample_topk(
+                    &logits,
+                    config.temperature,
+                    config.top_k,
+                )
             };
 
             // Check stop condition

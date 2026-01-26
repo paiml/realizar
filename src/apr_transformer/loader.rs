@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use crate::apr::MAGIC;
 use crate::error::{RealizarError, Result};
 
-use super::{AprKVCache, AprTransformerConfig, AprTransformer};
+use super::{AprKVCache, AprTransformer, AprTransformerConfig};
 
 // ============================================================================
 // APR Transformer Binary Format (Y1-Y5 Format Parity)
@@ -511,7 +511,10 @@ impl QuantizedAprTransformer {
     }
 
     /// Calculate quantized byte size for N elements
-    pub(crate) fn calculate_quantized_bytes(num_elements: usize, quant_type: AprQuantizationType) -> usize {
+    pub(crate) fn calculate_quantized_bytes(
+        num_elements: usize,
+        quant_type: AprQuantizationType,
+    ) -> usize {
         let values_per_block = quant_type.values_per_block();
         let bytes_per_block = quant_type.bytes_per_block();
 
@@ -773,4 +776,3 @@ impl QuantizedAprTransformer {
         Ok(logits)
     }
 }
-
