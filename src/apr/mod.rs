@@ -54,12 +54,12 @@ mod tokenizer;
 
 #[cfg(feature = "cuda")]
 pub use cuda::AprV2ModelCuda;
-pub use helpers::{is_apr_file, detect_format, simd_dot};
-use helpers::{rms_norm, matmul, simple_attention};
 #[cfg(feature = "cuda")]
 use helpers::transpose_matrix;
-pub use tokenizer::{BpeTokenizer, SimpleTokenizer, byte_to_bpe_char};
+pub use helpers::{detect_format, is_apr_file, simd_dot};
+use helpers::{matmul, rms_norm, simple_attention};
 use tokenizer::bpe_encode;
+pub use tokenizer::{byte_to_bpe_char, BpeTokenizer, SimpleTokenizer};
 
 // ============================================================================
 // Memory-mapped model data (Heijunka - Level Loading)
@@ -592,7 +592,8 @@ impl AprHeader {
             return Err(RealizarError::FormatError {
                 reason: format!(
                     "Invalid .apr magic: expected APR {:?}, got {:?}",
-                    MAGIC_PREFIX, &magic[0..3]
+                    MAGIC_PREFIX,
+                    &magic[0..3]
                 ),
             });
         }
@@ -615,7 +616,8 @@ impl AprHeader {
                 operation: "load_apr_v1".to_string(),
                 reason: "APR v1 format not supported for inference. \
                         Use 'apr convert model.apr -o model_v2.apr --format apr2' \
-                        to convert to APR v2 format, or use the GGUF version.".to_string(),
+                        to convert to APR v2 format, or use the GGUF version."
+                    .to_string(),
             });
         }
 
@@ -1989,3 +1991,8 @@ impl MappedAprModel {
 #[cfg(test)]
 #[path = "tests.rs"]
 mod apr_tests;
+
+// Additional tests for coverage (tests_part_02.rs)
+#[cfg(test)]
+#[path = "tests_part_02.rs"]
+mod apr_tests_part_02;

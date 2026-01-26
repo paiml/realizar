@@ -315,10 +315,7 @@ async fn test_completions_happy_path() {
 #[tokio::test]
 async fn test_realize_model_endpoint() {
     let app = create_test_app();
-    let response = app
-        .oneshot(get_request("/realize/model"))
-        .await
-        .unwrap();
+    let response = app.oneshot(get_request("/realize/model")).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -366,16 +363,10 @@ async fn test_apr_predict_exercises_handler() {
     let body = serde_json::json!({
         "features": [1.0, 2.0, 3.0, 4.0]
     });
-    let response = app
-        .oneshot(json_post("/v1/predict", body))
-        .await
-        .unwrap();
+    let response = app.oneshot(json_post("/v1/predict", body)).await.unwrap();
     // Demo model has "weight" tensor but handler looks for "weights"/"output"
     // This exercises the error handling path (400) or success (200)
-    assert!(
-        response.status() == StatusCode::OK
-            || response.status() == StatusCode::BAD_REQUEST
-    );
+    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]
@@ -385,15 +376,9 @@ async fn test_apr_predict_with_feature_names() {
         "features": [1.0, 2.0, 3.0, 4.0],
         "feature_names": ["a", "b", "c", "d"]
     });
-    let response = app
-        .oneshot(json_post("/v1/predict", body))
-        .await
-        .unwrap();
+    let response = app.oneshot(json_post("/v1/predict", body)).await.unwrap();
     // Exercises handler code path regardless of tensor availability
-    assert!(
-        response.status() == StatusCode::OK
-            || response.status() == StatusCode::BAD_REQUEST
-    );
+    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]
@@ -403,10 +388,7 @@ async fn test_apr_explain_exercises_handler() {
         "features": [1.0, 2.0, 3.0, 4.0],
         "feature_names": ["a", "b", "c", "d"]
     });
-    let response = app
-        .oneshot(json_post("/v1/explain", body))
-        .await
-        .unwrap();
+    let response = app.oneshot(json_post("/v1/explain", body)).await.unwrap();
     // Exercises handler - may return 200 or error depending on model setup
     assert!(
         response.status() == StatusCode::OK
@@ -421,10 +403,7 @@ async fn test_apr_predict_empty_features_400() {
     let body = serde_json::json!({
         "features": []
     });
-    let response = app
-        .oneshot(json_post("/v1/predict", body))
-        .await
-        .unwrap();
+    let response = app.oneshot(json_post("/v1/predict", body)).await.unwrap();
     // Empty features should fail or return error
     assert!(
         response.status() == StatusCode::BAD_REQUEST
@@ -451,8 +430,7 @@ async fn test_v1_embeddings_endpoint() {
         .unwrap();
     // May return 200 or 501 depending on implementation
     assert!(
-        response.status() == StatusCode::OK
-            || response.status() == StatusCode::NOT_IMPLEMENTED
+        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_IMPLEMENTED
     );
 }
 
@@ -463,14 +441,10 @@ async fn test_v1_embeddings_endpoint() {
 #[tokio::test]
 async fn test_gpu_status_endpoint() {
     let app = create_test_app();
-    let response = app
-        .oneshot(get_request("/v1/gpu/status"))
-        .await
-        .unwrap();
+    let response = app.oneshot(get_request("/v1/gpu/status")).await.unwrap();
     // Should return status even without GPU
     assert!(
-        response.status() == StatusCode::OK
-            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+        response.status() == StatusCode::OK || response.status() == StatusCode::SERVICE_UNAVAILABLE
     );
 }
 
@@ -497,10 +471,7 @@ async fn test_gpu_warmup_endpoint() {
 #[tokio::test]
 async fn test_server_metrics_endpoint() {
     let app = create_test_app();
-    let response = app
-        .oneshot(get_request("/v1/metrics"))
-        .await
-        .unwrap();
+    let response = app.oneshot(get_request("/v1/metrics")).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
     let body = response.into_body().collect().await.unwrap().to_bytes();
@@ -564,9 +535,6 @@ async fn test_unknown_route_returns_404() {
 #[tokio::test]
 async fn test_unknown_v1_route_returns_404() {
     let app = create_test_app();
-    let response = app
-        .oneshot(get_request("/v1/unknown"))
-        .await
-        .unwrap();
+    let response = app.oneshot(get_request("/v1/unknown")).await.unwrap();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }

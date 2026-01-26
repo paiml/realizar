@@ -24,9 +24,9 @@
 #![allow(clippy::similar_names)]
 
 use crate::apr_transformer::{AprTransformerConfig, QuantizedAprTransformerQ4};
-use crate::error::{RealizarError, Result};
 #[cfg(feature = "cuda")]
 use crate::cuda::CudaExecutor;
+use crate::error::{RealizarError, Result};
 #[cfg(feature = "cuda")]
 use trueno_gpu::driver::GpuBuffer;
 
@@ -70,28 +70,44 @@ impl AprQ4ToGpuAdapter {
             let qkv_name = format!("layer_{layer_idx}.attn.qkv");
             let qkv_bytes = executor
                 .load_quantized_weights_with_type(&qkv_name, &layer.qkv_weight.data, Q4_0_TYPE)
-                .map_err(|e| RealizarError::GpuError { reason: format!("Failed to upload {qkv_name}: {e}") })?;
+                .map_err(|e| RealizarError::GpuError {
+                    reason: format!("Failed to upload {qkv_name}: {e}"),
+                })?;
             total_bytes += qkv_bytes;
 
             // Output projection
             let out_name = format!("layer_{layer_idx}.attn.out");
             let out_bytes = executor
-                .load_quantized_weights_with_type(&out_name, &layer.attn_output_weight.data, Q4_0_TYPE)
-                .map_err(|e| RealizarError::GpuError { reason: format!("Failed to upload {out_name}: {e}") })?;
+                .load_quantized_weights_with_type(
+                    &out_name,
+                    &layer.attn_output_weight.data,
+                    Q4_0_TYPE,
+                )
+                .map_err(|e| RealizarError::GpuError {
+                    reason: format!("Failed to upload {out_name}: {e}"),
+                })?;
             total_bytes += out_bytes;
 
             // FFN up projection
             let up_name = format!("layer_{layer_idx}.ffn.up");
             let up_bytes = executor
                 .load_quantized_weights_with_type(&up_name, &layer.ffn_up_weight.data, Q4_0_TYPE)
-                .map_err(|e| RealizarError::GpuError { reason: format!("Failed to upload {up_name}: {e}") })?;
+                .map_err(|e| RealizarError::GpuError {
+                    reason: format!("Failed to upload {up_name}: {e}"),
+                })?;
             total_bytes += up_bytes;
 
             // FFN down projection
             let down_name = format!("layer_{layer_idx}.ffn.down");
             let down_bytes = executor
-                .load_quantized_weights_with_type(&down_name, &layer.ffn_down_weight.data, Q4_0_TYPE)
-                .map_err(|e| RealizarError::GpuError { reason: format!("Failed to upload {down_name}: {e}") })?;
+                .load_quantized_weights_with_type(
+                    &down_name,
+                    &layer.ffn_down_weight.data,
+                    Q4_0_TYPE,
+                )
+                .map_err(|e| RealizarError::GpuError {
+                    reason: format!("Failed to upload {down_name}: {e}"),
+                })?;
             total_bytes += down_bytes;
 
             // FFN gate projection (optional, for SwiGLU)
@@ -99,7 +115,9 @@ impl AprQ4ToGpuAdapter {
                 let gate_name = format!("layer_{layer_idx}.ffn.gate");
                 let gate_bytes = executor
                     .load_quantized_weights_with_type(&gate_name, &gate_weight.data, Q4_0_TYPE)
-                    .map_err(|e| RealizarError::GpuError { reason: format!("Failed to upload {gate_name}: {e}") })?;
+                    .map_err(|e| RealizarError::GpuError {
+                        reason: format!("Failed to upload {gate_name}: {e}"),
+                    })?;
                 total_bytes += gate_bytes;
             }
         }
@@ -107,7 +125,9 @@ impl AprQ4ToGpuAdapter {
         // Upload LM head (Q4_0)
         let lm_head_bytes = executor
             .load_quantized_weights_with_type("lm_head", &apr.lm_head_weight.data, Q4_0_TYPE)
-            .map_err(|e| RealizarError::GpuError { reason: format!("Failed to upload lm_head: {e}") })?;
+            .map_err(|e| RealizarError::GpuError {
+                reason: format!("Failed to upload lm_head: {e}"),
+            })?;
         total_bytes += lm_head_bytes;
 
         Ok(total_bytes)
@@ -125,12 +145,17 @@ impl AprQ4ToGpuAdapter {
     #[must_use]
     pub fn create_model(apr: &QuantizedAprTransformerQ4) -> GpuModelQ4 {
         // Extract layer norms (small, keep on CPU)
-        let layer_norms: Vec<LayerNorms> = apr.layers.iter().map(|layer| {
-            LayerNorms {
+        let layer_norms: Vec<LayerNorms> = apr
+            .layers
+            .iter()
+            .map(|layer| LayerNorms {
                 attn_norm: layer.attn_norm_weight.clone(),
-                ffn_norm: layer.ffn_norm_weight.clone().unwrap_or_else(|| vec![1.0; apr.config.hidden_dim]),
-            }
-        }).collect();
+                ffn_norm: layer
+                    .ffn_norm_weight
+                    .clone()
+                    .unwrap_or_else(|| vec![1.0; apr.config.hidden_dim]),
+            })
+            .collect();
 
         GpuModelQ4 {
             config: apr.config.clone(),
@@ -138,7 +163,10 @@ impl AprQ4ToGpuAdapter {
             output_norm_weight: apr.output_norm_weight.clone(),
             layer_norms,
             num_layers: apr.layers.len(),
-            has_gate: apr.layers.first().is_some_and(|l| l.ffn_gate_weight.is_some()),
+            has_gate: apr
+                .layers
+                .first()
+                .is_some_and(|l| l.ffn_gate_weight.is_some()),
         }
     }
 }
@@ -177,7 +205,9 @@ pub struct GpuModelQ4 {
 fn gpu_to_host(buf: &GpuBuffer<f32>) -> Result<Vec<f32>> {
     let mut host = vec![0.0f32; buf.len()];
     buf.copy_to_host(&mut host)
-        .map_err(|e| RealizarError::GpuError { reason: format!("GPU->CPU copy failed: {e}") })?;
+        .map_err(|e| RealizarError::GpuError {
+            reason: format!("GPU->CPU copy failed: {e}"),
+        })?;
     Ok(host)
 }
 
@@ -193,11 +223,7 @@ impl GpuModelQ4 {
     ///
     /// Logits for next token prediction
     #[cfg(feature = "cuda")]
-    pub fn forward(
-        &self,
-        executor: &mut CudaExecutor,
-        token_ids: &[usize],
-    ) -> Result<Vec<f32>> {
+    pub fn forward(&self, executor: &mut CudaExecutor, token_ids: &[usize]) -> Result<Vec<f32>> {
         let hidden_dim = self.config.hidden_dim;
         let vocab_size = self.config.vocab_size;
 
@@ -216,8 +242,11 @@ impl GpuModelQ4 {
         }
 
         // 2. Upload hidden state to GPU
-        let mut hidden_gpu = GpuBuffer::from_host(executor.context(), &hidden)
-            .map_err(|e| RealizarError::GpuError { reason: format!("Failed to upload hidden: {e}") })?;
+        let mut hidden_gpu = GpuBuffer::from_host(executor.context(), &hidden).map_err(|e| {
+            RealizarError::GpuError {
+                reason: format!("Failed to upload hidden: {e}"),
+            }
+        })?;
 
         // 3. Pass through transformer layers
         for layer_idx in 0..self.num_layers {
@@ -231,26 +260,43 @@ impl GpuModelQ4 {
         self.rms_norm_inplace(&mut hidden, &self.output_norm_weight);
 
         // 5. LM head projection (GPU, Q4_0)
-        let hidden_gpu = GpuBuffer::from_host(executor.context(), &hidden)
-            .map_err(|e| RealizarError::GpuError { reason: format!("Failed to upload normed hidden: {e}") })?;
+        let hidden_gpu = GpuBuffer::from_host(executor.context(), &hidden).map_err(|e| {
+            RealizarError::GpuError {
+                reason: format!("Failed to upload normed hidden: {e}"),
+            }
+        })?;
 
-        let logits_gpu = GpuBuffer::new(executor.context(), vocab_size)
-            .map_err(|e| RealizarError::GpuError { reason: format!("Failed to allocate logits: {e}") })?;
+        let logits_gpu = GpuBuffer::new(executor.context(), vocab_size).map_err(|e| {
+            RealizarError::GpuError {
+                reason: format!("Failed to allocate logits: {e}"),
+            }
+        })?;
 
-        let lm_head_ptr = executor.get_quantized_weight_ptr("lm_head")
-            .map_err(|e| RealizarError::GpuError { reason: format!("lm_head not cached: {e}") })?;
+        let lm_head_ptr =
+            executor
+                .get_quantized_weight_ptr("lm_head")
+                .map_err(|e| RealizarError::GpuError {
+                    reason: format!("lm_head not cached: {e}"),
+                })?;
 
-        executor.q4_0_gemv_into(
-            lm_head_ptr,
-            &hidden_gpu,
-            &logits_gpu,
-            vocab_size as u32,
-            hidden_dim as u32,
-        ).map_err(|e| RealizarError::GpuError { reason: format!("LM head GEMV failed: {e}") })?;
+        executor
+            .q4_0_gemv_into(
+                lm_head_ptr,
+                &hidden_gpu,
+                &logits_gpu,
+                vocab_size as u32,
+                hidden_dim as u32,
+            )
+            .map_err(|e| RealizarError::GpuError {
+                reason: format!("LM head GEMV failed: {e}"),
+            })?;
 
         // 6. Sync and return
-        executor.synchronize()
-            .map_err(|e| RealizarError::GpuError { reason: format!("Sync failed: {e}") })?;
+        executor
+            .synchronize()
+            .map_err(|e| RealizarError::GpuError {
+                reason: format!("Sync failed: {e}"),
+            })?;
 
         gpu_to_host(&logits_gpu)
     }
@@ -279,24 +325,37 @@ impl GpuModelQ4 {
         self.rms_norm_inplace(&mut normed, &self.layer_norms[layer_idx].attn_norm);
 
         // 2. Upload normed input
-        let normed_gpu = GpuBuffer::from_host(executor.context(), &normed)
-            .map_err(|e| RealizarError::GpuError { reason: format!("Failed to upload normed: {e}") })?;
+        let normed_gpu = GpuBuffer::from_host(executor.context(), &normed).map_err(|e| {
+            RealizarError::GpuError {
+                reason: format!("Failed to upload normed: {e}"),
+            }
+        })?;
 
         // 3. QKV projection (Q4_0)
-        let qkv_gpu = GpuBuffer::new(executor.context(), qkv_dim)
-            .map_err(|e| RealizarError::GpuError { reason: format!("Failed to allocate QKV: {e}") })?;
+        let qkv_gpu =
+            GpuBuffer::new(executor.context(), qkv_dim).map_err(|e| RealizarError::GpuError {
+                reason: format!("Failed to allocate QKV: {e}"),
+            })?;
 
         let qkv_name = format!("layer_{layer_idx}.attn.qkv");
-        let qkv_ptr = executor.get_quantized_weight_ptr(&qkv_name)
-            .map_err(|e| RealizarError::GpuError { reason: format!("{qkv_name} not cached: {e}") })?;
+        let qkv_ptr =
+            executor
+                .get_quantized_weight_ptr(&qkv_name)
+                .map_err(|e| RealizarError::GpuError {
+                    reason: format!("{qkv_name} not cached: {e}"),
+                })?;
 
-        executor.q4_0_gemv_into(
-            qkv_ptr,
-            &normed_gpu,
-            &qkv_gpu,
-            qkv_dim as u32,
-            hidden_dim as u32,
-        ).map_err(|e| RealizarError::GpuError { reason: format!("QKV GEMV failed: {e}") })?;
+        executor
+            .q4_0_gemv_into(
+                qkv_ptr,
+                &normed_gpu,
+                &qkv_gpu,
+                qkv_dim as u32,
+                hidden_dim as u32,
+            )
+            .map_err(|e| RealizarError::GpuError {
+                reason: format!("QKV GEMV failed: {e}"),
+            })?;
 
         // 4. Attention (CPU for single-token - GPU launch overhead exceeds benefit)
         let qkv = gpu_to_host(&qkv_gpu)?;
@@ -304,28 +363,49 @@ impl GpuModelQ4 {
         // Apply RoPE to Q and K before attention
         // For seq_len tokens at layer 0, positions are [0, 1, 2, ... seq_len-1]
         let mut qkv_with_rope = qkv.clone();
-        self.apply_rope_to_qkv(&mut qkv_with_rope, seq_len, hidden_dim, num_heads, num_kv_heads);
+        self.apply_rope_to_qkv(
+            &mut qkv_with_rope,
+            seq_len,
+            hidden_dim,
+            num_heads,
+            num_kv_heads,
+        );
 
-        let attn_out = self.attention_cpu(&qkv_with_rope, seq_len, hidden_dim, num_heads, num_kv_heads);
+        let attn_out =
+            self.attention_cpu(&qkv_with_rope, seq_len, hidden_dim, num_heads, num_kv_heads);
 
         // 5. Output projection (Q4_0)
-        let attn_out_gpu = GpuBuffer::from_host(executor.context(), &attn_out)
-            .map_err(|e| RealizarError::GpuError { reason: format!("Failed to upload attn_out: {e}") })?;
+        let attn_out_gpu = GpuBuffer::from_host(executor.context(), &attn_out).map_err(|e| {
+            RealizarError::GpuError {
+                reason: format!("Failed to upload attn_out: {e}"),
+            }
+        })?;
 
-        let out_gpu = GpuBuffer::new(executor.context(), hidden_dim)
-            .map_err(|e| RealizarError::GpuError { reason: format!("Failed to allocate out: {e}") })?;
+        let out_gpu = GpuBuffer::new(executor.context(), hidden_dim).map_err(|e| {
+            RealizarError::GpuError {
+                reason: format!("Failed to allocate out: {e}"),
+            }
+        })?;
 
         let out_name = format!("layer_{layer_idx}.attn.out");
-        let out_ptr = executor.get_quantized_weight_ptr(&out_name)
-            .map_err(|e| RealizarError::GpuError { reason: format!("{out_name} not cached: {e}") })?;
+        let out_ptr =
+            executor
+                .get_quantized_weight_ptr(&out_name)
+                .map_err(|e| RealizarError::GpuError {
+                    reason: format!("{out_name} not cached: {e}"),
+                })?;
 
-        executor.q4_0_gemv_into(
-            out_ptr,
-            &attn_out_gpu,
-            &out_gpu,
-            hidden_dim as u32,
-            hidden_dim as u32,
-        ).map_err(|e| RealizarError::GpuError { reason: format!("Out GEMV failed: {e}") })?;
+        executor
+            .q4_0_gemv_into(
+                out_ptr,
+                &attn_out_gpu,
+                &out_gpu,
+                hidden_dim as u32,
+                hidden_dim as u32,
+            )
+            .map_err(|e| RealizarError::GpuError {
+                reason: format!("Out GEMV failed: {e}"),
+            })?;
 
         // 6. Residual connection (CPU)
         let mut out = gpu_to_host(&out_gpu)?;
@@ -339,8 +419,11 @@ impl GpuModelQ4 {
         self.rms_norm_inplace(&mut ffn_input, &self.layer_norms[layer_idx].ffn_norm);
 
         // 8. FFN (GPU, Q4_0)
-        let ffn_input_gpu = GpuBuffer::from_host(executor.context(), &ffn_input)
-            .map_err(|e| RealizarError::GpuError { reason: format!("Failed to upload ffn_input: {e}") })?;
+        let ffn_input_gpu = GpuBuffer::from_host(executor.context(), &ffn_input).map_err(|e| {
+            RealizarError::GpuError {
+                reason: format!("Failed to upload ffn_input: {e}"),
+            }
+        })?;
 
         let ffn_out = if self.has_gate {
             // SwiGLU: gate * up * silu
@@ -358,8 +441,11 @@ impl GpuModelQ4 {
         }
 
         // 10. Upload final output
-        GpuBuffer::from_host(executor.context(), &ffn_out_host)
-            .map_err(|e| RealizarError::GpuError { reason: format!("Failed to upload final output: {e}") })
+        GpuBuffer::from_host(executor.context(), &ffn_out_host).map_err(|e| {
+            RealizarError::GpuError {
+                reason: format!("Failed to upload final output: {e}"),
+            }
+        })
     }
 
     /// SwiGLU FFN using Q4_0 kernels
@@ -374,64 +460,101 @@ impl GpuModelQ4 {
         let intermediate_dim = self.config.intermediate_dim;
 
         // Gate projection
-        let gate_gpu = GpuBuffer::new(executor.context(), intermediate_dim)
-            .map_err(|e| RealizarError::GpuError { reason: format!("Failed to allocate gate: {e}") })?;
+        let gate_gpu = GpuBuffer::new(executor.context(), intermediate_dim).map_err(|e| {
+            RealizarError::GpuError {
+                reason: format!("Failed to allocate gate: {e}"),
+            }
+        })?;
 
         let gate_name = format!("layer_{layer_idx}.ffn.gate");
-        let gate_ptr = executor.get_quantized_weight_ptr(&gate_name)
-            .map_err(|e| RealizarError::GpuError { reason: format!("{gate_name} not cached: {e}") })?;
+        let gate_ptr =
+            executor
+                .get_quantized_weight_ptr(&gate_name)
+                .map_err(|e| RealizarError::GpuError {
+                    reason: format!("{gate_name} not cached: {e}"),
+                })?;
 
-        executor.q4_0_gemv_into(
-            gate_ptr,
-            input,
-            &gate_gpu,
-            intermediate_dim as u32,
-            hidden_dim as u32,
-        ).map_err(|e| RealizarError::GpuError { reason: format!("Gate GEMV failed: {e}") })?;
+        executor
+            .q4_0_gemv_into(
+                gate_ptr,
+                input,
+                &gate_gpu,
+                intermediate_dim as u32,
+                hidden_dim as u32,
+            )
+            .map_err(|e| RealizarError::GpuError {
+                reason: format!("Gate GEMV failed: {e}"),
+            })?;
 
         // Up projection
-        let up_gpu = GpuBuffer::new(executor.context(), intermediate_dim)
-            .map_err(|e| RealizarError::GpuError { reason: format!("Failed to allocate up: {e}") })?;
+        let up_gpu = GpuBuffer::new(executor.context(), intermediate_dim).map_err(|e| {
+            RealizarError::GpuError {
+                reason: format!("Failed to allocate up: {e}"),
+            }
+        })?;
 
         let up_name = format!("layer_{layer_idx}.ffn.up");
-        let up_ptr = executor.get_quantized_weight_ptr(&up_name)
-            .map_err(|e| RealizarError::GpuError { reason: format!("{up_name} not cached: {e}") })?;
+        let up_ptr =
+            executor
+                .get_quantized_weight_ptr(&up_name)
+                .map_err(|e| RealizarError::GpuError {
+                    reason: format!("{up_name} not cached: {e}"),
+                })?;
 
-        executor.q4_0_gemv_into(
-            up_ptr,
-            input,
-            &up_gpu,
-            intermediate_dim as u32,
-            hidden_dim as u32,
-        ).map_err(|e| RealizarError::GpuError { reason: format!("Up GEMV failed: {e}") })?;
+        executor
+            .q4_0_gemv_into(
+                up_ptr,
+                input,
+                &up_gpu,
+                intermediate_dim as u32,
+                hidden_dim as u32,
+            )
+            .map_err(|e| RealizarError::GpuError {
+                reason: format!("Up GEMV failed: {e}"),
+            })?;
 
         // SwiGLU activation (CPU - fusing requires custom kernel)
         let gate = gpu_to_host(&gate_gpu)?;
         let up = gpu_to_host(&up_gpu)?;
 
-        let activated: Vec<f32> = gate.iter()
+        let activated: Vec<f32> = gate
+            .iter()
             .zip(up.iter())
             .map(|(&g, &u)| silu(g) * u)
             .collect();
 
         // Down projection
-        let activated_gpu = GpuBuffer::from_host(executor.context(), &activated)
-            .map_err(|e| RealizarError::GpuError { reason: format!("Failed to upload activated: {e}") })?;
+        let activated_gpu = GpuBuffer::from_host(executor.context(), &activated).map_err(|e| {
+            RealizarError::GpuError {
+                reason: format!("Failed to upload activated: {e}"),
+            }
+        })?;
 
-        let down_gpu = GpuBuffer::new(executor.context(), hidden_dim)
-            .map_err(|e| RealizarError::GpuError { reason: format!("Failed to allocate down: {e}") })?;
+        let down_gpu = GpuBuffer::new(executor.context(), hidden_dim).map_err(|e| {
+            RealizarError::GpuError {
+                reason: format!("Failed to allocate down: {e}"),
+            }
+        })?;
 
         let down_name = format!("layer_{layer_idx}.ffn.down");
-        let down_ptr = executor.get_quantized_weight_ptr(&down_name)
-            .map_err(|e| RealizarError::GpuError { reason: format!("{down_name} not cached: {e}") })?;
+        let down_ptr =
+            executor
+                .get_quantized_weight_ptr(&down_name)
+                .map_err(|e| RealizarError::GpuError {
+                    reason: format!("{down_name} not cached: {e}"),
+                })?;
 
-        executor.q4_0_gemv_into(
-            down_ptr,
-            &activated_gpu,
-            &down_gpu,
-            hidden_dim as u32,
-            intermediate_dim as u32,
-        ).map_err(|e| RealizarError::GpuError { reason: format!("Down GEMV failed: {e}") })?;
+        executor
+            .q4_0_gemv_into(
+                down_ptr,
+                &activated_gpu,
+                &down_gpu,
+                hidden_dim as u32,
+                intermediate_dim as u32,
+            )
+            .map_err(|e| RealizarError::GpuError {
+                reason: format!("Down GEMV failed: {e}"),
+            })?;
 
         Ok(down_gpu)
     }
@@ -448,20 +571,31 @@ impl GpuModelQ4 {
         let intermediate_dim = self.config.intermediate_dim;
 
         // Up projection
-        let up_gpu = GpuBuffer::new(executor.context(), intermediate_dim)
-            .map_err(|e| RealizarError::GpuError { reason: format!("Failed to allocate up: {e}") })?;
+        let up_gpu = GpuBuffer::new(executor.context(), intermediate_dim).map_err(|e| {
+            RealizarError::GpuError {
+                reason: format!("Failed to allocate up: {e}"),
+            }
+        })?;
 
         let up_name = format!("layer_{layer_idx}.ffn.up");
-        let up_ptr = executor.get_quantized_weight_ptr(&up_name)
-            .map_err(|e| RealizarError::GpuError { reason: format!("{up_name} not cached: {e}") })?;
+        let up_ptr =
+            executor
+                .get_quantized_weight_ptr(&up_name)
+                .map_err(|e| RealizarError::GpuError {
+                    reason: format!("{up_name} not cached: {e}"),
+                })?;
 
-        executor.q4_0_gemv_into(
-            up_ptr,
-            input,
-            &up_gpu,
-            intermediate_dim as u32,
-            hidden_dim as u32,
-        ).map_err(|e| RealizarError::GpuError { reason: format!("Up GEMV failed: {e}") })?;
+        executor
+            .q4_0_gemv_into(
+                up_ptr,
+                input,
+                &up_gpu,
+                intermediate_dim as u32,
+                hidden_dim as u32,
+            )
+            .map_err(|e| RealizarError::GpuError {
+                reason: format!("Up GEMV failed: {e}"),
+            })?;
 
         // GELU activation (CPU)
         let up = gpu_to_host(&up_gpu)?;
@@ -469,23 +603,37 @@ impl GpuModelQ4 {
         let activated: Vec<f32> = up.iter().map(|&x| gelu(x)).collect();
 
         // Down projection
-        let activated_gpu = GpuBuffer::from_host(executor.context(), &activated)
-            .map_err(|e| RealizarError::GpuError { reason: format!("Failed to upload activated: {e}") })?;
+        let activated_gpu = GpuBuffer::from_host(executor.context(), &activated).map_err(|e| {
+            RealizarError::GpuError {
+                reason: format!("Failed to upload activated: {e}"),
+            }
+        })?;
 
-        let down_gpu = GpuBuffer::new(executor.context(), hidden_dim)
-            .map_err(|e| RealizarError::GpuError { reason: format!("Failed to allocate down: {e}") })?;
+        let down_gpu = GpuBuffer::new(executor.context(), hidden_dim).map_err(|e| {
+            RealizarError::GpuError {
+                reason: format!("Failed to allocate down: {e}"),
+            }
+        })?;
 
         let down_name = format!("layer_{layer_idx}.ffn.down");
-        let down_ptr = executor.get_quantized_weight_ptr(&down_name)
-            .map_err(|e| RealizarError::GpuError { reason: format!("{down_name} not cached: {e}") })?;
+        let down_ptr =
+            executor
+                .get_quantized_weight_ptr(&down_name)
+                .map_err(|e| RealizarError::GpuError {
+                    reason: format!("{down_name} not cached: {e}"),
+                })?;
 
-        executor.q4_0_gemv_into(
-            down_ptr,
-            &activated_gpu,
-            &down_gpu,
-            hidden_dim as u32,
-            intermediate_dim as u32,
-        ).map_err(|e| RealizarError::GpuError { reason: format!("Down GEMV failed: {e}") })?;
+        executor
+            .q4_0_gemv_into(
+                down_ptr,
+                &activated_gpu,
+                &down_gpu,
+                hidden_dim as u32,
+                intermediate_dim as u32,
+            )
+            .map_err(|e| RealizarError::GpuError {
+                reason: format!("Down GEMV failed: {e}"),
+            })?;
 
         Ok(down_gpu)
     }
@@ -533,11 +681,23 @@ impl GpuModelQ4 {
 
             // Apply RoPE to Q
             let q_start = qkv_start;
-            self.apply_rope_inplace(&mut qkv[q_start..q_start + hidden_dim], pos, num_heads, head_dim, theta);
+            self.apply_rope_inplace(
+                &mut qkv[q_start..q_start + hidden_dim],
+                pos,
+                num_heads,
+                head_dim,
+                theta,
+            );
 
             // Apply RoPE to K
             let k_start = qkv_start + hidden_dim;
-            self.apply_rope_inplace(&mut qkv[k_start..k_start + kv_dim], pos, num_kv_heads, head_dim, theta);
+            self.apply_rope_inplace(
+                &mut qkv[k_start..k_start + kv_dim],
+                pos,
+                num_kv_heads,
+                head_dim,
+                theta,
+            );
         }
     }
 
@@ -663,10 +823,13 @@ mod tests {
             },
             token_embedding: vec![0.0; 32000 * 2048],
             output_norm_weight: vec![1.0; 2048],
-            layer_norms: vec![LayerNorms {
-                attn_norm: vec![1.0; 2048],
-                ffn_norm: vec![1.0; 2048],
-            }; 22],
+            layer_norms: vec![
+                LayerNorms {
+                    attn_norm: vec![1.0; 2048],
+                    ffn_norm: vec![1.0; 2048],
+                };
+                22
+            ],
             num_layers: 22,
             has_gate: true,
         };
@@ -741,10 +904,8 @@ mod tests {
         // QKV: Q[8] + K[8] + V[8] = 24
         let qkv = vec![
             // Q
-            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0,
-            // K
-            0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8,
-            // V
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, // K
+            0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, // V
             0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5,
         ];
 

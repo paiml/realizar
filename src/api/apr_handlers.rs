@@ -10,8 +10,8 @@ use axum::{
 };
 
 use super::{
-    AppState, ErrorResponse, PredictRequest, PredictResponse, PredictionWithScore,
-    ExplainRequest, ExplainResponse, AuditResponse, ShapExplanation,
+    AppState, AuditResponse, ErrorResponse, ExplainRequest, ExplainResponse, PredictRequest,
+    PredictResponse, PredictionWithScore, ShapExplanation,
 };
 
 // ============================================================================
@@ -299,4 +299,3 @@ pub(crate) async fn apr_audit_handler(
 
     Ok(Json(AuditResponse { record }))
 }
-

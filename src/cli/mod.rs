@@ -13,9 +13,9 @@ use crate::error::{RealizarError, Result};
 
 // PMAT-802: Extracted inference runners
 pub mod inference;
-pub use inference::{run_gguf_inference, run_safetensors_inference, run_apr_inference};
 #[cfg(feature = "cuda")]
 pub use inference::run_gguf_inference_gpu;
+pub use inference::{run_apr_inference, run_gguf_inference, run_safetensors_inference};
 
 /// Available benchmark suites
 pub const BENCHMARK_SUITES: &[(&str, &str)] = &[
@@ -1415,3 +1415,8 @@ pub use server_commands::*;
 #[cfg(test)]
 #[path = "tests.rs"]
 mod cli_tests;
+
+// Additional inference coverage tests (Part 02)
+#[cfg(test)]
+#[path = "tests_part_02.rs"]
+mod cli_tests_part_02;

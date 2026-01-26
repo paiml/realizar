@@ -1,19 +1,26 @@
 //! Compare GGUF vs APR embeddings and weights
 //! Debug tool for PMAT-103: Find where APR diverges from GGUF
 use realizar::apr_transformer::AprTransformer;
-use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel, OwnedQKVWeights};
+use realizar::gguf::{MappedGGUFModel, OwnedQKVWeights, OwnedQuantizedModel};
 
 fn correlation(a: &[f32], b: &[f32]) -> f64 {
-    let dot: f64 = a.iter().zip(b.iter()).map(|(&x, &y)| (x as f64) * (y as f64)).sum();
+    let dot: f64 = a
+        .iter()
+        .zip(b.iter())
+        .map(|(&x, &y)| (x as f64) * (y as f64))
+        .sum();
     let a_sq: f64 = a.iter().map(|&x| (x as f64).powi(2)).sum();
     let b_sq: f64 = b.iter().map(|&x| (x as f64).powi(2)).sum();
-    if a_sq == 0.0 || b_sq == 0.0 { return 0.0; }
+    if a_sq == 0.0 || b_sq == 0.0 {
+        return 0.0;
+    }
     dot / (a_sq.sqrt() * b_sq.sqrt())
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let apr_path = "/tmp/qwen2.5-coder-1.5b-q4k.apr";
-    let gguf_path = "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf";
+    let gguf_path =
+        "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf";
 
     println!("Loading GGUF from: {}", gguf_path);
     let mapped = MappedGGUFModel::from_path(gguf_path)?;
@@ -38,9 +45,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tok = 17usize;
     let start = tok * h;
     println!("\n=== Token {} Embedding ===", tok);
-    println!("GGUF first 8: {:?}", &gguf.token_embedding[start..start+8]);
-    println!("APR first 8:  {:?}", &apr.token_embedding[start..start+8]);
-    let corr17 = correlation(&gguf.token_embedding[start..start+h], &apr.token_embedding[start..start+h]);
+    println!(
+        "GGUF first 8: {:?}",
+        &gguf.token_embedding[start..start + 8]
+    );
+    println!("APR first 8:  {:?}", &apr.token_embedding[start..start + 8]);
+    let corr17 = correlation(
+        &gguf.token_embedding[start..start + h],
+        &apr.token_embedding[start..start + h],
+    );
     println!("Token {} correlation: {:.6}", tok, corr17);
 
     // Sample a few more tokens to verify embeddings match
@@ -48,7 +61,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for tok in [0, 1, 17, 100, 1000, 10000, 50000] {
         if tok * h + h <= gguf.token_embedding.len() && tok * h + h <= apr.token_embedding.len() {
             let gs = tok * h;
-            let corr = correlation(&gguf.token_embedding[gs..gs+h], &apr.token_embedding[gs..gs+h]);
+            let corr = correlation(
+                &gguf.token_embedding[gs..gs + h],
+                &apr.token_embedding[gs..gs + h],
+            );
             println!("Token {:6}: correlation = {:.6}", tok, corr);
         }
     }
@@ -57,7 +73,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== Layer 0 Attention Norm ===");
     println!("GGUF first 8: {:?}", &gguf.layers[0].attn_norm_weight[..8]);
     println!("APR first 8:  {:?}", &apr.layers[0].attn_norm_weight[..8]);
-    let norm_corr = correlation(&gguf.layers[0].attn_norm_weight, &apr.layers[0].attn_norm_weight);
+    let norm_corr = correlation(
+        &gguf.layers[0].attn_norm_weight,
+        &apr.layers[0].attn_norm_weight,
+    );
     println!("Attn norm correlation: {:.6}", norm_corr);
 
     // Compare output norm
@@ -71,16 +90,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== Layer 0 QKV Weight Size ===");
     match &gguf.layers[0].qkv_weight {
         OwnedQKVWeights::Fused(ref t) => {
-            println!("GGUF QKV: Fused, {}x{}, {} bytes", t.out_dim, t.in_dim, t.data.len());
-        }
-        OwnedQKVWeights::Separate { ref q, ref k, ref v } => {
+            println!(
+                "GGUF QKV: Fused, {}x{}, {} bytes",
+                t.out_dim,
+                t.in_dim,
+                t.data.len()
+            );
+        },
+        OwnedQKVWeights::Separate {
+            ref q,
+            ref k,
+            ref v,
+        } => {
             println!("GGUF QKV: Separate");
             println!("  Q: {}x{}, {} bytes", q.out_dim, q.in_dim, q.data.len());
             println!("  K: {}x{}, {} bytes", k.out_dim, k.in_dim, k.data.len());
             println!("  V: {}x{}, {} bytes", v.out_dim, v.in_dim, v.data.len());
-        }
+        },
     }
-    println!("APR qkv_weight len: {} (F32 elements)", apr.layers[0].qkv_weight.len());
+    println!(
+        "APR qkv_weight len: {} (F32 elements)",
+        apr.layers[0].qkv_weight.len()
+    );
 
     // Check if APR has Q4K layers
     if let Some(ref q4k_layers) = apr.q4k_layers {
@@ -109,14 +140,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for i in 0..std::cmp::min(gguf.token_embedding.len(), apr.token_embedding.len()) {
         if (gguf.token_embedding[i] - apr.token_embedding[i]).abs() > 1e-6 {
             if mismatches < 5 {
-                println!("Mismatch at index {}: GGUF={:.6} APR={:.6}",
-                    i, gguf.token_embedding[i], apr.token_embedding[i]);
+                println!(
+                    "Mismatch at index {}: GGUF={:.6} APR={:.6}",
+                    i, gguf.token_embedding[i], apr.token_embedding[i]
+                );
             }
             mismatches += 1;
         }
     }
-    println!("Total mismatches: {} / {}", mismatches,
-        std::cmp::min(gguf.token_embedding.len(), apr.token_embedding.len()));
+    println!(
+        "Total mismatches: {} / {}",
+        mismatches,
+        std::cmp::min(gguf.token_embedding.len(), apr.token_embedding.len())
+    );
 
     Ok(())
 }

@@ -64,7 +64,11 @@ fn test_q4_0_gemv_ptx_parameter_order() {
         y < w && w < x && x < k && k < n,
         "Parameter order mismatch! Expected: y_ptr, w_ptr, x_ptr, k_dim, n_dim\n\
          Found positions: y={}, w={}, x={}, k={}, n={}",
-        y, w, x, k, n
+        y,
+        w,
+        x,
+        k,
+        n
     );
 }
 
@@ -293,7 +297,7 @@ fn test_q4k_gemv_correctness_known_pattern() {
         Err(e) => {
             eprintln!("CUDA init failed: {e:?}");
             return;
-        }
+        },
     };
 
     println!("\n╔══════════════════════════════════════════════════════════════════════╗");
@@ -303,7 +307,7 @@ fn test_q4k_gemv_correctness_known_pattern() {
     // Q4_K super-block: 256 values, 144 bytes
     // Layout: d (f16, 2B) + dmin (f16, 2B) + scales (12B) + qs (128B packed nibbles)
     let k = 256; // One super-block
-    let n = 2;   // Two output rows
+    let n = 2; // Two output rows
 
     let mut weights = vec![0u8; n * 144]; // 2 rows * 144 bytes per super-block
 
@@ -363,8 +367,14 @@ fn test_q4k_gemv_correctness_known_pattern() {
     executor.synchronize().expect("Sync should succeed");
 
     println!("\nQ4_K GEMV Results:");
-    println!("  Row 0 (d=1, scale=1, nibble=1): expected 256, got {:.4}", gpu_result[0]);
-    println!("  Row 1 (d=2, scale=1, nibble=2): expected 1024, got {:.4}", gpu_result[1]);
+    println!(
+        "  Row 0 (d=1, scale=1, nibble=1): expected 256, got {:.4}",
+        gpu_result[0]
+    );
+    println!(
+        "  Row 1 (d=2, scale=1, nibble=2): expected 1024, got {:.4}",
+        gpu_result[1]
+    );
 
     // Q4_K dequantization: value = d * scale * quant - dmin * min
     // Row 0: 256 elements * (1.0 * 1 * 1 - 0) = 256
@@ -373,11 +383,13 @@ fn test_q4k_gemv_correctness_known_pattern() {
     let tolerance = 0.1; // Allow small floating-point tolerance
     assert!(
         (gpu_result[0] - 256.0).abs() < tolerance,
-        "Row 0: expected 256, got {}", gpu_result[0]
+        "Row 0: expected 256, got {}",
+        gpu_result[0]
     );
     assert!(
         (gpu_result[1] - 1024.0).abs() < tolerance,
-        "Row 1: expected 1024, got {}", gpu_result[1]
+        "Row 1: expected 1024, got {}",
+        gpu_result[1]
     );
 
     println!("  ✓ Q4_K GEMV produces CORRECT results!");

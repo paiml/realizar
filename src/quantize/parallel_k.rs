@@ -10,10 +10,12 @@
 //! - GEBP (General Block Panel) tiling maximizes cache reuse
 //! - Tile size should fit in L2 cache (~256KB-512KB typically)
 
-use crate::error::{RealizarError, Result};
-use super::fused_k::{fused_q4k_dot_simd, fused_q4k_q8k_dot_simd, fused_q4k_q8k_dot_4rows_avx512vnni};
+use super::fused_k::{
+    fused_q4k_dot_simd, fused_q4k_q8k_dot_4rows_avx512vnni, fused_q4k_q8k_dot_simd,
+};
 use super::fused_q5k_q6k::{fused_q5k_dot_simd, fused_q6k_dot_simd};
 use super::types::QK_K;
+use crate::error::{RealizarError, Result};
 
 // ============================================================================
 

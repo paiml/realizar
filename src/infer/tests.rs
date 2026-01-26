@@ -2609,7 +2609,7 @@ mod tests {
         data.extend_from_slice(&3u32.to_le_bytes()); // version 3
         data.extend_from_slice(&0u64.to_le_bytes()); // tensor_count
         data.extend_from_slice(&0u64.to_le_bytes()); // metadata_count
-        // Add some padding
+                                                     // Add some padding
         data.extend_from_slice(&[0u8; 100]);
         temp.write_all(&data).expect("write");
         temp.flush().expect("flush");
@@ -2814,11 +2814,11 @@ mod tests {
     fn test_prefault_mmap_various_patterns() {
         // Test with various byte patterns
         let patterns: Vec<Vec<u8>> = vec![
-            vec![0u8; 8192],                                   // All zeros
-            vec![255u8; 8192],                                 // All ones
-            (0..8192u16).map(|i| (i % 256) as u8).collect(),   // Sequential
-            vec![0xAA; 8192],                                  // Alternating bits
-            vec![0x55; 8192],                                  // Alternating bits (inverted)
+            vec![0u8; 8192],                                 // All zeros
+            vec![255u8; 8192],                               // All ones
+            (0..8192u16).map(|i| (i % 256) as u8).collect(), // Sequential
+            vec![0xAA; 8192],                                // Alternating bits
+            vec![0x55; 8192],                                // Alternating bits (inverted)
         ];
 
         for pattern in patterns {
@@ -2849,30 +2849,15 @@ mod tests {
     #[test]
     fn test_clean_model_output_all_markers_comprehensive() {
         let test_cases = [
-            (
-                "<|im_start|>assistant\nContent<|im_end|>",
-                "Content",
-            ),
-            (
-                "<|im_start|>assistantContent<|im_end|>",
-                "Content",
-            ),
-            (
-                "Text<|endoftext|>",
-                "Text",
-            ),
+            ("<|im_start|>assistant\nContent<|im_end|>", "Content"),
+            ("<|im_start|>assistantContent<|im_end|>", "Content"),
+            ("Text<|endoftext|>", "Text"),
             (
                 "<|im_start|>embedded marker<|im_start|>more<|im_end|>",
                 "embedded markermore",
             ),
-            (
-                "   whitespace around   ",
-                "whitespace around",
-            ),
-            (
-                "\n\nleading newlines\n\n",
-                "leading newlines",
-            ),
+            ("   whitespace around   ", "whitespace around"),
+            ("\n\nleading newlines\n\n", "leading newlines"),
         ];
 
         for (input, expected) in test_cases {
@@ -3014,10 +2999,7 @@ fn main() {
 
         assert!(config.trace);
         assert!(config.trace_verbose);
-        assert_eq!(
-            config.trace_output,
-            Some(PathBuf::from("/tmp/trace.json"))
-        );
+        assert_eq!(config.trace_output, Some(PathBuf::from("/tmp/trace.json")));
         assert_eq!(config.trace_steps.as_ref().map(|s| s.len()), Some(2));
     }
 

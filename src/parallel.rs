@@ -1593,7 +1593,8 @@ mod tests {
 
     #[test]
     fn test_parallel_tensor_narrow_1d() {
-        let tensor = ParallelTensor::new(vec![6], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).expect("test");
+        let tensor =
+            ParallelTensor::new(vec![6], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).expect("test");
         let narrowed = tensor.narrow(0, 2, 3).expect("test");
         assert_eq!(narrowed.shape, vec![3]);
         assert_eq!(narrowed.data, vec![3.0, 4.0, 5.0]);
@@ -1601,7 +1602,8 @@ mod tests {
 
     #[test]
     fn test_parallel_tensor_narrow_invalid_dim() {
-        let tensor = ParallelTensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).expect("test");
+        let tensor =
+            ParallelTensor::new(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).expect("test");
         let result = tensor.narrow(5, 0, 1); // dim 5 doesn't exist
         assert!(result.is_err());
     }
@@ -1609,7 +1611,9 @@ mod tests {
     #[test]
     fn test_parallel_tensor_narrow_fallback_3d() {
         // Test the fallback path for >2D tensors
-        let tensor = ParallelTensor::new(vec![2, 2, 2], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]).expect("test");
+        let tensor =
+            ParallelTensor::new(vec![2, 2, 2], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0])
+                .expect("test");
         let narrowed = tensor.narrow(0, 0, 2).expect("test");
         // Fallback path uses simple slicing
         assert_eq!(narrowed.shape[0], 2);
@@ -1617,7 +1621,8 @@ mod tests {
 
     #[test]
     fn test_parallel_tensor_transpose_non_2d_error() {
-        let tensor = ParallelTensor::new(vec![6], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).expect("test");
+        let tensor =
+            ParallelTensor::new(vec![6], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).expect("test");
         let result = tensor.transpose();
         assert!(result.is_err());
         if let Err(ParallelError::ShapeMismatch { expected, got }) = result {
@@ -1715,7 +1720,10 @@ mod tests {
     #[test]
     fn test_communicator_all_gather_empty_shape() {
         let comm = Communicator::new(2, 0).expect("test");
-        let tensor = ParallelTensor { shape: vec![], data: vec![] };
+        let tensor = ParallelTensor {
+            shape: vec![],
+            data: vec![],
+        };
         let result = comm.all_gather(&tensor).expect("test");
         assert!(result.shape.is_empty());
         assert!(result.data.is_empty());
@@ -1724,7 +1732,10 @@ mod tests {
     #[test]
     fn test_communicator_reduce_scatter_empty_shape() {
         let comm = Communicator::new(2, 0).expect("test");
-        let tensor = ParallelTensor { shape: vec![], data: vec![] };
+        let tensor = ParallelTensor {
+            shape: vec![],
+            data: vec![],
+        };
         let result = comm.reduce_scatter(&tensor, ReduceOp::Sum).expect("test");
         assert!(result.shape.is_empty());
     }
@@ -1746,10 +1757,13 @@ mod tests {
         let tp = TensorParallel::new(2, 0).expect("test");
 
         let input = ParallelTensor::new(vec![1, 4], vec![1.0, 1.0, 1.0, 1.0]).expect("test");
-        let weight = ParallelTensor::new(vec![8, 4], (0..32).map(|i| i as f32).collect()).expect("test");
+        let weight =
+            ParallelTensor::new(vec![8, 4], (0..32).map(|i| i as f32).collect()).expect("test");
         let bias = ParallelTensor::new(vec![8], vec![0.5; 8]).expect("test");
 
-        let output = tp.column_parallel_linear(&input, &weight, Some(&bias)).expect("test");
+        let output = tp
+            .column_parallel_linear(&input, &weight, Some(&bias))
+            .expect("test");
         assert_eq!(output.shape, vec![1, 4]);
         // Verify bias was added (values should be different from no-bias case)
         assert!(output.data.iter().all(|&x| x != 0.0));
@@ -1760,11 +1774,14 @@ mod tests {
         let tp = TensorParallel::new(2, 0).expect("test");
 
         let input = ParallelTensor::new(vec![1, 8], vec![1.0; 8]).expect("test");
-        let weight = ParallelTensor::new(vec![4, 8], (0..32).map(|i| i as f32).collect()).expect("test");
+        let weight =
+            ParallelTensor::new(vec![4, 8], (0..32).map(|i| i as f32).collect()).expect("test");
         // Bias shape should match output (4 features, split by 2 = 2 per rank)
         let bias = ParallelTensor::new(vec![1, 2], vec![1.0; 2]).expect("test");
 
-        let output = tp.row_parallel_linear(&input, &weight, Some(&bias)).expect("test");
+        let output = tp
+            .row_parallel_linear(&input, &weight, Some(&bias))
+            .expect("test");
         // Bias should be added on rank 0
         assert!(!output.data.is_empty());
     }
@@ -1774,11 +1791,14 @@ mod tests {
         let tp = TensorParallel::new(2, 1).expect("test");
 
         let input = ParallelTensor::new(vec![1, 8], vec![1.0; 8]).expect("test");
-        let weight = ParallelTensor::new(vec![4, 8], (0..32).map(|i| i as f32).collect()).expect("test");
+        let weight =
+            ParallelTensor::new(vec![4, 8], (0..32).map(|i| i as f32).collect()).expect("test");
         // Bias shape should match output (4 features, split by 2 = 2 per rank)
         let bias = ParallelTensor::new(vec![1, 2], vec![1.0; 2]).expect("test");
 
-        let output = tp.row_parallel_linear(&input, &weight, Some(&bias)).expect("test");
+        let output = tp
+            .row_parallel_linear(&input, &weight, Some(&bias))
+            .expect("test");
         // Bias should NOT be added on rank 1
         assert!(!output.data.is_empty());
     }

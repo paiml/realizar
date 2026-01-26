@@ -3,12 +3,12 @@
 //! `OwnedQuantizedModelCachedSync` uses Mutex for interior mutability,
 //! suitable for async HTTP servers and multi-threaded inference.
 
+use super::weights::{DequantizedFFNWeights, DequantizedWeightCache};
 use crate::error::{RealizarError, Result};
 use crate::gguf::{
-    BatchGenerationStats, DispatchMetrics, OwnedQuantizedKVCache,
-    OwnedQuantizedModel, QuantizedGenerateConfig,
+    BatchGenerationStats, DispatchMetrics, OwnedQuantizedKVCache, OwnedQuantizedModel,
+    QuantizedGenerateConfig,
 };
-use super::weights::{DequantizedFFNWeights, DequantizedWeightCache};
 
 /// Thread-safe cached model wrapper with Mutex-based scheduler caching
 ///

@@ -10,8 +10,8 @@
 //! For APR models, prefer `SimpleTokenizer` via `AprV2Model::load_embedded_tokenizer()`
 //! as it uses the vocabulary embedded in the .apr file - no sibling files needed.
 
-use std::collections::HashMap;
 use super::AprV2Model;
+use std::collections::HashMap;
 
 // ============================================================================
 // SimpleTokenizer (GH-156): Decode-only tokenizer from embedded APR vocabulary
@@ -110,7 +110,11 @@ impl BpeTokenizer {
 }
 
 /// Byte-level BPE encoding
-pub(crate) fn bpe_encode(text: &str, vocab: &HashMap<String, u32>, merges: &[(String, String)]) -> Vec<u32> {
+pub(crate) fn bpe_encode(
+    text: &str,
+    vocab: &HashMap<String, u32>,
+    merges: &[(String, String)],
+) -> Vec<u32> {
     // Convert text to byte-level tokens (GPT-2/Qwen style)
     // Each byte maps to a special unicode char in range U+0100-U+01FF or similar
     let mut tokens: Vec<String> = text
@@ -176,4 +180,3 @@ pub fn byte_to_bpe_char(b: u8) -> String {
         _ => format!("<0x{:02X}>", b),
     }
 }
-

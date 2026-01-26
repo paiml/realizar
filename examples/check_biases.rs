@@ -3,7 +3,7 @@ use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Bias Check ===\n");
-    
+
     for (name, path) in [
         ("Qwen2-0.5B", "/home/noah/.cache/huggingface/hub/models--Qwen--Qwen2-0.5B-Instruct-GGUF/snapshots/198f08841147e5196a6a69bd0053690fb1fd3857/qwen2-0_5b-instruct-q4_0.gguf"),
         ("Qwen2.5-Coder-1.5B", "/home/noah/.cache/huggingface/models/qwen2.5-coder-1.5b-gguf/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"),
@@ -30,6 +30,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         println!();
     }
-    
+
     Ok(())
 }

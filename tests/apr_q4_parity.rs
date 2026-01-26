@@ -23,22 +23,22 @@
 #[cfg(all(test, feature = "cuda"))]
 mod tests {
     use realizar::apr_transformer::{
-        AprTransformerConfig, AprInferenceScratch,
-        QuantizedAprTensorQ4, QuantizedAprLayerQ4, QuantizedAprTransformerQ4,
+        AprInferenceScratch, AprTransformerConfig, QuantizedAprLayerQ4, QuantizedAprTensorQ4,
+        QuantizedAprTransformerQ4,
     };
-    use realizar::gpu::adapters::{AprQ4ToGpuAdapter, GpuModelQ4};
     use realizar::cuda::CudaExecutor;
+    use realizar::gpu::adapters::{AprQ4ToGpuAdapter, GpuModelQ4};
 
     /// Create a minimal test model with known weights for parity testing
     fn create_test_model() -> QuantizedAprTransformerQ4 {
-        let hidden_dim = 64;  // Small for testing
+        let hidden_dim = 64; // Small for testing
         let intermediate_dim = 128;
         let vocab_size = 100;
         let num_heads = 4;
         let num_kv_heads = 4;
         let head_dim = hidden_dim / num_heads;
         let kv_dim = num_kv_heads * head_dim;
-        let qkv_dim = hidden_dim + 2 * kv_dim;  // Q + K + V
+        let qkv_dim = hidden_dim + 2 * kv_dim; // Q + K + V
 
         let config = AprTransformerConfig {
             architecture: "test".to_string(),
@@ -150,16 +150,26 @@ mod tests {
         let sq_sum: f32 = hidden_cpu.iter().map(|x| x * x).sum();
         let rms = (sq_sum / hidden_dim as f32 + eps).sqrt();
 
-        let normed_cpu: Vec<f32> = hidden_cpu.iter()
+        let normed_cpu: Vec<f32> = hidden_cpu
+            .iter()
             .zip(apr.layers[0].attn_norm_weight.iter())
             .map(|(&x, &w)| x / rms * w)
             .collect();
 
-        eprintln!("CPU Embedding [0..8]: {:?}", &hidden_cpu[..8.min(hidden_dim)]);
-        eprintln!("CPU Embedding L2: {:.6}", hidden_cpu.iter().map(|x| x*x).sum::<f32>().sqrt());
+        eprintln!(
+            "CPU Embedding [0..8]: {:?}",
+            &hidden_cpu[..8.min(hidden_dim)]
+        );
+        eprintln!(
+            "CPU Embedding L2: {:.6}",
+            hidden_cpu.iter().map(|x| x * x).sum::<f32>().sqrt()
+        );
         eprintln!("CPU RMS: {:.6}", rms);
         eprintln!("CPU Normed [0..8]: {:?}", &normed_cpu[..8.min(hidden_dim)]);
-        eprintln!("CPU Normed L2: {:.6}", normed_cpu.iter().map(|x| x*x).sum::<f32>().sqrt());
+        eprintln!(
+            "CPU Normed L2: {:.6}",
+            normed_cpu.iter().map(|x| x * x).sum::<f32>().sqrt()
+        );
 
         // GPU path: same calculation via GpuModelQ4's rms_norm_inplace
         let gpu_model = AprQ4ToGpuAdapter::create_model(&apr);
@@ -173,15 +183,25 @@ mod tests {
         let rms_gpu = (sum_sq / n as f32 + eps).sqrt();
         let scale = 1.0 / rms_gpu;
         for (i, v) in normed_gpu.iter_mut().enumerate() {
-            *v = *v * scale * gpu_model.layer_norms[0].attn_norm.get(i).copied().unwrap_or(1.0);
+            *v = *v
+                * scale
+                * gpu_model.layer_norms[0]
+                    .attn_norm
+                    .get(i)
+                    .copied()
+                    .unwrap_or(1.0);
         }
 
         eprintln!("\nGPU RMS: {:.6}", rms_gpu);
         eprintln!("GPU Normed [0..8]: {:?}", &normed_gpu[..8.min(hidden_dim)]);
-        eprintln!("GPU Normed L2: {:.6}", normed_gpu.iter().map(|x| x*x).sum::<f32>().sqrt());
+        eprintln!(
+            "GPU Normed L2: {:.6}",
+            normed_gpu.iter().map(|x| x * x).sum::<f32>().sqrt()
+        );
 
         // Compare
-        let diff_l2: f32 = normed_cpu.iter()
+        let diff_l2: f32 = normed_cpu
+            .iter()
             .zip(normed_gpu.iter())
             .map(|(a, b)| (a - b).powi(2))
             .sum::<f32>()
@@ -217,9 +237,11 @@ mod tests {
             let offset = (token_id as usize) * hidden_dim;
 
             let cpu_embed: Vec<f32> = apr.token_embedding[offset..offset + hidden_dim].to_vec();
-            let gpu_embed: Vec<f32> = gpu_model.token_embedding[offset..offset + hidden_dim].to_vec();
+            let gpu_embed: Vec<f32> =
+                gpu_model.token_embedding[offset..offset + hidden_dim].to_vec();
 
-            let diff_l2: f32 = cpu_embed.iter()
+            let diff_l2: f32 = cpu_embed
+                .iter()
                 .zip(gpu_embed.iter())
                 .map(|(a, b)| (a - b).powi(2))
                 .sum::<f32>()
@@ -252,8 +274,9 @@ mod tests {
 
         match cpu_logits {
             Ok(logits) => {
-                let l2 = logits.iter().map(|x| x*x).sum::<f32>().sqrt();
-                let top1 = logits.iter()
+                let l2 = logits.iter().map(|x| x * x).sum::<f32>().sqrt();
+                let top1 = logits
+                    .iter()
                     .enumerate()
                     .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
                     .map(|(idx, _)| idx)
@@ -261,10 +284,10 @@ mod tests {
                 eprintln!("CPU Logits L2: {:.6}", l2);
                 eprintln!("CPU Top-1: {}", top1);
                 eprintln!("CPU Logits[0..5]: {:?}", &logits[..5.min(logits.len())]);
-            }
+            },
             Err(e) => {
                 eprintln!("❌ CPU forward failed: {:?}", e);
-            }
+            },
         }
 
         // GPU forward (if CUDA available)
@@ -278,7 +301,7 @@ mod tests {
                     Err(e) => {
                         eprintln!("❌ Weight upload failed: {:?}", e);
                         return;
-                    }
+                    },
                 }
 
                 let gpu_model = AprQ4ToGpuAdapter::create_model(&apr);
@@ -286,8 +309,9 @@ mod tests {
 
                 match gpu_logits {
                     Ok(logits) => {
-                        let l2 = logits.iter().map(|x| x*x).sum::<f32>().sqrt();
-                        let top1 = logits.iter()
+                        let l2 = logits.iter().map(|x| x * x).sum::<f32>().sqrt();
+                        let top1 = logits
+                            .iter()
                             .enumerate()
                             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
                             .map(|(idx, _)| idx)
@@ -295,16 +319,16 @@ mod tests {
                         eprintln!("GPU Logits L2: {:.6}", l2);
                         eprintln!("GPU Top-1: {}", top1);
                         eprintln!("GPU Logits[0..5]: {:?}", &logits[..5.min(logits.len())]);
-                    }
+                    },
                     Err(e) => {
                         eprintln!("❌ GPU forward failed: {:?}", e);
-                    }
+                    },
                 }
-            }
+            },
             Err(e) => {
                 eprintln!("⚠️ CUDA not available: {:?}", e);
                 eprintln!("Skipping GPU portion of test");
-            }
+            },
         }
     }
 
@@ -324,15 +348,22 @@ mod tests {
         let cpu_attn_norm = &apr.layers[0].attn_norm_weight;
         let gpu_attn_norm = &gpu_model.layer_norms[0].attn_norm;
 
-        let diff_l2: f32 = cpu_attn_norm.iter()
+        let diff_l2: f32 = cpu_attn_norm
+            .iter()
             .zip(gpu_attn_norm.iter())
             .map(|(a, b)| (a - b).powi(2))
             .sum::<f32>()
             .sqrt();
 
         eprintln!("Attn norm weight diff L2: {:.6e}", diff_l2);
-        eprintln!("CPU attn_norm[0..8]: {:?}", &cpu_attn_norm[..8.min(cpu_attn_norm.len())]);
-        eprintln!("GPU attn_norm[0..8]: {:?}", &gpu_attn_norm[..8.min(gpu_attn_norm.len())]);
+        eprintln!(
+            "CPU attn_norm[0..8]: {:?}",
+            &cpu_attn_norm[..8.min(cpu_attn_norm.len())]
+        );
+        eprintln!(
+            "GPU attn_norm[0..8]: {:?}",
+            &gpu_attn_norm[..8.min(gpu_attn_norm.len())]
+        );
 
         if diff_l2 < 1e-10 {
             eprintln!("✅ Layer norm weights MATCH");

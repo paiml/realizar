@@ -10,7 +10,7 @@
 //! - `src/apr_transformer/q4_simd.rs` - Quantized tensor structures
 
 use realizar::apr_transformer::{
-    AprTransformerConfig, QuantizedAprTransformerQ4, QuantizedAprLayerQ4, QuantizedAprTensorQ4,
+    AprTransformerConfig, QuantizedAprLayerQ4, QuantizedAprTensorQ4, QuantizedAprTransformerQ4,
 };
 #[cfg(feature = "cuda")]
 use realizar::gpu::adapters::{AprQ4ToGpuAdapter, GpuModelQ4, LayerNorms};
@@ -49,7 +49,10 @@ fn test_q4_adapter_create_model_without_gate() {
     let apr = create_minimal_q4_transformer(2);
     let model = AprQ4ToGpuAdapter::create_model(&apr);
 
-    assert!(!model.has_gate, "Model should not have gate when not provided");
+    assert!(
+        !model.has_gate,
+        "Model should not have gate when not provided"
+    );
     assert_eq!(model.num_layers, 2);
 }
 
@@ -97,7 +100,10 @@ fn test_q4_adapter_missing_ffn_norm() {
 
     // FFN norm should default to all 1.0s (identity)
     assert_eq!(model.layer_norms[0].ffn_norm.len(), hidden_dim);
-    assert!(model.layer_norms[0].ffn_norm.iter().all(|&x| (x - 1.0).abs() < 1e-6));
+    assert!(model.layer_norms[0]
+        .ffn_norm
+        .iter()
+        .all(|&x| (x - 1.0).abs() < 1e-6));
 }
 
 #[test]
@@ -228,7 +234,7 @@ fn test_q4_adapter_upload_weights_minimal() {
         Err(e) => {
             eprintln!("CUDA init failed: {e:?}");
             return;
-        }
+        },
     };
 
     let apr = create_minimal_q4_transformer(1);
@@ -256,7 +262,7 @@ fn test_q4_adapter_upload_weights_with_gate() {
         Err(e) => {
             eprintln!("CUDA init failed: {e:?}");
             return;
-        }
+        },
     };
 
     let apr = create_q4_transformer_with_gate(2);
@@ -281,7 +287,7 @@ fn test_q4_adapter_upload_multi_layer() {
         Err(e) => {
             eprintln!("CUDA init failed: {e:?}");
             return;
-        }
+        },
     };
 
     let num_layers = 4;
@@ -309,7 +315,7 @@ fn test_q4_adapter_weight_byte_count() {
         Err(e) => {
             eprintln!("CUDA init failed: {e:?}");
             return;
-        }
+        },
     };
 
     let apr = create_minimal_q4_transformer(1);
@@ -327,7 +333,10 @@ fn test_q4_adapter_weight_byte_count() {
 
     // Just verify we uploaded a reasonable amount
     assert!(bytes > 10000, "Should upload at least 10KB, got {bytes}");
-    assert!(bytes < 100000, "Should not upload more than 100KB, got {bytes}");
+    assert!(
+        bytes < 100000,
+        "Should not upload more than 100KB, got {bytes}"
+    );
 }
 
 // ============================================================================
@@ -538,7 +547,7 @@ fn test_q4_gemv_correctness_identity() {
         Err(e) => {
             eprintln!("CUDA init failed: {e:?}");
             return;
-        }
+        },
     };
 
     // Use dimensions that are multiples of 32 to avoid block boundary edge cases
@@ -562,7 +571,9 @@ fn test_q4_gemv_correctness_identity() {
         assert!(
             (cpu_result[i] - expected[i]).abs() < 1e-3,
             "CPU mismatch at {}: expected {}, got {}",
-            i, expected[i], cpu_result[i]
+            i,
+            expected[i],
+            cpu_result[i]
         );
     }
 
@@ -572,10 +583,8 @@ fn test_q4_gemv_correctness_identity() {
         .expect("Weight upload should succeed");
 
     // Create GPU buffers
-    let x_gpu = GpuBuffer::from_host(executor.context(), &x)
-        .expect("Failed to upload x");
-    let y_gpu = GpuBuffer::new(executor.context(), n)
-        .expect("Failed to allocate y");
+    let x_gpu = GpuBuffer::from_host(executor.context(), &x).expect("Failed to upload x");
+    let y_gpu = GpuBuffer::new(executor.context(), n).expect("Failed to allocate y");
 
     // Get weight pointer
     let w_ptr = executor
@@ -590,7 +599,9 @@ fn test_q4_gemv_correctness_identity() {
     // Sync and download
     executor.synchronize().expect("Sync should succeed");
     let mut gpu_result = vec![0.0f32; n];
-    y_gpu.copy_to_host(&mut gpu_result).expect("Download should succeed");
+    y_gpu
+        .copy_to_host(&mut gpu_result)
+        .expect("Download should succeed");
 
     // Compare GPU vs CPU
     println!("\n╔══════════════════════════════════════════════════════════════════════╗");
@@ -598,7 +609,10 @@ fn test_q4_gemv_correctness_identity() {
     println!("╚══════════════════════════════════════════════════════════════════════╝");
     println!("\nDimensions: n={n}, k={k}");
     println!("First 10 elements comparison:");
-    println!("{:>5} {:>12} {:>12} {:>12} {:>12}", "idx", "expected", "cpu", "gpu", "error");
+    println!(
+        "{:>5} {:>12} {:>12} {:>12} {:>12}",
+        "idx", "expected", "cpu", "gpu", "error"
+    );
     println!("{}", "-".repeat(60));
 
     let mut max_error = 0.0f32;
@@ -606,8 +620,10 @@ fn test_q4_gemv_correctness_identity() {
         let error = (gpu_result[i] - expected[i]).abs();
         max_error = max_error.max(error);
         let status = if error < 1e-2 { "✓" } else { "✗" };
-        println!("{:>5} {:>12.4} {:>12.4} {:>12.4} {:>12.4} {}",
-                 i, expected[i], cpu_result[i], gpu_result[i], error, status);
+        println!(
+            "{:>5} {:>12.4} {:>12.4} {:>12.4} {:>12.4} {}",
+            i, expected[i], cpu_result[i], gpu_result[i], error, status
+        );
     }
 
     println!("\nMax error: {max_error:.6}");
@@ -617,7 +633,10 @@ fn test_q4_gemv_correctness_identity() {
         assert!(
             (gpu_result[i] - expected[i]).abs() < 0.1, // Allow some tolerance for quantization
             "GPU mismatch at {}: expected {:.4}, got {:.4} (CPU ref: {:.4})",
-            i, expected[i], gpu_result[i], cpu_result[i]
+            i,
+            expected[i],
+            gpu_result[i],
+            cpu_result[i]
         );
     }
 }
@@ -633,7 +652,7 @@ fn test_q4_gemv_correctness_known_pattern() {
         Err(e) => {
             eprintln!("CUDA init failed: {e:?}");
             return;
-        }
+        },
     };
 
     // Small test: 2 rows, 32 columns (1 block per row)
@@ -689,10 +708,8 @@ fn test_q4_gemv_correctness_known_pattern() {
         .load_quantized_weights_with_type("test_pattern", &weights, 2)
         .expect("Weight upload should succeed");
 
-    let x_gpu = GpuBuffer::from_host(executor.context(), &x)
-        .expect("Failed to upload x");
-    let y_gpu = GpuBuffer::new(executor.context(), n)
-        .expect("Failed to allocate y");
+    let x_gpu = GpuBuffer::from_host(executor.context(), &x).expect("Failed to upload x");
+    let y_gpu = GpuBuffer::new(executor.context(), n).expect("Failed to allocate y");
 
     let w_ptr = executor
         .get_quantized_weight_ptr("test_pattern")
@@ -705,7 +722,9 @@ fn test_q4_gemv_correctness_known_pattern() {
 
     executor.synchronize().expect("Sync should succeed");
     let mut gpu_result = vec![0.0f32; n];
-    y_gpu.copy_to_host(&mut gpu_result).expect("Download should succeed");
+    y_gpu
+        .copy_to_host(&mut gpu_result)
+        .expect("Download should succeed");
 
     println!("\nGPU Results:");
     println!("  Row 0: expected=32.0, got={:.4}", gpu_result[0]);
@@ -723,11 +742,15 @@ fn test_q4_gemv_correctness_known_pattern() {
     // Assert correctness
     assert!(
         (gpu_result[0] - expected[0]).abs() < 1.0,
-        "GPU row 0: expected {}, got {}", expected[0], gpu_result[0]
+        "GPU row 0: expected {}, got {}",
+        expected[0],
+        gpu_result[0]
     );
     assert!(
         (gpu_result[1] - expected[1]).abs() < 1.0,
-        "GPU row 1: expected {}, got {}", expected[1], gpu_result[1]
+        "GPU row 1: expected {}, got {}",
+        expected[1],
+        gpu_result[1]
     );
 }
 
@@ -741,7 +764,7 @@ fn test_q4_forward_pass_minimal() {
         Err(e) => {
             eprintln!("CUDA init failed: {e:?}");
             return;
-        }
+        },
     };
 
     // Create minimal transformer with known embeddings
@@ -845,13 +868,17 @@ fn test_q4_forward_pass_minimal() {
                 println!("\n✓ Basic sanity checks passed");
             }
 
-            assert_eq!(logits.len(), vocab_size, "Output should have vocab_size logits");
+            assert_eq!(
+                logits.len(),
+                vocab_size,
+                "Output should have vocab_size logits"
+            );
             assert!(!all_nan, "Logits should not be NaN");
             assert!(!all_inf, "Logits should not be infinite");
-        }
+        },
         Err(e) => {
             println!("\n❌ Forward pass failed: {:?}", e);
             panic!("Forward pass should succeed");
-        }
+        },
     }
 }

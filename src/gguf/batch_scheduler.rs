@@ -23,7 +23,6 @@
 #![allow(clippy::many_single_char_names)]
 #![allow(clippy::similar_names)]
 
-
 use super::runtime::OwnedQuantizedKVCache;
 
 /// Statistics for batch generation configuration

@@ -4,10 +4,10 @@
 //! - `fused_q6k_dot`, `fused_q6k_dot_simd` - Q6_K dot products
 //! - `fused_q5k_dot`, `fused_q5k_dot_simd` - Q5_K dot products
 
-use crate::error::{RealizarError, Result};
 use super::dequant::read_f16;
 use super::simd::extract_scale_min;
-use super::types::{QK_K, Q8_0Block};
+use super::types::{Q8_0Block, QK_K};
+use crate::error::{RealizarError, Result};
 
 /// Fused Q6_K dequantize + dot product
 ///
@@ -522,4 +522,3 @@ pub fn fused_q4k_q8_dot(q4k_data: &[u8], q8_blocks: &[Q8_0Block]) -> Result<f32>
 
     Ok(acc)
 }
-

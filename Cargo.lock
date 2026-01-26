@@ -165,8 +165,6 @@ dependencies = [
 [[package]]
 name = "aprender"
 version = "0.24.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cbdcccadf867c37e6538dd179da518f4a9e55eb9efabcaec01323c3a12239e34"
 dependencies = [
  "bincode",
  "getrandom 0.2.17",
@@ -178,7 +176,7 @@ dependencies = [
  "rmp-serde",
  "serde",
  "serde_json",
- "trueno 0.13.0",
+ "trueno 0.14.2",
 ]
 
 [[package]]
@@ -3993,7 +3991,7 @@ dependencies = [
  "tokio-stream",
  "tower 0.4.13",
  "tracing",
- "trueno 0.14.1",
+ "trueno 0.14.2",
  "trueno-db",
  "trueno-gpu",
  "trueno-viz",
@@ -5147,9 +5145,7 @@ dependencies = [
 
 [[package]]
 name = "trueno"
-version = "0.14.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af04023ed05b97ab754e8b8ad1f8a74a5d75f82c4bb7dffef6d24f2f58b346d6"
+version = "0.14.2"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -5166,10 +5162,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "trueno-db"
-version = "0.3.11"
+name = "trueno"
+version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eac277fdd3ea8f1069100c8520cd00a67e45f96206091e406163cc84ba1daf11"
+checksum = "21985b663e54cfc00fa6ff43422f810385d19f3565320fcd8bdf9f38e7fc0de5"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "hostname",
+ "num_cpus",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "toml",
+]
+
+[[package]]
+name = "trueno-db"
+version = "0.3.13"
 dependencies = [
  "anyhow",
  "arrow 54.2.1",
@@ -5188,7 +5198,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "trueno 0.13.0",
+ "trueno 0.14.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -5197,8 +5207,6 @@ dependencies = [
 [[package]]
 name = "trueno-gpu"
 version = "0.4.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "63c8725e80811eca69f26f296616fa1a16afd5e3a5702bbe223e65732dc9a414"
 dependencies = [
  "libloading",
  "thiserror 2.0.18",
@@ -5206,15 +5214,13 @@ dependencies = [
 
 [[package]]
 name = "trueno-viz"
-version = "0.1.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2cd289f7b15c454eba71083d18e4193f9e3488e384030751d091fec56acc5a7"
+version = "0.1.22"
 dependencies = [
  "base64 0.22.1",
  "libc",
  "png 0.17.16",
  "thiserror 2.0.18",
- "trueno 0.13.0",
+ "trueno 0.14.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

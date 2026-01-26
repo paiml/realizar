@@ -17,10 +17,10 @@
 //! - `fused_q6k_dot`, `fused_q6k_dot_simd` - Q6_K dot products
 //! - `fused_q5k_dot`, `fused_q5k_dot_simd` - Q5_K dot products
 
-use crate::error::{RealizarError, Result};
 use super::dequant::read_f16;
 use super::simd::extract_scale_min;
 use super::types::QK_K;
+use crate::error::{RealizarError, Result};
 
 /// Fused Q4_K dequantize + dot product
 ///
@@ -1933,4 +1933,3 @@ unsafe fn hsum_epi32(v: std::arch::x86_64::__m256i) -> i32 {
     let sum32 = _mm_add_epi32(sum64, _mm_shuffle_epi32(sum64, 0b00_00_10_10));
     _mm_cvtsi128_si32(sum32)
 }
-

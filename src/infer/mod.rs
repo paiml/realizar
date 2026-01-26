@@ -137,6 +137,13 @@ impl InferenceConfig {
         self.trace = trace;
         self
     }
+
+    /// Set trace output file path
+    #[must_use]
+    pub fn with_trace_output(mut self, path: impl Into<PathBuf>) -> Self {
+        self.trace_output = Some(path.into());
+        self
+    }
 }
 
 /// Result from inference
@@ -279,6 +286,9 @@ fn run_gguf_inference(config: &InferenceConfig) -> Result<InferenceResult> {
 
     let input_token_count = input_tokens.len();
 
+    // Capture model config before move (for trace output)
+    let model_config = model.config.clone();
+
     // Configure generation (PMAT-TRACE-GGUF-001: pass trace flag)
     let gen_config = QuantizedGenerateConfig {
         max_tokens: config.max_tokens.min(128),
@@ -306,6 +316,53 @@ fn run_gguf_inference(config: &InferenceConfig) -> Result<InferenceResult> {
     } else {
         0.0
     };
+
+    // Write trace output if requested (PMAT-SHOWCASE-METHODOLOGY-001)
+    if let Some(ref trace_path) = config.trace_output {
+        let trace_json = format!(
+            r#"{{
+  "version": "1.0",
+  "timestamp": "{}",
+  "model": {{
+    "path": "{}",
+    "format": "GGUF",
+    "num_layers": {},
+    "hidden_dim": {},
+    "vocab_size": {},
+    "num_heads": {}
+  }},
+  "inference": {{
+    "input_tokens": {},
+    "generated_tokens": {},
+    "load_ms": {:.2},
+    "inference_ms": {:.2},
+    "tok_per_sec": {:.2},
+    "used_gpu": {}
+  }},
+  "events": []
+}}
+"#,
+            chrono::Utc::now().to_rfc3339(),
+            config.model_path.display(),
+            model_config.num_layers,
+            model_config.hidden_dim,
+            model_config.vocab_size,
+            model_config.num_heads,
+            input_token_count,
+            generated_token_count,
+            load_ms,
+            inference_ms,
+            tok_per_sec,
+            used_gpu
+        );
+        if let Err(e) = std::fs::write(trace_path, trace_json) {
+            eprintln!(
+                "Warning: Failed to write trace output to {}: {}",
+                trace_path.display(),
+                e
+            );
+        }
+    }
 
     Ok(InferenceResult {
         text,
@@ -655,3 +712,8 @@ fn clean_model_output(raw: &str) -> String {
 #[cfg(test)]
 #[path = "tests.rs"]
 mod infer_tests;
+
+// Additional coverage tests (tests_part_02.rs)
+#[cfg(test)]
+#[path = "tests_part_02.rs"]
+mod infer_tests_part_02;

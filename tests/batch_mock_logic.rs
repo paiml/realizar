@@ -4,15 +4,12 @@
 //! These tests verify the forward pass logic without requiring CUDA hardware.
 
 use realizar::gpu::executor::{CpuExecutor, ExecutorCall, GpuExecutorTrait, MockExecutor};
-use realizar::gpu::scheduler::{
-    BlockWeights, GpuGenerateConfig, GpuModel, GpuModelConfig,
-};
+use realizar::gpu::scheduler::{BlockWeights, GpuGenerateConfig, GpuModel, GpuModelConfig};
 
 // Re-export batch functions for testing (they're in the scheduler module)
 use realizar::gpu::scheduler::batch::{
-    argmax, forward_block_single, forward_single_token, forward_single_token_greedy,
-    generate_gpu, optimized_gqa_attention, optimized_lm_head_argmax_transposed,
-    simplified_attention,
+    argmax, forward_block_single, forward_single_token, forward_single_token_greedy, generate_gpu,
+    optimized_gqa_attention, optimized_lm_head_argmax_transposed, simplified_attention,
 };
 
 // ============================================================================
@@ -22,7 +19,7 @@ use realizar::gpu::scheduler::batch::{
 /// Create a small test model configuration
 fn create_small_config() -> GpuModelConfig {
     GpuModelConfig {
-        vocab_size: 100,  // Small vocab to trigger GPU path (< 8192)
+        vocab_size: 100, // Small vocab to trigger GPU path (< 8192)
         hidden_dim: 64,
         num_heads: 2,
         num_kv_heads: 2,
@@ -111,9 +108,9 @@ fn test_optimized_lm_head_argmax_transposed_basic() {
     // Weights: [[1,0], [0,1], [1,1]]  (vocab tokens 0,1,2)
     let hidden = vec![1.0, 1.0]; // hidden_dim=2
     let weight_t = vec![
-        1.0, 0.0,  // token 0: dot with [1,1] = 1
-        0.0, 1.0,  // token 1: dot with [1,1] = 1
-        1.0, 1.0,  // token 2: dot with [1,1] = 2 (winner)
+        1.0, 0.0, // token 0: dot with [1,1] = 1
+        0.0, 1.0, // token 1: dot with [1,1] = 1
+        1.0, 1.0, // token 2: dot with [1,1] = 2 (winner)
     ];
     let bias = vec![0.0, 0.0, 0.0];
 
@@ -125,9 +122,9 @@ fn test_optimized_lm_head_argmax_transposed_basic() {
 fn test_optimized_lm_head_argmax_transposed_with_bias() {
     let hidden = vec![1.0, 0.0]; // Only first component
     let weight_t = vec![
-        1.0, 0.0,  // token 0: dot = 1
-        0.0, 1.0,  // token 1: dot = 0
-        0.5, 0.5,  // token 2: dot = 0.5
+        1.0, 0.0, // token 0: dot = 1
+        0.0, 1.0, // token 1: dot = 0
+        0.5, 0.5, // token 2: dot = 0.5
     ];
     // Bias makes token 1 win
     let bias = vec![0.0, 5.0, 0.0];
@@ -166,8 +163,7 @@ fn test_forward_single_token_out_of_bounds() {
 #[test]
 fn test_forward_single_token_with_mock_records_matmul() {
     // Create mock that returns zeros (default)
-    let mock = MockExecutor::new("single_token")
-        .with_matmul_result(vec![0.0f32; 100]); // vocab_size output
+    let mock = MockExecutor::new("single_token").with_matmul_result(vec![0.0f32; 100]); // vocab_size output
 
     let mut model = create_model_with_mock(mock);
 
@@ -199,8 +195,7 @@ fn test_forward_single_token_greedy_out_of_bounds() {
 #[test]
 fn test_forward_single_token_greedy_with_mock() {
     // Create mock that returns zeros, but the greedy path uses CPU for small vocab
-    let mock = MockExecutor::new("greedy_test")
-        .with_matmul_result(vec![0.0f32; 100]);
+    let mock = MockExecutor::new("greedy_test").with_matmul_result(vec![0.0f32; 100]);
 
     let mut model = create_model_with_mock(mock);
 
@@ -242,10 +237,10 @@ fn test_generate_gpu_with_cpu_executor() {
         Ok(tokens) => {
             assert!(tokens.len() >= 2); // Original + at least 1 generated
             assert_eq!(tokens[0], 5); // First token is prompt
-        }
+        },
         Err(_) => {
             // Integration errors are acceptable - we're testing executor injection
-        }
+        },
     }
 }
 
@@ -288,8 +283,7 @@ fn test_forward_single_token_greedy_with_cpu_executor() {
 #[test]
 fn test_mock_records_lm_head_matmul_dimensions() {
     // Verify the mock records correct dimensions for LM head matmul
-    let mock = MockExecutor::new("dimension_check")
-        .with_matmul_result(vec![0.0f32; 100]); // vocab_size
+    let mock = MockExecutor::new("dimension_check").with_matmul_result(vec![0.0f32; 100]); // vocab_size
 
     let mut model = create_model_with_mock(mock);
 
@@ -306,8 +300,7 @@ fn test_mock_records_lm_head_matmul_dimensions() {
 
 #[test]
 fn test_forward_with_first_token() {
-    let mock = MockExecutor::new("first_token")
-        .with_matmul_result(vec![0.0f32; 100]);
+    let mock = MockExecutor::new("first_token").with_matmul_result(vec![0.0f32; 100]);
 
     let mut model = create_model_with_mock(mock);
 
@@ -318,8 +311,7 @@ fn test_forward_with_first_token() {
 
 #[test]
 fn test_forward_with_last_valid_token() {
-    let mock = MockExecutor::new("last_token")
-        .with_matmul_result(vec![0.0f32; 100]);
+    let mock = MockExecutor::new("last_token").with_matmul_result(vec![0.0f32; 100]);
 
     let mut model = create_model_with_mock(mock);
 
@@ -330,8 +322,7 @@ fn test_forward_with_last_valid_token() {
 
 #[test]
 fn test_multiple_forward_calls_independent() {
-    let mock = MockExecutor::new("multiple_calls")
-        .with_matmul_result(vec![0.0f32; 100]);
+    let mock = MockExecutor::new("multiple_calls").with_matmul_result(vec![0.0f32; 100]);
 
     let mut model = create_model_with_mock(mock);
 
@@ -354,7 +345,7 @@ fn test_multiple_forward_calls_independent() {
 fn test_large_vocab_uses_cpu_path() {
     // Create config with large vocab (> 8192)
     let config = GpuModelConfig {
-        vocab_size: 10000,  // Large vocab triggers CPU path
+        vocab_size: 10000, // Large vocab triggers CPU path
         hidden_dim: 64,
         num_heads: 2,
         num_kv_heads: 2,
@@ -603,7 +594,8 @@ fn test_optimized_lm_head_argmax_large_vocab() {
     // Make token 7777 the winner
     bias[7777] = 100.0;
 
-    let result = optimized_lm_head_argmax_transposed(&hidden, &weight_t, &bias, hidden_dim, vocab_size);
+    let result =
+        optimized_lm_head_argmax_transposed(&hidden, &weight_t, &bias, hidden_dim, vocab_size);
     assert_eq!(result, 7777);
 }
 
@@ -614,13 +606,14 @@ fn test_optimized_lm_head_argmax_negative_logits() {
 
     let hidden = vec![1.0, -1.0, 1.0, -1.0];
     let weight_t = vec![
-        -1.0, -1.0, -1.0, -1.0,  // token 0: all negative weights
-        0.0, 0.0, 0.0, 0.0,      // token 1: zero weights
-        1.0, -1.0, 1.0, -1.0,    // token 2: alternating weights
+        -1.0, -1.0, -1.0, -1.0, // token 0: all negative weights
+        0.0, 0.0, 0.0, 0.0, // token 1: zero weights
+        1.0, -1.0, 1.0, -1.0, // token 2: alternating weights
     ];
     let bias = vec![-10.0, -5.0, -1.0]; // All negative biases
 
-    let result = optimized_lm_head_argmax_transposed(&hidden, &weight_t, &bias, hidden_dim, vocab_size);
+    let result =
+        optimized_lm_head_argmax_transposed(&hidden, &weight_t, &bias, hidden_dim, vocab_size);
 
     // Token 2 should have highest score:
     // token 0: (-1*1 + -1*-1 + -1*1 + -1*-1) + -10 = 0 - 10 = -10
@@ -708,8 +701,7 @@ fn test_model_config_is_gqa() {
 #[test]
 fn test_forward_single_token_matmul_error() {
     // Configure MockExecutor to fail on matmul
-    let mock = MockExecutor::new("fail_test")
-        .with_matmul_failure();
+    let mock = MockExecutor::new("fail_test").with_matmul_failure();
 
     let mut model = create_model_with_mock(mock);
 
@@ -718,14 +710,16 @@ fn test_forward_single_token_matmul_error() {
     assert!(result.is_err(), "Expected error when matmul fails");
 
     let err = result.unwrap_err();
-    assert!(format!("{:?}", err).contains("MockExecutor"), "Error should mention mock");
+    assert!(
+        format!("{:?}", err).contains("MockExecutor"),
+        "Error should mention mock"
+    );
 }
 
 #[test]
 fn test_forward_single_token_greedy_matmul_error() {
     // Configure MockExecutor to fail on matmul
-    let mock = MockExecutor::new("fail_greedy")
-        .with_matmul_failure();
+    let mock = MockExecutor::new("fail_greedy").with_matmul_failure();
 
     let mut model = create_model_with_mock(mock);
 
@@ -737,14 +731,16 @@ fn test_forward_single_token_greedy_matmul_error() {
 #[test]
 fn test_generate_gpu_matmul_error_propagation() {
     // Use CpuExecutor but test error paths indirectly
-    let mock = MockExecutor::new("fail_generate")
-        .with_matmul_failure();
+    let mock = MockExecutor::new("fail_generate").with_matmul_failure();
 
     let mut model = create_model_with_mock(mock);
 
     // Generate should fail when forward_gpu fails
     let result = generate_gpu(&mut model, &[5], 3);
-    assert!(result.is_err(), "Expected error to propagate through generate_gpu");
+    assert!(
+        result.is_err(),
+        "Expected error to propagate through generate_gpu"
+    );
 }
 
 // ============================================================================
@@ -755,7 +751,7 @@ fn test_generate_gpu_matmul_error_propagation() {
 fn test_generate_gpu_large_vocab_uses_greedy_path() {
     // Create config with large vocab (> 8192)
     let config = GpuModelConfig {
-        vocab_size: 10000,  // Large vocab triggers greedy path
+        vocab_size: 10000, // Large vocab triggers greedy path
         hidden_dim: 64,
         num_heads: 2,
         num_kv_heads: 2,
@@ -777,10 +773,10 @@ fn test_generate_gpu_large_vocab_uses_greedy_path() {
             assert_eq!(tokens[0], 5, "First token should be prompt");
             // All tokens should be valid
             assert!(tokens.iter().all(|&t| t < 10000));
-        }
+        },
         Err(_) => {
             // Integration errors acceptable in test
-        }
+        },
     }
 }
 
@@ -788,7 +784,7 @@ fn test_generate_gpu_large_vocab_uses_greedy_path() {
 fn test_forward_single_token_large_vocab_cpu_path() {
     // Large vocab should use CPU transposed SIMD path
     let config = GpuModelConfig {
-        vocab_size: 10000,  // Triggers CPU path (> 8192)
+        vocab_size: 10000, // Triggers CPU path (> 8192)
         hidden_dim: 64,
         num_heads: 2,
         num_kv_heads: 2,
@@ -819,8 +815,8 @@ fn test_forward_block_single_gqa_head_repetition() {
     let config = GpuModelConfig {
         vocab_size: 100,
         hidden_dim: 64,
-        num_heads: 4,       // 4 Q heads
-        num_kv_heads: 2,    // 2 KV heads (each serves 2 Q heads)
+        num_heads: 4,    // 4 Q heads
+        num_kv_heads: 2, // 2 KV heads (each serves 2 Q heads)
         num_layers: 2,
         intermediate_dim: 128,
         eps: 1e-5,
@@ -848,7 +844,7 @@ fn test_optimized_gqa_attention_gqa_config() {
         vocab_size: 100,
         hidden_dim: 64,
         num_heads: 4,
-        num_kv_heads: 2,  // GQA: 4 Q heads, 2 KV heads
+        num_kv_heads: 2, // GQA: 4 Q heads, 2 KV heads
         num_layers: 2,
         intermediate_dim: 128,
         eps: 1e-5,
@@ -947,7 +943,8 @@ fn test_optimized_lm_head_exactly_one_chunk() {
     let mut bias = vec![0.0f32; vocab_size];
     bias[2000] = 10.0; // Winner
 
-    let result = optimized_lm_head_argmax_transposed(&hidden, &weight_t, &bias, hidden_dim, vocab_size);
+    let result =
+        optimized_lm_head_argmax_transposed(&hidden, &weight_t, &bias, hidden_dim, vocab_size);
     assert_eq!(result, 2000);
 }
 
@@ -961,7 +958,8 @@ fn test_optimized_lm_head_two_chunks() {
     let mut bias = vec![0.0f32; vocab_size];
     bias[4096] = 10.0; // Winner in second chunk
 
-    let result = optimized_lm_head_argmax_transposed(&hidden, &weight_t, &bias, hidden_dim, vocab_size);
+    let result =
+        optimized_lm_head_argmax_transposed(&hidden, &weight_t, &bias, hidden_dim, vocab_size);
     assert_eq!(result, 4096);
 }
 
@@ -1065,10 +1063,10 @@ fn test_generate_gpu_multi_token_prompt() {
             assert!(tokens.len() >= prompt.len() + 1);
             // Verify prompt is preserved
             assert_eq!(&tokens[..prompt.len()], &prompt[..]);
-        }
+        },
         Err(_) => {
             // Integration errors acceptable
-        }
+        },
     }
 }
 
@@ -1083,9 +1081,9 @@ fn test_generate_gpu_zero_max_tokens() {
         Ok(tokens) => {
             // Should have prompt + at least one prediction from forward_gpu
             assert!(tokens.len() >= 2);
-        }
+        },
         Err(_) => {
             // Integration errors acceptable
-        }
+        },
     }
 }

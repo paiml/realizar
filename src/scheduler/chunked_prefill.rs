@@ -9,7 +9,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 
-
 // ============================================================================
 // CHUNKED PREFILL (per Sarathi-Serve / vLLM)
 // ============================================================================
@@ -375,4 +374,3 @@ impl Default for ChunkedPrefillScheduler {
         Self::new(ChunkedPrefillConfig::default())
     }
 }
-

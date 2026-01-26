@@ -38,13 +38,19 @@ fn test_mock_executor_matmul_recording() {
     // Check the call details
     let call = mock.last_call().unwrap();
     match call {
-        ExecutorCall::Matmul { a_len, b_len, m, k, n } => {
+        ExecutorCall::Matmul {
+            a_len,
+            b_len,
+            m,
+            k,
+            n,
+        } => {
             assert_eq!(a_len, 64);
             assert_eq!(b_len, 64);
             assert_eq!(m, 8);
             assert_eq!(k, 8);
             assert_eq!(n, 8);
-        }
+        },
         _ => panic!("Expected Matmul call"),
     }
 }
@@ -473,7 +479,7 @@ fn test_simulated_forward_flow() {
             assert_eq!(*m, 1);
             assert_eq!(*k, hidden_dim);
             assert_eq!(*n, qkv_dim);
-        }
+        },
         _ => panic!("Expected Matmul"),
     }
 
@@ -483,7 +489,7 @@ fn test_simulated_forward_flow() {
             assert_eq!(*m, 1);
             assert_eq!(*k, hidden_dim);
             assert_eq!(*n, hidden_dim);
-        }
+        },
         _ => panic!("Expected Matmul"),
     }
 }

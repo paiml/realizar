@@ -72,8 +72,12 @@ pub trait ComputeBackend: Send {
     /// # Errors
     ///
     /// Returns error if memory allocation or transfer fails.
-    fn load_quantized_weights(&mut self, name: &str, data: &[u8], qtype: u32)
-        -> BackendResult<usize>;
+    fn load_quantized_weights(
+        &mut self,
+        name: &str,
+        data: &[u8],
+        qtype: u32,
+    ) -> BackendResult<usize>;
 
     /// Check if weights are loaded
     fn has_weights(&self, name: &str) -> bool;
@@ -318,7 +322,9 @@ mod tests {
 
         // Load quantized weights
         let qdata = vec![0u8; 18]; // Q4_0 block
-        let qhandle = backend.load_quantized_weights("test_q4", &qdata, 2).unwrap();
+        let qhandle = backend
+            .load_quantized_weights("test_q4", &qdata, 2)
+            .unwrap();
         assert_eq!(qhandle, 18);
         assert!(backend.has_weights("test_q4"));
         assert_eq!(backend.cached_weight_count(), 2);

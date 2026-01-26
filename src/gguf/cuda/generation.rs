@@ -8,10 +8,10 @@
 //! - `generate_gpu_resident_streaming`: Streaming generation with callback
 //! - `generate_batch_gpu_resident`: Batch generation for multiple prompts
 
-use crate::error::{RealizarError, Result};
-use super::{OwnedQuantizedModelCuda, OwnedQuantizedKVCache, QuantizedGenerateConfig};
 use super::super::model::OwnedQuantizedModel;
 use super::verbose;
+use super::{OwnedQuantizedKVCache, OwnedQuantizedModelCuda, QuantizedGenerateConfig};
+use crate::error::{RealizarError, Result};
 
 impl OwnedQuantizedModelCuda {
     /// Generate tokens using CUDA acceleration

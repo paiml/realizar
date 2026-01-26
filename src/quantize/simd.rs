@@ -286,7 +286,10 @@ unsafe fn softmax_simd_avx2(x: &mut [f32]) {
     }
 
     // Horizontal max
-    let max_128 = _mm_max_ps(_mm256_castps256_ps128(max_vec), _mm256_extractf128_ps(max_vec, 1));
+    let max_128 = _mm_max_ps(
+        _mm256_castps256_ps128(max_vec),
+        _mm256_extractf128_ps(max_vec, 1),
+    );
     let max_64 = _mm_max_ps(max_128, _mm_movehl_ps(max_128, max_128));
     let max_32 = _mm_max_ss(max_64, _mm_shuffle_ps(max_64, max_64, 1));
     let mut max_val = _mm_cvtss_f32(max_32);
@@ -326,7 +329,10 @@ unsafe fn softmax_simd_avx2(x: &mut [f32]) {
     }
 
     // Horizontal sum
-    let sum_128 = _mm_add_ps(_mm256_castps256_ps128(sum_vec), _mm256_extractf128_ps(sum_vec, 1));
+    let sum_128 = _mm_add_ps(
+        _mm256_castps256_ps128(sum_vec),
+        _mm256_extractf128_ps(sum_vec, 1),
+    );
     let sum_64 = _mm_add_ps(sum_128, _mm_movehl_ps(sum_128, sum_128));
     let sum_32 = _mm_add_ss(sum_64, _mm_shuffle_ps(sum_64, sum_64, 1));
     let sum = _mm_cvtss_f32(sum_32) + sum_scalar;
@@ -437,7 +443,12 @@ unsafe fn fused_swiglu_simd_avx2(gate: &mut [f32], up: &[f32]) {
 /// * `x` - Input tensor, modified in-place (shape: [seq_len, num_heads, head_dim])
 /// * `freqs_cis` - Complex exponentials (cos, sin) for each position
 /// * `head_dim` - Dimension per head (must be even)
-pub fn apply_rope_rotation_simd(x: &mut [f32], freqs_cos: &[f32], freqs_sin: &[f32], head_dim: usize) {
+pub fn apply_rope_rotation_simd(
+    x: &mut [f32],
+    freqs_cos: &[f32],
+    freqs_sin: &[f32],
+    head_dim: usize,
+) {
     debug_assert!(head_dim.is_multiple_of(2), "head_dim must be even");
     debug_assert_eq!(freqs_cos.len(), freqs_sin.len());
 
@@ -459,7 +470,12 @@ pub fn apply_rope_rotation_simd(x: &mut [f32], freqs_cos: &[f32], freqs_sin: &[f
 }
 
 /// Scalar RoPE implementation
-fn apply_rope_rotation_scalar(x: &mut [f32], freqs_cos: &[f32], freqs_sin: &[f32], head_dim: usize) {
+fn apply_rope_rotation_scalar(
+    x: &mut [f32],
+    freqs_cos: &[f32],
+    freqs_sin: &[f32],
+    head_dim: usize,
+) {
     let half_dim = head_dim / 2;
 
     // Process pairs of values

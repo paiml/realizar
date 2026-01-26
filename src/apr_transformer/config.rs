@@ -368,4 +368,3 @@ pub struct Q4KLayerWeights {
     /// FFN up projection in Q6K format (when Q4K not available)
     pub ffn_up_weight_q6k: Option<Vec<u8>>,
 }
-

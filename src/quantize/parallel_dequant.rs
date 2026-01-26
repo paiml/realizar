@@ -6,10 +6,10 @@
 //! - `dequantize_q8_0_parallel` - Parallel Q8_0 dequantization
 //! - `dequantize_q8_0_simd` - SIMD-accelerated Q8_0 dequantization
 
-use crate::error::{RealizarError, Result};
-use super::dequant::{read_f16, f16_to_f32};
+use super::dequant::{f16_to_f32, read_f16};
 use super::simd::extract_scale_min;
 use super::types::QK_K;
+use crate::error::{RealizarError, Result};
 
 // ============================================================================
 

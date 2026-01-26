@@ -304,10 +304,26 @@ fn test_matmul_basic() {
     // C[0,1] = 1*2 + 2*4 + 3*6 = 2 + 8 + 18 = 28
     // C[1,0] = 4*1 + 5*3 + 6*5 = 4 + 15 + 30 = 49
     // C[1,1] = 4*2 + 5*4 + 6*6 = 8 + 20 + 36 = 64
-    assert!((c[0] - 22.0).abs() < 1e-5, "C[0,0] should be 22, got {}", c[0]);
-    assert!((c[1] - 28.0).abs() < 1e-5, "C[0,1] should be 28, got {}", c[1]);
-    assert!((c[2] - 49.0).abs() < 1e-5, "C[1,0] should be 49, got {}", c[2]);
-    assert!((c[3] - 64.0).abs() < 1e-5, "C[1,1] should be 64, got {}", c[3]);
+    assert!(
+        (c[0] - 22.0).abs() < 1e-5,
+        "C[0,0] should be 22, got {}",
+        c[0]
+    );
+    assert!(
+        (c[1] - 28.0).abs() < 1e-5,
+        "C[0,1] should be 28, got {}",
+        c[1]
+    );
+    assert!(
+        (c[2] - 49.0).abs() < 1e-5,
+        "C[1,0] should be 49, got {}",
+        c[2]
+    );
+    assert!(
+        (c[3] - 64.0).abs() < 1e-5,
+        "C[1,1] should be 64, got {}",
+        c[3]
+    );
 }
 
 #[test]
@@ -397,10 +413,26 @@ fn test_matmul_negative_values() {
     // C[1,0] = -3*1 + 4*(-1) = -3 - 4 = -7
     // C[1,1] = -3*(-1) + 4*1 = 3 + 4 = 7
 
-    assert!((c[0] - (-3.0)).abs() < 1e-5, "C[0,0] should be -3, got {}", c[0]);
-    assert!((c[1] - 3.0).abs() < 1e-5, "C[0,1] should be 3, got {}", c[1]);
-    assert!((c[2] - (-7.0)).abs() < 1e-5, "C[1,0] should be -7, got {}", c[2]);
-    assert!((c[3] - 7.0).abs() < 1e-5, "C[1,1] should be 7, got {}", c[3]);
+    assert!(
+        (c[0] - (-3.0)).abs() < 1e-5,
+        "C[0,0] should be -3, got {}",
+        c[0]
+    );
+    assert!(
+        (c[1] - 3.0).abs() < 1e-5,
+        "C[0,1] should be 3, got {}",
+        c[1]
+    );
+    assert!(
+        (c[2] - (-7.0)).abs() < 1e-5,
+        "C[1,0] should be -7, got {}",
+        c[2]
+    );
+    assert!(
+        (c[3] - 7.0).abs() < 1e-5,
+        "C[1,1] should be 7, got {}",
+        c[3]
+    );
 }
 
 #[test]
@@ -600,7 +632,9 @@ fn test_synchronize_after_operations() {
     let _result = backend.matmul(&a, &b, 4, 4, 4).unwrap();
 
     // Sync should still work
-    backend.synchronize().expect("sync after ops should succeed");
+    backend
+        .synchronize()
+        .expect("sync after ops should succeed");
 }
 
 // ============================================================================

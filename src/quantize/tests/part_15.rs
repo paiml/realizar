@@ -42,7 +42,10 @@ fn test_softmax_simd_positive_infinity() {
     softmax_simd(&mut x);
 
     // The infinity element should dominate
-    assert!(x[1] > 0.99 || x[1].is_nan(), "Infinity should dominate or produce NaN");
+    assert!(
+        x[1] > 0.99 || x[1].is_nan(),
+        "Infinity should dominate or produce NaN"
+    );
     // Other elements should be near 0 or NaN
 }
 
@@ -802,12 +805,7 @@ fn test_softmax_scalar_simd_parity_large() {
 
     // Should match within tolerance
     for (s, d) in x_scalar.iter().zip(x_simd.iter()) {
-        assert!(
-            (s - d).abs() < 1e-5,
-            "Mismatch: scalar={}, simd={}",
-            s,
-            d
-        );
+        assert!((s - d).abs() < 1e-5, "Mismatch: scalar={}, simd={}", s, d);
     }
 }
 

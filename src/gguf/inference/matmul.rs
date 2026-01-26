@@ -5,8 +5,8 @@
 
 use crate::error::{RealizarError, Result};
 use crate::gguf::types::{
-    GGUF_TYPE_Q4_0, GGUF_TYPE_Q4_1, GGUF_TYPE_Q4_K, GGUF_TYPE_Q5_0, GGUF_TYPE_Q5_K,
-    GGUF_TYPE_Q6_K, GGUF_TYPE_Q8_0,
+    GGUF_TYPE_Q4_0, GGUF_TYPE_Q4_1, GGUF_TYPE_Q4_K, GGUF_TYPE_Q5_0, GGUF_TYPE_Q5_K, GGUF_TYPE_Q6_K,
+    GGUF_TYPE_Q8_0,
 };
 use crate::gguf::{ops, OwnedQKVWeights, OwnedQuantizedModel, OwnedQuantizedTensor};
 
@@ -105,7 +105,7 @@ impl OwnedQuantizedModel {
                     return Err(RealizarError::InvalidShape {
                         reason: "Failed to create weight matrix for Q4_1".to_string(),
                     });
-                }
+                },
             };
 
             let mut output = Vec::with_capacity(seq_len * out_dim);
@@ -118,7 +118,7 @@ impl OwnedQuantizedModel {
                         return Err(RealizarError::InvalidShape {
                             reason: "SIMD matvec failed for Q4_1".to_string(),
                         });
-                    }
+                    },
                 }
             }
             return Ok(output);
@@ -134,7 +134,7 @@ impl OwnedQuantizedModel {
                     return Err(RealizarError::InvalidShape {
                         reason: "Failed to create weight matrix for Q5_0".to_string(),
                     });
-                }
+                },
             };
 
             let mut output = Vec::with_capacity(seq_len * out_dim);
@@ -147,7 +147,7 @@ impl OwnedQuantizedModel {
                         return Err(RealizarError::InvalidShape {
                             reason: "SIMD matvec failed for Q5_0".to_string(),
                         });
-                    }
+                    },
                 }
             }
             return Ok(output);
@@ -159,15 +159,9 @@ impl OwnedQuantizedModel {
             for s in 0..seq_len {
                 let x = &input[s * in_dim..(s + 1) * in_dim];
                 let row_output = match weight.qtype {
-                    GGUF_TYPE_Q4_K => {
-                        fused_q4k_parallel_matvec(&weight.data, x, in_dim, out_dim)?
-                    }
-                    GGUF_TYPE_Q5_K => {
-                        fused_q5k_parallel_matvec(&weight.data, x, in_dim, out_dim)?
-                    }
-                    GGUF_TYPE_Q6_K => {
-                        fused_q6k_parallel_matvec(&weight.data, x, in_dim, out_dim)?
-                    }
+                    GGUF_TYPE_Q4_K => fused_q4k_parallel_matvec(&weight.data, x, in_dim, out_dim)?,
+                    GGUF_TYPE_Q5_K => fused_q5k_parallel_matvec(&weight.data, x, in_dim, out_dim)?,
+                    GGUF_TYPE_Q6_K => fused_q6k_parallel_matvec(&weight.data, x, in_dim, out_dim)?,
                     _ => {
                         return Err(RealizarError::UnsupportedOperation {
                             operation: "owned_fused_matmul".to_string(),
@@ -176,7 +170,7 @@ impl OwnedQuantizedModel {
                                 weight.qtype
                             ),
                         });
-                    }
+                    },
                 };
                 output.extend_from_slice(&row_output);
             }
@@ -216,7 +210,8 @@ impl OwnedQuantizedModel {
 
         // Use native quantized GEMV kernels for single-token generation
         if seq_len == 1 {
-            let cache_key = format!("{}_{:016x}",
+            let cache_key = format!(
+                "{}_{:016x}",
                 match weight.qtype {
                     GGUF_TYPE_Q4_K => "q4k",
                     GGUF_TYPE_Q5_K => "q5k",
@@ -373,14 +368,12 @@ impl OwnedQuantizedModel {
         );
 
         match weight.qtype {
-            GGUF_TYPE_Q4_0 => {
-                fused_q4_0_q8_0_parallel_matvec_into(
-                    &weight.data,
-                    input,
-                    in_dim,
-                    &mut output[..out_dim],
-                )
-            }
+            GGUF_TYPE_Q4_0 => fused_q4_0_q8_0_parallel_matvec_into(
+                &weight.data,
+                input,
+                in_dim,
+                &mut output[..out_dim],
+            ),
             GGUF_TYPE_Q8_0 => fused_q8_0_q8_0_parallel_matvec_into(
                 &weight.data,
                 input,
@@ -413,7 +406,7 @@ impl OwnedQuantizedModel {
                 let result = self.fused_matmul(input, weight)?;
                 output[..result.len()].copy_from_slice(&result);
                 Ok(())
-            }
+            },
         }
     }
 
@@ -442,7 +435,7 @@ impl OwnedQuantizedModel {
                     output.extend_from_slice(&v_out[s * v.out_dim..(s + 1) * v.out_dim]);
                 }
                 Ok(output)
-            }
+            },
         }
     }
 
@@ -473,7 +466,7 @@ impl OwnedQuantizedModel {
                 )?;
 
                 Ok(())
-            }
+            },
         }
     }
 
@@ -540,7 +533,7 @@ impl OwnedQuantizedModel {
         match qkv {
             OwnedQKVWeights::Fused(ref weight) => {
                 self.fused_rmsnorm_matmul(input, norm_weight, eps, weight)
-            }
+            },
             OwnedQKVWeights::Separate {
                 ref q,
                 ref k,
@@ -559,7 +552,7 @@ impl OwnedQuantizedModel {
                 output.extend_from_slice(&k_out);
                 output.extend_from_slice(&v_out);
                 Ok(output)
-            }
+            },
         }
     }
 
@@ -568,8 +561,7 @@ impl OwnedQuantizedModel {
         use crate::quantize::fused_rmsnorm_q4_0_matmul;
 
         // Only use fused path for Q4_0 weights
-        if self.lm_head_weight.qtype == GGUF_TYPE_Q4_0
-            && input.len() == self.lm_head_weight.in_dim
+        if self.lm_head_weight.qtype == GGUF_TYPE_Q4_0 && input.len() == self.lm_head_weight.in_dim
         {
             return fused_rmsnorm_q4_0_matmul(
                 input,

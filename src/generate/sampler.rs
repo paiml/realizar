@@ -9,11 +9,9 @@
 //! - DRY, XTC, Eta sampling
 //! - Token healing
 
-use crate::tensor::Tensor;
+use super::{apply_temperature, sample_greedy, sample_token, GenerationConfig};
 use crate::error::Result;
-use super::{
-    GenerationConfig, apply_temperature, sample_greedy, sample_token,
-};
+use crate::tensor::Tensor;
 use std::collections::HashMap;
 
 // ==================== Advanced Sampling Features ====================

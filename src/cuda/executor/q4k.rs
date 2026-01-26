@@ -1207,5 +1207,4 @@ impl CudaExecutor {
 
         Ok(())
     }
-
 }

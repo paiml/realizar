@@ -6,8 +6,8 @@
 use crate::error::{RealizarError, Result};
 use crate::gguf::ops;
 use crate::gguf::{
-    DispatchMetrics, OwnedQuantizedKVCache, OwnedQuantizedModel, OwnedQuantizedTensor,
-    OwnedQKVWeights, QuantizedGenerateConfig, TokenBuffer, GGUF_TYPE_Q4_K, GGUF_TYPE_Q5_K,
+    DispatchMetrics, OwnedQKVWeights, OwnedQuantizedKVCache, OwnedQuantizedModel,
+    OwnedQuantizedTensor, QuantizedGenerateConfig, TokenBuffer, GGUF_TYPE_Q4_K, GGUF_TYPE_Q5_K,
     GGUF_TYPE_Q6_K,
 };
 
@@ -348,7 +348,11 @@ impl OwnedQuantizedModel {
             let next_token = if config.temperature == 0.0 || config.top_k == 1 {
                 ops::argmax(&logits)
             } else {
-                crate::gguf::OwnedQuantizedModel::sample_topk(&logits, config.temperature, config.top_k)
+                crate::gguf::OwnedQuantizedModel::sample_topk(
+                    &logits,
+                    config.temperature,
+                    config.top_k,
+                )
             };
 
             // Check stop condition
@@ -421,7 +425,11 @@ impl OwnedQuantizedModel {
             let next_token = if config.temperature == 0.0 || config.top_k == 1 {
                 ops::argmax(&logits)
             } else {
-                crate::gguf::OwnedQuantizedModel::sample_topk(&logits, config.temperature, config.top_k)
+                crate::gguf::OwnedQuantizedModel::sample_topk(
+                    &logits,
+                    config.temperature,
+                    config.top_k,
+                )
             };
 
             // Check stop condition
@@ -536,7 +544,11 @@ impl OwnedQuantizedModel {
                 let next_token = if config.temperature == 0.0 || config.top_k == 1 {
                     ops::argmax(&logits)
                 } else {
-                    crate::gguf::OwnedQuantizedModel::sample_topk(&logits, config.temperature, config.top_k)
+                    crate::gguf::OwnedQuantizedModel::sample_topk(
+                        &logits,
+                        config.temperature,
+                        config.top_k,
+                    )
                 };
 
                 next_tokens.push((req_idx, next_token));

@@ -7,7 +7,7 @@
 #![allow(clippy::similar_names)]
 #![allow(dead_code)]
 
-use super::{AprTransformerConfig, AprKVCache};
+use super::{AprKVCache, AprTransformerConfig};
 use crate::error::{RealizarError, Result};
 
 // SIMD-Accelerated Quantized APR Transformer (Q4_0)

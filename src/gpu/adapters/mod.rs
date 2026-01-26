@@ -22,6 +22,6 @@ mod apr_q4;
 #[cfg(test)]
 mod tests;
 
-pub use apr::{AprF32ToGpuAdapter, AprToGpuAdapter, AprGpuError, transpose_matrix};
+pub use apr::{transpose_matrix, AprF32ToGpuAdapter, AprGpuError, AprToGpuAdapter};
 #[cfg(feature = "cuda")]
 pub use apr_q4::{AprQ4ToGpuAdapter, GpuModelQ4, LayerNorms};

@@ -35,7 +35,10 @@ fn test_softmax_single_element_tensor() {
     let output = softmax(&input).expect("test");
 
     assert_eq!(output.shape(), &[1]);
-    assert!((output.data()[0] - 1.0).abs() < 1e-6, "Softmax of single element should be 1.0");
+    assert!(
+        (output.data()[0] - 1.0).abs() < 1e-6,
+        "Softmax of single element should be 1.0"
+    );
 }
 
 #[test]
@@ -46,7 +49,10 @@ fn test_softmax_very_large_negative_values() {
 
     // All outputs should be finite
     for &val in output.data() {
-        assert!(val.is_finite(), "Softmax should handle large negative values");
+        assert!(
+            val.is_finite(),
+            "Softmax should handle large negative values"
+        );
     }
 
     // Sum should still be 1.0
@@ -60,12 +66,13 @@ fn test_softmax_3d_tensor() {
     let input = Tensor::from_vec(
         vec![2, 2, 3],
         vec![
-            1.0, 2.0, 3.0,  // row 0
-            4.0, 5.0, 6.0,  // row 1
-            7.0, 8.0, 9.0,  // row 2
+            1.0, 2.0, 3.0, // row 0
+            4.0, 5.0, 6.0, // row 1
+            7.0, 8.0, 9.0, // row 2
             10.0, 11.0, 12.0, // row 3
         ],
-    ).expect("test");
+    )
+    .expect("test");
 
     let output = softmax(&input).expect("test");
 
@@ -90,7 +97,10 @@ fn test_softmax_identical_values() {
     let output = softmax(&input).expect("test");
 
     for &val in output.data() {
-        assert!((val - 0.25).abs() < 1e-6, "Uniform input should give uniform output");
+        assert!(
+            (val - 0.25).abs() < 1e-6,
+            "Uniform input should give uniform output"
+        );
     }
 }
 
@@ -134,8 +144,11 @@ fn test_gelu_3d_tensor() {
     // Test GELU on 3D tensor
     let input = Tensor::from_vec(
         vec![2, 2, 3],
-        vec![-1.0, 0.0, 1.0, -2.0, 0.5, 2.0, -3.0, 1.5, 3.0, -0.5, 0.25, 0.75],
-    ).expect("test");
+        vec![
+            -1.0, 0.0, 1.0, -2.0, 0.5, 2.0, -3.0, 1.5, 3.0, -0.5, 0.25, 0.75,
+        ],
+    )
+    .expect("test");
 
     let output = gelu(&input).expect("test");
 
@@ -304,7 +317,10 @@ fn test_fused_layer_norm_linear_parallel_empty_shape_error() {
     let input = Tensor::from_vec(vec![3], vec![1.0, 2.0, 3.0]).expect("test");
     let result = fused.forward_parallel(&input);
 
-    assert!(result.is_err(), "forward_parallel should error on dimension mismatch");
+    assert!(
+        result.is_err(),
+        "forward_parallel should error on dimension mismatch"
+    );
 }
 
 #[test]
@@ -352,7 +368,10 @@ fn test_fused_layer_norm_linear_forward_empty_shape_error() {
     let input = Tensor::from_vec(vec![6], vec![1.0; 6]).expect("test");
     let result = fused.forward(&input);
 
-    assert!(result.is_err(), "forward should error on dimension mismatch");
+    assert!(
+        result.is_err(),
+        "forward should error on dimension mismatch"
+    );
 }
 
 #[test]
@@ -444,10 +463,8 @@ fn test_layer_norm_1d_input() {
 fn test_layer_norm_3d_input() {
     let layer_norm = LayerNorm::new(4, 1e-5).expect("test");
 
-    let input = Tensor::from_vec(
-        vec![2, 3, 4],
-        (0..24).map(|i| i as f32 * 0.1).collect(),
-    ).expect("test");
+    let input =
+        Tensor::from_vec(vec![2, 3, 4], (0..24).map(|i| i as f32 * 0.1).collect()).expect("test");
 
     let output = layer_norm.forward(&input).expect("test");
 
@@ -483,7 +500,8 @@ fn test_layer_norm_large_eps() {
 fn test_layer_norm_numerical_stability_large_values() {
     let layer_norm = LayerNorm::new(4, 1e-5).expect("test");
 
-    let input = Tensor::from_vec(vec![4], vec![1e6, 1e6 + 1.0, 1e6 + 2.0, 1e6 + 3.0]).expect("test");
+    let input =
+        Tensor::from_vec(vec![4], vec![1e6, 1e6 + 1.0, 1e6 + 2.0, 1e6 + 3.0]).expect("test");
     let output = layer_norm.forward(&input).expect("test");
 
     // Should produce finite values
@@ -664,7 +682,10 @@ fn test_gelu_inf_input() {
     if let Ok(output) = result {
         // For very large x, GELU(x) ≈ x, but may overflow
         let val = output.data()[0];
-        assert!(val.is_finite() || val.is_infinite(), "Should produce a value");
+        assert!(
+            val.is_finite() || val.is_infinite(),
+            "Should produce a value"
+        );
     }
 }
 

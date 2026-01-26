@@ -3,12 +3,9 @@
 //! Goal: Push quantize/mod.rs from 65% to >80% coverage.
 
 use realizar::quantize::{
-    quantize_to_q8_blocks, dequantize_q8_blocks,
-    Q8_0Block, BLOCK_SIZE,
-    InterleavedQ4K, QK_K,
-    quantize_activations_q8_0, quantize_rmsnorm_q8_0,
-    dequantize_q4_0, dequantize_q8_0, dequantize_f16, f16_to_f32,
-    Q8KSuperBlock, detect_simd_backend, SimdBackend, DequantStats,
+    dequantize_f16, dequantize_q4_0, dequantize_q8_0, dequantize_q8_blocks, detect_simd_backend,
+    f16_to_f32, quantize_activations_q8_0, quantize_rmsnorm_q8_0, quantize_to_q8_blocks,
+    DequantStats, InterleavedQ4K, Q8KSuperBlock, Q8_0Block, SimdBackend, BLOCK_SIZE, QK_K,
 };
 
 // ============================================================================
@@ -84,7 +81,12 @@ fn test_dequantize_q8_blocks_roundtrip() {
     // Check roundtrip error is small (quantization is lossy)
     for (orig, deq) in original.iter().zip(dequantized.iter()) {
         let error = (orig - deq).abs();
-        assert!(error < 0.5, "Roundtrip error too large: {} vs {}", orig, deq);
+        assert!(
+            error < 0.5,
+            "Roundtrip error too large: {} vs {}",
+            orig,
+            deq
+        );
     }
 }
 
@@ -116,8 +118,14 @@ fn test_dequantize_q8_blocks_large_values() {
     assert_eq!(dequantized.len(), 32);
     // Check approximate preservation of magnitude
     let orig_max = values.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-    let deq_max = dequantized.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-    assert!((orig_max - deq_max).abs() / orig_max < 0.1, "Large value not preserved");
+    let deq_max = dequantized
+        .iter()
+        .cloned()
+        .fold(f32::NEG_INFINITY, f32::max);
+    assert!(
+        (orig_max - deq_max).abs() / orig_max < 0.1,
+        "Large value not preserved"
+    );
 }
 
 #[test]
@@ -497,7 +505,10 @@ fn test_q8_0_block_quantization_error_zero_block() {
     let block = Q8_0Block::quantize(&values);
     let error = block.quantization_error(&values);
     // Zero values should have no error
-    assert!(error < 1e-6, "zero block should have minimal error: {error}");
+    assert!(
+        error < 1e-6,
+        "zero block should have minimal error: {error}"
+    );
 }
 
 #[test]
@@ -581,7 +592,12 @@ fn test_q8k_superblock_dequantize() {
     // Check first few values are approximately correct
     for i in 0..10 {
         let diff = (deq[i] - values[i]).abs();
-        assert!(diff < 3.0, "dequantized value {i} differs too much: {} vs {}", deq[i], values[i]);
+        assert!(
+            diff < 3.0,
+            "dequantized value {i} differs too much: {} vs {}",
+            deq[i],
+            values[i]
+        );
     }
 }
 
@@ -591,7 +607,9 @@ fn test_q8k_superblock_dequantize_roundtrip() {
     let block = Q8KSuperBlock::quantize(&values);
     let deq = block.dequantize();
     // Max error should be bounded
-    let max_error = values.iter().zip(deq.iter())
+    let max_error = values
+        .iter()
+        .zip(deq.iter())
         .map(|(a, b)| (a - b).abs())
         .fold(0.0f32, f32::max);
     assert!(max_error < 1.0, "roundtrip error too large: {max_error}");
@@ -609,7 +627,10 @@ fn test_q8k_superblock_quantize_into() {
     // First value (0) should quantize to 0
     assert_eq!(quants[0], 0);
     // Values should increase (monotonic for monotonic input)
-    assert!(quants[200] > quants[50], "quantized values should preserve order");
+    assert!(
+        quants[200] > quants[50],
+        "quantized values should preserve order"
+    );
 }
 
 #[test]

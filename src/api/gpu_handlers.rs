@@ -15,10 +15,9 @@ use futures::stream::Stream;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    AppState, ErrorResponse, GenerateRequest, GenerateResponse, BatchGenerateResponse,
-    StreamTokenEvent, StreamDoneEvent, ModelsResponse, TokenizeRequest, TokenizeResponse,
-    BatchTokenizeRequest, BatchTokenizeResponse, BatchGenerateRequest,
-    default_max_tokens, default_top_k,
+    default_max_tokens, default_top_k, AppState, BatchGenerateRequest, BatchGenerateResponse,
+    BatchTokenizeRequest, BatchTokenizeResponse, ErrorResponse, GenerateRequest, GenerateResponse,
+    ModelsResponse, StreamDoneEvent, StreamTokenEvent, TokenizeRequest, TokenizeResponse,
 };
 use crate::generate::{GenerationConfig, SamplingStrategy};
 use crate::registry::ModelInfo;

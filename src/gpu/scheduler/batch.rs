@@ -2,9 +2,9 @@
 //!
 //! Extracted from model.rs: incremental generation, single-token forward, and helpers.
 
-use crate::error::{RealizarError, Result};
-use super::super::{exceeds_gpu_buffer_limit, cpu_matmul_transposed_simd, cpu_matmul};
+use super::super::{cpu_matmul, cpu_matmul_transposed_simd, exceeds_gpu_buffer_limit};
 use super::model::{GpuModel, GpuModelConfig};
+use crate::error::{RealizarError, Result};
 
 /// Generate tokens using GPU-accelerated forward pass with incremental decoding
 ///
@@ -21,7 +21,11 @@ use super::model::{GpuModel, GpuModelConfig};
 /// # Errors
 ///
 /// Returns error if generation fails
-pub fn generate_gpu(model: &mut GpuModel, prompt: &[usize], max_tokens: usize) -> Result<Vec<usize>> {
+pub fn generate_gpu(
+    model: &mut GpuModel,
+    prompt: &[usize],
+    max_tokens: usize,
+) -> Result<Vec<usize>> {
     let mut tokens = prompt.to_vec();
     let vocab_size = model.config.vocab_size;
 
@@ -106,8 +110,7 @@ pub fn forward_single_token(model: &mut GpuModel, tokens: &[usize]) -> Result<Ve
         // GPU path for smaller vocab
         // Phase 44: Use do_matmul() to enable MockExecutor testing
         let lm_head_weight = model.lm_head_weight.clone();
-        let logits =
-            model.do_matmul(&hidden, &lm_head_weight, 1, hidden_dim, vocab_size)?;
+        let logits = model.do_matmul(&hidden, &lm_head_weight, 1, hidden_dim, vocab_size)?;
         // Add bias
         logits
             .iter()
@@ -171,8 +174,7 @@ pub fn forward_single_token_greedy(model: &mut GpuModel, tokens: &[usize]) -> Re
         // GPU/small vocab path
         // Phase 44: Use do_matmul() to enable MockExecutor testing
         let lm_head_weight = model.lm_head_weight.clone();
-        let logits =
-            model.do_matmul(&hidden, &lm_head_weight, 1, hidden_dim, vocab_size)?;
+        let logits = model.do_matmul(&hidden, &lm_head_weight, 1, hidden_dim, vocab_size)?;
         let output: Vec<f32> = logits
             .iter()
             .zip(model.lm_head_bias.iter())
@@ -186,7 +188,11 @@ pub fn forward_single_token_greedy(model: &mut GpuModel, tokens: &[usize]) -> Re
 ///
 /// For single-token generation, CPU operations are faster than GPU due to transfer overhead.
 #[allow(clippy::unnecessary_wraps)]
-pub fn forward_block_single(model: &mut GpuModel, input: &[f32], block_idx: usize) -> Result<Vec<f32>> {
+pub fn forward_block_single(
+    model: &mut GpuModel,
+    input: &[f32],
+    block_idx: usize,
+) -> Result<Vec<f32>> {
     let hidden_dim = model.config.hidden_dim;
     let intermediate_dim = model.config.intermediate_dim;
     let kv_dim = model.config.kv_dim();
@@ -264,7 +270,9 @@ pub fn forward_block_single(model: &mut GpuModel, input: &[f32], block_idx: usiz
     let ffn_fc1_bias = &model.block_weights[block_idx].ffn_fc1_bias;
 
     // FFN: SwiGLU when gate weight exists, otherwise GELU
-    let activated: Vec<f32> = if let Some(ref gate_weight) = model.block_weights[block_idx].ffn_gate_weight {
+    let activated: Vec<f32> = if let Some(ref gate_weight) =
+        model.block_weights[block_idx].ffn_gate_weight
+    {
         // SwiGLU: silu(gate(x)) * up(x)
         let up_out = cpu_matmul(&ffn_normed, ffn_fc1_weight, 1, hidden_dim, intermediate_dim);
         let gate_out = cpu_matmul(&ffn_normed, gate_weight, 1, hidden_dim, intermediate_dim);
@@ -397,7 +405,11 @@ pub fn optimized_lm_head_argmax_transposed(
 }
 
 /// Optimized GQA attention using GPU for matmul operations (IMP-089)
-pub fn optimized_gqa_attention(model: &mut GpuModel, qkv: &[f32], seq_len: usize) -> Result<Vec<f32>> {
+pub fn optimized_gqa_attention(
+    model: &mut GpuModel,
+    qkv: &[f32],
+    seq_len: usize,
+) -> Result<Vec<f32>> {
     let hidden_dim = model.config.hidden_dim;
     let num_heads = model.config.num_heads;
     let num_kv_heads = model.config.num_kv_heads;
@@ -436,8 +448,7 @@ pub fn optimized_gqa_attention(model: &mut GpuModel, qkv: &[f32], seq_len: usize
         // Compute attention scores: Q @ K^T using GPU matmul
         // Phase 44: Use do_matmul_transpose_b() to enable MockExecutor testing
         let mut attn_scores = vec![f32::NEG_INFINITY; seq_len * seq_len];
-        let scores = model
-            .do_matmul_transpose_b(&q_head, &k_head, seq_len, head_dim, seq_len)?;
+        let scores = model.do_matmul_transpose_b(&q_head, &k_head, seq_len, head_dim, seq_len)?;
 
         // Apply causal mask and scale
         for i in 0..seq_len {
@@ -469,8 +480,7 @@ pub fn optimized_gqa_attention(model: &mut GpuModel, qkv: &[f32], seq_len: usize
 
         // Compute output: attn @ V using GPU matmul
         // Phase 44: Use do_matmul() to enable MockExecutor testing
-        let head_output =
-            model.do_matmul(&attn_scores, &v_head, seq_len, seq_len, head_dim)?;
+        let head_output = model.do_matmul(&attn_scores, &v_head, seq_len, seq_len, head_dim)?;
 
         // Copy to output
         for i in 0..seq_len {
@@ -486,7 +496,11 @@ pub fn optimized_gqa_attention(model: &mut GpuModel, qkv: &[f32], seq_len: usize
 
 /// Simplified attention (fallback, for M3 benchmarking)
 #[allow(dead_code, clippy::unnecessary_wraps)]
-pub fn simplified_attention(config: &GpuModelConfig, qkv: &[f32], seq_len: usize) -> Result<Vec<f32>> {
+pub fn simplified_attention(
+    config: &GpuModelConfig,
+    qkv: &[f32],
+    seq_len: usize,
+) -> Result<Vec<f32>> {
     let hidden_dim = config.hidden_dim;
     let head_dim = hidden_dim / config.num_heads;
 

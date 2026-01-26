@@ -12,11 +12,11 @@
 //! without writing individual unit tests for each module.
 
 use realizar::apr_transformer::{
-    AprTransformerConfig, AprInferenceScratch, AprKVCache,
-    QuantizedAprTensorQ4, QuantizedAprLayerQ4, QuantizedAprTransformerQ4,
+    AprInferenceScratch, AprKVCache, AprTransformerConfig, QuantizedAprLayerQ4,
+    QuantizedAprTensorQ4, QuantizedAprTransformerQ4,
 };
-use realizar::gpu::adapters::{AprToGpuAdapter, AprGpuError};
-use realizar::gpu::scheduler::{GpuModelConfig, BlockWeights};
+use realizar::gpu::adapters::{AprGpuError, AprToGpuAdapter};
+use realizar::gpu::scheduler::{BlockWeights, GpuModelConfig};
 use realizar::quantize::dequantize_q4_0;
 
 // ============================================================================
@@ -30,7 +30,7 @@ fn test_apr_config_to_gpu_config() {
         hidden_dim: 2048,
         num_layers: 22,
         num_heads: 32,
-        num_kv_heads: 4,  // GQA
+        num_kv_heads: 4, // GQA
         vocab_size: 32000,
         intermediate_dim: 5632,
         context_length: 2048,
@@ -49,8 +49,8 @@ fn test_apr_config_to_gpu_config() {
     assert_eq!(gpu_config.eps, 1e-5);
 
     // Derived dimensions
-    assert_eq!(gpu_config.head_dim(), 64);  // 2048 / 32
-    assert_eq!(gpu_config.kv_dim(), 256);   // 4 * 64
+    assert_eq!(gpu_config.head_dim(), 64); // 2048 / 32
+    assert_eq!(gpu_config.kv_dim(), 256); // 4 * 64
 }
 
 #[test]
@@ -61,7 +61,7 @@ fn test_apr_config_mha_to_gpu() {
         hidden_dim: 2560,
         num_layers: 32,
         num_heads: 32,
-        num_kv_heads: 32,  // MHA: same as num_heads
+        num_kv_heads: 32, // MHA: same as num_heads
         vocab_size: 51200,
         intermediate_dim: 10240,
         context_length: 2048,
@@ -119,7 +119,7 @@ fn test_dequantize_tensor_padding() {
 fn test_dequantize_tensor_truncation() {
     // Test that we truncate if dequantized result is too long
     let mut data = vec![0u8; 36]; // 2 blocks = 64 values
-    // First block
+                                  // First block
     data[0] = 0x00;
     data[1] = 0x3C;
     // Second block
@@ -207,8 +207,16 @@ fn test_extract_ffn_weights() {
         attn_norm_weight: vec![1.0; hidden_dim],
         qkv_weight: QuantizedAprTensorQ4::new(vec![0u8; 18], hidden_dim, hidden_dim * 3),
         attn_output_weight: QuantizedAprTensorQ4::new(vec![0u8; 18], hidden_dim, hidden_dim),
-        ffn_up_weight: QuantizedAprTensorQ4::new(vec![0u8; fc1_blocks * 18], hidden_dim, intermediate_dim),
-        ffn_down_weight: QuantizedAprTensorQ4::new(vec![0u8; fc2_blocks * 18], intermediate_dim, hidden_dim),
+        ffn_up_weight: QuantizedAprTensorQ4::new(
+            vec![0u8; fc1_blocks * 18],
+            hidden_dim,
+            intermediate_dim,
+        ),
+        ffn_down_weight: QuantizedAprTensorQ4::new(
+            vec![0u8; fc2_blocks * 18],
+            intermediate_dim,
+            hidden_dim,
+        ),
         ffn_gate_weight: None,
         ffn_norm_weight: None,
     };
@@ -269,8 +277,8 @@ fn test_gpu_model_config_derived() {
     };
 
     // Test derived dimensions
-    assert_eq!(config.head_dim(), 128);  // 4096 / 32
-    assert_eq!(config.kv_dim(), 1024);   // 8 * 128
+    assert_eq!(config.head_dim(), 128); // 4096 / 32
+    assert_eq!(config.kv_dim(), 1024); // 8 * 128
     assert_eq!(config.qkv_dim(), 4096 + 2 * 1024); // hidden + 2*kv = 6144
 }
 
@@ -280,7 +288,7 @@ fn test_gpu_model_config_mha() {
         vocab_size: 50257,
         hidden_dim: 768,
         num_heads: 12,
-        num_kv_heads: 12,  // MHA
+        num_kv_heads: 12, // MHA
         num_layers: 12,
         intermediate_dim: 3072,
         eps: 1e-5,
@@ -405,7 +413,7 @@ fn test_quantized_tensor_expected_bytes() {
     assert_eq!(QuantizedAprTensorQ4::expected_bytes(32), 18);
     assert_eq!(QuantizedAprTensorQ4::expected_bytes(64), 36);
     assert_eq!(QuantizedAprTensorQ4::expected_bytes(0), 0);
-    assert_eq!(QuantizedAprTensorQ4::expected_bytes(1), 18);  // 1 block
+    assert_eq!(QuantizedAprTensorQ4::expected_bytes(1), 18); // 1 block
     assert_eq!(QuantizedAprTensorQ4::expected_bytes(33), 36); // 2 blocks
 }
 
@@ -445,7 +453,10 @@ fn test_apr_gpu_error_display() {
     let err = AprGpuError::DequantError("test error".to_string());
     assert!(err.to_string().contains("test error"));
 
-    let err = AprGpuError::DimensionMismatch { expected: 100, actual: 50 };
+    let err = AprGpuError::DimensionMismatch {
+        expected: 100,
+        actual: 50,
+    };
     assert!(err.to_string().contains("100"));
     assert!(err.to_string().contains("50"));
 
@@ -595,7 +606,7 @@ fn test_f32_adapter_gqa_config() {
     let vocab_size = 200;
     let intermediate_dim = 512;
     let num_heads = 8;
-    let num_kv_heads = 2;  // GQA: 4x fewer KV heads
+    let num_kv_heads = 2; // GQA: 4x fewer KV heads
     let head_dim = hidden_dim / num_heads;
     let kv_dim = num_kv_heads * head_dim;
     let qkv_out_dim = hidden_dim + 2 * kv_dim;

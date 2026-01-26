@@ -149,11 +149,11 @@ fn test_driver_cuda_model_creation() {
         Ok(cuda_model) => {
             // Access config through model method
             assert_eq!(cuda_model.model().config.hidden_dim, 64);
-        }
+        },
         Err(e) => {
             // Log but don't fail - CUDA may not be initialized
             eprintln!("CUDA model creation failed (may be expected): {:?}", e);
-        }
+        },
     }
 }
 
@@ -183,10 +183,10 @@ fn test_driver_cuda_model_with_max_seq_len() {
         Ok(cuda_model) => {
             // Successfully created with custom seq len
             assert_eq!(cuda_model.model().config.hidden_dim, 64);
-        }
+        },
         Err(e) => {
             eprintln!("CUDA model with_max_seq_len failed: {:?}", e);
-        }
+        },
     }
 }
 
@@ -222,15 +222,15 @@ fn test_driver_cuda_forward_basic() {
                 Ok(logits) => {
                     assert_eq!(logits.len(), config.vocab_size);
                     assert!(logits.iter().all(|x| x.is_finite()));
-                }
+                },
                 Err(e) => {
                     eprintln!("forward_cuda failed: {:?}", e);
-                }
+                },
             }
-        }
+        },
         Err(e) => {
             eprintln!("CUDA model creation failed: {:?}", e);
-        }
+        },
     }
 }
 

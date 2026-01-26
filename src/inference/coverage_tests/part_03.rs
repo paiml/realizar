@@ -518,7 +518,10 @@ fn test_rope_position_one() {
 
     // At position > 0, at least some rotation should happen
     // (at position 0, no rotation occurs)
-    let changed = x.iter().zip(original.iter()).any(|(a, b)| (a - b).abs() > 1e-10);
+    let changed = x
+        .iter()
+        .zip(original.iter())
+        .any(|(a, b)| (a - b).abs() > 1e-10);
     assert!(changed, "RoPE at position 1 should rotate the input");
 }
 

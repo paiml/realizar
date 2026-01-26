@@ -5,7 +5,7 @@
 
 use proptest::prelude::*;
 use realizar::apr_transformer::{
-    AprTransformerConfig, QuantizedAprTensorQ4, AprInferenceScratch, AprKVCache,
+    AprInferenceScratch, AprKVCache, AprTransformerConfig, QuantizedAprTensorQ4,
 };
 
 // ============================================================================
@@ -144,7 +144,7 @@ fn test_q4_0_block_size_constants() {
     assert_eq!(QuantizedAprTensorQ4::expected_bytes(32), 18);
     assert_eq!(QuantizedAprTensorQ4::expected_bytes(64), 36);
     assert_eq!(QuantizedAprTensorQ4::expected_bytes(0), 0);
-    assert_eq!(QuantizedAprTensorQ4::expected_bytes(1), 18);  // 1 value still needs 1 block
+    assert_eq!(QuantizedAprTensorQ4::expected_bytes(1), 18); // 1 value still needs 1 block
     assert_eq!(QuantizedAprTensorQ4::expected_bytes(33), 36); // 33 values need 2 blocks
 }
 
@@ -249,7 +249,7 @@ fn test_tensor_zero_elements() {
 fn test_tensor_single_element() {
     // Single element still needs a full block
     let tensor = QuantizedAprTensorQ4::zeros(1, 1);
-    assert_eq!(tensor.data.len(), 18);  // One Q4_0 block
+    assert_eq!(tensor.data.len(), 18); // One Q4_0 block
     assert_eq!(tensor.in_dim, 1);
     assert_eq!(tensor.out_dim, 1);
 }
@@ -356,9 +356,9 @@ fn test_kv_cache_new_creates_valid_structure() {
     // Verify cache starts empty
     assert_eq!(cache.len(), 0);
     assert!(cache.is_empty());
-    assert_eq!(cache.capacity(), 128);  // context_length
+    assert_eq!(cache.capacity(), 128); // context_length
     assert_eq!(cache.num_kv_heads(), 4);
-    assert_eq!(cache.head_dim(), 32);   // hidden_dim / num_heads = 256/8
+    assert_eq!(cache.head_dim(), 32); // hidden_dim / num_heads = 256/8
 }
 
 #[test]

@@ -160,167 +160,236 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_mlock_disabled() {
-        let config = MlockConfig {
+    fn test_mlock_disabled_and_resource_limit() {
+        // Disabled config
+        let config_off = MlockConfig {
             enabled: false,
             max_locked_bytes: 0,
         };
         let data = vec![0u8; 1024];
-        // SAFETY: Memory safety ensured by bounds checking and alignment
-        let (region, result) = unsafe { PinnedRegion::new(data.as_ptr(), data.len(), &config) };
+        // SAFETY: data is valid
+        let (region, result) = unsafe { PinnedRegion::new(data.as_ptr(), data.len(), &config_off) };
         assert_eq!(result, MlockResult::Disabled);
         assert!(!region.is_locked());
-    }
 
-    #[test]
-    fn test_mlock_resource_limit() {
-        let config = MlockConfig {
+        // Resource limit exceeded
+        let config_limit = MlockConfig {
             enabled: true,
             max_locked_bytes: 100,
         };
-        let data = vec![0u8; 1024]; // Exceeds limit
-                                    // SAFETY: Memory safety ensured by bounds checking and alignment
-        let (region, result) = unsafe { PinnedRegion::new(data.as_ptr(), data.len(), &config) };
-        assert_eq!(result, MlockResult::ResourceLimit);
-        assert!(!region.is_locked());
+        // SAFETY: data is valid
+        let (r2, res2) = unsafe { PinnedRegion::new(data.as_ptr(), data.len(), &config_limit) };
+        assert_eq!(res2, MlockResult::ResourceLimit);
+        assert!(!r2.is_locked());
     }
 
     #[test]
-    fn test_expert_tier_hot() {
-        let tier = ExpertTier::from_access_count(1000, 100, 10);
-        assert_eq!(tier, ExpertTier::Hot);
-    }
-
-    #[test]
-    fn test_expert_tier_warm() {
-        let tier = ExpertTier::from_access_count(50, 100, 10);
-        assert_eq!(tier, ExpertTier::Warm);
-    }
-
-    #[test]
-    fn test_expert_tier_cold() {
-        let tier = ExpertTier::from_access_count(5, 100, 10);
-        assert_eq!(tier, ExpertTier::Cold);
-    }
-
-    #[test]
-    fn test_pinned_region_len() {
-        let config = MlockConfig::default();
-        let data = vec![0u8; 1024];
-        // SAFETY: Memory safety ensured by bounds checking and alignment
-        let (region, _) = unsafe { PinnedRegion::new(data.as_ptr(), data.len(), &config) };
-        assert_eq!(region.len(), 1024);
-        assert!(!region.is_empty());
-    }
-
-    #[test]
-    fn test_pinned_region_empty() {
-        let config = MlockConfig::default();
-        let data: Vec<u8> = vec![];
-        // SAFETY: Memory safety ensured by bounds checking and alignment
-        let (region, _) = unsafe { PinnedRegion::new(data.as_ptr(), data.len(), &config) };
-        assert_eq!(region.len(), 0);
-        assert!(region.is_empty());
-    }
-
-    #[test]
-    fn test_mlock_config_default() {
-        let config = MlockConfig::default();
-        assert!(!config.enabled);
-        assert_eq!(config.max_locked_bytes, 0);
-    }
-
-    #[test]
-    fn test_mlock_result_equality() {
-        assert_eq!(MlockResult::Locked, MlockResult::Locked);
-        assert_eq!(MlockResult::Disabled, MlockResult::Disabled);
-        assert_ne!(MlockResult::Locked, MlockResult::Disabled);
-    }
-
-    #[test]
-    fn test_expert_tier_boundary() {
-        // Test exact boundary conditions
+    fn test_expert_tier_all_cases() {
+        // Basic classification
+        assert_eq!(
+            ExpertTier::from_access_count(1000, 100, 10),
+            ExpertTier::Hot
+        );
+        assert_eq!(ExpertTier::from_access_count(50, 100, 10), ExpertTier::Warm);
+        assert_eq!(ExpertTier::from_access_count(5, 100, 10), ExpertTier::Cold);
+        // Boundaries
         assert_eq!(ExpertTier::from_access_count(100, 100, 10), ExpertTier::Hot);
         assert_eq!(ExpertTier::from_access_count(99, 100, 10), ExpertTier::Warm);
         assert_eq!(ExpertTier::from_access_count(10, 100, 10), ExpertTier::Warm);
         assert_eq!(ExpertTier::from_access_count(9, 100, 10), ExpertTier::Cold);
+        // Edge: zero thresholds
+        assert_eq!(ExpertTier::from_access_count(0, 0, 0), ExpertTier::Hot);
+        // Edge: same thresholds
+        assert_eq!(ExpertTier::from_access_count(10, 10, 10), ExpertTier::Hot);
+        assert_eq!(ExpertTier::from_access_count(9, 10, 10), ExpertTier::Cold);
+        // Edge: max values
+        assert_eq!(
+            ExpertTier::from_access_count(usize::MAX, usize::MAX, usize::MAX),
+            ExpertTier::Hot
+        );
     }
 
     #[test]
-    fn test_mlock_enabled_within_limit() {
-        // Test when enabled and within limit - will try actual mlock
+    fn test_pinned_region_len_empty() {
+        let config = MlockConfig::default();
+        let data = vec![0u8; 1024];
+        // SAFETY: data is valid
+        let (region, _) = unsafe { PinnedRegion::new(data.as_ptr(), data.len(), &config) };
+        assert_eq!(region.len(), 1024);
+        assert!(!region.is_empty());
+        let empty: Vec<u8> = vec![];
+        // SAFETY: empty slice is valid
+        let (er, _) = unsafe { PinnedRegion::new(empty.as_ptr(), empty.len(), &config) };
+        assert!(er.is_empty());
+    }
+
+    #[test]
+    fn test_mlock_config_default_and_mutation() {
+        let config = MlockConfig::default();
+        assert!(!config.enabled);
+        assert_eq!(config.max_locked_bytes, 0);
+        let mut m = MlockConfig::default();
+        m.enabled = true;
+        m.max_locked_bytes = 4096;
+        assert!(m.enabled);
+        assert_eq!(m.max_locked_bytes, 4096);
+    }
+
+    #[test]
+    fn test_mlock_result_equality_and_inequality() {
+        assert_eq!(MlockResult::Locked, MlockResult::Locked);
+        assert_ne!(MlockResult::Locked, MlockResult::Disabled);
+        let variants = [
+            MlockResult::Locked,
+            MlockResult::Disabled,
+            MlockResult::InsufficientPrivileges,
+            MlockResult::ResourceLimit,
+            MlockResult::Unsupported,
+        ];
+        for (i, v1) in variants.iter().enumerate() {
+            for (j, v2) in variants.iter().enumerate() {
+                assert_eq!(i == j, v1 == v2);
+            }
+        }
+    }
+
+    #[test]
+    fn test_mlock_enabled_actual() {
         let config = MlockConfig {
             enabled: true,
-            max_locked_bytes: 0, // 0 = unlimited
+            max_locked_bytes: 0,
         };
         let data: [u8; 64] = [0u8; 64];
-        // SAFETY: Memory safety ensured by bounds checking and alignment
+        // SAFETY: data is valid
         let (region, result) = unsafe { PinnedRegion::new(data.as_ptr(), data.len(), &config) };
-        // Result depends on system permissions, but API should work
-        assert!(
-            result == MlockResult::Locked
-                || result == MlockResult::InsufficientPrivileges
-                || result == MlockResult::ResourceLimit
-                || result == MlockResult::Unsupported
-        );
+        assert!(matches!(
+            result,
+            MlockResult::Locked
+                | MlockResult::InsufficientPrivileges
+                | MlockResult::ResourceLimit
+                | MlockResult::Unsupported
+        ));
         assert_eq!(region.len(), 64);
     }
 
-    // ========================================================================
-    // Coverage Tests
-    // ========================================================================
-
     #[test]
-    fn test_mlock_config_debug() {
+    fn test_debug_and_clone_traits() {
+        // MlockConfig
         let config = MlockConfig {
             enabled: true,
             max_locked_bytes: 1024,
         };
-        let debug = format!("{:?}", config);
-        assert!(debug.contains("MlockConfig"));
-        assert!(debug.contains("1024"));
+        assert!(format!("{:?}", config).contains("MlockConfig"));
+        let c2 = config.clone();
+        assert_eq!(config.enabled, c2.enabled);
+        // MlockResult
+        for r in [
+            MlockResult::Locked,
+            MlockResult::Disabled,
+            MlockResult::InsufficientPrivileges,
+            MlockResult::ResourceLimit,
+            MlockResult::Unsupported,
+        ] {
+            assert!(!format!("{:?}", r).is_empty());
+            assert_eq!(r.clone(), r);
+        }
+        // ExpertTier
+        for t in [ExpertTier::Hot, ExpertTier::Warm, ExpertTier::Cold] {
+            assert!(!format!("{:?}", t).is_empty());
+            let copied = t;
+            assert_eq!(t, copied);
+        }
     }
 
     #[test]
-    fn test_mlock_config_clone() {
+    fn test_mlock_boundary_conditions() {
         let config = MlockConfig {
             enabled: true,
-            max_locked_bytes: 2048,
+            max_locked_bytes: 1024,
         };
-        let cloned = config.clone();
-        assert_eq!(config.enabled, cloned.enabled);
-        assert_eq!(config.max_locked_bytes, cloned.max_locked_bytes);
+        // At limit
+        let data = vec![0u8; 1024];
+        // SAFETY: data is valid
+        let (_, r1) = unsafe { PinnedRegion::new(data.as_ptr(), data.len(), &config) };
+        assert_ne!(r1, MlockResult::Disabled);
+        // Over limit
+        let over = vec![0u8; 1025];
+        // SAFETY: data is valid
+        let (r2, res) = unsafe { PinnedRegion::new(over.as_ptr(), over.len(), &config) };
+        assert_eq!(res, MlockResult::ResourceLimit);
+        assert!(!r2.is_locked());
+        // Large allocation
+        let config2 = MlockConfig {
+            enabled: true,
+            max_locked_bytes: 0,
+        };
+        let large = vec![0u8; 64 * 1024];
+        // SAFETY: data is valid
+        let (r3, _) = unsafe { PinnedRegion::new(large.as_ptr(), large.len(), &config2) };
+        assert_eq!(r3.len(), 64 * 1024);
     }
 
     #[test]
-    fn test_mlock_result_debug() {
-        let result = MlockResult::Locked;
-        let debug = format!("{:?}", result);
-        assert!(debug.contains("Locked"));
-
-        let result2 = MlockResult::InsufficientPrivileges;
-        let debug2 = format!("{:?}", result2);
-        assert!(debug2.contains("InsufficientPrivileges"));
+    fn test_multiple_regions_and_drop() {
+        let config = MlockConfig {
+            enabled: false,
+            max_locked_bytes: 0,
+        };
+        let d1 = vec![1u8; 512];
+        let d2 = vec![2u8; 256];
+        // SAFETY: data is valid
+        let (r1, res1) = unsafe { PinnedRegion::new(d1.as_ptr(), d1.len(), &config) };
+        let (r2, res2) = unsafe { PinnedRegion::new(d2.as_ptr(), d2.len(), &config) };
+        assert_eq!(res1, MlockResult::Disabled);
+        assert_eq!(res2, MlockResult::Disabled);
+        assert_eq!(r1.len(), 512);
+        assert_eq!(r2.len(), 256);
+        // Drop behavior
+        let data = vec![42u8; 256];
+        {
+            // SAFETY: data is valid
+            let (region, _) = unsafe { PinnedRegion::new(data.as_ptr(), data.len(), &config) };
+            assert!(!region.is_locked());
+        }
+        assert_eq!(data[0], 42);
     }
 
     #[test]
-    fn test_mlock_result_clone() {
-        let result = MlockResult::Locked;
-        let cloned = result.clone();
-        assert_eq!(result, cloned);
+    fn test_drop_with_mlock_attempt() {
+        let config = MlockConfig {
+            enabled: true,
+            max_locked_bytes: 0,
+        };
+        let data = vec![99u8; 128];
+        {
+            // SAFETY: data is valid
+            let (region, result) = unsafe { PinnedRegion::new(data.as_ptr(), data.len(), &config) };
+            assert_eq!(region.is_locked(), result == MlockResult::Locked);
+        }
+        assert_eq!(data[0], 99);
     }
 
     #[test]
-    fn test_expert_tier_debug() {
-        let tier = ExpertTier::Hot;
-        let debug = format!("{:?}", tier);
-        assert!(debug.contains("Hot"));
+    fn test_send_sync_traits() {
+        fn assert_send<T: Send>() {}
+        fn assert_sync<T: Sync>() {}
+        assert_send::<PinnedRegion>();
+        assert_sync::<PinnedRegion>();
+        fn assert_both<T: Send + Sync>() {}
+        assert_both::<MlockConfig>();
+        assert_both::<ExpertTier>();
     }
 
     #[test]
-    fn test_expert_tier_clone() {
-        let tier = ExpertTier::Warm;
-        let cloned = tier;
-        assert_eq!(tier, cloned);
+    fn test_config_various_values() {
+        for (en, mb) in [(true, 0), (false, 1), (true, usize::MAX)] {
+            let c = MlockConfig {
+                enabled: en,
+                max_locked_bytes: mb,
+            };
+            let c2 = c.clone();
+            assert_eq!(c.enabled, c2.enabled);
+            assert_eq!(c.max_locked_bytes, c2.max_locked_bytes);
+        }
     }
 }

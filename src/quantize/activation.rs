@@ -8,8 +8,8 @@
 //! - `fused_swiglu_simd` - SIMD-accelerated SwiGLU activation
 //! - `softmax_simd` - SIMD-accelerated softmax
 
-use crate::error::{RealizarError, Result};
 use super::fused_q4_0_q8_0_dot_simd;
+use crate::error::{RealizarError, Result};
 
 // ============================================================================
 // Key insight: llama.cpp quantizes activations to Q8_0 and uses integer

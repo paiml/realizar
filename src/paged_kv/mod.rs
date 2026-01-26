@@ -1763,3 +1763,13 @@ pub fn find_longest_prefix(cache: &mut PrefixCache, tokens: &[u32]) -> Option<(P
 #[cfg(test)]
 #[path = "tests.rs"]
 mod paged_kv_tests;
+
+// Additional coverage tests (part 2)
+#[cfg(test)]
+#[path = "tests_part_02.rs"]
+mod paged_kv_tests_part_02;
+
+// Additional coverage tests (part 3)
+#[cfg(test)]
+#[path = "tests_part_03.rs"]
+mod paged_kv_tests_part_03;

@@ -115,7 +115,7 @@ mod tests {
                 eprintln!("CUDA init failed: {:?}", e);
                 eprintln!("Investigate: driver version? library path?");
                 return;
-            }
+            },
         };
 
         // Create Q4K super-block with identity pattern
@@ -166,10 +166,10 @@ mod tests {
                     eprintln!("   3. Block indexing (which 32-block within superblock)");
                     eprintln!("   4. Row stride calculation");
                 }
-            }
+            },
             Err(e) => {
                 eprintln!("❌ GEMV failed: {:?}", e);
-            }
+            },
         }
     }
 
@@ -191,7 +191,7 @@ mod tests {
             Err(e) => {
                 eprintln!("CUDA init failed: {:?}", e);
                 return;
-            }
+            },
         };
 
         // Create Q4K super-block with all values = 1 (nibble = 9, centered at 8)
@@ -227,7 +227,10 @@ mod tests {
                 let ratio = output[0] / expected;
 
                 if diff < 32.0 {
-                    eprintln!("✅ Output roughly matches (diff={:.1}, ratio={:.2}x)", diff, ratio);
+                    eprintln!(
+                        "✅ Output roughly matches (diff={:.1}, ratio={:.2}x)",
+                        diff, ratio
+                    );
                 } else {
                     eprintln!("❌ OUTPUT MISMATCH!");
                     eprintln!("   Expected: {:.1}", expected);
@@ -236,18 +239,22 @@ mod tests {
 
                     // Diagnostic: what ratio tells us
                     if (ratio - 8.0).abs() < 0.5 {
-                        eprintln!("\n   DIAGNOSIS: ~8x ratio suggests super-block vs block confusion");
+                        eprintln!(
+                            "\n   DIAGNOSIS: ~8x ratio suggests super-block vs block confusion"
+                        );
                         eprintln!("   (256/32 = 8 blocks per super-block)");
                     } else if (ratio - 2.0).abs() < 0.5 {
                         eprintln!("\n   DIAGNOSIS: ~2x ratio suggests nibble double-counting");
                     } else if (ratio - 0.5).abs() < 0.1 {
-                        eprintln!("\n   DIAGNOSIS: ~0.5x ratio suggests only half the values processed");
+                        eprintln!(
+                            "\n   DIAGNOSIS: ~0.5x ratio suggests only half the values processed"
+                        );
                     }
                 }
-            }
+            },
             Err(e) => {
                 eprintln!("❌ GEMV failed: {:?}", e);
-            }
+            },
         }
     }
 
@@ -273,7 +280,7 @@ mod tests {
             Err(e) => {
                 eprintln!("\nCUDA init failed: {:?}", e);
                 return;
-            }
+            },
         };
 
         // GPU GEMV with identity input (to extract dequantized values)
@@ -311,7 +318,10 @@ mod tests {
             let gpu = gpu_dequant[i];
             let diff = (cpu - gpu).abs();
             let status = if diff < 0.1 { "✅" } else { "❌" };
-            eprintln!("  [{}] CPU={:.4}, GPU={:.4}, diff={:.4} {}", i, cpu, gpu, diff, status);
+            eprintln!(
+                "  [{}] CPU={:.4}, GPU={:.4}, diff={:.4} {}",
+                i, cpu, gpu, diff, status
+            );
         }
     }
 
@@ -328,11 +338,13 @@ mod tests {
         // Parse scales (12 bytes for 8 blocks of 32)
         // Scale packing is complex - each block has a scale and a min
         // For simplicity, assume uniform scale = 1
-        let scales: Vec<f32> = (0..8).map(|i| {
-            let byte = sb[4 + i];
-            let scale = (byte & 0x0F) as f32;
-            scale
-        }).collect();
+        let scales: Vec<f32> = (0..8)
+            .map(|i| {
+                let byte = sb[4 + i];
+                let scale = (byte & 0x0F) as f32;
+                scale
+            })
+            .collect();
         eprintln!("  scales: {:?}", scales);
 
         // Parse quantized values
@@ -378,26 +390,37 @@ mod tests {
         eprintln!("║  PHASE 16: REAL MODEL WEIGHT INSPECTION                              ║");
         eprintln!("╚══════════════════════════════════════════════════════════════════════╝\n");
 
-        let model_path = std::path::Path::new(env!("HOME"))
-            .join("models/TinyLlama-1.1B-Chat-v1.0-Q4_K_M.gguf");
+        let model_path =
+            std::path::Path::new(env!("HOME")).join("models/TinyLlama-1.1B-Chat-v1.0-Q4_K_M.gguf");
 
         if !model_path.exists() {
             eprintln!("⚠️  Skipping: model not found at {:?}", model_path);
             return;
         }
 
-        let mapped = MappedGGUFModel::from_path(model_path.to_str().unwrap())
-            .expect("Failed to mmap GGUF");
+        let mapped =
+            MappedGGUFModel::from_path(model_path.to_str().unwrap()).expect("Failed to mmap GGUF");
 
         // List tensor info
         eprintln!("Model loaded. Tensor count: {}", mapped.model.tensors.len());
         eprintln!("\nFirst 10 tensors:");
         for (i, tensor) in mapped.model.tensors.iter().take(10).enumerate() {
-            eprintln!("  {}: {} - dims={:?}, qtype={}", i, tensor.name, &tensor.dims[..tensor.n_dims as usize], tensor.qtype);
+            eprintln!(
+                "  {}: {} - dims={:?}, qtype={}",
+                i,
+                tensor.name,
+                &tensor.dims[..tensor.n_dims as usize],
+                tensor.qtype
+            );
         }
 
         // Find embedding tensor
-        if let Some(tensor) = mapped.model.tensors.iter().find(|t| t.name.contains("embd")) {
+        if let Some(tensor) = mapped
+            .model
+            .tensors
+            .iter()
+            .find(|t| t.name.contains("embd"))
+        {
             eprintln!("\nToken embedding tensor:");
             eprintln!("  Name: {}", tensor.name);
             eprintln!("  Dims: {:?}", &tensor.dims[..tensor.n_dims as usize]);
@@ -407,7 +430,10 @@ mod tests {
             // Get raw data via slice
             let data_start = mapped.model.tensor_data_start + tensor.offset as usize;
             let tensor_size: u64 = tensor.dims[..tensor.n_dims as usize].iter().product();
-            if let Some(data) = mapped.data().get(data_start..data_start + Q4K_SUPER_BLOCK_BYTES.min(tensor_size as usize)) {
+            if let Some(data) = mapped
+                .data()
+                .get(data_start..data_start + Q4K_SUPER_BLOCK_BYTES.min(tensor_size as usize))
+            {
                 if data.len() >= Q4K_SUPER_BLOCK_BYTES {
                     eprintln!("\n  First super-block ({} bytes):", Q4K_SUPER_BLOCK_BYTES);
                     eprintln!("    d (f16): [{:#04x}, {:#04x}]", data[0], data[1]);
@@ -423,14 +449,22 @@ mod tests {
         }
 
         // Find first layer Q projection
-        if let Some(tensor) = mapped.model.tensors.iter().find(|t| t.name.contains("blk.0.attn_q")) {
+        if let Some(tensor) = mapped
+            .model
+            .tensors
+            .iter()
+            .find(|t| t.name.contains("blk.0.attn_q"))
+        {
             eprintln!("\n\nAttention Q weight (layer 0):");
             eprintln!("  Name: {}", tensor.name);
             eprintln!("  Dims: {:?}", &tensor.dims[..tensor.n_dims as usize]);
             eprintln!("  QType: {} (12=Q4K)", tensor.qtype);
 
             let data_start = mapped.model.tensor_data_start + tensor.offset as usize;
-            if let Some(data) = mapped.data().get(data_start..data_start + Q4K_SUPER_BLOCK_BYTES) {
+            if let Some(data) = mapped
+                .data()
+                .get(data_start..data_start + Q4K_SUPER_BLOCK_BYTES)
+            {
                 let d = f16_to_f32(data[0], data[1]);
                 let dmin = f16_to_f32(data[2], data[3]);
                 eprintln!("  First superblock: d={:.6}, dmin={:.6}", d, dmin);
@@ -448,33 +482,38 @@ mod tests {
         eprintln!("║  PHASE 16: REAL Q4K CPU vs GPU DEQUANTIZATION                        ║");
         eprintln!("╚══════════════════════════════════════════════════════════════════════╝\n");
 
-        let model_path = std::path::Path::new(env!("HOME"))
-            .join("models/TinyLlama-1.1B-Chat-v1.0-Q4_K_M.gguf");
+        let model_path =
+            std::path::Path::new(env!("HOME")).join("models/TinyLlama-1.1B-Chat-v1.0-Q4_K_M.gguf");
 
         if !model_path.exists() {
             eprintln!("Skipping: model not found");
             return;
         }
 
-        let mapped = MappedGGUFModel::from_path(model_path.to_str().unwrap())
-            .expect("Failed to mmap GGUF");
+        let mapped =
+            MappedGGUFModel::from_path(model_path.to_str().unwrap()).expect("Failed to mmap GGUF");
 
         // Find first layer Q weight (Q4K quantized)
-        let tensor = mapped.model.tensors.iter()
+        let tensor = mapped
+            .model
+            .tensors
+            .iter()
             .find(|t| t.name.contains("blk.0.attn_q"))
             .expect("attn_q tensor not found");
 
-        eprintln!("Tensor: {} - dims={:?}, qtype={}",
+        eprintln!(
+            "Tensor: {} - dims={:?}, qtype={}",
             tensor.name,
             &tensor.dims[..tensor.n_dims as usize],
-            tensor.qtype);
+            tensor.qtype
+        );
 
-        let out_dim = tensor.dims[0] as usize;  // N = 2048
-        let in_dim = tensor.dims[1] as usize;   // K = 2048
+        let out_dim = tensor.dims[0] as usize; // N = 2048
+        let in_dim = tensor.dims[1] as usize; // K = 2048
 
         let data_start = mapped.model.tensor_data_start + tensor.offset as usize;
-        let n_super_blocks = (in_dim + 255) / 256;  // 8 for K=2048
-        let bytes_per_row = n_super_blocks * 144;   // 8 * 144 = 1152
+        let n_super_blocks = (in_dim + 255) / 256; // 8 for K=2048
+        let bytes_per_row = n_super_blocks * 144; // 8 * 144 = 1152
 
         eprintln!("Weight layout:");
         eprintln!("  out_dim (N): {}", out_dim);
@@ -483,18 +522,22 @@ mod tests {
         eprintln!("  bytes per row: {}", bytes_per_row);
 
         // Extract first row of weights (row 0)
-        let row_data = mapped.data()
+        let row_data = mapped
+            .data()
             .get(data_start..data_start + bytes_per_row)
             .expect("Failed to get row data");
 
         // CPU dequantization
         eprintln!("\nCPU Dequantization (first row, {} values):", in_dim);
-        let cpu_dequant = realizar::quantize::dequantize_q4_k(row_data)
-            .expect("CPU dequant failed");
+        let cpu_dequant =
+            realizar::quantize::dequantize_q4_k(row_data).expect("CPU dequant failed");
 
         eprintln!("  First 8 values: {:?}", &cpu_dequant[..8]);
         eprintln!("  Sum: {:.6}", cpu_dequant.iter().sum::<f32>());
-        eprintln!("  L2: {:.6}", cpu_dequant.iter().map(|x| x*x).sum::<f32>().sqrt());
+        eprintln!(
+            "  L2: {:.6}",
+            cpu_dequant.iter().map(|x| x * x).sum::<f32>().sqrt()
+        );
 
         // GPU dequantization via GEMV with unit vectors
         eprintln!("\nGPU Dequantization (via GEMV with unit vectors):");
@@ -504,12 +547,13 @@ mod tests {
             Err(e) => {
                 eprintln!("CUDA init failed: {:?}", e);
                 return;
-            }
+            },
         };
 
         // Load first row as a 1xK weight matrix
         let weight_key = "test_row0";
-        executor.load_quantized_weights(weight_key, row_data)
+        executor
+            .load_quantized_weights(weight_key, row_data)
             .expect("Failed to load weights");
 
         // Use unit vector to extract dequantized values
@@ -518,12 +562,13 @@ mod tests {
         let n = 1u32;
 
         // Sample first 8 and last 8 positions
-        for i in (0..8).chain((in_dim-8)..in_dim) {
+        for i in (0..8).chain((in_dim - 8)..in_dim) {
             let mut input = vec![0.0f32; in_dim];
             input[i] = 1.0;
             let mut output = vec![0.0f32; 1];
 
-            executor.q4k_gemv_cached(weight_key, &input, &mut output, n, k)
+            executor
+                .q4k_gemv_cached(weight_key, &input, &mut output, n, k)
                 .expect("GEMV failed");
 
             if i < 8 {
@@ -542,7 +587,10 @@ mod tests {
             let diff = (cpu - gpu).abs();
             max_diff = max_diff.max(diff);
             let status = if diff < 0.001 { "✅" } else { "❌" };
-            eprintln!("  [{}] CPU={:.6}, GPU={:.6}, diff={:.6} {}", i, cpu, gpu, diff, status);
+            eprintln!(
+                "  [{}] CPU={:.6}, GPU={:.6}, diff={:.6} {}",
+                i, cpu, gpu, diff, status
+            );
         }
 
         eprintln!("\nMax diff: {:.6}", max_diff);
@@ -551,7 +599,9 @@ mod tests {
             eprintln!("\nAnalysis:");
             eprintln!("  CPU sum: {:.6}", cpu_dequant.iter().sum::<f32>());
             eprintln!("  GPU first 8 sum: {:.6}", gpu_dequant.iter().sum::<f32>());
-            eprintln!("\n  This confirms H3: Q4K layout mismatch between CPU dequant and GPU kernel");
+            eprintln!(
+                "\n  This confirms H3: Q4K layout mismatch between CPU dequant and GPU kernel"
+            );
         } else {
             eprintln!("✅ CPU and GPU dequantization match!");
         }
@@ -566,24 +616,27 @@ mod tests {
         eprintln!("║  PHASE 16: FULL MATRIX Q4K GEMV TEST                                 ║");
         eprintln!("╚══════════════════════════════════════════════════════════════════════╝\n");
 
-        let model_path = std::path::Path::new(env!("HOME"))
-            .join("models/TinyLlama-1.1B-Chat-v1.0-Q4_K_M.gguf");
+        let model_path =
+            std::path::Path::new(env!("HOME")).join("models/TinyLlama-1.1B-Chat-v1.0-Q4_K_M.gguf");
 
         if !model_path.exists() {
             eprintln!("Skipping: model not found");
             return;
         }
 
-        let mapped = MappedGGUFModel::from_path(model_path.to_str().unwrap())
-            .expect("Failed to mmap GGUF");
+        let mapped =
+            MappedGGUFModel::from_path(model_path.to_str().unwrap()).expect("Failed to mmap GGUF");
 
         // Find first layer Q weight
-        let tensor = mapped.model.tensors.iter()
+        let tensor = mapped
+            .model
+            .tensors
+            .iter()
             .find(|t| t.name.contains("blk.0.attn_q"))
             .expect("attn_q tensor not found");
 
-        let out_dim = tensor.dims[0] as usize;  // N = 2048
-        let in_dim = tensor.dims[1] as usize;   // K = 2048
+        let out_dim = tensor.dims[0] as usize; // N = 2048
+        let in_dim = tensor.dims[1] as usize; // K = 2048
 
         let data_start = mapped.model.tensor_data_start + tensor.offset as usize;
         let n_super_blocks = (in_dim + 255) / 256;
@@ -594,7 +647,8 @@ mod tests {
         eprintln!("Total bytes: {}", total_bytes);
 
         // Extract full weight matrix
-        let weight_data = mapped.data()
+        let weight_data = mapped
+            .data()
             .get(data_start..data_start + total_bytes)
             .expect("Failed to get weight data");
 
@@ -606,7 +660,7 @@ mod tests {
             let row_start = row * bytes_per_row;
             let row_data = &weight_data[row_start..row_start + bytes_per_row];
             let dequant = realizar::quantize::dequantize_q4_k(row_data).expect("dequant");
-            cpu_outputs.push(dequant[0]);  // First element of each row
+            cpu_outputs.push(dequant[0]); // First element of each row
         }
         eprintln!("  First 8: {:?}", &cpu_outputs[..8]);
 
@@ -616,18 +670,26 @@ mod tests {
             Err(e) => {
                 eprintln!("CUDA init failed: {:?}", e);
                 return;
-            }
+            },
         };
 
         let weight_key = "test_full_matrix";
-        executor.load_quantized_weights(weight_key, weight_data)
+        executor
+            .load_quantized_weights(weight_key, weight_data)
             .expect("Failed to load weights");
 
         let mut input = vec![0.0f32; in_dim];
-        input[0] = 1.0;  // Unit vector at position 0
+        input[0] = 1.0; // Unit vector at position 0
         let mut gpu_outputs = vec![0.0f32; out_dim];
 
-        executor.q4k_gemv_cached(weight_key, &input, &mut gpu_outputs, out_dim as u32, in_dim as u32)
+        executor
+            .q4k_gemv_cached(
+                weight_key,
+                &input,
+                &mut gpu_outputs,
+                out_dim as u32,
+                in_dim as u32,
+            )
             .expect("GEMV failed");
 
         eprintln!("\nGPU result:");
@@ -642,10 +704,17 @@ mod tests {
             let diff = (cpu - gpu).abs();
             max_diff = max_diff.max(diff);
             let status = if diff < 0.0001 { "✅" } else { "❌" };
-            eprintln!("  [{:4}] CPU={:+.6}, GPU={:+.6}, diff={:.6} {}", i, cpu, gpu, diff, status);
+            eprintln!(
+                "  [{:4}] CPU={:+.6}, GPU={:+.6}, diff={:.6} {}",
+                i, cpu, gpu, diff, status
+            );
         }
 
-        eprintln!("\nMax diff (first {} rows): {:.6}", out_dim.min(16), max_diff);
+        eprintln!(
+            "\nMax diff (first {} rows): {:.6}",
+            out_dim.min(16),
+            max_diff
+        );
 
         if max_diff > 0.001 {
             eprintln!("❌ FULL MATRIX GEMV DIVERGENCE DETECTED!");
@@ -663,20 +732,20 @@ mod tests {
         eprintln!("║  PHASE 16: CPU vs GPU FORWARD TRACE COMPARISON                       ║");
         eprintln!("╚══════════════════════════════════════════════════════════════════════╝\n");
 
-        let model_path = std::path::Path::new(env!("HOME"))
-            .join("models/TinyLlama-1.1B-Chat-v1.0-Q4_K_M.gguf");
+        let model_path =
+            std::path::Path::new(env!("HOME")).join("models/TinyLlama-1.1B-Chat-v1.0-Q4_K_M.gguf");
 
         if !model_path.exists() {
             eprintln!("Skipping: model not found");
             return;
         }
 
-        let mapped = MappedGGUFModel::from_path(model_path.to_str().unwrap())
-            .expect("Failed to mmap GGUF");
+        let mapped =
+            MappedGGUFModel::from_path(model_path.to_str().unwrap()).expect("Failed to mmap GGUF");
 
         // Load CPU model
-        let cpu_model = OwnedQuantizedModel::from_mapped(&mapped)
-            .expect("Failed to load CPU model");
+        let cpu_model =
+            OwnedQuantizedModel::from_mapped(&mapped).expect("Failed to load CPU model");
 
         let bos_token = mapped.model.bos_token_id().unwrap_or(1);
         eprintln!("Test token: {} (BOS)", bos_token);
@@ -685,63 +754,76 @@ mod tests {
         let embedding = cpu_model.embed(&[bos_token]);
         eprintln!("Embedding dim: {}", embedding.len());
         eprintln!("Embedding[0..8]: {:?}", &embedding[..8]);
-        eprintln!("Embedding L2: {:.6}", embedding.iter().map(|x| x*x).sum::<f32>().sqrt());
+        eprintln!(
+            "Embedding L2: {:.6}",
+            embedding.iter().map(|x| x * x).sum::<f32>().sqrt()
+        );
 
         // CPU forward pass
         eprintln!("\nCPU Forward:");
-        let mut cpu_cache = realizar::gguf::OwnedQuantizedKVCache::from_config(
-            cpu_model.config(), 10
-        );
-        let cpu_logits = cpu_model.forward_cached(bos_token, &mut cpu_cache, 0)
+        let mut cpu_cache =
+            realizar::gguf::OwnedQuantizedKVCache::from_config(cpu_model.config(), 10);
+        let cpu_logits = cpu_model
+            .forward_cached(bos_token, &mut cpu_cache, 0)
             .expect("CPU forward failed");
 
-        let cpu_top1 = cpu_logits.iter()
+        let cpu_top1 = cpu_logits
+            .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
             .map(|(idx, _)| idx as u32)
             .unwrap_or(0);
         let cpu_decoded = mapped.model.decode(&[cpu_top1]);
         eprintln!("  Top-1: {} ({:?})", cpu_top1, cpu_decoded);
-        eprintln!("  Logits L2: {:.6}", cpu_logits.iter().map(|x| x*x).sum::<f32>().sqrt());
+        eprintln!(
+            "  Logits L2: {:.6}",
+            cpu_logits.iter().map(|x| x * x).sum::<f32>().sqrt()
+        );
         eprintln!("  Logits[0..5]: {:?}", &cpu_logits[..5]);
 
         // GPU forward pass with debug output
         eprintln!("\nGPU Forward (enabling REALIZAR_DEBUG_FORWARD):");
 
         let mut cuda_model = match OwnedQuantizedModelCuda::with_max_seq_len(
-            OwnedQuantizedModel::from_mapped(&mapped).unwrap(), 0, 10
+            OwnedQuantizedModel::from_mapped(&mapped).unwrap(),
+            0,
+            10,
         ) {
             Ok(model) => model,
             Err(e) => {
                 eprintln!("CUDA init failed: {:?}", e);
                 return;
-            }
+            },
         };
 
         // Enable debug output and disable CUDA graphs
         std::env::set_var("REALIZAR_DEBUG_FORWARD", "1");
         std::env::set_var("SKIP_CUDA_GRAPH", "1");
 
-        let mut gpu_cache = realizar::gguf::OwnedQuantizedKVCache::from_config(
-            cuda_model.model().config(), 10
-        );
+        let mut gpu_cache =
+            realizar::gguf::OwnedQuantizedKVCache::from_config(cuda_model.model().config(), 10);
 
         // This will print debug info if REALIZAR_DEBUG_FORWARD is set
-        let gpu_logits = cuda_model.forward_single_full_cuda_with_cache(bos_token, &mut gpu_cache, 0);
+        let gpu_logits =
+            cuda_model.forward_single_full_cuda_with_cache(bos_token, &mut gpu_cache, 0);
 
         std::env::remove_var("REALIZAR_DEBUG_FORWARD");
         std::env::remove_var("SKIP_CUDA_GRAPH");
 
         match gpu_logits {
             Ok(logits) => {
-                let gpu_top1 = logits.iter()
+                let gpu_top1 = logits
+                    .iter()
                     .enumerate()
                     .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
                     .map(|(idx, _)| idx as u32)
                     .unwrap_or(0);
                 let gpu_decoded = mapped.model.decode(&[gpu_top1]);
                 eprintln!("  Top-1: {} ({:?})", gpu_top1, gpu_decoded);
-                eprintln!("  Logits L2: {:.6}", logits.iter().map(|x| x*x).sum::<f32>().sqrt());
+                eprintln!(
+                    "  Logits L2: {:.6}",
+                    logits.iter().map(|x| x * x).sum::<f32>().sqrt()
+                );
                 eprintln!("  Logits[0..5]: {:?}", &logits[..5]);
 
                 // Compare
@@ -754,10 +836,10 @@ mod tests {
                     eprintln!("  GPU: {} ({:?})", gpu_top1, gpu_decoded);
                     eprintln!("\n  Check [PAR-052] debug output above for intermediate values");
                 }
-            }
+            },
             Err(e) => {
                 eprintln!("❌ GPU forward failed: {:?}", e);
-            }
+            },
         }
     }
 
@@ -771,26 +853,29 @@ mod tests {
         eprintln!("║  PHASE 16: DIRECT QKV COMPARISON (Same Input)                        ║");
         eprintln!("╚══════════════════════════════════════════════════════════════════════╝\n");
 
-        let model_path = std::path::Path::new(env!("HOME"))
-            .join("models/TinyLlama-1.1B-Chat-v1.0-Q4_K_M.gguf");
+        let model_path =
+            std::path::Path::new(env!("HOME")).join("models/TinyLlama-1.1B-Chat-v1.0-Q4_K_M.gguf");
 
         if !model_path.exists() {
             eprintln!("Skipping: model not found");
             return;
         }
 
-        let mapped = MappedGGUFModel::from_path(model_path.to_str().unwrap())
-            .expect("Failed to mmap GGUF");
+        let mapped =
+            MappedGGUFModel::from_path(model_path.to_str().unwrap()).expect("Failed to mmap GGUF");
 
-        let cpu_model = OwnedQuantizedModel::from_mapped(&mapped)
-            .expect("Failed to load CPU model");
+        let cpu_model =
+            OwnedQuantizedModel::from_mapped(&mapped).expect("Failed to load CPU model");
 
         // Get BOS embedding and normalize it (same as forward pass would)
         let bos_token = mapped.model.bos_token_id().unwrap_or(1);
         let embedding = cpu_model.embed(&[bos_token]);
 
         eprintln!("Embedding dim: {}", embedding.len());
-        eprintln!("Embedding L2: {:.6}", embedding.iter().map(|x| x*x).sum::<f32>().sqrt());
+        eprintln!(
+            "Embedding L2: {:.6}",
+            embedding.iter().map(|x| x * x).sum::<f32>().sqrt()
+        );
 
         // Get layer 0 attention norm weight
         let layer0 = &cpu_model.layers[0];
@@ -799,26 +884,35 @@ mod tests {
 
         // Manual RMSNorm (same as CPU model does)
         let normed = {
-            let rms = (embedding.iter().map(|x| x * x).sum::<f32>() / embedding.len() as f32 + eps).sqrt();
-            embedding.iter()
+            let rms = (embedding.iter().map(|x| x * x).sum::<f32>() / embedding.len() as f32 + eps)
+                .sqrt();
+            embedding
+                .iter()
                 .zip(attn_norm_weight.iter())
                 .map(|(x, w)| (x / rms) * w)
                 .collect::<Vec<f32>>()
         };
 
         eprintln!("Normed[0..8]: {:?}", &normed[..8]);
-        eprintln!("Normed L2: {:.6}", normed.iter().map(|x| x*x).sum::<f32>().sqrt());
+        eprintln!(
+            "Normed L2: {:.6}",
+            normed.iter().map(|x| x * x).sum::<f32>().sqrt()
+        );
 
         // Get QKV weight for CPU matmul
         let qkv_weight = &layer0.qkv_weight;
 
         // CPU QKV matmul using the internal fused_q4k_parallel_matvec
         eprintln!("\nCPU QKV matmul (fused_q4k_parallel_matvec):");
-        let cpu_qkv = cpu_model.qkv_matmul(&normed, qkv_weight)
+        let cpu_qkv = cpu_model
+            .qkv_matmul(&normed, qkv_weight)
             .expect("CPU QKV failed");
 
         eprintln!("  Q[0..8]: {:?}", &cpu_qkv[..8]);
-        eprintln!("  QKV L2: {:.6}", cpu_qkv.iter().map(|x| x*x).sum::<f32>().sqrt());
+        eprintln!(
+            "  QKV L2: {:.6}",
+            cpu_qkv.iter().map(|x| x * x).sum::<f32>().sqrt()
+        );
         eprintln!("  QKV sum: {:.6}", cpu_qkv.iter().sum::<f32>());
 
         // GPU QKV matmul using executor directly
@@ -829,7 +923,7 @@ mod tests {
             Err(e) => {
                 eprintln!("CUDA init failed: {:?}", e);
                 return;
-            }
+            },
         };
 
         // Handle fused vs separate QKV weights
@@ -841,24 +935,41 @@ mod tests {
                 eprintln!("  Weight data len: {}", w.data.len());
 
                 // Load weights to GPU
-                executor.load_quantized_weights("test_qkv_fused", &w.data)
+                executor
+                    .load_quantized_weights("test_qkv_fused", &w.data)
                     .expect("Failed to load weights");
 
                 let mut output = vec![0.0f32; w.out_dim];
-                executor.q4k_gemv_cached("test_qkv_fused", &normed, &mut output, w.out_dim as u32, w.in_dim as u32)
+                executor
+                    .q4k_gemv_cached(
+                        "test_qkv_fused",
+                        &normed,
+                        &mut output,
+                        w.out_dim as u32,
+                        w.in_dim as u32,
+                    )
                     .expect("GPU GEMV failed");
                 output
-            }
+            },
             realizar::gguf::OwnedQKVWeights::Separate { q, k, v } => {
                 eprintln!("  Weight type: SEPARATE Q/K/V");
-                eprintln!("  Q shape: {} x {}, qtype={} (12=Q4_K, 14=Q6_K)", q.out_dim, q.in_dim, q.qtype);
+                eprintln!(
+                    "  Q shape: {} x {}, qtype={} (12=Q4_K, 14=Q6_K)",
+                    q.out_dim, q.in_dim, q.qtype
+                );
                 eprintln!("  K shape: {} x {}, qtype={}", k.out_dim, k.in_dim, k.qtype);
                 eprintln!("  V shape: {} x {}, qtype={}", v.out_dim, v.in_dim, v.qtype);
 
                 // Load weights with appropriate type info
-                executor.load_quantized_weights("test_q", &q.data).expect("Failed to load Q");
-                executor.load_quantized_weights("test_k", &k.data).expect("Failed to load K");
-                executor.load_quantized_weights("test_v", &v.data).expect("Failed to load V");
+                executor
+                    .load_quantized_weights("test_q", &q.data)
+                    .expect("Failed to load Q");
+                executor
+                    .load_quantized_weights("test_k", &k.data)
+                    .expect("Failed to load K");
+                executor
+                    .load_quantized_weights("test_v", &v.data)
+                    .expect("Failed to load V");
 
                 let mut q_out = vec![0.0f32; q.out_dim];
                 let mut k_out = vec![0.0f32; k.out_dim];
@@ -867,20 +978,68 @@ mod tests {
                 // Use correct GEMV kernel based on qtype
                 // Q4_K = 12, Q5_K = 13, Q6_K = 14
                 match q.qtype {
-                    12 => executor.q4k_gemv_cached("test_q", &normed, &mut q_out, q.out_dim as u32, q.in_dim as u32).expect("GPU Q GEMV failed"),
-                    14 => executor.q6k_gemv_cached("test_q", &normed, &mut q_out, q.out_dim as u32, q.in_dim as u32).expect("GPU Q GEMV failed"),
+                    12 => executor
+                        .q4k_gemv_cached(
+                            "test_q",
+                            &normed,
+                            &mut q_out,
+                            q.out_dim as u32,
+                            q.in_dim as u32,
+                        )
+                        .expect("GPU Q GEMV failed"),
+                    14 => executor
+                        .q6k_gemv_cached(
+                            "test_q",
+                            &normed,
+                            &mut q_out,
+                            q.out_dim as u32,
+                            q.in_dim as u32,
+                        )
+                        .expect("GPU Q GEMV failed"),
                     _ => panic!("Unsupported Q qtype: {}", q.qtype),
                 }
 
                 match k.qtype {
-                    12 => executor.q4k_gemv_cached("test_k", &normed, &mut k_out, k.out_dim as u32, k.in_dim as u32).expect("GPU K GEMV failed"),
-                    14 => executor.q6k_gemv_cached("test_k", &normed, &mut k_out, k.out_dim as u32, k.in_dim as u32).expect("GPU K GEMV failed"),
+                    12 => executor
+                        .q4k_gemv_cached(
+                            "test_k",
+                            &normed,
+                            &mut k_out,
+                            k.out_dim as u32,
+                            k.in_dim as u32,
+                        )
+                        .expect("GPU K GEMV failed"),
+                    14 => executor
+                        .q6k_gemv_cached(
+                            "test_k",
+                            &normed,
+                            &mut k_out,
+                            k.out_dim as u32,
+                            k.in_dim as u32,
+                        )
+                        .expect("GPU K GEMV failed"),
                     _ => panic!("Unsupported K qtype: {}", k.qtype),
                 }
 
                 match v.qtype {
-                    12 => executor.q4k_gemv_cached("test_v", &normed, &mut v_out, v.out_dim as u32, v.in_dim as u32).expect("GPU V GEMV failed"),
-                    14 => executor.q6k_gemv_cached("test_v", &normed, &mut v_out, v.out_dim as u32, v.in_dim as u32).expect("GPU V GEMV failed"),
+                    12 => executor
+                        .q4k_gemv_cached(
+                            "test_v",
+                            &normed,
+                            &mut v_out,
+                            v.out_dim as u32,
+                            v.in_dim as u32,
+                        )
+                        .expect("GPU V GEMV failed"),
+                    14 => executor
+                        .q6k_gemv_cached(
+                            "test_v",
+                            &normed,
+                            &mut v_out,
+                            v.out_dim as u32,
+                            v.in_dim as u32,
+                        )
+                        .expect("GPU V GEMV failed"),
                     _ => panic!("Unsupported V qtype: {}", v.qtype),
                 }
 
@@ -890,11 +1049,14 @@ mod tests {
                 output.extend_from_slice(&k_out);
                 output.extend_from_slice(&v_out);
                 output
-            }
+            },
         };
 
         eprintln!("  Q[0..8]: {:?}", &gpu_qkv[..8]);
-        eprintln!("  QKV L2: {:.6}", gpu_qkv.iter().map(|x| x*x).sum::<f32>().sqrt());
+        eprintln!(
+            "  QKV L2: {:.6}",
+            gpu_qkv.iter().map(|x| x * x).sum::<f32>().sqrt()
+        );
         eprintln!("  QKV sum: {:.6}", gpu_qkv.iter().sum::<f32>());
 
         // Compare
@@ -906,16 +1068,21 @@ mod tests {
             let diff = (cpu - gpu).abs();
             max_diff = max_diff.max(diff);
             let status = if diff < 0.01 { "✅" } else { "❌" };
-            eprintln!("  [{:4}] CPU={:+.6}, GPU={:+.6}, diff={:.6} {}", i, cpu, gpu, diff, status);
+            eprintln!(
+                "  [{:4}] CPU={:+.6}, GPU={:+.6}, diff={:.6} {}",
+                i, cpu, gpu, diff, status
+            );
         }
 
         // Overall stats
-        let l2_diff = cpu_qkv.iter().zip(gpu_qkv.iter())
+        let l2_diff = cpu_qkv
+            .iter()
+            .zip(gpu_qkv.iter())
             .map(|(c, g)| (c - g).powi(2))
             .sum::<f32>()
             .sqrt();
-        let cpu_l2 = cpu_qkv.iter().map(|x| x*x).sum::<f32>().sqrt();
-        let gpu_l2 = gpu_qkv.iter().map(|x| x*x).sum::<f32>().sqrt();
+        let cpu_l2 = cpu_qkv.iter().map(|x| x * x).sum::<f32>().sqrt();
+        let gpu_l2 = gpu_qkv.iter().map(|x| x * x).sum::<f32>().sqrt();
 
         eprintln!("\nOverall:");
         eprintln!("  CPU L2: {:.6}", cpu_l2);
@@ -941,19 +1108,19 @@ mod tests {
         eprintln!("║  PHASE 16: LAYER-BY-LAYER HIDDEN STATE COMPARISON                    ║");
         eprintln!("╚══════════════════════════════════════════════════════════════════════╝\n");
 
-        let model_path = std::path::Path::new(env!("HOME"))
-            .join("models/TinyLlama-1.1B-Chat-v1.0-Q4_K_M.gguf");
+        let model_path =
+            std::path::Path::new(env!("HOME")).join("models/TinyLlama-1.1B-Chat-v1.0-Q4_K_M.gguf");
 
         if !model_path.exists() {
             eprintln!("Skipping: model not found");
             return;
         }
 
-        let mapped = MappedGGUFModel::from_path(model_path.to_str().unwrap())
-            .expect("Failed to mmap GGUF");
+        let mapped =
+            MappedGGUFModel::from_path(model_path.to_str().unwrap()).expect("Failed to mmap GGUF");
 
-        let cpu_model = OwnedQuantizedModel::from_mapped(&mapped)
-            .expect("Failed to load CPU model");
+        let cpu_model =
+            OwnedQuantizedModel::from_mapped(&mapped).expect("Failed to load CPU model");
 
         let bos_token = mapped.model.bos_token_id().unwrap_or(1);
         let hidden_dim = cpu_model.config().hidden_dim;
@@ -963,34 +1130,40 @@ mod tests {
         eprintln!("Token: {} (BOS)\n", bos_token);
 
         // Run CPU forward and capture hidden states after each layer
-        let mut cpu_cache = realizar::gguf::OwnedQuantizedKVCache::from_config(
-            cpu_model.config(), 10
-        );
+        let mut cpu_cache =
+            realizar::gguf::OwnedQuantizedKVCache::from_config(cpu_model.config(), 10);
 
         // Use internal forward logic to capture hidden states
         // We need to trace through manually since forward_cached doesn't expose intermediates
 
         let mut cpu_hidden = cpu_model.embed(&[bos_token]);
         eprintln!("After embedding:");
-        eprintln!("  CPU L2: {:.6}", cpu_hidden.iter().map(|x| x*x).sum::<f32>().sqrt());
+        eprintln!(
+            "  CPU L2: {:.6}",
+            cpu_hidden.iter().map(|x| x * x).sum::<f32>().sqrt()
+        );
         eprintln!("  CPU [0..4]: {:?}", &cpu_hidden[..4]);
 
         // Get GPU model for comparison
         std::env::set_var("SKIP_CUDA_GRAPH", "1");
         let mut cuda_model = OwnedQuantizedModelCuda::with_max_seq_len(
-            OwnedQuantizedModel::from_mapped(&mapped).unwrap(), 0, 10
-        ).expect("Failed to create CUDA model");
+            OwnedQuantizedModel::from_mapped(&mapped).unwrap(),
+            0,
+            10,
+        )
+        .expect("Failed to create CUDA model");
 
-        let mut gpu_cache = realizar::gguf::OwnedQuantizedKVCache::from_config(
-            cuda_model.model().config(), 10
-        );
+        let mut gpu_cache =
+            realizar::gguf::OwnedQuantizedKVCache::from_config(cuda_model.model().config(), 10);
 
         // Run GPU forward and get final logits
-        let gpu_logits = cuda_model.forward_single_full_cuda_with_cache(bos_token, &mut gpu_cache, 0)
+        let gpu_logits = cuda_model
+            .forward_single_full_cuda_with_cache(bos_token, &mut gpu_cache, 0)
             .expect("GPU forward failed");
 
         // Run CPU forward to get final logits
-        let cpu_logits = cpu_model.forward_cached(bos_token, &mut cpu_cache, 0)
+        let cpu_logits = cpu_model
+            .forward_cached(bos_token, &mut cpu_cache, 0)
             .expect("CPU forward failed");
 
         // Compare logits
@@ -998,9 +1171,11 @@ mod tests {
         eprintln!("FINAL LOGITS COMPARISON");
         eprintln!("═══════════════════════════════════════════════════════════════════════");
 
-        let cpu_l2 = cpu_logits.iter().map(|x| x*x).sum::<f32>().sqrt();
-        let gpu_l2 = gpu_logits.iter().map(|x| x*x).sum::<f32>().sqrt();
-        let diff_l2 = cpu_logits.iter().zip(gpu_logits.iter())
+        let cpu_l2 = cpu_logits.iter().map(|x| x * x).sum::<f32>().sqrt();
+        let gpu_l2 = gpu_logits.iter().map(|x| x * x).sum::<f32>().sqrt();
+        let diff_l2 = cpu_logits
+            .iter()
+            .zip(gpu_logits.iter())
             .map(|(c, g)| (c - g).powi(2))
             .sum::<f32>()
             .sqrt();
@@ -1010,19 +1185,29 @@ mod tests {
         eprintln!("Diff L2: {:.6}", diff_l2);
         eprintln!("Relative diff: {:.4}%", diff_l2 / cpu_l2 * 100.0);
 
-        let cpu_top1 = cpu_logits.iter()
+        let cpu_top1 = cpu_logits
+            .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
             .map(|(idx, _)| idx as u32)
             .unwrap_or(0);
-        let gpu_top1 = gpu_logits.iter()
+        let gpu_top1 = gpu_logits
+            .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
             .map(|(idx, _)| idx as u32)
             .unwrap_or(0);
 
-        eprintln!("\nCPU top-1: {} ({:?})", cpu_top1, mapped.model.decode(&[cpu_top1]));
-        eprintln!("GPU top-1: {} ({:?})", gpu_top1, mapped.model.decode(&[gpu_top1]));
+        eprintln!(
+            "\nCPU top-1: {} ({:?})",
+            cpu_top1,
+            mapped.model.decode(&[cpu_top1])
+        );
+        eprintln!(
+            "GPU top-1: {} ({:?})",
+            gpu_top1,
+            mapped.model.decode(&[gpu_top1])
+        );
 
         eprintln!("\nLogits[0..5]:");
         eprintln!("  CPU: {:?}", &cpu_logits[..5]);
@@ -1038,10 +1223,10 @@ mod tests {
         match &layer0.qkv_weight {
             realizar::gguf::OwnedQKVWeights::Fused(w) => {
                 eprintln!("  QKV (fused): {}", w.qtype);
-            }
+            },
             realizar::gguf::OwnedQKVWeights::Separate { q, k, v } => {
                 eprintln!("  Q: {}, K: {}, V: {}", q.qtype, k.qtype, v.qtype);
-            }
+            },
         }
         eprintln!("  attn_output: {}", layer0.attn_output_weight.qtype);
         eprintln!("  ffn_up: {}", layer0.ffn_up_weight.qtype);
@@ -1054,7 +1239,10 @@ mod tests {
             eprintln!("\n✅ CPU and GPU MATCH!");
         } else {
             eprintln!("\n❌ DIVERGENCE DETECTED!");
-            eprintln!("  Relative diff: {:.1}% suggests issue is NOT just quantization noise", diff_l2 / cpu_l2 * 100.0);
+            eprintln!(
+                "  Relative diff: {:.1}% suggests issue is NOT just quantization noise",
+                diff_l2 / cpu_l2 * 100.0
+            );
             eprintln!("  Need to trace through layer-by-layer to find source.");
         }
 
@@ -1070,19 +1258,19 @@ mod tests {
         eprintln!("║  PHASE 16: Q6_K FFN DOWN COMPARISON                                   ║");
         eprintln!("╚══════════════════════════════════════════════════════════════════════╝\n");
 
-        let model_path = std::path::Path::new(env!("HOME"))
-            .join("models/TinyLlama-1.1B-Chat-v1.0-Q4_K_M.gguf");
+        let model_path =
+            std::path::Path::new(env!("HOME")).join("models/TinyLlama-1.1B-Chat-v1.0-Q4_K_M.gguf");
 
         if !model_path.exists() {
             eprintln!("Skipping: model not found");
             return;
         }
 
-        let mapped = MappedGGUFModel::from_path(model_path.to_str().unwrap())
-            .expect("Failed to mmap GGUF");
+        let mapped =
+            MappedGGUFModel::from_path(model_path.to_str().unwrap()).expect("Failed to mmap GGUF");
 
-        let cpu_model = OwnedQuantizedModel::from_mapped(&mapped)
-            .expect("Failed to load CPU model");
+        let cpu_model =
+            OwnedQuantizedModel::from_mapped(&mapped).expect("Failed to load CPU model");
 
         let layer0 = &cpu_model.layers[0];
         let ffn_down = &layer0.ffn_down_weight;
@@ -1097,16 +1285,26 @@ mod tests {
         for (i, v) in input.iter_mut().enumerate() {
             *v = ((i as f32 * 0.1234).sin() * 0.1) as f32;
         }
-        let input_l2 = input.iter().map(|x| x*x).sum::<f32>().sqrt();
+        let input_l2 = input.iter().map(|x| x * x).sum::<f32>().sqrt();
         eprintln!("Test input L2: {:.6}", input_l2);
 
         // CPU matmul using fused_q6k_parallel_matvec
         eprintln!("\nCPU (fused_q6k_parallel_matvec):");
         let cpu_output = realizar::quantize::fused_q6k_parallel_matvec(
-            &ffn_down.data, &input, ffn_down.in_dim, ffn_down.out_dim
-        ).expect("CPU matmul failed");
-        eprintln!("  Output[0..5]: {:?}", &cpu_output[..5.min(cpu_output.len())]);
-        eprintln!("  L2: {:.6}", cpu_output.iter().map(|x| x*x).sum::<f32>().sqrt());
+            &ffn_down.data,
+            &input,
+            ffn_down.in_dim,
+            ffn_down.out_dim,
+        )
+        .expect("CPU matmul failed");
+        eprintln!(
+            "  Output[0..5]: {:?}",
+            &cpu_output[..5.min(cpu_output.len())]
+        );
+        eprintln!(
+            "  L2: {:.6}",
+            cpu_output.iter().map(|x| x * x).sum::<f32>().sqrt()
+        );
         eprintln!("  Sum: {:.6}", cpu_output.iter().sum::<f32>());
 
         // GPU matmul using q6k_gemv_cached
@@ -1116,27 +1314,42 @@ mod tests {
             Err(e) => {
                 eprintln!("CUDA init failed: {:?}", e);
                 return;
-            }
+            },
         };
 
-        executor.load_quantized_weights("test_ffn_down", &ffn_down.data)
+        executor
+            .load_quantized_weights("test_ffn_down", &ffn_down.data)
             .expect("Failed to load weights");
 
         let mut gpu_output = vec![0.0f32; ffn_down.out_dim];
-        executor.q6k_gemv_cached("test_ffn_down", &input, &mut gpu_output,
-            ffn_down.out_dim as u32, ffn_down.in_dim as u32)
+        executor
+            .q6k_gemv_cached(
+                "test_ffn_down",
+                &input,
+                &mut gpu_output,
+                ffn_down.out_dim as u32,
+                ffn_down.in_dim as u32,
+            )
             .expect("GPU matmul failed");
 
-        eprintln!("  Output[0..5]: {:?}", &gpu_output[..5.min(gpu_output.len())]);
-        eprintln!("  L2: {:.6}", gpu_output.iter().map(|x| x*x).sum::<f32>().sqrt());
+        eprintln!(
+            "  Output[0..5]: {:?}",
+            &gpu_output[..5.min(gpu_output.len())]
+        );
+        eprintln!(
+            "  L2: {:.6}",
+            gpu_output.iter().map(|x| x * x).sum::<f32>().sqrt()
+        );
         eprintln!("  Sum: {:.6}", gpu_output.iter().sum::<f32>());
 
         // Compare
-        let diff_l2 = cpu_output.iter().zip(gpu_output.iter())
+        let diff_l2 = cpu_output
+            .iter()
+            .zip(gpu_output.iter())
             .map(|(c, g)| (c - g).powi(2))
             .sum::<f32>()
             .sqrt();
-        let cpu_l2 = cpu_output.iter().map(|x| x*x).sum::<f32>().sqrt();
+        let cpu_l2 = cpu_output.iter().map(|x| x * x).sum::<f32>().sqrt();
 
         eprintln!("\nComparison:");
         eprintln!("  Diff L2: {:.6}", diff_l2);
@@ -1147,8 +1360,10 @@ mod tests {
             let diff = (cpu_output[i] - gpu_output[i]).abs();
             max_diff = max_diff.max(diff);
             let status = if diff < 0.01 { "✅" } else { "❌" };
-            eprintln!("  [{:4}] CPU={:+.6}, GPU={:+.6}, diff={:.6} {}",
-                i, cpu_output[i], gpu_output[i], diff, status);
+            eprintln!(
+                "  [{:4}] CPU={:+.6}, GPU={:+.6}, diff={:.6} {}",
+                i, cpu_output[i], gpu_output[i], diff, status
+            );
         }
 
         if diff_l2 / cpu_l2 < 0.01 {
@@ -1167,19 +1382,19 @@ mod tests {
         eprintln!("║  PHASE 16: ATTN OUTPUT PROJECTION COMPARISON                         ║");
         eprintln!("╚══════════════════════════════════════════════════════════════════════╝\n");
 
-        let model_path = std::path::Path::new(env!("HOME"))
-            .join("models/TinyLlama-1.1B-Chat-v1.0-Q4_K_M.gguf");
+        let model_path =
+            std::path::Path::new(env!("HOME")).join("models/TinyLlama-1.1B-Chat-v1.0-Q4_K_M.gguf");
 
         if !model_path.exists() {
             eprintln!("Skipping: model not found");
             return;
         }
 
-        let mapped = MappedGGUFModel::from_path(model_path.to_str().unwrap())
-            .expect("Failed to mmap GGUF");
+        let mapped =
+            MappedGGUFModel::from_path(model_path.to_str().unwrap()).expect("Failed to mmap GGUF");
 
-        let cpu_model = OwnedQuantizedModel::from_mapped(&mapped)
-            .expect("Failed to load CPU model");
+        let cpu_model =
+            OwnedQuantizedModel::from_mapped(&mapped).expect("Failed to load CPU model");
 
         let layer0 = &cpu_model.layers[0];
         let attn_output = &layer0.attn_output_weight;
@@ -1194,15 +1409,25 @@ mod tests {
         for (i, v) in input.iter_mut().enumerate() {
             *v = ((i as f32 * 0.1234).sin() * 0.1) as f32;
         }
-        eprintln!("Test input L2: {:.6}", input.iter().map(|x| x*x).sum::<f32>().sqrt());
+        eprintln!(
+            "Test input L2: {:.6}",
+            input.iter().map(|x| x * x).sum::<f32>().sqrt()
+        );
 
         // CPU matmul
         eprintln!("\nCPU (fused_q4k_parallel_matvec):");
         let cpu_output = realizar::quantize::fused_q4k_parallel_matvec(
-            &attn_output.data, &input, attn_output.in_dim, attn_output.out_dim
-        ).expect("CPU matmul failed");
+            &attn_output.data,
+            &input,
+            attn_output.in_dim,
+            attn_output.out_dim,
+        )
+        .expect("CPU matmul failed");
         eprintln!("  Output[0..5]: {:?}", &cpu_output[..5]);
-        eprintln!("  L2: {:.6}", cpu_output.iter().map(|x| x*x).sum::<f32>().sqrt());
+        eprintln!(
+            "  L2: {:.6}",
+            cpu_output.iter().map(|x| x * x).sum::<f32>().sqrt()
+        );
 
         // GPU matmul
         eprintln!("\nGPU (q4k_gemv_cached):");
@@ -1211,26 +1436,38 @@ mod tests {
             Err(e) => {
                 eprintln!("CUDA init failed: {:?}", e);
                 return;
-            }
+            },
         };
 
-        executor.load_quantized_weights("test_attn_out", &attn_output.data)
+        executor
+            .load_quantized_weights("test_attn_out", &attn_output.data)
             .expect("Failed to load weights");
 
         let mut gpu_output = vec![0.0f32; attn_output.out_dim];
-        executor.q4k_gemv_cached("test_attn_out", &input, &mut gpu_output,
-            attn_output.out_dim as u32, attn_output.in_dim as u32)
+        executor
+            .q4k_gemv_cached(
+                "test_attn_out",
+                &input,
+                &mut gpu_output,
+                attn_output.out_dim as u32,
+                attn_output.in_dim as u32,
+            )
             .expect("GPU matmul failed");
 
         eprintln!("  Output[0..5]: {:?}", &gpu_output[..5]);
-        eprintln!("  L2: {:.6}", gpu_output.iter().map(|x| x*x).sum::<f32>().sqrt());
+        eprintln!(
+            "  L2: {:.6}",
+            gpu_output.iter().map(|x| x * x).sum::<f32>().sqrt()
+        );
 
         // Compare
-        let diff_l2 = cpu_output.iter().zip(gpu_output.iter())
+        let diff_l2 = cpu_output
+            .iter()
+            .zip(gpu_output.iter())
             .map(|(c, g)| (c - g).powi(2))
             .sum::<f32>()
             .sqrt();
-        let cpu_l2 = cpu_output.iter().map(|x| x*x).sum::<f32>().sqrt();
+        let cpu_l2 = cpu_output.iter().map(|x| x * x).sum::<f32>().sqrt();
 
         eprintln!("\nRelative diff: {:.4}%", diff_l2 / cpu_l2 * 100.0);
 
@@ -1248,19 +1485,19 @@ mod tests {
         eprintln!("║  PHASE 16: FFN GATE/UP PROJECTION COMPARISON                         ║");
         eprintln!("╚══════════════════════════════════════════════════════════════════════╝\n");
 
-        let model_path = std::path::Path::new(env!("HOME"))
-            .join("models/TinyLlama-1.1B-Chat-v1.0-Q4_K_M.gguf");
+        let model_path =
+            std::path::Path::new(env!("HOME")).join("models/TinyLlama-1.1B-Chat-v1.0-Q4_K_M.gguf");
 
         if !model_path.exists() {
             eprintln!("Skipping: model not found");
             return;
         }
 
-        let mapped = MappedGGUFModel::from_path(model_path.to_str().unwrap())
-            .expect("Failed to mmap GGUF");
+        let mapped =
+            MappedGGUFModel::from_path(model_path.to_str().unwrap()).expect("Failed to mmap GGUF");
 
-        let cpu_model = OwnedQuantizedModel::from_mapped(&mapped)
-            .expect("Failed to load CPU model");
+        let cpu_model =
+            OwnedQuantizedModel::from_mapped(&mapped).expect("Failed to load CPU model");
 
         let layer0 = &cpu_model.layers[0];
 
@@ -1270,14 +1507,17 @@ mod tests {
         for (i, v) in input.iter_mut().enumerate() {
             *v = ((i as f32 * 0.1234).sin() * 0.1) as f32;
         }
-        eprintln!("Test input L2: {:.6}", input.iter().map(|x| x*x).sum::<f32>().sqrt());
+        eprintln!(
+            "Test input L2: {:.6}",
+            input.iter().map(|x| x * x).sum::<f32>().sqrt()
+        );
 
         let mut executor = match CudaExecutor::new(0) {
             Ok(exec) => exec,
             Err(e) => {
                 eprintln!("CUDA init failed: {:?}", e);
                 return;
-            }
+            },
         };
 
         // Test FFN UP (Q4_K)
@@ -1285,36 +1525,82 @@ mod tests {
         eprintln!("\nFFN UP (qtype={}):", ffn_up.qtype);
 
         let cpu_up = realizar::quantize::fused_q4k_parallel_matvec(
-            &ffn_up.data, &input, ffn_up.in_dim, ffn_up.out_dim
-        ).expect("CPU failed");
+            &ffn_up.data,
+            &input,
+            ffn_up.in_dim,
+            ffn_up.out_dim,
+        )
+        .expect("CPU failed");
 
-        executor.load_quantized_weights("ffn_up", &ffn_up.data).expect("load");
+        executor
+            .load_quantized_weights("ffn_up", &ffn_up.data)
+            .expect("load");
         let mut gpu_up = vec![0.0f32; ffn_up.out_dim];
-        executor.q4k_gemv_cached("ffn_up", &input, &mut gpu_up, ffn_up.out_dim as u32, ffn_up.in_dim as u32)
+        executor
+            .q4k_gemv_cached(
+                "ffn_up",
+                &input,
+                &mut gpu_up,
+                ffn_up.out_dim as u32,
+                ffn_up.in_dim as u32,
+            )
             .expect("GPU failed");
 
-        let diff = cpu_up.iter().zip(gpu_up.iter()).map(|(c, g)| (c - g).powi(2)).sum::<f32>().sqrt();
-        let cpu_l2 = cpu_up.iter().map(|x| x*x).sum::<f32>().sqrt();
-        eprintln!("  CPU L2: {:.6}, GPU L2: {:.6}, Diff: {:.6} ({:.4}%)",
-            cpu_l2, gpu_up.iter().map(|x| x*x).sum::<f32>().sqrt(), diff, diff / cpu_l2 * 100.0);
+        let diff = cpu_up
+            .iter()
+            .zip(gpu_up.iter())
+            .map(|(c, g)| (c - g).powi(2))
+            .sum::<f32>()
+            .sqrt();
+        let cpu_l2 = cpu_up.iter().map(|x| x * x).sum::<f32>().sqrt();
+        eprintln!(
+            "  CPU L2: {:.6}, GPU L2: {:.6}, Diff: {:.6} ({:.4}%)",
+            cpu_l2,
+            gpu_up.iter().map(|x| x * x).sum::<f32>().sqrt(),
+            diff,
+            diff / cpu_l2 * 100.0
+        );
 
         // Test FFN GATE (Q4_K)
         if let Some(ref ffn_gate) = layer0.ffn_gate_weight {
             eprintln!("\nFFN GATE (qtype={}):", ffn_gate.qtype);
 
             let cpu_gate = realizar::quantize::fused_q4k_parallel_matvec(
-                &ffn_gate.data, &input, ffn_gate.in_dim, ffn_gate.out_dim
-            ).expect("CPU failed");
+                &ffn_gate.data,
+                &input,
+                ffn_gate.in_dim,
+                ffn_gate.out_dim,
+            )
+            .expect("CPU failed");
 
-            executor.load_quantized_weights("ffn_gate", &ffn_gate.data).expect("load");
+            executor
+                .load_quantized_weights("ffn_gate", &ffn_gate.data)
+                .expect("load");
             let mut gpu_gate = vec![0.0f32; ffn_gate.out_dim];
-            executor.q4k_gemv_cached("ffn_gate", &input, &mut gpu_gate, ffn_gate.out_dim as u32, ffn_gate.in_dim as u32)
+            executor
+                .q4k_gemv_cached(
+                    "ffn_gate",
+                    &input,
+                    &mut gpu_gate,
+                    ffn_gate.out_dim as u32,
+                    ffn_gate.in_dim as u32,
+                )
                 .expect("GPU failed");
 
-            let diff = cpu_gate.iter().zip(gpu_gate.iter()).map(|(c, g)| (c - g).powi(2)).sum::<f32>().sqrt();
-            let cpu_l2 = cpu_gate.iter().map(|x| x*x).sum::<f32>().sqrt();
-            eprintln!("  CPU L2: {:.6}, GPU L2: {:.6}, Diff: {:.6} ({:.4}%)",
-                cpu_l2, gpu_gate.iter().map(|x| x*x).sum::<f32>().sqrt(), diff, diff / cpu_l2 * 100.0);
+            let diff = cpu_gate
+                .iter()
+                .zip(gpu_gate.iter())
+                .map(|(c, g)| (c - g).powi(2))
+                .sum::<f32>()
+                .sqrt();
+            let cpu_l2 = cpu_gate.iter().map(|x| x * x).sum::<f32>().sqrt();
+            eprintln!(
+                "  CPU L2: {:.6}, GPU L2: {:.6}, Diff: {:.6} ({:.4}%)",
+                cpu_l2,
+                gpu_gate.iter().map(|x| x * x).sum::<f32>().sqrt(),
+                diff,
+                diff / cpu_l2 * 100.0
+            );
         }
 
         eprintln!("\n✅ All individual kernel tests pass - bug must be in forward pass logic");
@@ -1327,35 +1613,36 @@ mod tests {
         eprintln!("║  PHASE 16: Q4K MATMUL STEP-BY-STEP TRACE                             ║");
         eprintln!("╚══════════════════════════════════════════════════════════════════════╝\n");
 
-        let model_path = std::path::Path::new(env!("HOME"))
-            .join("models/TinyLlama-1.1B-Chat-v1.0-Q4_K_M.gguf");
+        let model_path =
+            std::path::Path::new(env!("HOME")).join("models/TinyLlama-1.1B-Chat-v1.0-Q4_K_M.gguf");
 
         if !model_path.exists() {
             eprintln!("⚠️  Skipping: model not found");
             return;
         }
 
-        let mapped = MappedGGUFModel::from_path(model_path.to_str().unwrap())
-            .expect("Failed to mmap GGUF");
+        let mapped =
+            MappedGGUFModel::from_path(model_path.to_str().unwrap()).expect("Failed to mmap GGUF");
 
         // Load CPU model
-        let cpu_model = OwnedQuantizedModel::from_mapped(&mapped)
-            .expect("Failed to load CPU model");
+        let cpu_model =
+            OwnedQuantizedModel::from_mapped(&mapped).expect("Failed to load CPU model");
 
         // Single token: BOS
         let bos_token = mapped.model.bos_token_id().unwrap_or(1);
         eprintln!("Test token: {} (BOS)", bos_token);
 
         // CPU forward - position 0
-        let mut cpu_cache = realizar::gguf::OwnedQuantizedKVCache::from_config(
-            cpu_model.config(), 10
-        );
+        let mut cpu_cache =
+            realizar::gguf::OwnedQuantizedKVCache::from_config(cpu_model.config(), 10);
 
-        let cpu_logits = cpu_model.forward_cached(bos_token, &mut cpu_cache, 0)
+        let cpu_logits = cpu_model
+            .forward_cached(bos_token, &mut cpu_cache, 0)
             .expect("CPU forward failed");
 
-        let cpu_l2 = cpu_logits.iter().map(|x| x*x).sum::<f32>().sqrt();
-        let cpu_top1 = cpu_logits.iter()
+        let cpu_l2 = cpu_logits.iter().map(|x| x * x).sum::<f32>().sqrt();
+        let cpu_top1 = cpu_logits
+            .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
             .map(|(idx, _)| idx as u32)
@@ -1371,7 +1658,9 @@ mod tests {
         std::env::set_var("SKIP_CUDA_GRAPH", "1");
 
         let gpu_model_result = OwnedQuantizedModelCuda::with_max_seq_len(
-            OwnedQuantizedModel::from_mapped(&mapped).unwrap(), 0, 10
+            OwnedQuantizedModel::from_mapped(&mapped).unwrap(),
+            0,
+            10,
         );
 
         match gpu_model_result {
@@ -1403,15 +1692,15 @@ mod tests {
                                 eprintln!("   This confirms H3: Q4K matmul bug");
                             }
                         }
-                    }
+                    },
                     Err(e) => {
                         eprintln!("\n❌ GPU forward failed: {:?}", e);
-                    }
+                    },
                 }
-            }
+            },
             Err(e) => {
                 eprintln!("\n❌ Failed to create CUDA model: {:?}", e);
-            }
+            },
         }
 
         std::env::remove_var("SKIP_CUDA_GRAPH");
@@ -1430,19 +1719,19 @@ mod tests {
         eprintln!("║  TEST 14: QKV DIMENSION MISMATCH DETECTION                           ║");
         eprintln!("╚══════════════════════════════════════════════════════════════════════╝\n");
 
-        let model_path = std::path::Path::new(env!("HOME"))
-            .join("models/TinyLlama-1.1B-Chat-v1.0-Q4_K_M.gguf");
+        let model_path =
+            std::path::Path::new(env!("HOME")).join("models/TinyLlama-1.1B-Chat-v1.0-Q4_K_M.gguf");
 
         if !model_path.exists() {
             eprintln!("Skipping: model not found");
             return;
         }
 
-        let mapped = MappedGGUFModel::from_path(model_path.to_str().unwrap())
-            .expect("Failed to mmap GGUF");
+        let mapped =
+            MappedGGUFModel::from_path(model_path.to_str().unwrap()).expect("Failed to mmap GGUF");
 
-        let cpu_model = OwnedQuantizedModel::from_mapped(&mapped)
-            .expect("Failed to load CPU model");
+        let cpu_model =
+            OwnedQuantizedModel::from_mapped(&mapped).expect("Failed to load CPU model");
 
         let config = cpu_model.config();
         let hidden_dim = config.hidden_dim;
@@ -1483,9 +1772,24 @@ mod tests {
             if !q_match || !k_match || !v_match {
                 mismatch_found = true;
                 eprintln!("❌ Layer {} DIMENSION MISMATCH:", layer_idx);
-                eprintln!("   Q: CPU={} vs GPU={} {}", q_dim, gpu_q_dim, if q_match { "✅" } else { "❌" });
-                eprintln!("   K: CPU={} vs GPU={} {}", k_dim, gpu_k_dim, if k_match { "✅" } else { "❌" });
-                eprintln!("   V: CPU={} vs GPU={} {}", v_dim, gpu_v_dim, if v_match { "✅" } else { "❌" });
+                eprintln!(
+                    "   Q: CPU={} vs GPU={} {}",
+                    q_dim,
+                    gpu_q_dim,
+                    if q_match { "✅" } else { "❌" }
+                );
+                eprintln!(
+                    "   K: CPU={} vs GPU={} {}",
+                    k_dim,
+                    gpu_k_dim,
+                    if k_match { "✅" } else { "❌" }
+                );
+                eprintln!(
+                    "   V: CPU={} vs GPU={} {}",
+                    v_dim,
+                    gpu_v_dim,
+                    if v_match { "✅" } else { "❌" }
+                );
             } else if layer_idx == 0 {
                 eprintln!("✅ Layer {} dimensions match:", layer_idx);
                 eprintln!("   Q: {} (CPU) = {} (GPU)", q_dim, gpu_q_dim);
@@ -1495,7 +1799,10 @@ mod tests {
         }
 
         if !mismatch_found {
-            eprintln!("\n✅ All {} layers have matching Q/K/V dimensions", cpu_model.layers.len());
+            eprintln!(
+                "\n✅ All {} layers have matching Q/K/V dimensions",
+                cpu_model.layers.len()
+            );
             eprintln!("   Bug is NOT in QKV extraction offsets");
         } else {
             eprintln!("\n❌ DIMENSION MISMATCH FOUND!");
@@ -1514,19 +1821,19 @@ mod tests {
         eprintln!("║  TEST 15: FORWARD PASS STEP-BY-STEP TRACE                            ║");
         eprintln!("╚══════════════════════════════════════════════════════════════════════╝\n");
 
-        let model_path = std::path::Path::new(env!("HOME"))
-            .join("models/TinyLlama-1.1B-Chat-v1.0-Q4_K_M.gguf");
+        let model_path =
+            std::path::Path::new(env!("HOME")).join("models/TinyLlama-1.1B-Chat-v1.0-Q4_K_M.gguf");
 
         if !model_path.exists() {
             eprintln!("Skipping: model not found");
             return;
         }
 
-        let mapped = MappedGGUFModel::from_path(model_path.to_str().unwrap())
-            .expect("Failed to mmap GGUF");
+        let mapped =
+            MappedGGUFModel::from_path(model_path.to_str().unwrap()).expect("Failed to mmap GGUF");
 
-        let cpu_model = OwnedQuantizedModel::from_mapped(&mapped)
-            .expect("Failed to load CPU model");
+        let cpu_model =
+            OwnedQuantizedModel::from_mapped(&mapped).expect("Failed to load CPU model");
 
         let config = cpu_model.config();
         let hidden_dim = config.hidden_dim;
@@ -1537,12 +1844,14 @@ mod tests {
 
         let bos_token = mapped.model.bos_token_id().unwrap_or(1);
         eprintln!("Token: {} (BOS)", bos_token);
-        eprintln!("hidden_dim={}, num_heads={}, num_kv_heads={}, head_dim={}, kv_dim={}\n",
-                  hidden_dim, num_heads, num_kv_heads, head_dim, kv_dim);
+        eprintln!(
+            "hidden_dim={}, num_heads={}, num_kv_heads={}, head_dim={}, kv_dim={}\n",
+            hidden_dim, num_heads, num_kv_heads, head_dim, kv_dim
+        );
 
         // Step 1: Embedding
         let embedding = cpu_model.embed(&[bos_token]);
-        let embed_l2 = embedding.iter().map(|x| x*x).sum::<f32>().sqrt();
+        let embed_l2 = embedding.iter().map(|x| x * x).sum::<f32>().sqrt();
         eprintln!("Step 1: Embedding");
         eprintln!("  L2: {:.6}", embed_l2);
         eprintln!("  First 8: {:?}", &embedding[..8.min(embedding.len())]);
@@ -1559,7 +1868,7 @@ mod tests {
             eprintln!("  Using LayerNorm (not RMSNorm)");
             embedding.clone()
         };
-        let normed_l2 = normed.iter().map(|x| x*x).sum::<f32>().sqrt();
+        let normed_l2 = normed.iter().map(|x| x * x).sum::<f32>().sqrt();
         eprintln!("  L2: {:.6}", normed_l2);
         eprintln!("  First 8: {:?}", &normed[..8.min(normed.len())]);
         eprintln!();
@@ -1573,37 +1882,54 @@ mod tests {
             OwnedQKVWeights::Separate { k, v, .. } => (k.out_dim, v.out_dim),
         };
 
-        eprintln!("  CPU QKV dims: q={}, k={}, v={}", q_dim_cpu, k_dim_cpu, v_dim_cpu);
-        eprintln!("  GPU assumed:  q={}, k={}, v={}", hidden_dim, kv_dim, kv_dim);
+        eprintln!(
+            "  CPU QKV dims: q={}, k={}, v={}",
+            q_dim_cpu, k_dim_cpu, v_dim_cpu
+        );
+        eprintln!(
+            "  GPU assumed:  q={}, k={}, v={}",
+            hidden_dim, kv_dim, kv_dim
+        );
 
         // Compute QKV using CPU path
         let qkv = match qkv_weight {
-            OwnedQKVWeights::Fused(tensor) => {
-                realizar::quantize::fused_q4k_parallel_matvec(&tensor.data, &normed, tensor.in_dim, tensor.out_dim)
-                    .expect("QKV fused matmul failed")
-            }
+            OwnedQKVWeights::Fused(tensor) => realizar::quantize::fused_q4k_parallel_matvec(
+                &tensor.data,
+                &normed,
+                tensor.in_dim,
+                tensor.out_dim,
+            )
+            .expect("QKV fused matmul failed"),
             OwnedQKVWeights::Separate { q, k, v } => {
-                let q_out = realizar::quantize::fused_q4k_parallel_matvec(&q.data, &normed, q.in_dim, q.out_dim)
-                    .expect("Q matmul failed");
-                let k_out = realizar::quantize::fused_q4k_parallel_matvec(&k.data, &normed, k.in_dim, k.out_dim)
-                    .expect("K matmul failed");
+                let q_out = realizar::quantize::fused_q4k_parallel_matvec(
+                    &q.data, &normed, q.in_dim, q.out_dim,
+                )
+                .expect("Q matmul failed");
+                let k_out = realizar::quantize::fused_q4k_parallel_matvec(
+                    &k.data, &normed, k.in_dim, k.out_dim,
+                )
+                .expect("K matmul failed");
                 let v_out = if v.qtype == 12 {
-                    realizar::quantize::fused_q4k_parallel_matvec(&v.data, &normed, v.in_dim, v.out_dim)
-                        .expect("V matmul failed")
+                    realizar::quantize::fused_q4k_parallel_matvec(
+                        &v.data, &normed, v.in_dim, v.out_dim,
+                    )
+                    .expect("V matmul failed")
                 } else {
-                    realizar::quantize::fused_q6k_parallel_matvec(&v.data, &normed, v.in_dim, v.out_dim)
-                        .expect("V matmul failed")
+                    realizar::quantize::fused_q6k_parallel_matvec(
+                        &v.data, &normed, v.in_dim, v.out_dim,
+                    )
+                    .expect("V matmul failed")
                 };
                 let mut combined = Vec::with_capacity(q_out.len() + k_out.len() + v_out.len());
                 combined.extend_from_slice(&q_out);
                 combined.extend_from_slice(&k_out);
                 combined.extend_from_slice(&v_out);
                 combined
-            }
+            },
         };
 
         eprintln!("  QKV total len: {}", qkv.len());
-        let qkv_l2 = qkv.iter().map(|x| x*x).sum::<f32>().sqrt();
+        let qkv_l2 = qkv.iter().map(|x| x * x).sum::<f32>().sqrt();
         eprintln!("  QKV L2: {:.6}", qkv_l2);
 
         // Extract Q, K, V using CPU offsets
@@ -1611,10 +1937,12 @@ mod tests {
         let k_cpu = &qkv[q_dim_cpu..q_dim_cpu + k_dim_cpu];
         let v_cpu = &qkv[q_dim_cpu + k_dim_cpu..q_dim_cpu + k_dim_cpu + v_dim_cpu];
 
-        eprintln!("  Q L2: {:.6}, K L2: {:.6}, V L2: {:.6}",
-                  q_cpu.iter().map(|x| x*x).sum::<f32>().sqrt(),
-                  k_cpu.iter().map(|x| x*x).sum::<f32>().sqrt(),
-                  v_cpu.iter().map(|x| x*x).sum::<f32>().sqrt());
+        eprintln!(
+            "  Q L2: {:.6}, K L2: {:.6}, V L2: {:.6}",
+            q_cpu.iter().map(|x| x * x).sum::<f32>().sqrt(),
+            k_cpu.iter().map(|x| x * x).sum::<f32>().sqrt(),
+            v_cpu.iter().map(|x| x * x).sum::<f32>().sqrt()
+        );
 
         // Compare with GPU offsets
         let q_gpu = &qkv[0..hidden_dim.min(qkv.len())];
@@ -1625,37 +1953,67 @@ mod tests {
             let k_gpu = &qkv[k_start..k_start + kv_dim];
             let v_gpu = &qkv[v_start..v_start + kv_dim];
 
-            eprintln!("\n  GPU extraction (hidden_dim={}, kv_dim={}):", hidden_dim, kv_dim);
-            eprintln!("  Q GPU L2: {:.6}, K GPU L2: {:.6}, V GPU L2: {:.6}",
-                      q_gpu.iter().map(|x| x*x).sum::<f32>().sqrt(),
-                      k_gpu.iter().map(|x| x*x).sum::<f32>().sqrt(),
-                      v_gpu.iter().map(|x| x*x).sum::<f32>().sqrt());
+            eprintln!(
+                "\n  GPU extraction (hidden_dim={}, kv_dim={}):",
+                hidden_dim, kv_dim
+            );
+            eprintln!(
+                "  Q GPU L2: {:.6}, K GPU L2: {:.6}, V GPU L2: {:.6}",
+                q_gpu.iter().map(|x| x * x).sum::<f32>().sqrt(),
+                k_gpu.iter().map(|x| x * x).sum::<f32>().sqrt(),
+                v_gpu.iter().map(|x| x * x).sum::<f32>().sqrt()
+            );
 
             // Check if extraction matches
-            let q_match = q_cpu.len() == q_gpu.len() &&
-                q_cpu.iter().zip(q_gpu.iter()).all(|(a, b)| (a - b).abs() < 1e-6);
-            let k_match = k_cpu.len() == k_gpu.len() &&
-                k_cpu.iter().zip(k_gpu.iter()).all(|(a, b)| (a - b).abs() < 1e-6);
-            let v_match = v_cpu.len() == v_gpu.len() &&
-                v_cpu.iter().zip(v_gpu.iter()).all(|(a, b)| (a - b).abs() < 1e-6);
+            let q_match = q_cpu.len() == q_gpu.len()
+                && q_cpu
+                    .iter()
+                    .zip(q_gpu.iter())
+                    .all(|(a, b)| (a - b).abs() < 1e-6);
+            let k_match = k_cpu.len() == k_gpu.len()
+                && k_cpu
+                    .iter()
+                    .zip(k_gpu.iter())
+                    .all(|(a, b)| (a - b).abs() < 1e-6);
+            let v_match = v_cpu.len() == v_gpu.len()
+                && v_cpu
+                    .iter()
+                    .zip(v_gpu.iter())
+                    .all(|(a, b)| (a - b).abs() < 1e-6);
 
-            eprintln!("\n  CPU vs GPU extraction: Q={}, K={}, V={}",
-                      if q_match { "MATCH" } else { "DIFFER" },
-                      if k_match { "MATCH" } else { "DIFFER" },
-                      if v_match { "MATCH" } else { "DIFFER" });
+            eprintln!(
+                "\n  CPU vs GPU extraction: Q={}, K={}, V={}",
+                if q_match { "MATCH" } else { "DIFFER" },
+                if k_match { "MATCH" } else { "DIFFER" },
+                if v_match { "MATCH" } else { "DIFFER" }
+            );
 
             if !q_match || !k_match || !v_match {
                 eprintln!("\n  ❌ EXTRACTION OFFSET BUG DETECTED!");
-                eprintln!("  CPU uses offsets: Q[0..{}], K[{}..{}], V[{}..{}]",
-                          q_dim_cpu, q_dim_cpu, q_dim_cpu + k_dim_cpu,
-                          q_dim_cpu + k_dim_cpu, q_dim_cpu + k_dim_cpu + v_dim_cpu);
-                eprintln!("  GPU uses offsets: Q[0..{}], K[{}..{}], V[{}..{}]",
-                          hidden_dim, hidden_dim, hidden_dim + kv_dim,
-                          hidden_dim + kv_dim, hidden_dim + 2 * kv_dim);
+                eprintln!(
+                    "  CPU uses offsets: Q[0..{}], K[{}..{}], V[{}..{}]",
+                    q_dim_cpu,
+                    q_dim_cpu,
+                    q_dim_cpu + k_dim_cpu,
+                    q_dim_cpu + k_dim_cpu,
+                    q_dim_cpu + k_dim_cpu + v_dim_cpu
+                );
+                eprintln!(
+                    "  GPU uses offsets: Q[0..{}], K[{}..{}], V[{}..{}]",
+                    hidden_dim,
+                    hidden_dim,
+                    hidden_dim + kv_dim,
+                    hidden_dim + kv_dim,
+                    hidden_dim + 2 * kv_dim
+                );
             }
         } else {
             eprintln!("\n  ⚠️  QKV buffer too small for GPU assumed offsets");
-            eprintln!("  QKV len: {}, GPU needs: {}", qkv.len(), hidden_dim + 2 * kv_dim);
+            eprintln!(
+                "  QKV len: {}, GPU needs: {}",
+                qkv.len(),
+                hidden_dim + 2 * kv_dim
+            );
         }
     }
 

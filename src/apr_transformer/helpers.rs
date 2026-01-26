@@ -4,7 +4,6 @@
 
 use crate::quantize::{fused_q4k_parallel_matvec, fused_q6k_parallel_matvec};
 
-
 /// Row-major Q4K matmul wrapper (LAYOUT-001)
 ///
 /// Wraps `fused_q4k_parallel_matvec` with dimension order matching the old API.
@@ -13,7 +12,12 @@ use crate::quantize::{fused_q4k_parallel_matvec, fused_q6k_parallel_matvec};
 ///
 /// FORBIDDEN: Never use `trueno::backends::q4k::matmul_q4k_f32_colmajor*` for GGUF/APR.
 #[inline]
-pub(crate) fn matmul_q4k_rowmajor(q4k_bytes: &[u8], input: &[f32], out_dim: usize, in_dim: usize) -> Vec<f32> {
+pub(crate) fn matmul_q4k_rowmajor(
+    q4k_bytes: &[u8],
+    input: &[f32],
+    out_dim: usize,
+    in_dim: usize,
+) -> Vec<f32> {
     // fused_q4k_parallel_matvec expects (bytes, input, in_dim, out_dim) - swap order!
     fused_q4k_parallel_matvec(q4k_bytes, input, in_dim, out_dim)
         .expect("Q4K matmul failed - check tensor dimensions")
@@ -21,7 +25,12 @@ pub(crate) fn matmul_q4k_rowmajor(q4k_bytes: &[u8], input: &[f32], out_dim: usiz
 
 /// Row-major Q6K matmul wrapper (LAYOUT-001)
 #[inline]
-pub(crate) fn matmul_q6k_rowmajor(q6k_bytes: &[u8], input: &[f32], out_dim: usize, in_dim: usize) -> Vec<f32> {
+pub(crate) fn matmul_q6k_rowmajor(
+    q6k_bytes: &[u8],
+    input: &[f32],
+    out_dim: usize,
+    in_dim: usize,
+) -> Vec<f32> {
     fused_q6k_parallel_matvec(q6k_bytes, input, in_dim, out_dim)
         .expect("Q6K matmul failed - check tensor dimensions")
 }
@@ -120,7 +129,9 @@ pub(crate) fn simd_add_weighted(out: &mut [f32], val: &[f32], weight: f32) {
 unsafe fn simd_add_weighted_avx2(out: &mut [f32], val: &[f32], weight: f32) {
     // SAFETY: Memory safety ensured by bounds checking before SIMD operations
     unsafe {
-        use std::arch::x86_64::{_mm256_fmadd_ps, _mm256_loadu_ps, _mm256_set1_ps, _mm256_storeu_ps};
+        use std::arch::x86_64::{
+            _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_set1_ps, _mm256_storeu_ps,
+        };
 
         let n = out.len();
         let w = _mm256_set1_ps(weight);

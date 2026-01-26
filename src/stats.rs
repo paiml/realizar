@@ -572,4 +572,433 @@ mod tests {
         let skewed = vec![1.0, 1.0, 1.0, 1.0, 100.0];
         assert!(compute_skewness(&skewed) > 1.0);
     }
+
+    // ========================================================================
+    // Additional Coverage Tests - Median
+    // ========================================================================
+
+    #[test]
+    fn test_median_empty_slice() {
+        let data: Vec<f64> = vec![];
+        assert_eq!(median(&data), 0.0);
+    }
+
+    #[test]
+    fn test_median_single_element() {
+        let data = vec![42.0];
+        assert_eq!(median(&data), 42.0);
+    }
+
+    #[test]
+    fn test_median_odd_length() {
+        let data = vec![3.0, 1.0, 2.0];
+        assert_eq!(median(&data), 2.0);
+    }
+
+    #[test]
+    fn test_median_even_length() {
+        let data = vec![4.0, 1.0, 3.0, 2.0];
+        // Sorted: [1.0, 2.0, 3.0, 4.0], median = (2.0 + 3.0) / 2 = 2.5
+        assert_eq!(median(&data), 2.5);
+    }
+
+    #[test]
+    fn test_median_with_duplicates() {
+        let data = vec![5.0, 5.0, 5.0, 5.0, 5.0];
+        assert_eq!(median(&data), 5.0);
+    }
+
+    // ========================================================================
+    // Additional Coverage Tests - Normal CDF
+    // ========================================================================
+
+    #[test]
+    fn test_normal_cdf_zero() {
+        let cdf = normal_cdf(0.0);
+        assert!((cdf - 0.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_normal_cdf_positive() {
+        let cdf = normal_cdf(2.0);
+        // CDF(2.0) should be close to 0.9772
+        assert!(cdf > 0.95 && cdf < 0.99);
+    }
+
+    #[test]
+    fn test_normal_cdf_negative() {
+        let cdf = normal_cdf(-2.0);
+        // CDF(-2.0) should be close to 0.0228
+        assert!(cdf > 0.01 && cdf < 0.05);
+    }
+
+    #[test]
+    fn test_normal_cdf_symmetry() {
+        let cdf_pos = normal_cdf(1.5);
+        let cdf_neg = normal_cdf(-1.5);
+        // CDF(-x) + CDF(x) should equal 1
+        assert!((cdf_pos + cdf_neg - 1.0).abs() < 0.01);
+    }
+
+    // ========================================================================
+    // Additional Coverage Tests - Effect Size Interpretation
+    // ========================================================================
+
+    #[test]
+    fn test_interpret_effect_size_negligible() {
+        assert_eq!(
+            interpret_effect_size(0.05),
+            EffectSizeInterpretation::Negligible
+        );
+        assert_eq!(
+            interpret_effect_size(0.09),
+            EffectSizeInterpretation::Negligible
+        );
+    }
+
+    #[test]
+    fn test_interpret_effect_size_small() {
+        assert_eq!(interpret_effect_size(0.1), EffectSizeInterpretation::Small);
+        assert_eq!(interpret_effect_size(0.2), EffectSizeInterpretation::Small);
+        assert_eq!(interpret_effect_size(0.29), EffectSizeInterpretation::Small);
+    }
+
+    #[test]
+    fn test_interpret_effect_size_medium() {
+        assert_eq!(interpret_effect_size(0.3), EffectSizeInterpretation::Medium);
+        assert_eq!(interpret_effect_size(0.4), EffectSizeInterpretation::Medium);
+        assert_eq!(
+            interpret_effect_size(0.49),
+            EffectSizeInterpretation::Medium
+        );
+    }
+
+    #[test]
+    fn test_interpret_effect_size_large() {
+        assert_eq!(interpret_effect_size(0.5), EffectSizeInterpretation::Large);
+        assert_eq!(interpret_effect_size(0.8), EffectSizeInterpretation::Large);
+        assert_eq!(interpret_effect_size(1.0), EffectSizeInterpretation::Large);
+    }
+
+    // ========================================================================
+    // Additional Coverage Tests - Skewness Edge Cases
+    // ========================================================================
+
+    #[test]
+    fn test_skewness_constant_values() {
+        // All same values -> std_dev = 0 -> should return 0
+        let data = vec![5.0, 5.0, 5.0, 5.0, 5.0];
+        assert_eq!(compute_skewness(&data), 0.0);
+    }
+
+    #[test]
+    fn test_skewness_left_skewed() {
+        // Left-skewed data has negative skewness
+        let data = vec![100.0, 99.0, 98.0, 97.0, 1.0];
+        assert!(compute_skewness(&data) < -1.0);
+    }
+
+    // ========================================================================
+    // Additional Coverage Tests - AnalysisConfig
+    // ========================================================================
+
+    #[test]
+    fn test_analysis_config_default() {
+        let config = AnalysisConfig::default();
+        assert!((config.alpha - 0.05).abs() < 1e-10);
+        assert!(config.auto_detect_skew);
+    }
+
+    #[test]
+    fn test_analysis_config_custom() {
+        let config = AnalysisConfig {
+            alpha: 0.01,
+            auto_detect_skew: false,
+        };
+        assert!((config.alpha - 0.01).abs() < 1e-10);
+        assert!(!config.auto_detect_skew);
+    }
+
+    // ========================================================================
+    // Additional Coverage Tests - Auto Select with Skew Disabled
+    // ========================================================================
+
+    #[test]
+    fn test_auto_select_skew_disabled_large_sample() {
+        // Large sample with skew detection disabled should use t-test
+        let control: Vec<f64> = (0..20).map(|i| (i as f64) + 1.0).collect();
+        let treatment: Vec<f64> = (0..20).map(|i| (i as f64) + 2.0).collect();
+        let config = AnalysisConfig {
+            alpha: 0.05,
+            auto_detect_skew: false,
+        };
+
+        let result = analyze_with_auto_select(&control, &treatment, &config);
+        assert_eq!(result.method, TestMethod::TTest);
+    }
+
+    #[test]
+    fn test_auto_select_skewed_with_non_positive_values() {
+        // Skewed data with non-positive values should fall back to Mann-Whitney
+        let control: Vec<f64> = vec![
+            -5.0, 1.0, 2.0, 3.0, 100.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0,
+            12.0, 13.0, 14.0, 500.0,
+        ];
+        let treatment: Vec<f64> = vec![
+            0.0, 1.0, 2.0, 3.0, 4.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
+            13.0, 14.0, 15.0,
+        ];
+        let config = AnalysisConfig {
+            alpha: 0.05,
+            auto_detect_skew: true,
+        };
+
+        let result = analyze_with_auto_select(&control, &treatment, &config);
+        // Can't log-transform non-positive, should use Mann-Whitney
+        assert_eq!(result.method, TestMethod::MannWhitneyU);
+    }
+
+    // ========================================================================
+    // Additional Coverage Tests - analyze() function
+    // ========================================================================
+
+    #[test]
+    fn test_analyze_with_skew_disabled() {
+        let control = vec![1.0, 1.1, 1.2, 1.3, 100.0]; // Skewed
+        let treatment = vec![1.0, 1.1, 1.2, 1.3, 1.4];
+        let config = AnalysisConfig {
+            alpha: 0.05,
+            auto_detect_skew: false,
+        };
+        let result = analyze(&control, &treatment, &config);
+        // With skew detection disabled, should use t-test
+        assert_eq!(result.method, TestMethod::TTest);
+    }
+
+    // ========================================================================
+    // Additional Coverage Tests - T-Test Details
+    // ========================================================================
+
+    #[test]
+    fn test_t_test_effect_size() {
+        let control = vec![10.0, 20.0, 30.0, 40.0, 50.0];
+        let treatment = vec![15.0, 25.0, 35.0, 45.0, 55.0];
+        let result = analyze_t_test(&control, &treatment, 0.05);
+
+        // Effect size should be (35 - 30) / 30 = 0.1667
+        let expected_effect = (35.0 - 30.0) / 30.0;
+        assert!((result.effect_size - expected_effect).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_t_test_means() {
+        let control = vec![2.0, 4.0, 6.0, 8.0, 10.0];
+        let treatment = vec![3.0, 6.0, 9.0, 12.0, 15.0];
+        let result = analyze_t_test(&control, &treatment, 0.05);
+
+        assert!((result.control_mean - 6.0).abs() < 0.01);
+        assert!((result.treatment_mean - 9.0).abs() < 0.01);
+    }
+
+    // ========================================================================
+    // Additional Coverage Tests - Log Transform Details
+    // ========================================================================
+
+    #[test]
+    fn test_log_transform_effect_size() {
+        let control = vec![10.0, 20.0, 30.0, 40.0, 50.0];
+        let treatment = vec![20.0, 40.0, 60.0, 80.0, 100.0];
+        let result = analyze_log_transform(&control, &treatment, 0.05);
+
+        // Treatment geometric mean should be ~2x control geometric mean
+        // Effect size should be roughly 1.0 (100% increase)
+        assert!(result.effect_size > 0.5);
+    }
+
+    // ========================================================================
+    // Additional Coverage Tests - Mann-Whitney Edge Cases
+    // ========================================================================
+
+    #[test]
+    fn test_mann_whitney_large_effect() {
+        let control = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+        let treatment = vec![100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0];
+        let result = mann_whitney_u(&control, &treatment);
+
+        assert_eq!(
+            result.effect_interpretation,
+            EffectSizeInterpretation::Large
+        );
+        assert!(result.significant);
+    }
+
+    #[test]
+    fn test_mann_whitney_z_score_sign() {
+        // Treatment higher than control
+        let control = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let treatment = vec![6.0, 7.0, 8.0, 9.0, 10.0];
+        let result = mann_whitney_u(&control, &treatment);
+
+        // U statistic should be 0 (no overlap)
+        assert_eq!(result.u_statistic, 0.0);
+    }
+
+    #[test]
+    fn test_mann_whitney_result_fields() {
+        let control = vec![1.0, 3.0, 5.0, 7.0, 9.0];
+        let treatment = vec![2.0, 4.0, 6.0, 8.0, 10.0];
+        let result = mann_whitney_u(&control, &treatment);
+
+        // Verify all fields are populated
+        assert!(result.u_statistic >= 0.0);
+        assert!(result.p_value >= 0.0 && result.p_value <= 1.0);
+        assert!(!result.z_score.is_nan());
+        assert!(!result.effect_size.is_nan());
+    }
+
+    // ========================================================================
+    // Additional Coverage Tests - Rank Assignment
+    // ========================================================================
+
+    #[test]
+    fn test_assign_ranks_no_ties() {
+        let sorted = vec![(1.0, 0), (2.0, 1), (3.0, 0), (4.0, 1)];
+        let ranks = assign_ranks_with_ties(&sorted);
+
+        assert_eq!(ranks.len(), 4);
+        assert!((ranks[0].0 - 1.0).abs() < 1e-10);
+        assert!((ranks[1].0 - 2.0).abs() < 1e-10);
+        assert!((ranks[2].0 - 3.0).abs() < 1e-10);
+        assert!((ranks[3].0 - 4.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_assign_ranks_with_multiple_tie_groups() {
+        // Two tie groups: (1.0, 1.0) and (3.0, 3.0)
+        let sorted = vec![(1.0, 0), (1.0, 1), (3.0, 0), (3.0, 1)];
+        let ranks = assign_ranks_with_ties(&sorted);
+
+        // First two should have average rank 1.5
+        assert!((ranks[0].0 - 1.5).abs() < 1e-10);
+        assert!((ranks[1].0 - 1.5).abs() < 1e-10);
+        // Last two should have average rank 3.5
+        assert!((ranks[2].0 - 3.5).abs() < 1e-10);
+        assert!((ranks[3].0 - 3.5).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_assign_ranks_preserves_groups() {
+        let sorted = vec![(1.0, 0), (2.0, 1), (3.0, 0)];
+        let ranks = assign_ranks_with_ties(&sorted);
+
+        assert_eq!(ranks[0].1, 0);
+        assert_eq!(ranks[1].1, 1);
+        assert_eq!(ranks[2].1, 0);
+    }
+
+    // ========================================================================
+    // Additional Coverage Tests - AnalysisResult Fields
+    // ========================================================================
+
+    #[test]
+    fn test_analysis_result_significant_flag() {
+        // Test with alpha = 0.10 (more lenient)
+        let control = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let treatment = vec![3.0, 4.0, 5.0, 6.0, 7.0];
+        let result = analyze_t_test(&control, &treatment, 0.10);
+
+        // With larger alpha, more likely to be significant
+        // p_value < alpha should set significant = true
+        assert_eq!(result.significant, result.p_value < 0.10);
+    }
+
+    // ========================================================================
+    // Additional Coverage Tests - TestMethod Enum
+    // ========================================================================
+
+    #[test]
+    fn test_test_method_equality() {
+        assert_eq!(TestMethod::TTest, TestMethod::TTest);
+        assert_eq!(TestMethod::LogTransformTTest, TestMethod::LogTransformTTest);
+        assert_eq!(TestMethod::MannWhitneyU, TestMethod::MannWhitneyU);
+        assert_ne!(TestMethod::TTest, TestMethod::MannWhitneyU);
+    }
+
+    #[test]
+    fn test_test_method_clone() {
+        let method = TestMethod::LogTransformTTest;
+        let cloned = method.clone();
+        assert_eq!(method, cloned);
+    }
+
+    // ========================================================================
+    // Additional Coverage Tests - EffectSizeInterpretation Enum
+    // ========================================================================
+
+    #[test]
+    fn test_effect_size_interpretation_equality() {
+        assert_eq!(
+            EffectSizeInterpretation::Negligible,
+            EffectSizeInterpretation::Negligible
+        );
+        assert_ne!(
+            EffectSizeInterpretation::Small,
+            EffectSizeInterpretation::Large
+        );
+    }
+
+    #[test]
+    fn test_effect_size_interpretation_clone() {
+        let interp = EffectSizeInterpretation::Medium;
+        let cloned = interp;
+        assert_eq!(interp, cloned);
+    }
+
+    // ========================================================================
+    // Additional Coverage Tests - MannWhitneyResult
+    // ========================================================================
+
+    #[test]
+    fn test_mann_whitney_result_clone() {
+        let control = vec![1.0, 2.0, 3.0];
+        let treatment = vec![4.0, 5.0, 6.0];
+        let result = mann_whitney_u(&control, &treatment);
+        let cloned = result.clone();
+
+        assert_eq!(result.u_statistic, cloned.u_statistic);
+        assert_eq!(result.p_value, cloned.p_value);
+        assert_eq!(result.method, cloned.method);
+    }
+
+    // ========================================================================
+    // Additional Coverage Tests - AnalysisResult Clone
+    // ========================================================================
+
+    #[test]
+    fn test_analysis_result_clone() {
+        let control = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let treatment = vec![2.0, 3.0, 4.0, 5.0, 6.0];
+        let result = analyze_t_test(&control, &treatment, 0.05);
+        let cloned = result.clone();
+
+        assert_eq!(result.control_mean, cloned.control_mean);
+        assert_eq!(result.treatment_mean, cloned.treatment_mean);
+        assert_eq!(result.method, cloned.method);
+    }
+
+    // ========================================================================
+    // Additional Coverage Tests - AnalysisConfig Clone
+    // ========================================================================
+
+    #[test]
+    fn test_analysis_config_clone() {
+        let config = AnalysisConfig {
+            alpha: 0.01,
+            auto_detect_skew: true,
+        };
+        let cloned = config.clone();
+
+        assert_eq!(config.alpha, cloned.alpha);
+        assert_eq!(config.auto_detect_skew, cloned.auto_detect_skew);
+    }
 }

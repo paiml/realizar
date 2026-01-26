@@ -2,13 +2,13 @@
 //!
 //! GpuModel, GpuModelConfig, GpuGenerateConfig, AttentionBuffers
 
-use crate::error::{RealizarError, Result};
 use super::super::{
-    HybridScheduler, StreamingKVCache, exceeds_gpu_buffer_limit,
-    cpu_matmul_transposed_simd, cpu_matmul,
+    cpu_matmul, cpu_matmul_transposed_simd, exceeds_gpu_buffer_limit, HybridScheduler,
+    StreamingKVCache,
 };
 #[cfg(feature = "cuda")]
 use super::core::CudaScheduler;
+use crate::error::{RealizarError, Result};
 
 /// GPU-accelerated model for M3 parity (128 tok/s target)
 ///
@@ -51,7 +51,8 @@ pub struct GpuModel {
     ///
     /// Note: Explicit `+ Send + Sync` bounds required for axum Router compatibility.
     /// The trait already requires Send + Sync, but trait objects need explicit bounds.
-    pub(crate) test_executor: Option<Box<dyn super::super::executor::GpuExecutorTrait + Send + Sync>>,
+    pub(crate) test_executor:
+        Option<Box<dyn super::super::executor::GpuExecutorTrait + Send + Sync>>,
 }
 
 /// Weights for a single transformer block
@@ -705,9 +706,10 @@ impl GpuModel {
         kv_cache: &mut StreamingKVCache,
     ) -> Result<Vec<f32>> {
         // Phase 21 Debug: trace first forward call only
-        static DEBUG_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        static DEBUG_COUNTER: std::sync::atomic::AtomicUsize =
+            std::sync::atomic::AtomicUsize::new(0);
         let call_count = DEBUG_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let debug_this_call = block_idx == 0 && call_count == 0;  // Only first call to block 0
+        let debug_this_call = block_idx == 0 && call_count == 0; // Only first call to block 0
 
         // Extract config values (Copy types, no borrow conflict)
         let hidden_dim = self.config.hidden_dim;
@@ -720,8 +722,14 @@ impl GpuModel {
         let num_kv_heads = self.config.num_kv_heads;
 
         if debug_this_call {
-            eprintln!("[PHASE21] forward_block_refcell START block_idx={}", block_idx);
-            eprintln!("[PHASE21] input L2: {:.4}", input.iter().map(|x| x*x).sum::<f32>().sqrt());
+            eprintln!(
+                "[PHASE21] forward_block_refcell START block_idx={}",
+                block_idx
+            );
+            eprintln!(
+                "[PHASE21] input L2: {:.4}",
+                input.iter().map(|x| x * x).sum::<f32>().sqrt()
+            );
         }
 
         // IMP-1008: No cloning! Direct reference to weights
@@ -744,7 +752,10 @@ impl GpuModel {
         )?;
 
         if debug_this_call {
-            eprintln!("[PHASE21] QKV L2: {:.4}", qkv.iter().map(|x| x*x).sum::<f32>().sqrt());
+            eprintln!(
+                "[PHASE21] QKV L2: {:.4}",
+                qkv.iter().map(|x| x * x).sum::<f32>().sqrt()
+            );
         }
 
         // Get current position BEFORE caching (Phase 21)
@@ -754,8 +765,20 @@ impl GpuModel {
         // Phase 21: Apply RoPE to Q and K BEFORE caching
         // Without RoPE, attention has no position information and produces garbage
         let rope_theta = self.config.rope_theta;
-        Self::apply_rope_inline(&mut qkv[0..hidden_dim], num_heads, head_dim, rope_theta, current_pos);
-        Self::apply_rope_inline(&mut qkv[hidden_dim..hidden_dim + kv_dim], num_kv_heads, head_dim, rope_theta, current_pos);
+        Self::apply_rope_inline(
+            &mut qkv[0..hidden_dim],
+            num_heads,
+            head_dim,
+            rope_theta,
+            current_pos,
+        );
+        Self::apply_rope_inline(
+            &mut qkv[hidden_dim..hidden_dim + kv_dim],
+            num_kv_heads,
+            head_dim,
+            rope_theta,
+            current_pos,
+        );
 
         // Split QKV (GQA: K/V have kv_dim, not hidden_dim) - after RoPE
         let q = qkv[0..hidden_dim].to_vec();
@@ -789,7 +812,10 @@ impl GpuModel {
         );
 
         if debug_this_call {
-            eprintln!("[PHASE21] attn_output L2: {:.4}", attn_output.iter().map(|x| x*x).sum::<f32>().sqrt());
+            eprintln!(
+                "[PHASE21] attn_output L2: {:.4}",
+                attn_output.iter().map(|x| x * x).sum::<f32>().sqrt()
+            );
         }
 
         // Output projection - NO CLONE!
@@ -820,7 +846,9 @@ impl GpuModel {
         );
 
         // FFN: SwiGLU when gate weight exists, otherwise GELU
-        let fc1_activated: Vec<f32> = if let Some(ref gate_weight) = self.block_weights[block_idx].ffn_gate_weight {
+        let fc1_activated: Vec<f32> = if let Some(ref gate_weight) =
+            self.block_weights[block_idx].ffn_gate_weight
+        {
             // SwiGLU: silu(gate(x)) * up(x)
             // Up projection
             let up_out = self.matmul_refcell(
@@ -832,13 +860,8 @@ impl GpuModel {
             )?;
 
             // Gate projection
-            let gate_out = self.matmul_refcell(
-                &ffn_normed,
-                gate_weight,
-                1,
-                hidden_dim,
-                intermediate_dim,
-            )?;
+            let gate_out =
+                self.matmul_refcell(&ffn_normed, gate_weight, 1, hidden_dim, intermediate_dim)?;
 
             // SwiGLU: silu(gate) * up
             // silu(x) = x * sigmoid(x) = x / (1 + exp(-x))
@@ -891,7 +914,10 @@ impl GpuModel {
             .collect();
 
         if debug_this_call {
-            eprintln!("[PHASE21] block output L2: {:.4}", output.iter().map(|x| x*x).sum::<f32>().sqrt());
+            eprintln!(
+                "[PHASE21] block output L2: {:.4}",
+                output.iter().map(|x| x * x).sum::<f32>().sqrt()
+            );
         }
 
         Ok(output)
@@ -964,12 +990,19 @@ impl GpuModel {
 
         if debug_this_fwd {
             // Find argmax
-            let (argmax_idx, argmax_val) = output.iter()
+            let (argmax_idx, argmax_val) = output
+                .iter()
                 .enumerate()
                 .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                 .unwrap_or((0, &0.0));
-            eprintln!("[PHASE21] forward_refcell: final hidden L2: {:.4}", hidden.iter().map(|x| x*x).sum::<f32>().sqrt());
-            eprintln!("[PHASE21] forward_refcell: logits argmax: {} (val: {:.4})", argmax_idx, argmax_val);
+            eprintln!(
+                "[PHASE21] forward_refcell: final hidden L2: {:.4}",
+                hidden.iter().map(|x| x * x).sum::<f32>().sqrt()
+            );
+            eprintln!(
+                "[PHASE21] forward_refcell: logits argmax: {} (val: {:.4})",
+                argmax_idx, argmax_val
+            );
         }
 
         Ok(output)
@@ -1327,11 +1360,14 @@ impl GpuModel {
             Ok(cs) => {
                 eprintln!("[PHASE21] CudaScheduler initialized for APR model");
                 Some(cs)
-            }
+            },
             Err(e) => {
-                eprintln!("[PHASE21] CudaScheduler init failed (using HybridScheduler fallback): {}", e);
+                eprintln!(
+                    "[PHASE21] CudaScheduler init failed (using HybridScheduler fallback): {}",
+                    e
+                );
                 None
-            }
+            },
         };
 
         Ok(Self {
@@ -1577,8 +1613,20 @@ impl GpuModel {
         // Phase 21: Apply RoPE to Q and K BEFORE caching
         // Without RoPE, attention has no position information and produces garbage
         let rope_theta = self.config.rope_theta;
-        Self::apply_rope_inline(&mut qkv[0..hidden_dim], num_heads, head_dim, rope_theta, current_pos);
-        Self::apply_rope_inline(&mut qkv[hidden_dim..hidden_dim + kv_dim], num_kv_heads, head_dim, rope_theta, current_pos);
+        Self::apply_rope_inline(
+            &mut qkv[0..hidden_dim],
+            num_heads,
+            head_dim,
+            rope_theta,
+            current_pos,
+        );
+        Self::apply_rope_inline(
+            &mut qkv[hidden_dim..hidden_dim + kv_dim],
+            num_kv_heads,
+            head_dim,
+            rope_theta,
+            current_pos,
+        );
 
         // Split QKV (GQA: K/V have kv_dim, not hidden_dim) - after RoPE
         let q = qkv[0..hidden_dim].to_vec();
@@ -1637,13 +1685,17 @@ impl GpuModel {
 
         // FFN: SwiGLU when gate weight exists, otherwise GELU
         // IMP-1006: Use do_matmul to route to CudaScheduler when available
-        let fc1_activated: Vec<f32> = if let Some(ref gate_weight) = self.block_weights[block_idx].ffn_gate_weight {
+        let fc1_activated: Vec<f32> = if let Some(ref gate_weight) =
+            self.block_weights[block_idx].ffn_gate_weight
+        {
             // SwiGLU: silu(gate(x)) * up(x)
             let fc1_weight = self.block_weights[block_idx].ffn_fc1_weight.clone();
             let gate_weight = gate_weight.clone();
 
-            let up_out = self.do_matmul(&ffn_normed, &fc1_weight, 1, hidden_dim, intermediate_dim)?;
-            let gate_out = self.do_matmul(&ffn_normed, &gate_weight, 1, hidden_dim, intermediate_dim)?;
+            let up_out =
+                self.do_matmul(&ffn_normed, &fc1_weight, 1, hidden_dim, intermediate_dim)?;
+            let gate_out =
+                self.do_matmul(&ffn_normed, &gate_weight, 1, hidden_dim, intermediate_dim)?;
 
             // SwiGLU: silu(gate) * up
             up_out
@@ -1657,7 +1709,8 @@ impl GpuModel {
         } else {
             // Standard GELU FFN
             let fc1_weight = self.block_weights[block_idx].ffn_fc1_weight.clone();
-            let fc1_out = self.do_matmul(&ffn_normed, &fc1_weight, 1, hidden_dim, intermediate_dim)?;
+            let fc1_out =
+                self.do_matmul(&ffn_normed, &fc1_weight, 1, hidden_dim, intermediate_dim)?;
 
             let ffn_fc1_bias = &self.block_weights[block_idx].ffn_fc1_bias;
             fc1_out
@@ -2212,8 +2265,20 @@ impl GpuModel {
         // FFN: SwiGLU when gate weight exists, otherwise GELU
         let activated: Vec<f32> = if let Some(gate_weight) = ffn_gate_weight {
             // SwiGLU: silu(gate(x)) * up(x)
-            let up_out = self.do_matmul(&ffn_normed, &ffn_fc1_weight, seq_len, hidden_dim, intermediate_dim)?;
-            let gate_out = self.do_matmul(&ffn_normed, &gate_weight, seq_len, hidden_dim, intermediate_dim)?;
+            let up_out = self.do_matmul(
+                &ffn_normed,
+                &ffn_fc1_weight,
+                seq_len,
+                hidden_dim,
+                intermediate_dim,
+            )?;
+            let gate_out = self.do_matmul(
+                &ffn_normed,
+                &gate_weight,
+                seq_len,
+                hidden_dim,
+                intermediate_dim,
+            )?;
 
             // SwiGLU: silu(gate) * up
             up_out
@@ -2243,8 +2308,9 @@ impl GpuModel {
                     // GELU approximation
                     0.5 * x
                         * (1.0
-                            + ((2.0f32 / std::f32::consts::PI).sqrt() * (x + 0.044_715 * x.powi(3)))
-                                .tanh())
+                            + ((2.0f32 / std::f32::consts::PI).sqrt()
+                                * (x + 0.044_715 * x.powi(3)))
+                            .tanh())
                 })
                 .collect()
         };

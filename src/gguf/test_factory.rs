@@ -156,40 +156,60 @@ impl GGUFBuilder {
     /// Add a Q4_0 tensor (18 bytes per 32 elements)
     #[must_use]
     pub fn add_q4_0_tensor(mut self, name: &str, dims: &[u64], data: &[u8]) -> Self {
-        self.tensors
-            .push((name.to_string(), dims.to_vec(), GGUF_TYPE_Q4_0, data.to_vec()));
+        self.tensors.push((
+            name.to_string(),
+            dims.to_vec(),
+            GGUF_TYPE_Q4_0,
+            data.to_vec(),
+        ));
         self
     }
 
     /// Add a Q8_0 tensor (34 bytes per 32 elements)
     #[must_use]
     pub fn add_q8_0_tensor(mut self, name: &str, dims: &[u64], data: &[u8]) -> Self {
-        self.tensors
-            .push((name.to_string(), dims.to_vec(), GGUF_TYPE_Q8_0, data.to_vec()));
+        self.tensors.push((
+            name.to_string(),
+            dims.to_vec(),
+            GGUF_TYPE_Q8_0,
+            data.to_vec(),
+        ));
         self
     }
 
     /// Add a Q4_K tensor (144 bytes per 256 elements)
     #[must_use]
     pub fn add_q4_k_tensor(mut self, name: &str, dims: &[u64], data: &[u8]) -> Self {
-        self.tensors
-            .push((name.to_string(), dims.to_vec(), GGUF_TYPE_Q4_K, data.to_vec()));
+        self.tensors.push((
+            name.to_string(),
+            dims.to_vec(),
+            GGUF_TYPE_Q4_K,
+            data.to_vec(),
+        ));
         self
     }
 
     /// Add a Q5_K tensor (176 bytes per 256 elements)
     #[must_use]
     pub fn add_q5_k_tensor(mut self, name: &str, dims: &[u64], data: &[u8]) -> Self {
-        self.tensors
-            .push((name.to_string(), dims.to_vec(), GGUF_TYPE_Q5_K, data.to_vec()));
+        self.tensors.push((
+            name.to_string(),
+            dims.to_vec(),
+            GGUF_TYPE_Q5_K,
+            data.to_vec(),
+        ));
         self
     }
 
     /// Add a Q6_K tensor (210 bytes per 256 elements)
     #[must_use]
     pub fn add_q6_k_tensor(mut self, name: &str, dims: &[u64], data: &[u8]) -> Self {
-        self.tensors
-            .push((name.to_string(), dims.to_vec(), GGUF_TYPE_Q6_K, data.to_vec()));
+        self.tensors.push((
+            name.to_string(),
+            dims.to_vec(),
+            GGUF_TYPE_Q6_K,
+            data.to_vec(),
+        ));
         self
     }
 

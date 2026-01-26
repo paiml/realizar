@@ -11,11 +11,11 @@
 //! - Token healing
 //! - Classifier-Free Guidance (CFG)
 
+use super::{sample_from_distribution, sample_greedy};
 use crate::error::{RealizarError, Result};
 use crate::layers::softmax;
 use crate::tensor::Tensor;
 use serde::{Deserialize, Serialize};
-use super::{sample_greedy, sample_from_distribution};
 
 /// Sample using min-p (minimum probability) sampling.
 ///
@@ -888,4 +888,3 @@ pub fn apply_cfg(
 
     Tensor::from_vec(conditional_logits.shape().to_vec(), guided)
 }
-

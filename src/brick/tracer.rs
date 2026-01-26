@@ -95,11 +95,7 @@ impl TraceEvent {
         }
 
         // Optionally store full tensor
-        let full_data = if verbose {
-            Some(tensor.to_vec())
-        } else {
-            None
-        };
+        let full_data = if verbose { Some(tensor.to_vec()) } else { None };
 
         Self {
             name: name.to_string(),
@@ -248,7 +244,12 @@ impl fmt::Display for TraceComparison {
             if self.diffs.len() > 1 {
                 writeln!(f, "\n--- All Divergences ---")?;
                 for diff in &self.diffs {
-                    writeln!(f, "  {}: {:.2}% diff", diff.name, diff.relative_diff * 100.0)?;
+                    writeln!(
+                        f,
+                        "  {}: {:.2}% diff",
+                        diff.name,
+                        diff.relative_diff * 100.0
+                    )?;
                 }
             }
         }
@@ -394,7 +395,9 @@ impl BrickTracer {
 
         // Find largest L2 norm
         if let Some(max_event) = self.events.iter().max_by(|a, b| {
-            a.l2_norm.partial_cmp(&b.l2_norm).unwrap_or(std::cmp::Ordering::Equal)
+            a.l2_norm
+                .partial_cmp(&b.l2_norm)
+                .unwrap_or(std::cmp::Ordering::Equal)
         }) {
             eprintln!("Max L2: {} = {:.6}", max_event.name, max_event.l2_norm);
         }

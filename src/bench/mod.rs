@@ -24,11 +24,11 @@ use serde::{Deserialize, Serialize};
 use crate::http_client::{CompletionRequest, ModelHttpClient, OllamaOptions, OllamaRequest};
 
 // PMAT-802: Extracted modules
-mod runtime;
-mod statistics;
+mod gpu_parity;
 mod load_testing;
 mod matrix;
-mod gpu_parity;
+mod runtime;
+mod statistics;
 
 // RuntimeType always available (matrix.rs needs it)
 pub use runtime::RuntimeType;
@@ -36,27 +36,27 @@ pub use runtime::RuntimeType;
 // HTTP-dependent runtime backends
 #[cfg(feature = "bench-http")]
 pub use runtime::{
-    InferenceRequest, InferenceResponse, BackendInfo, RuntimeBackend,
-    MockBackend, BackendRegistry, LlamaCppConfig, VllmConfig, LlamaCppBackend,
-    VllmBackend, OllamaConfig, OllamaBackend,
+    BackendInfo, BackendRegistry, InferenceRequest, InferenceResponse, LlamaCppBackend,
+    LlamaCppConfig, MockBackend, OllamaBackend, OllamaConfig, RuntimeBackend, VllmBackend,
+    VllmConfig,
 };
 
 pub use statistics::{
-    MeasurementProtocol, LatencyStatistics, detect_outliers, BenchmarkMetrics,
-    Regression, RegressionReport, RegressionDetector, WelchTTestResult, welch_t_test,
+    detect_outliers, welch_t_test, BenchmarkMetrics, LatencyStatistics, MeasurementProtocol,
+    Regression, RegressionDetector, RegressionReport, WelchTTestResult,
 };
 
 pub use load_testing::{LoadTestConfig, LoadTestResult, LoadTestRunner};
 
 pub use matrix::{
-    MatrixBenchmarkEntry, BenchmarkMatrix, MatrixBenchmarkConfig,
-    BackendSummary, MatrixSummary, ComputeBackendType,
+    BackendSummary, BenchmarkMatrix, ComputeBackendType, MatrixBenchmarkConfig,
+    MatrixBenchmarkEntry, MatrixSummary,
 };
 
 pub use gpu_parity::{
-    GpuParityBenchmark, GpuParityResult, GapAnalysis, FalsifiableClaim,
-    OptimizedGemmConfig, GemmPerformanceResult, OptimizedGemmBenchmark,
-    FusedOpType, FusedOpSpec, FlashAttentionConfig, Imp900Result, MemoryPoolConfig,
+    FalsifiableClaim, FlashAttentionConfig, FusedOpSpec, FusedOpType, GapAnalysis,
+    GemmPerformanceResult, GpuParityBenchmark, GpuParityResult, Imp900Result, MemoryPoolConfig,
+    OptimizedGemmBenchmark, OptimizedGemmConfig,
 };
 
 // ============================================================================
@@ -1474,8 +1474,12 @@ impl RegressionResult {
     }
 }
 
-
 // Tests extracted to tests.rs (PMAT-802)
 #[cfg(test)]
 #[path = "tests.rs"]
 mod bench_tests;
+
+// Part 2 tests: Configuration, Metrics, Error Handling
+#[cfg(test)]
+#[path = "tests_part_02.rs"]
+mod bench_tests_part_02;

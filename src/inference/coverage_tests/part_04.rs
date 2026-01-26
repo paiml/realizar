@@ -202,7 +202,10 @@ fn test_inference_mode_exhaustive_match() {
         assert!(is_either, "Mode should be either prefill or decode");
 
         let is_exclusive = mode.is_prefill() != mode.is_decode();
-        assert!(is_exclusive, "Mode should be exactly one of prefill or decode");
+        assert!(
+            is_exclusive,
+            "Mode should be exactly one of prefill or decode"
+        );
     }
 }
 
@@ -362,7 +365,7 @@ fn test_configure_thread_pool_returns_result() {
     match result {
         Ok(()) => {
             // Pool was successfully initialized (unlikely in test environment)
-        }
+        },
         Err(e) => {
             // Pool was already initialized
             let error_msg = e.to_string();
@@ -371,7 +374,7 @@ fn test_configure_thread_pool_returns_result() {
                 "Error should mention thread pool: {}",
                 error_msg
             );
-        }
+        },
     }
 }
 
@@ -385,7 +388,7 @@ fn test_configure_optimal_thread_pool_returns_result() {
     match result {
         Ok(()) => {
             // Success
-        }
+        },
         Err(e) => {
             let error_msg = e.to_string();
             assert!(
@@ -393,7 +396,7 @@ fn test_configure_optimal_thread_pool_returns_result() {
                 "Error should mention thread pool: {}",
                 error_msg
             );
-        }
+        },
     }
 }
 
@@ -448,9 +451,7 @@ fn test_thread_config_auto_field_access() {
 
 #[test]
 fn test_thread_config_mass_creation() {
-    let configs: Vec<ThreadConfig> = (1..=100)
-        .map(|i| ThreadConfig::new(i * 2, i))
-        .collect();
+    let configs: Vec<ThreadConfig> = (1..=100).map(|i| ThreadConfig::new(i * 2, i)).collect();
 
     assert_eq!(configs.len(), 100);
 
@@ -507,7 +508,10 @@ fn test_inference_mode_exclusive_property() {
         let decode = mode.is_decode();
 
         // XOR: exactly one should be true
-        assert!(prefill ^ decode, "Mode should be exactly one of prefill or decode");
+        assert!(
+            prefill ^ decode,
+            "Mode should be exactly one of prefill or decode"
+        );
     }
 }
 

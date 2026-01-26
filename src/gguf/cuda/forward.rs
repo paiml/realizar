@@ -7,9 +7,11 @@
 //! - `forward_gpu_resident`: GPU-resident forward (minimal CPU↔GPU transfers)
 //! - Internal helpers: `fused_matmul_cuda`, `qkv_matmul_cuda`, `cuda_attention_with_cache`
 
+use super::{
+    OwnedQKVWeights, OwnedQuantizedKVCache, OwnedQuantizedModelCuda, OwnedQuantizedTensor,
+};
 use crate::error::{RealizarError, Result};
 use crate::gguf::ops;
-use super::{OwnedQuantizedModelCuda, OwnedQKVWeights, OwnedQuantizedTensor, OwnedQuantizedKVCache};
 
 impl OwnedQuantizedModelCuda {
     /// Forward pass using CUDA GEMM acceleration (IMP-800a)

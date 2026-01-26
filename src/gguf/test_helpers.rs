@@ -142,7 +142,7 @@ mod tests {
         assert_eq!(tensor.in_dim, 256);
         assert_eq!(tensor.out_dim, 64);
         assert_eq!(tensor.qtype, 12); // Q4_K
-        // 1 super-block per row, 144 bytes each, 64 rows
+                                      // 1 super-block per row, 144 bytes each, 64 rows
         assert_eq!(tensor.data.len(), 64 * 144);
     }
 
