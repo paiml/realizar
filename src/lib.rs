@@ -196,14 +196,11 @@ pub mod convert;
     clippy::manual_div_ceil
 )]
 pub mod cuda;
-/// Embedding model engine for sentence embeddings
-///
-/// Provides [`embeddings::EmbeddingEngine`] for loading and running BERT-style
-/// embedding models like all-MiniLM-L6-v2, nomic-embed-text, and bge-small.
-/// Supports mean pooling, CLS pooling, and L2 normalization.
-/// Requires the `embeddings` feature.
-#[cfg(feature = "embeddings")]
-pub mod embeddings;
+// Embedding model engine for sentence embeddings
+//
+// NOTE: Embeddings module disabled - requires candle dependencies
+// To re-enable, add candle-core, candle-nn, candle-transformers, and tokenizers to Cargo.toml
+// pub mod embeddings;
 pub mod error;
 /// Model explainability (SHAP, Attention)
 ///
@@ -399,12 +396,11 @@ pub use chat_template::{
     GroqToolChatTemplate, Llama3Template, TemplateFormat,
 };
 
-// Embeddings module re-exports (when feature enabled)
-#[cfg(feature = "embeddings")]
-pub use embeddings::{
-    cosine_similarity, l2_distance, EmbeddingConfig, EmbeddingEngine, EmbeddingModelType,
-    PoolingStrategy,
-};
+// Embeddings module re-exports (disabled - requires candle dependencies)
+// pub use embeddings::{
+//     cosine_similarity, l2_distance, EmbeddingConfig, EmbeddingEngine, EmbeddingModelType,
+//     PoolingStrategy,
+// };
 
 /// Library version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

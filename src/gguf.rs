@@ -10108,8 +10108,8 @@ impl OwnedQuantizedModel {
             .collect();
 
         // Sample from probability distribution with proper randomness
-        let mut rng = rand::thread_rng();
-        let r: f32 = rng.gen();
+        let mut rng = rand::rng();
+        let r: f32 = rng.random();
 
         let mut cumulative = 0.0;
         for &(idx, prob) in &probs {
@@ -16914,6 +16914,16 @@ impl OwnedQuantizedModelCuda {
                 reason: format!("Failed to upload QKV bias: {}", e),
             })?;
 
+        // PAR-064-FIX: Pre-cache LM head bias (output.bias) for models that have it
+        // Without this bias, GPU inference produces incorrect token predictions
+        total_bytes += self
+            .executor
+            .preload_lm_head_bias(self.model.lm_head_bias.as_deref())
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "preload_weights_gpu".to_string(),
+                reason: format!("Failed to upload LM head bias: {}", e),
+            })?;
+
         // PAR-043: Build indexed weight lookup table for O(1) access during decode
         // This eliminates ~10ms constant CPU overhead per token from string formatting + HashMap lookups
         // PAR-107: Skip if already indexed to preserve CUDA graph (graph captures buffer addresses)
@@ -17082,9 +17092,19 @@ impl OwnedQuantizedModelCuda {
         cache: &mut OwnedQuantizedKVCache,
         position: usize,
     ) -> Result<u32> {
+        // CORRECTNESS-013: Check if deterministic mode is requested
+        // In this mode, download logits to CPU for argmax to ensure bit-exact
+        // output matching between CPU and GPU inference paths.
+        static CORRECTNESS_MODE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let use_cpu_argmax = *CORRECTNESS_MODE.get_or_init(|| {
+            std::env::var("CORRECTNESS_MODE")
+                .map(|v| v == "1")
+                .unwrap_or(false)
+        });
+
         // PAR-062: If model has LM head bias, fall back to CPU path
         // (bias addition requires CPU, so we'd download logits anyway)
-        if self.model.lm_head_bias.is_some() {
+        if self.model.lm_head_bias.is_some() || use_cpu_argmax {
             let logits = self.forward_gpu_resident(token_id, cache, position)?;
             return Ok(logits
                 .iter()

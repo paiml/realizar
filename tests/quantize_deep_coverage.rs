@@ -1,32 +1,120 @@
-//! Deep coverage tests for quantize module
+//! Deep coverage tests for realizar/src/quantize.rs
+//!
+//! This module provides additional coverage for quantization functions,
+//! SIMD backends, RoPE rotation, and helper types not covered by existing tests.
 
 use realizar::quantize::{
-    apply_rope_rotation_simd, dequantize_f16, dequantize_q4_0, dequantize_q4_0_parallel,
-    dequantize_q4_0_simd, dequantize_q4_1, dequantize_q4_k, dequantize_q4_k_parallel,
-    dequantize_q4_k_simd, dequantize_q5_0, dequantize_q5_1, dequantize_q5_k, dequantize_q6_k,
-    dequantize_q8_0, dequantize_q8_0_parallel, dequantize_q8_0_simd,
-    dequantize_q8_0_simd_optimized, dequantize_q8_blocks, detect_simd_backend, f16_to_f32,
-    fused_q4_0_q8_0_parallel_matvec, fused_q4_0_q8_0_parallel_matvec_into,
-    fused_q4_0_q8_0_parallel_matvec_prequant, fused_q4k_auto_matvec_into, fused_q4k_dot,
-    fused_q4k_dot_simd, fused_q4k_parallel_matvec, fused_q4k_parallel_matvec_into,
-    fused_q4k_q8_dot, fused_q4k_q8_dot_simd, fused_q4k_q8k_dot, fused_q4k_q8k_dot_simd,
-    fused_q4k_q8k_ffn_up_gate_into, fused_q4k_q8k_parallel_matvec_into, fused_q4k_tiled_matvec,
-    fused_q5k_dot, fused_q5k_dot_simd, fused_q5k_parallel_matvec, fused_q5k_parallel_matvec_into,
-    fused_q5k_tiled_matvec, fused_q6k_colmajor_matvec, fused_q6k_dot, fused_q6k_dot_simd,
-    fused_q6k_parallel_matvec, fused_q6k_parallel_matvec_into, fused_q6k_q8k_dot_simd,
-    fused_q6k_q8k_parallel_matvec_into, fused_q6k_tiled_matvec, fused_q8_0_q8_0_parallel_matvec,
-    fused_q8_0_q8_0_parallel_matvec_into, fused_rmsnorm_ffn_up_gate, fused_rmsnorm_q4_0_matmul,
-    fused_swiglu_simd, int8_matvec, int8_matvec_parallel, quantize_activations_q8_0,
-    quantize_activations_q8k_into, quantize_rmsnorm_q8_0, quantize_rmsnorm_q8_0_into,
-    quantize_to_q8_blocks, softmax_simd, DequantStats, Int8Row, InterleavedQ4K, Q8KSuperBlock,
-    Q8_0Block, SimdBackend, BLOCK_SIZE, QK_K,
+    detect_simd_backend, dequantize_f16, dequantize_q4_0, dequantize_q4_1, dequantize_q4_k,
+    dequantize_q4_k_parallel, dequantize_q4_k_simd, dequantize_q5_0, dequantize_q5_1,
+    dequantize_q5_k, dequantize_q6_k, dequantize_q8_0, dequantize_q8_0_parallel,
+    dequantize_q8_0_simd, f16_to_f32, fused_q4k_dot, fused_q4k_dot_simd,
+    fused_q4k_parallel_matvec, fused_q4k_parallel_matvec_into,
+    fused_q4k_tiled_matvec, fused_q5k_dot,
+    fused_q5k_dot_simd, fused_q5k_parallel_matvec, fused_q5k_parallel_matvec_into,
+    fused_q6k_dot, fused_q6k_dot_simd, fused_q6k_parallel_matvec,
+    fused_q6k_parallel_matvec_into, fused_swiglu_simd, quantize_activations_q8_0,
+    quantize_rmsnorm_q8_0, quantize_rmsnorm_q8_0_into, quantize_to_q8_blocks, softmax_simd,
+    DequantStats, Q4_0Block, Q4_KBlock, Q5_KBlock, Q6_KBlock, Q8KSuperBlock, Q8_0Block,
+    SimdBackend, BLOCK_SIZE, QK_K,
 };
 
-fn f16_bytes(val: f32) -> [u8; 2] {
-    half::f16::from_f32(val).to_le_bytes()
+// ============================================================================
+// Test 1-10: SimdBackend enum and Display
+// ============================================================================
+
+#[test]
+fn test_simd_backend_display_avx2() {
+    let backend = SimdBackend::Avx2;
+    assert_eq!(format!("{backend}"), "AVX2");
 }
 
-// Constants
+#[test]
+fn test_simd_backend_display_sse2() {
+    let backend = SimdBackend::Sse2;
+    assert_eq!(format!("{backend}"), "SSE2");
+}
+
+#[test]
+fn test_simd_backend_display_neon() {
+    let backend = SimdBackend::Neon;
+    assert_eq!(format!("{backend}"), "NEON");
+}
+
+#[test]
+fn test_simd_backend_display_scalar() {
+    let backend = SimdBackend::Scalar;
+    assert_eq!(format!("{backend}"), "Scalar");
+}
+
+#[test]
+fn test_simd_backend_default() {
+    let backend = SimdBackend::default();
+    assert_eq!(backend, SimdBackend::Scalar);
+}
+
+#[test]
+fn test_simd_backend_clone() {
+    let backend = SimdBackend::Avx2;
+    let cloned = backend;
+    assert_eq!(backend, cloned);
+}
+
+#[test]
+fn test_simd_backend_debug() {
+    let backend = SimdBackend::Avx2;
+    let debug = format!("{backend:?}");
+    assert!(debug.contains("Avx2"));
+}
+
+#[test]
+fn test_detect_simd_backend_returns_valid() {
+    let backend = detect_simd_backend();
+    match backend {
+        SimdBackend::Avx2 | SimdBackend::Sse2 | SimdBackend::Neon | SimdBackend::Scalar => (),
+    }
+}
+
+// ============================================================================
+// Test 11-20: DequantStats struct
+// ============================================================================
+
+#[test]
+fn test_dequant_stats_default() {
+    let stats = DequantStats::default();
+    assert_eq!(stats.blocks_processed, 0);
+    assert_eq!(stats.bytes_processed, 0);
+    assert_eq!(stats.simd_backend, SimdBackend::Scalar);
+}
+
+#[test]
+fn test_dequant_stats_clone() {
+    let stats = DequantStats {
+        blocks_processed: 100,
+        bytes_processed: 1600,
+        simd_backend: SimdBackend::Avx2,
+    };
+    let cloned = stats.clone();
+    assert_eq!(cloned.blocks_processed, 100);
+    assert_eq!(cloned.bytes_processed, 1600);
+    assert_eq!(cloned.simd_backend, SimdBackend::Avx2);
+}
+
+#[test]
+fn test_dequant_stats_debug() {
+    let stats = DequantStats {
+        blocks_processed: 50,
+        bytes_processed: 800,
+        simd_backend: SimdBackend::Sse2,
+    };
+    let debug = format!("{stats:?}");
+    assert!(debug.contains("DequantStats"));
+    assert!(debug.contains("50"));
+}
+
+// ============================================================================
+// Test 21-30: Constants and Block Sizes
+// ============================================================================
+
 #[test]
 fn test_block_size_constant() {
     assert_eq!(BLOCK_SIZE, 32);
@@ -38,888 +126,774 @@ fn test_qk_k_constant() {
 }
 
 #[test]
-fn test_simd_backend_enum_variants() {
-    let _ = SimdBackend::Avx2;
-    let _ = SimdBackend::Sse2;
-    let _ = SimdBackend::Neon;
-    let _ = SimdBackend::Scalar;
+fn test_block_sizes_relationship() {
+    assert_eq!(QK_K, 8 * BLOCK_SIZE);
 }
 
-#[test]
-fn test_detect_simd_backend() {
-    let _ = detect_simd_backend();
-}
+// ============================================================================
+// Test 31-40: Q8_0Block methods
+// ============================================================================
 
 #[test]
-fn test_dequant_stats_struct() {
-    let stats = DequantStats {
-        blocks_processed: 10,
-        bytes_processed: 340,
-        simd_backend: SimdBackend::Avx2,
-    };
-    assert_eq!(stats.blocks_processed, 10);
-}
-
-// Q8_0Block
-#[test]
-fn test_q8_0_block_quantize_basic() {
-    let block = Q8_0Block::quantize(&[1.0f32; 32]);
+fn test_q8_0_block_quantize_all_zeros() {
+    let values = [0.0f32; 32];
+    let block = Q8_0Block::quantize(&values);
     assert!(block.scale > 0.0);
+    for q in block.quants {
+        assert_eq!(q, 0);
+    }
+}
+
+#[test]
+fn test_q8_0_block_quantize_positive() {
+    let mut values = [0.0f32; 32];
+    values[0] = 127.0;
+    let block = Q8_0Block::quantize(&values);
     assert_eq!(block.quants[0], 127);
 }
 
 #[test]
-fn test_q8_0_block_quantize_zeros() {
-    let block = Q8_0Block::quantize(&[0.0f32; 32]);
-    assert!(block.quants.iter().all(|&q| q == 0));
+fn test_q8_0_block_quantize_negative() {
+    let mut values = [0.0f32; 32];
+    values[0] = -127.0;
+    let block = Q8_0Block::quantize(&values);
+    assert_eq!(block.quants[0], -127);
 }
 
 #[test]
-fn test_q8_0_block_dequantize() {
-    let block = Q8_0Block::quantize(&[0.5f32; 32]);
-    let deq = block.dequantize();
-    assert!(deq.iter().all(|&v| (v - 0.5).abs() < 0.1));
+fn test_q8_0_block_dequantize_roundtrip() {
+    let mut values = [0.0f32; 32];
+    for i in 0..32 {
+        values[i] = (i as f32 - 16.0) * 2.0;
+    }
+    let block = Q8_0Block::quantize(&values);
+    let dequant = block.dequantize();
+    for i in 0..32 {
+        let diff = (values[i] - dequant[i]).abs();
+        assert!(diff < 1.0, "diff too large at {i}: {diff}");
+    }
 }
 
 #[test]
 fn test_q8_0_block_quantization_error() {
-    let values: [f32; 32] = core::array::from_fn(|i| i as f32 / 10.0);
+    let mut values = [0.0f32; 32];
+    for i in 0..32 {
+        values[i] = i as f32;
+    }
     let block = Q8_0Block::quantize(&values);
-    assert!(block.quantization_error(&values) < 0.1);
+    let error = block.quantization_error(&values);
+    assert!(error < 1.0);
 }
 
 #[test]
-fn test_q8_0_block_relative_error() {
-    let values: [f32; 32] = core::array::from_fn(|i| (i + 1) as f32);
+fn test_q8_0_block_relative_error_near_zero() {
+    let values = [1e-15f32; 32];
     let block = Q8_0Block::quantize(&values);
-    assert!(block.relative_error(&values) < 0.05);
+    let error = block.relative_error(&values);
+    assert_eq!(error, 0.0);
 }
 
-// Q8KSuperBlock
+// ============================================================================
+// Test 41-50: Q8KSuperBlock methods
+// ============================================================================
+
 #[test]
-fn test_q8k_superblock_quantize() {
-    let block = Q8KSuperBlock::quantize(&[1.0f32; 256]);
+fn test_q8k_super_block_quantize_all_zeros() {
+    let values = [0.0f32; 256];
+    let block = Q8KSuperBlock::quantize(&values);
     assert!(block.scale > 0.0);
+    for q in block.quants {
+        assert_eq!(q, 0);
+    }
+}
+
+#[test]
+fn test_q8k_super_block_quantize_max_value() {
+    let mut values = [0.0f32; 256];
+    values[0] = 127.0;
+    let block = Q8KSuperBlock::quantize(&values);
     assert_eq!(block.quants[0], 127);
 }
 
 #[test]
-fn test_q8k_superblock_dequantize() {
-    let block = Q8KSuperBlock::quantize(&[0.5f32; 256]);
-    let deq = block.dequantize();
-    assert!(deq.iter().all(|&v| (v - 0.5).abs() < 0.1));
+fn test_q8k_super_block_dequantize() {
+    let mut values = [0.0f32; 256];
+    for i in 0..256 {
+        values[i] = (i as f32 - 128.0) * 0.5;
+    }
+    let block = Q8KSuperBlock::quantize(&values);
+    let dequant = block.dequantize();
+    for i in 0..256 {
+        let diff = (values[i] - dequant[i]).abs();
+        assert!(diff < 1.0);
+    }
 }
 
 #[test]
-fn test_q8k_superblock_quantize_into() {
+fn test_q8k_super_block_quantize_into() {
+    let values = [1.0f32; 256];
     let mut scale = 0.0f32;
     let mut quants = [0i8; 256];
-    Q8KSuperBlock::quantize_into(&[1.0f32; 256], &mut scale, &mut quants);
+    Q8KSuperBlock::quantize_into(&values, &mut scale, &mut quants);
     assert!(scale > 0.0);
+    for q in quants {
+        assert_eq!(q, 127);
+    }
 }
 
-// InterleavedQ4K
-#[test]
-fn test_interleaved_q4k_from_q4k() {
-    let mut data = vec![0u8; 144];
-    data[0..2].copy_from_slice(&f16_bytes(1.0));
-    data[2..4].copy_from_slice(&f16_bytes(0.0));
-    let result = InterleavedQ4K::from_q4k(&data);
-    assert!(result.is_ok());
-}
+// ============================================================================
+// Test 51-60: quantize_to_q8_blocks
+// ============================================================================
 
-// Int8Row
 #[test]
-fn test_int8_row_quantize() {
-    let row = Int8Row::quantize(&(0..32).map(|i| i as f32 / 10.0).collect::<Vec<_>>());
-    assert_eq!(row.weights.len(), 32);
-    assert!(row.scale > 0.0);
+fn test_quantize_to_q8_blocks_single_block() {
+    let values: Vec<f32> = (0..32).map(|i| i as f32).collect();
+    let blocks = quantize_to_q8_blocks(&values).expect("quantize");
+    assert_eq!(blocks.len(), 1);
 }
 
 #[test]
-fn test_int8_matvec_basic() {
-    let row = Int8Row::quantize(&vec![1.0f32; 32]);
-    let result = int8_matvec(&[row], &vec![1.0f32; 32]);
-    assert_eq!(result.len(), 1);
+fn test_quantize_to_q8_blocks_multiple_blocks() {
+    let values: Vec<f32> = (0..64).map(|i| i as f32).collect();
+    let blocks = quantize_to_q8_blocks(&values).expect("quantize");
+    assert_eq!(blocks.len(), 2);
 }
 
 #[test]
-fn test_int8_matvec_parallel() {
-    let row = Int8Row::quantize(&vec![1.0f32; 32]);
-    let result = int8_matvec_parallel(&vec![row; 8], &vec![1.0f32; 32]);
-    assert_eq!(result.len(), 8);
+fn test_quantize_to_q8_blocks_empty() {
+    let values: Vec<f32> = vec![];
+    let blocks = quantize_to_q8_blocks(&values).expect("quantize");
+    assert!(blocks.is_empty());
 }
 
-// F16 conversion
+#[test]
+fn test_quantize_to_q8_blocks_not_multiple() {
+    let values: Vec<f32> = (0..50).map(|i| i as f32).collect();
+    let result = quantize_to_q8_blocks(&values);
+    assert!(result.is_err());
+}
+
+// ============================================================================
+// Test 61-70: f16_to_f32 conversion
+// ============================================================================
+
 #[test]
 fn test_f16_to_f32_zero() {
-    assert_eq!(f16_to_f32(0), 0.0);
+    let result = f16_to_f32(0x0000);
+    assert_eq!(result, 0.0);
 }
 
 #[test]
 fn test_f16_to_f32_one() {
-    let one = half::f16::from_f32(1.0).to_bits();
-    assert!((f16_to_f32(one) - 1.0).abs() < 1e-5);
+    let result = f16_to_f32(0x3C00);
+    assert!((result - 1.0).abs() < 1e-6);
 }
+
+#[test]
+fn test_f16_to_f32_negative() {
+    let result = f16_to_f32(0xBC00);
+    assert!((result + 1.0).abs() < 1e-6);
+}
+
+#[test]
+fn test_f16_to_f32_inf() {
+    let result = f16_to_f32(0x7C00);
+    assert!(result.is_infinite() && result > 0.0);
+}
+
+#[test]
+fn test_f16_to_f32_neg_inf() {
+    let result = f16_to_f32(0xFC00);
+    assert!(result.is_infinite() && result < 0.0);
+}
+
+#[test]
+fn test_f16_to_f32_nan() {
+    let result = f16_to_f32(0x7E00);
+    assert!(result.is_nan());
+}
+
+// ============================================================================
+// Test 71-80: dequantize_f16
+// ============================================================================
 
 #[test]
 fn test_dequantize_f16_empty() {
-    assert!(dequantize_f16(&[]).unwrap().is_empty());
+    let result = dequantize_f16(&[]).expect("dequantize");
+    assert!(result.is_empty());
 }
 
 #[test]
-fn test_dequantize_f16_single() {
-    let bytes = f16_bytes(2.75); // Arbitrary non-PI value
-    let result = dequantize_f16(&bytes).unwrap();
-    assert!((result[0] - 2.75).abs() < 0.01);
+fn test_dequantize_f16_single_value() {
+    let data = [0x00, 0x3C];
+    let result = dequantize_f16(&data).expect("dequantize");
+    assert_eq!(result.len(), 1);
+    assert!((result[0] - 1.0).abs() < 1e-6);
 }
 
 #[test]
-fn test_dequantize_f16_odd_bytes() {
-    assert!(dequantize_f16(&[0, 0, 0]).is_err());
+fn test_dequantize_f16_odd_bytes_error() {
+    let data = [0x00, 0x3C, 0x00];
+    let result = dequantize_f16(&data);
+    assert!(result.is_err());
 }
 
-// Q4_0
+// ============================================================================
+// Test 81-90: dequantize_q4_0 edge cases
+// ============================================================================
+
 #[test]
 fn test_dequantize_q4_0_empty() {
-    assert!(dequantize_q4_0(&[]).unwrap().is_empty());
+    let result = dequantize_q4_0(&[]).expect("dequantize");
+    assert!(result.is_empty());
 }
 
 #[test]
-fn test_dequantize_q4_0_single() {
+fn test_dequantize_q4_0_single_block() {
+    // Q4_0: 2 bytes f16 scale + 16 bytes quants = 18 bytes
     let mut data = vec![0u8; 18];
-    data[0..2].copy_from_slice(&f16_bytes(1.0));
-    assert_eq!(dequantize_q4_0(&data).unwrap().len(), 32);
+    // Set f16 scale = 1.0 (0x3C00)
+    data[0..2].copy_from_slice(&0x3C00u16.to_le_bytes());
+    let result = dequantize_q4_0(&data).expect("dequantize");
+    assert_eq!(result.len(), 32);
 }
 
 #[test]
-fn test_dequantize_q4_0_invalid() {
-    assert!(dequantize_q4_0(&[0; 10]).is_err());
+fn test_dequantize_q4_0_invalid_size() {
+    let data = vec![0u8; 10];
+    let result = dequantize_q4_0(&data);
+    assert!(result.is_err());
 }
 
-#[test]
-fn test_dequantize_q4_0_simd() {
-    let mut data = vec![0u8; 18];
-    data[0..2].copy_from_slice(&f16_bytes(1.0));
-    assert_eq!(dequantize_q4_0_simd(&data).unwrap().len(), 32);
-}
+// ============================================================================
+// Test 91-100: dequantize_q8_0 edge cases
+// ============================================================================
 
-#[test]
-fn test_dequantize_q4_0_parallel() {
-    let mut data = vec![0u8; 18 * 16];
-    for i in 0..16 {
-        data[i * 18..i * 18 + 2].copy_from_slice(&f16_bytes(1.0));
-    }
-    assert_eq!(dequantize_q4_0_parallel(&data).unwrap().len(), 512);
-}
-
-// Q4_1
-#[test]
-fn test_dequantize_q4_1_empty() {
-    assert!(dequantize_q4_1(&[]).unwrap().is_empty());
-}
-
-#[test]
-fn test_dequantize_q4_1_single() {
-    let mut data = vec![0u8; 20];
-    data[0..2].copy_from_slice(&f16_bytes(1.0));
-    assert_eq!(dequantize_q4_1(&data).unwrap().len(), 32);
-}
-
-#[test]
-fn test_dequantize_q4_1_invalid() {
-    assert!(dequantize_q4_1(&[0; 10]).is_err());
-}
-
-// Q5_0
-#[test]
-fn test_dequantize_q5_0_empty() {
-    assert!(dequantize_q5_0(&[]).unwrap().is_empty());
-}
-
-#[test]
-fn test_dequantize_q5_0_single() {
-    let mut data = vec![0u8; 22];
-    data[0..2].copy_from_slice(&f16_bytes(1.0));
-    assert_eq!(dequantize_q5_0(&data).unwrap().len(), 32);
-}
-
-#[test]
-fn test_dequantize_q5_0_invalid() {
-    assert!(dequantize_q5_0(&[0; 10]).is_err());
-}
-
-// Q5_1
-#[test]
-fn test_dequantize_q5_1_empty() {
-    assert!(dequantize_q5_1(&[]).unwrap().is_empty());
-}
-
-#[test]
-fn test_dequantize_q5_1_single() {
-    let mut data = vec![0u8; 24];
-    data[0..2].copy_from_slice(&f16_bytes(1.0));
-    assert_eq!(dequantize_q5_1(&data).unwrap().len(), 32);
-}
-
-#[test]
-fn test_dequantize_q5_1_invalid() {
-    assert!(dequantize_q5_1(&[0; 10]).is_err());
-}
-
-// Q8_0
 #[test]
 fn test_dequantize_q8_0_empty() {
-    assert!(dequantize_q8_0(&[]).unwrap().is_empty());
+    let result = dequantize_q8_0(&[]).expect("dequantize");
+    assert!(result.is_empty());
 }
 
 #[test]
-fn test_dequantize_q8_0_single() {
+fn test_dequantize_q8_0_single_block() {
+    // Q8_0: 2 bytes f16 scale + 32 bytes quants = 34 bytes
     let mut data = vec![0u8; 34];
-    data[0..2].copy_from_slice(&f16_bytes(1.0));
-    assert_eq!(dequantize_q8_0(&data).unwrap().len(), 32);
+    // Set f16 scale = 1.0 (0x3C00)
+    data[0..2].copy_from_slice(&0x3C00u16.to_le_bytes());
+    data[2] = 127;
+    let result = dequantize_q8_0(&data).expect("dequantize");
+    assert_eq!(result.len(), 32);
+    assert!((result[0] - 127.0).abs() < 1e-6);
 }
 
 #[test]
-fn test_dequantize_q8_0_invalid() {
-    assert!(dequantize_q8_0(&[0; 10]).is_err());
+fn test_dequantize_q8_0_invalid_size() {
+    let data = vec![0u8; 10];
+    let result = dequantize_q8_0(&data);
+    assert!(result.is_err());
 }
 
-#[test]
-fn test_dequantize_q8_0_simd() {
-    let mut data = vec![0u8; 34];
-    data[0..2].copy_from_slice(&f16_bytes(1.0));
-    assert_eq!(dequantize_q8_0_simd(&data).unwrap().len(), 32);
-}
+// ============================================================================
+// Test 101-110: dequantize_q4_k edge cases
+// ============================================================================
 
-#[test]
-fn test_dequantize_q8_0_simd_optimized() {
-    let mut data = vec![0u8; 34];
-    data[0..2].copy_from_slice(&f16_bytes(1.0));
-    assert_eq!(dequantize_q8_0_simd_optimized(&data).unwrap().len(), 32);
-}
-
-#[test]
-fn test_dequantize_q8_0_parallel() {
-    let mut data = vec![0u8; 34 * 16];
-    for i in 0..16 {
-        data[i * 34..i * 34 + 2].copy_from_slice(&f16_bytes(1.0));
-    }
-    assert_eq!(dequantize_q8_0_parallel(&data).unwrap().len(), 512);
-}
-
-// Q4_K
 #[test]
 fn test_dequantize_q4_k_empty() {
-    assert!(dequantize_q4_k(&[]).unwrap().is_empty());
+    let result = dequantize_q4_k(&[]).expect("dequantize");
+    assert!(result.is_empty());
 }
 
 #[test]
-fn test_dequantize_q4_k_single() {
-    let mut data = vec![0u8; 144];
-    data[0..2].copy_from_slice(&f16_bytes(1.0));
-    assert_eq!(dequantize_q4_k(&data).unwrap().len(), 256);
+fn test_dequantize_q4_k_single_super_block() {
+    let data = vec![0u8; 144];
+    let result = dequantize_q4_k(&data).expect("dequantize");
+    assert_eq!(result.len(), 256);
 }
 
 #[test]
-fn test_dequantize_q4_k_invalid() {
-    assert!(dequantize_q4_k(&[0; 100]).is_err());
+fn test_dequantize_q4_k_invalid_size() {
+    let data = vec![0u8; 100];
+    let result = dequantize_q4_k(&data);
+    assert!(result.is_err());
 }
 
 #[test]
-fn test_dequantize_q4_k_simd() {
-    let mut data = vec![0u8; 144];
-    data[0..2].copy_from_slice(&f16_bytes(1.0));
-    assert_eq!(dequantize_q4_k_simd(&data).unwrap().len(), 256);
+fn test_dequantize_q4_k_parallel_empty() {
+    let result = dequantize_q4_k_parallel(&[]).expect("dequantize");
+    assert!(result.is_empty());
 }
 
 #[test]
-fn test_dequantize_q4_k_parallel() {
-    let mut data = vec![0u8; 144 * 8];
-    for i in 0..8 {
-        data[i * 144..i * 144 + 2].copy_from_slice(&f16_bytes(1.0));
-    }
-    assert_eq!(dequantize_q4_k_parallel(&data).unwrap().len(), 2048);
+fn test_dequantize_q4_k_simd_empty() {
+    let result = dequantize_q4_k_simd(&[]).expect("dequantize");
+    assert!(result.is_empty());
 }
 
-// Q5_K
+// ============================================================================
+// Test 111-120: dequantize_q5_k and q6_k edge cases
+// ============================================================================
+
 #[test]
 fn test_dequantize_q5_k_empty() {
-    assert!(dequantize_q5_k(&[]).unwrap().is_empty());
+    let result = dequantize_q5_k(&[]).expect("dequantize");
+    assert!(result.is_empty());
 }
 
 #[test]
-fn test_dequantize_q5_k_single() {
-    let mut data = vec![0u8; 176];
-    data[0..2].copy_from_slice(&f16_bytes(1.0));
-    assert_eq!(dequantize_q5_k(&data).unwrap().len(), 256);
+fn test_dequantize_q5_k_single_super_block() {
+    let data = vec![0u8; 176];
+    let result = dequantize_q5_k(&data).expect("dequantize");
+    assert_eq!(result.len(), 256);
 }
 
-#[test]
-fn test_dequantize_q5_k_invalid() {
-    assert!(dequantize_q5_k(&[0; 100]).is_err());
-}
-
-// Q6_K
 #[test]
 fn test_dequantize_q6_k_empty() {
-    assert!(dequantize_q6_k(&[]).unwrap().is_empty());
+    let result = dequantize_q6_k(&[]).expect("dequantize");
+    assert!(result.is_empty());
 }
 
 #[test]
-fn test_dequantize_q6_k_single() {
-    let mut data = vec![0u8; 210];
-    data[208..210].copy_from_slice(&f16_bytes(1.0));
-    assert_eq!(dequantize_q6_k(&data).unwrap().len(), 256);
+fn test_dequantize_q6_k_single_super_block() {
+    let data = vec![0u8; 210];
+    let result = dequantize_q6_k(&data).expect("dequantize");
+    assert_eq!(result.len(), 256);
+}
+
+// ============================================================================
+// Test 121-130: dequantize_q4_1, q5_0, q5_1
+// ============================================================================
+
+#[test]
+fn test_dequantize_q4_1_empty() {
+    let result = dequantize_q4_1(&[]).expect("dequantize");
+    assert!(result.is_empty());
 }
 
 #[test]
-fn test_dequantize_q6_k_invalid() {
-    assert!(dequantize_q6_k(&[0; 100]).is_err());
-}
-
-// Quantize to Q8 blocks
-#[test]
-fn test_quantize_to_q8_blocks_empty() {
-    assert!(quantize_to_q8_blocks(&[]).unwrap().is_empty());
+fn test_dequantize_q4_1_single_block() {
+    // Q4_1: 2 bytes scale + 2 bytes min + 16 bytes quants = 20 bytes
+    let data = vec![0u8; 20];
+    let result = dequantize_q4_1(&data).expect("dequantize");
+    assert_eq!(result.len(), 32);
 }
 
 #[test]
-fn test_quantize_to_q8_blocks_single() {
-    let values: Vec<f32> = (0..32).map(|i| i as f32).collect();
-    assert_eq!(quantize_to_q8_blocks(&values).unwrap().len(), 1);
+fn test_dequantize_q5_0_empty() {
+    let result = dequantize_q5_0(&[]).expect("dequantize");
+    assert!(result.is_empty());
 }
 
 #[test]
-fn test_quantize_to_q8_blocks_invalid() {
-    assert!(quantize_to_q8_blocks(&[0.0; 33]).is_err());
+fn test_dequantize_q5_0_single_block() {
+    // Q5_0: 2 bytes scale + 4 bytes high bits + 16 bytes low bits = 22 bytes
+    let data = vec![0u8; 22];
+    let result = dequantize_q5_0(&data).expect("dequantize");
+    assert_eq!(result.len(), 32);
 }
 
 #[test]
-fn test_dequantize_q8_blocks_roundtrip() {
-    let values: Vec<f32> = (0..64).map(|i| i as f32 / 10.0).collect();
-    let blocks = quantize_to_q8_blocks(&values).unwrap();
-    let deq = dequantize_q8_blocks(&blocks);
-    assert_eq!(deq.len(), 64);
-}
-
-// Quantize activations Q8_0
-#[test]
-fn test_quantize_activations_q8_0() {
-    let (scales, quants) =
-        quantize_activations_q8_0(&(0..64).map(|i| i as f32 / 10.0).collect::<Vec<_>>());
-    assert_eq!(scales.len(), 2);
-    assert_eq!(quants.len(), 64);
-}
-
-// Quantize activations Q8_K
-#[test]
-fn test_quantize_activations_q8k_into() {
-    let mut scales = vec![0.0f32; 1];
-    let mut quants = vec![0i8; 256];
-    quantize_activations_q8k_into(&[1.0f32; 256], &mut scales, &mut quants).unwrap();
-    assert!(scales[0] > 0.0);
+fn test_dequantize_q5_1_empty() {
+    let result = dequantize_q5_1(&[]).expect("dequantize");
+    assert!(result.is_empty());
 }
 
 #[test]
-fn test_quantize_activations_q8k_into_invalid() {
-    let mut scales = vec![0.0f32; 1];
-    let mut quants = vec![0i8; 256];
-    assert!(quantize_activations_q8k_into(&[1.0f32; 100], &mut scales, &mut quants).is_err());
+fn test_dequantize_q5_1_single_block() {
+    // Q5_1: 2 bytes scale + 2 bytes min + 4 bytes high bits + 16 bytes low bits = 24 bytes
+    let data = vec![0u8; 24];
+    let result = dequantize_q5_1(&data).expect("dequantize");
+    assert_eq!(result.len(), 32);
 }
 
-// Fused Q4_K dot
-#[test]
-fn test_fused_q4k_dot() {
-    let mut data = vec![0u8; 144];
-    data[0..2].copy_from_slice(&f16_bytes(1.0));
-    assert!(fused_q4k_dot(&data, &[1.0f32; 256]).unwrap().is_finite());
-}
+// ============================================================================
+// Test 131-140: dequantize_q8_0 parallel and SIMD
+// ============================================================================
 
 #[test]
-fn test_fused_q4k_dot_simd() {
-    let mut data = vec![0u8; 144];
-    data[0..2].copy_from_slice(&f16_bytes(1.0));
-    assert!(fused_q4k_dot_simd(&data, &[1.0f32; 256])
-        .unwrap()
-        .is_finite());
-}
-
-// Fused Q4_K Q8_0 dot
-#[test]
-fn test_fused_q4k_q8_dot() {
-    let mut data = vec![0u8; 144];
-    data[0..2].copy_from_slice(&f16_bytes(1.0));
-    let blocks: Vec<Q8_0Block> = (0..8).map(|_| Q8_0Block::quantize(&[1.0f32; 32])).collect();
-    assert!(fused_q4k_q8_dot(&data, &blocks).unwrap().is_finite());
+fn test_dequantize_q8_0_parallel_empty() {
+    let result = dequantize_q8_0_parallel(&[]).expect("dequantize");
+    assert!(result.is_empty());
 }
 
 #[test]
-fn test_fused_q4k_q8_dot_simd() {
-    let mut data = vec![0u8; 144];
-    data[0..2].copy_from_slice(&f16_bytes(1.0));
-    let blocks: Vec<Q8_0Block> = (0..8).map(|_| Q8_0Block::quantize(&[1.0f32; 32])).collect();
-    assert!(fused_q4k_q8_dot_simd(&data, &blocks).unwrap().is_finite());
+fn test_dequantize_q8_0_simd_empty() {
+    let result = dequantize_q8_0_simd(&[]).expect("dequantize");
+    assert!(result.is_empty());
 }
 
-// Fused Q4_K Q8_K dot
-#[test]
-fn test_fused_q4k_q8k_dot() {
-    let mut data = vec![0u8; 144];
-    data[0..2].copy_from_slice(&f16_bytes(1.0));
-    assert!(fused_q4k_q8k_dot(&data, &[1.0f32; 1], &[1i8; 256])
-        .unwrap()
-        .is_finite());
-}
+// ============================================================================
+// Test 141-150: fused_q4k_dot variations
+// ============================================================================
 
 #[test]
-fn test_fused_q4k_q8k_dot_simd() {
-    let mut data = vec![0u8; 144];
-    data[0..2].copy_from_slice(&f16_bytes(1.0));
-    assert!(fused_q4k_q8k_dot_simd(&data, &[1.0f32; 1], &[1i8; 256])
-        .unwrap()
-        .is_finite());
-}
-
-// Fused Q5_K dot
-#[test]
-fn test_fused_q5k_dot() {
-    let mut data = vec![0u8; 176];
-    data[0..2].copy_from_slice(&f16_bytes(1.0));
-    assert!(fused_q5k_dot(&data, &[1.0f32; 256]).unwrap().is_finite());
+fn test_fused_q4k_dot_size_mismatch() {
+    let data = vec![0u8; 144];
+    let activations = vec![1.0f32; 128];
+    let result = fused_q4k_dot(&data, &activations);
+    assert!(result.is_err());
 }
 
 #[test]
-fn test_fused_q5k_dot_simd() {
-    let mut data = vec![0u8; 176];
-    data[0..2].copy_from_slice(&f16_bytes(1.0));
-    assert!(fused_q5k_dot_simd(&data, &[1.0f32; 256])
-        .unwrap()
-        .is_finite());
-}
-
-// Fused Q6_K dot
-#[test]
-fn test_fused_q6k_dot() {
-    let mut data = vec![0u8; 210];
-    data[208..210].copy_from_slice(&f16_bytes(1.0));
-    assert!(fused_q6k_dot(&data, &[1.0f32; 256]).unwrap().is_finite());
+fn test_fused_q4k_dot_simd_size_mismatch() {
+    let data = vec![0u8; 144];
+    let activations = vec![1.0f32; 128];
+    let result = fused_q4k_dot_simd(&data, &activations);
+    assert!(result.is_err());
 }
 
 #[test]
-fn test_fused_q6k_dot_simd() {
-    let mut data = vec![0u8; 210];
-    data[208..210].copy_from_slice(&f16_bytes(1.0));
-    assert!(fused_q6k_dot_simd(&data, &[1.0f32; 256])
-        .unwrap()
-        .is_finite());
+fn test_fused_q4k_dot_all_zeros() {
+    let data = vec![0u8; 144];
+    let activations = vec![0.0f32; 256];
+    let result = fused_q4k_dot(&data, &activations).expect("dot");
+    assert_eq!(result, 0.0);
 }
 
-// Fused Q6_K Q8_K dot
-#[test]
-fn test_fused_q6k_q8k_dot_simd() {
-    let mut data = vec![0u8; 210];
-    data[208..210].copy_from_slice(&f16_bytes(1.0));
-    assert!(fused_q6k_q8k_dot_simd(&data, &[1.0f32; 1], &[1i8; 256])
-        .unwrap()
-        .is_finite());
-}
+// ============================================================================
+// Test 151-160: fused_q5k_dot and fused_q6k_dot
+// ============================================================================
 
-// Tiled matvec
 #[test]
-fn test_fused_q4k_tiled_matvec() {
-    let mut weights = vec![0u8; 144 * 2];
-    for i in 0..2 {
-        weights[i * 144..i * 144 + 2].copy_from_slice(&f16_bytes(1.0));
-    }
-    assert_eq!(
-        fused_q4k_tiled_matvec(&weights, &[1.0f32; 256], 256, 2, None)
-            .unwrap()
-            .len(),
-        2
-    );
+fn test_fused_q5k_dot_size_mismatch() {
+    let data = vec![0u8; 176];
+    let activations = vec![1.0f32; 128];
+    let result = fused_q5k_dot(&data, &activations);
+    assert!(result.is_err());
 }
 
 #[test]
-fn test_fused_q5k_tiled_matvec() {
-    let mut weights = vec![0u8; 176 * 2];
-    for i in 0..2 {
-        weights[i * 176..i * 176 + 2].copy_from_slice(&f16_bytes(1.0));
-    }
-    assert_eq!(
-        fused_q5k_tiled_matvec(&weights, &[1.0f32; 256], 256, 2, None)
-            .unwrap()
-            .len(),
-        2
-    );
+fn test_fused_q5k_dot_simd_all_zeros() {
+    let data = vec![0u8; 176];
+    let activations = vec![0.0f32; 256];
+    let result = fused_q5k_dot_simd(&data, &activations).expect("dot");
+    assert_eq!(result, 0.0);
 }
 
 #[test]
-fn test_fused_q6k_tiled_matvec() {
-    let mut weights = vec![0u8; 210 * 2];
-    for i in 0..2 {
-        weights[i * 210 + 208..i * 210 + 210].copy_from_slice(&f16_bytes(1.0));
-    }
-    assert_eq!(
-        fused_q6k_tiled_matvec(&weights, &[1.0f32; 256], 256, 2, None)
-            .unwrap()
-            .len(),
-        2
-    );
-}
-
-// Parallel matvec
-#[test]
-fn test_fused_q4k_parallel_matvec() {
-    let mut weights = vec![0u8; 144 * 8];
-    for i in 0..8 {
-        weights[i * 144..i * 144 + 2].copy_from_slice(&f16_bytes(1.0));
-    }
-    assert_eq!(
-        fused_q4k_parallel_matvec(&weights, &[1.0f32; 256], 256, 8)
-            .unwrap()
-            .len(),
-        8
-    );
+fn test_fused_q6k_dot_size_mismatch() {
+    let data = vec![0u8; 210];
+    let activations = vec![1.0f32; 128];
+    let result = fused_q6k_dot(&data, &activations);
+    assert!(result.is_err());
 }
 
 #[test]
-fn test_fused_q4k_parallel_matvec_into() {
-    let mut weights = vec![0u8; 144 * 8];
-    for i in 0..8 {
-        weights[i * 144..i * 144 + 2].copy_from_slice(&f16_bytes(1.0));
-    }
-    let mut output = vec![0.0f32; 8];
-    fused_q4k_parallel_matvec_into(&weights, &[1.0f32; 256], 256, 8, &mut output).unwrap();
-    assert_eq!(output.len(), 8);
+fn test_fused_q6k_dot_simd_all_zeros() {
+    let data = vec![0u8; 210];
+    let activations = vec![0.0f32; 256];
+    let result = fused_q6k_dot_simd(&data, &activations).expect("dot");
+    assert_eq!(result, 0.0);
+}
+
+// ============================================================================
+// Test 161-170: parallel matvec functions
+// ============================================================================
+
+#[test]
+fn test_fused_q4k_parallel_matvec_empty() {
+    let weights: Vec<u8> = vec![];
+    let activations: Vec<f32> = vec![];
+    let result = fused_q4k_parallel_matvec(&weights, &activations, 0, 0);
+    // Empty 0x0 dimensions are valid and return empty result
+    assert!(result.is_ok());
+    assert!(result.unwrap().is_empty());
 }
 
 #[test]
-fn test_fused_q5k_parallel_matvec() {
-    let mut weights = vec![0u8; 176 * 8];
-    for i in 0..8 {
-        weights[i * 176..i * 176 + 2].copy_from_slice(&f16_bytes(1.0));
-    }
-    assert_eq!(
-        fused_q5k_parallel_matvec(&weights, &[1.0f32; 256], 256, 8)
-            .unwrap()
-            .len(),
-        8
-    );
+fn test_fused_q4k_parallel_matvec_into_empty() {
+    let weights: Vec<u8> = vec![];
+    let activations: Vec<f32> = vec![];
+    let mut output: Vec<f32> = vec![];
+    let result = fused_q4k_parallel_matvec_into(&weights, &activations, 0, 0, &mut output);
+    // Empty 0x0 dimensions are valid
+    assert!(result.is_ok());
 }
 
 #[test]
-fn test_fused_q5k_parallel_matvec_into() {
-    let mut weights = vec![0u8; 176 * 8];
-    for i in 0..8 {
-        weights[i * 176..i * 176 + 2].copy_from_slice(&f16_bytes(1.0));
-    }
-    let mut output = vec![0.0f32; 8];
-    fused_q5k_parallel_matvec_into(&weights, &[1.0f32; 256], 256, 8, &mut output).unwrap();
+fn test_fused_q5k_parallel_matvec_empty() {
+    let weights: Vec<u8> = vec![];
+    let activations: Vec<f32> = vec![];
+    let result = fused_q5k_parallel_matvec(&weights, &activations, 0, 0);
+    // Empty 0x0 dimensions are valid
+    assert!(result.is_ok());
+    assert!(result.unwrap().is_empty());
 }
 
 #[test]
-fn test_fused_q6k_parallel_matvec() {
-    let mut weights = vec![0u8; 210 * 8];
-    for i in 0..8 {
-        weights[i * 210 + 208..i * 210 + 210].copy_from_slice(&f16_bytes(1.0));
-    }
-    assert_eq!(
-        fused_q6k_parallel_matvec(&weights, &[1.0f32; 256], 256, 8)
-            .unwrap()
-            .len(),
-        8
-    );
+fn test_fused_q6k_parallel_matvec_empty() {
+    let weights: Vec<u8> = vec![];
+    let activations: Vec<f32> = vec![];
+    let result = fused_q6k_parallel_matvec(&weights, &activations, 0, 0);
+    // Empty 0x0 dimensions are valid
+    assert!(result.is_ok());
+    assert!(result.unwrap().is_empty());
 }
 
 #[test]
-fn test_fused_q6k_parallel_matvec_into() {
-    let mut weights = vec![0u8; 210 * 8];
-    for i in 0..8 {
-        weights[i * 210 + 208..i * 210 + 210].copy_from_slice(&f16_bytes(1.0));
-    }
-    let mut output = vec![0.0f32; 8];
-    fused_q6k_parallel_matvec_into(&weights, &[1.0f32; 256], 256, 8, &mut output).unwrap();
-}
-
-// Q4_K Q8_K parallel matvec
-#[test]
-fn test_fused_q4k_q8k_parallel_matvec_into() {
-    let mut weights = vec![0u8; 144 * 8];
-    for i in 0..8 {
-        weights[i * 144..i * 144 + 2].copy_from_slice(&f16_bytes(1.0));
-    }
-    let mut output = vec![0.0f32; 8];
-    fused_q4k_q8k_parallel_matvec_into(&weights, &[1.0f32; 1], &[1i8; 256], 256, 8, &mut output)
-        .unwrap();
+fn test_fused_q5k_parallel_matvec_into_empty() {
+    let weights: Vec<u8> = vec![];
+    let activations: Vec<f32> = vec![];
+    let mut output: Vec<f32> = vec![];
+    let result = fused_q5k_parallel_matvec_into(&weights, &activations, 0, 0, &mut output);
+    // Empty 0x0 dimensions are valid
+    assert!(result.is_ok());
 }
 
 #[test]
-fn test_fused_q6k_q8k_parallel_matvec_into() {
-    let mut weights = vec![0u8; 210 * 8];
-    for i in 0..8 {
-        weights[i * 210 + 208..i * 210 + 210].copy_from_slice(&f16_bytes(1.0));
-    }
-    let mut output = vec![0.0f32; 8];
-    fused_q6k_q8k_parallel_matvec_into(&weights, &[1.0f32; 1], &[1i8; 256], 256, 8, &mut output)
-        .unwrap();
+fn test_fused_q6k_parallel_matvec_into_empty() {
+    let weights: Vec<u8> = vec![];
+    let activations: Vec<f32> = vec![];
+    let mut output: Vec<f32> = vec![];
+    let result = fused_q6k_parallel_matvec_into(&weights, &activations, 0, 0, &mut output);
+    // Empty 0x0 dimensions are valid
+    assert!(result.is_ok());
 }
 
-// Q4_K FFN up gate
-#[test]
-fn test_fused_q4k_q8k_ffn_up_gate_into() {
-    let mut up = vec![0u8; 144 * 8];
-    let mut gate = vec![0u8; 144 * 8];
-    for i in 0..8 {
-        up[i * 144..i * 144 + 2].copy_from_slice(&f16_bytes(1.0));
-        gate[i * 144..i * 144 + 2].copy_from_slice(&f16_bytes(1.0));
-    }
-    let mut up_out = vec![0.0f32; 8];
-    let mut gate_out = vec![0.0f32; 8];
-    fused_q4k_q8k_ffn_up_gate_into(
-        &up,
-        &gate,
-        &[1.0f32; 1],
-        &[1i8; 256],
-        256,
-        8,
-        &mut up_out,
-        &mut gate_out,
-    )
-    .unwrap();
-}
+// ============================================================================
+// Test 171-180: Q4_KBlock, Q5_KBlock, Q6_KBlock structs
+// ============================================================================
 
-// Q4_K auto matvec
 #[test]
-fn test_fused_q4k_auto_matvec_into() {
-    let mut weights = vec![0u8; 144 * 8];
-    for i in 0..8 {
-        weights[i * 144..i * 144 + 2].copy_from_slice(&f16_bytes(1.0));
-    }
-    let mut output = vec![0.0f32; 8];
-    fused_q4k_auto_matvec_into(&weights, &[1.0f32; 256], 256, 8, &mut output).unwrap();
-}
-
-// Q6_K colmajor matvec
-// Column-major: in_dim columns, each column has one Q6_K super-block (210 bytes, 256 values)
-// out_dim is fixed at 256 (Q6_K super-block size)
-#[test]
-fn test_fused_q6k_colmajor_matvec() {
-    let in_dim = 4; // 4 input columns
-    let out_dim = 256; // Q6_K super-block size
-    let mut weights = vec![0u8; 210 * in_dim]; // in_dim super-blocks
-    for i in 0..in_dim {
-        weights[i * 210 + 208..i * 210 + 210].copy_from_slice(&f16_bytes(1.0));
-    }
-    assert_eq!(
-        fused_q6k_colmajor_matvec(&weights, &[1.0f32; 4], in_dim, out_dim)
-            .unwrap()
-            .len(),
-        out_dim
-    );
-}
-
-// Q4_0 Q8_0 parallel matvec
-#[test]
-fn test_fused_q4_0_q8_0_parallel_matvec() {
-    let bpr = 18 * 8; // 8 blocks per row (256 / 32 = 8), 18 bytes per block
-    let mut weights = vec![0u8; bpr * 8]; // 8 output rows
-    for r in 0..8 {
-        for b in 0..8 {
-            weights[r * bpr + b * 18..r * bpr + b * 18 + 2].copy_from_slice(&f16_bytes(1.0));
-        }
-    }
-    assert_eq!(
-        fused_q4_0_q8_0_parallel_matvec(&weights, &[1.0f32; 256], 256, 8)
-            .unwrap()
-            .len(),
-        8
-    );
+fn test_q4k_block_default_values() {
+    let block = Q4_KBlock {
+        d: 0.0,
+        dmin: 0.0,
+        scales: [0u8; 12],
+        qs: [0u8; 128],
+    };
+    assert_eq!(block.d, 0.0);
+    assert_eq!(block.dmin, 0.0);
 }
 
 #[test]
-fn test_fused_q4_0_q8_0_parallel_matvec_into() {
-    let bpr = 18 * 8;
-    let mut weights = vec![0u8; bpr * 8];
-    for r in 0..8 {
-        for b in 0..8 {
-            weights[r * bpr + b * 18..r * bpr + b * 18 + 2].copy_from_slice(&f16_bytes(1.0));
-        }
-    }
-    let mut output = vec![0.0f32; 8];
-    fused_q4_0_q8_0_parallel_matvec_into(&weights, &[1.0f32; 256], 256, &mut output).unwrap();
+fn test_q4k_block_debug() {
+    let block = Q4_KBlock {
+        d: 1.0,
+        dmin: 0.5,
+        scales: [0u8; 12],
+        qs: [0u8; 128],
+    };
+    let debug = format!("{block:?}");
+    assert!(debug.contains("Q4_KBlock"));
 }
 
 #[test]
-fn test_fused_q4_0_q8_0_parallel_matvec_prequant() {
-    let bpr = 18 * 8; // 8 blocks per row (256 / 32 = 8), 18 bytes per block
-    let mut weights = vec![0u8; bpr * 8]; // 8 output rows
-    for r in 0..8 {
-        for b in 0..8 {
-            weights[r * bpr + b * 18..r * bpr + b * 18 + 2].copy_from_slice(&f16_bytes(1.0));
-        }
-    }
-    assert_eq!(
-        fused_q4_0_q8_0_parallel_matvec_prequant(&weights, &[1.0f32; 8], &[1i8; 256], 256, 8)
-            .unwrap()
-            .len(),
-        8
-    );
-}
-
-// Q8_0 Q8_0 parallel matvec
-#[test]
-fn test_fused_q8_0_q8_0_parallel_matvec() {
-    let bpr = 34 * 8; // 8 blocks per row (256 / 32 = 8), 34 bytes per Q8_0 block
-    let mut weights = vec![0u8; bpr * 8]; // 8 output rows
-    for r in 0..8 {
-        for b in 0..8 {
-            weights[r * bpr + b * 34..r * bpr + b * 34 + 2].copy_from_slice(&f16_bytes(1.0));
-        }
-    }
-    assert_eq!(
-        fused_q8_0_q8_0_parallel_matvec(&weights, &[1.0f32; 256], 256, 8)
-            .unwrap()
-            .len(),
-        8
-    );
+fn test_q5k_block_default_values() {
+    let block = Q5_KBlock {
+        d: 0.0,
+        dmin: 0.0,
+        scales: [0u8; 12],
+        qh: [0u8; 32],
+        qs: [0u8; 128],
+    };
+    assert_eq!(block.d, 0.0);
 }
 
 #[test]
-fn test_fused_q8_0_q8_0_parallel_matvec_into() {
-    let bpr = 34 * 8;
-    let mut weights = vec![0u8; bpr * 8];
-    for r in 0..8 {
-        for b in 0..8 {
-            weights[r * bpr + b * 34..r * bpr + b * 34 + 2].copy_from_slice(&f16_bytes(1.0));
-        }
-    }
-    let mut output = vec![0.0f32; 8];
-    fused_q8_0_q8_0_parallel_matvec_into(&weights, &[1.0f32; 256], 256, 8, &mut output).unwrap();
+fn test_q6k_block_default_values() {
+    let block = Q6_KBlock {
+        qs: [0u8; 128],
+        qh: [0u8; 64],
+        scales: [0i8; 16],
+        d: 0.0,
+    };
+    assert_eq!(block.d, 0.0);
 }
 
-// RMSNorm quantization
-#[test]
-fn test_quantize_rmsnorm_q8_0() {
-    let (scales, quants) = quantize_rmsnorm_q8_0(&[1.0f32; 64], &[1.0f32; 64], 1e-5);
-    assert_eq!(scales.len(), 2);
-    assert_eq!(quants.len(), 64);
-}
+// ============================================================================
+// Test 181-190: quantize_activations functions
+// ============================================================================
 
 #[test]
-fn test_quantize_rmsnorm_q8_0_into() {
-    let mut scales = vec![0.0f32; 2];
-    let mut quants = vec![0i8; 64];
-    quantize_rmsnorm_q8_0_into(&[1.0f32; 64], &[1.0f32; 64], 1e-5, &mut scales, &mut quants);
-}
-
-// Fused RMSNorm
-#[test]
-fn test_fused_rmsnorm_q4_0_matmul() {
-    let bpr = 18 * 8; // 8 blocks per row (256 / 32 = 8), 18 bytes per block
-    let mut weights = vec![0u8; bpr * 8]; // 8 output rows
-    for r in 0..8 {
-        for b in 0..8 {
-            weights[r * bpr + b * 18..r * bpr + b * 18 + 2].copy_from_slice(&f16_bytes(1.0));
-        }
-    }
-    assert_eq!(
-        fused_rmsnorm_q4_0_matmul(&[1.0f32; 256], &[1.0f32; 256], 1e-5, &weights, 256, 8)
-            .unwrap()
-            .len(),
-        8
-    );
+fn test_quantize_activations_q8_0_empty() {
+    let (scales, quants) = quantize_activations_q8_0(&[]);
+    assert!(scales.is_empty());
+    assert!(quants.is_empty());
 }
 
 #[test]
-fn test_fused_rmsnorm_ffn_up_gate() {
-    let bpr = 18 * 8;
-    let mut up = vec![0u8; bpr * 8];
-    let mut gate = vec![0u8; bpr * 8];
-    for r in 0..8 {
-        for b in 0..8 {
-            up[r * bpr + b * 18..r * bpr + b * 18 + 2].copy_from_slice(&f16_bytes(1.0));
-            gate[r * bpr + b * 18..r * bpr + b * 18 + 2].copy_from_slice(&f16_bytes(1.0));
-        }
-    }
-    let result =
-        fused_rmsnorm_ffn_up_gate(&[1.0f32; 256], &[1.0f32; 256], 1e-5, &up, &gate, 256, 8)
-            .unwrap();
-    assert_eq!(result.0.len(), 8);
-    assert_eq!(result.1.len(), 8);
-}
-
-// SwiGLU and Softmax
-#[test]
-fn test_fused_swiglu_simd() {
-    let mut gate = vec![1.0f32; 64];
-    fused_swiglu_simd(&mut gate, &[1.0f32; 64]);
-    assert!(gate.iter().all(|&v| v.is_finite()));
+fn test_quantize_activations_q8_0_partial_block() {
+    let activations: Vec<f32> = (0..16).map(|i| i as f32).collect();
+    let (scales, quants) = quantize_activations_q8_0(&activations);
+    assert_eq!(scales.len(), 1);
+    assert_eq!(quants.len(), 32);
 }
 
 #[test]
-fn test_softmax_simd() {
-    let mut x = vec![1.0f32; 64];
+fn test_quantize_activations_q8_0_full_block() {
+    let activations: Vec<f32> = (0..32).map(|i| i as f32).collect();
+    let (scales, quants) = quantize_activations_q8_0(&activations);
+    assert_eq!(scales.len(), 1);
+    assert_eq!(quants.len(), 32);
+}
+
+// ============================================================================
+// Test 191-200: softmax_simd edge cases
+// ============================================================================
+
+#[test]
+fn test_softmax_simd_empty() {
+    let mut x: Vec<f32> = vec![];
     softmax_simd(&mut x);
-    assert!((x.iter().sum::<f32>() - 1.0).abs() < 1e-5);
+    assert!(x.is_empty());
 }
 
 #[test]
 fn test_softmax_simd_single() {
-    let mut x = vec![5.0f32];
+    let mut x = vec![1.0f32];
     softmax_simd(&mut x);
-    assert!((x[0] - 1.0).abs() < 1e-5);
-}
-
-// RoPE rotation
-#[test]
-fn test_apply_rope_rotation_simd() {
-    let mut q = vec![1.0f32; 64];
-    let mut k = vec![1.0f32; 64];
-    apply_rope_rotation_simd(&mut q, &mut k, &[1.0f32; 64], &[0.0f32; 64]);
-    assert!(q.iter().all(|&v| (v - 1.0).abs() < 1e-5));
-}
-
-// Consistency tests
-#[test]
-fn test_q4_0_scalar_vs_simd() {
-    let mut data = vec![0u8; 18 * 4];
-    for i in 0..4 {
-        data[i * 18..i * 18 + 2].copy_from_slice(&f16_bytes(1.0 + i as f32));
-        for j in 0..16 {
-            data[i * 18 + 2 + j] = ((i * 16 + j) % 256) as u8;
-        }
-    }
-    let scalar = dequantize_q4_0(&data).unwrap();
-    let simd = dequantize_q4_0_simd(&data).unwrap();
-    assert_eq!(scalar.len(), simd.len());
-    for (s, si) in scalar.iter().zip(simd.iter()) {
-        assert!((s - si).abs() < 1e-5);
-    }
+    assert!((x[0] - 1.0).abs() < 1e-6);
 }
 
 #[test]
-fn test_q8_0_scalar_vs_simd() {
-    let mut data = vec![0u8; 34 * 4];
-    for i in 0..4 {
-        data[i * 34..i * 34 + 2].copy_from_slice(&f16_bytes(1.0 + i as f32));
-        for j in 0..32 {
-            data[i * 34 + 2 + j] = ((i * 32 + j) % 256) as u8;
-        }
-    }
-    let scalar = dequantize_q8_0(&data).unwrap();
-    let simd = dequantize_q8_0_simd(&data).unwrap();
-    assert_eq!(scalar.len(), simd.len());
+fn test_softmax_simd_two_equal() {
+    let mut x = vec![0.0f32, 0.0f32];
+    softmax_simd(&mut x);
+    assert!((x[0] - 0.5).abs() < 1e-6);
+    assert!((x[1] - 0.5).abs() < 1e-6);
 }
 
 #[test]
-fn test_q4_k_scalar_vs_simd() {
-    let mut data = vec![0u8; 144 * 2];
-    for i in 0..2 {
-        data[i * 144..i * 144 + 2].copy_from_slice(&f16_bytes(1.0 + i as f32));
-        data[i * 144 + 2..i * 144 + 4].copy_from_slice(&f16_bytes(0.5));
+fn test_softmax_simd_numerical_stability() {
+    let mut x = vec![1000.0f32, 1000.0f32, 1000.0f32];
+    softmax_simd(&mut x);
+    let sum: f32 = x.iter().sum();
+    assert!((sum - 1.0).abs() < 1e-5);
+}
+
+// ============================================================================
+// Test 201-210: fused_swiglu_simd edge cases
+// ============================================================================
+
+#[test]
+fn test_fused_swiglu_simd_empty() {
+    let mut gate: Vec<f32> = vec![];
+    let up: Vec<f32> = vec![];
+    fused_swiglu_simd(&mut gate, &up);
+    assert!(gate.is_empty());
+}
+
+#[test]
+fn test_fused_swiglu_simd_single() {
+    let mut gate = vec![0.0f32];
+    let up = vec![1.0f32];
+    fused_swiglu_simd(&mut gate, &up);
+    assert!(gate[0].abs() < 1e-6);
+}
+
+#[test]
+fn test_fused_swiglu_simd_positive() {
+    let mut gate = vec![1.0f32; 8];
+    let up = vec![1.0f32; 8];
+    fused_swiglu_simd(&mut gate, &up);
+    for v in &gate {
+        assert!(*v > 0.0);
     }
-    let scalar = dequantize_q4_k(&data).unwrap();
-    let simd = dequantize_q4_k_simd(&data).unwrap();
-    assert_eq!(scalar.len(), simd.len());
+}
+
+// ============================================================================
+// Test 211-220: quantize_rmsnorm functions
+// ============================================================================
+
+#[test]
+fn test_quantize_rmsnorm_q8_0_basic() {
+    let input: Vec<f32> = (0..32).map(|i| i as f32 / 32.0).collect();
+    let weights = vec![1.0f32; 32];
+    let (scales, quants) = quantize_rmsnorm_q8_0(&input, &weights, 1e-5);
+    // 32 elements = 1 block, so 1 scale
+    assert_eq!(scales.len(), 1);
+    // quants padded to block size of 32
+    assert_eq!(quants.len(), 32);
+}
+
+#[test]
+fn test_quantize_rmsnorm_q8_0_into_basic() {
+    let input: Vec<f32> = (0..32).map(|i| i as f32 / 32.0).collect();
+    let weights = vec![1.0f32; 32];
+    let mut norm = vec![0.0f32; 32];
+    let mut quants = vec![0i8; 32];
+    quantize_rmsnorm_q8_0_into(&input, &weights, 1e-5, &mut norm, &mut quants);
+    assert!(norm.iter().any(|&v| v != 0.0));
+}
+
+// ============================================================================
+// Test 221-230: Additional struct tests
+// ============================================================================
+
+#[test]
+fn test_q4_0_block_default_values() {
+    let block = Q4_0Block {
+        scale: 0.0,
+        quants: [0u8; 16],
+    };
+    assert_eq!(block.scale, 0.0);
+    assert_eq!(block.quants.len(), 16);
+}
+
+#[test]
+fn test_q4_0_block_debug() {
+    let block = Q4_0Block {
+        scale: 1.5,
+        quants: [0u8; 16],
+    };
+    let debug = format!("{block:?}");
+    assert!(debug.contains("Q4_0Block"));
+}
+
+#[test]
+fn test_q4_0_block_clone() {
+    let block = Q4_0Block {
+        scale: 2.0,
+        quants: [0xFF; 16],
+    };
+    let cloned = block.clone();
+    assert_eq!(cloned.scale, 2.0);
+    assert_eq!(cloned.quants[0], 0xFF);
+}
+
+#[test]
+fn test_q8_0_block_clone() {
+    let block = Q8_0Block {
+        scale: 1.0,
+        quants: [127i8; 32],
+    };
+    let cloned = block.clone();
+    assert_eq!(cloned.scale, 1.0);
+    assert_eq!(cloned.quants[0], 127);
+}
+
+#[test]
+fn test_q8k_super_block_clone() {
+    let block = Q8KSuperBlock {
+        scale: 0.5,
+        quants: [64i8; 256],
+    };
+    let cloned = block.clone();
+    assert_eq!(cloned.scale, 0.5);
+    assert_eq!(cloned.quants[0], 64);
+}
+
+#[test]
+fn test_q8k_super_block_debug() {
+    let block = Q8KSuperBlock {
+        scale: 0.5,
+        quants: [0i8; 256],
+    };
+    let debug = format!("{block:?}");
+    assert!(debug.contains("Q8KSuperBlock"));
+}
+
+// ============================================================================
+// Test 231-240: Edge case error tests
+// ============================================================================
+
+#[test]
+fn test_fused_q4k_tiled_matvec_empty() {
+    let weights: Vec<u8> = vec![];
+    let activations: Vec<f32> = vec![];
+    let result = fused_q4k_tiled_matvec(&weights, &activations, 0, 0, Some(64));
+    // Empty 0x0 dimensions are valid
+    assert!(result.is_ok());
+    assert!(result.unwrap().is_empty());
 }

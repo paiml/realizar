@@ -38,10 +38,10 @@
 //! println!("Tool calls made: {}", result.tool_calls.len());
 //! ```
 
-use crate::error::{RealizarError, Result};
+use crate::error::Result;
 use crate::grammar::{ToolCall, ToolCallFormat, ToolCallParser, ToolDefinition, ToolResult};
 use crate::tools::{
-    ToolCallExecutor, ToolCallHandler, ToolCallHandlerError, ToolPromptTemplate,
+    ToolCallHandler, ToolPromptTemplate,
 };
 use std::fmt::Debug;
 

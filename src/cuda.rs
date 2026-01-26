@@ -58,7 +58,7 @@ use trueno_gpu::kernels::{
     FusedRmsNormQ4KGemvKernel, FusedSwigluKernel, GeluKernel, GemmKernel, GemvKernel,
     IncrementalAttentionKernel, Kernel, KvCacheScatterIndirectKernel, KvCacheScatterKernel,
     LayerNormKernel, MultiWarpBatchedQ4KGemvKernel, MultiWarpIncrementalAttentionKernel,
-    PackedDp4aQ4KQ8Kernel, Q4KGemvKernel, Q4KQ8DotKernel, Q4_0GemvKernel, Q4_1GemvKernel,
+    PackedDp4aQ4KQ8Kernel, PreciseRmsNormKernel, Q4KGemvKernel, Q4KQ8DotKernel, Q4_0GemvKernel, Q4_1GemvKernel,
     Q5KGemvKernel, Q5KKernel, Q5_0GemvKernel, Q6KGemvKernel, Q6KKernel, Q8QuantizeKernel,
     Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel, RmsNormKernel, RopeIndirectKernel,
     RopeKernel, RopeNeoxIndirectKernel, RopeNeoxKernel, SiluKernel, SoftmaxKernel,
@@ -548,6 +548,15 @@ pub enum KernelType {
         /// Epsilon for numerical stability (default: 1e-5)
         epsilon: f32,
     },
+    /// CORRECTNESS-013: High-precision RMSNorm kernel for CPU/GPU bit-exactness
+    /// Uses Kahan compensated summation and Newton-Raphson rsqrt refinement
+    /// Slower than VectorizedRmsNorm but matches CPU output exactly
+    PreciseRmsNorm {
+        /// Hidden dimension size
+        hidden_size: u32,
+        /// Epsilon for numerical stability (default: 1e-5)
+        epsilon: f32,
+    },
     /// PAR-114: Batched RoPE kernel
     /// Processes M sequences in parallel using Grid.y = M
     BatchedRope {
@@ -965,6 +974,13 @@ impl CudaKernels {
             } => BatchedVectorizedRmsNormKernel::new(*hidden_size, *batch_size)
                 .with_epsilon(*epsilon)
                 .emit_ptx(),
+            // CORRECTNESS-013: High-precision RMSNorm for CPU/GPU bit-exactness
+            KernelType::PreciseRmsNorm {
+                hidden_size,
+                epsilon,
+            } => PreciseRmsNormKernel::new(*hidden_size)
+                .with_epsilon(*epsilon)
+                .emit_ptx(),
             // PAR-114: Batched RoPE for M sequences
             KernelType::BatchedRope {
                 num_heads,
@@ -1169,6 +1185,8 @@ impl CudaKernels {
             KernelType::VectorizedRmsNorm { .. } => "rmsnorm_vectorized",
             // PAR-112: Batched Vectorized RMSNorm
             KernelType::BatchedVectorizedRmsNorm { .. } => "batched_rmsnorm_vectorized",
+            // CORRECTNESS-013: High-precision RMSNorm
+            KernelType::PreciseRmsNorm { .. } => "rmsnorm_precise",
             // PAR-114: Batched RoPE
             KernelType::BatchedRope { .. } => "batched_rope",
             // PAR-114: Batched Residual Add
@@ -2050,6 +2068,9 @@ pub struct CudaExecutor {
     lm_head_len: usize,
     // PAR-058-FIX: LM head quantization type (Q6_K in Qwen 1.5B, not Q4_K)
     lm_head_qtype: WeightQuantType,
+    // PAR-064-FIX: LM head bias pointer and length (optional, for models with output.bias)
+    lm_head_bias_ptr: u64,
+    lm_head_bias_len: usize,
     // PAR-043: Pre-allocated logits buffer to avoid per-token allocation
     logits_buffer: Option<GpuBuffer<f32>>,
     logits_buffer_size: usize,
@@ -2189,6 +2210,8 @@ impl CudaExecutor {
             lm_head_ptr: 0,
             lm_head_len: 0,
             lm_head_qtype: WeightQuantType::Q4K, // Default, updated on weight load
+            lm_head_bias_ptr: 0,
+            lm_head_bias_len: 0,
             logits_buffer: None,
             logits_buffer_size: 0,
             workspace: TransformerWorkspace::default(), // PAR-044: lazy init on first forward
@@ -3043,6 +3066,9 @@ impl CudaExecutor {
         self.lm_head_ptr = 0;
         self.lm_head_len = 0;
         self.lm_head_qtype = WeightQuantType::Q4K;
+        // PAR-064-FIX: Also clear LM head bias pointer
+        self.lm_head_bias_ptr = 0;
+        self.lm_head_bias_len = 0;
     }
 
     // ========================================================================
@@ -7113,6 +7139,9 @@ impl CudaExecutor {
     ///
     /// PAR-081: Uses VectorizedRmsNorm with 256 threads for ~8x speedup
     /// over single-warp kernel (23µs → ~3µs for hidden_size=1536)
+    ///
+    /// CORRECTNESS-013: When CORRECTNESS_MODE=1, uses PreciseRmsNorm kernel
+    /// with Kahan summation and Newton-Raphson rsqrt for CPU-matching precision.
     #[inline]
     pub fn rmsnorm_into(
         &mut self,
@@ -7122,13 +7151,34 @@ impl CudaExecutor {
         hidden_size: u32,
         epsilon: f32,
     ) -> Result<(), GpuError> {
-        // PAR-081: Use vectorized kernel with 256 threads (8x faster)
-        let kernel_type = KernelType::VectorizedRmsNorm {
-            hidden_size,
-            epsilon,
+        // CORRECTNESS-013: Check if precise mode is requested
+        static PRECISE_MODE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let use_precise = *PRECISE_MODE.get_or_init(|| {
+            std::env::var("CORRECTNESS_MODE")
+                .map(|v| v == "1")
+                .unwrap_or(false)
+        });
+
+        // Choose kernel type based on mode
+        let (kernel_type, cache_key) = if use_precise {
+            (
+                KernelType::PreciseRmsNorm {
+                    hidden_size,
+                    epsilon,
+                },
+                format!("rmsnorm_precise_{}", hidden_size),
+            )
+        } else {
+            (
+                KernelType::VectorizedRmsNorm {
+                    hidden_size,
+                    epsilon,
+                },
+                format!("rmsnorm_vectorized_{}", hidden_size),
+            )
         };
+
         let kernel_name = self.kernels.kernel_name(&kernel_type);
-        let cache_key = format!("rmsnorm_vectorized_{}", hidden_size);
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
@@ -9785,6 +9835,57 @@ impl CudaExecutor {
         self.bias_cache.contains_key(&q_name)
     }
 
+    /// PAR-064-FIX: Pre-cache LM head bias on GPU
+    ///
+    /// Some models (like Qwen2.5) have an output.bias that must be added to logits
+    /// after the LM head GEMV projection. Without this bias, GPU inference produces
+    /// incorrect token predictions.
+    ///
+    /// # Arguments
+    ///
+    /// * `bias` - Optional LM head bias vector (vocab_size elements)
+    ///
+    /// # Returns
+    ///
+    /// Total bytes uploaded to GPU (0 if no bias)
+    pub fn preload_lm_head_bias(&mut self, bias: Option<&[f32]>) -> Result<usize, GpuError> {
+        let Some(bias_data) = bias else {
+            return Ok(0);
+        };
+
+        if bias_data.is_empty() {
+            return Ok(0);
+        }
+
+        let name = "output.bias".to_string();
+        if self.bias_cache.contains_key(&name) {
+            return Ok(0);
+        }
+
+        let buf = GpuBuffer::from_host(&self.context, bias_data)?;
+        let total_bytes = buf.size_bytes();
+
+        // Index the pointer for fast access in forward pass
+        self.lm_head_bias_ptr = buf.as_ptr();
+        self.lm_head_bias_len = buf.len();
+
+        self.bias_cache.insert(name, buf);
+
+        eprintln!(
+            "[PAR-064-FIX] Preloaded LM head bias: {} elements ({} bytes)",
+            bias_data.len(),
+            total_bytes
+        );
+
+        Ok(total_bytes)
+    }
+
+    /// PAR-064-FIX: Check if LM head bias is cached
+    #[must_use]
+    pub fn has_lm_head_bias(&self) -> bool {
+        self.lm_head_bias_ptr != 0
+    }
+
     /// PAR-023: Run ALL transformer layers GPU-resident (minimal syncs)
     ///
     /// Chains all layers on GPU, only syncing at the very end.
@@ -10424,7 +10525,7 @@ impl CudaExecutor {
                         all_logits[15], all_logits[16], all_logits[17], all_logits[18], all_logits[19]
                     );
 
-                    let mut logits_debug = all_logits[..20].to_vec();
+                    let logits_debug = all_logits[..20].to_vec();
                     // Check for all-zeros or all-same values (sign of kernel bug)
                     let first = logits_debug[0];
                     let all_same = logits_debug.iter().all(|&x| (x - first).abs() < 0.001);
@@ -11435,8 +11536,13 @@ impl CudaExecutor {
             );
         }
 
+        // PAR-064-DEBUG: Allow disabling graph mode for debugging
+        let skip_graph = std::env::var("SKIP_CUDA_GRAPH")
+            .map(|v| v == "1")
+            .unwrap_or(false);
+
         // PAR-054: Check if we should capture or replay
-        if self.decode_graph.is_some() && self.decode_token_count > 0 {
+        if !skip_graph && self.decode_graph.is_some() && self.decode_token_count > 0 {
             // Replay path: update position and launch graph
             if self.decode_token_count <= 3 {
                 eprintln!(
@@ -11546,6 +11652,21 @@ impl CudaExecutor {
         // Root cause: CudaModule::from_ptx allocates memory which breaks capture
         self.preload_modules_for_capture(num_layers, hidden_dim, intermediate_dim, vocab_size)?;
 
+        // PAR-064-DEBUG: Skip graph capture if SKIP_CUDA_GRAPH=1
+        if skip_graph {
+            eprintln!("[PAR-064-DEBUG] SKIP_CUDA_GRAPH=1, using non-graphed path");
+            return self.forward_all_layers_gpu_to_logits(
+                input,
+                logits,
+                position,
+                num_layers,
+                hidden_dim,
+                intermediate_dim,
+                vocab_size,
+                epsilon,
+            );
+        }
+
         // PAR-054: Try CUDA graph capture, fall back to non-graphed path if fails
         // Some operations (memory allocation, synchronization) aren't graph-compatible
         let capture_result = self.try_graph_capture(
@@ -11621,16 +11742,38 @@ impl CudaExecutor {
         let kv_dim = num_kv_heads * head_dim;
 
         // 1. RMSNorm kernel (used for attn_norm, ffn_norm, output_norm)
-        // PAR-081: Use VectorizedRmsNorm with 256 threads (8x faster than single-warp)
-        let rmsnorm_key = format!("rmsnorm_vectorized_{}", hidden_dim);
-        if !self.modules.contains_key(&rmsnorm_key) {
-            let kernel_type = KernelType::VectorizedRmsNorm {
-                hidden_size: hidden_dim,
-                epsilon: 1e-5, // Runtime parameter, kernel code same regardless
-            };
-            let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
-            self.modules.insert(rmsnorm_key, module);
+        // CORRECTNESS-013: Check if precise mode is requested
+        static PRECISE_MODE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let use_precise = *PRECISE_MODE.get_or_init(|| {
+            std::env::var("CORRECTNESS_MODE")
+                .map(|v| v == "1")
+                .unwrap_or(false)
+        });
+
+        if use_precise {
+            // CORRECTNESS-013: Preload PreciseRmsNorm for CPU-matching precision
+            let rmsnorm_key = format!("rmsnorm_precise_{}", hidden_dim);
+            if !self.modules.contains_key(&rmsnorm_key) {
+                let kernel_type = KernelType::PreciseRmsNorm {
+                    hidden_size: hidden_dim,
+                    epsilon: 1e-5,
+                };
+                let ptx = self.kernels.generate_ptx(&kernel_type);
+                let module = CudaModule::from_ptx(&self.context, &ptx)?;
+                self.modules.insert(rmsnorm_key, module);
+            }
+        } else {
+            // PAR-081: Use VectorizedRmsNorm with 256 threads (8x faster than single-warp)
+            let rmsnorm_key = format!("rmsnorm_vectorized_{}", hidden_dim);
+            if !self.modules.contains_key(&rmsnorm_key) {
+                let kernel_type = KernelType::VectorizedRmsNorm {
+                    hidden_size: hidden_dim,
+                    epsilon: 1e-5, // Runtime parameter, kernel code same regardless
+                };
+                let ptx = self.kernels.generate_ptx(&kernel_type);
+                let module = CudaModule::from_ptx(&self.context, &ptx)?;
+                self.modules.insert(rmsnorm_key, module);
+            }
         }
 
         // 2. Q/K/V GEMV kernels - pre-load all quant types that might be used
@@ -12680,6 +12823,23 @@ impl CudaExecutor {
                 )?;
             },
         }
+
+        // PAR-064-FIX: Add LM head bias after GEMV (if present)
+        // Without this, GPU inference produces incorrect token predictions
+        if self.lm_head_bias_ptr != 0 && self.lm_head_bias_len > 0 {
+            // Create non-owning buffer wrapper from device pointer
+            // SAFETY: bias_ptr is valid device memory owned by bias_cache
+            let bias_buf = unsafe {
+                GpuBuffer::<f32>::from_raw_parts(self.lm_head_bias_ptr, self.lm_head_bias_len)
+            };
+
+            // Add bias in-place: logits = logits + bias
+            self.residual_add_into(&logits_output, &bias_buf, &logits_output, vocab_size)?;
+
+            // Prevent Drop from freeing borrowed memory
+            std::mem::forget(bias_buf);
+        }
+
         std::mem::forget(normed_input);
         std::mem::forget(logits_output);
 

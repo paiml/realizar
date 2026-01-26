@@ -3689,7 +3689,7 @@ pub fn fused_q4k_q8k_parallel_matvec_into(
                     let row_base = midi_start + micro_idx * MICRO_TILE_M;
 
                     // Build row pointers for 4-row kernel
-                    let row_ptrs: [*const u8; 4] = [
+                    let _row_ptrs: [*const u8; 4] = [
                         weight_data.as_ptr().wrapping_add(row_base * bytes_per_row),
                         weight_data
                             .as_ptr()
@@ -7612,10 +7612,12 @@ pub fn detect_simd_backend() -> SimdBackend {
 
     #[cfg(target_arch = "aarch64")]
     {
-        return SimdBackend::Neon;
+        SimdBackend::Neon
     }
-
-    SimdBackend::Scalar
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+        SimdBackend::Scalar
+    }
 }
 
 /// SIMD-optimized RoPE rotation for a single head
