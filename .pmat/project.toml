@@ -1,4 +1,17 @@
 [pmat]
 version = "2.213.7"
-last_compliance_check = "2026-01-26T14:08:02.100594617Z"
+last_compliance_check = "2026-01-26T18:13:22.232400756Z"
 auto_update = false
+
+[tickets.T-COV-001]
+title = "95% Coverage & CLI Refactor"
+status = "in_progress"
+created = "2026-01-26"
+protocol = "PMAT-COV-95"
+objectives = [
+    "Refactor main.rs to hollow shell (<20 lines)",
+    "Move CLI logic to src/cli/handlers.rs",
+    "Create CLI integration tests",
+    "Fix quantize/mod.rs SIMD coverage",
+    "Achieve >95% total coverage"
+]

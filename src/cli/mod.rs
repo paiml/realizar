@@ -17,6 +17,251 @@ pub mod inference;
 pub use inference::run_gguf_inference_gpu;
 pub use inference::{run_apr_inference, run_gguf_inference, run_safetensors_inference};
 
+// T-COV-001: CLI handlers extracted from main.rs for testability
+pub mod handlers;
+pub use handlers::{Cli, Commands, RunConfig, ServeConfig};
+
+/// Main CLI entrypoint - dispatches commands to handlers (T-COV-001)
+pub async fn entrypoint(cli: Cli) -> Result<()> {
+    match cli.command {
+        Commands::Run {
+            model,
+            prompt,
+            max_tokens,
+            temperature,
+            format,
+            system,
+            raw,
+            gpu,
+            verbose,
+            trace,
+        } => {
+            run_model_command(
+                &model,
+                prompt.as_deref(),
+                max_tokens,
+                temperature,
+                &format,
+                system.as_deref(),
+                raw,
+                gpu,
+                verbose,
+                trace,
+            )
+            .await
+        }
+        Commands::Chat {
+            model,
+            system,
+            history,
+        } => run_chat_command(&model, system.as_deref(), history.as_deref()).await,
+        Commands::List { remote, format } => handlers::handle_list(remote.as_deref(), &format),
+        Commands::Pull {
+            model,
+            force,
+            quantize,
+        } => handlers::handle_pull(&model, force, quantize.as_deref()).await,
+        Commands::Push { model, to } => handlers::handle_push(&model, to.as_deref()).await,
+        Commands::Serve {
+            host,
+            port,
+            model,
+            demo,
+            openai_api: _,
+            batch,
+            gpu,
+        } => {
+            handlers::handle_serve(ServeConfig {
+                host,
+                port,
+                model,
+                demo,
+                batch,
+                gpu,
+            })
+            .await
+        }
+        Commands::Bench {
+            suite,
+            list,
+            runtime,
+            model,
+            url,
+            output,
+        } => run_benchmarks(suite, list, runtime, model, url, output),
+        Commands::BenchConvoy {
+            runtime,
+            model,
+            output,
+        } => run_convoy_test(runtime, model, output),
+        Commands::BenchSaturation {
+            runtime,
+            model,
+            output,
+        } => run_saturation_test(runtime, model, output),
+        Commands::BenchCompare {
+            file1,
+            file2,
+            threshold,
+        } => run_bench_compare(&file1, &file2, threshold),
+        Commands::BenchRegression {
+            baseline,
+            current,
+            strict,
+        } => {
+            if run_bench_regression(&baseline, &current, strict).is_err() {
+                std::process::exit(1);
+            }
+            Ok(())
+        }
+        Commands::Viz { color, samples } => {
+            run_visualization(color, samples);
+            Ok(())
+        }
+        Commands::Info => {
+            print_info();
+            Ok(())
+        }
+    }
+}
+
+/// Run model command handler
+#[allow(clippy::too_many_arguments)]
+async fn run_model_command(
+    model_ref: &str,
+    prompt: Option<&str>,
+    max_tokens: usize,
+    temperature: f32,
+    format: &str,
+    system_prompt: Option<&str>,
+    raw_mode: bool,
+    force_gpu: bool,
+    verbose: bool,
+    trace: Option<Option<String>>,
+) -> Result<()> {
+    use crate::chat_template::{auto_detect_template, ChatMessage};
+
+    let trace_config = handlers::parse_trace_config(trace.clone());
+    if trace_config.is_some() {
+        std::env::set_var("GPU_DEBUG", "1");
+        eprintln!("[TRACE] Inference tracing enabled - GPU_DEBUG=1");
+    }
+
+    if is_local_file_path(model_ref) {
+        handlers::validate_model_path(model_ref)?;
+        if verbose {
+            println!("  Source: local file");
+        }
+    } else if model_ref.starts_with("pacha://") || model_ref.contains(':') {
+        println!("  Source: Pacha registry");
+        println!("Enable registry support: --features registry");
+        return Ok(());
+    } else if model_ref.starts_with("hf://") {
+        println!("  Source: HuggingFace Hub");
+        println!("Enable registry support: --features registry");
+        return Ok(());
+    }
+
+    let file_data = std::fs::read(model_ref).map_err(|e| RealizarError::UnsupportedOperation {
+        operation: "read_model".to_string(),
+        reason: format!("Failed to read {model_ref}: {e}"),
+    })?;
+
+    if verbose {
+        display_model_info(model_ref, &file_data)?;
+    }
+
+    if let Some(prompt_text) = prompt {
+        let formatted_prompt = if raw_mode {
+            prompt_text.to_string()
+        } else {
+            let template = auto_detect_template(model_ref);
+            let mut messages = Vec::new();
+            if let Some(sys) = system_prompt {
+                messages.push(ChatMessage::system(sys));
+            }
+            messages.push(ChatMessage::user(prompt_text));
+            template.format_conversation(&messages).unwrap_or_else(|_| prompt_text.to_string())
+        };
+
+        use crate::format::{detect_format, ModelFormat};
+        match detect_format(&file_data).unwrap_or(ModelFormat::Gguf) {
+            ModelFormat::Apr => run_apr_inference(model_ref, &file_data, &formatted_prompt, max_tokens, temperature, format, force_gpu, verbose)?,
+            ModelFormat::SafeTensors => run_safetensors_inference(model_ref, &formatted_prompt, max_tokens, temperature, format)?,
+            ModelFormat::Gguf => run_gguf_inference(model_ref, &file_data, &formatted_prompt, max_tokens, temperature, format, force_gpu, verbose, trace.is_some())?,
+        }
+    } else {
+        println!("Interactive mode - use a prompt argument");
+    }
+    Ok(())
+}
+
+/// Chat command handler
+async fn run_chat_command(model_ref: &str, system_prompt: Option<&str>, history_file: Option<&str>) -> Result<()> {
+    use std::io::{BufRead, Write};
+
+    if !std::path::Path::new(model_ref).exists() && !model_ref.starts_with("pacha://") && !model_ref.starts_with("hf://") {
+        return Err(RealizarError::ModelNotFound(model_ref.to_string()));
+    }
+    if model_ref.starts_with("pacha://") || model_ref.starts_with("hf://") {
+        println!("Registry URIs require --features registry");
+        return Ok(());
+    }
+
+    let file_data = std::fs::read(model_ref).map_err(|e| RealizarError::UnsupportedOperation {
+        operation: "read_model".to_string(),
+        reason: format!("Failed to read: {e}"),
+    })?;
+
+    display_model_info(model_ref, &file_data)?;
+
+    let mut history: Vec<(String, String)> = history_file
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|c| serde_json::from_str(&c).ok())
+        .unwrap_or_default();
+
+    if let Some(sys) = system_prompt {
+        println!("System: {sys}");
+    }
+    println!("Chat mode active. Type 'exit' to quit.");
+
+    let stdin = std::io::stdin();
+    let mut stdout = std::io::stdout();
+
+    loop {
+        print!(">>> ");
+        stdout.flush().ok();
+        let mut input = String::new();
+        match stdin.lock().read_line(&mut input) {
+            Ok(0) => break,
+            Ok(_) => {
+                let input = input.trim();
+                if input.is_empty() { continue; }
+                if input == "exit" || input == "/quit" { break; }
+                if input == "/clear" { history.clear(); println!("Cleared."); continue; }
+                if input == "/history" {
+                    for (i, (u, a)) in history.iter().enumerate() {
+                        println!("[{}] {}: {}", i+1, u, a);
+                    }
+                    continue;
+                }
+                let response = format!("[Echo] {}", input);
+                println!("{response}");
+                history.push((input.to_string(), response));
+            }
+            Err(_) => break,
+        }
+    }
+
+    if let Some(path) = history_file {
+        if let Ok(json) = serde_json::to_string_pretty(&history) {
+            let _ = std::fs::write(path, json);
+        }
+    }
+    println!("Goodbye!");
+    Ok(())
+}
+
 /// Available benchmark suites
 pub const BENCHMARK_SUITES: &[(&str, &str)] = &[
     (
