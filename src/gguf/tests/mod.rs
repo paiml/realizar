@@ -52,3 +52,4 @@ mod part_20;
 mod part_21;
 mod part_22;
 mod part_23;
+mod part_24;
