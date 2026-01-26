@@ -772,7 +772,7 @@ pub fn run_apr_inference_gpu(
             let gate_len = transformer.layers[0]
                 .ffn_gate_weight
                 .as_ref()
-                .map_or(0, |v| v.len());
+                .map_or(0, Vec::len);
             eprintln!(
                 "[DEBUG-SwiGLU] Gate weight elements: {} (expected: {}x{}={})",
                 gate_len,

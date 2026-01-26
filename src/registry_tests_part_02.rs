@@ -138,11 +138,15 @@ mod tests {
         }
 
         let running = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let barrier = Arc::new(std::sync::Barrier::new(6)); // 5 readers + 1 main
+
         let readers: Vec<_> = (0..5)
             .map(|_| {
                 let r = Arc::clone(&registry);
                 let run = Arc::clone(&running);
+                let b = Arc::clone(&barrier);
                 thread::spawn(move || {
+                    b.wait(); // Wait for all threads to be ready
                     let mut count = 0;
                     while run.load(std::sync::atomic::Ordering::Relaxed) {
                         let _ = r.list();
@@ -157,10 +161,12 @@ mod tests {
             })
             .collect();
 
+        barrier.wait(); // Release all readers simultaneously
+
         for i in 10..20 {
             let (m, t) = create_test_model();
             registry.register(&format!("m{i}"), m, t).expect("reg");
-            thread::sleep(Duration::from_micros(50));
+            thread::sleep(Duration::from_micros(100)); // Increased from 50µs
         }
 
         running.store(false, std::sync::atomic::Ordering::Relaxed);
