@@ -421,7 +421,6 @@ fn test_mha_debug_clone() {
 }
 
 #[test]
-#[ignore = "Test expectation needs adjustment"]
 fn test_mha_single_head_single_kv_head() {
     // With 1 head and 1 KV head: both MHA and MQA conditions are met
     // (num_kv_heads == num_heads == 1 satisfies both)
