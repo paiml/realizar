@@ -143,8 +143,8 @@ clippy-fix: ## Automatically fix clippy warnings
 
 # Exclude: trueno (external dep), terminal-specific TUI code (requires actual terminal)
 # PMAT-803: Strict isolation - we test realizar, not the universe
-# Phase 38: Exclude fused_k.rs (35 arch-specific #[cfg] blocks = ~60% dead code on any single arch)
-COV_EXCLUDE := --ignore-filename-regex='(trueno/|tui\.rs|bench_viz\.rs|viz\.rs|fused_k\.rs)'
+# T-COV-001: Exclude main.rs (hollow shell binary entry point)
+COV_EXCLUDE := --ignore-filename-regex='(trueno/|tui\.rs|bench_viz\.rs|viz\.rs|main\.rs)'
 
 cov: ## FAST coverage (~2 min) - core lib only, no CUDA, no heavy-tests
 	@echo "$(GREEN)⚡ FAST coverage (core lib only, ~2 min)...$(NC)"
