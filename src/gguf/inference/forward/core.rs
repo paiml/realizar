@@ -5,7 +5,6 @@
 
 use crate::error::Result;
 use crate::gguf::ops;
-use crate::gguf::OwnedQKVWeights;
 use crate::gguf::OwnedQuantizedModel;
 
 impl OwnedQuantizedModel {
@@ -354,6 +353,17 @@ impl OwnedQuantizedModel {
         // 1. Token embedding lookup
         let mut hidden = self.embed(&[token_id]);
 
+        // GQA-DEBUG: Print embedding for CPU/GPU comparison
+        if std::env::var("CPU_DEBUG").is_ok() && position == 4 {
+            let embed_sum: f32 = hidden.iter().sum();
+            let sq_sum: f32 = hidden.iter().map(|x| x * x).sum();
+            let rms = (sq_sum / hidden.len() as f32).sqrt();
+            eprintln!(
+                "[GQA-DEBUG-CPU-EMBED] Token {} at pos {}: first 5 = {:?}, sum={:.4}, rms={:.4}",
+                token_id, position, &hidden[..5.min(hidden.len())], embed_sum, rms
+            );
+        }
+
         // PAR-052: Debug output for OwnedQuantizedModel forward path
         let debug_forward = std::env::var("REALIZAR_DEBUG_FORWARD").is_ok();
         if debug_forward && position == 0 {
@@ -413,6 +423,14 @@ impl OwnedQuantizedModel {
                 self.config.hidden_dim,
             );
 
+            // GQA-DEBUG: Print normed input for CPU/GPU comparison
+            if std::env::var("CPU_DEBUG").is_ok() && layer_idx == 0 && position == 0 {
+                eprintln!(
+                    "[GQA-DEBUG-CPU-L0] Normed input (after attn_norm): first 5 = {:?}",
+                    &normed[..5.min(normed.len())]
+                );
+            }
+
             let mut qkv = self.qkv_matmul(&normed, &layer.qkv_weight)?;
             if let Some(ref bias) = layer.qkv_bias {
                 ops::add_bias(&mut qkv, bias);
@@ -436,9 +454,34 @@ impl OwnedQuantizedModel {
             let mut k = qkv[q_dim..q_dim + k_dim].to_vec();
             let v = qkv[q_dim + k_dim..q_dim + k_dim + v_dim].to_vec();
 
+            // GQA-DEBUG: Print K before RoPE for CPU/GPU comparison
+            if std::env::var("CPU_DEBUG").is_ok() && layer_idx == 0 && position == 0 {
+                // Print K weight info for debugging
+                eprintln!(
+                    "[GQA-DEBUG-CPU-L0] K weight info: qkv_type={:?}, q_dim={}, k_dim={}, v_dim={}",
+                    match &layer.qkv_weight {
+                        crate::gguf::OwnedQKVWeights::Fused(_) => "Fused",
+                        crate::gguf::OwnedQKVWeights::Separate { .. } => "Separate",
+                    },
+                    q_dim, k_dim, v_dim
+                );
+                eprintln!(
+                    "[GQA-DEBUG-CPU-L0] K after bias (before RoPE): first 5 = {:?}",
+                    &k[..5.min(k.len())]
+                );
+            }
+
             // Apply RoPE with correct head counts for GQA
             self.apply_rope(&mut q, position, self.config.num_heads);
             self.apply_rope(&mut k, position, self.config.num_kv_heads);
+
+            // GQA-DEBUG: Print K after RoPE for CPU/GPU comparison
+            if std::env::var("CPU_DEBUG").is_ok() && layer_idx == 0 && position == 0 {
+                eprintln!(
+                    "[GQA-DEBUG-CPU-L0] K after RoPE: first 5 = {:?}",
+                    &k[..5.min(k.len())]
+                );
+            }
 
             // PAR-052: Debug Q after RoPE
             if debug_forward && layer_idx == 0 && position == 0 {
@@ -550,6 +593,17 @@ impl OwnedQuantizedModel {
             for i in 0..hidden_dim {
                 hidden[i] += ffn_output[i];
             }
+
+            // GQA-DEBUG: Print hidden state after layer 0 for CPU/GPU comparison
+            if std::env::var("CPU_DEBUG").is_ok() && layer_idx == 0 && position == 4 {
+                let hidden_sum: f32 = hidden.iter().sum();
+                let sq_sum: f32 = hidden.iter().map(|x| x * x).sum();
+                let rms = (sq_sum / hidden.len() as f32).sqrt();
+                eprintln!(
+                    "[GQA-DEBUG-CPU-L0] After layer 0: first 5 = {:?}, sum={:.4}, rms={:.4}",
+                    &hidden[..5.min(hidden.len())], hidden_sum, rms
+                );
+            }
         }
 
         // Advance cache position
@@ -607,6 +661,22 @@ impl OwnedQuantizedModel {
                 eprintln!("  Token {}: {:.6}", idx, val);
             }
             eprintln!("[PAR-052] Logits sum: {:.6}", logits.iter().sum::<f32>());
+        }
+
+        // GQA-DEBUG: CPU logits comparison with GPU
+        if std::env::var("CPU_DEBUG").is_ok() {
+            // Print normed hidden for comparison with GPU
+            let sum: f32 = normed.iter().sum();
+            let sq_sum: f32 = normed.iter().map(|x| x * x).sum();
+            let rms = (sq_sum / normed.len() as f32).sqrt();
+            eprintln!("[GQA-DEBUG-CPU] Normed hidden: first 5 = {:?}, sum={:.4}, rms={:.4}",
+                &normed[..5.min(normed.len())], sum, rms);
+
+            let (argmax_idx, argmax_val) = logits.iter().enumerate()
+                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                .map(|(i, v)| (i, *v)).expect("empty logits");
+            eprintln!("[GQA-DEBUG-CPU] Logits argmax: idx={}, val={:.4}", argmax_idx, argmax_val);
+            eprintln!("[GQA-DEBUG-CPU] Logits[0..20]: {:?}", &logits[..20.min(logits.len())]);
         }
 
         Ok(logits)

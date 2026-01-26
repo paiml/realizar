@@ -250,10 +250,8 @@ fn test_kv_cache_out_of_bounds_layer_mut() {
     cache.advance();
 
     // Layer 5 is out of bounds
-    let k_mut = cache.get_k_mut(5);
-    let v_mut = cache.get_v_mut(5);
-    assert!(k_mut.is_empty());
-    assert!(v_mut.is_empty());
+    assert!(cache.get_k_mut(5).is_empty());
+    assert!(cache.get_v_mut(5).is_empty());
 }
 
 #[test]

@@ -1769,3 +1769,7 @@ mod brick_tests_part_02;
 #[cfg(test)]
 #[path = "tests_part_03.rs"]
 mod brick_tests_part_03;
+
+// Fused ops tests (cuda feature)
+#[cfg(all(test, feature = "cuda"))]
+mod fused_tests;

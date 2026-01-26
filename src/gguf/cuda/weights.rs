@@ -366,17 +366,20 @@ impl OwnedQuantizedModelCuda {
 
         // BIAS-FIX: Pre-cache QKV bias vectors for all layers
         // Qwen2.5 models have QKV bias that must be added after GEMV
+        // GQA-FIX: Use config-aware dimension calculation for GQA models
+        // (out_dim / 3 is WRONG for GQA where Q, K, V have different sizes)
+        let num_heads = self.model.config.num_heads;
+        let num_kv_heads = self.model.config.num_kv_heads;
+        let hidden_dim = self.model.config.hidden_dim;
+
         let q_biases: Vec<Option<&[f32]>> = self
             .model
             .layers
             .iter()
             .map(|l| {
                 l.qkv_bias.as_ref().map(|b| {
-                    // Q bias is first q_dim elements
-                    let q_dim = match &l.qkv_weight {
-                        OwnedQKVWeights::Separate { q, .. } => q.out_dim,
-                        OwnedQKVWeights::Fused(w) => w.out_dim / 3,
-                    };
+                    // Q bias is first q_dim elements (GQA-aware)
+                    let q_dim = l.qkv_weight.q_dim_for_config(num_heads, num_kv_heads, hidden_dim);
                     &b[..q_dim]
                 })
             })
@@ -385,15 +388,23 @@ impl OwnedQuantizedModelCuda {
             .model
             .layers
             .iter()
-            .map(|l| {
+            .enumerate()
+            .map(|(layer_idx, l)| {
                 l.qkv_bias.as_ref().map(|b| {
-                    let (q_dim, k_dim) = match &l.qkv_weight {
-                        OwnedQKVWeights::Separate { q, k, .. } => (q.out_dim, k.out_dim),
-                        OwnedQKVWeights::Fused(w) => {
-                            let dim = w.out_dim / 3;
-                            (dim, dim)
-                        },
-                    };
+                    // K bias starts after Q (GQA-aware)
+                    let q_dim = l.qkv_weight.q_dim_for_config(num_heads, num_kv_heads, hidden_dim);
+                    let k_dim = l.qkv_weight.k_dim_for_config(num_heads, num_kv_heads, hidden_dim);
+                    // GQA-DEBUG: Print extraction params for layer 0
+                    if layer_idx == 0 && verbose() {
+                        eprintln!(
+                            "[GQA-DEBUG] Layer 0 K bias: total_len={}, q_dim={}, k_dim={}, slice=[{}..{}]",
+                            b.len(), q_dim, k_dim, q_dim, q_dim + k_dim
+                        );
+                        eprintln!(
+                            "[GQA-DEBUG] Layer 0 K bias raw: first 5 at offset {} = {:?}",
+                            q_dim, &b[q_dim..q_dim + 5.min(k_dim)]
+                        );
+                    }
                     &b[q_dim..q_dim + k_dim]
                 })
             })
@@ -402,15 +413,29 @@ impl OwnedQuantizedModelCuda {
             .model
             .layers
             .iter()
-            .map(|l| {
+            .enumerate()
+            .map(|(layer_idx, l)| {
                 l.qkv_bias.as_ref().map(|b| {
-                    let (q_dim, k_dim, v_dim) = match &l.qkv_weight {
-                        OwnedQKVWeights::Separate { q, k, v } => (q.out_dim, k.out_dim, v.out_dim),
-                        OwnedQKVWeights::Fused(w) => {
-                            let dim = w.out_dim / 3;
-                            (dim, dim, dim)
-                        },
-                    };
+                    // V bias starts after Q+K (GQA-aware)
+                    let q_dim = l.qkv_weight.q_dim_for_config(num_heads, num_kv_heads, hidden_dim);
+                    let k_dim = l.qkv_weight.k_dim_for_config(num_heads, num_kv_heads, hidden_dim);
+                    let v_dim = l.qkv_weight.v_dim_for_config(num_heads, num_kv_heads, hidden_dim);
+                    // GQA-DEBUG: Print extraction params for layer 0
+                    if layer_idx == 0 && verbose() {
+                        eprintln!(
+                            "[GQA-DEBUG] Layer 0 V bias: slice=[{}..{}]",
+                            q_dim + k_dim, q_dim + k_dim + v_dim
+                        );
+                        eprintln!(
+                            "[GQA-DEBUG] Layer 0 V bias raw: first 5 = {:?}",
+                            &b[q_dim + k_dim..q_dim + k_dim + 5.min(v_dim)]
+                        );
+                        // Also print Q bias for comparison
+                        eprintln!(
+                            "[GQA-DEBUG] Layer 0 Q bias raw: first 5 = {:?}",
+                            &b[..5]
+                        );
+                    }
                     &b[q_dim + k_dim..q_dim + k_dim + v_dim]
                 })
             })

@@ -467,7 +467,7 @@ fn test_empty_metadata() {
 
 #[test]
 fn test_empty_string_metadata() {
-    let mut bytes = 0u64.to_le_bytes().to_vec(); // empty string
+    let bytes = 0u64.to_le_bytes().to_vec(); // empty string
     let data = build_gguf_with_metadata("test.empty", 8, bytes);
     let model = GGUFModel::from_bytes(&data).expect("parse");
     assert!(matches!(

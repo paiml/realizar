@@ -12,8 +12,8 @@ use crate::tensor::Tensor;
 
 #[test]
 fn test_sample_min_p_empty_logits() {
-    let logits = Tensor::from_vec(vec![0], vec![]).expect("test");
-    let result = sample_min_p(&logits, 0.5, 0.5);
+    // Zero-dimension tensors are rejected at creation time
+    let result = Tensor::<f32>::from_vec(vec![0], vec![]);
     assert!(result.is_err());
 }
 
@@ -121,9 +121,8 @@ fn test_mirostat_state_clone() {
 
 #[test]
 fn test_sample_mirostat_empty_logits() {
-    let logits = Tensor::from_vec(vec![0], vec![]).expect("test");
-    let mut state = MirostatState::default();
-    let result = sample_mirostat(&logits, &mut state, 0.5);
+    // Zero-dimension tensors are rejected at creation time
+    let result = Tensor::<f32>::from_vec(vec![0], vec![]);
     assert!(result.is_err());
 }
 
@@ -160,8 +159,8 @@ fn test_sample_mirostat_updates_state() {
 
 #[test]
 fn test_sample_tfs_empty_logits() {
-    let logits = Tensor::from_vec(vec![0], vec![]).expect("test");
-    let result = sample_tfs(&logits, 0.95, 0.5);
+    // Zero-dimension tensors are rejected at creation time
+    let result = Tensor::<f32>::from_vec(vec![0], vec![]);
     assert!(result.is_err());
 }
 
@@ -210,8 +209,8 @@ fn test_sample_tfs_single_dominant() {
 
 #[test]
 fn test_sample_typical_empty_logits() {
-    let logits = Tensor::from_vec(vec![0], vec![]).expect("test");
-    let result = sample_typical(&logits, 0.95, 0.5);
+    // Zero-dimension tensors are rejected at creation time
+    let result = Tensor::<f32>::from_vec(vec![0], vec![]);
     assert!(result.is_err());
 }
 
@@ -452,9 +451,8 @@ fn test_eta_config_with_min_p() {
 
 #[test]
 fn test_sample_eta_empty_logits() {
-    let logits = Tensor::from_vec(vec![0], vec![]).expect("test");
-    let config = EtaConfig::default();
-    let result = sample_eta(&logits, &config, 0.5);
+    // Zero-dimension tensors are rejected at creation time
+    let result = Tensor::<f32>::from_vec(vec![0], vec![]);
     assert!(result.is_err());
 }
 

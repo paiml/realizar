@@ -58,6 +58,17 @@ impl OwnedQuantizedModel {
         // Pre-allocate attention output buffer - reused across all layers
         let mut attn_out_buffer = vec![0.0f32; hidden_dim];
 
+        // GQA-DEBUG: Print embedding before layer 0
+        if std::env::var("CPU_DEBUG").is_ok() {
+            let embed_sum: f32 = hidden.iter().sum();
+            let sq_sum: f32 = hidden.iter().map(|x| x * x).sum();
+            let rms = (sq_sum / hidden.len() as f32).sqrt();
+            eprintln!(
+                "[GQA-DEBUG-CPU-EMBED] Embedding before L0: first 5 = {:?}, sum={:.4}, rms={:.4}",
+                &hidden[..5.min(hidden.len())], embed_sum, rms
+            );
+        }
+
         // 2. Process through transformer layers
         for (layer_idx, layer) in self.layers.iter().enumerate() {
             // 2a+2b. Fused attention layer norm + QKV projection
@@ -261,6 +272,17 @@ impl OwnedQuantizedModel {
                     "[DEBUG-FORWARD] After layer 0: sum={:.6}, hidden[0..4]={:?}",
                     hidden_sum,
                     &hidden[..4.min(hidden.len())]
+                );
+            }
+
+            // GQA-DEBUG: Print hidden state after layer 0 for CPU/GPU comparison
+            if std::env::var("CPU_DEBUG").is_ok() && layer_idx == 0 {
+                let hidden_sum: f32 = hidden.iter().sum();
+                let sq_sum: f32 = hidden.iter().map(|x| x * x).sum();
+                let rms = (sq_sum / hidden.len() as f32).sqrt();
+                eprintln!(
+                    "[GQA-DEBUG-CPU-L0] After layer 0: first 5 = {:?}, sum={:.4}, rms={:.4}",
+                    &hidden[..5.min(hidden.len())], hidden_sum, rms
                 );
             }
         }

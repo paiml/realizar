@@ -211,6 +211,13 @@ pub mod explain;
 /// with automatic temporary file cleanup via TempDir.
 #[cfg(test)]
 pub mod fixtures;
+/// Model fixture testing infrastructure with PyTorch-style patterns.
+///
+/// Provides standardized testing for model formats (GGUF, APR, SafeTensors)
+/// across devices (CPU, CUDA) with combinatorial coverage and Popperian falsification.
+/// Per spec: docs/specifications/model-fixture-setup-teardown.md
+#[cfg(test)]
+pub mod testing;
 /// Unified model format detection (APR, GGUF, SafeTensors)
 ///
 /// Per spec §3: Format Support Matrix - auto-detect from magic bytes.

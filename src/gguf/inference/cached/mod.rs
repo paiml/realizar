@@ -9,6 +9,9 @@ mod single;
 mod sync;
 mod weights;
 
+#[cfg(test)]
+mod sync_tests;
+
 pub use single::OwnedQuantizedModelCached;
 pub use sync::OwnedQuantizedModelCachedSync;
 pub use weights::{DequantizedFFNWeights, DequantizedWeightCache};
