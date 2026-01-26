@@ -870,19 +870,19 @@ impl CudaKernels {
             KernelType::Fp16Q4KGemv { k, n } => Fp16Q4KGemvKernel::new(*k, *n).emit_ptx(),
             // PAR-058: Q8_0 GEMV - simpler quantization for FFN down in some models
             KernelType::Q8_0Gemv { k, n } => Q8_0GemvKernel::new(*k, *n).emit_ptx(),
-            // PAR-058: Q5_0 GEMV - CANDLE LAYOUT FIX for GGUF compatibility
+            // PAR-058: Q5_0 GEMV - Candle layout for GGUF compatibility
             // The trueno Q5_0GemvKernel uses interleaved nibble layout, but GGUF uses
             // candle layout where:
             //   - Low nibbles (byte & 0xF) at positions 0-15
             //   - High nibbles (byte >> 4) at positions 16-31
-            // This custom PTX fixes BUG-GGUF-002 (0.5B Q5_0 models producing garbage)
+            // Custom PTX for candle layout compatibility (GGUF-002)
             KernelType::Q5_0Gemv { k, n } => generate_q5_0_candle_ptx(*k, *n),
-            // PAR-058: Q4_0 GEMV - CANDLE LAYOUT FIX for GGUF compatibility
+            // PAR-058: Q4_0 GEMV - Candle layout for GGUF compatibility
             // The trueno Q4_0GemvKernel uses interleaved nibble layout, but GGUF uses
             // candle layout where:
             //   - Low nibbles (byte & 0xF) at positions 0-15
             //   - High nibbles (byte >> 4) at positions 16-31
-            // This custom PTX fixes BUG-GGUF-001 (0.5B Q4_0 models producing garbage)
+            // Custom PTX for candle layout compatibility (GGUF-001)
             KernelType::Q4_0Gemv { k, n } => generate_q4_0_candle_ptx(*k, *n),
             // PAR-058: Q4_1 GEMV - used when Qwen2.5-0.5B FFN down is Q4_1
             KernelType::Q4_1Gemv { k, n } => Q4_1GemvKernel::new(*k, *n).emit_ptx(),

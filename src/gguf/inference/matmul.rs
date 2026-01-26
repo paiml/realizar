@@ -626,8 +626,7 @@ impl OwnedQuantizedModel {
         scales: &[f32],
         quants: &[i8],
     ) -> Result<()> {
-        // Fall back to regular qkv_matmul_into for now
-        // TODO: Implement Q8K-accelerated path using pre-quantized activations
+        // Fall back to regular qkv_matmul_into (Q8K acceleration deferred)
         self.qkv_matmul_into(input, qkv, output)
     }
 

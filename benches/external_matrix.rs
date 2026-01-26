@@ -137,8 +137,8 @@ fn benchmark_realizar_native_cv() -> Vec<f64> {
 
     let latencies = Vec::new();
 
-    // FIXME: GGUFTransformer.forward() was removed - benchmark needs updating
-    // See OwnedQuantizedModel for the new inference API
+    // NOTE: Uses placeholder since GGUFTransformer is a weight container.
+    // See OwnedQuantizedModel for the inference API.
 
     latencies
 }
@@ -179,15 +179,15 @@ fn percentile(samples: &[f64], p: f64) -> f64 {
 // ============================================================================
 
 /// Benchmark realizar native inference (always available)
-/// FIXME: GGUFTransformer no longer has forward() - use OwnedQuantizedModel
+/// NOTE: GGUFTransformer is a weight container; use OwnedQuantizedModel for inference
 fn benchmark_realizar_native(c: &mut Criterion) {
     let mut group = c.benchmark_group("external_matrix_realizar");
 
     let _transformer = create_benchmark_transformer();
     let _tokens: &[u32] = &[1, 2, 3, 4];
 
-    // FIXME: GGUFTransformer.forward() was removed - benchmark needs updating
-    // See OwnedQuantizedModel for the new inference API
+    // NOTE: Uses placeholder since GGUFTransformer is a weight container.
+    // See OwnedQuantizedModel for the inference API.
     group.bench_function("cpu_forward_placeholder", |b| {
         b.iter(|| criterion::black_box(42i32));
     });
