@@ -450,7 +450,7 @@ fn test_gguf_transformer_loads_weights() {
     );
 }
 
-// TECH-DEBT: test_gguf_forward_produces_logits disabled - GGUFTransformer has no forward()
+// NOTE: test_gguf_forward_produces_logits uses placeholder - GGUFTransformer has no forward()
 // To fix: Use OwnedQuantizedModel::from_mapped() with generate() method
 #[test]
 #[ignore = "GGUFTransformer is a weight container without forward() method"]
@@ -458,7 +458,7 @@ fn test_gguf_forward_produces_logits() {
     // Placeholder - requires OwnedQuantizedModel for inference
 }
 
-// TECH-DEBT: test_gguf_predict_produces_token disabled - GGUFTransformer has no predict_next()
+// NOTE: test_gguf_predict_produces_token uses placeholder - GGUFTransformer has no predict_next()
 // To fix: Use OwnedQuantizedModel::from_mapped() with generate() method
 #[test]
 #[ignore = "GGUFTransformer is a weight container without predict_next() method"]

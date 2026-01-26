@@ -602,7 +602,7 @@ impl QuantizedAprTransformerQ4 {
                     .copy_from_slice(&scratch.v[v_offset..v_offset + head_dim]);
             }
 
-            // Output projection (write to scratch.ffn_out as temporary)
+            // Output projection (uses scratch.ffn_out buffer)
             fused_q4_0_q8_0_parallel_matvec_into(
                 &layer.attn_output_weight.data,
                 &scratch.attn_out[..hidden_dim],

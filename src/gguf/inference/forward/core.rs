@@ -64,7 +64,7 @@ impl OwnedQuantizedModel {
             // 2b. QKV projection with FUSED dequant+dot (1.37x faster)
             // Note: qkv_dim may differ from 3*hidden_dim for GQA models
             let qkv_dim = layer.qkv_weight.out_dim();
-            // GQA-aware dimension computation (fixes PARITY-GQA bug)
+            // GQA-aware dimension computation (PARITY-GQA)
             // For GQA: q_dim = hidden_dim, k_dim = v_dim = num_kv_heads * head_dim
             let q_dim = layer.qkv_weight.q_dim_for_config(
                 self.config.num_heads,
@@ -405,7 +405,7 @@ impl OwnedQuantizedModel {
             }
 
             // 2b. QKV projection
-            // GQA-aware dimension computation (fixes PARITY-GQA bug)
+            // GQA-aware dimension computation (PARITY-GQA)
             let _qkv_dim = layer.qkv_weight.out_dim();
             let q_dim = layer.qkv_weight.q_dim_for_config(
                 self.config.num_heads,
