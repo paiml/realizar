@@ -26,6 +26,9 @@ pub mod generators;
 #[cfg(test)]
 pub mod combinatorial_tests;
 
+#[cfg(test)]
+pub mod popperian_tests;
+
 /// Model format enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ModelFormat {
