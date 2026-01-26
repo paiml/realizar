@@ -21,3 +21,4 @@ mod part_21; // Phase 46: Comprehensive activation.rs coverage
 mod part_23; // Additional SIMD coverage: f16 subnormal, extract_scale_min odd idx, horizontal sums, AVX2 RoPE
 mod part_24; // Comprehensive coverage for quantize/mod.rs functions (f16 LUT, Q8K into, InterleavedQ4K, fused matvec)
 mod part_25; // Popperian SIMD Falsification: performance tests, SIMD/scalar parity, path verification
+mod part_26; // T-COV-001: Error path and edge case coverage tests
