@@ -807,6 +807,7 @@ fn test_multi_head_attention_gqa_different_group_sizes() {
 /// throughput meets the baseline. Real phi-2 benchmarking requires
 /// the actual model file and full optimization integration.
 #[test]
+#[ignore = "performance benchmark - run explicitly with --include-ignored"]
 fn test_phase3_acceptance_tokens_per_second() {
     use crate::generate::GenerationConfig;
     use std::time::Instant;

@@ -406,12 +406,15 @@ impl AprTransformer {
             })
         };
 
-        // Debug: print available tensor names
-        eprintln!("[DEBUG] APR v2 tensor count: {tensor_count}");
-        eprintln!("[DEBUG] Available tensor names (first 10):");
-        for (i, (name, (offset, size, dims, dtype))) in tensors.iter().enumerate() {
-            if i < 10 {
-                eprintln!("  {name}: offset={offset}, size={size}, dims={dims:?}, dtype={dtype}");
+        // Debug: print available tensor names (only when REALIZE_DEBUG is set)
+        let debug_enabled = std::env::var("REALIZE_DEBUG").is_ok();
+        if debug_enabled {
+            eprintln!("[DEBUG] APR v2 tensor count: {tensor_count}");
+            eprintln!("[DEBUG] Available tensor names (first 10):");
+            for (i, (name, (offset, size, dims, dtype))) in tensors.iter().enumerate() {
+                if i < 10 {
+                    eprintln!("  {name}: offset={offset}, size={size}, dims={dims:?}, dtype={dtype}");
+                }
             }
         }
 
@@ -437,7 +440,9 @@ impl AprTransformer {
         // GGUF uses [hidden_dim, vocab_size], HF uses [vocab_size, hidden_dim]
         let is_gguf_model =
             tensors.contains_key("output.weight") || tensors.contains_key("blk.0.attn_q.weight");
-        eprintln!("[DEBUG] is_gguf_model={is_gguf_model}");
+        if debug_enabled {
+            eprintln!("[DEBUG] is_gguf_model={is_gguf_model}");
+        }
 
         // PMAT-086: Debug - check which embedding tensor names exist
         let embed_names = [
@@ -445,9 +450,11 @@ impl AprTransformer {
             "token_embd.weight",
             "tok_embeddings.weight",
         ];
-        for name in &embed_names {
-            if let Some((offset, size, dims, dtype)) = tensors.get(*name) {
-                eprintln!("[DEBUG] Found embedding {name}: offset={offset}, size={size}, dims={dims:?}, dtype={dtype}");
+        if debug_enabled {
+            for name in &embed_names {
+                if let Some((offset, size, dims, dtype)) = tensors.get(*name) {
+                    eprintln!("[DEBUG] Found embedding {name}: offset={offset}, size={size}, dims={dims:?}, dtype={dtype}");
+                }
             }
         }
 
@@ -456,7 +463,9 @@ impl AprTransformer {
             .or_else(|| get_f32_tensor("token_embd.weight"))
             .or_else(|| get_f32_tensor("tok_embeddings.weight"))
             .unwrap_or_else(|| {
-                eprintln!("[DEBUG] WARNING: No embedding tensor found! Using zeros.");
+                if debug_enabled {
+                    eprintln!("[DEBUG] WARNING: No embedding tensor found! Using zeros.");
+                }
                 vec![0.0; vocab_size * hidden_dim]
             });
 
@@ -465,11 +474,13 @@ impl AprTransformer {
         // The data is already correct - DO NOT transpose!
         let token_embedding = token_embedding_raw;
 
-        eprintln!(
-            "[DEBUG] token_embedding loaded: {} elements, first 5: {:?}",
-            token_embedding.len(),
-            &token_embedding[..5.min(token_embedding.len())]
-        );
+        if debug_enabled {
+            eprintln!(
+                "[DEBUG] token_embedding loaded: {} elements, first 5: {:?}",
+                token_embedding.len(),
+                &token_embedding[..5.min(token_embedding.len())]
+            );
+        }
 
         // Load output norm
         let output_norm_weight = get_f32_tensor("model.norm.weight")
@@ -477,31 +488,43 @@ impl AprTransformer {
             .unwrap_or_else(|| vec![1.0; hidden_dim]);
 
         // Debug: check output.weight / lm_head.weight
-        for name in &["output.weight", "lm_head.weight"] {
-            if let Some((offset, size, dims, dtype)) = tensors.get(*name) {
-                eprintln!("[DEBUG] Found lm_head {name}: offset={offset}, size={size}, dims={dims:?}, dtype={dtype}");
+        if debug_enabled {
+            for name in &["output.weight", "lm_head.weight"] {
+                if let Some((offset, size, dims, dtype)) = tensors.get(*name) {
+                    eprintln!("[DEBUG] Found lm_head {name}: offset={offset}, size={size}, dims={dims:?}, dtype={dtype}");
+                }
             }
         }
 
         // Load LM head
         // For tied embeddings (common in Qwen, LLaMA models), use embed_tokens as fallback
         let lm_head_raw = get_f32_tensor("lm_head.weight")
-            .or_else(|| get_f32_tensor("output.weight"))
-            .or_else(|| {
-                // Weight tying: use embedding weights for lm_head
+            .or_else(|| get_f32_tensor("output.weight"));
+        let (lm_head_raw, used_tied_weights) = if let Some(lm_head) = lm_head_raw {
+            (lm_head, false)
+        } else {
+            // Weight tying: use embedding weights for lm_head
+            let tied = get_f32_tensor("model.embed_tokens.weight")
+                .or_else(|| get_f32_tensor("token_embd.weight"));
+            if let Some(t) = tied {
+                (t, true)
+            } else {
+                (vec![0.0; hidden_dim * vocab_size], false)
+            }
+        };
+        if debug_enabled {
+            if used_tied_weights {
                 eprintln!("[DEBUG] Using tied weights: embedding -> lm_head");
-                get_f32_tensor("model.embed_tokens.weight")
-            })
-            .or_else(|| get_f32_tensor("token_embd.weight"))
-            .unwrap_or_else(|| {
+            }
+            if lm_head_raw.iter().all(|&x| x == 0.0) {
                 eprintln!("[DEBUG] WARNING: No lm_head tensor found! Using zeros.");
-                vec![0.0; hidden_dim * vocab_size]
-            });
-        eprintln!(
-            "[DEBUG] lm_head_raw: {} elements, first 5: {:?}",
-            lm_head_raw.len(),
-            &lm_head_raw[..5.min(lm_head_raw.len())]
-        );
+            }
+            eprintln!(
+                "[DEBUG] lm_head_raw: {} elements, first 5: {:?}",
+                lm_head_raw.len(),
+                &lm_head_raw[..5.min(lm_head_raw.len())]
+            );
+        }
         // PMAT-086 FIX: APR stores GGUF data in row-major [vocab_size, hidden_dim] layout
         // even though the dims metadata says [hidden_dim, vocab_size] (GGML column-major convention)
         // The data is already correct - DO NOT transpose!
@@ -512,10 +535,12 @@ impl AprTransformer {
             get_q4k_raw_bytes("lm_head.weight").or_else(|| get_q4k_raw_bytes("output.weight"));
         let lm_head_weight_q6k =
             get_q6k_raw_bytes("lm_head.weight").or_else(|| get_q6k_raw_bytes("output.weight"));
-        if lm_head_weight_q4k.is_some() {
-            eprintln!("[DEBUG] Loaded lm_head Q4K raw bytes for fused kernel");
-        } else if lm_head_weight_q6k.is_some() {
-            eprintln!("[DEBUG] Loaded lm_head Q6K raw bytes for fused kernel");
+        if debug_enabled {
+            if lm_head_weight_q4k.is_some() {
+                eprintln!("[DEBUG] Loaded lm_head Q4K raw bytes for fused kernel");
+            } else if lm_head_weight_q6k.is_some() {
+                eprintln!("[DEBUG] Loaded lm_head Q6K raw bytes for fused kernel");
+            }
         }
 
         // Compute KV dimension from config
@@ -675,7 +700,9 @@ impl AprTransformer {
 
         // PMAT-103 FIX: Store Q4K layer weights for fused kernel inference
         let q4k_layers = if has_any_q4k {
-            eprintln!("[DEBUG] Loaded Q4K raw bytes for fused kernel inference");
+            if debug_enabled {
+                eprintln!("[DEBUG] Loaded Q4K raw bytes for fused kernel inference");
+            }
             Some(q4k_layer_weights)
         } else {
             None
@@ -1020,6 +1047,9 @@ impl AprTransformer {
             });
         }
 
+        // NOISY-GUARD: Only print trace messages when REALIZE_TRACE is set
+        let trace_enabled = std::env::var("REALIZE_TRACE").is_ok();
+
         let hidden_dim = self.config.hidden_dim;
         let intermediate_dim = self.config.intermediate_dim;
 
@@ -1130,7 +1160,7 @@ impl AprTransformer {
             let mut attn_output = if let Some(q4k_bytes) =
                 q4k_layer.and_then(|q| q.attn_output_weight.as_ref())
             {
-                if layer_idx == 0 {
+                if trace_enabled && layer_idx == 0 {
                     eprintln!("[TRACE] Layer {layer_idx}: attn_output using Q4K fused kernel");
                 }
                 // Fused Q4K matmul: process each position separately
@@ -1145,7 +1175,7 @@ impl AprTransformer {
                 }
                 output
             } else {
-                if layer_idx == 0 {
+                if trace_enabled && layer_idx == 0 {
                     eprintln!("[TRACE] Layer {layer_idx}: attn_output using F32 fallback (slow!)");
                 }
                 self.matmul(&attn_out, &layer.attn_output_weight, hidden_dim, hidden_dim)
@@ -1179,7 +1209,7 @@ impl AprTransformer {
                 // PMAT-103: Check for Q4K gate weight
                 let gate =
                     if let Some(q4k_bytes) = q4k_layer.and_then(|q| q.ffn_gate_weight.as_ref()) {
-                        if layer_idx == 0 {
+                        if trace_enabled && layer_idx == 0 {
                             eprintln!("[TRACE] Layer {layer_idx}: ffn_gate using Q4K fused kernel");
                         }
                         let mut output = Vec::with_capacity(seq_len * intermediate_dim);
@@ -1207,7 +1237,7 @@ impl AprTransformer {
 
                 // PMAT-103: Check for Q4K up weight
                 let up = if let Some(q4k_bytes) = q4k_layer.and_then(|q| q.ffn_up_weight.as_ref()) {
-                    if layer_idx == 0 {
+                    if trace_enabled && layer_idx == 0 {
                         eprintln!("[TRACE] Layer {layer_idx}: ffn_up using Q4K fused kernel");
                     }
                     let mut output = Vec::with_capacity(seq_len * intermediate_dim);
@@ -1225,7 +1255,7 @@ impl AprTransformer {
                     }
                     output
                 } else {
-                    if layer_idx == 0 {
+                    if trace_enabled && layer_idx == 0 {
                         eprintln!("[TRACE] Layer {layer_idx}: ffn_up using F32 fallback (slow!)");
                     }
                     self.matmul(
@@ -1247,7 +1277,7 @@ impl AprTransformer {
                 let mut out = if let Some(q4k_bytes) =
                     q4k_layer.and_then(|q| q.ffn_down_weight.as_ref())
                 {
-                    if layer_idx == 0 {
+                    if trace_enabled && layer_idx == 0 {
                         eprintln!("[TRACE] Layer {layer_idx}: ffn_down using Q4K fused kernel");
                     }
                     let mut output = Vec::with_capacity(seq_len * hidden_dim);
@@ -1266,7 +1296,7 @@ impl AprTransformer {
                 } else if let Some(q6k_bytes) =
                     q4k_layer.and_then(|q| q.ffn_down_weight_q6k.as_ref())
                 {
-                    if layer_idx == 0 {
+                    if trace_enabled && layer_idx == 0 {
                         eprintln!("[TRACE] Layer {layer_idx}: ffn_down using Q6K fused kernel");
                     }
                     let mut output = Vec::with_capacity(seq_len * hidden_dim);
@@ -1283,7 +1313,7 @@ impl AprTransformer {
                     }
                     output
                 } else {
-                    if layer_idx == 0 {
+                    if trace_enabled && layer_idx == 0 {
                         eprintln!("[TRACE] Layer {layer_idx}: ffn_down using F32 fallback (slow!)");
                     }
                     self.matmul(
@@ -1440,6 +1470,8 @@ impl AprTransformer {
     ) -> Result<Vec<f32>> {
         // DEBUG: Force F32 fallback to verify data layout issues
         let force_f32 = std::env::var("APR_FORCE_F32").is_ok();
+        // NOISY-GUARD: Only print trace messages when REALIZE_TRACE is set
+        let trace_enabled = std::env::var("REALIZE_TRACE").is_ok();
 
         let hidden_dim = self.config.hidden_dim;
         let num_heads = self.config.num_heads;
@@ -1469,7 +1501,7 @@ impl AprTransformer {
             let (mut q, mut k, v) = if let Some(q4k) = q4k_layer {
                 // Try Q4K fused kernels for Q, K
                 let q = if let Some(ref q_bytes) = q4k.attn_q_weight {
-                    if layer_idx == 0 && position == 0 {
+                    if trace_enabled && layer_idx == 0 && position == 0 {
                         eprintln!("[TRACE-CACHE] Layer 0: Q projection using Q4K fused kernel");
                     }
                     matmul_q4k_rowmajor(q_bytes, &normed, hidden_dim, hidden_dim)
@@ -1480,7 +1512,7 @@ impl AprTransformer {
                 };
 
                 let k = if let Some(ref k_bytes) = q4k.attn_k_weight {
-                    if layer_idx == 0 && position == 0 {
+                    if trace_enabled && layer_idx == 0 && position == 0 {
                         eprintln!("[TRACE-CACHE] Layer 0: K projection using Q4K fused kernel");
                     }
                     matmul_q4k_rowmajor(k_bytes, &normed, kv_size, hidden_dim)
@@ -1492,12 +1524,12 @@ impl AprTransformer {
 
                 // V can be Q4K or Q6K
                 let v = if let Some(ref v_bytes) = q4k.attn_v_weight {
-                    if layer_idx == 0 && position == 0 {
+                    if trace_enabled && layer_idx == 0 && position == 0 {
                         eprintln!("[TRACE-CACHE] Layer 0: V projection using Q4K fused kernel");
                     }
                     matmul_q4k_rowmajor(v_bytes, &normed, kv_size, hidden_dim)
                 } else if let Some(ref v_bytes) = q4k.attn_v_weight_q6k {
-                    if layer_idx == 0 && position == 0 {
+                    if trace_enabled && layer_idx == 0 && position == 0 {
                         eprintln!("[TRACE-CACHE] Layer 0: V projection using Q6K fused kernel");
                     }
                     matmul_q6k_rowmajor(v_bytes, &normed, kv_size, hidden_dim)
@@ -1510,7 +1542,7 @@ impl AprTransformer {
                 (q, k, v)
             } else {
                 // Fallback: Combined QKV with F32 (legacy path)
-                if layer_idx == 0 && position == 0 {
+                if trace_enabled && layer_idx == 0 && position == 0 {
                     eprintln!("[TRACE-CACHE] Layer 0: QKV projection using F32 (not fused)");
                 }
                 let qkv_out_dim = layer.qkv_weight.len() / hidden_dim;
@@ -1612,18 +1644,18 @@ impl AprTransformer {
             // PMAT-103: Use Q4K fused kernel when available (single token path)
             let mut attn_output = if !force_f32 {
                 if let Some(q4k_bytes) = q4k_layer.and_then(|q| q.attn_output_weight.as_ref()) {
-                    if layer_idx == 0 && position == 0 {
+                    if trace_enabled && layer_idx == 0 && position == 0 {
                         eprintln!("[TRACE-CACHE] Layer 0: attn_output using Q4K fused kernel");
                     }
                     matmul_q4k_rowmajor(q4k_bytes, &attn_out, hidden_dim, hidden_dim)
                 } else {
-                    if layer_idx == 0 && position == 0 {
+                    if trace_enabled && layer_idx == 0 && position == 0 {
                         eprintln!("[TRACE-CACHE] Layer 0: attn_output using F32 fallback (slow!)");
                     }
                     self.matmul(&attn_out, &layer.attn_output_weight, hidden_dim, hidden_dim)
                 }
             } else {
-                if layer_idx == 0 && position == 0 {
+                if trace_enabled && layer_idx == 0 && position == 0 {
                     eprintln!("[TRACE-CACHE] Layer 0: attn_output using F32 (APR_FORCE_F32)");
                 }
                 self.matmul(&attn_out, &layer.attn_output_weight, hidden_dim, hidden_dim)
@@ -1657,12 +1689,12 @@ impl AprTransformer {
                 // PMAT-103: Check for Q4K gate weight
                 let gate = if !force_f32 {
                     if let Some(q4k_bytes) = q4k_layer.and_then(|q| q.ffn_gate_weight.as_ref()) {
-                        if layer_idx == 0 && position == 0 {
+                        if trace_enabled && layer_idx == 0 && position == 0 {
                             eprintln!("[TRACE-CACHE] Layer 0: ffn_gate using Q4K fused kernel");
                         }
                         matmul_q4k_rowmajor(q4k_bytes, &ffn_input, intermediate_dim, hidden_dim)
                     } else {
-                        if layer_idx == 0 && position == 0 {
+                        if trace_enabled && layer_idx == 0 && position == 0 {
                             eprintln!("[TRACE-CACHE] Layer 0: ffn_gate using F32 fallback (slow!)");
                         }
                         self.matmul(
@@ -1673,7 +1705,7 @@ impl AprTransformer {
                         )
                     }
                 } else {
-                    if layer_idx == 0 && position == 0 {
+                    if trace_enabled && layer_idx == 0 && position == 0 {
                         eprintln!("[TRACE-CACHE] Layer 0: ffn_gate using F32 (APR_FORCE_F32)");
                     }
                     self.matmul(
@@ -1687,19 +1719,19 @@ impl AprTransformer {
                 // PMAT-103: Check for Q4K/Q6K up weight
                 let up = if !force_f32 {
                     if let Some(q4k_bytes) = q4k_layer.and_then(|q| q.ffn_up_weight.as_ref()) {
-                        if layer_idx == 0 && position == 0 {
+                        if trace_enabled && layer_idx == 0 && position == 0 {
                             eprintln!("[TRACE-CACHE] Layer 0: ffn_up using Q4K fused kernel");
                         }
                         matmul_q4k_rowmajor(q4k_bytes, &ffn_input, intermediate_dim, hidden_dim)
                     } else if let Some(q6k_bytes) =
                         q4k_layer.and_then(|q| q.ffn_up_weight_q6k.as_ref())
                     {
-                        if layer_idx == 0 && position == 0 {
+                        if trace_enabled && layer_idx == 0 && position == 0 {
                             eprintln!("[TRACE-CACHE] Layer 0: ffn_up using Q6K fused kernel");
                         }
                         matmul_q6k_rowmajor(q6k_bytes, &ffn_input, intermediate_dim, hidden_dim)
                     } else {
-                        if layer_idx == 0 && position == 0 {
+                        if trace_enabled && layer_idx == 0 && position == 0 {
                             eprintln!("[TRACE-CACHE] Layer 0: ffn_up using F32 fallback (slow!)");
                         }
                         self.matmul(
@@ -1710,7 +1742,7 @@ impl AprTransformer {
                         )
                     }
                 } else {
-                    if layer_idx == 0 && position == 0 {
+                    if trace_enabled && layer_idx == 0 && position == 0 {
                         eprintln!("[TRACE-CACHE] Layer 0: ffn_up using F32 (APR_FORCE_F32)");
                     }
                     self.matmul(
@@ -1731,19 +1763,19 @@ impl AprTransformer {
                 // PMAT-103: Check for Q4K or Q6K down weight
                 let mut out = if !force_f32 {
                     if let Some(q4k_bytes) = q4k_layer.and_then(|q| q.ffn_down_weight.as_ref()) {
-                        if layer_idx == 0 && position == 0 {
+                        if trace_enabled && layer_idx == 0 && position == 0 {
                             eprintln!("[TRACE-CACHE] Layer 0: ffn_down using Q4K fused kernel");
                         }
                         matmul_q4k_rowmajor(q4k_bytes, &ffn_hidden, hidden_dim, intermediate_dim)
                     } else if let Some(q6k_bytes) =
                         q4k_layer.and_then(|q| q.ffn_down_weight_q6k.as_ref())
                     {
-                        if layer_idx == 0 && position == 0 {
+                        if trace_enabled && layer_idx == 0 && position == 0 {
                             eprintln!("[TRACE-CACHE] Layer 0: ffn_down using Q6K fused kernel");
                         }
                         matmul_q6k_rowmajor(q6k_bytes, &ffn_hidden, hidden_dim, intermediate_dim)
                     } else {
-                        if layer_idx == 0 && position == 0 {
+                        if trace_enabled && layer_idx == 0 && position == 0 {
                             eprintln!("[TRACE-CACHE] Layer 0: ffn_down using F32 fallback (slow!)");
                         }
                         self.matmul(
@@ -1754,7 +1786,7 @@ impl AprTransformer {
                         )
                     }
                 } else {
-                    if layer_idx == 0 && position == 0 {
+                    if trace_enabled && layer_idx == 0 && position == 0 {
                         eprintln!("[TRACE-CACHE] Layer 0: ffn_down using F32 (APR_FORCE_F32)");
                     }
                     self.matmul(
@@ -1810,12 +1842,14 @@ impl AprTransformer {
                 hidden[i] += ffn_output[i];
             }
         }
-        eprintln!(
-            "[TRACE-CACHE] pos={}: {} layers took {:?}",
-            position,
-            self.layers.len(),
-            layers_start.elapsed()
-        );
+        if trace_enabled {
+            eprintln!(
+                "[TRACE-CACHE] pos={}: {} layers took {:?}",
+                position,
+                self.layers.len(),
+                layers_start.elapsed()
+            );
+        }
 
         // 3. Final layer norm
         let normed = self.layer_norm(
@@ -1830,12 +1864,16 @@ impl AprTransformer {
         let lm_start = std::time::Instant::now();
         let mut logits = if !force_f32 {
             if let Some(ref q4k_bytes) = self.lm_head_weight_q4k {
-                eprintln!("[TRACE-CACHE] lm_head using Q4K fused kernel");
+                if trace_enabled {
+                    eprintln!("[TRACE-CACHE] lm_head using Q4K fused kernel");
+                }
                 matmul_q4k_rowmajor(q4k_bytes, &normed, self.config.vocab_size, hidden_dim)
             } else if let Some(ref q6k_bytes) = self.lm_head_weight_q6k {
                 let result =
                     matmul_q6k_rowmajor(q6k_bytes, &normed, self.config.vocab_size, hidden_dim);
-                eprintln!("[TRACE-CACHE] lm_head Q6K took {:?}", lm_start.elapsed());
+                if trace_enabled {
+                    eprintln!("[TRACE-CACHE] lm_head Q6K took {:?}", lm_start.elapsed());
+                }
                 result
             } else {
                 self.matmul(
@@ -1846,7 +1884,9 @@ impl AprTransformer {
                 )
             }
         } else {
-            eprintln!("[TRACE-CACHE] lm_head using F32 (APR_FORCE_F32)");
+            if trace_enabled {
+                eprintln!("[TRACE-CACHE] lm_head using F32 (APR_FORCE_F32)");
+            }
             self.matmul(
                 &normed,
                 &self.lm_head_weight,

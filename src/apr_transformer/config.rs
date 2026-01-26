@@ -169,6 +169,8 @@ pub struct GenerateConfig {
     pub top_k: usize,
     /// Repetition penalty (1.0 = no penalty)
     pub repetition_penalty: f32,
+    /// Enable trace output (default: false)
+    pub trace: bool,
 }
 
 impl Default for GenerateConfig {
@@ -179,6 +181,7 @@ impl Default for GenerateConfig {
             top_p: 0.9,
             top_k: 0,
             repetition_penalty: 1.0,
+            trace: false,
         }
     }
 }
