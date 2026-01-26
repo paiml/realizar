@@ -1277,6 +1277,24 @@ impl CudaExecutor {
         // SAFETY: Pointer valid from allocation, length verified, used within scope
         let normed_output = unsafe { GpuBuffer::<f32>::from_raw_parts(normed_ptr, normed_len) };
 
+        // GQA-DEBUG: Print hidden before output norm
+        static GPU_DEBUG_FLAG2: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let debug_enabled2 = *GPU_DEBUG_FLAG2.get_or_init(|| {
+            std::env::var("GPU_DEBUG")
+                .map(|v| v == "1")
+                .unwrap_or(false)
+        });
+        if debug_enabled2 {
+            self.stream.synchronize()?;
+            let mut hidden_check = vec![0.0f32; hidden_len.min(896)];
+            hidden_input.copy_to_host(&mut hidden_check)?;
+            let sum: f32 = hidden_check.iter().sum();
+            let sq_sum: f32 = hidden_check.iter().map(|x| x * x).sum();
+            let rms = (sq_sum / hidden_check.len() as f32).sqrt();
+            eprintln!("[GQA-DEBUG] Hidden before output_norm: first 5 = {:?}, sum={:.4}, rms={:.4}",
+                &hidden_check[..5.min(hidden_check.len())], sum, rms);
+        }
+
         self.rmsnorm_ptr_into(
             &hidden_input,
             output_gamma_ptr,
@@ -1285,6 +1303,19 @@ impl CudaExecutor {
             hidden_dim,
             epsilon,
         )?;
+
+        // GQA-DEBUG: Print normed hidden
+        if debug_enabled2 {
+            self.stream.synchronize()?;
+            let mut normed_check = vec![0.0f32; normed_len.min(896)];
+            normed_output.copy_to_host(&mut normed_check)?;
+            let sum: f32 = normed_check.iter().sum();
+            let sq_sum: f32 = normed_check.iter().map(|x| x * x).sum();
+            let rms = (sq_sum / normed_check.len() as f32).sqrt();
+            eprintln!("[GQA-DEBUG] Normed hidden: first 5 = {:?}, sum={:.4}, rms={:.4}",
+                &normed_check[..5.min(normed_check.len())], sum, rms);
+        }
+
         std::mem::forget(hidden_input);
         std::mem::forget(normed_output);
 
@@ -1416,6 +1447,19 @@ impl CudaExecutor {
 
             // Prevent Drop from freeing borrowed memory
             std::mem::forget(bias_buf);
+        }
+
+        // GQA-DEBUG: Print final logits and top token
+        if debug_enabled2 {
+            self.stream.synchronize()?;
+            let mut logits_check = vec![0.0f32; logits_len.min(100)];
+            logits_output.copy_to_host(&mut logits_check)?;
+            eprintln!("[GQA-DEBUG] Final logits: first 10 = {:?}", &logits_check[..10.min(logits_check.len())]);
+            // Find argmax
+            let mut full_logits = vec![0.0f32; logits_len];
+            logits_output.copy_to_host(&mut full_logits)?;
+            let argmax = full_logits.iter().enumerate().max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal)).map(|(i, _)| i).unwrap_or(0);
+            eprintln!("[GQA-DEBUG] Argmax token = {}, logit = {:.4}", argmax, full_logits[argmax]);
         }
 
         std::mem::forget(normed_input);

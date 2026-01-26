@@ -398,3 +398,7 @@ mod generate_tests;
 #[cfg(test)]
 #[path = "tests_part_02.rs"]
 mod generate_tests_part_02;
+
+// Algorithm-specific tests
+#[cfg(test)]
+mod algorithms_tests;

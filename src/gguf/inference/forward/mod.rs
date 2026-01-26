@@ -8,3 +8,10 @@
 mod batch;
 mod core;
 mod single;
+
+#[cfg(test)]
+mod batch_tests;
+#[cfg(test)]
+mod core_tests;
+#[cfg(test)]
+mod single_tests;

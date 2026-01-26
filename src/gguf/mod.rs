@@ -93,3 +93,9 @@ pub use inference::{
 // Tests module - shattered from monolith into focused part files
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod quantized_tests;
+#[cfg(test)]
+mod inference_types_tests;
+#[cfg(test)]
+mod format_factory_tests;

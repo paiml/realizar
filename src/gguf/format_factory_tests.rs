@@ -47,7 +47,7 @@ fn test_safetensors_default_eq_new() {
 #[test]
 fn test_safetensors_add_f16_tensor() {
     // Create F16 data (2 bytes per element)
-    let f16_data: Vec<u8> = vec![0x00, 0x3C; 32]; // 16 F16 values
+    let f16_data: Vec<u8> = [0x00, 0x3C].repeat(16); // 16 F16 values
 
     let data = SafetensorsBuilder::new()
         .add_f16_tensor("test.f16_weight", &[4, 4], &f16_data)
@@ -82,8 +82,8 @@ fn test_safetensors_f16_tensor_data_integrity() {
 
 #[test]
 fn test_safetensors_multiple_f16_tensors() {
-    let f16_data1: Vec<u8> = vec![0x00, 0x3C; 16];
-    let f16_data2: Vec<u8> = vec![0x00, 0x40; 32];
+    let f16_data1: Vec<u8> = [0x00, 0x3C].repeat(8);
+    let f16_data2: Vec<u8> = [0x00, 0x40].repeat(16);
 
     let data = SafetensorsBuilder::new()
         .add_f16_tensor("layer.0.weight", &[4, 2], &f16_data1)
@@ -106,7 +106,7 @@ fn test_safetensors_multiple_f16_tensors() {
 #[test]
 fn test_safetensors_add_bf16_tensor() {
     // Create BF16 data (2 bytes per element)
-    let bf16_data: Vec<u8> = vec![0x00, 0x3F; 32]; // 16 BF16 values (1.0 in BF16)
+    let bf16_data: Vec<u8> = [0x00, 0x3F].repeat(16); // 16 BF16 values (1.0 in BF16)
 
     let data = SafetensorsBuilder::new()
         .add_bf16_tensor("test.bf16_weight", &[4, 4], &bf16_data)
@@ -142,8 +142,8 @@ fn test_safetensors_bf16_tensor_data_integrity() {
 fn test_safetensors_mixed_dtypes() {
     // Test all three dtypes in one file
     let f32_data = vec![1.0f32; 8];
-    let f16_data: Vec<u8> = vec![0x00, 0x3C; 16];
-    let bf16_data: Vec<u8> = vec![0x00, 0x3F; 16];
+    let f16_data: Vec<u8> = [0x00, 0x3C].repeat(8);
+    let bf16_data: Vec<u8> = [0x00, 0x3F].repeat(8);
 
     let data = SafetensorsBuilder::new()
         .add_f32_tensor("weight.f32", &[2, 4], &f32_data)

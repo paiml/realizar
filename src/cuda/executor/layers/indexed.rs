@@ -504,6 +504,11 @@ impl CudaExecutor {
                 }
             },
         }
+        // GQA-DEBUG: Print K qtype for debugging
+        if !skip_debug && layer_idx == 0 {
+            eprintln!("[GQA-DEBUG-GPU-L0] K qtype = {:?}, ptr = {:#x}, len = {}",
+                layer_weights.attn_k_qtype, layer_weights.attn_k_ptr, layer_weights.attn_k_len);
+        }
         match layer_weights.attn_k_qtype {
             WeightQuantType::Q5_0 => {
                 self.q5_0_gemv_into(
@@ -670,6 +675,31 @@ impl CudaExecutor {
             }
         }
         if layer_weights.attn_k_bias_len > 0 {
+            // GQA-DEBUG: Print K values BEFORE bias to isolate issue
+            if !skip_debug && layer_idx == 0 {
+                self.stream.synchronize()?;
+                let mut k_pre = vec![0.0f32; k_buf.len()];
+                k_buf.copy_to_host(&mut k_pre)?;
+                eprintln!(
+                    "[GQA-DEBUG-L0] K BEFORE bias: first 5 = {:?}",
+                    &k_pre[..5.min(k_pre.len())]
+                );
+                // Also print the bias values
+                let k_bias_buf_check = unsafe {
+                    GpuBuffer::<f32>::from_raw_parts(
+                        layer_weights.attn_k_bias_ptr,
+                        layer_weights.attn_k_bias_len,
+                    )
+                };
+                let mut k_bias_vals = vec![0.0f32; k_bias_buf_check.len()];
+                k_bias_buf_check.copy_to_host(&mut k_bias_vals)?;
+                eprintln!(
+                    "[GQA-DEBUG-L0] K bias values: first 5 = {:?}",
+                    &k_bias_vals[..5.min(k_bias_vals.len())]
+                );
+                std::mem::forget(k_bias_buf_check);
+            }
+
             // SAFETY: Pointer and length from layer_weights validated at model load time
             let k_bias_buf = unsafe {
                 GpuBuffer::<f32>::from_raw_parts(

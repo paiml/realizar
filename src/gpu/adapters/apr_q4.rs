@@ -639,7 +639,7 @@ impl GpuModelQ4 {
     }
 
     /// RMSNorm in place
-    fn rms_norm_inplace(&self, x: &mut [f32], weight: &[f32]) {
+    pub(crate) fn rms_norm_inplace(&self, x: &mut [f32], weight: &[f32]) {
         let eps = self.config.eps;
         let n = x.len();
 
@@ -663,7 +663,7 @@ impl GpuModelQ4 {
     /// * `hidden_dim` - Q dimension
     /// * `num_heads` - Number of Q heads
     /// * `num_kv_heads` - Number of KV heads (for GQA)
-    fn apply_rope_to_qkv(
+    pub(crate) fn apply_rope_to_qkv(
         &self,
         qkv: &mut [f32],
         seq_len: usize,
@@ -702,7 +702,7 @@ impl GpuModelQ4 {
     }
 
     /// Apply RoPE to a single Q or K tensor at given position
-    fn apply_rope_inplace(
+    pub(crate) fn apply_rope_inplace(
         &self,
         x: &mut [f32],
         position: usize,
@@ -737,7 +737,7 @@ impl GpuModelQ4 {
     }
 
     /// Simple attention (CPU, single-token)
-    fn attention_cpu(
+    pub(crate) fn attention_cpu(
         &self,
         qkv: &[f32],
         seq_len: usize,
@@ -778,13 +778,13 @@ impl GpuModelQ4 {
 
 /// SiLU activation: x * sigmoid(x)
 #[inline]
-fn silu(x: f32) -> f32 {
+pub(crate) fn silu(x: f32) -> f32 {
     x / (1.0 + (-x).exp())
 }
 
 /// GELU activation (tanh approximation)
 #[inline]
-fn gelu(x: f32) -> f32 {
+pub(crate) fn gelu(x: f32) -> f32 {
     0.5 * x * (1.0 + ((2.0 / std::f32::consts::PI).sqrt() * (x + 0.044715 * x.powi(3))).tanh())
 }
 

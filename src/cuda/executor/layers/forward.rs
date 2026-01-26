@@ -779,6 +779,24 @@ impl CudaExecutor {
                     vocab_size,
                     hidden_dim,
                 )?;
+                // GQA-DEBUG: Q8_0 logits output
+                if *HIDDEN_DEBUG.get_or_init(|| {
+                    std::env::var("GPU_DEBUG")
+                        .map(|v| v == "1")
+                        .unwrap_or(false)
+                }) {
+                    self.stream.synchronize()?;
+                    let mut all_logits = vec![0.0f32; vocab_size as usize];
+                    logits_gpu.copy_to_host(&mut all_logits)?;
+                    eprintln!("[GQA-DEBUG] Q8_0 LM head logits[0..20]: {:?}", &all_logits[..20]);
+                    // Find global argmax
+                    let (argmax_idx, argmax_val) = all_logits.iter().enumerate()
+                        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                        .map(|(i, v)| (i, *v)).expect("empty logits");
+                    eprintln!("[GQA-DEBUG] Q8_0 argmax: idx={}, val={:.4}", argmax_idx, argmax_val);
+                    // Digit logits (check indices for Qwen tokenizer)
+                    eprintln!("[GQA-DEBUG] Token 19='4' logit = {:.4}", all_logits.get(19).unwrap_or(&0.0));
+                }
             },
             WeightQuantType::Q5_0 => {
                 self.q5_0_gemv_into(
