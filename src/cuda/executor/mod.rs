@@ -64,6 +64,12 @@ mod tests;
 #[cfg(test)]
 mod proptests;
 
+#[cfg(test)]
+mod gqa_parity_tests;
+
+#[cfg(test)]
+mod test_fixtures;
+
 /// Check if verbose mode is enabled (REALIZAR_VERBOSE=1)
 /// Default is quiet - only errors are printed
 fn verbose() -> bool {
