@@ -1887,4 +1887,407 @@ mod tests {
         let id = generate_trace_id();
         assert!(id.chars().all(|c| c.is_ascii_hexdigit()));
     }
+
+    // =========================================================================
+    // Additional Coverage Tests - Edge Cases
+    // =========================================================================
+
+    #[test]
+    fn test_metric_line_protocol_no_labels() {
+        let metric = MetricPoint::new("simple_metric", 100.0);
+        let line = metric.to_line_protocol();
+
+        // Should not contain commas (no labels)
+        assert!(line.starts_with("simple_metric value=100"));
+        // Verify no extra comma before "value"
+        assert!(!line.contains(",value"));
+    }
+
+    #[test]
+    fn test_span_with_parent() {
+        let span = Span::new("child-op", "trace-abc")
+            .with_parent("parent-span-123");
+
+        assert_eq!(span.parent_id, Some("parent-span-123".to_string()));
+    }
+
+    #[test]
+    fn test_span_duration() {
+        let mut span = Span::new("test", "trace");
+
+        // Before ending, duration should be None
+        assert!(span.duration().is_none());
+
+        std::thread::sleep(Duration::from_millis(5));
+        span.end_ok();
+
+        // After ending, duration should be Some
+        let dur = span.duration().expect("should have duration");
+        assert!(dur >= Duration::from_millis(5));
+    }
+
+    #[test]
+    fn test_span_to_otel_in_progress() {
+        let span = Span::new("in-progress-op", "trace123456789012345678901234");
+        // Don't end the span - leave it in progress
+
+        let otel = span.to_otel();
+
+        assert_eq!(otel.status.code, OtelStatusCode::Unset);
+        assert!(otel.status.message.is_none());
+    }
+
+    #[test]
+    fn test_span_to_otel_client_kind() {
+        let mut span = Span::new("client-op", "trace123456789012345678901234")
+            .with_kind(SpanKind::Client);
+        span.end_ok();
+
+        let otel = span.to_otel();
+        assert_eq!(otel.kind, SpanKind::Client);
+    }
+
+    #[test]
+    fn test_span_to_otel_producer_kind() {
+        let mut span = Span::new("producer-op", "trace123456789012345678901234")
+            .with_kind(SpanKind::Producer);
+        span.end_ok();
+
+        let otel = span.to_otel();
+        assert_eq!(otel.kind, SpanKind::Producer);
+    }
+
+    #[test]
+    fn test_span_to_otel_consumer_kind() {
+        let mut span = Span::new("consumer-op", "trace123456789012345678901234")
+            .with_kind(SpanKind::Consumer);
+        span.end_ok();
+
+        let otel = span.to_otel();
+        assert_eq!(otel.kind, SpanKind::Consumer);
+    }
+
+    #[test]
+    fn test_span_to_otel_unknown_kind() {
+        // Test with an unknown kind string in attributes
+        let mut span = Span::new("test-op", "trace123456789012345678901234");
+        span.attributes.insert("span.kind".to_string(), "Unknown".to_string());
+        span.end_ok();
+
+        let otel = span.to_otel();
+        assert_eq!(otel.kind, SpanKind::Internal); // Falls back to Internal
+    }
+
+    #[test]
+    fn test_variant_result_zero_requests() {
+        let result = VariantResult::default();
+
+        assert_eq!(result.requests, 0);
+        assert!((result.success_rate() - 0.0).abs() < 0.001);
+        assert!((result.avg_latency_ms() - 0.0).abs() < 0.001);
+        assert!((result.tokens_per_request() - 0.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_ab_test_select_inactive() {
+        let mut test = ABTest::new("inactive-test")
+            .with_variant("a", "model-a", 0.5)
+            .with_variant("b", "model-b", 0.5);
+        test.active = false;
+
+        assert!(test.select("user-123").is_none());
+    }
+
+    #[test]
+    fn test_ab_test_select_empty_variants() {
+        let test = ABTest::new("empty-test");
+
+        assert!(test.select("user-123").is_none());
+    }
+
+    #[test]
+    fn test_ab_test_select_zero_weight() {
+        let test = ABTest::new("zero-weight-test")
+            .with_variant("a", "model-a", 0.0)
+            .with_variant("b", "model-b", 0.0);
+
+        // With zero total weight, should return first variant
+        let variant = test.select("user-123");
+        assert!(variant.is_some());
+        assert_eq!(variant.unwrap().name, "a");
+    }
+
+    #[test]
+    fn test_ab_test_is_valid_empty() {
+        let test = ABTest::new("empty-test");
+        assert!(!test.is_valid());
+    }
+
+    #[test]
+    fn test_ab_test_weight_clamping() {
+        let test = ABTest::new("clamped-test")
+            .with_variant("a", "model-a", 1.5)  // Should clamp to 1.0
+            .with_variant("b", "model-b", -0.5); // Should clamp to 0.0
+
+        assert!((test.variants[0].weight - 1.0).abs() < 0.001);
+        assert!((test.variants[1].weight - 0.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_observer_ab_testing_disabled() {
+        let config = ObservabilityConfig {
+            ab_testing_enabled: false,
+            ..ObservabilityConfig::new()
+        };
+        let observer = Observer::new(config);
+
+        observer.record_ab_result("test", "control", true, 50, 100);
+
+        // Results should not be recorded
+        assert!(observer.get_ab_results("test").is_none());
+    }
+
+    #[test]
+    fn test_observability_config_flush_interval() {
+        let config = ObservabilityConfig::new()
+            .with_flush_interval(120);
+
+        assert_eq!(config.flush_interval_secs, 120);
+    }
+
+    #[test]
+    fn test_observability_config_sample_rate_clamping() {
+        let config_high = ObservabilityConfig::new().with_sample_rate(2.0);
+        assert!((config_high.trace_sample_rate - 1.0).abs() < 0.001);
+
+        let config_low = ObservabilityConfig::new().with_sample_rate(-0.5);
+        assert!((config_low.trace_sample_rate - 0.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_latency_histogram_overflow_bucket() {
+        let mut hist = LatencyHistogram::new();
+        // Add a value larger than all buckets (60s = 60_000_000 us)
+        hist.observe(100_000_000); // 100s - definitely in overflow
+
+        assert_eq!(hist.count(), 1);
+        assert_eq!(hist.max_val(), Some(100_000_000));
+
+        // p100 should return max value (overflow bucket)
+        let p100 = hist.percentile(100.0);
+        assert_eq!(p100, Some(100_000_000));
+    }
+
+    #[test]
+    fn test_latency_histogram_default() {
+        let hist = LatencyHistogram::default();
+        assert_eq!(hist.count(), 0);
+    }
+
+    #[test]
+    fn test_latency_histogram_with_buckets_unsorted() {
+        // Buckets should be sorted internally
+        let buckets = vec![1000, 100, 500, 200];
+        let mut hist = LatencyHistogram::with_buckets(buckets);
+
+        hist.observe(150);
+        hist.observe(350);
+
+        assert_eq!(hist.count(), 2);
+    }
+
+    #[test]
+    fn test_observer_prometheus_multiple_metrics_same_name() {
+        let observer = Observer::default_observer();
+
+        observer.record_metric(
+            MetricPoint::new("request_count", 10.0).with_label("endpoint", "/api/v1")
+        );
+        observer.record_metric(
+            MetricPoint::new("request_count", 20.0).with_label("endpoint", "/api/v2")
+        );
+
+        let prom = observer.prometheus_metrics();
+
+        // Should have TYPE header
+        assert!(prom.contains("# TYPE request_count gauge"));
+        // Should have both metrics
+        assert!(prom.contains("endpoint=\"/api/v1\""));
+        assert!(prom.contains("endpoint=\"/api/v2\""));
+    }
+
+    #[test]
+    fn test_observer_prometheus_no_labels() {
+        let observer = Observer::default_observer();
+        observer.record_metric(MetricPoint::new("simple_count", 5.0));
+
+        let prom = observer.prometheus_metrics();
+
+        assert!(prom.contains("simple_count 5"));
+    }
+
+    #[test]
+    fn test_trace_context_from_traceparent_invalid_hex_flags() {
+        // Invalid hex in flags field
+        let header = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-GG";
+        assert!(TraceContext::from_traceparent(header).is_none());
+    }
+
+    #[test]
+    fn test_trace_context_from_traceparent_wrong_trace_id_length() {
+        // trace_id too short (only 16 chars instead of 32)
+        let header = "00-0af7651916cd43dd-b7ad6b7169203331-01";
+        assert!(TraceContext::from_traceparent(header).is_none());
+    }
+
+    #[test]
+    fn test_trace_context_from_traceparent_wrong_span_id_length() {
+        // span_id too short (only 8 chars instead of 16)
+        let header = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b71-01";
+        assert!(TraceContext::from_traceparent(header).is_none());
+    }
+
+    #[test]
+    fn test_otel_span_serialization() {
+        let mut span = Span::new("test-op", "0af7651916cd43dd8448eb211c80319c")
+            .with_attribute("key", "value");
+        span.end_ok();
+
+        let otel = span.to_otel();
+
+        // Should be serializable to JSON
+        let json = serde_json::to_string(&otel).expect("should serialize");
+        assert!(json.contains("traceId"));
+        assert!(json.contains("spanId"));
+        assert!(json.contains("operationName"));
+    }
+
+    #[test]
+    fn test_ab_test_result_default() {
+        let result = ABTestResult::default();
+        assert!(result.test_name.is_empty());
+        assert!(result.variants.is_empty());
+    }
+
+    #[test]
+    fn test_metric_point_with_multiple_labels() {
+        let metric = MetricPoint::new("multi_label", 42.0)
+            .with_label("region", "us-east")
+            .with_label("env", "prod")
+            .with_label("version", "1.0");
+
+        let line = metric.to_line_protocol();
+
+        assert!(line.contains("region=us-east"));
+        assert!(line.contains("env=prod"));
+        assert!(line.contains("version=1.0"));
+    }
+
+    #[test]
+    fn test_observer_flush_metrics_clears_buffer() {
+        let observer = Observer::default_observer();
+
+        observer.record_metric(MetricPoint::new("test", 1.0));
+        let first_flush = observer.flush_metrics();
+        assert_eq!(first_flush.len(), 1);
+
+        // Second flush should return empty
+        let second_flush = observer.flush_metrics();
+        assert!(second_flush.is_empty());
+    }
+
+    #[test]
+    fn test_observer_flush_spans_clears_buffer() {
+        let observer = Observer::default_observer();
+
+        let mut span = observer.start_trace("test-op");
+        span.end_ok();
+        observer.record_span(span);
+
+        let first_flush = observer.flush_spans();
+        assert_eq!(first_flush.len(), 1);
+
+        // Second flush should return empty
+        let second_flush = observer.flush_spans();
+        assert!(second_flush.is_empty());
+    }
+
+    #[test]
+    fn test_ab_test_select_last_variant() {
+        // Test that selection can hit the last variant
+        let test = ABTest::new("test")
+            .with_variant("a", "model-a", 0.1)
+            .with_variant("b", "model-b", 0.9);
+
+        // With many users, we should hit both variants
+        let mut hit_b = false;
+        for i in 0..100 {
+            let user_id = format!("user-{i}");
+            if let Some(variant) = test.select(&user_id) {
+                if variant.name == "b" {
+                    hit_b = true;
+                    break;
+                }
+            }
+        }
+        assert!(hit_b, "Should hit variant b with 90% weight");
+    }
+
+    #[test]
+    fn test_latency_histogram_single_value_percentiles() {
+        let mut hist = LatencyHistogram::new();
+        hist.observe(5000); // 5ms
+
+        // All percentiles should return the same bucket
+        assert!(hist.p50().is_some());
+        assert!(hist.p95().is_some());
+        assert!(hist.p99().is_some());
+    }
+
+    #[test]
+    fn test_span_with_attribute_chain() {
+        let span = Span::new("test", "trace")
+            .with_attribute("a", "1")
+            .with_attribute("b", "2")
+            .with_attribute("c", "3");
+
+        assert_eq!(span.attributes.len(), 3);
+        assert_eq!(span.attributes.get("a"), Some(&"1".to_string()));
+        assert_eq!(span.attributes.get("b"), Some(&"2".to_string()));
+        assert_eq!(span.attributes.get("c"), Some(&"3".to_string()));
+    }
+
+    #[test]
+    fn test_trace_context_set_sampled_preserves_other_flags() {
+        let mut ctx = TraceContext {
+            trace_id: "test".to_string(),
+            parent_span_id: None,
+            trace_flags: 0xFF, // All flags set
+            trace_state: None,
+        };
+
+        // Setting sampled to false should only clear bit 0
+        ctx.set_sampled(false);
+        assert_eq!(ctx.trace_flags, 0xFE);
+
+        // Setting sampled to true should only set bit 0
+        ctx.set_sampled(true);
+        assert_eq!(ctx.trace_flags, 0xFF);
+    }
+
+    #[test]
+    fn test_simple_hash_empty_string() {
+        let hash = simple_hash("");
+        // Should not panic and should return a consistent value
+        let hash2 = simple_hash("");
+        assert_eq!(hash, hash2);
+    }
+
+    #[test]
+    fn test_generate_id_format() {
+        let id = generate_id();
+        // Should be 16 hex characters
+        assert_eq!(id.len(), 16);
+        assert!(id.chars().all(|c| c.is_ascii_hexdigit()));
+    }
 }

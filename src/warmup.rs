@@ -915,6 +915,89 @@ mod tests {
     }
 
     // ========================================================================
+    // Additional Coverage Tests
+    // ========================================================================
+
+    #[test]
+    fn test_warmup_config_with_gc_after_warmup() {
+        // Test gc_after_warmup setter - this was not covered
+        let config = WarmupConfig::new().with_gc_after_warmup(false);
+        assert!(!config.gc_after_warmup);
+
+        let config2 = WarmupConfig::new().with_gc_after_warmup(true);
+        assert!(config2.gc_after_warmup);
+    }
+
+    #[test]
+    fn test_warmup_executor_check_timeout_not_exceeded() {
+        // Test check_timeout when timeout is NOT exceeded (returns None)
+        let config = WarmupConfig::new().with_timeout(Duration::from_secs(60));
+        let executor = WarmupExecutor::new(config);
+
+        let start = Instant::now();
+        // Don't sleep - check immediately, timeout should not be exceeded
+        let result = executor.check_timeout(start, 5);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_warmup_executor_simulate_many_iterations() {
+        // Test simulate_warmup with many iterations to trigger jitter.min(50) branch
+        // When i > 5, jitter = i * 10 > 50, so jitter.min(50) kicks in
+        let config = WarmupConfig::new().with_warmup_iterations(10);
+        let executor = WarmupExecutor::new(config);
+
+        let result = executor.simulate_warmup();
+
+        assert_eq!(result.status, WarmupStatus::Ready);
+        assert_eq!(result.iterations_completed, 10);
+        // Verify latencies are all positive (jitter clamping works correctly)
+        assert!(result.first_latency > Duration::ZERO);
+        assert!(result.last_latency > Duration::ZERO);
+        // Average should be calculated correctly with 10 samples
+        assert!(result.avg_latency > Duration::ZERO);
+    }
+
+    #[test]
+    fn test_model_health_default_trait() {
+        // Test Default trait implementation for ModelHealth
+        let health = ModelHealth::default();
+        assert!(!health.is_ready());
+        assert_eq!(health.status(), WarmupStatus::NotStarted);
+    }
+
+    #[test]
+    fn test_model_health_uptime() {
+        // Test uptime calculation
+        let health = ModelHealth::new();
+        std::thread::sleep(Duration::from_millis(5));
+        let uptime = health.uptime();
+        assert!(uptime >= Duration::from_millis(5));
+    }
+
+    #[test]
+    fn test_warmup_result_single_latency() {
+        // Test with exactly one latency value
+        let latencies = vec![Duration::from_millis(50)];
+        let result = WarmupResult::success(1, Duration::from_millis(50), &latencies);
+
+        assert_eq!(result.first_latency, Duration::from_millis(50));
+        assert_eq!(result.last_latency, Duration::from_millis(50));
+        // Speedup factor should be 1.0 when first == last
+        assert!((result.speedup_factor - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_warmup_result_zero_last_latency() {
+        // Edge case: last latency is zero (should return speedup = 1.0)
+        let latencies = vec![Duration::from_millis(100), Duration::ZERO];
+        let result = WarmupResult::success(2, Duration::from_millis(100), &latencies);
+
+        // When last is zero, speedup should be 1.0 (not infinity/NaN)
+        assert!((result.speedup_factor - 1.0).abs() < f64::EPSILON);
+    }
+
+    // ========================================================================
     // Serialization Tests
     // ========================================================================
 
