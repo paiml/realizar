@@ -212,6 +212,42 @@ pub(crate) fn simple_attention(
     output
 }
 
+/// PMAT-110: Apply RoPE rotation using NORM style (adjacent pairs)
+/// This is the standard RoPE used by most models (rope_type == 0)
+/// Pairs elements (2*i, 2*i+1) for rotation
+pub(crate) fn apply_rope_norm(
+    x: &mut [f32],
+    num_heads: usize,
+    head_dim: usize,
+    position: usize,
+    theta: f32,
+) {
+    let half_dim = head_dim / 2;
+
+    for h in 0..num_heads {
+        let head_offset = h * head_dim;
+
+        for i in 0..half_dim {
+            let freq = 1.0 / theta.powf(2.0 * i as f32 / head_dim as f32);
+            let angle = position as f32 * freq;
+            let cos_val = angle.cos();
+            let sin_val = angle.sin();
+
+            // NORM style: adjacent pairs (2*i, 2*i+1)
+            let idx0 = head_offset + 2 * i;
+            let idx1 = head_offset + 2 * i + 1;
+
+            if idx1 < x.len() {
+                let x0 = x[idx0];
+                let x1 = x[idx1];
+
+                x[idx0] = x0 * cos_val - x1 * sin_val;
+                x[idx1] = x0 * sin_val + x1 * cos_val;
+            }
+        }
+    }
+}
+
 /// Check if a file is a valid .apr v2 file
 pub fn is_apr_file<P: AsRef<Path>>(path: P) -> bool {
     fs::read(path.as_ref()).is_ok_and(|data| data.len() >= 4 && data[0..4] == MAGIC)
