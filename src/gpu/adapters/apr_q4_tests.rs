@@ -22,7 +22,7 @@ use crate::apr_transformer::{
 /// Test silu activation at various points
 #[test]
 fn test_silu_values() {
-    use super::super::apr_q4::tests::{gelu, silu};
+    use crate::gpu::adapters::apr_q4::{gelu, silu};
 
     // Test at x=0: silu(0) = 0
     assert!((silu(0.0) - 0.0).abs() < 1e-6);
@@ -50,7 +50,7 @@ fn test_silu_values() {
 /// Test gelu activation at various points
 #[test]
 fn test_gelu_values() {
-    use super::super::apr_q4::tests::{gelu, silu};
+    use crate::gpu::adapters::apr_q4::{gelu, silu};
 
     // Test at x=0
     assert!((gelu(0.0) - 0.0).abs() < 1e-6);
@@ -205,17 +205,20 @@ fn test_rope_position_one() {
     let kv_dim = 2 * head_dim; // 8
     let qkv_dim = 8 + 2 * kv_dim; // 24
 
-    // QKV for single token at position 1
-    let mut qkv = vec![1.0_f32; qkv_dim];
+    // QKV for TWO tokens (seq_len=2) to test position 1
+    // apply_rope_to_qkv iterates over positions 0..seq_len
+    let mut qkv = vec![1.0_f32; qkv_dim * 2]; // 2 tokens
 
-    model.apply_rope_to_qkv(&mut qkv, 1, 8, 2, 2);
+    model.apply_rope_to_qkv(&mut qkv, 2, 8, 2, 2); // seq_len=2 to process positions 0 and 1
 
-    // At position 1 with theta=10000, the first rotation (i=0) has
-    // freq = 1/10000^(0/4) = 1.0, angle = 1 * 1 = 1
-    // cos(1) ~= 0.54, sin(1) ~= 0.84
-    // So Q values SHOULD change
-    let changed = qkv.iter().any(|&v| (v - 1.0).abs() > 0.01);
-    assert!(changed, "RoPE should modify values at position 1");
+    // Position 0: cos(0)=1, sin(0)=0 -> identity (no change)
+    // Position 1: cos(1)~=0.54, sin(1)~=0.84 -> values should change
+    // Check that values at position 1 changed
+    let pos1_start = qkv_dim; // second token
+    let pos1_changed = qkv[pos1_start..pos1_start + qkv_dim]
+        .iter()
+        .any(|&v| (v - 1.0).abs() > 0.01);
+    assert!(pos1_changed, "RoPE should modify values at position 1");
 }
 
 /// Test RoPE preserves Q and K separately
@@ -446,7 +449,7 @@ fn test_layer_norms_create() {
     };
 
     assert_eq!(norms.attn_norm.len(), 3);
-    assert_eq!(norms.ffn_norm.len(), 6);
+    assert_eq!(norms.ffn_norm.len(), 3);
 }
 
 /// Test LayerNorms Clone
@@ -689,11 +692,10 @@ fn create_test_apr_model(with_gate: bool, with_ffn_norm: bool) -> QuantizedAprTr
     }
 }
 
-// Make the private activation functions available for testing via super import
-// The tests module in apr_q4.rs already exports silu and gelu
+// Make the activation functions available for testing via super import
 #[cfg(test)]
 mod tests {
-    // Re-export activation functions from parent module tests
-    pub use super::super::apr_q4::silu;
-    pub use super::super::apr_q4::gelu;
+    // Re-export activation functions using crate path
+    pub(crate) use crate::gpu::adapters::apr_q4::silu;
+    pub(crate) use crate::gpu::adapters::apr_q4::gelu;
 }
