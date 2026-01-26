@@ -717,3 +717,8 @@ mod infer_tests;
 #[cfg(test)]
 #[path = "tests_part_02.rs"]
 mod infer_tests_part_02;
+
+// Additional coverage tests (tests_part_03.rs)
+#[cfg(test)]
+#[path = "tests_part_03.rs"]
+mod infer_tests_part_03;

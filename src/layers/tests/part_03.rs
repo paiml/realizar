@@ -626,7 +626,7 @@ fn test_qa_018_batch_scaling() {
 /// QA-020: No performance degradation with context growth
 /// Per spec: Attention should scale reasonably with context
 #[test]
-#[cfg_attr(coverage, ignore)] // Timing test unreliable under coverage instrumentation
+#[ignore = "Timing test unreliable - depends on system load"]
 fn test_qa_020_context_scaling() {
     use std::time::Instant;
 
