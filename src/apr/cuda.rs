@@ -169,6 +169,12 @@ impl AprV2ModelCuda {
         crate::cuda::CudaExecutor::num_devices()
     }
 
+    /// Get reference to the inner APR model (PMAT-APR-CUDA-001)
+    #[must_use]
+    pub fn model(&self) -> &AprV2Model {
+        &self.model
+    }
+
     /// Phase 45: Inject a test executor for dependency injection.
     ///
     /// When present, GEMM operations are routed through the test executor
@@ -293,7 +299,7 @@ impl AprV2ModelCuda {
         } else {
             0
         };
-        let _kv_dim = num_kv_heads * head_dim;
+        let kv_dim = num_kv_heads * head_dim;
 
         if hidden_dim == 0 || num_layers == 0 {
             return Ok(()); // Non-transformer model, nothing to cache
@@ -304,30 +310,41 @@ impl AprV2ModelCuda {
 
         // Helper to upload a weight tensor (quantized or F32)
         // Uses GGUF-style cache names for compatibility with build_indexed_weights()
+        // PMAT-113: Now caches F32 weights for GPU GEMM (was causing APR CUDA hang)
         let upload_weight = |executor: &mut crate::cuda::CudaExecutor,
                              model: &AprV2Model,
                              src_name: &str,
                              cache_name: &str|
-         -> usize {
+         -> (usize, bool) {
+            // Returns (bytes_uploaded, is_quantized)
             if let Some(entry) = model.get_tensor(src_name) {
                 if let Some(qtype) = dtype_to_ggml_qtype(&entry.dtype) {
                     // Quantized: upload raw bytes to quantized_weight_cache
                     if let Ok(bytes) = model.get_tensor_bytes(src_name) {
-                        executor
+                        let size = executor
                             .load_quantized_weights_with_type(cache_name, bytes, qtype)
-                            .unwrap_or(0)
+                            .unwrap_or(0);
+                        (size, true)
                     } else {
-                        0
+                        (0, false)
                     }
                 } else {
-                    // F32/F16: dequantize and upload to weight_cache (legacy path)
-                    // This path is only used for non-quantized models
-                    0 // Skip F32 weights - they'll be loaded on demand
+                    // PMAT-113: F32/F16 - cache on GPU for fallback GEMM path
+                    // Previously skipped, causing "No matching tensor found" during inference
+                    if let Ok(weights) = model.get_tensor_f32(src_name) {
+                        let size = executor.load_weights(cache_name, &weights).unwrap_or(0);
+                        (size, false)
+                    } else {
+                        (0, false)
+                    }
                 }
             } else {
-                0
+                (0, false)
             }
         };
+
+        // Track F32 weight count for fallback path
+        let mut f32_weight_count = 0usize;
 
         // Cache per-layer weights using GGUF naming convention
         // This matches build_indexed_weights() expectations
@@ -400,11 +417,112 @@ impl AprV2ModelCuda {
                 let patterns_ref: Vec<&str> = patterns.iter().map(String::as_str).collect();
                 if let Ok(src_name) = self.model.find_tensor_name(&patterns_ref) {
                     let cache_name = format!("{prefix}.{suffix}");
-                    let bytes =
+                    let (bytes, is_quantized) =
                         upload_weight(&mut self.executor, &self.model, &src_name, &cache_name);
                     if bytes > 0 {
                         total_bytes += bytes;
-                        quantized_count += 1;
+                        if is_quantized {
+                            quantized_count += 1;
+                        } else {
+                            f32_weight_count += 1;
+                        }
+                    }
+                }
+            }
+
+            // PMAT-113: Also check for fused QKV from APR import (PMAT-101)
+            // APR models from HuggingFace have Q/K/V fused into qkv_proj.weight
+            // Unfuse and cache as separate Q/K/V with names the forward path expects
+            let fused_qkv_patterns = vec![
+                format!("model.layers.{layer_idx}.self_attn.qkv_proj.weight"),
+            ];
+            let fused_patterns_ref: Vec<&str> = fused_qkv_patterns.iter().map(String::as_str).collect();
+            if let Ok(src_name) = self.model.find_tensor_name(&fused_patterns_ref) {
+                // Load and unfuse QKV for F32 models
+                if let Ok(qkv_weight) = self.model.get_tensor_f32(&src_name) {
+                    // Unfuse: Q is first hidden_dim rows, K is next kv_dim, V is last kv_dim
+                    let q_size = hidden_dim * hidden_dim;
+                    let k_size = kv_dim * hidden_dim;
+                    let v_size = kv_dim * hidden_dim;
+
+                    if qkv_weight.len() >= q_size + k_size + v_size {
+                        // Cache unfused Q/K/V with forward path naming convention
+                        let q_weight: Vec<f32> = qkv_weight[0..q_size].to_vec();
+                        let k_weight: Vec<f32> = qkv_weight[q_size..q_size + k_size].to_vec();
+                        let v_weight: Vec<f32> = qkv_weight[q_size + k_size..q_size + k_size + v_size].to_vec();
+
+                        // Transpose for GPU GEMM (row-major to column-major)
+                        let q_weight_t = transpose_matrix(&q_weight, hidden_dim, hidden_dim);
+                        let k_weight_t = transpose_matrix(&k_weight, kv_dim, hidden_dim);
+                        let v_weight_t = transpose_matrix(&v_weight, kv_dim, hidden_dim);
+
+                        // Cache with forward path naming: layer_{}_q_proj, etc.
+                        let q_cache_name = format!("layer_{layer_idx}_q_proj");
+                        let k_cache_name = format!("layer_{layer_idx}_k_proj");
+                        let v_cache_name = format!("layer_{layer_idx}_v_proj");
+
+                        if let Ok(bytes) = self.executor.load_weights(&q_cache_name, &q_weight_t) {
+                            total_bytes += bytes;
+                            f32_weight_count += 1;
+                        }
+                        if let Ok(bytes) = self.executor.load_weights(&k_cache_name, &k_weight_t) {
+                            total_bytes += bytes;
+                            f32_weight_count += 1;
+                        }
+                        if let Ok(bytes) = self.executor.load_weights(&v_cache_name, &v_weight_t) {
+                            total_bytes += bytes;
+                            f32_weight_count += 1;
+                        }
+                    }
+                }
+            }
+
+            // PMAT-113: Cache O projection with forward path naming
+            let o_patterns = vec![
+                format!("model.layers.{layer_idx}.self_attn.o_proj.weight"),
+                format!("layers.{layer_idx}.self_attn.o_proj.weight"),
+                format!("blk.{layer_idx}.attn_output.weight"),
+            ];
+            let o_patterns_ref: Vec<&str> = o_patterns.iter().map(String::as_str).collect();
+            if let Ok(src_name) = self.model.find_tensor_name(&o_patterns_ref) {
+                if let Ok(o_weight) = self.model.get_tensor_f32(&src_name) {
+                    let o_weight_t = transpose_matrix(&o_weight, hidden_dim, hidden_dim);
+                    let o_cache_name = format!("layer_{layer_idx}_o_proj");
+                    if let Ok(bytes) = self.executor.load_weights(&o_cache_name, &o_weight_t) {
+                        total_bytes += bytes;
+                        f32_weight_count += 1;
+                    }
+                }
+            }
+
+            // PMAT-113: Cache FFN weights with forward path naming
+            let ffn_patterns = [
+                (vec![
+                    format!("model.layers.{layer_idx}.mlp.gate_proj.weight"),
+                    format!("layers.{layer_idx}.mlp.gate_proj.weight"),
+                    format!("blk.{layer_idx}.ffn_gate.weight"),
+                ], format!("layer_{layer_idx}_gate_proj"), intermediate_dim, hidden_dim),
+                (vec![
+                    format!("model.layers.{layer_idx}.mlp.up_proj.weight"),
+                    format!("layers.{layer_idx}.mlp.up_proj.weight"),
+                    format!("blk.{layer_idx}.ffn_up.weight"),
+                ], format!("layer_{layer_idx}_up_proj"), intermediate_dim, hidden_dim),
+                (vec![
+                    format!("model.layers.{layer_idx}.mlp.down_proj.weight"),
+                    format!("layers.{layer_idx}.mlp.down_proj.weight"),
+                    format!("blk.{layer_idx}.ffn_down.weight"),
+                ], format!("layer_{layer_idx}_down_proj"), hidden_dim, intermediate_dim),
+            ];
+
+            for (patterns, cache_name, out_dim, in_dim) in ffn_patterns {
+                let patterns_ref: Vec<&str> = patterns.iter().map(String::as_str).collect();
+                if let Ok(src_name) = self.model.find_tensor_name(&patterns_ref) {
+                    if let Ok(weight) = self.model.get_tensor_f32(&src_name) {
+                        let weight_t = transpose_matrix(&weight, out_dim, in_dim);
+                        if let Ok(bytes) = self.executor.load_weights(&cache_name, &weight_t) {
+                            total_bytes += bytes;
+                            f32_weight_count += 1;
+                        }
                     }
                 }
             }
@@ -528,11 +646,13 @@ impl AprV2ModelCuda {
             }
         }
 
+        // PMAT-113: Log both quantized and F32 weight counts
         eprintln!(
-            "[AprV2ModelCuda] Pre-cached {} MB of weights on GPU ({} layers, {} quantized tensors)",
+            "[AprV2ModelCuda] Pre-cached {} MB of weights on GPU ({} layers, {} quantized, {} F32 tensors)",
             total_bytes / (1024 * 1024),
             num_layers,
-            quantized_count
+            quantized_count,
+            f32_weight_count
         );
 
         Ok(())
@@ -827,27 +947,42 @@ impl AprV2ModelCuda {
                 &format!("layers.{layer_idx}.attention_norm.weight"),
                 &format!("blk.{layer_idx}.attn_norm.weight"), // GGUF
             ])?;
-            let q_name = self.model.find_tensor_name(&[
-                &format!("model.layers.{layer_idx}.self_attn.q_proj.weight"),
-                &format!("layers.{layer_idx}.self_attn.q_proj.weight"),
-                &format!("transformer.h.{layer_idx}.attn.q_proj.weight"),
-                &format!("layers.{layer_idx}.attention.wq.weight"),
-                &format!("blk.{layer_idx}.attn_q.weight"), // GGUF
-            ])?;
-            let k_name = self.model.find_tensor_name(&[
-                &format!("model.layers.{layer_idx}.self_attn.k_proj.weight"),
-                &format!("layers.{layer_idx}.self_attn.k_proj.weight"),
-                &format!("transformer.h.{layer_idx}.attn.k_proj.weight"),
-                &format!("layers.{layer_idx}.attention.wk.weight"),
-                &format!("blk.{layer_idx}.attn_k.weight"), // GGUF
-            ])?;
-            let v_name = self.model.find_tensor_name(&[
-                &format!("model.layers.{layer_idx}.self_attn.v_proj.weight"),
-                &format!("layers.{layer_idx}.self_attn.v_proj.weight"),
-                &format!("transformer.h.{layer_idx}.attn.v_proj.weight"),
-                &format!("layers.{layer_idx}.attention.wv.weight"),
-                &format!("blk.{layer_idx}.attn_v.weight"), // GGUF
-            ])?;
+
+            // PMAT-APR-CUDA-002: Check for fused QKV first (from APR import)
+            // APR import fuses Q/K/V into qkv_proj.weight for AprTransformer compatibility
+            let fused_qkv_name = self.model.find_tensor_name(&[
+                &format!("model.layers.{layer_idx}.self_attn.qkv_proj.weight"),
+            ]);
+            let has_fused_qkv = fused_qkv_name.is_ok();
+
+            // Only look for separate Q/K/V if fused is not available
+            let (q_name, k_name, v_name) = if !has_fused_qkv {
+                let q = self.model.find_tensor_name(&[
+                    &format!("model.layers.{layer_idx}.self_attn.q_proj.weight"),
+                    &format!("layers.{layer_idx}.self_attn.q_proj.weight"),
+                    &format!("transformer.h.{layer_idx}.attn.q_proj.weight"),
+                    &format!("layers.{layer_idx}.attention.wq.weight"),
+                    &format!("blk.{layer_idx}.attn_q.weight"), // GGUF
+                ])?;
+                let k = self.model.find_tensor_name(&[
+                    &format!("model.layers.{layer_idx}.self_attn.k_proj.weight"),
+                    &format!("layers.{layer_idx}.self_attn.k_proj.weight"),
+                    &format!("transformer.h.{layer_idx}.attn.k_proj.weight"),
+                    &format!("layers.{layer_idx}.attention.wk.weight"),
+                    &format!("blk.{layer_idx}.attn_k.weight"), // GGUF
+                ])?;
+                let v = self.model.find_tensor_name(&[
+                    &format!("model.layers.{layer_idx}.self_attn.v_proj.weight"),
+                    &format!("layers.{layer_idx}.self_attn.v_proj.weight"),
+                    &format!("transformer.h.{layer_idx}.attn.v_proj.weight"),
+                    &format!("layers.{layer_idx}.attention.wv.weight"),
+                    &format!("blk.{layer_idx}.attn_v.weight"), // GGUF
+                ])?;
+                (Some(q), Some(k), Some(v))
+            } else {
+                (None, None, None)
+            };
+
             let o_name = self.model.find_tensor_name(&[
                 &format!("model.layers.{layer_idx}.self_attn.o_proj.weight"),
                 &format!("layers.{layer_idx}.self_attn.o_proj.weight"),
@@ -892,11 +1027,42 @@ impl AprV2ModelCuda {
                 let v =
                     self.gemm_cached_gpu(&v_cache_name, &normed, seq_len, hidden_dim, kv_dim)?;
                 (q, k, v)
+            } else if has_fused_qkv {
+                // PMAT-APR-CUDA-002: Handle fused QKV from APR import
+                // qkv_proj.weight is [qkv_dim, hidden_dim] where qkv_dim = hidden_dim + 2*kv_dim
+                let fused_name = fused_qkv_name.expect("checked above");
+                let qkv_weight = self.model.get_tensor_f32(&fused_name)?;
+
+                // Unfuse into Q, K, V: Q is first hidden_dim rows, K is next kv_dim, V is last kv_dim
+                let q_size = hidden_dim * hidden_dim;
+                let k_size = kv_dim * hidden_dim;
+                let v_size = kv_dim * hidden_dim;
+
+                if qkv_weight.len() < q_size + k_size + v_size {
+                    return Err(RealizarError::InvalidShape {
+                        reason: format!(
+                            "Fused QKV weight too small: {} < {} (expected Q={}, K={}, V={})",
+                            qkv_weight.len(), q_size + k_size + v_size, q_size, k_size, v_size
+                        ),
+                    });
+                }
+
+                let q_weight: Vec<f32> = qkv_weight[0..q_size].to_vec();
+                let k_weight: Vec<f32> = qkv_weight[q_size..q_size + k_size].to_vec();
+                let v_weight: Vec<f32> = qkv_weight[q_size + k_size..q_size + k_size + v_size].to_vec();
+
+                let q_weight_t = transpose_matrix(&q_weight, hidden_dim, hidden_dim);
+                let k_weight_t = transpose_matrix(&k_weight, kv_dim, hidden_dim);
+                let v_weight_t = transpose_matrix(&v_weight, kv_dim, hidden_dim);
+                let q = self.gemm_gpu(&normed, &q_weight_t, seq_len, hidden_dim, hidden_dim)?;
+                let k = self.gemm_gpu(&normed, &k_weight_t, seq_len, hidden_dim, kv_dim)?;
+                let v = self.gemm_gpu(&normed, &v_weight_t, seq_len, hidden_dim, kv_dim)?;
+                (q, k, v)
             } else {
-                // Fallback: load, transpose, and upload weights each time
-                let q_weight = self.model.get_tensor_f32(&q_name)?;
-                let k_weight = self.model.get_tensor_f32(&k_name)?;
-                let v_weight = self.model.get_tensor_f32(&v_name)?;
+                // Fallback: load separate Q/K/V, transpose, and upload weights each time
+                let q_weight = self.model.get_tensor_f32(q_name.as_ref().expect("checked above"))?;
+                let k_weight = self.model.get_tensor_f32(k_name.as_ref().expect("checked above"))?;
+                let v_weight = self.model.get_tensor_f32(v_name.as_ref().expect("checked above"))?;
                 let q_weight_t = transpose_matrix(&q_weight, hidden_dim, hidden_dim);
                 let k_weight_t = transpose_matrix(&k_weight, kv_dim, hidden_dim);
                 let v_weight_t = transpose_matrix(&v_weight, kv_dim, hidden_dim);
@@ -1332,6 +1498,9 @@ impl AprV2ModelCuda {
         eos_id: u32,
     ) -> Result<Vec<u32>> {
         // Prefill: process entire prompt
+        // SATD-WARNING: APR CUDA forward path currently produces NaN logits
+        // The APR import creates corrupt tensor layouts (qkv_weight dimension mismatch)
+        // Use GGUF format for working inference until APR format is fixed
         let mut tokens = prompt.to_vec();
         let _ = self.forward_cuda(&tokens)?;
 
