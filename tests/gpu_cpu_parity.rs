@@ -82,6 +82,7 @@ mod tests {
             temperature: 0.0,
             top_k: 1,
             stop_tokens: vec![],
+            trace: false,
         };
 
         // Can't easily get intermediate logits from generate, so let's compare top-k

@@ -175,6 +175,7 @@ pub mod cache;
 /// Auto-detects format from model name.
 pub mod chat_template;
 /// CLI command implementations (extracted for testability)
+#[cfg(feature = "cli")]
 pub mod cli;
 /// GGUF to APR Transformer converter
 ///

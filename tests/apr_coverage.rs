@@ -1448,6 +1448,7 @@ fn test_generate_config_custom() {
         top_p: 0.95,
         top_k: 50,
         repetition_penalty: 1.2,
+        trace: false,
     };
     assert_eq!(config.max_tokens, 100);
     assert!((config.temperature - 0.7).abs() < 0.001);

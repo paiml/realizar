@@ -648,6 +648,18 @@ fn run_safetensors_inference(config: &InferenceConfig) -> Result<InferenceResult
     use crate::apr_transformer::AprKVCache;
     use crate::safetensors_infer::SafetensorsToAprConverter;
 
+    // JIDOKA (F-SAFE-GPU-ST): Fail explicitly if GPU requested but not supported
+    // Silent CPU fallback when user requests GPU is a 0/100 FAIL per Popperian QA
+    #[cfg(feature = "cuda")]
+    if !config.no_gpu {
+        return Err(RealizarError::UnsupportedOperation {
+            operation: "SafeTensors GPU inference".to_string(),
+            reason: "Not yet supported. Use --no-gpu flag, or convert to APR format first: \
+                apr import model.safetensors -o model.apr"
+                .to_string(),
+        });
+    }
+
     // Verbose: Show loading message BEFORE loading
     if config.verbose {
         eprintln!("Loading SafeTensors model: {}", config.model_path.display());

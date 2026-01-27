@@ -504,6 +504,7 @@ fn test_generate_config_custom_values() {
         top_p: 0.8,
         top_k: 50,
         repetition_penalty: 1.2,
+        trace: false,
     };
     assert_eq!(config.max_tokens, 100);
     assert!((config.temperature - 0.5).abs() < f32::EPSILON);

@@ -37,6 +37,10 @@ metrics.json
 server.log
 *.log
 
+# Test artifacts (downloaded models, converted files)
+# Use scripts/sync-models.sh to populate
+artifacts/
+
 # PMAT metrics (local only)
 .pmat-metrics/
 

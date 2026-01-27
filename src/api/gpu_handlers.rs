@@ -789,7 +789,104 @@ pub async fn generate_handler(
     use std::time::Instant;
     let start = Instant::now();
 
-    // Get model and tokenizer
+    // PAR-113: Check for CUDA model first (PMAT-SERVE-FIX-001)
+    // When using with_cuda_model_and_vocab(), the cuda_model is set but not the registry/model
+    #[cfg(feature = "cuda")]
+    if let Some(cuda_model_lock) = state.cuda_model() {
+        use crate::gguf::QuantizedGenerateConfig;
+
+        let tokenizer = match state.tokenizer.clone() {
+            Some(t) => t,
+            None => {
+                state.metrics.record_failure();
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "No tokenizer available".to_string(),
+                    }),
+                ));
+            }
+        };
+
+        // Tokenize prompt
+        let prompt_ids = tokenizer.encode(&request.prompt);
+        if prompt_ids.is_empty() {
+            state.metrics.record_failure();
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "Prompt cannot be empty".to_string(),
+                }),
+            ));
+        }
+
+        let prompt_tokens = prompt_ids.len();
+        let max_tokens = request.max_tokens;
+        let temperature = request.temperature;
+
+        // Get EOS token ID for proper stop sequence
+        let eos_token_id = tokenizer
+            .get_token_id("<|im_end|>")
+            .or_else(|| tokenizer.get_token_id("<|endoftext|>"))
+            .unwrap_or(151645);
+
+        let q_config = QuantizedGenerateConfig {
+            max_tokens,
+            temperature,
+            top_k: if temperature == 0.0 { 1 } else { request.top_k },
+            stop_tokens: vec![eos_token_id],
+            trace: false,
+        };
+
+        // Generate using CUDA model
+        let mut cuda_model = cuda_model_lock
+            .write()
+            .map_err(|_| {
+                state.metrics.record_failure();
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "Failed to acquire CUDA model lock".to_string(),
+                    }),
+                )
+            })?;
+
+        let generated = cuda_model
+            .generate_gpu_resident(&prompt_ids, &q_config)
+            .map_err(|e| {
+                state.metrics.record_failure();
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: format!("CUDA generation failed: {e}"),
+                    }),
+                )
+            })?;
+
+        // Decode tokens to text
+        let text = tokenizer.decode(&generated).map_err(|e| {
+            state.metrics.record_failure();
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+        })?;
+
+        let num_generated = generated.len().saturating_sub(prompt_tokens);
+        let duration = start.elapsed();
+
+        state.metrics.record_success(num_generated, duration);
+
+        return Ok(Json(GenerateResponse {
+            token_ids: generated,
+            text,
+            num_generated,
+        }));
+    }
+
+    // Fallback: Get model and tokenizer from registry/single-model mode
     let (model, tokenizer) = state.get_model(request.model_id.as_deref()).map_err(|e| {
         state.metrics.record_failure();
         (
@@ -943,7 +1040,91 @@ pub async fn batch_generate_handler(
         ));
     }
 
-    // Get model and tokenizer (use default model)
+    // PAR-113: Check for CUDA model first (PMAT-SERVE-FIX-001)
+    #[cfg(feature = "cuda")]
+    if let Some(cuda_model_lock) = state.cuda_model() {
+        use crate::gguf::QuantizedGenerateConfig;
+
+        let tokenizer = match state.tokenizer.clone() {
+            Some(t) => t,
+            None => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "No tokenizer available".to_string(),
+                    }),
+                ));
+            }
+        };
+
+        let eos_token_id = tokenizer
+            .get_token_id("<|im_end|>")
+            .or_else(|| tokenizer.get_token_id("<|endoftext|>"))
+            .unwrap_or(151645);
+
+        let q_config = QuantizedGenerateConfig {
+            max_tokens: request.max_tokens,
+            temperature: request.temperature,
+            top_k: if request.temperature == 0.0 { 1 } else { request.top_k },
+            stop_tokens: vec![eos_token_id],
+            trace: false,
+        };
+
+        let mut results = Vec::with_capacity(request.prompts.len());
+        let mut cuda_model = cuda_model_lock.write().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "Failed to acquire CUDA model lock".to_string(),
+                }),
+            )
+        })?;
+
+        for prompt_text in &request.prompts {
+            let prompt_ids = tokenizer.encode(prompt_text);
+            if prompt_ids.is_empty() {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error: format!("Prompt '{prompt_text}' tokenizes to empty sequence"),
+                    }),
+                ));
+            }
+
+            let prompt_tokens = prompt_ids.len();
+            // Note: KV cache is managed internally by generate_gpu_resident
+
+            let generated = cuda_model
+                .generate_gpu_resident(&prompt_ids, &q_config)
+                .map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse {
+                            error: format!("CUDA generation failed: {e}"),
+                        }),
+                    )
+                })?;
+
+            let text = tokenizer.decode(&generated).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: e.to_string(),
+                    }),
+                )
+            })?;
+
+            results.push(GenerateResponse {
+                token_ids: generated.clone(),
+                text,
+                num_generated: generated.len().saturating_sub(prompt_tokens),
+            });
+        }
+
+        return Ok(Json(BatchGenerateResponse { results }));
+    }
+
+    // Fallback: Get model and tokenizer (use default model)
     let (model, tokenizer) = state.get_model(None).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1045,6 +1226,9 @@ pub async fn stream_generate_handler(
     State(state): State<AppState>,
     Json(request): Json<GenerateRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
+    // NOTE: Streaming via CUDA model uses /v1/chat/completions endpoint with stream=true
+    // This handler uses the CPU model path; for GPU streaming use OpenAI-compatible endpoint
+
     // Get model and tokenizer
     let (model, tokenizer) = state.get_model(request.model_id.as_deref()).map_err(|e| {
         (

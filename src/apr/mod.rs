@@ -785,6 +785,17 @@ impl TensorEntry {
 }
 
 /// Model metadata from .apr file
+///
+/// # Schema Resilience (PMAT-111)
+///
+/// This struct uses serde aliases to accept multiple field name variations
+/// commonly found in different model formats (HuggingFace, GGUF, etc.):
+///
+/// - `hidden_size` also accepts: `hidden_dim`, `d_model`, `n_embd`
+/// - `num_layers` also accepts: `n_layers`, `num_hidden_layers`, `n_layer`
+/// - `num_heads` also accepts: `n_heads`, `num_attention_heads`, `n_head`
+/// - `vocab_size` also accepts: `n_vocab`
+/// - `intermediate_size` also accepts: `ffn_dim`, `intermediate_dim`, `n_inner`
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AprMetadata {
     /// Model type (e.g., "transformer_lm", "whisper", "llama")
@@ -797,25 +808,52 @@ pub struct AprMetadata {
     #[serde(default)]
     pub architecture: Option<String>,
     /// Hidden dimension size
-    #[serde(default)]
+    /// Aliases: hidden_dim, d_model, n_embd (PMAT-111 schema resilience)
+    #[serde(default, alias = "hidden_dim", alias = "d_model", alias = "n_embd")]
     pub hidden_size: Option<usize>,
     /// Number of transformer layers
-    #[serde(default)]
+    /// Aliases: n_layers, num_hidden_layers, n_layer (PMAT-111 schema resilience)
+    #[serde(
+        default,
+        alias = "n_layers",
+        alias = "num_hidden_layers",
+        alias = "n_layer"
+    )]
     pub num_layers: Option<usize>,
     /// Number of attention heads
-    #[serde(default)]
+    /// Aliases: n_heads, num_attention_heads, n_head (PMAT-111 schema resilience)
+    #[serde(
+        default,
+        alias = "n_heads",
+        alias = "num_attention_heads",
+        alias = "n_head"
+    )]
     pub num_heads: Option<usize>,
     /// Number of key-value heads (for GQA, defaults to num_heads)
-    #[serde(default)]
+    /// Aliases: n_kv_heads (PMAT-111 schema resilience)
+    #[serde(default, alias = "n_kv_heads")]
     pub num_kv_heads: Option<usize>,
     /// Vocabulary size
-    #[serde(default)]
+    /// Aliases: n_vocab (PMAT-111 schema resilience)
+    #[serde(default, alias = "n_vocab")]
     pub vocab_size: Option<usize>,
     /// FFN intermediate dimension
-    #[serde(default)]
+    /// Aliases: ffn_dim, intermediate_dim, n_inner (PMAT-111 schema resilience)
+    #[serde(
+        default,
+        alias = "ffn_dim",
+        alias = "intermediate_dim",
+        alias = "n_inner"
+    )]
     pub intermediate_size: Option<usize>,
     /// Maximum context/sequence length
-    #[serde(default)]
+    /// Aliases: max_seq_len, context_length, n_ctx (PMAT-111 schema resilience)
+    #[serde(
+        default,
+        alias = "max_seq_len",
+        alias = "context_length",
+        alias = "n_ctx"
+    )]
     pub max_position_embeddings: Option<usize>,
     /// RoPE theta for position encoding
     #[serde(default)]
@@ -825,7 +863,8 @@ pub struct AprMetadata {
     #[serde(default)]
     pub rope_type: Option<u32>,
     /// Layer norm epsilon
-    #[serde(default)]
+    /// Aliases: layer_norm_eps, norm_eps (PMAT-111 schema resilience)
+    #[serde(default, alias = "layer_norm_eps", alias = "norm_eps")]
     pub rms_norm_eps: Option<f32>,
     /// Additional metadata fields
     #[serde(flatten)]
@@ -1729,11 +1768,19 @@ impl AprV2Model {
     /// For decode-only operations, prefer `load_embedded_tokenizer()` first.
     pub fn load_tokenizer(model_path: &Path) -> Option<BpeTokenizer> {
         let tokenizer_path = model_path.with_file_name("tokenizer.json");
+        Self::load_tokenizer_from_path(&tokenizer_path)
+    }
+
+    /// Load a BPE tokenizer from an explicit tokenizer.json path
+    ///
+    /// This is used for loading tokenizers from HuggingFace cache or other locations.
+    /// (PMAT-SHOWCASE-TOKENIZER-001)
+    pub fn load_tokenizer_from_path(tokenizer_path: &Path) -> Option<BpeTokenizer> {
         if !tokenizer_path.exists() {
             return None;
         }
 
-        let content = fs::read_to_string(&tokenizer_path).ok()?;
+        let content = fs::read_to_string(tokenizer_path).ok()?;
         let json: serde_json::Value = serde_json::from_str(&content).ok()?;
 
         // Extract vocabulary
