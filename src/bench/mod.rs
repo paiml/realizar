@@ -1483,3 +1483,8 @@ mod bench_tests;
 #[cfg(test)]
 #[path = "tests_part_02.rs"]
 mod bench_tests_part_02;
+
+// Part 3 tests: T-COV-95 Popper Phase 2 - Non-HTTP Coverage
+#[cfg(test)]
+#[path = "tests_part_03.rs"]
+mod bench_tests_part_03;
