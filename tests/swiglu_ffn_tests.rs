@@ -228,6 +228,7 @@ fn test_ffn08_swiglu_forward_coherent() {
         temperature: 0.0, // Greedy for reproducibility
         top_k: 1,
         stop_tokens: vec![2], // EOS
+        trace: false,
     };
 
     let output = model

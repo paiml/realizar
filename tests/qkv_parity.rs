@@ -87,6 +87,7 @@ mod tests {
             temperature: 0.0,
             top_k: 1,
             stop_tokens: vec![],
+            trace: false,
         };
 
         let gpu_result = cuda_model
@@ -188,6 +189,7 @@ mod tests {
             temperature: 0.0,
             top_k: 1,
             stop_tokens: vec![],
+            trace: false,
         };
 
         let gpu_result = cuda_model
@@ -349,6 +351,7 @@ mod tests {
             temperature: 0.0,
             top_k: 1,
             stop_tokens: vec![],
+            trace: false,
         };
 
         let tokens = vec![bos_token];

@@ -129,6 +129,7 @@ mod tests {
             temperature: 0.0,
             top_k: 1,
             stop_tokens: vec![],
+            trace: false,
         };
 
         eprintln!("\n🚀 Running GPU generation (SKIP_CUDA_GRAPH=1, GPU_DEBUG=1)...");
@@ -241,6 +242,7 @@ mod tests {
             temperature: 0.0,
             top_k: 1,
             stop_tokens: vec![],
+            trace: false,
         };
 
         let gpu_result = cuda_model.generate_full_cuda_with_cache(&tokens, &gen_config);
@@ -323,6 +325,7 @@ mod tests {
             temperature: 0.0,
             top_k: 1,
             stop_tokens: vec![],
+            trace: false,
         };
 
         let gpu_result = cuda_model.generate_full_cuda_with_cache(&tokens, &gen_config);

@@ -2247,6 +2247,7 @@ fn test_cov_generate_config_custom() {
         temperature: 0.8,
         top_k: 50,
         stop_tokens: vec![1, 2],
+            trace: false,
     };
 
     assert_eq!(config.max_tokens, 256);
@@ -2262,6 +2263,7 @@ fn test_cov_generate_config_clone() {
         temperature: 0.5,
         top_k: 40,
         stop_tokens: vec![1, 2, 3],
+            trace: false,
     };
 
     let cloned = config.clone();
