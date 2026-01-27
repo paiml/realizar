@@ -217,7 +217,8 @@ Required additional coverage: ~58,226 lines.
 | `src/scheduler/tests_part_03.rs` | 74 | DynamicPriorityScheduler |
 | `src/infer/tests_part_04.rs` | 45 | Infer Helper Functions |
 | `src/cli/tests_part_03.rs` | 34 | CLI Helper Functions |
-| **Total** | **328** | - |
+| `src/brick/profiler_tests.rs` | 33 | BrickProfiler PMAT-112 |
+| **Total** | **361** | - |
 
 ### 8.2 Part 17: Zero-Coverage Handler Tests
 
@@ -251,10 +252,10 @@ Added comprehensive tests for sampling algorithms (was 0% coverage):
 | Token healing | 5 | analyze_token_healing, TokenHealingConfig |
 | CFG | 9 | apply_cfg, CfgConfig |
 
-### 8.4 Total Test Count
+### 8.5 Total Test Count
 - **Before:** ~9,500 tests
-- **After:** ~9,819 tests
-- **Increase:** +319 tests
+- **After:** ~9,852 tests
+- **Increase:** +352 tests
 
 ## 9. Commits
 
@@ -268,6 +269,7 @@ Added comprehensive tests for sampling algorithms (was 0% coverage):
 | `aa08be6` | feat: Add 74 scheduler deep coverage tests |
 | `29c116a` | feat: Add 45 infer module helper tests |
 | `10f97b9` | feat: Add 34 CLI helper function tests |
+| `27804ba` | feat: Add 33 BrickProfiler tests |
 
 ## 10. Conclusion
 
