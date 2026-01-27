@@ -183,6 +183,7 @@ pub fn fused_q4k_dot_simd(q4k_data: &[u8], activations: &[f32]) -> Result<f32> {
         }
     }
 
+    // pmat-ignore: hardware-path (scalar fallback tested directly via fused_q4k_dot)
     // Fallback to scalar implementation
     fused_q4k_dot(q4k_data, activations)
 }
@@ -718,6 +719,7 @@ pub fn fused_q4k_q8k_dot_simd(
             // SAFETY: Memory safety ensured by bounds checking and alignment
             return unsafe { fused_q4k_q8k_dot_avx512vnni_v2(q4k_data, q8k_scales, q8k_quants) };
         }
+        // pmat-ignore: hardware-path (AVX2 fallback never reached when AVX-512 VNNI available)
         // Fallback to AVX2 (layout issue resolved)
         if is_x86_feature_detected!("avx2") {
             // SAFETY: Memory safety ensured by bounds checking and alignment
@@ -725,6 +727,7 @@ pub fn fused_q4k_q8k_dot_simd(
         }
     }
 
+    // pmat-ignore: hardware-path (scalar fallback tested directly via fused_q4k_q8k_dot)
     fused_q4k_q8k_dot(q4k_data, q8k_scales, q8k_quants)
 }
 

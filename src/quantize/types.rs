@@ -469,15 +469,18 @@ pub fn detect_simd_backend() -> SimdBackend {
         if is_x86_feature_detected!("avx2") {
             return SimdBackend::Avx2;
         }
+        // pmat-ignore: hardware-path (SSE2 fallback never reached when AVX2 available)
         if is_x86_feature_detected!("sse2") {
             return SimdBackend::Sse2;
         }
     }
 
+    // pmat-ignore: hardware-path (NEON path only on aarch64)
     #[cfg(target_arch = "aarch64")]
     {
         return SimdBackend::Neon;
     }
 
+    // pmat-ignore: hardware-path (scalar fallback never reached when SIMD available)
     SimdBackend::Scalar
 }

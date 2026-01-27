@@ -125,6 +125,7 @@ pub fn fused_q6k_dot_simd(q6k_data: &[u8], activations: &[f32]) -> Result<f32> {
             return unsafe { fused_q6k_dot_avx2(q6k_data, activations) };
         }
     }
+    // pmat-ignore: hardware-path (scalar fallback tested directly via fused_q6k_dot)
     // Fallback to scalar implementation
     fused_q6k_dot(q6k_data, activations)
 }
