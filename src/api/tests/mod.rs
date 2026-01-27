@@ -18,6 +18,7 @@
 //! - part_13: OpenAI/Realize handlers - HTTP endpoint error paths and streaming
 //! - part_14: Additional coverage tests
 //! - part_15: T-COV-95 Directive 2: In-Process API Falsification (GPU/CUDA/quantized paths)
+//! - part_16: T-COV-95 Popper Phase 2: Combinatorial API Sweep (stream/temp/max_tokens/invalid)
 
 mod part_01;
 mod part_02;
@@ -34,3 +35,4 @@ mod part_12;
 mod part_13;
 mod part_14;
 mod part_15;
+mod part_16;
