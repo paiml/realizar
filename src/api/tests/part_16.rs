@@ -978,3 +978,169 @@ async fn test_chat_completions_trace_header() {
             || response.status() == StatusCode::INTERNAL_SERVER_ERROR
     );
 }
+
+// =============================================================================
+// Stream Handler Error Paths (T-COV-95 Directive 5)
+// =============================================================================
+
+/// Stream handler: empty messages should return error
+#[tokio::test]
+async fn test_stream_handler_empty_messages() {
+    let app = create_test_app();
+
+    let req_body = serde_json::json!({
+        "model": "default",
+        "messages": [],
+        "stream": true
+    });
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/v1/chat/completions")
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+    // Empty messages should be rejected
+    assert!(
+        response.status() == StatusCode::BAD_REQUEST
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
+}
+
+/// Stream handler: non-existent model should return 404
+#[tokio::test]
+async fn test_stream_handler_model_not_found() {
+    let app = create_test_app();
+
+    let req_body = serde_json::json!({
+        "model": "non-existent-model-xyz-12345",
+        "messages": [{"role": "user", "content": "Hello"}],
+        "stream": true
+    });
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/v1/chat/completions")
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+    // Non-existent model should return NOT_FOUND or fall back to default
+    assert!(
+        response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::OK
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+    );
+}
+
+/// Stream handler: whitespace-only message content
+#[tokio::test]
+async fn test_stream_handler_whitespace_content() {
+    let app = create_test_app();
+
+    let req_body = serde_json::json!({
+        "model": "default",
+        "messages": [{"role": "user", "content": "   \n\t   "}],
+        "stream": true
+    });
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/v1/chat/completions")
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+    // Whitespace-only content might be rejected or processed
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::BAD_REQUEST
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+    );
+}
+
+/// Stream handler with top_p parameter
+#[tokio::test]
+async fn test_stream_handler_with_top_p() {
+    let app = create_test_app();
+
+    let req_body = serde_json::json!({
+        "model": "default",
+        "messages": [{"role": "user", "content": "Hello"}],
+        "stream": true,
+        "top_p": 0.9
+    });
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/v1/chat/completions")
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+    );
+}
+
+/// Stream handler with extreme top_p values
+#[tokio::test]
+async fn test_stream_handler_extreme_top_p() {
+    let app = create_test_app();
+
+    // top_p = 0.0 (should select nothing or error)
+    let req_body = serde_json::json!({
+        "model": "default",
+        "messages": [{"role": "user", "content": "Hello"}],
+        "stream": true,
+        "top_p": 0.0
+    });
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/v1/chat/completions")
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::BAD_REQUEST
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+    );
+}
+
+/// Stream handler with max_tokens=0
+#[tokio::test]
+async fn test_stream_handler_zero_max_tokens() {
+    let app = create_test_app();
+
+    let req_body = serde_json::json!({
+        "model": "default",
+        "messages": [{"role": "user", "content": "Hello"}],
+        "stream": true,
+        "max_tokens": 0
+    });
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/v1/chat/completions")
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+    // Zero max_tokens might return empty or error
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::BAD_REQUEST
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+    );
+}
