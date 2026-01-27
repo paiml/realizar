@@ -1665,3 +1665,8 @@ mod cli_tests;
 #[cfg(test)]
 #[path = "tests_part_02.rs"]
 mod cli_tests_part_02;
+
+// CLI helper functions tests (Part 03)
+#[cfg(test)]
+#[path = "tests_part_03.rs"]
+mod cli_tests_part_03;
