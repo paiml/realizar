@@ -239,29 +239,21 @@ fn run_gguf_inference(config: &InferenceConfig) -> Result<InferenceResult> {
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
     let load_ms = load_start.elapsed().as_secs_f64() * 1000.0;
 
-    // Extract architecture from model name
-    let arch = config
-        .model_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .map_or("Transformer", |s| {
-            if s.to_lowercase().contains("qwen") {
-                "Qwen2"
-            } else if s.to_lowercase().contains("llama") {
-                "LLaMA"
-            } else if s.to_lowercase().contains("mistral") {
-                "Mistral"
-            } else if s.to_lowercase().contains("phi") {
-                "Phi"
-            } else {
-                "Transformer"
-            }
-        });
+    // PMAT-109: Extract architecture from GGUF metadata (not filename)
+    // Cached models have hash filenames, so we MUST use GGUF metadata
+    let gguf_arch = mapped.model.architecture().unwrap_or("transformer");
+    let arch = match gguf_arch.to_lowercase().as_str() {
+        "qwen2" | "qwen" => "Qwen2",
+        "llama" => "LLaMA",
+        "mistral" => "Mistral",
+        "phi" | "phi3" => "Phi",
+        _ => "Transformer",
+    };
 
     if config.verbose {
         eprintln!(
-            "Architecture: {} ({} layers, vocab_size={})",
-            arch, model.config.num_layers, model.config.vocab_size
+            "Architecture: {} [GGUF: {}] ({} layers, vocab_size={})",
+            arch, gguf_arch, model.config.num_layers, model.config.vocab_size
         );
         eprintln!("Model loaded in {:.1}ms", load_ms);
     }
@@ -270,17 +262,38 @@ fn run_gguf_inference(config: &InferenceConfig) -> Result<InferenceResult> {
     let input_tokens = if let Some(ref tokens) = config.input_tokens {
         tokens.clone()
     } else if let Some(ref prompt) = config.prompt {
-        // Detect instruct model and apply chat template
+        // PMAT-109: Detect instruct model from GGUF architecture (not filename)
+        // Qwen2 models use ChatML format with <|im_start|> / <|im_end|> tokens
+        // We apply chat template for known instruct architectures
+        let is_instruct_arch = matches!(
+            gguf_arch.to_lowercase().as_str(),
+            "qwen2" | "qwen" | "llama" | "mistral" | "phi" | "phi3"
+        );
+
+        // Also check filename as fallback (for explicitly named instruct models)
         let model_name = config
             .model_path
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("");
-        let is_instruct = model_name.to_lowercase().contains("instruct");
+        let filename_instruct = model_name.to_lowercase().contains("instruct");
 
-        let formatted_prompt = if is_instruct {
+        let formatted_prompt = if is_instruct_arch || filename_instruct {
+            // Use GGUF architecture for chat template detection
+            let template_hint = if gguf_arch.to_lowercase().contains("qwen") {
+                "qwen2"
+            } else if gguf_arch.to_lowercase().contains("llama") {
+                "llama"
+            } else if gguf_arch.to_lowercase().contains("mistral") {
+                "mistral"
+            } else if gguf_arch.to_lowercase().contains("phi") {
+                "phi"
+            } else {
+                model_name
+            };
+
             let messages = vec![ChatMessage::user(prompt)];
-            format_messages(&messages, Some(model_name)).unwrap_or_else(|_| prompt.clone())
+            format_messages(&messages, Some(template_hint)).unwrap_or_else(|_| prompt.clone())
         } else {
             prompt.clone()
         };
@@ -432,12 +445,12 @@ fn run_gguf_generate(
     Ok((tokens, false))
 }
 
-/// Run APR model inference (PAR-302)
+/// Run APR model inference (PAR-302, PMAT-APR-CUDA-001)
 ///
-/// Uses AprTransformer with proper RoPE and SwiGLU for correct inference.
+/// Uses AprV2ModelCuda for GPU acceleration when available, falls back to
+/// AprTransformer (CPU with proper RoPE and SwiGLU) otherwise.
 fn run_apr_inference(config: &InferenceConfig) -> Result<InferenceResult> {
     use crate::apr::AprV2Model;
-    use crate::apr_transformer::AprTransformer;
 
     // Verbose: Show loading message BEFORE loading
     if config.verbose {
@@ -446,7 +459,101 @@ fn run_apr_inference(config: &InferenceConfig) -> Result<InferenceResult> {
 
     let load_start = Instant::now();
 
-    // Load APR into AprTransformer for proper inference with RoPE and SwiGLU
+    // Get input tokens first (needed for both GPU and CPU paths)
+    let input_tokens = if let Some(ref tokens) = config.input_tokens {
+        tokens.clone()
+    } else if let Some(ref prompt) = config.prompt {
+        // Load tokenizer from sibling tokenizer.json
+        AprV2Model::encode_text(&config.model_path, prompt).unwrap_or_else(|| vec![1u32])
+    } else {
+        vec![1u32] // BOS token
+    };
+
+    let input_token_count = input_tokens.len();
+
+    // PMAT-APR-CUDA-001: Try GPU path first
+    #[cfg(feature = "cuda")]
+    if !config.no_gpu {
+        use crate::apr::{AprV2Model as AprModel, AprV2ModelCuda};
+
+        // Load APR model
+        if let Ok(model) = AprModel::load(&config.model_path) {
+            // Check if model has transformer config (required for CUDA)
+            if model.metadata().is_transformer() {
+                // Try to create CUDA wrapper
+                match AprV2ModelCuda::new(model, 0) {
+                    Ok(mut cuda_model) => {
+                        let load_ms = load_start.elapsed().as_secs_f64() * 1000.0;
+
+                        if config.verbose {
+                            eprintln!(
+                                "Architecture: {} ({} layers, vocab_size={})",
+                                cuda_model.model().metadata().architecture.as_deref().unwrap_or("unknown"),
+                                cuda_model.model().metadata().num_layers.unwrap_or(0),
+                                cuda_model.model().metadata().vocab_size.unwrap_or(0)
+                            );
+                            eprintln!("Model loaded in {:.1}ms", load_ms);
+                            eprintln!(
+                                "Backend: GPU ({}, {} MB VRAM)",
+                                cuda_model.device_name(),
+                                cuda_model.vram_mb()
+                            );
+                        }
+
+                        // GPU generation
+                        let infer_start = Instant::now();
+                        let eos_id = 151645u32; // Qwen2 EOS
+                        let tokens = cuda_model
+                            .generate_cuda(&input_tokens, config.max_tokens.min(128), eos_id)
+                            .map_err(|e| RealizarError::InferenceError(format!("GPU generation failed: {}", e)))?;
+
+                        let inference_ms = infer_start.elapsed().as_secs_f64() * 1000.0;
+
+                        // Decode output tokens
+                        let generated_tokens = &tokens[input_token_count..];
+                        let text = if let Some(tokenizer) = AprV2Model::load_tokenizer(&config.model_path) {
+                            tokenizer.decode(generated_tokens)
+                        } else if let Some(tokenizer) = find_fallback_tokenizer(&config.model_path) {
+                            tokenizer.decode(generated_tokens)
+                        } else {
+                            format!("[{} tokens generated, tokenizer not found]", generated_tokens.len())
+                        };
+
+                        let text = clean_model_output(&text);
+                        let generated_token_count = generated_tokens.len();
+                        let tok_per_sec = if inference_ms > 0.0 {
+                            generated_token_count as f64 / (inference_ms / 1000.0)
+                        } else {
+                            0.0
+                        };
+
+                        return Ok(InferenceResult {
+                            text,
+                            tokens,
+                            input_token_count,
+                            generated_token_count,
+                            inference_ms,
+                            tok_per_sec,
+                            load_ms,
+                            format: "APR".to_string(),
+                            used_gpu: true,
+                        });
+                    }
+                    Err(e) => {
+                        if config.verbose {
+                            eprintln!("Backend: CPU (GPU init failed: {})", e);
+                        }
+                    }
+                }
+            } else if config.verbose {
+                eprintln!("Backend: CPU (model lacks transformer config)");
+            }
+        }
+    }
+
+    // CPU fallback: use AprTransformer with proper RoPE and SwiGLU
+    use crate::apr_transformer::AprTransformer;
+
     let transformer = AprTransformer::from_apr_file(&config.model_path)?;
     let load_ms = load_start.elapsed().as_secs_f64() * 1000.0;
 
@@ -458,19 +565,8 @@ fn run_apr_inference(config: &InferenceConfig) -> Result<InferenceResult> {
             arch, transformer.config.num_layers, transformer.config.vocab_size
         );
         eprintln!("Model loaded in {:.1}ms", load_ms);
+        eprintln!("Backend: CPU (SIMD-accelerated)");
     }
-
-    // Get input tokens (use sibling tokenizer.json)
-    let input_tokens = if let Some(ref tokens) = config.input_tokens {
-        tokens.clone()
-    } else if let Some(ref prompt) = config.prompt {
-        // Load tokenizer from sibling tokenizer.json
-        AprV2Model::encode_text(&config.model_path, prompt).unwrap_or_else(|| vec![1u32])
-    } else {
-        vec![1u32] // BOS token
-    };
-
-    let input_token_count = input_tokens.len();
 
     // PMAT-103 FIX: Use KV-cache for O(n) generation instead of O(n²)
     let infer_start = Instant::now();
@@ -680,25 +776,61 @@ fn prefault_mmap(data: &[u8]) {
 fn find_fallback_tokenizer(model_path: &std::path::Path) -> Option<crate::apr::BpeTokenizer> {
     use crate::apr::AprV2Model;
 
-    // Try to load the APR model and extract embedded tokenizer
-    let model = AprV2Model::load(model_path).ok()?;
-    let simple_tokenizer = model.load_embedded_tokenizer()?;
+    // 1. Try to load embedded tokenizer from APR model
+    if let Ok(model) = AprV2Model::load(model_path) {
+        if let Some(simple_tokenizer) = model.load_embedded_tokenizer() {
+            // Convert SimpleTokenizer to BpeTokenizer for compatibility
+            return Some(crate::apr::BpeTokenizer {
+                token_to_id: simple_tokenizer
+                    .id_to_token
+                    .iter()
+                    .enumerate()
+                    .map(|(id, token)| (token.clone(), id as u32))
+                    .collect(),
+                id_to_token: simple_tokenizer.id_to_token,
+                merge_rules: Vec::new(),
+                bos_id: simple_tokenizer.bos_token_id,
+                eos_id: simple_tokenizer.eos_token_id,
+            });
+        }
+    }
 
-    // Convert SimpleTokenizer to BpeTokenizer for compatibility
-    // SimpleTokenizer is decode-only, but BpeTokenizer has encode support
-    // For fallback purposes, we only need decode, so this is fine
-    Some(crate::apr::BpeTokenizer {
-        token_to_id: simple_tokenizer
-            .id_to_token
-            .iter()
-            .enumerate()
-            .map(|(id, token)| (token.clone(), id as u32))
-            .collect(),
-        id_to_token: simple_tokenizer.id_to_token,
-        merge_rules: Vec::new(), // No merge rules for embedded tokenizer
-        bos_id: simple_tokenizer.bos_token_id,
-        eos_id: simple_tokenizer.eos_token_id,
-    })
+    // 2. Search HuggingFace cache for Qwen tokenizers (PMAT-SHOWCASE-TOKENIZER-001)
+    if let Some(home) = std::env::var("HOME").ok().map(std::path::PathBuf::from) {
+        let hf_cache = home.join(".cache/huggingface/hub");
+        if hf_cache.exists() {
+            if let Ok(entries) = std::fs::read_dir(&hf_cache) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name();
+                    let name_str = name.to_string_lossy();
+                    // Match Qwen model directories
+                    if name_str.starts_with("models--Qwen") {
+                        let snapshots_dir = entry.path().join("snapshots");
+                        if snapshots_dir.exists() {
+                            if let Ok(snapshots) = std::fs::read_dir(&snapshots_dir) {
+                                for snapshot in snapshots.flatten() {
+                                    let tokenizer_path = snapshot.path().join("tokenizer.json");
+                                    if let Some(tok) =
+                                        AprV2Model::load_tokenizer_from_path(&tokenizer_path)
+                                    {
+                                        return Some(tok);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Check APR tokenizer cache
+        let apr_tokenizer = home.join(".apr/tokenizers/qwen2/tokenizer.json");
+        if let Some(tok) = AprV2Model::load_tokenizer_from_path(&apr_tokenizer) {
+            return Some(tok);
+        }
+    }
+
+    None
 }
 
 /// Clean model output by stripping ChatML markers
@@ -852,6 +984,11 @@ mod infer_tests_part_02;
 #[cfg(test)]
 #[path = "tests_part_03.rs"]
 mod infer_tests_part_03;
+
+// Helper functions coverage tests (tests_part_04.rs)
+#[cfg(test)]
+#[path = "tests_part_04.rs"]
+mod infer_tests_part_04;
 
 // Mock backend tests (PMAT-COV-95)
 #[cfg(test)]
