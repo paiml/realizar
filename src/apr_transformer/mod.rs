@@ -597,23 +597,30 @@ impl AprTransformer {
             };
 
             // Get Q/K/V biases (optional, for Qwen models)
-            let q_bias = get_f32_tensor(&format!("{hf_prefix}.self_attn.q_proj.bias"))
-                .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.attn_q.bias")));
-            let k_bias = get_f32_tensor(&format!("{hf_prefix}.self_attn.k_proj.bias"))
-                .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.attn_k.bias")));
-            let v_bias = get_f32_tensor(&format!("{hf_prefix}.self_attn.v_proj.bias"))
-                .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.attn_v.bias")));
+            // PMAT-114 FIX: Also check for fused QKV bias from APR converter
+            let qkv_bias = if let Some(fused_bias) = get_f32_tensor(&format!("{hf_prefix}.self_attn.qkv_proj.bias")) {
+                // Fused QKV bias from APR converter - use directly
+                Some(fused_bias)
+            } else {
+                // Try separate Q/K/V biases
+                let q_bias = get_f32_tensor(&format!("{hf_prefix}.self_attn.q_proj.bias"))
+                    .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.attn_q.bias")));
+                let k_bias = get_f32_tensor(&format!("{hf_prefix}.self_attn.k_proj.bias"))
+                    .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.attn_k.bias")));
+                let v_bias = get_f32_tensor(&format!("{hf_prefix}.self_attn.v_proj.bias"))
+                    .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.attn_v.bias")));
 
-            // Combine biases if present
-            let qkv_bias = match (&q_bias, &k_bias, &v_bias) {
-                (Some(q), Some(k), Some(v)) => {
-                    let mut bias = Vec::with_capacity(qkv_out_dim);
-                    bias.extend_from_slice(q);
-                    bias.extend_from_slice(k);
-                    bias.extend_from_slice(v);
-                    Some(bias)
-                },
-                _ => None,
+                // Combine biases if present
+                match (&q_bias, &k_bias, &v_bias) {
+                    (Some(q), Some(k), Some(v)) => {
+                        let mut bias = Vec::with_capacity(qkv_out_dim);
+                        bias.extend_from_slice(q);
+                        bias.extend_from_slice(k);
+                        bias.extend_from_slice(v);
+                        Some(bias)
+                    },
+                    _ => None,
+                }
             };
 
             // PMAT-086 FIX: Both HF and GGUF data are in [out_dim, in_dim] layout - no transpose needed
