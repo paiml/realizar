@@ -2,12 +2,15 @@
 //!
 //! Chat completion tests, OpenAI compatibility
 
+#[allow(unused_imports)]
 use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
+#[allow(unused_imports)]
 use tower::util::ServiceExt;
 
+#[allow(unused_imports)]
 use crate::api::test_helpers::create_test_app;
 use crate::api::*;
 

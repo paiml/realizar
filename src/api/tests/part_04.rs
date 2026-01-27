@@ -2,12 +2,15 @@
 //!
 //! GPU inference tests (IMP-116+)
 
+#[allow(unused_imports)]
 use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
+#[allow(unused_imports)]
 use tower::util::ServiceExt;
 
+#[allow(unused_imports)]
 use crate::api::test_helpers::create_test_app;
 #[cfg(feature = "gpu")]
 use crate::api::test_helpers::create_test_quantized_model;
