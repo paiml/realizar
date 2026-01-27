@@ -214,7 +214,10 @@ Required additional coverage: ~58,226 lines.
 | `src/api/tests/part_17.rs` | 16 | Zero-Coverage Handlers |
 | `src/generate/algorithms.rs` | 47 | Sampling Algorithms |
 | `src/cache.rs` | 11 | Cache Edge Cases |
-| **Total** | **175** | - |
+| `src/scheduler/tests_part_03.rs` | 74 | DynamicPriorityScheduler |
+| `src/infer/tests_part_04.rs` | 45 | Infer Helper Functions |
+| `src/cli/tests_part_03.rs` | 34 | CLI Helper Functions |
+| **Total** | **328** | - |
 
 ### 8.2 Part 17: Zero-Coverage Handler Tests
 
@@ -248,10 +251,10 @@ Added comprehensive tests for sampling algorithms (was 0% coverage):
 | Token healing | 5 | analyze_token_healing, TokenHealingConfig |
 | CFG | 9 | apply_cfg, CfgConfig |
 
-### 8.2 Total Test Count
+### 8.4 Total Test Count
 - **Before:** ~9,500 tests
-- **After:** ~9,666 tests
-- **Increase:** +166 tests
+- **After:** ~9,819 tests
+- **Increase:** +319 tests
 
 ## 9. Commits
 
@@ -262,6 +265,9 @@ Added comprehensive tests for sampling algorithms (was 0% coverage):
 | `80f7c29` | feat: Add 6 stream handler error path tests |
 | `61fcddb` | feat: Add 11 cache module edge case tests |
 | `1731f7a` | feat: Add pathological registry and stream tests |
+| `aa08be6` | feat: Add 74 scheduler deep coverage tests |
+| `29c116a` | feat: Add 45 infer module helper tests |
+| `10f97b9` | feat: Add 34 CLI helper function tests |
 
 ## 10. Conclusion
 
