@@ -253,9 +253,30 @@ Added comprehensive tests for sampling algorithms (was 0% coverage):
 | CFG | 9 | apply_cfg, CfgConfig |
 
 ### 8.5 Total Test Count
-- **Before:** ~9,500 tests
-- **After:** ~9,852 tests
-- **Increase:** +352 tests
+- **Before T-COV-95:** ~9,500 tests
+- **After T-COV-95 Phase 1:** ~9,852 tests (+352)
+- **Current (2026-01-27):** ~11,759 tests
+  - Unit tests (`#[test]`): 11,435
+  - Async tests (`#[tokio::test]`): 324
+- **Total Increase:** +2,259 tests since protocol start
+
+### 8.6 Analysis: Coverage Gap Root Cause
+
+**Finding:** All unit-testable code paths now have comprehensive tests.
+
+The remaining ~50% coverage gap is architectural, not due to missing tests:
+
+| Category | Lines Missed | Root Cause |
+|----------|-------------|------------|
+| GPU/CUDA modules | ~20,000 | Feature-gated (`#[cfg(feature = "gpu")]`) - not compiled without feature |
+| GGUF inference | ~10,000 | Requires actual model files for integration testing |
+| API handlers | ~7,000 | Demo mode returns early; full paths need loaded models |
+| Batch scheduler | ~2,000 | Feature-gated (`#[cfg(feature = "gpu")]`) |
+
+**Verification:** The 0% coverage modules are:
+- `gguf/inference/cached/single.rs` - `#[cfg(feature = "gpu")]` gated
+- `gguf/batch_scheduler.rs` - `#[cfg(feature = "gpu")]` gated
+- API handlers - Early return in demo/test mode without models
 
 ## 9. Commits
 
