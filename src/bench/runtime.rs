@@ -101,6 +101,13 @@ impl InferenceRequest {
         self.temperature = temperature;
         self
     }
+
+    /// Set stop sequences
+    #[must_use]
+    pub fn with_stop(mut self, stop: Vec<String>) -> Self {
+        self.stop = stop;
+        self
+    }
 }
 
 /// Response from inference
@@ -304,6 +311,13 @@ impl LlamaCppConfig {
     #[must_use]
     pub fn with_ctx_size(mut self, ctx_size: usize) -> Self {
         self.ctx_size = ctx_size;
+        self
+    }
+
+    /// Set number of threads
+    #[must_use]
+    pub fn with_threads(mut self, threads: usize) -> Self {
+        self.threads = threads;
         self
     }
 }
