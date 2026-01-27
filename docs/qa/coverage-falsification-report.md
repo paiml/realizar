@@ -212,8 +212,9 @@ Required additional coverage: ~58,226 lines.
 | `src/infer/tests_mock.rs` | 10 | KV Cache |
 | `src/api/tests/part_16.rs` | 45 | Stream/Error |
 | `src/api/tests/part_17.rs` | 16 | Zero-Coverage Handlers |
+| `src/generate/algorithms.rs` | 47 | Sampling Algorithms |
 | `src/cache.rs` | 11 | Cache Edge Cases |
-| **Total** | **128** | - |
+| **Total** | **175** | - |
 
 ### 8.2 Part 17: Zero-Coverage Handler Tests
 
@@ -230,6 +231,22 @@ Added HTTP endpoint tests for handlers showing 0% coverage (per G3 directive):
 - Demo mode returns early without loading models
 - GPU unavailable returns SERVICE_UNAVAILABLE
 - Error paths dominate successful paths
+
+### 8.3 Algorithms.rs Tests (47 tests)
+
+Added comprehensive tests for sampling algorithms (was 0% coverage):
+
+| Algorithm | Tests | Functions Covered |
+|-----------|-------|-------------------|
+| Min-p sampling | 6 | sample_min_p |
+| Mirostat | 6 | MirostatState, sample_mirostat |
+| Tail-Free | 4 | sample_tfs |
+| Typical | 3 | sample_typical |
+| DRY penalty | 6 | apply_dry_penalty, DryConfig |
+| XTC | 4 | apply_xtc, XtcConfig |
+| Eta | 4 | sample_eta, EtaConfig |
+| Token healing | 5 | analyze_token_healing, TokenHealingConfig |
+| CFG | 9 | apply_cfg, CfgConfig |
 
 ### 8.2 Total Test Count
 - **Before:** ~9,500 tests
