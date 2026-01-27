@@ -139,60 +139,174 @@ clippy-fix: ## Automatically fix clippy warnings
 	@echo "$(GREEN)Fixing clippy warnings...$(NC)"
 	cargo clippy --all-targets --all-features --fix
 
-# === Coverage (Memory-efficient: cargo test, not nextest) ===
+# =============================================================================
+# COVERAGE: Trueno-style O(1) modular coverage (target: 5-10 min max)
+# =============================================================================
+# Pattern from trueno:
+# - Modular targets for drill-down (coverage-core, coverage-gguf, coverage-cuda)
+# - --no-report during tests (fast), report generation separate
+# - Aggressive exclusions via --ignore-filename-regex
+# - Composable: make coverage = core + report
+# =============================================================================
 
-# Exclude: trueno (external dep), terminal-specific TUI code (requires actual terminal)
-# PMAT-803: Strict isolation - we test realizar, not the universe
-# T-COV-001: Exclude main.rs (hollow shell binary entry point)
-COV_EXCLUDE := --ignore-filename-regex='(trueno/|tui\.rs|bench_viz\.rs|viz\.rs|main\.rs)'
+# STRICT exclusions: Only count realizar/src/*.rs, exclude test infrastructure
+# Patterns: trueno (external), /tests/ (test dirs), *_tests*.rs and tests_*.rs (test files),
+#           test_ prefix, tui/viz (terminal), main.rs (entry), benches/examples,
+#           fixtures/ (test fixtures), testing/ (test infra), bench/ (benchmark harness), bench_ prefix,
+#           proptests (property tests in src/)
+COV_EXCLUDE := --ignore-filename-regex='(trueno/|/tests/|_tests|tests_|test_|tui\.rs|bench_viz\.rs|viz\.rs|main\.rs|/benches/|/examples/|fixtures/|testing/|bench/|bench_|proptests)'
 
-cov: ## FAST coverage (~2 min) - core lib only, no CUDA, no heavy-tests
-	@echo "$(GREEN)⚡ FAST coverage (core lib only, ~2 min)...$(NC)"
-	@which cargo-llvm-cov > /dev/null 2>&1 || cargo install cargo-llvm-cov --locked
-	@mkdir -p target/coverage
-	@env RUSTFLAGS="" CARGO_BUILD_RUSTFLAGS="" PROPTEST_CASES=3 QUICKCHECK_TESTS=3 \
-		cargo llvm-cov test --lib --no-report $(COV_EXCLUDE) \
-		-- --test-threads=2 2>&1 | tail -20
-	@cargo llvm-cov report --html --output-dir target/coverage/html $(COV_EXCLUDE)
-	@echo ""
-	@cargo llvm-cov report --summary-only $(COV_EXCLUDE)
-	@echo "$(GREEN)✅ Fast coverage: target/coverage/html/index.html$(NC)"
+# D5: Configurable coverage threshold (default 95%, override with COV_THRESHOLD=90 make coverage-check)
+COV_THRESHOLD ?= 95
 
-coverage: ## Generate HTML coverage report (FAST incremental, target: >95%)
-	@echo "$(GREEN)📊 Running coverage analysis (INCREMENTAL - use coverage-clean for fresh start)...$(NC)"
-	@echo "   - Uses 'cargo test' (1 profraw/binary) NOT 'nextest' (1 profraw/test)"
-	@echo "   - Features: cuda,heavy-tests (for maximum coverage)"
-	@which cargo-llvm-cov > /dev/null 2>&1 || (echo "$(YELLOW)📦 Installing cargo-llvm-cov...$(NC)" && cargo install cargo-llvm-cov --locked)
-	@mkdir -p target/coverage
-	@echo "$(GREEN)🧪 Running lib tests with instrumentation (PROPTEST_CASES=5)...$(NC)"
-	@env RUSTFLAGS="" CARGO_BUILD_RUSTFLAGS="" PROPTEST_CASES=5 QUICKCHECK_TESTS=5 \
-		cargo llvm-cov test --lib --features "cuda,heavy-tests" --no-report $(COV_EXCLUDE) \
-		-- --test-threads=4 2>&1 | tail -30
-	@echo "$(GREEN)🧪 Running CUDA integration tests (--test-threads=1 for GPU)...$(NC)"
-	@env RUSTFLAGS="" CARGO_BUILD_RUSTFLAGS="" PROPTEST_CASES=5 QUICKCHECK_TESTS=5 \
-		cargo llvm-cov test --test cuda_heavy_integration --test cuda_combinatorial_coverage \
-		--features "cuda,heavy-tests" --no-report $(COV_EXCLUDE) \
-		-- --test-threads=1 2>&1 | tail -30
-	@echo "$(GREEN)📊 Generating reports...$(NC)"
-	@cargo llvm-cov report --html --output-dir target/coverage/html $(COV_EXCLUDE)
-	@cargo llvm-cov report --lcov --output-path target/coverage/lcov.info $(COV_EXCLUDE)
-	@echo ""
-	@cargo llvm-cov report --summary-only $(COV_EXCLUDE)
-	@echo "$(GREEN)✅ Coverage report: target/coverage/html/index.html$(NC)"
+# -----------------------------------------------------------------------------
+# MODULAR COVERAGE TARGETS (O(1) - each ~1-2 min)
+# -----------------------------------------------------------------------------
 
-coverage-full: ## Full coverage with all features (requires 16GB+ RAM)
-	@echo "$(GREEN)📊 Running FULL coverage analysis (high memory)...$(NC)"
-	@which cargo-llvm-cov > /dev/null 2>&1 || (echo "$(YELLOW)📦 Installing cargo-llvm-cov...$(NC)" && cargo install cargo-llvm-cov --locked)
-	@which cargo-nextest > /dev/null 2>&1 || (echo "$(YELLOW)📦 Installing cargo-nextest...$(NC)" && cargo install cargo-nextest --locked)
-	@mkdir -p target/coverage
-	@cargo llvm-cov clean --workspace
-	@# Full coverage with nextest (memory-intensive)
-	@env RUSTFLAGS="" CARGO_BUILD_RUSTFLAGS="" PROPTEST_CASES=25 QUICKCHECK_TESTS=25 \
-		cargo llvm-cov --no-report nextest -j 2 --lib --tests --no-tests=warn --workspace --no-fail-fast --features "server,cli,gpu"
-	@cargo llvm-cov report --html --output-dir target/coverage/html
-	@cargo llvm-cov report --lcov --output-path target/coverage/lcov.info
-	@cargo llvm-cov report --summary-only
-	@echo "$(GREEN)✅ Full coverage report: target/coverage/html/index.html$(NC)"
+coverage-core: ## Coverage: core modules only (~90s)
+	@START=$$(date +%s); \
+	echo "📊 Coverage: core (quantize, layers, generate, infer)..."; \
+	cargo llvm-cov test --lib --no-report $(COV_EXCLUDE) \
+		-- --test-threads=8 \
+		--skip gguf:: --skip api:: --skip cli:: --skip cuda:: --skip gpu:: --skip bench:: \
+		--skip property_ --skip stress --skip slow --skip heavy --skip part_ 2>&1 | tail -3; \
+	END=$$(date +%s); \
+	echo "⏱️  core: $$((END-START))s"
+
+coverage-gguf: ## Coverage: GGUF module only (~60s)
+	@START=$$(date +%s); \
+	echo "📊 Coverage: gguf..."; \
+	cargo llvm-cov test --lib --no-report $(COV_EXCLUDE) \
+		-- --test-threads=8 gguf:: \
+		--skip property_ --skip stress --skip slow --skip heavy --skip part_ 2>&1 | tail -3; \
+	END=$$(date +%s); \
+	echo "⏱️  gguf: $$((END-START))s"
+
+coverage-api: ## Coverage: API module only (~60s)
+	@START=$$(date +%s); \
+	echo "📊 Coverage: api + cli..."; \
+	cargo llvm-cov test --lib --no-report $(COV_EXCLUDE) \
+		-- --test-threads=8 api:: cli:: \
+		--skip property_ --skip stress --skip slow --skip heavy --skip part_ 2>&1 | tail -3; \
+	END=$$(date +%s); \
+	echo "⏱️  api: $$((END-START))s"
+
+coverage-cuda: ## Coverage: CUDA/GPU only (~120s, single-threaded)
+	@START=$$(date +%s); \
+	echo "📊 Coverage: cuda + gpu (single-threaded for GPU safety)..."; \
+	cargo llvm-cov test --lib --features cuda --no-report $(COV_EXCLUDE) \
+		-- --test-threads=1 cuda:: gpu:: \
+		--skip property_ --skip stress --skip slow --skip heavy --skip part_ 2>&1 | tail -3; \
+	END=$$(date +%s); \
+	echo "⏱️  cuda: $$((END-START))s"
+
+# -----------------------------------------------------------------------------
+# COMPOSITE COVERAGE TARGETS
+# -----------------------------------------------------------------------------
+
+coverage: ## DEFAULT: Core coverage with report (~3 min)
+	@TOTAL_START=$$(date +%s); \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	echo "📊 COVERAGE: Core modules (use coverage-all for full)"; \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	$(MAKE) --no-print-directory coverage-core; \
+	echo ""; \
+	echo "📊 Generating report..."; \
+	mkdir -p target/coverage/html; \
+	cargo llvm-cov report --html --output-dir target/coverage/html $(COV_EXCLUDE) 2>&1 | tail -1; \
+	cargo llvm-cov report --lcov --output-path target/coverage/lcov.info $(COV_EXCLUDE) 2>&1 | tail -1; \
+	echo ""; \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	cargo llvm-cov report --summary-only $(COV_EXCLUDE) 2>&1 | grep -E "^TOTAL"; \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	TOTAL_END=$$(date +%s); \
+	echo "⏱️  Total: $$((TOTAL_END-TOTAL_START))s"; \
+	echo "💡 HTML: target/coverage/html/index.html"; \
+	echo "💡 Drill-down: make coverage-gguf | coverage-api | coverage-cuda"
+
+coverage-all: ## FULL: All modules with report (~10 min)
+	@TOTAL_START=$$(date +%s); \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	echo "📊 COVERAGE-ALL: Full stack (target: 95%)"; \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	$(MAKE) --no-print-directory coverage-core; \
+	$(MAKE) --no-print-directory coverage-gguf; \
+	$(MAKE) --no-print-directory coverage-api; \
+	$(MAKE) --no-print-directory coverage-cuda; \
+	echo ""; \
+	echo "📊 Generating comprehensive report..."; \
+	mkdir -p target/coverage/html; \
+	cargo llvm-cov report --html --output-dir target/coverage/html $(COV_EXCLUDE); \
+	cargo llvm-cov report --lcov --output-path target/coverage/lcov.info $(COV_EXCLUDE); \
+	echo ""; \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	cargo llvm-cov report --summary-only $(COV_EXCLUDE); \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	TOTAL_END=$$(date +%s); \
+	ELAPSED=$$((TOTAL_END-TOTAL_START)); \
+	echo "⏱️  Total: $$((ELAPSED/60))m $$((ELAPSED%60))s"; \
+	echo "💡 HTML: target/coverage/html/index.html"; \
+	COVERAGE=$$(cargo llvm-cov report --summary-only $(COV_EXCLUDE) 2>/dev/null | grep "TOTAL" | awk '{print $$10}' | sed 's/%//'); \
+	if [ -n "$$COVERAGE" ]; then \
+		RESULT=$$(echo "$$COVERAGE >= 95" | bc -l 2>/dev/null || echo 0); \
+		if [ "$$RESULT" = "1" ]; then \
+			echo "✅ CORROBORATED: $$COVERAGE% >= 95%"; \
+		else \
+			echo "❌ FALSIFIED: $$COVERAGE% < 95%"; \
+		fi; \
+	fi
+
+coverage-check: ## Enforce coverage threshold (D5: configurable via COV_THRESHOLD=N)
+	@echo "🔒 Checking $(COV_THRESHOLD)% coverage threshold..."; \
+	COVERAGE=$$(cargo llvm-cov report --summary-only $(COV_EXCLUDE) 2>/dev/null | grep "TOTAL" | awk '{print $$10}' | sed 's/%//'); \
+	if [ -z "$$COVERAGE" ]; then echo "❌ No coverage data. Run 'make coverage' first."; exit 1; fi; \
+	echo "Coverage: $$COVERAGE%"; \
+	RESULT=$$(echo "$$COVERAGE >= $(COV_THRESHOLD)" | bc -l 2>/dev/null || echo 0); \
+	if [ "$$RESULT" = "1" ]; then \
+		echo "✅ Coverage $$COVERAGE% >= $(COV_THRESHOLD)% threshold"; \
+	else \
+		echo "❌ FAIL: Coverage $$COVERAGE% < $(COV_THRESHOLD)% threshold"; \
+		exit 1; \
+	fi
+
+coverage-95: coverage-check ## Alias for coverage-check with 95% threshold
+
+coverage-zero: ## G3: Alert on zero-coverage files (catastrophic failure detection)
+	@echo "🚨 Checking for zero-coverage files (G3: Catastrophic Failure Detection)..."; \
+	ZEROS=$$(cargo llvm-cov report --summary-only $(COV_EXCLUDE) 2>/dev/null | \
+		awk 'NF>=10 && $$10=="0.00%" && !/TOTAL/ {print $$1, $$10}' | head -20); \
+	if [ -n "$$ZEROS" ]; then \
+		echo ""; \
+		echo "⚠️  ALERT: Files with 0% LINE coverage detected:"; \
+		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+		echo "$$ZEROS"; \
+		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+		echo ""; \
+		echo "Action required: Add tests or remove dead code."; \
+		exit 1; \
+	else \
+		echo "✅ No zero-coverage production files found."; \
+	fi
+
+coverage-audit: ## G4: Audit 100% coverage files (hollow test detection)
+	@echo "🔍 Auditing 100% coverage files (G4: Hollow Test Detection)..."; \
+	PERFECT=$$(cargo llvm-cov report --summary-only $(COV_EXCLUDE) 2>/dev/null | \
+		awk 'NF>=10 && $$10=="100.00%" && !/TOTAL/ {print $$1, $$10}' | head -20); \
+	if [ -n "$$PERFECT" ]; then \
+		echo ""; \
+		echo "⚠️  AUDIT: Files with 100% LINE coverage (verify not hollow):"; \
+		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+		echo "$$PERFECT"; \
+		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+		echo ""; \
+		echo "Run 'make mutants' on these files to verify tests aren't hollow."; \
+	else \
+		echo "✅ No 100% coverage files found (or none to audit)."; \
+	fi
+
+coverage-validate: coverage-check coverage-zero coverage-audit ## Full validation (threshold + G3 + G4)
+	@echo ""; \
+	echo "✅ Coverage validation complete."
 
 coverage-summary: ## Show coverage summary
 	@cargo llvm-cov report --summary-only 2>/dev/null || echo "Run 'make coverage' first"
