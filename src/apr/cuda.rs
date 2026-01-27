@@ -430,9 +430,11 @@ impl AprV2ModelCuda {
                 }
             }
 
-            // PMAT-113: Also check for fused QKV from APR import (PMAT-101)
+            // PMAT-113: Cache fused QKV from APR import (PMAT-101)
             // APR models from HuggingFace have Q/K/V fused into qkv_proj.weight
             // Unfuse and cache as separate Q/K/V with names the forward path expects
+            // NOTE: P1 quality issue exists (SATD-WARNING in generate_cuda_with_cache)
+            // The APR import has corrupt tensor layouts - this caching doesn't fix that
             let fused_qkv_patterns = vec![
                 format!("model.layers.{layer_idx}.self_attn.qkv_proj.weight"),
             ];
