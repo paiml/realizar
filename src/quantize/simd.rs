@@ -551,3 +551,342 @@ unsafe fn apply_rope_rotation_avx2(
         x[i + half_dim] = x0 * sin + x1 * cos;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ============= f16_to_f32 tests =============
+
+    #[test]
+    fn test_f16_to_f32_zero() {
+        assert_eq!(f16_to_f32(0x0000), 0.0);
+    }
+
+    #[test]
+    fn test_f16_to_f32_negative_zero() {
+        let val = f16_to_f32(0x8000);
+        assert!(val == 0.0 && val.is_sign_negative());
+    }
+
+    #[test]
+    fn test_f16_to_f32_one() {
+        let val = f16_to_f32(0x3C00);
+        assert!((val - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_f16_to_f32_negative_one() {
+        let val = f16_to_f32(0xBC00);
+        assert!((val - (-1.0)).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_f16_to_f32_two() {
+        let val = f16_to_f32(0x4000);
+        assert!((val - 2.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_f16_to_f32_half() {
+        let val = f16_to_f32(0x3800);
+        assert!((val - 0.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_f16_to_f32_infinity() {
+        assert_eq!(f16_to_f32(0x7C00), f32::INFINITY);
+    }
+
+    #[test]
+    fn test_f16_to_f32_neg_infinity() {
+        assert_eq!(f16_to_f32(0xFC00), f32::NEG_INFINITY);
+    }
+
+    #[test]
+    fn test_f16_to_f32_nan() {
+        assert!(f16_to_f32(0x7C01).is_nan());
+    }
+
+    #[test]
+    fn test_f16_to_f32_subnormal() {
+        // Smallest positive subnormal: 2^-24
+        let val = f16_to_f32(0x0001);
+        assert!(val > 0.0);
+        assert!(val < 0.0001);
+    }
+
+    // ============= read_f16 tests =============
+
+    #[test]
+    fn test_read_f16_one() {
+        let bytes = 0x3C00u16.to_le_bytes();
+        let val = read_f16(&bytes);
+        assert!((val - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_read_f16_two() {
+        let bytes = 0x4000u16.to_le_bytes();
+        let val = read_f16(&bytes);
+        assert!((val - 2.0).abs() < 0.001);
+    }
+
+    // ============= extract_scale_min tests =============
+
+    #[test]
+    fn test_extract_scale_min_first_block() {
+        let scales: [u8; 12] = [10, 20, 30, 40, 5, 15, 25, 35, 0, 0, 0, 0];
+        let (scale, min) = extract_scale_min(&scales, 0);
+        assert_eq!(scale, 10.0); // scales[0] & 63
+        assert_eq!(min, 5.0); // scales[4] & 63
+    }
+
+    #[test]
+    fn test_extract_scale_min_second_block() {
+        let scales: [u8; 12] = [10, 20, 30, 40, 5, 15, 25, 35, 0, 0, 0, 0];
+        let (scale, min) = extract_scale_min(&scales, 1);
+        assert_eq!(scale, 20.0);
+        assert_eq!(min, 15.0);
+    }
+
+    #[test]
+    fn test_extract_scale_min_packed_block() {
+        // Block 4+ uses packed layout
+        let mut scales: [u8; 12] = [0; 12];
+        scales[0] = 0b11_000010; // high bits for block 4
+        scales[8] = 0b0011_0001; // low bits: scale=0x31, min high nibble=0x3
+
+        let (scale, min) = extract_scale_min(&scales, 4);
+        // scale = (scales[8] & 0x0F) | ((scales[0] >> 6) << 4) = 1 | (3 << 4) = 1 | 48 = 49
+        // min = (scales[8] >> 4) | ((scales[4] >> 6) << 4) = 3 | 0 = 3
+        assert_eq!(scale, 49.0);
+        assert_eq!(min, 3.0);
+    }
+
+    // ============= extract_scale_min_from_slice tests =============
+
+    #[test]
+    fn test_extract_scale_min_from_slice_even() {
+        let scales: [u8; 8] = [10, 20, 30, 40, 5, 15, 25, 35];
+        let (scale, min) = extract_scale_min_from_slice(&scales, 0);
+        assert_eq!(scale, 10.0);
+        assert_eq!(min, 5.0);
+    }
+
+    // ============= softmax_simd tests =============
+
+    #[test]
+    fn test_softmax_simd_empty() {
+        let mut x: Vec<f32> = vec![];
+        softmax_simd(&mut x);
+        assert!(x.is_empty());
+    }
+
+    #[test]
+    fn test_softmax_simd_single() {
+        let mut x = vec![5.0f32];
+        softmax_simd(&mut x);
+        assert!((x[0] - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_softmax_simd_uniform() {
+        let mut x = vec![1.0f32; 16];
+        softmax_simd(&mut x);
+
+        // Uniform input should give uniform output
+        for val in &x {
+            assert!((val - 1.0 / 16.0).abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn test_softmax_simd_sums_to_one() {
+        let mut x = vec![0.1, 0.5, 1.0, 2.0, -1.0, 0.0, 0.3, 1.5];
+        softmax_simd(&mut x);
+
+        let sum: f32 = x.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_softmax_simd_large_input() {
+        let mut x: Vec<f32> = (0..64).map(|i| (i as f32 - 32.0) * 0.1).collect();
+        softmax_simd(&mut x);
+
+        let sum: f32 = x.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-5);
+        assert!(!x.iter().any(|v| v.is_nan()));
+    }
+
+    #[test]
+    fn test_softmax_simd_numerical_stability() {
+        // Large values should not overflow
+        let mut x = vec![1000.0f32, 1001.0, 1002.0];
+        softmax_simd(&mut x);
+
+        let sum: f32 = x.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-5);
+        assert!(!x.iter().any(|v| v.is_nan()));
+    }
+
+    // ============= fused_swiglu_simd tests =============
+
+    #[test]
+    #[should_panic(expected = "gate and up must have same length")]
+    fn test_fused_swiglu_simd_length_mismatch() {
+        let mut gate = vec![1.0f32; 4];
+        let up = vec![1.0f32; 8];
+        fused_swiglu_simd(&mut gate, &up);
+    }
+
+    #[test]
+    fn test_fused_swiglu_simd_zeros() {
+        let mut gate = vec![0.0f32; 16];
+        let up = vec![1.0f32; 16];
+        fused_swiglu_simd(&mut gate, &up);
+
+        // silu(0) = 0 * sigmoid(0) = 0 * 0.5 = 0
+        for val in &gate {
+            assert!(val.abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn test_fused_swiglu_simd_positive() {
+        let mut gate = vec![1.0f32; 16];
+        let up = vec![2.0f32; 16];
+        fused_swiglu_simd(&mut gate, &up);
+
+        // silu(1) ≈ 0.731, result ≈ 1.462
+        for val in &gate {
+            assert!((val - 1.462).abs() < 0.05);
+        }
+    }
+
+    // ============= apply_rope_rotation_simd tests =============
+
+    #[test]
+    fn test_apply_rope_rotation_simd_identity() {
+        let mut x = vec![1.0f32, 2.0, 3.0, 4.0]; // head_dim = 4
+        let freqs_cos = vec![1.0, 1.0]; // cos(0) = 1
+        let freqs_sin = vec![0.0, 0.0]; // sin(0) = 0
+
+        apply_rope_rotation_simd(&mut x, &freqs_cos, &freqs_sin, 4);
+
+        // With cos=1, sin=0: no rotation
+        assert!((x[0] - 1.0).abs() < 1e-5);
+        assert!((x[1] - 2.0).abs() < 1e-5);
+        assert!((x[2] - 3.0).abs() < 1e-5);
+        assert!((x[3] - 4.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_apply_rope_rotation_simd_90_degrees() {
+        let mut x = vec![1.0f32, 0.0, 0.0, 0.0]; // head_dim = 4
+        let freqs_cos = vec![0.0, 0.0]; // cos(90°) = 0
+        let freqs_sin = vec![1.0, 1.0]; // sin(90°) = 1
+
+        apply_rope_rotation_simd(&mut x, &freqs_cos, &freqs_sin, 4);
+
+        // x[0]' = x[0]*cos - x[2]*sin = 1*0 - 0*1 = 0
+        // x[2]' = x[0]*sin + x[2]*cos = 1*1 + 0*0 = 1
+        assert!((x[0] - 0.0).abs() < 1e-5);
+        assert!((x[2] - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_apply_rope_rotation_simd_large() {
+        let head_dim = 64;
+        let half_dim = head_dim / 2;
+        let mut x: Vec<f32> = (0..head_dim).map(|i| i as f32).collect();
+        let angle = 0.5f32;
+        let freqs_cos: Vec<f32> = (0..half_dim).map(|_| angle.cos()).collect();
+        let freqs_sin: Vec<f32> = (0..half_dim).map(|_| angle.sin()).collect();
+
+        let x_orig = x.clone();
+        apply_rope_rotation_simd(&mut x, &freqs_cos, &freqs_sin, head_dim);
+
+        // Verify rotation was applied (values changed)
+        let changed = x.iter().zip(x_orig.iter()).any(|(a, b)| (a - b).abs() > 1e-5);
+        assert!(changed, "rotation should modify values");
+    }
+
+    // ============= hsum tests (x86_64 only) =============
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_hsum_epi32_128() {
+        if !is_x86_feature_detected!("avx2") {
+            return;
+        }
+
+        unsafe {
+            use std::arch::x86_64::_mm_setr_epi32;
+            let v = _mm_setr_epi32(1, 2, 3, 4);
+            let sum = hsum_epi32_128(v);
+            assert_eq!(sum, 10);
+        }
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_hsum_epi32_256() {
+        if !is_x86_feature_detected!("avx2") {
+            return;
+        }
+
+        unsafe {
+            use std::arch::x86_64::_mm256_setr_epi32;
+            let v = _mm256_setr_epi32(1, 2, 3, 4, 5, 6, 7, 8);
+            let sum = hsum_epi32_256(v);
+            assert_eq!(sum, 36);
+        }
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_horizontal_sum_epi32_256() {
+        if !is_x86_feature_detected!("avx2") {
+            return;
+        }
+
+        unsafe {
+            use std::arch::x86_64::_mm256_setr_epi32;
+            let v = _mm256_setr_epi32(10, 20, 30, 40, 50, 60, 70, 80);
+            let sum = horizontal_sum_epi32_256(v);
+            assert_eq!(sum, 360);
+        }
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_horizontal_sum_epi16_256() {
+        if !is_x86_feature_detected!("avx2") {
+            return;
+        }
+
+        unsafe {
+            use std::arch::x86_64::_mm256_setr_epi16;
+            let v = _mm256_setr_epi16(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
+            let sum = horizontal_sum_epi16_256(v);
+            assert_eq!(sum, 136); // 1+2+...+16 = 136
+        }
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_hsum_epi32() {
+        if !is_x86_feature_detected!("avx2") {
+            return;
+        }
+
+        unsafe {
+            use std::arch::x86_64::_mm256_setr_epi32;
+            let v = _mm256_setr_epi32(-1, 2, -3, 4, -5, 6, -7, 8);
+            let sum = hsum_epi32(v);
+            assert_eq!(sum, 4); // (-1+2-3+4-5+6-7+8) = 4
+        }
+    }
+}
