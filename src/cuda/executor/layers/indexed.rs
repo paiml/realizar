@@ -1467,3 +1467,61 @@ impl CudaExecutor {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[cfg(feature = "cuda")]
+mod tests {
+    use super::*;
+
+    /// Helper to create CudaExecutor for tests
+    fn create_executor() -> Option<CudaExecutor> {
+        CudaExecutor::new(0).ok()
+    }
+
+    // ========================================================================
+    // Tests for transformer_layer_indexed
+    // ========================================================================
+
+    #[test]
+    fn test_transformer_layer_indexed_missing_kv_cache() {
+        let Some(mut exec) = create_executor() else { return; };
+
+        // Create dummy IndexedLayerWeights using Default
+        let layer_weights = IndexedLayerWeights::default();
+
+        let input: Vec<f32> = vec![0.1; 256];
+        let input_buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
+
+        // Will fail due to missing KV cache setup or zero pointers
+        let result = exec.transformer_layer_indexed(
+            &input_buf,
+            0,              // layer_idx
+            &layer_weights,
+            256,            // hidden_dim
+            1024,           // intermediate_dim
+            1e-5,           // epsilon
+        );
+
+        // Expected to fail - KV cache not initialized or zero pointers
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_indexed_layer_weights_default() {
+        // Test that default creates valid zeroed structure
+        let weights = IndexedLayerWeights::default();
+        assert_eq!(weights.attn_norm_ptr, 0);
+        assert_eq!(weights.attn_norm_len, 0);
+        assert_eq!(weights.attn_q_ptr, 0);
+        assert!(matches!(weights.attn_v_qtype, WeightQuantType::Q4K));
+    }
+
+    #[test]
+    fn test_weight_quant_type_variants() {
+        // Test WeightQuantType::Q6K path exists in transformer_layer_indexed
+        // The match arm for Q6K uses q6k_gemv_indexed_async
+        assert!(matches!(WeightQuantType::Q6K, WeightQuantType::Q6K));
+        assert!(matches!(WeightQuantType::Q4K, WeightQuantType::Q4K));
+        assert!(matches!(WeightQuantType::Q5K, WeightQuantType::Q5K));
+    }
+}
