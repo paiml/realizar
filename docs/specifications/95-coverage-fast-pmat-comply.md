@@ -351,6 +351,7 @@ Every week, review:
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
+| 1.4.0 | 2026-01-28 | Claude | CUDA enabled in all coverage targets (trueno-style); RTX 4090 always available per CLAUDE.md |
 | 1.3.0 | 2026-01-27 | Claude | Root cause analysis: 11,759 tests cover all unit-testable code; remaining 50% gap is feature-gated (GPU/CUDA) and requires integration tests |
 | 1.2.0 | 2026-01-27 | Gemini | Full PMAT Tooling integration (Popper Score, Quality Gates) |
 | 1.1.0 | 2026-01-27 | Gemini | Enhanced Popperian Falsification, Mutation Testing added, O(1) definition refined |
