@@ -382,14 +382,27 @@ Every week, review:
 | Quantization kernels | ~5,000 | 8% | No - SIMD-specific branches |
 | **Remaining** | ~20,000 | 31% | Partially (integration tests) |
 
-### 12.3 Conclusion
+### 12.3 CUDA Coverage Results (2026-01-28)
 
-**Finding:** All unit-testable code paths have comprehensive tests.
+Coverage run with `--features cuda` enabled (trueno-style):
+- Core tests: 3514 passed (292s)
+- CUDA tests: 782 passed (370s)
+- Total time: 701s (~12 min)
+- **Line Coverage: 43.95%** (similar to before enabling CUDA)
 
-The 95% target requires:
-1. **GPU CI infrastructure** - Enable `--features cuda` in coverage runs
-2. **Model fixtures** - GGUF/APR test models for inference pipeline
-3. **Integration test harness** - Mock backends for API handlers
+**Key Finding:** Enabling `--features cuda` does NOT significantly improve coverage because:
+1. CUDA code is now **compiled** but many paths require actual inference
+2. API handlers still return early in test/demo mode (0% coverage)
+3. GPU inference paths require loaded models and actual GPU operations
+
+### 12.4 Conclusion
+
+**Finding:** All unit-testable code paths have comprehensive tests (11,759 tests).
+
+The remaining ~56% gap requires integration test infrastructure:
+1. **Mock model backend** - Inject test models into API handlers
+2. **GPU inference harness** - Execute actual forward passes with test data
+3. **Integration test suite** - End-to-end inference with small models
 4. **Cross-architecture testing** - ARM NEON, AVX-512 fallback paths
 
 Estimated effort: 3-4 engineering sprints (per coverage report Section 11.3).
