@@ -31,29 +31,83 @@ use crate::error::{RealizarError, Result};
 use crate::safetensors::{MappedSafeTensorsModel, SafetensorsConfig};
 use std::path::Path;
 
-/// PMAT-120: Helper functions for weight handling.
-/// Based on analysis: CPU path works WITHOUT transpose, so GPU should match.
-/// The GEMM kernel does C[m,n] = A[m,k] @ B^T[n,k] internally (BLAS-style).
+/// PMAT-120 FIX: Weight transposition for GEMM.
+///
+/// GEMM kernel computes C[m,n] = A[m,k] × B[k,n] with ROW-MAJOR storage:
+/// - A[i,j] at offset `i * k + j`
+/// - B[i,j] at offset `i * n + j`
+/// - C[i,j] at offset `i * n + j`
+///
+/// HuggingFace stores Linear weights as [out_features, in_features] = [n, k].
+/// GEMM needs B as [k, n]. Therefore: TRANSPOSE IS REQUIRED.
 impl SafeTensorsCudaModel {
-    /// Keep weight in HuggingFace [out, in] layout - no transpose needed.
-    /// GEMM kernel expects B in [n, k] layout (row-major) which matches HuggingFace.
-    fn keep_weight(weight: &[f32], _out_dim: usize, _in_dim: usize) -> Vec<f32> {
-        weight.to_vec()
+    /// Transpose weight from HuggingFace [n, k] to GEMM-required [k, n].
+    ///
+    /// HuggingFace: W[i, j] at offset `i * k + j` where i=0..n, j=0..k
+    /// GEMM needs:  B[j, i] at offset `j * n + i` where j=0..k, i=0..n
+    fn transpose_for_gemm(weight: &[f32], n: usize, k: usize) -> Vec<f32> {
+        let mut transposed = vec![0.0f32; weight.len()];
+        for i in 0..n {
+            for j in 0..k {
+                // HuggingFace element at row i, col j
+                let src_idx = i * k + j;
+                // GEMM needs element at row j, col i
+                let dst_idx = j * n + i;
+                transposed[dst_idx] = weight[src_idx];
+            }
+        }
+        transposed
     }
 
-    /// Concatenate Q, K, V weights without transposition.
-    /// Simple concatenation like the CPU path does.
-    fn concat_qkv(
+    /// Concatenate Q, K, V weights and transpose for GEMM.
+    ///
+    /// HuggingFace stores separately:
+    /// - Q: [hidden_dim, hidden_dim] (n=hidden, k=hidden)
+    /// - K: [kv_dim, hidden_dim] (n=kv_dim, k=hidden)
+    /// - V: [kv_dim, hidden_dim] (n=kv_dim, k=hidden)
+    ///
+    /// GEMM needs combined QKV as [hidden_dim, hidden_dim + kv_dim + kv_dim].
+    fn concat_qkv_transposed(
         q: &[f32],
         k: &[f32],
         v: &[f32],
-        _hidden_dim: usize,
-        _kv_dim: usize,
+        hidden_dim: usize,
+        kv_dim: usize,
     ) -> Vec<f32> {
-        let mut qkv = Vec::with_capacity(q.len() + k.len() + v.len());
-        qkv.extend_from_slice(q);
-        qkv.extend_from_slice(k);
-        qkv.extend_from_slice(v);
+        // Transpose each weight matrix
+        let q_t = Self::transpose_for_gemm(q, hidden_dim, hidden_dim);
+        let k_t = Self::transpose_for_gemm(k, kv_dim, hidden_dim);
+        let v_t = Self::transpose_for_gemm(v, kv_dim, hidden_dim);
+
+        // After transpose:
+        // q_t: [hidden_dim, hidden_dim] row-major
+        // k_t: [hidden_dim, kv_dim] row-major
+        // v_t: [hidden_dim, kv_dim] row-major
+
+        // Concatenate along columns (output dimension):
+        // Result: [hidden_dim, hidden_dim + kv_dim + kv_dim]
+        let total_out = hidden_dim + kv_dim + kv_dim;
+        let mut qkv = vec![0.0f32; hidden_dim * total_out];
+
+        for row in 0..hidden_dim {
+            let dst_start = row * total_out;
+
+            // Copy Q row (hidden_dim elements)
+            let q_src = row * hidden_dim;
+            qkv[dst_start..dst_start + hidden_dim]
+                .copy_from_slice(&q_t[q_src..q_src + hidden_dim]);
+
+            // Copy K row (kv_dim elements)
+            let k_src = row * kv_dim;
+            qkv[dst_start + hidden_dim..dst_start + hidden_dim + kv_dim]
+                .copy_from_slice(&k_t[k_src..k_src + kv_dim]);
+
+            // Copy V row (kv_dim elements)
+            let v_src = row * kv_dim;
+            qkv[dst_start + hidden_dim + kv_dim..dst_start + hidden_dim + 2 * kv_dim]
+                .copy_from_slice(&v_t[v_src..v_src + kv_dim]);
+        }
+
         qkv
     }
 }
@@ -81,6 +135,12 @@ pub struct SafeTensorsCudaModel {
     /// RMS norm gamma weights (CPU copy for hybrid GPU/CPU path)
     /// Key format: "attn.{layer_idx}" or "ffn.{layer_idx}" or "output"
     gamma_cache: std::collections::HashMap<String, Vec<f32>>,
+    /// PMAT-120 FIX: QKV bias cache (Qwen2 has attention bias terms)
+    /// Key format: "qkv_bias.{layer_idx}" - concatenated Q+K+V biases
+    qkv_bias_cache: std::collections::HashMap<String, Vec<f32>>,
+    /// PMAT-120 FIX: Output projection bias cache
+    /// Key format: "o_bias.{layer_idx}"
+    o_bias_cache: std::collections::HashMap<String, Vec<f32>>,
 }
 
 /// Configuration extracted from config.json
@@ -178,7 +238,8 @@ impl SafeTensorsCudaModel {
         executor.set_rope_type(0); // NORM style for Qwen2
 
         // 7. Upload all weights to GPU (F-MEM-021 to F-MEM-035)
-        let (embedding_cache, gamma_cache) = Self::upload_weights(&mut executor, &st_model, &config)?;
+        let (embedding_cache, gamma_cache, qkv_bias_cache, o_bias_cache) =
+            Self::upload_weights(&mut executor, &st_model, &config)?;
 
         Ok(Self {
             executor,
@@ -189,6 +250,8 @@ impl SafeTensorsCudaModel {
             kv_position: 0,
             embedding_cache,
             gamma_cache,
+            qkv_bias_cache,
+            o_bias_cache,
         })
     }
 
@@ -227,13 +290,19 @@ impl SafeTensorsCudaModel {
 
     /// Upload all model weights to GPU.
     ///
-    /// Returns (embedding_table, gamma_cache) - embedding kept on CPU for token lookup,
-    /// gamma_cache kept on CPU for RMS norm operations.
+    /// Returns (embedding_table, gamma_cache, qkv_bias_cache, o_bias_cache) - embedding kept on CPU
+    /// for token lookup, gamma_cache kept on CPU for RMS norm operations, bias caches for attention.
+    #[allow(clippy::type_complexity)]
     fn upload_weights(
         executor: &mut CudaExecutor,
         st_model: &MappedSafeTensorsModel,
         config: &SafeTensorsCudaConfig,
-    ) -> Result<(Vec<f32>, std::collections::HashMap<String, Vec<f32>>)> {
+    ) -> Result<(
+        Vec<f32>,
+        std::collections::HashMap<String, Vec<f32>>,
+        std::collections::HashMap<String, Vec<f32>>,
+        std::collections::HashMap<String, Vec<f32>>,
+    )> {
         let hidden_dim = config.hidden_dim;
         let num_layers = config.num_layers;
         let num_heads = config.num_heads;
@@ -245,6 +314,9 @@ impl SafeTensorsCudaModel {
 
         // Gamma cache for CPU RMS norm
         let mut gamma_cache = std::collections::HashMap::new();
+        // PMAT-120 FIX: Bias caches for attention projections
+        let mut qkv_bias_cache = std::collections::HashMap::new();
+        let mut o_bias_cache = std::collections::HashMap::new();
 
         // Embedding table (keep on CPU for token lookup)
         let embedding = st_model.get_tensor_auto("model.embed_tokens.weight")?;
@@ -263,9 +335,9 @@ impl SafeTensorsCudaModel {
         // PMAT-120 FIX: Use actual transpose for GEMM (not SafetensorsToAprConverter::transpose_weight which is a no-op)
         let lm_head = if st_model.has_tensor("lm_head.weight") {
             let raw = st_model.get_tensor_auto("lm_head.weight")?;
-            Self::keep_weight(&raw, vocab_size, hidden_dim)
+            Self::transpose_for_gemm(&raw, vocab_size, hidden_dim)
         } else {
-            Self::keep_weight(&embedding, vocab_size, hidden_dim)
+            Self::transpose_for_gemm(&embedding, vocab_size, hidden_dim)
         };
         executor
             .load_weights("lm_head", &lm_head)
@@ -294,7 +366,7 @@ impl SafeTensorsCudaModel {
             let q = st_model.get_tensor_auto(&format!("{prefix}.self_attn.q_proj.weight"))?;
             let k = st_model.get_tensor_auto(&format!("{prefix}.self_attn.k_proj.weight"))?;
             let v = st_model.get_tensor_auto(&format!("{prefix}.self_attn.v_proj.weight"))?;
-            let qkv = Self::concat_qkv(&q, &k, &v, hidden_dim, kv_dim);
+            let qkv = Self::concat_qkv_transposed(&q, &k, &v, hidden_dim, kv_dim);
             executor
                 .load_weights(&format!("blk.{layer_idx}.attn_qkv"), &qkv)
                 .map_err(|e| RealizarError::UnsupportedOperation {
@@ -302,16 +374,38 @@ impl SafeTensorsCudaModel {
                     reason: format!("Failed to upload layer {layer_idx} qkv: {e}"),
                 })?;
 
+            // PMAT-120 FIX: Load QKV bias terms (Qwen2 has attention biases!)
+            // Concatenate Q+K+V biases into single vector
+            let q_bias = st_model
+                .get_tensor_auto(&format!("{prefix}.self_attn.q_proj.bias"))
+                .unwrap_or_else(|_| vec![0.0f32; hidden_dim]);
+            let k_bias = st_model
+                .get_tensor_auto(&format!("{prefix}.self_attn.k_proj.bias"))
+                .unwrap_or_else(|_| vec![0.0f32; kv_dim]);
+            let v_bias = st_model
+                .get_tensor_auto(&format!("{prefix}.self_attn.v_proj.bias"))
+                .unwrap_or_else(|_| vec![0.0f32; kv_dim]);
+            let mut qkv_bias = Vec::with_capacity(hidden_dim + 2 * kv_dim);
+            qkv_bias.extend_from_slice(&q_bias);
+            qkv_bias.extend_from_slice(&k_bias);
+            qkv_bias.extend_from_slice(&v_bias);
+            qkv_bias_cache.insert(format!("qkv_bias.{layer_idx}"), qkv_bias);
+
             // Output projection
             // PMAT-120 FIX: Use actual transpose for GEMM
             let o_raw = st_model.get_tensor_auto(&format!("{prefix}.self_attn.o_proj.weight"))?;
-            let o = Self::keep_weight(&o_raw, hidden_dim, hidden_dim);
+            let o = Self::transpose_for_gemm(&o_raw, hidden_dim, hidden_dim);
             executor
                 .load_weights(&format!("blk.{layer_idx}.attn_output"), &o)
                 .map_err(|e| RealizarError::UnsupportedOperation {
                     operation: "load_weights".to_string(),
                     reason: format!("Failed to upload layer {layer_idx} attn_output: {e}"),
                 })?;
+
+            // PMAT-120 FIX: Load o_proj bias (if present)
+            if let Ok(o_bias) = st_model.get_tensor_auto(&format!("{prefix}.self_attn.o_proj.bias")) {
+                o_bias_cache.insert(format!("o_bias.{layer_idx}"), o_bias);
+            }
 
             // FFN norm - upload to rmsnorm_cache AND keep CPU copy
             let ffn_norm =
@@ -328,7 +422,7 @@ impl SafeTensorsCudaModel {
             // FFN gate (SwiGLU)
             // PMAT-120 FIX: Use actual transpose for GEMM
             let gate_raw = st_model.get_tensor_auto(&format!("{prefix}.mlp.gate_proj.weight"))?;
-            let gate = Self::keep_weight(&gate_raw, intermediate_dim, hidden_dim);
+            let gate = Self::transpose_for_gemm(&gate_raw, intermediate_dim, hidden_dim);
             executor
                 .load_weights(&format!("blk.{layer_idx}.ffn_gate"), &gate)
                 .map_err(|e| RealizarError::UnsupportedOperation {
@@ -339,7 +433,7 @@ impl SafeTensorsCudaModel {
             // FFN up
             // PMAT-120 FIX: Use actual transpose for GEMM
             let up_raw = st_model.get_tensor_auto(&format!("{prefix}.mlp.up_proj.weight"))?;
-            let up = Self::keep_weight(&up_raw, intermediate_dim, hidden_dim);
+            let up = Self::transpose_for_gemm(&up_raw, intermediate_dim, hidden_dim);
             executor
                 .load_weights(&format!("blk.{layer_idx}.ffn_up"), &up)
                 .map_err(|e| RealizarError::UnsupportedOperation {
@@ -350,7 +444,7 @@ impl SafeTensorsCudaModel {
             // FFN down
             // PMAT-120 FIX: Use actual transpose for GEMM
             let down_raw = st_model.get_tensor_auto(&format!("{prefix}.mlp.down_proj.weight"))?;
-            let down = Self::keep_weight(&down_raw, hidden_dim, intermediate_dim);
+            let down = Self::transpose_for_gemm(&down_raw, hidden_dim, intermediate_dim);
             executor
                 .load_weights(&format!("blk.{layer_idx}.ffn_down"), &down)
                 .map_err(|e| RealizarError::UnsupportedOperation {
@@ -359,7 +453,7 @@ impl SafeTensorsCudaModel {
                 })?;
         }
 
-        Ok((embedding, gamma_cache))
+        Ok((embedding, gamma_cache, qkv_bias_cache, o_bias_cache))
     }
 
     /// Get GPU device name.
@@ -527,6 +621,13 @@ impl SafeTensorsCudaModel {
                 reason: format!("Layer {layer_idx} QKV GEMM failed: {e}"),
             })?;
 
+        // PMAT-120 FIX: Add QKV bias (Qwen2 has attention biases!)
+        if let Some(bias) = self.qkv_bias_cache.get(&format!("qkv_bias.{layer_idx}")) {
+            for (q, b) in qkv.iter_mut().zip(bias.iter()) {
+                *q += b;
+            }
+        }
+
         // 3. Split Q, K, V
         let mut q = qkv[..hidden_dim].to_vec();
         let mut k = qkv[hidden_dim..hidden_dim + kv_dim].to_vec();
@@ -604,6 +705,13 @@ impl SafeTensorsCudaModel {
                 operation: "attn_output".to_string(),
                 reason: format!("Layer {layer_idx} attn output GEMM failed: {e}"),
             })?;
+
+        // PMAT-120 FIX: Add o_proj bias (if present)
+        if let Some(bias) = self.o_bias_cache.get(&format!("o_bias.{layer_idx}")) {
+            for (p, b) in attn_proj.iter_mut().zip(bias.iter()) {
+                *p += b;
+            }
+        }
 
         // 6. Residual connection
         let mut residual: Vec<f32> = hidden.iter().zip(&attn_proj).map(|(a, b)| a + b).collect();
