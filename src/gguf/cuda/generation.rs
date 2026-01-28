@@ -282,6 +282,15 @@ impl OwnedQuantizedModelCuda {
             return Ok(Vec::new());
         }
 
+        // GH-167: Check context length BEFORE GPU dispatch to return clean error
+        // instead of cryptic CUDA_ERROR_UNKNOWN when attention matrix exceeds allocated size
+        if prompt.len() > self.model.config.context_length {
+            return Err(RealizarError::ContextLimitExceeded {
+                provided: prompt.len(),
+                maximum: self.model.config.context_length,
+            });
+        }
+
         // THREAD-RESOLVED: Ensure CUDA context is current for this thread
         // (context may have been created on a different thread, e.g., main vs tokio worker)
         self.executor
@@ -429,6 +438,14 @@ impl OwnedQuantizedModelCuda {
     {
         if prompt.is_empty() {
             return Ok(Vec::new());
+        }
+
+        // GH-167: Check context length BEFORE GPU dispatch to return clean error
+        if prompt.len() > self.model.config.context_length {
+            return Err(RealizarError::ContextLimitExceeded {
+                provided: prompt.len(),
+                maximum: self.model.config.context_length,
+            });
         }
 
         // THREAD-RESOLVED: Ensure CUDA context is current for this thread

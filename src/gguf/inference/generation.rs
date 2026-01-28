@@ -53,6 +53,14 @@ impl OwnedQuantizedModel {
             });
         }
 
+        // GH-167: Check context length before GPU dispatch to avoid cryptic CUDA errors
+        if prompt.len() > self.config.context_length {
+            return Err(RealizarError::ContextLimitExceeded {
+                provided: prompt.len(),
+                maximum: self.config.context_length,
+            });
+        }
+
         let mut tokens = prompt.to_vec();
         let max_len = prompt.len() + config.max_tokens;
 
@@ -148,6 +156,14 @@ impl OwnedQuantizedModel {
         if prompt.is_empty() {
             return Err(RealizarError::InvalidShape {
                 reason: "Prompt cannot be empty".to_string(),
+            });
+        }
+
+        // GH-167: Check context length before processing to avoid cryptic CUDA errors
+        if prompt.len() > self.config.context_length {
+            return Err(RealizarError::ContextLimitExceeded {
+                provided: prompt.len(),
+                maximum: self.config.context_length,
             });
         }
 
@@ -295,6 +311,14 @@ impl OwnedQuantizedModel {
             });
         }
 
+        // GH-167: Check context length before processing to avoid cryptic CUDA errors
+        if prompt.len() > self.config.context_length {
+            return Err(RealizarError::ContextLimitExceeded {
+                provided: prompt.len(),
+                maximum: self.config.context_length,
+            });
+        }
+
         let max_seq_len = prompt.len() + config.max_tokens;
         let mut cache = OwnedQuantizedKVCache::from_config(&self.config, max_seq_len);
         let mut tokens = prompt.to_vec();
@@ -403,6 +427,14 @@ impl OwnedQuantizedModel {
         if prompt.is_empty() {
             return Err(RealizarError::InvalidShape {
                 reason: "Prompt cannot be empty".to_string(),
+            });
+        }
+
+        // GH-167: Check context length before processing to avoid cryptic CUDA errors
+        if prompt.len() > self.config.context_length {
+            return Err(RealizarError::ContextLimitExceeded {
+                provided: prompt.len(),
+                maximum: self.config.context_length,
             });
         }
 
