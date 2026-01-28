@@ -1432,4 +1432,165 @@ mod tests {
         let result = exec.q4k_gemv_cached_tiled("nonexistent", &input, &mut output, 128, 256);
         assert!(result.is_err());
     }
+
+    // ========================================================================
+    // Harness-Based Integration Tests
+    // ========================================================================
+
+    #[test]
+    fn test_q4k_gemv_with_harness() {
+        use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
+        let Some(mut exec) = create_executor() else { return; };
+        let config = HarnessConfig::default();
+        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+
+        // Use indexed weights from layer 0
+        let layer_weights = &exec.indexed_layer_weights[0];
+        let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).unwrap();
+        let output = GpuBuffer::<f32>::new(&exec.context, config.hidden_dim).unwrap();
+
+        // Test Q4K GEMV using attn_q weight
+        let result = exec.q4k_gemv_into_tiled(
+            layer_weights.attn_q_ptr,
+            &input,
+            &output,
+            config.hidden_dim as u32,
+            config.hidden_dim as u32,
+        );
+        let _ = result;
+    }
+
+    #[test]
+    fn test_q4k_gemv_coalesced_with_harness() {
+        use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
+        let Some(mut exec) = create_executor() else { return; };
+        let config = HarnessConfig::default();
+        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+
+        let layer_weights = &exec.indexed_layer_weights[0];
+        let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).unwrap();
+        let output = GpuBuffer::<f32>::new(&exec.context, config.hidden_dim).unwrap();
+
+        let result = exec.coalesced_q4k_gemv_into(
+            layer_weights.attn_q_ptr,
+            &input,
+            &output,
+            config.hidden_dim as u32,
+            config.hidden_dim as u32,
+        );
+        let _ = result;
+    }
+
+    #[test]
+    fn test_q4k_gemv_vectorized_with_harness() {
+        use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
+        let Some(mut exec) = create_executor() else { return; };
+        let config = HarnessConfig::default();
+        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+
+        let layer_weights = &exec.indexed_layer_weights[0];
+        let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).unwrap();
+        let output = GpuBuffer::<f32>::new(&exec.context, config.hidden_dim).unwrap();
+
+        let result = exec.vectorized_q4k_gemv_into(
+            layer_weights.attn_q_ptr,
+            &input,
+            &output,
+            config.hidden_dim as u32,
+            config.hidden_dim as u32,
+        );
+        let _ = result;
+    }
+
+    #[test]
+    fn test_q4k_gemv_dp4a_with_harness() {
+        use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
+        let Some(mut exec) = create_executor() else { return; };
+        let config = HarnessConfig::default();
+        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+
+        let layer_weights = &exec.indexed_layer_weights[0];
+        let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).unwrap();
+        let output = GpuBuffer::<f32>::new(&exec.context, config.hidden_dim).unwrap();
+
+        let result = exec.dp4a_q4k_gemv_into(
+            layer_weights.attn_q_ptr,
+            &input,
+            &output,
+            config.hidden_dim as u32,
+            config.hidden_dim as u32,
+        );
+        let _ = result;
+    }
+
+    #[test]
+    fn test_fused_rmsnorm_q4k_with_harness() {
+        use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
+        let Some(mut exec) = create_executor() else { return; };
+        let config = HarnessConfig::default();
+        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+
+        let layer_weights = &exec.indexed_layer_weights[0];
+        let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).unwrap();
+        let output = GpuBuffer::<f32>::new(&exec.context, config.hidden_dim).unwrap();
+
+        // Use RMSNorm gamma pointer and attn_q weight
+        let result = exec.fused_rmsnorm_q4k_gemv_into(
+            layer_weights.attn_q_ptr,
+            &input,
+            layer_weights.attn_norm_ptr,
+            &output,
+            config.hidden_dim as u32,
+            config.hidden_dim as u32,
+            1e-5,
+        );
+        let _ = result;
+    }
+
+    #[test]
+    fn test_fused_gate_up_q4k_with_harness() {
+        use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
+        let Some(mut exec) = create_executor() else { return; };
+        let config = HarnessConfig::default();
+        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+
+        let layer_weights = &exec.indexed_layer_weights[0];
+        let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).unwrap();
+        let gate_out = GpuBuffer::<f32>::new(&exec.context, config.intermediate_dim).unwrap();
+        let up_out = GpuBuffer::<f32>::new(&exec.context, config.intermediate_dim).unwrap();
+
+        let result = exec.fused_gate_up_q4k_gemv_into(
+            layer_weights.ffn_gate_ptr,
+            layer_weights.ffn_up_ptr,
+            &input,
+            &gate_out,
+            &up_out,
+            config.hidden_dim as u32,
+            config.intermediate_dim as u32,
+        );
+        let _ = result;
+    }
+
+    #[test]
+    fn test_batched_q4k_gemv_with_harness() {
+        use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
+        let Some(mut exec) = create_executor() else { return; };
+        let config = HarnessConfig::default();
+        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+
+        let layer_weights = &exec.indexed_layer_weights[0];
+        let m = 4u32;
+        let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; (m as usize) * config.hidden_dim]).unwrap();
+        let output = GpuBuffer::<f32>::new(&exec.context, (m as usize) * config.hidden_dim).unwrap();
+
+        let result = exec.batched_q4k_gemv_into(
+            layer_weights.attn_q_ptr,
+            &input,
+            &output,
+            m,
+            config.hidden_dim as u32,
+            config.hidden_dim as u32,
+        );
+        let _ = result;
+    }
 }
