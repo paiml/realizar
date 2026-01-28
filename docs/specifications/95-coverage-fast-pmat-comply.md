@@ -351,6 +351,7 @@ Every week, review:
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
+| 1.6.0 | 2026-01-28 | Claude | Added 40 tests to apr module (helpers, tokenizer); Total new tests this session: 135 |
 | 1.5.0 | 2026-01-28 | Claude | Added 95 tests to apr_transformer module (config, helpers, dequant, loader, q4_simd); Total: 17,431 tests |
 | 1.4.0 | 2026-01-28 | Claude | CUDA enabled in all coverage targets (trueno-style); RTX 4090 always available per CLAUDE.md |
 | 1.3.0 | 2026-01-27 | Claude | Root cause analysis: 11,759 tests cover all unit-testable code; remaining 50% gap is feature-gated (GPU/CUDA) and requires integration tests |
@@ -369,11 +370,19 @@ Every week, review:
 | **Total** | **17,431** |
 
 **New Tests Added (2026-01-28):**
+
+*apr_transformer module (95 tests):*
 - `apr_transformer/config.rs`: 25 tests (AprKVCache, GenerateConfig, AprTransformerConfig, AprTransformerLayer, Q4KLayerWeights)
 - `apr_transformer/helpers.rs`: 13 tests (simd_dot_f32, simd_add_weighted with AVX2 and scalar paths)
 - `apr_transformer/dequant.rs`: 18 tests (f16_to_f32, extract_scale_min_apr, dequantize_q4_k_apr, dequantize_q6_k_apr)
 - `apr_transformer/loader.rs`: 29 tests (AprQuantizationType, QuantizedAprTransformer)
 - `apr_transformer/q4_simd.rs`: 10 tests (QuantizedAprTensorQ4, AprInferenceScratch)
+
+*apr module (40 tests):*
+- `apr/helpers.rs`: 20 tests (rms_norm, matmul, simd_dot, apply_rope_norm, simple_attention, detect_format)
+- `apr/tokenizer.rs`: 20 tests (SimpleTokenizer, BpeTokenizer, bpe_encode, byte_to_bpe_char)
+
+**Total new tests added: 135**
 
 ### 12.2 Coverage Analysis
 
