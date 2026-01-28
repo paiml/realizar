@@ -1595,3 +1595,167 @@ impl CudaExecutor {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[cfg(feature = "cuda")]
+mod tests {
+    use super::*;
+
+    /// Helper to create CudaExecutor for tests
+    fn create_executor() -> Option<CudaExecutor> {
+        CudaExecutor::new(0).ok()
+    }
+
+    // ========================================================================
+    // Validation Tests for forward_batched_to_token_ids
+    // ========================================================================
+
+    #[test]
+    fn test_forward_batched_empty_batch() {
+        let Some(mut exec) = create_executor() else { return; };
+
+        let inputs: Vec<f32> = vec![];
+        let positions: Vec<u32> = vec![];
+
+        let result = exec.forward_batched_to_token_ids(
+            &inputs,
+            &positions,
+            1,     // num_layers
+            256,   // hidden_dim
+            1024,  // intermediate_dim
+            1024,  // vocab_size
+            1e-5,  // epsilon
+        );
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        let err_str = format!("{:?}", err);
+        assert!(err_str.contains("batch size must be 1-32"));
+    }
+
+    #[test]
+    fn test_forward_batched_batch_too_large() {
+        let Some(mut exec) = create_executor() else { return; };
+
+        // Batch size > 32 should fail
+        let positions: Vec<u32> = (0..33).collect();
+        let inputs: Vec<f32> = vec![0.1; 33 * 256];
+
+        let result = exec.forward_batched_to_token_ids(
+            &inputs,
+            &positions,
+            1,
+            256,
+            1024,
+            1024,
+            1e-5,
+        );
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        let err_str = format!("{:?}", err);
+        assert!(err_str.contains("batch size must be 1-32"));
+    }
+
+    #[test]
+    fn test_forward_batched_input_size_mismatch() {
+        let Some(mut exec) = create_executor() else { return; };
+
+        let positions: Vec<u32> = vec![0, 1, 2, 3];
+        // Wrong input size: M=4, hidden_dim=256, expected 1024, give 512
+        let inputs: Vec<f32> = vec![0.1; 512];
+
+        let result = exec.forward_batched_to_token_ids(
+            &inputs,
+            &positions,
+            1,
+            256,
+            1024,
+            1024,
+            1e-5,
+        );
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        let err_str = format!("{:?}", err);
+        assert!(err_str.contains("inputs.len()") && err_str.contains("!= M*hidden_dim"));
+    }
+
+    #[test]
+    fn test_forward_batched_workspace_not_initialized() {
+        let Some(mut exec) = create_executor() else { return; };
+
+        // Valid batch size and input size, but workspace not initialized
+        let positions: Vec<u32> = vec![0, 1, 2, 3];
+        let inputs: Vec<f32> = vec![0.1; 4 * 256];
+
+        let result = exec.forward_batched_to_token_ids(
+            &inputs,
+            &positions,
+            1,
+            256,
+            1024,
+            1024,
+            1e-5,
+        );
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        let err_str = format!("{:?}", err);
+        assert!(err_str.contains("workspace not initialized"));
+    }
+
+    #[test]
+    fn test_forward_batched_workspace_wrong_batch_size() {
+        let Some(mut exec) = create_executor() else { return; };
+
+        // Initialize workspace for batch size 8
+        let _ = exec.init_batched_workspace(256, 1024, 8);
+
+        // Try to use batch size 4 (different)
+        let positions: Vec<u32> = vec![0, 1, 2, 3];
+        let inputs: Vec<f32> = vec![0.1; 4 * 256];
+
+        let result = exec.forward_batched_to_token_ids(
+            &inputs,
+            &positions,
+            1,
+            256,
+            1024,
+            1024,
+            1e-5,
+        );
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        let err_str = format!("{:?}", err);
+        assert!(err_str.contains("workspace not initialized for M=4"));
+    }
+
+    #[test]
+    fn test_forward_batched_missing_indexed_weights() {
+        let Some(mut exec) = create_executor() else { return; };
+
+        // Initialize workspace correctly
+        let _ = exec.init_batched_workspace(256, 1024, 4);
+
+        // Don't build indexed weights
+        let positions: Vec<u32> = vec![0, 1, 2, 3];
+        let inputs: Vec<f32> = vec![0.1; 4 * 256];
+
+        let result = exec.forward_batched_to_token_ids(
+            &inputs,
+            &positions,
+            1,     // 1 layer
+            256,
+            1024,
+            1024,
+            1e-5,
+        );
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        let err_str = format!("{:?}", err);
+        assert!(err_str.contains("weights not indexed") || err_str.contains("hidden_buf2 missing"));
+    }
+}
