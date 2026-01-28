@@ -1,7 +1,7 @@
 # Specification: Fast O(1) Coverage with PMAT Compliance
 
 **Document ID:** SPEC-COV-95
-**Version:** 1.22.0
+**Version:** 1.23.0
 **Status:** ACTIVE
 **Methodology:** The Toyota Way (14 Principles) + Popperian Falsification
 **Target:** 95% Production Code Coverage in <10 minutes (Full), O(1) Incremental
@@ -308,6 +308,7 @@ When coverage drops or a bug slips through, we do not just "fix" it. We apply th
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
+| 1.23.0 | 2026-01-28 | Claude | Added 62 tests: gpu/scheduler/batch.rs (30), gpu/scheduler/kv.rs (32). Tests for argmax, RoPE, GQA attention, layer norm, sampling. Total tests: ~12,582. |
 | 1.22.0 | 2026-01-28 | Claude | Added 125 tests: bench/load_testing.rs (34), api/gpu_handlers.rs (43), api/realize_handlers.rs (48). Total tests: ~12,516. |
 | 1.21.0 | 2026-01-28 | Claude | Added 36 tests: gguf/cuda/backend.rs (CudaBackend, Q4_K, FlashAttention, KV Cache, validation). Total tests: ~12,391. |
 | 1.20.0 | 2026-01-28 | Claude | Added 48 tests: cuda/kernels.rs (KernelType variants, CudaKernels, kernel_name). Total tests: ~12,961. |
