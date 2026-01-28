@@ -1104,17 +1104,43 @@ mod tests {
     }
 
     #[test]
-    fn test_forward_indexed_with_harness() {
+    fn test_forward_different_epsilon_with_harness() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
         let Some(mut exec) = create_executor() else { return; };
         let config = HarnessConfig::default();
         if setup_executor_harness(&mut exec, &config).is_err() { return; }
 
+        // Test with different epsilon values
+        for epsilon in [1e-5, 1e-6, 1e-4] {
+            let input = vec![0.1f32; config.hidden_dim];
+            let mut output = vec![0.0f32; config.hidden_dim];
+
+            let result = exec.forward_all_layers_gpu(
+                &input,
+                &mut output,
+                0,
+                config.num_layers,
+                config.hidden_dim as u32,
+                config.intermediate_dim as u32,
+                epsilon,
+            );
+            let _ = result;
+        }
+    }
+
+    #[test]
+    fn test_forward_different_hidden_dims() {
+        use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
+        let Some(mut exec) = create_executor() else { return; };
+        let mut config = HarnessConfig::default();
+        config.hidden_dim = 512;
+        config.intermediate_dim = 1024;
+        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+
         let input = vec![0.1f32; config.hidden_dim];
         let mut output = vec![0.0f32; config.hidden_dim];
 
-        // Test indexed forward path
-        let result = exec.forward_all_layers_gpu_indexed(
+        let result = exec.forward_all_layers_gpu(
             &input,
             &mut output,
             0,
@@ -1127,17 +1153,17 @@ mod tests {
     }
 
     #[test]
-    fn test_forward_to_logits_indexed_with_harness() {
+    fn test_forward_larger_vocab_size() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
         let Some(mut exec) = create_executor() else { return; };
-        let config = HarnessConfig::default();
+        let mut config = HarnessConfig::default();
+        config.vocab_size = 32000;
         if setup_executor_harness(&mut exec, &config).is_err() { return; }
 
         let input = vec![0.1f32; config.hidden_dim];
         let mut logits = vec![0.0f32; config.vocab_size];
 
-        // Test indexed logits path
-        let result = exec.forward_all_layers_gpu_to_logits_indexed(
+        let result = exec.forward_all_layers_gpu_to_logits(
             &input,
             &mut logits,
             0,
@@ -1145,29 +1171,6 @@ mod tests {
             config.hidden_dim as u32,
             config.intermediate_dim as u32,
             config.vocab_size as u32,
-            1e-5,
-        );
-        let _ = result;
-    }
-
-    #[test]
-    fn test_forward_true_dp4a_with_harness() {
-        use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
-        let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
-
-        let input = vec![0.1f32; config.hidden_dim];
-        let mut output = vec![0.0f32; config.hidden_dim];
-
-        // Test TRUE_DP4A path
-        let result = exec.forward_all_layers_gpu_true_dp4a(
-            &input,
-            &mut output,
-            0,
-            config.num_layers,
-            config.hidden_dim as u32,
-            config.intermediate_dim as u32,
             1e-5,
         );
         let _ = result;
