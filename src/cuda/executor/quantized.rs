@@ -1969,12 +1969,10 @@ mod tests {
         let config = HarnessConfig::default();
         if setup_executor_harness(&mut exec, &config).is_err() { return; }
 
-        // Use cached RMSNorm gamma from harness
-        let gamma_key = "blk.0.attn_norm.gamma".to_string();
-        let gamma = exec.rmsnorm_cache.get(&gamma_key).unwrap();
-
+        // Create gamma buffer directly (avoid borrow conflict with cache)
+        let gamma = GpuBuffer::from_host(&exec.context, &vec![1.0f32; config.hidden_dim]).unwrap();
         let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; config.hidden_dim]).unwrap();
-        let result = exec.rmsnorm_gpu(&input, gamma, config.hidden_dim as u32, 1e-5);
+        let result = exec.rmsnorm_gpu(&input, &gamma, config.hidden_dim as u32, 1e-5);
         assert!(result.is_ok());
     }
 
@@ -1985,12 +1983,11 @@ mod tests {
         let config = HarnessConfig::default();
         if setup_executor_harness(&mut exec, &config).is_err() { return; }
 
-        let gamma_key = "blk.0.attn_norm.gamma".to_string();
-        let gamma = exec.rmsnorm_cache.get(&gamma_key).unwrap();
-
+        // Create gamma buffer directly
+        let gamma = GpuBuffer::from_host(&exec.context, &vec![1.0f32; config.hidden_dim]).unwrap();
         let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; config.hidden_dim]).unwrap();
         let output = GpuBuffer::<f32>::new(&exec.context, config.hidden_dim).unwrap();
-        let result = exec.rmsnorm_into(&input, gamma, &output, config.hidden_dim as u32, 1e-5);
+        let result = exec.rmsnorm_into(&input, &gamma, &output, config.hidden_dim as u32, 1e-5);
         assert!(result.is_ok());
     }
 
@@ -2001,13 +1998,12 @@ mod tests {
         let config = HarnessConfig::default();
         if setup_executor_harness(&mut exec, &config).is_err() { return; }
 
-        let gamma_key = "blk.0.attn_norm.gamma".to_string();
-        let gamma = exec.rmsnorm_cache.get(&gamma_key).unwrap();
-
+        // Create gamma buffer directly
+        let gamma = GpuBuffer::from_host(&exec.context, &vec![1.0f32; config.hidden_dim]).unwrap();
         let m = 4u32;
         let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; (m as usize) * config.hidden_dim]).unwrap();
         let output = GpuBuffer::<f32>::new(&exec.context, (m as usize) * config.hidden_dim).unwrap();
-        let result = exec.batched_rmsnorm_into(&input, gamma, &output, config.hidden_dim as u32, m, 1e-5);
+        let result = exec.batched_rmsnorm_into(&input, &gamma, &output, config.hidden_dim as u32, m, 1e-5);
         assert!(result.is_ok());
     }
 
@@ -2018,12 +2014,11 @@ mod tests {
         let config = HarnessConfig::default();
         if setup_executor_harness(&mut exec, &config).is_err() { return; }
 
-        let gamma_key = "blk.0.attn_norm.gamma".to_string();
-        let gamma = exec.rmsnorm_cache.get(&gamma_key).unwrap();
-
+        // Create gamma buffer directly
+        let gamma = GpuBuffer::from_host(&exec.context, &vec![1.0f32; config.hidden_dim]).unwrap();
         let residual = GpuBuffer::from_host(&exec.context, &vec![1.0f32; config.hidden_dim]).unwrap();
         let input = GpuBuffer::from_host(&exec.context, &vec![0.5f32; config.hidden_dim]).unwrap();
-        let result = exec.fused_residual_rmsnorm_gpu(&residual, &input, gamma, config.hidden_dim as u32, 1e-5);
+        let result = exec.fused_residual_rmsnorm_gpu(&residual, &input, &gamma, config.hidden_dim as u32, 1e-5);
         assert!(result.is_ok());
     }
 

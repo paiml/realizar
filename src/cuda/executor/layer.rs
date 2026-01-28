@@ -1682,9 +1682,7 @@ mod tests {
         let config = HarnessConfig::default();
         if setup_executor_harness(&mut exec, &config).is_err() { return; }
 
-        // Test transformer layer dimensions through the workspace
-        assert!(exec.workspace.hidden.is_some() || exec.indexed_layer_weights.len() > 0);
-        // Verify indexed weights were built
+        // Verify indexed weights were built (workspace is managed internally)
         assert_eq!(exec.indexed_layer_weights.len(), config.num_layers);
     }
 
