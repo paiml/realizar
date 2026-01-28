@@ -363,9 +363,13 @@ Every week, review:
 
 | Category | Count |
 |----------|-------|
-| Unit tests (`#[test]`) | 11,435 |
+| Unit tests (`#[test]`) | 11,473 |
 | Async tests (`#[tokio::test]`) | 324 |
-| **Total** | **11,759** |
+| **Total** | **11,797** |
+
+**New Tests Added (2026-01-28):**
+- `apr_transformer/config.rs`: 25 tests (AprKVCache, GenerateConfig, AprTransformerConfig, AprTransformerLayer, Q4KLayerWeights)
+- `apr_transformer/helpers.rs`: 13 tests (simd_dot_f32, simd_add_weighted with AVX2 and scalar paths)
 
 ### 12.2 Coverage Analysis
 
