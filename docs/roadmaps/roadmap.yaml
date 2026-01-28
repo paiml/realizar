@@ -4067,3 +4067,19 @@ roadmap:
   estimated_effort: null
   labels: []
   notes: null
+- id: 'PMAT-124: Fix /generate endpoint for CPU GGUF mode'
+  github_issue: null
+  item_type: task
+  title: 'New task: PMAT-124: Fix /generate endpoint for CPU GGUF mode'
+  status: inprogress
+  priority: medium
+  assigned_to: null
+  created: 2026-01-28T20:59:59.403228162+00:00
+  updated: 2026-01-28T20:59:59.403228162+00:00
+  spec: null
+  acceptance_criteria: []
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels: []
+  notes: null
