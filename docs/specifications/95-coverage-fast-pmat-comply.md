@@ -1,7 +1,7 @@
 # Specification: Fast O(1) Coverage with PMAT Compliance
 
 **Document ID:** SPEC-COV-95
-**Version:** 1.18.0
+**Version:** 1.19.0
 **Status:** ACTIVE
 **Methodology:** The Toyota Way (14 Principles) + Popperian Falsification
 **Target:** 95% Production Code Coverage in <10 minutes (Full), O(1) Incremental
@@ -308,6 +308,7 @@ When coverage drops or a bug slips through, we do not just "fix" it. We apply th
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
+| 1.19.0 | 2026-01-28 | Claude | Added 39 tests: cuda/pipeline.rs (MemoryPattern, RegisterTiling, PtxOptimizationHints, presets). Total tests: ~12,913. |
 | 1.18.0 | 2026-01-28 | Claude | Added 77 tests: apr_transformer/benchmark.rs (26), cuda/memory.rs (51). Total tests: ~12,874. |
 | 1.17.0 | 2026-01-28 | Claude | Added 17 tests: cuda/types.rs (WeightQuantType, IndexedLayerWeights, TransformerWorkspace). Total tests: ~12,797. |
 | 1.16.0 | 2026-01-28 | Claude | Added 24 tests: gpu/streaming_kv.rs (24). Total tests: ~12,780. |
