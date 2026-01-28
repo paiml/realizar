@@ -52,6 +52,9 @@ pub struct SafeTensorsCudaModel {
     embedding_cache: Vec<f32>,
     /// RMS norm epsilon
     epsilon: f32,
+    /// RMS norm gamma weights (CPU copy for hybrid GPU/CPU path)
+    /// Key format: "attn.{layer_idx}" or "ffn.{layer_idx}" or "output"
+    gamma_cache: std::collections::HashMap<String, Vec<f32>>,
 }
 
 /// Configuration extracted from config.json
@@ -149,7 +152,7 @@ impl SafeTensorsCudaModel {
         executor.set_rope_type(0); // NORM style for Qwen2
 
         // 7. Upload all weights to GPU (F-MEM-021 to F-MEM-035)
-        let embedding_cache = Self::upload_weights(&mut executor, &st_model, &config)?;
+        let (embedding_cache, gamma_cache) = Self::upload_weights(&mut executor, &st_model, &config)?;
 
         Ok(Self {
             executor,
@@ -159,6 +162,7 @@ impl SafeTensorsCudaModel {
             memory_info,
             kv_position: 0,
             embedding_cache,
+            gamma_cache,
         })
     }
 
@@ -197,12 +201,13 @@ impl SafeTensorsCudaModel {
 
     /// Upload all model weights to GPU.
     ///
-    /// Returns the embedding table (kept on CPU for token lookup).
+    /// Returns (embedding_table, gamma_cache) - embedding kept on CPU for token lookup,
+    /// gamma_cache kept on CPU for RMS norm operations.
     fn upload_weights(
         executor: &mut CudaExecutor,
         st_model: &MappedSafeTensorsModel,
         config: &SafeTensorsCudaConfig,
-    ) -> Result<Vec<f32>> {
+    ) -> Result<(Vec<f32>, std::collections::HashMap<String, Vec<f32>>)> {
         let hidden_dim = config.hidden_dim;
         let num_layers = config.num_layers;
         let num_heads = config.num_heads;
@@ -212,11 +217,15 @@ impl SafeTensorsCudaModel {
         let head_dim = hidden_dim / num_heads;
         let kv_dim = num_kv_heads * head_dim;
 
+        // Gamma cache for CPU RMS norm
+        let mut gamma_cache = std::collections::HashMap::new();
+
         // Embedding table (keep on CPU for token lookup)
         let embedding = st_model.get_tensor_auto("model.embed_tokens.weight")?;
 
-        // Output norm - upload to rmsnorm_cache
+        // Output norm - upload to rmsnorm_cache AND keep CPU copy
         let output_norm = st_model.get_tensor_auto("model.norm.weight")?;
+        gamma_cache.insert("output".to_string(), output_norm.clone());
         executor
             .preload_output_norm(&output_norm)
             .map_err(|e| RealizarError::UnsupportedOperation {
@@ -242,8 +251,9 @@ impl SafeTensorsCudaModel {
         for layer_idx in 0..num_layers {
             let prefix = format!("model.layers.{layer_idx}");
 
-            // Attention norm - upload to rmsnorm_cache
+            // Attention norm - upload to rmsnorm_cache AND keep CPU copy
             let attn_norm = st_model.get_tensor_auto(&format!("{prefix}.input_layernorm.weight"))?;
+            gamma_cache.insert(format!("attn.{layer_idx}"), attn_norm.clone());
             let attn_norm_key = format!("blk.{layer_idx}.attn_norm.gamma");
             executor
                 .cache_rmsnorm_gamma(&attn_norm_key, &attn_norm)
@@ -274,9 +284,10 @@ impl SafeTensorsCudaModel {
                     reason: format!("Failed to upload layer {layer_idx} attn_output: {e}"),
                 })?;
 
-            // FFN norm - upload to rmsnorm_cache
+            // FFN norm - upload to rmsnorm_cache AND keep CPU copy
             let ffn_norm =
                 st_model.get_tensor_auto(&format!("{prefix}.post_attention_layernorm.weight"))?;
+            gamma_cache.insert(format!("ffn.{layer_idx}"), ffn_norm.clone());
             let ffn_norm_key = format!("blk.{layer_idx}.ffn_norm.gamma");
             executor
                 .cache_rmsnorm_gamma(&ffn_norm_key, &ffn_norm)
@@ -319,7 +330,7 @@ impl SafeTensorsCudaModel {
                 })?;
         }
 
-        Ok(embedding)
+        Ok((embedding, gamma_cache))
     }
 
     /// Get GPU device name.
@@ -409,9 +420,9 @@ impl SafeTensorsCudaModel {
         let mut hidden = self.embedding_cache[start..end].to_vec();
 
         // 2. Transformer layers (GPU)
-        let position = self.kv_position;
+        // Position tracking is handled internally by incremental_attention_gpu
         for layer_idx in 0..self.config.num_layers {
-            hidden = self.forward_layer(layer_idx, &hidden, position)?;
+            hidden = self.forward_layer(layer_idx, &hidden)?;
         }
 
         // 3. Output norm (CPU for now - could optimize to GPU later)
@@ -438,11 +449,13 @@ impl SafeTensorsCudaModel {
     }
 
     /// Forward pass for a single transformer layer.
+    ///
+    /// Note: Position/RoPE is handled internally by `incremental_attention_gpu`
+    /// which tracks KV cache position and applies RoPE via `apply_rope_to_buffer`.
     fn forward_layer(
         &mut self,
         layer_idx: usize,
         hidden: &[f32],
-        _position: u32, // SATD: TODO(PMAT-116) - Use for RoPE once GPU path is complete
     ) -> Result<Vec<f32>> {
         let hidden_dim = self.config.hidden_dim;
         let num_heads = self.config.num_heads;
@@ -579,31 +592,51 @@ impl SafeTensorsCudaModel {
         Ok(residual)
     }
 
-    /// Apply RMS normalization (CPU fallback).
+    /// Apply RMS normalization with output gamma weights.
     ///
-    /// Uses cached norm weights from rmsnorm_cache.
+    /// RMS norm formula: (x / sqrt(mean(x^2) + eps)) * gamma
     fn apply_rms_norm_cpu(&self, x: &[f32]) -> Result<Vec<f32>> {
-        // RMS norm: x / sqrt(mean(x^2) + eps)
+        // RMS norm: x / sqrt(mean(x^2) + eps) * gamma
         let sum_sq: f32 = x.iter().map(|v| v * v).sum();
         let rms = (sum_sq / x.len() as f32 + self.epsilon).sqrt();
 
-        // For output norm, we need to get gamma from rmsnorm_cache
-        // Since we don't have direct access, compute without gamma for now
-        // SATD: TODO(PMAT-116) - Use GPU rmsnorm_gpu_ptr once we have full integration
-        Ok(x.iter().map(|xi| xi / rms).collect())
+        // Get output gamma from cache
+        let gamma = self.gamma_cache.get("output").ok_or_else(|| {
+            RealizarError::UnsupportedOperation {
+                operation: "rms_norm".to_string(),
+                reason: "Output gamma not found in cache".to_string(),
+            }
+        })?;
+
+        // Apply normalization with gamma scaling
+        Ok(x.iter()
+            .zip(gamma.iter())
+            .map(|(xi, gi)| (xi / rms) * gi)
+            .collect())
     }
 
-    /// Apply RMS normalization for a specific layer (CPU fallback).
+    /// Apply RMS normalization for a specific layer with gamma weights.
+    ///
+    /// RMS norm formula: (x / sqrt(mean(x^2) + eps)) * gamma
     fn apply_rms_norm_layer_cpu(&self, x: &[f32], layer_idx: usize, norm_type: &str) -> Result<Vec<f32>> {
         // RMS norm: x / sqrt(mean(x^2) + eps) * gamma
         let sum_sq: f32 = x.iter().map(|v| v * v).sum();
         let rms = (sum_sq / x.len() as f32 + self.epsilon).sqrt();
 
-        // SATD: TODO(PMAT-116) - Apply gamma weights from rmsnorm_cache
-        // For now, just compute the RMS without gamma scaling
-        // This will cause slight numerical differences but allows testing
-        let _ = (layer_idx, norm_type); // Suppress warnings
-        Ok(x.iter().map(|xi| xi / rms).collect())
+        // Get layer gamma from cache
+        let cache_key = format!("{norm_type}.{layer_idx}");
+        let gamma = self.gamma_cache.get(&cache_key).ok_or_else(|| {
+            RealizarError::UnsupportedOperation {
+                operation: "rms_norm".to_string(),
+                reason: format!("Layer {layer_idx} {norm_type} gamma not found in cache"),
+            }
+        })?;
+
+        // Apply normalization with gamma scaling
+        Ok(x.iter()
+            .zip(gamma.iter())
+            .map(|(xi, gi)| (xi / rms) * gi)
+            .collect())
     }
 }
 
