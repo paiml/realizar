@@ -240,7 +240,18 @@ impl AprTransformer {
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(2048) as usize;
 
+        // PMAT-125: Extract architecture from metadata (was missing, defaulted to "unknown")
+        // Check "architecture" first (APR v2 standard), then "model_type" (fallback)
+        let architecture = metadata
+            .get("architecture")
+            .or_else(|| metadata.get("model_type"))
+            .and_then(serde_json::Value::as_str)
+            .map(|s| s.to_lowercase())
+            .filter(|s| s != "auto" && !s.is_empty())  // "Auto" is not a valid architecture
+            .unwrap_or_else(|| "unknown".to_string());
+
         let config = AprTransformerConfig {
+            architecture,
             hidden_dim,
             num_layers,
             num_heads,
@@ -250,7 +261,6 @@ impl AprTransformer {
             context_length: max_position,
             rope_theta,
             eps: rms_norm_eps,
-            ..Default::default()
         };
 
         // Parse tensor index
