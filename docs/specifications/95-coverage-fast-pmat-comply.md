@@ -308,6 +308,7 @@ When coverage drops or a bug slips through, we do not just "fix" it. We apply th
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
+| 1.9.0 | 2026-01-28 | Claude | Added 92 tests: paged_kv/mod.rs (27), bench/statistics.rs (19), tensor.rs (16), gguf/model.rs (9), gpu/backend.rs (10), gpu/adapters/apr.rs (11). Total tests: 11,463. |
 | 1.8.0 | 2026-01-28 | Claude | Added 25 tests: layers/attention.rs (Attention, SlidingWindowAttention, FusedQKVAttention, MultiHeadAttention). Total tests: 11,371. |
 | 1.7.0 | 2026-01-28 | Claude | Added 29 tests: gpu/metrics.rs (InferenceMetrics, HealthChecker, ShutdownCoordinator, ComputeBackend). Total tests: 11,346. |
 | 1.6.0 | 2026-01-28 | Claude | Added 126 tests: ops.rs (32), fused.rs (31), types.rs (21), chunked_prefill.rs (42). Total tests: 11,317. |
