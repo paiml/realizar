@@ -895,6 +895,90 @@ pub async fn generate_handler(
         }));
     }
 
+    // PMAT-124: Check for quantized model (CPU mode GGUF)
+    // When using with_quantized_model_and_vocab(), the quantized_model is set but not the registry/model
+    if let Some(quantized_model) = state.quantized_model() {
+        use crate::gguf::QuantizedGenerateConfig;
+
+        let tokenizer = match state.tokenizer.clone() {
+            Some(t) => t,
+            None => {
+                state.metrics.record_failure();
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "No tokenizer available".to_string(),
+                    }),
+                ));
+            }
+        };
+
+        // Tokenize prompt
+        let prompt_ids = tokenizer.encode(&request.prompt);
+        if prompt_ids.is_empty() {
+            state.metrics.record_failure();
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "Prompt cannot be empty".to_string(),
+                }),
+            ));
+        }
+
+        let prompt_tokens = prompt_ids.len();
+        let max_tokens = request.max_tokens;
+        let temperature = request.temperature;
+
+        // Get EOS token ID for proper stop sequence
+        let eos_token_id = tokenizer
+            .get_token_id("<|im_end|>")
+            .or_else(|| tokenizer.get_token_id("<|endoftext|>"))
+            .unwrap_or(151645);
+
+        let q_config = QuantizedGenerateConfig {
+            max_tokens,
+            temperature,
+            top_k: if temperature == 0.0 { 1 } else { request.top_k },
+            stop_tokens: vec![eos_token_id],
+            trace: false,
+        };
+
+        // Generate using quantized CPU model
+        let generated = quantized_model
+            .generate(&prompt_ids, &q_config)
+            .map_err(|e| {
+                state.metrics.record_failure();
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: format!("CPU generation failed: {e}"),
+                    }),
+                )
+            })?;
+
+        // Decode tokens to text
+        let text = tokenizer.decode(&generated).map_err(|e| {
+            state.metrics.record_failure();
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+        })?;
+
+        let num_generated = generated.len().saturating_sub(prompt_tokens);
+        let duration = start.elapsed();
+
+        state.metrics.record_success(num_generated, duration);
+
+        return Ok(Json(GenerateResponse {
+            token_ids: generated,
+            text,
+            num_generated,
+        }));
+    }
+
     // Fallback: Get model and tokenizer from registry/single-model mode
     let (model, tokenizer) = state.get_model(request.model_id.as_deref()).map_err(|e| {
         state.metrics.record_failure();

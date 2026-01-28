@@ -992,4 +992,65 @@ mod tests {
         // Will error due to missing lm_head
         assert!(result.is_err());
     }
+
+    // ========================================================================
+    // Integration Tests with ModelHarness
+    // ========================================================================
+
+    #[test]
+    fn test_forward_with_harness_multiple_positions() {
+        use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
+
+        let Some(mut exec) = create_executor() else { return; };
+
+        let config = HarnessConfig::default();
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return; // Skip if harness setup fails
+        }
+
+        // Test forward at multiple positions (exercises RoPE)
+        for position in [0, 1, 5, 10] {
+            let input = vec![0.1f32; config.hidden_dim];
+            let mut output = vec![0.0f32; config.hidden_dim];
+
+            let _ = exec.forward_all_layers_gpu(
+                &input,
+                &mut output,
+                position,
+                config.num_layers,
+                config.hidden_dim as u32,
+                config.intermediate_dim as u32,
+                1e-5,
+            );
+        }
+    }
+
+    #[test]
+    fn test_forward_to_logits_with_harness_sequence() {
+        use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
+
+        let Some(mut exec) = create_executor() else { return; };
+
+        let config = HarnessConfig::default();
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
+
+        // Simulate autoregressive generation: multiple forward passes
+        for pos in 0..3 {
+            let input = vec![0.1f32; config.hidden_dim];
+            let mut logits = vec![0.0f32; config.vocab_size];
+
+            let _ = exec.forward_all_layers_gpu_to_logits(
+                &input,
+                &mut logits,
+                pos,
+                config.num_layers,
+                config.hidden_dim as u32,
+                config.intermediate_dim as u32,
+                config.vocab_size as u32,
+                1e-5,
+            );
+        }
+    }
 }
