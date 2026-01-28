@@ -1705,15 +1705,18 @@ impl AprV2Model {
     /// Encode text to token IDs using BPE tokenization
     ///
     /// Loads vocab and merges from tokenizer.json, then performs BPE encoding.
+    /// PMAT-126: Now searches HuggingFace cache if sibling tokenizer.json not found.
     /// Returns None if tokenizer not found or encoding fails.
     pub fn encode_text(model_path: &Path, text: &str) -> Option<Vec<u32>> {
+        // 1. Try sibling tokenizer.json (e.g., model.apr -> tokenizer.json)
         let tokenizer_path = model_path.with_file_name("tokenizer.json");
-        if !tokenizer_path.exists() {
-            return None;
-        }
-
-        let content = fs::read_to_string(&tokenizer_path).ok()?;
-        let json: serde_json::Value = serde_json::from_str(&content).ok()?;
+        let json: serde_json::Value = if tokenizer_path.exists() {
+            let content = fs::read_to_string(&tokenizer_path).ok()?;
+            serde_json::from_str(&content).ok()?
+        } else {
+            // 2. PMAT-126: Search HuggingFace cache for Qwen tokenizers
+            Self::find_tokenizer_json_in_cache()?
+        };
 
         // Extract vocabulary (token -> id)
         let vocab_obj = json.get("model")?.get("vocab")?;
@@ -1742,6 +1745,40 @@ impl AprV2Model {
         // BPE encoding: convert text to byte-level tokens, then apply merges
         let tokens = bpe_encode(text, &token_to_id, &merge_rules);
         Some(tokens)
+    }
+
+    /// PMAT-126: Search HuggingFace cache for tokenizer.json (Qwen models)
+    ///
+    /// When APR files don't have sibling tokenizer.json, search the HuggingFace
+    /// cache for compatible tokenizers (Qwen2 models).
+    fn find_tokenizer_json_in_cache() -> Option<serde_json::Value> {
+        let home = std::env::var("HOME").ok().map(std::path::PathBuf::from)?;
+        let hf_cache = home.join(".cache/huggingface/hub");
+        if !hf_cache.exists() {
+            return None;
+        }
+
+        // Search for Qwen model directories
+        for entry in std::fs::read_dir(&hf_cache).ok()?.flatten() {
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            if name_str.starts_with("models--Qwen") {
+                let snapshots_dir = entry.path().join("snapshots");
+                if snapshots_dir.exists() {
+                    for snapshot in std::fs::read_dir(&snapshots_dir).ok()?.flatten() {
+                        let tokenizer_path = snapshot.path().join("tokenizer.json");
+                        if tokenizer_path.exists() {
+                            if let Ok(content) = fs::read_to_string(&tokenizer_path) {
+                                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                                    return Some(json);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
     }
 
     /// Load tokenizer from embedded APR metadata (GH-156)
