@@ -1,7 +1,7 @@
 # Specification: Fast O(1) Coverage with PMAT Compliance
 
 **Document ID:** SPEC-COV-95
-**Version:** 1.15.0
+**Version:** 1.16.0
 **Status:** ACTIVE
 **Methodology:** The Toyota Way (14 Principles) + Popperian Falsification
 **Target:** 95% Production Code Coverage in <10 minutes (Full), O(1) Incremental
@@ -308,6 +308,7 @@ When coverage drops or a bug slips through, we do not just "fix" it. We apply th
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
+| 1.16.0 | 2026-01-28 | Claude | Added 24 tests: gpu/streaming_kv.rs (24). Total tests: ~12,780. |
 | 1.15.0 | 2026-01-28 | Claude | Added 46 tests: bench/gpu_parity.rs (46). Total tests: ~12,756. |
 | 1.14.0 | 2026-01-28 | Claude | Added 73 tests: bench/runtime.rs (43), bench/matrix.rs (30). Total tests: ~12,710. |
 | 1.13.0 | 2026-01-28 | Claude | Added 29 tests: layers/model.rs (KVCache 18, ModelConfig 3, Embedding 8). Total tests: ~12,637. |
