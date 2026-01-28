@@ -308,6 +308,7 @@ When coverage drops or a bug slips through, we do not just "fix" it. We apply th
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
+| 1.8.0 | 2026-01-28 | Claude | Added 25 tests: layers/attention.rs (Attention, SlidingWindowAttention, FusedQKVAttention, MultiHeadAttention). Total tests: 11,371. |
 | 1.7.0 | 2026-01-28 | Claude | Added 29 tests: gpu/metrics.rs (InferenceMetrics, HealthChecker, ShutdownCoordinator, ComputeBackend). Total tests: 11,346. |
 | 1.6.0 | 2026-01-28 | Claude | Added 126 tests: ops.rs (32), fused.rs (31), types.rs (21), chunked_prefill.rs (42). Total tests: 11,317. |
 | 1.5.0 | 2026-01-28 | Claude | Added 75 tests: fused_q5k_q6k (23), parallel_k (30), fused_k (22). Quantize module now has 1,819 tests. |
