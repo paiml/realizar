@@ -180,3 +180,210 @@ pub fn byte_to_bpe_char(b: u8) -> String {
         _ => format!("<0x{:02X}>", b),
     }
 }
+
+// ============================================================================
+// Tests for APR Tokenizer (PMAT-802: T-COV-95)
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -------------------------------------------------------------------------
+    // SimpleTokenizer Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_simple_tokenizer_new() {
+        let vocab = vec!["hello".to_string(), "world".to_string()];
+        let tokenizer = SimpleTokenizer::new(vocab, Some(0), Some(1));
+        assert_eq!(tokenizer.vocab_size(), 2);
+        assert_eq!(tokenizer.bos_token_id, Some(0));
+        assert_eq!(tokenizer.eos_token_id, Some(1));
+    }
+
+    #[test]
+    fn test_simple_tokenizer_vocab_size() {
+        let vocab = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        let tokenizer = SimpleTokenizer::new(vocab, None, None);
+        assert_eq!(tokenizer.vocab_size(), 3);
+    }
+
+    #[test]
+    fn test_simple_tokenizer_is_eos() {
+        let vocab = vec!["<s>".to_string(), "</s>".to_string()];
+        let tokenizer = SimpleTokenizer::new(vocab, Some(0), Some(1));
+        assert!(tokenizer.is_eos(1));
+        assert!(!tokenizer.is_eos(0));
+        assert!(!tokenizer.is_eos(2)); // Out of range
+    }
+
+    #[test]
+    fn test_simple_tokenizer_is_eos_none() {
+        let vocab = vec!["hello".to_string()];
+        let tokenizer = SimpleTokenizer::new(vocab, None, None);
+        assert!(!tokenizer.is_eos(0));
+        assert!(!tokenizer.is_eos(1));
+    }
+
+    #[test]
+    fn test_simple_tokenizer_is_bos() {
+        let vocab = vec!["<s>".to_string(), "</s>".to_string()];
+        let tokenizer = SimpleTokenizer::new(vocab, Some(0), Some(1));
+        assert!(tokenizer.is_bos(0));
+        assert!(!tokenizer.is_bos(1));
+    }
+
+    #[test]
+    fn test_simple_tokenizer_is_bos_none() {
+        let vocab = vec!["hello".to_string()];
+        let tokenizer = SimpleTokenizer::new(vocab, None, None);
+        assert!(!tokenizer.is_bos(0));
+    }
+
+    // -------------------------------------------------------------------------
+    // BpeTokenizer Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_bpe_tokenizer_encode_empty() {
+        let tokenizer = BpeTokenizer {
+            token_to_id: HashMap::new(),
+            id_to_token: vec![],
+            merge_rules: vec![],
+            bos_id: None,
+            eos_id: None,
+        };
+        let result = tokenizer.encode("");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_bpe_tokenizer_encode_simple() {
+        let mut token_to_id = HashMap::new();
+        token_to_id.insert("h".to_string(), 0);
+        token_to_id.insert("i".to_string(), 1);
+
+        let tokenizer = BpeTokenizer {
+            token_to_id,
+            id_to_token: vec!["h".to_string(), "i".to_string()],
+            merge_rules: vec![],
+            bos_id: None,
+            eos_id: None,
+        };
+        let result = tokenizer.encode("hi");
+        assert_eq!(result, vec![0, 1]);
+    }
+
+    #[test]
+    fn test_bpe_tokenizer_encode_with_space() {
+        let mut token_to_id = HashMap::new();
+        token_to_id.insert("Ġ".to_string(), 0); // Space
+        token_to_id.insert("a".to_string(), 1);
+
+        let tokenizer = BpeTokenizer {
+            token_to_id,
+            id_to_token: vec!["Ġ".to_string(), "a".to_string()],
+            merge_rules: vec![],
+            bos_id: None,
+            eos_id: None,
+        };
+        let result = tokenizer.encode(" a");
+        assert_eq!(result, vec![0, 1]);
+    }
+
+    // -------------------------------------------------------------------------
+    // bpe_encode Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_bpe_encode_empty() {
+        let vocab: HashMap<String, u32> = HashMap::new();
+        let merges: Vec<(String, String)> = vec![];
+        let result = bpe_encode("", &vocab, &merges);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_bpe_encode_simple_chars() {
+        let mut vocab = HashMap::new();
+        vocab.insert("a".to_string(), 0);
+        vocab.insert("b".to_string(), 1);
+        vocab.insert("c".to_string(), 2);
+
+        let result = bpe_encode("abc", &vocab, &[]);
+        assert_eq!(result, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn test_bpe_encode_with_merge() {
+        let mut vocab = HashMap::new();
+        vocab.insert("a".to_string(), 0);
+        vocab.insert("b".to_string(), 1);
+        vocab.insert("ab".to_string(), 2);
+
+        let merges = vec![("a".to_string(), "b".to_string())];
+        let result = bpe_encode("ab", &vocab, &merges);
+        assert_eq!(result, vec![2]); // "ab" merged
+    }
+
+    #[test]
+    fn test_bpe_encode_space_handling() {
+        let mut vocab = HashMap::new();
+        vocab.insert("Ġ".to_string(), 0); // Space becomes Ġ
+
+        let result = bpe_encode(" ", &vocab, &[]);
+        assert_eq!(result, vec![0]);
+    }
+
+    #[test]
+    fn test_bpe_encode_newline_handling() {
+        let mut vocab = HashMap::new();
+        vocab.insert("Ċ".to_string(), 0); // Newline becomes Ċ
+
+        let result = bpe_encode("\n", &vocab, &[]);
+        assert_eq!(result, vec![0]);
+    }
+
+    #[test]
+    fn test_bpe_encode_unknown_tokens() {
+        let vocab: HashMap<String, u32> = HashMap::new();
+        let result = bpe_encode("xyz", &vocab, &[]);
+        assert!(result.is_empty()); // Unknown tokens filtered out
+    }
+
+    // -------------------------------------------------------------------------
+    // byte_to_bpe_char Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_byte_to_bpe_char_space() {
+        assert_eq!(byte_to_bpe_char(b' '), "Ġ");
+    }
+
+    #[test]
+    fn test_byte_to_bpe_char_newline() {
+        assert_eq!(byte_to_bpe_char(b'\n'), "Ċ");
+    }
+
+    #[test]
+    fn test_byte_to_bpe_char_tab() {
+        assert_eq!(byte_to_bpe_char(b'\t'), "ĉ");
+    }
+
+    #[test]
+    fn test_byte_to_bpe_char_ascii() {
+        assert_eq!(byte_to_bpe_char(b'a'), "a");
+        assert_eq!(byte_to_bpe_char(b'Z'), "Z");
+        assert_eq!(byte_to_bpe_char(b'0'), "0");
+        assert_eq!(byte_to_bpe_char(b'!'), "!");
+    }
+
+    #[test]
+    fn test_byte_to_bpe_char_non_printable() {
+        // Non-printable bytes get hex encoding
+        assert_eq!(byte_to_bpe_char(0x00), "<0x00>");
+        assert_eq!(byte_to_bpe_char(0x7F), "<0x7F>");
+        assert_eq!(byte_to_bpe_char(0xFF), "<0xFF>");
+    }
+}
