@@ -131,6 +131,8 @@ pub struct AppState {
     /// Uses pre-uploaded weights and batched workspaces for 755+ tok/s (2.6x Ollama)
     #[cfg(feature = "cuda")]
     cuda_model: Option<Arc<std::sync::RwLock<crate::gguf::OwnedQuantizedModelCuda>>>,
+    /// GH-152: Enable verbose request/response logging
+    verbose: bool,
 }
 
 /// Helper to create default audit infrastructure
@@ -188,6 +190,7 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            verbose: false,
         }
     }
 
@@ -235,6 +238,7 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            verbose: false,
         })
     }
 
@@ -323,6 +327,7 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            verbose: false,
         }
     }
 
@@ -383,6 +388,7 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            verbose: false,
         })
     }
 
@@ -430,6 +436,7 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            verbose: false,
         })
     }
 
@@ -472,6 +479,7 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            verbose: false,
         })
     }
 
@@ -527,6 +535,7 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            verbose: false,
         })
     }
 
@@ -580,6 +589,7 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            verbose: false,
         })
     }
 
@@ -622,6 +632,7 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            verbose: false,
         })
     }
 
@@ -668,6 +679,7 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            verbose: false,
         })
     }
 
@@ -717,6 +729,7 @@ impl AppState {
             #[cfg(feature = "gpu")]
             batch_config: None,
             cuda_model: Some(Arc::new(std::sync::RwLock::new(cuda_model))),
+            verbose: false,
         })
     }
 
@@ -817,6 +830,19 @@ impl AppState {
         self.batch_request_tx = Some(batch_request_tx);
         self.batch_config = Some(batch_config);
         self
+    }
+
+    /// GH-152: Enable verbose request/response logging
+    #[must_use]
+    pub fn with_verbose(mut self, verbose: bool) -> Self {
+        self.verbose = verbose;
+        self
+    }
+
+    /// GH-152: Check if verbose logging is enabled
+    #[must_use]
+    pub fn is_verbose(&self) -> bool {
+        self.verbose
     }
 }
 
@@ -1504,6 +1530,11 @@ pub fn create_router(state: AppState) -> Router {
 
 /// Health check handler
 async fn health_handler(State(state): State<AppState>) -> Json<HealthResponse> {
+    // GH-152: Verbose request logging
+    if state.is_verbose() {
+        eprintln!("[VERBOSE] GET /health");
+    }
+
     // Determine compute mode based on what's available
     #[cfg(feature = "gpu")]
     let compute_mode = if state.has_gpu_model() || state.cached_model.is_some() {
@@ -1514,11 +1545,18 @@ async fn health_handler(State(state): State<AppState>) -> Json<HealthResponse> {
     #[cfg(not(feature = "gpu"))]
     let compute_mode = "cpu";
 
-    Json(HealthResponse {
+    let response = HealthResponse {
         status: "healthy".to_string(),
         version: crate::VERSION.to_string(),
         compute_mode: compute_mode.to_string(),
-    })
+    };
+
+    // GH-152: Verbose response logging
+    if state.is_verbose() {
+        eprintln!("[VERBOSE] GET /health -> status={}", response.status);
+    }
+
+    Json(response)
 }
 
 /// Metrics handler - returns Prometheus-formatted metrics

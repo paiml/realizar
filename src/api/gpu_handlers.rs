@@ -789,6 +789,15 @@ pub async fn generate_handler(
     use std::time::Instant;
     let start = Instant::now();
 
+    // GH-152: Verbose request logging
+    if state.is_verbose() {
+        eprintln!(
+            "[VERBOSE] POST /generate prompt={:?} max_tokens={}",
+            &request.prompt.chars().take(50).collect::<String>(),
+            request.max_tokens
+        );
+    }
+
     // PAR-113: Check for CUDA model first (PMAT-SERVE-FIX-001)
     // When using with_cuda_model_and_vocab(), the cuda_model is set but not the registry/model
     #[cfg(feature = "cuda")]
