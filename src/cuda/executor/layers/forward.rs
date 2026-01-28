@@ -843,3 +843,153 @@ impl CudaExecutor {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[cfg(feature = "cuda")]
+mod tests {
+    use super::*;
+
+    /// Helper to create CudaExecutor for tests
+    fn create_executor() -> Option<CudaExecutor> {
+        CudaExecutor::new(0).ok()
+    }
+
+    // ========================================================================
+    // Validation Tests for forward_all_layers_gpu
+    // ========================================================================
+
+    #[test]
+    fn test_forward_all_layers_gpu_missing_attn_norm() {
+        let Some(mut exec) = create_executor() else { return; };
+
+        let input = vec![0.1f32; 256];
+        let mut output = vec![0.0f32; 256];
+
+        // No RMSNorm weights cached - should error
+        let result = exec.forward_all_layers_gpu(
+            &input,
+            &mut output,
+            0,     // position
+            1,     // num_layers
+            256,   // hidden_dim
+            1024,  // intermediate_dim
+            1e-5,  // epsilon
+        );
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        let err_str = format!("{:?}", err);
+        assert!(err_str.contains("attn_norm not cached"));
+    }
+
+    #[test]
+    fn test_forward_all_layers_gpu_missing_ffn_norm() {
+        let Some(mut exec) = create_executor() else { return; };
+
+        // Cache attn_norm but not ffn_norm
+        let gamma: Vec<f32> = vec![1.0; 256];
+        let _ = exec.cache_rmsnorm_gamma("blk.0.attn_norm.gamma", &gamma);
+
+        let input = vec![0.1f32; 256];
+        let mut output = vec![0.0f32; 256];
+
+        let result = exec.forward_all_layers_gpu(
+            &input,
+            &mut output,
+            0,
+            1,
+            256,
+            1024,
+            1e-5,
+        );
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        let err_str = format!("{:?}", err);
+        assert!(err_str.contains("ffn_norm not cached"));
+    }
+
+    // ========================================================================
+    // Validation Tests for forward_all_layers_gpu_to_logits
+    // ========================================================================
+
+    #[test]
+    fn test_forward_to_logits_missing_attn_norm() {
+        let Some(mut exec) = create_executor() else { return; };
+
+        let input = vec![0.1f32; 256];
+        let mut logits = vec![0.0f32; 1024];
+
+        let result = exec.forward_all_layers_gpu_to_logits(
+            &input,
+            &mut logits,
+            0,     // position
+            1,     // num_layers
+            256,   // hidden_dim
+            1024,  // intermediate_dim
+            1024,  // vocab_size
+            1e-5,  // epsilon
+        );
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        let err_str = format!("{:?}", err);
+        assert!(err_str.contains("attn_norm not cached"));
+    }
+
+    #[test]
+    fn test_forward_to_logits_missing_output_norm() {
+        let Some(mut exec) = create_executor() else { return; };
+
+        // Cache layer norms but not output_norm
+        let gamma: Vec<f32> = vec![1.0; 256];
+        let _ = exec.cache_rmsnorm_gamma("blk.0.attn_norm.gamma", &gamma);
+        let _ = exec.cache_rmsnorm_gamma("blk.0.ffn_norm.gamma", &gamma);
+
+        let input = vec![0.1f32; 256];
+        let mut logits = vec![0.0f32; 1024];
+
+        // This will pass validation but fail later due to missing output_norm.gamma
+        // We use workspace_unused path which requires output_norm.gamma
+        let result = exec.forward_all_layers_gpu_to_logits(
+            &input,
+            &mut logits,
+            0,
+            1,
+            256,
+            1024,
+            1024,
+            1e-5,
+        );
+
+        // Will error due to missing output_norm.gamma or lm_head
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_forward_to_logits_zero_layers() {
+        let Some(mut exec) = create_executor() else { return; };
+
+        // Cache output norm only (no layer norms needed for 0 layers)
+        let gamma: Vec<f32> = vec![1.0; 256];
+        let _ = exec.cache_rmsnorm_gamma("output_norm.gamma", &gamma);
+
+        let input = vec![0.1f32; 256];
+        let mut logits = vec![0.0f32; 1024];
+
+        // 0 layers - should skip layer processing, fail at output norm or lm_head
+        let result = exec.forward_all_layers_gpu_to_logits(
+            &input,
+            &mut logits,
+            0,
+            0,     // 0 layers
+            256,
+            1024,
+            1024,
+            1e-5,
+        );
+
+        // Will error due to missing lm_head
+        assert!(result.is_err());
+    }
+}
