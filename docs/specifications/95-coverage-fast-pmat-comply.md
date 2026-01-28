@@ -1,7 +1,7 @@
 # Specification: Fast O(1) Coverage with PMAT Compliance
 
 **Document ID:** SPEC-COV-95
-**Version:** 1.30.0
+**Version:** 1.31.0
 **Status:** ACTIVE
 **Methodology:** The Toyota Way (14 Principles) + Popperian Falsification
 **Target:** 95% Production Code Coverage in <10 minutes (Full), O(1) Incremental
@@ -308,6 +308,7 @@ When coverage drops or a bug slips through, we do not just "fix" it. We apply th
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
+| 1.31.0 | 2026-01-28 | Claude | Added ModelHarness (test_fixtures.rs): setup_executor_harness() + HarnessConfig for complete executor state initialization. 7 new tests including forward_all_layers and forward_to_logits integration. Five-Whys solution: harness enables testing complex orchestration functions. Total tests: ~12,843. |
 | 1.30.0 | 2026-01-28 | Claude | Added 24 tests to layers/: ffn.rs (4), forward.rs (5), batched.rs (6), graphed.rs (5), indexed.rs (3). All layers/ files now have inline tests. Five-Whys applied: continuing to add kernel-executing tests. Total tests: ~12,836. |
 | 1.29.0 | 2026-01-28 | Claude | Added 53 tests: weights.rs (19: load/cache weights, GEMV with synthetic data), q_basic.rs (12: Q8_0/Q5_0/Q4_0/Q4_1/Q5K/Q6K GEMV), workspace.rs (18: workspace init, batched, GEMV buffer pool), ffn.rs (4: FFN SwiGLU path selection). Five-Whys fix: tests now execute actual kernels via synthetic weight generators. Total tests: ~12,812. |
 | 1.28.0 | 2026-01-28 | Claude | Added 16 KV cache tests: kv_cache.rs (init, batched init, reset, rollback, RoPE config, flash attention/incremental attention requires KV cache, memory calculations). Total tests: ~12,759. |
