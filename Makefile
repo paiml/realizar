@@ -163,35 +163,36 @@ COV_THRESHOLD ?= 95
 # MODULAR COVERAGE TARGETS (O(1) - each ~1-2 min)
 # -----------------------------------------------------------------------------
 
-coverage-core: ## Coverage: core modules only (~90s)
+coverage-core: ## Coverage: core modules only (~90s, includes CUDA compilation)
 	@START=$$(date +%s); \
 	echo "📊 Coverage: core (quantize, layers, generate, infer)..."; \
-	cargo llvm-cov test --lib --no-report $(COV_EXCLUDE) \
+	cargo llvm-cov test --lib --features cuda --no-report $(COV_EXCLUDE) \
 		-- --test-threads=8 \
 		--skip gguf:: --skip api:: --skip cli:: --skip cuda:: --skip gpu:: --skip bench:: \
 		--skip property_ --skip stress --skip slow --skip heavy --skip part_ 2>&1 | tail -3; \
 	END=$$(date +%s); \
 	echo "⏱️  core: $$((END-START))s"
 
-coverage-gguf: ## Coverage: GGUF module only (~60s)
+coverage-gguf: ## Coverage: GGUF module only (~60s, includes CUDA compilation)
 	@START=$$(date +%s); \
 	echo "📊 Coverage: gguf..."; \
-	cargo llvm-cov test --lib --no-report $(COV_EXCLUDE) \
+	cargo llvm-cov test --lib --features cuda --no-report $(COV_EXCLUDE) \
 		-- --test-threads=8 gguf:: \
 		--skip property_ --skip stress --skip slow --skip heavy --skip part_ 2>&1 | tail -3; \
 	END=$$(date +%s); \
 	echo "⏱️  gguf: $$((END-START))s"
 
-coverage-api: ## Coverage: API module only (~60s)
+coverage-api: ## Coverage: API module only (~60s, includes CUDA compilation)
 	@START=$$(date +%s); \
 	echo "📊 Coverage: api + cli..."; \
-	cargo llvm-cov test --lib --no-report $(COV_EXCLUDE) \
+	cargo llvm-cov test --lib --features cuda --no-report $(COV_EXCLUDE) \
 		-- --test-threads=8 api:: cli:: \
 		--skip property_ --skip stress --skip slow --skip heavy --skip part_ 2>&1 | tail -3; \
 	END=$$(date +%s); \
 	echo "⏱️  api: $$((END-START))s"
 
-coverage-cuda: ## Coverage: CUDA/GPU only (~120s, single-threaded)
+coverage-cuda: ## Coverage: CUDA/GPU only (~120s, single-threaded, requires RTX 4090)
+	@nvidia-smi > /dev/null 2>&1 || { echo "❌ NVIDIA GPU required (RTX 4090 expected)"; exit 1; }
 	@START=$$(date +%s); \
 	echo "📊 Coverage: cuda + gpu (single-threaded for GPU safety)..."; \
 	cargo llvm-cov test --lib --features cuda --no-report $(COV_EXCLUDE) \
@@ -204,12 +205,31 @@ coverage-cuda: ## Coverage: CUDA/GPU only (~120s, single-threaded)
 # COMPOSITE COVERAGE TARGETS
 # -----------------------------------------------------------------------------
 
-coverage: ## DEFAULT: Core coverage with report (~3 min)
+coverage-fast: ## Fast coverage: core only, no CUDA (~90s)
 	@TOTAL_START=$$(date +%s); \
 	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-	echo "📊 COVERAGE: Core modules (use coverage-all for full)"; \
+	echo "📊 COVERAGE-FAST: Core only (use 'make coverage' for core+cuda)"; \
 	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
 	$(MAKE) --no-print-directory coverage-core; \
+	echo ""; \
+	echo "📊 Generating report..."; \
+	mkdir -p target/coverage/html; \
+	cargo llvm-cov report --html --output-dir target/coverage/html $(COV_EXCLUDE) 2>&1 | tail -1; \
+	echo ""; \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	cargo llvm-cov report --summary-only $(COV_EXCLUDE) 2>&1 | grep -E "^TOTAL"; \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	TOTAL_END=$$(date +%s); \
+	echo "⏱️  Total: $$((TOTAL_END-TOTAL_START))s"
+
+coverage: ## DEFAULT: Core + CUDA coverage with report (RTX 4090 required)
+	@nvidia-smi > /dev/null 2>&1 || { echo "❌ NVIDIA GPU required (RTX 4090 expected)"; exit 1; }
+	@TOTAL_START=$$(date +%s); \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	echo "📊 COVERAGE: Core + CUDA (trueno-style, RTX 4090)"; \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	$(MAKE) --no-print-directory coverage-core; \
+	$(MAKE) --no-print-directory coverage-cuda; \
 	echo ""; \
 	echo "📊 Generating report..."; \
 	mkdir -p target/coverage/html; \
@@ -222,7 +242,7 @@ coverage: ## DEFAULT: Core coverage with report (~3 min)
 	TOTAL_END=$$(date +%s); \
 	echo "⏱️  Total: $$((TOTAL_END-TOTAL_START))s"; \
 	echo "💡 HTML: target/coverage/html/index.html"; \
-	echo "💡 Drill-down: make coverage-gguf | coverage-api | coverage-cuda"
+	echo "💡 Drill-down: make coverage-gguf | coverage-api | coverage-all"
 
 coverage-all: ## FULL: All modules with report (~10 min)
 	@TOTAL_START=$$(date +%s); \
