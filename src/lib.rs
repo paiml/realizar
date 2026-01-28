@@ -328,6 +328,12 @@ pub mod registry;
 #[cfg(all(test, feature = "server"))]
 mod registry_tests_part_02;
 pub mod safetensors;
+/// SafeTensors CUDA inference (PMAT-116)
+///
+/// Direct GPU loading for HuggingFace SafeTensors models.
+/// Achieves GGUF GPU parity (200+ tok/s).
+#[cfg(feature = "cuda")]
+pub mod safetensors_cuda;
 /// SafeTensors inference support (PAR-301)
 ///
 /// Converts HuggingFace SafeTensors models to AprTransformer for inference.

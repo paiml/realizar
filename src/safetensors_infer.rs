@@ -214,7 +214,7 @@ impl SafetensorsToAprConverter {
     ///
     /// Now we keep HuggingFace format directly - no transposition needed.
     #[allow(clippy::unused_self)]
-    fn transpose_weight(weight: &[f32], _out_dim: usize, _in_dim: usize) -> Vec<f32> {
+    pub fn transpose_weight(weight: &[f32], _out_dim: usize, _in_dim: usize) -> Vec<f32> {
         // PMAT-095: Keep [out_dim, in_dim] format - no transposition!
         // This eliminates the 75x performance gap vs GGUF.
         weight.to_vec()
@@ -229,7 +229,7 @@ impl SafetensorsToAprConverter {
     /// - V: [kv_dim, hidden_dim]
     ///
     /// Result: [hidden_dim + kv_dim + kv_dim, hidden_dim] in row-major
-    fn concat_qkv_transposed(
+    pub fn concat_qkv_transposed(
         q: &[f32],
         k: &[f32],
         v: &[f32],
