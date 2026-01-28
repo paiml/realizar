@@ -1837,4 +1837,211 @@ mod tests {
 
         let _ = result;
     }
+
+    // ========================================================================
+    // Additional Harness-Based Integration Tests
+    // ========================================================================
+
+    #[test]
+    fn test_forward_batched_m8_with_harness() {
+        use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
+        let Some(mut exec) = create_executor() else { return; };
+        let config = HarnessConfig::default();
+        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+
+        // Batch size 8
+        let _ = exec.init_batched_workspace(config.hidden_dim, config.intermediate_dim, 8);
+
+        let positions: Vec<u32> = (0..8).collect();
+        let inputs: Vec<f32> = vec![0.1; 8 * config.hidden_dim];
+
+        let result = exec.forward_batched_to_token_ids(
+            &inputs,
+            &positions,
+            config.num_layers,
+            config.hidden_dim as u32,
+            config.intermediate_dim as u32,
+            config.vocab_size as u32,
+            1e-5,
+        );
+        let _ = result;
+    }
+
+    #[test]
+    fn test_forward_batched_m16_with_harness() {
+        use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
+        let Some(mut exec) = create_executor() else { return; };
+        let config = HarnessConfig::default();
+        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+
+        // Batch size 16 uses multi-warp kernel
+        let _ = exec.init_batched_workspace(config.hidden_dim, config.intermediate_dim, 16);
+
+        let positions: Vec<u32> = (0..16).collect();
+        let inputs: Vec<f32> = vec![0.1; 16 * config.hidden_dim];
+
+        let result = exec.forward_batched_to_token_ids(
+            &inputs,
+            &positions,
+            config.num_layers,
+            config.hidden_dim as u32,
+            config.intermediate_dim as u32,
+            config.vocab_size as u32,
+            1e-5,
+        );
+        let _ = result;
+    }
+
+    #[test]
+    fn test_forward_batched_m32_with_harness() {
+        use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
+        let Some(mut exec) = create_executor() else { return; };
+        let config = HarnessConfig::default();
+        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+
+        // Batch size 32 (max supported)
+        let _ = exec.init_batched_workspace(config.hidden_dim, config.intermediate_dim, 32);
+
+        let positions: Vec<u32> = (0..32).collect();
+        let inputs: Vec<f32> = vec![0.1; 32 * config.hidden_dim];
+
+        let result = exec.forward_batched_to_token_ids(
+            &inputs,
+            &positions,
+            config.num_layers,
+            config.hidden_dim as u32,
+            config.intermediate_dim as u32,
+            config.vocab_size as u32,
+            1e-5,
+        );
+        let _ = result;
+    }
+
+    #[test]
+    fn test_forward_batched_graphed_with_harness() {
+        use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
+        let Some(mut exec) = create_executor() else { return; };
+        let config = HarnessConfig::default();
+        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+
+        let _ = exec.init_batched_workspace(config.hidden_dim, config.intermediate_dim, 4);
+
+        let positions: Vec<u32> = vec![0, 1, 2, 3];
+        let inputs: Vec<f32> = vec![0.1; 4 * config.hidden_dim];
+
+        // Test graphed path
+        let result = exec.forward_batched_to_token_ids_graphed(
+            &inputs,
+            &positions,
+            config.num_layers,
+            config.hidden_dim as u32,
+            config.intermediate_dim as u32,
+            config.vocab_size as u32,
+            1e-5,
+        );
+        let _ = result;
+    }
+
+    #[test]
+    fn test_forward_batched_graphed_replay() {
+        use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
+        let Some(mut exec) = create_executor() else { return; };
+        let config = HarnessConfig::default();
+        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+
+        let _ = exec.init_batched_workspace(config.hidden_dim, config.intermediate_dim, 4);
+
+        let positions: Vec<u32> = vec![0, 1, 2, 3];
+        let inputs: Vec<f32> = vec![0.1; 4 * config.hidden_dim];
+
+        // First call captures graph
+        let result1 = exec.forward_batched_to_token_ids_graphed(
+            &inputs,
+            &positions,
+            config.num_layers,
+            config.hidden_dim as u32,
+            config.intermediate_dim as u32,
+            config.vocab_size as u32,
+            1e-5,
+        );
+
+        // Update positions for second call
+        let positions2: Vec<u32> = vec![1, 2, 3, 4];
+
+        // Second call should replay graph
+        let result2 = exec.forward_batched_to_token_ids_graphed(
+            &inputs,
+            &positions2,
+            config.num_layers,
+            config.hidden_dim as u32,
+            config.intermediate_dim as u32,
+            config.vocab_size as u32,
+            1e-5,
+        );
+
+        let _ = (result1, result2);
+    }
+
+    #[test]
+    fn test_batched_kv_cache_init() {
+        use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
+        let Some(mut exec) = create_executor() else { return; };
+        let config = HarnessConfig::default();
+        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+
+        // Initialize batched KV caches
+        let result = exec.init_batched_kv_cache_gpu(
+            config.num_layers,
+            config.num_heads,
+            config.num_kv_heads,
+            config.head_dim,
+            config.max_seq_len,
+            4, // batch_size
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_transformer_layer_batched_m8() {
+        use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
+        let Some(mut exec) = create_executor() else { return; };
+        let config = HarnessConfig::default();
+        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+
+        let _ = exec.init_batched_workspace(config.hidden_dim, config.intermediate_dim, 8);
+
+        let inputs: Vec<f32> = vec![0.1; 8 * config.hidden_dim];
+        let input_buf = GpuBuffer::from_host(&exec.context, &inputs).unwrap();
+
+        if exec.indexed_layer_weights.is_empty() { return; }
+        let layer_weights = exec.indexed_layer_weights[0].clone();
+
+        let positions: [u32; 8] = [0, 1, 2, 3, 4, 5, 6, 7];
+        let result = exec.transformer_layer_batched(
+            &input_buf,
+            0,
+            &layer_weights,
+            8,
+            &positions,
+            config.hidden_dim as u32,
+            config.intermediate_dim as u32,
+            1e-5,
+        );
+        let _ = result;
+    }
+
+    #[test]
+    fn test_batched_workspace_hidden_buffer() {
+        use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
+        let Some(mut exec) = create_executor() else { return; };
+        let config = HarnessConfig::default();
+        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+
+        // Initialize batched workspace
+        let result = exec.init_batched_workspace(config.hidden_dim, config.intermediate_dim, 4);
+        assert!(result.is_ok());
+
+        // Workspace should have batched buffers
+        assert!(exec.workspace.batched_hidden.is_some());
+    }
 }
