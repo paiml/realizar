@@ -398,4 +398,60 @@ mod tests {
         assert!(VERSION.len() >= 3); // At least "0.x"
         assert!(VERSION.contains('.'));
     }
+
+    #[test]
+    fn test_version_parts() {
+        let parts: Vec<&str> = VERSION.split('.').collect();
+        assert!(parts.len() >= 2); // At least major.minor
+    }
+
+    #[test]
+    fn test_tensor_reexport() {
+        // Test that Tensor is properly re-exported
+        let t = Tensor::from_vec(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+        assert_eq!(t.shape(), &[2, 2]);
+        assert_eq!(t.ndim(), 2);
+        assert_eq!(t.size(), 4);
+    }
+
+    #[test]
+    fn test_error_reexport() {
+        // Test that RealizarError is properly re-exported
+        let err = RealizarError::InvalidShape {
+            reason: "test".to_string(),
+        };
+        assert!(err.to_string().contains("test"));
+    }
+
+    #[test]
+    fn test_result_type() {
+        // Test that Result type alias works
+        fn test_fn() -> Result<i32> {
+            Ok(42)
+        }
+        assert_eq!(test_fn().unwrap(), 42);
+    }
+
+    #[test]
+    fn test_inference_config_reexport() {
+        // Test InferenceConfig is properly re-exported
+        let config = InferenceConfig::new("/dev/null");
+        // Just verify the config can be created
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("InferenceConfig"));
+    }
+
+    #[test]
+    fn test_trace_step_reexport() {
+        // Test TraceStep is properly re-exported
+        let step = TraceStep::Tokenize;
+        assert!(format!("{:?}", step).contains("Tokenize"));
+    }
+
+    #[test]
+    fn test_trace_config_reexport() {
+        // Test TraceConfig is properly re-exported
+        let config = TraceConfig::default();
+        assert!(!config.enabled);
+    }
 }
