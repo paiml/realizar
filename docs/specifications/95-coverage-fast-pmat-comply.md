@@ -47,6 +47,44 @@ The coverage system implements core TPS principles as documented in peer-reviewe
 
 **Application:** Coverage metrics are tracked; regressions trigger investigation. Mutation scores and PMAT scores provide a secondary "quality of tests" metric beyond simple line coverage.
 
+#### Five-Whys (五回のなぜ) - Root Cause Analysis
+
+> "By repeating why five times, the nature of the problem as well as its solution becomes clear."
+>
+> — Ohno, T. (1988). *Toyota Production System: Beyond Large-Scale Production*. Productivity Press.
+
+**Application:** When coverage fails or tests don't compile, NEVER disable or skip. Always apply Five-Whys to find and fix the root cause. Disabling tests or features is equivalent to hiding defects - a cardinal TPS violation.
+
+**MANDATORY RULES:**
+
+1. **NEVER disable tests** - If a test fails, fix the root cause
+2. **NEVER skip hardware features** - RTX 4090 and AVX2 are ALWAYS available
+3. **NEVER use "feature-gated" as an excuse** - If `--features cuda` fails to compile, that's a BUG
+4. **ALWAYS run coverage with full hardware** - Follow trueno's example: `--features cuda`
+5. **ALWAYS apply Five-Whys** - Find the root cause, don't paper over symptoms
+
+**Anti-Pattern (FORBIDDEN):**
+```rust
+// ❌ WRONG - Hiding defects
+#[ignore] // "CUDA not available"
+fn test_cuda_feature() { ... }
+
+// ❌ WRONG - Disabling broken code
+#[cfg(feature = "cuda")]
+#[cfg(not(broken))]  // NEVER DO THIS
+mod safetensors_cuda;
+```
+
+**Correct Pattern (REQUIRED):**
+```rust
+// ✅ CORRECT - Fix the root cause
+// Five-Whys: Why doesn't this compile?
+// → CudaExecutor API changed
+// → safetensors_cuda.rs not updated
+// → ROOT CAUSE: Refactor didn't update all dependents
+// → FIX: Update safetensors_cuda.rs to use new API
+```
+
 ### 2.2 Popperian Falsification
 
 > "The criterion of the scientific status of a theory is its falsifiability, or refutability, or testability."
@@ -104,6 +142,37 @@ Files excluded from coverage measurement (to prevent inflation):
 | `main.rs` | Entry point (hollow shell) | - |
 | `tui.rs`, `viz.rs` | UI/Terminal (manual verify) | - |
 | `trueno/` | External dependency source | - |
+
+### 3.4 Mandatory Hardware Testing (trueno-style)
+
+**ALL coverage runs MUST include hardware features.** Following trueno's example:
+
+```makefile
+# ✅ CORRECT - Always enable hardware features
+coverage:
+	@nvidia-smi > /dev/null 2>&1 || { echo "❌ RTX 4090 required"; exit 1; }
+	cargo llvm-cov --features cuda ...
+
+# ❌ WRONG - Running without hardware features
+coverage:
+	cargo llvm-cov ...  # Missing --features cuda
+```
+
+**Hardware Requirements (ALWAYS AVAILABLE):**
+
+| Hardware | Feature Flag | Verification |
+|----------|--------------|--------------|
+| RTX 4090 | `--features cuda` | `nvidia-smi` |
+| AVX2/FMA | (auto-detected) | `lscpu \| grep avx2` |
+| AVX-512 | (optional) | `lscpu \| grep avx512` |
+
+**If hardware tests fail to compile:**
+1. Apply Five-Whys to find root cause
+2. Fix the broken code (NOT disable the feature)
+3. Re-run with hardware enabled
+4. Never merge code that breaks hardware tests
+
+**Reference:** See `../trueno/Makefile` for the canonical hardware-enabled coverage pattern.
 
 ---
 
@@ -351,6 +420,7 @@ Every week, review:
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
+| 1.7.0 | 2026-01-28 | Claude | CRITICAL: Added Five-Whys requirement, mandatory hardware testing (trueno-style), NEVER disable/skip |
 | 1.6.0 | 2026-01-28 | Claude | Added 40 tests to apr module (helpers, tokenizer); Total new tests this session: 135 |
 | 1.5.0 | 2026-01-28 | Claude | Added 95 tests to apr_transformer module (config, helpers, dequant, loader, q4_simd); Total: 17,431 tests |
 | 1.4.0 | 2026-01-28 | Claude | CUDA enabled in all coverage targets (trueno-style); RTX 4090 always available per CLAUDE.md |
