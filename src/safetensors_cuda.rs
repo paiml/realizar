@@ -29,8 +29,34 @@
 use crate::cuda::CudaExecutor;
 use crate::error::{RealizarError, Result};
 use crate::safetensors::{MappedSafeTensorsModel, SafetensorsConfig};
-use crate::safetensors_infer::SafetensorsToAprConverter;
 use std::path::Path;
+
+/// PMAT-120: Helper functions for weight handling.
+/// Based on analysis: CPU path works WITHOUT transpose, so GPU should match.
+/// The GEMM kernel does C[m,n] = A[m,k] @ B^T[n,k] internally (BLAS-style).
+impl SafeTensorsCudaModel {
+    /// Keep weight in HuggingFace [out, in] layout - no transpose needed.
+    /// GEMM kernel expects B in [n, k] layout (row-major) which matches HuggingFace.
+    fn keep_weight(weight: &[f32], _out_dim: usize, _in_dim: usize) -> Vec<f32> {
+        weight.to_vec()
+    }
+
+    /// Concatenate Q, K, V weights without transposition.
+    /// Simple concatenation like the CPU path does.
+    fn concat_qkv(
+        q: &[f32],
+        k: &[f32],
+        v: &[f32],
+        _hidden_dim: usize,
+        _kv_dim: usize,
+    ) -> Vec<f32> {
+        let mut qkv = Vec::with_capacity(q.len() + k.len() + v.len());
+        qkv.extend_from_slice(q);
+        qkv.extend_from_slice(k);
+        qkv.extend_from_slice(v);
+        qkv
+    }
+}
 
 /// CUDA-accelerated SafeTensors model (PMAT-116)
 ///
@@ -234,11 +260,12 @@ impl SafeTensorsCudaModel {
             })?;
 
         // LM head (may be tied to embeddings) - use gemm_b_cached (B is weight)
+        // PMAT-120 FIX: Use actual transpose for GEMM (not SafetensorsToAprConverter::transpose_weight which is a no-op)
         let lm_head = if st_model.has_tensor("lm_head.weight") {
             let raw = st_model.get_tensor_auto("lm_head.weight")?;
-            SafetensorsToAprConverter::transpose_weight(&raw, vocab_size, hidden_dim)
+            Self::keep_weight(&raw, vocab_size, hidden_dim)
         } else {
-            SafetensorsToAprConverter::transpose_weight(&embedding, vocab_size, hidden_dim)
+            Self::keep_weight(&embedding, vocab_size, hidden_dim)
         };
         executor
             .load_weights("lm_head", &lm_head)
@@ -263,10 +290,11 @@ impl SafeTensorsCudaModel {
                 })?;
 
             // QKV weights (concatenate and transpose for gemm_b_cached)
+            // PMAT-120 FIX: Use actual transpose for GEMM
             let q = st_model.get_tensor_auto(&format!("{prefix}.self_attn.q_proj.weight"))?;
             let k = st_model.get_tensor_auto(&format!("{prefix}.self_attn.k_proj.weight"))?;
             let v = st_model.get_tensor_auto(&format!("{prefix}.self_attn.v_proj.weight"))?;
-            let qkv = SafetensorsToAprConverter::concat_qkv_transposed(&q, &k, &v, hidden_dim, kv_dim);
+            let qkv = Self::concat_qkv(&q, &k, &v, hidden_dim, kv_dim);
             executor
                 .load_weights(&format!("blk.{layer_idx}.attn_qkv"), &qkv)
                 .map_err(|e| RealizarError::UnsupportedOperation {
@@ -275,8 +303,9 @@ impl SafeTensorsCudaModel {
                 })?;
 
             // Output projection
+            // PMAT-120 FIX: Use actual transpose for GEMM
             let o_raw = st_model.get_tensor_auto(&format!("{prefix}.self_attn.o_proj.weight"))?;
-            let o = SafetensorsToAprConverter::transpose_weight(&o_raw, hidden_dim, hidden_dim);
+            let o = Self::keep_weight(&o_raw, hidden_dim, hidden_dim);
             executor
                 .load_weights(&format!("blk.{layer_idx}.attn_output"), &o)
                 .map_err(|e| RealizarError::UnsupportedOperation {
@@ -297,9 +326,9 @@ impl SafeTensorsCudaModel {
                 })?;
 
             // FFN gate (SwiGLU)
+            // PMAT-120 FIX: Use actual transpose for GEMM
             let gate_raw = st_model.get_tensor_auto(&format!("{prefix}.mlp.gate_proj.weight"))?;
-            let gate =
-                SafetensorsToAprConverter::transpose_weight(&gate_raw, intermediate_dim, hidden_dim);
+            let gate = Self::keep_weight(&gate_raw, intermediate_dim, hidden_dim);
             executor
                 .load_weights(&format!("blk.{layer_idx}.ffn_gate"), &gate)
                 .map_err(|e| RealizarError::UnsupportedOperation {
@@ -308,9 +337,9 @@ impl SafeTensorsCudaModel {
                 })?;
 
             // FFN up
+            // PMAT-120 FIX: Use actual transpose for GEMM
             let up_raw = st_model.get_tensor_auto(&format!("{prefix}.mlp.up_proj.weight"))?;
-            let up =
-                SafetensorsToAprConverter::transpose_weight(&up_raw, intermediate_dim, hidden_dim);
+            let up = Self::keep_weight(&up_raw, intermediate_dim, hidden_dim);
             executor
                 .load_weights(&format!("blk.{layer_idx}.ffn_up"), &up)
                 .map_err(|e| RealizarError::UnsupportedOperation {
@@ -319,9 +348,9 @@ impl SafeTensorsCudaModel {
                 })?;
 
             // FFN down
+            // PMAT-120 FIX: Use actual transpose for GEMM
             let down_raw = st_model.get_tensor_auto(&format!("{prefix}.mlp.down_proj.weight"))?;
-            let down =
-                SafetensorsToAprConverter::transpose_weight(&down_raw, hidden_dim, intermediate_dim);
+            let down = Self::keep_weight(&down_raw, hidden_dim, intermediate_dim);
             executor
                 .load_weights(&format!("blk.{layer_idx}.ffn_down"), &down)
                 .map_err(|e| RealizarError::UnsupportedOperation {
@@ -376,13 +405,28 @@ impl SafeTensorsCudaModel {
     ) -> Result<Vec<u32>> {
         let mut tokens = input_ids.to_vec();
 
-        // Prefill: process all input tokens
+        // PMAT-120 FIX: Prefill processes all input tokens, keeping logits from last one.
+        // Previously, logits were discarded during prefill and the last input token was
+        // processed AGAIN in the decode loop, causing duplicate KV entries and wrong RoPE.
+        let mut last_logits = vec![];
         for &token in input_ids {
-            let _ = self.forward_single(token)?;
+            last_logits = self.forward_single(token)?;
         }
 
-        // Decode: generate new tokens
-        for _ in 0..max_tokens {
+        // Sample first new token from prefill logits (not from re-processing last input)
+        let first_next = last_logits
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map_or(0, |(i, _)| i as u32);
+
+        if first_next == eos_id {
+            return Ok(tokens);
+        }
+        tokens.push(first_next);
+
+        // Decode: generate remaining tokens
+        for _ in 1..max_tokens {
             let last_token = *tokens.last().unwrap_or(&1);
             let logits = self.forward_single(last_token)?;
 
@@ -450,8 +494,7 @@ impl SafeTensorsCudaModel {
 
     /// Forward pass for a single transformer layer.
     ///
-    /// Note: Position/RoPE is handled internally by `incremental_attention_gpu`
-    /// which tracks KV cache position and applies RoPE via `apply_rope_to_buffer`.
+    /// PMAT-120 FIX: RoPE is now applied explicitly here (not in incremental_attention_gpu).
     fn forward_layer(
         &mut self,
         layer_idx: usize,
@@ -485,11 +528,53 @@ impl SafeTensorsCudaModel {
             })?;
 
         // 3. Split Q, K, V
-        let q = qkv[..hidden_dim].to_vec();
-        let k = qkv[hidden_dim..hidden_dim + kv_dim].to_vec();
+        let mut q = qkv[..hidden_dim].to_vec();
+        let mut k = qkv[hidden_dim..hidden_dim + kv_dim].to_vec();
         let v = qkv[hidden_dim + kv_dim..].to_vec();
 
-        // 4. Attention with KV cache (GPU)
+        // 4. PMAT-120 FIX: Apply RoPE to Q and K before attention
+        // Position is kv_position (number of tokens already processed)
+        let position = self.kv_position as usize;
+        let rope_theta = self.config.rope_theta;
+        let half_dim = head_dim / 2;
+
+        // Apply RoPE to Q (num_heads heads)
+        for h in 0..num_heads {
+            let head_start = h * head_dim;
+            for i in 0..half_dim {
+                let freq = 1.0 / rope_theta.powf(2.0 * i as f32 / head_dim as f32);
+                let angle = position as f32 * freq;
+                let cos_val = angle.cos();
+                let sin_val = angle.sin();
+
+                let idx1 = head_start + i;
+                let idx2 = head_start + i + half_dim;
+                let x1 = q[idx1];
+                let x2 = q[idx2];
+                q[idx1] = x1 * cos_val - x2 * sin_val;
+                q[idx2] = x1 * sin_val + x2 * cos_val;
+            }
+        }
+
+        // Apply RoPE to K (num_kv_heads heads for GQA)
+        for h in 0..num_kv_heads {
+            let head_start = h * head_dim;
+            for i in 0..half_dim {
+                let freq = 1.0 / rope_theta.powf(2.0 * i as f32 / head_dim as f32);
+                let angle = position as f32 * freq;
+                let cos_val = angle.cos();
+                let sin_val = angle.sin();
+
+                let idx1 = head_start + i;
+                let idx2 = head_start + i + half_dim;
+                let x1 = k[idx1];
+                let x2 = k[idx2];
+                k[idx1] = x1 * cos_val - x2 * sin_val;
+                k[idx2] = x1 * sin_val + x2 * cos_val;
+            }
+        }
+
+        // 5. Attention with KV cache (GPU)
         let mut attn_output = vec![0.0f32; hidden_dim];
         self.executor
             .incremental_attention_gpu(
