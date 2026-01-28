@@ -351,6 +351,7 @@ Every week, review:
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
+| 1.5.0 | 2026-01-28 | Claude | Added 95 tests to apr_transformer module (config, helpers, dequant, loader, q4_simd); Total: 17,431 tests |
 | 1.4.0 | 2026-01-28 | Claude | CUDA enabled in all coverage targets (trueno-style); RTX 4090 always available per CLAUDE.md |
 | 1.3.0 | 2026-01-27 | Claude | Root cause analysis: 11,759 tests cover all unit-testable code; remaining 50% gap is feature-gated (GPU/CUDA) and requires integration tests |
 | 1.2.0 | 2026-01-27 | Gemini | Full PMAT Tooling integration (Popper Score, Quality Gates) |
@@ -363,13 +364,16 @@ Every week, review:
 
 | Category | Count |
 |----------|-------|
-| Unit tests (`#[test]`) | 11,473 |
-| Async tests (`#[tokio::test]`) | 324 |
-| **Total** | **11,797** |
+| Unit tests (`#[test]`) | 11,531 |
+| Integration tests | 5,900 |
+| **Total** | **17,431** |
 
 **New Tests Added (2026-01-28):**
 - `apr_transformer/config.rs`: 25 tests (AprKVCache, GenerateConfig, AprTransformerConfig, AprTransformerLayer, Q4KLayerWeights)
 - `apr_transformer/helpers.rs`: 13 tests (simd_dot_f32, simd_add_weighted with AVX2 and scalar paths)
+- `apr_transformer/dequant.rs`: 18 tests (f16_to_f32, extract_scale_min_apr, dequantize_q4_k_apr, dequantize_q6_k_apr)
+- `apr_transformer/loader.rs`: 29 tests (AprQuantizationType, QuantizedAprTransformer)
+- `apr_transformer/q4_simd.rs`: 10 tests (QuantizedAprTensorQ4, AprInferenceScratch)
 
 ### 12.2 Coverage Analysis
 
