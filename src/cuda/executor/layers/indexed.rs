@@ -1601,25 +1601,27 @@ mod tests {
     }
 
     #[test]
-    fn test_transformer_layer_indexed_true_dp4a() {
+    fn test_transformer_layer_indexed_different_epsilon() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
         let Some(mut exec) = create_executor() else { return; };
         let config = HarnessConfig::default();
         if setup_executor_harness(&mut exec, &config).is_err() { return; }
 
-        let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).unwrap();
-        let layer_weights = exec.indexed_layer_weights[0].clone();
+        // Test with different epsilon values
+        for epsilon in [1e-5f32, 1e-6, 1e-4] {
+            let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).unwrap();
+            let layer_weights = exec.indexed_layer_weights[0].clone();
 
-        // Test TRUE_DP4A path
-        let result = exec.transformer_layer_indexed_true_dp4a(
-            &input,
-            0,
-            &layer_weights,
-            config.hidden_dim as u32,
-            config.intermediate_dim as u32,
-            1e-5,
-        );
-        let _ = result;
+            let result = exec.transformer_layer_indexed(
+                &input,
+                0,
+                &layer_weights,
+                config.hidden_dim as u32,
+                config.intermediate_dim as u32,
+                epsilon,
+            );
+            let _ = result;
+        }
     }
 
     #[test]

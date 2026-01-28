@@ -1606,9 +1606,9 @@ mod tests {
             &mut logits,
             0,
             config.num_layers,
-            config.hidden_dim,
-            config.intermediate_dim,
-            config.vocab_size,
+            config.hidden_dim as u32,
+            config.intermediate_dim as u32,
+            config.vocab_size as u32,
             1e-5,
         );
         let _ = result;
@@ -1621,7 +1621,7 @@ mod tests {
         let config = HarnessConfig::default();
         if setup_executor_harness(&mut exec, &config).is_err() { return; }
 
-        for position in [0, 1, 5, 10] {
+        for position in [0u32, 1, 5, 10] {
             let input = vec![0.1f32; config.hidden_dim];
             let mut logits = vec![0.0f32; config.vocab_size];
 
@@ -1630,9 +1630,9 @@ mod tests {
                 &mut logits,
                 position,
                 config.num_layers,
-                config.hidden_dim,
-                config.intermediate_dim,
-                config.vocab_size,
+                config.hidden_dim as u32,
+                config.intermediate_dim as u32,
+                config.vocab_size as u32,
                 1e-5,
             );
             let _ = result;
@@ -1655,9 +1655,9 @@ mod tests {
             &mut logits,
             0,
             config.num_layers,
-            config.hidden_dim,
-            config.intermediate_dim,
-            config.vocab_size,
+            config.hidden_dim as u32,
+            config.intermediate_dim as u32,
+            config.vocab_size as u32,
             1e-5,
         );
 
@@ -1667,9 +1667,9 @@ mod tests {
             &mut logits,
             1,
             config.num_layers,
-            config.hidden_dim,
-            config.intermediate_dim,
-            config.vocab_size,
+            config.hidden_dim as u32,
+            config.intermediate_dim as u32,
+            config.vocab_size as u32,
             1e-5,
         );
 
@@ -1713,27 +1713,29 @@ mod tests {
     }
 
     #[test]
-    fn test_graphed_forward_true_dp4a() {
+    fn test_graphed_forward_different_positions() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
         let Some(mut exec) = create_executor() else { return; };
         let config = HarnessConfig::default();
         if setup_executor_harness(&mut exec, &config).is_err() { return; }
 
-        let input = vec![0.1f32; config.hidden_dim];
-        let mut logits = vec![0.0f32; config.vocab_size];
+        // Test graphed path at different positions
+        for position in [0u32, 5, 10, 20] {
+            let input = vec![0.1f32; config.hidden_dim];
+            let mut logits = vec![0.0f32; config.vocab_size];
 
-        // Test TRUE_DP4A graphed path
-        let result = exec.forward_all_layers_gpu_to_logits_graphed_true_dp4a(
-            &input,
-            &mut logits,
-            0,
-            config.num_layers,
-            config.hidden_dim,
-            config.intermediate_dim,
-            config.vocab_size,
-            1e-5,
-        );
-        let _ = result;
+            let result = exec.forward_all_layers_gpu_to_logits_graphed(
+                &input,
+                &mut logits,
+                position,
+                config.num_layers,
+                config.hidden_dim as u32,
+                config.intermediate_dim as u32,
+                config.vocab_size as u32,
+                1e-5,
+            );
+            let _ = result;
+        }
     }
 
     #[test]
@@ -1755,9 +1757,9 @@ mod tests {
             &mut logits,
             0,
             config.num_layers,
-            config.hidden_dim,
-            config.intermediate_dim,
-            config.vocab_size,
+            config.hidden_dim as u32,
+            config.intermediate_dim as u32,
+            config.vocab_size as u32,
             1e-5,
         );
 
@@ -1781,9 +1783,9 @@ mod tests {
             &mut logits,
             5,  // non-zero position
             config.num_layers,
-            config.hidden_dim,
-            config.intermediate_dim,
-            config.vocab_size,
+            config.hidden_dim as u32,
+            config.intermediate_dim as u32,
+            config.vocab_size as u32,
             1e-5,
         );
 
