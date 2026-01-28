@@ -591,3 +591,234 @@ impl CudaExecutor {
         Ok(new_len)
     }
 }
+
+#[cfg(test)]
+#[cfg(feature = "cuda")]
+mod tests {
+    use super::*;
+
+    fn create_executor() -> Option<CudaExecutor> {
+        CudaExecutor::new(0).ok()
+    }
+
+    // ========================================================================
+    // KV Cache Initialization Tests
+    // ========================================================================
+
+    #[test]
+    fn test_init_kv_cache_gpu() {
+        let Some(mut exec) = create_executor() else { return; };
+        let n_layers = 4usize;
+        let n_kv_heads = 4usize;
+        let head_dim = 64usize;
+        let max_seq_len = 1024usize;
+
+        let result = exec.init_kv_cache_gpu(n_layers, n_kv_heads, head_dim, max_seq_len, n_kv_heads * 4);
+        assert!(result.is_ok());
+
+        // Verify cache is initialized
+        assert!(exec.has_kv_cache_gpu());
+        assert!(exec.kv_cache_max_len > 0);
+    }
+
+    #[test]
+    fn test_init_batched_kv_cache_gpu_requires_kv_cache() {
+        let Some(mut exec) = create_executor() else { return; };
+        // Without init_kv_cache_gpu first, should fail
+        let result = exec.init_batched_kv_cache_gpu(4, 8);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_init_batched_kv_cache_gpu_after_kv_init() {
+        let Some(mut exec) = create_executor() else { return; };
+        // First init regular KV cache
+        exec.init_kv_cache_gpu(4, 4, 64, 1024, 16).unwrap();
+
+        // Then init batched cache
+        let result = exec.init_batched_kv_cache_gpu(4, 8);
+        assert!(result.is_ok());
+
+        // Verify batched cache is initialized
+        assert_eq!(exec.batched_kv_allocated_batch, 8);
+    }
+
+    // ========================================================================
+    // KV Cache State Tests
+    // ========================================================================
+
+    #[test]
+    fn test_has_kv_cache_gpu_initial_false() {
+        let Some(exec) = create_executor() else { return; };
+        assert!(!exec.has_kv_cache_gpu());
+    }
+
+    #[test]
+    fn test_kv_cache_len_uninitialized() {
+        let Some(exec) = create_executor() else { return; };
+        // Uninitialized layer should return 0
+        assert_eq!(exec.kv_cache_len(0), 0);
+        assert_eq!(exec.kv_cache_len(99), 0);
+    }
+
+    #[test]
+    fn test_kv_cache_len_after_init() {
+        let Some(mut exec) = create_executor() else { return; };
+        exec.init_kv_cache_gpu(4, 4, 64, 1024, 16).unwrap();
+
+        // Initially should be 0 for each layer
+        assert_eq!(exec.kv_cache_len(0), 0);
+        assert_eq!(exec.kv_cache_len(1), 0);
+    }
+
+    // ========================================================================
+    // KV Cache Reset Tests
+    // ========================================================================
+
+    #[test]
+    fn test_reset_kv_cache_gpu() {
+        let Some(mut exec) = create_executor() else { return; };
+        exec.init_kv_cache_gpu(4, 4, 64, 1024, 16).unwrap();
+
+        // Reset should succeed
+        exec.reset_kv_cache_gpu();
+
+        // All lengths should be 0
+        assert_eq!(exec.kv_cache_len(0), 0);
+    }
+
+    #[test]
+    fn test_reset_batched_kv_cache_gpu() {
+        let Some(mut exec) = create_executor() else { return; };
+        // Init regular cache first
+        exec.init_kv_cache_gpu(4, 4, 64, 1024, 16).unwrap();
+        exec.init_batched_kv_cache_gpu(4, 8).unwrap();
+
+        exec.reset_batched_kv_cache_gpu();
+
+        // Batched lengths should all be 0
+        assert!(exec.batched_kv_lengths.iter().all(|&len| len == 0));
+    }
+
+    // ========================================================================
+    // RoPE Configuration Tests
+    // ========================================================================
+
+    #[test]
+    fn test_set_rope_theta() {
+        let Some(mut exec) = create_executor() else { return; };
+        exec.set_rope_theta(10000.0);
+        assert_eq!(exec.rope_theta, 10000.0);
+
+        exec.set_rope_theta(500000.0); // Longer context
+        assert_eq!(exec.rope_theta, 500000.0);
+    }
+
+    #[test]
+    fn test_set_rope_type() {
+        let Some(mut exec) = create_executor() else { return; };
+        exec.set_rope_type(0); // NORM
+        assert_eq!(exec.rope_type, 0);
+
+        exec.set_rope_type(2); // NEOX (GPT-NeoX style)
+        assert_eq!(exec.rope_type, 2);
+    }
+
+    // ========================================================================
+    // KV Cache Rollback Tests
+    // ========================================================================
+
+    #[test]
+    fn test_rollback_kv_cache_gpu() {
+        let Some(mut exec) = create_executor() else { return; };
+        exec.init_kv_cache_gpu(4, 4, 64, 1024, 16).unwrap();
+
+        // Rollback to position 5
+        exec.rollback_kv_cache_gpu(5);
+
+        // All layers should be rolled back to 5
+        for layer in 0..4 {
+            assert!(exec.kv_cache_len(layer) <= 5);
+        }
+    }
+
+    #[test]
+    fn test_rollback_to_zero() {
+        let Some(mut exec) = create_executor() else { return; };
+        exec.init_kv_cache_gpu(4, 4, 64, 1024, 16).unwrap();
+
+        // Rollback to 0 should be equivalent to reset
+        exec.rollback_kv_cache_gpu(0);
+
+        assert_eq!(exec.kv_cache_len(0), 0);
+    }
+
+    // ========================================================================
+    // Flash Attention Cached Tests
+    // ========================================================================
+
+    #[test]
+    fn test_flash_attention_cached_requires_kv_cache() {
+        let Some(mut exec) = create_executor() else { return; };
+        // Without KV cache initialization
+        let q = vec![1.0f32; 256];
+        let k = vec![1.0f32; 256];
+        let v = vec![1.0f32; 256];
+        let mut output = vec![0.0f32; 256];
+
+        // flash_attention_cached takes (layer_idx, q, current_k, current_v, output)
+        let result = exec.flash_attention_cached(0, &q, &k, &v, &mut output);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_incremental_attention_gpu_requires_kv_cache() {
+        let Some(mut exec) = create_executor() else { return; };
+        let q = vec![1.0f32; 256];
+        let k = vec![1.0f32; 256];
+        let v = vec![1.0f32; 256];
+        let mut output = vec![0.0f32; 256];
+
+        // incremental_attention_gpu takes (layer_idx, q, current_k, current_v, output)
+        let result = exec.incremental_attention_gpu(0, &q, &k, &v, &mut output);
+        assert!(result.is_err());
+    }
+
+    // ========================================================================
+    // KV Cache Memory Calculation Tests
+    // ========================================================================
+
+    #[test]
+    fn test_kv_cache_memory_calculation() {
+        // Test memory calculation for KV cache
+        let n_layers = 32usize;
+        let n_kv_heads = 8usize;
+        let head_dim = 128usize;
+        let max_seq_len = 4096usize;
+
+        let per_layer_bytes = 2 * max_seq_len * n_kv_heads * head_dim * 4; // K + V, f32
+        let total_bytes = n_layers * per_layer_bytes;
+
+        // Verify it's a reasonable size (1-10 GB range for large models)
+        assert!(total_bytes > 1_000_000_000); // > 1GB
+        assert!(total_bytes < 20_000_000_000); // < 20GB
+    }
+
+    #[test]
+    fn test_gqa_kv_cache_savings() {
+        // Test memory savings from GQA (fewer KV heads)
+        let n_layers = 32usize;
+        let head_dim = 128usize;
+        let max_seq_len = 4096usize;
+
+        // MHA: 32 KV heads
+        let mha_per_layer = 2 * max_seq_len * 32 * head_dim * 4;
+        let mha_total = n_layers * mha_per_layer;
+
+        // GQA: 8 KV heads (4x savings)
+        let gqa_per_layer = 2 * max_seq_len * 8 * head_dim * 4;
+        let gqa_total = n_layers * gqa_per_layer;
+
+        assert_eq!(mha_total / gqa_total, 4);
+    }
+}

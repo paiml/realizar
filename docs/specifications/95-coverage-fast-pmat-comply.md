@@ -1,7 +1,7 @@
 # Specification: Fast O(1) Coverage with PMAT Compliance
 
 **Document ID:** SPEC-COV-95
-**Version:** 1.27.0
+**Version:** 1.28.0
 **Status:** ACTIVE
 **Methodology:** The Toyota Way (14 Principles) + Popperian Falsification
 **Target:** 95% Production Code Coverage in <10 minutes (Full), O(1) Incremental
@@ -308,6 +308,7 @@ When coverage drops or a bug slips through, we do not just "fix" it. We apply th
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
+| 1.28.0 | 2026-01-28 | Claude | Added 16 KV cache tests: kv_cache.rs (init, batched init, reset, rollback, RoPE config, flash attention/incremental attention requires KV cache, memory calculations). Total tests: ~12,759. |
 | 1.27.0 | 2026-01-28 | Claude | Added 16 CUDA attention tests: attention.rs (incremental attention KV cache requirements, flash decoding init, tensor core alignment checks, GEMM FP16, GQA head mapping, RoPE frequencies). Total tests: ~12,743. |
 | 1.26.0 | 2026-01-28 | Claude | Added 46 more CUDA executor tests: core.rs (30 tests: constructor, profiler, tile profiling, execution graph, memory pools), layer.rs (16 tests: FFN SwiGLU, flash attention, transformer layer calculations). Total tests: ~12,727. |
 | 1.25.0 | 2026-01-28 | Claude | Added 72 CUDA executor tests: gemm.rs (25 tests: GEMM, GEMV, softmax, async ops), q4k.rs (20 tests: Q4K GEMV cached, indexed, batched), quantized.rs (27 tests: RMSNorm, residual, batched ops). Total tests: ~12,651. |
