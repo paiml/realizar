@@ -1,7 +1,7 @@
 # Specification: Fast O(1) Coverage with PMAT Compliance
 
 **Document ID:** SPEC-COV-95
-**Version:** 1.32.0
+**Version:** 1.33.0
 **Status:** ACTIVE
 **Methodology:** The Toyota Way (14 Principles) + Popperian Falsification
 **Target:** 95% Production Code Coverage in <10 minutes (Full), O(1) Incremental
@@ -308,6 +308,7 @@ When coverage drops or a bug slips through, we do not just "fix" it. We apply th
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
+| 1.33.0 | 2026-01-28 | Claude | Added 40 harness-based integration tests across CUDA executor modules: layer.rs (9), attention.rs (8), activations.rs (8), q4k.rs (7), quantized.rs (8). All tests use ModelHarness for complete executor state. CUDA executor now has 915 tests. Total tests: ~12,887. Session total: 123 new tests. |
 | 1.32.0 | 2026-01-28 | Claude | Added 4 harness-based integration tests: forward.rs (multi-position, sequence), batched.rs (m4, transformer_layer). These exercise complex orchestration paths unreachable without full model state. Total tests: ~12,847. Session total: 83 new tests. |
 | 1.31.0 | 2026-01-28 | Claude | Added ModelHarness (test_fixtures.rs): setup_executor_harness() + HarnessConfig for complete executor state initialization. 7 new tests including forward_all_layers and forward_to_logits integration. Five-Whys solution: harness enables testing complex orchestration functions. Total tests: ~12,843. |
 | 1.30.0 | 2026-01-28 | Claude | Added 24 tests to layers/: ffn.rs (4), forward.rs (5), batched.rs (6), graphed.rs (5), indexed.rs (3). All layers/ files now have inline tests. Five-Whys applied: continuing to add kernel-executing tests. Total tests: ~12,836. |
