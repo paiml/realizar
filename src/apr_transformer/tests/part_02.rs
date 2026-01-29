@@ -331,6 +331,7 @@ fn test_kv_cache_get_layer_bounds() {
     for layer in 0..config.num_layers {
         cache.append(layer, &k, &v);
     }
+    // No advance() needed - append() auto-advances on last layer
 
     // Get for each layer
     for layer in 0..config.num_layers {
@@ -354,6 +355,7 @@ fn test_kv_cache_multi_position_get() {
         for layer in 0..config.num_layers {
             cache.append(layer, &k, &v);
         }
+        // No advance() needed - append() auto-advances on last layer
     }
 
     // Get should return all positions

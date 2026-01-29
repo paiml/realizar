@@ -32,6 +32,8 @@ pub struct AprKVCache {
     capacity: usize,
     /// Current sequence length (positions filled)
     len: usize,
+    /// True if a position is currently being appended (layers 0..N-1 have written)
+    in_progress: bool,
     /// K cache per layer: [num_layers][capacity * num_kv_heads * head_dim]
     k_cache: Vec<Vec<f32>>,
     /// V cache per layer: [num_layers][capacity * num_kv_heads * head_dim]
@@ -66,6 +68,7 @@ impl AprKVCache {
             head_dim,
             capacity,
             len: 0,
+            in_progress: false,
             k_cache,
             v_cache,
         }
@@ -103,6 +106,10 @@ impl AprKVCache {
 
     /// Append K and V for a single position
     ///
+    /// When called with `layer == num_layers - 1` (last layer), this automatically
+    /// increments `self.len` so that `get()` returns the newly appended data.
+    /// Tests that only use layer 0 should call `advance()` after append.
+    ///
     /// # Arguments
     ///
     /// * `layer` - Layer index
@@ -123,13 +130,33 @@ impl AprKVCache {
         self.k_cache[layer][offset..offset + kv_size].copy_from_slice(k);
         self.v_cache[layer][offset..offset + kv_size].copy_from_slice(v);
 
-        // Only increment len on first layer to keep consistent
-        if layer == 0 {
+        // Mark that we have in-progress data (so get() includes it)
+        self.in_progress = true;
+
+        // F-REGR-231 FIX: Increment len only on LAST layer to ensure:
+        // 1. All layers write to the same offset (correct for single token)
+        // 2. get() immediately sees new data after last layer appends
+        // 3. No manual advance() calls needed in production code
+        // Note: Tests using only layer 0 should call advance() manually.
+        if layer == self.num_layers - 1 {
             self.len += 1;
+            self.in_progress = false;
         }
     }
 
+    /// Advance the cache position manually.
+    ///
+    /// Usually not needed - `append()` auto-advances after the last layer.
+    /// Only use this if you need to advance without appending all layers (e.g., in tests).
+    pub fn advance(&mut self) {
+        self.len += 1;
+        self.in_progress = false;
+    }
+
     /// Get cached K and V for a layer
+    ///
+    /// If `in_progress` is true, returns data up to `len + 1` positions to include
+    /// data appended by earlier layers in the current forward pass.
     ///
     /// # Arguments
     ///
@@ -141,7 +168,9 @@ impl AprKVCache {
     #[must_use]
     pub fn get(&self, layer: usize) -> (&[f32], &[f32]) {
         let kv_size = self.num_kv_heads * self.head_dim;
-        let used_size = self.len * kv_size;
+        // Include in-progress position if any layer has appended
+        let effective_len = self.len + (self.in_progress as usize);
+        let used_size = effective_len * kv_size;
 
         (
             &self.k_cache[layer][..used_size],
@@ -152,6 +181,7 @@ impl AprKVCache {
     /// Clear the cache (reset to empty without deallocating)
     pub fn clear(&mut self) {
         self.len = 0;
+        self.in_progress = false;
         // No need to zero memory - will be overwritten on next append
     }
 }
@@ -413,6 +443,7 @@ mod tests {
         let k = vec![1.0f32; kv_size];
         let v = vec![2.0f32; kv_size];
         cache.append(0, &k, &v);
+        cache.advance(); // F-REGR-231: explicit advance required
 
         assert_eq!(cache.len(), 1);
         assert!(!cache.is_empty());
@@ -438,11 +469,12 @@ mod tests {
         let mut cache = AprKVCache::new(&config);
         let kv_size = config.num_kv_heads * (config.hidden_dim / config.num_heads);
 
-        // Append 3 positions
+        // Append 3 positions (num_layers=1, so layer 0 is last layer - auto-advances)
         for i in 0..3 {
             let k = vec![(i + 1) as f32; kv_size];
             let v = vec![(i + 10) as f32; kv_size];
             cache.append(0, &k, &v);
+            // No advance() needed - append() auto-advances on last layer
         }
 
         assert_eq!(cache.len(), 3);
@@ -459,6 +491,7 @@ mod tests {
         let kv_size = config.num_kv_heads * (config.hidden_dim / config.num_heads);
 
         cache.append(0, &vec![1.0; kv_size], &vec![2.0; kv_size]);
+        cache.advance(); // F-REGR-231: explicit advance required
         assert_eq!(cache.len(), 1);
 
         cache.clear();
