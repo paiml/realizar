@@ -407,8 +407,24 @@ fn run_gguf_generate(
     gen_config: &crate::gguf::QuantizedGenerateConfig,
     config: &InferenceConfig,
 ) -> Result<(Vec<u32>, bool)> {
+    // PMAT-130: Detect Q4_0/Q4_1/Q5_0 models and force CPU (GPU only supports Q4_K/Q5_K/Q6_K)
+    // These old quant types on GPU produce garbage because GPU uses Q4_K kernels
+    const GGUF_TYPE_Q4_0: u32 = 2;
+    const GGUF_TYPE_Q4_1: u32 = 3;
+    const GGUF_TYPE_Q5_0: u32 = 6;
+    const GGUF_TYPE_Q5_1: u32 = 7;
+
+    // Check if model uses legacy quantization types that GPU doesn't support
+    let is_legacy_quant = |qtype: u32| matches!(qtype, 2 | 3 | 6 | 7); // Q4_0, Q4_1, Q5_0, Q5_1
+    let has_legacy_quant = is_legacy_quant(model.lm_head_weight.qtype)
+        || model.layers.iter().any(|l| {
+            is_legacy_quant(l.ffn_down_weight.qtype)
+                || is_legacy_quant(l.ffn_up_weight.qtype)
+                || is_legacy_quant(l.attn_output_weight.qtype)
+        });
+
     #[cfg(feature = "cuda")]
-    if !config.no_gpu {
+    if !config.no_gpu && !has_legacy_quant {
         use crate::gguf::OwnedQuantizedModelCuda;
 
         match OwnedQuantizedModelCuda::new(model.clone(), 0) {
@@ -435,9 +451,13 @@ fn run_gguf_generate(
         }
     }
 
-    // CPU fallback
+    // CPU fallback (PMAT-130: Q4_0 uses CPU which works correctly)
     if config.verbose {
-        eprintln!("Backend: CPU (SIMD-accelerated)");
+        if has_legacy_quant {
+            eprintln!("Backend: CPU (Q4_0 format - GPU Q4_K kernels incompatible)");
+        } else {
+            eprintln!("Backend: CPU (SIMD-accelerated)");
+        }
     }
     let tokens = model
         .generate_with_cache(input_tokens, gen_config)
