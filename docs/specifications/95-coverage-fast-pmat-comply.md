@@ -1,7 +1,7 @@
 # Specification: Fast O(1) Coverage with PMAT Compliance
 
 **Document ID:** SPEC-COV-95
-**Version:** 1.40.0
+**Version:** 1.41.0
 **Status:** ACTIVE
 **Methodology:** The Toyota Way (14 Principles) + Popperian Falsification
 **Target:** 95% Production Code Coverage in <10 minutes (Full), O(1) Incremental
@@ -320,6 +320,7 @@ When coverage drops or a bug slips through, we do not just "fix" it. We apply th
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
+| 1.41.0 | 2026-01-29 | Karl Popper | **FIVE-WHYS: GpuGenerateConfig (F-COV-95-COMPILE).** Root cause: cli/inference.rs used `trace: false` but struct lacked field. Fix: Added `trace: bool` to GpuGenerateConfig, fixed duplicate fields in test files. **Tests now compile and run.** Coverage: 78.03%. |
 | 1.40.0 | 2026-01-29 | Karl Popper | **FIVE-WHYS: Tokenizer Fallback (F-REGR-232).** Root cause: find_fallback_tokenizer searched HF cache even for invalid files. Fix: Only search fallback if model loads successfully. **6 tests fixed.** |
 | 1.39.0 | 2026-01-29 | Karl Popper | **FIVE-WHYS: KV Cache Auto-Advance (F-REGR-231).** Root cause: len incremented on layer 0 instead of last layer. Fix: Added in_progress flag, auto-advance on last layer. **27 forward_with_cache tests now pass.** Makefile: Removed `--skip part_` from coverage - **130K lines of tests now included.** Coverage: 70% → 78% (+8%). |
 | 1.38.0 | 2026-01-29 | Karl Popper | **FIVE-WHYS: GPU Context Exhaustion.** Root cause: Null pointer test corrupted GPU context (CUDA_ERROR_UNKNOWN 700). Fix: Added Prohibition-of-Miracles guards in transformer_layer_indexed (validates 9 pointers BEFORE kernel launch). Makefile: Batched coverage-cuda into 8 separate invocations to prevent context exhaustion. **Coverage jumped 47% → 67%** (20% improvement). |
