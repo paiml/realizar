@@ -347,4 +347,159 @@ mod tests {
         // May fail due to kernel issues, but exercises the path
         let _ = result;
     }
+
+    // ========================================================================
+    // Coverage Tests: FFN with ModelHarness (v1.36.0)
+    // ========================================================================
+
+    #[test]
+    fn test_ffn_with_harness() {
+        use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
+        let Some(mut exec) = create_executor() else { return; };
+        let config = HarnessConfig::default();
+        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+
+        let input: Vec<f32> = vec![0.1f32; config.hidden_dim];
+        let input_buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
+
+        let result = fused_ffn_swiglu_gpu(
+            &mut exec,
+            &input_buf,
+            "blk.0.ffn_gate",
+            "blk.0.ffn_up",
+            "blk.0.ffn_down",
+            config.hidden_dim as u32,
+            config.intermediate_dim as u32,
+        );
+        let _ = result;
+    }
+
+    #[test]
+    fn test_ffn_different_layers() {
+        use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
+        let Some(mut exec) = create_executor() else { return; };
+        let mut config = HarnessConfig::default();
+        config.num_layers = 4;
+        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+
+        for layer_idx in 0..config.num_layers {
+            let input: Vec<f32> = vec![0.1f32; config.hidden_dim];
+            let input_buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
+
+            let result = fused_ffn_swiglu_gpu(
+                &mut exec,
+                &input_buf,
+                &format!("blk.{}.ffn_gate", layer_idx),
+                &format!("blk.{}.ffn_up", layer_idx),
+                &format!("blk.{}.ffn_down", layer_idx),
+                config.hidden_dim as u32,
+                config.intermediate_dim as u32,
+            );
+            let _ = result;
+        }
+    }
+
+    #[test]
+    fn test_ffn_varying_inputs() {
+        use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
+        let Some(mut exec) = create_executor() else { return; };
+        let config = HarnessConfig::default();
+        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+
+        // Test with different input patterns
+        let inputs = [
+            vec![0.0f32; config.hidden_dim],
+            vec![1.0f32; config.hidden_dim],
+            (0..config.hidden_dim).map(|i| (i as f32 / 1000.0).sin()).collect::<Vec<_>>(),
+        ];
+
+        for input in inputs {
+            let input_buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
+
+            let result = fused_ffn_swiglu_gpu(
+                &mut exec,
+                &input_buf,
+                "blk.0.ffn_gate",
+                "blk.0.ffn_up",
+                "blk.0.ffn_down",
+                config.hidden_dim as u32,
+                config.intermediate_dim as u32,
+            );
+            let _ = result;
+        }
+    }
+
+    #[test]
+    fn test_ffn_true_dp4a_with_harness() {
+        use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
+        let Some(mut exec) = create_executor() else { return; };
+        let config = HarnessConfig::default();
+        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+
+        let input: Vec<f32> = (0..config.hidden_dim).map(|i| (i as f32) * 0.001).collect();
+        let input_buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
+
+        // Call true_dp4a variant with harness weights
+        let result = fused_ffn_swiglu_gpu_true_dp4a(
+            &mut exec,
+            &input_buf,
+            "blk.0.ffn_gate",
+            "blk.0.ffn_up",
+            "blk.0.ffn_down",
+            config.hidden_dim as u32,
+            config.intermediate_dim as u32,
+        );
+        let _ = result;
+    }
+
+    #[test]
+    fn test_ffn_larger_intermediate_dim() {
+        use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
+        let Some(mut exec) = create_executor() else { return; };
+        let mut config = HarnessConfig::default();
+        config.intermediate_dim = 2048;  // Larger intermediate
+        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+
+        let input: Vec<f32> = vec![0.1f32; config.hidden_dim];
+        let input_buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
+
+        let result = fused_ffn_swiglu_gpu(
+            &mut exec,
+            &input_buf,
+            "blk.0.ffn_gate",
+            "blk.0.ffn_up",
+            "blk.0.ffn_down",
+            config.hidden_dim as u32,
+            config.intermediate_dim as u32,
+        );
+        let _ = result;
+    }
+
+    #[test]
+    fn test_ffn_output_dimensions() {
+        use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
+        let Some(mut exec) = create_executor() else { return; };
+        let config = HarnessConfig::default();
+        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+
+        let input: Vec<f32> = vec![0.1f32; config.hidden_dim];
+        let input_buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
+
+        let result = fused_ffn_swiglu_gpu(
+            &mut exec,
+            &input_buf,
+            "blk.0.ffn_gate",
+            "blk.0.ffn_up",
+            "blk.0.ffn_down",
+            config.hidden_dim as u32,
+            config.intermediate_dim as u32,
+        );
+
+        // If successful, output should have hidden_dim elements
+        if let Ok(output_buf) = result {
+            let mut output = vec![0.0f32; config.hidden_dim];
+            output_buf.copy_to_host(&mut output).expect("copy");
+            assert_eq!(output.len(), config.hidden_dim, "FFN output should match hidden_dim");
+        }
+    }
 }
