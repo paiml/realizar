@@ -1351,6 +1351,7 @@ fn test_imp_1001d_gpu_model_with_cuda_backend() {
         temperature: 1.0,
         top_k: 50,
         stop_tokens: vec![],
+        trace: false,
     };
 
     let result = model.generate(&prompt, &gen_config);
