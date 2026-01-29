@@ -126,6 +126,13 @@ pub enum RealizarError {
         message: String,
     },
 
+    /// Security error (F-SEC-222: path traversal, unauthorized access)
+    #[error("Security error: {reason}")]
+    SecurityError {
+        /// Reason for security error
+        reason: String,
+    },
+
     /// Connection error (network/HTTP)
     #[error("Connection error: {0}")]
     ConnectionError(String),

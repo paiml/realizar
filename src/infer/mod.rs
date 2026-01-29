@@ -173,6 +173,77 @@ pub struct InferenceResult {
     pub used_gpu: bool,
 }
 
+// ============================================================================
+// Security - Path Validation (F-SEC-222)
+// ============================================================================
+
+/// Valid model file extensions
+const VALID_MODEL_EXTENSIONS: &[&str] = &["gguf", "safetensors", "apr", "bin"];
+
+/// Validate that a path is a valid model file path.
+///
+/// # Security (F-SEC-222)
+///
+/// This prevents path traversal attacks where an attacker could trick the
+/// tool into reading arbitrary files (e.g., `/etc/passwd`, `~/.ssh/id_rsa`).
+///
+/// ## Validation Rules
+///
+/// 1. Path must have a valid model extension (.gguf, .safetensors, .apr, .bin)
+/// 2. Path must not contain path traversal sequences (`../`)
+/// 3. Path must be a regular file (not a directory, symlink to directory, etc.)
+///
+/// # Errors
+///
+/// Returns error if:
+/// - Path has invalid or missing extension
+/// - Path contains traversal sequences
+/// - Path doesn't exist or isn't a file
+fn validate_model_path(path: &std::path::Path) -> Result<()> {
+    // Check for path traversal sequences
+    let path_str = path.to_string_lossy();
+    if path_str.contains("..") {
+        return Err(RealizarError::SecurityError {
+            reason: format!(
+                "Path traversal detected: '{}'. Use absolute paths or paths without '..'",
+                path_str
+            ),
+        });
+    }
+
+    // Check file extension
+    let extension = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .unwrap_or_default();
+
+    if !VALID_MODEL_EXTENSIONS.contains(&extension.as_str()) {
+        return Err(RealizarError::SecurityError {
+            reason: format!(
+                "Invalid model file extension: '.{}'. Expected one of: {}",
+                extension,
+                VALID_MODEL_EXTENSIONS.join(", ")
+            ),
+        });
+    }
+
+    // Check that path exists and is a file
+    if !path.exists() {
+        return Err(RealizarError::IoError {
+            message: format!("File not found: {}", path.display()),
+        });
+    }
+
+    if !path.is_file() {
+        return Err(RealizarError::SecurityError {
+            reason: format!("Path is not a regular file: {}", path.display()),
+        });
+    }
+
+    Ok(())
+}
+
 /// Run inference on a model
 ///
 /// This is the main entry point for inference. It handles:
@@ -193,6 +264,10 @@ pub fn run_inference(config: &InferenceConfig) -> Result<InferenceResult> {
     if config.use_mock_backend {
         return run_mock_inference(config);
     }
+
+    // SECURITY (F-SEC-222): Validate path before reading
+    // Prevents path traversal attacks and reading arbitrary files
+    validate_model_path(&config.model_path)?;
 
     // Read model file header for format detection
     let data = std::fs::read(&config.model_path).map_err(|e| RealizarError::IoError {
