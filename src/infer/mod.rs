@@ -642,28 +642,101 @@ fn run_apr_inference(config: &InferenceConfig) -> Result<InferenceResult> {
     })
 }
 
-/// Run SafeTensors model inference (PAR-301)
+/// Run SafeTensors model inference (PAR-301, PMAT-129)
 fn run_safetensors_inference(config: &InferenceConfig) -> Result<InferenceResult> {
     use crate::apr::AprV2Model;
-    use crate::apr_transformer::AprKVCache;
-    use crate::safetensors_infer::SafetensorsToAprConverter;
-
-    // JIDOKA (F-SAFE-GPU-ST): Fail explicitly if GPU requested but not supported
-    // Silent CPU fallback when user requests GPU is a 0/100 FAIL per Popperian QA
-    #[cfg(feature = "cuda")]
-    if !config.no_gpu {
-        return Err(RealizarError::UnsupportedOperation {
-            operation: "SafeTensors GPU inference".to_string(),
-            reason: "Not yet supported. Use --no-gpu flag, or convert to APR format first: \
-                apr import model.safetensors -o model.apr"
-                .to_string(),
-        });
-    }
 
     // Verbose: Show loading message BEFORE loading
     if config.verbose {
         eprintln!("Loading SafeTensors model: {}", config.model_path.display());
     }
+
+    // Get input tokens first (needed for both GPU and CPU paths)
+    let input_tokens = if let Some(ref tokens) = config.input_tokens {
+        tokens.clone()
+    } else if let Some(ref prompt) = config.prompt {
+        // Load tokenizer from sibling tokenizer.json
+        AprV2Model::encode_text(&config.model_path, prompt).unwrap_or_else(|| vec![1u32])
+    } else {
+        vec![1u32] // BOS token
+    };
+
+    let input_token_count = input_tokens.len();
+
+    // PMAT-129: Try GPU path first using SafeTensorsCudaModel
+    #[cfg(feature = "cuda")]
+    if !config.no_gpu {
+        use crate::safetensors_cuda::SafeTensorsCudaModel;
+
+        let load_start = Instant::now();
+        match SafeTensorsCudaModel::load(&config.model_path, 0) {
+            Ok(mut cuda_model) => {
+                let load_ms = load_start.elapsed().as_secs_f64() * 1000.0;
+
+                if config.verbose {
+                    eprintln!(
+                        "Architecture: SafeTensors ({} layers, vocab_size={})",
+                        cuda_model.config().num_layers,
+                        cuda_model.config().vocab_size
+                    );
+                    eprintln!("Model loaded in {:.1}ms", load_ms);
+                    eprintln!(
+                        "Backend: GPU ({}, {} MB VRAM)",
+                        cuda_model.device_name(),
+                        cuda_model.vram_mb()
+                    );
+                }
+
+                // GPU generation
+                let infer_start = Instant::now();
+                let eos_id = 151645u32; // Qwen2 EOS
+                let tokens = cuda_model
+                    .generate(&input_tokens, config.max_tokens.min(128), eos_id)
+                    .map_err(|e| RealizarError::InferenceError(format!("GPU generation failed: {}", e)))?;
+
+                let inference_ms = infer_start.elapsed().as_secs_f64() * 1000.0;
+
+                // Decode output tokens
+                let generated_tokens = &tokens[input_token_count..];
+                let text = if let Some(tokenizer) = AprV2Model::load_tokenizer(&config.model_path) {
+                    tokenizer.decode(generated_tokens)
+                } else if let Some(tokenizer) = find_fallback_tokenizer(&config.model_path) {
+                    tokenizer.decode(generated_tokens)
+                } else {
+                    format!("[{} tokens generated, tokenizer not found]", generated_tokens.len())
+                };
+
+                let text = clean_model_output(&text);
+                let generated_token_count = generated_tokens.len();
+                let tok_per_sec = if inference_ms > 0.0 {
+                    generated_token_count as f64 / (inference_ms / 1000.0)
+                } else {
+                    0.0
+                };
+
+                return Ok(InferenceResult {
+                    text,
+                    tokens,
+                    input_token_count,
+                    generated_token_count,
+                    inference_ms,
+                    tok_per_sec,
+                    load_ms,
+                    format: "SafeTensors".to_string(),
+                    used_gpu: true,
+                });
+            }
+            Err(e) => {
+                if config.verbose {
+                    eprintln!("Backend: CPU (GPU init failed: {})", e);
+                }
+            }
+        }
+    }
+
+    // CPU fallback: use AprTransformer with proper RoPE and SwiGLU
+    use crate::apr_transformer::AprKVCache;
+    use crate::safetensors_infer::SafetensorsToAprConverter;
 
     let load_start = Instant::now();
 
@@ -679,22 +752,10 @@ fn run_safetensors_inference(config: &InferenceConfig) -> Result<InferenceResult
             arch, transformer.config.num_layers, transformer.config.vocab_size
         );
         eprintln!("Model loaded in {:.1}ms", load_ms);
+        eprintln!("Backend: CPU (SIMD-accelerated)");
     }
 
-    // Get input tokens (use sibling tokenizer.json)
-    let input_tokens = if let Some(ref tokens) = config.input_tokens {
-        tokens.clone()
-    } else if let Some(ref prompt) = config.prompt {
-        // Load tokenizer from sibling tokenizer.json
-        AprV2Model::encode_text(&config.model_path, prompt).unwrap_or_else(|| vec![1u32])
-    } else {
-        vec![1u32] // BOS token
-    };
-
-    let input_token_count = input_tokens.len();
-
     // PMAT-103: Use KV-cached generation for O(n) instead of O(n²) complexity
-    // Previous code used forward() in a loop which recomputed all tokens each time
     let infer_start = Instant::now();
     let mut cache = AprKVCache::new(&transformer.config);
     let mut all_tokens = input_tokens.clone();
