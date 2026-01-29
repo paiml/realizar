@@ -35,6 +35,36 @@ impl CudaExecutor {
         intermediate_dim: u32,
         epsilon: f32,
     ) -> Result<GpuBuffer<f32>, GpuError> {
+        // PROHIBITION-OF-MIRACLES (T-COV-95): Validate pointers BEFORE kernel launch
+        // Null pointers corrupt GPU context - fail loudly at API boundary
+        if layer_weights.attn_norm_ptr == 0 {
+            return Err(GpuError::InvalidParameter("attn_norm_ptr is null (0)".into()));
+        }
+        if layer_weights.attn_q_ptr == 0 {
+            return Err(GpuError::InvalidParameter("attn_q_ptr is null (0)".into()));
+        }
+        if layer_weights.attn_k_ptr == 0 {
+            return Err(GpuError::InvalidParameter("attn_k_ptr is null (0)".into()));
+        }
+        if layer_weights.attn_v_ptr == 0 {
+            return Err(GpuError::InvalidParameter("attn_v_ptr is null (0)".into()));
+        }
+        if layer_weights.attn_output_ptr == 0 {
+            return Err(GpuError::InvalidParameter("attn_output_ptr is null (0)".into()));
+        }
+        if layer_weights.ffn_norm_ptr == 0 {
+            return Err(GpuError::InvalidParameter("ffn_norm_ptr is null (0)".into()));
+        }
+        if layer_weights.ffn_gate_ptr == 0 {
+            return Err(GpuError::InvalidParameter("ffn_gate_ptr is null (0)".into()));
+        }
+        if layer_weights.ffn_up_ptr == 0 {
+            return Err(GpuError::InvalidParameter("ffn_up_ptr is null (0)".into()));
+        }
+        if layer_weights.ffn_down_ptr == 0 {
+            return Err(GpuError::InvalidParameter("ffn_down_ptr is null (0)".into()));
+        }
+
         // 1. Pre-attention RMSNorm using indexed gamma pointer
         let normed = self.rmsnorm_gpu_ptr(
             input,
@@ -195,6 +225,36 @@ impl CudaExecutor {
             return Err(GpuError::InvalidLaunchConfig(
                 "PAR-044: Workspace not initialized. Call init_workspace() first.".to_string(),
             ));
+        }
+
+        // PROHIBITION-OF-MIRACLES (T-COV-95): Validate pointers BEFORE kernel launch
+        // Null pointers corrupt GPU context - fail loudly at API boundary
+        if layer_weights.attn_norm_ptr == 0 {
+            return Err(GpuError::InvalidParameter("attn_norm_ptr is null (0)".into()));
+        }
+        if layer_weights.attn_q_ptr == 0 {
+            return Err(GpuError::InvalidParameter("attn_q_ptr is null (0)".into()));
+        }
+        if layer_weights.attn_k_ptr == 0 {
+            return Err(GpuError::InvalidParameter("attn_k_ptr is null (0)".into()));
+        }
+        if layer_weights.attn_v_ptr == 0 {
+            return Err(GpuError::InvalidParameter("attn_v_ptr is null (0)".into()));
+        }
+        if layer_weights.attn_output_ptr == 0 {
+            return Err(GpuError::InvalidParameter("attn_output_ptr is null (0)".into()));
+        }
+        if layer_weights.ffn_norm_ptr == 0 {
+            return Err(GpuError::InvalidParameter("ffn_norm_ptr is null (0)".into()));
+        }
+        if layer_weights.ffn_gate_ptr == 0 {
+            return Err(GpuError::InvalidParameter("ffn_gate_ptr is null (0)".into()));
+        }
+        if layer_weights.ffn_up_ptr == 0 {
+            return Err(GpuError::InvalidParameter("ffn_up_ptr is null (0)".into()));
+        }
+        if layer_weights.ffn_down_ptr == 0 {
+            return Err(GpuError::InvalidParameter("ffn_down_ptr is null (0)".into()));
         }
 
         // Get dimension info
