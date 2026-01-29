@@ -1491,7 +1491,7 @@ mod tests {
     fn test_bpe_encode_empty_text() {
         let token_to_id: HashMap<String, u32> = HashMap::new();
         let merge_rules: Vec<(String, String)> = vec![];
-        let result = bpe_encode("", &token_to_id, &merge_rules);
+        let result = bpe_encode("", &token_to_id, &merge_rules, &HashMap::new());
         assert!(result.is_empty());
     }
 
@@ -1500,7 +1500,7 @@ mod tests {
         let mut token_to_id = HashMap::new();
         token_to_id.insert("a".to_string(), 0);
         let merge_rules: Vec<(String, String)> = vec![];
-        let result = bpe_encode("a", &token_to_id, &merge_rules);
+        let result = bpe_encode("a", &token_to_id, &merge_rules, &HashMap::new());
         assert_eq!(result, vec![0]);
     }
 
@@ -1508,7 +1508,7 @@ mod tests {
     fn test_bpe_encode_unknown_chars() {
         let token_to_id: HashMap<String, u32> = HashMap::new();
         let merge_rules: Vec<(String, String)> = vec![];
-        let result = bpe_encode("xyz", &token_to_id, &merge_rules);
+        let result = bpe_encode("xyz", &token_to_id, &merge_rules, &HashMap::new());
         // Unknown chars return empty or default behavior
         assert!(result.is_empty());
     }
@@ -1520,7 +1520,7 @@ mod tests {
         token_to_id.insert("e".to_string(), 1);
         token_to_id.insert("he".to_string(), 2);
         let merge_rules = vec![("h".to_string(), "e".to_string())];
-        let result = bpe_encode("he", &token_to_id, &merge_rules);
+        let result = bpe_encode("he", &token_to_id, &merge_rules, &HashMap::new());
         // Should merge h+e -> he
         assert!(!result.is_empty());
     }
@@ -3127,7 +3127,7 @@ mod tests {
     fn test_bpe_encode_with_newline() {
         let mut token_to_id = HashMap::new();
         token_to_id.insert("Ċ".to_string(), 0); // Newline token
-        let result = bpe_encode("\n", &token_to_id, &[]);
+        let result = bpe_encode("\n", &token_to_id, &[], &HashMap::new());
         assert_eq!(result, vec![0]);
     }
 
@@ -3135,7 +3135,7 @@ mod tests {
     fn test_bpe_encode_with_tab() {
         let mut token_to_id = HashMap::new();
         token_to_id.insert("ĉ".to_string(), 0); // Tab token
-        let result = bpe_encode("\t", &token_to_id, &[]);
+        let result = bpe_encode("\t", &token_to_id, &[], &HashMap::new());
         assert_eq!(result, vec![0]);
     }
 
@@ -3143,7 +3143,7 @@ mod tests {
     fn test_bpe_encode_with_space() {
         let mut token_to_id = HashMap::new();
         token_to_id.insert("Ġ".to_string(), 0); // Space token
-        let result = bpe_encode(" ", &token_to_id, &[]);
+        let result = bpe_encode(" ", &token_to_id, &[], &HashMap::new());
         assert_eq!(result, vec![0]);
     }
 
@@ -3153,7 +3153,7 @@ mod tests {
         token_to_id.insert("a".to_string(), 0);
         token_to_id.insert("Ġ".to_string(), 1); // Space
         token_to_id.insert("b".to_string(), 2);
-        let result = bpe_encode("a b", &token_to_id, &[]);
+        let result = bpe_encode("a b", &token_to_id, &[], &HashMap::new());
         assert_eq!(result, vec![0, 1, 2]);
     }
 
@@ -3170,7 +3170,7 @@ mod tests {
             ("a".to_string(), "b".to_string()),
             ("ab".to_string(), "c".to_string()),
         ];
-        let result = bpe_encode("abc", &token_to_id, &merges);
+        let result = bpe_encode("abc", &token_to_id, &merges, &HashMap::new());
         // Should merge a+b->ab, then ab+c->abc
         assert!(!result.is_empty());
     }
@@ -4160,7 +4160,7 @@ mod tests {
     fn test_bpe_encode_non_ascii_more_cov() {
         let mut token_to_id = HashMap::new();
         token_to_id.insert("a".to_string(), 0);
-        let result = bpe_encode("a\u{00A9}", &token_to_id, &[]); // a + copyright symbol
+        let result = bpe_encode("a\u{00A9}", &token_to_id, &[], &HashMap::new()); // a + copyright symbol
                                                                  // Non-ASCII gets encoded as bytes
         assert!(!result.is_empty() || result.is_empty()); // Just verify no panic
     }
@@ -4169,7 +4169,7 @@ mod tests {
     fn test_bpe_encode_unicode_more_cov() {
         let token_to_id: HashMap<String, u32> = HashMap::new();
         // Test with unicode characters
-        let result = bpe_encode("\u{1F600}", &token_to_id, &[]); // Emoji
+        let result = bpe_encode("\u{1F600}", &token_to_id, &[], &HashMap::new()); // Emoji
                                                                  // Should not panic, may return empty if no tokens match
         assert!(result.is_empty());
     }
