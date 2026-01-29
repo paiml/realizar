@@ -193,6 +193,18 @@ Each item is a **falsifiable hypothesis**. The item PASSES if no falsification i
 | G4 | 100% coverage triggers audit | 100% coverage treated as passing without review | 2 |
 | G5 | PMAT tools are operational | `pmat diagnose` fails | 2 |
 
+### Section H: The Prohibition of Miracles (Anti-Fragility) (10 points)
+
+*Added in v1.35.0 to address silent failure recovery.*
+
+| # | Hypothesis | Falsification Condition | Points |
+|---|------------|------------------------|--------|
+| H1 | **No Silent Defaults** | System functions with missing/invalid config via hidden defaults | 2 |
+| H2 | **The Vacuum Test** | Operations on non-existent resources (e.g. paths) return `Ok` or `Some` | 2 |
+| H3 | **Observability of Failure** | Error occurs with no log/trace artifact | 2 |
+| H4 | **Explicit Boundaries** | Inputs outside domain (e.g. negative temp) don't trigger error | 2 |
+| H5 | **Crisis Rejection** | System "recovers" from catastrophic state (e.g. bad magic bytes) by guessing | 2 |
+
 ---
 
 ## 6. Implementation
@@ -298,9 +310,9 @@ When coverage drops or a bug slips through, we do not just "fix" it. We apply th
 
 ## 9. Appendix A: Checklist Scoring
 
-- **Pass:** 85/100 (Compliant)
-- **Target:** 95/100 (Exemplary)
-- **Fail:** <85/100 (Requires Immediate Action)
+- **Pass:** 95/110 (Compliant)
+- **Target:** 105/110 (Exemplary)
+- **Fail:** <95/110 (Requires Immediate Action)
 
 ---
 
@@ -308,6 +320,7 @@ When coverage drops or a bug slips through, we do not just "fix" it. We apply th
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
+| 1.35.0 | 2026-01-29 | Karl Popper | **CRITICAL:** Added "Section H: The Prohibition of Miracles". The system committed the sin of silent recovery (returning `Some` for non-existent paths). This is now explicitly forbidden by Falsification Item H2 ("The Vacuum Test"). Checklist total points increased to 110. |
 | 1.34.0 | 2026-01-29 | Claude | Added 38 harness tests to orchestration files: indexed.rs (+10), graphed.rs (+8), batched.rs (+8), forward.rs (+8). Five-Whys: orchestration files had worst coverage (381:1 → 123:1). CUDA executor now has 948 tests. Total tests: ~12,925. Session total: 161 new tests. |
 | 1.33.0 | 2026-01-28 | Claude | Added 40 harness-based integration tests across CUDA executor modules: layer.rs (9), attention.rs (8), activations.rs (8), q4k.rs (7), quantized.rs (8). All tests use ModelHarness for complete executor state. CUDA executor now has 915 tests. Total tests: ~12,887. Session total: 123 new tests. |
 | 1.32.0 | 2026-01-28 | Claude | Added 4 harness-based integration tests: forward.rs (multi-position, sequence), batched.rs (m4, transformer_layer). These exercise complex orchestration paths unreachable without full model state. Total tests: ~12,847. Session total: 83 new tests. |
