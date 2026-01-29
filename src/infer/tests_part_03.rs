@@ -390,7 +390,12 @@ mod tests {
         let result = run_inference(&config);
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("Failed to read"));
+        // Error message should indicate file not found or read failure
+        assert!(
+            err_msg.contains("File not found") || err_msg.contains("Failed to read"),
+            "Expected 'File not found' or 'Failed to read' in error: {}",
+            err_msg
+        );
     }
 
     #[test]

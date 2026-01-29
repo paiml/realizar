@@ -944,26 +944,32 @@ fn prefault_mmap(data: &[u8]) {
 fn find_fallback_tokenizer(model_path: &std::path::Path) -> Option<crate::apr::BpeTokenizer> {
     use crate::apr::AprV2Model;
 
+    // F-REGR-232: Only search for tokenizers if the model can be loaded
+    // Invalid/nonexistent files should return None, not fall back to HF cache
+    let model = match AprV2Model::load(model_path) {
+        Ok(m) => m,
+        Err(_) => return None, // Can't load model - don't search fallback caches
+    };
+
     // 1. Try to load embedded tokenizer from APR model
-    if let Ok(model) = AprV2Model::load(model_path) {
-        if let Some(simple_tokenizer) = model.load_embedded_tokenizer() {
-            // Convert SimpleTokenizer to BpeTokenizer for compatibility
-            return Some(crate::apr::BpeTokenizer {
-                token_to_id: simple_tokenizer
-                    .id_to_token
-                    .iter()
-                    .enumerate()
-                    .map(|(id, token)| (token.clone(), id as u32))
-                    .collect(),
-                id_to_token: simple_tokenizer.id_to_token,
-                merge_rules: Vec::new(),
-                bos_id: simple_tokenizer.bos_token_id,
-                eos_id: simple_tokenizer.eos_token_id,
-            });
-        }
+    if let Some(simple_tokenizer) = model.load_embedded_tokenizer() {
+        // Convert SimpleTokenizer to BpeTokenizer for compatibility
+        return Some(crate::apr::BpeTokenizer {
+            token_to_id: simple_tokenizer
+                .id_to_token
+                .iter()
+                .enumerate()
+                .map(|(id, token)| (token.clone(), id as u32))
+                .collect(),
+            id_to_token: simple_tokenizer.id_to_token,
+            merge_rules: Vec::new(),
+            bos_id: simple_tokenizer.bos_token_id,
+            eos_id: simple_tokenizer.eos_token_id,
+        });
     }
 
     // 2. Search HuggingFace cache for Qwen tokenizers (PMAT-SHOWCASE-TOKENIZER-001)
+    // Only if model loaded successfully but has no embedded tokenizer
     if let Some(home) = std::env::var("HOME").ok().map(std::path::PathBuf::from) {
         let hf_cache = home.join(".cache/huggingface/hub");
         if hf_cache.exists() {
