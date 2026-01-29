@@ -1708,6 +1708,13 @@ impl AprV2Model {
     /// PMAT-126: Now searches HuggingFace cache if sibling tokenizer.json not found.
     /// Returns None if tokenizer not found or encoding fails.
     pub fn encode_text(model_path: &Path, text: &str) -> Option<Vec<u32>> {
+        // CRITICAL: Validate model path exists - reject Silent Failure Recovery
+        // If the caller provides a non-existent path, we must fail honestly,
+        // not silently fall back to cached tokenizers (PMAT-126 integrity fix)
+        if !model_path.exists() {
+            return None;
+        }
+
         // 1. Try sibling tokenizer.json (e.g., model.apr -> tokenizer.json)
         let tokenizer_path = model_path.with_file_name("tokenizer.json");
         let json: serde_json::Value = if tokenizer_path.exists() {
