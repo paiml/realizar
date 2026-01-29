@@ -58,12 +58,12 @@ tier2: ## Tier 2: Fast tests before commit (30s target)
 
 test-cuda-fast: ## Fast CUDA tests only (probar TUI simulation, debug mode)
 	@echo "⚡ Running fast CUDA tests..."
-	@cargo test --test probar_tui_simulation --features cuda -- --nocapture
+	@cargo test --test probar_tui_simulation --features "cuda,gpu" -- --nocapture
 	@echo "✅ CUDA tests passed"
 
 test-probar: ## Run all probar visual tests
 	@echo "🎯 Running probar visual tests..."
-	@cargo test --test 'probar_*' --features cuda -- --nocapture
+	@cargo test --test 'probar_*' --features "cuda,gpu" -- --nocapture
 	@echo "✅ Probar tests passed"
 
 # === Test Targets ===
@@ -166,7 +166,7 @@ COV_THRESHOLD ?= 95
 coverage-core: ## Coverage: core modules including part_* tests (~5min, includes CUDA compilation)
 	@START=$$(date +%s); \
 	echo "📊 Coverage: core (quantize, layers, generate, infer) + part_* tests..."; \
-	cargo llvm-cov test --lib --features cuda --no-report $(COV_EXCLUDE) \
+	cargo llvm-cov test --lib --features "cuda,gpu" --no-report $(COV_EXCLUDE) \
 		-- --test-threads=8 \
 		--skip gguf:: --skip api:: --skip cli:: --skip cuda:: --skip gpu:: --skip bench:: \
 		--skip property_ --skip stress --skip slow --skip heavy 2>&1 | tail -3; \
@@ -176,7 +176,7 @@ coverage-core: ## Coverage: core modules including part_* tests (~5min, includes
 coverage-gguf: ## Coverage: GGUF module including part_* tests (~2min)
 	@START=$$(date +%s); \
 	echo "📊 Coverage: gguf (+ part_* tests)..."; \
-	cargo llvm-cov test --lib --features cuda --no-report $(COV_EXCLUDE) \
+	cargo llvm-cov test --lib --features "cuda,gpu" --no-report $(COV_EXCLUDE) \
 		-- --test-threads=8 gguf:: \
 		--skip property_ --skip stress --skip slow --skip heavy 2>&1 | tail -3; \
 	END=$$(date +%s); \
@@ -185,7 +185,7 @@ coverage-gguf: ## Coverage: GGUF module including part_* tests (~2min)
 coverage-api: ## Coverage: API module including part_* tests (~2min)
 	@START=$$(date +%s); \
 	echo "📊 Coverage: api + cli (+ part_* tests)..."; \
-	cargo llvm-cov test --lib --features cuda --no-report $(COV_EXCLUDE) \
+	cargo llvm-cov test --lib --features "cuda,gpu" --no-report $(COV_EXCLUDE) \
 		-- --test-threads=8 api:: cli:: \
 		--skip property_ --skip stress --skip slow --skip heavy 2>&1 | tail -3; \
 	END=$$(date +%s); \
@@ -196,47 +196,47 @@ coverage-cuda: ## Coverage: CUDA/GPU only (~120s, single-threaded, requires RTX 
 	@START=$$(date +%s); \
 	echo "📊 Coverage: CUDA (batched to prevent GPU context exhaustion)..."; \
 	echo "  [1/8] cuda::executor::tests..."; \
-	cargo llvm-cov test --lib --features cuda --no-report $(COV_EXCLUDE) \
+	cargo llvm-cov test --lib --features "cuda,gpu" --no-report $(COV_EXCLUDE) \
 		-- --test-threads=1 'cuda::executor::tests' \
 		--skip property_ --skip stress --skip slow --skip heavy 2>&1 | tail -1; \
 	echo "  [2/8] cuda::executor::layers..."; \
-	cargo llvm-cov test --lib --features cuda --no-report $(COV_EXCLUDE) \
+	cargo llvm-cov test --lib --features "cuda,gpu" --no-report $(COV_EXCLUDE) \
 		-- --test-threads=1 'cuda::executor::layers' \
 		--skip property_ --skip stress --skip slow --skip heavy 2>&1 | tail -1; \
 	echo "  [3/8] cuda::executor::activations..."; \
-	cargo llvm-cov test --lib --features cuda --no-report $(COV_EXCLUDE) \
+	cargo llvm-cov test --lib --features "cuda,gpu" --no-report $(COV_EXCLUDE) \
 		-- --test-threads=1 'cuda::executor::activations' \
 		--skip property_ --skip stress --skip slow --skip heavy 2>&1 | tail -1; \
 	echo "  [4/8] cuda::executor::attention..."; \
-	cargo llvm-cov test --lib --features cuda --no-report $(COV_EXCLUDE) \
+	cargo llvm-cov test --lib --features "cuda,gpu" --no-report $(COV_EXCLUDE) \
 		-- --test-threads=1 'cuda::executor::attention' \
 		--skip property_ --skip stress --skip slow --skip heavy 2>&1 | tail -1; \
 	echo "  [5/8] cuda::executor::core + gemm + kv_cache..."; \
-	cargo llvm-cov test --lib --features cuda --no-report $(COV_EXCLUDE) \
+	cargo llvm-cov test --lib --features "cuda,gpu" --no-report $(COV_EXCLUDE) \
 		-- --test-threads=1 'cuda::executor::core' \
 		--skip property_ --skip stress --skip slow --skip heavy 2>&1 | tail -1; \
-	cargo llvm-cov test --lib --features cuda --no-report $(COV_EXCLUDE) \
+	cargo llvm-cov test --lib --features "cuda,gpu" --no-report $(COV_EXCLUDE) \
 		-- --test-threads=1 'cuda::executor::gemm' \
 		--skip property_ --skip stress --skip slow --skip heavy 2>&1 | tail -1; \
-	cargo llvm-cov test --lib --features cuda --no-report $(COV_EXCLUDE) \
+	cargo llvm-cov test --lib --features "cuda,gpu" --no-report $(COV_EXCLUDE) \
 		-- --test-threads=1 'cuda::executor::kv_cache' \
 		--skip property_ --skip stress --skip slow --skip heavy 2>&1 | tail -1; \
 	echo "  [6/8] cuda::kernels..."; \
-	cargo llvm-cov test --lib --features cuda --no-report $(COV_EXCLUDE) \
+	cargo llvm-cov test --lib --features "cuda,gpu" --no-report $(COV_EXCLUDE) \
 		-- --test-threads=1 'cuda::kernels' \
 		--skip property_ --skip stress --skip slow --skip heavy 2>&1 | tail -1; \
 	echo "  [7/8] cuda::memory + pipeline + types..."; \
-	cargo llvm-cov test --lib --features cuda --no-report $(COV_EXCLUDE) \
+	cargo llvm-cov test --lib --features "cuda,gpu" --no-report $(COV_EXCLUDE) \
 		-- --test-threads=1 'cuda::memory' \
 		--skip property_ --skip stress --skip slow --skip heavy 2>&1 | tail -1; \
-	cargo llvm-cov test --lib --features cuda --no-report $(COV_EXCLUDE) \
+	cargo llvm-cov test --lib --features "cuda,gpu" --no-report $(COV_EXCLUDE) \
 		-- --test-threads=1 'cuda::pipeline' \
 		--skip property_ --skip stress --skip slow --skip heavy 2>&1 | tail -1; \
-	cargo llvm-cov test --lib --features cuda --no-report $(COV_EXCLUDE) \
+	cargo llvm-cov test --lib --features "cuda,gpu" --no-report $(COV_EXCLUDE) \
 		-- --test-threads=1 'cuda::types' \
 		--skip property_ --skip stress --skip slow --skip heavy 2>&1 | tail -1; \
 	echo "  [8/8] gpu:: module..."; \
-	cargo llvm-cov test --lib --features cuda --no-report $(COV_EXCLUDE) \
+	cargo llvm-cov test --lib --features "cuda,gpu" --no-report $(COV_EXCLUDE) \
 		-- --test-threads=1 'gpu::' \
 		--skip property_ --skip stress --skip slow --skip heavy 2>&1 | tail -1; \
 	END=$$(date +%s); \
