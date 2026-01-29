@@ -151,6 +151,7 @@ pub async fn openai_chat_completions_handler(
             temperature,
             top_k: if temperature == 0.0 { 1 } else { 40 },
             stop_tokens: vec![eos_token_id],
+            trace: false,
         };
 
         // Generate using GPU model

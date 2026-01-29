@@ -171,6 +171,8 @@ pub struct GpuGenerateConfig {
     pub top_k: usize,
     /// Stop token IDs
     pub stop_tokens: Vec<usize>,
+    /// Enable debug tracing (F-COV-95: Added for cli/inference.rs compatibility)
+    pub trace: bool,
 }
 
 impl Default for GpuGenerateConfig {
@@ -180,6 +182,7 @@ impl Default for GpuGenerateConfig {
             temperature: 0.0,
             top_k: 1,
             stop_tokens: Vec::new(),
+            trace: false,
         }
     }
 }
@@ -193,6 +196,7 @@ impl GpuGenerateConfig {
             temperature: 0.0,
             top_k: 1,
             stop_tokens: Vec::new(),
+            trace: false,
         }
     }
 
@@ -204,6 +208,7 @@ impl GpuGenerateConfig {
             temperature,
             top_k,
             stop_tokens: Vec::new(),
+            trace: false,
         }
     }
 
@@ -751,11 +756,30 @@ impl GpuModel {
             qkv_dim,
         )?;
 
+        // F-REGR-231 FIX: Add QKV bias (critical for correct attention)
+        // The GGUF path applies bias after matmul, APR must do the same
+        let qkv_bias = &self.block_weights[block_idx].qkv_bias;
+        if debug_this_call {
+            eprintln!(
+                "[PHASE21-BIAS] qkv_bias len: {}, qkv len: {}, bias first 5: {:?}",
+                qkv_bias.len(),
+                qkv.len(),
+                &qkv_bias[..5.min(qkv_bias.len())]
+            );
+        }
+        if !qkv_bias.is_empty() && qkv_bias.len() == qkv.len() {
+            for (q, b) in qkv.iter_mut().zip(qkv_bias.iter()) {
+                *q += *b;
+            }
+        }
+
         if debug_this_call {
             eprintln!(
                 "[PHASE21] QKV L2: {:.4}",
                 qkv.iter().map(|x| x * x).sum::<f32>().sqrt()
             );
+            // F-REGR-231 DEBUG: Show Q values after bias
+            eprintln!("[PHASE21] Q after bias first 5: {:?}", &qkv[..5.min(qkv.len())]);
         }
 
         // Get current position BEFORE caching (Phase 21)
@@ -784,6 +808,12 @@ impl GpuModel {
         let q = qkv[0..hidden_dim].to_vec();
         let k_new = qkv[hidden_dim..hidden_dim + kv_dim].to_vec();
         let v_new = qkv[hidden_dim + kv_dim..].to_vec();
+
+        // F-REGR-231 DEBUG: Show K and V values after bias and RoPE
+        if debug_this_call {
+            eprintln!("[PHASE21] K after RoPE first 5: {:?}", &k_new[..5.min(k_new.len())]);
+            eprintln!("[PHASE21] V first 5: {:?}", &v_new[..5.min(v_new.len())]);
+        }
 
         // Get cached K/V and clone to avoid borrow issues with kv_cache
         let (cached_k, cached_v) = kv_cache.get_valid(block_idx);
@@ -1043,27 +1073,50 @@ impl GpuModel {
 
         let mut tokens = prompt.to_vec();
 
-        // Process prompt tokens to populate KV cache
-        for &token_id in prompt {
+        // F-REGR-231 FIX: Process prefill correctly
+        // Process all but last prompt token to populate KV cache (discard logits)
+        // Then process last token to get logits for first generation
+        let prompt_len = prompt.len();
+        for &token_id in &prompt[..prompt_len.saturating_sub(1)] {
             let _ = self.forward_refcell(token_id, &mut kv_cache)?;
         }
 
+        // Process last prompt token to get logits for first generated token
+        let last_prompt_token = prompt[prompt_len - 1];
+        let mut current_logits = self.forward_refcell(last_prompt_token, &mut kv_cache)?;
+
+        // F-REGR-231 DEBUG: Show logits from last prompt token
+        let argmax = current_logits
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .map_or(0, |(idx, _)| idx);
+        let argmax_val = current_logits.get(argmax).copied().unwrap_or(0.0);
+        eprintln!(
+            "[PHASE21-GEN] Last prompt token: {}, logits argmax: {} (val: {:.4}), top5 logits: {:?}",
+            last_prompt_token,
+            argmax,
+            argmax_val,
+            {
+                let mut indexed: Vec<(usize, f32)> = current_logits.iter().cloned().enumerate().collect();
+                indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                indexed.into_iter().take(5).collect::<Vec<_>>()
+            }
+        );
+
         // Generate new tokens
         for _ in 0..config.max_tokens {
-            let last_token = *tokens.last().unwrap_or(&0);
-            let logits = self.forward_refcell(last_token, &mut kv_cache)?;
-
             // Sample next token (greedy when temperature=0, otherwise top-k)
             let next_token = if config.temperature == 0.0 || config.top_k == 1 {
                 // Greedy decoding
-                logits
+                current_logits
                     .iter()
                     .enumerate()
                     .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                     .map_or(0, |(idx, _)| idx)
             } else {
                 // Top-k sampling with temperature
-                Self::sample_topk_generate(&logits, config.temperature, config.top_k)
+                Self::sample_topk_generate(&current_logits, config.temperature, config.top_k)
             };
 
             tokens.push(next_token);
@@ -1072,6 +1125,9 @@ impl GpuModel {
             if config.stop_tokens.contains(&next_token) {
                 break;
             }
+
+            // F-REGR-231: Get logits for next iteration by processing the new token
+            current_logits = self.forward_refcell(next_token, &mut kv_cache)?;
         }
 
         Ok(tokens)

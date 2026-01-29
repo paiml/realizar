@@ -260,6 +260,7 @@ fn test_generate_with_cache_topk_1_with_temperature() {
         temperature: 0.7,
         top_k: 1,
         stop_tokens: vec![],
+        trace: false,
     };
 
     let result = model.generate_with_cache(&[1], &gen_config);

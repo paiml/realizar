@@ -680,7 +680,7 @@ pub async fn openai_completions_handler(
             temperature,
             top_k: if temperature == 0.0 { 1 } else { 40 },
             stop_tokens: Vec::new(),
-            trace: false,
+        trace: false,
         };
 
         // IMP-126: Use adaptive generation when dispatch_metrics available
@@ -802,7 +802,7 @@ pub async fn openai_completions_handler(
             temperature,
             top_k: if temperature == 0.0 { 1 } else { 40 },
             stop_tokens: Vec::new(),
-            trace: false,
+        trace: false,
         };
 
         // Generate with KV cache for O(n) per-token decoding (IMP-102b)
@@ -907,6 +907,7 @@ pub async fn openai_completions_handler(
             temperature,
             top_k: 1, // Greedy for now
             stop_tokens: Vec::new(),
+            trace: false,
         };
 
         // Generate with GPU model
