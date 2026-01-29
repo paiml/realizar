@@ -1512,6 +1512,14 @@ impl AprTransformer {
                 self.config.eps,
             );
 
+            // F-REGR-231: Debug normed input
+            if trace_enabled && layer_idx == 0 && position == 0 {
+                eprintln!(
+                    "[TRACE-CACHE] Layer 0: normed[0..5] = {:?}",
+                    &normed[..5.min(normed.len())]
+                );
+            }
+
             // 2b. QKV projection (single token)
             // PMAT-103: Use fused Q4K kernels for separate Q, K, V weights when available
             let kv_size = num_kv_heads * head_dim;
@@ -1597,64 +1605,125 @@ impl AprTransformer {
             }
             let v = v_mut;
 
+            // F-REGR-231: Debug K after bias
+            if trace_enabled && layer_idx == 0 && position == 0 {
+                eprintln!(
+                    "[TRACE-CACHE] Layer 0: K after bias[0..5] = {:?}",
+                    &k[..5.min(k.len())]
+                );
+                eprintln!(
+                    "[TRACE-CACHE] Layer 0: V after bias[0..5] = {:?}",
+                    &v[..5.min(v.len())]
+                );
+            }
+
             // PMAT-103: Apply RoPE to Q and K at current position
             // This was missing, causing garbage output
             self.apply_rope_f32(&mut q, position, num_heads, head_dim);
             self.apply_rope_f32(&mut k, position, num_kv_heads, head_dim);
+
+            // F-REGR-231: Debug K after RoPE
+            if trace_enabled && layer_idx == 0 && position == 0 {
+                eprintln!(
+                    "[TRACE-CACHE] Layer 0: K after RoPE[0..5] = {:?}",
+                    &k[..5.min(k.len())]
+                );
+            }
 
             // 2c. Append K, V to cache (K now has RoPE applied)
             cache.append(layer_idx, &k, &v);
 
             // 2d. Compute attention with full cache
             let (k_cache, v_cache) = cache.get(layer_idx);
-            let seq_len = cache.len();
+            let cache_len = cache.len();
 
-            // Simplified attention: compute Q·K^T / sqrt(d), softmax, then V
-            let mut attn_out = vec![0.0f32; hidden_dim];
+            // F-REGR-231 FIX: Handle first token specially
+            // When cache is empty (cache_len = 0), we just appended K/V but len isn't incremented yet.
+            // For the first token, attention(single token) = V directly (since softmax of one score = 1.0).
+            let attn_out = if cache_len == 0 {
+                // First token: just use V directly (expanded via GQA)
+                let group_size = num_heads / num_kv_heads;
+                (0..num_heads)
+                    .flat_map(|h| {
+                        let kv_head = h / group_size;
+                        let start = kv_head * head_dim;
+                        v[start..start + head_dim].iter().copied()
+                    })
+                    .collect()
+            } else {
+                // Subsequent tokens: use full attention with cache + current K/V
+                let mut attn_out = vec![0.0f32; hidden_dim];
+                let scale = 1.0 / (head_dim as f32).sqrt();
 
-            // PMAT-103: SIMD-accelerated attention computation
-            let scale = 1.0 / (head_dim as f32).sqrt();
+                // seq_len includes cached positions plus current position
+                let seq_len = cache_len + 1;
 
-            for h in 0..num_heads {
-                let kv_head = h * num_kv_heads / num_heads; // GQA mapping
-                let q_start = h * head_dim;
-                let q_slice = &q[q_start..q_start + head_dim]; // q is now Vec with RoPE applied
+                for h in 0..num_heads {
+                    let kv_head = h * num_kv_heads / num_heads; // GQA mapping
+                    let q_start = h * head_dim;
+                    let q_slice = &q[q_start..q_start + head_dim];
 
-                // Compute attention scores with SIMD dot product
-                let mut scores = Vec::with_capacity(seq_len);
-                for pos in 0..seq_len {
-                    let k_start = pos * kv_size + kv_head * head_dim;
-                    let k_slice = &k_cache[k_start..k_start + head_dim];
-                    // SIMD dot product (AVX2 when available)
+                    // Compute attention scores with SIMD dot product
+                    let mut scores = Vec::with_capacity(seq_len);
+
+                    // Scores for cached positions
+                    for pos in 0..cache_len {
+                        let k_start = pos * kv_size + kv_head * head_dim;
+                        let k_slice = &k_cache[k_start..k_start + head_dim];
+                        let dot = simd_dot_f32(q_slice, k_slice);
+                        scores.push(dot * scale);
+                    }
+
+                    // Score for current position (using current K)
+                    let k_start = kv_head * head_dim;
+                    let k_slice = &k[k_start..k_start + head_dim];
                     let dot = simd_dot_f32(q_slice, k_slice);
                     scores.push(dot * scale);
-                }
 
-                // Causal mask: only attend to positions <= current
-                for pos in (position + 1)..seq_len {
-                    scores[pos] = f32::NEG_INFINITY;
-                }
-
-                // Softmax (scalar - typically small seq_len during decode)
-                let max_score = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-                let mut exp_scores: Vec<f32> =
-                    scores.iter().map(|s| (s - max_score).exp()).collect();
-                let sum: f32 = exp_scores.iter().sum();
-                if sum > 0.0 {
-                    let inv_sum = 1.0 / sum;
-                    for s in &mut exp_scores {
-                        *s *= inv_sum;
+                    // Causal mask: only attend to positions <= current
+                    for pos in (position + 1)..seq_len {
+                        scores[pos] = f32::NEG_INFINITY;
                     }
+
+                    // Softmax
+                    let max_score = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                    let mut exp_scores: Vec<f32> =
+                        scores.iter().map(|s| (s - max_score).exp()).collect();
+                    let sum: f32 = exp_scores.iter().sum();
+                    if sum > 0.0 {
+                        let inv_sum = 1.0 / sum;
+                        for s in &mut exp_scores {
+                            *s *= inv_sum;
+                        }
+                    }
+
+                    // Weighted sum of V
+                    let attn_out_head = &mut attn_out[q_start..q_start + head_dim];
+
+                    // From cached positions
+                    for pos in 0..cache_len {
+                        let v_start = pos * kv_size + kv_head * head_dim;
+                        let v_slice = &v_cache[v_start..v_start + head_dim];
+                        simd_add_weighted(attn_out_head, v_slice, exp_scores[pos]);
+                    }
+
+                    // From current position (using current V)
+                    let v_start = kv_head * head_dim;
+                    let v_slice = &v[v_start..v_start + head_dim];
+                    simd_add_weighted(attn_out_head, v_slice, exp_scores[cache_len]);
                 }
 
-                // Weighted sum of V with SIMD accumulation
-                let attn_out_head = &mut attn_out[q_start..q_start + head_dim];
-                for pos in 0..seq_len {
-                    let v_start = pos * kv_size + kv_head * head_dim;
-                    let v_slice = &v_cache[v_start..v_start + head_dim];
-                    // SIMD weighted accumulation (AVX2 when available)
-                    simd_add_weighted(attn_out_head, v_slice, exp_scores[pos]);
-                }
+                attn_out
+            };
+
+            // F-REGR-231: Debug attn_out before projection
+            if trace_enabled && layer_idx == 0 && position == 0 {
+                eprintln!(
+                    "[TRACE-CACHE] Layer 0: attn_out[0..5] = {:?} (before output projection)",
+                    &attn_out[..5.min(attn_out.len())]
+                );
+                let attn_out_sum: f32 = attn_out.iter().sum();
+                eprintln!("[TRACE-CACHE] Layer 0: attn_out sum = {:.4}", attn_out_sum);
             }
 
             // 2e. Attention output projection
@@ -1681,9 +1750,25 @@ impl AprTransformer {
                 self.add_bias(&mut attn_output, bias);
             }
 
+            // F-REGR-231: Debug attn_output after projection
+            if trace_enabled && layer_idx == 0 && position == 0 {
+                eprintln!(
+                    "[TRACE-CACHE] Layer 0: attn_output[0..5] = {:?} (after output projection)",
+                    &attn_output[..5.min(attn_output.len())]
+                );
+            }
+
             // 2f. Residual connection
             for i in 0..hidden.len() {
                 hidden[i] += attn_output[i];
+            }
+
+            // F-REGR-231: Debug hidden after attention
+            if trace_enabled && layer_idx == 0 && position == 0 {
+                eprintln!(
+                    "[TRACE-CACHE] Layer 0: hidden_after_attn[0..5] = {:?}",
+                    &hidden[..5.min(hidden.len())]
+                );
             }
 
             // 2g. Apply FFN norm if present (post_attention_layernorm)
@@ -1858,6 +1943,14 @@ impl AprTransformer {
             for i in 0..hidden.len() {
                 hidden[i] += ffn_output[i];
             }
+
+            // F-REGR-231: Debug hidden state after each layer
+            if trace_enabled && layer_idx < 2 && position == 0 {
+                eprintln!(
+                    "[TRACE-CACHE] After layer {}: hidden[0..5] = {:?}",
+                    layer_idx, &hidden[..5.min(hidden.len())]
+                );
+            }
         }
         if trace_enabled {
             eprintln!(
@@ -1867,6 +1960,9 @@ impl AprTransformer {
                 layers_start.elapsed()
             );
         }
+
+        // NOTE: No advance() needed here - append() auto-advances on the last layer
+        // (see F-REGR-231 fix in config.rs)
 
         // 3. Final layer norm
         let normed = self.layer_norm(

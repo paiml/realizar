@@ -619,19 +619,18 @@ fn test_kv_cache_consecutive_generations_isolated() {
 #[test]
 fn test_kv_cache_layer_storage_separate() {
     // Verify that layers have separate storage vectors
-    // Note: Due to AprKVCache design, layer 0 must be appended first for each position
-    // as it controls the len increment. Other layers use the same offset.
+    // F-REGR-231: Auto-advance happens on LAST layer, so layer-0-only tests need advance()
     let config = create_test_kv_config();
     let mut cache = AprKVCache::new(&config);
 
     let kv_size = 4 * 16;
 
     // Only use layer 0 to test basic operations correctly
-    // (multi-layer append has an offset bug - see PMAT-803)
     let k = vec![42.0f32; kv_size];
     let v = vec![84.0f32; kv_size];
 
     cache.append(0, &k, &v);
+    cache.advance(); // F-REGR-231: explicit advance when not using all layers
     assert_eq!(cache.len(), 1);
 
     let (k_out, v_out) = cache.get(0);
