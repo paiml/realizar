@@ -120,7 +120,13 @@ mod tests {
         let result = run_inference(&config);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.to_string().contains("Failed to read model"));
+        // F-SEC-222: validate_model_path now catches nonexistent files early
+        assert!(
+            err.to_string().contains("File not found")
+                || err.to_string().contains("Failed to read model"),
+            "Expected file not found error, got: {}",
+            err
+        );
     }
 
     #[test]

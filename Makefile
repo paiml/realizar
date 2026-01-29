@@ -194,10 +194,51 @@ coverage-api: ## Coverage: API module only (~60s, includes CUDA compilation)
 coverage-cuda: ## Coverage: CUDA/GPU only (~120s, single-threaded, requires RTX 4090)
 	@nvidia-smi > /dev/null 2>&1 || { echo "❌ NVIDIA GPU required (RTX 4090 expected)"; exit 1; }
 	@START=$$(date +%s); \
-	echo "📊 Coverage: cuda + gpu (single-threaded for GPU safety)..."; \
+	echo "📊 Coverage: CUDA (batched to prevent GPU context exhaustion)..."; \
+	echo "  [1/8] cuda::executor::tests..."; \
 	cargo llvm-cov test --lib --features cuda --no-report $(COV_EXCLUDE) \
-		-- --test-threads=1 cuda:: gpu:: \
-		--skip property_ --skip stress --skip slow --skip heavy --skip part_ 2>&1 | tail -3; \
+		-- --test-threads=1 'cuda::executor::tests' \
+		--skip property_ --skip stress --skip slow --skip heavy --skip part_ 2>&1 | tail -1; \
+	echo "  [2/8] cuda::executor::layers..."; \
+	cargo llvm-cov test --lib --features cuda --no-report $(COV_EXCLUDE) \
+		-- --test-threads=1 'cuda::executor::layers' \
+		--skip property_ --skip stress --skip slow --skip heavy --skip part_ 2>&1 | tail -1; \
+	echo "  [3/8] cuda::executor::activations..."; \
+	cargo llvm-cov test --lib --features cuda --no-report $(COV_EXCLUDE) \
+		-- --test-threads=1 'cuda::executor::activations' \
+		--skip property_ --skip stress --skip slow --skip heavy --skip part_ 2>&1 | tail -1; \
+	echo "  [4/8] cuda::executor::attention..."; \
+	cargo llvm-cov test --lib --features cuda --no-report $(COV_EXCLUDE) \
+		-- --test-threads=1 'cuda::executor::attention' \
+		--skip property_ --skip stress --skip slow --skip heavy --skip part_ 2>&1 | tail -1; \
+	echo "  [5/8] cuda::executor::core + gemm + kv_cache..."; \
+	cargo llvm-cov test --lib --features cuda --no-report $(COV_EXCLUDE) \
+		-- --test-threads=1 'cuda::executor::core' \
+		--skip property_ --skip stress --skip slow --skip heavy --skip part_ 2>&1 | tail -1; \
+	cargo llvm-cov test --lib --features cuda --no-report $(COV_EXCLUDE) \
+		-- --test-threads=1 'cuda::executor::gemm' \
+		--skip property_ --skip stress --skip slow --skip heavy --skip part_ 2>&1 | tail -1; \
+	cargo llvm-cov test --lib --features cuda --no-report $(COV_EXCLUDE) \
+		-- --test-threads=1 'cuda::executor::kv_cache' \
+		--skip property_ --skip stress --skip slow --skip heavy --skip part_ 2>&1 | tail -1; \
+	echo "  [6/8] cuda::kernels..."; \
+	cargo llvm-cov test --lib --features cuda --no-report $(COV_EXCLUDE) \
+		-- --test-threads=1 'cuda::kernels' \
+		--skip property_ --skip stress --skip slow --skip heavy --skip part_ 2>&1 | tail -1; \
+	echo "  [7/8] cuda::memory + pipeline + types..."; \
+	cargo llvm-cov test --lib --features cuda --no-report $(COV_EXCLUDE) \
+		-- --test-threads=1 'cuda::memory' \
+		--skip property_ --skip stress --skip slow --skip heavy --skip part_ 2>&1 | tail -1; \
+	cargo llvm-cov test --lib --features cuda --no-report $(COV_EXCLUDE) \
+		-- --test-threads=1 'cuda::pipeline' \
+		--skip property_ --skip stress --skip slow --skip heavy --skip part_ 2>&1 | tail -1; \
+	cargo llvm-cov test --lib --features cuda --no-report $(COV_EXCLUDE) \
+		-- --test-threads=1 'cuda::types' \
+		--skip property_ --skip stress --skip slow --skip heavy --skip part_ 2>&1 | tail -1; \
+	echo "  [8/8] gpu:: module..."; \
+	cargo llvm-cov test --lib --features cuda --no-report $(COV_EXCLUDE) \
+		-- --test-threads=1 'gpu::' \
+		--skip property_ --skip stress --skip slow --skip heavy --skip part_ 2>&1 | tail -1; \
 	END=$$(date +%s); \
 	echo "⏱️  cuda: $$((END-START))s"
 
