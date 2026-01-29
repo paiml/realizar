@@ -1,7 +1,7 @@
 # Specification: Fast O(1) Coverage with PMAT Compliance
 
 **Document ID:** SPEC-COV-95
-**Version:** 1.36.0
+**Version:** 1.37.0
 **Status:** ACTIVE
 **Methodology:** The Toyota Way (14 Principles) + Popperian Falsification
 **Target:** 95% Production Code Coverage in <10 minutes (Full), O(1) Incremental
@@ -320,6 +320,7 @@ When coverage drops or a bug slips through, we do not just "fix" it. We apply th
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
+| 1.37.0 | 2026-01-29 | Karl Popper | **Continued density improvement:** Added 12 tests: forward.rs (+6, 14→20), ffn.rs (+6, 4→10). Tests cover sequential positions, varying inputs, GQA config, FFN paths with harness. Total orchestration test additions: 36. |
 | 1.36.0 | 2026-01-29 | Karl Popper | **Five-Whys Applied:** Orchestration files had poor density (130+:1). Added 24 tests: graphed.rs (+8), indexed.rs (+8), batched.rs (+8). Fixed Silent Failure Recovery in `encode_text()` - now rejects non-existent paths instead of falling back to HuggingFace cache. Density improved: graphed 85:1, indexed 82:1, batched 85:1. |
 | 1.35.0 | 2026-01-29 | Karl Popper | **CRITICAL:** Added "Section H: The Prohibition of Miracles". The system committed the sin of silent recovery (returning `Some` for non-existent paths). This is now explicitly forbidden by Falsification Item H2 ("The Vacuum Test"). Checklist total points increased to 110. |
 | 1.34.0 | 2026-01-29 | Claude | Added 38 harness tests to orchestration files: indexed.rs (+10), graphed.rs (+8), batched.rs (+8), forward.rs (+8). Five-Whys: orchestration files had worst coverage (381:1 → 123:1). CUDA executor now has 948 tests. Total tests: ~12,925. Session total: 161 new tests. |
