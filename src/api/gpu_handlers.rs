@@ -424,7 +424,7 @@ async fn process_batch(
             temperature: first.temperature,
             top_k: first.top_k,
             stop_tokens: Vec::new(),
-            trace: false,
+        trace: false,
         };
 
         // Run batch generation with GPU FFN (PARITY-021)
@@ -476,7 +476,7 @@ async fn process_batch(
                     temperature: request.temperature,
                     top_k: request.top_k,
                     stop_tokens: Vec::new(),
-                    trace: false,
+        trace: false,
                 };
 
                 // Generate
@@ -979,6 +979,81 @@ pub async fn generate_handler(
         }));
     }
 
+    // PMAT-SERVE-FIX-001: Check for APR transformer (SafeTensors/APR CPU mode)
+    if let Some(apr_transformer) = state.apr_transformer() {
+        use crate::apr_transformer::GenerateConfig;
+
+        let tokenizer = match state.tokenizer.clone() {
+            Some(t) => t,
+            None => {
+                state.metrics.record_failure();
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "No tokenizer available".to_string(),
+                    }),
+                ));
+            }
+        };
+
+        // Tokenize prompt
+        let prompt_ids = tokenizer.encode(&request.prompt);
+        if prompt_ids.is_empty() {
+            state.metrics.record_failure();
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "Prompt cannot be empty".to_string(),
+                }),
+            ));
+        }
+
+        let prompt_tokens = prompt_ids.len();
+        let max_tokens = request.max_tokens;
+        let temperature = request.temperature;
+
+        let gen_config = GenerateConfig {
+            max_tokens,
+            temperature,
+            ..Default::default()
+        };
+
+        // Generate using APR transformer
+        let generated = apr_transformer
+            .generate_with_cache(&prompt_ids, &gen_config)
+            .map_err(|e| {
+                state.metrics.record_failure();
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: format!("APR generation failed: {e}"),
+                    }),
+                )
+            })?;
+
+        // Decode tokens to text
+        let text = tokenizer.decode(&generated).map_err(|e| {
+            state.metrics.record_failure();
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+        })?;
+
+        let num_generated = generated.len().saturating_sub(prompt_tokens);
+        let duration = start.elapsed();
+
+        state.metrics.record_success(num_generated, duration);
+
+        return Ok(Json(GenerateResponse {
+            token_ids: generated,
+            text,
+            num_generated,
+        }));
+    }
+
     // Fallback: Get model and tokenizer from registry/single-model mode
     let (model, tokenizer) = state.get_model(request.model_id.as_deref()).map_err(|e| {
         state.metrics.record_failure();
@@ -1194,6 +1269,73 @@ pub async fn batch_generate_handler(
                         StatusCode::INTERNAL_SERVER_ERROR,
                         Json(ErrorResponse {
                             error: format!("CUDA generation failed: {e}"),
+                        }),
+                    )
+                })?;
+
+            let text = tokenizer.decode(&generated).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: e.to_string(),
+                    }),
+                )
+            })?;
+
+            results.push(GenerateResponse {
+                token_ids: generated.clone(),
+                text,
+                num_generated: generated.len().saturating_sub(prompt_tokens),
+            });
+        }
+
+        return Ok(Json(BatchGenerateResponse { results }));
+    }
+
+    // PMAT-SERVE-FIX-001: Check for APR transformer (SafeTensors/APR CPU mode)
+    if let Some(apr_transformer) = state.apr_transformer() {
+        use crate::apr_transformer::GenerateConfig;
+
+        let tokenizer = match state.tokenizer.clone() {
+            Some(t) => t,
+            None => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "No tokenizer available".to_string(),
+                    }),
+                ));
+            }
+        };
+
+        let gen_config = GenerateConfig {
+            max_tokens: request.max_tokens,
+            temperature: request.temperature,
+            ..Default::default()
+        };
+
+        let mut results = Vec::with_capacity(request.prompts.len());
+
+        for prompt_text in &request.prompts {
+            let prompt_ids = tokenizer.encode(prompt_text);
+            if prompt_ids.is_empty() {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error: format!("Prompt '{prompt_text}' tokenizes to empty sequence"),
+                    }),
+                ));
+            }
+
+            let prompt_tokens = prompt_ids.len();
+
+            let generated = apr_transformer
+                .generate_with_cache(&prompt_ids, &gen_config)
+                .map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse {
+                            error: format!("APR generation failed: {e}"),
                         }),
                     )
                 })?;

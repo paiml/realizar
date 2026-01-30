@@ -100,7 +100,8 @@ pub struct BpeTokenizer {
 impl BpeTokenizer {
     /// Encode text to token IDs
     pub fn encode(&self, text: &str) -> Vec<u32> {
-        bpe_encode(text, &self.token_to_id, &self.merge_rules)
+        // F-REGR-231: BpeTokenizer doesn't have special tokens, pass empty map
+        bpe_encode(text, &self.token_to_id, &self.merge_rules, &HashMap::new())
     }
 
     /// Decode token IDs to text
@@ -109,8 +110,89 @@ impl BpeTokenizer {
     }
 }
 
-/// Byte-level BPE encoding
+/// Byte-level BPE encoding with special token support (F-REGR-231 fix)
+///
+/// Special tokens (like `<|im_start|>`, `<|im_end|>`) are handled atomically
+/// and not split by BPE. This is critical for chat template markers.
 pub(crate) fn bpe_encode(
+    text: &str,
+    vocab: &HashMap<String, u32>,
+    merges: &[(String, String)],
+    special_tokens: &HashMap<String, u32>,
+) -> Vec<u32> {
+    // F-REGR-231: First, split text by special tokens
+    // This ensures tokens like <|im_start|> are not broken into characters
+    let segments = split_by_special_tokens(text, special_tokens);
+
+    let mut result = Vec::new();
+    for segment in segments {
+        match segment {
+            TextSegment::Special(id) => {
+                result.push(id);
+            }
+            TextSegment::Regular(s) => {
+                result.extend(bpe_encode_segment(&s, vocab, merges));
+            }
+        }
+    }
+    result
+}
+
+/// Segment type for special token handling
+enum TextSegment {
+    Special(u32),
+    Regular(String),
+}
+
+/// Split text by special tokens, preserving order
+fn split_by_special_tokens(text: &str, special_tokens: &HashMap<String, u32>) -> Vec<TextSegment> {
+    if special_tokens.is_empty() {
+        return vec![TextSegment::Regular(text.to_string())];
+    }
+
+    // Sort special tokens by length (longest first) to handle overlapping patterns
+    let mut sorted_tokens: Vec<(&String, &u32)> = special_tokens.iter().collect();
+    sorted_tokens.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+
+    let mut segments = Vec::new();
+    let mut remaining = text;
+
+    while !remaining.is_empty() {
+        // Try to match a special token at the start
+        let mut matched = false;
+        for (token_str, &token_id) in &sorted_tokens {
+            if remaining.starts_with(token_str.as_str()) {
+                segments.push(TextSegment::Special(token_id));
+                remaining = &remaining[token_str.len()..];
+                matched = true;
+                break;
+            }
+        }
+
+        if !matched {
+            // Find the next special token occurrence
+            let mut next_special_pos = remaining.len();
+            for (token_str, _) in &sorted_tokens {
+                if let Some(pos) = remaining.find(token_str.as_str()) {
+                    if pos < next_special_pos {
+                        next_special_pos = pos;
+                    }
+                }
+            }
+
+            // Add regular text segment up to the next special token
+            if next_special_pos > 0 {
+                segments.push(TextSegment::Regular(remaining[..next_special_pos].to_string()));
+                remaining = &remaining[next_special_pos..];
+            }
+        }
+    }
+
+    segments
+}
+
+/// BPE encode a regular text segment (no special tokens)
+fn bpe_encode_segment(
     text: &str,
     vocab: &HashMap<String, u32>,
     merges: &[(String, String)],
@@ -300,7 +382,8 @@ mod tests {
     fn test_bpe_encode_empty() {
         let vocab: HashMap<String, u32> = HashMap::new();
         let merges: Vec<(String, String)> = vec![];
-        let result = bpe_encode("", &vocab, &merges);
+        let special: HashMap<String, u32> = HashMap::new();
+        let result = bpe_encode("", &vocab, &merges, &special);
         assert!(result.is_empty());
     }
 
@@ -310,8 +393,9 @@ mod tests {
         vocab.insert("a".to_string(), 0);
         vocab.insert("b".to_string(), 1);
         vocab.insert("c".to_string(), 2);
+        let special: HashMap<String, u32> = HashMap::new();
 
-        let result = bpe_encode("abc", &vocab, &[]);
+        let result = bpe_encode("abc", &vocab, &[], &special);
         assert_eq!(result, vec![0, 1, 2]);
     }
 
@@ -321,9 +405,10 @@ mod tests {
         vocab.insert("a".to_string(), 0);
         vocab.insert("b".to_string(), 1);
         vocab.insert("ab".to_string(), 2);
+        let special: HashMap<String, u32> = HashMap::new();
 
         let merges = vec![("a".to_string(), "b".to_string())];
-        let result = bpe_encode("ab", &vocab, &merges);
+        let result = bpe_encode("ab", &vocab, &merges, &special);
         assert_eq!(result, vec![2]); // "ab" merged
     }
 
@@ -331,8 +416,9 @@ mod tests {
     fn test_bpe_encode_space_handling() {
         let mut vocab = HashMap::new();
         vocab.insert("Ġ".to_string(), 0); // Space becomes Ġ
+        let special: HashMap<String, u32> = HashMap::new();
 
-        let result = bpe_encode(" ", &vocab, &[]);
+        let result = bpe_encode(" ", &vocab, &[], &special);
         assert_eq!(result, vec![0]);
     }
 
@@ -340,15 +426,17 @@ mod tests {
     fn test_bpe_encode_newline_handling() {
         let mut vocab = HashMap::new();
         vocab.insert("Ċ".to_string(), 0); // Newline becomes Ċ
+        let special: HashMap<String, u32> = HashMap::new();
 
-        let result = bpe_encode("\n", &vocab, &[]);
+        let result = bpe_encode("\n", &vocab, &[], &special);
         assert_eq!(result, vec![0]);
     }
 
     #[test]
     fn test_bpe_encode_unknown_tokens() {
         let vocab: HashMap<String, u32> = HashMap::new();
-        let result = bpe_encode("xyz", &vocab, &[]);
+        let special: HashMap<String, u32> = HashMap::new();
+        let result = bpe_encode("xyz", &vocab, &[], &special);
         assert!(result.is_empty()); // Unknown tokens filtered out
     }
 

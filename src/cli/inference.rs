@@ -640,7 +640,10 @@ pub fn run_apr_inference(
         println!("Model loaded in {:.2}ms", load_time.as_secs_f64() * 1000.0);
     }
 
-    // Use proper tokenizer from sibling tokenizer.json
+    // NOTE: Chat template is applied by the caller (mod.rs) before calling this function.
+    // The `prompt` parameter already contains the formatted conversation with chat markers.
+
+    // Use proper tokenizer from sibling tokenizer.json or embedded vocab
     let model_path = Path::new(model_ref);
     let prompt_tokens = AprV2Model::encode_text(model_path, prompt).unwrap_or_else(|| {
         // Fallback: simple char tokenization
@@ -673,15 +676,35 @@ pub fn run_apr_inference(
     };
 
     // Decode output using proper tokenizer
+    // PMAT-171 FIX: Try embedded vocabulary first, then fallback to external tokenizer.json
     let output_tokens = &generated[prompt_len..];
-    let output_text = if let Some(tokenizer) = AprV2Model::load_tokenizer(model_path) {
-        tokenizer.decode(output_tokens)
-    } else {
-        // Fallback: simple ASCII
-        output_tokens
-            .iter()
-            .map(|&t| char::from_u32(t.min(127)).unwrap_or('?'))
-            .collect()
+    let output_text = {
+        // Try loading embedded tokenizer from APR metadata first
+        let model = AprV2Model::load(model_path).ok();
+        if let Some(ref m) = model {
+            if let Some(simple_tok) = m.load_embedded_tokenizer() {
+                // Use embedded vocabulary for decoding
+                AprV2Model::decode_tokens(&simple_tok.id_to_token, output_tokens)
+            } else if let Some(tokenizer) = AprV2Model::load_tokenizer(model_path) {
+                // Fallback to external tokenizer.json
+                tokenizer.decode(output_tokens)
+            } else {
+                // Ultimate fallback: simple ASCII
+                output_tokens
+                    .iter()
+                    .map(|&t| char::from_u32(t.min(127)).unwrap_or('?'))
+                    .collect()
+            }
+        } else if let Some(tokenizer) = AprV2Model::load_tokenizer(model_path) {
+            // Model load failed, try external tokenizer
+            tokenizer.decode(output_tokens)
+        } else {
+            // Ultimate fallback: simple ASCII
+            output_tokens
+                .iter()
+                .map(|&t| char::from_u32(t.min(127)).unwrap_or('?'))
+                .collect()
+        }
     };
 
     match format {
@@ -876,7 +899,10 @@ pub fn run_apr_inference_gpu(
         println!("Model loaded in {:.2}ms", load_time.as_secs_f64() * 1000.0);
     }
 
-    // Use proper tokenizer from sibling tokenizer.json
+    // NOTE: Chat template is applied by the caller (mod.rs) before calling this function.
+    // The `prompt` parameter already contains the formatted conversation with chat markers.
+
+    // Use proper tokenizer from sibling tokenizer.json or embedded vocab
     let model_path = Path::new(model_ref);
     let prompt_tokens = AprV2Model::encode_text(model_path, prompt)
         .unwrap_or_else(|| prompt.chars().map(|c| c as u32).collect());
@@ -884,6 +910,8 @@ pub fn run_apr_inference_gpu(
 
     if verbose {
         println!("Prompt tokens: {}", prompt_len);
+        // F-REGR-231 DEBUG: Show all token IDs
+        eprintln!("[DEBUG-TOKENS] All tokens: {:?}", &prompt_tokens);
         println!("Temperature: {:.1}", temperature);
         println!();
     }
@@ -894,6 +922,7 @@ pub fn run_apr_inference_gpu(
         temperature,
         top_k: if temperature <= 0.01 { 1 } else { 40 },
         stop_tokens: vec![],
+        trace: false,
     };
 
     // Convert prompt tokens to usize for GpuModel
@@ -917,14 +946,35 @@ pub fn run_apr_inference_gpu(
     };
 
     // Decode output (convert usize back to u32)
+    // PMAT-171 FIX: Try embedded vocabulary first, then fallback to external tokenizer.json
     let output_tokens: Vec<u32> = generated[prompt_len..].iter().map(|&t| t as u32).collect();
-    let output_text = if let Some(tokenizer) = AprV2Model::load_tokenizer(model_path) {
-        tokenizer.decode(&output_tokens)
-    } else {
-        output_tokens
-            .iter()
-            .map(|&t| char::from_u32(t.min(127)).unwrap_or('?'))
-            .collect()
+    let output_text = {
+        // Try loading embedded tokenizer from APR metadata first
+        let model = AprV2Model::load(model_path).ok();
+        if let Some(ref m) = model {
+            if let Some(simple_tok) = m.load_embedded_tokenizer() {
+                // Use embedded vocabulary for decoding
+                AprV2Model::decode_tokens(&simple_tok.id_to_token, &output_tokens)
+            } else if let Some(tokenizer) = AprV2Model::load_tokenizer(model_path) {
+                // Fallback to external tokenizer.json
+                tokenizer.decode(&output_tokens)
+            } else {
+                // Ultimate fallback: simple ASCII
+                output_tokens
+                    .iter()
+                    .map(|&t| char::from_u32(t.min(127)).unwrap_or('?'))
+                    .collect()
+            }
+        } else if let Some(tokenizer) = AprV2Model::load_tokenizer(model_path) {
+            // Model load failed, try external tokenizer
+            tokenizer.decode(&output_tokens)
+        } else {
+            // Ultimate fallback: simple ASCII
+            output_tokens
+                .iter()
+                .map(|&t| char::from_u32(t.min(127)).unwrap_or('?'))
+                .collect()
+        }
     };
 
     match format {

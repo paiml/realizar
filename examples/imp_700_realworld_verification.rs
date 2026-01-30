@@ -128,6 +128,7 @@ fn measure_realizar(
         temperature: 0.0, // Greedy
         top_k: 1,
         stop_tokens: vec![],
+        trace: false,
     };
 
     // Warmup with KV cache (first run initializes cache)
@@ -190,6 +191,7 @@ fn measure_realizar_gpu(
         temperature: 0.0,
         top_k: 1,
         stop_tokens: vec![],
+        trace: false,
     };
 
     // Create dispatch metrics tracker

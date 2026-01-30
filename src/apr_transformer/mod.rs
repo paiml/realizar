@@ -263,6 +263,11 @@ impl AprTransformer {
             eps: rms_norm_eps,
         };
 
+        if std::env::var("REALIZE_DEBUG").is_ok() {
+            eprintln!("[DEBUG] AprTransformerConfig: hidden_dim={}, num_layers={}, num_heads={}, num_kv_heads={}, vocab_size={}, intermediate_dim={}",
+                hidden_dim, num_layers, num_heads, num_kv_heads, vocab_size, intermediate_dim);
+        }
+
         // Parse tensor index
         // APR v2 TensorIndexEntry format:
         //   - name_len (2 bytes) + name (variable)
@@ -831,14 +836,23 @@ impl AprTransformer {
     #[must_use]
     pub fn embed(&self, token_ids: &[u32]) -> Vec<f32> {
         let hidden_dim = self.config.hidden_dim;
+        let debug = std::env::var("REALIZE_DEBUG").is_ok();
         let mut embeddings = Vec::with_capacity(token_ids.len() * hidden_dim);
 
         for &token_id in token_ids {
             let offset = (token_id as usize) * hidden_dim;
             if offset + hidden_dim <= self.token_embedding.len() {
+                if debug && token_id < 10 {
+                    eprintln!("[DEBUG] embed token {}: offset={}, first 5: {:?}",
+                        token_id, offset, &self.token_embedding[offset..offset+5.min(hidden_dim)]);
+                }
                 embeddings.extend_from_slice(&self.token_embedding[offset..offset + hidden_dim]);
             } else {
                 // Out of vocab - return zeros
+                if debug {
+                    eprintln!("[DEBUG] embed token {}: OUT OF VOCAB (offset {} > {})",
+                        token_id, offset, self.token_embedding.len());
+                }
                 embeddings.extend(std::iter::repeat_n(0.0, hidden_dim));
             }
         }
@@ -1187,7 +1201,7 @@ impl AprTransformer {
                 for s in 0..seq_len {
                     let input_slice = &attn_out[s * hidden_dim..(s + 1) * hidden_dim];
                     let pos_out =
-                        matmul_q4k_rowmajor(q4k_bytes, input_slice, hidden_dim, hidden_dim);
+                        matmul_q4k_rowmajor(q4k_bytes, input_slice, hidden_dim, hidden_dim)?;
                     output.extend(pos_out);
                 }
                 output
@@ -1239,14 +1253,15 @@ impl AprTransformer {
                                 input_slice,
                                 intermediate_dim,
                                 hidden_dim,
-                            );
+                            )?;
                             output.extend(pos_out);
                         }
                         output
                     } else {
+                        // AUDIT-301: Use already-bound _gate_weight instead of expect()
                         self.matmul(
                             &ffn_input,
-                            layer.ffn_gate_weight.as_ref().expect("gate weight"),
+                            _gate_weight,
                             hidden_dim,
                             intermediate_dim,
                         )
@@ -1267,7 +1282,7 @@ impl AprTransformer {
                             input_slice,
                             intermediate_dim,
                             hidden_dim,
-                        );
+                        )?;
                         output.extend(pos_out);
                     }
                     output
@@ -1306,7 +1321,7 @@ impl AprTransformer {
                             input_slice,
                             hidden_dim,
                             intermediate_dim,
-                        );
+                        )?;
                         output.extend(pos_out);
                     }
                     output
@@ -1325,7 +1340,7 @@ impl AprTransformer {
                             input_slice,
                             hidden_dim,
                             intermediate_dim,
-                        );
+                        )?;
                         output.extend(pos_out);
                     }
                     output
@@ -1359,7 +1374,7 @@ impl AprTransformer {
                                 input_slice,
                                 intermediate_dim,
                                 hidden_dim,
-                            );
+                            )?;
                             output.extend(pos_out);
                         }
                         output
@@ -1388,7 +1403,7 @@ impl AprTransformer {
                                 input_slice,
                                 hidden_dim,
                                 intermediate_dim,
-                            );
+                            )?;
                             output.extend(pos_out);
                         }
                         output
@@ -1529,7 +1544,7 @@ impl AprTransformer {
                     if trace_enabled && layer_idx == 0 && position == 0 {
                         eprintln!("[TRACE-CACHE] Layer 0: Q projection using Q4K fused kernel");
                     }
-                    matmul_q4k_rowmajor(q_bytes, &normed, hidden_dim, hidden_dim)
+                    matmul_q4k_rowmajor(q_bytes, &normed, hidden_dim, hidden_dim)?
                 } else {
                     // Fallback to F32 for Q (should not happen for GGUF models)
                     let q_weight = &layer.qkv_weight[0..hidden_dim * hidden_dim];
@@ -1540,7 +1555,7 @@ impl AprTransformer {
                     if trace_enabled && layer_idx == 0 && position == 0 {
                         eprintln!("[TRACE-CACHE] Layer 0: K projection using Q4K fused kernel");
                     }
-                    matmul_q4k_rowmajor(k_bytes, &normed, kv_size, hidden_dim)
+                    matmul_q4k_rowmajor(k_bytes, &normed, kv_size, hidden_dim)?
                 } else {
                     let k_start = hidden_dim * hidden_dim;
                     let k_weight = &layer.qkv_weight[k_start..k_start + kv_size * hidden_dim];
@@ -1552,12 +1567,12 @@ impl AprTransformer {
                     if trace_enabled && layer_idx == 0 && position == 0 {
                         eprintln!("[TRACE-CACHE] Layer 0: V projection using Q4K fused kernel");
                     }
-                    matmul_q4k_rowmajor(v_bytes, &normed, kv_size, hidden_dim)
+                    matmul_q4k_rowmajor(v_bytes, &normed, kv_size, hidden_dim)?
                 } else if let Some(ref v_bytes) = q4k.attn_v_weight_q6k {
                     if trace_enabled && layer_idx == 0 && position == 0 {
                         eprintln!("[TRACE-CACHE] Layer 0: V projection using Q6K fused kernel");
                     }
-                    matmul_q6k_rowmajor(v_bytes, &normed, kv_size, hidden_dim)
+                    matmul_q6k_rowmajor(v_bytes, &normed, kv_size, hidden_dim)?
                 } else {
                     let v_start = hidden_dim * hidden_dim + kv_size * hidden_dim;
                     let v_weight = &layer.qkv_weight[v_start..v_start + kv_size * hidden_dim];
@@ -1733,7 +1748,7 @@ impl AprTransformer {
                     if trace_enabled && layer_idx == 0 && position == 0 {
                         eprintln!("[TRACE-CACHE] Layer 0: attn_output using Q4K fused kernel");
                     }
-                    matmul_q4k_rowmajor(q4k_bytes, &attn_out, hidden_dim, hidden_dim)
+                    matmul_q4k_rowmajor(q4k_bytes, &attn_out, hidden_dim, hidden_dim)?
                 } else {
                     if trace_enabled && layer_idx == 0 && position == 0 {
                         eprintln!("[TRACE-CACHE] Layer 0: attn_output using F32 fallback (slow!)");
@@ -1794,14 +1809,15 @@ impl AprTransformer {
                         if trace_enabled && layer_idx == 0 && position == 0 {
                             eprintln!("[TRACE-CACHE] Layer 0: ffn_gate using Q4K fused kernel");
                         }
-                        matmul_q4k_rowmajor(q4k_bytes, &ffn_input, intermediate_dim, hidden_dim)
+                        matmul_q4k_rowmajor(q4k_bytes, &ffn_input, intermediate_dim, hidden_dim)?
                     } else {
                         if trace_enabled && layer_idx == 0 && position == 0 {
                             eprintln!("[TRACE-CACHE] Layer 0: ffn_gate using F32 fallback (slow!)");
                         }
+                        // AUDIT-301: Use already-bound _gate_weight instead of expect()
                         self.matmul(
                             &ffn_input,
-                            layer.ffn_gate_weight.as_ref().expect("gate weight"),
+                            _gate_weight,
                             hidden_dim,
                             intermediate_dim,
                         )
@@ -1810,9 +1826,10 @@ impl AprTransformer {
                     if trace_enabled && layer_idx == 0 && position == 0 {
                         eprintln!("[TRACE-CACHE] Layer 0: ffn_gate using F32 (APR_FORCE_F32)");
                     }
+                    // AUDIT-301: Use already-bound _gate_weight instead of expect()
                     self.matmul(
                         &ffn_input,
-                        layer.ffn_gate_weight.as_ref().expect("gate weight"),
+                        _gate_weight,
                         hidden_dim,
                         intermediate_dim,
                     )
@@ -1824,14 +1841,14 @@ impl AprTransformer {
                         if trace_enabled && layer_idx == 0 && position == 0 {
                             eprintln!("[TRACE-CACHE] Layer 0: ffn_up using Q4K fused kernel");
                         }
-                        matmul_q4k_rowmajor(q4k_bytes, &ffn_input, intermediate_dim, hidden_dim)
+                        matmul_q4k_rowmajor(q4k_bytes, &ffn_input, intermediate_dim, hidden_dim)?
                     } else if let Some(q6k_bytes) =
                         q4k_layer.and_then(|q| q.ffn_up_weight_q6k.as_ref())
                     {
                         if trace_enabled && layer_idx == 0 && position == 0 {
                             eprintln!("[TRACE-CACHE] Layer 0: ffn_up using Q6K fused kernel");
                         }
-                        matmul_q6k_rowmajor(q6k_bytes, &ffn_input, intermediate_dim, hidden_dim)
+                        matmul_q6k_rowmajor(q6k_bytes, &ffn_input, intermediate_dim, hidden_dim)?
                     } else {
                         if trace_enabled && layer_idx == 0 && position == 0 {
                             eprintln!("[TRACE-CACHE] Layer 0: ffn_up using F32 fallback (slow!)");
@@ -1868,14 +1885,14 @@ impl AprTransformer {
                         if trace_enabled && layer_idx == 0 && position == 0 {
                             eprintln!("[TRACE-CACHE] Layer 0: ffn_down using Q4K fused kernel");
                         }
-                        matmul_q4k_rowmajor(q4k_bytes, &ffn_hidden, hidden_dim, intermediate_dim)
+                        matmul_q4k_rowmajor(q4k_bytes, &ffn_hidden, hidden_dim, intermediate_dim)?
                     } else if let Some(q6k_bytes) =
                         q4k_layer.and_then(|q| q.ffn_down_weight_q6k.as_ref())
                     {
                         if trace_enabled && layer_idx == 0 && position == 0 {
                             eprintln!("[TRACE-CACHE] Layer 0: ffn_down using Q6K fused kernel");
                         }
-                        matmul_q6k_rowmajor(q6k_bytes, &ffn_hidden, hidden_dim, intermediate_dim)
+                        matmul_q6k_rowmajor(q6k_bytes, &ffn_hidden, hidden_dim, intermediate_dim)?
                     } else {
                         if trace_enabled && layer_idx == 0 && position == 0 {
                             eprintln!("[TRACE-CACHE] Layer 0: ffn_down using F32 fallback (slow!)");
@@ -1907,7 +1924,7 @@ impl AprTransformer {
                 // PMAT-103: Check for Q4K up weight
                 let mut ffn_hidden =
                     if let Some(q4k_bytes) = q4k_layer.and_then(|q| q.ffn_up_weight.as_ref()) {
-                        matmul_q4k_rowmajor(q4k_bytes, &ffn_input, intermediate_dim, hidden_dim)
+                        matmul_q4k_rowmajor(q4k_bytes, &ffn_input, intermediate_dim, hidden_dim)?
                     } else {
                         self.matmul(
                             &ffn_input,
@@ -1924,7 +1941,7 @@ impl AprTransformer {
                 // PMAT-103: Check for Q4K down weight
                 let mut out =
                     if let Some(q4k_bytes) = q4k_layer.and_then(|q| q.ffn_down_weight.as_ref()) {
-                        matmul_q4k_rowmajor(q4k_bytes, &ffn_hidden, hidden_dim, intermediate_dim)
+                        matmul_q4k_rowmajor(q4k_bytes, &ffn_hidden, hidden_dim, intermediate_dim)?
                     } else {
                         self.matmul(
                             &ffn_hidden,
@@ -1980,10 +1997,10 @@ impl AprTransformer {
                 if trace_enabled {
                     eprintln!("[TRACE-CACHE] lm_head using Q4K fused kernel");
                 }
-                matmul_q4k_rowmajor(q4k_bytes, &normed, self.config.vocab_size, hidden_dim)
+                matmul_q4k_rowmajor(q4k_bytes, &normed, self.config.vocab_size, hidden_dim)?
             } else if let Some(ref q6k_bytes) = self.lm_head_weight_q6k {
                 let result =
-                    matmul_q6k_rowmajor(q6k_bytes, &normed, self.config.vocab_size, hidden_dim);
+                    matmul_q6k_rowmajor(q6k_bytes, &normed, self.config.vocab_size, hidden_dim)?;
                 if trace_enabled {
                     eprintln!("[TRACE-CACHE] lm_head Q6K took {:?}", lm_start.elapsed());
                 }

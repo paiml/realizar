@@ -551,19 +551,20 @@ impl GgufToAprQ4KConverter {
         let rope_type = Self::infer_rope_type(&architecture, &gguf_model.metadata);
 
         // Build metadata JSON
+        // F-REGR-231 FIX: Use field names consistent with AprTransformer::from_apr_bytes
         let metadata = serde_json::json!({
             "model_type": "transformer_lm_q4k",
             "architecture": architecture,
             "hidden_size": hidden_size,
-            "num_layers": num_layers,
-            "num_heads": num_heads,
-            "num_kv_heads": num_kv_heads,
+            "num_hidden_layers": num_layers,  // Loader checks num_hidden_layers first
+            "num_attention_heads": num_heads, // Loader checks num_attention_heads first
+            "num_key_value_heads": num_kv_heads, // Loader checks num_key_value_heads first
             "vocab_size": vocab_size,
-            "intermediate_dim": intermediate_size,
-            "context_length": context_length,
+            "intermediate_size": intermediate_size, // Loader checks intermediate_size first
+            "max_position_embeddings": context_length, // Loader checks max_position_embeddings
             "rope_theta": rope_theta,
             "rope_type": rope_type,
-            "eps": eps,
+            "rms_norm_eps": eps,  // F-REGR-231: Was "eps", loader reads "rms_norm_eps"
             "quantization": "Q4_K_M",
         });
         let metadata_bytes =

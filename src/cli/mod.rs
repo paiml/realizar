@@ -1256,7 +1256,7 @@ pub fn validate_suite_name(suite_name: &str) -> bool {
 // ============================================================================
 #[cfg(feature = "server")]
 mod server_commands {
-    use super::{load_apr_model, load_safetensors_model, Result};
+    use super::Result;
 
     /// Result of preparing server state (returned by `prepare_serve_state`)
     pub struct PreparedServer {
@@ -1502,30 +1502,98 @@ mod server_commands {
                 model_type: ModelType::Gguf,
             })
         } else if model_path.ends_with(".safetensors") {
-            let file_data = std::fs::read(model_path).map_err(|e| {
+            // PMAT-SERVE-FIX-001: Properly serve SafeTensors models
+            use crate::safetensors_infer::SafetensorsToAprConverter;
+            use std::path::Path;
+
+            println!("Loading SafeTensors model for serving...");
+
+            // Convert SafeTensors to AprTransformer
+            let model_path_obj = Path::new(model_path);
+            let transformer = SafetensorsToAprConverter::convert(model_path_obj).map_err(|e| {
                 crate::error::RealizarError::UnsupportedOperation {
-                    operation: "read_model_file".to_string(),
-                    reason: format!("Failed to read {model_path}: {e}"),
+                    operation: "convert_safetensors".to_string(),
+                    reason: format!("Failed to convert SafeTensors: {e}"),
                 }
             })?;
-            load_safetensors_model(&file_data)?;
-            // SafeTensors models use demo state (full serving requires GGUF conversion)
+
+            println!("  Architecture: {}", transformer.config.architecture);
+            println!("  Layers: {}", transformer.config.num_layers);
+            println!("  Hidden: {}", transformer.config.hidden_dim);
+
+            // Load vocabulary from sibling tokenizer.json
+            let vocab = crate::apr::AprV2Model::load_tokenizer_from_sibling(model_path_obj)
+                .map(|(v, _, _)| v) // Extract just the vocab
+                .unwrap_or_else(|| {
+                    // Fallback: Generate simple vocab
+                    println!("  Warning: No tokenizer.json found, using simple vocabulary");
+                    (0..transformer.config.vocab_size)
+                        .map(|i| format!("token{i}"))
+                        .collect()
+                });
+
+            println!("  Vocab size: {}", vocab.len());
+            println!("  Mode: CPU (F32 inference)");
+
+            let state = crate::api::AppState::with_apr_transformer_and_vocab(transformer, vocab)?;
+
             Ok(PreparedServer {
-                state: crate::api::AppState::demo()?,
+                state,
                 batch_mode_enabled: false,
                 model_type: ModelType::SafeTensors,
             })
         } else if model_path.ends_with(".apr") {
+            // PMAT-SERVE-FIX-001: Properly serve APR models
+            use crate::apr_transformer::AprTransformer;
+            use std::path::Path;
+
+            println!("Loading APR model for serving...");
+
             let file_data = std::fs::read(model_path).map_err(|e| {
                 crate::error::RealizarError::UnsupportedOperation {
                     operation: "read_model_file".to_string(),
                     reason: format!("Failed to read {model_path}: {e}"),
                 }
             })?;
-            load_apr_model(&file_data)?;
-            // APR models use demo state (full serving requires GGUF conversion)
+
+            // Load AprTransformer from APR file
+            let transformer = AprTransformer::from_apr_bytes(&file_data).map_err(|e| {
+                crate::error::RealizarError::UnsupportedOperation {
+                    operation: "load_apr".to_string(),
+                    reason: format!("Failed to load APR: {e}"),
+                }
+            })?;
+
+            println!("  Architecture: {}", transformer.config.architecture);
+            println!("  Layers: {}", transformer.config.num_layers);
+            println!("  Hidden: {}", transformer.config.hidden_dim);
+
+            // Load vocabulary from APR metadata or sibling tokenizer.json
+            let model_path_obj = Path::new(model_path);
+            let vocab = crate::apr::AprV2Model::load_tokenizer_from_sibling(model_path_obj)
+                .map(|(v, _, _)| v) // Extract just the vocab
+                .or_else(|| {
+                    // Try to load from APR embedded vocabulary
+                    crate::apr::AprV2Model::load(model_path_obj)
+                        .ok()
+                        .and_then(|m| m.load_embedded_tokenizer())
+                        .map(|t| t.id_to_token.clone())
+                })
+                .unwrap_or_else(|| {
+                    // Fallback: Generate simple vocab
+                    println!("  Warning: No vocabulary found, using simple vocabulary");
+                    (0..transformer.config.vocab_size)
+                        .map(|i| format!("token{i}"))
+                        .collect()
+                });
+
+            println!("  Vocab size: {}", vocab.len());
+            println!("  Mode: CPU (F32 inference)");
+
+            let state = crate::api::AppState::with_apr_transformer_and_vocab(transformer, vocab)?;
+
             Ok(PreparedServer {
-                state: crate::api::AppState::demo()?,
+                state,
                 batch_mode_enabled: false,
                 model_type: ModelType::Apr,
             })

@@ -1172,10 +1172,12 @@ impl AprV2ModelCuda {
             };
 
             // PMAT-114: Apply QKV bias if present (Qwen2 has attention bias)
-            // Load fused bias from model and unfuse - biases are small so this is fine
+            // Handle both fused (qkv_proj.bias) and separate (q_proj.bias, k_proj.bias, v_proj.bias) formats
             let fused_bias_name = format!("model.layers.{layer_idx}.self_attn.qkv_proj.bias");
             let (mut q, mut k, mut v) = (q, k, v);
+            let mut bias_applied = false;
 
+            // Try fused bias first (HuggingFace import with fused QKV)
             if let Ok(qkv_bias) = self.model.get_tensor_f32(&fused_bias_name) {
                 // Unfuse: Q_bias is first hidden_dim, K_bias is next kv_dim, V_bias is last kv_dim
                 let q_bias_size = hidden_dim;
@@ -1204,10 +1206,69 @@ impl AprV2ModelCuda {
                         }
                     }
 
+                    bias_applied = true;
                     // PMAT-114: Trace bias application for layer 0
                     if trace_layers && layer_idx == 0 {
                         let k_bias_mean: f32 = k_bias.iter().sum::<f32>() / k_bias.len() as f32;
-                        eprintln!("[PMAT-114-APR] L0 has_qkv_bias=true, K bias mean={:.6}", k_bias_mean);
+                        eprintln!("[PMAT-114-APR] L0 has_qkv_bias=true (fused), K bias mean={:.6}", k_bias_mean);
+                    }
+                }
+            }
+
+            // PMAT-113 FIX: Try separate Q/K/V biases (APR converted from GGUF)
+            // GGUF models have separate q_proj.bias, k_proj.bias, v_proj.bias
+            if !bias_applied {
+                let q_bias_name = format!("model.layers.{layer_idx}.self_attn.q_proj.bias");
+                let k_bias_name = format!("model.layers.{layer_idx}.self_attn.k_proj.bias");
+                let v_bias_name = format!("model.layers.{layer_idx}.self_attn.v_proj.bias");
+
+                // Try to load separate biases
+                let q_bias = self.model.get_tensor_f32(&q_bias_name).ok();
+                let k_bias = self.model.get_tensor_f32(&k_bias_name).ok();
+                let v_bias = self.model.get_tensor_f32(&v_bias_name).ok();
+
+                // Apply Q bias
+                if let Some(ref bias) = q_bias {
+                    if bias.len() == hidden_dim {
+                        for pos in 0..seq_len {
+                            let start = pos * hidden_dim;
+                            for (i, bias_val) in bias.iter().enumerate() {
+                                q[start + i] += bias_val;
+                            }
+                        }
+                    }
+                }
+
+                // Apply K bias
+                if let Some(ref bias) = k_bias {
+                    if bias.len() == kv_dim {
+                        for pos in 0..seq_len {
+                            let start = pos * kv_dim;
+                            for (i, bias_val) in bias.iter().enumerate() {
+                                k[start + i] += bias_val;
+                            }
+                        }
+                        bias_applied = true;
+                    }
+                }
+
+                // Apply V bias
+                if let Some(ref bias) = v_bias {
+                    if bias.len() == kv_dim {
+                        for pos in 0..seq_len {
+                            let start = pos * kv_dim;
+                            for (i, bias_val) in bias.iter().enumerate() {
+                                v[start + i] += bias_val;
+                            }
+                        }
+                    }
+                }
+
+                // PMAT-114: Trace separate bias application for layer 0
+                if trace_layers && layer_idx == 0 && bias_applied {
+                    if let Some(ref kb) = k_bias {
+                        let k_bias_mean: f32 = kb.iter().sum::<f32>() / kb.len() as f32;
+                        eprintln!("[PMAT-114-APR] L0 has_qkv_bias=true (separate), K bias mean={:.6}", k_bias_mean);
                     }
                 }
             }

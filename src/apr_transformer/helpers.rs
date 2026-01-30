@@ -2,6 +2,7 @@
 //!
 //! Row-major matmul wrappers and SIMD primitives for APR inference.
 
+use crate::error::Result;
 use crate::quantize::{fused_q4k_parallel_matvec, fused_q6k_parallel_matvec};
 
 /// Row-major Q4K matmul wrapper (LAYOUT-001)
@@ -11,28 +12,36 @@ use crate::quantize::{fused_q4k_parallel_matvec, fused_q6k_parallel_matvec};
 /// NEW API: `matmul_q4k_rowmajor(bytes, input, out_dim, in_dim)` - row-major, CORRECT
 ///
 /// FORBIDDEN: Never use `trueno::backends::q4k::matmul_q4k_f32_colmajor*` for GGUF/APR.
+///
+/// # Errors
+///
+/// Returns error if tensor dimensions are mismatched or data is corrupted.
 #[inline]
 pub(crate) fn matmul_q4k_rowmajor(
     q4k_bytes: &[u8],
     input: &[f32],
     out_dim: usize,
     in_dim: usize,
-) -> Vec<f32> {
+) -> Result<Vec<f32>> {
     // fused_q4k_parallel_matvec expects (bytes, input, in_dim, out_dim) - swap order!
+    // AUDIT-301 FIX: Propagate error instead of expect()
     fused_q4k_parallel_matvec(q4k_bytes, input, in_dim, out_dim)
-        .expect("Q4K matmul failed - check tensor dimensions")
 }
 
 /// Row-major Q6K matmul wrapper (LAYOUT-001)
+///
+/// # Errors
+///
+/// Returns error if tensor dimensions are mismatched or data is corrupted.
 #[inline]
 pub(crate) fn matmul_q6k_rowmajor(
     q6k_bytes: &[u8],
     input: &[f32],
     out_dim: usize,
     in_dim: usize,
-) -> Vec<f32> {
+) -> Result<Vec<f32>> {
+    // AUDIT-301 FIX: Propagate error instead of expect()
     fused_q6k_parallel_matvec(q6k_bytes, input, in_dim, out_dim)
-        .expect("Q6K matmul failed - check tensor dimensions")
 }
 
 // ============================================================================
