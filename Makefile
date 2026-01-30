@@ -263,13 +263,15 @@ coverage-fast: ## Fast coverage: core only, no CUDA (~90s)
 	TOTAL_END=$$(date +%s); \
 	echo "⏱️  Total: $$((TOTAL_END-TOTAL_START))s"
 
-coverage: ## DEFAULT: Core + CUDA coverage with report (RTX 4090 required)
+coverage: ## DEFAULT: Full coverage (core + gguf + api + cuda) with report
 	@nvidia-smi > /dev/null 2>&1 || { echo "❌ NVIDIA GPU required (RTX 4090 expected)"; exit 1; }
 	@TOTAL_START=$$(date +%s); \
 	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-	echo "📊 COVERAGE: Core + CUDA (trueno-style, RTX 4090)"; \
+	echo "📊 COVERAGE: Full stack (target: 95%)"; \
 	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
 	$(MAKE) --no-print-directory coverage-core; \
+	$(MAKE) --no-print-directory coverage-gguf; \
+	$(MAKE) --no-print-directory coverage-api; \
 	$(MAKE) --no-print-directory coverage-cuda; \
 	echo ""; \
 	echo "📊 Generating report..."; \
@@ -281,9 +283,18 @@ coverage: ## DEFAULT: Core + CUDA coverage with report (RTX 4090 required)
 	cargo llvm-cov report --summary-only $(COV_EXCLUDE) 2>&1 | grep -E "^TOTAL"; \
 	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
 	TOTAL_END=$$(date +%s); \
-	echo "⏱️  Total: $$((TOTAL_END-TOTAL_START))s"; \
+	ELAPSED=$$((TOTAL_END-TOTAL_START)); \
+	echo "⏱️  Total: $$((ELAPSED/60))m $$((ELAPSED%60))s"; \
 	echo "💡 HTML: target/coverage/html/index.html"; \
-	echo "💡 Drill-down: make coverage-gguf | coverage-api | coverage-all"
+	COVERAGE=$$(cargo llvm-cov report --summary-only $(COV_EXCLUDE) 2>/dev/null | grep "TOTAL" | awk '{print $$10}' | sed 's/%//'); \
+	if [ -n "$$COVERAGE" ]; then \
+		RESULT=$$(echo "$$COVERAGE >= 95" | bc -l 2>/dev/null || echo 0); \
+		if [ "$$RESULT" = "1" ]; then \
+			echo "✅ CORROBORATED: $$COVERAGE% >= 95%"; \
+		else \
+			echo "❌ FALSIFIED: $$COVERAGE% < 95% (gap: $$(echo "95 - $$COVERAGE" | bc)%)"; \
+		fi; \
+	fi
 
 coverage-all: ## FULL: All modules with report (~10 min)
 	@TOTAL_START=$$(date +%s); \
