@@ -38,3 +38,4 @@ mod part_15;
 mod part_16;
 mod part_17;
 mod part_18; // T-COV-95 Coverage Bridge B2+B3 (GPU handlers, Realize/OpenAI handlers, AppState)
+mod part_19; // T-COV-95 Deep Coverage Bridge (BatchConfig, ContinuousBatchResponse, streaming types, endpoints)
