@@ -214,6 +214,44 @@ pub(crate) fn dequantize_q6_k_apr(data: &[u8], num_elements: usize) -> Vec<f32> 
     result
 }
 
+/// Dequantize Q8_0 format for APR tensors (GH-191)
+///
+/// Q8_0 block layout (per GGML):
+/// - scale: 2 bytes (f16)
+/// - quants: 32 bytes (i8 values)
+/// Total: 34 bytes per block, 32 elements per block
+pub(crate) fn dequantize_q8_0_apr(data: &[u8], num_elements: usize) -> Vec<f32> {
+    const BLOCK_SIZE: usize = 34; // 2 (f16 scale) + 32 (i8 quants)
+    const ELEMENTS_PER_BLOCK: usize = 32;
+
+    let num_blocks = num_elements.div_ceil(ELEMENTS_PER_BLOCK);
+    let total_bytes = num_blocks * BLOCK_SIZE;
+
+    if total_bytes > data.len() {
+        return vec![0.0; num_elements];
+    }
+
+    let mut result = vec![0.0f32; num_blocks * ELEMENTS_PER_BLOCK];
+
+    for blk in 0..num_blocks {
+        let blk_start = blk * BLOCK_SIZE;
+        let out_start = blk * ELEMENTS_PER_BLOCK;
+
+        // Read scale (f16 → f32)
+        let scale = f16_to_f32(u16::from_le_bytes([data[blk_start], data[blk_start + 1]]));
+
+        // Dequantize 32 i8 values
+        #[allow(clippy::cast_possible_wrap)]
+        for i in 0..ELEMENTS_PER_BLOCK {
+            let q = data[blk_start + 2 + i] as i8;
+            result[out_start + i] = scale * (q as f32);
+        }
+    }
+
+    result.truncate(num_elements);
+    result
+}
+
 // ============================================================================
 // Tests for Dequantization Helpers (PMAT-802: T-COV-95)
 // ============================================================================

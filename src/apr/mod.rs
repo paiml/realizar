@@ -766,25 +766,32 @@ impl TensorEntry {
         let name = String::from_utf8_lossy(&data[pos..pos + name_len]).to_string();
         pos += name_len;
 
-        // Dtype (1 byte) - matches aprender/src/format/v2.rs TensorDType enum
+        // Dtype (1 byte)
+        // GH-191 FIX: Writers now use GGML dtype values directly.
+        // This reader must map GGML type IDs to canonical dtype strings.
+        // GGML types: 0=F32, 1=F16, 2=Q4_0, 3=Q4_1, 6=Q5_0, 7=Q5_1,
+        //   8=Q8_0, 9=Q8_1, 10=Q2_K, 11=Q3_K, 12=Q4_K, 13=Q5_K, 14=Q6_K, 30=BF16
         let dtype_byte = data[pos];
         pos += 1;
         let dtype = match dtype_byte {
             0 => "F32",
             1 => "F16",
-            2 => "BF16",
-            3 => "F64",
-            4 => "I32",
-            5 => "I64",
-            6 => "I8",
-            7 => "U8",
-            8 => "Q4",    // APR native 4-bit quantization
-            9 => "Q8_0",  // APR Q8 quantization
-            12 => "Q4_K", // GGUF Q4_K_M quantization (4.5 bits/element)
-            14 => "Q6_K", // GGUF Q6_K quantization (6.5 bits/element)
+            2 => "Q4_0",
+            3 => "Q4_1",
+            6 => "Q5_0",
+            7 => "Q5_1",
+            8 => "Q8_0",
+            9 => "Q8_1",
+            10 => "Q2_K",
+            11 => "Q3_K",
+            12 => "Q4_K",
+            13 => "Q5_K",
+            14 => "Q6_K",
+            16 => "IQ2_XXS",
+            17 => "IQ2_XS",
+            30 => "BF16",
             _ => {
-                // Log warning for unknown dtype but don't crash
-                eprintln!("WARN: Unknown APR dtype {dtype_byte}, treating as F32");
+                eprintln!("WARN: Unknown APR dtype byte {dtype_byte}, treating as F32");
                 "F32"
             }
         }

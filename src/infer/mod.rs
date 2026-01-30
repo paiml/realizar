@@ -35,7 +35,7 @@ use std::time::Instant;
 
 /// PMAT-173: Convert GGML quantization type to human-readable string
 /// Used for --verbose mode display (F-UX-038)
-fn qtype_to_dtype_str(qtype: u32) -> &'static str {
+pub(crate) fn qtype_to_dtype_str(qtype: u32) -> &'static str {
     match qtype {
         0 => "F32",
         1 => "F16",
@@ -223,7 +223,7 @@ const VALID_MODEL_EXTENSIONS: &[&str] = &["gguf", "safetensors", "apr", "bin"];
 /// - Path has invalid or missing extension
 /// - Path contains traversal sequences
 /// - Path doesn't exist or isn't a file
-fn validate_model_path(path: &std::path::Path) -> Result<()> {
+pub(crate) fn validate_model_path(path: &std::path::Path) -> Result<()> {
     // Check for path traversal sequences
     let path_str = path.to_string_lossy();
     if path_str.contains("..") {

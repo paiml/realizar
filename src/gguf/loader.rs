@@ -1708,24 +1708,31 @@ impl OwnedQuantizedModel {
         }
 
         // Helper to convert dtype string to byte for binary tensor entry
+        // GH-191 FIX: Use GGML dtype values directly so they match TensorEntry::from_binary reader.
+        // The reader maps these bytes back to dtype strings; mismatched values caused
+        // all quantized tensors to silently fall through to F32.
         fn dtype_to_byte(dtype: &str) -> u8 {
             match dtype {
                 "F32" => 0,
                 "F16" => 1,
-                "BF16" => 2,
-                "I8" => 3,
-                "I16" => 4,
-                "I32" => 5,
-                "I64" => 6,
-                "U8" => 7,
-                "Q4_K" => 8,
-                "Q6_K" => 9,
-                "Q8_0" => 10,
-                "Q4_0" => 11,
-                "Q5_K" => 12,
-                "Q3_K" => 13,
-                "Q2_K" => 14,
-                _ => 0,
+                "BF16" => 30,   // GGML BF16 type
+                "Q4_0" => 2,    // GGML type 2
+                "Q4_1" => 3,    // GGML type 3
+                "Q5_0" => 6,    // GGML type 6
+                "Q5_1" => 7,    // GGML type 7
+                "Q8_0" => 8,    // GGML type 8
+                "Q8_1" => 9,    // GGML type 9
+                "Q2_K" => 10,   // GGML type 10
+                "Q3_K" => 11,   // GGML type 11
+                "Q4_K" => 12,   // GGML type 12
+                "Q5_K" => 13,   // GGML type 13
+                "Q6_K" => 14,   // GGML type 14
+                "IQ2_XXS" => 16, // GGML type 16
+                "IQ2_XS" => 17,  // GGML type 17
+                _ => {
+                    eprintln!("WARN: Unknown dtype '{}' in dtype_to_byte, writing as F32", dtype);
+                    0
+                }
             }
         }
 

@@ -43,7 +43,7 @@ mod q4_simd;
 pub use config::{
     AprKVCache, AprTransformerConfig, AprTransformerLayer, GenerateConfig, Q4KLayerWeights,
 };
-use dequant::{dequantize_q4_k_apr, dequantize_q6_k_apr};
+use dequant::{dequantize_q4_k_apr, dequantize_q6_k_apr, dequantize_q8_0_apr, f16_to_f32};
 use helpers::{matmul_q4k_rowmajor, matmul_q6k_rowmajor, simd_add_weighted, simd_dot_f32};
 pub use loader::{
     AprQuantizationType, MmapAprTransformer, QuantizedAprTransformer, APR_TRANSFORMER_HEADER_SIZE,
@@ -365,17 +365,34 @@ impl AprTransformer {
                 }
                 let tensor_data = &data[*offset..end];
 
+                // GH-191 FIX: Match on GGML dtype values written by converter.
+                // Converter now writes GGML types directly: 12=Q4_K, 13=Q5_K, 14=Q6_K, 8=Q8_0
                 match dtype {
-                    // Q4_K: converter dtype=8 or APR v2 native dtype=12
-                    8 | 12 => {
+                    // Q4_K (GGML type 12)
+                    12 => {
                         let num_elements: usize = dims.iter().product();
                         dequantize_q4_k_apr(tensor_data, num_elements)
                     },
-                    // Q6_K: converter dtype=9 or APR v2 native dtype=14
-                    9 | 14 => {
+                    // Q5_K (GGML type 13) - use Q4_K dequant (compatible layout)
+                    13 => {
+                        let num_elements: usize = dims.iter().product();
+                        dequantize_q4_k_apr(tensor_data, num_elements)
+                    },
+                    // Q6_K (GGML type 14)
+                    14 => {
                         let num_elements: usize = dims.iter().product();
                         dequantize_q6_k_apr(tensor_data, num_elements)
                     },
+                    // Q8_0 (GGML type 8): 34 bytes per block (2 f16 scale + 32 i8 quants)
+                    8 => {
+                        let num_elements: usize = dims.iter().product();
+                        dequantize_q8_0_apr(tensor_data, num_elements)
+                    },
+                    // F16 (GGML type 1): convert f16 to f32
+                    1 => tensor_data
+                        .chunks_exact(2)
+                        .map(|c| f16_to_f32(u16::from_le_bytes([c[0], c[1]])))
+                        .collect(),
                     // F32 (dtype=0) or other: interpret as raw F32
                     _ => tensor_data
                         .chunks_exact(4)
@@ -386,16 +403,12 @@ impl AprTransformer {
         };
 
         // PMAT-103 FIX: Helper to get raw Q4K bytes (no dequantization) for fused kernel
-        // Returns None if tensor is not Q4K/Q5K/Q6K format
-        // APR dtype mapping (from GgufToAprQ4KConverter):
-        //   8 = Q4_K (GGML 12) or Q5_K (GGML 13)
-        //   9 = Q6_K (GGML 14)
-        //  10 = Q8_0 (GGML 8)
-        //  12 = Q4_K (APR v2 native)
+        // GH-191 FIX: Use GGML dtype values (converter now writes these directly)
+        //   12 = Q4_K, 13 = Q5_K (treated as Q4_K layout)
         let get_q4k_raw_bytes = |name: &str| -> Option<Vec<u8>> {
             tensors.get(name).and_then(|(offset, size, _dims, dtype)| {
-                // Accept Q4K tensors from either converter dtype (8) or APR v2 native dtype (12)
-                if *dtype != 8 && *dtype != 12 {
+                // Accept Q4_K (GGML 12) or Q5_K (GGML 13)
+                if *dtype != 12 && *dtype != 13 {
                     return None;
                 }
                 let end = offset + size;
@@ -407,10 +420,11 @@ impl AprTransformer {
         };
 
         // PMAT-103 FIX: Also extract Q6K raw bytes for fused kernel
+        // GH-191 FIX: Use GGML dtype value 14 = Q6_K
         let get_q6k_raw_bytes = |name: &str| -> Option<Vec<u8>> {
             tensors.get(name).and_then(|(offset, size, _dims, dtype)| {
-                // Accept Q6K tensors from either converter dtype (9) or APR v2 native dtype (14)
-                if *dtype != 9 && *dtype != 14 {
+                // Accept Q6_K (GGML 14)
+                if *dtype != 14 {
                     return None;
                 }
                 let end = offset + size;
