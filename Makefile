@@ -158,7 +158,7 @@ clippy-fix: ## Automatically fix clippy warnings
 #           fixtures/ (test fixtures), testing/ (test infra), bench/ (benchmark harness), bench_ prefix,
 #           proptests (property tests in src/)
 # Note: Use = syntax without quotes for --ignore-filename-regex (trueno pattern)
-COV_EXCLUDE := --ignore-filename-regex=(trueno/|/tests/|_tests|tests_|test_|tui\.rs|viz\.rs|main\.rs|/benches/|/examples/|fixtures/|testing/|bench_|proptests)
+COV_EXCLUDE := --ignore-filename-regex='(trueno/|/tests/|_tests|tests_|test_|tui\.rs|viz\.rs|main\.rs|/benches/|/examples/|fixtures/|testing/|bench_|proptests)'
 
 # D5: Configurable coverage threshold (default 95%, override with COV_THRESHOLD=90 make coverage-check)
 COV_THRESHOLD ?= 95
@@ -255,11 +255,11 @@ coverage-fast: ## Fast coverage: no CUDA tests (~90s)
 	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
 	echo "📊 COVERAGE-FAST: No CUDA (use 'make coverage' for full stack)"; \
 	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "🚀 Running core tests (parallel)..."
-	@cargo llvm-cov test --lib --no-report $(COV_EXCLUDE) \
+	@echo "🚀 Running core tests (parallel, no regex filter)..."
+	@cargo llvm-cov test --lib --no-report \
 		-- --test-threads=8 --skip cuda:: --skip gpu:: \
 		--skip property_ --skip stress --skip slow --skip heavy 2>&1 | tail -3
-	@echo "📊 Generating report..."
+	@echo "📊 Generating report (with exclusions)..."
 	@mkdir -p target/coverage/html
 	@cargo llvm-cov report --html --output-dir target/coverage/html $(COV_EXCLUDE) 2>&1 | tail -1
 	@echo ""
@@ -269,30 +269,127 @@ coverage-fast: ## Fast coverage: no CUDA tests (~90s)
 	@TOTAL_END=$$(date +%s); \
 	echo "⏱️  Total: $$((TOTAL_END-TOTAL_START))s"
 
-coverage: ## DEFAULT: Fast 2-batch coverage (target: 95%, <10min)
+# -----------------------------------------------------------------------------
+# CELLULAR SHARDED COVERAGE (Parallel Processes, Each with Parallel Threads)
+# -----------------------------------------------------------------------------
+# Each shard runs in its own process (fresh memory), uses 8 threads internally.
+# Shards can run concurrently via `make -j4 cov-shards` for max speed.
+# -----------------------------------------------------------------------------
+
+.PHONY: cov-shard-1 cov-shard-2 cov-shard-3 cov-shard-4 cov-shard-5 cov-shard-6 cov-shard-cuda
+.PHONY: cov-shards cov-shards-parallel cov-report cov-api-atomized
+
+# -----------------------------------------------------------------------------
+# CUDA-LAST ARCHITECTURE (Dr. Popper's Five-Whys Prescription)
+#
+# Phase 1: All non-CUDA shards run in parallel (make -j6 safe)
+# Phase 2: CUDA shard runs last, single-threaded (context safety)
+#
+# Why? CUDA driver init is process-global. Parallel cuInit() = race condition.
+# Separation allows max parallelism for CPU tests, safe isolation for GPU.
+# -----------------------------------------------------------------------------
+
+# === PHASE 1: Parallelizable Shards (all skip cuda::) ===
+
+cov-shard-1: ## Shard 1: quantize (~1820 tests)
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- quantize:: --skip cuda:: --test-threads=8 2>&1 | tail -1
+
+cov-shard-2: ## Shard 2: layers + generate + infer
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- layers:: --skip cuda:: --test-threads=8 2>&1 | tail -1
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- generate:: --skip cuda:: --test-threads=8 2>&1 | tail -1
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- infer:: --skip cuda:: --test-threads=8 2>&1 | tail -1
+
+cov-shard-3: ## Shard 3: gguf (~1200 tests)
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- gguf:: --skip cuda:: --test-threads=8 2>&1 | tail -1
+
+# -----------------------------------------------------------------------------
+# ATOMIZED API SHARD (Dr. Popper's Memory Isolation Prescription)
+# Each part_XX runs in its own process to prevent memory accumulation
+# 19 total: part_01-17 (931 tests) + realize_handlers (48) + gpu_handlers (43)
+# -----------------------------------------------------------------------------
+cov-api-atomized: ## Shard 4: API atomized (19 separate processes)
+	@echo "  [api/1-17] Running api::tests::part_01-17..."
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- 'api::tests::part_01' --skip cuda:: --test-threads=8 2>&1 | tail -1
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- 'api::tests::part_02' --skip cuda:: --test-threads=8 2>&1 | tail -1
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- 'api::tests::part_03' --skip cuda:: --test-threads=8 2>&1 | tail -1
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- 'api::tests::part_04' --skip cuda:: --test-threads=8 2>&1 | tail -1
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- 'api::tests::part_05' --skip cuda:: --test-threads=8 2>&1 | tail -1
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- 'api::tests::part_06' --skip cuda:: --test-threads=8 2>&1 | tail -1
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- 'api::tests::part_07' --skip cuda:: --test-threads=8 2>&1 | tail -1
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- 'api::tests::part_08' --skip cuda:: --test-threads=8 2>&1 | tail -1
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- 'api::tests::part_09' --skip cuda:: --test-threads=8 2>&1 | tail -1
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- 'api::tests::part_10' --skip cuda:: --test-threads=8 2>&1 | tail -1
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- 'api::tests::part_11' --skip cuda:: --test-threads=8 2>&1 | tail -1
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- 'api::tests::part_12' --skip cuda:: --test-threads=8 2>&1 | tail -1
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- 'api::tests::part_13' --skip cuda:: --test-threads=8 2>&1 | tail -1
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- 'api::tests::part_14' --skip cuda:: --test-threads=8 2>&1 | tail -1
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- 'api::tests::part_15' --skip cuda:: --test-threads=8 2>&1 | tail -1
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- 'api::tests::part_16' --skip cuda:: --test-threads=8 2>&1 | tail -1
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- 'api::tests::part_17' --skip cuda:: --test-threads=8 2>&1 | tail -1
+	@echo "  [api/handlers] Running handler tests..."
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- 'api::realize_handlers::tests' --skip cuda:: --test-threads=8 2>&1 | tail -1
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- 'api::gpu_handlers::tests' --skip cuda:: --test-threads=8 2>&1 | tail -1
+
+cov-shard-4: cov-api-atomized ## Shard 4: api (1022 tests, ATOMIZED)
+
+cov-shard-5: ## Shard 5: gpu (non-cuda only)
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- gpu:: --skip cuda:: --test-threads=8 2>&1 | tail -1
+
+cov-shard-6: ## Shard 6: remaining modules (apr, bench, scheduler, cli)
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- apr:: --skip cuda:: --test-threads=8 2>&1 | tail -1
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- bench:: --skip cuda:: --test-threads=8 2>&1 | tail -1
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- scheduler:: --skip cuda:: --test-threads=8 2>&1 | tail -1
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- cli:: --skip cuda:: --test-threads=8 2>&1 | tail -1
+
+# === PHASE 2: CUDA Shard (must run LAST, single-threaded) ===
+
+cov-shard-cuda: ## CUDA shard: all cuda:: tests (MUST run last, single-threaded)
+	@echo "🔶 CUDA tests (single-threaded for context safety)..."
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- cuda:: --test-threads=1 2>&1 | tail -1
+
+# === Composite Targets ===
+
+cov-shards-parallel: cov-shard-1 cov-shard-2 cov-shard-3 cov-shard-4 cov-shard-5 cov-shard-6 ## Phase 1: All non-CUDA (safe for make -j6)
+
+cov-shards: cov-shards-parallel cov-shard-cuda ## Full sharded coverage (parallel → CUDA last)
+
+cov-report: ## Generate coverage report from accumulated data
+	@mkdir -p target/coverage/html
+	@cargo llvm-cov report --html --output-dir target/coverage/html $(COV_EXCLUDE)
+	@cargo llvm-cov report --summary-only $(COV_EXCLUDE) | grep -E "^TOTAL"
+
+coverage: ## DEFAULT: CUDA-Last sharded coverage (target: 95%, <10min)
 	@nvidia-smi > /dev/null 2>&1 || { echo "❌ NVIDIA GPU required (RTX 4090 expected)"; exit 1; }
 	@TOTAL_START=$$(date +%s); \
 	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-	echo "📊 COVERAGE: Fast 2-batch (target: 95%)"; \
+	echo "📊 COVERAGE: CUDA-Last Architecture (parallel CPU → sequential GPU)"; \
 	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "🚀 Phase 1: Core tests (parallel)..."
-	@cargo llvm-cov test --lib --features cuda,gpu --no-report \
-		-- --test-threads=8 --skip cuda:: --skip gpu:: \
-		--skip property_ --skip stress --skip slow --skip heavy 2>&1 | tail -3
-	@echo "🎮 Phase 2: CUDA tests (single-threaded)..."
-	@cargo llvm-cov test --lib --features cuda,gpu --no-report \
-		-- --test-threads=1 cuda:: gpu:: \
-		--skip property_ --skip stress --skip slow --skip heavy 2>&1 | tail -3
-	@echo "📊 Generating report..."
-	@mkdir -p target/coverage/html
-	@cargo llvm-cov report --html --output-dir target/coverage/html $(COV_EXCLUDE) 2>&1 | tail -1
+	@echo "═══ PHASE 1: Non-CUDA shards (8 threads each) ═══"
+	@echo "[1/7] quantize..."
+	@$(MAKE) --no-print-directory cov-shard-1
+	@echo "[2/7] layers+generate+infer..."
+	@$(MAKE) --no-print-directory cov-shard-2
+	@echo "[3/7] gguf..."
+	@$(MAKE) --no-print-directory cov-shard-3
+	@echo "[4/7] api (atomized: 19 processes)..."
+	@$(MAKE) --no-print-directory cov-shard-4
+	@echo "[5/7] gpu (non-cuda)..."
+	@$(MAKE) --no-print-directory cov-shard-5
+	@echo "[6/7] remaining (apr, bench, scheduler, cli)..."
+	@$(MAKE) --no-print-directory cov-shard-6
 	@echo ""
-	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@cargo llvm-cov report --summary-only $(COV_EXCLUDE) 2>&1 | grep -E "^TOTAL"
+	@echo "═══ PHASE 2: CUDA shard (single-threaded) ═══"
+	@echo "[7/7] cuda..."
+	@$(MAKE) --no-print-directory cov-shard-cuda
+	@echo ""
+	@echo "📊 Generating report..."
+	@$(MAKE) --no-print-directory cov-report
+	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@TOTAL_END=$$(date +%s); \
 	ELAPSED=$$((TOTAL_END-TOTAL_START)); \
 	echo "⏱️  Total: $$((ELAPSED/60))m $$((ELAPSED%60))s"; \
+	if [ $$ELAPSED -gt 600 ]; then echo "❌ TAKT TIME EXCEEDED: $$ELAPSED > 600s (STOP THE LINE)"; fi; \
 	echo "💡 HTML: target/coverage/html/index.html"; \
 	COVERAGE=$$(cargo llvm-cov report --summary-only $(COV_EXCLUDE) 2>/dev/null | grep "TOTAL" | awk '{print $$10}' | sed 's/%//'); \
 	if [ -n "$$COVERAGE" ]; then \
