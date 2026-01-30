@@ -57,7 +57,9 @@ pub use cuda::AprV2ModelCuda;
 #[cfg(feature = "cuda")]
 use helpers::transpose_matrix;
 pub use helpers::{detect_format, is_apr_file, simd_dot};
-use helpers::{apply_rope_norm, matmul, rms_norm, simple_attention};
+use helpers::{matmul, rms_norm, simple_attention};
+#[cfg(feature = "cuda")]
+use helpers::apply_rope_norm;
 use tokenizer::bpe_encode;
 pub use tokenizer::{byte_to_bpe_char, BpeTokenizer, SimpleTokenizer};
 
@@ -342,8 +344,13 @@ pub(crate) fn dequantize_q8_0(bytes: &[u8], num_elements: usize) -> Vec<f32> {
 /// Dequantize Q4_K format (GGUF K-quants)
 /// Q4_K: super blocks of 256 elements
 /// Each super block: d (f16) + dmin (f16) + scales (12 bytes) + qs (128 bytes) = 144 bytes
+///
+/// LAYOUT-001 FIX: Element ordering must match fused_q4k_dot (PAR-001):
+/// - 4 chunks of 64 values each (at offsets 0, 64, 128, 192)
+/// - Each chunk: 32 low nibbles (scale is), then 32 high nibbles (scale is+1)
+/// - NOT interleaved (L0, H0, L1, H1...) - that was the bug!
 pub(crate) fn dequantize_q4_k(bytes: &[u8], num_elements: usize) -> Vec<f32> {
-    const SUPER_BLOCK_SIZE: usize = 256;
+    const QK_K: usize = 256;
     const SUPER_BLOCK_BYTES: usize = 2 + 2 + 12 + 128; // 144 bytes
 
     let mut result = Vec::with_capacity(num_elements);
@@ -355,40 +362,47 @@ pub(crate) fn dequantize_q4_k(bytes: &[u8], num_elements: usize) -> Vec<f32> {
         let dmin = f16_to_f32(u16::from_le_bytes([bytes[offset + 2], bytes[offset + 3]]));
         offset += 4;
 
-        // Read scales (12 bytes = 8 6-bit scale values packed)
-        let scales_bytes = &bytes[offset..offset + 12];
-        let mut scales = [0u8; 8];
-        let mut mins = [0u8; 8];
-
-        // Unpack 6-bit scales and mins from 12 bytes
-        for i in 0..4 {
-            scales[i] = scales_bytes[i] & 0x3F;
-            scales[i + 4] = scales_bytes[i + 4] & 0x3F;
-            mins[i] = (scales_bytes[i] >> 6) | ((scales_bytes[i + 8] & 0x0F) << 2);
-            mins[i + 4] = (scales_bytes[i + 4] >> 6) | ((scales_bytes[i + 8] >> 4) << 2);
-        }
+        // Read scales (12 bytes)
+        let mut scales = [0u8; 12];
+        scales.copy_from_slice(&bytes[offset..offset + 12]);
         offset += 12;
 
         // Read 128 bytes = 256 4-bit quantized values
         let qs = &bytes[offset..offset + 128];
         offset += 128;
 
-        // Dequantize: each sub-block has 32 elements (8 sub-blocks total)
-        for j in 0..8 {
-            let scale = d * f32::from(scales[j]);
-            let min_val = dmin * f32::from(mins[j]);
+        // PAR-001: Match fused_q4k_dot layout (llama.cpp/candle compatible)
+        // Process 4 chunks of 64 values each (0, 64, 128, 192)
+        // Each chunk: 32 low nibbles, then 32 high nibbles from 32 consecutive bytes
+        for j in (0..QK_K).step_by(64) {
+            let q = &qs[j / 2..j / 2 + 32];
 
-            for l in 0..16 {
+            // Get scales for the two 32-value halves
+            let is = j / 32;
+            let (sc1, m1) = extract_scale_min_q4k(&scales, is);
+            let d1 = d * sc1;
+            let dm1 = dmin * m1;
+
+            let (sc2, m2) = extract_scale_min_q4k(&scales, is + 1);
+            let d2 = d * sc2;
+            let dm2 = dmin * m2;
+
+            // First pass: 32 low nibbles (use sc1, m1)
+            for &byte in q {
                 if result.len() >= num_elements {
                     break;
                 }
-                let q_byte = qs[j * 16 + l];
-                let q0 = (q_byte & 0x0F) as f32;
-                let q1 = (q_byte >> 4) as f32;
-                result.push(q0 * scale - min_val);
-                if result.len() < num_elements {
-                    result.push(q1 * scale - min_val);
+                let q_val = (byte & 0x0F) as f32;
+                result.push(d1 * q_val - dm1);
+            }
+
+            // Second pass: 32 high nibbles (use sc2, m2)
+            for &byte in q {
+                if result.len() >= num_elements {
+                    break;
                 }
+                let q_val = (byte >> 4) as f32;
+                result.push(d2 * q_val - dm2);
             }
         }
     }
@@ -397,54 +411,110 @@ pub(crate) fn dequantize_q4_k(bytes: &[u8], num_elements: usize) -> Vec<f32> {
     result
 }
 
+/// Extract scale and min for Q4_K block index (0-7)
+/// Matches fused_k.rs extract_scale_min exactly
+#[inline]
+fn extract_scale_min_q4k(scales: &[u8; 12], block_idx: usize) -> (f32, f32) {
+    let j = block_idx;
+    let (scale_bits, min_bits) = if j < 4 {
+        // First 4 blocks: simple layout
+        let d = scales[j] & 63;
+        let m = scales[j + 4] & 63;
+        (d, m)
+    } else {
+        // Last 4 blocks: packed layout using high bits from first 4 bytes
+        let d = (scales[j + 4] & 0x0F) | ((scales[j - 4] >> 6) << 4);
+        let m = (scales[j + 4] >> 4) | ((scales[j] >> 6) << 4);
+        (d, m)
+    };
+
+    (f32::from(scale_bits), f32::from(min_bits))
+}
+
 /// Dequantize Q6_K format (GGUF K-quants)
 /// Q6_K: super blocks of 256 elements
 /// Each super block: ql (128 bytes) + qh (64 bytes) + scales (16 bytes) + d (f16) = 210 bytes
+///
+/// LAYOUT-001 FIX: Element ordering must match fused_q6k_dot (candle compatible):
+/// - Process 128 values at a time (n=0, n=128)
+/// - For each l in 0..32, extract 4 values at positions n+l, n+l+32, n+l+64, n+l+96
+#[allow(clippy::cast_possible_wrap)]
 pub(crate) fn dequantize_q6_k(bytes: &[u8], num_elements: usize) -> Vec<f32> {
-    const SUPER_BLOCK_SIZE: usize = 256;
+    const QK_K: usize = 256;
     const SUPER_BLOCK_BYTES: usize = 128 + 64 + 16 + 2; // 210 bytes
 
     let mut result = Vec::with_capacity(num_elements);
     let mut offset = 0;
 
     while result.len() < num_elements && offset + SUPER_BLOCK_BYTES <= bytes.len() {
-        // Read ql (128 bytes = low 4 bits of 256 6-bit values)
+        // Q6_K layout: ql (128) + qh (64) + scales (16) + d (2)
         let ql = &bytes[offset..offset + 128];
         offset += 128;
 
-        // Read qh (64 bytes = high 2 bits of 256 6-bit values)
         let qh = &bytes[offset..offset + 64];
         offset += 64;
 
-        // Read scales (16 bytes = 16 int8 scales)
-        let scales = &bytes[offset..offset + 16];
+        // Read scales (16 bytes, signed i8)
+        let mut scales = [0i8; 16];
+        for (i, scale) in scales.iter_mut().enumerate() {
+            *scale = bytes[offset + i] as i8;
+        }
         offset += 16;
 
-        // Read d (f16)
+        // Read d (f16 -> f32)
         let d = f16_to_f32(u16::from_le_bytes([bytes[offset], bytes[offset + 1]]));
         offset += 2;
 
-        // Dequantize 16 sub-blocks of 16 elements each
-        for j in 0..16 {
-            let scale = d * f32::from(scales[j] as i8);
+        // Match fused_q6k_dot layout exactly
+        // Process 128 values at a time (n=0, n=128)
+        for n in (0..QK_K).step_by(128) {
+            let idx = n / 128;
+            let sc = &scales[8 * idx..];
+            let ql_slice = &ql[64 * idx..];
+            let qh_slice = &qh[32 * idx..];
 
-            for l in 0..8 {
+            // For each l in 0..32, we output values at positions:
+            // n+l, n+l+32, n+l+64, n+l+96
+            // To get sequential output, we need to iterate properly
+
+            // Output positions n+0 to n+31 (q1 values)
+            for l in 0..32 {
                 if result.len() >= num_elements {
                     break;
                 }
-                let idx = j * 8 + l;
-                let ql_byte = ql[idx];
-                let qh_byte = qh[idx / 2];
+                let is = l / 16;
+                let q1 = ((ql_slice[l] & 0xF) | ((qh_slice[l] & 3) << 4)) as i32 - 32;
+                result.push(d * (sc[is] as f32) * (q1 as f32));
+            }
 
-                // Extract two 6-bit values
-                let qh_shift = (l % 2) * 4;
-                let q0 = ((ql_byte & 0x0F) | ((qh_byte >> qh_shift) & 0x03) << 4) as i8 - 32;
-                let q1 = ((ql_byte >> 4) | (((qh_byte >> qh_shift) >> 2) & 0x03) << 4) as i8 - 32;
-
-                result.push(f32::from(q0) * scale);
-                if result.len() < num_elements {
-                    result.push(f32::from(q1) * scale);
+            // Output positions n+32 to n+63 (q2 values)
+            for l in 0..32 {
+                if result.len() >= num_elements {
+                    break;
                 }
+                let is = l / 16;
+                let q2 = ((ql_slice[l + 32] & 0xF) | (((qh_slice[l] >> 2) & 3) << 4)) as i32 - 32;
+                result.push(d * (sc[is + 2] as f32) * (q2 as f32));
+            }
+
+            // Output positions n+64 to n+95 (q3 values)
+            for l in 0..32 {
+                if result.len() >= num_elements {
+                    break;
+                }
+                let is = l / 16;
+                let q3 = ((ql_slice[l] >> 4) | (((qh_slice[l] >> 4) & 3) << 4)) as i32 - 32;
+                result.push(d * (sc[is + 4] as f32) * (q3 as f32));
+            }
+
+            // Output positions n+96 to n+127 (q4 values)
+            for l in 0..32 {
+                if result.len() >= num_elements {
+                    break;
+                }
+                let is = l / 16;
+                let q4 = ((ql_slice[l + 32] >> 4) | (((qh_slice[l] >> 6) & 3) << 4)) as i32 - 32;
+                result.push(d * (sc[is + 6] as f32) * (q4 as f32));
             }
         }
     }
@@ -922,6 +992,39 @@ impl AprMetadata {
             .get("tokenizer.eos_token_id")
             .and_then(serde_json::Value::as_u64)
             .map(|v| v as u32)
+    }
+
+    /// Extract embedded BPE merge rules from APR metadata (PMAT-171)
+    ///
+    /// APR files converted from GGUF can contain embedded BPE merge rules
+    /// for standalone encoding - no sibling tokenizer.json needed.
+    ///
+    /// # Returns
+    /// - `Some(merges)` if tokenizer.merges is present in metadata
+    /// - `None` if no embedded merges
+    #[must_use]
+    pub fn get_embedded_merges(&self) -> Option<Vec<(String, String)>> {
+        let merges_value = self.extra.get("tokenizer.merges")?;
+        let merges_array = merges_value.as_array()?;
+
+        let merges: Vec<(String, String)> = merges_array
+            .iter()
+            .filter_map(|v| {
+                let s = v.as_str()?;
+                let parts: Vec<&str> = s.splitn(2, ' ').collect();
+                if parts.len() == 2 {
+                    Some((parts[0].to_string(), parts[1].to_string()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if merges.is_empty() {
+            None
+        } else {
+            Some(merges)
+        }
     }
 }
 
@@ -1702,27 +1805,81 @@ impl AprV2Model {
         result
     }
 
-    /// Encode text to token IDs using BPE tokenization
+    /// Encode text to token IDs using embedded BPE tokenizer (PMAT-172: Fail-Fast)
     ///
-    /// Loads vocab and merges from tokenizer.json, then performs BPE encoding.
-    /// PMAT-126: Now searches HuggingFace cache if sibling tokenizer.json not found.
-    /// Returns None if tokenizer not found or encoding fails.
+    /// APR files MUST have embedded tokenizer. NO FALLBACK to external files.
+    /// This prevents Silent Failure Recovery where wrong tokenizer produces garbage.
+    ///
+    /// # Design Principle
+    ///
+    /// APR format is designed to be ONE self-contained file. If the embedded
+    /// tokenizer is missing, the APR file is BROKEN and should be re-converted.
+    ///
+    /// # Returns
+    ///
+    /// - `Some(tokens)` if APR has embedded tokenizer
+    /// - `None` if file doesn't exist or isn't APR format
+    ///
+    /// # Panics
+    ///
+    /// Prints error and returns None if APR is missing embedded tokenizer.
+    /// This is intentional - we want users to see the error, not garbage output.
     pub fn encode_text(model_path: &Path, text: &str) -> Option<Vec<u32>> {
-        // CRITICAL: Validate model path exists - reject Silent Failure Recovery
-        // If the caller provides a non-existent path, we must fail honestly,
-        // not silently fall back to cached tokenizers (PMAT-126 integrity fix)
+        // Validate model path exists
         if !model_path.exists() {
+            eprintln!("[PMAT-172] Error: Model file not found: {}", model_path.display());
             return None;
         }
 
-        // 1. Try sibling tokenizer.json (e.g., model.apr -> tokenizer.json)
+        // PMAT-172: APR files MUST use embedded tokenizer - NO FALLBACK
+        if model_path.extension().is_some_and(|e| e == "apr") {
+            match Self::load(model_path) {
+                Ok(model) => {
+                    match model.load_embedded_bpe_tokenizer() {
+                        Some(tokenizer) => {
+                            return Some(tokenizer.encode(text));
+                        }
+                        None => {
+                            // PMAT-172: FAIL FAST - Do not fall back to external tokenizers
+                            eprintln!("\n[PMAT-172] ERROR: APR file missing embedded tokenizer.");
+                            eprintln!("           APR format requires self-contained tokenizer.");
+                            eprintln!("           Re-convert with: apr convert <source>.gguf -o {}", model_path.display());
+                            eprintln!("           Or use the original GGUF file directly.\n");
+                            return None;
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[PMAT-172] Error loading APR file: {}", e);
+                    return None;
+                }
+            }
+        }
+
+        // For non-APR files (SafeTensors), use sibling tokenizer.json ONLY
+        // NO fallback to HuggingFace cache (PMAT-172: removed Silent Failure Recovery)
         let tokenizer_path = model_path.with_file_name("tokenizer.json");
-        let json: serde_json::Value = if tokenizer_path.exists() {
-            let content = fs::read_to_string(&tokenizer_path).ok()?;
-            serde_json::from_str(&content).ok()?
-        } else {
-            // 2. PMAT-126: Search HuggingFace cache for Qwen tokenizers
-            Self::find_tokenizer_json_in_cache()?
+        if !tokenizer_path.exists() {
+            eprintln!("\n[PMAT-172] ERROR: No tokenizer found for {}.", model_path.display());
+            eprintln!("           Expected sibling file: {}", tokenizer_path.display());
+            eprintln!("           For SafeTensors models, tokenizer.json must be in same directory.\n");
+            return None;
+        }
+
+        let content = match fs::read_to_string(&tokenizer_path) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("[PMAT-172] Error reading tokenizer.json: {}", e);
+                return None;
+            }
+        };
+
+        let json: serde_json::Value = match serde_json::from_str(&content) {
+            Ok(j) => j,
+            Err(e) => {
+                eprintln!("[PMAT-172] Error parsing tokenizer.json: {}", e);
+                return None;
+            }
         };
 
         // Extract vocabulary (token -> id)
@@ -1733,9 +1890,24 @@ impl AprV2Model {
             .filter_map(|(token, id)| Some((token.clone(), id.as_u64()? as u32)))
             .collect();
 
-        // Extract merges (pair rules for BPE)
-        let merges = json.get("model")?.get("merges")?.as_array()?;
+        // F-REGR-231: Extract added_tokens (special tokens like <|im_start|>, <|im_end|>)
+        let special_tokens: HashMap<String, u32> = json
+            .get("added_tokens")
+            .and_then(|arr| arr.as_array())
+            .map(|tokens| {
+                tokens
+                    .iter()
+                    .filter_map(|t| {
+                        let content = t.get("content")?.as_str()?;
+                        let id = t.get("id")?.as_u64()? as u32;
+                        Some((content.to_string(), id))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
 
+        // Extract merges
+        let merges = json.get("model")?.get("merges")?.as_array()?;
         let merge_rules: Vec<(String, String)> = merges
             .iter()
             .filter_map(|m| {
@@ -1749,44 +1921,13 @@ impl AprV2Model {
             })
             .collect();
 
-        // BPE encoding: convert text to byte-level tokens, then apply merges
-        let tokens = bpe_encode(text, &token_to_id, &merge_rules);
+        let tokens = bpe_encode(text, &token_to_id, &merge_rules, &special_tokens);
         Some(tokens)
     }
 
-    /// PMAT-126: Search HuggingFace cache for tokenizer.json (Qwen models)
-    ///
-    /// When APR files don't have sibling tokenizer.json, search the HuggingFace
-    /// cache for compatible tokenizers (Qwen2 models).
-    fn find_tokenizer_json_in_cache() -> Option<serde_json::Value> {
-        let home = std::env::var("HOME").ok().map(std::path::PathBuf::from)?;
-        let hf_cache = home.join(".cache/huggingface/hub");
-        if !hf_cache.exists() {
-            return None;
-        }
-
-        // Search for Qwen model directories
-        for entry in std::fs::read_dir(&hf_cache).ok()?.flatten() {
-            let name = entry.file_name();
-            let name_str = name.to_string_lossy();
-            if name_str.starts_with("models--Qwen") {
-                let snapshots_dir = entry.path().join("snapshots");
-                if snapshots_dir.exists() {
-                    for snapshot in std::fs::read_dir(&snapshots_dir).ok()?.flatten() {
-                        let tokenizer_path = snapshot.path().join("tokenizer.json");
-                        if tokenizer_path.exists() {
-                            if let Ok(content) = fs::read_to_string(&tokenizer_path) {
-                                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                                    return Some(json);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        None
-    }
+    // PMAT-172: Removed find_tokenizer_json_in_cache()
+    // This was the source of Silent Failure Recovery bug - using wrong tokenizer
+    // from HuggingFace cache produced garbage output instead of clear error.
 
     /// Load tokenizer from embedded APR metadata (GH-156)
     ///
@@ -1803,6 +1944,45 @@ impl AprV2Model {
             id_to_token: vocab,
             bos_token_id: bos_id,
             eos_token_id: eos_id,
+        })
+    }
+
+    /// Load a full BPE tokenizer from embedded APR metadata (PMAT-171)
+    ///
+    /// APR files converted from GGUF can contain both vocabulary AND BPE merge
+    /// rules embedded in metadata. This enables standalone encoding without
+    /// needing sibling tokenizer.json files.
+    ///
+    /// Returns `Some(BpeTokenizer)` if both vocab and merges are embedded.
+    /// Returns `None` if either is missing (fall back to sibling file).
+    pub fn load_embedded_bpe_tokenizer(&self) -> Option<BpeTokenizer> {
+        let vocab_list = self.metadata.get_embedded_vocabulary()?;
+        let merges = self.metadata.get_embedded_merges()?;
+
+        // Build token_to_id and id_to_token maps
+        let mut token_to_id: HashMap<String, u32> = HashMap::new();
+        let mut id_to_token: Vec<String> = Vec::with_capacity(vocab_list.len());
+
+        for (id, token) in vocab_list.iter().enumerate() {
+            token_to_id.insert(token.clone(), id as u32);
+            id_to_token.push(token.clone());
+        }
+
+        let bos_id = self.metadata.get_embedded_bos_token_id();
+        let eos_id = self.metadata.get_embedded_eos_token_id();
+
+        eprintln!(
+            "[PMAT-171] Loaded embedded BPE tokenizer: {} vocab, {} merges",
+            id_to_token.len(),
+            merges.len()
+        );
+
+        Some(BpeTokenizer {
+            token_to_id,
+            id_to_token,
+            merge_rules: merges,
+            bos_id,
+            eos_id,
         })
     }
 
