@@ -112,14 +112,20 @@ impl AprF32ToGpuAdapter {
             .unwrap_or_else(|| vec![0.0; config.vocab_size]);
 
         // Create GpuModel using internal constructor
+        // F-REGR-231 FIX: The from_apr_weights function expects:
+        //   - lm_head_weight: [hidden_dim, vocab_size] for GPU matmul
+        //   - lm_head_weight_t: [vocab_size, hidden_dim] for CPU matmul
+        // APR stores as [vocab_size, hidden_dim], so:
+        //   - Pass lm_head_weight_t (transposed to [hidden_dim, vocab_size]) as first
+        //   - Pass lm_head_weight (original [vocab_size, hidden_dim]) as second
         GpuModel::from_apr_weights(
             config,
             embedding_weights,
             block_weights,
             final_norm_weight,
             final_norm_bias,
-            lm_head_weight,
-            lm_head_weight_t,
+            lm_head_weight_t,  // [hidden_dim, vocab_size] for GPU
+            lm_head_weight,    // [vocab_size, hidden_dim] for CPU
             lm_head_bias,
         )
     }
@@ -304,6 +310,11 @@ impl AprToGpuAdapter {
         let config = Self::config_to_gpu(&apr.config);
         let hidden_dim = config.hidden_dim;
         let intermediate_dim = config.intermediate_dim;
+        let num_heads = config.num_heads;
+        let num_kv_heads = config.num_kv_heads;
+        let head_dim = hidden_dim / num_heads;
+        let kv_dim = num_kv_heads * head_dim;
+        let qkv_out_dim = hidden_dim + 2 * kv_dim;
 
         // Embedding weights (already F32 in APR)
         let embedding_weights = apr.token_embedding.clone();
@@ -336,23 +347,34 @@ impl AprToGpuAdapter {
                 None
             };
 
+            // F-REGR-231 FIX: Transpose all weight matrices from [out_dim, in_dim] to [in_dim, out_dim]
+            // This matches the F32 path in AprF32ToGpuAdapter::convert_layer
+            // APR/GGUF stores weights as [out_dim, in_dim] row-major, but GpuModel matmul expects [in_dim, out_dim]
+            let qkv_weight_t = transpose_matrix(&qkv, qkv_out_dim, hidden_dim);
+            let out_weight_t = transpose_matrix(&out, hidden_dim, hidden_dim);
+            let fc1_weight_t = transpose_matrix(&fc1, intermediate_dim, hidden_dim);
+            let fc2_weight_t = transpose_matrix(&fc2, hidden_dim, intermediate_dim);
+            let gate_weight_t = ffn_gate_weight
+                .as_ref()
+                .map(|w| transpose_matrix(w, intermediate_dim, hidden_dim));
+
             block_weights.push(BlockWeights {
                 attn_norm_weight: layer.attn_norm_weight.clone(),
                 attn_norm_bias: vec![0.0; hidden_dim], // APR doesn't use bias
-                qkv_weight: qkv,
+                qkv_weight: qkv_weight_t,
                 qkv_bias: vec![], // No bias in APR
-                out_weight: out,
+                out_weight: out_weight_t,
                 out_bias: vec![0.0; hidden_dim],
                 ffn_norm_weight: layer
                     .ffn_norm_weight
                     .clone()
                     .unwrap_or_else(|| vec![1.0; hidden_dim]),
                 ffn_norm_bias: vec![0.0; hidden_dim],
-                ffn_fc1_weight: fc1,
+                ffn_fc1_weight: fc1_weight_t,
                 ffn_fc1_bias: vec![0.0; intermediate_dim],
-                ffn_fc2_weight: fc2,
+                ffn_fc2_weight: fc2_weight_t,
                 ffn_fc2_bias: vec![0.0; hidden_dim],
-                ffn_gate_weight,
+                ffn_gate_weight: gate_weight_t,
             });
         }
 
@@ -364,14 +386,20 @@ impl AprToGpuAdapter {
         let lm_head_bias = vec![0.0; config.vocab_size];
 
         // Create GpuModel using internal constructor
+        // F-REGR-231 FIX: The from_apr_weights function expects:
+        //   - lm_head_weight: [hidden_dim, vocab_size] for GPU matmul
+        //   - lm_head_weight_t: [vocab_size, hidden_dim] for CPU matmul
+        // APR stores as [vocab_size, hidden_dim], so:
+        //   - Pass lm_head_weight_t (transposed to [hidden_dim, vocab_size]) as first
+        //   - Pass lm_head_weight (original [vocab_size, hidden_dim]) as second
         GpuModel::from_apr_weights(
             config,
             embedding_weights,
             block_weights,
             final_norm_weight,
             final_norm_bias,
-            lm_head_weight,
-            lm_head_weight_t,
+            lm_head_weight_t,  // [hidden_dim, vocab_size] for GPU
+            lm_head_weight,    // [vocab_size, hidden_dim] for CPU
             lm_head_bias,
         )
     }

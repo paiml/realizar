@@ -99,6 +99,7 @@ fn benchmark_apr_gpu(
         temperature: 0.0,
         top_k: 1,
         stop_tokens: vec![],
+        trace: false,
     };
 
     // Determine best generation method (PAR-023 GPU-resident is fastest)
@@ -160,6 +161,7 @@ fn benchmark_apr_cpu(
         temperature: 0.0,
         top_k: 1,
         stop_tokens: vec![],
+        trace: false,
     };
 
     // Warmup

@@ -2338,4 +2338,64 @@ mod tests {
         // Result should be non-zero since d > 0, scale > 0, qs > 0
         assert!(result.unwrap().abs() > 0.0);
     }
+
+    /// PMAT-170: Q4K Layout Consistency Test
+    ///
+    /// Verifies that apr::dequantize_q4_k produces the same element ordering
+    /// as fused_q4k_parallel_matvec. This was the root cause of GPU explosion bug #170.
+    #[test]
+    fn test_q4k_layout_consistency_pmat170() {
+        use crate::apr::dequantize_q4_k;
+        use crate::quantize::fused_q4k_parallel_matvec;
+
+        // Use 256x256 test matrix (1 super-block per row)
+        let in_dim = 256;
+        let out_dim = 256;
+        let num_elements = in_dim * out_dim;
+
+        // Create reproducible Q4K test data (144 bytes per row)
+        let bytes_per_row = 144;
+        let total_bytes = out_dim * bytes_per_row;
+        let q4k_bytes: Vec<u8> = (0..total_bytes)
+            .map(|i| ((i * 17 + 37) % 256) as u8)
+            .collect();
+
+        // Method 1: Direct dequantization
+        let dequant = dequantize_q4_k(&q4k_bytes, num_elements);
+
+        // Method 2: Extract columns via fused matmul with basis vectors
+        let mut fused_matrix = vec![0.0f32; num_elements];
+        for col in 0..in_dim {
+            // Basis vector: e_col = [0, ..., 0, 1, 0, ..., 0]
+            let mut basis = vec![0.0f32; in_dim];
+            basis[col] = 1.0;
+
+            // fused_q4k_parallel_matvec produces W @ basis = column col of W
+            if let Ok(column) = fused_q4k_parallel_matvec(&q4k_bytes, &basis, in_dim, out_dim) {
+                for row in 0..out_dim {
+                    fused_matrix[row * in_dim + col] = column[row];
+                }
+            }
+        }
+
+        // Compare element by element
+        let mut mismatches = 0;
+        let mut max_diff = 0.0f32;
+
+        for i in 0..num_elements {
+            let diff = (dequant[i] - fused_matrix[i]).abs();
+            if diff > 1e-5 {
+                mismatches += 1;
+                max_diff = max_diff.max(diff);
+            }
+        }
+
+        assert_eq!(
+            mismatches, 0,
+            "Q4K layout mismatch: {} elements differ (max diff: {}). \
+             This indicates dequantize_q4_k has different element ordering \
+             than fused_q4k_parallel_matvec, which would cause GPU explosion.",
+            mismatches, max_diff
+        );
+    }
 }

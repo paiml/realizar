@@ -379,6 +379,14 @@ impl OwnedQuantizedModel {
 
         // 2. Process through transformer layers
         for (layer_idx, layer) in self.layers.iter().enumerate() {
+            // F-REGR-231: Debug hidden state at start of each layer
+            if std::env::var("CPU_DEBUG").is_ok() && layer_idx == 1 && position == 0 {
+                eprintln!(
+                    "[GQA-DEBUG-CPU-L1] Hidden at layer start: first 5 = {:?}",
+                    &hidden[..5.min(hidden.len())]
+                );
+            }
+
             // 2a. Attention layer norm (RMSNorm for LLaMA, LayerNorm for phi-2)
             let normed = if use_rmsnorm {
                 ops::rms_norm(&hidden, &layer.attn_norm_weight, self.config.eps)
@@ -424,10 +432,10 @@ impl OwnedQuantizedModel {
             );
 
             // GQA-DEBUG: Print normed input for CPU/GPU comparison
-            if std::env::var("CPU_DEBUG").is_ok() && layer_idx == 0 && position == 0 {
+            if std::env::var("CPU_DEBUG").is_ok() && (layer_idx == 0 || layer_idx == 1) && position == 0 {
                 eprintln!(
-                    "[GQA-DEBUG-CPU-L0] Normed input (after attn_norm): first 5 = {:?}",
-                    &normed[..5.min(normed.len())]
+                    "[GQA-DEBUG-CPU-L{}] Normed input (after attn_norm): first 5 = {:?}",
+                    layer_idx, &normed[..5.min(normed.len())]
                 );
             }
 
@@ -455,10 +463,11 @@ impl OwnedQuantizedModel {
             let v = qkv[q_dim + k_dim..q_dim + k_dim + v_dim].to_vec();
 
             // GQA-DEBUG: Print K before RoPE for CPU/GPU comparison
-            if std::env::var("CPU_DEBUG").is_ok() && layer_idx == 0 && position == 0 {
+            if std::env::var("CPU_DEBUG").is_ok() && (layer_idx == 0 || layer_idx == 1) && position == 0 {
                 // Print K weight info for debugging
                 eprintln!(
-                    "[GQA-DEBUG-CPU-L0] K weight info: qkv_type={:?}, q_dim={}, k_dim={}, v_dim={}",
+                    "[GQA-DEBUG-CPU-L{}] K weight info: qkv_type={:?}, q_dim={}, k_dim={}, v_dim={}",
+                    layer_idx,
                     match &layer.qkv_weight {
                         crate::gguf::OwnedQKVWeights::Fused(_) => "Fused",
                         crate::gguf::OwnedQKVWeights::Separate { .. } => "Separate",
@@ -466,8 +475,8 @@ impl OwnedQuantizedModel {
                     q_dim, k_dim, v_dim
                 );
                 eprintln!(
-                    "[GQA-DEBUG-CPU-L0] K after bias (before RoPE): first 5 = {:?}",
-                    &k[..5.min(k.len())]
+                    "[GQA-DEBUG-CPU-L{}] K after bias (before RoPE): first 5 = {:?}",
+                    layer_idx, &k[..5.min(k.len())]
                 );
             }
 
@@ -476,10 +485,10 @@ impl OwnedQuantizedModel {
             self.apply_rope(&mut k, position, self.config.num_kv_heads);
 
             // GQA-DEBUG: Print K after RoPE for CPU/GPU comparison
-            if std::env::var("CPU_DEBUG").is_ok() && layer_idx == 0 && position == 0 {
+            if std::env::var("CPU_DEBUG").is_ok() && (layer_idx == 0 || layer_idx == 1) && position == 0 {
                 eprintln!(
-                    "[GQA-DEBUG-CPU-L0] K after RoPE: first 5 = {:?}",
-                    &k[..5.min(k.len())]
+                    "[GQA-DEBUG-CPU-L{}] K after RoPE: first 5 = {:?}",
+                    layer_idx, &k[..5.min(k.len())]
                 );
             }
 
@@ -595,13 +604,13 @@ impl OwnedQuantizedModel {
             }
 
             // GQA-DEBUG: Print hidden state after layer 0 for CPU/GPU comparison
-            if std::env::var("CPU_DEBUG").is_ok() && layer_idx == 0 && position == 4 {
+            if std::env::var("CPU_DEBUG").is_ok() && layer_idx == 0 && (position == 0 || position == 4) {
                 let hidden_sum: f32 = hidden.iter().sum();
                 let sq_sum: f32 = hidden.iter().map(|x| x * x).sum();
                 let rms = (sq_sum / hidden.len() as f32).sqrt();
                 eprintln!(
-                    "[GQA-DEBUG-CPU-L0] After layer 0: first 5 = {:?}, sum={:.4}, rms={:.4}",
-                    &hidden[..5.min(hidden.len())], hidden_sum, rms
+                    "[GQA-DEBUG-CPU-L0] After layer 0 (pos={}): first 5 = {:?}, sum={:.4}, rms={:.4}",
+                    position, &hidden[..5.min(hidden.len())], hidden_sum, rms
                 );
             }
         }

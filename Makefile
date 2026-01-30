@@ -4,6 +4,7 @@
 
 .SUFFIXES:
 .DELETE_ON_ERROR:
+# Note: .ONESHELL omitted intentionally - causes OOM with large test suites (bashrs: MAKE017)
 .PHONY: help build test test-fast lint quality-gates deploy clean
 .PHONY: tier1 tier2 test-cuda-fast test-probar
 .PHONY: cov coverage coverage-open coverage-clean clean-coverage coverage-summary
@@ -140,13 +141,15 @@ clippy-fix: ## Automatically fix clippy warnings
 	cargo clippy --all-targets --all-features --fix
 
 # =============================================================================
-# COVERAGE: Trueno-style O(1) modular coverage (target: 5-10 min max)
+# COVERAGE: Certeza-style fast single-command coverage (target: <5 min)
 # =============================================================================
+# Pattern from certeza (fastest):
+# - Single `cargo llvm-cov` command for all tests
+# - No batching overhead, no multiple invocations
+# - CUDA tests run single-threaded via test binary args
 # Pattern from trueno:
 # - Modular targets for drill-down (coverage-core, coverage-gguf, coverage-cuda)
-# - --no-report during tests (fast), report generation separate
-# - Aggressive exclusions via --ignore-filename-regex
-# - Composable: make coverage = core + report
+# - Keep these for debugging specific modules
 # =============================================================================
 
 # STRICT exclusions: Only count realizar/src/*.rs, exclude test infrastructure
@@ -154,7 +157,8 @@ clippy-fix: ## Automatically fix clippy warnings
 #           test_ prefix, tui/viz (terminal), main.rs (entry), benches/examples,
 #           fixtures/ (test fixtures), testing/ (test infra), bench/ (benchmark harness), bench_ prefix,
 #           proptests (property tests in src/)
-COV_EXCLUDE := --ignore-filename-regex='(trueno/|/tests/|_tests|tests_|test_|tui\.rs|bench_viz\.rs|viz\.rs|main\.rs|/benches/|/examples/|fixtures/|testing/|bench/|bench_|proptests)'
+# Note: Use = syntax without quotes for --ignore-filename-regex (trueno pattern)
+COV_EXCLUDE := --ignore-filename-regex=(trueno/|/tests/|_tests|tests_|test_|tui\.rs|viz\.rs|main\.rs|/benches/|/examples/|fixtures/|testing/|bench_|proptests)
 
 # D5: Configurable coverage threshold (default 95%, override with COV_THRESHOLD=90 make coverage-check)
 COV_THRESHOLD ?= 95
@@ -246,43 +250,47 @@ coverage-cuda: ## Coverage: CUDA/GPU only (~120s, single-threaded, requires RTX 
 # COMPOSITE COVERAGE TARGETS
 # -----------------------------------------------------------------------------
 
-coverage-fast: ## Fast coverage: core only, no CUDA (~90s)
+coverage-fast: ## Fast coverage: no CUDA tests (~90s)
 	@TOTAL_START=$$(date +%s); \
 	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-	echo "📊 COVERAGE-FAST: Core only (use 'make coverage' for core+cuda)"; \
-	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-	$(MAKE) --no-print-directory coverage-core; \
-	echo ""; \
-	echo "📊 Generating report..."; \
-	mkdir -p target/coverage/html; \
-	cargo llvm-cov report --html --output-dir target/coverage/html $(COV_EXCLUDE) 2>&1 | tail -1; \
-	echo ""; \
-	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-	cargo llvm-cov report --summary-only $(COV_EXCLUDE) 2>&1 | grep -E "^TOTAL"; \
-	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-	TOTAL_END=$$(date +%s); \
+	echo "📊 COVERAGE-FAST: No CUDA (use 'make coverage' for full stack)"; \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "🚀 Running core tests (parallel)..."
+	@cargo llvm-cov test --lib --no-report $(COV_EXCLUDE) \
+		-- --test-threads=8 --skip cuda:: --skip gpu:: \
+		--skip property_ --skip stress --skip slow --skip heavy 2>&1 | tail -3
+	@echo "📊 Generating report..."
+	@mkdir -p target/coverage/html
+	@cargo llvm-cov report --html --output-dir target/coverage/html $(COV_EXCLUDE) 2>&1 | tail -1
+	@echo ""
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@cargo llvm-cov report --summary-only $(COV_EXCLUDE) 2>&1 | grep -E "^TOTAL"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@TOTAL_END=$$(date +%s); \
 	echo "⏱️  Total: $$((TOTAL_END-TOTAL_START))s"
 
-coverage: ## DEFAULT: Full coverage (core + gguf + api + cuda) with report
+coverage: ## DEFAULT: Fast 2-batch coverage (target: 95%, <10min)
 	@nvidia-smi > /dev/null 2>&1 || { echo "❌ NVIDIA GPU required (RTX 4090 expected)"; exit 1; }
 	@TOTAL_START=$$(date +%s); \
 	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-	echo "📊 COVERAGE: Full stack (target: 95%)"; \
-	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-	$(MAKE) --no-print-directory coverage-core; \
-	$(MAKE) --no-print-directory coverage-gguf; \
-	$(MAKE) --no-print-directory coverage-api; \
-	$(MAKE) --no-print-directory coverage-cuda; \
-	echo ""; \
-	echo "📊 Generating report..."; \
-	mkdir -p target/coverage/html; \
-	cargo llvm-cov report --html --output-dir target/coverage/html $(COV_EXCLUDE) 2>&1 | tail -1; \
-	cargo llvm-cov report --lcov --output-path target/coverage/lcov.info $(COV_EXCLUDE) 2>&1 | tail -1; \
-	echo ""; \
-	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-	cargo llvm-cov report --summary-only $(COV_EXCLUDE) 2>&1 | grep -E "^TOTAL"; \
-	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-	TOTAL_END=$$(date +%s); \
+	echo "📊 COVERAGE: Fast 2-batch (target: 95%)"; \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "🚀 Phase 1: Core tests (parallel)..."
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report \
+		-- --test-threads=8 --skip cuda:: --skip gpu:: \
+		--skip property_ --skip stress --skip slow --skip heavy 2>&1 | tail -3
+	@echo "🎮 Phase 2: CUDA tests (single-threaded)..."
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report \
+		-- --test-threads=1 cuda:: gpu:: \
+		--skip property_ --skip stress --skip slow --skip heavy 2>&1 | tail -3
+	@echo "📊 Generating report..."
+	@mkdir -p target/coverage/html
+	@cargo llvm-cov report --html --output-dir target/coverage/html $(COV_EXCLUDE) 2>&1 | tail -1
+	@echo ""
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@cargo llvm-cov report --summary-only $(COV_EXCLUDE) 2>&1 | grep -E "^TOTAL"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@TOTAL_END=$$(date +%s); \
 	ELAPSED=$$((TOTAL_END-TOTAL_START)); \
 	echo "⏱️  Total: $$((ELAPSED/60))m $$((ELAPSED%60))s"; \
 	echo "💡 HTML: target/coverage/html/index.html"; \
@@ -296,37 +304,7 @@ coverage: ## DEFAULT: Full coverage (core + gguf + api + cuda) with report
 		fi; \
 	fi
 
-coverage-all: ## FULL: All modules with report (~10 min)
-	@TOTAL_START=$$(date +%s); \
-	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-	echo "📊 COVERAGE-ALL: Full stack (target: 95%)"; \
-	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-	$(MAKE) --no-print-directory coverage-core; \
-	$(MAKE) --no-print-directory coverage-gguf; \
-	$(MAKE) --no-print-directory coverage-api; \
-	$(MAKE) --no-print-directory coverage-cuda; \
-	echo ""; \
-	echo "📊 Generating comprehensive report..."; \
-	mkdir -p target/coverage/html; \
-	cargo llvm-cov report --html --output-dir target/coverage/html $(COV_EXCLUDE); \
-	cargo llvm-cov report --lcov --output-path target/coverage/lcov.info $(COV_EXCLUDE); \
-	echo ""; \
-	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-	cargo llvm-cov report --summary-only $(COV_EXCLUDE); \
-	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-	TOTAL_END=$$(date +%s); \
-	ELAPSED=$$((TOTAL_END-TOTAL_START)); \
-	echo "⏱️  Total: $$((ELAPSED/60))m $$((ELAPSED%60))s"; \
-	echo "💡 HTML: target/coverage/html/index.html"; \
-	COVERAGE=$$(cargo llvm-cov report --summary-only $(COV_EXCLUDE) 2>/dev/null | grep "TOTAL" | awk '{print $$10}' | sed 's/%//'); \
-	if [ -n "$$COVERAGE" ]; then \
-		RESULT=$$(echo "$$COVERAGE >= 95" | bc -l 2>/dev/null || echo 0); \
-		if [ "$$RESULT" = "1" ]; then \
-			echo "✅ CORROBORATED: $$COVERAGE% >= 95%"; \
-		else \
-			echo "❌ FALSIFIED: $$COVERAGE% < 95%"; \
-		fi; \
-	fi
+coverage-all: coverage ## ALIAS: Same as 'make coverage' (single-command approach)
 
 coverage-check: ## Enforce coverage threshold (D5: configurable via COV_THRESHOLD=N)
 	@echo "🔒 Checking $(COV_THRESHOLD)% coverage threshold..."; \

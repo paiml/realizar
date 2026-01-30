@@ -131,6 +131,9 @@ pub struct AppState {
     /// Uses pre-uploaded weights and batched workspaces for 755+ tok/s (2.6x Ollama)
     #[cfg(feature = "cuda")]
     cuda_model: Option<Arc<std::sync::RwLock<crate::gguf::OwnedQuantizedModelCuda>>>,
+    /// APR Transformer for SafeTensors/APR inference (PMAT-SERVE-FIX-001)
+    /// Supports F32 weights from SafeTensors or APR format
+    apr_transformer: Option<Arc<crate::apr_transformer::AprTransformer>>,
     /// GH-152: Enable verbose request/response logging
     verbose: bool,
 }
@@ -190,6 +193,7 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            apr_transformer: None,
             verbose: false,
         }
     }
@@ -238,6 +242,7 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            apr_transformer: None,
             verbose: false,
         })
     }
@@ -327,6 +332,7 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            apr_transformer: None,
             verbose: false,
         }
     }
@@ -388,6 +394,7 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            apr_transformer: None,
             verbose: false,
         })
     }
@@ -436,6 +443,7 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            apr_transformer: None,
             verbose: false,
         })
     }
@@ -479,6 +487,7 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            apr_transformer: None,
             verbose: false,
         })
     }
@@ -535,6 +544,7 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            apr_transformer: None,
             verbose: false,
         })
     }
@@ -589,6 +599,7 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            apr_transformer: None,
             verbose: false,
         })
     }
@@ -632,6 +643,7 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            apr_transformer: None,
             verbose: false,
         })
     }
@@ -679,6 +691,7 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            apr_transformer: None,
             verbose: false,
         })
     }
@@ -729,6 +742,56 @@ impl AppState {
             #[cfg(feature = "gpu")]
             batch_config: None,
             cuda_model: Some(Arc::new(std::sync::RwLock::new(cuda_model))),
+            apr_transformer: None,
+            verbose: false,
+        })
+    }
+
+    /// Create application state with APR Transformer for SafeTensors/APR inference (PMAT-SERVE-FIX-001)
+    ///
+    /// This enables the `/generate` and `/batch/generate` endpoints for SafeTensors and APR models.
+    /// Uses F32 weights for inference, achieving ~1-10 tok/s on CPU.
+    ///
+    /// # Arguments
+    ///
+    /// * `transformer` - APR Transformer loaded from SafeTensors or APR file
+    /// * `vocab` - Vocabulary tokens for tokenization
+    ///
+    /// # Errors
+    ///
+    /// Returns error if tokenizer creation fails
+    pub fn with_apr_transformer_and_vocab(
+        transformer: crate::apr_transformer::AprTransformer,
+        vocab: Vec<String>,
+    ) -> Result<Self, RealizarError> {
+        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>")?;
+
+        let (audit_logger, audit_sink) = create_audit_state();
+        Ok(Self {
+            model: None,
+            tokenizer: Some(Arc::new(tokenizer)),
+            cache: None,
+            cache_key: None,
+            metrics: Arc::new(MetricsCollector::new()),
+            registry: None,
+            default_model_id: None,
+            apr_model: None,
+            audit_logger,
+            audit_sink,
+            #[cfg(feature = "gpu")]
+            gpu_model: None,
+            quantized_model: None,
+            #[cfg(feature = "gpu")]
+            cached_model: None,
+            #[cfg(feature = "gpu")]
+            dispatch_metrics: None,
+            #[cfg(feature = "gpu")]
+            batch_request_tx: None,
+            #[cfg(feature = "gpu")]
+            batch_config: None,
+            #[cfg(feature = "cuda")]
+            cuda_model: None,
+            apr_transformer: Some(Arc::new(transformer)),
             verbose: false,
         })
     }
@@ -742,6 +805,17 @@ impl AppState {
     /// Get the quantized model for inference (IMP-100)
     pub fn quantized_model(&self) -> Option<&Arc<crate::gguf::OwnedQuantizedModel>> {
         self.quantized_model.as_ref()
+    }
+
+    /// Check if this AppState has an APR transformer (PMAT-SERVE-FIX-001)
+    #[must_use]
+    pub fn has_apr_transformer(&self) -> bool {
+        self.apr_transformer.is_some()
+    }
+
+    /// Get the APR transformer for inference (PMAT-SERVE-FIX-001)
+    pub fn apr_transformer(&self) -> Option<&Arc<crate::apr_transformer::AprTransformer>> {
+        self.apr_transformer.as_ref()
     }
 
     /// Check if this AppState has a GPU model (M33: IMP-084)

@@ -1,7 +1,7 @@
 # Specification: Fast O(1) Coverage with PMAT Compliance
 
 **Document ID:** SPEC-COV-95
-**Version:** 1.44.0
+**Version:** 1.45.0
 **Status:** ACTIVE
 **Methodology:** The Toyota Way (14 Principles) + Popperian Falsification
 **Target:** 95% Production Code Coverage in <10 minutes (Full), O(1) Incremental
@@ -320,6 +320,7 @@ When coverage drops or a bug slips through, we do not just "fix" it. We apply th
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
+| 1.45.0 | 2026-01-30 | Karl Popper | **FIVE-WHYS: Coverage Speed (F-COV-95-SPEED).** Root cause 1: `cargo-llvm-cov` v0.6.22 bug - `--ignore-filename-regex` + `--features` causes empty argument injection (`'' ''`). Fix: Only use regex during `report`, not during `test`. Root cause 2: Zombie test processes from previous runs (100+ min runtime, 10GB RAM). Fix: Clean `/mnt/nvme-raid0/coverage/realizar/llvm-cov-target` before runs. Root cause 3: Makefile regex used quotes causing shell issues. Fix: Use trueno's syntax `--ignore-filename-regex=(pattern)` with `=` and parentheses. Target: <10min coverage, 1hr = auto-fail. |
 | 1.44.0 | 2026-01-30 | Karl Popper | **FIVE-WHYS: Coverage Target Gap (F-COV-95-MAKE).** Root cause: `make coverage` only ran core+cuda (67%), not full stack. Fix: Updated `make coverage` to run all modules (core+gguf+api+cuda). Now default target measures true 95% parity. |
 | 1.43.0 | 2026-01-29 | Karl Popper | **FIVE-WHYS: Additional APR Tests (F-COV-95-APR2).** Root cause: `model_loader_tests_part_02.rs` also used "APR\0" for v1 tests. Fix: Changed `test_read_apr_model_type_exactly_8_bytes` and `test_read_apr_model_type_undefined_ids` to use "APRN" magic. **7193 core tests pass.** |
 | 1.42.0 | 2026-01-29 | Karl Popper | **FIVE-WHYS: APR Format Detection (F-COV-95-APR).** Root cause: `read_apr_model_type` treated "APR\0" as v2 but tests used it for v1 format. Fix: (1) Changed tests to use "APRN" magic for v1, (2) Added 'N' to `detect_format` accepted versions. **47 model_loader tests now pass.** |
