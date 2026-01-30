@@ -19,7 +19,8 @@
 //! ```
 
 use super::types::{
-    GGUF_ALIGNMENT, GGUF_MAGIC, GGUF_TYPE_F32, GGUF_TYPE_Q4_0, GGUF_TYPE_Q4_K, GGUF_TYPE_Q5_K,
+    GGUF_ALIGNMENT, GGUF_MAGIC, GGUF_TYPE_F16, GGUF_TYPE_F32, GGUF_TYPE_Q2_K, GGUF_TYPE_Q4_0,
+    GGUF_TYPE_Q4_1, GGUF_TYPE_Q4_K, GGUF_TYPE_Q5_0, GGUF_TYPE_Q5_1, GGUF_TYPE_Q5_K,
     GGUF_TYPE_Q6_K, GGUF_TYPE_Q8_0, GGUF_VERSION_V3,
 };
 
@@ -213,6 +214,158 @@ impl GGUFBuilder {
         self
     }
 
+    /// Add a Q2_K tensor (84 bytes per 256 elements)
+    #[must_use]
+    pub fn add_q2_k_tensor(mut self, name: &str, dims: &[u64], data: &[u8]) -> Self {
+        self.tensors.push((
+            name.to_string(),
+            dims.to_vec(),
+            GGUF_TYPE_Q2_K,
+            data.to_vec(),
+        ));
+        self
+    }
+
+    /// Add an F16 tensor (2 bytes per element)
+    #[must_use]
+    pub fn add_f16_tensor(mut self, name: &str, dims: &[u64], data: &[u8]) -> Self {
+        self.tensors.push((
+            name.to_string(),
+            dims.to_vec(),
+            GGUF_TYPE_F16,
+            data.to_vec(),
+        ));
+        self
+    }
+
+    /// Add a Q4_1 tensor (20 bytes per 32 elements)
+    #[must_use]
+    pub fn add_q4_1_tensor(mut self, name: &str, dims: &[u64], data: &[u8]) -> Self {
+        self.tensors.push((
+            name.to_string(),
+            dims.to_vec(),
+            GGUF_TYPE_Q4_1,
+            data.to_vec(),
+        ));
+        self
+    }
+
+    /// Add a Q5_0 tensor (22 bytes per 32 elements)
+    #[must_use]
+    pub fn add_q5_0_tensor(mut self, name: &str, dims: &[u64], data: &[u8]) -> Self {
+        self.tensors.push((
+            name.to_string(),
+            dims.to_vec(),
+            GGUF_TYPE_Q5_0,
+            data.to_vec(),
+        ));
+        self
+    }
+
+    /// Add a Q5_1 tensor (24 bytes per 32 elements)
+    #[must_use]
+    pub fn add_q5_1_tensor(mut self, name: &str, dims: &[u64], data: &[u8]) -> Self {
+        self.tensors.push((
+            name.to_string(),
+            dims.to_vec(),
+            GGUF_TYPE_Q5_1,
+            data.to_vec(),
+        ));
+        self
+    }
+
+    // =========================================================================
+    // Additional Metadata Helpers
+    // =========================================================================
+
+    /// Add a u8 metadata value (type 0)
+    #[must_use]
+    pub fn add_u8(mut self, key: &str, value: u8) -> Self {
+        self.metadata
+            .push((key.to_string(), 0, vec![value]));
+        self
+    }
+
+    /// Add an i8 metadata value (type 1)
+    #[must_use]
+    pub fn add_i8(mut self, key: &str, value: i8) -> Self {
+        self.metadata
+            .push((key.to_string(), 1, vec![value as u8]));
+        self
+    }
+
+    /// Add a u16 metadata value (type 2)
+    #[must_use]
+    pub fn add_u16(mut self, key: &str, value: u16) -> Self {
+        self.metadata
+            .push((key.to_string(), 2, value.to_le_bytes().to_vec()));
+        self
+    }
+
+    /// Add an i16 metadata value (type 3)
+    #[must_use]
+    pub fn add_i16(mut self, key: &str, value: i16) -> Self {
+        self.metadata
+            .push((key.to_string(), 3, value.to_le_bytes().to_vec()));
+        self
+    }
+
+    /// Add an i32 metadata value (type 5)
+    #[must_use]
+    pub fn add_i32(mut self, key: &str, value: i32) -> Self {
+        self.metadata
+            .push((key.to_string(), 5, value.to_le_bytes().to_vec()));
+        self
+    }
+
+    /// Add a bool metadata value (type 7)
+    #[must_use]
+    pub fn add_bool(mut self, key: &str, value: bool) -> Self {
+        self.metadata
+            .push((key.to_string(), 7, vec![u8::from(value)]));
+        self
+    }
+
+    /// Add a u64 metadata value (type 10)
+    #[must_use]
+    pub fn add_u64(mut self, key: &str, value: u64) -> Self {
+        self.metadata
+            .push((key.to_string(), 10, value.to_le_bytes().to_vec()));
+        self
+    }
+
+    /// Add an i64 metadata value (type 11)
+    #[must_use]
+    pub fn add_i64(mut self, key: &str, value: i64) -> Self {
+        self.metadata
+            .push((key.to_string(), 11, value.to_le_bytes().to_vec()));
+        self
+    }
+
+    /// Add an f64 metadata value (type 12)
+    #[must_use]
+    pub fn add_f64(mut self, key: &str, value: f64) -> Self {
+        self.metadata
+            .push((key.to_string(), 12, value.to_le_bytes().to_vec()));
+        self
+    }
+
+    /// Add a string array metadata value (type 9, element_type 8)
+    #[must_use]
+    pub fn add_string_array(mut self, key: &str, values: &[&str]) -> Self {
+        let mut bytes = Vec::new();
+        // Array header: element_type (u32) + array_len (u64)
+        bytes.extend_from_slice(&8u32.to_le_bytes()); // element type = string
+        bytes.extend_from_slice(&(values.len() as u64).to_le_bytes());
+        // Elements: each is u64 length + UTF-8 bytes
+        for &val in values {
+            bytes.extend_from_slice(&(val.len() as u64).to_le_bytes());
+            bytes.extend_from_slice(val.as_bytes());
+        }
+        self.metadata.push((key.to_string(), 9, bytes));
+        self
+    }
+
     // =========================================================================
     // Build
     // =========================================================================
@@ -339,6 +492,74 @@ pub fn create_q5_k_data(num_elements: usize) -> Vec<u8> {
 pub fn create_q6_k_data(num_elements: usize) -> Vec<u8> {
     let num_super_blocks = num_elements.div_ceil(256);
     vec![0u8; num_super_blocks * 210]
+}
+
+/// Create valid Q2_K data for a tensor with given dimensions
+/// Q2_K: 84 bytes per 256 elements
+#[must_use]
+pub fn create_q2_k_data(num_elements: usize) -> Vec<u8> {
+    let num_super_blocks = num_elements.div_ceil(256);
+    vec![0u8; num_super_blocks * 84]
+}
+
+/// Create valid F16 data for a tensor with given dimensions
+/// F16: 2 bytes per element
+#[must_use]
+pub fn create_f16_data(num_elements: usize) -> Vec<u8> {
+    let mut data = Vec::with_capacity(num_elements * 2);
+    for i in 0..num_elements {
+        let val = half::f16::from_f32((i as f32) * 0.01);
+        data.extend_from_slice(&val.to_le_bytes());
+    }
+    data
+}
+
+/// Create valid Q4_1 data for a tensor with given dimensions
+/// Q4_1: 20 bytes per 32 elements (2 scale + 2 min + 16 quants)
+#[must_use]
+pub fn create_q4_1_data(num_elements: usize) -> Vec<u8> {
+    let num_blocks = num_elements.div_ceil(32);
+    let mut data = Vec::with_capacity(num_blocks * 20);
+    for _ in 0..num_blocks {
+        let scale = half::f16::from_f32(0.1);
+        data.extend_from_slice(&scale.to_le_bytes());
+        let min = half::f16::from_f32(0.0);
+        data.extend_from_slice(&min.to_le_bytes());
+        data.extend([0x88u8; 16]);
+    }
+    data
+}
+
+/// Create valid Q5_0 data for a tensor with given dimensions
+/// Q5_0: 22 bytes per 32 elements (2 scale + 4 high bits + 16 quants)
+#[must_use]
+pub fn create_q5_0_data(num_elements: usize) -> Vec<u8> {
+    let num_blocks = num_elements.div_ceil(32);
+    let mut data = Vec::with_capacity(num_blocks * 22);
+    for _ in 0..num_blocks {
+        let scale = half::f16::from_f32(0.1);
+        data.extend_from_slice(&scale.to_le_bytes());
+        data.extend([0u8; 4]); // high bits
+        data.extend([0x88u8; 16]); // quants
+    }
+    data
+}
+
+/// Create valid Q5_1 data for a tensor with given dimensions
+/// Q5_1: 24 bytes per 32 elements (2 scale + 2 min + 4 high bits + 16 quants)
+#[must_use]
+pub fn create_q5_1_data(num_elements: usize) -> Vec<u8> {
+    let num_blocks = num_elements.div_ceil(32);
+    let mut data = Vec::with_capacity(num_blocks * 24);
+    for _ in 0..num_blocks {
+        let scale = half::f16::from_f32(0.1);
+        data.extend_from_slice(&scale.to_le_bytes());
+        let min = half::f16::from_f32(0.0);
+        data.extend_from_slice(&min.to_le_bytes());
+        data.extend([0u8; 4]); // high bits
+        data.extend([0x88u8; 16]); // quants
+    }
+    data
 }
 
 /// Create F32 embedding data (small random-ish values)

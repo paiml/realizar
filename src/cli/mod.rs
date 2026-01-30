@@ -1753,3 +1753,8 @@ mod cli_tests_part_05;
 #[cfg(test)]
 #[path = "tests_part_06.rs"]
 mod cli_tests_part_06;
+
+// T-COV-95 Deep Coverage Bridge (Part 07 - mod.rs: bench, viz, load, format, parse)
+#[cfg(test)]
+#[path = "tests_part_07.rs"]
+mod cli_tests_part_07;
