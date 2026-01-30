@@ -1743,3 +1743,13 @@ mod cli_tests_part_03;
 #[cfg(test)]
 #[path = "tests_part_04.rs"]
 mod cli_tests_part_04;
+
+// Deep CLI coverage tests (Part 05 - T-COV-95 Deep CLI)
+#[cfg(test)]
+#[path = "tests_part_05.rs"]
+mod cli_tests_part_05;
+
+// T-COV-95 Deep Coverage Bridge (Part 06 - handlers.rs: pull, push, list, serve, trace)
+#[cfg(test)]
+#[path = "tests_part_06.rs"]
+mod cli_tests_part_06;
