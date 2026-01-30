@@ -70,6 +70,7 @@ fn main() -> Result<(), RealizarError> {
         temperature: 0.0,
         top_k: 1,
         stop_tokens: vec![2],
+        trace: false,
     };
 
     // Warmup

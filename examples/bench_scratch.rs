@@ -22,6 +22,7 @@ fn main() -> Result<(), RealizarError> {
         temperature: 0.0,
         top_k: 1,
         stop_tokens: vec![2], // EOS
+        trace: false,
     };
 
     // Test correctness: both should produce identical output with greedy decoding

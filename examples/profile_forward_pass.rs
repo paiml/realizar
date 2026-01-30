@@ -31,6 +31,7 @@ fn main() -> Result<(), RealizarError> {
         temperature: 0.0,
         top_k: 1,
         stop_tokens: vec![2],
+        trace: false,
     };
     for _ in 0..3 {
         let _ = model.generate_with_cache(&prompt, &config)?;

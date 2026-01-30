@@ -18,6 +18,7 @@ fn main() {
         temperature: 0.0, // greedy
         top_k: 40,
         stop_tokens: vec![151645, 151643],
+        trace: false,
     };
 
     eprintln!("Generating...");
