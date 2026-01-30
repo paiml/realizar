@@ -431,28 +431,26 @@ coverage-all: coverage ## ALIAS: Same as 'make coverage' (single-command approac
 # Compute Plane verified by Correctness Tests (11,354 passing tests)
 # =============================================================================
 
-coverage-control-plane: ## CONTROL PLANE only: Safe coverage without compute quarantine SIGSEGV
-	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "📊 CONTROL PLANE COVERAGE (Compute Quarantine Applied)"
-	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "Safe modules: api/, cli/, scheduler/, gguf/, config, error, format"
-	@echo "Quarantined (SIGSEGV): cuda/, layers/, quantize/simd, gpu/simd"
-	@echo ""
+coverage-control-plane: ## CONTROL PLANE only: All non-CUDA tests, quarantine in report
+	@TOTAL_START=$$(date +%s); \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	echo "📊 CONTROL PLANE COVERAGE (Compute Quarantine Applied)"; \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	echo "Quarantined (SIGSEGV): cuda/, layers/, quantize/simd, gpu/simd"; \
+	echo "Method: Run ALL non-CUDA tests, exclude compute from report"
 	@cargo llvm-cov clean --workspace
-	@echo "[1/4] API tests..."
-	@cargo llvm-cov test --lib --no-report -- api:: --test-threads=8 2>&1 | tail -1
-	@echo "[2/4] CLI tests..."
-	@cargo llvm-cov test --lib --no-report -- cli:: --test-threads=8 2>&1 | tail -1
-	@echo "[3/4] Scheduler tests..."
-	@cargo llvm-cov test --lib --no-report -- scheduler:: --skip test_cuda --test-threads=8 2>&1 | tail -1
-	@echo "[4/4] GGUF tests (non-compute)..."
-	-@cargo llvm-cov test --lib --no-report -- gguf:: --skip forward --skip inference --test-threads=8 2>&1 | tail -1
+	@echo ""
+	@echo "Running all non-CUDA tests under instrumentation..."
+	-@cargo llvm-cov test --lib --no-report -- --skip cuda:: --skip test_cuda --test-threads=8 2>&1 | tail -3
 	@echo ""
 	@$(MAKE) --no-print-directory cov-report-control-plane
 	@echo ""
-	@COVERAGE=$$(cargo llvm-cov report --summary-only --ignore-filename-regex='(trueno/|/tests/|_tests|tests_|test_|tui\.rs|viz\.rs|main\.rs|/benches/|/examples/|fixtures/|testing/|bench_|proptests|cuda/|layers/|quantize/simd|q4_simd|gpu/simd)' 2>/dev/null | grep "TOTAL" | awk '{print $$10}' | sed 's/%//'); \
+	@TOTAL_END=$$(date +%s); \
+	ELAPSED=$$((TOTAL_END-TOTAL_START)); \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	echo "⏱️  Total: $$((ELAPSED/60))m $$((ELAPSED%60))s"; \
+	COVERAGE=$$(cargo llvm-cov report --summary-only --ignore-filename-regex='(trueno/|/tests/|_tests|tests_|test_|tui\.rs|viz\.rs|main\.rs|/benches/|/examples/|fixtures/|testing/|bench_|proptests|cuda/|layers/|quantize/simd|q4_simd|gpu/simd)' 2>/dev/null | grep "TOTAL" | awk '{print $$10}' | sed 's/%//'); \
 	if [ -n "$$COVERAGE" ]; then \
-		echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
 		RESULT=$$(echo "$$COVERAGE >= 95" | bc -l 2>/dev/null || echo 0); \
 		if [ "$$RESULT" = "1" ]; then \
 			echo "✅ CONTROL PLANE CORROBORATED: $$COVERAGE% >= 95%"; \
