@@ -1,7 +1,7 @@
 # Specification: Fast O(1) Coverage with PMAT Compliance
 
 **Document ID:** SPEC-COV-95
-**Version:** 1.45.0
+**Version:** 1.46.0
 **Status:** ACTIVE
 **Methodology:** The Toyota Way (14 Principles) + Popperian Falsification
 **Target:** 95% Production Code Coverage in <10 minutes (Full), O(1) Incremental
@@ -320,6 +320,7 @@ When coverage drops or a bug slips through, we do not just "fix" it. We apply th
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
+| 1.46.0 | 2026-01-30 | Claude | **CURRENT STATE: Tests Pass, Coverage Instrumentation Fails.** Test suite: **11,354 passed, 0 failed, 55 ignored** (all pass without coverage). Coverage run: **52.34% line coverage** due to CUDA tests failing under llvm-cov instrumentation (CUDA_ERROR_UNKNOWN code 700 - memory corruption from coverage instrumentation timing changes). Fixes applied: (1) Fixed 11 malformed `#[ignore]` attributes in APR tests (regex script put them on same line as previous code), (2) Fixed CLI test using existent `/tmp/test.gguf` instead of non-existent path, (3) Added `--skip test_cuda_scheduler` to gpu/scheduler shards (tests need single-threaded CUDA context), (4) Added CUDA scheduler tests to CUDA shard for single-threaded execution, (5) Made CUDA shard ignore errors (`-@`) to allow coverage report generation. **ROOT CAUSE:** llvm-cov instrumentation causes 447/1196 CUDA tests to fail with CUDA_ERROR_UNKNOWN even though they pass without instrumentation. This is a known limitation of coverage tooling with GPU code. **ACTION NEEDED:** Investigate llvm-cov + CUDA compatibility or use alternative coverage strategy for GPU code. |
 | 1.45.0 | 2026-01-30 | Karl Popper | **FIVE-WHYS: Coverage Speed (F-COV-95-SPEED).** Root cause 1: `cargo-llvm-cov` v0.6.22 bug - `--ignore-filename-regex` + `--features` causes empty argument injection (`'' ''`). Fix: Only use regex during `report`, not during `test`. Root cause 2: Zombie test processes from previous runs (100+ min runtime, 10GB RAM). Fix: Clean `/mnt/nvme-raid0/coverage/realizar/llvm-cov-target` before runs. Root cause 3: Makefile regex used quotes causing shell issues. Fix: Use trueno's syntax `--ignore-filename-regex=(pattern)` with `=` and parentheses. Target: <10min coverage, 1hr = auto-fail. |
 | 1.44.0 | 2026-01-30 | Karl Popper | **FIVE-WHYS: Coverage Target Gap (F-COV-95-MAKE).** Root cause: `make coverage` only ran core+cuda (67%), not full stack. Fix: Updated `make coverage` to run all modules (core+gguf+api+cuda). Now default target measures true 95% parity. |
 | 1.43.0 | 2026-01-29 | Karl Popper | **FIVE-WHYS: Additional APR Tests (F-COV-95-APR2).** Root cause: `model_loader_tests_part_02.rs` also used "APR\0" for v1 tests. Fix: Changed `test_read_apr_model_type_exactly_8_bytes` and `test_read_apr_model_type_undefined_ids` to use "APRN" magic. **7193 core tests pass.** |
