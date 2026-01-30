@@ -1276,3 +1276,8 @@ mod infer_tests_part_05;
 #[cfg(test)]
 #[path = "tests_mock.rs"]
 mod infer_tests_mock;
+
+// T-COV-95 Deep Coverage Bridge (Part 06 - validate_model_path, qtype_to_dtype_str, mock paths)
+#[cfg(test)]
+#[path = "tests_part_06.rs"]
+mod infer_tests_part_06;
