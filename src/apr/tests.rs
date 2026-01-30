@@ -120,19 +120,29 @@ mod tests {
 
     #[test]
     fn test_tensor_entry_from_binary_bf16() {
-        let data = create_binary_tensor_entry("lm_head.weight", 2, &[32000, 2048], 512, 131072000);
+        // GH-191: byte 30 is BF16 in GGML dtype mapping (was byte 2 before GH-191 fix)
+        let data = create_binary_tensor_entry("lm_head.weight", 30, &[32000, 2048], 512, 131072000);
         let (entry, _) = TensorEntry::from_binary(&data).expect("should parse");
 
         assert_eq!(entry.dtype, "BF16");
     }
 
-    #[ignore = "APR dtype parsing bug - needs investigation"]
     #[test]
-    fn test_tensor_entry_from_binary_int8() {
+    fn test_tensor_entry_from_binary_q4_0() {
+        // GH-191: byte 2 is Q4_0 in GGML dtype mapping
+        let data = create_binary_tensor_entry("quantized.weight", 2, &[1024, 1024], 0, 1048576);
+        let (entry, _) = TensorEntry::from_binary(&data).expect("should parse");
+
+        assert_eq!(entry.dtype, "Q4_0");
+    }
+
+    #[test]
+    fn test_tensor_entry_from_binary_q4_1() {
+        // GH-191: byte 3 is Q4_1 in GGML dtype mapping
         let data = create_binary_tensor_entry("quantized.weight", 3, &[1024, 1024], 0, 1048576);
         let (entry, _) = TensorEntry::from_binary(&data).expect("should parse");
 
-        assert_eq!(entry.dtype, "I8");
+        assert_eq!(entry.dtype, "Q4_1");
     }
 
     #[test]
@@ -2318,32 +2328,33 @@ mod tests {
     }
 
     #[test]
-    fn test_tensor_entry_from_binary_u8() {
-        let entry = create_binary_tensor_entry("u8_tensor", 7, &[8], 0, 8);
+    fn test_tensor_entry_from_binary_q5_1() {
+        // GH-191: byte 7 is Q5_1 in GGML dtype mapping (was U8 before GH-191 fix)
+        let entry = create_binary_tensor_entry("q5_1_tensor", 7, &[8], 0, 8);
         let (parsed, _) = TensorEntry::from_binary(&entry).expect("APR operation failed");
-        assert_eq!(parsed.dtype, "U8");
+        assert_eq!(parsed.dtype, "Q5_1");
     }
 
-    #[ignore = "APR dtype parsing bug - needs investigation"]
     #[test]
     fn test_tensor_entry_from_binary_q4_k() {
-        let entry = create_binary_tensor_entry("q4k_tensor", 8, &[256], 0, 144);
+        // GH-191 FIX: byte 12 is Q4_K in GGML dtype mapping — was ignored before
+        let entry = create_binary_tensor_entry("q4k_tensor", 12, &[256], 0, 144);
         let (parsed, _) = TensorEntry::from_binary(&entry).expect("APR operation failed");
         assert_eq!(parsed.dtype, "Q4_K");
     }
 
-    #[ignore = "APR dtype parsing bug - needs investigation"]
     #[test]
     fn test_tensor_entry_from_binary_q6_k() {
-        let entry = create_binary_tensor_entry("q6k_tensor", 9, &[256], 0, 210);
+        // GH-191 FIX: byte 14 is Q6_K in GGML dtype mapping (was byte 9 before)
+        let entry = create_binary_tensor_entry("q6k_tensor", 14, &[256], 0, 210);
         let (parsed, _) = TensorEntry::from_binary(&entry).expect("APR operation failed");
         assert_eq!(parsed.dtype, "Q6_K");
     }
 
-    #[ignore = "APR dtype parsing bug - needs investigation"]
     #[test]
     fn test_tensor_entry_from_binary_q8_0() {
-        let entry = create_binary_tensor_entry("q8_tensor", 10, &[32], 0, 34);
+        // GH-191 FIX: byte 8 is Q8_0 in GGML dtype mapping (was byte 10 before)
+        let entry = create_binary_tensor_entry("q8_tensor", 8, &[32], 0, 34);
         let (parsed, _) = TensorEntry::from_binary(&entry).expect("APR operation failed");
         assert_eq!(parsed.dtype, "Q8_0");
     }
@@ -5183,22 +5194,24 @@ mod tests {
     // Additional TensorEntry Tests
     // =========================================================================
 
-    #[ignore = "APR dtype parsing bug - needs investigation"]
     #[test]
     fn test_tensor_entry_from_binary_all_dtypes() {
-        // Test dtype mapping: 0-10 all have specific mappings
+        // GH-191 FIX: dtype bytes now use GGML type IDs
         let dtypes = [
             (0u8, "F32"),
             (1, "F16"),
-            (2, "BF16"),
-            (3, "I8"),
-            (4, "I16"),
-            (5, "I32"),
-            (6, "I64"),
-            (7, "U8"),
-            (8, "Q4_K"),
-            (9, "Q6_K"),
-            (10, "Q8_0"),
+            (2, "Q4_0"),   // GGML type 2
+            (3, "Q4_1"),   // GGML type 3
+            (6, "Q5_0"),   // GGML type 6
+            (7, "Q5_1"),   // GGML type 7
+            (8, "Q8_0"),   // GGML type 8
+            (9, "Q8_1"),   // GGML type 9
+            (10, "Q2_K"),  // GGML type 10
+            (11, "Q3_K"),  // GGML type 11
+            (12, "Q4_K"),  // GGML type 12
+            (13, "Q5_K"),  // GGML type 13
+            (14, "Q6_K"),  // GGML type 14
+            (30, "BF16"),  // GGML type 30
         ];
 
         for (dtype_byte, expected_dtype) in dtypes {

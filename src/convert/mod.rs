@@ -636,17 +636,22 @@ impl GgufToAprQ4KConverter {
             tensor_index_bytes.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
             tensor_index_bytes.extend_from_slice(name_bytes);
 
-            // dtype (1 byte) - map GGML dtype to APR dtype
-            // GGML: 0=F32, 1=F16, 8=Q8_0, 12=Q4_K, 13=Q5_K, 14=Q6_K
-            // APR:  0=F32, 1=F16, 8=Q4_K, 9=Q6_K, 10=Q8_0
+            // dtype (1 byte) - write GGML dtype directly
+            // The APR v2 TensorEntry::from_binary reader handles these values:
+            //   0=F32, 1=F16, 8=Q8_0, 12=Q4_K, 13=Q5_K, 14=Q6_K
+            // GH-191 FIX: Previously used wrong APR-specific dtype codes (8=Q4_K, 9=Q6_K, 10=Q8_0)
+            // that didn't match the reader's mapping, causing all tensors to load as F32.
             let apr_dtype = match tensor.dtype {
-                0 => 0u8,  // F32 -> F32
-                1 => 1u8,  // F16 -> F16
-                8 => 10u8, // Q8_0 -> APR dtype 10
-                12 => 8u8, // Q4_K -> APR dtype 8
-                13 => 8u8, // Q5_K -> treat as Q4_K for now
-                14 => 9u8, // Q6_K -> APR dtype 9
-                _ => 0u8,
+                0 => 0u8,   // F32
+                1 => 1u8,   // F16
+                8 => 8u8,   // Q8_0 (GGML type 8)
+                12 => 12u8, // Q4_K (GGML type 12)
+                13 => 13u8, // Q5_K (GGML type 13)
+                14 => 14u8, // Q6_K (GGML type 14)
+                other => {
+                    eprintln!("WARN: Unknown GGML dtype {other} for tensor '{}', writing as F32", tensor.name);
+                    0u8
+                }
             };
             tensor_index_bytes.push(apr_dtype);
 

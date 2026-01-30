@@ -20,7 +20,7 @@ mod tests {
     #[test]
     fn test_validate_model_path_traversal_double_dot() {
         let path = PathBuf::from("/home/user/../../../etc/passwd");
-        let result = super::validate_model_path(&path);
+        let result = crate::infer::validate_model_path(&path);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("traversal") || err.contains(".."));
@@ -29,14 +29,14 @@ mod tests {
     #[test]
     fn test_validate_model_path_traversal_middle() {
         let path = PathBuf::from("/models/../secret.gguf");
-        let result = super::validate_model_path(&path);
+        let result = crate::infer::validate_model_path(&path);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_validate_model_path_wrong_extension_txt() {
         let path = PathBuf::from("/tmp/model.txt");
-        let result = super::validate_model_path(&path);
+        let result = crate::infer::validate_model_path(&path);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("extension") || err.contains("Invalid"));
@@ -45,21 +45,21 @@ mod tests {
     #[test]
     fn test_validate_model_path_wrong_extension_py() {
         let path = PathBuf::from("/tmp/model.py");
-        let result = super::validate_model_path(&path);
+        let result = crate::infer::validate_model_path(&path);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_validate_model_path_no_extension() {
         let path = PathBuf::from("/tmp/model");
-        let result = super::validate_model_path(&path);
+        let result = crate::infer::validate_model_path(&path);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_validate_model_path_nonexistent_file() {
         let path = PathBuf::from("/nonexistent/path/model.gguf");
-        let result = super::validate_model_path(&path);
+        let result = crate::infer::validate_model_path(&path);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("not found") || err.contains("File"));
@@ -70,7 +70,7 @@ mod tests {
         // /tmp is a directory, not a file
         // But it has no valid extension, so it will fail on extension check first
         let path = PathBuf::from("/tmp");
-        let result = super::validate_model_path(&path);
+        let result = crate::infer::validate_model_path(&path);
         assert!(result.is_err());
     }
 
@@ -79,7 +79,7 @@ mod tests {
         // These are valid extensions but files don't exist
         for ext in &["gguf", "safetensors", "apr", "bin"] {
             let path = PathBuf::from(format!("/nonexistent/model.{}", ext));
-            let result = super::validate_model_path(&path);
+            let result = crate::infer::validate_model_path(&path);
             // Should fail on "not found", not "invalid extension"
             assert!(result.is_err());
             let err = result.unwrap_err().to_string();
@@ -98,34 +98,34 @@ mod tests {
 
     #[test]
     fn test_qtype_to_dtype_str_all_known_types() {
-        assert_eq!(super::qtype_to_dtype_str(0), "F32");
-        assert_eq!(super::qtype_to_dtype_str(1), "F16");
-        assert_eq!(super::qtype_to_dtype_str(2), "Q4_0");
-        assert_eq!(super::qtype_to_dtype_str(3), "Q4_1");
-        assert_eq!(super::qtype_to_dtype_str(6), "Q5_0");
-        assert_eq!(super::qtype_to_dtype_str(7), "Q5_1");
-        assert_eq!(super::qtype_to_dtype_str(8), "Q8_0");
-        assert_eq!(super::qtype_to_dtype_str(9), "Q8_1");
-        assert_eq!(super::qtype_to_dtype_str(10), "Q2_K");
-        assert_eq!(super::qtype_to_dtype_str(11), "Q3_K");
-        assert_eq!(super::qtype_to_dtype_str(12), "Q4_K");
-        assert_eq!(super::qtype_to_dtype_str(13), "Q5_K");
-        assert_eq!(super::qtype_to_dtype_str(14), "Q6_K");
-        assert_eq!(super::qtype_to_dtype_str(16), "IQ2_XXS");
-        assert_eq!(super::qtype_to_dtype_str(17), "IQ2_XS");
-        assert_eq!(super::qtype_to_dtype_str(30), "BF16");
+        assert_eq!(crate::infer::qtype_to_dtype_str(0), "F32");
+        assert_eq!(crate::infer::qtype_to_dtype_str(1), "F16");
+        assert_eq!(crate::infer::qtype_to_dtype_str(2), "Q4_0");
+        assert_eq!(crate::infer::qtype_to_dtype_str(3), "Q4_1");
+        assert_eq!(crate::infer::qtype_to_dtype_str(6), "Q5_0");
+        assert_eq!(crate::infer::qtype_to_dtype_str(7), "Q5_1");
+        assert_eq!(crate::infer::qtype_to_dtype_str(8), "Q8_0");
+        assert_eq!(crate::infer::qtype_to_dtype_str(9), "Q8_1");
+        assert_eq!(crate::infer::qtype_to_dtype_str(10), "Q2_K");
+        assert_eq!(crate::infer::qtype_to_dtype_str(11), "Q3_K");
+        assert_eq!(crate::infer::qtype_to_dtype_str(12), "Q4_K");
+        assert_eq!(crate::infer::qtype_to_dtype_str(13), "Q5_K");
+        assert_eq!(crate::infer::qtype_to_dtype_str(14), "Q6_K");
+        assert_eq!(crate::infer::qtype_to_dtype_str(16), "IQ2_XXS");
+        assert_eq!(crate::infer::qtype_to_dtype_str(17), "IQ2_XS");
+        assert_eq!(crate::infer::qtype_to_dtype_str(30), "BF16");
     }
 
     #[test]
     fn test_qtype_to_dtype_str_unknown_values() {
-        assert_eq!(super::qtype_to_dtype_str(4), "Unknown");
-        assert_eq!(super::qtype_to_dtype_str(5), "Unknown");
-        assert_eq!(super::qtype_to_dtype_str(15), "Unknown");
-        assert_eq!(super::qtype_to_dtype_str(18), "Unknown");
-        assert_eq!(super::qtype_to_dtype_str(29), "Unknown");
-        assert_eq!(super::qtype_to_dtype_str(31), "Unknown");
-        assert_eq!(super::qtype_to_dtype_str(100), "Unknown");
-        assert_eq!(super::qtype_to_dtype_str(u32::MAX), "Unknown");
+        assert_eq!(crate::infer::qtype_to_dtype_str(4), "Unknown");
+        assert_eq!(crate::infer::qtype_to_dtype_str(5), "Unknown");
+        assert_eq!(crate::infer::qtype_to_dtype_str(15), "Unknown");
+        assert_eq!(crate::infer::qtype_to_dtype_str(18), "Unknown");
+        assert_eq!(crate::infer::qtype_to_dtype_str(29), "Unknown");
+        assert_eq!(crate::infer::qtype_to_dtype_str(31), "Unknown");
+        assert_eq!(crate::infer::qtype_to_dtype_str(100), "Unknown");
+        assert_eq!(crate::infer::qtype_to_dtype_str(u32::MAX), "Unknown");
     }
 
     // =========================================================================
