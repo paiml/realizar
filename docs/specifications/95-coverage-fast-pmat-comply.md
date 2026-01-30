@@ -1,7 +1,7 @@
 # Specification: Fast O(1) Coverage with PMAT Compliance
 
 **Document ID:** SPEC-COV-95
-**Version:** 1.48.0
+**Version:** 1.49.0
 **Status:** ACTIVE
 **Methodology:** The Toyota Way (14 Principles) + Popperian Falsification
 **Target:** 95% Production Code Coverage in <10 minutes (Full), O(1) Incremental
@@ -358,7 +358,71 @@ When coverage drops or a bug slips through, we do not just "fix" it. We apply th
 
 ---
 
-## 9. Appendix A: Checklist Scoring
+## 9. Current State: Control Plane Coverage (v1.49.0)
+
+**Measurement Date:** 2026-01-30
+**Method:** `cargo llvm-cov test --lib --no-report -- --skip cuda:: --skip test_cuda --test-threads=8`
+**Tests:** 11,352 passed, 0 failed, 56 ignored (359s)
+
+### 9.1 Summary
+
+| Metric | Value | Target | Gap |
+|--------|-------|--------|-----|
+| **Control Plane Line Coverage** | **87.11%** | 95% | **7.89%** |
+| **Control Plane Function Coverage** | 92.03% | 95% | 2.97% |
+| **Control Plane Region Coverage** | 87.45% | 95% | 7.55% |
+| **Correctness Tests (all code)** | 11,352 pass | 100% pass | 0% |
+
+### 9.2 Lines to Bridge
+
+| Metric | Value |
+|--------|-------|
+| Total Control Plane lines | 64,229 |
+| Currently covered | 55,952 |
+| Missed | 8,277 |
+| Required for 95% | 61,018 |
+| **Lines to cover** | **~5,066** |
+
+### 9.3 Gap Analysis: Files Below 90% (by missed lines)
+
+| File | Lines | Missed | Coverage | Impact |
+|------|-------|--------|----------|--------|
+| `gguf/loader.rs` | 1,508 | 652 | 56.8% | HIGH |
+| `api/gpu_handlers.rs` | 1,257 | 588 | 53.2% | HIGH |
+| `quantize/fused_k.rs` | 1,487 | 586 | 60.6% | HIGH |
+| `apr_transformer/mod.rs` | 1,508 | 513 | 66.0% | HIGH |
+| `cli/mod.rs` | 911 | 449 | 50.7% | HIGH |
+| `api/realize_handlers.rs` | 1,128 | 396 | 64.9% | MEDIUM |
+| `gguf/inference/forward/single.rs` | 752 | 329 | 56.2% | MEDIUM |
+| `gguf/inference/cached/sync.rs` | 756 | 328 | 56.6% | MEDIUM |
+| `infer/mod.rs` | 613 | 320 | 47.8% | MEDIUM |
+| `quantize/mod.rs` | 1,204 | 303 | 74.8% | MEDIUM |
+| `cli/inference.rs` | 371 | 300 | 19.1% | MEDIUM |
+| `api/openai_handlers.rs` | 605 | 286 | 52.7% | MEDIUM |
+| `convert/mod.rs` | 477 | 245 | 48.6% | MEDIUM |
+| `api/mod.rs` | 948 | 220 | 76.8% | LOW |
+
+### 9.4 Files at 95%+ (Exemplary)
+
+| File | Coverage |
+|------|----------|
+| `error.rs` | 99.35% |
+| `apr_transformer/dequant.rs` | 100.00% |
+| `apr_transformer/config.rs` | 100.00% |
+| `bench/matrix.rs` | 100.00% |
+| `bench/gpu_parity.rs` | 100.00% |
+| `bench/load_testing.rs` | 99.77% |
+| `brick/profiler.rs` | 99.62% |
+| `cache.rs` | 97.66% |
+| `audit.rs` | 97.58% |
+| `bench/runtime.rs` | 97.30% |
+| `apr_transformer/loader.rs` | 96.96% |
+| `apr/tokenizer.rs` | 95.96% |
+| `apr/helpers.rs` | 95.68% |
+
+---
+
+## 10. Appendix A: Checklist Scoring
 
 - **Pass:** 95/110 (Compliant)
 - **Target:** 105/110 (Exemplary)
@@ -370,6 +434,7 @@ When coverage drops or a bug slips through, we do not just "fix" it. We apply th
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
+| 1.49.0 | 2026-01-30 | Claude | **FIRST HONEST MEASUREMENT: 87.11% Control Plane Coverage.** Ran all 11,352 non-CUDA tests under llvm-cov (359s). Previous 24.49% was from running only API/CLI/scheduler tests with mock state. Running ALL tests exercises production code through internal calls. Gap to 95%: ~5,066 lines across 14 files. Top offenders: gguf/loader.rs (652 missed), api/gpu_handlers.rs (588), quantize/fused_k.rs (586), apr_transformer/mod.rs (513), cli/mod.rs (449). Updated `make coverage-control-plane` to run all non-CUDA tests. 13 files already at 95%+. Added Section 9 with full gap analysis. |
 | 1.48.0 | 2026-01-30 | Claude | **COMPUTE QUARANTINE CODIFIED.** Added Section 3.4 defining Control Plane vs Compute Plane separation. Control Plane (API, CLI, scheduler, config): 95% coverage target with llvm-cov. Compute Plane (cuda/, layers/, simd): Verified by Correctness Tests (11,354 pass). Added `make coverage-control-plane` target. Added `COV_QUARANTINE` Makefile variable. This is the only way to escape the SIGSEGV trap while maintaining rigorous quality verification. |
 | 1.47.0 | 2026-01-30 | Claude | **CRITICAL: llvm-cov SIGSEGV in Compute-Heavy Code (Not Just CUDA).** Extended diagnosis: `layers::` tests SIGSEGV under coverage but pass 100% without it. This is a fundamental llvm-cov limitation with compute-intensive code (SIMD, matrix math, memory-intensive loops). **GROUND TRUTH:** 11,354 tests pass, 0 fail (without instrumentation). Tests ARE correct; measuring tool is broken for this workload. **RECOMMENDED PATH:** (1) Accept "Extrapolated Verification" - tests passing = code works, (2) Measure coverage only on instrumentation-safe code (API, serialization, config), (3) Use mutation testing (`cargo mutants`) for compute modules instead of line coverage. |
 | 1.46.0 | 2026-01-30 | Claude | **CURRENT STATE: Tests Pass, Coverage Instrumentation Fails.** Test suite: **11,354 passed, 0 failed, 55 ignored** (all pass without coverage). Coverage run: **52.34% line coverage** due to CUDA tests failing under llvm-cov instrumentation (CUDA_ERROR_UNKNOWN code 700 - memory corruption from coverage instrumentation timing changes). Fixes applied: (1) Fixed 11 malformed `#[ignore]` attributes in APR tests (regex script put them on same line as previous code), (2) Fixed CLI test using existent `/tmp/test.gguf` instead of non-existent path, (3) Added `--skip test_cuda_scheduler` to gpu/scheduler shards (tests need single-threaded CUDA context), (4) Added CUDA scheduler tests to CUDA shard for single-threaded execution, (5) Made CUDA shard ignore errors (`-@`) to allow coverage report generation. **ROOT CAUSE:** llvm-cov instrumentation causes 447/1196 CUDA tests to fail with CUDA_ERROR_UNKNOWN even though they pass without instrumentation. This is a known limitation of coverage tooling with GPU code. **ACTION NEEDED:** Investigate llvm-cov + CUDA compatibility or use alternative coverage strategy for GPU code. |
