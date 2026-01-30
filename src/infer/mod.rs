@@ -1267,6 +1267,11 @@ mod infer_tests_part_03;
 #[path = "tests_part_04.rs"]
 mod infer_tests_part_04;
 
+// T-COV-95 Coverage Bridge tests (Part 05 - B5)
+#[cfg(test)]
+#[path = "tests_part_05.rs"]
+mod infer_tests_part_05;
+
 // Mock backend tests (PMAT-COV-95)
 #[cfg(test)]
 #[path = "tests_mock.rs"]
