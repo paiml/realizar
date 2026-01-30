@@ -14,7 +14,7 @@ use crate::api::realize_handlers::{
     ContextWindowConfig, ContextWindowManager, EmbeddingData, EmbeddingRequest, EmbeddingResponse,
     EmbeddingUsage, ModelMetadataResponse, ReloadRequest,
 };
-use crate::api::test_helpers::create_test_app;
+use crate::api::test_helpers::create_test_app_shared;
 use crate::api::ChatMessage;
 
 /// Helper to create a ChatMessage
@@ -556,7 +556,7 @@ fn test_clean_chat_output_preserves_internal_newlines() {
 
 #[tokio::test]
 async fn test_realize_embed_endpoint() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "input": "Hello, world!",
@@ -586,7 +586,7 @@ async fn test_realize_embed_endpoint() {
 
 #[tokio::test]
 async fn test_realize_model_endpoint() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(
@@ -609,7 +609,7 @@ async fn test_realize_model_endpoint() {
 
 #[tokio::test]
 async fn test_realize_reload_endpoint() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model_id": "test-model"
@@ -641,7 +641,7 @@ async fn test_realize_reload_endpoint() {
 
 #[tokio::test]
 async fn test_openai_completions_endpoint() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "test",
@@ -673,7 +673,7 @@ async fn test_openai_completions_endpoint() {
 
 #[tokio::test]
 async fn test_openai_embeddings_endpoint() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "test",

@@ -17,7 +17,7 @@ use crate::api::realize_handlers::{
     CompletionChoice, CompletionRequest, CompletionResponse, ModelLineage, ModelMetadataResponse,
     ReloadRequest, ReloadResponse,
 };
-use crate::api::test_helpers::create_test_app;
+use crate::api::test_helpers::create_test_app_shared;
 use crate::api::Usage;
 
 // =============================================================================
@@ -630,7 +630,7 @@ fn test_reload_request_debug() {
 
 #[tokio::test]
 async fn test_realize_embed_empty_input() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "input": "",
@@ -660,7 +660,7 @@ async fn test_realize_embed_empty_input() {
 
 #[tokio::test]
 async fn test_realize_embed_long_input() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     // Very long input text
     let long_text = "word ".repeat(10000);
@@ -691,7 +691,7 @@ async fn test_realize_embed_long_input() {
 
 #[tokio::test]
 async fn test_realize_embed_unicode_input() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "input": "Hello 世界! \u{1F30D} مرحبا 你好 Привет",
@@ -720,7 +720,7 @@ async fn test_realize_embed_unicode_input() {
 #[tokio::test]
 async fn test_realize_reload_without_registry() {
     // Demo state doesn't have registry enabled
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "test",
@@ -745,7 +745,7 @@ async fn test_realize_reload_without_registry() {
 
 #[tokio::test]
 async fn test_realize_reload_invalid_json() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(
@@ -765,7 +765,7 @@ async fn test_realize_reload_invalid_json() {
 
 #[tokio::test]
 async fn test_openai_completions_empty_prompt() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "test",
@@ -794,7 +794,7 @@ async fn test_openai_completions_empty_prompt() {
 
 #[tokio::test]
 async fn test_openai_completions_with_temperature() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "test",
@@ -826,7 +826,7 @@ async fn test_openai_completions_with_temperature() {
 
 #[tokio::test]
 async fn test_openai_completions_with_top_p() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "test",
@@ -858,7 +858,7 @@ async fn test_openai_completions_with_top_p() {
 
 #[tokio::test]
 async fn test_openai_completions_with_stop_tokens() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "test",
@@ -890,7 +890,7 @@ async fn test_openai_completions_with_stop_tokens() {
 
 #[tokio::test]
 async fn test_openai_completions_default_model() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "default",
@@ -920,7 +920,7 @@ async fn test_openai_completions_default_model() {
 
 #[tokio::test]
 async fn test_openai_completions_empty_model() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "",
@@ -951,7 +951,7 @@ async fn test_openai_completions_empty_model() {
 
 #[tokio::test]
 async fn test_openai_completions_invalid_json() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(
@@ -970,7 +970,7 @@ async fn test_openai_completions_invalid_json() {
 
 #[tokio::test]
 async fn test_openai_completions_missing_prompt() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "test"
@@ -994,7 +994,7 @@ async fn test_openai_completions_missing_prompt() {
 
 #[tokio::test]
 async fn test_openai_embeddings_endpoint_basic() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "input": "Test text",
@@ -1022,7 +1022,7 @@ async fn test_openai_embeddings_endpoint_basic() {
 
 #[tokio::test]
 async fn test_openai_embeddings_without_model() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "input": "Test text"
@@ -1049,7 +1049,7 @@ async fn test_openai_embeddings_without_model() {
 
 #[tokio::test]
 async fn test_openai_embeddings_long_text() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let long_text = "test ".repeat(1000);
     let req_body = serde_json::json!({

@@ -459,17 +459,23 @@ impl AprTransformer {
             eprintln!("[DEBUG] is_gguf_model={is_gguf_model}");
         }
 
-        // PMAT-086: Debug - check which embedding tensor names exist
+        // GH-187: Enhanced logging for embedding tensor (ALWAYS log, not just debug)
+        // This class of bug (transposition mismatch) has occurred 50+ times
         let embed_names = [
             "model.embed_tokens.weight",
             "token_embd.weight",
             "tok_embeddings.weight",
         ];
-        if debug_enabled {
-            for name in &embed_names {
-                if let Some((offset, size, dims, dtype)) = tensors.get(*name) {
-                    eprintln!("[DEBUG] Found embedding {name}: offset={offset}, size={size}, dims={dims:?}, dtype={dtype}");
-                }
+        let mut embed_dims: Option<Vec<usize>> = None;
+        for name in &embed_names {
+            if let Some((_offset, _size, dims, _dtype)) = tensors.get(*name) {
+                embed_dims = Some(dims.clone());
+                // ALWAYS log embedding info - this is critical for debugging
+                eprintln!(
+                    "[APR-LOAD] Embedding tensor '{}': dims={:?}, expected [vocab={}, hidden={}]",
+                    name, dims, vocab_size, hidden_dim
+                );
+                break;
             }
         }
 
@@ -478,36 +484,88 @@ impl AprTransformer {
             .or_else(|| get_f32_tensor("token_embd.weight"))
             .or_else(|| get_f32_tensor("tok_embeddings.weight"))
             .unwrap_or_else(|| {
-                if debug_enabled {
-                    eprintln!("[DEBUG] WARNING: No embedding tensor found! Using zeros.");
-                }
+                eprintln!("[APR-LOAD] WARNING: No embedding tensor found! Using zeros.");
                 vec![0.0; vocab_size * hidden_dim]
             });
 
-        // PMAT-086 FIX: APR stores GGUF data in row-major [vocab_size, hidden_dim] layout
-        // even though the dims metadata says [hidden_dim, vocab_size] (GGML column-major convention)
-        // The data is already correct - DO NOT transpose!
-        let token_embedding = token_embedding_raw;
+        // GH-187 FIX: Detect and fix embedding transposition
+        // GGML stores as [hidden_dim, vocab_size] but embed() needs [vocab_size, hidden_dim]
+        // Check dims to detect if transposition is needed
+        let needs_transpose = if let Some(ref dims) = embed_dims {
+            // If dims[0] == hidden_dim and dims[1] == vocab_size, data is in GGML layout
+            // and needs transposition for embed() to work correctly
+            dims.len() == 2 && dims[0] == hidden_dim && dims[1] == vocab_size
+        } else {
+            false
+        };
 
-        if debug_enabled {
+        let token_embedding = if needs_transpose {
             eprintln!(
-                "[DEBUG] token_embedding loaded: {} elements, first 5: {:?}",
-                token_embedding.len(),
-                &token_embedding[..5.min(token_embedding.len())]
+                "[APR-LOAD] Transposing embedding from GGML [{}x{}] to [{}x{}] layout",
+                hidden_dim, vocab_size, vocab_size, hidden_dim
+            );
+            // Transpose from [hidden_dim, vocab_size] to [vocab_size, hidden_dim]
+            let mut transposed = vec![0.0f32; vocab_size * hidden_dim];
+            for v in 0..vocab_size {
+                for h in 0..hidden_dim {
+                    // Source: row h, col v -> index h * vocab_size + v
+                    // Dest: row v, col h -> index v * hidden_dim + h
+                    let src_idx = h * vocab_size + v;
+                    let dst_idx = v * hidden_dim + h;
+                    if src_idx < token_embedding_raw.len() {
+                        transposed[dst_idx] = token_embedding_raw[src_idx];
+                    }
+                }
+            }
+            transposed
+        } else {
+            eprintln!("[APR-LOAD] Embedding already in correct [vocab, hidden] layout");
+            token_embedding_raw
+        };
+
+        // GH-187: Sanity check - verify embedding produces non-garbage for token 0
+        if token_embedding.len() >= hidden_dim {
+            let first_embed = &token_embedding[0..hidden_dim];
+            let all_zero = first_embed.iter().all(|&x| x == 0.0);
+            let has_nan = first_embed.iter().any(|x| x.is_nan());
+            let has_inf = first_embed.iter().any(|x| x.is_infinite());
+            if all_zero {
+                eprintln!("[APR-LOAD] WARNING: Token 0 embedding is all zeros - possible load failure");
+            }
+            if has_nan || has_inf {
+                eprintln!("[APR-LOAD] ERROR: Token 0 embedding contains NaN/Inf - data corruption!");
+            }
+            eprintln!(
+                "[APR-LOAD] Token 0 embedding sample: [{:.4}, {:.4}, {:.4}, {:.4}, {:.4}]",
+                first_embed[0],
+                first_embed.get(1).unwrap_or(&0.0),
+                first_embed.get(2).unwrap_or(&0.0),
+                first_embed.get(3).unwrap_or(&0.0),
+                first_embed.get(4).unwrap_or(&0.0)
             );
         }
+
+        // Log total embedding size (always, for diagnostics)
+        eprintln!(
+            "[APR-LOAD] Embedding loaded: {} elements (vocab={} x hidden={})",
+            token_embedding.len(),
+            vocab_size,
+            hidden_dim
+        );
 
         // Load output norm
         let output_norm_weight = get_f32_tensor("model.norm.weight")
             .or_else(|| get_f32_tensor("output_norm.weight"))
             .unwrap_or_else(|| vec![1.0; hidden_dim]);
 
-        // Debug: check output.weight / lm_head.weight
-        if debug_enabled {
-            for name in &["output.weight", "lm_head.weight"] {
-                if let Some((offset, size, dims, dtype)) = tensors.get(*name) {
-                    eprintln!("[DEBUG] Found lm_head {name}: offset={offset}, size={size}, dims={dims:?}, dtype={dtype}");
-                }
+        // GH-187: Enhanced logging for lm_head tensor
+        for name in &["lm_head.weight", "output.weight"] {
+            if let Some((_offset, _size, dims, dtype)) = tensors.get(*name) {
+                eprintln!(
+                    "[APR-LOAD] LM head tensor '{}': dims={:?}, dtype={}, expected [vocab={}, hidden={}]",
+                    name, dims, dtype, vocab_size, hidden_dim
+                );
+                break;
             }
         }
 
@@ -519,43 +577,44 @@ impl AprTransformer {
             (lm_head, false)
         } else {
             // Weight tying: use embedding weights for lm_head
+            eprintln!("[APR-LOAD] No lm_head found, using tied embedding weights");
             let tied = get_f32_tensor("model.embed_tokens.weight")
                 .or_else(|| get_f32_tensor("token_embd.weight"));
             if let Some(t) = tied {
                 (t, true)
             } else {
+                eprintln!("[APR-LOAD] WARNING: No lm_head tensor found! Using zeros.");
                 (vec![0.0; hidden_dim * vocab_size], false)
             }
         };
-        if debug_enabled {
-            if used_tied_weights {
-                eprintln!("[DEBUG] Using tied weights: embedding -> lm_head");
-            }
-            if lm_head_raw.iter().all(|&x| x == 0.0) {
-                eprintln!("[DEBUG] WARNING: No lm_head tensor found! Using zeros.");
-            }
-            eprintln!(
-                "[DEBUG] lm_head_raw: {} elements, first 5: {:?}",
-                lm_head_raw.len(),
-                &lm_head_raw[..5.min(lm_head_raw.len())]
-            );
+        if used_tied_weights {
+            eprintln!("[APR-LOAD] Using tied weights: embedding -> lm_head");
         }
-        // PMAT-086 FIX: APR stores GGUF data in row-major [vocab_size, hidden_dim] layout
-        // even though the dims metadata says [hidden_dim, vocab_size] (GGML column-major convention)
-        // The data is already correct - DO NOT transpose!
+
+        // GH-187: lm_head is used for matmul (not lookup), so GGML layout is correct
+        // lm_head: y = x @ W where W is [hidden_dim, vocab_size] in GGML convention
+        // This matches fused_q4k_parallel_matvec(weights, x, in_dim=hidden, out_dim=vocab)
+        // NO transposition needed for lm_head (unlike embedding)
         let lm_head_weight = lm_head_raw;
+        eprintln!(
+            "[APR-LOAD] LM head loaded: {} elements (hidden={} x vocab={})",
+            lm_head_weight.len(),
+            hidden_dim,
+            vocab_size
+        );
 
         // PMAT-103: Load lm_head Q4K/Q6K raw bytes for fused kernel inference
         let lm_head_weight_q4k =
             get_q4k_raw_bytes("lm_head.weight").or_else(|| get_q4k_raw_bytes("output.weight"));
         let lm_head_weight_q6k =
             get_q6k_raw_bytes("lm_head.weight").or_else(|| get_q6k_raw_bytes("output.weight"));
-        if debug_enabled {
-            if lm_head_weight_q4k.is_some() {
-                eprintln!("[DEBUG] Loaded lm_head Q4K raw bytes for fused kernel");
-            } else if lm_head_weight_q6k.is_some() {
-                eprintln!("[DEBUG] Loaded lm_head Q6K raw bytes for fused kernel");
-            }
+        // GH-187: Always log quantization path for lm_head
+        if let Some(ref bytes) = lm_head_weight_q4k {
+            eprintln!("[APR-LOAD] LM head using Q4K fused kernel ({} bytes)", bytes.len());
+        } else if let Some(ref bytes) = lm_head_weight_q6k {
+            eprintln!("[APR-LOAD] LM head using Q6K fused kernel ({} bytes)", bytes.len());
+        } else {
+            eprintln!("[APR-LOAD] LM head using F32 matmul (no Q4K/Q6K found)");
         }
 
         // Compute KV dimension from config

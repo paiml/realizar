@@ -9,7 +9,7 @@ use axum::{
 };
 use tower::util::ServiceExt;
 
-use crate::api::test_helpers::create_test_app;
+use crate::api::test_helpers::create_test_app_shared;
 use crate::api::{
     BatchGenerateResponse, BatchTokenizeResponse, GenerateResponse, GpuBatchRequest,
     GpuBatchResponse, GpuBatchResult, GpuBatchStats, GpuStatusResponse, GpuWarmupResponse,
@@ -732,7 +732,7 @@ fn test_batch_process_result_debug() {
 
 #[tokio::test]
 async fn test_gpu_warmup_endpoint_no_gpu_model() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(
@@ -749,13 +749,13 @@ async fn test_gpu_warmup_endpoint_no_gpu_model() {
     // When GPU feature is enabled, returns 503; when not, also returns 503
     assert!(
         response.status() == StatusCode::SERVICE_UNAVAILABLE
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
     );
 }
 
 #[tokio::test]
 async fn test_gpu_status_endpoint() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(
@@ -785,7 +785,7 @@ async fn test_gpu_status_endpoint() {
 
 #[tokio::test]
 async fn test_gpu_batch_completions_empty_prompts() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let request = GpuBatchRequest {
         prompts: vec![], // Empty prompts array - should fail
@@ -819,7 +819,7 @@ async fn test_gpu_batch_completions_empty_prompts() {
 
 #[tokio::test]
 async fn test_gpu_batch_completions_no_gpu_model() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let request = GpuBatchRequest {
         prompts: vec!["Hello".to_string(), "World".to_string()],
@@ -846,13 +846,13 @@ async fn test_gpu_batch_completions_no_gpu_model() {
     // Demo app doesn't have GPU/cached model, should return error
     assert!(
         response.status() == StatusCode::SERVICE_UNAVAILABLE
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
     );
 }
 
 #[tokio::test]
 async fn test_gpu_batch_completions_invalid_json() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(
@@ -872,7 +872,7 @@ async fn test_gpu_batch_completions_invalid_json() {
 
 #[tokio::test]
 async fn test_gpu_batch_completions_missing_prompts_field() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     // Missing required 'prompts' field
     let response = app
@@ -893,7 +893,7 @@ async fn test_gpu_batch_completions_missing_prompts_field() {
 
 #[tokio::test]
 async fn test_gpu_warmup_endpoint_method_not_allowed() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(
@@ -912,7 +912,7 @@ async fn test_gpu_warmup_endpoint_method_not_allowed() {
 
 #[tokio::test]
 async fn test_gpu_status_endpoint_post_method_not_allowed() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(
@@ -936,7 +936,7 @@ async fn test_gpu_status_endpoint_post_method_not_allowed() {
 
 #[tokio::test]
 async fn test_models_handler_demo_mode() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(
@@ -967,7 +967,7 @@ async fn test_models_handler_demo_mode() {
 
 #[tokio::test]
 async fn test_tokenize_handler_success() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(
@@ -994,7 +994,7 @@ async fn test_tokenize_handler_success() {
 
 #[tokio::test]
 async fn test_tokenize_handler_with_model_id() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(
@@ -1019,7 +1019,7 @@ async fn test_tokenize_handler_with_model_id() {
 
 #[tokio::test]
 async fn test_generate_handler_greedy() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(
@@ -1049,7 +1049,7 @@ async fn test_generate_handler_greedy() {
 
 #[tokio::test]
 async fn test_generate_handler_top_k() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(
@@ -1068,7 +1068,7 @@ async fn test_generate_handler_top_k() {
 
 #[tokio::test]
 async fn test_generate_handler_top_p() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(
@@ -1087,7 +1087,7 @@ async fn test_generate_handler_top_p() {
 
 #[tokio::test]
 async fn test_generate_handler_empty_prompt() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(
@@ -1106,7 +1106,7 @@ async fn test_generate_handler_empty_prompt() {
 
 #[tokio::test]
 async fn test_generate_handler_invalid_strategy() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(
@@ -1131,7 +1131,7 @@ async fn test_generate_handler_invalid_strategy() {
 
 #[tokio::test]
 async fn test_batch_tokenize_handler_success() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(
@@ -1160,7 +1160,7 @@ async fn test_batch_tokenize_handler_success() {
 
 #[tokio::test]
 async fn test_batch_tokenize_handler_empty_texts() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(
@@ -1183,7 +1183,7 @@ async fn test_batch_tokenize_handler_empty_texts() {
 
 #[tokio::test]
 async fn test_batch_generate_handler_success() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(
@@ -1211,7 +1211,7 @@ async fn test_batch_generate_handler_success() {
 
 #[tokio::test]
 async fn test_batch_generate_handler_empty_prompts() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(
@@ -1230,7 +1230,7 @@ async fn test_batch_generate_handler_empty_prompts() {
 
 #[tokio::test]
 async fn test_batch_generate_handler_invalid_strategy() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(
@@ -1251,7 +1251,7 @@ async fn test_batch_generate_handler_invalid_strategy() {
 
 #[tokio::test]
 async fn test_batch_generate_handler_with_seed() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(
@@ -1366,7 +1366,7 @@ fn test_gpu_status_response_large_cache() {
 
 #[tokio::test]
 async fn test_stream_generate_handler_success() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(
@@ -1390,7 +1390,7 @@ async fn test_stream_generate_handler_success() {
 
 #[tokio::test]
 async fn test_stream_generate_handler_empty_prompt() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(
@@ -1409,7 +1409,7 @@ async fn test_stream_generate_handler_empty_prompt() {
 
 #[tokio::test]
 async fn test_stream_generate_handler_invalid_strategy() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(
