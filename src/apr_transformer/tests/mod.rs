@@ -11,4 +11,6 @@
 mod apr_transformer;
 mod coverage;
 mod part_02;
+mod part_03;
+mod part_04; // T-COV-95 Deep Coverage Bridge (generate, forward_with_cache, embed, layer params)
 mod q4_simd;

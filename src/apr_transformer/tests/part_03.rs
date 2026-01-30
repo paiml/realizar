@@ -413,6 +413,7 @@ fn test_generate_with_cache_top_k_sampling() {
         top_k: 10, // Top-k sampling
         top_p: 1.0,
         repetition_penalty: 1.0,
+        trace: false,
     };
 
     let result = transformer.generate_with_cache(&[0, 1], &gen_config);
@@ -430,6 +431,7 @@ fn test_generate_with_cache_top_p_sampling() {
         top_k: 0,
         top_p: 0.5, // Nucleus sampling
         repetition_penalty: 1.0,
+        trace: false,
     };
 
     let result = transformer.generate_with_cache(&[0], &gen_config);
@@ -447,6 +449,7 @@ fn test_generate_with_cache_repetition_penalty() {
         top_k: 0,
         top_p: 1.0,
         repetition_penalty: 1.5, // Strong repetition penalty
+        trace: false,
     };
 
     let result = transformer.generate_with_cache(&[0, 1, 2], &gen_config);
