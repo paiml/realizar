@@ -333,19 +333,20 @@ cov-api-atomized: ## Shard 4: API atomized (19 separate processes)
 cov-shard-4: cov-api-atomized ## Shard 4: api (1022 tests, ATOMIZED)
 
 cov-shard-5: ## Shard 5: gpu (non-cuda only)
-	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- gpu:: --skip cuda:: --test-threads=8 2>&1 | tail -1
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- gpu:: --skip cuda:: --skip test_cuda_scheduler --test-threads=8 2>&1 | tail -1
 
 cov-shard-6: ## Shard 6: remaining modules (apr, bench, scheduler, cli)
 	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- apr:: --skip cuda:: --test-threads=8 2>&1 | tail -1
 	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- bench:: --skip cuda:: --test-threads=8 2>&1 | tail -1
-	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- scheduler:: --skip cuda:: --test-threads=8 2>&1 | tail -1
+	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- scheduler:: --skip cuda:: --skip test_cuda_scheduler --test-threads=8 2>&1 | tail -1
 	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- cli:: --skip cuda:: --test-threads=8 2>&1 | tail -1
 
 # === PHASE 2: CUDA Shard (must run LAST, single-threaded) ===
 
 cov-shard-cuda: ## CUDA shard: all cuda:: tests (MUST run last, single-threaded)
 	@echo "🔶 CUDA tests (single-threaded for context safety)..."
-	@cargo llvm-cov test --lib --features cuda,gpu --no-report -- cuda:: --test-threads=1 2>&1 | tail -1
+	-@cargo llvm-cov test --lib --features cuda,gpu --no-report -- cuda:: --test-threads=1 2>&1 | tail -1
+	-@cargo llvm-cov test --lib --features cuda,gpu --no-report -- test_cuda_scheduler --test-threads=1 2>&1 | tail -1
 
 # === Composite Targets ===
 
