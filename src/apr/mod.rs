@@ -766,22 +766,27 @@ impl TensorEntry {
         let name = String::from_utf8_lossy(&data[pos..pos + name_len]).to_string();
         pos += name_len;
 
-        // Dtype (1 byte)
+        // Dtype (1 byte) - matches aprender/src/format/v2.rs TensorDType enum
         let dtype_byte = data[pos];
         pos += 1;
         let dtype = match dtype_byte {
             0 => "F32",
             1 => "F16",
             2 => "BF16",
-            3 => "I8",
-            4 => "I16",
-            5 => "I32",
-            6 => "I64",
+            3 => "F64",
+            4 => "I32",
+            5 => "I64",
+            6 => "I8",
             7 => "U8",
-            8 => "Q4_K",  // GGUF Q4_K_M quantization (4.5 bits/element)
-            9 => "Q6_K",  // GGUF Q6_K quantization (6.5 bits/element)
-            10 => "Q8_0", // GGUF Q8_0 quantization (8 bits/element)
-            _ => "F32",
+            8 => "Q4",    // APR native 4-bit quantization
+            9 => "Q8_0",  // APR Q8 quantization
+            12 => "Q4_K", // GGUF Q4_K_M quantization (4.5 bits/element)
+            14 => "Q6_K", // GGUF Q6_K quantization (6.5 bits/element)
+            _ => {
+                // Log warning for unknown dtype but don't crash
+                eprintln!("WARN: Unknown APR dtype {dtype_byte}, treating as F32");
+                "F32"
+            }
         }
         .to_string();
 
