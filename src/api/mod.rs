@@ -399,6 +399,50 @@ impl AppState {
         })
     }
 
+    /// Create a MOCK demo state for fast HTTP handler testing (no inference)
+    ///
+    /// This creates an AppState with NO model loaded, so all inference endpoints
+    /// return errors immediately. Used for testing HTTP handler code paths
+    /// without the ~0.5s overhead of model creation per test.
+    ///
+    /// # Performance (Dr. Popper's "Tax of Setup" Fix)
+    /// - `demo()`: ~0.5s (creates real model)
+    /// - `demo_mock()`: ~0.001s (no model, instant errors)
+    ///
+    /// # When to use
+    /// - Use `demo_mock()` for HTTP routing/parsing tests (95% of API tests)
+    /// - Use `demo()` only when you need actual inference output
+    pub fn demo_mock() -> Result<Self, RealizarError> {
+        let (audit_logger, audit_sink) = create_audit_state();
+        Ok(Self {
+            model: None, // No model = instant "model not loaded" errors
+            tokenizer: None,
+            cache: None,
+            cache_key: None,
+            metrics: Arc::new(MetricsCollector::new()),
+            registry: None,
+            default_model_id: None,
+            apr_model: None,
+            audit_logger,
+            audit_sink,
+            #[cfg(feature = "gpu")]
+            gpu_model: None,
+            quantized_model: None,
+            #[cfg(feature = "gpu")]
+            cached_model: None,
+            #[cfg(feature = "gpu")]
+            dispatch_metrics: None,
+            #[cfg(feature = "gpu")]
+            batch_request_tx: None,
+            #[cfg(feature = "gpu")]
+            batch_config: None,
+            #[cfg(feature = "cuda")]
+            cuda_model: None,
+            apr_transformer: None,
+            verbose: false,
+        })
+    }
+
     /// Create application state with a GPU model for GGUF inference (M33: IMP-084)
     ///
     /// # Arguments

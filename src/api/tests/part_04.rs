@@ -11,7 +11,7 @@ use axum::{
 use tower::util::ServiceExt;
 
 #[allow(unused_imports)]
-use crate::api::test_helpers::create_test_app;
+use crate::api::test_helpers::create_test_app_shared;
 #[cfg(feature = "gpu")]
 use crate::api::test_helpers::create_test_quantized_model;
 use crate::api::*;

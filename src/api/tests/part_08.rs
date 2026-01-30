@@ -9,7 +9,7 @@ use axum::{
 };
 use tower::util::ServiceExt;
 
-use crate::api::test_helpers::create_test_app;
+use crate::api::test_helpers::create_test_app_shared;
 use crate::api::{
     build_trace_data, ChatChoice, ChatChunkChoice, ChatCompletionChunk, ChatCompletionRequest,
     ChatCompletionResponse, ChatDelta, ChatMessage, ErrorResponse, OpenAIModel,
@@ -700,7 +700,7 @@ fn test_build_trace_data_unknown_level() {
 
 #[tokio::test]
 async fn test_openai_models_endpoint() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(
@@ -728,7 +728,7 @@ async fn test_openai_models_endpoint() {
 
 #[tokio::test]
 async fn test_openai_chat_completions_endpoint() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "default",
@@ -764,7 +764,7 @@ async fn test_openai_chat_completions_endpoint() {
 
 #[tokio::test]
 async fn test_openai_chat_completions_with_system_message() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "default",
@@ -792,7 +792,7 @@ async fn test_openai_chat_completions_with_system_message() {
 
 #[tokio::test]
 async fn test_openai_chat_completions_with_temperature() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "default",
@@ -817,7 +817,7 @@ async fn test_openai_chat_completions_with_temperature() {
 
 #[tokio::test]
 async fn test_openai_chat_completions_with_top_p() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "default",
@@ -842,7 +842,7 @@ async fn test_openai_chat_completions_with_top_p() {
 
 #[tokio::test]
 async fn test_openai_chat_completions_model_default() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "default",
@@ -866,7 +866,7 @@ async fn test_openai_chat_completions_model_default() {
 
 #[tokio::test]
 async fn test_openai_chat_completions_empty_model() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "",
@@ -891,7 +891,7 @@ async fn test_openai_chat_completions_empty_model() {
 
 #[tokio::test]
 async fn test_openai_chat_completions_invalid_model() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "nonexistent-model-xyz",
@@ -917,7 +917,7 @@ async fn test_openai_chat_completions_invalid_model() {
 
 #[tokio::test]
 async fn test_openai_chat_completions_multi_turn_conversation() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "default",
@@ -947,7 +947,7 @@ async fn test_openai_chat_completions_multi_turn_conversation() {
 
 #[tokio::test]
 async fn test_openai_chat_completions_invalid_json() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(
@@ -967,7 +967,7 @@ async fn test_openai_chat_completions_invalid_json() {
 
 #[tokio::test]
 async fn test_openai_chat_completions_missing_messages() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "default"
@@ -991,7 +991,7 @@ async fn test_openai_chat_completions_missing_messages() {
 
 #[tokio::test]
 async fn test_openai_chat_completions_with_trace_header_brick() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "default",
@@ -1024,7 +1024,7 @@ async fn test_openai_chat_completions_with_trace_header_brick() {
 
 #[tokio::test]
 async fn test_openai_chat_completions_with_trace_header_step() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "default",
@@ -1049,7 +1049,7 @@ async fn test_openai_chat_completions_with_trace_header_step() {
 
 #[tokio::test]
 async fn test_openai_chat_completions_with_trace_header_layer() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "default",
@@ -1245,7 +1245,7 @@ fn test_chat_completion_response_multiple_choices() {
 async fn test_chat_completions_with_temperature_very_low() {
     // Temperature 0.0 is rejected by apply_temperature (must be positive)
     // Use a very small positive value instead for near-greedy sampling
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "default",
@@ -1270,7 +1270,7 @@ async fn test_chat_completions_with_temperature_very_low() {
 
 #[tokio::test]
 async fn test_chat_completions_with_high_temperature() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "default",
@@ -1295,7 +1295,7 @@ async fn test_chat_completions_with_high_temperature() {
 
 #[tokio::test]
 async fn test_chat_completions_with_top_p() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "default",
@@ -1320,7 +1320,7 @@ async fn test_chat_completions_with_top_p() {
 
 #[tokio::test]
 async fn test_chat_completions_with_max_tokens() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "default",
@@ -1345,7 +1345,7 @@ async fn test_chat_completions_with_max_tokens() {
 
 #[tokio::test]
 async fn test_chat_completions_with_stop_tokens() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "default",
@@ -1370,7 +1370,7 @@ async fn test_chat_completions_with_stop_tokens() {
 
 #[tokio::test]
 async fn test_chat_completions_with_user_field() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "default",
@@ -1395,7 +1395,7 @@ async fn test_chat_completions_with_user_field() {
 
 #[tokio::test]
 async fn test_chat_completions_with_n_parameter() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "default",
@@ -1420,7 +1420,7 @@ async fn test_chat_completions_with_n_parameter() {
 
 #[tokio::test]
 async fn test_chat_completions_all_parameters() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "default",
@@ -1458,7 +1458,7 @@ async fn test_chat_completions_all_parameters() {
 
 #[tokio::test]
 async fn test_chat_completions_with_trace_level_brick() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "default",
@@ -1483,7 +1483,7 @@ async fn test_chat_completions_with_trace_level_brick() {
 
 #[tokio::test]
 async fn test_chat_completions_with_trace_level_step() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "default",
@@ -1508,7 +1508,7 @@ async fn test_chat_completions_with_trace_level_step() {
 
 #[tokio::test]
 async fn test_chat_completions_with_trace_level_layer() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "default",
@@ -1533,7 +1533,7 @@ async fn test_chat_completions_with_trace_level_layer() {
 
 #[tokio::test]
 async fn test_chat_completions_with_trace_level_invalid() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "default",
@@ -1563,7 +1563,7 @@ async fn test_chat_completions_with_trace_level_invalid() {
 
 #[tokio::test]
 async fn test_chat_completions_multi_turn_conversation() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "default",
@@ -1592,7 +1592,7 @@ async fn test_chat_completions_multi_turn_conversation() {
 
 #[tokio::test]
 async fn test_chat_completions_long_conversation() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     // Build a 10-turn conversation
     let mut messages = vec![serde_json::json!({"role": "system", "content": "You are helpful."})];
@@ -1628,7 +1628,7 @@ async fn test_chat_completions_long_conversation() {
 
 #[tokio::test]
 async fn test_chat_completions_unicode_content() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "default",
@@ -1652,7 +1652,7 @@ async fn test_chat_completions_unicode_content() {
 
 #[tokio::test]
 async fn test_chat_completions_special_chars() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "default",
@@ -1676,7 +1676,7 @@ async fn test_chat_completions_special_chars() {
 
 #[tokio::test]
 async fn test_chat_completions_empty_model_name() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "",
@@ -1701,7 +1701,7 @@ async fn test_chat_completions_empty_model_name() {
 
 #[tokio::test]
 async fn test_chat_completions_whitespace_content() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "default",
@@ -1729,7 +1729,7 @@ async fn test_chat_completions_whitespace_content() {
 
 #[tokio::test]
 async fn test_chat_completions_response_has_usage() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "default",
@@ -1762,7 +1762,7 @@ async fn test_chat_completions_response_has_usage() {
 
 #[tokio::test]
 async fn test_chat_completions_response_has_finish_reason() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "default",
@@ -1795,7 +1795,7 @@ async fn test_chat_completions_response_has_finish_reason() {
 
 #[tokio::test]
 async fn test_chat_completions_response_timestamps() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "default",
@@ -1840,7 +1840,7 @@ async fn test_chat_completions_response_timestamps() {
 
 #[tokio::test]
 async fn test_models_endpoint_returns_list_object() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(
@@ -1863,7 +1863,7 @@ async fn test_models_endpoint_returns_list_object() {
 
 #[tokio::test]
 async fn test_models_endpoint_model_fields() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(

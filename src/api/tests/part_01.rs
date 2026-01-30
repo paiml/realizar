@@ -8,7 +8,7 @@ use axum::{
 };
 use tower::util::ServiceExt;
 
-use crate::api::test_helpers::create_test_app;
+use crate::api::test_helpers::create_test_app_shared;
 #[cfg(feature = "gpu")]
 use crate::api::test_helpers::create_test_quantized_model;
 use crate::api::*;
@@ -62,7 +62,7 @@ fn test_clean_chat_output_trims_whitespace() {
 
 #[tokio::test]
 async fn test_health_endpoint() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(
@@ -85,7 +85,7 @@ async fn test_health_endpoint() {
 
 #[tokio::test]
 async fn test_metrics_endpoint() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(
@@ -152,7 +152,7 @@ async fn test_metrics_tracking() {
 /// Test PARITY-107: /v1/metrics endpoint for TUI monitoring
 #[tokio::test]
 async fn test_parity107_server_metrics_endpoint() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(
@@ -184,7 +184,7 @@ async fn test_parity107_server_metrics_endpoint() {
 
 #[tokio::test]
 async fn test_tokenize_endpoint() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let request = TokenizeRequest {
         text: "token1 token2".to_string(),
@@ -214,7 +214,7 @@ async fn test_tokenize_endpoint() {
 
 #[tokio::test]
 async fn test_generate_endpoint() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let request = GenerateRequest {
         prompt: "token1".to_string(),
@@ -250,7 +250,7 @@ async fn test_generate_endpoint() {
 
 #[tokio::test]
 async fn test_generate_empty_prompt_error() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let request = GenerateRequest {
         prompt: String::new(),
@@ -280,7 +280,7 @@ async fn test_generate_empty_prompt_error() {
 
 #[tokio::test]
 async fn test_generate_invalid_strategy_error() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let request = GenerateRequest {
         prompt: "token1".to_string(),
@@ -310,7 +310,7 @@ async fn test_generate_invalid_strategy_error() {
 
 #[tokio::test]
 async fn test_generate_top_k_strategy() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let request = GenerateRequest {
         prompt: "token1".to_string(),
@@ -340,7 +340,7 @@ async fn test_generate_top_k_strategy() {
 
 #[tokio::test]
 async fn test_generate_top_p_strategy() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let request = GenerateRequest {
         prompt: "token1".to_string(),
@@ -403,7 +403,7 @@ fn test_default_top_p() {
 
 #[tokio::test]
 async fn test_generate_with_defaults() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     // Generate request using default values via serde defaults
     let json = r#"{"prompt": "test"}"#;
@@ -434,7 +434,7 @@ async fn test_generate_with_defaults() {
 #[tokio::test]
 async fn test_num_generated_calculation() {
     // First tokenize to get prompt length
-    let app1 = create_test_app();
+    let app1 = create_test_app_shared();
     let prompt_tokens = app1
         .oneshot(
             Request::builder()
@@ -453,7 +453,7 @@ async fn test_num_generated_calculation() {
     let prompt_len = prompt_result.token_ids.len();
 
     // Now generate
-    let app2 = create_test_app();
+    let app2 = create_test_app_shared();
     let request = GenerateRequest {
         prompt: "a".to_string(),
         max_tokens: 5,
@@ -494,7 +494,7 @@ async fn test_num_generated_calculation() {
 
 #[tokio::test]
 async fn test_batch_tokenize_endpoint() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let request = BatchTokenizeRequest {
         texts: vec!["token1".to_string(), "token2 token3".to_string()],
@@ -528,7 +528,7 @@ async fn test_batch_tokenize_endpoint() {
 
 #[tokio::test]
 async fn test_batch_tokenize_empty_array_error() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let request = BatchTokenizeRequest { texts: vec![] };
 
@@ -549,7 +549,7 @@ async fn test_batch_tokenize_empty_array_error() {
 
 #[tokio::test]
 async fn test_batch_generate_endpoint() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let request = BatchGenerateRequest {
         prompts: vec!["token1".to_string(), "token2".to_string()],
@@ -592,7 +592,7 @@ async fn test_batch_generate_endpoint() {
 
 #[tokio::test]
 async fn test_batch_generate_empty_array_error() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let request = BatchGenerateRequest {
         prompts: vec![],
@@ -621,7 +621,7 @@ async fn test_batch_generate_empty_array_error() {
 
 #[tokio::test]
 async fn test_batch_generate_with_defaults() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     // Use serde defaults
     let json = r#"{"prompts": ["test1", "test2"]}"#;
@@ -654,7 +654,7 @@ async fn test_batch_generate_with_defaults() {
 
 #[tokio::test]
 async fn test_batch_generate_order_preserved() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let request = BatchGenerateRequest {
         prompts: vec![
@@ -701,7 +701,7 @@ async fn test_batch_generate_order_preserved() {
 
 #[tokio::test]
 async fn test_batch_generate_invalid_strategy_error() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let request = BatchGenerateRequest {
         prompts: vec!["test".to_string()],
@@ -730,7 +730,7 @@ async fn test_batch_generate_invalid_strategy_error() {
 
 #[tokio::test]
 async fn test_batch_generate_top_k_strategy() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let request = BatchGenerateRequest {
         prompts: vec!["token1".to_string(), "token2".to_string()],
@@ -766,7 +766,7 @@ async fn test_batch_generate_top_k_strategy() {
 
 #[tokio::test]
 async fn test_batch_generate_top_p_strategy() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let request = BatchGenerateRequest {
         prompts: vec!["token1".to_string()],
@@ -806,7 +806,7 @@ async fn test_batch_generate_top_p_strategy() {
 
 #[tokio::test]
 async fn test_openai_models_endpoint() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(
@@ -833,7 +833,7 @@ async fn test_openai_models_endpoint() {
 
 #[tokio::test]
 async fn test_openai_chat_completions_endpoint() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let request = ChatCompletionRequest {
         model: "default".to_string(),
@@ -888,7 +888,7 @@ async fn test_openai_chat_completions_endpoint() {
 
 #[tokio::test]
 async fn test_openai_chat_completions_with_defaults() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     // Minimal request with just required fields
     let json = r#"{"model": "default", "messages": [{"role": "user", "content": "Hi"}]}"#;
@@ -1321,7 +1321,7 @@ fn test_context_manager_single_large_message() {
 #[tokio::test]
 #[ignore = "APR model integration test - requires specific model setup"]
 async fn test_apr_predict_endpoint() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     // Use 4 features to match demo APR model's expected input dimension
     let request = PredictRequest {
@@ -1363,7 +1363,7 @@ async fn test_apr_predict_endpoint() {
 
 #[tokio::test]
 async fn test_apr_predict_empty_features() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let request = PredictRequest {
         model: None,
@@ -1390,7 +1390,7 @@ async fn test_apr_predict_empty_features() {
 
 #[tokio::test]
 async fn test_apr_explain_endpoint() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let request = ExplainRequest {
         model: None,
@@ -1428,7 +1428,7 @@ async fn test_apr_explain_endpoint() {
 
 #[tokio::test]
 async fn test_apr_explain_mismatched_features() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let request = ExplainRequest {
         model: None,
@@ -1516,7 +1516,7 @@ async fn test_apr_audit_endpoint() {
 
 #[tokio::test]
 async fn test_apr_audit_invalid_id() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let response = app
         .oneshot(

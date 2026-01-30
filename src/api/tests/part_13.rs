@@ -9,7 +9,7 @@ use axum::{
 };
 use tower::util::ServiceExt;
 
-use crate::api::test_helpers::create_test_app;
+use crate::api::test_helpers::create_test_app_shared;
 use crate::api::{ChatCompletionRequest, ChatCompletionResponse, ChatMessage, ErrorResponse};
 
 // =============================================================================
@@ -18,7 +18,7 @@ use crate::api::{ChatCompletionRequest, ChatCompletionResponse, ChatMessage, Err
 
 #[tokio::test]
 async fn test_completions_invalid_json() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
     let response = app
         .oneshot(
             Request::builder()
@@ -35,7 +35,7 @@ async fn test_completions_invalid_json() {
 
 #[tokio::test]
 async fn test_completions_missing_fields() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
     let response = app
         .oneshot(
             Request::builder()
@@ -52,7 +52,7 @@ async fn test_completions_missing_fields() {
 
 #[tokio::test]
 async fn test_completions_empty_prompt() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
     let response = app
         .oneshot(
             Request::builder()
@@ -69,7 +69,7 @@ async fn test_completions_empty_prompt() {
 
 #[tokio::test]
 async fn test_embeddings_error_paths() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
     let response = app
         .oneshot(
             Request::builder()
@@ -86,7 +86,7 @@ async fn test_embeddings_error_paths() {
 
 #[tokio::test]
 async fn test_embeddings_missing_input() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
     let response = app
         .oneshot(
             Request::builder()
@@ -103,7 +103,7 @@ async fn test_embeddings_missing_input() {
 
 #[tokio::test]
 async fn test_realize_reload_error() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
     let response = app
         .oneshot(
             Request::builder()
@@ -183,7 +183,7 @@ fn test_chat_completion_response_traits() {
 
 #[tokio::test]
 async fn test_chat_completions_streaming() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
     let req_body = serde_json::json!({
         "model": "default",
         "messages": [{"role": "user", "content": "Hello"}],
@@ -212,7 +212,7 @@ async fn test_chat_completions_streaming() {
 
 #[tokio::test]
 async fn test_chat_completions_non_streaming() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
     let req_body = serde_json::json!({
         "model": "default",
         "messages": [{"role": "user", "content": "Hello"}],
@@ -261,7 +261,7 @@ fn test_error_response() {
 
 #[tokio::test]
 async fn test_completions_with_params() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
     let req_body = serde_json::json!({
         "model": "default",
         "prompt": "Hello",
@@ -286,7 +286,7 @@ async fn test_completions_with_params() {
     assert!(
         status == StatusCode::OK
             || status == StatusCode::NOT_FOUND
-            || status == StatusCode::INTERNAL_SERVER_ERROR
+            || status == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -296,7 +296,7 @@ async fn test_completions_with_params() {
 
 #[tokio::test]
 async fn test_realize_embed() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
     let req_body = serde_json::json!({"input": "Test embedding"});
     let response = app
         .oneshot(
@@ -316,7 +316,7 @@ async fn test_realize_embed() {
 
 #[tokio::test]
 async fn test_realize_embed_invalid() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
     let response = app
         .oneshot(
             Request::builder()
@@ -333,7 +333,7 @@ async fn test_realize_embed_invalid() {
 
 #[tokio::test]
 async fn test_realize_model() {
-    let app = create_test_app();
+    let app = create_test_app_shared();
     let response = app
         .oneshot(
             Request::builder()

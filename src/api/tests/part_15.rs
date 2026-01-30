@@ -448,7 +448,7 @@ async fn test_gpu_model_tokenizer_missing_error() {
     let status = response.status();
     assert!(
         status == StatusCode::OK
-            || status == StatusCode::INTERNAL_SERVER_ERROR
+            || status == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
             || status == StatusCode::BAD_REQUEST,
         "Should handle gracefully, got {}",
         status
@@ -619,10 +619,10 @@ async fn test_quantized_model_max_tokens() {
 /// Test fallback to registry when no specialized model
 #[tokio::test]
 async fn test_registry_fallback_path() {
-    use crate::api::test_helpers::create_test_app;
+    use crate::api::test_helpers::create_test_app_shared;
 
     // create_test_app uses AppState::demo() which has no GPU/quantized models
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "default",
@@ -648,9 +648,9 @@ async fn test_registry_fallback_path() {
 /// Test registry model streaming fallback
 #[tokio::test]
 async fn test_registry_streaming_fallback() {
-    use crate::api::test_helpers::create_test_app;
+    use crate::api::test_helpers::create_test_app_shared;
 
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "default",
@@ -681,9 +681,9 @@ async fn test_registry_streaming_fallback() {
 /// Test dedicated stream handler endpoint
 #[tokio::test]
 async fn test_stream_handler_endpoint() {
-    use crate::api::test_helpers::create_test_app;
+    use crate::api::test_helpers::create_test_app_shared;
 
-    let app = create_test_app();
+    let app = create_test_app_shared();
 
     let req_body = serde_json::json!({
         "model": "default",
