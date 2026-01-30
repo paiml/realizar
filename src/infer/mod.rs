@@ -33,6 +33,30 @@ use crate::format::{detect_format, ModelFormat};
 use std::path::PathBuf;
 use std::time::Instant;
 
+/// PMAT-173: Convert GGML quantization type to human-readable string
+/// Used for --verbose mode display (F-UX-038)
+fn qtype_to_dtype_str(qtype: u32) -> &'static str {
+    match qtype {
+        0 => "F32",
+        1 => "F16",
+        2 => "Q4_0",
+        3 => "Q4_1",
+        6 => "Q5_0",
+        7 => "Q5_1",
+        8 => "Q8_0",
+        9 => "Q8_1",
+        10 => "Q2_K",
+        11 => "Q3_K",
+        12 => "Q4_K",
+        13 => "Q5_K",
+        14 => "Q6_K",
+        16 => "IQ2_XXS",
+        17 => "IQ2_XS",
+        30 => "BF16",
+        _ => "Unknown",
+    }
+}
+
 /// Configuration for inference
 #[derive(Debug, Clone)]
 pub struct InferenceConfig {
@@ -326,9 +350,17 @@ fn run_gguf_inference(config: &InferenceConfig) -> Result<InferenceResult> {
     };
 
     if config.verbose {
+        // PMAT-173: Enhanced verbose output with deferred UX items
+        // F-UX-036: hidden_size, F-UX-037: threads, F-UX-038: quant, F-UX-039: context
+        let quant_type = qtype_to_dtype_str(model.lm_head_weight.qtype);
+        let thread_count = rayon::current_num_threads();
         eprintln!(
             "Architecture: {} [GGUF: {}] ({} layers, vocab_size={})",
             arch, gguf_arch, model.config.num_layers, model.config.vocab_size
+        );
+        eprintln!(
+            "Config: hidden_size={}, context_length={}, quant={}, threads={}",
+            model.config.hidden_dim, model.config.context_length, quant_type, thread_count
         );
         eprintln!("Model loaded in {:.1}ms", load_ms);
     }
@@ -546,6 +578,7 @@ fn run_gguf_generate(
 /// AprTransformer (CPU with proper RoPE and SwiGLU) otherwise.
 fn run_apr_inference(config: &InferenceConfig) -> Result<InferenceResult> {
     use crate::apr::AprV2Model;
+    use crate::chat_template::{format_messages, ChatMessage};
 
     // Verbose: Show loading message BEFORE loading
     if config.verbose {
@@ -554,12 +587,53 @@ fn run_apr_inference(config: &InferenceConfig) -> Result<InferenceResult> {
 
     let load_start = Instant::now();
 
-    // Get input tokens first (needed for both GPU and CPU paths)
+    // PMAT-113 FIX: Load model metadata early to detect architecture for chat template
+    // APR models converted from GGUF need the same chat template processing as GGUF
+    let apr_arch = AprV2Model::load(&config.model_path)
+        .ok()
+        .and_then(|m| m.metadata().architecture.clone())
+        .unwrap_or_default();
+
+    // Get input tokens (with chat template for instruct models)
     let input_tokens = if let Some(ref tokens) = config.input_tokens {
         tokens.clone()
     } else if let Some(ref prompt) = config.prompt {
+        // PMAT-113: Detect instruct model from APR architecture metadata
+        // Apply same chat template logic as GGUF path
+        let is_instruct_arch = matches!(
+            apr_arch.to_lowercase().as_str(),
+            "qwen2" | "qwen" | "llama" | "mistral" | "phi" | "phi3"
+        );
+
+        let model_name = config
+            .model_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        let filename_instruct = model_name.to_lowercase().contains("instruct");
+
+        let formatted_prompt = if is_instruct_arch || filename_instruct {
+            // Use APR architecture for chat template detection
+            let template_hint = if apr_arch.to_lowercase().contains("qwen") {
+                "qwen2"
+            } else if apr_arch.to_lowercase().contains("llama") {
+                "llama"
+            } else if apr_arch.to_lowercase().contains("mistral") {
+                "mistral"
+            } else if apr_arch.to_lowercase().contains("phi") {
+                "phi"
+            } else {
+                model_name
+            };
+
+            let messages = vec![ChatMessage::user(prompt)];
+            format_messages(&messages, Some(template_hint)).unwrap_or_else(|_| prompt.clone())
+        } else {
+            prompt.clone()
+        };
+
         // Load tokenizer from sibling tokenizer.json
-        AprV2Model::encode_text(&config.model_path, prompt).unwrap_or_else(|| vec![1u32])
+        AprV2Model::encode_text(&config.model_path, &formatted_prompt).unwrap_or_else(|| vec![1u32])
     } else {
         vec![1u32] // BOS token
     };
@@ -581,11 +655,19 @@ fn run_apr_inference(config: &InferenceConfig) -> Result<InferenceResult> {
                         let load_ms = load_start.elapsed().as_secs_f64() * 1000.0;
 
                         if config.verbose {
+                            // PMAT-173: Enhanced verbose output with deferred UX items
+                            // F-UX-036: hidden_size, F-UX-037: threads, F-UX-038: quant, F-UX-039: context
+                            let metadata = cuda_model.model().metadata();
                             eprintln!(
                                 "Architecture: {} ({} layers, vocab_size={})",
-                                cuda_model.model().metadata().architecture.as_deref().unwrap_or("unknown"),
-                                cuda_model.model().metadata().num_layers.unwrap_or(0),
-                                cuda_model.model().metadata().vocab_size.unwrap_or(0)
+                                metadata.architecture.as_deref().unwrap_or("unknown"),
+                                metadata.num_layers.unwrap_or(0),
+                                metadata.vocab_size.unwrap_or(0)
+                            );
+                            eprintln!(
+                                "Config: hidden_size={}, context_length={}, quant=GPU, threads=1 (GPU)",
+                                metadata.hidden_size.unwrap_or(0),
+                                metadata.max_position_embeddings.unwrap_or(2048)
                             );
                             eprintln!("Model loaded in {:.1}ms", load_ms);
                             eprintln!(
@@ -655,9 +737,16 @@ fn run_apr_inference(config: &InferenceConfig) -> Result<InferenceResult> {
     let arch = &transformer.config.architecture;
 
     if config.verbose {
+        // PMAT-173: Enhanced verbose output with deferred UX items
+        // F-UX-036: hidden_size, F-UX-037: threads, F-UX-038: quant, F-UX-039: context
+        let thread_count = rayon::current_num_threads();
         eprintln!(
             "Architecture: {} ({} layers, vocab_size={})",
             arch, transformer.config.num_layers, transformer.config.vocab_size
+        );
+        eprintln!(
+            "Config: hidden_size={}, context_length={}, quant=F32 (dequantized), threads={}",
+            transformer.config.hidden_dim, transformer.config.context_length, thread_count
         );
         eprintln!("Model loaded in {:.1}ms", load_ms);
         eprintln!("Backend: CPU (SIMD-accelerated)");
@@ -769,10 +858,17 @@ fn run_safetensors_inference(config: &InferenceConfig) -> Result<InferenceResult
                 let load_ms = load_start.elapsed().as_secs_f64() * 1000.0;
 
                 if config.verbose {
+                    // PMAT-173: Enhanced verbose output with deferred UX items
+                    // F-UX-036: hidden_size, F-UX-037: threads, F-UX-038: quant, F-UX-039: context
                     eprintln!(
                         "Architecture: SafeTensors ({} layers, vocab_size={})",
                         cuda_model.config().num_layers,
                         cuda_model.config().vocab_size
+                    );
+                    eprintln!(
+                        "Config: hidden_size={}, context_length={}, quant=F16/BF16, threads=1 (GPU)",
+                        cuda_model.config().hidden_dim,
+                        cuda_model.config().context_length
                     );
                     eprintln!("Model loaded in {:.1}ms", load_ms);
                     eprintln!(
@@ -842,9 +938,16 @@ fn run_safetensors_inference(config: &InferenceConfig) -> Result<InferenceResult
     let arch = &transformer.config.architecture;
 
     if config.verbose {
+        // PMAT-173: Enhanced verbose output with deferred UX items
+        // F-UX-036: hidden_size, F-UX-037: threads, F-UX-038: quant, F-UX-039: context
+        let thread_count = rayon::current_num_threads();
         eprintln!(
             "Architecture: {} ({} layers, vocab_size={})",
             arch, transformer.config.num_layers, transformer.config.vocab_size
+        );
+        eprintln!(
+            "Config: hidden_size={}, context_length={}, quant=F32, threads={}",
+            transformer.config.hidden_dim, transformer.config.context_length, thread_count
         );
         eprintln!("Model loaded in {:.1}ms", load_ms);
         eprintln!("Backend: CPU (SIMD-accelerated)");
