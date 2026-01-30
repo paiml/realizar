@@ -1738,3 +1738,8 @@ mod cli_tests_part_02;
 #[cfg(test)]
 #[path = "tests_part_03.rs"]
 mod cli_tests_part_03;
+
+// Coverage bridge tests (Part 04 - T-COV-95 B1)
+#[cfg(test)]
+#[path = "tests_part_04.rs"]
+mod cli_tests_part_04;

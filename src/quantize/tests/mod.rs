@@ -24,3 +24,4 @@ mod part_25; // Popperian SIMD Falsification: performance tests, SIMD/scalar par
 mod part_26; // T-COV-001: Error path and edge case coverage tests
 mod part_27; // T-COV-95 Directive 3: Scalar exhaustion for fused_k.rs
 mod part_28; // T-COV-95 Directive 4: Performance Falsification Gate (SIMD vs scalar)
+mod part_29; // T-COV-95 Coverage Bridge B7 (Q4_1, Q5_0, Q5_1, Q2_K dequantization)

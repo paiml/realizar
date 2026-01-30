@@ -56,3 +56,4 @@ mod part_22;
 mod part_23;
 mod part_24;
 mod part_25;
+mod part_26; // T-COV-95 Coverage Bridge B6 (loader.rs metadata, parsing, transformer)

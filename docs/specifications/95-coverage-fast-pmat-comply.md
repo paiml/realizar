@@ -1,7 +1,7 @@
 # Specification: Fast O(1) Coverage with PMAT Compliance
 
 **Document ID:** SPEC-COV-95
-**Version:** 1.49.0
+**Version:** 1.50.0
 **Status:** ACTIVE
 **Methodology:** The Toyota Way (14 Principles) + Popperian Falsification
 **Target:** 95% Production Code Coverage in <10 minutes (Full), O(1) Incremental
@@ -422,7 +422,75 @@ When coverage drops or a bug slips through, we do not just "fix" it. We apply th
 
 ---
 
-## 10. Appendix A: Checklist Scoring
+## 10. URGENT P0: GGUF→APR Conversion Pipeline — Golden Rule FAIL
+
+**Priority:** P0 — Blocks all APR inference correctness
+**Golden Rule Test Result (Post-PMAT-205):** **FAIL**
+**Filed:** 2026-01-30
+
+The GGUF→APR conversion pipeline has **two independent bugs**, both causing garbage output:
+
+### 10.1 Bug GH-190 (Tensor Naming)
+
+| Field | Value |
+|-------|-------|
+| **Status** | **FIXED** by PMAT-205 |
+| **What Was Wrong** | `model.` prefix was not stripped — tensor names mismatched during lookup |
+| **Resolution** | Tensor names now correct after prefix removal |
+
+### 10.2 Bug GH-191 (Quantization Data Loss)
+
+| Field | Value |
+|-------|-------|
+| **Status** | **NEW — UNFIXED** |
+| **What's Wrong** | Q4_K_M data lost during conversion — all 308 tensors load as F32 |
+| **Observed** | `0 quantized, 308 F32 tensors → 10550 MB` |
+| **Expected** | Most tensors quantized at ~1.1 GB total |
+| **Impact** | Every matmul produces semantically-wrong results |
+
+#### Smoking Gun
+
+```
+APR load trace:
+  0 quantized, 308 F32 tensors → 10550 MB
+```
+
+A Q4_K_M model should have most tensors quantized at ~1.1 GB. Instead, the converter is either:
+
+1. Writing Q4_K_M bytes **tagged as F32** in the APR tensor header, or
+2. **Dequantizing** via a broken kernel during conversion, inflating 4.5-bit data to 32-bit
+
+Either way, every matmul produces semantically-wrong results because the inference engine interprets Q4_K_M byte patterns as IEEE 754 floats.
+
+#### 5 Whys (Preliminary — Pending Investigation)
+
+1. **Why is output garbage?** All 308 tensors are loaded as F32 despite the source being Q4_K_M.
+2. **Why are they F32?** The APR tensor header `dtype` field is set to F32 for every tensor.
+3. **Why is dtype F32?** Either (a) the converter writes the wrong dtype tag, or (b) the converter dequantizes Q4_K_M→F32 before writing.
+4. **Why would it dequantize?** The `GgufToAprConverter::convert()` or `to_apr_bytes()` path may not preserve quantized formats.
+5. **Root Cause (Hypothesis):** The APR format writer does not support pass-through of quantized tensor data — it forces F32 conversion.
+
+#### Diagnostic Questions (Filed in GH-191)
+
+- What dtype does the converter write in the APR tensor header for Q4_K_M input?
+- Are the raw bytes copied verbatim from GGUF, or are they transformed through a dequantization kernel?
+- Does `to_apr_bytes()` have a code path for quantized dtypes, or does it only handle F32?
+
+#### Verification Test (Required for Fix)
+
+```bash
+# Golden Rule: round-trip GGUF Q4_K_M → APR → inference must match GGUF → inference
+cargo test --lib -- test_apr_q4km_preserves_quantization
+```
+
+The fix MUST satisfy:
+- APR file size ≈ GGUF file size (within 10%)
+- Tensor dtype in APR header matches source GGUF qtype
+- Inference output matches GGUF direct inference (cosine similarity > 0.99)
+
+---
+
+## 11. Appendix A: Checklist Scoring
 
 - **Pass:** 95/110 (Compliant)
 - **Target:** 105/110 (Exemplary)
@@ -430,10 +498,11 @@ When coverage drops or a bug slips through, we do not just "fix" it. We apply th
 
 ---
 
-## 10. Revision History
+## 12. Revision History
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
+| 1.50.0 | 2026-01-30 | Claude | **P0: GGUF→APR Conversion Golden Rule FAIL (GH-191).** Added Section 10 documenting two independent bugs in conversion pipeline. GH-190 (tensor naming) FIXED by PMAT-205. GH-191 (quantization data loss) NEW/UNFIXED: all 308 tensors load as F32 (10.5 GB) instead of quantized (~1.1 GB). Smoking gun: `0 quantized, 308 F32 tensors → 10550 MB`. Converter either writes wrong dtype tag or dequantizes during conversion. Every matmul produces garbage. 5-Whys and diagnostic questions filed. Verification criteria defined: APR size ≈ GGUF size, dtype preserved, cosine similarity > 0.99. |
 | 1.49.0 | 2026-01-30 | Claude | **FIRST HONEST MEASUREMENT: 87.11% Control Plane Coverage.** Ran all 11,352 non-CUDA tests under llvm-cov (359s). Previous 24.49% was from running only API/CLI/scheduler tests with mock state. Running ALL tests exercises production code through internal calls. Gap to 95%: ~5,066 lines across 14 files. Top offenders: gguf/loader.rs (652 missed), api/gpu_handlers.rs (588), quantize/fused_k.rs (586), apr_transformer/mod.rs (513), cli/mod.rs (449). Updated `make coverage-control-plane` to run all non-CUDA tests. 13 files already at 95%+. Added Section 9 with full gap analysis. |
 | 1.48.0 | 2026-01-30 | Claude | **COMPUTE QUARANTINE CODIFIED.** Added Section 3.4 defining Control Plane vs Compute Plane separation. Control Plane (API, CLI, scheduler, config): 95% coverage target with llvm-cov. Compute Plane (cuda/, layers/, simd): Verified by Correctness Tests (11,354 pass). Added `make coverage-control-plane` target. Added `COV_QUARANTINE` Makefile variable. This is the only way to escape the SIGSEGV trap while maintaining rigorous quality verification. |
 | 1.47.0 | 2026-01-30 | Claude | **CRITICAL: llvm-cov SIGSEGV in Compute-Heavy Code (Not Just CUDA).** Extended diagnosis: `layers::` tests SIGSEGV under coverage but pass 100% without it. This is a fundamental llvm-cov limitation with compute-intensive code (SIMD, matrix math, memory-intensive loops). **GROUND TRUTH:** 11,354 tests pass, 0 fail (without instrumentation). Tests ARE correct; measuring tool is broken for this workload. **RECOMMENDED PATH:** (1) Accept "Extrapolated Verification" - tests passing = code works, (2) Measure coverage only on instrumentation-safe code (API, serialization, config), (3) Use mutation testing (`cargo mutants`) for compute modules instead of line coverage. |
