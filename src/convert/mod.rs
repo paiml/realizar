@@ -786,3 +786,8 @@ mod convert_tests;
 #[cfg(test)]
 #[path = "tests_part_02.rs"]
 mod convert_tests_part_02;
+
+// T-COV-95 Deep Coverage Bridge (Part 03 - Q4K converter, rope_type, helpers)
+#[cfg(test)]
+#[path = "tests_part_03.rs"]
+mod convert_tests_part_03;
