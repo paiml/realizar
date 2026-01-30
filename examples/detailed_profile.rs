@@ -38,6 +38,7 @@ fn main() {
         temperature: 0.0,
         top_k: 1,
         stop_tokens: vec![151645, 151643],
+        trace: false,
     };
 
     // Warmup
