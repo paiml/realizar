@@ -562,3 +562,109 @@ proptest! {
         }
     }
 }
+
+// ============================================================================
+// Bounds Check Validation Tests (Allocation Attack Prevention)
+// ============================================================================
+
+/// Test that excessive tensor_count is rejected (allocation attack prevention)
+#[test]
+fn test_bounds_check_excessive_tensor_count() {
+    let mut data = Vec::new();
+
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&100_001u64.to_le_bytes()); // Exceeds MAX_TENSOR_COUNT
+    data.extend_from_slice(&0u64.to_le_bytes());
+
+    let result = GGUFModel::from_bytes(&data);
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("exceeds maximum") || err.contains("tensor_count"),
+        "Expected bounds check error, got: {}",
+        err
+    );
+}
+
+/// Test that excessive metadata_count is rejected
+#[test]
+fn test_bounds_check_excessive_metadata_count() {
+    let mut data = Vec::new();
+
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&10_001u64.to_le_bytes()); // Exceeds MAX_METADATA_COUNT
+
+    let result = GGUFModel::from_bytes(&data);
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("exceeds maximum") || err.contains("metadata_count"),
+        "Expected bounds check error, got: {}",
+        err
+    );
+}
+
+/// Test that excessive n_dims is rejected
+#[test]
+fn test_bounds_check_excessive_n_dims() {
+    let mut data = Vec::new();
+
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&1u64.to_le_bytes()); // 1 tensor
+    data.extend_from_slice(&0u64.to_le_bytes()); // 0 metadata
+
+    // Tensor with excessive dimensions
+    let name = "bad_tensor";
+    data.extend_from_slice(&(name.len() as u64).to_le_bytes());
+    data.extend_from_slice(name.as_bytes());
+    data.extend_from_slice(&100u32.to_le_bytes()); // n_dims = 100, exceeds MAX_DIMS (8)
+    // Don't need actual dimensions since it should fail at n_dims check
+
+    let result = GGUFModel::from_bytes(&data);
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("dimensions") || err.contains("max allowed"),
+        "Expected n_dims bounds check error, got: {}",
+        err
+    );
+}
+
+/// Test that valid counts within bounds succeed
+#[test]
+fn test_bounds_check_valid_counts() {
+    let mut data = Vec::new();
+
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
+    data.extend_from_slice(&1u64.to_le_bytes()); // 1 tensor (valid)
+    data.extend_from_slice(&1u64.to_le_bytes()); // 1 metadata (valid)
+
+    // Simple metadata
+    let key = "test.key";
+    data.extend_from_slice(&(key.len() as u64).to_le_bytes());
+    data.extend_from_slice(key.as_bytes());
+    data.extend_from_slice(&4u32.to_le_bytes()); // UINT32
+    data.extend_from_slice(&42u32.to_le_bytes());
+
+    // Simple tensor
+    let name = "test.weight";
+    data.extend_from_slice(&(name.len() as u64).to_le_bytes());
+    data.extend_from_slice(name.as_bytes());
+    data.extend_from_slice(&1u32.to_le_bytes()); // 1 dimension (valid, within MAX_DIMS)
+    data.extend_from_slice(&4u64.to_le_bytes()); // dim = 4
+    data.extend_from_slice(&0u32.to_le_bytes()); // F32
+    data.extend_from_slice(&0u64.to_le_bytes()); // offset
+
+    while data.len() % 32 != 0 {
+        data.push(0);
+    }
+    data.extend_from_slice(&[0u8; 16]);
+
+    let result = GGUFModel::from_bytes(&data);
+    assert!(result.is_ok(), "Valid counts should succeed: {:?}", result);
+}

@@ -104,6 +104,19 @@ impl GGUFModel {
             })?;
         let tensor_count = u64::from_le_bytes(buf8);
 
+        // Bounds check: Prevent allocation attacks from corrupted headers
+        // Reasonable limit: no model has >100,000 tensors
+        const MAX_TENSOR_COUNT: u64 = 100_000;
+        if tensor_count > MAX_TENSOR_COUNT {
+            return Err(RealizarError::UnsupportedOperation {
+                operation: "parse_gguf".to_string(),
+                reason: format!(
+                    "tensor_count {} exceeds maximum allowed {} (corrupted header?)",
+                    tensor_count, MAX_TENSOR_COUNT
+                ),
+            });
+        }
+
         // Read metadata_count
         cursor
             .read_exact(&mut buf8)
@@ -112,6 +125,19 @@ impl GGUFModel {
                 reason: e.to_string(),
             })?;
         let metadata_count = u64::from_le_bytes(buf8);
+
+        // Bounds check: Prevent allocation attacks
+        // Reasonable limit: no model has >10,000 metadata entries
+        const MAX_METADATA_COUNT: u64 = 10_000;
+        if metadata_count > MAX_METADATA_COUNT {
+            return Err(RealizarError::UnsupportedOperation {
+                operation: "parse_gguf".to_string(),
+                reason: format!(
+                    "metadata_count {} exceeds maximum allowed {} (corrupted header?)",
+                    metadata_count, MAX_METADATA_COUNT
+                ),
+            });
+        }
 
         Ok(GGUFHeader {
             magic,
@@ -196,6 +222,17 @@ impl GGUFModel {
                 // Array: element_type (u32) + array_len (u64) + elements
                 let element_type = Self::read_u32(cursor)?;
                 let array_len = Self::read_u64(cursor)?;
+
+                // Bounds check: Limit array length to prevent allocation attacks
+                const MAX_ARRAY_LEN: u64 = 10_000_000; // 10M elements max
+                if array_len > MAX_ARRAY_LEN {
+                    return Err(RealizarError::InvalidShape {
+                        reason: format!(
+                            "Array length {} exceeds maximum {} (corrupted?)",
+                            array_len, MAX_ARRAY_LEN
+                        ),
+                    });
+                }
 
                 // Safely convert array_len to usize
                 let len = usize::try_from(array_len).map_err(|_| RealizarError::InvalidShape {
@@ -360,6 +397,18 @@ impl GGUFModel {
 
             // Read n_dims (u32)
             let n_dims = Self::read_u32(cursor)?;
+
+            // Bounds check: Tensors have at most 8 dimensions (typically 1-4)
+            const MAX_DIMS: u32 = 8;
+            if n_dims > MAX_DIMS {
+                return Err(RealizarError::UnsupportedOperation {
+                    operation: "parse_tensor_info".to_string(),
+                    reason: format!(
+                        "tensor '{}' has {} dimensions, max allowed is {} (corrupted?)",
+                        name, n_dims, MAX_DIMS
+                    ),
+                });
+            }
 
             // Read dimensions array
             // GGUF stores dimensions in GGML order (reversed from standard row-major)
