@@ -678,6 +678,143 @@ pub fn build_minimal_llama_gguf(
         .build()
 }
 
+/// Build an **executable** Pygmy GGUF model (Q4_0 quantized, minimal dimensions)
+///
+/// This function creates a GGUF model with Q4_0 quantized tensors that can
+/// survive a full `forward_cached()` pass without crashing. The model produces
+/// garbage output but exercises all code paths in the inference pipeline.
+///
+/// # Dr. Popper's "Active Pygmy" (T-COV-95)
+///
+/// This implements the "Minimum Viable Predictor" - a tiny model that:
+/// 1. Has valid tensor layout (Q4_0 for weights, F32 for embeddings/norms)
+/// 2. Has valid quantized weights (proper block structure)
+/// 3. Has sufficient metadata for forward() graph
+///
+/// # Why Q4_0?
+///
+/// The fused matmul operations in OwnedQuantizedModel only support quantized
+/// types (Q4_0/Q8_0/Q4_K/Q5_K/Q6_K), not F32. Q4_0 uses 32-element blocks,
+/// which aligns perfectly with hidden_dim=32.
+///
+/// # Dimensions
+///
+/// - hidden_dim: 32 (aligns with Q4_0 block size)
+/// - num_heads: 4
+/// - num_kv_heads: 4 (MHA, no GQA for simplicity)
+/// - vocab_size: 32 (small vocabulary, must be multiple of 32 for Q4_0)
+/// - intermediate_dim: 64 (2x hidden for standard FFN ratio)
+/// - context_length: 32
+/// - num_layers: 1
+#[must_use]
+pub fn build_executable_pygmy_gguf() -> Vec<u8> {
+    // Active Pygmy dimensions (T-COV-95)
+    // All dimensions chosen to align with Q4_0's 32-element block size
+    const VOCAB_SIZE: usize = 32;
+    const HIDDEN_DIM: usize = 32;
+    const INTERMEDIATE_DIM: usize = 64;
+    const NUM_HEADS: usize = 4;
+    const NUM_KV_HEADS: usize = 4;
+    const CONTEXT_LENGTH: usize = 32;
+
+    // KV dimension = num_kv_heads * head_dim = 4 * 8 = 32
+    let kv_dim = NUM_KV_HEADS * (HIDDEN_DIM / NUM_HEADS);
+
+    // Create F32 tensor data for embeddings and norms
+    // Embedding: small values that won't cause overflow
+    let embed_data: Vec<f32> = (0..VOCAB_SIZE * HIDDEN_DIM)
+        .map(|i| ((i % 100) as f32 - 50.0) / 1000.0)
+        .collect();
+
+    // Norm weights: 1.0 for identity-like behavior
+    let norm_data: Vec<f32> = vec![1.0; HIDDEN_DIM];
+
+    // Create Q4_0 quantized data for weight tensors
+    // Q4_0: 18 bytes per 32 elements (2 byte f16 scale + 16 bytes quants)
+    let q_data = create_q4_0_data(HIDDEN_DIM * HIDDEN_DIM);      // 32x32 = 1024 elements
+    let k_data = create_q4_0_data(HIDDEN_DIM * kv_dim);          // 32x32 = 1024 elements
+    let v_data = create_q4_0_data(HIDDEN_DIM * kv_dim);          // 32x32 = 1024 elements
+    let attn_out_data = create_q4_0_data(HIDDEN_DIM * HIDDEN_DIM); // 32x32 = 1024 elements
+
+    // FFN weights: Q4_0 quantized
+    let ffn_gate_data = create_q4_0_data(HIDDEN_DIM * INTERMEDIATE_DIM); // 32x64 = 2048 elements
+    let ffn_up_data = create_q4_0_data(HIDDEN_DIM * INTERMEDIATE_DIM);   // 32x64 = 2048 elements
+    let ffn_down_data = create_q4_0_data(INTERMEDIATE_DIM * HIDDEN_DIM); // 64x32 = 2048 elements
+
+    // LM head weight (output projection): Q4_0 quantized
+    // This is separate from token_embd to avoid the "type 0" fallback
+    let lm_head_data = create_q4_0_data(HIDDEN_DIM * VOCAB_SIZE); // 32x32 = 1024 elements
+
+    GGUFBuilder::new()
+        // Metadata - full LLaMA config
+        .architecture("llama")
+        .hidden_dim("llama", HIDDEN_DIM as u32)
+        .num_layers("llama", 1)
+        .num_heads("llama", NUM_HEADS as u32)
+        .num_kv_heads("llama", NUM_KV_HEADS as u32)
+        .context_length("llama", CONTEXT_LENGTH as u32)
+        .rope_freq_base("llama", 10000.0)
+        .rms_epsilon("llama", 1e-5)
+        .ffn_hidden_dim("llama", INTERMEDIATE_DIM as u32)
+        // Token embedding - F32 (lookup table, not matmul)
+        .add_f32_tensor(
+            "token_embd.weight",
+            &[VOCAB_SIZE as u64, HIDDEN_DIM as u64],
+            &embed_data,
+        )
+        // Layer 0 attention norm - F32 (small, read once per token)
+        .add_f32_tensor("blk.0.attn_norm.weight", &[HIDDEN_DIM as u64], &norm_data)
+        // Layer 0 QKV projections - Q4_0 (large, fused matmul)
+        .add_q4_0_tensor(
+            "blk.0.attn_q.weight",
+            &[HIDDEN_DIM as u64, HIDDEN_DIM as u64],
+            &q_data,
+        )
+        .add_q4_0_tensor(
+            "blk.0.attn_k.weight",
+            &[HIDDEN_DIM as u64, kv_dim as u64],
+            &k_data,
+        )
+        .add_q4_0_tensor(
+            "blk.0.attn_v.weight",
+            &[HIDDEN_DIM as u64, kv_dim as u64],
+            &v_data,
+        )
+        .add_q4_0_tensor(
+            "blk.0.attn_output.weight",
+            &[HIDDEN_DIM as u64, HIDDEN_DIM as u64],
+            &attn_out_data,
+        )
+        // Layer 0 FFN norm - F32
+        .add_f32_tensor("blk.0.ffn_norm.weight", &[HIDDEN_DIM as u64], &norm_data)
+        // Layer 0 FFN projections - Q4_0
+        .add_q4_0_tensor(
+            "blk.0.ffn_gate.weight",
+            &[HIDDEN_DIM as u64, INTERMEDIATE_DIM as u64],
+            &ffn_gate_data,
+        )
+        .add_q4_0_tensor(
+            "blk.0.ffn_up.weight",
+            &[HIDDEN_DIM as u64, INTERMEDIATE_DIM as u64],
+            &ffn_up_data,
+        )
+        .add_q4_0_tensor(
+            "blk.0.ffn_down.weight",
+            &[INTERMEDIATE_DIM as u64, HIDDEN_DIM as u64],
+            &ffn_down_data,
+        )
+        // Output norm - F32
+        .add_f32_tensor("output_norm.weight", &[HIDDEN_DIM as u64], &norm_data)
+        // LM head (output projection) - Q4_0 quantized
+        // Explicit output.weight to avoid fallback to F32 token_embd.weight
+        .add_q4_0_tensor(
+            "output.weight",
+            &[HIDDEN_DIM as u64, VOCAB_SIZE as u64],
+            &lm_head_data,
+        )
+        .build()
+}
+
 /// Build a minimal Phi-2 style GGUF model (fused QKV)
 #[must_use]
 pub fn build_minimal_phi2_gguf(
@@ -1036,5 +1173,135 @@ mod tests {
         let data = builder.build();
         let model = GGUFModel::from_bytes(&data).expect("Should parse");
         assert_eq!(model.metadata.len(), 5); // arch + 4 added
+    }
+
+    // =========================================================================
+    // T-COV-95: Active Pygmy (Executable) Tests
+    // =========================================================================
+
+    #[test]
+    fn test_executable_pygmy_parses() {
+        // T-COV-95: Verify the executable pygmy GGUF is valid
+        let data = build_executable_pygmy_gguf();
+        let model = GGUFModel::from_bytes(&data).expect("Executable pygmy should parse");
+
+        assert_eq!(model.architecture(), Some("llama"));
+        assert_eq!(model.embedding_dim(), Some(32));
+        assert_eq!(model.num_layers(), Some(1));
+        assert_eq!(model.num_heads(), Some(4));
+        assert_eq!(model.num_kv_heads(), Some(4));
+
+        // Vocab size is 32 (from token_embd.weight shape)
+        let token_embd = model.tensors.iter().find(|t| t.name == "token_embd.weight");
+        assert!(token_embd.is_some());
+        assert_eq!(token_embd.unwrap().dims[0], 32); // vocab_size
+    }
+
+    #[test]
+    fn test_executable_pygmy_has_all_tensors() {
+        // T-COV-95: Verify all required tensors are present
+        let data = build_executable_pygmy_gguf();
+        let model = GGUFModel::from_bytes(&data).expect("Should parse");
+
+        let tensor_names: Vec<_> = model.tensors.iter().map(|t| t.name.as_str()).collect();
+
+        // Required tensors for forward()
+        assert!(tensor_names.contains(&"token_embd.weight"), "Missing token_embd");
+        assert!(tensor_names.contains(&"blk.0.attn_norm.weight"), "Missing attn_norm");
+        assert!(tensor_names.contains(&"blk.0.attn_q.weight"), "Missing attn_q");
+        assert!(tensor_names.contains(&"blk.0.attn_k.weight"), "Missing attn_k");
+        assert!(tensor_names.contains(&"blk.0.attn_v.weight"), "Missing attn_v");
+        assert!(tensor_names.contains(&"blk.0.attn_output.weight"), "Missing attn_output");
+        assert!(tensor_names.contains(&"blk.0.ffn_norm.weight"), "Missing ffn_norm");
+        assert!(tensor_names.contains(&"blk.0.ffn_gate.weight"), "Missing ffn_gate");
+        assert!(tensor_names.contains(&"blk.0.ffn_up.weight"), "Missing ffn_up");
+        assert!(tensor_names.contains(&"blk.0.ffn_down.weight"), "Missing ffn_down");
+        assert!(tensor_names.contains(&"output_norm.weight"), "Missing output_norm");
+    }
+
+    #[test]
+    fn test_executable_pygmy_tensor_dimensions() {
+        // T-COV-95: Verify tensor dimensions are correct
+        let data = build_executable_pygmy_gguf();
+        let model = GGUFModel::from_bytes(&data).expect("Should parse");
+
+        for tensor in &model.tensors {
+            match tensor.name.as_str() {
+                "token_embd.weight" => {
+                    // [vocab_size=32, hidden_dim=32]
+                    assert_eq!(tensor.dims.len(), 2);
+                    assert_eq!(tensor.dims[0], 32);
+                    assert_eq!(tensor.dims[1], 32);
+                }
+                "blk.0.attn_q.weight" | "blk.0.attn_output.weight" => {
+                    // [hidden_dim=32, hidden_dim=32] - Q4_0 quantized
+                    assert_eq!(tensor.dims.len(), 2);
+                    assert_eq!(tensor.dims[0], 32);
+                    assert_eq!(tensor.dims[1], 32);
+                }
+                "blk.0.ffn_gate.weight" | "blk.0.ffn_up.weight" => {
+                    // [hidden_dim=32, intermediate_dim=64] - Q4_0 quantized
+                    assert_eq!(tensor.dims.len(), 2);
+                    assert_eq!(tensor.dims[0], 32);
+                    assert_eq!(tensor.dims[1], 64);
+                }
+                "blk.0.ffn_down.weight" => {
+                    // [intermediate_dim=64, hidden_dim=32] - Q4_0 quantized
+                    assert_eq!(tensor.dims.len(), 2);
+                    assert_eq!(tensor.dims[0], 64);
+                    assert_eq!(tensor.dims[1], 32);
+                }
+                _ => {} // Other tensors checked elsewhere
+            }
+        }
+    }
+
+    #[test]
+    fn test_executable_pygmy_tensor_types() {
+        // T-COV-95: Verify correct quantization types per tensor
+        let data = build_executable_pygmy_gguf();
+        let model = GGUFModel::from_bytes(&data).expect("Should parse");
+
+        for tensor in &model.tensors {
+            match tensor.name.as_str() {
+                // F32 tensors: embeddings and norms
+                "token_embd.weight" | "blk.0.attn_norm.weight" |
+                "blk.0.ffn_norm.weight" | "output_norm.weight" => {
+                    assert_eq!(
+                        tensor.qtype, GGUF_TYPE_F32,
+                        "Tensor {} should be F32, got qtype {}",
+                        tensor.name, tensor.qtype
+                    );
+                }
+                // Q4_0 tensors: weight matrices
+                _ => {
+                    assert_eq!(
+                        tensor.qtype, GGUF_TYPE_Q4_0,
+                        "Tensor {} should be Q4_0, got qtype {}",
+                        tensor.name, tensor.qtype
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_executable_pygmy_size() {
+        // T-COV-95: Verify model is small (the "Pygmy" property)
+        let data = build_executable_pygmy_gguf();
+
+        // Should be under 50KB (actual ~15-20KB with F32 tensors)
+        assert!(
+            data.len() < 50_000,
+            "Executable pygmy should be < 50KB, got {} bytes",
+            data.len()
+        );
+
+        // But should be non-trivial (contains actual weights)
+        assert!(
+            data.len() > 1_000,
+            "Executable pygmy should be > 1KB, got {} bytes",
+            data.len()
+        );
     }
 }
