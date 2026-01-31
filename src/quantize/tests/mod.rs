@@ -27,3 +27,4 @@ mod part_28; // T-COV-95 Directive 4: Performance Falsification Gate (SIMD vs sc
 mod part_29; // T-COV-95 Coverage Bridge B7 (Q4_1, Q5_0, Q5_1, Q2_K dequantization)
 mod part_30; // T-COV-95 Deep Coverage Bridge (q8k_into, q8_blocks, InterleavedQ4K, f16 LUT)
 mod part_31; // T-COV-95 Coverage Bridge (fused Q4_0/Q8_0 matvec, extract_scale_min blocks 4-7)
+mod part_32; // T-COV-95 Coverage Bridge (q8k_into, dequant q4_0/q8_0/q4_1/q5_0/q5_1)
