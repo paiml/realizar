@@ -1054,20 +1054,29 @@ fn find_fallback_tokenizer(model_path: &std::path::Path) -> Option<crate::apr::B
         Err(_) => return None, // Can't load model - don't search fallback caches
     };
 
-    // 1. Try to load embedded tokenizer from APR model
+    // 1. Try to load embedded BPE tokenizer from APR model (preferred - has merges)
+    if let Some(bpe_tokenizer) = model.load_embedded_bpe_tokenizer() {
+        return Some(bpe_tokenizer);
+    }
+
+    // 2. Fall back to SimpleTokenizer (decode-only, no merges)
     if let Some(simple_tokenizer) = model.load_embedded_tokenizer() {
         // Convert SimpleTokenizer to BpeTokenizer for compatibility
+        // GH-189: Extract special tokens for atomic tokenization
+        let token_to_id: std::collections::HashMap<String, u32> = simple_tokenizer
+            .id_to_token
+            .iter()
+            .enumerate()
+            .map(|(id, token)| (token.clone(), id as u32))
+            .collect();
+        let special_tokens = crate::apr::extract_special_tokens_from_vocab(&token_to_id);
         return Some(crate::apr::BpeTokenizer {
-            token_to_id: simple_tokenizer
-                .id_to_token
-                .iter()
-                .enumerate()
-                .map(|(id, token)| (token.clone(), id as u32))
-                .collect(),
+            token_to_id,
             id_to_token: simple_tokenizer.id_to_token,
             merge_rules: Vec::new(),
             bos_id: simple_tokenizer.bos_token_id,
             eos_id: simple_tokenizer.eos_token_id,
+            special_tokens,
         });
     }
 

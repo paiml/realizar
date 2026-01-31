@@ -367,6 +367,7 @@ mod tests {
             ],
             bos_id: None,
             eos_id: None,
+            special_tokens: HashMap::new(),
         };
 
         let ids = tokenizer.encode("hello");
@@ -382,6 +383,7 @@ mod tests {
             merge_rules: vec![],
             bos_id: None,
             eos_id: None,
+            special_tokens: HashMap::new(),
         };
 
         let text = tokenizer.decode(&[0, 1]);
