@@ -1665,11 +1665,30 @@ impl AprV2Model {
         // Get hidden state for last token
         let last_hidden = &hidden[hidden.len() - hidden_dim..];
 
+        // BUG-APR-001-FIX: Detect weight tying and handle transposed layout
+        // GGUF token_embd.weight is stored as [hidden_dim, vocab_size] (column-major)
+        // Regular lm_head.weight is stored as [vocab_size, hidden_dim] (row-major)
+        // When using tied embeddings, we need to transpose the access pattern.
+        let is_tied_embedding = lm_head_name == "token_embd.weight"
+            || lm_head_name.ends_with("embed_tokens.weight");
+
         // Project to vocab
         let mut logits = vec![0.0; vocab_size];
-        for (i, logit) in logits.iter_mut().enumerate() {
-            for (j, &h) in last_hidden.iter().enumerate() {
-                *logit += h * lm_head.get(i * hidden_dim + j).copied().unwrap_or(0.0);
+        if is_tied_embedding && lm_head.len() == hidden_dim * vocab_size {
+            // Tied embedding: token_embd is [hidden_dim, vocab_size]
+            // Access: logit[i] = sum_j(hidden[j] * embed[j * vocab_size + i])
+            for (i, logit) in logits.iter_mut().enumerate() {
+                for (j, &h) in last_hidden.iter().enumerate() {
+                    *logit += h * lm_head.get(j * vocab_size + i).copied().unwrap_or(0.0);
+                }
+            }
+        } else {
+            // Regular lm_head: [vocab_size, hidden_dim]
+            // Access: logit[i] = sum_j(hidden[j] * lm_head[i * hidden_dim + j])
+            for (i, logit) in logits.iter_mut().enumerate() {
+                for (j, &h) in last_hidden.iter().enumerate() {
+                    *logit += h * lm_head.get(i * hidden_dim + j).copied().unwrap_or(0.0);
+                }
             }
         }
 

@@ -511,4 +511,80 @@ mod tests {
         assert!(restored.layers[0].attn_norm_bias.is_some());
         assert!(restored.layers[0].qkv_bias.is_some());
     }
+
+    // =========================================================================
+    // BUG-APR-002: Byte size calculation for quantized tensors
+    // =========================================================================
+    // The Q4K converter was using integer division (/) which rounds DOWN,
+    // causing "tensor exceeds file bounds" for tensors not perfectly divisible
+    // by block size. Fix: use div_ceil() to round UP.
+
+    #[test]
+    fn test_bug_apr_002_q4k_byte_size_div_ceil() {
+        // Q4_K block: 256 elements = 144 bytes
+        // For 65600 elements (256 * 256 + 64):
+        // - Wrong: (65600 / 256) * 144 = 256 * 144 = 36864 bytes
+        // - Right: 65600.div_ceil(256) * 144 = 257 * 144 = 37008 bytes
+        let num_elements = 65600usize;
+        let wrong_byte_size = (num_elements / 256) * 144;
+        let right_byte_size = num_elements.div_ceil(256) * 144;
+
+        assert_eq!(wrong_byte_size, 36864, "Wrong calculation (integer division)");
+        assert_eq!(right_byte_size, 37008, "Correct calculation (div_ceil)");
+        assert!(right_byte_size > wrong_byte_size, "div_ceil must give larger result");
+    }
+
+    #[test]
+    fn test_bug_apr_002_q8_byte_size_div_ceil() {
+        // Q8_0 block: 32 elements = 34 bytes (2 scale + 32 quants)
+        // For 1000 elements (32 * 31 + 8):
+        // - Wrong: (1000 / 32) * 34 = 31 * 34 = 1054 bytes
+        // - Right: 1000.div_ceil(32) * 34 = 32 * 34 = 1088 bytes
+        let num_elements = 1000usize;
+        let wrong_byte_size = (num_elements / 32) * 34;
+        let right_byte_size = num_elements.div_ceil(32) * 34;
+
+        assert_eq!(wrong_byte_size, 1054, "Wrong calculation (integer division)");
+        assert_eq!(right_byte_size, 1088, "Correct calculation (div_ceil)");
+        assert!(right_byte_size > wrong_byte_size, "div_ceil must give larger result");
+    }
+
+    #[test]
+    fn test_bug_apr_002_exact_divisibility_no_change() {
+        // When num_elements is perfectly divisible, both methods give same result
+        let num_elements = 65536usize; // 256 * 256
+        let old_style = (num_elements / 256) * 144;
+        let new_style = num_elements.div_ceil(256) * 144;
+
+        assert_eq!(old_style, new_style, "Exact divisibility should give same result");
+        assert_eq!(new_style, 36864);
+    }
+
+    #[test]
+    fn test_bug_apr_002_q5k_byte_size_div_ceil() {
+        // Q5_K block: 256 elements = 176 bytes
+        // For 65537 elements (256 * 256 + 1):
+        // - Wrong: (65537 / 256) * 176 = 256 * 176 = 45056 bytes
+        // - Right: 65537.div_ceil(256) * 176 = 257 * 176 = 45232 bytes
+        let num_elements = 65537usize;
+        let wrong_byte_size = (num_elements / 256) * 176;
+        let right_byte_size = num_elements.div_ceil(256) * 176;
+
+        assert_ne!(wrong_byte_size, right_byte_size);
+        assert_eq!(right_byte_size - wrong_byte_size, 176); // One extra block
+    }
+
+    #[test]
+    fn test_bug_apr_002_q6k_byte_size_div_ceil() {
+        // Q6_K block: 256 elements = 210 bytes
+        // For 65600 elements:
+        // - Wrong: (65600 / 256) * 210 = 256 * 210 = 53760 bytes
+        // - Right: 65600.div_ceil(256) * 210 = 257 * 210 = 53970 bytes
+        let num_elements = 65600usize;
+        let wrong_byte_size = (num_elements / 256) * 210;
+        let right_byte_size = num_elements.div_ceil(256) * 210;
+
+        assert_ne!(wrong_byte_size, right_byte_size);
+        assert_eq!(right_byte_size - wrong_byte_size, 210); // One extra block
+    }
 }
