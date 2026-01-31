@@ -144,13 +144,10 @@ async fn test_real_server_generate_with_options() {
         .await;
 
     // Handler code executes regardless of model availability
-    match resp {
-        Ok(r) => {
-            let status = r.status();
-            // Success, service unavailable, or internal error all exercise code
-            assert!(status.as_u16() >= 200 && status.as_u16() < 600);
-        },
-        Err(_) => {}, // Timeouts acceptable
+    if let Ok(r) = resp {
+        let status = r.status();
+        // Success, service unavailable, or internal error all exercise code
+        assert!(status.as_u16() >= 200 && status.as_u16() < 600);
     }
 
     handle.abort();

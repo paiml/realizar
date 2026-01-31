@@ -336,7 +336,7 @@ fn test_gpu_model_has_fused_qkv() {
     // Test checks if QKV weights have expected dimensions
     let has_fused = model.has_fused_qkv();
     // New model has initialized weights
-    assert!(has_fused || !has_fused); // Just verify it doesn't panic
+    let _ = has_fused; // Just verify it doesn't panic
 }
 
 #[test]

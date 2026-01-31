@@ -126,7 +126,11 @@ pub async fn entrypoint(cli: Cli) -> Result<()> {
 }
 
 /// Run model command handler
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    clippy::unused_async,
+    clippy::option_option
+)]
 async fn run_model_command(
     model_ref: &str,
     prompt: Option<&str>,
@@ -224,6 +228,7 @@ async fn run_model_command(
 }
 
 /// Chat command handler
+#[allow(clippy::unused_async)]
 async fn run_chat_command(
     model_ref: &str,
     system_prompt: Option<&str>,
@@ -1564,6 +1569,7 @@ mod server_commands {
             println!("  Hidden: {}", transformer.config.hidden_dim);
 
             // Load vocabulary from sibling tokenizer.json
+            #[allow(clippy::map_unwrap_or)]
             let vocab = crate::apr::AprV2Model::load_tokenizer_from_sibling(model_path_obj)
                 .map(|(v, _, _)| v) // Extract just the vocab
                 .unwrap_or_else(|| {

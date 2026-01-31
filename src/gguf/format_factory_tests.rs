@@ -486,13 +486,7 @@ fn test_apr_64_byte_alignment() {
     assert!(data.len() >= 64);
 
     // Data offset should be 64-byte aligned
-    let data_offset = u64::from_le_bytes(
-        data[32..40]
-            .try_into()
-            .unwrap_or([0; 8])
-            .try_into()
-            .unwrap(),
-    );
+    let data_offset = u64::from_le_bytes(data[32..40].try_into().unwrap_or([0; 8]));
     assert_eq!(data_offset % 64, 0);
 }
 

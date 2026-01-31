@@ -1,6 +1,7 @@
 //! Integration Tests: GPU APR Model Loading (PMAT-106 + PMAT-803)
 //!
 //! These tests verify GPU inference with APR models while driving coverage for:
+#![allow(clippy::manual_div_ceil)]
 //! - `api/openai_handlers.rs` - API request handling
 //! - `apr_transformer/q4_simd.rs` - Q4 transformer inference
 //! - `gpu/scheduler/batch.rs` - GPU batch scheduling
@@ -11,12 +12,14 @@
 //! By testing the full inference path from API to GPU, we achieve broad coverage
 //! without writing individual unit tests for each module.
 
+#[allow(unused_imports)]
 use realizar::apr_transformer::{
     AprInferenceScratch, AprKVCache, AprTransformerConfig, QuantizedAprLayerQ4,
     QuantizedAprTensorQ4, QuantizedAprTransformerQ4,
 };
 use realizar::gpu::adapters::{AprGpuError, AprToGpuAdapter};
 use realizar::gpu::scheduler::{BlockWeights, GpuModelConfig};
+#[allow(unused_imports)]
 use realizar::quantize::dequantize_q4_0;
 
 // ============================================================================

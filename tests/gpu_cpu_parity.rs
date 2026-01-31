@@ -68,7 +68,7 @@ mod tests {
         }
 
         // GPU: Get logits using generate_full_cuda_with_cache (standard path)
-        let cuda_model = OwnedQuantizedModelCuda::with_max_seq_len(
+        let _cuda_model = OwnedQuantizedModelCuda::with_max_seq_len(
             OwnedQuantizedModel::from_mapped(&mapped).unwrap(),
             0,
             max_seq_len,

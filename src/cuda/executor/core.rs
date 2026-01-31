@@ -555,7 +555,7 @@ mod tests {
         // On a CUDA-enabled system, this should return true
         let available = CudaExecutor::is_available();
         // We can't assert true unconditionally, but we know this test runs with CUDA
-        assert!(available || !available); // Always passes, but exercises the code
+        let _ = available; // Just verify it can be queried
     }
 
     #[test]

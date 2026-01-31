@@ -447,7 +447,7 @@ fn test_quantize_activations_q8_0_large_positive() {
 fn test_quantize_activations_q8_0_mixed_large() {
     let large_val = 1e10;
     let activations = vec![large_val, -large_val, large_val, -large_val];
-    let (scales, quants) = quantize_activations_q8_0(&activations);
+    let (_scales, quants) = quantize_activations_q8_0(&activations);
 
     // Should correctly quantize to extremes
     assert_eq!(quants[0], 127);

@@ -141,9 +141,8 @@ fn test_data_storm_f16_tensor_extraction() {
     let result = model.get_tensor_f32("test_f16", &gguf_data);
 
     // Either succeeds or fails with offset error - both exercise code
-    match result {
-        Ok(values) => assert_eq!(values.len(), 4),
-        Err(_) => {}, // Offset error is acceptable
+    if let Ok(values) = result {
+        assert_eq!(values.len(), 4);
     }
 }
 
@@ -160,9 +159,8 @@ fn test_data_storm_q4_0_tensor_extraction() {
     let model = GGUFModel::from_bytes(&gguf_data).expect("parse");
     let result = model.get_tensor_f32("test_q4_0", &gguf_data);
 
-    match result {
-        Ok(values) => assert_eq!(values.len(), 32),
-        Err(_) => {}, // Offset error acceptable
+    if let Ok(values) = result {
+        assert_eq!(values.len(), 32);
     }
 }
 
@@ -464,8 +462,7 @@ fn test_data_storm_q2_k_tensor_extraction() {
     let model = GGUFModel::from_bytes(&gguf_data).expect("parse");
     let result = model.get_tensor_f32("test_q2_k", &gguf_data);
 
-    match result {
-        Ok(values) => assert_eq!(values.len(), 256),
-        Err(_) => {}, // Offset error acceptable
+    if let Ok(values) = result {
+        assert_eq!(values.len(), 256);
     }
 }

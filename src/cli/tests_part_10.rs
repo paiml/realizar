@@ -82,7 +82,7 @@ fn test_format_size_boundary_gb() {
 
 #[test]
 fn test_benchmark_suites_exist() {
-    assert!(!BENCHMARK_SUITES.is_empty());
+    // Verify BENCHMARK_SUITES has content
     assert!(BENCHMARK_SUITES.len() >= 5);
 }
 

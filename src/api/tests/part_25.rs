@@ -229,7 +229,7 @@ mod chaotic_citizens {
         let mut send_failures = 0;
         let mut send_successes = 0;
 
-        for (_i, (tx, _)) in channels.into_iter().enumerate() {
+        for (tx, _) in channels.into_iter() {
             let response = ContinuousBatchResponse::batched(vec![1, 2, 3], 1, 5, 10.0);
 
             match tx.send(response) {

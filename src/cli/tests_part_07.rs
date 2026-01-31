@@ -109,7 +109,7 @@ fn test_validate_suite_name_invalid() {
 
 #[test]
 fn test_benchmark_suites_not_empty() {
-    assert!(!BENCHMARK_SUITES.is_empty());
+    // Verify BENCHMARK_SUITES has content
     assert!(BENCHMARK_SUITES.len() >= 5);
 }
 

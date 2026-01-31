@@ -623,7 +623,7 @@ mod tests {
 
         // Verify config.json exists as sibling
         let config_path = st_file.parent().map(|p| p.join("config.json"));
-        if config_path.as_ref().map_or(true, |p| !p.exists()) {
+        if config_path.as_ref().is_none_or(|p| !p.exists()) {
             eprintln!(
                 "[T200] SKIPPED: config.json not found as sibling of {}",
                 st_file.display()

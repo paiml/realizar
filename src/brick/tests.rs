@@ -2254,8 +2254,8 @@ mod tests {
         let seq_len = 1;
 
         let query = vec![1.0f32; 2 * 4]; // 2 heads * 4 dim
-        let keys = vec![1.0f32; 1 * 4]; // 1 seq * 1 kv_head * 4 dim
-        let values = vec![1.0f32; 1 * 4];
+        let keys = vec![1.0f32; 4]; // 1 seq * 1 kv_head * 4 dim
+        let values = vec![1.0f32; 4];
 
         let output = brick
             .forward(&query, &keys, &values, seq_len)

@@ -562,7 +562,7 @@ fn test_divergent_metadata_heavy() {
     let result = GgufToAprConverter::convert(&data);
 
     // Should handle lots of metadata without crashing
-    if let Ok(_) = result {}
+    let _ = result.is_ok();
 }
 
 #[test]

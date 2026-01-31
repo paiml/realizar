@@ -82,7 +82,7 @@ mod tests {
         let ffn_norm_weight = vec![1.0f32; hidden_dim];
 
         let layer = QuantizedAprLayerQ4 {
-            attn_norm_weight: attn_norm_weight,
+            attn_norm_weight,
             qkv_weight: QuantizedAprTensorQ4::new(
                 create_q4_0_weights(hidden_dim, qkv_dim),
                 hidden_dim,

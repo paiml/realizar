@@ -635,7 +635,10 @@ mod tests {
 
     #[test]
     fn test_benchmark_suites_not_empty() {
-        assert!(!BENCHMARK_SUITES.is_empty());
+        // BENCHMARK_SUITES is a non-empty const - just access first element
+        let (first_name, first_desc) = BENCHMARK_SUITES[0];
+        assert!(!first_name.is_empty());
+        assert!(!first_desc.is_empty());
         for (name, desc) in BENCHMARK_SUITES {
             assert!(!name.is_empty());
             assert!(!desc.is_empty());

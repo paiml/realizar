@@ -3359,15 +3359,21 @@ fn main() {
 
     #[test]
     fn test_eos_token_detection_all_variants() {
+        // Define EOS tokens to check against
+        let eos_tokens = [151645u32, 151643, 2];
+
+        // Helper to check if token is EOS
+        let is_eos = |token: u32| eos_tokens.contains(&token);
+
         // Qwen2 EOS
-        assert!(151645u32 == 151645 || 151645u32 == 151643 || 151645u32 == 2);
+        assert!(is_eos(151645));
         // Qwen2 BOS (also stops)
-        assert!(151643u32 == 151645 || 151643u32 == 151643 || 151643u32 == 2);
+        assert!(is_eos(151643));
         // Standard EOS
-        assert!(2u32 == 151645 || 2u32 == 151643 || 2u32 == 2);
+        assert!(is_eos(2));
         // Not EOS tokens
-        assert!(!(1u32 == 151645 || 1u32 == 151643 || 1u32 == 2));
-        assert!(!(1000u32 == 151645 || 1000u32 == 151643 || 1000u32 == 2));
+        assert!(!is_eos(1));
+        assert!(!is_eos(1000));
     }
 
     // --- Max tokens capping in different formats ---
