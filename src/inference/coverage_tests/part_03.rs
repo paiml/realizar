@@ -347,7 +347,7 @@ fn test_transposed_attention_multi_position() {
     // Transposed V: v[i] at pos j is at index i * max_seq_len + j
     let mut v_cache_transposed = vec![0.0; hidden_dim * max_seq_len];
     for i in 0..hidden_dim {
-        v_cache_transposed[(i * max_seq_len)] = 1.0; // v[i] at pos 0
+        v_cache_transposed[i * max_seq_len] = 1.0; // v[i] at pos 0
         v_cache_transposed[i * max_seq_len + 1] = 2.0; // v[i] at pos 1
     }
 

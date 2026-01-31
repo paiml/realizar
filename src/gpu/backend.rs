@@ -229,6 +229,7 @@ mod tests {
             self.weights.len() + self.quantized_weights.len()
         }
 
+        #[allow(clippy::many_single_char_names)]
         fn matmul(
             &mut self,
             a: &[f32],

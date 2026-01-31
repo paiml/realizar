@@ -2,6 +2,8 @@
 //!
 //! Focus: concurrent operations, edge cases, stress tests
 
+#![allow(clippy::many_single_char_names)]
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
