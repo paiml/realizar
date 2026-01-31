@@ -228,7 +228,7 @@ fn test_quantize_rmsnorm_q8_0_produces_min_quant() {
     let norm_weight = vec![1.0f32; 32];
     let eps = 1e-5;
 
-    let (scales, quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, eps);
+    let (_scales, quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, eps);
 
     // After RMSNorm with uniform negative input, all values are -1.0
     // So all quants should be -127
@@ -251,7 +251,7 @@ fn test_quantize_activations_q8_0_boundary_127() {
 #[test]
 fn test_quantize_activations_q8_0_boundary_negative_127() {
     let activations = vec![-127.0f32; 16];
-    let (scales, quants) = quantize_activations_q8_0(&activations);
+    let (_scales, quants) = quantize_activations_q8_0(&activations);
 
     // Min should map to -127
     assert_eq!(quants[0], -127);
