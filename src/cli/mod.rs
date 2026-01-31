@@ -1783,3 +1783,8 @@ mod cli_inference_tests_part_03;
 #[cfg(test)]
 #[path = "inference_tests_part_04.rs"]
 mod cli_inference_tests_part_04;
+
+// T-COV-95 Poisoned Pygmies: CLI Graceful Degradation Tests
+#[cfg(test)]
+#[path = "tests_part_10.rs"]
+mod cli_tests_part_10;
