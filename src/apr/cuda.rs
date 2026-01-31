@@ -1679,7 +1679,7 @@ impl AprV2ModelCuda {
             // Fast path: use pre-cached transposed LM head
             self.gemm_cached_gpu("lm_head", last_hidden, 1, hidden_dim, vocab_size)?
         } else {
-            // Fallback: load, transpose, and upload
+            // Fallback: load, transpose (if needed), and upload
             // BUG-APR-001: Add token_embd.weight for GGUF weight tying
             let lm_head_name = self.model.find_tensor_name(&[
                 "lm_head.weight",
@@ -1689,8 +1689,21 @@ impl AprV2ModelCuda {
                 "token_embd.weight", // GGUF tied embeddings
             ])?;
             let lm_head = self.model.get_tensor_f32(&lm_head_name)?;
-            let lm_head_t = transpose_matrix(&lm_head, vocab_size, hidden_dim);
-            self.gemm_gpu(last_hidden, &lm_head_t, 1, hidden_dim, vocab_size)?
+
+            // BUG-APR-001-FIX: Detect weight tying and handle transposed layout
+            // GGUF token_embd.weight is stored as [hidden_dim, vocab_size] - already correct for GEMM
+            // Regular lm_head.weight is stored as [vocab_size, hidden_dim] - needs transpose
+            let is_tied_embedding = lm_head_name == "token_embd.weight"
+                || lm_head_name.ends_with("embed_tokens.weight");
+
+            let lm_head_for_gemm = if is_tied_embedding && lm_head.len() == hidden_dim * vocab_size {
+                // Tied embedding: already [hidden_dim, vocab_size], use as-is
+                lm_head.to_vec()
+            } else {
+                // Regular lm_head: [vocab_size, hidden_dim], need transpose to [hidden_dim, vocab_size]
+                transpose_matrix(&lm_head, vocab_size, hidden_dim)
+            };
+            self.gemm_gpu(last_hidden, &lm_head_for_gemm, 1, hidden_dim, vocab_size)?
         };
         if let Some(t) = timer_lmhead {
             let _ = self.executor.synchronize();
