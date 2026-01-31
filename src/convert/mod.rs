@@ -816,3 +816,8 @@ mod convert_tests_part_07;
 #[cfg(test)]
 #[path = "tests_part_08.rs"]
 mod convert_tests_part_08;
+
+// T-COV-95 Generative Falsification (Part 09 - Proptest Byte-Smasher)
+#[cfg(test)]
+#[path = "tests_part_09.rs"]
+mod convert_tests_part_09;
