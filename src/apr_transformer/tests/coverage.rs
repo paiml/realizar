@@ -18,7 +18,7 @@ use crate::apr_transformer::{
 
 #[test]
 fn test_quantization_type_default() {
-    let qt: AprQuantizationType = Default::default();
+    let qt = AprQuantizationType::default();
     assert_eq!(qt, AprQuantizationType::F32);
 }
 
@@ -657,7 +657,7 @@ fn test_layer_serialization() {
 
 #[test]
 fn test_q4k_layer_weights_default() {
-    let weights: Q4KLayerWeights = Default::default();
+    let weights = Q4KLayerWeights::default();
 
     assert!(weights.qkv_weight.is_none());
     assert!(weights.attn_q_weight.is_none());

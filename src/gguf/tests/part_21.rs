@@ -7,6 +7,8 @@
 //!
 //! Located in lib tests to be included in `cargo test --lib` coverage
 
+#![allow(clippy::match_wildcard_for_single_variants)]
+
 use crate::gguf::quantized::QuantizedTensorRef;
 use crate::gguf::types::{
     GGUF_TYPE_F32, GGUF_TYPE_Q2_K, GGUF_TYPE_Q4_0, GGUF_TYPE_Q4_1, GGUF_TYPE_Q4_K, GGUF_TYPE_Q5_0,

@@ -304,7 +304,7 @@ fn test_simd_backend_display_scalar() {
 
 #[test]
 fn test_simd_backend_default() {
-    let backend: SimdBackend = Default::default();
+    let backend = SimdBackend::default();
     assert_eq!(backend, SimdBackend::Scalar);
 }
 
@@ -335,7 +335,7 @@ fn test_simd_backend_copy() {
 
 #[test]
 fn test_dequant_stats_default() {
-    let stats: DequantStats = Default::default();
+    let stats = DequantStats::default();
     assert_eq!(stats.blocks_processed, 0);
     assert_eq!(stats.bytes_processed, 0);
     assert_eq!(stats.simd_backend, SimdBackend::Scalar);

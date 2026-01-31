@@ -2394,7 +2394,7 @@ mod tests {
 
     #[test]
     fn test_observer_default_trait() {
-        let observer: Observer = Default::default();
+        let observer = Observer::default();
         let id = observer.next_request_id();
         assert_eq!(id, 0);
     }
