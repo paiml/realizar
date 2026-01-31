@@ -12,6 +12,8 @@
 //! cargo test --test phase21_trace_divergence --features "cuda trace" -- --nocapture
 //! ```
 
+#![allow(unused_variables)]
+
 #[cfg(all(test, feature = "cuda"))]
 mod tests {
     use realizar::apr_transformer::{AprTransformer, AprTransformerConfig, AprTransformerLayer};
