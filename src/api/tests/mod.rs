@@ -44,3 +44,4 @@ mod part_21; // T-COV-95 Extended Coverage (build_trace_data, streaming types, r
 mod part_22; // T-COV-95 APR handlers coverage (predict, explain, audit, serde, error paths)
 mod part_23; // T-COV-95 gpu_handlers + realize_handlers coverage (BatchConfig, ContextWindow, format_chat)
 mod part_24; // T-COV-95 Protocol Falsification: Potemkin Village GPU Mocks
+mod part_25; // T-COV-95 Chaotic Citizens: GPU Batch Resilience Falsification
