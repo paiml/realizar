@@ -1763,3 +1763,8 @@ mod cli_tests_part_07;
 #[cfg(test)]
 #[path = "tests_part_08.rs"]
 mod cli_tests_part_08;
+
+// T-COV-95 Synthetic Falsification (Part 09 - inference.rs via Pygmy GGUF models)
+#[cfg(test)]
+#[path = "tests_part_09.rs"]
+mod cli_tests_part_09;
