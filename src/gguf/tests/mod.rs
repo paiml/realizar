@@ -61,3 +61,4 @@ mod part_27; // T-COV-95 Deep Coverage Bridge (get_tensor_f32 qtypes, rope_type,
 mod part_28; // T-COV-95 Deep Coverage Bridge (Q2_K/F16/Q4_1/Q5_0/Q5_1, metadata types, decode/encode)
 mod part_29; // T-COV-95 Synthetic Falsification (loader.rs via Pygmy GGUF models)
 mod part_30; // T-COV-95 Active Pygmy: Dynamic Falsification (forward_cached via F32 Pygmies)
+mod part_31; // T-COV-95 Data Storm: Multi-Tensor Pygmies for loader.rs
