@@ -761,7 +761,7 @@ mod tests {
     #[should_panic(expected = "layer index")]
     fn test_scratch_buffer_out_of_bounds() {
         let scratch = ScratchBuffer::new(3, 10);
-        scratch.get_layer(5);
+        let _ = scratch.get_layer(5);
     }
 
     #[test]

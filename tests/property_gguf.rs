@@ -159,9 +159,9 @@ fn test_gguf_value_int32() {
 
 #[test]
 fn test_gguf_value_float32() {
-    let val = GGUFValue::Float32(3.14159);
+    let val = GGUFValue::Float32(std::f32::consts::PI);
     if let GGUFValue::Float32(v) = val {
-        assert!((v - 3.14159).abs() < 0.0001);
+        assert!((v - std::f32::consts::PI).abs() < 0.0001);
     } else {
         panic!("Expected Float32");
     }

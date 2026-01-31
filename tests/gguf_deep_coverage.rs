@@ -203,7 +203,7 @@ fn test_gguf_value_int32() {
 
 #[test]
 fn test_gguf_value_float32() {
-    let val = GGUFValue::Float32(3.14159);
+    let val = GGUFValue::Float32(std::f32::consts::PI);
     let debug_str = format!("{:?}", val);
     assert!(debug_str.contains("3.14"));
 }
