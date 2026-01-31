@@ -1295,3 +1295,8 @@ mod infer_tests_part_06;
 #[cfg(test)]
 #[path = "tests_part_07.rs"]
 mod infer_tests_part_07;
+
+// T-COV-95 Maimed Pygmy Campaign (Part 08 - Real inference paths with corrupted artifacts)
+#[cfg(test)]
+#[path = "tests_part_08.rs"]
+mod infer_tests_part_08;
