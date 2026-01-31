@@ -1,7 +1,7 @@
 # Specification: Fast O(1) Coverage with PMAT Compliance
 
 **Document ID:** SPEC-COV-95
-**Version:** 1.50.0
+**Version:** 1.51.0
 **Status:** ACTIVE
 **Methodology:** The Toyota Way (14 Principles) + Popperian Falsification
 **Target:** 95% Production Code Coverage in <10 minutes (Full), O(1) Incremental
@@ -358,67 +358,71 @@ When coverage drops or a bug slips through, we do not just "fix" it. We apply th
 
 ---
 
-## 9. Current State: Control Plane Coverage (v1.49.0)
+## 9. Current State: Pure Signal Coverage (v1.51.0)
 
-**Measurement Date:** 2026-01-30
-**Method:** `cargo llvm-cov test --lib --no-report -- --skip cuda:: --skip test_cuda --test-threads=8`
-**Tests:** 11,352 passed, 0 failed, 56 ignored (359s)
+**Measurement Date:** 2026-01-31
+**Method:** `cargo llvm-cov test --lib --ignore-filename-regex='(trueno/|/tests/|_tests|tests_|test_|...)'`
+**Tests:** 12,937 passed, 0 failed, 50 ignored (363.68s)
+**Bifurcation Complete:** trueno/ excluded from denominator - measuring Realizar-only code
 
-### 9.1 Summary
+### 9.1 Summary: The Pure Signal
 
 | Metric | Value | Target | Gap |
 |--------|-------|--------|-----|
-| **Control Plane Line Coverage** | **87.11%** | 95% | **7.89%** |
-| **Control Plane Function Coverage** | 92.03% | 95% | 2.97% |
-| **Control Plane Region Coverage** | 87.45% | 95% | 7.55% |
-| **Correctness Tests (all code)** | 11,352 pass | 100% pass | 0% |
+| **Pure Signal Line Coverage** | **88.73%** | 95% | **6.27%** |
+| **Pure Signal Function Coverage** | 92.98% | 95% | 2.02% |
+| **Pure Signal Region Coverage** | 88.94% | 95% | 6.06% |
+| **Correctness Tests (all code)** | 12,937 pass | 100% pass | 0% |
 
 ### 9.2 Lines to Bridge
 
 | Metric | Value |
 |--------|-------|
-| Total Control Plane lines | 64,229 |
-| Currently covered | 55,952 |
-| Missed | 8,277 |
-| Required for 95% | 61,018 |
-| **Lines to cover** | **~5,066** |
+| Total Realizar lines | 69,156 |
+| Currently covered | 61,362 |
+| Missed | 7,794 |
+| Required for 95% | 65,698 |
+| **Lines to cover** | **~4,336** |
 
-### 9.3 Gap Analysis: Files Below 90% (by missed lines)
+### 9.3 Gap Analysis: The Ultimate Falsification (by missed lines)
 
 | File | Lines | Missed | Coverage | Impact |
 |------|-------|--------|----------|--------|
-| `gguf/loader.rs` | 1,508 | 652 | 56.8% | HIGH |
-| `api/gpu_handlers.rs` | 1,257 | 588 | 53.2% | HIGH |
-| `quantize/fused_k.rs` | 1,487 | 586 | 60.6% | HIGH |
-| `apr_transformer/mod.rs` | 1,508 | 513 | 66.0% | HIGH |
-| `cli/mod.rs` | 911 | 449 | 50.7% | HIGH |
-| `api/realize_handlers.rs` | 1,128 | 396 | 64.9% | MEDIUM |
-| `gguf/inference/forward/single.rs` | 752 | 329 | 56.2% | MEDIUM |
-| `gguf/inference/cached/sync.rs` | 756 | 328 | 56.6% | MEDIUM |
-| `infer/mod.rs` | 613 | 320 | 47.8% | MEDIUM |
-| `quantize/mod.rs` | 1,204 | 303 | 74.8% | MEDIUM |
-| `cli/inference.rs` | 371 | 300 | 19.1% | MEDIUM |
-| `api/openai_handlers.rs` | 605 | 286 | 52.7% | MEDIUM |
-| `convert/mod.rs` | 477 | 245 | 48.6% | MEDIUM |
-| `api/mod.rs` | 948 | 220 | 76.8% | LOW |
+| `api/gpu_handlers.rs` | 1,257 | 517 | 58.87% | HIGH |
+| `cli/mod.rs` | 1,131 | 483 | 57.29% | HIGH |
+| `apr_transformer/mod.rs` | 1,517 | 433 | 71.46% | HIGH |
+| `api/realize_handlers.rs` | 1,128 | 396 | 64.89% | MEDIUM |
+| `api/openai_handlers.rs` | 605 | 286 | 52.73% | MEDIUM |
+| `convert/mod.rs` | 479 | 234 | 51.15% | MEDIUM |
+| `api/mod.rs` | 948 | 213 | 77.53% | MEDIUM |
+| `chat_template.rs` | 971 | 123 | 87.33% | LOW |
+| `api/apr_handlers.rs` | 228 | 98 | 57.02% | LOW |
+| `cli/inference.rs` | 371 | 96 | 74.12% | LOW |
 
-### 9.4 Files at 95%+ (Exemplary)
+### 9.4 T-COV-95 Campaign Progress
+
+| Commit | Tests | Target |
+|--------|-------|--------|
+| `182f85b` Data Storm Pygmies | 20 | loader.rs quantization paths |
+| `051317c` Convert Maimed Pygmies | 13 | convert/mod.rs error paths |
+| `767b010` Maimed Pygmy Campaign | 17 | infer/mod.rs real inference |
+| `c018e73` Potemkin Village GPU Mocks | 19 | api/gpu_handlers.rs |
+| `b534e1a` Active Pygmies to disk | N/A | GGUF artifact creation |
+| **Total Campaign** | **69** | **Multiple modules** |
+
+### 9.5 Files at 95%+ (Exemplary)
 
 | File | Coverage |
 |------|----------|
 | `error.rs` | 99.35% |
-| `apr_transformer/dequant.rs` | 100.00% |
-| `apr_transformer/config.rs` | 100.00% |
-| `bench/matrix.rs` | 100.00% |
-| `bench/gpu_parity.rs` | 100.00% |
-| `bench/load_testing.rs` | 99.77% |
-| `brick/profiler.rs` | 99.62% |
+| `apr_transformer/dequant.rs` | 92.31% |
+| `apr_transformer/loader.rs` | 96.96% |
 | `cache.rs` | 97.66% |
 | `audit.rs` | 97.58% |
-| `bench/runtime.rs` | 97.30% |
-| `apr_transformer/loader.rs` | 96.96% |
-| `apr/tokenizer.rs` | 95.96% |
+| `explain.rs` | 97.45% |
 | `apr/helpers.rs` | 95.68% |
+| `generate/algorithms.rs` | 95.79% |
+| `apr_transformer/helpers.rs` | 95.64% |
 
 ---
 
@@ -502,6 +506,7 @@ The fix MUST satisfy:
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
+| 1.51.0 | 2026-01-31 | Karl Popper | **BIFURCATION OF MEASUREMENT COMPLETE: Pure Signal = 88.73%.** Trueno excluded from denominator via `--ignore-filename-regex='trueno/'`. T-COV-95 campaign added 69 tests (Data Storm: 20, Convert Maimed: 13, Maimed Pygmy: 17, Potemkin GPU: 19). Test count: 12,937 passed, 0 failed. Gap to 95%: 6.27% (4,336 lines). Ultimate Falsification targets identified: gpu_handlers.rs (517), cli/mod.rs (483), apr_transformer/mod.rs (433), realize_handlers.rs (396), openai_handlers.rs (286), convert/mod.rs (234). The Siege continues - API handlers and CLI are the remaining Dark Matter. |
 | 1.50.0 | 2026-01-30 | Claude | **P0: GGUF→APR Conversion Golden Rule FAIL (GH-191).** Added Section 10 documenting two independent bugs in conversion pipeline. GH-190 (tensor naming) FIXED by PMAT-205. GH-191 (quantization data loss) NEW/UNFIXED: all 308 tensors load as F32 (10.5 GB) instead of quantized (~1.1 GB). Smoking gun: `0 quantized, 308 F32 tensors → 10550 MB`. Converter either writes wrong dtype tag or dequantizes during conversion. Every matmul produces garbage. 5-Whys and diagnostic questions filed. Verification criteria defined: APR size ≈ GGUF size, dtype preserved, cosine similarity > 0.99. |
 | 1.49.0 | 2026-01-30 | Claude | **FIRST HONEST MEASUREMENT: 87.11% Control Plane Coverage.** Ran all 11,352 non-CUDA tests under llvm-cov (359s). Previous 24.49% was from running only API/CLI/scheduler tests with mock state. Running ALL tests exercises production code through internal calls. Gap to 95%: ~5,066 lines across 14 files. Top offenders: gguf/loader.rs (652 missed), api/gpu_handlers.rs (588), quantize/fused_k.rs (586), apr_transformer/mod.rs (513), cli/mod.rs (449). Updated `make coverage-control-plane` to run all non-CUDA tests. 13 files already at 95%+. Added Section 9 with full gap analysis. |
 | 1.48.0 | 2026-01-30 | Claude | **COMPUTE QUARANTINE CODIFIED.** Added Section 3.4 defining Control Plane vs Compute Plane separation. Control Plane (API, CLI, scheduler, config): 95% coverage target with llvm-cov. Compute Plane (cuda/, layers/, simd): Verified by Correctness Tests (11,354 pass). Added `make coverage-control-plane` target. Added `COV_QUARANTINE` Makefile variable. This is the only way to escape the SIGSEGV trap while maintaining rigorous quality verification. |
