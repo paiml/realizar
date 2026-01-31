@@ -551,6 +551,7 @@ mod tests {
             merge_rules: vec![],
             bos_id: Some(1),
             eos_id: Some(2),
+            special_tokens: HashMap::new(),
         };
 
         // Encode simple ASCII
@@ -973,6 +974,7 @@ mod tests {
             merge_rules: vec![],
             bos_id: None,
             eos_id: None,
+            special_tokens: HashMap::new(),
         };
         let encoded = tokenizer.encode("");
         assert!(encoded.is_empty());
@@ -990,6 +992,7 @@ mod tests {
             merge_rules: vec![],
             bos_id: None,
             eos_id: None,
+            special_tokens: HashMap::new(),
         };
         let encoded = tokenizer.encode("abc");
         assert_eq!(encoded.len(), 3);
@@ -1005,6 +1008,7 @@ mod tests {
             merge_rules: vec![],
             bos_id: None,
             eos_id: None,
+            special_tokens: HashMap::new(),
         };
         let encoded = tokenizer.encode("xyz");
         // Unknown chars should be handled gracefully
@@ -1021,6 +1025,7 @@ mod tests {
             merge_rules: vec![],
             bos_id: None,
             eos_id: None,
+            special_tokens: HashMap::new(),
         };
         let decoded = tokenizer.decode(&[]);
         assert!(decoded.is_empty());
@@ -1037,6 +1042,7 @@ mod tests {
             merge_rules: vec![],
             bos_id: None,
             eos_id: None,
+            special_tokens: HashMap::new(),
         };
         let decoded = tokenizer.decode(&[0, 1]);
         assert!(decoded.contains("hello"));
@@ -1055,6 +1061,7 @@ mod tests {
             merge_rules: vec![("h".to_string(), "e".to_string())],
             bos_id: None,
             eos_id: None,
+            special_tokens: HashMap::new(),
         };
         let encoded = tokenizer.encode("he");
         // After merging h+e -> he, should have 1 token
@@ -1073,9 +1080,89 @@ mod tests {
             merge_rules: vec![],
             bos_id: Some(0),
             eos_id: Some(1),
+            special_tokens: HashMap::new(),
         };
         assert_eq!(tokenizer.bos_id, Some(0));
         assert_eq!(tokenizer.eos_id, Some(1));
+    }
+
+    // =========================================================================
+    // GH-189: extract_special_tokens_from_vocab Tests
+    // =========================================================================
+
+    #[test]
+    fn test_extract_special_tokens_from_vocab_qwen() {
+        // GH-189: Test extraction of Qwen-style special tokens
+        let mut vocab: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+        vocab.insert("<|im_start|>".to_string(), 151644);
+        vocab.insert("<|im_end|>".to_string(), 151645);
+        vocab.insert("<|endoftext|>".to_string(), 151643);
+        vocab.insert("hello".to_string(), 15339);
+        vocab.insert("world".to_string(), 1917);
+
+        let special = extract_special_tokens_from_vocab(&vocab);
+
+        assert_eq!(special.len(), 3);
+        assert_eq!(special.get("<|im_start|>"), Some(&151644));
+        assert_eq!(special.get("<|im_end|>"), Some(&151645));
+        assert_eq!(special.get("<|endoftext|>"), Some(&151643));
+        // Regular tokens should NOT be in special_tokens
+        assert!(!special.contains_key("hello"));
+        assert!(!special.contains_key("world"));
+    }
+
+    #[test]
+    fn test_extract_special_tokens_from_vocab_llama() {
+        // GH-189: Test extraction of LLaMA-style special tokens
+        let mut vocab: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+        vocab.insert("<s>".to_string(), 1);
+        vocab.insert("</s>".to_string(), 2);
+        vocab.insert("<unk>".to_string(), 0);
+        vocab.insert("<pad>".to_string(), 3);
+        vocab.insert("the".to_string(), 1000);
+
+        let special = extract_special_tokens_from_vocab(&vocab);
+
+        assert!(special.contains_key("<s>"));
+        assert!(special.contains_key("</s>"));
+        assert!(special.contains_key("<unk>"));
+        assert!(special.contains_key("<pad>"));
+        assert!(!special.contains_key("the"));
+    }
+
+    #[test]
+    fn test_extract_special_tokens_from_vocab_empty() {
+        // GH-189: Empty vocab should return empty special tokens
+        let vocab: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+        let special = extract_special_tokens_from_vocab(&vocab);
+        assert!(special.is_empty());
+    }
+
+    #[test]
+    fn test_extract_special_tokens_from_vocab_no_special() {
+        // GH-189: Vocab with no special tokens should return empty
+        let mut vocab: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+        vocab.insert("hello".to_string(), 0);
+        vocab.insert("world".to_string(), 1);
+        vocab.insert("the".to_string(), 2);
+
+        let special = extract_special_tokens_from_vocab(&vocab);
+        assert!(special.is_empty());
+    }
+
+    #[test]
+    fn test_extract_special_tokens_pattern_matching() {
+        // GH-189: Test that any <|...|> pattern is captured
+        let mut vocab: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+        vocab.insert("<|custom_token|>".to_string(), 999);
+        vocab.insert("<|another|>".to_string(), 998);
+        vocab.insert("not_special".to_string(), 100);
+
+        let special = extract_special_tokens_from_vocab(&vocab);
+
+        assert!(special.contains_key("<|custom_token|>"));
+        assert!(special.contains_key("<|another|>"));
+        assert!(!special.contains_key("not_special"));
     }
 
     // =========================================================================
@@ -1551,6 +1638,7 @@ mod tests {
             merge_rules: vec![],
             bos_id: None,
             eos_id: None,
+            special_tokens: HashMap::new(),
         };
         let encoded = tokenizer.encode(" a ");
         assert!(!encoded.is_empty());
@@ -1566,6 +1654,7 @@ mod tests {
             merge_rules: vec![],
             bos_id: None,
             eos_id: None,
+            special_tokens: HashMap::new(),
         };
         let decoded = tokenizer.decode(&[0]);
         assert!(decoded.contains("hello"));
@@ -1579,6 +1668,7 @@ mod tests {
             merge_rules: vec![],
             bos_id: None,
             eos_id: None,
+            special_tokens: HashMap::new(),
         };
         let decoded = tokenizer.decode(&[0, 100, 200]);
         // Should handle out of bounds gracefully
@@ -2166,6 +2256,7 @@ mod tests {
             merge_rules: vec![],
             bos_id: None,
             eos_id: None,
+            special_tokens: HashMap::new(),
         };
         let decoded = tokenizer.decode(&[0]);
         // Byte fallback should be handled
@@ -2531,6 +2622,7 @@ mod tests {
             merge_rules: vec![],
             bos_id: None,
             eos_id: None,
+            special_tokens: HashMap::new(),
         };
 
         let decoded = tokenizer.decode(&[0, 1, 2]);
@@ -2748,6 +2840,7 @@ mod tests {
             merge_rules: vec![],
             bos_id: None,
             eos_id: None,
+            special_tokens: HashMap::new(),
         };
         let encoded = tokenizer.encode("");
         assert!(encoded.is_empty());
@@ -2766,6 +2859,7 @@ mod tests {
             merge_rules: vec![("a".to_string(), "b".to_string())],
             bos_id: None,
             eos_id: None,
+            special_tokens: HashMap::new(),
         };
         let encoded = tokenizer.encode("ab");
         // Should merge a+b -> ab
@@ -3454,6 +3548,7 @@ mod tests {
             merge_rules: vec![],
             bos_id: Some(1),
             eos_id: Some(2),
+            special_tokens: HashMap::new(),
         };
         let debug_str = format!("{:?}", tokenizer);
         assert!(debug_str.contains("BpeTokenizer"));
@@ -3469,6 +3564,7 @@ mod tests {
             merge_rules: vec![("a".to_string(), "b".to_string())],
             bos_id: Some(1),
             eos_id: Some(2),
+            special_tokens: HashMap::new(),
         };
         let cloned = tokenizer.clone();
         assert_eq!(cloned.bos_id, tokenizer.bos_id);
@@ -4349,6 +4445,7 @@ mod tests {
             merge_rules: vec![],
             bos_id: None,
             eos_id: None,
+            special_tokens: HashMap::new(),
         };
         let encoded = tokenizer.encode("\u{00E9}"); // e-acute
                                                     // Should not panic
@@ -5429,6 +5526,7 @@ mod tests {
             merge_rules,
             bos_id: None,
             eos_id: None,
+            special_tokens: HashMap::new(),
         };
 
         let encoded = tokenizer.encode("abc");
@@ -5449,6 +5547,7 @@ mod tests {
             merge_rules: vec![],
             bos_id: None,
             eos_id: None,
+            special_tokens: HashMap::new(),
         };
 
         // Non-ASCII should be handled (may result in empty if not in vocab)

@@ -95,13 +95,16 @@ pub struct BpeTokenizer {
     pub bos_id: Option<u32>,
     /// End-of-sequence token ID
     pub eos_id: Option<u32>,
+    /// Special tokens (e.g., <|im_start|>, <|im_end|>) - GH-189 fix
+    /// These are tokenized atomically, not split by BPE
+    pub special_tokens: HashMap<String, u32>,
 }
 
 impl BpeTokenizer {
     /// Encode text to token IDs
     pub fn encode(&self, text: &str) -> Vec<u32> {
-        // F-REGR-231: BpeTokenizer doesn't have special tokens, pass empty map
-        bpe_encode(text, &self.token_to_id, &self.merge_rules, &HashMap::new())
+        // GH-189: Use special_tokens for atomic tokenization of chat markers
+        bpe_encode(text, &self.token_to_id, &self.merge_rules, &self.special_tokens)
     }
 
     /// Decode token IDs to text
@@ -335,6 +338,7 @@ mod tests {
             merge_rules: vec![],
             bos_id: None,
             eos_id: None,
+            special_tokens: HashMap::new(),
         };
         let result = tokenizer.encode("");
         assert!(result.is_empty());
@@ -352,6 +356,7 @@ mod tests {
             merge_rules: vec![],
             bos_id: None,
             eos_id: None,
+            special_tokens: HashMap::new(),
         };
         let result = tokenizer.encode("hi");
         assert_eq!(result, vec![0, 1]);
@@ -369,6 +374,7 @@ mod tests {
             merge_rules: vec![],
             bos_id: None,
             eos_id: None,
+            special_tokens: HashMap::new(),
         };
         let result = tokenizer.encode(" a");
         assert_eq!(result, vec![0, 1]);
@@ -473,5 +479,88 @@ mod tests {
         assert_eq!(byte_to_bpe_char(0x00), "<0x00>");
         assert_eq!(byte_to_bpe_char(0x7F), "<0x7F>");
         assert_eq!(byte_to_bpe_char(0xFF), "<0xFF>");
+    }
+
+    // -------------------------------------------------------------------------
+    // GH-189: Special Token Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_bpe_tokenizer_with_special_tokens() {
+        // GH-189: Verify special tokens are tokenized atomically
+        let mut token_to_id = HashMap::new();
+        token_to_id.insert("<|im_start|>".to_string(), 100);
+        token_to_id.insert("<|im_end|>".to_string(), 101);
+        token_to_id.insert("h".to_string(), 0);
+        token_to_id.insert("i".to_string(), 1);
+
+        let mut special_tokens = HashMap::new();
+        special_tokens.insert("<|im_start|>".to_string(), 100);
+        special_tokens.insert("<|im_end|>".to_string(), 101);
+
+        let tokenizer = BpeTokenizer {
+            token_to_id,
+            id_to_token: vec![
+                "h".to_string(),
+                "i".to_string(),
+                // ... padding ...
+            ],
+            merge_rules: vec![],
+            bos_id: None,
+            eos_id: None,
+            special_tokens,
+        };
+
+        // Test that special tokens are kept atomic
+        let result = tokenizer.encode("<|im_start|>hi<|im_end|>");
+        assert_eq!(result.len(), 4); // <|im_start|>, h, i, <|im_end|>
+        assert_eq!(result[0], 100); // <|im_start|>
+        assert_eq!(result[3], 101); // <|im_end|>
+    }
+
+    #[test]
+    fn test_bpe_encode_with_special_tokens() {
+        // GH-189: Test bpe_encode directly with special tokens
+        let mut vocab = HashMap::new();
+        vocab.insert("<|im_start|>".to_string(), 100);
+        vocab.insert("<|im_end|>".to_string(), 101);
+        vocab.insert("H".to_string(), 0);
+        vocab.insert("i".to_string(), 1);
+
+        let mut special = HashMap::new();
+        special.insert("<|im_start|>".to_string(), 100);
+        special.insert("<|im_end|>".to_string(), 101);
+
+        let result = bpe_encode("<|im_start|>Hi<|im_end|>", &vocab, &[], &special);
+        // Should be: [100, 0, 1, 101] = <|im_start|>, H, i, <|im_end|>
+        assert!(result.contains(&100)); // <|im_start|>
+        assert!(result.contains(&101)); // <|im_end|>
+        // Verify order: special token should be first
+        assert_eq!(result[0], 100);
+    }
+
+    #[test]
+    fn test_split_by_special_tokens() {
+        let mut special_tokens = HashMap::new();
+        special_tokens.insert("<|im_start|>".to_string(), 100);
+        special_tokens.insert("<|im_end|>".to_string(), 101);
+
+        let text = "<|im_start|>user\nHello<|im_end|>";
+        let segments = split_by_special_tokens(text, &special_tokens);
+
+        // Should have 3 segments: Special(100), Regular("user\nHello"), Special(101)
+        assert_eq!(segments.len(), 3);
+        match &segments[0] {
+            TextSegment::Special(id) => assert_eq!(*id, 100),
+            TextSegment::Regular(_) => panic!("Expected Special segment"),
+        }
+        match &segments[1] {
+            TextSegment::Regular(s) => assert_eq!(s, "user\nHello"),
+            TextSegment::Special(_) => panic!("Expected Regular segment"),
+        }
+        match &segments[2] {
+            TextSegment::Special(id) => assert_eq!(*id, 101),
+            TextSegment::Regular(_) => panic!("Expected Special segment"),
+        }
     }
 }

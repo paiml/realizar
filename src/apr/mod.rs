@@ -1983,10 +1983,15 @@ impl AprV2Model {
         let bos_id = self.metadata.get_embedded_bos_token_id();
         let eos_id = self.metadata.get_embedded_eos_token_id();
 
+        // GH-189: Extract special tokens from vocabulary for atomic tokenization
+        // Special tokens like <|im_start|>, <|im_end|> must not be split by BPE
+        let special_tokens = extract_special_tokens_from_vocab(&token_to_id);
+
         eprintln!(
-            "[PMAT-171] Loaded embedded BPE tokenizer: {} vocab, {} merges",
+            "[PMAT-171] Loaded embedded BPE tokenizer: {} vocab, {} merges, {} special tokens",
             id_to_token.len(),
-            merges.len()
+            merges.len(),
+            special_tokens.len()
         );
 
         Some(BpeTokenizer {
@@ -1995,6 +2000,7 @@ impl AprV2Model {
             merge_rules: merges,
             bos_id,
             eos_id,
+            special_tokens,
         })
     }
 
@@ -2056,9 +2062,10 @@ impl AprV2Model {
             })
             .collect();
 
-        // Extract special tokens
+        // GH-189: Extract ALL added_tokens as special tokens for atomic tokenization
         let mut bos_id = None;
         let mut eos_id = None;
+        let mut special_tokens: HashMap<String, u32> = HashMap::new();
 
         if let Some(added_tokens) = json.get("added_tokens").and_then(|v| v.as_array()) {
             for token in added_tokens {
@@ -2069,6 +2076,10 @@ impl AprV2Model {
                     .map(|v| v as u32);
 
                 if let (Some(content), Some(id)) = (content, id) {
+                    // Add ALL added_tokens to special_tokens map for atomic tokenization
+                    special_tokens.insert(content.to_string(), id);
+
+                    // Also track bos/eos specifically
                     if content == "<|endoftext|>" || content == "</s>" || content == "<eos>" {
                         eos_id = Some(id);
                     }
@@ -2079,12 +2090,19 @@ impl AprV2Model {
             }
         }
 
+        eprintln!(
+            "[GH-189] Loaded tokenizer from {}: {} special tokens",
+            tokenizer_path.display(),
+            special_tokens.len()
+        );
+
         Some(BpeTokenizer {
             token_to_id,
             id_to_token,
             merge_rules,
             bos_id,
             eos_id,
+            special_tokens,
         })
     }
 }
@@ -2093,6 +2111,67 @@ impl AprV2Model {
 pub type AprModel = AprV2Model;
 /// Legacy type alias (model types are now in metadata)
 pub type AprModelType = ();
+
+/// Extract special tokens from vocabulary for atomic tokenization (GH-189)
+///
+/// Special tokens like `<|im_start|>`, `<|im_end|>` must be tokenized atomically,
+/// not split character-by-character. This function scans the vocabulary for
+/// common special token patterns used by Qwen, ChatML, LLaMA, and other models.
+pub fn extract_special_tokens_from_vocab(token_to_id: &HashMap<String, u32>) -> HashMap<String, u32> {
+    let mut special_tokens = HashMap::new();
+
+    // Common special token patterns across model families
+    let patterns = [
+        // ChatML / Qwen style
+        "<|im_start|>",
+        "<|im_end|>",
+        "<|endoftext|>",
+        // LLaMA / general
+        "<s>",
+        "</s>",
+        "<pad>",
+        "<unk>",
+        "<bos>",
+        "<eos>",
+        // Phi / Mistral style
+        "<|assistant|>",
+        "<|user|>",
+        "<|system|>",
+        "<|end|>",
+        // Code models
+        "<|file_separator|>",
+        "<|fim_prefix|>",
+        "<|fim_middle|>",
+        "<|fim_suffix|>",
+        "<|repo_name|>",
+        // Additional Qwen tokens
+        "<|box_start|>",
+        "<|box_end|>",
+        "<|quad_start|>",
+        "<|quad_end|>",
+        "<|vision_start|>",
+        "<|vision_end|>",
+        "<|vision_pad|>",
+        "<|image_pad|>",
+        "<|object_ref_start|>",
+        "<|object_ref_end|>",
+    ];
+
+    for pattern in patterns {
+        if let Some(&id) = token_to_id.get(pattern) {
+            special_tokens.insert(pattern.to_string(), id);
+        }
+    }
+
+    // Also scan for any token matching <|...|> pattern (common for special tokens)
+    for (token, &id) in token_to_id {
+        if token.starts_with("<|") && token.ends_with("|>") && !special_tokens.contains_key(token) {
+            special_tokens.insert(token.clone(), id);
+        }
+    }
+
+    special_tokens
+}
 
 // =============================================================================
 
