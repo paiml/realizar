@@ -23,7 +23,7 @@ use super::format_factory::{
 #[test]
 fn test_safetensors_builder_default() {
     // Test Default trait implementation
-    let builder: SafetensorsBuilder = Default::default();
+    let builder = SafetensorsBuilder::default();
     let data = builder.build();
 
     // Should produce valid empty SafeTensors
@@ -166,7 +166,7 @@ fn test_safetensors_mixed_dtypes() {
 #[test]
 fn test_apr_builder_default() {
     // Test Default trait implementation
-    let builder: AprBuilder = Default::default();
+    let builder = AprBuilder::default();
     let data = builder.build();
 
     // Should produce valid empty APR file

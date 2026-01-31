@@ -433,18 +433,21 @@ impl ModelTestCase {
     }
 
     /// Set quantization type
+    #[must_use]
     pub fn with_quant(mut self, quant: QuantType) -> Self {
         self.constructor.quantization = Some(quant);
         self
     }
 
     /// Set forward input tokens
+    #[must_use]
     pub fn with_tokens(mut self, tokens: Vec<u32>) -> Self {
         self.forward.tokens = tokens;
         self
     }
 
     /// Set expected output norm for validation
+    #[must_use]
     pub fn with_expected_norm(mut self, norm: f32) -> Self {
         self.expected_output_norm = Some(norm);
         self

@@ -870,7 +870,7 @@ mod tests {
 
     #[test]
     fn test_rope_scaling_type_default() {
-        let scaling: RopeScalingType = Default::default();
+        let scaling = RopeScalingType::default();
         assert_eq!(scaling, RopeScalingType::None);
     }
 
