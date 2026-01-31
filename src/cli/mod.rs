@@ -1758,3 +1758,8 @@ mod cli_tests_part_06;
 #[cfg(test)]
 #[path = "tests_part_07.rs"]
 mod cli_tests_part_07;
+
+// T-COV-95 Extended Coverage (Part 08 - mod.rs: format_size, is_local_file_path, validate_suite_name, display_model_info)
+#[cfg(test)]
+#[path = "tests_part_08.rs"]
+mod cli_tests_part_08;
