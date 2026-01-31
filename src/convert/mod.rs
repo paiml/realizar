@@ -811,3 +811,8 @@ mod convert_tests_part_06;
 #[cfg(test)]
 #[path = "tests_part_07.rs"]
 mod convert_tests_part_07;
+
+// T-COV-95 Semantic Divergence (Part 08 - Architecture Mismatch Tests)
+#[cfg(test)]
+#[path = "tests_part_08.rs"]
+mod convert_tests_part_08;

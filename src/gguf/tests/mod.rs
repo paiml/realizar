@@ -63,3 +63,4 @@ mod part_29; // T-COV-95 Synthetic Falsification (loader.rs via Pygmy GGUF model
 mod part_30; // T-COV-95 Active Pygmy: Dynamic Falsification (forward_cached via F32 Pygmies)
 mod part_31; // T-COV-95 Data Storm: Multi-Tensor Pygmies for loader.rs
 mod part_32; // T-COV-95 Menagerie of Pygmies: Complex Structural GGUF Generators
+mod part_33; // T-COV-95 Ancestral Pygmies: GGUF Legacy Version & Alignment Assault

@@ -45,3 +45,4 @@ mod part_22; // T-COV-95 APR handlers coverage (predict, explain, audit, serde, 
 mod part_23; // T-COV-95 gpu_handlers + realize_handlers coverage (BatchConfig, ContextWindow, format_chat)
 mod part_24; // T-COV-95 Protocol Falsification: Potemkin Village GPU Mocks
 mod part_25; // T-COV-95 Chaotic Citizens: GPU Batch Resilience Falsification
+mod part_26; // T-COV-95 Interleaved Chaos: GPU Batch Processor Saturation
