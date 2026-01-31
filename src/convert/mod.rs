@@ -806,3 +806,8 @@ mod convert_tests_part_05;
 #[cfg(test)]
 #[path = "tests_part_06.rs"]
 mod convert_tests_part_06;
+
+// T-COV-95 Maimed Pygmy Campaign (Part 07 - Destructive APR/GGUF conversion tests)
+#[cfg(test)]
+#[path = "tests_part_07.rs"]
+mod convert_tests_part_07;
